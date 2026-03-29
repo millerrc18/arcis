@@ -174,7 +174,7 @@ Modify `src/training/claude_client.py`:
 - Sequential execution for Round 1 (not parallel)
 - Log cache hit/miss status
 
-## Task 9: Module ownership docstrings
+## Task 9: Module ownership docstrings + audit quick-fixes (#47, #51, #52)
 For every file in src/ that doesn't have it, add a 3-line header:
 ```python
 """Module description.
@@ -183,7 +183,11 @@ Called by: scan_service.py, watch.py
 Calls: governor.py, executor.py
 """
 ```
-This creates a human-readable dependency graph in the code itself.
+
+Also fix these three audit issues while touching each file:
+- **#52** `src/data_enrichment/earnings_signals.py`: SQLite connection leak — use `with sqlite3.connect()` context manager
+- **#47** `src/risk/governor.py`: Kill-switch ambient file path — make configurable or use DB flag instead of hardcoded path
+- **#51** `src/data_collection/research_collector.py`: Delete dead stub `crawl_sec_regulatory()` and unused import
 
 ## Task 10: All tests pass + frontend builds + verify_counts
 ```bash
@@ -250,7 +254,7 @@ Verify: universe loads, features compute, enrichment runs (including PEAD),
 Traffic Light computes, event risk scores, ranking, LLM commentary,
 signal prices captured. No crashes, no unhandled exceptions.
 
-## Task 9: Final audit — zero orphans, zero old names, zero bare excepts
+## Task 9: Final audit — zero orphans, zero old names, audit fixes (#49, #50)
 ```bash
 # Orphaned imports
 grep -rn "from src.scheduler.overnight\|from src.shadow_trading.broker\|protocol_v2\|agents_v2" src/ tests/ --include="*.py" | grep -v backup | grep -v __pycache__
@@ -262,6 +266,10 @@ grep -rn "risk_officer\|alpha_strategist\|data_scientist\|regime_analyst\|devils
 grep -rn "except.*:$" src/risk/ src/shadow_trading/ --include="*.py" -A1 | grep "pass$"
 ```
 All must return empty.
+
+Also fix these two audit issues:
+- **#49** `tests/test_features.py`: Feature-engine test fixtures are date-sensitive on weekends — use fixed dates or mock `datetime.now()` instead of relying on current calendar day
+- **#50** `src/main.py`: Exceeds its own 1000-line guardrail — extract the largest command functions (cmd_scan, cmd_council, etc.) into a `src/cli/` module or split into `src/main_commands.py`
 
 ## Task 10: Final gate
 ```bash
@@ -278,9 +286,11 @@ Commit everything. Push. System is clean for Monday.
 
 | Sprint | When | Who | Focus | Tasks |
 |---|---|---|---|---|
-| 1 | Sat AM | Ryan + Claude | Stabilize | GTC brackets, merge cleanup, council tests, Render sync, audit fixes, timeouts, tooling scripts |
-| 2 | Sat PM | CC solo | Build | Event scoring, bracket monitor, GBNF, data gates, Notes, Council.jsx, HSHS, caching, docstrings |
-| 3 | Sun AM | CC solo | Document | ADRs, architecture.md, roadmap, CHANGELOG, dependency graph, research integration, final verification |
+| 1 | Sat AM | CC (running) | Stabilize | GTC brackets, merge cleanup, council tests, Render sync, audit fixes (#30-33,#37), timeouts, tooling scripts |
+| **Hotfix** | **After S1** | **CC solo** | **Safety** | **#40 (validator), #41 (journal before broker), #42 (fail-open), #44 (council columns), #45 (close without exit), #46 (phantom trades), #48 (Telegram fields)** |
+| 2 | Sat PM | CC solo | Build | Event scoring, bracket monitor, GBNF, data gates, Notes, Council.jsx, HSHS, caching, docstrings + #47,#51,#52 |
+| 3 | Sun AM | CC solo | Document | ADRs, architecture.md, roadmap, CHANGELOG, dependency graph, research integration, final verification + #49,#50 |
+| *Tech Debt* | *Next weekend* | *CC solo* | *Refactor* | *#26-29 (cloud_app.py split), #34-36 (council functions), #38 (fed_collector), #39 (value_tracker)* |
 
 **End state:** Every test passes, every doc matches code, every decision is recorded,
 every module says what calls it, every table is documented, the database schema has
