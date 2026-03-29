@@ -169,3 +169,26 @@
 ### Batch 3 Decisions:
 - [DECISION] Tax strategy: Table for later. Need more live capital and trade volume before pursuing TTS/475(f). Wyoming LLC formation not urgent at current $100 live scale.
 - [DECISION] Risk budgeting: Equal weight confirmed correct for Phase 1. Transition to ERC at 200+ trades/strategy, Kelly at 500+. No action needed now.
+
+## Research Batch 4: Comprehensive Compendium + Fund Formation (March 29)
+
+### Key New Findings:
+- SQLite: 10-20 YEARS before bottleneck. No migration needed. Dual DB architecture confirmed correct.
+- Render: can drop from $64/mo → $13-14/mo (free static site for React frontend + cheapest Postgres)
+- Windows: Ollama VRAM fragmentation requires daily restarts. NSSM for service management.
+- Backtesting: MinBTL formula says Sharpe <1.0 not validatable at 95% with only 30 months of data
+- Psychology: 15 pre-commitment rules are highest-value intervention in entire research library
+- Competition: basic LLM trading pipeline replicable in a weekend. Moat = proprietary data + track record + discipline
+- Fund: $50K-$75K startup, 12-24 month audited track record, not self-sustaining until $5-10M AUM
+
+### New Roadmap Items:
+- [ ] P1: Ollama daily VRAM restart in watch.py scheduler (prevents fragmentation)
+- [ ] P1: Render cost optimization: React → free static site ($0), downgrade Postgres tier
+- [ ] P1: 15 pre-commitment rules document (decision journal, parameter freeze periods, pre-registered analysis)
+- [ ] P2: Bayesian phase gate framework (sequential testing, informative priors from research)
+- [ ] P2: MinBTL computation for each strategy (how long until we can validate)
+
+### Confirmed:
+- [CONFIRMED] SQLite architecture correct, no migration planning needed
+- [CONFIRMED] Fund formation tabled (Year 3+ decision, $50K-$75K startup)
+- [CONFIRMED] Competitive moat = proprietary training data + auditable track record + execution discipline
