@@ -192,3 +192,31 @@
 - [CONFIRMED] SQLite architecture correct, no migration planning needed
 - [CONFIRMED] Fund formation tabled (Year 3+ decision, $50K-$75K startup)
 - [CONFIRMED] Competitive moat = proprietary training data + auditable track record + execution discipline
+
+## Dashboard Redesign (March 29)
+
+### [DECISION] Redesign dashboard holistically — mockups before code
+**Priority ranking (phone-first):**
+1. P&L + HSHS score ("how am I doing overall?")
+2. Council direction + confidence ("what does the AI think?")
+3. Traffic Light regime + event risk ("is it safe to trade today?")
+4. Open positions + bracket health ("are my positions protected?")
+
+### API endpoints needed before dashboard sprint:
+- [ ] GET /api/traffic-light/current (traffic_light_state)
+- [ ] GET /api/event-risk/current (computation)
+- [ ] GET /api/bracket-health/current (bracket_health table)
+- [ ] GET /api/council/value-summary (council_parameter_log)
+- [ ] GET /api/shadow/is-tracking (IS columns)
+
+### Pages to redesign (in order):
+1. Main Dashboard — "The Glance" (P&L, HSHS, Traffic Light, council, positions)
+2. ShadowLedger — add IS tracking, strategy_type, timeout countdown
+3. Council — v2 agents, direction, parameters, value attribution
+4. Health — HSHS radar, bracket health, Ollama VRAM, scan/fallback trends
+
+### New pages:
+- Notes (Sprint 2 building)
+- Macro Dashboard (/api/macro/dashboard exists, no page)
+- Signal Zoo (/api/signal-zoo exists, no page)
+- Value Tracker (council attribution — new page)
