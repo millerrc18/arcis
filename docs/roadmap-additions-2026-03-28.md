@@ -252,3 +252,24 @@
 - Color: Teal #0D9488 as unifying accent, dark mode default
 - Voice: 65% academic / 35% tech startup
 - DECISION NEEDED: Name selection (Arcis, Corvus, Eigen, Inflect, Vantis, or keep Halcyon)
+
+## Brand Identity Decisions (March 29)
+
+- [DECISION] Name: **Arcis** (Latin for fortress, backronym: Adaptive Regime Classification & Intelligence Systems)
+- [DECISION] Entity path: Arcis → Arcis Capital Management, LLC → Arcis Labs (research/tech arm)
+- [DECISION] Logo: Need to see concepts designed before deciding (Prismatic Convergence is lead candidate)
+- [DECISION] Dashboard: Dark mode + light mode with toggle (user preference)
+- [DECISION] Color: Teal #0D9488 as unifying accent across all contexts
+- [DECISION] Typography: Inter (headings/body/UI) + JetBrains Mono (financial data/tickers)
+- [DECISION] Voice: 65% academic / 35% tech startup. Sage-Creator archetype.
+- [DECISION] Brand architecture: Monolithic Phase 1, branded house Phase 2+ (Arcis + evocative names)
+- [DECISION] SEC language: "AI-informed", "systematic", "research-driven", "fine-tuned language models" — NEVER "AI-powered", "predicts", "guaranteed"
+
+### Sprint 4 (Dashboard) must implement:
+- Rename from Halcyon Lab → Arcis throughout dashboard
+- Apply Palette B (Technical Sophistication) for dashboard
+- Dark mode default with light mode toggle
+- Inter + JetBrains Mono font system
+- Build Score as hero KPI
+- All dashboard mockup redesigns
+- Domain: explore arcis.app or arciscapital.com
