@@ -99,6 +99,9 @@ class WatchLoop:
         self._weekly_digest_done = False
         self._last_vix_alert_level: float | None = None
         self._earnings_warning_done = False
+        self._premarket_bracket_check_done = False
+        self._postclose_bracket_check_done = False
+        self._last_bracket_check_time: datetime | None = None
 
         # Research synthesis + daily metrics
         self._research_synthesis_done = False
@@ -152,6 +155,9 @@ class WatchLoop:
         self._data_asset_report_done = False
         self._weekly_digest_done = False
         self._earnings_warning_done = False
+        self._premarket_bracket_check_done = False
+        self._postclose_bracket_check_done = False
+        self._last_bracket_check_time = None
         # Research + metrics
         self._research_synthesis_done = False
         self._daily_metric_snapshot_done = False
@@ -497,12 +503,33 @@ class WatchLoop:
             try:
                 from src.notifications.telegram import notify_trade_opened, is_telegram_enabled
                 if is_telegram_enabled():
-                    ps = packet.position_sizing
-                    notify_trade_opened(
-                        ticker, ps.entry_price, ps.stop_level, ps.target_1,
-                        candidate["score"], ps.shares,
-                        setup_type=feat.get("setup_type"),
-                        setup_confidence=feat.get("setup_confidence"))
+                    from src.notifications.telegram import send_telegram
+                    from src.shadow_trading.executor import _parse_price
+
+                    entry_price = _parse_price(packet.entry_zone)
+                    stop_price = _parse_price(packet.stop_invalidation)
+                    target_price = _parse_price(packet.targets.split("/")[0])
+                    shares = (
+                        max(1, int(packet.position_sizing.allocation_dollars / entry_price))
+                        if entry_price > 0
+                        else 1
+                    )
+                    try:
+                        notify_trade_opened(
+                            ticker,
+                            entry_price,
+                            stop_price,
+                            target_price,
+                            int(candidate["score"]),
+                            shares,
+                            setup_type=feat.get("setup_type"),
+                            setup_confidence=feat.get("setup_confidence"),
+                        )
+                    except Exception:
+                        send_telegram(
+                            f"🟢 <b>TRADE OPENED: {ticker}</b>\n"
+                            f"Score: {int(candidate['score'])}/100 | Shares: {shares}"
+                        )
             except Exception as e:
                 logger.warning("[WATCH] notify_trade_opened failed: %s", e)
 
@@ -757,6 +784,15 @@ class WatchLoop:
                 last_credit_score INTEGER DEFAULT 0,
                 last_total_score INTEGER DEFAULT 0,
                 updated_at TEXT)""",
+            """CREATE TABLE IF NOT EXISTS user_notes (
+                note_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                content TEXT DEFAULT '',
+                tags TEXT DEFAULT '[]',
+                pinned INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )""",
         ]
         # Slippage columns on shadow_trades
         slippage_cols = [
@@ -906,6 +942,14 @@ class WatchLoop:
                     self._safe_run("Ollama warm-up", self._run_ollama_warmup)
                     self._ollama_warmup_done = True
 
+                if (hour == 9 and now.minute < 5 and now.weekday() < 5
+                        and not self._premarket_bracket_check_done):
+                    self._safe_run(
+                        "pre-market bracket check",
+                        lambda: self._run_bracket_health_check("premarket"),
+                    )
+                    self._premarket_bracket_check_done = True
+
                 # 0.5. Daily AI Council (8:30 AM — after watchlist, before first scan)
                 if (hour == 8 and now.minute >= 30 and not self._council_done):
                     self._safe_run("daily council", self._run_daily_council)
@@ -1007,6 +1051,14 @@ class WatchLoop:
                     except Exception as e:
                         logger.warning("[WATCH] Validation failed: %s", e)
                     self._daily_validation_done = True
+
+                if (hour == 16 and now.minute >= 30 and now.minute < 35
+                        and not self._postclose_bracket_check_done):
+                    self._safe_run(
+                        "post-close bracket check",
+                        lambda: self._run_bracket_health_check("postclose"),
+                    )
+                    self._postclose_bracket_check_done = True
 
                 # 5. Training data collection (4:30 PM ET)
                 elif (self.training_enabled and hour == 16 and now.minute >= 30
@@ -1175,6 +1227,17 @@ class WatchLoop:
                         finally:
                             self._scoring_in_progress = False
 
+                if self._is_market_open(now):
+                    if (
+                        self._last_bracket_check_time is None
+                        or (now - self._last_bracket_check_time).total_seconds() >= 300
+                    ):
+                        self._safe_run(
+                            "intraday bracket check",
+                            lambda: self._run_bracket_health_check("intraday"),
+                        )
+                        self._last_bracket_check_time = now
+
                 # 8. Status log
                 if not (self._should_scan(now) or
                         (hour == self.morning_hour and not self._morning_done) or
@@ -1228,6 +1291,18 @@ class WatchLoop:
             logger.error("[WATCH] Error in %s: %s", name, e)
             logger.error(traceback.format_exc())
             print(f"[WATCH] ERROR in {name}: {e} (error {self._consecutive_errors}/3)")
+
+    def _run_bracket_health_check(self, context: str) -> None:
+        """Run bracket health monitoring for the requested scheduler context."""
+        from src.shadow_trading.bracket_monitor import check_bracket_health
+
+        result = check_bracket_health(context=context)
+        logger.info(
+            "[WATCH] Bracket check (%s): %d/%d protected",
+            context,
+            result.get("protected", 0),
+            result.get("checked", 0),
+        )
 
     def _run_daily_audit(self):
         """Run the daily auditor agent."""

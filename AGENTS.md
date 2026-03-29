@@ -1,4 +1,4 @@
-<!-- Counts verified 2026-03-29: 144 Python files, 72 test files, 1088 tests, 53 CLI commands, 110+ API routes, 38 DB tables (incl. traffic_light_state, council_calibrations), 73 research docs. -->
+<!-- Counts verified 2026-03-29: 150 Python files, 73 test files, 1057 tests, 53 CLI commands, 115 API routes, 40 DB tables (incl. traffic_light_state, council_calibrations), 46 research docs. -->
 
 # AGENTS.md — Halcyon Lab Governance Document
 
@@ -14,7 +14,7 @@ Halcyon Lab is an autonomous AI trading system that scans, analyzes, and execute
 
 ## Current System State
 
-The system is live in **bootcamp mode** — shadow paper trading on Alpaca with halcyon-v1 (fine-tuned Qwen3 8B). Full data enrichment, bracket orders, risk governor, daily/weekly auditor, validation holdout, A/B model evaluation, learned confidence, walk-forward backtesting, 24/7 compute scheduler (73% GPU target), comprehensive data collection pipeline, Telegram push notifications, and a 12-page web dashboard (including Live Ledger and System Validation).
+The system is live in **bootcamp mode** — shadow paper trading on Alpaca with halcyon-v1 (fine-tuned Qwen3 8B). Full data enrichment, bracket orders, risk governor, daily/weekly auditor, validation holdout, A/B model evaluation, learned confidence, walk-forward backtesting, 24/7 compute scheduler (73% GPU target), comprehensive data collection pipeline, Telegram push notifications, and a 13-page web dashboard (including Notes, Council, Health, Live Ledger, and System Validation).
 
 **Active Model:** halcyon-v1 (Qwen3 8B fine-tuned on 790 examples via QLoRA)
 **Training Data:** 976 self-blinded examples, scored with process-first rubric
@@ -75,7 +75,7 @@ Universe (S&P 100 → expanding to ~325 stocks)
 3. **Outcome Leakage Detection**: Balanced accuracy classifier verifies pipeline integrity
 4. **Curriculum Classification**: Easy/medium/hard difficulty → 3-stage curriculum
 5. **SFT Training**: Three-stage curriculum with decreasing learning rates (PEFT + TRL 0.24)
-6. **DPO Refinement**: Preference pairs for alignment (after 100+ pairs)
+6. **Preference Pair Generation / RL Prep**: Preference exports retained, but the planned post-SFT refinement path is Dr. GRPO rather than DPO
 7. **Holdout Validation**: 15% chronological holdout with 5-day temporal gap
 8. **A/B Shadow Evaluation**: New model runs alongside current model
 9. **Auto-Rollback**: Performance regression triggers automatic rollback
@@ -99,7 +99,7 @@ Universe (S&P 100 → expanding to ~325 stocks)
 | 4:15 PM         | Training data scoring (LLM-as-judge, ~50 examples)           | Inference        |
 | 5:30 PM         | Post-close capture                                           | CPU              |
 | 6:00 PM         | Training data collection from closed trades                  | CPU              |
-| 6:45 PM         | DPO preference pair generation                               | Inference        |
+| 6:45 PM         | Preference pair generation / RL prep                         | Inference        |
 | 6:50 PM         | Evening VRAM handoff (Ollama → training subprocess)          | Transition       |
 | 7:00 PM         | Walk-forward backtesting                                     | Training         |
 | 9:30 PM         | Data collection (12 collectors: options, VIX, FRED 34+, trends, CBOE, earnings, EDGAR, insider, short interest, Fed, analyst) | CPU (concurrent) |
@@ -110,19 +110,23 @@ Universe (S&P 100 → expanding to ~325 stocks)
 | 2:30 AM         | Leakage detector with model probing                          | Training         |
 | 4:30 AM         | DB maintenance, health checks, backups                       | CPU              |
 
-## Dashboard Pages (11)
+## Dashboard Pages (13)
 
 - **Dashboard** — KPIs, cumulative P&L, open trades, action buttons, live activity feed
 - **Packets** — Trade recommendations with expandable analysis
 - **Shadow Ledger** — Open/closed trades with account summary
+- **Live Ledger** — Live-trading account summary and history
 - **Training** — Pipeline status, version history, action buttons
-- **Review** — Human evaluation and postmortems
+- **Council** — Vote-first sessions, agent votes, and parameter adjustments
+- **Health** — HSHS composite score, radar chart, and live phase weights
+- **Validation** — System validation checks and reliability signals
 - **CTO Report** — Performance analytics, fund metrics, metric trends
 - **Settings** — Configuration, API costs, data collection stats, system health
-- **Roadmap** — 5-phase plan with live gate metrics
-- **Docs** — 29 research documents + 7 core docs (34 total)
+- **Roadmap** — 6-phase plan with confirmed decision tracking
+- **Docs** — 46 research documents plus core governance docs
+- **Notes** — Operator notes with pinning, tags, and autosave editing
 
-## CLI Commands (50)
+## CLI Commands (53)
 
 See docs/cli-reference.md for full documentation with options and descriptions.
 
@@ -154,11 +158,11 @@ See docs/cli-reference.md for full documentation with options and descriptions.
 
 `train [--force|--rollback|--export]`, `train-pipeline [--force]`
 
-### Evaluation (7)
+### Evaluation (10)
 
-`cto-report`, `evaluate-holdout`, `model-evaluation-status`, `promote-model`, `feature-importance`, `backtest`, `compare-models`, `check-leakage`
+`cto-report`, `evaluate-holdout`, `model-evaluation-status`, `promote-model`, `feature-importance`, `backtest`, `compare-models`, `check-leakage`, `performance-report`, `evaluate-gate`
 
-### Operations (9)
+### Operations (8)
 
 `collect-data`, `fetch-earnings`, `halt-trading`, `resume-trading`, `preflight`, `council`, `watch [--overnight]`, `dashboard`
 
@@ -212,7 +216,7 @@ Each desk launches only after the previous desk is profitable. See docs/roadmap.
 - **SEC EDGAR** — Fundamental data
 - **Telegram Bot API** — Real-time push notifications
 
-## Research Library (29 documents)
+## Research Library (46 documents)
 
 See the dashboard Docs page for the complete research library covering:
 

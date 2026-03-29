@@ -118,11 +118,13 @@ def notify_trade_opened(ticker: str, entry_price: float, stop: float,
 
 
 def notify_trade_closed(ticker: str, pnl_dollars: float, pnl_pct: float,
-                        exit_reason: str, days_held: int) -> bool:
+                        exit_reason: str, days_held: int,
+                        source: str = "paper") -> bool:
     """Alert: trade closed."""
     emoji = "🟢" if pnl_dollars >= 0 else "🔴"
+    label = "LIVE TRADE CLOSED" if source == "live" else "TRADE CLOSED"
     msg = (
-        f"{emoji} <b>TRADE CLOSED: {ticker}</b>\n"
+        f"{emoji} <b>{label}: {ticker}</b>\n"
         f"P&L: ${pnl_dollars:+.2f} ({pnl_pct:+.1f}%)\n"
         f"Reason: {exit_reason} | Held: {days_held} days"
     )
@@ -708,6 +710,7 @@ def check_action_reminders(db_path: str = "ai_research_desk.sqlite3") -> list[st
                                 "VALUES (?, ?, ?)",
                                 ("gate_milestone", f"Notified {milestone} trades", now.isoformat()),
                             )
+                            conn.commit()
                         except Exception as e:
                             logger.warning("[TELEGRAM] gate_milestone activity_log insert failed: %s", e)
                         sent.append(f"gate_{milestone}")
@@ -768,9 +771,10 @@ def check_action_reminders(db_path: str = "ai_research_desk.sqlite3") -> list[st
 
             # 5. Saturday retrain check (Sundays — did Saturday retrain happen?)
             if now.weekday() == 6 and now.hour >= 10:
-                from src.training.versioning import get_active_model_version, init_training_tables
-                init_training_tables(db_path)
-                active = get_active_model_version(db_path)
+                active = conn.execute(
+                    "SELECT version_name, created_at FROM model_versions "
+                    "WHERE status = 'active' ORDER BY created_at DESC LIMIT 1"
+                ).fetchone()
                 if active:
                     try:
                         from datetime import datetime as dt

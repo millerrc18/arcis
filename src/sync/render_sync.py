@@ -186,6 +186,11 @@ SYNC_TABLES: dict[str, dict] = {
         "mode": "full",
         "pk": "parameter_name",
     },
+    "user_notes": {
+        "mode": "incremental",
+        "time_col": "updated_at",
+        "pk": "note_id",
+    },
 }
 
 # ── Sync state table (local SQLite) ─────────────────────────────────

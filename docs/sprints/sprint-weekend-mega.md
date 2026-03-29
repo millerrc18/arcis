@@ -3,23 +3,15 @@
 
 > **CONTEXT:** The system ran its first full trading week (March 31 – April 4, 2026).
 > NO changes were made during the week except critical fixes.
-> This sprint integrates all 55+ research findings, closes every gap identified
+> This sprint integrates all 46+ research findings, closes every gap identified
 > during the week, and prepares the system for Phase 1 steady-state operation.
 >
-> **RESEARCH STATUS:** 55 documents in library. 10 remaining prompts fired
-> (combined mega prompt). Integrate results as they return — don't block on them.
+> **CONSTRAINT:** Fire remaining 18 deep research prompts BEFORE this sprint.
+> Wait for all research to return. This sprint incorporates ALL findings.
 >
 > **SCOPE:** This is the largest sprint Halcyon Lab has ever executed.
-> Estimated: 20+ parts, 2000+ lines of changes across 30+ files.
+> Estimated: 15-20 parts, 2000+ lines of changes across 30+ files.
 > Plan for a full CC session (proto branch, thorough testing, merge).
->
-> **CC INSTRUCTIONS:** This sprint has two parts:
-> 1. PART 1 (you and Claude assistant together): Merge cleanup, rewrite council tests
-> 2. PART 2 (CC solo): All remaining implementation work
->
-> Ryan and Claude will handle the council test rewrite collaboratively because
-> the v2 council schema is complex and CC's prior attempt fixed for v1.
-> CC handles everything else.
 
 ---
 
@@ -140,18 +132,6 @@ Cloud dashboard is BLIND to everything we built. Read `src/sync/render_sync.py` 
 - `council_sessions.result_json`
 - `council_votes.direction`, `council_votes.confidence_float`, `council_votes.assessment_json`
 
-## A4. Audit quick-fixes (from GitHub Issues #30-#39)
-
-CC and Codex filed 14 automated audit issues. These 5 are quick fixes (do them here):
-
-- **#30** `src/api/routes/system.py` line 291: bare `except` silently swallows errors in `data_collection_stats()` → add `as e` + `logger.warning`
-- **#31** `src/api/websocket.py` line 46: `broadcast_sync()` silently swallows all exceptions → add logging
-- **#32** `src/api/cloud_app.py` line 609: incorrect type annotation on `activity_feed` parameter → fix type hint
-- **#33** Delete `src/council/*_v1_backup.py` files (3 files, ~1154 lines of dead code). Council v2 is deployed and verified.
-- **#37** `src/data_collection/edgar_collector.py` line 96: dead code `_fetch_recent_filings()` → delete or document
-
-The remaining 9 issues (#26-29, #34-36, #38-39) are refactoring tasks (large files, long functions). Add to Phase 2 backlog, not this sprint.
-
 ---
 
 # ══════════════════════════════════════════════════════════════
@@ -227,67 +207,6 @@ CREATE TABLE IF NOT EXISTS bracket_health (
    - Telegram alert on split detection
 
 5. Wire into watch.py scan cycle.
-
-## B3. Verify bracket orders use GTC (BEFORE MONDAY OPEN)
-
-**Research:** `docs/research/Disaster_Recovery_for_Solo_Algorithmic_Trading.md`
-**Finding:** DAY bracket child legs expire at 4:00 PM. GTC persists 90 days on Alpaca servers.
-
-**Verification:**
-```python
-# Check existing bracket orders
-from src.shadow_trading.alpaca_adapter import get_api
-api = get_api()
-orders = api.list_orders(status="open")
-for o in orders:
-    print(f"{o.symbol}: type={o.type} tif={o.time_in_force} legs={len(o.legs or [])}")
-```
-
-**If any orders use DAY:**
-- Change `time_in_force` from "day" to "gtc" in `executor.py` bracket order submission
-- Cancel and re-submit all existing DAY orders as GTC
-- Telegram alert confirming the switch
-
-## B4. Event calendar continuous risk scoring system
-
-**Research:** `docs/research/Event_Calendar_Integration_for_SP100_Pullback_Trading.md`
-**Finding:** 0-10 additive risk scoring with linear position-size reduction, 25% floor, hard cutoffs above 8.
-
-**Changes:**
-
-1. Create `src/features/event_risk_score.py`:
-   - Query earnings_calendar for proximity (0-5 days = score component)
-   - Query economic_calendar for FOMC, NFP, CPI dates
-   - Check for OpEx (3rd Friday), month-end, quarter-end
-   - Additive compounding: earnings(0-4) + FOMC(0-2) + NFP(0-1) + CPI(0-1) + OpEx(0-1) + month-end(0-1)
-   - Returns: total_score (0-10), components dict, sizing_multiplier
-
-2. Position sizing adjustment:
-   - Score 0-3: full sizing (1.0×)
-   - Score 4-7: linear reduction (1.0 → 0.25 floor)
-   - Score 8+: hard block (no new entries)
-
-3. Wire into scan_service.py alongside Traffic Light:
-   - Event risk score computed ONCE per scan (like Traffic Light)
-   - Injected into features for all tickers
-   - Applied in governor as an additional sizing multiplier (stacks with Traffic Light)
-
-4. Telegram notification when score ≥ 6 ("elevated event risk")
-
----
-
-## B5. Volatility-adaptive position management (DOCUMENT ONLY for Phase 2)
-
-**Research:** `docs/research/Volatility-Adaptive_Position_Management_for_Pullback_Trading.md`
-**Decision:** Traffic Light RED=0.1 stays as safety override. Volatility-adaptive layered on top in Phase 2.
-
-**Document the Phase 2 architecture in docs/architecture.md:**
-- Three VIX regimes with coordinated parameter adjustment
-- Wider ATR stops (accommodate noise, don't get stopped out by volatility)
-- Smaller positions (maintain constant dollar risk)
-- Shorter holding periods (capture amplified edge faster)
-- Progressive stop tightening (lock in gains as trade ages)
-- Rationale: Nagel (2012) shows pullback edge AMPLIFIES with VIX >30
 
 ---
 
@@ -465,39 +384,6 @@ Document the Phase 2 serving architecture in docs/architecture.md:
 - Per-request adapter selection via API
 - KV cache invalidation strategy
 - Dual-GPU planning for RTX 3090 upgrade
-
-## E6. Integrate FinBERT NLP for Phase 3 PEAD
-
-**Research:** `docs/research/Financial_NLP_FinBERT_Deployment_on_Consumer_Hardware.md`
-
-Document Phase 3 architecture:
-- FinBERT (yiyanghkust/finbert-tone) on CPU alongside Qwen3 on GPU
-- ONNX INT8: <1 second per 8-K filing
-- 3.9 bps daily alpha from text-based sentiment surprise (Meursault 2022)
-- Q&A section of earnings calls = strongest signal
-- Free data: Finnhub transcripts, EdgarTools 8-K, SEC XBRL API
-
-## E7. Integrate walk-forward backtesting protocol
-
-**Research:** `docs/research/Walk-Forward_Backtesting_Protocol_for_Small-Sample_Strategies.md`
-
-This is critical infrastructure for Phase 2 (validating Strategy #2 before deployment):
-- Walk-forward with regime awareness
-- CPCV (combinatorial purged cross-validation)
-- Multiple testing correction (Harvey et al.)
-- Deflated Sharpe Ratio computation
-- Document: "backtested Sharpe 1.5 → live 0.6-0.9"
-
-## E8. Disaster recovery infrastructure plan
-
-**Research:** `docs/research/Disaster_Recovery_for_Solo_Algorithmic_Trading.md`
-
-Document and plan the $300-500 infrastructure investment:
-- UPS for power protection
-- Cellular backup for internet
-- Cloud failover script (Render-based)
-- Recovery time objective: <5 minutes
-- GTC brackets = positions protected even on full machine death
 
 ---
 

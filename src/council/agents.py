@@ -214,13 +214,13 @@ def gather_tactical_data(db_path: str = DB_PATH) -> str:
             # VIX and term structure
             try:
                 vix = conn.execute(
-                    "SELECT vix_close, vix9d, vix3m FROM vix_term_structure "
-                    "ORDER BY date DESC LIMIT 1"
+                    "SELECT vix, vix9d, vix3m FROM vix_term_structure "
+                    "ORDER BY collected_date DESC LIMIT 1"
                 ).fetchone()
                 if vix:
-                    parts.append(f"VIX: {vix['vix_close']:.1f} | VIX9D: {vix['vix9d']:.1f} | VIX3M: {vix['vix3m']:.1f}")
-                    if vix['vix_close'] and vix['vix3m']:
-                        structure = "contango (complacency)" if vix['vix_close'] < vix['vix3m'] else "backwardation (fear)"
+                    parts.append(f"VIX: {vix['vix']:.1f} | VIX9D: {vix['vix9d']:.1f} | VIX3M: {vix['vix3m']:.1f}")
+                    if vix['vix'] and vix['vix3m']:
+                        structure = "contango (complacency)" if vix['vix'] < vix['vix3m'] else "backwardation (fear)"
                         parts.append(f"Term structure: {structure}")
             except Exception as e:
                 logger.debug("[COUNCIL] Tactical VIX query: %s", e)
@@ -255,9 +255,11 @@ def gather_tactical_data(db_path: str = DB_PATH) -> str:
             # Open positions with P&L
             try:
                 positions = conn.execute(
-                    "SELECT ticker, pnl_pct, sector, "
+                    "SELECT st.ticker, st.pnl_pct, r.sector_context as sector, "
                     "CAST(julianday('now') - julianday(actual_entry_time) AS INTEGER) as days "
-                    "FROM shadow_trades WHERE status = 'open' ORDER BY pnl_pct DESC"
+                    "FROM shadow_trades st "
+                    "LEFT JOIN recommendations r ON st.recommendation_id = r.recommendation_id "
+                    "WHERE st.status = 'open' ORDER BY st.pnl_pct DESC"
                 ).fetchall()
                 if positions:
                     winners = sum(1 for p in positions if (p['pnl_pct'] or 0) > 0)
@@ -357,9 +359,11 @@ def gather_risk_data(db_path: str = DB_PATH) -> str:
             # Sector concentration
             try:
                 sectors = conn.execute(
-                    "SELECT sector, COUNT(*) as n, SUM(planned_allocation) as alloc "
-                    "FROM shadow_trades WHERE status = 'open' AND sector IS NOT NULL "
-                    "GROUP BY sector ORDER BY n DESC"
+                    "SELECT r.sector_context as sector, COUNT(*) as n, SUM(st.planned_allocation) as alloc "
+                    "FROM shadow_trades st "
+                    "LEFT JOIN recommendations r ON st.recommendation_id = r.recommendation_id "
+                    "WHERE st.status = 'open' AND r.sector_context IS NOT NULL "
+                    "GROUP BY r.sector_context ORDER BY n DESC"
                 ).fetchall()
                 if sectors:
                     parts.append("Sector concentration (open):")
@@ -532,11 +536,11 @@ def gather_macro_data(db_path: str = DB_PATH) -> str:
                 lines = []
                 for sid, label in indicators:
                     row = conn.execute(
-                        "SELECT value, date FROM macro_snapshots "
-                        "WHERE series_id = ? ORDER BY date DESC LIMIT 1", (sid,)
+                        "SELECT value, collected_date FROM macro_snapshots "
+                        "WHERE series_id = ? ORDER BY collected_date DESC LIMIT 1", (sid,)
                     ).fetchone()
                     if row:
-                        lines.append(f"  {label}: {row['value']:.2f} ({row['date']})")
+                        lines.append(f"  {label}: {row['value']:.2f} ({row['collected_date']})")
                 if lines:
                     parts.append("Macro indicators:")
                     parts.extend(lines)
@@ -547,7 +551,7 @@ def gather_macro_data(db_path: str = DB_PATH) -> str:
             try:
                 spread = conn.execute(
                     "SELECT value FROM macro_snapshots "
-                    "WHERE series_id = 'T10Y2Y' ORDER BY date DESC LIMIT 1"
+                    "WHERE series_id = 'T10Y2Y' ORDER BY collected_date DESC LIMIT 1"
                 ).fetchone()
                 if spread:
                     v = spread['value']
@@ -564,11 +568,11 @@ def gather_macro_data(db_path: str = DB_PATH) -> str:
             try:
                 hy = conn.execute(
                     "SELECT value FROM macro_snapshots "
-                    "WHERE series_id = 'BAMLH0A0HYM2' ORDER BY date DESC LIMIT 1"
+                    "WHERE series_id = 'BAMLH0A0HYM2' ORDER BY collected_date DESC LIMIT 1"
                 ).fetchone()
                 hy_avg = conn.execute(
                     "SELECT AVG(value) as avg FROM macro_snapshots "
-                    "WHERE series_id = 'BAMLH0A0HYM2' AND date > date('now', '-365 days')"
+                    "WHERE series_id = 'BAMLH0A0HYM2' AND collected_date > date('now', '-365 days')"
                 ).fetchone()
                 if hy and hy_avg and hy_avg['avg']:
                     z = (hy['value'] - hy_avg['avg']) / max(0.1, abs(hy_avg['avg'] * 0.15))
@@ -580,9 +584,11 @@ def gather_macro_data(db_path: str = DB_PATH) -> str:
             # Sector performance from closed trades
             try:
                 sp = conn.execute(
-                    "SELECT sector, AVG(pnl_pct) as avg, COUNT(*) as n "
-                    "FROM shadow_trades WHERE status = 'closed' AND sector IS NOT NULL "
-                    "GROUP BY sector HAVING n >= 2 ORDER BY avg DESC"
+                    "SELECT r.sector_context as sector, AVG(st.pnl_pct) as avg, COUNT(*) as n "
+                    "FROM shadow_trades st "
+                    "LEFT JOIN recommendations r ON st.recommendation_id = r.recommendation_id "
+                    "WHERE st.status = 'closed' AND r.sector_context IS NOT NULL "
+                    "GROUP BY r.sector_context HAVING n >= 2 ORDER BY avg DESC"
                 ).fetchall()
                 if sp:
                     parts.append("\nSector performance (closed trades):")

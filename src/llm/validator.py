@@ -9,6 +9,19 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _parse_price(value) -> float:
+    """Parse packet price fields from current or legacy schemas."""
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        cleaned = value.replace("$", "").replace(",", "").split()[0]
+        try:
+            return float(cleaned)
+        except ValueError:
+            return 0.0
+    return 0.0
+
+
 def validate_llm_output(packet, features: dict, config: dict) -> tuple[bool, str]:
     """Validate LLM-influenced trade parameters before execution.
 
@@ -25,15 +38,19 @@ def validate_llm_output(packet, features: dict, config: dict) -> tuple[bool, str
         pass  # Universe check is best-effort
 
     # 2. Entry price must be within 10% of current market price
-    current = features.get("current_price", 0)
-    entry = getattr(packet, "entry_price", 0) or 0
+    current = float(features.get("current_price", 0) or 0)
+    entry = _parse_price(
+        getattr(packet, "entry_zone", None) or getattr(packet, "entry_price", 0)
+    )
     if current > 0 and entry > 0:
         deviation = abs(entry - current) / current
         if deviation > 0.10:
             return False, f"Entry ${entry:.2f} deviates {deviation:.0%} from market ${current:.2f}"
 
     # 3. Stop must be below entry (for long trades)
-    stop = getattr(packet, "stop_invalidation", 0) or getattr(packet, "stop_price", 0) or 0
+    stop = _parse_price(
+        getattr(packet, "stop_invalidation", None) or getattr(packet, "stop_price", 0)
+    )
     if stop > 0 and entry > 0 and stop >= entry:
         return False, f"Stop ${stop:.2f} >= entry ${entry:.2f}"
 
@@ -53,6 +70,8 @@ def validate_llm_output(packet, features: dict, config: dict) -> tuple[bool, str
 
     # 6. Conviction must be 1-10
     conviction = getattr(packet, "llm_conviction", None)
+    if conviction is None:
+        conviction = getattr(packet, "confidence", None)
     if conviction is not None:
         if not (1 <= conviction <= 10):
             return False, f"Conviction {conviction} outside 1-10 range"

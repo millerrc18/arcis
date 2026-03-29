@@ -17,6 +17,7 @@ const navItems = [
   { to: '/training', icon: Brain, label: 'Training' },
   { to: '/cto-report', icon: BarChart3, label: 'CTO Report' },
   { to: '/docs', icon: BookOpen, label: 'Docs' },
+  { to: '/notes', icon: FileText, label: 'Notes' },
   { to: '/roadmap', icon: Map, label: 'Roadmap' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ]

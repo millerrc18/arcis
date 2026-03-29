@@ -15,18 +15,31 @@ logger = logging.getLogger(__name__)
 _HALT_FILE = "data/trading_halted"
 
 
+def _get_halt_path() -> Path:
+    """Resolve the kill-switch file path from config, falling back to the legacy path."""
+    try:
+        cfg = load_config()
+    except Exception as exc:
+        logger.debug("[RISK] Could not load config for halt path: %s", exc)
+        cfg = {}
+
+    configured = cfg.get("risk_governor", {}).get("kill_switch_file")
+    return Path(configured or _HALT_FILE)
+
+
 def _global_halt(halt: bool):
     """Set or clear the global trading halt. Uses a file flag so it persists across restarts."""
+    halt_path = _get_halt_path()
     if halt:
-        Path(_HALT_FILE).parent.mkdir(parents=True, exist_ok=True)
-        Path(_HALT_FILE).touch()
+        halt_path.parent.mkdir(parents=True, exist_ok=True)
+        halt_path.touch()
     else:
-        Path(_HALT_FILE).unlink(missing_ok=True)
+        halt_path.unlink(missing_ok=True)
 
 
 def _is_halted() -> bool:
     """Check if trading is globally halted."""
-    return Path(_HALT_FILE).exists()
+    return _get_halt_path().exists()
 
 
 def drawdown_adjusted_risk(base_risk_pct: float, current_dd_pct: float,
@@ -87,7 +100,8 @@ class RiskGovernor:
 
     def check_trade(self, ticker: str, allocation_dollars: float,
                     features: dict, portfolio: dict,
-                    traffic_light_multiplier: float = 1.0) -> dict:
+                    traffic_light_multiplier: float = 1.0,
+                    event_risk_multiplier: float = 1.0) -> dict:
         """Evaluate whether a proposed trade passes all risk checks.
 
         Args:
@@ -102,7 +116,12 @@ class RiskGovernor:
         checks = []
 
         if not self.enabled:
-            return {"approved": True, "checks": [{"name": "governor_disabled", "passed": True, "detail": "Risk governor disabled"}]}
+            return {
+                "approved": True,
+                "checks": [{"name": "governor_disabled", "passed": True, "detail": "Risk governor disabled"}],
+                "effective_allocation_dollars": allocation_dollars,
+                "effective_multiplier": 1.0,
+            }
 
         # 0. Traffic Light sizing
         if traffic_light_multiplier < 1.0:
@@ -115,6 +134,26 @@ class RiskGovernor:
             })
             logger.info("[RISK] Traffic Light: x%.1f on %s ($%.0f -> $%.0f)",
                         traffic_light_multiplier, ticker, original_alloc, allocation_dollars)
+
+        # 0b. Event risk sizing
+        if event_risk_multiplier <= 0:
+            checks.append({
+                "name": "event_risk",
+                "passed": False,
+                "detail": "Event risk hard block active",
+            })
+            return self._reject(checks, "Event risk hard block: no new entries")
+
+        if event_risk_multiplier < 1.0:
+            original_alloc = allocation_dollars
+            allocation_dollars = allocation_dollars * event_risk_multiplier
+            checks.append({
+                "name": "event_risk",
+                "passed": True,
+                "detail": f"Event risk x{event_risk_multiplier:.2f}: ${original_alloc:.0f} -> ${allocation_dollars:.0f}",
+            })
+            logger.info("[RISK] Event risk: x%.2f on %s ($%.0f -> $%.0f)",
+                        event_risk_multiplier, ticker, original_alloc, allocation_dollars)
 
         # 1. Emergency halt
         halted = _is_halted()
@@ -227,10 +266,21 @@ class RiskGovernor:
         if not dup_ok:
             return self._reject(checks, f"Duplicate: already have an open trade for {ticker}")
 
-        return {"approved": True, "checks": checks}
+        return {
+            "approved": True,
+            "checks": checks,
+            "effective_allocation_dollars": allocation_dollars,
+            "effective_multiplier": traffic_light_multiplier * event_risk_multiplier,
+        }
 
     def _reject(self, checks: list, reason: str) -> dict:
-        return {"approved": False, "checks": checks, "rejection_reason": reason}
+        return {
+            "approved": False,
+            "checks": checks,
+            "rejection_reason": reason,
+            "effective_allocation_dollars": 0.0,
+            "effective_multiplier": 0.0,
+        }
 
 
 def get_portfolio_state(db_path: str = "ai_research_desk.sqlite3") -> dict:

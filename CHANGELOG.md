@@ -1,34 +1,47 @@
 # Changelog
 
-## 2026-03-29 — Sprint 1: Stabilize
+## [Unreleased] - 2026-03-27/29
 
-### Council v2 Tests
-- Rewrote test suite for v2 protocol (53 tests covering agents, protocol, engine, value_tracker)
-- Deleted v1 test files (`test_council_agents.py`) and v1 backups (`*_v1_backup.py`)
+### Weekend Mega Sprint (4 sprints: Stabilize + Hotfix + Build + Document)
 
-### Render Sync
-- Added 5 new tables to sync: `traffic_light_state`, `council_calibrations`, `council_debug_log`, `council_parameter_log`, `council_parameter_state`
-- Added v2 columns to `council_sessions` and `council_votes` in render_migrate.py
+#### Critical Safety Fixes
+- Fixed: safety checks fail closed on errors, not open (#42)
+- Fixed: journal closes after broker confirmation, not before (#41)
+- Fixed: LLM validator accepts the real `TradePacket` schema (#40)
+- Fixed: paper trades are logged as `failed` on submission failure instead of phantom opens (#46)
+- Fixed: `/shadow/close` now requires broker exit semantics for Alpaca-backed trades (#45)
+- Fixed: council data gatherers query the correct live column names (#44)
+- Fixed: Telegram trade notifications use the real packet fields and source labels (#48)
+- Fixed: kill-switch tests and training-ingestion tests now run deterministically against the hardened runtime behavior
 
-### Audit Quick-Fixes
-- #30: `system.py` bare `except:` → `except Exception as e: logger.warning()`
-- #31: `websocket.py` `broadcast_sync()` bare except → logged warning
-- #32: `cloud_app.py` `activity_feed` type annotation fixed (`str = None` → `str | None = None`)
-- #33: Deleted v1 backup files (agents, engine, protocol)
-- #37: Deleted dead code `_fetch_recent_filings()` in edgar_collector.py
+#### New Features
+- Added: event calendar 0-10 continuous risk scoring with sizing multipliers and Telegram alerts
+- Added: bracket order health monitor with intraday, pre-market, and post-close verification
+- Added: optional GBNF grammar enforcement path for XML commentary generation
+- Added: data quality ingestion gates with duplicate detection and batch halt alerts
+- Added: Notes page plus cloud CRUD API for pinned, tagged operator notes
+- Added: Council.jsx v2 with new agent identities, consensus labels, strategic prompt input, and parameter adjustment history
+- Added: HSHS radar chart and live phase-weight display on the Health page
 
-### Strategy-Specific Timeouts
-- Pullback: 7 days (was 15), mean_reversion: 5, pead: 10, default: 10
-- Per-strategy timeout lookup in executor.py
-- `strategy_type` column added to shadow_trades
+#### Infrastructure
+- Added: `scripts/verify_counts.py` for AGENTS.md count verification
+- Added: `scripts/schema_report.py` for canonical SQLite schema reporting
+- Added: `scripts/generate_dependency_graph.py` and generated `docs/dependency-graph.md`
+- Added: `scripts/render_architecture_doc.py` to regenerate the architecture inventory from live code
+- Added: strategy-specific pullback timeout support (15 -> 7 days)
+- Added: Render sync coverage for the new notes data path
+- Added: `bracket_health` and `user_notes` tables to the working schema
+- Fixed: SQLite connection handling in earnings enrichment (#52)
+- Fixed: kill-switch path handling so safety remains configurable without leaking ambient state into tests (#47)
+- Removed: stale council v1 compatibility wrappers from active code paths
 
-### Scripts & Tooling
-- `scripts/verify_counts.py` — validates AGENTS.md counts against code
-- `scripts/schema_report.py` — generates `docs/schema.md` from SQLite
-
-### Counts
-- 144 Python files, 72 test files, 1088 tests, 73 research docs
-- All tests pass, frontend builds clean
+#### Documentation
+- Added: 11 architecture decision records under `docs/decisions/`
+- Rewrote: `docs/architecture.md` from the live module, route, and schema inventories
+- Rewrote: `docs/roadmap.md` to consolidate the confirmed March 28-29, 2026 decisions
+- Added: `docs/observation-log-template.md` for the Monday-through-Sunday operating rhythm
+- Updated: Framework v2.1 research integration notes for risk budgeting, EDGAR fundamentals, operating cadence, and fund-path deferrals
+- Documented: council prompt caching was evaluated and intentionally not enabled because the current agent prompts do not share a reusable long prefix
 
 ---
 

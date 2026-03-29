@@ -9,7 +9,7 @@ def test_main_py_line_count():
     main_path = os.path.join(os.path.dirname(__file__), "..", "src", "main.py")
     with open(main_path, encoding="utf-8") as f:
         lines = f.readlines()
-    assert len(lines) < 1100, f"main.py is {len(lines)} lines (target: < 1100)"
+    assert len(lines) < 1000, f"main.py is {len(lines)} lines (target: < 1000)"
 
 
 def test_all_commands_registered():

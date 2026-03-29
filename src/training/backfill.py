@@ -19,6 +19,11 @@ import pandas as pd
 
 from src.llm.prompts import BLINDED_ANALYSIS_PROMPT, QUALITY_ENHANCEMENT_PROMPT
 from src.training.claude_client import generate_training_example
+from src.training.ingestion_gate import (
+    alert_training_halt,
+    should_halt_batch,
+    validate_training_example,
+)
 from src.training.historical_data import fetch_historical_universe
 from src.training.historical_scanner import (
     compute_outcome,
@@ -297,6 +302,9 @@ def run_historical_backfill(
     logger.info("[BACKFILL] Step 9/10: Generating commentary via Claude API...")
     examples_generated = 0
     examples_skipped = 0
+    attempted = 0
+    rejected = 0
+    rejection_reasons: Counter[str] = Counter()
     actual_outcomes: Counter = Counter()
     tickers_seen: set[str] = set()
 
@@ -337,6 +345,20 @@ def run_historical_backfill(
         stage2_response = generate_training_example(QUALITY_ENHANCEMENT_PROMPT, enhancement_input, purpose="backfill_enhancement")
 
         final_output = stage2_response if stage2_response else stage1_response
+        attempted += 1
+
+        is_valid, rejection_reason = validate_training_example(final_output, db_path)
+        if not is_valid:
+            logger.warning("[BACKFILL] Rejected %s on %s: %s", ticker, scan_date, rejection_reason)
+            rejected += 1
+            rejection_reasons[rejection_reason] += 1
+            examples_skipped += 1
+            halt, compliance, top_reason = should_halt_batch(attempted, rejected, rejection_reasons)
+            if halt:
+                alert_training_halt(compliance, rejected, attempted, top_reason)
+                logger.error("[BACKFILL] Halting backfill batch at %.1f%% compliance", compliance)
+                break
+            continue
 
         # Store outcome separately for metadata only
         outcome_text = f"Exit: {outcome['exit_reason']} | P&L: {outcome['pnl_pct']:.1f}% | Duration: {outcome['duration_days']}d"
@@ -384,6 +406,12 @@ def run_historical_backfill(
 
         # Rate limiting (doubled for 2-stage pipeline)
         time.sleep(1.0)
+
+        halt, compliance, top_reason = should_halt_batch(attempted, rejected, rejection_reasons)
+        if halt:
+            alert_training_halt(compliance, rejected, attempted, top_reason)
+            logger.error("[BACKFILL] Halting backfill batch at %.1f%% compliance", compliance)
+            break
 
     # Step 10: Report results
     elapsed = (time.time() - start_time) / 60

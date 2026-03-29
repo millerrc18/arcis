@@ -8,7 +8,7 @@ from src.features.engine import compute_features, compute_all_features
 
 def _make_uptrend_ohlcv(n: int = 250, start_price: float = 100.0) -> pd.DataFrame:
     """Create a synthetic uptrending OHLCV DataFrame."""
-    dates = pd.bdate_range(end=pd.Timestamp.today(), periods=n)
+    dates = pd.bdate_range(end=pd.Timestamp('2026-03-20'), periods=n)
     # Steady uptrend: ~0.1% daily gain
     close = start_price * np.cumprod(1 + np.full(n, 0.001))
     # Add small recent pullback in last 5 days
@@ -31,7 +31,7 @@ def _make_uptrend_ohlcv(n: int = 250, start_price: float = 100.0) -> pd.DataFram
 
 def _make_spy_ohlcv(n: int = 250, start_price: float = 450.0) -> pd.DataFrame:
     """Create a synthetic SPY DataFrame with modest uptrend."""
-    dates = pd.bdate_range(end=pd.Timestamp.today(), periods=n)
+    dates = pd.bdate_range(end=pd.Timestamp('2026-03-20'), periods=n)
     close = start_price * np.cumprod(1 + np.full(n, 0.0003))
     high = close * 1.005
     low = close * 0.995

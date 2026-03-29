@@ -6,8 +6,11 @@ from unittest.mock import patch
 
 
 @pytest.fixture
-def governor():
+def governor(tmp_path, monkeypatch):
     from src.risk.governor import RiskGovernor
+    from src.risk import governor as gov_module
+
+    monkeypatch.setattr(gov_module, "_HALT_FILE", str(tmp_path / "test_halt"))
     config = {
         "risk_governor": {
             "enabled": True,

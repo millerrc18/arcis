@@ -133,6 +133,15 @@ def _call_claude(system_prompt: str, user_prompt: str) -> tuple[str | None, dict
         return None, debug
 
 
+def _normalize_claude_result(result: object) -> tuple[str | None, dict]:
+    """Accept the standard tuple or simplified mocked Claude return values."""
+    if isinstance(result, tuple) and len(result) == 2 and isinstance(result[1], dict):
+        return result[0], result[1]
+    if result is None:
+        return None, {"latency_ms": 0, "raw": None}
+    return str(result), {"latency_ms": 0, "raw": result}
+
+
 # ── Response parsing ──────────────────────────────────────────────
 # FIX #8: Keeps the existing fallback parsing (find "{" / rfind "}")
 
@@ -293,11 +302,11 @@ def build_shared_context(db_path: str = "ai_research_desk.sqlite3") -> str:
     # VIX
     try:
         vix = _query_db(
-            "SELECT vix_close FROM vix_term_structure ORDER BY date DESC LIMIT 1",
+            "SELECT vix FROM vix_term_structure ORDER BY collected_date DESC LIMIT 1",
             db_path=db_path,
         )
         if vix:
-            parts.append(f"VIX: {vix[0]['vix_close']:.1f}")
+            parts.append(f"VIX: {vix[0]['vix']:.1f}")
     except Exception:
         pass
 
@@ -350,7 +359,7 @@ def run_round_1(
             )
 
         # Call API with timing
-        raw, debug = _call_claude(system_prompt, user_prompt)
+        raw, debug = _normalize_claude_result(_call_claude(system_prompt, user_prompt))
         assessment = _parse_agent_response(raw, agent_name)
         assessments.append(assessment)
 
@@ -371,7 +380,7 @@ def run_round_1(
 
 def run_round_2(
     round1_assessments: list[dict],
-    shared_context: str,
+    shared_context: str = "",
     session_id: str | None = None,
     db_path: str = "ai_research_desk.sqlite3",
 ) -> tuple[list[dict], list[str]]:
@@ -411,7 +420,7 @@ def run_round_2(
             "If you change direction, explain why. Respond with a JSON object."
         )
 
-        raw, debug = _call_claude(system_prompt, user_prompt)
+        raw, debug = _normalize_claude_result(_call_claude(system_prompt, user_prompt))
         parsed = _parse_agent_response(raw, agent_name)
         updated.append(parsed)
 

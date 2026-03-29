@@ -7,6 +7,7 @@ Auth: optional bearer token via API_SECRET env var.
 import json
 import logging
 import os
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import Optional
@@ -15,6 +16,7 @@ from zoneinfo import ZoneInfo
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -31,7 +33,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -60,9 +62,35 @@ def verify_auth(
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
+USER_NOTES_SCHEMA = """
+CREATE TABLE IF NOT EXISTS user_notes (
+    note_id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    content TEXT DEFAULT '',
+    tags TEXT DEFAULT '[]',
+    pinned INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+"""
+
+
+class NoteCreatePayload(BaseModel):
+    title: str = "Untitled Note"
+    content: str = ""
+    tags: list[str] | str = Field(default_factory=list)
+    pinned: bool = False
+
+
+class NoteUpdatePayload(BaseModel):
+    title: str | None = None
+    content: str | None = None
+    tags: list[str] | str | None = None
+    pinned: bool | None = None
+
 
 @contextmanager
-def get_pg():
+def get_pg(readonly: bool = True):
     """Yield a Postgres connection. Caller must NOT commit (read-only)."""
     import psycopg2
     import psycopg2.extras
@@ -73,7 +101,7 @@ def get_pg():
     conn = None
     try:
         conn = psycopg2.connect(DATABASE_URL)
-        conn.set_session(readonly=True, autocommit=True)
+        conn.set_session(readonly=readonly, autocommit=readonly)
         yield conn
     except HTTPException:
         raise
@@ -92,7 +120,7 @@ def _query(sql: str, params: tuple = ()) -> list[dict]:
     """Execute a read query and return list of dicts."""
     import psycopg2.extras
 
-    with get_pg() as conn:
+    with get_pg(readonly=True) as conn:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(sql, params)
             rows = cur.fetchall()
@@ -115,6 +143,35 @@ def _parse_json_fields(row: dict, fields: list[str]) -> dict:
             except (json.JSONDecodeError, TypeError):
                 pass
     return row
+
+
+def _normalize_tags(tags: list[str] | str | None) -> list[str]:
+    """Normalize incoming note tags into a clean string list."""
+    if tags is None:
+        return []
+    if isinstance(tags, str):
+        raw = tags.split(",")
+    else:
+        raw = tags
+    return [str(tag).strip() for tag in raw if str(tag).strip()]
+
+
+def _ensure_user_notes_table() -> None:
+    """Create the user_notes table if it is missing."""
+    with get_pg(readonly=False) as conn:
+        with conn.cursor() as cur:
+            cur.execute(USER_NOTES_SCHEMA)
+            conn.commit()
+
+
+def _parse_note_row(row: dict) -> dict:
+    """Normalize a note row for API responses."""
+    parsed = dict(row)
+    parsed = _parse_json_fields(parsed, ["tags"])
+    if not isinstance(parsed.get("tags"), list):
+        parsed["tags"] = _normalize_tags(parsed.get("tags"))
+    parsed["pinned"] = bool(parsed.get("pinned"))
+    return parsed
 
 
 # ── Endpoints ────────────────────────────────────────────────────────
@@ -535,6 +592,135 @@ def health_hshs():
         return {"hshs": 0, "dimensions": {}, "error": str(e)}
 
 
+@app.get("/api/notes", dependencies=[Depends(verify_auth)])
+def list_notes():
+    """List all notes for the Notes page."""
+    try:
+        _ensure_user_notes_table()
+        rows = _query(
+            "SELECT * FROM user_notes ORDER BY pinned DESC, updated_at DESC"
+        )
+        return {"notes": [_parse_note_row(row) for row in rows]}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("[API] notes list failed: %s", exc)
+        return {"notes": [], "error": str(exc)}
+
+
+@app.post("/api/notes", status_code=201, dependencies=[Depends(verify_auth)])
+def create_note(payload: NoteCreatePayload):
+    """Create a new note."""
+    try:
+        _ensure_user_notes_table()
+        now = datetime.now(ET).isoformat()
+        note_id = str(uuid.uuid4())
+        tags_json = json.dumps(_normalize_tags(payload.tags))
+        with get_pg(readonly=False) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO user_notes "
+                    "(note_id, title, content, tags, pinned, created_at, updated_at) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    (
+                        note_id,
+                        payload.title or "Untitled Note",
+                        payload.content or "",
+                        tags_json,
+                        1 if payload.pinned else 0,
+                        now,
+                        now,
+                    ),
+                )
+                conn.commit()
+        return _parse_note_row(
+            {
+                "note_id": note_id,
+                "title": payload.title or "Untitled Note",
+                "content": payload.content or "",
+                "tags": tags_json,
+                "pinned": payload.pinned,
+                "created_at": now,
+                "updated_at": now,
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("[API] note create failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.put("/api/notes/{note_id}", dependencies=[Depends(verify_auth)])
+def update_note(note_id: str, payload: NoteUpdatePayload):
+    """Update a note in place."""
+    try:
+        _ensure_user_notes_table()
+        updates = payload.model_dump(exclude_unset=True)
+        if not updates:
+            existing = _query_one("SELECT * FROM user_notes WHERE note_id = %s", (note_id,))
+            if not existing:
+                raise HTTPException(status_code=404, detail="Note not found")
+            return _parse_note_row(existing)
+
+        fields = []
+        values: list[object] = []
+        if "title" in updates:
+            fields.append("title = %s")
+            values.append(updates["title"] or "Untitled Note")
+        if "content" in updates:
+            fields.append("content = %s")
+            values.append(updates["content"] or "")
+        if "tags" in updates:
+            fields.append("tags = %s")
+            values.append(json.dumps(_normalize_tags(updates["tags"])))
+        if "pinned" in updates:
+            fields.append("pinned = %s")
+            values.append(1 if updates["pinned"] else 0)
+        fields.append("updated_at = %s")
+        values.append(datetime.now(ET).isoformat())
+        values.append(note_id)
+
+        with get_pg(readonly=False) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"UPDATE user_notes SET {', '.join(fields)} WHERE note_id = %s",
+                    tuple(values),
+                )
+                if cur.rowcount == 0:
+                    raise HTTPException(status_code=404, detail="Note not found")
+                conn.commit()
+
+        updated = _query_one("SELECT * FROM user_notes WHERE note_id = %s", (note_id,))
+        if not updated:
+            raise HTTPException(status_code=404, detail="Note not found")
+        return _parse_note_row(updated)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("[API] note update failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.delete("/api/notes/{note_id}", status_code=204, dependencies=[Depends(verify_auth)])
+def delete_note(note_id: str):
+    """Delete a note."""
+    try:
+        _ensure_user_notes_table()
+        with get_pg(readonly=False) as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM user_notes WHERE note_id = %s", (note_id,))
+                if cur.rowcount == 0:
+                    raise HTTPException(status_code=404, detail="Note not found")
+                conn.commit()
+        return None
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("[API] note delete failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @app.get("/api/council/latest", dependencies=[Depends(verify_auth)])
 def council_latest():
     """Latest council session with votes."""
@@ -544,6 +730,8 @@ def council_latest():
         )
         if not session:
             return {"session": None}
+
+        session = _parse_json_fields(session, ["result_json"])
 
         votes = _query(
             "SELECT * FROM council_votes WHERE session_id = %s ORDER BY round, agent_name",
@@ -590,6 +778,8 @@ def council_session_detail(session_id: str):
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
 
+        session = _parse_json_fields(session, ["result_json"])
+
         votes = _query(
             "SELECT * FROM council_votes WHERE session_id = %s ORDER BY round, agent_name",
             (session_id,),
@@ -606,7 +796,7 @@ def council_session_detail(session_id: str):
 
 
 @app.get("/api/activity/feed", dependencies=[Depends(verify_auth)])
-def activity_feed(limit: int = 50, event_type: str | None = None):
+def activity_feed(limit: int = 50, event_type: str = None):
     """Get recent activity log entries."""
     try:
         if event_type:
@@ -626,6 +816,15 @@ def activity_feed(limit: int = 50, event_type: str | None = None):
     except Exception as exc:
         logger.error("Activity feed error: %s", exc)
         return []
+
+
+@app.post("/api/council/strategic", dependencies=[Depends(verify_auth)])
+def council_strategic():
+    """Cloud deployment cannot run strategic council sessions directly."""
+    return {
+        "error": "cloud_mode",
+        "message": "Strategic council questions must be run from the local dashboard/API.",
+    }
 
 
 # ── New endpoints — Categories 1-3 ────────────────────────────────

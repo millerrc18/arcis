@@ -4,12 +4,18 @@ import json
 import logging
 import sqlite3
 import uuid
+from collections import Counter
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import load_config
 from src.llm.prompts import BLINDED_ANALYSIS_PROMPT, QUALITY_ENHANCEMENT_PROMPT
 from src.training.claude_client import generate_training_example
+from src.training.ingestion_gate import (
+    alert_training_halt,
+    should_halt_batch,
+    validate_training_example,
+)
 from src.training.versioning import init_training_tables
 
 logger = logging.getLogger(__name__)
@@ -83,6 +89,9 @@ def collect_training_examples_from_closed_trades(
         """).fetchall()
 
     count = 0
+    attempted = 0
+    rejected = 0
+    rejection_reasons: Counter[str] = Counter()
     for row in rows:
         trade = dict(row)
 
@@ -111,6 +120,19 @@ def collect_training_examples_from_closed_trades(
 
         # Use Stage 2 if successful, fall back to Stage 1
         final_output = stage2_response if stage2_response else stage1_response
+        attempted += 1
+
+        is_valid, rejection_reason = validate_training_example(final_output, db_path)
+        if not is_valid:
+            rejected += 1
+            rejection_reasons[rejection_reason] += 1
+            logger.warning("[TRAINING] Rejected example for %s: %s", trade.get("ticker"), rejection_reason)
+            halt, compliance, top_reason = should_halt_batch(attempted, rejected, rejection_reasons)
+            if halt:
+                alert_training_halt(compliance, rejected, attempted, top_reason)
+                logger.error("[TRAINING] Halting collection batch at %.1f%% compliance", compliance)
+                break
+            continue
 
         # ═══ STORE THE EXAMPLE ═══
         pnl = trade.get("pnl_dollars", 0) or 0
@@ -136,5 +158,11 @@ def collect_training_examples_from_closed_trades(
 
         logger.info("  [TRAINING] Generated blinded example for %s (%s)", trade.get('ticker'), source)
         count += 1
+
+        halt, compliance, top_reason = should_halt_batch(attempted, rejected, rejection_reasons)
+        if halt:
+            alert_training_halt(compliance, rejected, attempted, top_reason)
+            logger.error("[TRAINING] Halting collection batch at %.1f%% compliance", compliance)
+            break
 
     return count

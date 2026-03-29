@@ -1,0 +1,64 @@
+name: Daily Repo Audit
+
+on:
+  schedule:
+    - cron: "15 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: daily-repo-audit
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  daily-repo-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest
+
+      - name: Run daily repo audit
+        run: |
+          python scripts/daily_repo_audit.py \
+            --output-dir audit-output \
+            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+      - name: Publish workflow summary
+        if: always()
+        run: |
+          if [ -f audit-output/latest-summary.md ]; then
+            cat audit-output/latest-summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload audit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-repo-audit-${{ github.run_id }}
+          path: audit-output/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Sync GitHub issues for unexpected regressions
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -f audit-output/summary.json ]; then
+            python scripts/sync_daily_repo_audit_issues.py --summary audit-output/summary.json
+          fi

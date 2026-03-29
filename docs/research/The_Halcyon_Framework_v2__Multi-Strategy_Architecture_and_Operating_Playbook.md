@@ -1,25 +1,6 @@
 # The Halcyon Framework v2.1: Compute, Value, Moat, and Multi-Strategy Architecture
 
-> **Updated March 29, 2026** — Incorporates findings from 51 research documents including 15 new deep research results: holding period optimization, volatility-adaptive position management, event calendar integration, bracket order failure modes, GBNF grammar enforcement, Unsloth/TRL upgrades, Claude cost optimization, FinBERT NLP, walk-forward backtesting, conviction calibration, disaster recovery, data quality gates, numerical hallucination prevention, multi-LoRA serving, and Qwen3 tokenization analysis.
-
----
-
-## Changes from v2
-
-| Area | v2 | v2.1 (updated) |
-|---|---|---|
-| RL method | REINFORCE++ | **Dr. GRPO** (`loss_type="dr_grpo"` in TRL 0.29.1) — REINFORCE++ not in TRL |
-| Holding period | 2-15 days (Ryan's guess) | **Pullback: 7 days** (80-85% of edge in days 1-5), MR: 5, PEAD: 10 |
-| High-VIX behavior | Traffic Light RED = reduce to 0.1× | RED stays 0.1× safety override; **Phase 2: volatility-adaptive** (Nagel 2012: edge AMPLIFIES with VIX >30) |
-| Event risk | PEAD enrichment in prompt | **0-10 continuous risk scoring** with additive compounding, linear sizing reduction, 25% floor, hard block ≥8 |
-| XML compliance | Hope model formats correctly | **GBNF grammar enforcement** via llama-cpp-python (Ollama cannot do XML) |
-| Training framework | BitsAndBytes + TRL 0.24 | **Unsloth** (now fits RTX 3060) + **TRL 0.29.1** (Dr. GRPO built in) |
-| Council cost | ~$0.50/session | **~$0.27/session** with prompt caching (agents 2-5 get 90% off shared prompt) |
-| Bracket orders | Assumed safe | **9 documented failure modes**; verify GTC; bracket monitor every 5 min |
-| NLP enrichment | None | **FinBERT** on CPU (Phase 3): 3.9 bps daily alpha from text sentiment |
-| Backtesting | Not specified | **Walk-forward** with CPCV, DSR, multiple testing correction |
-| Disaster recovery | Not specified | GTC brackets + $300-500 infrastructure (UPS, cellular, cloud failover) |
-| Conviction scores | 1-10 integer | **Poorly calibrated** (ECE 0.12-0.40); Platt scaling at 50-trade gate |
+> **Updated March 29, 2026** — Incorporates the March 28-29, 2026 research pass, including multi-strategy scaling, council redesign, event-risk handling, data-quality gates, and the remaining operating-compendium decisions.
 
 ---
 
@@ -28,7 +9,7 @@
 | Area | v1 | v2 (updated) |
 |---|---|---|
 | Strategy count | Single strategy assumed | 4-6 uncorrelated strategies at steady state, 8 max across 3 desks |
-| RL method | GRPO planned | **Dr. GRPO** (`loss_type="dr_grpo"` in TRL GRPOTrainer), skip DPO |
+| RL method | GRPO planned | **REINFORCE++** (GRPO overfits on small prompt datasets) |
 | PEFT method | QLoRA | **QDoRA** (`use_dora=True` — 8% VRAM savings, no quality loss) |
 | Adapter architecture | Single adapter | Per-strategy LoRA adapters; shared when >70% feature overlap |
 | Council | Decorative sentiment label | Vote-first deliberation with structured JSON output and parameter control |
@@ -39,6 +20,21 @@
 | Hardware path | RTX 3060 → 3090 | RTX 3060 (5 strategies) → RTX 3090 (10-12) → Dual 3090 NVLink (20) |
 | Execution tracking | Not specified | Implementation Shortfall logging from day 1 |
 | Statistical validation | Not specified | PSR/MinTRL/DSR framework with Triple Penance Rule |
+
+---
+
+## Changes from v2 to v2.1
+
+| Area | v2 | v2.1 addition |
+|---|---|---|
+| Data infrastructure | SQLite + sync path implied | SQLite remains the core local store for 10-20 years of solo operation; Render stays the low-cost cloud mirror for dashboard use. |
+| Operating budget | Infra path discussed abstractly | Render baseline stays in the low-cost solo range (~$13/mo class) until multi-desk scale forces a bigger footprint. |
+| Model serving hygiene | Daily cadence covered broadly | Ollama daily restart plus morning warm-up is now a formal operating rule, not an incidental implementation detail. |
+| Statistical gating | PSR/MinTRL/DSR defined | MinBTL-style evidence discipline and pre-commitment rules are treated as operating constraints before scaling capital. |
+| Risk budgeting | Equal-weight discussed for early phases | 1/N style allocation is explicitly locked in until roughly 200 trades, even if more advanced sizing research exists. |
+| Fundamental data source | EDGAR discussed generally | SEC `companyfacts.zip` is the preferred free fundamentals backbone for scale and consistency. |
+| Feature maintenance | Feature importance noted | Section-ablation / feature-importance review is now a lightweight recurring maintenance ritual (~35 minutes per month). |
+| Business path | Fund formation future-facing | Fund formation remains tabled until a 12-24 month track record and roughly $50K-$75K of setup readiness are justified. |
 
 ---
 

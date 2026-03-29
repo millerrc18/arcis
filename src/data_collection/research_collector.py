@@ -14,7 +14,6 @@ import sqlite3
 import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
-from urllib.parse import quote_plus
 from zoneinfo import ZoneInfo
 
 import requests
@@ -308,19 +307,6 @@ def crawl_ssrn() -> list[dict]:
         })
 
     return papers
-
-
-def crawl_sec_regulatory() -> list[dict]:
-    """Check SEC/FINRA for new AI/algorithmic trading guidance."""
-    # Simplified: check SEC for recent press releases mentioning AI/algorithmic
-    try:
-        resp = _get("https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&type=&dateb=&owner=include&count=10&search_text=algorithmic+trading&action=getcompany", timeout=15)
-        # This is a simplified check - real impl would parse the response
-        return []  # Placeholder — SEC doesn't have a clean JSON API for this
-    except Exception:
-        return []
-
-
 # ── Deduplication ────────────────────────────────────────────────────
 
 
@@ -409,7 +395,6 @@ def collect_research_papers(db_path: str = "ai_research_desk.sqlite3") -> dict:
         ("reddit", crawl_reddit),
         ("github", crawl_github_trending),
         ("ai_blogs", crawl_ai_blogs),
-        ("sec_regulatory", crawl_sec_regulatory),
     ]:
         try:
             papers = crawler()
