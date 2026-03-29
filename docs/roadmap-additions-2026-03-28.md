@@ -220,3 +220,22 @@
 - Macro Dashboard (/api/macro/dashboard exists, no page)
 - Signal Zoo (/api/signal-zoo exists, no page)
 - Value Tracker (council attribution — new page)
+
+## Hardware Research (March 29)
+
+### Immediate Actions (Phase 0, $0):
+- [ ] P0: Switch Qwen3 8B from Q8_0 to Q5_K_M (VRAM 8.7→5.7GB, speed 33→~80 t/s, quality ~98-99% of FP16)
+- [ ] P0: Deploy FinBERT as ONNX INT8 on CPU (18-20ms/doc, frees GPU entirely)
+- [ ] P0: Set OLLAMA_KEEP_ALIVE=-1 (pin model in VRAM during market hours)
+- [ ] P1: UPS purchase: CyberPower CP1500PFCLCD (~$220, pure sine wave, non-negotiable)
+
+### Hardware Upgrade Path:
+- [ ] Phase 1 (month 1-3): Used RTX 3090 + headless Linux machine ($1,500 all-in)
+- [ ] Phase 2 (month 4-8): Multi-LoRA via llama-server (software only, $200-500 storage)
+- [ ] Phase 3 (month 6-14): GRPO on RunPod A100 ($14/month, NOT local hardware)
+- [ ] Phase 4 (month 12-24): Second 3090 or RTX 5090 ($2,000-5,000)
+
+### Key Decision: GRPO cloud vs local
+- [DECISION] Rent RunPod A100 for GRPO ($14/mo) instead of buying dedicated training GPU
+- Rationale: 4-5× cheaper than hardware at intermittent usage patterns
+- Revisit if data sensitivity or reliability becomes an issue
