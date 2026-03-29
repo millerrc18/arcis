@@ -1,4 +1,4 @@
-<!-- Counts verified 2026-03-29: 150 Python files, 73 test files, 1057 tests, 53 CLI commands, 115 API routes, 40 DB tables (incl. traffic_light_state, council_calibrations), 46 research docs. -->
+<!-- Counts verified 2026-03-29: 150 Python files, 76 test files, 1071 tests, 53 CLI commands, 115 API routes, 35 DB tables (active SQLite schema), 59 research docs. -->
 
 # AGENTS.md — Halcyon Lab Governance Document
 
@@ -216,7 +216,7 @@ Each desk launches only after the previous desk is profitable. See docs/roadmap.
 - **SEC EDGAR** — Fundamental data
 - **Telegram Bot API** — Real-time push notifications
 
-## Research Library (46 documents)
+## Research Library (59 documents)
 
 See the dashboard Docs page for the complete research library covering:
 
