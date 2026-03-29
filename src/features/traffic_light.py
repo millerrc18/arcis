@@ -98,7 +98,7 @@ def _classify_credit(db_path: str = "ai_research_desk.sqlite3") -> int:
             rows = conn.execute(
                 "SELECT value FROM macro_snapshots "
                 "WHERE series_id = 'BAMLH0A0HYM2' "
-                "ORDER BY date DESC LIMIT 252"
+                "ORDER BY collected_date DESC LIMIT 252"
             ).fetchall()
         if not rows or len(rows) < 20:
             return 0  # No data, assume green

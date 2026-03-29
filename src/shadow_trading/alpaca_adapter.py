@@ -14,6 +14,40 @@ from src.config import load_config
 logger = logging.getLogger(__name__)
 
 
+def _serialize_order(order, fallback_qty: int | float = 0) -> dict:
+    """Normalize Alpaca order objects into plain dicts, including bracket legs."""
+    return {
+        "order_id": str(order.id),
+        "symbol": str(order.symbol),
+        "qty": float(order.qty) if getattr(order, "qty", None) else fallback_qty,
+        "side": str(order.side) if getattr(order, "side", None) else None,
+        "type": str(order.type) if getattr(order, "type", None) else None,
+        "status": str(order.status) if getattr(order, "status", None) else None,
+        "filled_qty": str(order.filled_qty) if getattr(order, "filled_qty", None) else "0",
+        "filled_avg_price": (
+            float(order.filled_avg_price)
+            if getattr(order, "filled_avg_price", None)
+            else None
+        ),
+        "filled_at": str(order.filled_at) if getattr(order, "filled_at", None) else None,
+        "created_at": str(order.created_at) if getattr(order, "created_at", None) else None,
+        "limit_price": (
+            float(order.limit_price)
+            if getattr(order, "limit_price", None) not in (None, "")
+            else None
+        ),
+        "stop_price": (
+            float(order.stop_price)
+            if getattr(order, "stop_price", None) not in (None, "")
+            else None
+        ),
+        "legs": [
+            _serialize_order(leg, fallback_qty=fallback_qty)
+            for leg in (getattr(order, "legs", None) or [])
+        ],
+    }
+
+
 class PaperTradingError(Exception):
     """Raised when paper trading safety checks fail."""
 
@@ -284,14 +318,7 @@ def get_order_status(order_id: str) -> dict:
     """Check the status of an order."""
     client = _get_trading_client()
     order = client.get_order_by_id(order_id)
-    return {
-        "order_id": str(order.id),
-        "symbol": str(order.symbol),
-        "status": str(order.status),
-        "filled_qty": str(order.filled_qty) if order.filled_qty else "0",
-        "filled_avg_price": float(order.filled_avg_price) if order.filled_avg_price else None,
-        "filled_at": str(order.filled_at) if order.filled_at else None,
-    }
+    return _serialize_order(order)
 
 
 # ── Live Trading Adapter ──────────────────────────────────────────────

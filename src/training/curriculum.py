@@ -4,9 +4,15 @@ import json
 import logging
 import sqlite3
 import uuid
+from collections import Counter
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from src.training.ingestion_gate import (
+    alert_training_halt,
+    should_halt_batch,
+    validate_training_example,
+)
 from src.training.versioning import init_training_tables
 
 logger = logging.getLogger(__name__)
@@ -273,8 +279,15 @@ def generate_contrastive_training_data(max_pairs: int = 50,
 
     pairs = pairs[:max_pairs]
     created = 0
+    attempted = 0
+    rejected = 0
+    rejection_reasons: Counter[str] = Counter()
+    halt_batch = False
 
     for winner, loser in pairs:
+        if halt_batch:
+            break
+
         winner_outcome = _extract_outcome_section(winner["input_text"])
         loser_outcome = _extract_outcome_section(loser["input_text"])
 
@@ -305,6 +318,24 @@ def generate_contrastive_training_data(max_pairs: int = 50,
         now = datetime.now(ET).isoformat()
         with sqlite3.connect(db_path) as conn:
             for commentary, orig in [(winner_commentary, winner), (loser_commentary, loser)]:
+                attempted += 1
+                is_valid, rejection_reason = validate_training_example(commentary, db_path)
+                if not is_valid:
+                    rejected += 1
+                    rejection_reasons[rejection_reason] += 1
+                    logger.warning(
+                        "[CURRICULUM] Rejected contrastive example for %s: %s",
+                        orig.get("ticker"),
+                        rejection_reason,
+                    )
+                    halt, compliance, top_reason = should_halt_batch(attempted, rejected, rejection_reasons)
+                    if halt:
+                        alert_training_halt(compliance, rejected, attempted, top_reason)
+                        logger.error("[CURRICULUM] Halting contrastive batch at %.1f%% compliance", compliance)
+                        halt_batch = True
+                        break
+                    continue
+
                 example_id = str(uuid.uuid4())
                 conn.execute(
                     "INSERT INTO training_examples "

@@ -1,5 +1,50 @@
 # Changelog
 
+## [Unreleased] - 2026-03-27/29
+
+### Weekend Mega Sprint (4 sprints: Stabilize + Hotfix + Build + Document)
+
+#### Critical Safety Fixes
+- Fixed: safety checks fail closed on errors, not open (#42)
+- Fixed: journal closes after broker confirmation, not before (#41)
+- Fixed: LLM validator accepts the real `TradePacket` schema (#40)
+- Fixed: paper trades are logged as `failed` on submission failure instead of phantom opens (#46)
+- Fixed: `/shadow/close` now requires broker exit semantics for Alpaca-backed trades (#45)
+- Fixed: council data gatherers query the correct live column names (#44)
+- Fixed: Telegram trade notifications use the real packet fields and source labels (#48)
+- Fixed: kill-switch tests and training-ingestion tests now run deterministically against the hardened runtime behavior
+
+#### New Features
+- Added: event calendar 0-10 continuous risk scoring with sizing multipliers and Telegram alerts
+- Added: bracket order health monitor with intraday, pre-market, and post-close verification
+- Added: optional GBNF grammar enforcement path for XML commentary generation
+- Added: data quality ingestion gates with duplicate detection and batch halt alerts
+- Added: Notes page plus cloud CRUD API for pinned, tagged operator notes
+- Added: Council.jsx v2 with new agent identities, consensus labels, strategic prompt input, and parameter adjustment history
+- Added: HSHS radar chart and live phase-weight display on the Health page
+
+#### Infrastructure
+- Added: `scripts/verify_counts.py` for AGENTS.md count verification
+- Added: `scripts/schema_report.py` for canonical SQLite schema reporting
+- Added: `scripts/generate_dependency_graph.py` and generated `docs/dependency-graph.md`
+- Added: `scripts/render_architecture_doc.py` to regenerate the architecture inventory from live code
+- Added: strategy-specific pullback timeout support (15 -> 7 days)
+- Added: Render sync coverage for the new notes data path
+- Added: `bracket_health` and `user_notes` tables to the working schema
+- Fixed: SQLite connection handling in earnings enrichment (#52)
+- Fixed: kill-switch path handling so safety remains configurable without leaking ambient state into tests (#47)
+- Removed: stale council v1 compatibility wrappers from active code paths
+
+#### Documentation
+- Added: 11 architecture decision records under `docs/decisions/`
+- Rewrote: `docs/architecture.md` from the live module, route, and schema inventories
+- Rewrote: `docs/roadmap.md` to consolidate the confirmed March 28-29, 2026 decisions
+- Added: `docs/observation-log-template.md` for the Monday-through-Sunday operating rhythm
+- Updated: Framework v2.1 research integration notes for risk budgeting, EDGAR fundamentals, operating cadence, and fund-path deferrals
+- Documented: council prompt caching was evaluated and intentionally not enabled because the current agent prompts do not share a reusable long prefix
+
+---
+
 ## 2026-03-28 — Reliability Sprint + Research-Informed Features
 
 ### Critical Safety Fixes

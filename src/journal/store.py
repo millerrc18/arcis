@@ -1,3 +1,9 @@
+"""SQLite journal storage for recommendations and shadow trades.
+
+Called by: scan_service.py, executor.py, API routes
+Calls: sqlite3, models.py
+"""
+
 import sqlite3
 import uuid
 from datetime import datetime, timedelta
@@ -332,12 +338,13 @@ def update_shadow_trade(
 
 
 def get_open_shadow_trades(db_path: str = "ai_research_desk.sqlite3") -> list[dict]:
-    """Return all shadow trades with status 'open'."""
+    """Return all broker-open shadow trades, including pending exits."""
     initialize_database(db_path)
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT * FROM shadow_trades WHERE status = 'open' ORDER BY created_at DESC"
+            "SELECT * FROM shadow_trades WHERE status IN ('open', 'exit_pending') "
+            "ORDER BY created_at DESC"
         ).fetchall()
     return [dict(row) for row in rows]
 
@@ -404,7 +411,9 @@ def get_open_shadow_trade_for_ticker(
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT * FROM shadow_trades WHERE ticker = ? AND status IN ('pending', 'open') ORDER BY created_at DESC LIMIT 1",
+            "SELECT * FROM shadow_trades WHERE ticker = ? "
+            "AND status IN ('pending', 'open', 'exit_pending') "
+            "ORDER BY created_at DESC LIMIT 1",
             (ticker,),
         ).fetchone()
     return dict(row) if row else None

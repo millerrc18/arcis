@@ -1,0 +1,18 @@
+root ::= ws why-now-block ws analysis-block ws metadata-block ws
+
+why-now-block  ::= "<why_now>" ws prose ws "</why_now>"
+analysis-block ::= "<analysis>" ws prose ws "</analysis>"
+metadata-block ::= "<metadata>" ws metadata-lines ws "</metadata>"
+
+metadata-lines ::= conviction-line ws direction-line ws horizon-line ws risk-line
+
+conviction-line ::= "Conviction: " digit
+direction-line  ::= "Direction: " ("LONG" | "SHORT" | "NEUTRAL")
+horizon-line    ::= "Time Horizon: " prose-line
+risk-line       ::= "Key Risk: " prose-line
+
+digit      ::= [1-9] | "10"
+prose      ::= prose-char+
+prose-char ::= [^<]
+prose-line ::= [^\n]+
+ws         ::= [ \t\n\r]*

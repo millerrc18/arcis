@@ -77,6 +77,8 @@ llm:
   temperature: 0.7
   max_tokens: 1500
   timeout_seconds: 180
+  use_grammar_enforcement: false # Enable after testing llama-cpp-python
+  grammar_file: "config/trade_commentary.gbnf"
 
 api:
   models:
@@ -113,6 +115,13 @@ risk_governor:
   max_sector_pct: 0.30 # No sector > 30% of portfolio
   max_correlated: 3 # Max positions in same sector
   vol_halt_pct: 35.0 # Halt new longs if VIX proxy > 35%
+  kill_switch_file: data/trading_halted
+
+event_risk:
+  enabled: true
+  block_threshold: 8      # hard block above this score
+  alert_threshold: 6      # Telegram alert above this
+  sizing_floor: 0.25      # minimum sizing multiplier
 
 regime_adaptive:
   enabled: true # Auto-adjust qualification thresholds by market regime

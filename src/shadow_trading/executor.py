@@ -18,6 +18,8 @@ from src.models import TradePacket
 from src.shadow_trading.models import ShadowTrade
 
 logger = logging.getLogger(__name__)
+FILLED_ORDER_STATUSES = {"filled", "partially_filled", "closed"}
+PENDING_ORDER_STATUSES = {"new", "accepted", "pending_new", "accepted_for_bidding", "held"}
 
 
 def _parse_price(value) -> float:
@@ -31,6 +33,28 @@ def _parse_price(value) -> float:
         except ValueError:
             return 0.0
     return 0.0
+
+
+def _is_filled_status(status: str | None) -> bool:
+    """Return True when a broker order status represents a completed exit."""
+    return str(status or "").lower() in FILLED_ORDER_STATUSES
+
+
+def _is_pending_status(status: str | None) -> bool:
+    """Return True when an exit order exists but has not filled yet."""
+    return str(status or "").lower() in PENDING_ORDER_STATUSES
+
+
+def _submit_exit_order(trade: dict, shares: int) -> dict:
+    """Submit the appropriate broker exit order for a paper or live trade."""
+    if trade.get("source") == "live":
+        from src.shadow_trading.alpaca_adapter import place_live_exit
+
+        return place_live_exit(trade["ticker"], 0)
+
+    from src.shadow_trading.alpaca_adapter import place_paper_exit
+
+    return place_paper_exit(trade["ticker"], shares)
 
 
 def open_shadow_trade(
@@ -58,7 +82,8 @@ def open_shadow_trade(
             logger.warning("[VALIDATE] Trade rejected for %s: %s", packet.ticker, reason)
             return None
     except ImportError:
-        pass  # Validator module not installed, continue without
+        logger.error("[VALIDATE] Validator import failed for %s — REJECTING trade", packet.ticker)
+        return None
     except Exception as e:
         logger.error("[VALIDATE] Validation check failed for %s: %s — REJECTING trade", packet.ticker, e)
         return None  # Trade rejected — never proceed on validation failure
@@ -69,20 +94,30 @@ def open_shadow_trade(
         governor = RiskGovernor(config)
         portfolio = get_portfolio_state(db_path)
         tl_mult = features.get("traffic_light_multiplier", 1.0)
+        event_mult = features.get("event_risk_multiplier", 1.0)
         check = governor.check_trade(
             packet.ticker,
             packet.position_sizing.allocation_dollars,
             features,
             portfolio,
             traffic_light_multiplier=tl_mult,
+            event_risk_multiplier=event_mult,
         )
         if not check["approved"]:
             reason = check.get("rejection_reason", "Risk check failed")
             logger.warning("[RISK] Trade rejected for %s: %s", packet.ticker, reason)
             logger.info("[RISK] BLOCKED: %s — %s", packet.ticker, reason)
             return None
+        packet.position_sizing.allocation_dollars = check.get(
+            "effective_allocation_dollars",
+            packet.position_sizing.allocation_dollars,
+        )
+        if packet.position_sizing.allocation_dollars <= 0:
+            logger.warning("[RISK] Effective allocation reduced to zero for %s", packet.ticker)
+            return None
     except ImportError:
-        pass  # Risk module not available, continue without
+        logger.error("[RISK] Governor import failed for %s — REJECTING trade", packet.ticker)
+        return None
     except Exception as e:
         logger.error("[RISK] Governor check failed for %s: %s — REJECTING trade", packet.ticker, e)
         return None  # Trade rejected — never proceed on risk check failure
@@ -183,7 +218,8 @@ def open_shadow_trade(
                         logger.warning("[RISK] Drawdown alert notification failed: %s", e)
                     break  # Only alert at highest crossed threshold
     except Exception as e:
-        logger.warning("[RISK] Drawdown check failed: %s — continuing with full size", e)
+        logger.error("[RISK] Drawdown check failed for %s: %s — REJECTING trade", packet.ticker, e)
+        return None
 
     planned_shares = max(1, int(packet.position_sizing.allocation_dollars / entry_price)) if entry_price > 0 else 1
     planned_allocation = packet.position_sizing.allocation_dollars
@@ -254,11 +290,11 @@ def open_shadow_trade(
 
         except Exception as e2:
             logger.warning(f"[SHADOW] Alpaca order failed for {ticker}: {e2}")
-            logger.warning("[SHADOW] Alpaca order failed for %s: %s, recording trade without Alpaca", ticker, e2)
+            logger.error("[SHADOW] Both bracket and fallback entry failed for %s: %s", ticker, e2)
             trade_data["actual_entry_price"] = entry_price
             trade_data["actual_entry_time"] = now.isoformat()
-            trade_data["status"] = "open"
-            trade_data["order_type"] = "simple"
+            trade_data["status"] = "failed"
+            trade_data["order_type"] = "failed"
             trade_data["max_favorable_excursion"] = 0.0
             trade_data["max_adverse_excursion"] = 0.0
 
@@ -280,7 +316,7 @@ def open_shadow_trade(
     # Implementation Shortfall tracking
     signal_price = features.get("signal_price")
     actual_fill = trade_data.get("actual_entry_price", entry_price)
-    if signal_price and signal_price > 0 and trade_id:
+    if signal_price and signal_price > 0 and trade_id and trade_data.get("status") == "open":
         try:
             is_bps = ((actual_fill - signal_price) / signal_price) * 10000
             with sqlite3.connect(db_path) as _is_conn:
@@ -295,7 +331,7 @@ def open_shadow_trade(
             logger.warning("[IS] Failed to store IS for %s: %s", packet.ticker, e)
 
     # Update journal with shadow entry
-    if recommendation_id:
+    if recommendation_id and trade_data.get("status") == "open":
         update_recommendation(
             recommendation_id,
             {
@@ -306,16 +342,19 @@ def open_shadow_trade(
         )
 
     actual_price = trade_data.get("actual_entry_price", entry_price)
-    logger.info(
-        "[SHADOW] Opened shadow trade for %s at $%.2f (%d shares)",
-        ticker, actual_price, planned_shares,
-    )
+    if trade_data.get("status") == "open":
+        logger.info(
+            "[SHADOW] Opened shadow trade for %s at $%.2f (%d shares)",
+            ticker, actual_price, planned_shares,
+        )
 
-    # 1F. Check for trade open milestones
-    _check_open_milestones(db_path, source="paper")
+        # 1F. Check for trade open milestones
+        _check_open_milestones(db_path, source="paper")
 
-    # 1K. Check sector exposure
-    _check_sector_exposure(db_path)
+        # 1K. Check sector exposure
+        _check_sector_exposure(db_path)
+    else:
+        logger.error("[SHADOW] Recorded failed shadow trade for %s", ticker)
 
     return trade_id
 
@@ -344,6 +383,9 @@ def check_and_manage_open_trades(
     now = datetime.now(et)
 
     for trade in open_trades:
+        if trade.get("status") == "exit_pending":
+            continue
+
         ticker = trade["ticker"]
         entry_price = trade.get("actual_entry_price") or trade.get("entry_price", 0)
         stop_price = trade.get("stop_price", 0)
@@ -430,24 +472,64 @@ def check_and_manage_open_trades(
             exit_reason = "timeout"
 
         if exit_reason:
-            pnl_dollars = (current_price - entry_price) * shares
-            pnl_pct = ((current_price - entry_price) / entry_price * 100) if entry_price > 0 else 0
-
             # Exit slippage tracking
             signal_exit = current_price  # price that triggered exit
             exit_slippage_bps = 0.0
 
-            # Try to place paper sell
-            try:
-                from src.shadow_trading.alpaca_adapter import place_paper_exit
-                exit_result = place_paper_exit(ticker, shares)
-                fill_exit = exit_result.get("filled_avg_price") if isinstance(exit_result, dict) else None
-                if fill_exit:
-                    exit_slippage_bps = (float(fill_exit) - signal_exit) / signal_exit * 10000 if signal_exit > 0 else 0
-                    logger.info("[SLIPPAGE] %s exit: signal=$%.2f, fill=$%.2f, slippage=%.1f bps",
-                                ticker, signal_exit, float(fill_exit), exit_slippage_bps)
-            except Exception as e:
-                logger.warning(f"[SHADOW] Alpaca sell failed for {ticker}: {e}")
+            if not bracket_exit:
+                try:
+                    exit_result = _submit_exit_order(trade, shares)
+                except Exception as e:
+                    logger.error("[EXIT] Broker exit failed for %s — trade remains open: %s", ticker, e)
+                    continue
+
+                exit_status = exit_result.get("status") if isinstance(exit_result, dict) else None
+                if _is_filled_status(exit_status):
+                    fill_exit = exit_result.get("filled_avg_price") if isinstance(exit_result, dict) else None
+                    if fill_exit is not None:
+                        current_price = float(fill_exit)
+                        exit_slippage_bps = (
+                            (current_price - signal_exit) / signal_exit * 10000
+                            if signal_exit > 0
+                            else 0
+                        )
+                        logger.info(
+                            "[SLIPPAGE] %s exit: signal=$%.2f, fill=$%.2f, slippage=%.1f bps",
+                            ticker,
+                            signal_exit,
+                            current_price,
+                            exit_slippage_bps,
+                        )
+                elif _is_pending_status(exit_status):
+                    update_shadow_trade(
+                        trade["trade_id"],
+                        {"status": "exit_pending", "exit_reason": exit_reason},
+                        db_path,
+                    )
+                    logger.warning(
+                        "[EXIT] Order submitted but not filled for %s: %s",
+                        ticker,
+                        exit_result.get("order_id"),
+                    )
+                    actions.append(
+                        {
+                            "type": "exit_pending",
+                            "ticker": ticker,
+                            "exit_reason": exit_reason,
+                            "trade_id": trade["trade_id"],
+                        }
+                    )
+                    continue
+                else:
+                    logger.error(
+                        "[EXIT] Broker exit failed for %s — position still open (status=%s)",
+                        ticker,
+                        exit_status,
+                    )
+                    continue
+
+            pnl_dollars = (current_price - entry_price) * shares
+            pnl_pct = ((current_price - entry_price) / entry_price * 100) if entry_price > 0 else 0
 
             close_shadow_trade(
                 trade["trade_id"],
@@ -532,29 +614,19 @@ def check_and_manage_open_trades(
                 ticker, exit_reason, pnl_dollars, pnl_pct, days_open,
             )
 
-            # Close corresponding live position if this was a live trade
-            if trade.get("source") == "live":
-                try:
-                    from src.shadow_trading.alpaca_adapter import place_live_exit
-                    live_result = place_live_exit(ticker)
-                    logger.info("[LIVE] Closed live position for %s: %s", ticker, live_result)
-                    try:
-                        from src.notifications.telegram import notify_trade_closed, is_telegram_enabled
-                        if is_telegram_enabled():
-                            notify_trade_closed(ticker, pnl_dollars, pnl_pct, exit_reason, days_open, source="live")
-                    except Exception as e:
-                        logger.warning("[LIVE] Telegram notify_trade_closed failed for %s: %s", ticker, e)
-                except Exception as e:
-                    logger.error("[LIVE] Failed to close live position for %s: %s", ticker, e)
-
-            # Telegram notification (paper trades)
-            if trade.get("source") != "live":
-                try:
-                    from src.notifications.telegram import notify_trade_closed, is_telegram_enabled
-                    if is_telegram_enabled():
-                        notify_trade_closed(ticker, pnl_dollars, pnl_pct, exit_reason, days_open)
-                except Exception as e:
-                    logger.warning("[SHADOW] Telegram notify_trade_closed failed for %s: %s", ticker, e)
+            try:
+                from src.notifications.telegram import notify_trade_closed, is_telegram_enabled
+                if is_telegram_enabled():
+                    notify_trade_closed(
+                        ticker,
+                        pnl_dollars,
+                        pnl_pct,
+                        exit_reason,
+                        days_open,
+                        source=trade.get("source", "paper"),
+                    )
+            except Exception as e:
+                logger.warning("[SHADOW] Telegram notify_trade_closed failed for %s: %s", ticker, e)
 
             # 1F. Check for trade close milestones
             _check_close_milestones(db_path)
@@ -670,7 +742,8 @@ def open_live_trade(
                 logger.warning("[LIVE] Daily loss Telegram alert failed: %s", e)
             return None
     except Exception as e:
-        logger.debug("[LIVE] Daily loss check failed: %s", e)
+        logger.error("[LIVE] Daily loss guard failed for %s — REJECTING trade: %s", packet.ticker, e)
+        return None
 
     # Position limit check (live-specific)
     max_positions = live_cfg.get("max_open_positions", 2)
@@ -683,7 +756,8 @@ def open_live_trade(
             logger.info("[LIVE] At live position limit (%d), skipping", max_positions)
             return None
     except Exception as e:
-        logger.warning("[LIVE] Position limit check failed: %s — continuing", e)
+        logger.error("[LIVE] Position limit check failed for %s — REJECTING trade: %s", packet.ticker, e)
+        return None
 
     # Duplicate check (live-specific)
     ticker = packet.ticker
@@ -696,7 +770,8 @@ def open_live_trade(
             logger.info("[LIVE] Already have live trade for %s, skipping", ticker)
             return None
     except Exception as e:
-        logger.warning("[LIVE] Duplicate check failed: %s — continuing", e)
+        logger.error("[LIVE] Duplicate check failed for %s — REJECTING trade: %s", ticker, e)
+        return None
 
     # Use live-specific risk parameters
     live_risk = live_cfg.get("risk", {})

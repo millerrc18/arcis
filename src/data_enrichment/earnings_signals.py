@@ -46,88 +46,86 @@ def compute_earnings_signals(
     }
 
     try:
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-        now = datetime.now(ET)
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            now = datetime.now(ET)
 
-        # 1. Earnings proximity
-        try:
-            row = conn.execute(
-                "SELECT MIN(earnings_date) as next_date FROM earnings_calendar "
-                "WHERE ticker = ? AND earnings_date >= date('now')",
-                (ticker,),
-            ).fetchone()
-            if row and row["next_date"]:
-                next_dt = datetime.fromisoformat(row["next_date"])
-                result["earnings_proximity_days"] = (next_dt.date() - now.date()).days
-        except Exception:
-            pass
+            # 1. Earnings proximity
+            try:
+                row = conn.execute(
+                    "SELECT MIN(earnings_date) as next_date FROM earnings_calendar "
+                    "WHERE ticker = ? AND earnings_date >= date('now')",
+                    (ticker,),
+                ).fetchone()
+                if row and row["next_date"]:
+                    next_dt = datetime.fromisoformat(row["next_date"])
+                    result["earnings_proximity_days"] = (next_dt.date() - now.date()).days
+            except Exception:
+                pass
 
-        # 2. Last surprise
-        try:
-            row = conn.execute(
-                "SELECT eps_actual, eps_estimate FROM analyst_estimates "
-                "WHERE ticker = ? AND eps_actual IS NOT NULL "
-                "ORDER BY quarter DESC LIMIT 1",
-                (ticker,),
-            ).fetchone()
-            if row and row["eps_estimate"] and row["eps_estimate"] != 0:
-                surprise = ((row["eps_actual"] - row["eps_estimate"]) / abs(row["eps_estimate"])) * 100
-                result["last_surprise_pct"] = round(surprise, 1)
-                if surprise > 2:
-                    result["last_surprise_direction"] = "beat"
-                elif surprise < -2:
-                    result["last_surprise_direction"] = "miss"
+            # 2. Last surprise
+            try:
+                row = conn.execute(
+                    "SELECT eps_actual, eps_estimate FROM analyst_estimates "
+                    "WHERE ticker = ? AND eps_actual IS NOT NULL "
+                    "ORDER BY quarter DESC LIMIT 1",
+                    (ticker,),
+                ).fetchone()
+                if row and row["eps_estimate"] and row["eps_estimate"] != 0:
+                    surprise = ((row["eps_actual"] - row["eps_estimate"]) / abs(row["eps_estimate"])) * 100
+                    result["last_surprise_pct"] = round(surprise, 1)
+                    if surprise > 2:
+                        result["last_surprise_direction"] = "beat"
+                    elif surprise < -2:
+                        result["last_surprise_direction"] = "miss"
+                    else:
+                        result["last_surprise_direction"] = "inline"
+            except Exception:
+                pass
+
+            # 3. Revenue-EPS concordance
+            try:
+                row = conn.execute(
+                    "SELECT revenue_actual, revenue_estimate, eps_actual, eps_estimate "
+                    "FROM analyst_estimates WHERE ticker = ? AND eps_actual IS NOT NULL "
+                    "AND revenue_actual IS NOT NULL ORDER BY quarter DESC LIMIT 1",
+                    (ticker,),
+                ).fetchone()
+                if row and row["revenue_estimate"] and row["eps_estimate"]:
+                    rev_beat = (row["revenue_actual"] or 0) > (row["revenue_estimate"] or 0)
+                    eps_beat = (row["eps_actual"] or 0) > (row["eps_estimate"] or 0)
+                    result["last_revenue_eps_concordant"] = (rev_beat == eps_beat)
+            except Exception:
+                pass
+
+            # 4. Analyst revision velocity (30-day)
+            try:
+                rows = conn.execute(
+                    "SELECT eps_estimate, collected_at FROM analyst_estimates "
+                    "WHERE ticker = ? AND eps_estimate IS NOT NULL "
+                    "ORDER BY collected_at DESC LIMIT 10",
+                    (ticker,),
+                ).fetchall()
+                if rows and len(rows) >= 2:
+                    latest = rows[0]["eps_estimate"]
+                    oldest = rows[-1]["eps_estimate"]
+                    if oldest and oldest != 0:
+                        velocity = ((latest - oldest) / abs(oldest)) * 100
+                        result["analyst_revision_velocity_30d"] = round(velocity, 1)
+            except Exception:
+                pass
+
+            # 5. Recommendation inconsistency
+            if result["last_surprise_direction"] == "beat" and result.get("analyst_revision_velocity_30d") is not None:
+                if result["analyst_revision_velocity_30d"] < -2:
+                    result["recommendation_inconsistency"] = True
                 else:
-                    result["last_surprise_direction"] = "inline"
-        except Exception:
-            pass
-
-        # 3. Revenue-EPS concordance
-        try:
-            row = conn.execute(
-                "SELECT revenue_actual, revenue_estimate, eps_actual, eps_estimate "
-                "FROM analyst_estimates WHERE ticker = ? AND eps_actual IS NOT NULL "
-                "AND revenue_actual IS NOT NULL ORDER BY quarter DESC LIMIT 1",
-                (ticker,),
-            ).fetchone()
-            if row and row["revenue_estimate"] and row["eps_estimate"]:
-                rev_beat = (row["revenue_actual"] or 0) > (row["revenue_estimate"] or 0)
-                eps_beat = (row["eps_actual"] or 0) > (row["eps_estimate"] or 0)
-                result["last_revenue_eps_concordant"] = (rev_beat == eps_beat)
-        except Exception:
-            pass
-
-        # 4. Analyst revision velocity (30-day)
-        try:
-            rows = conn.execute(
-                "SELECT eps_estimate, collected_at FROM analyst_estimates "
-                "WHERE ticker = ? AND eps_estimate IS NOT NULL "
-                "ORDER BY collected_at DESC LIMIT 10",
-                (ticker,),
-            ).fetchall()
-            if rows and len(rows) >= 2:
-                latest = rows[0]["eps_estimate"]
-                oldest = rows[-1]["eps_estimate"]
-                if oldest and oldest != 0:
-                    velocity = ((latest - oldest) / abs(oldest)) * 100
-                    result["analyst_revision_velocity_30d"] = round(velocity, 1)
-        except Exception:
-            pass
-
-        # 5. Recommendation inconsistency
-        if result["last_surprise_direction"] == "beat" and result.get("analyst_revision_velocity_30d") is not None:
-            if result["analyst_revision_velocity_30d"] < -2:
-                result["recommendation_inconsistency"] = True
-            else:
-                result["recommendation_inconsistency"] = False
-        elif result["last_surprise_direction"] == "miss" and result.get("analyst_revision_velocity_30d") is not None:
-            if result["analyst_revision_velocity_30d"] > 2:
-                result["recommendation_inconsistency"] = True
-            else:
-                result["recommendation_inconsistency"] = False
-
-        conn.close()
+                    result["recommendation_inconsistency"] = False
+            elif result["last_surprise_direction"] == "miss" and result.get("analyst_revision_velocity_30d") is not None:
+                if result["analyst_revision_velocity_30d"] > 2:
+                    result["recommendation_inconsistency"] = True
+                else:
+                    result["recommendation_inconsistency"] = False
 
     except Exception as e:
         logger.warning("[EARNINGS] Signal computation failed for %s: %s", ticker, e)

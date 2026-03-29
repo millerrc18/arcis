@@ -39,7 +39,12 @@ def close_trade(ticker: str, reason: str = "manual"):
         get_open_shadow_trades, close_shadow_trade,
         update_recommendation, update_shadow_trade,
     )
-    from src.shadow_trading.executor import _get_current_price_safe
+    from src.shadow_trading.executor import (
+        _get_current_price_safe,
+        _is_filled_status,
+        _is_pending_status,
+        _submit_exit_order,
+    )
 
     ticker = ticker.upper()
     ET = ZoneInfo("America/New_York")
@@ -51,8 +56,6 @@ def close_trade(ticker: str, reason: str = "manual"):
 
     entry = trade.get("actual_entry_price") or trade.get("entry_price", 0)
     current = _get_current_price_safe(ticker) or entry
-    pnl_dollars = (current - entry) * trade.get("planned_shares", 1)
-    pnl_pct = ((current - entry) / entry * 100) if entry > 0 else 0
     now = datetime.now(ET)
 
     entry_time_str = trade.get("actual_entry_time") or trade.get("created_at", "")
@@ -61,6 +64,35 @@ def close_trade(ticker: str, reason: str = "manual"):
         days_held = (now - entry_time).days
     except (ValueError, TypeError):
         days_held = 0
+
+    shares = trade.get("planned_shares", 1)
+    if trade.get("source") == "live" or trade.get("alpaca_order_id"):
+        try:
+            broker_result = _submit_exit_order(trade, shares)
+        except Exception as exc:
+            return {"error": f"Broker exit failed — trade remains open ({exc})"}
+
+        status = broker_result.get("status") if isinstance(broker_result, dict) else None
+        if _is_filled_status(status):
+            fill_price = broker_result.get("filled_avg_price")
+            if fill_price is not None:
+                current = float(fill_price)
+        elif _is_pending_status(status):
+            update_shadow_trade(
+                trade["trade_id"],
+                {"status": "exit_pending", "exit_reason": reason, "duration_days": days_held},
+            )
+            return {
+                "ticker": ticker,
+                "status": "exit_pending",
+                "broker_order_id": broker_result.get("order_id"),
+                "message": "Broker exit submitted but not yet filled",
+            }
+        else:
+            return {"error": "Broker exit failed — trade remains open"}
+
+    pnl_dollars = (current - entry) * shares
+    pnl_pct = ((current - entry) / entry * 100) if entry > 0 else 0
 
     close_shadow_trade(
         trade["trade_id"],

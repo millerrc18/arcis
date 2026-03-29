@@ -1,6 +1,6 @@
-# The Halcyon Framework v2: Compute, Value, Moat, and Multi-Strategy Architecture
+# The Halcyon Framework v2.1: Compute, Value, Moat, and Multi-Strategy Architecture
 
-> **Updated March 28, 2026** — Incorporates findings from 3 new research documents: Multi-Strategy Scaling, Complete Research Agenda (13 questions), and AI Council Redesign.
+> **Updated March 29, 2026** — Incorporates the March 28-29, 2026 research pass, including multi-strategy scaling, council redesign, event-risk handling, data-quality gates, and the remaining operating-compendium decisions.
 
 ---
 
@@ -20,6 +20,21 @@
 | Hardware path | RTX 3060 → 3090 | RTX 3060 (5 strategies) → RTX 3090 (10-12) → Dual 3090 NVLink (20) |
 | Execution tracking | Not specified | Implementation Shortfall logging from day 1 |
 | Statistical validation | Not specified | PSR/MinTRL/DSR framework with Triple Penance Rule |
+
+---
+
+## Changes from v2 to v2.1
+
+| Area | v2 | v2.1 addition |
+|---|---|---|
+| Data infrastructure | SQLite + sync path implied | SQLite remains the core local store for 10-20 years of solo operation; Render stays the low-cost cloud mirror for dashboard use. |
+| Operating budget | Infra path discussed abstractly | Render baseline stays in the low-cost solo range (~$13/mo class) until multi-desk scale forces a bigger footprint. |
+| Model serving hygiene | Daily cadence covered broadly | Ollama daily restart plus morning warm-up is now a formal operating rule, not an incidental implementation detail. |
+| Statistical gating | PSR/MinTRL/DSR defined | MinBTL-style evidence discipline and pre-commitment rules are treated as operating constraints before scaling capital. |
+| Risk budgeting | Equal-weight discussed for early phases | 1/N style allocation is explicitly locked in until roughly 200 trades, even if more advanced sizing research exists. |
+| Fundamental data source | EDGAR discussed generally | SEC `companyfacts.zip` is the preferred free fundamentals backbone for scale and consistency. |
+| Feature maintenance | Feature importance noted | Section-ablation / feature-importance review is now a lightweight recurring maintenance ritual (~35 minutes per month). |
+| Business path | Fund formation future-facing | Fund formation remains tabled until a 12-24 month track record and roughly $50K-$75K of setup readiness are justified. |
 
 ---
 

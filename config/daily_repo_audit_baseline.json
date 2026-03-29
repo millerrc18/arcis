@@ -1,0 +1,64 @@
+{
+  "expected_failures": [
+    {
+      "task_id": "validator_real_packet_probe",
+      "issue_number": 40,
+      "reason": "validate_llm_output uses a legacy packet contract instead of the real TradePacket schema"
+    },
+    {
+      "task_id": "live_guard_fail_closed_probe",
+      "issue_number": 42,
+      "reason": "live trading safety checks continue toward order placement when state queries fail"
+    },
+    {
+      "task_id": "live_close_broker_truth_probe",
+      "issue_number": 41,
+      "reason": "live positions are marked closed locally before broker confirmation"
+    },
+    {
+      "task_id": "local_shadow_close_live_guard_probe",
+      "issue_number": 45,
+      "reason": "local shadow close path can close live trades without broker exit"
+    },
+    {
+      "task_id": "paper_entry_requires_broker_probe",
+      "issue_number": 46,
+      "reason": "paper trades are recorded locally even when Alpaca submission fails"
+    },
+    {
+      "task_id": "council_schema_probe",
+      "issue_number": 44,
+      "reason": "council queries drift from the repo's current database schema"
+    },
+    {
+      "task_id": "watch_notification_contract_probe",
+      "issue_number": 48,
+      "reason": "watch loop notification path references nonexistent PositionSizing fields"
+    },
+    {
+      "task_id": "risk_governor_tests",
+      "issue_number": 47,
+      "reason": "ambient kill-switch file contaminates tests and environments"
+    },
+    {
+      "task_id": "council_agents_contracts",
+      "issue_number": 43,
+      "reason": "council v2 migration removed legacy contract surfaces without finishing the migration"
+    },
+    {
+      "task_id": "council_protocol_contracts",
+      "issue_number": 43,
+      "reason": "council orchestration, parsing, and storage contracts drifted from callers and tests"
+    },
+    {
+      "task_id": "features_fixture_tests",
+      "issue_number": 49,
+      "reason": "feature-engine tests are date-sensitive on non-business days"
+    },
+    {
+      "task_id": "main_refactor_tests",
+      "issue_number": 50,
+      "reason": "main.py exceeds its own size guardrail"
+    }
+  ]
+}

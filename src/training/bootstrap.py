@@ -5,12 +5,18 @@ import logging
 import random
 import sqlite3
 import uuid
+from collections import Counter
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import load_config
 from src.llm.prompts import TRAINING_EXAMPLE_PROMPT
 from src.training.claude_client import generate_training_example
+from src.training.ingestion_gate import (
+    alert_training_halt,
+    should_halt_batch,
+    validate_training_example,
+)
 from src.training.versioning import init_training_tables
 
 logger = logging.getLogger(__name__)
@@ -55,6 +61,9 @@ def generate_synthetic_training_data(
         return 0
 
     count = 0
+    attempted = 0
+    rejected = 0
+    rejection_reasons: Counter[str] = Counter()
     for i in range(n_examples):
         ticker = random.choice(list(ohlcv_data.keys()))
         ohlcv = ohlcv_data.get(ticker)
@@ -114,6 +123,19 @@ MFE: ${mfe:.2f} | MAE: ${mae:.2f}"""
         if response is None:
             logger.warning("[TRAINING] Failed to generate synthetic for %s, skipping", ticker)
             continue
+        attempted += 1
+
+        is_valid, rejection_reason = validate_training_example(response, db_path)
+        if not is_valid:
+            rejected += 1
+            rejection_reasons[rejection_reason] += 1
+            logger.warning("[TRAINING] Rejected synthetic example for %s: %s", ticker, rejection_reason)
+            halt, compliance, top_reason = should_halt_batch(attempted, rejected, rejection_reasons)
+            if halt:
+                alert_training_halt(compliance, rejected, attempted, top_reason)
+                logger.error("[TRAINING] Halting bootstrap batch at %.1f%% compliance", compliance)
+                break
+            continue
 
         example_id = str(uuid.uuid4())
         created_at = datetime.now(ET).isoformat()
@@ -135,5 +157,11 @@ MFE: ${mfe:.2f} | MAE: ${mae:.2f}"""
         if count % 10 == 0:
             cost = estimate_bootstrap_cost(count)
             logger.info("  [TRAINING] Bootstrap progress: %d/%d (est. cost: $%.2f)", count, n_examples, cost)
+
+        halt, compliance, top_reason = should_halt_batch(attempted, rejected, rejection_reasons)
+        if halt:
+            alert_training_halt(compliance, rejected, attempted, top_reason)
+            logger.error("[TRAINING] Halting bootstrap batch at %.1f%% compliance", compliance)
+            break
 
     return count

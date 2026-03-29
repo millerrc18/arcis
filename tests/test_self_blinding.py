@@ -190,10 +190,21 @@ class TestSelfBlindingDataCollector:
 
         # Stage 1 succeeds, Stage 2 fails
         call_count = [0]
+        valid_stage1 = (
+            "<why_now>AAPL is pulling back within an intact uptrend, and the current setup still "
+            "offers a favorable entry against clear invalidation.</why_now>"
+            "<analysis>The broader tape remains constructive, price is resting near support, and "
+            "recent participation suggests buyers are still defending the trend. The setup has enough "
+            "room to work over the next week without requiring an immediate breakout, which keeps the "
+            "risk-reward profile acceptable for a swing entry.</analysis>"
+            "<metadata>Conviction: 7\nDirection: LONG\nTime Horizon: 5-10 trading days\n"
+            "Key Risk: Market breadth weakens and the pullback deepens into a true trend break.</metadata>"
+        )
+
         def side_effect(system, user, **kwargs):
             call_count[0] += 1
             if call_count[0] == 1:
-                return "<why_now>Stage1</why_now><analysis>Stage1 analysis</analysis><metadata>Conviction: 7</metadata>"
+                return valid_stage1
             return None  # Stage 2 fails
         mock_gen.side_effect = side_effect
 
@@ -206,4 +217,4 @@ class TestSelfBlindingDataCollector:
         if insert_calls:
             args = insert_calls[-1][0][1]
             output_text = args[-1]  # Last argument is output_text
-            assert "Stage1" in output_text
+            assert output_text == valid_stage1

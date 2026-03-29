@@ -18,6 +18,7 @@ import Roadmap from './pages/Roadmap'
 import Docs from './pages/Docs'
 import Council from './pages/Council'
 import Health from './pages/Health'
+import Notes from './pages/Notes'
 import Validation from './pages/Validation'
 
 const queryClient = new QueryClient({
@@ -77,6 +78,7 @@ export default function App() {
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/roadmap" element={<Roadmap />} />
                 <Route path="/docs" element={<Docs />} />
+                <Route path="/notes" element={<Notes />} />
                 <Route path="/council" element={<Council />} />
                 <Route path="/health" element={<Health />} />
                 <Route path="/validation" element={<Validation />} />

@@ -253,12 +253,30 @@ def enhance_packet_with_llm(packet: TradePacket, features: dict,
         logger.info("[LLM] Disabled in config — fallback to template for %s", packet.ticker)
         return packet
 
-    if not is_llm_available():
-        logger.warning("[LLM] Ollama not reachable — fallback to template for %s", packet.ticker)
-        return packet
-
     prompt = _build_feature_prompt(packet, features)
-    response = generate(prompt, PACKET_SYSTEM_PROMPT)
+    response = None
+    grammar_enabled = llm_cfg.get("use_grammar_enforcement", False)
+
+    if grammar_enabled:
+        try:
+            from src.llm.grammar_client import generate_with_grammar
+            response = generate_with_grammar(
+                prompt,
+                PACKET_SYSTEM_PROMPT,
+                max_tokens=llm_cfg.get("max_tokens", 1500),
+                temperature=llm_cfg.get("temperature", 0.7),
+            )
+            if response is not None:
+                logger.info("[LLM] Using grammar-constrained path for %s", packet.ticker)
+        except Exception as exc:
+            logger.warning("[LLM] Grammar path unavailable for %s: %s", packet.ticker, exc)
+
+    if response is None:
+        if not is_llm_available():
+            logger.warning("[LLM] Ollama not reachable — fallback to template for %s", packet.ticker)
+            return packet
+        logger.info("[LLM] Using Ollama path for %s", packet.ticker)
+        response = generate(prompt, PACKET_SYSTEM_PROMPT)
 
     if response is None:
         # Retry with condensed prompt (technical + trade params only, no enrichment)

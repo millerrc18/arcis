@@ -1,678 +1,395 @@
-"""Tests for the AI Council system.
-
-Mocks the Claude API to test agent data payloads, protocol rounds,
-vote tallying, devil's advocate rotation, and session storage.
-"""
+"""Tests for the council v2 vote-first workflow."""
 
 import json
 import sqlite3
 import uuid
-from datetime import datetime
-from unittest.mock import patch, MagicMock
+from datetime import datetime, timedelta
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 import pytest
 
-ET = ZoneInfo("America/New_York")
+from src.council.agents import AGENT_NAMES
+from src.council.engine import CouncilEngine, init_council_tables
+from src.council.protocol import (
+    _parse_agent_response,
+    aggregate_votes,
+    build_shared_context,
+    run_round_1,
+    run_round_2,
+    tally_votes,
+)
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
+ET = ZoneInfo("America/New_York")
 
 
 def _make_agent_response(
     agent: str,
-    position: str = "neutral",
-    confidence: int = 7,
-    vote: str = "hold_steady",
+    direction: str = "bullish",
+    confidence: float = 0.8,
+    sizing: float = 1.1,
+    reserve: int = 18,
+    scan: str = "normal",
 ) -> str:
-    """Build a mock Claude response string for a given agent."""
+    """Build a mock council v2 JSON response."""
     return json.dumps(
         {
             "agent": agent,
-            "position": position,
+            "direction": direction,
             "confidence": confidence,
-            "recommendation": f"Mock analysis from {agent}.",
-            "key_data_points": [f"{agent}_point_1", f"{agent}_point_2"],
-            "risk_flags": [],
-            "vote": vote,
+            "parameters": {
+                "position_sizing_multiplier": sizing,
+                "cash_reserve_target_pct": reserve,
+                "scan_aggressiveness": scan,
+            },
+            "sector_tilts": {"prefer": ["Technology"], "avoid": ["Utilities"]},
+            "key_reasoning": f"Mock analysis from {agent}.",
+            "key_risk": "Macro shock could disrupt the setup.",
+            "falsifiable_prediction": {
+                "claim": f"{agent} expects the next scan cadence to stay stable.",
+                "confidence": 0.7,
+                "verification_date": "2026-04-30",
+            },
         }
     )
 
 
 @pytest.fixture
 def council_db(tmp_path):
-    """Create a test database with the council and supporting tables."""
+    """Create a temp DB with the tables council v2 touches."""
     db_path = str(tmp_path / "test_council.sqlite3")
-    conn = sqlite3.connect(db_path)
-    conn.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS council_sessions (
-            session_id TEXT PRIMARY KEY,
-            session_type TEXT NOT NULL,
-            trigger_reason TEXT,
-            created_at TEXT NOT NULL,
-            consensus TEXT,
-            confidence_weighted_score REAL,
-            is_contested INTEGER DEFAULT 0,
-            total_cost REAL,
-            rounds_completed INTEGER DEFAULT 0
-        );
+    init_council_tables(db_path)
 
-        CREATE TABLE IF NOT EXISTS council_votes (
-            vote_id TEXT PRIMARY KEY,
-            session_id TEXT NOT NULL,
-            agent_name TEXT NOT NULL,
-            round INTEGER NOT NULL,
-            position TEXT,
-            confidence INTEGER,
-            recommendation TEXT,
-            key_data_points TEXT,
-            risk_flags TEXT,
-            vote TEXT,
-            is_devils_advocate INTEGER DEFAULT 0,
-            FOREIGN KEY (session_id) REFERENCES council_sessions(session_id)
-        );
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS recommendations (
+                recommendation_id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                ticker TEXT NOT NULL,
+                priority_score REAL,
+                confidence_score REAL,
+                market_regime TEXT,
+                sector_context TEXT
+            );
 
-        CREATE TABLE IF NOT EXISTS recommendations (
-            recommendation_id TEXT PRIMARY KEY,
-            created_at TEXT NOT NULL,
-            ticker TEXT NOT NULL,
-            company_name TEXT,
-            priority_score REAL,
-            confidence_score REAL,
-            setup_type TEXT,
-            trend_state TEXT,
-            relative_strength_state TEXT,
-            pullback_depth_pct REAL,
-            market_regime TEXT,
-            entry_zone TEXT,
-            stop_level TEXT,
-            target_1 TEXT,
-            target_2 TEXT,
-            sector_context TEXT,
-            recommendation TEXT,
-            thesis_text TEXT,
-            enriched_prompt TEXT
-        );
+            CREATE TABLE IF NOT EXISTS shadow_trades (
+                trade_id TEXT PRIMARY KEY,
+                recommendation_id TEXT,
+                ticker TEXT NOT NULL,
+                direction TEXT DEFAULT 'long',
+                status TEXT NOT NULL,
+                planned_allocation REAL,
+                actual_entry_time TEXT,
+                actual_exit_time TEXT,
+                pnl_dollars REAL,
+                pnl_pct REAL,
+                exit_reason TEXT,
+                max_adverse_excursion REAL,
+                created_at TEXT NOT NULL
+            );
 
-        CREATE TABLE IF NOT EXISTS shadow_trades (
-            trade_id TEXT PRIMARY KEY,
-            recommendation_id TEXT,
-            ticker TEXT NOT NULL,
-            direction TEXT DEFAULT 'long',
-            status TEXT NOT NULL,
-            entry_price REAL,
-            stop_price REAL,
-            target_1 REAL,
-            target_2 REAL,
-            planned_shares INTEGER,
-            actual_exit_price REAL,
-            pnl_dollars REAL,
-            pnl_pct REAL,
-            exit_reason TEXT,
-            max_favorable_excursion REAL,
-            max_adverse_excursion REAL,
-            actual_exit_time TEXT,
-            created_at TEXT NOT NULL,
-            shadow_duration_days REAL
-        );
+            CREATE TABLE IF NOT EXISTS vix_term_structure (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                collected_date TEXT,
+                vix REAL,
+                vix9d REAL,
+                vix3m REAL,
+                vix1y REAL
+            );
 
-        CREATE TABLE IF NOT EXISTS vix_daily (
-            date TEXT PRIMARY KEY,
-            vix_open REAL,
-            vix_high REAL,
-            vix_low REAL,
-            vix_close REAL
-        );
+            CREATE TABLE IF NOT EXISTS macro_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                series_id TEXT,
+                collected_date TEXT,
+                value REAL
+            );
 
-        CREATE TABLE IF NOT EXISTS vix_term_structure (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            collected_date TEXT,
-            vix REAL,
-            vix9d REAL,
-            vix3m REAL,
-            vix1y REAL,
-            term_structure_slope REAL,
-            near_term_ratio REAL
-        );
+            CREATE TABLE IF NOT EXISTS training_examples (
+                example_id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                quality_score REAL,
+                quality_score_auto REAL,
+                source TEXT,
+                difficulty TEXT,
+                curriculum_stage TEXT
+            );
 
-        CREATE TABLE IF NOT EXISTS macro_snapshots (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            series_id TEXT,
-            collected_date TEXT,
-            value REAL,
-            previous_value REAL,
-            change_pct REAL
-        );
+            CREATE TABLE IF NOT EXISTS model_versions (
+                version_id TEXT PRIMARY KEY,
+                version_name TEXT,
+                status TEXT,
+                created_at TEXT,
+                training_examples_count INTEGER
+            );
 
-        CREATE TABLE IF NOT EXISTS fred_observations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            series_id TEXT,
-            date TEXT,
-            value REAL
-        );
+            CREATE TABLE IF NOT EXISTS traffic_light_state (
+                id INTEGER PRIMARY KEY,
+                current_regime TEXT,
+                last_total_score INTEGER
+            );
 
-        CREATE TABLE IF NOT EXISTS training_examples (
-            example_id TEXT PRIMARY KEY,
-            created_at TEXT NOT NULL,
-            quality_score REAL,
-            quality_score_auto REAL,
-            quality_grade TEXT,
-            purpose TEXT,
-            source TEXT,
-            difficulty TEXT
-        );
+            CREATE TABLE IF NOT EXISTS scan_metrics (
+                metric_id TEXT PRIMARY KEY,
+                scan_time TEXT,
+                packet_worthy INTEGER,
+                llm_success INTEGER,
+                llm_total INTEGER,
+                avg_conviction REAL,
+                created_at TEXT
+            );
+            """
+        )
 
-        CREATE TABLE IF NOT EXISTS model_versions (
-            version_id TEXT PRIMARY KEY,
-            version_name TEXT,
-            status TEXT,
-            created_at TEXT,
-            training_examples_count INTEGER,
-            trade_count INTEGER,
-            win_rate REAL
-        );
-        """
-    )
-    # Seed some test data
-    now = datetime.now(ET).isoformat()
-    conn.execute(
-        "INSERT INTO recommendations VALUES (?, ?, 'AAPL', 'Apple', 85.0, 8, "
-        "'momentum', 'uptrend', 'strong', 2.5, 'risk_on', '175-177', '170', "
-        "'185', '195', 'Technology', 'BUY', 'Strong momentum', NULL)",
-        (str(uuid.uuid4()), now),
-    )
-    conn.execute(
-        "INSERT INTO shadow_trades VALUES (?, NULL, 'AAPL', 'long', 'open', "
-        "176.0, 170.0, 185.0, 195.0, 50, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, NULL)",
-        (str(uuid.uuid4()), now),
-    )
-    conn.execute(
-        "INSERT INTO vix_daily VALUES (?, 15.0, 16.0, 14.5, 15.2)",
-        (datetime.now(ET).strftime("%Y-%m-%d"),),
-    )
-    today = datetime.now(ET).strftime("%Y-%m-%d")
-    conn.execute(
-        "INSERT INTO vix_term_structure (collected_date, vix, vix9d, vix3m, vix1y, term_structure_slope, near_term_ratio) "
-        "VALUES (?, 15.2, 14.0, 16.5, 18.0, 0.05, 0.92)",
-        (today,),
-    )
-    conn.execute(
-        "INSERT INTO macro_snapshots (series_id, collected_date, value, previous_value, change_pct) "
-        "VALUES ('NFCI', ?, -0.5, -0.45, -11.1)",
-        (today,),
-    )
-    conn.execute(
-        "INSERT INTO macro_snapshots (series_id, collected_date, value, previous_value, change_pct) "
-        "VALUES ('BAMLH0A0HYM2', ?, 3.5, 3.4, 2.9)",
-        (today,),
-    )
-    conn.commit()
-    conn.close()
+        now = datetime.now(ET)
+        now_iso = now.isoformat()
+        yesterday = (now - timedelta(days=1)).isoformat()
+        two_days_ago = (now - timedelta(days=2)).isoformat()
+        today = now.strftime("%Y-%m-%d")
+
+        rec_id = str(uuid.uuid4())
+        conn.execute(
+            "INSERT INTO recommendations "
+            "(recommendation_id, created_at, ticker, priority_score, confidence_score, market_regime, sector_context) "
+            "VALUES (?, ?, 'AAPL', 85.0, 0.82, 'risk_on', 'Technology')",
+            (rec_id, now_iso),
+        )
+        conn.execute(
+            "INSERT INTO shadow_trades "
+            "(trade_id, recommendation_id, ticker, direction, status, planned_allocation, actual_entry_time, created_at) "
+            "VALUES (?, ?, 'AAPL', 'long', 'open', 10000, ?, ?)",
+            (str(uuid.uuid4()), rec_id, yesterday, yesterday),
+        )
+        conn.execute(
+            "INSERT INTO shadow_trades "
+            "(trade_id, recommendation_id, ticker, direction, status, planned_allocation, actual_entry_time, actual_exit_time, pnl_dollars, pnl_pct, exit_reason, max_adverse_excursion, created_at) "
+            "VALUES (?, ?, 'MSFT', 'long', 'closed', 9000, ?, ?, 220.0, 2.4, 'target_hit', -1.8, ?)",
+            (str(uuid.uuid4()), rec_id, two_days_ago, yesterday, two_days_ago),
+        )
+        conn.execute(
+            "INSERT INTO vix_term_structure (collected_date, vix, vix9d, vix3m, vix1y) "
+            "VALUES (?, 15.2, 14.0, 16.5, 18.0)",
+            (today,),
+        )
+        conn.executemany(
+            "INSERT INTO macro_snapshots (series_id, collected_date, value) VALUES (?, ?, ?)",
+            [
+                ("NFCI", today, -0.5),
+                ("BAMLH0A0HYM2", today, 3.5),
+                ("T10Y2Y", today, 0.45),
+                ("UNRATE", today, 4.0),
+            ],
+        )
+        conn.execute(
+            "INSERT INTO training_examples "
+            "(example_id, created_at, quality_score, quality_score_auto, source, difficulty, curriculum_stage) "
+            "VALUES ('ex1', ?, 0.84, 0.84, 'blinded_win', 'medium', 'stage_1')",
+            (now_iso,),
+        )
+        conn.execute(
+            "INSERT INTO model_versions "
+            "(version_id, version_name, status, created_at, training_examples_count) "
+            "VALUES ('v1', 'halcyon-v1', 'active', ?, 976)",
+            (now_iso,),
+        )
+        conn.execute(
+            "INSERT INTO traffic_light_state (id, current_regime, last_total_score) "
+            "VALUES (1, 'GREEN', 5)"
+        )
+        conn.execute(
+            "INSERT INTO scan_metrics "
+            "(metric_id, scan_time, packet_worthy, llm_success, llm_total, avg_conviction, created_at) "
+            "VALUES ('m1', '09:30', 3, 2, 3, 7.2, ?)",
+            (now_iso,),
+        )
     return db_path
 
 
-# ---------------------------------------------------------------------------
-# Agent data payload tests
-# ---------------------------------------------------------------------------
-
-
-class TestAgentDataPayloads:
-    """Test that each agent's data gathering function returns a dict."""
-
-    def test_risk_officer_returns_dict(self, council_db):
-        from src.council.agents import gather_risk_officer_data
-
-        result = gather_risk_officer_data(db_path=council_db)
-        assert isinstance(result, dict)
-        assert "open_trades" in result
-        assert "vix_data" in result
-
-    def test_alpha_strategist_returns_dict(self, council_db):
-        from src.council.agents import gather_alpha_strategist_data
-
-        result = gather_alpha_strategist_data(db_path=council_db)
-        assert isinstance(result, dict)
-        assert "top_candidates" in result
-
-    def test_data_scientist_returns_dict(self, council_db):
-        from src.council.agents import gather_data_scientist_data
-
-        result = gather_data_scientist_data(db_path=council_db)
-        assert isinstance(result, dict)
-        assert "score_distribution" in result
-
-    def test_regime_analyst_returns_dict(self, council_db):
-        from src.council.agents import gather_regime_analyst_data
-
-        result = gather_regime_analyst_data(db_path=council_db)
-        assert isinstance(result, dict)
-        assert "vix_term_structure" in result
-
-    def test_devils_advocate_returns_dict(self, council_db):
-        from src.council.agents import gather_devils_advocate_data
-
-        mock_assessments = [{"agent": "risk_officer", "vote": "hold_steady"}]
-        result = gather_devils_advocate_data(mock_assessments, db_path=council_db)
-        assert isinstance(result, dict)
-        assert "round1_assessments" in result
-        assert result["round1_assessments"] == mock_assessments
-
-    def test_data_functions_return_empty_on_bad_db(self):
-        """All data functions should return empty dict on failure."""
-        from src.council.agents import (
-            gather_risk_officer_data,
-            gather_alpha_strategist_data,
-            gather_data_scientist_data,
-            gather_regime_analyst_data,
-        )
-
-        bad_path = "/nonexistent/path/db.sqlite3"
-        assert gather_risk_officer_data(db_path=bad_path) == {}
-        assert gather_alpha_strategist_data(db_path=bad_path) == {}
-        assert gather_data_scientist_data(db_path=bad_path) == {}
-        assert gather_regime_analyst_data(db_path=bad_path) == {}
-
-
-# ---------------------------------------------------------------------------
-# Protocol round tests
-# ---------------------------------------------------------------------------
-
-
-class TestProtocolRounds:
-    """Test the three-round Delphi protocol logic."""
-
-    @patch("src.council.protocol._call_claude")
-    def test_round_1_produces_5_assessments(self, mock_claude, council_db):
-        """Round 1 should produce one assessment per agent (5 total)."""
-        from src.council.protocol import run_round_1, build_shared_context
-
-        # Mock Claude to return valid JSON for each agent
-        def side_effect(system_prompt, user_prompt, temperature=0.8):
-            # Determine which agent from the system prompt
-            for name in [
-                "risk_officer",
-                "alpha_strategist",
-                "data_scientist",
-                "regime_analyst",
-                "devils_advocate",
-            ]:
-                if name in system_prompt.lower().replace(" ", "_").replace("'", ""):
-                    return _make_agent_response(name)
-            return _make_agent_response("unknown")
-
-        mock_claude.side_effect = side_effect
-
-        context = build_shared_context(council_db)
-        assessments = run_round_1(context, db_path=council_db)
-
-        assert len(assessments) == 5
-        agent_names = {a["agent"] for a in assessments}
-        assert "risk_officer" in agent_names
-        assert "devils_advocate" in agent_names
-
-    @patch("src.council.protocol._call_claude")
-    def test_round_2_produces_5_assessments(self, mock_claude, council_db):
-        """Round 2 should produce one assessment per agent."""
-        from src.council.protocol import run_round_2
-
-        mock_claude.return_value = _make_agent_response("test_agent")
-
-        round1 = [
-            json.loads(_make_agent_response(name))
-            for name in [
-                "risk_officer",
-                "alpha_strategist",
-                "data_scientist",
-                "regime_analyst",
-                "devils_advocate",
-            ]
-        ]
-
-        assessments = run_round_2(round1)
-        assert len(assessments) == 5
-
-    @patch("src.council.protocol._call_claude")
-    def test_round_3_produces_5_assessments(self, mock_claude, council_db):
-        """Round 3 should produce one assessment per agent."""
-        from src.council.protocol import run_round_3
-
-        mock_claude.return_value = _make_agent_response("test_agent")
-
-        round2 = [
-            json.loads(_make_agent_response(name))
-            for name in [
-                "risk_officer",
-                "alpha_strategist",
-                "data_scientist",
-                "regime_analyst",
-                "devils_advocate",
-            ]
-        ]
-
-        assessments = run_round_3(round2)
-        assert len(assessments) == 5
-
-    @patch("src.council.protocol._call_claude")
-    def test_round_1_handles_api_failure(self, mock_claude, council_db):
-        """If Claude returns None, agents should get default responses."""
-        from src.council.protocol import run_round_1, build_shared_context
-
-        mock_claude.return_value = None
-
-        context = build_shared_context(council_db)
-        assessments = run_round_1(context, db_path=council_db)
-
-        assert len(assessments) == 5
-        for a in assessments:
-            assert a["confidence"] == 3  # default
-            assert a["vote"] == "hold_steady"  # default
-
-    @patch("src.council.protocol._call_claude")
-    def test_round_1_handles_malformed_json(self, mock_claude, council_db):
-        """Malformed JSON should trigger fallback to default response."""
-        from src.council.protocol import run_round_1, build_shared_context
-
-        mock_claude.return_value = "This is not valid JSON at all {{{}"
-
-        context = build_shared_context(council_db)
-        assessments = run_round_1(context, db_path=council_db)
-
-        assert len(assessments) == 5
-        for a in assessments:
-            assert a["vote"] == "hold_steady"
-
-
-# ---------------------------------------------------------------------------
-# Vote tallying tests
-# ---------------------------------------------------------------------------
-
-
-class TestVoteTallying:
-    def test_clear_supermajority(self):
-        """When one vote has >66% weighted confidence, consensus is reached."""
-        from src.council.protocol import tally_votes
-
-        assessments = [
-            {"agent": "a", "vote": "hold_steady", "confidence": 9},
-            {"agent": "b", "vote": "hold_steady", "confidence": 8},
-            {"agent": "c", "vote": "hold_steady", "confidence": 7},
-            {"agent": "d", "vote": "increase_exposure", "confidence": 3},
-            {"agent": "e", "vote": "reduce_exposure", "confidence": 2},
-        ]
-
-        result = tally_votes(assessments)
-        assert result["consensus"] == "hold_steady"
-        assert result["is_contested"] is False
-        assert result["confidence_weighted_score"] > 66.0
-
-    def test_contested_vote(self):
-        """When no vote reaches 66%, result is contested."""
-        from src.council.protocol import tally_votes
-
-        assessments = [
-            {"agent": "a", "vote": "hold_steady", "confidence": 5},
-            {"agent": "b", "vote": "hold_steady", "confidence": 4},
-            {"agent": "c", "vote": "increase_exposure", "confidence": 5},
-            {"agent": "d", "vote": "increase_exposure", "confidence": 4},
-            {"agent": "e", "vote": "reduce_exposure", "confidence": 5},
-        ]
-
-        result = tally_votes(assessments)
-        assert result["is_contested"] is True
-        assert result["consensus"] == "contested"
-        assert "human review" in result["reason"]
-
-    def test_unanimous_vote(self):
-        """Unanimous vote should have 100% weighted score."""
-        from src.council.protocol import tally_votes
-
-        assessments = [
-            {"agent": f"agent_{i}", "vote": "reduce_exposure", "confidence": 8}
-            for i in range(5)
-        ]
-
-        result = tally_votes(assessments)
-        assert result["consensus"] == "reduce_exposure"
-        assert result["confidence_weighted_score"] == 100.0
-        assert result["is_contested"] is False
-
-    def test_empty_assessments(self):
-        """Empty list should return contested hold_steady."""
-        from src.council.protocol import tally_votes
-
-        result = tally_votes([])
-        assert result["is_contested"] is True
-        assert result["consensus"] == "hold_steady"
-
-    def test_confidence_weighting_matters(self):
-        """A minority with high confidence can tip the balance."""
-        from src.council.protocol import tally_votes
-
-        # 2 agents vote increase with confidence 10 each = 20
-        # 3 agents vote hold with confidence 3 each = 9
-        # Total = 29, increase = 20/29 = 69% > 66%
-        assessments = [
-            {"agent": "a", "vote": "increase_exposure", "confidence": 10},
-            {"agent": "b", "vote": "increase_exposure", "confidence": 10},
-            {"agent": "c", "vote": "hold_steady", "confidence": 3},
-            {"agent": "d", "vote": "hold_steady", "confidence": 3},
-            {"agent": "e", "vote": "hold_steady", "confidence": 3},
-        ]
-
-        result = tally_votes(assessments)
-        assert result["consensus"] == "increase_exposure"
-        assert result["is_contested"] is False
-
-
-# ---------------------------------------------------------------------------
-# Devil's Advocate rotation
-# ---------------------------------------------------------------------------
-
-
-class TestDevilsAdvocate:
-    @patch("src.council.protocol._call_claude")
-    def test_devils_advocate_sees_round1(self, mock_claude, council_db):
-        """The devil's advocate should receive all Round 1 assessments."""
-        from src.council.protocol import run_round_1, build_shared_context
-
-        calls = []
-
-        def capture_calls(system_prompt, user_prompt, temperature=0.8):
-            calls.append(
-                {"system": system_prompt, "user": user_prompt}
-            )
-            return _make_agent_response("test")
-
-        mock_claude.side_effect = capture_calls
-
-        context = build_shared_context(council_db)
-        run_round_1(context, db_path=council_db)
-
-        # The 5th call (index 4) should be the devil's advocate
-        assert len(calls) == 5
-        da_call = calls[4]
-        assert "Devil's Advocate" in da_call["system"]
-        assert "ROUND 1 ASSESSMENTS" in da_call["user"]
-
-    @patch("src.council.protocol._call_claude")
-    def test_devils_advocate_is_flagged_in_votes(self, mock_claude, council_db):
-        """Devil's advocate votes should be marked in the database."""
-        from src.council.engine import CouncilEngine
-
-        mock_claude.return_value = _make_agent_response("test")
-
-        engine = CouncilEngine(db_path=council_db)
-        result = engine.run_session(session_type="test")
-
-        conn = sqlite3.connect(council_db)
-        conn.row_factory = sqlite3.Row
-        da_votes = conn.execute(
-            "SELECT * FROM council_votes WHERE is_devils_advocate = 1"
-        ).fetchall()
-        conn.close()
-
-        # Should have one DA vote per round (3 rounds)
-        assert len(da_votes) == 3
-
-
-# ---------------------------------------------------------------------------
-# Session storage tests
-# ---------------------------------------------------------------------------
-
-
-class TestSessionStorage:
-    @patch("src.council.protocol._call_claude")
-    def test_full_session_stores_in_db(self, mock_claude, council_db):
-        """A complete session should persist to council_sessions and council_votes."""
-        from src.council.engine import CouncilEngine
-
-        mock_claude.return_value = _make_agent_response(
-            "test", vote="hold_steady", confidence=8
-        )
-
-        engine = CouncilEngine(db_path=council_db)
-        result = engine.run_session(session_type="daily")
-
-        assert result["rounds_completed"] == 3
-        assert result["session_id"] is not None
-
-        # Check database
-        conn = sqlite3.connect(council_db)
-        conn.row_factory = sqlite3.Row
-
-        session = conn.execute(
-            "SELECT * FROM council_sessions WHERE session_id = ?",
+def test_build_shared_context_includes_core_sections(council_db):
+    context = build_shared_context(council_db)
+    assert "Today's scan:" in context
+    assert "Open positions:" in context
+    assert "System Health (HSHS):" in context
+    assert "Traffic Light:" in context
+    assert "VIX:" in context
+
+
+@patch("src.council.protocol._call_claude")
+def test_round_1_returns_all_current_agents(mock_claude, council_db):
+    mock_claude.side_effect = [_make_agent_response(agent) for agent in AGENT_NAMES]
+    assessments = run_round_1(build_shared_context(council_db), db_path=council_db)
+
+    assert len(assessments) == len(AGENT_NAMES)
+    assert {item["agent"] for item in assessments} == set(AGENT_NAMES)
+    assert {item["direction"] for item in assessments} == {"bullish"}
+
+
+@patch("src.council.protocol._call_claude")
+def test_round_1_uses_default_response_on_api_failure(mock_claude, council_db):
+    mock_claude.return_value = None
+    assessments = run_round_1(build_shared_context(council_db), db_path=council_db)
+
+    assert len(assessments) == len(AGENT_NAMES)
+    assert all(item["direction"] == "neutral" for item in assessments)
+    assert all(item["confidence"] == 0.1 for item in assessments)
+    assert all(item["vote"] == "hold_steady" for item in assessments)
+
+
+@patch("src.council.protocol._call_claude")
+def test_round_2_includes_round_1_summary_and_tracks_flips(mock_claude):
+    round1 = [
+        _parse_agent_response(_make_agent_response(agent, direction="neutral", confidence=0.5), agent)
+        for agent in AGENT_NAMES
+    ]
+    prompts = []
+
+    def side_effect(system_prompt, user_prompt):
+        prompts.append(user_prompt)
+        idx = len(prompts) - 1
+        direction = "bullish" if idx == 0 else "neutral"
+        return _make_agent_response(AGENT_NAMES[idx], direction=direction, confidence=0.7)
+
+    mock_claude.side_effect = side_effect
+
+    updated, sycophancy_flags = run_round_2(round1, shared_context="Shared context")
+
+    assert len(updated) == len(AGENT_NAMES)
+    assert AGENT_NAMES[0] in sycophancy_flags
+    assert all("ROUND 1 RESULTS" in prompt for prompt in prompts)
+
+
+def test_aggregate_votes_reports_majority_consensus():
+    assessments = [
+        _parse_agent_response(_make_agent_response(AGENT_NAMES[0], "bullish", 0.9, sizing=1.2), AGENT_NAMES[0]),
+        _parse_agent_response(_make_agent_response(AGENT_NAMES[1], "bullish", 0.8, sizing=1.1), AGENT_NAMES[1]),
+        _parse_agent_response(_make_agent_response(AGENT_NAMES[2], "bullish", 0.7, sizing=1.0), AGENT_NAMES[2]),
+        _parse_agent_response(_make_agent_response(AGENT_NAMES[3], "neutral", 0.4, sizing=0.9), AGENT_NAMES[3]),
+        _parse_agent_response(_make_agent_response(AGENT_NAMES[4], "bearish", 0.2, sizing=0.8), AGENT_NAMES[4]),
+    ]
+
+    result = aggregate_votes(assessments)
+
+    assert result["consensus_reached"] is True
+    assert result["direction"] == "bullish"
+    assert result["consensus_type"] == "3-2"
+    assert result["round2_needed"] is False
+    assert result["parameter_recommendations"]["position_sizing_multiplier"] > 1.0
+
+
+def test_aggregate_votes_reports_split_decision():
+    assessments = [
+        _parse_agent_response(_make_agent_response(AGENT_NAMES[0], "bullish", 0.8), AGENT_NAMES[0]),
+        _parse_agent_response(_make_agent_response(AGENT_NAMES[1], "bullish", 0.7), AGENT_NAMES[1]),
+        _parse_agent_response(_make_agent_response(AGENT_NAMES[2], "bearish", 0.8), AGENT_NAMES[2]),
+        _parse_agent_response(_make_agent_response(AGENT_NAMES[3], "bearish", 0.7), AGENT_NAMES[3]),
+        _parse_agent_response(_make_agent_response(AGENT_NAMES[4], "neutral", 0.5), AGENT_NAMES[4]),
+    ]
+
+    result = aggregate_votes(assessments)
+
+    assert result["consensus_reached"] is False
+    assert result["round2_needed"] is True
+    assert result["consensus_type"] == "2-3"
+
+
+def test_tally_votes_returns_backward_compat_shape():
+    assessments = [
+        _parse_agent_response(_make_agent_response(agent, "bullish", 0.8), agent)
+        for agent in AGENT_NAMES[:3]
+    ] + [
+        _parse_agent_response(_make_agent_response(agent, "neutral", 0.3), agent)
+        for agent in AGENT_NAMES[3:]
+    ]
+
+    result = tally_votes(assessments)
+
+    assert result["consensus"] == "bullish"
+    assert result["leading_vote"] == "increase_exposure"
+    assert result["is_contested"] is False
+    assert result["confidence_weighted_score"] > 0
+
+
+def test_parse_agent_response_handles_fences_and_defaults():
+    fenced = "```json\n" + _make_agent_response(AGENT_NAMES[0], confidence=99) + "\n```"
+    parsed = _parse_agent_response(fenced, AGENT_NAMES[0])
+    fallback = _parse_agent_response(None, AGENT_NAMES[0])
+
+    assert parsed["agent"] == AGENT_NAMES[0]
+    assert parsed["confidence"] == 1.0
+    assert parsed["vote"] == "increase_exposure"
+    assert fallback["direction"] == "neutral"
+    assert fallback["confidence"] == 0.1
+    assert fallback["vote"] == "hold_steady"
+
+
+@patch("src.council.protocol._call_claude")
+def test_engine_run_session_stores_single_round_consensus(mock_claude, council_db):
+    mock_claude.side_effect = [_make_agent_response(agent, "bullish", 0.8) for agent in AGENT_NAMES]
+
+    engine = CouncilEngine(db_path=council_db)
+    result = engine.run_session(session_type="daily")
+
+    assert result["rounds_completed"] == 1
+    assert result["consensus"] == "bullish"
+    assert result["total_cost"] > 0
+
+    with sqlite3.connect(council_db) as conn:
+        vote_count = conn.execute(
+            "SELECT COUNT(*) FROM council_votes WHERE session_id = ?",
+            (result["session_id"],),
+        ).fetchone()[0]
+        session_row = conn.execute(
+            "SELECT result_json, total_cost FROM council_sessions WHERE session_id = ?",
             (result["session_id"],),
         ).fetchone()
-        assert session is not None
-        assert session["session_type"] == "daily"
-        assert session["rounds_completed"] == 3
 
-        votes = conn.execute(
-            "SELECT COUNT(*) as n FROM council_votes WHERE session_id = ?",
-            (result["session_id"],),
-        ).fetchone()
-        # 5 agents x 3 rounds = 15 votes
-        assert votes["n"] == 15
-
-        conn.close()
-
-    @patch("src.council.protocol._call_claude")
-    def test_session_tracks_cost(self, mock_claude, council_db):
-        """Session should estimate and record API cost."""
-        from src.council.engine import CouncilEngine
-
-        mock_claude.return_value = _make_agent_response("test")
-
-        engine = CouncilEngine(db_path=council_db)
-        result = engine.run_session()
-
-        assert result["total_cost"] > 0
-
-        conn = sqlite3.connect(council_db)
-        conn.row_factory = sqlite3.Row
-        session = conn.execute(
-            "SELECT total_cost FROM council_sessions WHERE session_id = ?",
-            (result["session_id"],),
-        ).fetchone()
-        conn.close()
-
-        assert session["total_cost"] > 0
-
-    @patch("src.council.protocol._call_claude")
-    def test_get_session_retrieves_data(self, mock_claude, council_db):
-        """get_session should return session + votes."""
-        from src.council.engine import CouncilEngine
-
-        mock_claude.return_value = _make_agent_response("test")
-
-        engine = CouncilEngine(db_path=council_db)
-        result = engine.run_session()
-
-        retrieved = engine.get_session(result["session_id"])
-        assert retrieved is not None
-        assert "session" in retrieved
-        assert "votes" in retrieved
-        assert len(retrieved["votes"]) == 15
-
-    @patch("src.council.protocol._call_claude")
-    def test_get_recent_sessions(self, mock_claude, council_db):
-        """get_recent_sessions should return session list."""
-        from src.council.engine import CouncilEngine
-
-        mock_claude.return_value = _make_agent_response("test")
-
-        engine = CouncilEngine(db_path=council_db)
-        engine.run_session(session_type="daily")
-        engine.run_session(session_type="emergency")
-
-        recent = engine.get_recent_sessions(limit=5)
-        assert len(recent) == 2
+    assert vote_count == len(AGENT_NAMES)
+    assert session_row[0]
+    assert session_row[1] > 0
 
 
-# ---------------------------------------------------------------------------
-# Response parsing edge cases
-# ---------------------------------------------------------------------------
+@patch("src.council.protocol._call_claude")
+def test_engine_runs_round_2_when_round_1_is_split(mock_claude, council_db):
+    round1 = [
+        _make_agent_response(AGENT_NAMES[0], "bullish", 0.9),
+        _make_agent_response(AGENT_NAMES[1], "bullish", 0.8),
+        _make_agent_response(AGENT_NAMES[2], "bearish", 0.8),
+        _make_agent_response(AGENT_NAMES[3], "bearish", 0.7),
+        _make_agent_response(AGENT_NAMES[4], "neutral", 0.6),
+    ]
+    round2 = [
+        _make_agent_response(AGENT_NAMES[0], "bullish", 0.9),
+        _make_agent_response(AGENT_NAMES[1], "bullish", 0.8),
+        _make_agent_response(AGENT_NAMES[2], "bullish", 0.7),
+        _make_agent_response(AGENT_NAMES[3], "bearish", 0.6),
+        _make_agent_response(AGENT_NAMES[4], "bullish", 0.6),
+    ]
+    mock_claude.side_effect = round1 + round2
+
+    engine = CouncilEngine(db_path=council_db)
+    result = engine.run_session(session_type="weekly")
+
+    assert result["rounds_completed"] == 2
+    assert result["consensus"] == "bullish"
+    assert result["is_contested"] is False
+
+    session = engine.get_session(result["session_id"])
+    assert session is not None
+    assert len(session["votes"]) == len(AGENT_NAMES) * 2
+    assert session["result_json"]["votes"]["round2_triggered"] is True
 
 
-class TestResponseParsing:
-    def test_parse_valid_json(self):
-        from src.council.protocol import _parse_agent_response
+@patch("src.council.protocol._call_claude")
+def test_get_recent_sessions_returns_latest_first(mock_claude, council_db):
+    mock_claude.side_effect = [_make_agent_response(agent, "bullish", 0.8) for agent in AGENT_NAMES] + [
+        _make_agent_response(agent, "neutral", 0.6) for agent in AGENT_NAMES
+    ]
 
-        raw = _make_agent_response("risk_officer", confidence=8)
-        result = _parse_agent_response(raw, "risk_officer")
-        assert result["confidence"] == 8
-        assert result["agent"] == "risk_officer"
+    engine = CouncilEngine(db_path=council_db)
+    first = engine.run_session(session_type="daily")
+    second = engine.run_session(session_type="strategic", custom_question="Should we add a new desk?")
 
-    def test_parse_json_with_markdown_fences(self):
-        from src.council.protocol import _parse_agent_response
+    recent = engine.get_recent_sessions(limit=5)
 
-        raw = "```json\n" + _make_agent_response("risk_officer") + "\n```"
-        result = _parse_agent_response(raw, "risk_officer")
-        assert result["agent"] == "risk_officer"
-
-    def test_parse_json_embedded_in_text(self):
-        from src.council.protocol import _parse_agent_response
-
-        raw = (
-            "Here is my analysis:\n"
-            + _make_agent_response("risk_officer")
-            + "\nThat concludes my review."
-        )
-        result = _parse_agent_response(raw, "risk_officer")
-        assert result["agent"] == "risk_officer"
-
-    def test_parse_none_returns_default(self):
-        from src.council.protocol import _parse_agent_response
-
-        result = _parse_agent_response(None, "risk_officer")
-        assert result["agent"] == "risk_officer"
-        assert result["confidence"] == 3
-        assert result["vote"] == "hold_steady"
-
-    def test_confidence_clamped(self):
-        from src.council.protocol import _parse_agent_response
-
-        raw = json.dumps({"confidence": 99, "vote": "hold_steady"})
-        result = _parse_agent_response(raw, "test")
-        assert result["confidence"] == 10
-
-        raw = json.dumps({"confidence": -5, "vote": "hold_steady"})
-        result = _parse_agent_response(raw, "test")
-        assert result["confidence"] == 1
-
-    def test_invalid_vote_normalized(self):
-        from src.council.protocol import _parse_agent_response
-
-        raw = json.dumps({"vote": "yolo_all_in", "confidence": 5})
-        result = _parse_agent_response(raw, "test")
-        assert result["vote"] == "hold_steady"
-
-    def test_invalid_position_normalized(self):
-        from src.council.protocol import _parse_agent_response
-
-        raw = json.dumps({"position": "extreme_bullish", "confidence": 5})
-        result = _parse_agent_response(raw, "test")
-        assert result["position"] == "neutral"
+    assert len(recent) == 2
+    assert {row["session_id"] for row in recent} == {first["session_id"], second["session_id"]}

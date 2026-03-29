@@ -81,6 +81,34 @@ def run_scan(config: dict, dry_run: bool = False, send_email_flag: bool = False,
         for _t in features:
             features[_t]["traffic_light_multiplier"] = 1.0
 
+    # Event calendar risk overlay
+    event_risk_summary = {"total_score": 0, "components": {}, "sizing_multiplier": 1.0}
+    try:
+        from src.features.event_risk_score import attach_event_risk_scores
+        event_risk_summary = attach_event_risk_scores(features, settings=config)
+        logger.info(
+            "[SCAN] Event risk: score=%d mult=%.2f components=%s",
+            event_risk_summary.get("total_score", 0),
+            event_risk_summary.get("sizing_multiplier", 1.0),
+            event_risk_summary.get("components", {}),
+        )
+        alert_threshold = config.get("event_risk", {}).get("alert_threshold", 6)
+        if event_risk_summary.get("total_score", 0) >= alert_threshold and not dry_run:
+            try:
+                from src.notifications.telegram import send_telegram
+                send_telegram(
+                    f"⚠️ Elevated event risk: {event_risk_summary['total_score']}/10 — "
+                    f"{event_risk_summary.get('components', {})}"
+                )
+            except Exception as exc:
+                logger.warning("[SCAN] Event-risk Telegram alert failed: %s", exc)
+    except Exception as e:
+        logger.warning("[SCAN] Event risk scoring failed: %s — using default", e)
+        for _t in features:
+            features[_t]["event_risk_score"] = 0
+            features[_t]["event_risk_components"] = {}
+            features[_t]["event_risk_multiplier"] = 1.0
+
     # Data integrity validation — filter out tickers with invalid features
     try:
         from src.data_integrity import validate_features, validate_universe
@@ -161,6 +189,17 @@ def run_scan(config: dict, dry_run: bool = False, send_email_flag: bool = False,
             "rendered_text": rendered,
             "features": feat,
         })
+
+        alert_threshold = config.get("event_risk", {}).get("alert_threshold", 6)
+        if feat.get("event_risk_score", 0) >= alert_threshold and not dry_run:
+            try:
+                from src.notifications.telegram import send_telegram
+                send_telegram(
+                    f"⚠️ Elevated event risk: {feat['event_risk_score']}/10 — "
+                    f"{feat.get('event_risk_components', {})}"
+                )
+            except Exception as exc:
+                logger.warning("[SCAN] Ticker event-risk Telegram alert failed for %s: %s", ticker, exc)
 
     if shadow_enabled:
         from src.shadow_trading.executor import check_and_manage_open_trades

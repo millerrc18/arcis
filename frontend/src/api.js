@@ -36,7 +36,10 @@ export async function fetchApi(path, options = {}) {
     throw new Error('Session expired')
   }
   if (!res.ok) throw new Error(`API error: ${res.status}`)
-  return res.json()
+  if (res.status === 204) return null
+  const text = await res.text()
+  if (!text) return null
+  return JSON.parse(text)
 }
 
 export const api = {
@@ -78,10 +81,17 @@ export const api = {
   getCouncilLatest: () => fetchApi('/council/latest'),
   getCouncilHistory: (days = 30) => fetchApi(`/council/history?days=${days}`),
   getCouncilSession: (id) => fetchApi(`/council/session/${id}`),
+  askCouncilStrategic: (question) => fetchApi('/council/strategic', { method: 'POST', body: JSON.stringify({ question }) }),
   // Activity
   getActivityFeed: (limit = 50, eventType) => fetchApi(`/activity/feed?limit=${limit}${eventType ? `&event_type=${eventType}` : ''}`),
   // Health Score
   getHealthScore: () => fetchApi('/health/score'),
+  getHSHS: () => fetchApi('/health/hshs'),
+  // Notes
+  fetchNotes: () => fetchApi('/notes'),
+  createNote: (data) => fetchApi('/notes', { method: 'POST', body: JSON.stringify(data) }),
+  updateNote: (noteId, data) => fetchApi(`/notes/${noteId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteNote: (noteId) => fetchApi(`/notes/${noteId}`, { method: 'DELETE' }),
   // Live Trading
   getLiveTrades: () => fetchApi('/live/trades'),
   getLiveSummary: () => fetchApi('/live/summary'),
@@ -100,5 +110,4 @@ export const api = {
   // System Validation
   getValidation: () => fetchApi('/system/validation'),
   runValidation: () => fetchApi('/system/validation?fresh=true'),
-  getHSHS: () => fetchApi('/health/hshs'),
 }

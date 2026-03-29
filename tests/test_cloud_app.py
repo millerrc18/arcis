@@ -399,6 +399,9 @@ CLOUD_POST_STUBS = [
     "/api/shadow/close/AAPL",
 ]
 
+ALLOWED_CLOUD_PUT_ENDPOINTS = ["/api/notes/{note_id}"]
+ALLOWED_CLOUD_DELETE_ENDPOINTS = ["/api/notes/{note_id}"]
+
 class TestPostStubs:
     """Verify POST action stubs return cloud_mode error."""
 
@@ -411,22 +414,22 @@ class TestPostStubs:
             assert data.get("error") == "cloud_mode", f"{path}: {data}"
 
     def test_no_put_endpoints(self, client):
-        """Cloud API should not expose any PUT endpoints."""
+        """Cloud API should only expose the expected Notes PUT endpoint."""
         routes = client.app.routes
         put_routes = []
         for route in routes:
             if hasattr(route, "methods") and "PUT" in route.methods:
                 put_routes.append(route.path)
-        assert put_routes == [], f"Found PUT endpoints: {put_routes}"
+        assert sorted(put_routes) == ALLOWED_CLOUD_PUT_ENDPOINTS, f"Unexpected PUT endpoints: {put_routes}"
 
     def test_no_delete_endpoints(self, client):
-        """Cloud API should not expose any DELETE endpoints."""
+        """Cloud API should only expose the expected Notes DELETE endpoint."""
         routes = client.app.routes
         delete_routes = []
         for route in routes:
             if hasattr(route, "methods") and "DELETE" in route.methods:
                 delete_routes.append(route.path)
-        assert delete_routes == [], f"Found DELETE endpoints: {delete_routes}"
+        assert sorted(delete_routes) == ALLOWED_CLOUD_DELETE_ENDPOINTS, f"Unexpected DELETE endpoints: {delete_routes}"
 
 
 # ── New endpoint tests ───────────────────────────────────────────────
@@ -469,8 +472,97 @@ class TestNewEndpoints:
         mock_query.return_value = []
         resp = client.get("/api/shadow/account")
         assert resp.status_code == 200
+
+    @patch("src.api.cloud_app._ensure_user_notes_table")
+    @patch("src.api.cloud_app._query")
+    def test_notes_list(self, mock_query, mock_ensure, client):
+        mock_query.return_value = [
+            {
+                "note_id": "n1",
+                "title": "Watchlist",
+                "content": "Check event risk",
+                "tags": '["ops","risk"]',
+                "pinned": 1,
+                "created_at": "2026-03-29T09:00:00-04:00",
+                "updated_at": "2026-03-29T09:05:00-04:00",
+            }
+        ]
+        resp = client.get("/api/notes")
+        assert resp.status_code == 200
         data = resp.json()
-        assert data["starting_capital"] == 100000
+        assert data["notes"][0]["note_id"] == "n1"
+        assert data["notes"][0]["tags"] == ["ops", "risk"]
+        assert data["notes"][0]["pinned"] is True
+
+    @patch("src.api.cloud_app._ensure_user_notes_table")
+    @patch("src.api.cloud_app.get_pg")
+    def test_create_note_with_tags(self, mock_get_pg, mock_ensure, client):
+        mock_cursor = MagicMock()
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+        mock_get_pg.return_value.__enter__.return_value = mock_conn
+
+        resp = client.post(
+            "/api/notes",
+            json={
+                "title": "Morning prep",
+                "content": "Review brackets",
+                "tags": "ops, risk,  journal ",
+                "pinned": True,
+            },
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["title"] == "Morning prep"
+        assert data["tags"] == ["ops", "risk", "journal"]
+        assert data["pinned"] is True
+        insert_sql = mock_cursor.execute.call_args.args[0]
+        insert_params = mock_cursor.execute.call_args.args[1]
+        assert "INSERT INTO user_notes" in insert_sql
+        assert insert_params[3] == '["ops", "risk", "journal"]'
+
+    @patch("src.api.cloud_app._ensure_user_notes_table")
+    @patch("src.api.cloud_app._query_one")
+    @patch("src.api.cloud_app.get_pg")
+    def test_update_note(self, mock_get_pg, mock_query_one, mock_ensure, client):
+        mock_cursor = MagicMock()
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+        mock_get_pg.return_value.__enter__.return_value = mock_conn
+        mock_query_one.return_value = {
+            "note_id": "n1",
+            "title": "Updated",
+            "content": "Re-check CPI",
+            "tags": '["macro"]',
+            "pinned": 0,
+            "created_at": "2026-03-29T09:00:00-04:00",
+            "updated_at": "2026-03-29T09:10:00-04:00",
+        }
+
+        resp = client.put(
+            "/api/notes/n1",
+            json={"title": "Updated", "content": "Re-check CPI", "tags": ["macro"]},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["note_id"] == "n1"
+        assert data["tags"] == ["macro"]
+        update_sql = mock_cursor.execute.call_args.args[0]
+        assert update_sql.startswith("UPDATE user_notes SET")
+
+    @patch("src.api.cloud_app._ensure_user_notes_table")
+    @patch("src.api.cloud_app.get_pg")
+    def test_delete_note(self, mock_get_pg, mock_ensure, client):
+        mock_cursor = MagicMock()
+        mock_cursor.rowcount = 1
+        mock_conn = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+        mock_get_pg.return_value.__enter__.return_value = mock_conn
+
+        resp = client.delete("/api/notes/n1")
+        assert resp.status_code == 204
+        delete_sql = mock_cursor.execute.call_args.args[0]
+        assert delete_sql == "DELETE FROM user_notes WHERE note_id = %s"
 
     @patch("src.api.cloud_app._query_one")
     @patch("src.api.cloud_app._query")
