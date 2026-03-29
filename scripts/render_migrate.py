@@ -341,6 +341,94 @@ MIGRATIONS = [
         promoted_at TIMESTAMP,
         notes TEXT
     )"""),
+
+    # ── Sprint 1: v2 council tables + new columns ─────────────────
+
+    # New tables for v2 council
+    ("traffic_light_state", None, """CREATE TABLE IF NOT EXISTS traffic_light_state (
+        id SERIAL PRIMARY KEY,
+        current_regime TEXT,
+        last_total_score REAL,
+        updated_at TEXT
+    )"""),
+
+    ("council_calibrations", None, """CREATE TABLE IF NOT EXISTS council_calibrations (
+        calibration_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        agent_name TEXT NOT NULL,
+        prediction TEXT NOT NULL,
+        prediction_confidence REAL NOT NULL,
+        verification_date TEXT NOT NULL,
+        actual_outcome TEXT,
+        correct INTEGER,
+        created_at TEXT NOT NULL
+    )"""),
+
+    ("council_debug_log", None, """CREATE TABLE IF NOT EXISTS council_debug_log (
+        debug_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        agent_name TEXT NOT NULL,
+        round INTEGER NOT NULL,
+        system_prompt_hash TEXT,
+        user_message TEXT,
+        raw_response TEXT,
+        parsed_successfully INTEGER DEFAULT 0,
+        parse_error TEXT,
+        latency_ms INTEGER,
+        created_at TEXT NOT NULL
+    )"""),
+
+    ("council_parameter_log", None, """CREATE TABLE IF NOT EXISTS council_parameter_log (
+        log_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        agent_name TEXT,
+        parameter_name TEXT NOT NULL,
+        default_value REAL NOT NULL,
+        council_value REAL NOT NULL,
+        applied_value REAL NOT NULL,
+        rate_limited INTEGER DEFAULT 0,
+        attribution_start TEXT NOT NULL,
+        attribution_end TEXT,
+        trades_during_window INTEGER DEFAULT 0,
+        pnl_during_window REAL,
+        counterfactual_pnl REAL,
+        value_added_dollars REAL,
+        created_at TEXT NOT NULL
+    )"""),
+
+    ("council_parameter_state", None, """CREATE TABLE IF NOT EXISTS council_parameter_state (
+        parameter_name TEXT PRIMARY KEY,
+        current_value REAL NOT NULL,
+        default_value REAL NOT NULL,
+        last_session_id TEXT,
+        last_updated TEXT NOT NULL
+    )"""),
+
+    ("validation_results", None, """CREATE TABLE IF NOT EXISTS validation_results (
+        result_id TEXT PRIMARY KEY,
+        validation_type TEXT,
+        status TEXT,
+        details TEXT,
+        created_at TEXT
+    )"""),
+
+    # New columns on existing tables
+    ("shadow_trades", "signal_price", "ALTER TABLE shadow_trades ADD COLUMN signal_price REAL"),
+    ("shadow_trades", "implementation_shortfall_bps", "ALTER TABLE shadow_trades ADD COLUMN implementation_shortfall_bps REAL"),
+    ("shadow_trades", "strategy_type", "ALTER TABLE shadow_trades ADD COLUMN strategy_type TEXT DEFAULT 'pullback'"),
+
+    ("council_sessions", "result_json", "ALTER TABLE council_sessions ADD COLUMN result_json TEXT"),
+    ("council_sessions", "session_type", "ALTER TABLE council_sessions ADD COLUMN session_type TEXT"),
+    ("council_sessions", "trigger_reason", "ALTER TABLE council_sessions ADD COLUMN trigger_reason TEXT"),
+    ("council_sessions", "is_contested", "ALTER TABLE council_sessions ADD COLUMN is_contested INTEGER DEFAULT 0"),
+    ("council_sessions", "total_cost", "ALTER TABLE council_sessions ADD COLUMN total_cost REAL"),
+    ("council_sessions", "rounds_completed", "ALTER TABLE council_sessions ADD COLUMN rounds_completed INTEGER DEFAULT 0"),
+    ("council_sessions", "confidence_weighted_score", "ALTER TABLE council_sessions ADD COLUMN confidence_weighted_score REAL"),
+
+    ("council_votes", "direction", "ALTER TABLE council_votes ADD COLUMN direction TEXT"),
+    ("council_votes", "confidence_float", "ALTER TABLE council_votes ADD COLUMN confidence_float REAL"),
+    ("council_votes", "assessment_json", "ALTER TABLE council_votes ADD COLUMN assessment_json TEXT"),
+    ("council_votes", "vote_id", "ALTER TABLE council_votes ADD COLUMN vote_id TEXT"),
 ]
 
 

@@ -288,9 +288,8 @@ def data_collection_stats():
             else:
                 stats["cboe_ratios"] = {"total_records": 0}
 
-    except Exception:
-        # Tables may not exist yet
-        pass
+    except Exception as e:
+        logger.warning("data_collection_stats error: %s", e)
 
     return stats
 

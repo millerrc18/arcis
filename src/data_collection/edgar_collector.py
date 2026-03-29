@@ -93,41 +93,6 @@ def _get_cik(ticker: str) -> str | None:
     return cik
 
 
-def _fetch_recent_filings(
-    cik: str, form_types: list[str], since_date: str
-) -> list[dict]:
-    """Fetch recent filing metadata from EDGAR full-text search."""
-    filings = []
-    for form_type in form_types:
-        try:
-            url = f"https://efts.sec.gov/LATEST/search-index?q=%22{cik}%22&dateRange=custom&startdt={since_date}&forms={form_type}"
-            resp = requests.get(url, headers=SEC_HEADERS, timeout=15)
-
-            # If search-index fails, fall back to company submissions
-            if resp.status_code != 200:
-                filings.extend(_fetch_filings_from_submissions(cik, form_type, since_date))
-                continue
-
-            data = resp.json()
-            hits = data.get("hits", {}).get("hits", [])
-            for hit in hits:
-                source = hit.get("_source", {})
-                filings.append({
-                    "form_type": source.get("forms", form_type),
-                    "filing_date": source.get("file_date", ""),
-                    "accession_number": source.get("file_num", ""),
-                    "description": source.get("display_names", [""])[0] if source.get("display_names") else "",
-                })
-        except Exception as e:
-            logger.debug("[EDGAR] Search failed for CIK %s form %s: %s", cik, form_type, e)
-            # Fall back to submissions endpoint
-            filings.extend(_fetch_filings_from_submissions(cik, form_type, since_date))
-
-        time.sleep(0.2)  # Rate limit
-
-    return filings
-
-
 def _fetch_filings_from_submissions(
     cik: str, form_type: str, since_date: str
 ) -> list[dict]:

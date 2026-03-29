@@ -1,5 +1,37 @@
 # Changelog
 
+## 2026-03-29 — Sprint 1: Stabilize
+
+### Council v2 Tests
+- Rewrote test suite for v2 protocol (53 tests covering agents, protocol, engine, value_tracker)
+- Deleted v1 test files (`test_council_agents.py`) and v1 backups (`*_v1_backup.py`)
+
+### Render Sync
+- Added 5 new tables to sync: `traffic_light_state`, `council_calibrations`, `council_debug_log`, `council_parameter_log`, `council_parameter_state`
+- Added v2 columns to `council_sessions` and `council_votes` in render_migrate.py
+
+### Audit Quick-Fixes
+- #30: `system.py` bare `except:` → `except Exception as e: logger.warning()`
+- #31: `websocket.py` `broadcast_sync()` bare except → logged warning
+- #32: `cloud_app.py` `activity_feed` type annotation fixed (`str = None` → `str | None = None`)
+- #33: Deleted v1 backup files (agents, engine, protocol)
+- #37: Deleted dead code `_fetch_recent_filings()` in edgar_collector.py
+
+### Strategy-Specific Timeouts
+- Pullback: 7 days (was 15), mean_reversion: 5, pead: 10, default: 10
+- Per-strategy timeout lookup in executor.py
+- `strategy_type` column added to shadow_trades
+
+### Scripts & Tooling
+- `scripts/verify_counts.py` — validates AGENTS.md counts against code
+- `scripts/schema_report.py` — generates `docs/schema.md` from SQLite
+
+### Counts
+- 144 Python files, 72 test files, 1088 tests, 73 research docs
+- All tests pass, frontend builds clean
+
+---
+
 ## 2026-03-28 — Reliability Sprint + Research-Informed Features
 
 ### Critical Safety Fixes

@@ -39,7 +39,11 @@ shadow_trading:
   enabled: false # Set to true to enable paper trading
   max_positions: 10
   default_order_type: market
-  timeout_days: 15 # Auto-close after this many days
+  timeout_days:
+    pullback: 7       # Pullback alpha concentrates days 1-5 (80-85% of edge)
+    mean_reversion: 5
+    pead: 10
+    default: 10       # Fallback for unknown strategy types
 
 # ── Live Trading (Dual Execution) ────────────────────────────────
 # When enabled, qualifying setups execute on BOTH paper and live

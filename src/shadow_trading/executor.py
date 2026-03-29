@@ -265,6 +265,9 @@ def open_shadow_trade(
     # Source tagging: paper trades always tagged as "paper"
     trade_data["source"] = "paper"
 
+    # Strategy type tagging for per-strategy timeouts
+    trade_data["strategy_type"] = "pullback"
+
     # Slippage tracking: signal price vs fill price
     actual_fill = trade_data.get("actual_entry_price", entry_price)
     trade_data["signal_entry_price"] = entry_price
@@ -333,7 +336,13 @@ def check_and_manage_open_trades(
     """
     config = load_config()
     shadow_cfg = config.get("shadow_trading", {})
-    timeout_days = shadow_cfg.get("timeout_days", 15)
+    timeout_cfg = shadow_cfg.get("timeout_days", 10)
+    # Support both old scalar and new per-strategy dict format
+    if isinstance(timeout_cfg, dict):
+        default_timeout = timeout_cfg.get("default", 10)
+    else:
+        default_timeout = int(timeout_cfg)
+        timeout_cfg = {"default": default_timeout}
 
     open_trades = get_open_shadow_trades(db_path)
     if source_filter:
@@ -426,7 +435,10 @@ def check_and_manage_open_trades(
             exit_reason = "target_2_hit"
         elif current_price >= target_1 and target_1 > 0:
             exit_reason = "target_1_hit"
-        elif days_open >= timeout_days:
+        # Per-strategy timeout lookup
+        strategy = trade.get("strategy_type", "pullback")
+        timeout_days = timeout_cfg.get(strategy, default_timeout) if isinstance(timeout_cfg, dict) else default_timeout
+        if days_open >= timeout_days and not exit_reason:
             exit_reason = "timeout"
 
         if exit_reason:
