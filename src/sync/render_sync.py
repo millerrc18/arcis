@@ -162,6 +162,30 @@ SYNC_TABLES: dict[str, dict] = {
         "time_col": "created_at",
         "pk": "result_id",
     },
+    # v2 council + value tracker tables
+    "traffic_light_state": {
+        "mode": "full",
+        "pk": "id",
+    },
+    "council_calibrations": {
+        "mode": "incremental",
+        "time_col": "created_at",
+        "pk": "calibration_id",
+    },
+    "council_debug_log": {
+        "mode": "incremental",
+        "time_col": "created_at",
+        "pk": "debug_id",
+    },
+    "council_parameter_log": {
+        "mode": "incremental",
+        "time_col": "created_at",
+        "pk": "log_id",
+    },
+    "council_parameter_state": {
+        "mode": "full",
+        "pk": "parameter_name",
+    },
 }
 
 # ── Sync state table (local SQLite) ─────────────────────────────────

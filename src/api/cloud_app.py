@@ -606,7 +606,7 @@ def council_session_detail(session_id: str):
 
 
 @app.get("/api/activity/feed", dependencies=[Depends(verify_auth)])
-def activity_feed(limit: int = 50, event_type: str = None):
+def activity_feed(limit: int = 50, event_type: str | None = None):
     """Get recent activity log entries."""
     try:
         if event_type:

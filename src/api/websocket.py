@@ -52,5 +52,5 @@ def broadcast_sync(event_type: str, data: dict):
             loop.create_task(manager.broadcast(event_type, data))
         else:
             asyncio.run(manager.broadcast(event_type, data))
-    except Exception:
-        pass
+    except Exception as e:
+        logging.getLogger(__name__).warning("broadcast_sync error: %s", e)
