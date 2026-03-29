@@ -1,4 +1,4 @@
-<!-- Counts verified 2026-03-28: 143 Python files, 73 test files, 1064+ tests, 53 CLI commands, 110+ API routes, 38 DB tables (incl. traffic_light_state, council_calibrations), 35+ research docs. -->
+<!-- Counts verified 2026-03-29: 144 Python files, 72 test files, 1088 tests, 53 CLI commands, 110+ API routes, 38 DB tables (incl. traffic_light_state, council_calibrations), 73 research docs. -->
 
 # AGENTS.md — Halcyon Lab Governance Document
 

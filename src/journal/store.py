@@ -173,10 +173,11 @@ def initialize_database(db_path: str = "ai_research_desk.sqlite3") -> None:
         """)
         conn.commit()
 
-        # Implementation Shortfall columns
+        # Implementation Shortfall columns + strategy type
         for _alter in [
             "ALTER TABLE shadow_trades ADD COLUMN signal_price REAL",
             "ALTER TABLE shadow_trades ADD COLUMN implementation_shortfall_bps REAL",
+            "ALTER TABLE shadow_trades ADD COLUMN strategy_type TEXT DEFAULT 'pullback'",
         ]:
             try:
                 conn.execute(_alter)
