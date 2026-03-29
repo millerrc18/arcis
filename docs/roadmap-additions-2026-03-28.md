@@ -239,3 +239,16 @@
 - [DECISION] Rent RunPod A100 for GRPO ($14/mo) instead of buying dedicated training GPU
 - Rationale: 4-5× cheaper than hardware at intermittent usage patterns
 - Revisit if data sensitivity or reliability becomes an issue
+
+## Hardware Decision (March 29):
+- [DECISION] Keep Q8_0 for now — quality is king, speed is fine
+- [DECISION] Planning RTX 3090 + headless Linux machine purchase in next 1-3 months ($1,500 all-in)
+- [DECISION] GRPO on RunPod A100 cloud ($14/mo) instead of local hardware
+
+## Brand Identity Research Returned (March 29):
+- Top recommendation: Arcis (Latin for "fortress", backronym: Adaptive Regime Classification & Intelligence Systems)
+- Logo: 5-triangle "Prismatic Convergence" encoding the 5-agent council
+- Typography: Inter + JetBrains Mono
+- Color: Teal #0D9488 as unifying accent, dark mode default
+- Voice: 65% academic / 35% tech startup
+- DECISION NEEDED: Name selection (Arcis, Corvus, Eigen, Inflect, Vantis, or keep Halcyon)
