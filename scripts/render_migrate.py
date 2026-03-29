@@ -90,29 +90,38 @@ MIGRATIONS = [
     # New tables
     ("schedule_metrics", None, """CREATE TABLE IF NOT EXISTS schedule_metrics (
         id SERIAL PRIMARY KEY,
-        metric_date TEXT,
-        gpu_utilization REAL,
-        scan_count INTEGER,
-        scoring_count INTEGER,
-        training_minutes REAL,
-        created_at TEXT
+        metric_date TEXT NOT NULL,
+        metric_name TEXT NOT NULL,
+        metric_value REAL,
+        details TEXT
     )"""),
+    ("schedule_metrics", "metric_name", "ALTER TABLE schedule_metrics ADD COLUMN metric_name TEXT"),
+    ("schedule_metrics", "metric_value", "ALTER TABLE schedule_metrics ADD COLUMN metric_value REAL"),
+    ("schedule_metrics", "details", "ALTER TABLE schedule_metrics ADD COLUMN details TEXT"),
+    ("schedule_metrics", "_idx_metric_date_name", "CREATE INDEX IF NOT EXISTS idx_schedule_metrics_date ON schedule_metrics(metric_date, metric_name)"),
 
     ("council_sessions", None, """CREATE TABLE IF NOT EXISTS council_sessions (
         session_id TEXT PRIMARY KEY,
-        trigger TEXT,
+        session_type TEXT NOT NULL DEFAULT 'daily',
+        trigger_reason TEXT,
+        created_at TEXT NOT NULL,
         consensus TEXT,
-        confidence REAL,
-        summary TEXT,
-        recommendation TEXT,
-        rounds INTEGER,
-        agent_count INTEGER,
-        model TEXT,
-        created_at TEXT
+        confidence_weighted_score REAL,
+        is_contested INTEGER DEFAULT 0,
+        total_cost REAL,
+        rounds_completed INTEGER DEFAULT 0,
+        result_json TEXT
     )"""),
+    ("council_sessions", "session_type", "ALTER TABLE council_sessions ADD COLUMN session_type TEXT"),
+    ("council_sessions", "trigger_reason", "ALTER TABLE council_sessions ADD COLUMN trigger_reason TEXT"),
+    ("council_sessions", "confidence_weighted_score", "ALTER TABLE council_sessions ADD COLUMN confidence_weighted_score REAL"),
+    ("council_sessions", "is_contested", "ALTER TABLE council_sessions ADD COLUMN is_contested INTEGER DEFAULT 0"),
+    ("council_sessions", "total_cost", "ALTER TABLE council_sessions ADD COLUMN total_cost REAL"),
+    ("council_sessions", "rounds_completed", "ALTER TABLE council_sessions ADD COLUMN rounds_completed INTEGER DEFAULT 0"),
+    ("council_sessions", "result_json", "ALTER TABLE council_sessions ADD COLUMN result_json TEXT"),
 
     ("council_votes", None, """CREATE TABLE IF NOT EXISTS council_votes (
-        id SERIAL PRIMARY KEY,
+        vote_id TEXT PRIMARY KEY,
         session_id TEXT,
         round INTEGER,
         agent_name TEXT,
@@ -122,7 +131,99 @@ MIGRATIONS = [
         key_data_points TEXT,
         risk_flags TEXT,
         vote TEXT,
-        is_devils_advocate INTEGER DEFAULT 0
+        is_devils_advocate INTEGER DEFAULT 0,
+        direction TEXT,
+        confidence_float REAL,
+        assessment_json TEXT
+    )"""),
+    ("council_votes", "vote_id", "ALTER TABLE council_votes ADD COLUMN vote_id TEXT"),
+    ("council_votes", "direction", "ALTER TABLE council_votes ADD COLUMN direction TEXT"),
+    ("council_votes", "confidence_float", "ALTER TABLE council_votes ADD COLUMN confidence_float REAL"),
+    ("council_votes", "assessment_json", "ALTER TABLE council_votes ADD COLUMN assessment_json TEXT"),
+    ("council_votes", "_idx_vote_id", "CREATE UNIQUE INDEX IF NOT EXISTS idx_council_votes_vote_id ON council_votes(vote_id)"),
+
+    ("validation_results", None, """CREATE TABLE IF NOT EXISTS validation_results (
+        result_id TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL,
+        overall_status TEXT NOT NULL,
+        checks_passed INTEGER NOT NULL,
+        checks_failed INTEGER NOT NULL,
+        checks_warning INTEGER NOT NULL,
+        results_json TEXT NOT NULL
+    )"""),
+
+    ("traffic_light_state", None, """CREATE TABLE IF NOT EXISTS traffic_light_state (
+        id INTEGER PRIMARY KEY,
+        current_regime TEXT NOT NULL DEFAULT 'GREEN',
+        pending_regime TEXT,
+        pending_count INTEGER DEFAULT 0,
+        last_vix_score INTEGER DEFAULT 0,
+        last_trend_score INTEGER DEFAULT 0,
+        last_credit_score INTEGER DEFAULT 0,
+        last_total_score INTEGER DEFAULT 0,
+        updated_at TEXT
+    )"""),
+
+    ("council_calibrations", None, """CREATE TABLE IF NOT EXISTS council_calibrations (
+        calibration_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        agent_name TEXT,
+        prediction TEXT NOT NULL,
+        prediction_confidence REAL NOT NULL,
+        verification_date TEXT NOT NULL,
+        actual_outcome TEXT,
+        correct INTEGER,
+        created_at TEXT NOT NULL
+    )"""),
+
+    ("council_debug_log", None, """CREATE TABLE IF NOT EXISTS council_debug_log (
+        debug_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        agent_name TEXT NOT NULL,
+        round INTEGER NOT NULL,
+        system_prompt_hash TEXT,
+        user_message TEXT,
+        raw_response TEXT,
+        parsed_successfully INTEGER DEFAULT 0,
+        parse_error TEXT,
+        latency_ms INTEGER,
+        created_at TEXT NOT NULL
+    )"""),
+
+    ("council_parameter_log", None, """CREATE TABLE IF NOT EXISTS council_parameter_log (
+        log_id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        agent_name TEXT,
+        parameter_name TEXT NOT NULL,
+        default_value REAL NOT NULL,
+        council_value REAL NOT NULL,
+        applied_value REAL NOT NULL,
+        rate_limited INTEGER DEFAULT 0,
+        attribution_start TEXT NOT NULL,
+        attribution_end TEXT,
+        trades_during_window INTEGER DEFAULT 0,
+        pnl_during_window REAL,
+        counterfactual_pnl REAL,
+        value_added_dollars REAL,
+        created_at TEXT NOT NULL
+    )"""),
+
+    ("council_parameter_state", None, """CREATE TABLE IF NOT EXISTS council_parameter_state (
+        parameter_name TEXT PRIMARY KEY,
+        current_value REAL NOT NULL,
+        default_value REAL NOT NULL,
+        last_session_id TEXT,
+        last_updated TEXT NOT NULL
+    )"""),
+
+    ("user_notes", None, """CREATE TABLE IF NOT EXISTS user_notes (
+        note_id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        content TEXT DEFAULT '',
+        tags TEXT DEFAULT '[]',
+        pinned INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
     )"""),
 
     ("setup_signals", None, """CREATE TABLE IF NOT EXISTS setup_signals (
@@ -157,9 +258,9 @@ MIGRATIONS = [
 
     ("activity_log", None, """CREATE TABLE IF NOT EXISTS activity_log (
         id SERIAL PRIMARY KEY,
-        event_type TEXT,
+        event_type TEXT NOT NULL,
         detail TEXT,
-        created_at TEXT
+        created_at TEXT NOT NULL
     )"""),
 
     ("sync_state", None, """CREATE TABLE IF NOT EXISTS sync_state (
@@ -330,17 +431,26 @@ MIGRATIONS = [
     )"""),
 
     ("model_versions", None, """CREATE TABLE IF NOT EXISTS model_versions (
-        id SERIAL PRIMARY KEY,
-        version_name TEXT,
-        base_model TEXT,
-        dataset_size INTEGER,
-        training_loss REAL,
-        eval_loss REAL,
-        status TEXT DEFAULT 'candidate',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        promoted_at TIMESTAMP,
-        notes TEXT
+        version_id TEXT PRIMARY KEY,
+        version_name TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        training_examples_count INTEGER,
+        synthetic_examples_count INTEGER,
+        outcome_examples_count INTEGER,
+        model_file_path TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        notes TEXT,
+        holdout_score REAL,
+        holdout_details TEXT
     )"""),
+    ("model_versions", "version_id", "ALTER TABLE model_versions ADD COLUMN version_id TEXT"),
+    ("model_versions", "training_examples_count", "ALTER TABLE model_versions ADD COLUMN training_examples_count INTEGER"),
+    ("model_versions", "synthetic_examples_count", "ALTER TABLE model_versions ADD COLUMN synthetic_examples_count INTEGER"),
+    ("model_versions", "outcome_examples_count", "ALTER TABLE model_versions ADD COLUMN outcome_examples_count INTEGER"),
+    ("model_versions", "model_file_path", "ALTER TABLE model_versions ADD COLUMN model_file_path TEXT"),
+    ("model_versions", "holdout_score", "ALTER TABLE model_versions ADD COLUMN holdout_score REAL"),
+    ("model_versions", "holdout_details", "ALTER TABLE model_versions ADD COLUMN holdout_details TEXT"),
+    ("model_versions", "_idx_version_id", "CREATE UNIQUE INDEX IF NOT EXISTS idx_model_versions_version_id ON model_versions(version_id)"),
 ]
 
 

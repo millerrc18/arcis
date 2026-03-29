@@ -1,97 +1,113 @@
 # Halcyon Lab
 
-An autonomous AI trading system that scans equities, generates institutional-quality trade commentary using a fine-tuned Qwen3 8B model, executes bracket orders via Alpaca paper trading, and continuously improves through a self-blinding training pipeline with quality gates. Business model: investing returns, not newsletter.
+Halcyon Lab is an autonomous AI-powered equity trading system for S&P 100 swing trades. It combines systematic scoring, multi-source enrichment, local LLM trade commentary, Alpaca bracket execution, a hard risk governor, and a self-improving training pipeline built around self-blinded data quality.
 
-## Features
+## Current Surface
 
-- **Systematic Scoring**: 0-100 composite score from 20+ technical indicators
-- **7+ Data Sources**: Technical, regime, sector, fundamentals, insiders, news, macro
-- **Fine-Tuned LLM**: halcyon-v1 (Qwen3 8B fine-tuned on 790 self-blinded examples)
-- **Bracket Orders**: Automated entry + stop + target via Alpaca paper trading
-- **Risk Governor**: 8 safety checks + kill switch to halt all trading
-- **Self-Blinding Pipeline**: Claude generates training data WITHOUT seeing outcomes
-- **Training Pipeline**: Score → leakage check → classify → 3-stage curriculum SFT
-- **Walk-Forward Backtesting**: Validate model performance on historical data
-- **A/B Model Evaluation**: Shadow evaluation before model promotion
-- **Dashboard**: React web interface with 9 pages, WebSocket live updates, action buttons
-- **24/7 Operations**: Overnight schedule for data collection, training, and enrichment
-- **Data Collection**: Options chains, VIX term structure, macro indicators, Google Trends
-- **13 Research Documents**: Training methodology, strategy, business/fund path, options
-- **24/7 Compute Scheduler**: Between-scan scoring, VRAM handoffs, overnight training (2%→73% GPU)
-- **Telegram Notifications**: Real-time push alerts for trades, earnings, system events
+- **Strategy**: pullback-in-strong-trend equity trading with bracket orders and regime-aware sizing
+- **Model**: `halcyon-v1` on Qwen3 8B, served locally through Ollama for packet generation
+- **Risk stack**: validator, 8-check governor, kill switch, traffic-light overlay, system validation, and live/cloud diagnostics
+- **Dashboard**: 13 pages across local/cloud surfaces, including Council, Health, Validation, Notes, Live Ledger, and CTO Report
+- **Data moat**: 12 nightly collectors plus enrichment for technicals, regime, sector, fundamentals, insiders, news, macro, filings, earnings, and options context
+- **Research library**: 59 synced research documents plus governance and architecture docs
+- **Cloud mirror**: Render frontend + FastAPI + Postgres read replica kept fresh by the local render sync thread
+
+## Key Capabilities
+
+- **Systematic scoring**: 0-100 setup ranking from technical, regime, sector, and event-aware features
+- **Multi-source enrichment**: SEC EDGAR, Finnhub, FRED, options/VIX, analyst estimates, insider activity, short interest, and Fed communications
+- **LLM packet writing**: XML trade commentary with `why_now`, `analysis`, and `metadata` blocks
+- **Council and governance**: 5-agent council, parameter adjustments, calibration tracking, HSHS health scoring, and validation results
+- **Training flywheel**: self-blinded generation, quality scoring, leakage checks, curriculum SFT, canary evaluation, and rollback protection
+- **Operations**: 24/7 scheduler, render sync, Telegram alerts, postmortems, nightly collection, and weekly reporting
 
 ## Prerequisites
 
 - Python 3.12+
-- Node.js 18+ (for dashboard)
-- Ollama (for local LLM inference)
-- NVIDIA GPU with 12GB+ VRAM (RTX 3060 minimum)
-- Alpaca paper trading account
-- API keys: Finnhub (free), FRED (free), Anthropic (for training data generation)
+- Node.js 18+ for the frontend
+- Ollama for local inference
+- NVIDIA GPU with 12GB+ VRAM recommended for the local model/training workflow
+- Alpaca paper/live credentials
+- API keys for Finnhub, FRED, and Anthropic if you want the full enrichment and training loop
 
 ## Quick Start
 
 ```bash
-# 1. Clone and setup
+# 1. Clone and set up the environment
 git clone <repo-url> && cd halcyon-lab
-python -m venv .venv && source .venv/bin/activate  # or .venv\Scripts\activate on Windows
+python -m venv .venv
+
+# Windows
+.venv\Scripts\activate
+
+# macOS / Linux
+source .venv/bin/activate
+
 pip install -r requirements.txt
+```
 
-# 2. Configure
+```bash
+# 2. Configure local settings
 cp config/settings.example.yaml config/settings.local.yaml
-# Edit config/settings.local.yaml with your API keys
+# Fill in API keys, broker credentials, and optional Render sync settings
+```
 
-# 3. Initialize
+```bash
+# 3. Initialize the database
 python -m src.main init-db
+```
 
-# 4. Pull LLM model (or use fine-tuned halcyon-v1)
+```bash
+# 4. Pull the local model (or register your fine-tuned build)
 ollama pull qwen3:8b
+```
 
-# 5. Run a scan
+```bash
+# 5. Run a dry scan
 python -m src.main scan --verbose --dry-run
+```
 
-# 6. Start the dashboard
+```bash
+# 6. Build the frontend and start the dashboard
 cd frontend && npm install && npm run build && cd ..
 python -m src.main dashboard
+```
 
-# 7. Start the automated watch loop (with overnight schedule)
+```bash
+# 7. Start the autonomous scheduler
 python -m src.main watch --email-mode daily_summary --overnight
 ```
 
-## Training
+## Common Workflows
 
 ```bash
-# Full unified pipeline (recommended)
+# Full training pipeline
 python -m src.main train-pipeline --force
 
-# Or step by step:
-python -m src.main backfill-training --months 12 --yes   # Generate training data
-python -m src.main score-training-data                      # Score with LLM-as-judge
-python -m src.main check-leakage                            # Verify no outcome leakage
-python -m src.main classify-training-data                   # Assign curriculum stages
-python -m src.main train --force                            # Fine-tune
-```
-
-## Data Collection
-
-```bash
-# Run all data collection manually
+# Manual data collection
 python -m src.main collect-data
 
-# Runs automatically at 9:30 PM ET with --overnight flag
-# Collects: options chains, VIX term structure, CBOE ratios, FRED macro, Google Trends
+# Morning / end-of-day ops
+python -m src.main morning-watchlist
+python -m src.main eod-recap
+
+# Reporting and health
+python -m src.main cto-report
+python -m src.main evaluate-gate
+python -m src.main check-leakage
 ```
 
-## Architecture
+## Cloud Deployment
 
-See [docs/architecture.md](docs/architecture.md) for the full system architecture, database schema, and data flow diagrams.
+Render deployment and sync setup are documented in [docs/deployment.md](docs/deployment.md). The cloud surface is read-only: local trading, training, and collection remain the source of truth, while Render hosts the remote dashboard and Postgres mirror.
 
 ## Documentation
 
-- [Architecture](docs/architecture.md) — System design, database schema, API routes
-- [Training Guide](docs/training-guide.md) — Training data pipeline, quality scoring, curriculum
-- [Roadmap](docs/roadmap.md) — 5-phase development plan with performance gates
-- [Email Setup](docs/guides/email_setup.md) — SMTP configuration guide
+- [Architecture](docs/architecture.md) — system modules, route surfaces, data flow, and council architecture
+- [Deployment](docs/deployment.md) — Render blueprint, Postgres migration, sync setup, auth, and verification
+- [Roadmap](docs/roadmap.md) — phase plan and gating milestones
+- [Training Guide](docs/training-guide.md) — training data, quality scoring, curriculum, and evaluation
+- [CLI Reference](docs/cli-reference.md) — command surface and flags
 
 ## License
 

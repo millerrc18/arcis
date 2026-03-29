@@ -733,7 +733,7 @@ def _check_scheduler(db_path: str, config: dict) -> list[dict]:
         # Activity log — check last entry
         try:
             row = conn.execute(
-                "SELECT MAX(timestamp) FROM activity_log"
+                "SELECT MAX(created_at) FROM activity_log"
             ).fetchone()
             if row and row[0]:
                 checks.append(_check("scheduler_activity", "pass",

@@ -17,9 +17,9 @@ import logging
 import sqlite3
 import uuid
 from datetime import datetime
-from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from src.council.constants import PARAMETER_DEFAULTS, RATE_LIMITS
 from src.council.protocol import (
     aggregate_votes,
     apply_rate_limiters,
@@ -27,8 +27,6 @@ from src.council.protocol import (
     run_round_1,
     run_round_2,
     tally_votes,
-    PARAMETER_DEFAULTS,
-    RATE_LIMITS,
 )
 
 logger = logging.getLogger(__name__)
@@ -200,59 +198,129 @@ class CouncilEngine:
         created_at = datetime.now(ET).isoformat()
 
         logger.info("Starting council session %s (type=%s)", session_id, session_type)
+        self._create_session_record(
+            session_id,
+            session_type,
+            trigger_reason or custom_question,
+            created_at,
+        )
+        shared_context = build_shared_context(self.db_path)
 
-        # Create session record
+        try:
+            round_data = self._run_rounds(session_id, session_type, shared_context, custom_question)
+        except Exception as exc:
+            logger.error("Round 1 failed: %s", exc)
+            return self._finalize_session(session_id, 0, [], session_type)
+
+        current_params, recommended, applied, rate_limited = self._apply_parameters(
+            session_id,
+            round_data["aggregation"],
+        )
+        self._store_calibrations(session_id, round_data["final_assessments"])
+
+        cost = _estimate_session_cost(round_data["rounds_completed"])
+        result_json, dissent = self._build_result_json(
+            session_id=session_id,
+            session_type=session_type,
+            custom_question=custom_question,
+            shared_context=shared_context,
+            round_data=round_data,
+            current_params=current_params,
+            recommended=recommended,
+            applied=applied,
+            rate_limited=rate_limited,
+            cost=cost,
+        )
+        self._persist_completed_session(
+            session_id=session_id,
+            aggregation=round_data["aggregation"],
+            final_assessments=round_data["final_assessments"],
+            rounds_completed=round_data["rounds_completed"],
+            cost=cost,
+            result_json=result_json,
+        )
+        aggregation = round_data["aggregation"]
+
+        logger.info(
+            "Council session %s complete: direction=%s, consensus=%s, "
+            "rounds=%d, cost=$%.4f",
+            session_id, aggregation["direction"],
+            aggregation["consensus_type"], round_data["rounds_completed"], cost,
+        )
+
+        # Return full result
+        return {
+            "session_id": session_id,
+            "session_type": session_type,
+            "rounds_completed": round_data["rounds_completed"],
+            "consensus": round_data["aggregation"]["direction"],
+            "consensus_type": round_data["aggregation"]["consensus_type"],
+            "aggregated_score": round_data["aggregation"]["aggregated_score"],
+            "confidence_avg": round_data["aggregation"]["confidence_avg"],
+            "is_contested": not round_data["aggregation"]["consensus_reached"],
+            "vote_distribution": round_data["aggregation"]["vote_distribution"],
+            "parameter_adjustments": result_json["parameter_adjustments"],
+            "scan_aggressiveness": applied.get("scan_aggressiveness", "normal"),
+            "sycophancy_flags": round_data["sycophancy_flags"],
+            "dissent": dissent,
+            "total_cost": cost,
+            "agent_assessments": round_data["final_assessments"],
+            "result_json": result_json,
+        }
+
+    def _create_session_record(
+        self,
+        session_id: str,
+        session_type: str,
+        trigger_reason: str | None,
+        created_at: str,
+    ) -> None:
+        """Insert the council session shell row before running any rounds."""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
                 """INSERT INTO council_sessions
-                   (session_id, session_type, trigger_reason, created_at,
-                    rounds_completed)
+                   (session_id, session_type, trigger_reason, created_at, rounds_completed)
                    VALUES (?, ?, ?, ?, 0)""",
-                (session_id, session_type, trigger_reason or custom_question, created_at),
+                (session_id, session_type, trigger_reason, created_at),
             )
             conn.commit()
 
-        # Build shared context
-        shared_context = build_shared_context(self.db_path)
-
-        # ── Round 1: Independent assessment (always) ──────────────
-        round1 = []
-        try:
-            round1 = run_round_1(
-                shared_context,
-                session_id=session_id,
-                db_path=self.db_path,
-                custom_question=custom_question,
+    def _run_rounds(
+        self,
+        session_id: str,
+        session_type: str,
+        shared_context: str,
+        custom_question: str | None,
+    ) -> dict:
+        """Run Round 1 and the optional Round 2, persisting votes as they land."""
+        round1 = run_round_1(
+            shared_context,
+            session_id=session_id,
+            db_path=self.db_path,
+            custom_question=custom_question,
+        )
+        with sqlite3.connect(self.db_path) as conn:
+            _store_votes(conn, session_id, 1, round1)
+            conn.execute(
+                "UPDATE council_sessions SET rounds_completed = 1 WHERE session_id = ?",
+                (session_id,),
             )
-            with sqlite3.connect(self.db_path) as conn:
-                _store_votes(conn, session_id, 1, round1)
-                conn.execute(
-                    "UPDATE council_sessions SET rounds_completed = 1 WHERE session_id = ?",
-                    (session_id,),
-                )
-                conn.commit()
-        except Exception as e:
-            logger.error("Round 1 failed: %s", e)
-            return self._finalize_session(session_id, 0, [], session_type)
+            conn.commit()
 
-        # ── Aggregate Round 1 votes ───────────────────────────────
         aggregation = aggregate_votes(round1, session_type)
+        final_assessments = round1
         rounds_completed = 1
         sycophancy_flags = []
-        final_assessments = round1
 
-        # ── Round 2: Only if no consensus (conditional) ───────────
         if aggregation["round2_needed"]:
             logger.info("Round 2 triggered — no 3/5 consensus in Round 1")
             try:
                 round2, sycophancy_flags = run_round_2(
-                    round1, shared_context,
+                    round1,
+                    shared_context,
                     session_id=session_id,
                     db_path=self.db_path,
                 )
-                rounds_completed = 2
-                final_assessments = round2
-                aggregation = aggregate_votes(round2, session_type)
                 with sqlite3.connect(self.db_path) as conn:
                     _store_votes(conn, session_id, 2, round2)
                     conn.execute(
@@ -260,86 +328,123 @@ class CouncilEngine:
                         (session_id,),
                     )
                     conn.commit()
-            except Exception as e:
-                logger.error("Round 2 failed: %s", e)
+                final_assessments = round2
+                aggregation = aggregate_votes(round2, session_type)
+                rounds_completed = 2
+            except Exception as exc:
+                logger.error("Round 2 failed: %s", exc)
         else:
-            logger.info("Consensus reached in Round 1 (%s) — skipping Round 2",
-                        aggregation["consensus_type"])
+            logger.info(
+                "Consensus reached in Round 1 (%s) — skipping Round 2",
+                aggregation["consensus_type"],
+            )
 
-        # ── Apply parameters with rate limiters ───────────────────
+        return {
+            "aggregation": aggregation,
+            "final_assessments": final_assessments,
+            "rounds_completed": rounds_completed,
+            "sycophancy_flags": sycophancy_flags,
+        }
+
+    def _apply_parameters(
+        self,
+        session_id: str,
+        aggregation: dict,
+    ) -> tuple[dict, dict, dict, bool]:
+        """Apply council parameter recommendations with rate limits and value logging."""
         from src.council.value_tracker import get_current_parameters, log_parameter_change
 
         current_params = get_current_parameters(self.db_path)
         recommended = aggregation.get("parameter_recommendations", {})
 
-        # Low confidence override
         if aggregation["confidence_avg"] < RATE_LIMITS["min_confidence_to_apply"]:
             applied = PARAMETER_DEFAULTS.copy()
             rate_limited = True
-            logger.info("[COUNCIL] Low confidence (%.2f) — using defaults",
-                        aggregation["confidence_avg"])
+            logger.info(
+                "[COUNCIL] Low confidence (%.2f) — using defaults",
+                aggregation["confidence_avg"],
+            )
         else:
             applied = apply_rate_limiters(recommended, current_params, self.db_path)
             rate_limited = applied.pop("_rate_limited", False)
 
-        # Log parameter changes for value tracking
-        for param_name, applied_val in applied.items():
+        for param_name, applied_value in applied.items():
             if param_name == "scan_aggressiveness":
-                continue  # Categorical — no numeric tracking
-            default_val = PARAMETER_DEFAULTS.get(param_name, 1.0)
-            council_val = recommended.get(param_name, default_val)
+                continue
+            default_value = PARAMETER_DEFAULTS.get(param_name, 1.0)
+            council_value = recommended.get(param_name, default_value)
             log_parameter_change(
                 session_id=session_id,
                 parameter_name=param_name,
-                default_value=float(default_val),
-                council_value=float(council_val),
-                applied_value=float(applied_val),
+                default_value=float(default_value),
+                council_value=float(council_value),
+                applied_value=float(applied_value),
                 rate_limited=rate_limited,
                 agent_name="consensus",
                 db_path=self.db_path,
             )
 
-        # ── Extract calibration predictions ───────────────────────
-        for assessment in final_assessments:
-            pred = assessment.get("falsifiable_prediction")
-            if pred and isinstance(pred, dict) and pred.get("claim"):
-                try:
-                    with sqlite3.connect(self.db_path) as conn:
-                        conn.execute(
-                            "INSERT INTO council_calibrations "
-                            "(calibration_id, session_id, agent_name, prediction, "
-                            "prediction_confidence, verification_date, created_at) "
-                            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                            (str(uuid.uuid4()), session_id,
-                             assessment.get("agent", "unknown"),
-                             pred["claim"],
-                             pred.get("confidence", 0.5),
-                             pred.get("verification_date", ""),
-                             datetime.now(ET).isoformat()),
-                        )
-                except Exception as e:
-                    logger.warning("[COUNCIL] Calibration insert failed: %s", e)
+        return current_params, recommended, applied, rate_limited
 
-        # ── Build structured session result ───────────────────────
+    def _store_calibrations(self, session_id: str, assessments: list[dict]) -> None:
+        """Persist falsifiable predictions emitted by the final council assessments."""
+        for assessment in assessments:
+            prediction = assessment.get("falsifiable_prediction")
+            if not (prediction and isinstance(prediction, dict) and prediction.get("claim")):
+                continue
+            try:
+                with sqlite3.connect(self.db_path) as conn:
+                    conn.execute(
+                        "INSERT INTO council_calibrations "
+                        "(calibration_id, session_id, agent_name, prediction, "
+                        "prediction_confidence, verification_date, created_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            str(uuid.uuid4()),
+                            session_id,
+                            assessment.get("agent", "unknown"),
+                            prediction["claim"],
+                            prediction.get("confidence", 0.5),
+                            prediction.get("verification_date", ""),
+                            datetime.now(ET).isoformat(),
+                        ),
+                    )
+            except Exception as exc:
+                logger.warning("[COUNCIL] Calibration insert failed: %s", exc)
+
+    def _build_result_json(
+        self,
+        *,
+        session_id: str,
+        session_type: str,
+        custom_question: str | None,
+        shared_context: str,
+        round_data: dict,
+        current_params: dict,
+        recommended: dict,
+        applied: dict,
+        rate_limited: bool,
+        cost: float,
+    ) -> tuple[dict, list[dict]]:
+        """Construct the structured v2 session payload and dissent summary."""
+        aggregation = round_data["aggregation"]
+        final_assessments = round_data["final_assessments"]
         dissent = [
             {
-                "agent": a["agent"],
-                "direction": a.get("direction"),
-                "confidence": a.get("confidence"),
-                "key_reasoning": a.get("key_reasoning", ""),
+                "agent": assessment["agent"],
+                "direction": assessment.get("direction"),
+                "confidence": assessment.get("confidence"),
+                "key_reasoning": assessment.get("key_reasoning", ""),
             }
-            for a in final_assessments
-            if a.get("direction") != aggregation["direction"]
+            for assessment in final_assessments
+            if assessment.get("direction") != aggregation["direction"]
         ]
-
-        cost = _estimate_session_cost(rounds_completed)
-
         result_json = {
             "session_meta": {
                 "session_id": session_id,
                 "session_type": session_type,
                 "cost_usd": cost,
-                "rounds_completed": rounds_completed,
+                "rounds_completed": round_data["rounds_completed"],
                 "custom_question": custom_question,
             },
             "market_context": shared_context,
@@ -350,28 +455,38 @@ class CouncilEngine:
                 "vote_distribution": aggregation["vote_distribution"],
                 "consensus_reached": aggregation["consensus_reached"],
                 "consensus_type": aggregation["consensus_type"],
-                "round2_triggered": rounds_completed > 1,
-                "sycophancy_flags": sycophancy_flags,
+                "round2_triggered": round_data["rounds_completed"] > 1,
+                "sycophancy_flags": round_data["sycophancy_flags"],
             },
             "parameter_adjustments": {
-                k: {
-                    "previous": current_params.get(k),
-                    "recommended": recommended.get(k),
-                    "applied": applied.get(k),
+                key: {
+                    "previous": current_params.get(key),
+                    "recommended": recommended.get(key),
+                    "applied": applied.get(key),
                     "rate_limited": rate_limited,
                 }
-                for k in applied if k != "scan_aggressiveness"
+                for key in applied
+                if key != "scan_aggressiveness"
             },
             "scan_aggressiveness": applied.get("scan_aggressiveness", "normal"),
             "agent_assessments": final_assessments,
             "dissent": dissent,
         }
+        return result_json, dissent
 
-        # Store result_json and finalize
+    def _persist_completed_session(
+        self,
+        *,
+        session_id: str,
+        aggregation: dict,
+        final_assessments: list[dict],
+        rounds_completed: int,
+        cost: float,
+        result_json: dict,
+    ) -> None:
+        """Write the final council outcome back onto the session row."""
+        old_tally = tally_votes(final_assessments)
         with sqlite3.connect(self.db_path) as conn:
-            # Backward compat: map to old tally format
-            old_tally = tally_votes(final_assessments)
-
             conn.execute(
                 """UPDATE council_sessions
                    SET consensus = ?,
@@ -383,7 +498,10 @@ class CouncilEngine:
                    WHERE session_id = ?""",
                 (
                     old_tally.get("consensus", aggregation["direction"]),
-                    old_tally.get("confidence_weighted_score", abs(aggregation["aggregated_score"]) * 100),
+                    old_tally.get(
+                        "confidence_weighted_score",
+                        abs(aggregation["aggregated_score"]) * 100,
+                    ),
                     1 if not aggregation["consensus_reached"] else 0,
                     cost,
                     rounds_completed,
@@ -392,33 +510,6 @@ class CouncilEngine:
                 ),
             )
             conn.commit()
-
-        logger.info(
-            "Council session %s complete: direction=%s, consensus=%s, "
-            "rounds=%d, cost=$%.4f",
-            session_id, aggregation["direction"],
-            aggregation["consensus_type"], rounds_completed, cost,
-        )
-
-        # Return full result
-        return {
-            "session_id": session_id,
-            "session_type": session_type,
-            "rounds_completed": rounds_completed,
-            "consensus": aggregation["direction"],
-            "consensus_type": aggregation["consensus_type"],
-            "aggregated_score": aggregation["aggregated_score"],
-            "confidence_avg": aggregation["confidence_avg"],
-            "is_contested": not aggregation["consensus_reached"],
-            "vote_distribution": aggregation["vote_distribution"],
-            "parameter_adjustments": result_json["parameter_adjustments"],
-            "scan_aggressiveness": applied.get("scan_aggressiveness", "normal"),
-            "sycophancy_flags": sycophancy_flags,
-            "dissent": dissent,
-            "total_cost": cost,
-            "agent_assessments": final_assessments,
-            "result_json": result_json,
-        }
 
     def _finalize_session(
         self,

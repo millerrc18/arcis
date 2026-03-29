@@ -10,7 +10,7 @@ Computes 5 earnings-related signals for pullback trade commentary:
 
 import logging
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)

@@ -76,207 +76,188 @@ def _extract_text(soup: BeautifulSoup) -> str:
     return text
 
 
-def _collect_fomc_statements(
-    conn: sqlite3.Connection, since_date: str, collected_at: str
+def _parse_href_date(href: str) -> str | None:
+    """Extract a YYYY-MM-DD date from a Fed archive href."""
+    match = re.search(r"(\d{8})", href)
+    if not match:
+        return None
+    raw_date = match.group(1)
+    return f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:8]}"
+
+
+def _already_collected(
+    conn: sqlite3.Connection,
+    comm_type: str,
+    filing_date: str,
+    title: str | None = None,
+) -> bool:
+    """Return True when the same communication is already stored."""
+    if title is None:
+        row = conn.execute(
+            "SELECT 1 FROM fed_communications WHERE comm_type = ? AND date = ?",
+            (comm_type, filing_date),
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT 1 FROM fed_communications WHERE comm_type = ? AND date = ? AND title = ?",
+            (comm_type, filing_date, title),
+        ).fetchone()
+    return bool(row)
+
+
+def _fetch_article_payload(full_url: str) -> tuple[str, int] | None:
+    """Fetch and return article text plus word count."""
+    time.sleep(0.5)
+    page_soup = _fetch_page(full_url)
+    if not page_soup:
+        return None
+    full_text = _extract_text(page_soup)
+    return full_text, len(full_text.split()) if full_text else 0
+
+
+def _store_fed_item(
+    conn: sqlite3.Connection,
+    *,
+    comm_type: str,
+    title: str,
+    filing_date: str,
+    speaker: str | None,
+    full_url: str,
+    full_text: str,
+    word_count: int,
+    collected_at: str,
 ) -> int:
-    """Collect FOMC press releases / statements."""
-    stored = 0
-    url = f"{FED_BASE}/monetarypolicy/fomccalendars.htm"
+    """Insert one Fed communication row and return 1 when stored."""
+    try:
+        conn.execute(
+            """INSERT OR IGNORE INTO fed_communications
+            (comm_type, title, date, speaker, url, full_text, word_count, collected_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (comm_type, title, filing_date, speaker, full_url, full_text, word_count, collected_at),
+        )
+        return 1
+    except sqlite3.IntegrityError:
+        return 0
+
+
+def _collect_link_archive(
+    conn: sqlite3.Connection,
+    *,
+    url: str,
+    comm_type: str,
+    since_date: str,
+    collected_at: str,
+    link_filter,
+    title_builder,
+) -> int:
+    """Collect Fed archive pages whose dates are embedded in the href."""
     soup = _fetch_page(url)
     if not soup:
         return 0
 
-    # Find links to statements (press releases)
+    stored = 0
     for link in soup.find_all("a", href=True):
         href = link.get("href", "")
         text = link.get_text(strip=True).lower()
-
-        if "statement" not in text and "press release" not in text:
+        if not link_filter(href, text):
             continue
-        if not href.startswith("/"):
-            continue
-
-        # Extract date from URL pattern like /newsevents/pressreleases/monetary20240131a.htm
-        date_match = re.search(r"(\d{8})", href)
-        if not date_match:
-            continue
-
-        raw_date = date_match.group(1)
-        filing_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:8]}"
-
-        if filing_date < since_date:
+        filing_date = _parse_href_date(href)
+        if not filing_date or filing_date < since_date or _already_collected(conn, comm_type, filing_date):
             continue
 
         full_url = f"{FED_BASE}{href}"
-
-        # Check if already collected
-        exists = conn.execute(
-            "SELECT 1 FROM fed_communications WHERE comm_type = 'statement' AND date = ?",
-            (filing_date,),
-        ).fetchone()
-        if exists:
+        payload = _fetch_article_payload(full_url)
+        if not payload:
             continue
-
-        # Fetch full text
-        time.sleep(0.5)
-        page_soup = _fetch_page(full_url)
-        if not page_soup:
-            continue
-
-        full_text = _extract_text(page_soup)
-        word_count = len(full_text.split()) if full_text else 0
-
-        try:
-            conn.execute(
-                """INSERT OR IGNORE INTO fed_communications
-                (comm_type, title, date, speaker, url, full_text, word_count, collected_at)
-                VALUES ('statement', ?, ?, NULL, ?, ?, ?, ?)""",
-                (
-                    f"FOMC Statement {filing_date}",
-                    filing_date,
-                    full_url,
-                    full_text,
-                    word_count,
-                    collected_at,
-                ),
-            )
-            stored += 1
-        except sqlite3.IntegrityError:
-            pass
-
+        full_text, word_count = payload
+        stored += _store_fed_item(
+            conn,
+            comm_type=comm_type,
+            title=title_builder(filing_date),
+            filing_date=filing_date,
+            speaker=None,
+            full_url=full_url,
+            full_text=full_text,
+            word_count=word_count,
+            collected_at=collected_at,
+        )
     return stored
+
+
+def _collect_fomc_statements(
+    conn: sqlite3.Connection, since_date: str, collected_at: str
+) -> int:
+    """Collect FOMC press releases / statements."""
+    return _collect_link_archive(
+        conn,
+        url=f"{FED_BASE}/monetarypolicy/fomccalendars.htm",
+        comm_type="statement",
+        since_date=since_date,
+        collected_at=collected_at,
+        link_filter=lambda href, text: href.startswith("/") and ("statement" in text or "press release" in text),
+        title_builder=lambda filing_date: f"FOMC Statement {filing_date}",
+    )
 
 
 def _collect_fomc_minutes(
     conn: sqlite3.Connection, since_date: str, collected_at: str
 ) -> int:
     """Collect FOMC meeting minutes."""
-    stored = 0
-    url = f"{FED_BASE}/monetarypolicy/fomccalendars.htm"
-    soup = _fetch_page(url)
-    if not soup:
-        return 0
-
-    for link in soup.find_all("a", href=True):
-        href = link.get("href", "")
-        text = link.get_text(strip=True).lower()
-
-        if "minutes" not in text:
-            continue
-        if not href.startswith("/"):
-            continue
-
-        date_match = re.search(r"(\d{8})", href)
-        if not date_match:
-            continue
-
-        raw_date = date_match.group(1)
-        filing_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:8]}"
-
-        if filing_date < since_date:
-            continue
-
-        full_url = f"{FED_BASE}{href}"
-
-        exists = conn.execute(
-            "SELECT 1 FROM fed_communications WHERE comm_type = 'minutes' AND date = ?",
-            (filing_date,),
-        ).fetchone()
-        if exists:
-            continue
-
-        time.sleep(0.5)
-        page_soup = _fetch_page(full_url)
-        if not page_soup:
-            continue
-
-        full_text = _extract_text(page_soup)
-        word_count = len(full_text.split()) if full_text else 0
-
-        try:
-            conn.execute(
-                """INSERT OR IGNORE INTO fed_communications
-                (comm_type, title, date, speaker, url, full_text, word_count, collected_at)
-                VALUES ('minutes', ?, ?, NULL, ?, ?, ?, ?)""",
-                (
-                    f"FOMC Minutes {filing_date}",
-                    filing_date,
-                    full_url,
-                    full_text,
-                    word_count,
-                    collected_at,
-                ),
-            )
-            stored += 1
-        except sqlite3.IntegrityError:
-            pass
-
-    return stored
+    return _collect_link_archive(
+        conn,
+        url=f"{FED_BASE}/monetarypolicy/fomccalendars.htm",
+        comm_type="minutes",
+        since_date=since_date,
+        collected_at=collected_at,
+        link_filter=lambda href, text: href.startswith("/") and "minutes" in text,
+        title_builder=lambda filing_date: f"FOMC Minutes {filing_date}",
+    )
 
 
 def _collect_beige_book(
     conn: sqlite3.Connection, since_date: str, collected_at: str
 ) -> int:
     """Collect Beige Book summaries."""
-    stored = 0
-    url = f"{FED_BASE}/monetarypolicy/beige-book-default.htm"
-    soup = _fetch_page(url)
-    if not soup:
-        return 0
+    return _collect_link_archive(
+        conn,
+        url=f"{FED_BASE}/monetarypolicy/beige-book-default.htm",
+        comm_type="beige_book",
+        since_date=since_date,
+        collected_at=collected_at,
+        link_filter=lambda href, _text: href.startswith("/")
+        and ("beigebook" in href.lower() or "beige-book" in href.lower()),
+        title_builder=lambda filing_date: f"Beige Book {filing_date}",
+    )
 
-    for link in soup.find_all("a", href=True):
-        href = link.get("href", "")
-        if "beigebook" not in href.lower() and "beige-book" not in href.lower():
-            continue
-        if not href.startswith("/"):
-            continue
 
-        date_match = re.search(r"(\d{8})", href)
-        if not date_match:
-            continue
+def _parse_speech_item(item) -> tuple[str, str, str | None, str] | None:
+    """Extract title, date, speaker, and URL metadata from a speech item."""
+    date_el = item.find("time") or item.find(class_="itemDate")
+    title_el = item.find("a", href=True)
+    if not date_el or not title_el:
+        return None
 
-        raw_date = date_match.group(1)
-        filing_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:8]}"
+    date_text = date_el.get_text(strip=True)
+    try:
+        filing_date = datetime.strptime(date_text, "%B %d, %Y").strftime("%Y-%m-%d")
+    except ValueError:
+        return None
 
-        if filing_date < since_date:
-            continue
+    href = title_el.get("href", "")
+    if not href:
+        return None
 
-        full_url = f"{FED_BASE}{href}"
+    title = title_el.get_text(strip=True)
+    full_url = f"{FED_BASE}{href}" if href.startswith("/") else href
+    speaker = None
+    parent_text = item.get_text(separator="|", strip=True)
+    for part in parent_text.split("|"):
+        candidate = part.strip()
+        if candidate and candidate != title and candidate != date_text and len(candidate) < 100:
+            speaker = candidate
+            break
 
-        exists = conn.execute(
-            "SELECT 1 FROM fed_communications WHERE comm_type = 'beige_book' AND date = ?",
-            (filing_date,),
-        ).fetchone()
-        if exists:
-            continue
-
-        time.sleep(0.5)
-        page_soup = _fetch_page(full_url)
-        if not page_soup:
-            continue
-
-        full_text = _extract_text(page_soup)
-        word_count = len(full_text.split()) if full_text else 0
-
-        try:
-            conn.execute(
-                """INSERT OR IGNORE INTO fed_communications
-                (comm_type, title, date, speaker, url, full_text, word_count, collected_at)
-                VALUES ('beige_book', ?, ?, NULL, ?, ?, ?, ?)""",
-                (
-                    f"Beige Book {filing_date}",
-                    filing_date,
-                    full_url,
-                    full_text,
-                    word_count,
-                    collected_at,
-                ),
-            )
-            stored += 1
-        except sqlite3.IntegrityError:
-            pass
-
-    return stored
+    return title, filing_date, speaker, full_url
 
 
 def _collect_speeches(
@@ -290,66 +271,27 @@ def _collect_speeches(
         return 0
 
     for item in soup.find_all("div", class_="row"):
-        # Find date and speaker
-        date_el = item.find("time") or item.find(class_="itemDate")
-        title_el = item.find("a", href=True)
-
-        if not date_el or not title_el:
+        parsed = _parse_speech_item(item)
+        if not parsed:
             continue
-
-        date_text = date_el.get_text(strip=True)
-        # Parse date like "March 15, 2024"
-        try:
-            parsed_date = datetime.strptime(date_text, "%B %d, %Y")
-            filing_date = parsed_date.strftime("%Y-%m-%d")
-        except ValueError:
+        title, filing_date, speaker, full_url = parsed
+        if filing_date < since_date or _already_collected(conn, "speech", filing_date, title):
             continue
-
-        if filing_date < since_date:
+        payload = _fetch_article_payload(full_url)
+        if not payload:
             continue
-
-        href = title_el.get("href", "")
-        title = title_el.get_text(strip=True)
-        if not href:
-            continue
-
-        full_url = f"{FED_BASE}{href}" if href.startswith("/") else href
-
-        # Try to extract speaker from surrounding text
-        speaker = None
-        parent_text = item.get_text(separator="|", strip=True)
-        parts = parent_text.split("|")
-        for part in parts:
-            part = part.strip()
-            if part and part != title and part != date_text and len(part) < 100:
-                speaker = part
-                break
-
-        exists = conn.execute(
-            "SELECT 1 FROM fed_communications WHERE comm_type = 'speech' AND date = ? AND title = ?",
-            (filing_date, title),
-        ).fetchone()
-        if exists:
-            continue
-
-        time.sleep(0.5)
-        page_soup = _fetch_page(full_url)
-        if not page_soup:
-            continue
-
-        full_text = _extract_text(page_soup)
-        word_count = len(full_text.split()) if full_text else 0
-
-        try:
-            conn.execute(
-                """INSERT OR IGNORE INTO fed_communications
-                (comm_type, title, date, speaker, url, full_text, word_count, collected_at)
-                VALUES ('speech', ?, ?, ?, ?, ?, ?, ?)""",
-                (title, filing_date, speaker, full_url, full_text, word_count, collected_at),
-            )
-            stored += 1
-        except sqlite3.IntegrityError:
-            pass
+        full_text, word_count = payload
+        stored += _store_fed_item(
+            conn,
+            comm_type="speech",
+            title=title,
+            filing_date=filing_date,
+            speaker=speaker,
+            full_url=full_url,
+            full_text=full_text,
+            word_count=word_count,
+            collected_at=collected_at,
+        )
 
     return stored
 

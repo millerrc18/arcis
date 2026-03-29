@@ -1,9 +1,60 @@
 """System API routes."""
+import logging
+
 from fastapi import APIRouter, Query
 from src.config import load_config
 from src.services.system_service import get_system_status
 
 router = APIRouter(tags=["system"])
+logger = logging.getLogger(__name__)
+
+_DATA_COLLECTION_QUERIES = {
+    "options_chains": (
+        "SELECT COUNT(*), MIN(collected_at), MAX(collected_at), COUNT(DISTINCT ticker) "
+        "FROM options_chains",
+        ("total_records", "first_collected", "last_collected", "tickers_covered"),
+        "total_records",
+    ),
+    "options_metrics": (
+        "SELECT COUNT(*), MAX(collected_date), COUNT(DISTINCT ticker) "
+        "FROM options_metrics",
+        ("total_records", "last_date", "tickers_covered"),
+        "total_records",
+    ),
+    "vix_term_structure": (
+        "SELECT COUNT(*), MIN(collected_date), MAX(collected_date) "
+        "FROM vix_term_structure",
+        ("days_of_history", "first_date", "last_date"),
+        "days_of_history",
+    ),
+    "macro_snapshots": (
+        "SELECT COUNT(*), COUNT(DISTINCT series_id), MAX(collected_date) "
+        "FROM macro_snapshots",
+        ("total_records", "series_tracked", "last_date"),
+        "total_records",
+    ),
+    "google_trends": (
+        "SELECT COUNT(*), COUNT(DISTINCT ticker), MAX(collected_date) "
+        "FROM google_trends",
+        ("total_records", "tickers_all_time", "last_date"),
+        "total_records",
+    ),
+    "cboe_ratios": (
+        "SELECT COUNT(*), MAX(collected_date) FROM cboe_ratios",
+        ("total_records", "last_date"),
+        "total_records",
+    ),
+}
+
+
+def _build_table_stats(row: tuple | None, fields: tuple[str, ...], zero_field: str) -> dict:
+    """Normalize a stats row into a response dict, with a stable zero shape."""
+    if not row or not row[0]:
+        return {zero_field: 0}
+    return {
+        field: row[idx]
+        for idx, field in enumerate(fields)
+    }
 
 
 @router.get("/status")
@@ -199,94 +250,16 @@ def data_collection_stats():
 
     try:
         with sqlite3.connect(db_path) as conn:
-            # Options chains
-            row = conn.execute(
-                "SELECT COUNT(*), MIN(collected_at), MAX(collected_at), COUNT(DISTINCT ticker) "
-                "FROM options_chains"
-            ).fetchone()
-            if row and row[0]:
-                stats["options_chains"] = {
-                    "total_records": row[0],
-                    "first_collected": row[1],
-                    "last_collected": row[2],
-                    "tickers_covered": row[3],
-                }
-            else:
-                stats["options_chains"] = {"total_records": 0}
+            for table_name, (sql, fields, zero_field) in _DATA_COLLECTION_QUERIES.items():
+                row = conn.execute(sql).fetchone()
+                stats[table_name] = _build_table_stats(row, fields, zero_field)
 
-            # Options metrics
-            row = conn.execute(
-                "SELECT COUNT(*), MAX(collected_date), COUNT(DISTINCT ticker) "
-                "FROM options_metrics"
-            ).fetchone()
-            if row and row[0]:
-                stats["options_metrics"] = {
-                    "total_records": row[0],
-                    "last_date": row[1],
-                    "tickers_covered": row[2],
-                }
-            else:
-                stats["options_metrics"] = {"total_records": 0}
-
-            # VIX term structure
-            row = conn.execute(
-                "SELECT COUNT(*), MIN(collected_date), MAX(collected_date) "
-                "FROM vix_term_structure"
-            ).fetchone()
-            if row and row[0]:
-                stats["vix_term_structure"] = {
-                    "days_of_history": row[0],
-                    "first_date": row[1],
-                    "last_date": row[2],
-                }
-            else:
-                stats["vix_term_structure"] = {"days_of_history": 0}
-
-            # Macro snapshots
-            row = conn.execute(
-                "SELECT COUNT(*), COUNT(DISTINCT series_id), MAX(collected_date) "
-                "FROM macro_snapshots"
-            ).fetchone()
-            if row and row[0]:
-                stats["macro_snapshots"] = {
-                    "total_records": row[0],
-                    "series_tracked": row[1],
-                    "last_date": row[2],
-                }
-            else:
-                stats["macro_snapshots"] = {"total_records": 0}
-
-            # Google trends
-            row = conn.execute(
-                "SELECT COUNT(*), COUNT(DISTINCT ticker), MAX(collected_date) "
-                "FROM google_trends"
-            ).fetchone()
-            if row and row[0]:
-                # Tickers covered this week
+            if stats["google_trends"].get("total_records", 0):
                 week_row = conn.execute(
                     "SELECT COUNT(DISTINCT ticker) FROM google_trends "
                     "WHERE collected_date >= date('now', '-7 days')"
                 ).fetchone()
-                stats["google_trends"] = {
-                    "total_records": row[0],
-                    "tickers_all_time": row[1],
-                    "last_date": row[2],
-                    "tickers_this_week": week_row[0] if week_row else 0,
-                }
-            else:
-                stats["google_trends"] = {"total_records": 0}
-
-            # CBOE ratios
-            row = conn.execute(
-                "SELECT COUNT(*), MAX(collected_date) FROM cboe_ratios"
-            ).fetchone()
-            if row and row[0]:
-                stats["cboe_ratios"] = {
-                    "total_records": row[0],
-                    "last_date": row[1],
-                }
-            else:
-                stats["cboe_ratios"] = {"total_records": 0}
+                stats["google_trends"]["tickers_this_week"] = week_row[0] if week_row else 0
 
     except Exception as e:
         logger.warning("data_collection_stats error: %s", e)

@@ -20,6 +20,8 @@ import uuid
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from src.council.constants import PARAMETER_DEFAULTS
+
 logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
@@ -77,8 +79,6 @@ def get_current_parameters(db_path: str = DB_PATH) -> dict:
 
     Falls back to defaults if no state stored.
     """
-    from src.council.protocol import PARAMETER_DEFAULTS
-
     params = PARAMETER_DEFAULTS.copy()
     try:
         with sqlite3.connect(db_path) as conn:
@@ -146,6 +146,102 @@ def log_parameter_change(
     return log_id
 
 
+def _empty_value_summary(days: int | None = None) -> dict:
+    """Return the standard council value summary shape."""
+    summary = {
+        "total_value_added": 0.0,
+        "windows_computed": 0,
+        "per_parameter": {},
+        "per_agent": {},
+    }
+    if days is not None:
+        summary.update(
+            {
+                "period_days": days,
+                "total_trades_influenced": 0,
+                "weeks_negative": 0,
+                "authority_status": "full",
+            }
+        )
+    return summary
+
+
+def _record_value(summary: dict, parameter_name: str, agent_name: str | None, value_added: float, trades: int) -> None:
+    """Accumulate a value-add contribution into the summary buckets."""
+    summary["total_value_added"] += value_added
+    if "total_trades_influenced" in summary:
+        summary["total_trades_influenced"] += trades
+
+    parameter_bucket = summary["per_parameter"].setdefault(
+        parameter_name,
+        {"value_added": 0.0, "trades": 0},
+    )
+    parameter_bucket["value_added"] += value_added
+    parameter_bucket["trades"] += trades
+
+    agent_bucket = summary["per_agent"].setdefault(
+        agent_name or "consensus",
+        {"value_added": 0.0, "recommendations": 0},
+    )
+    agent_bucket["value_added"] += value_added
+    agent_bucket["recommendations"] += 1
+
+
+def _compute_window_value(conn: sqlite3.Connection, window: sqlite3.Row) -> tuple[int, float, float, float] | None:
+    """Compute actual, counterfactual, and value-add numbers for one attribution window."""
+    if window["parameter_name"] != "position_sizing_multiplier":
+        return None
+
+    applied = window["applied_value"]
+    default = window["default_value"]
+    if applied <= 0 or default <= 0:
+        return None
+
+    trades = conn.execute(
+        "SELECT pnl_dollars FROM shadow_trades "
+        "WHERE status = 'closed' AND actual_entry_time >= ? "
+        "AND actual_entry_time < ?",
+        (window["attribution_start"], window["attribution_end"]),
+    ).fetchall()
+    if not trades:
+        return 0, 0.0, 0.0, 0.0
+
+    actual_pnl = sum(trade["pnl_dollars"] or 0 for trade in trades)
+    sizing_ratio = default / applied
+    counterfactual_pnl = sum((trade["pnl_dollars"] or 0) * sizing_ratio for trade in trades)
+    value_added = actual_pnl - counterfactual_pnl
+    return len(trades), actual_pnl, counterfactual_pnl, value_added
+
+
+def _count_negative_weeks(conn: sqlite3.Connection, weeks: int = 12) -> int:
+    """Count the most recent consecutive weekly value-add buckets that are negative."""
+    streak = 0
+    for week in range(weeks):
+        week_start = (datetime.now(ET) - timedelta(weeks=week + 1)).isoformat()
+        week_end = (datetime.now(ET) - timedelta(weeks=week)).isoformat()
+        row = conn.execute(
+            "SELECT COALESCE(SUM(value_added_dollars), 0) as va "
+            "FROM council_parameter_log "
+            "WHERE attribution_start >= ? AND attribution_start < ? "
+            "AND value_added_dollars IS NOT NULL",
+            (week_start, week_end),
+        ).fetchone()
+        if row and row["va"] < 0:
+            streak += 1
+        else:
+            break
+    return streak
+
+
+def _determine_authority_status(weeks_negative: int) -> str:
+    """Map recent value-add streaks onto the council authority state."""
+    if weeks_negative >= 12:
+        return "reduced"
+    if weeks_negative >= 8:
+        return "alert"
+    return "full"
+
+
 def compute_attribution(db_path: str = DB_PATH) -> dict:
     """Compute value attribution for closed attribution windows.
 
@@ -168,12 +264,7 @@ def compute_attribution(db_path: str = DB_PATH) -> dict:
             "per_agent": {name: {"value_added": float, "recommendations": int}},
         }
     """
-    result = {
-        "total_value_added": 0.0,
-        "windows_computed": 0,
-        "per_parameter": {},
-        "per_agent": {},
-    }
+    result = _empty_value_summary()
 
     try:
         init_value_tables(db_path)
@@ -190,64 +281,32 @@ def compute_attribution(db_path: str = DB_PATH) -> dict:
             ).fetchall()
 
             for window in windows:
-                param = window["parameter_name"]
-                start = window["attribution_start"]
-                end = window["attribution_end"]
-                applied = window["applied_value"]
-                default = window["default_value"]
+                value_tuple = _compute_window_value(conn, window)
+                if value_tuple is None:
+                    continue
 
-                if param == "position_sizing_multiplier" and applied > 0 and default > 0:
-                    # Find trades opened during this attribution window
-                    trades = conn.execute(
-                        "SELECT pnl_dollars FROM shadow_trades "
-                        "WHERE status = 'closed' AND actual_entry_time >= ? "
-                        "AND actual_entry_time < ?",
-                        (start, end),
-                    ).fetchall()
-
-                    if trades:
-                        actual_pnl = sum(t["pnl_dollars"] or 0 for t in trades)
-                        # Counterfactual: scale P&L by default/applied ratio
-                        sizing_ratio = default / applied
-                        counterfactual_pnl = sum(
-                            (t["pnl_dollars"] or 0) * sizing_ratio for t in trades
-                        )
-                        value_added = actual_pnl - counterfactual_pnl
-
-                        conn.execute(
-                            "UPDATE council_parameter_log SET "
-                            "trades_during_window = ?, pnl_during_window = ?, "
-                            "counterfactual_pnl = ?, value_added_dollars = ? "
-                            "WHERE log_id = ?",
-                            (len(trades), round(actual_pnl, 2),
-                             round(counterfactual_pnl, 2),
-                             round(value_added, 2), window["log_id"]),
-                        )
-
-                        result["total_value_added"] += value_added
-                        result["windows_computed"] += 1
-
-                        # Per-parameter
-                        if param not in result["per_parameter"]:
-                            result["per_parameter"][param] = {"value_added": 0.0, "trades": 0}
-                        result["per_parameter"][param]["value_added"] += value_added
-                        result["per_parameter"][param]["trades"] += len(trades)
-
-                        # Per-agent
-                        agent = window["agent_name"] or "consensus"
-                        if agent not in result["per_agent"]:
-                            result["per_agent"][agent] = {"value_added": 0.0, "recommendations": 0}
-                        result["per_agent"][agent]["value_added"] += value_added
-                        result["per_agent"][agent]["recommendations"] += 1
-                    else:
-                        # No trades in window — mark as computed with zero
-                        conn.execute(
-                            "UPDATE council_parameter_log SET "
-                            "trades_during_window = 0, pnl_during_window = 0, "
-                            "counterfactual_pnl = 0, value_added_dollars = 0 "
-                            "WHERE log_id = ?",
-                            (window["log_id"],),
-                        )
+                trade_count, actual_pnl, counterfactual_pnl, value_added = value_tuple
+                conn.execute(
+                    "UPDATE council_parameter_log SET "
+                    "trades_during_window = ?, pnl_during_window = ?, "
+                    "counterfactual_pnl = ?, value_added_dollars = ? "
+                    "WHERE log_id = ?",
+                    (
+                        trade_count,
+                        round(actual_pnl, 2),
+                        round(counterfactual_pnl, 2),
+                        round(value_added, 2),
+                        window["log_id"],
+                    ),
+                )
+                result["windows_computed"] += 1
+                _record_value(
+                    result,
+                    window["parameter_name"],
+                    window["agent_name"],
+                    value_added,
+                    trade_count,
+                )
 
     except Exception as e:
         logger.error("[VALUE] Attribution computation failed: %s", e)
@@ -270,15 +329,7 @@ def get_rolling_value_summary(days: int = 30, db_path: str = DB_PATH) -> dict:
         }
     """
     cutoff = (datetime.now(ET) - timedelta(days=days)).isoformat()
-    summary = {
-        "period_days": days,
-        "total_value_added": 0.0,
-        "total_trades_influenced": 0,
-        "per_parameter": {},
-        "per_agent": {},
-        "weeks_negative": 0,
-        "authority_status": "full",
-    }
+    summary = _empty_value_summary(days)
 
     try:
         init_value_tables(db_path)
@@ -295,47 +346,16 @@ def get_rolling_value_summary(days: int = 30, db_path: str = DB_PATH) -> dict:
             ).fetchall()
 
             for r in rows:
-                va = r["value_added_dollars"] or 0
-                trades = r["trades_during_window"] or 0
-                summary["total_value_added"] += va
-                summary["total_trades_influenced"] += trades
+                _record_value(
+                    summary,
+                    r["parameter_name"],
+                    r["agent_name"],
+                    r["value_added_dollars"] or 0,
+                    r["trades_during_window"] or 0,
+                )
 
-                param = r["parameter_name"]
-                if param not in summary["per_parameter"]:
-                    summary["per_parameter"][param] = {"value_added": 0.0, "trades": 0}
-                summary["per_parameter"][param]["value_added"] += va
-                summary["per_parameter"][param]["trades"] += trades
-
-                agent = r["agent_name"] or "consensus"
-                if agent not in summary["per_agent"]:
-                    summary["per_agent"][agent] = {"value_added": 0.0, "recommendations": 0}
-                summary["per_agent"][agent]["value_added"] += va
-                summary["per_agent"][agent]["recommendations"] += 1
-
-            # Compute consecutive weeks negative (most recent streak)
-            for w in range(12):
-                week_start = (datetime.now(ET) - timedelta(weeks=w + 1)).isoformat()
-                week_end = (datetime.now(ET) - timedelta(weeks=w)).isoformat()
-                week_va = conn.execute(
-                    "SELECT COALESCE(SUM(value_added_dollars), 0) as va "
-                    "FROM council_parameter_log "
-                    "WHERE attribution_start >= ? AND attribution_start < ? "
-                    "AND value_added_dollars IS NOT NULL",
-                    (week_start, week_end),
-                ).fetchone()
-                if week_va and week_va["va"] < 0:
-                    summary["weeks_negative"] += 1
-                else:
-                    break  # Stop at first non-negative week
-
-            # Authority status (per architecture decision #3)
-            # Alert at 8 weeks, auto-tighten at 12, restore at 4 weeks positive
-            if summary["weeks_negative"] >= 12:
-                summary["authority_status"] = "reduced"
-            elif summary["weeks_negative"] >= 8:
-                summary["authority_status"] = "alert"
-            else:
-                summary["authority_status"] = "full"
+            summary["weeks_negative"] = _count_negative_weeks(conn)
+            summary["authority_status"] = _determine_authority_status(summary["weeks_negative"])
 
     except Exception as e:
         logger.error("[VALUE] Rolling summary failed: %s", e)
