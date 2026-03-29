@@ -1,7 +1,7 @@
 """Persistent activity logging for the Halcyon Lab system.
 
-Writes structured activity log entries to SQLite for auditing,
-debugging, and the /log Telegram command.
+Called by: api/routes/system.py, tests
+Calls: sqlite3
 """
 
 import json
@@ -25,17 +25,15 @@ VALID_CATEGORIES = {
 _CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS activity_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp TEXT NOT NULL,
-    category TEXT NOT NULL,
-    event TEXT NOT NULL,
+    event_type TEXT NOT NULL,
     detail TEXT,
-    source TEXT DEFAULT 'system'
+    created_at TEXT NOT NULL
 );
 """
 
 _CREATE_INDEXES_SQL = [
-    "CREATE INDEX IF NOT EXISTS idx_activity_log_timestamp ON activity_log(timestamp);",
-    "CREATE INDEX IF NOT EXISTS idx_activity_log_category ON activity_log(category);",
+    "CREATE INDEX IF NOT EXISTS idx_activity_log_created_at ON activity_log(created_at);",
+    "CREATE INDEX IF NOT EXISTS idx_activity_log_event_type ON activity_log(event_type);",
 ]
 
 
@@ -70,15 +68,21 @@ def log_activity(
         source: Originating subsystem (default "system").
     """
     _ensure_table()
-    timestamp = datetime.now(ET).isoformat()
-    detail_json = json.dumps(detail) if detail is not None else None
+    created_at = datetime.now(ET).isoformat()
+    payload = json.dumps(
+        {
+            "event": event,
+            "detail": detail,
+            "source": source,
+        }
+    )
 
     try:
         with sqlite3.connect(DB_PATH) as conn:
             conn.execute(
-                "INSERT INTO activity_log (timestamp, category, event, detail, source) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (timestamp, category, event, detail_json, source),
+                "INSERT INTO activity_log (event_type, detail, created_at) "
+                "VALUES (?, ?, ?)",
+                (category, payload, created_at),
             )
     except Exception as e:
         logger.warning("[ACTIVITY] Failed to log activity: %s", e)
@@ -103,7 +107,7 @@ def get_recent_activity(
             conn.row_factory = sqlite3.Row
             if category:
                 rows = conn.execute(
-                    "SELECT * FROM activity_log WHERE category = ? "
+                    "SELECT * FROM activity_log WHERE event_type = ? "
                     "ORDER BY id DESC LIMIT ?",
                     (category, limit),
                 ).fetchall()
@@ -115,13 +119,25 @@ def get_recent_activity(
 
         results = []
         for row in rows:
-            entry = dict(row)
-            # Parse detail JSON back to dict
-            if entry.get("detail"):
+            raw = dict(row)
+            payload = {}
+            if raw.get("detail"):
                 try:
-                    entry["detail"] = json.loads(entry["detail"])
+                    parsed = json.loads(raw["detail"])
+                    if isinstance(parsed, dict):
+                        payload = parsed
+                    else:
+                        payload = {"detail": parsed}
                 except (json.JSONDecodeError, TypeError):
-                    pass
+                    payload = {"detail": raw["detail"]}
+            entry = {
+                "id": raw["id"],
+                "timestamp": raw["created_at"],
+                "category": raw["event_type"],
+                "event": payload.get("event") or raw["event_type"],
+                "detail": payload.get("detail"),
+                "source": payload.get("source", "system"),
+            }
             results.append(entry)
         return results
 

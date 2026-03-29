@@ -312,7 +312,7 @@
 
   <!-- METRICS BAR -->
   <div class="metrics-bar">
-    <div class="metric-group"><label>Codebase</label><p>141 files · 29K LOC · 1,032 tests · 72 routes</p></div>
+    <div class="metric-group"><label>Codebase</label><p>165 files · 29K LOC · 1,075 tests · 49 routes</p></div>
     <div class="metric-group"><label>HSHS Dimensions</label><p>Performance · Model Quality · Data Asset · Flywheel · Defensibility</p></div>
     <div class="metric-group"><label>Phase Gates</label><p>50 trades → 100 (PSR>90%) → 200 (SR≥1.0) → 500 (DSR>0.95)</p></div>
   </div>
@@ -326,7 +326,7 @@
   </div>
 
   <footer>
-    Halcyon Lab · github.com/millerrc18/halcyon-lab · halcyonlab.app · 34 research docs · Framework v2<br/>
+    Halcyon Lab · github.com/millerrc18/halcyon-lab · halcyonlab.app · 59 research docs · Framework v2<br/>
     Core principle: Training data quality is the #1 competitive advantage. The data asset is the most valuable component.
   </footer>
 </div>
@@ -398,7 +398,7 @@ const DATA = {
       when:'9:30 PM ET nightly. Each collector runs concurrently. Total pipeline takes ~5-15 minutes.',
       where:'12 dedicated SQLite tables. All synced to Render Postgres within 2 minutes.'
     },
-    { id:'research', cls:'active-teal', title:'Research #13', sub:'arXiv · SSRN · HF', sub2:'Reddit · GitHub',
+    { id:'research', cls:'active-teal', title:'Research Intel', sub:'arXiv · SSRN · HF', sub2:'Reddit · GitHub',
       what:'Automated research intelligence collector scanning 7 sources: arXiv (quant finance, ML), SSRN (finance papers), HuggingFace (new financial models), Reddit (r/algotrading, r/machinelearning), GitHub (trading repos), AI blogs, SEC/FINRA regulatory updates.',
       why:'Continuous competitive intelligence at zero API cost. Discovers new techniques, identifies emerging competitors, tracks regulatory changes. Weekly Claude synthesis produces actionable research digest. Equivalent to having a research analyst on staff.',
       who:'<code>src/data_collection/research_collector.py</code> for collection, <code>src/data_collection/research_synthesizer.py</code> for weekly synthesis.',
@@ -450,10 +450,10 @@ const DATA = {
       when:'Every scan, after feature computation. Adds ~10-15 seconds to the scan pipeline.',
       where:'Enriched features passed to ranking and LLM. Full enriched prompt stored in <code>recommendations.enriched_prompt</code> for training data generation.'
     },
-    { id:'traffic', cls:'planned', title:'Traffic Light', sub:'VIX + 200-DMA + Credit', sub2:'Score 0-6 → Sizing mult',
+    { id:'traffic', cls:'active-teal', title:'Traffic Light', sub:'VIX + 200-DMA + Credit', sub2:'Score 0-6 → Sizing mult',
       what:'Rules-based regime detection overlay using 3 indicators: VIX level (Green <20 / Yellow 20-30 / Red >30), S&P 500 vs 200-DMA, and HY credit spread z-score vs 1-year MA. Total 0-6 maps to position sizing multiplier.',
       why:'The system\'s biggest structural weakness is generating zero signals in bear markets. Traffic Light provides regime-aware position sizing with only 3 inputs — nearly impossible to overfit. Research: regime-aware sizing is more robust than strategy selection for Phase 1-2.',
-      who:'Will be <code>src/features/traffic_light.py</code>. Wired into risk governor and scan pipeline.',
+      who:'<code>src/features/traffic_light.py</code>. Wired into the scan service, risk governor, Render sync, Telegram alerts, and dashboard.',
       when:'Computed on every scan. 5-day persistence filter prevents whipsaw.',
       where:'Score logged to <code>scan_metrics</code>. Displayed on dashboard. Included in Telegram notifications.'
     },
@@ -483,7 +483,7 @@ const DATA = {
       why:'NeurIPS 2025 finding: majority voting accounts for most gains. The council provides 5 genuinely different analytical lenses. Structured output controls position sizing, cash reserve, scan aggressiveness, and sector tilts within hard guardrails. Earns authority through demonstrated accuracy.',
       who:'<code>src/council/agents.py</code> (agent definitions + data gathering), <code>src/council/protocol.py</code> (Delphi protocol), <code>src/council/engine.py</code> (session orchestration).',
       when:'Daily at 8:30 AM (tactical, ~$0.50). Weekly Sunday (strategic, ~$1.50). Monthly first weekend (~$3.00).',
-      where:'<code>council_sessions</code> and <code>council_votes</code> tables. Full JSON in <code>result_json</code> column. Calibration in <code>council_calibrations</code> (planned).'
+      where:'<code>council_sessions</code>, <code>council_votes</code>, and <code>council_calibrations</code> tables. Full JSON in <code>result_json</code> plus parameter and debug logs.'
     },
     { id:'watchloop', cls:'active-teal', title:'Watch Loop', sub:'2,313-line orchestrator', sub2:'27 scheduled events',
       what:'The central nervous system. Orchestrates the entire 24/7 schedule: 13 market-hours scans, pre-market pipeline (6 tasks), post-market collection, overnight data ingestion, Saturday retrain, Sunday digest. Manages all timing, error recovery, and event sequencing.',
@@ -634,8 +634,8 @@ const DATA = {
   ],
 
   infra: [
-    { id:'dashboard', cls:'active-teal', title:'halcyonlab.app', sub:'11 pages · Render cloud', sub2:'AuthGate · PWA',
-      what:'React 18 + Vite + Tailwind web dashboard deployed on Render. 11 pages: Dashboard (KPIs), Packets, Shadow Ledger, Training, Live Ledger, CTO Report, Settings, Roadmap, Docs, Council, Health Score. Password-protected via AuthGate.',
+    { id:'dashboard', cls:'active-teal', title:'halcyonlab.app', sub:'13 pages · Render cloud', sub2:'AuthGate · PWA',
+      what:'React 18 + Vite + Tailwind web dashboard deployed on Render. 13 pages: Dashboard, Packets, Shadow Ledger, Live Ledger, Training, Council, Health, Validation, CTO Report, Docs, Notes, Roadmap, and Settings. Password-protected via AuthGate.',
       why:'Accessible from anywhere — phone, work, anywhere. PWA installable on iOS/Android. Real-time data from Render Postgres synced every 2 minutes. The visual interface that makes the system\'s behavior observable.',
       who:'<code>frontend/src/</code> — React app. <code>src/api/cloud_app.py</code> — FastAPI cloud backend.',
       when:'Always accessible. Data refreshes via React Query every 30 seconds.',
@@ -662,8 +662,8 @@ const DATA = {
       when:'Sync every 2 minutes while watch loop runs. Frontend deployed on git push.',
       where:'Render dashboard. DATABASE_URL in environment variables.'
     },
-    { id:'sqlite', cls:'active-slate', title:'SQLite (35 tables)', sub:'WAL mode · Backups', sub2:'Local primary DB',
-      what:'35-table SQLite database: recommendations, shadow_trades, training_examples, model_versions, council_sessions, scan_metrics, activity_log, and 28 more. WAL mode for concurrent access. Daily automated backups.',
+    { id:'sqlite', cls:'active-slate', title:'SQLite (36 tables)', sub:'WAL mode · Backups', sub2:'Local primary DB',
+      what:'36-table SQLite database: recommendations, shadow_trades, training_examples, model_versions, council sessions/votes, validation results, traffic-light state, notes, and more. WAL mode for concurrent access. Daily automated backups.',
       why:'SQLite is the right choice at this scale — zero configuration, single file, fast reads, and the WAL mode handles concurrent access from the scan pipeline and API server. Renders to Postgres for cloud access.',
       who:'Used by virtually every module. Accessed via <code>sqlite3.connect("ai_research_desk.sqlite3")</code>.',
       when:'Written to continuously during market hours. Backed up daily at EOD.',
@@ -676,10 +676,10 @@ const DATA = {
       when:'GPU schedule: 5:15 AM-6:50 PM inference, 7:00 PM-5:15 AM training.',
       where:'Ryan\'s development machine. Running 24/7 with UPS planned for Phase 2.'
     },
-    { id:'sysval', cls:'planned', title:'System Validator', sub:'50+ automated checks', sub2:'8 categories · Dashboard',
+    { id:'sysval', cls:'active-teal', title:'System Validator', sub:'50+ automated checks', sub2:'8 categories · Dashboard',
       what:'Automated validation engine with 50+ checks across 8 categories: database integrity, trading pipeline, training pipeline, API/dashboard, data collectors, notifications, scheduler, and LLM health. Returns pass/warn/fail per check.',
-      why:'141 Python files, 72 API routes, 50 CLI commands, 35 DB tables. No single human can verify all of this manually. Automated validation catches broken integrations, stale data, and configuration drift before they affect trading.',
-      who:'Will be <code>src/evaluation/system_validator.py</code>. CLI: <code>validate-system</code>. API: <code>/api/system/validation</code>.',
+      why:'165 Python files, 49 API routes, 53 CLI commands, and 36 DB tables are too much to verify manually. Automated validation catches broken integrations, stale data, and configuration drift before they affect trading.',
+      who:'<code>src/evaluation/system_validator.py</code>. Results flow to <code>validation_results</code> and the Validation dashboard surface.',
       when:'Daily at 4:30 PM (auto-run). On-demand via dashboard button. Telegram alert on failures.',
       where:'Results in <code>validation_results</code> table. Dashboard page with expandable category cards.'
     },

@@ -193,6 +193,10 @@ SYNC_TABLES: dict[str, dict] = {
     },
 }
 
+
+class TableFetchError(RuntimeError):
+    """Raised when a configured sync table cannot be read from SQLite."""
+
 # ── Sync state table (local SQLite) ─────────────────────────────────
 SYNC_STATE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS sync_state (
@@ -265,8 +269,7 @@ def _fetch_incremental_rows(
             columns = list(rows[0].keys())
             return [dict(r) for r in rows], columns
     except Exception as exc:
-        logger.error("Failed to fetch rows from %s: %s", table_name, exc)
-        return [], []
+        raise TableFetchError(f"{table_name}: {exc}") from exc
 
 
 def _fetch_latest_rows(
@@ -295,8 +298,25 @@ def _fetch_latest_rows(
             columns = list(rows[0].keys())
             return [dict(r) for r in rows], columns
     except Exception as exc:
-        logger.error("Failed to fetch latest rows from %s: %s", table_name, exc)
-        return [], []
+        raise TableFetchError(f"{table_name}: {exc}") from exc
+
+
+def _fetch_full_rows(
+    table_name: str,
+    db_path: str = LOCAL_DB,
+) -> tuple[list[dict], list[str]]:
+    """Fetch every row for small state tables configured for full sync."""
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(f"SELECT * FROM {table_name}")
+            rows = cursor.fetchall()
+            if not rows:
+                return [], []
+            columns = list(rows[0].keys())
+            return [dict(r) for r in rows], columns
+    except Exception as exc:
+        raise TableFetchError(f"{table_name}: {exc}") from exc
 
 
 def _fetch_council_votes_for_new_sessions(
@@ -326,8 +346,7 @@ def _fetch_council_votes_for_new_sessions(
             columns = list(rows[0].keys())
             return [dict(r) for r in rows], columns
     except Exception as exc:
-        logger.error("Failed to fetch council_votes: %s", exc)
-        return [], []
+        raise TableFetchError(f"council_votes: {exc}") from exc
 
 
 def _upsert_to_postgres(
@@ -453,7 +472,13 @@ def sync_table(
             set_last_synced_at(table_name, latest_ts, db_path)
         return count
 
-    return 0
+    if mode == "full":
+        rows, columns = _fetch_full_rows(table_name, db_path)
+        if not rows:
+            return 0
+        return _upsert_to_postgres(pg_conn, table_name, pk, columns, rows)
+
+    raise ValueError(f"Unknown sync mode for {table_name}: {mode}")
 
 
 def run_sync_cycle(database_url: str, db_path: str = LOCAL_DB) -> dict:

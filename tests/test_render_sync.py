@@ -10,6 +10,8 @@ import pytest
 from src.sync.render_sync import (
     SYNC_TABLES,
     RenderSyncThread,
+    TableFetchError,
+    _fetch_full_rows,
     _fetch_incremental_rows,
     _fetch_latest_rows,
     _init_sync_state,
@@ -68,6 +70,14 @@ def test_db(tmp_path):
         )
     """)
 
+    conn.execute("""
+        CREATE TABLE traffic_light_state (
+            id INTEGER PRIMARY KEY,
+            current_regime TEXT NOT NULL,
+            updated_at TEXT
+        )
+    """)
+
     # Insert test data
     conn.execute(
         "INSERT INTO shadow_trades VALUES (?, ?, ?, ?, ?, ?)",
@@ -102,6 +112,10 @@ def test_db(tmp_path):
     conn.execute(
         "INSERT INTO vix_term_structure (collected_date, vix, collected_at) VALUES (?, ?, ?)",
         ("2025-01-02", 19.2, "2025-01-02T09:00:00"),
+    )
+    conn.execute(
+        "INSERT INTO traffic_light_state VALUES (?, ?, ?)",
+        (1, "GREEN", "2025-01-02T09:05:00"),
     )
 
     conn.commit()
@@ -165,11 +179,10 @@ class TestIncrementalFetch:
         assert "AAPL" not in tickers
 
     def test_fetch_returns_empty_for_nonexistent_table(self, test_db):
-        rows, cols = _fetch_incremental_rows(
-            "nonexistent_table", "created_at", None, test_db
-        )
-        assert rows == []
-        assert cols == []
+        with pytest.raises(TableFetchError, match="nonexistent_table"):
+            _fetch_incremental_rows(
+                "nonexistent_table", "created_at", None, test_db
+            )
 
 
 # ── Latest-only fetch tests ──────────────────────────────────────────
@@ -184,6 +197,16 @@ class TestLatestFetch:
         assert len(rows) == 1
         assert rows[0]["collected_date"] == "2025-01-02"
         assert rows[0]["vix"] == 19.2
+
+
+class TestFullFetch:
+    """Tests for full-table snapshot fetching."""
+
+    def test_fetch_full_rows(self, test_db):
+        rows, cols = _fetch_full_rows("traffic_light_state", test_db)
+        assert len(rows) == 1
+        assert rows[0]["current_regime"] == "GREEN"
+        assert "id" in cols
 
 
 # ── Postgres upsert tests (mocked) ──────────────────────────────────
@@ -279,6 +302,24 @@ class TestSyncTable:
 
         assert count == 1  # Only latest date's row
 
+    def test_sync_table_full_mode(self, test_db):
+        _init_sync_state(test_db)
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        config = {"mode": "full", "pk": "id"}
+        count = sync_table(mock_conn, "traffic_light_state", config, test_db)
+
+        assert count == 1
+
+    def test_sync_table_rejects_unknown_mode(self, test_db):
+        _init_sync_state(test_db)
+        mock_conn = MagicMock()
+
+        with pytest.raises(ValueError, match="Unknown sync mode"):
+            sync_table(mock_conn, "shadow_trades", {"mode": "mystery", "pk": "trade_id"}, test_db)
+
 
 # ── Full sync cycle tests ────────────────────────────────────────────
 
@@ -321,6 +362,31 @@ class TestRunSyncCycle:
         # Should have errors but also continue trying other tables
         assert "errors" in summary
         assert "timestamp" in summary
+
+    def test_sync_cycle_surfaces_missing_table_error(self, test_db):
+        _init_sync_state(test_db)
+        mock_psycopg2 = MagicMock()
+        mock_conn = MagicMock()
+        mock_psycopg2.connect.return_value = mock_conn
+
+        original_config = SYNC_TABLES["shadow_trades"]
+        SYNC_TABLES["shadow_trades"] = {
+            "mode": "incremental",
+            "time_col": "updated_at",
+            "pk": "trade_id",
+        }
+
+        try:
+            with sqlite3.connect(test_db) as conn:
+                conn.execute("DROP TABLE shadow_trades")
+                conn.commit()
+
+            with patch.dict("sys.modules", {"psycopg2": mock_psycopg2}):
+                summary = run_sync_cycle("postgresql://test@localhost/db", test_db)
+        finally:
+            SYNC_TABLES["shadow_trades"] = original_config
+
+        assert any("shadow_trades:" in err for err in summary["errors"])
 
 
 # ── Config and start tests ───────────────────────────────────────────

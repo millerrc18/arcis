@@ -322,8 +322,17 @@ def cmd_live_close(args):
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
-    from src.journal.store import close_shadow_trade, get_open_shadow_trades
-    from src.shadow_trading.executor import _get_current_price_safe
+    from src.journal.store import (
+        close_shadow_trade,
+        get_open_shadow_trades,
+        update_shadow_trade,
+    )
+    from src.shadow_trading.executor import (
+        _get_current_price_safe,
+        _is_filled_status,
+        _is_pending_status,
+        _submit_exit_order,
+    )
 
     ticker = args.ticker.upper()
     reason = getattr(args, "reason", "manual")
@@ -345,12 +354,30 @@ def cmd_live_close(args):
     now = datetime.now(ZoneInfo("America/New_York"))
 
     try:
-        from src.shadow_trading.alpaca_adapter import place_live_exit
-
-        place_live_exit(ticker, shares)
+        broker_result = _submit_exit_order(trade, shares)
     except Exception as exc:
-        print(f"WARNING: Live sell order failed: {exc}")
-        print("Closing journal record anyway.")
+        print(f"Live sell order failed: {exc}")
+        print("Journal left open until broker exit succeeds.")
+        return
+
+    status = broker_result.get("status") if isinstance(broker_result, dict) else None
+    if _is_filled_status(status):
+        fill_price = broker_result.get("filled_avg_price") if isinstance(broker_result, dict) else None
+        if fill_price is not None:
+            current = float(fill_price)
+            pnl_dollars = round((current - entry) * shares, 2)
+            pnl_pct = round((current - entry) / entry * 100, 2) if entry > 0 else 0
+    elif _is_pending_status(status):
+        update_shadow_trade(
+            trade["trade_id"],
+            {"status": "exit_pending", "exit_reason": reason},
+        )
+        print(f"Exit submitted for LIVE {ticker}; awaiting broker fill.")
+        return
+    else:
+        print("Live sell order was not accepted by broker.")
+        print("Journal left open until broker exit succeeds.")
+        return
 
     close_shadow_trade(
         trade["trade_id"],

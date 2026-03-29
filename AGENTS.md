@@ -1,4 +1,4 @@
-<!-- Counts verified 2026-03-29: 150 Python files, 76 test files, 1071 tests, 53 CLI commands, 115 API routes, 35 DB tables (active SQLite schema), 59 research docs. -->
+<!-- Counts verified 2026-03-29: 165 Python files, 76 test files, 1075 tests, 53 CLI commands, 49 API routes, 36 DB tables (active SQLite schema), 59 research docs. -->
 
 # AGENTS.md — Halcyon Lab Governance Document
 
@@ -123,7 +123,7 @@ Universe (S&P 100 → expanding to ~325 stocks)
 - **CTO Report** — Performance analytics, fund metrics, metric trends
 - **Settings** — Configuration, API costs, data collection stats, system health
 - **Roadmap** — 6-phase plan with confirmed decision tracking
-- **Docs** — 46 research documents plus core governance docs
+- **Docs** — 59 research documents plus core governance docs
 - **Notes** — Operator notes with pinning, tags, and autosave editing
 
 ## CLI Commands (53)
