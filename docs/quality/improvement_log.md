@@ -23,3 +23,8 @@
   - targeted unit-level smoke coverage for live/paper/notification modules
 - **Why it matters:** Gives operators an explicit go/no-go checklist before restarting market automation.
 - **Evidence:** `docs/quality/startup_readiness_2026-03-30.md` + command outputs listed in this run.
+
+## 2026-03-30 — Structured per-collector results for dashboard partial-failure visibility
+- **Improvement:** `src/api/routes/actions.py::_run_collect_data` now returns/broadcasts collector-level result objects (`results`, failed collector list/count), rather than only options contract/ticker totals.
+- **Why it matters:** Dashboard can now render partial failures by collector while preserving successful collector outputs in the same run.
+- **Evidence:** `python -m compileall src/api/routes/actions.py src/cli/commands.py`

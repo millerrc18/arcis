@@ -20,3 +20,9 @@
   - `python -m src.main shadow-account` → unauthorized from Alpaca
   - `python -m src.main send-test-email` → network/auth failure in this environment
   - `python -m src.main send-test-telegram` → telegram not configured
+
+## 2026-03-30 — Data collection parity gap between scheduler vs API/CLI
+- **Issue:** `watch.py::_run_data_collection` ran 12+ collectors (including EDGAR, insider, short-interest gating, Fed comms, analyst estimates), while API action and CLI `collect-data` only ran a subset.
+- **Impact:** Dashboard/manual operations missed key datasets and could falsely appear healthy when only early collectors succeeded.
+- **Fix:** Updated API action + CLI command to mirror scheduler collector coverage, including earnings + date-gated short interest behavior.
+- **Evidence:** `python -m compileall src/api/routes/actions.py src/cli/commands.py`
