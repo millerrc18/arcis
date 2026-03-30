@@ -33,7 +33,10 @@ def _make_features(current_price=100.0):
 
 
 def _make_config(starting_capital=100000):
-    return {"risk": {"starting_capital": starting_capital}}
+    return {
+        "risk": {"starting_capital": starting_capital},
+        "risk_governor": {"max_position_pct": 0.05},
+    }
 
 
 class TestValidPacket:
@@ -134,7 +137,7 @@ class TestStopDistanceBounds:
 
 
 class TestPositionSizeCap:
-    """Check 5: allocation_dollars / starting_capital <= 5%."""
+    """Check 5: allocation_dollars / starting_capital <= configured cap."""
 
     def test_oversized_position_rejected(self):
         """$10K position on $100K account (10%) should fail."""
@@ -148,6 +151,15 @@ class TestPositionSizeCap:
         packet = _make_packet(allocation=3000.0)
         is_valid, _ = validate_llm_output(packet, _make_features(), _make_config(100000))
         assert is_valid is True
+
+    def test_configured_governor_cap_is_respected(self):
+        """A wider configured governor cap should allow valid risk-sized packets."""
+        packet = _make_packet(allocation=23100.0)
+        config = _make_config(100000)
+        config["risk_governor"]["max_position_pct"] = 0.34
+        is_valid, reason = validate_llm_output(packet, _make_features(), config)
+        assert is_valid is True
+        assert reason == "passed"
 
 
 class TestConvictionRange:
