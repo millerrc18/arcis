@@ -142,3 +142,13 @@
 - Alternative data ROI by source
 - Breakout signal integration into pullback adapter
 - And 13 more training/infrastructure/business topics
+
+## Palette Decision (March 30)
+
+- [DECISION] Dashboard palette: H (Electric Focus) — true black #050507 + electric blue #3B82F6
+- [DECISION] Dark mode default, light mode toggle available
+- Dark mode: Background #050507, Surface #0C0C10, Accent #3B82F6, Text #E4E4E7, Muted #52525B
+- Light mode: Background #F8FAFC, Surface #FFFFFF, Accent #2563EB, Text #0F172A, Muted #64748B
+- Shared: Success #22C55E, Danger #EF4444, Warning #F59E0B, Teal #0D9488 (secondary accent)
+- Typography: Inter (variable, all weights) + JetBrains Mono (financial data)
+- Card treatment: 1px borders with blue tint (#2563EB at 8-12% opacity), no shadows
