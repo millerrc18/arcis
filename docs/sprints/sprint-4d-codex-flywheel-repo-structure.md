@@ -14,6 +14,14 @@ You are working on Arcis (GitHub repo: `halcyon-lab`), an autonomous AI-powered 
 
 This sprint makes the repo optimized for AI coding agents (Claude Code, Codex) as the primary maintainers. The goal: CC/Codex reads 2 files (AGENTS.md + conventions.md) and understands the entire codebase. No more 600-line sprint prompts.
 
+### Current Baseline (from config/known_violations.json, already generated)
+- **16 oversized files** (>400 lines) — grandfathered, warn-only
+- **129 oversized functions** (>60 lines) — grandfathered, warn-only
+- **138 modules missing standard docstring headers** — Task 2 fixes these
+- **0 missing migrate tables** — clean
+
+The `config/known_violations.json` file is already committed with the full list. The test_repo_structure.py test (Task 4) uses this file to distinguish grandfathered violations from new ones.
+
 ---
 
 ## Pre-Sprint Checks (MANDATORY)
@@ -324,10 +332,11 @@ def test_every_new_table_in_render_migrate():
                         assert False, f"NEW VIOLATION: table '{table}' in {p} not in render_migrate.py"
 ```
 
-**To populate known_violations.json:** Run the checks first, collect all current violations, and write them to the JSON file. This is the baseline — everything currently broken is grandfathered.
+**`config/known_violations.json` is already generated and committed.** It contains 16 oversized files, 129 oversized functions, and 138 missing docstring headers as the grandfathered baseline. Do NOT regenerate it — the baseline was captured before Sprint 4D started. After Task 2 adds docstring headers, the `missing_docstring_headers` list will shrink to near-zero, which is expected. Update the JSON file at the end of this sprint to reflect the new (smaller) violation set.
 
 ```bash
-# Generate known_violations.json from current codebase state
+# POST-SPRINT ONLY: Regenerate known_violations.json after Task 2 adds headers
+# This updates the baseline to reflect the smaller violation set
 python3 -c "
 import ast, json, re
 from pathlib import Path
