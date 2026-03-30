@@ -33,7 +33,7 @@ This keeps "accuracy first" while still giving hourly coverage.
 **Minimum commands (planning baseline):**
 - `git fetch --all --prune`
 - `git diff --name-status <last_audit_sha>...HEAD`
-- `python -m src.main preflight --mode audit` (or equivalent health entrypoint)
+- `python -m src.main preflight` (or equivalent health entrypoint)
 
 **Output:** Hourly delta inventory + preliminary risk map.
 
