@@ -137,7 +137,13 @@ def cmd_shadow_status(args):
     from src.config import load_config
     from src.services.shadow_service import get_shadow_status
 
-    result = get_shadow_status(load_config())
+    config = load_config()
+    if not config.get("shadow_trading", {}).get("enabled", False):
+        print("SHADOW LEDGER — Disabled in config.")
+        print("  Set shadow_trading.enabled: true in settings.local.yaml")
+        return
+
+    result = get_shadow_status(config)
     if not result["open_trades"]:
         print("SHADOW LEDGER — No open trades.")
         return
@@ -778,15 +784,23 @@ def cmd_preflight(args):
     status = get_system_status(load_config())
     print("\nHALCYON LAB - PREFLIGHT CHECK")
     print(f"  Config:    {'OK' if status['config_loaded'] else 'FAIL'}")
+    print(f"  Source:    {status.get('config_source', 'unknown')}")
     print(f"  Email:     {'OK' if status['email_configured'] else 'FAIL'}")
     print(f"  Alpaca:    {'OK' if status['alpaca_connected'] else 'FAIL'} {'$' + str(int(status['alpaca_equity'])) if status['alpaca_equity'] else ''}")
     print(f"  Shadow:    {'Enabled' if status['shadow_trading_enabled'] else 'Disabled'}")
+    print(f"  Live:      {'Enabled' if status['live_trading_enabled'] else 'Disabled'}")
+    print(f"  Telegram:  {'OK' if status['telegram_configured'] else 'FAIL'}")
+    print(f"  Halt:      {'ACTIVE' if status['kill_switch_halted'] else 'clear'}")
     print(f"  Ollama:    {'OK' if status['ollama_available'] else 'FAIL'}")
     print(f"  LLM:       {'OK (' + status['llm_model'] + ')' if status['llm_enabled'] and status['ollama_available'] else 'Disabled'}")
     print(f"  Model:     {status['model_version']}")
     print(f"  Journal:   {status['journal_recommendations']} recs, {status['journal_shadow_trades']} trades")
     print(f"  Training:  {'Enabled (' + str(status['training_examples']) + ' examples)' if status['training_enabled'] else 'Disabled'}")
     print(f"  Bootcamp:  {'Phase ' + str(status['bootcamp_phase']) if status['bootcamp_enabled'] else 'Disabled'}")
+
+    if status.get("config_source") == "example":
+        print("\n⚠️  Running on config/settings.example.yaml (template defaults).")
+        print("   Create config/settings.local.yaml with real credentials and enabled flags.")
 
 
 def cmd_train_pipeline(args):
