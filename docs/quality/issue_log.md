@@ -5,6 +5,11 @@
 - **Impact:** Frontend needed environment-specific branching and could not reliably display full overnight collector coverage.
 - **Fix:** Standardized table stat shape (`total_records`, `latest_collection`, `coverage_count`), expanded local coverage to newer collector tables + earnings calendar, and added cloud endpoint with equivalent Postgres coverage and graceful zero-shape fallback.
 - **Evidence:** `pytest tests/test_local_api_routes.py tests/test_cloud_app.py -k "data_collection_stats"` passes with shape assertions for both environments.
+## 2026-03-30 — Dashboard missing manual collect-data trigger
+- **Issue:** The dashboard Actions row had no button wired to the `/actions/collect-data` endpoint, so operators could not trigger data collection from the UI.
+- **Impact:** Operators had to leave the dashboard and run CLI/manual workflows for an otherwise standard action.
+- **Fix:** Added `api.triggerCollectData` and wired a dashboard action mutation/button with existing cloud-mode toast/error behavior.
+- **Evidence:** `frontend/src/api.js` now exports `triggerCollectData`; `frontend/src/pages/Dashboard.jsx` now includes a `Collect Data` action button.
 
 ## 2026-03-30 — Critical observability gap for non-trading + Telegram disabled states
 - **Issue:** Operators could see `shadow-status` output `No open trades` even when paper trading was globally disabled, which can mask misconfiguration during incident triage.
@@ -20,3 +25,9 @@
   - `python -m src.main shadow-account` → unauthorized from Alpaca
   - `python -m src.main send-test-email` → network/auth failure in this environment
   - `python -m src.main send-test-telegram` → telegram not configured
+
+## 2026-03-30 — Data collection parity gap between scheduler vs API/CLI
+- **Issue:** `watch.py::_run_data_collection` ran 12+ collectors (including EDGAR, insider, short-interest gating, Fed comms, analyst estimates), while API action and CLI `collect-data` only ran a subset.
+- **Impact:** Dashboard/manual operations missed key datasets and could falsely appear healthy when only early collectors succeeded.
+- **Fix:** Updated API action + CLI command to mirror scheduler collector coverage, including earnings + date-gated short interest behavior.
+- **Evidence:** `python -m compileall src/api/routes/actions.py src/cli/commands.py`

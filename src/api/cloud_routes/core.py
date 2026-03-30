@@ -191,6 +191,7 @@ def create_router(runtime, verify_auth):
     for path in (
         "/api/actions/scan",
         "/api/actions/cto-report",
+        "/api/actions/collect-data",
         "/api/actions/collect-training",
         "/api/actions/train-pipeline",
         "/api/actions/score",
