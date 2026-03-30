@@ -22,6 +22,12 @@ You are working on Arcis (GitHub repo: `halcyon-lab`), an autonomous AI-powered 
 
 Sprint 4A has already been merged. The codebase is rebranded to "Arcis", Palette H (Electric Focus) CSS variables are in place, Inter + JetBrains Mono fonts are loaded, and a dark/light mode toggle is wired.
 
+**IMPORTANT:** Sprint 4A was run by Codex with "safe-only rename" and "separate prereq sprint" options. Before starting, verify:
+1. What Codex actually renamed (display text only, not Render/config/model IDs)
+2. Whether Codex fixed pre-existing file size/function length violations
+3. The exact CSS variable names and font class names Codex chose (may differ slightly from this spec)
+Adjust your implementation to match what actually exists in the codebase, not what this spec assumes.
+
 ---
 
 ## Codebase Architecture
@@ -535,6 +541,8 @@ Update `frontend/src/api.js` to use these real endpoints (methods already exist 
 
 **Implementation notes:**
 - Use Recharts `AreaChart` for equity curve (import already available in the project)
+- Equity curve data: compute from closed trades. Start at starting_capital ($100,000), add cumulative pnl_dollars from each closed trade ordered by actual_exit_time. If fewer than 3 data points, show a "Not enough data" placeholder instead of a flat line.
+- Time range toggle: 1W (last 7 days), 1M (last 30 days), ALL (all time). Default to ALL when <30 trades, 1M when 30-100, 1W when >100.
 - All financial numbers in JetBrains Mono: `className="financial-data"`
 - All P&L values must include ▲/▼ arrows for colorblind accessibility
 - Build Score color: `var(--arcis-teal)` when >70, `var(--arcis-warning)` when >50, `var(--arcis-danger)` when <50
@@ -648,6 +656,8 @@ Also update `scripts/create_missing_tables.py` with the SQLite version.
 ---
 
 ## Task 8: Wire Secrets Through .env
+
+**Note:** Sprint 4A may have partially addressed this. Check first: `grep -r "load_dotenv\|python-dotenv" src/ requirements.txt`. If already wired, skip to verifying all secret references.
 
 A `.env.example` already exists in the repo root with all secret keys documented.
 The goal: `settings.yaml` holds ONLY non-secret config (committed to git). All secrets load from `.env` via `python-dotenv`.
