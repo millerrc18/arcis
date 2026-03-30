@@ -387,6 +387,7 @@ class TestAuth:
 CLOUD_POST_STUBS = [
     "/api/actions/scan",
     "/api/actions/cto-report",
+    "/api/actions/collect-data",
     "/api/actions/collect-training",
     "/api/actions/train-pipeline",
     "/api/actions/score",
