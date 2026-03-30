@@ -58,3 +58,5 @@ models/
 # Frontend build
 frontend/dist/
 frontend/node_modules/
+-e 
+# Secrets

@@ -464,7 +464,39 @@ grep -r "var(--teal-\|var(--amber-\|var(--slate-\|var(--font-display)" frontend/
 
 ---
 
-## Task 7: Create API Endpoint Stubs
+## Task 7: Wire secrets through .env (eliminate YAML secrets friction)
+
+A `.env.example` already exists in the repo root with all secret keys.
+The pattern: `settings.yaml` is committed with NO secrets (just non-secret config).
+All secrets load from `.env` via `python-dotenv` or `os.environ`.
+
+Steps:
+1. `pip install python-dotenv` and add to requirements.txt
+2. In `src/main.py` (or a shared config loader), add at the very top:
+   ```python
+   from dotenv import load_dotenv
+   load_dotenv()
+   ```
+3. Ensure ALL secret references go through `os.environ.get()`:
+   - `src/shadow_trading/alpaca_adapter.py` — already does this ✓
+   - `src/council/protocol.py` — needs `ANTHROPIC_API_KEY` from env
+   - `src/data_collection/finnhub_collector.py` — needs `FINNHUB_API_KEY` from env
+   - `src/data_collection/fred_collector.py` — needs `FRED_API_KEY` from env
+   - `src/notifications/telegram.py` — needs `TELEGRAM_BOT_TOKEN` from env
+   - `src/notifications/email_notifier.py` — needs `EMAIL_PASSWORD` from env
+   - `src/api/cloud_app.py` — already does this for API_SECRET ✓
+4. Remove secret values from `config/settings.example.yaml` — replace with comments like:
+   ```yaml
+   # api_key: loaded from ALPACA_API_KEY env var (see .env.example)
+   ```
+5. Keep ALL non-secret config in `settings.yaml` (thresholds, intervals, feature flags, etc.)
+
+After this change, `settings.yaml` can be committed freely and stays in sync.
+Only `.env` (gitignored) holds secrets.
+
+---
+
+## Task 8: Create API Endpoint Stubs
 
 Add two new stub endpoints. These will be replaced with real implementations in Sprint 4B, but the frontend needs them to exist now.
 
@@ -514,7 +546,7 @@ getTrafficLightCurrent: () => fetchApi('/traffic-light/current'),
 
 ---
 
-## Task 8: Documentation Update (MANDATORY)
+## Task 9: Documentation Update (MANDATORY)
 
 Update the following files to reflect all changes made in this sprint:
 
