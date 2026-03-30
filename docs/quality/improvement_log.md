@@ -1,5 +1,10 @@
 # Improvement Log
 
+## 2026-03-30 — Added Dashboard “Collect Data” action endpoint wiring
+- **Improvement:** Added `triggerCollectData` in the frontend API client and wired a Dashboard action mutation/button with consistent loading, success toast, cloud-mode message handling, and error toast behavior.
+- **Why it matters:** Operators can trigger data collection directly from the Dashboard without changing workflows, while preserving cloud read-only behavior messaging.
+- **Evidence:** `frontend/src/api.js`, `frontend/src/pages/Dashboard.jsx`, plus UI checks via `npm --prefix frontend run build` and `bin/ui-screenshots` (see command results).
+
 ## 2026-03-30 — Preflight now checks Telegram/live/kill-switch and config source
 - **Improvement:** Expanded preflight diagnostics to include:
   - config source (`local` vs `example`)
