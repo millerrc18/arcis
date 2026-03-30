@@ -1,7 +1,7 @@
 # Sprint 4B: Dashboard Logic & Redesign
 
 > **Executor:** Claude Code
-> **Scope:** 8 tasks | Build Score module + dashboard redesign + page updates
+> **Scope:** 9 tasks | Build Score module + dashboard redesign + page updates + .env secrets
 > **Prerequisite:** Sprint 4A MUST be merged first (Arcis rename, Palette H, fonts, toggle all in place)
 > **New session:** Do NOT run in the same session as Sprint 4A
 
@@ -647,7 +647,33 @@ Also update `scripts/create_missing_tables.py` with the SQLite version.
 
 ---
 
-## Task 8: Documentation Update (MANDATORY)
+## Task 8: Wire Secrets Through .env
+
+A `.env.example` already exists in the repo root with all secret keys documented.
+The goal: `settings.yaml` holds ONLY non-secret config (committed to git). All secrets load from `.env` via `python-dotenv`.
+
+Steps:
+1. `pip install python-dotenv` and add to `requirements.txt`
+2. Add `from dotenv import load_dotenv; load_dotenv()` at the top of `src/main.py` and `src/scheduler/watch.py`
+3. Wire ALL secret references through `os.environ.get()`:
+   - `src/council/protocol.py` → `ANTHROPIC_API_KEY`
+   - `src/data_collection/finnhub_collector.py` → `FINNHUB_API_KEY`
+   - `src/data_collection/fred_collector.py` → `FRED_API_KEY`
+   - `src/notifications/telegram.py` → `TELEGRAM_BOT_TOKEN`
+   - `src/notifications/email_notifier.py` → `EMAIL_PASSWORD`
+   - `src/shadow_trading/alpaca_adapter.py` → already uses env vars ✓
+   - `src/api/cloud_app.py` → already uses env vars ✓
+4. In `config/settings.example.yaml`, replace all secret values with comments:
+   ```yaml
+   # api_key: loaded from ALPACA_API_KEY env var (see .env.example)
+   ```
+5. Keep ALL non-secret config in `settings.yaml` (thresholds, intervals, feature flags, etc.)
+
+After this, `settings.yaml` can be committed freely. Only `.env` (gitignored) holds secrets.
+
+---
+
+## Task 9: Documentation Update (MANDATORY)
 
 1. **AGENTS.md** — Verify ALL counts match reality:
 ```bash
