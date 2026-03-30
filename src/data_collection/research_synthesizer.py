@@ -11,6 +11,8 @@ import sqlite3
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from src.config import load_config
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
@@ -86,12 +88,31 @@ def run_weekly_synthesis(db_path: str = "ai_research_desk.sqlite3") -> dict:
 
     prompt = SYNTHESIS_PROMPT.format(count=len(papers), papers_block=papers_block)
 
+    config = load_config()
+    training_cfg = config.get("training", {})
+    api_cfg = config.get("api", {})
+    api_key = training_cfg.get("anthropic_api_key", "")
+    model = (
+        api_cfg.get("models", {}).get("training_generation")
+        or training_cfg.get("claude_model")
+        or "claude-sonnet-4-20250514"
+    )
+
+    if not api_key or api_key == "your-anthropic-api-key-here":
+        logger.warning("[SYNTHESIS] Anthropic API key not configured, skipping synthesis")
+        return {
+            "papers_reviewed": len(papers),
+            "actionable_count": 0,
+            "skipped": True,
+            "error": "anthropic api key not configured",
+        }
+
     # Call Claude API for synthesis
     try:
         import anthropic
-        client = anthropic.Anthropic()
+        client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model=model,
             max_tokens=2000,
             messages=[{"role": "user", "content": prompt}],
         )

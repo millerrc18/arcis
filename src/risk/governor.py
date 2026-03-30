@@ -12,11 +12,15 @@ from src.config import load_config
 
 logger = logging.getLogger(__name__)
 
-_HALT_FILE = "data/trading_halted"
+_DEFAULT_HALT_FILE = "data/trading_halted"
+_HALT_FILE = _DEFAULT_HALT_FILE
 
 
 def _get_halt_path() -> Path:
-    """Resolve the kill-switch file path from config, falling back to the legacy path."""
+    """Resolve the kill-switch file path from config, with test overrides supported."""
+    if _HALT_FILE != _DEFAULT_HALT_FILE:
+        return Path(_HALT_FILE)
+
     try:
         cfg = load_config()
     except Exception as exc:
@@ -24,7 +28,7 @@ def _get_halt_path() -> Path:
         cfg = {}
 
     configured = cfg.get("risk_governor", {}).get("kill_switch_file")
-    return Path(configured or _HALT_FILE)
+    return Path(configured or _DEFAULT_HALT_FILE)
 
 
 def _global_halt(halt: bool):
