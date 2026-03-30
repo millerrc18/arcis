@@ -1,5 +1,10 @@
 # Improvement Log
 
+## 2026-03-30 — Added root HTTPS redirect rule for halcyonlab.ai
+- **Improvement:** Added `.htaccess` redirect pattern in the repository root and set the target domain to `halcyonlab.ai`.
+- **Why it matters:** Ensures Apache-hosted simple HTML/PHP deployments automatically canonicalize traffic to HTTPS with a permanent redirect.
+- **Evidence:** `cat .htaccess`.
+
 <<<<<<< codex/extend-data-collection-queries-and-api
 ## 2026-03-30 — Unified local/cloud data collection stats contract
 - **Improvement:** Added consistent data collection stats contract in both environments with coverage for options, volatility, macro, trends, CBOE, earnings, EDGAR, insider, short interest, Fed communications, and analyst collectors.
