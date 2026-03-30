@@ -13,6 +13,8 @@ def get_system_status(config: dict) -> dict:
 
     # Config
     config_loaded = bool(config)
+    local_config_exists = Path("config/settings.local.yaml").exists()
+    config_source = "local" if local_config_exists else "example"
 
     # Email
     email_cfg = config.get("email", {})
@@ -50,6 +52,27 @@ def get_system_status(config: dict) -> dict:
 
     # Shadow trading
     shadow_trading_enabled = config.get("shadow_trading", {}).get("enabled", False)
+    live_trading_enabled = config.get("live_trading", {}).get("enabled", False)
+
+    # Telegram
+    telegram_cfg = config.get("telegram", {})
+    telegram_enabled = bool(telegram_cfg.get("enabled", False))
+    telegram_configured = bool(
+        telegram_enabled
+        and telegram_cfg.get("bot_token")
+        and telegram_cfg.get("chat_id")
+        and telegram_cfg.get("bot_token") != "your-bot-token-from-botfather"
+        and telegram_cfg.get("chat_id") != "your-chat-id"
+    )
+
+    # Kill switch
+    kill_switch_halted = False
+    try:
+        from src.risk.governor import _is_halted
+
+        kill_switch_halted = _is_halted()
+    except Exception as e:
+        logger.debug("Kill switch status check failed: %s", e)
 
     # Ollama/LLM
     ollama_available = is_llm_available()
@@ -90,10 +113,15 @@ def get_system_status(config: dict) -> dict:
 
     return {
         "config_loaded": config_loaded,
+        "config_source": config_source,
         "email_configured": email_configured,
         "alpaca_connected": alpaca_connected,
         "alpaca_equity": alpaca_equity,
         "shadow_trading_enabled": shadow_trading_enabled,
+        "live_trading_enabled": live_trading_enabled,
+        "telegram_enabled": telegram_enabled,
+        "telegram_configured": telegram_configured,
+        "kill_switch_halted": kill_switch_halted,
         "ollama_available": ollama_available,
         "llm_enabled": llm_enabled,
         "llm_model": llm_model,
