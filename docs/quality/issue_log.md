@@ -1,5 +1,10 @@
 # Issue Log
 
+## 2026-03-30 — Data collection stats schema drift between local and cloud APIs
+- **Issue:** Local `/api/data-collection-stats` had uneven per-table payload shapes and omitted newer collector tables, while cloud API lacked the endpoint.
+- **Impact:** Frontend needed environment-specific branching and could not reliably display full overnight collector coverage.
+- **Fix:** Standardized table stat shape (`total_records`, `latest_collection`, `coverage_count`), expanded local coverage to newer collector tables + earnings calendar, and added cloud endpoint with equivalent Postgres coverage and graceful zero-shape fallback.
+- **Evidence:** `pytest tests/test_local_api_routes.py tests/test_cloud_app.py -k "data_collection_stats"` passes with shape assertions for both environments.
 ## 2026-03-30 — Dashboard missing manual collect-data trigger
 - **Issue:** The dashboard Actions row had no button wired to the `/actions/collect-data` endpoint, so operators could not trigger data collection from the UI.
 - **Impact:** Operators had to leave the dashboard and run CLI/manual workflows for an otherwise standard action.
