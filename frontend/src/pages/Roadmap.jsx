@@ -51,7 +51,7 @@ const ROADMAP_DATA = {
           { l: 'Backfill cleanup (969 examples)', s: 'done', c: 'ai', d: '704 backfill + 194 blinded_win + 77 blinded_loss. All cleaned to XML. 100% parse rate.', r: 'Training data audit' },
         ]},
         { label: 'Weeks 5–8: Infrastructure', items: [
-          { l: 'Cloud dashboard (halcyonlab.app)', s: 'done', c: 'ops', d: '11 pages, 52+ cloud API endpoints, Render deployment, PWA support.', r: 'Kingfisher brand identity' },
+          { l: 'Cloud dashboard (halcyonlab.app)', s: 'done', c: 'ops', d: '13 pages, 52+ cloud API endpoints, Render deployment, PWA support.', r: 'Arcis brand identity (pending)' },
           { l: '24/7 overnight schedule (27 events)', s: 'done', c: 'ops', d: 'Pre-market brief 6AM, scans every 30min, EOD 4PM, 12 collectors, Saturday retrain.', r: 'Halcyon Framework: 75% GPU target' },
           { l: 'AI Council (5 agents)', s: 'done', c: 'ai', d: 'Bull, Bear, Quant, Macro, Risk agents via Claude Sonnet. Modified Delphi. ~$0.50/session.', r: 'AI Council research' },
           { l: 'Research collector (#13)', s: 'done', c: 'data', d: '7 sources: arXiv, SSRN, HuggingFace, Reddit, GitHub, AI blogs, SEC/FINRA. Weekly synthesis.', r: 'Research flywheel' },

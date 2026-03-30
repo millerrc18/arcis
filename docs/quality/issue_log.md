@@ -3,8 +3,8 @@
 ## 2026-03-30 — Missing root .htaccess HTTPS redirect for hosted static/PHP deployments
 - **Issue:** Repository root lacked an Apache `.htaccess` redirect snippet for forcing HTTPS on simple hosted deployments.
 - **Impact:** Deployments that rely on Apache rewrite rules could serve HTTP traffic unless host-level redirect rules were configured separately.
-- **Fix:** Added root `.htaccess` with IONOS-style 301 redirect rule and project domain `halcyonlab.ai`.
-- **Evidence:** `cat .htaccess` shows rewrite engine enabled, port-443 condition, and redirect to `https://halcyonlab.ai/$1`.
+- **Fix:** Added root `.htaccess` with IONOS-style 301 redirect rule and project domain `halcyonlab.app`.
+- **Evidence:** `cat .htaccess` shows rewrite engine enabled, port-443 condition, and redirect to `https://halcyonlab.app/$1`.
 
 ## 2026-03-30 — Data collection stats schema drift between local and cloud APIs
 - **Issue:** Local `/api/data-collection-stats` had uneven per-table payload shapes and omitted newer collector tables, while cloud API lacked the endpoint.

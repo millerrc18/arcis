@@ -1,7 +1,7 @@
 # Improvement Log
 
-## 2026-03-30 — Added root HTTPS redirect rule for halcyonlab.ai
-- **Improvement:** Added `.htaccess` redirect pattern in the repository root and set the target domain to `halcyonlab.ai`.
+## 2026-03-30 — Added root HTTPS redirect rule for halcyonlab.app
+- **Improvement:** Added `.htaccess` redirect pattern in the repository root and set the target domain to `halcyonlab.app`.
 - **Why it matters:** Ensures Apache-hosted simple HTML/PHP deployments automatically canonicalize traffic to HTTPS with a permanent redirect.
 - **Evidence:** `cat .htaccess`.
 
