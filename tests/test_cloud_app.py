@@ -1029,3 +1029,35 @@ class TestFrontendContracts:
         data = r.json()
         for key in ["starting_capital", "current_equity", "total_pnl", "open_positions", "win_rate"]:
             assert key in data, f"live/summary missing {key}"
+
+
+class TestDataCollectionStats:
+    """Tests for /api/data-collection-stats schema compatibility."""
+
+    @patch("src.api.cloud_app._query_one")
+    def test_data_collection_stats_shape(self, mock_one, client):
+        def _query_one_side_effect(sql, params=()):
+            if "FROM options_chains" in sql:
+                raise Exception("relation does not exist")
+            if "FROM options_metrics" in sql:
+                return {"total_records": 5, "latest_collection": "2026-03-30", "coverage_count": 2}
+            return {"total_records": 0, "latest_collection": None, "coverage_count": 0}
+
+        mock_one.side_effect = _query_one_side_effect
+
+        r = client.get("/api/data-collection-stats")
+        assert r.status_code == 200
+        data = r.json()
+        assert "earnings_calendar" in data
+        assert "analyst_estimates" in data
+
+        for table_stats in data.values():
+            assert set(table_stats.keys()) == {"total_records", "latest_collection", "coverage_count"}
+
+        assert data["options_metrics"]["total_records"] == 5
+        assert data["options_metrics"]["latest_collection"] == "2026-03-30"
+        assert data["options_chains"] == {
+            "total_records": 0,
+            "latest_collection": None,
+            "coverage_count": 0,
+        }
