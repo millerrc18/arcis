@@ -3,7 +3,7 @@
 **This document is updated after every conversation with Claude. It IS the system state.**
 **Claude: You MUST read this file at the start of every session and update it after every substantive change.**
 
-> Last updated: March 31, 2026 · Sprints 4A-5 + Sprint 6 partial (.env) MERGED. Sprint 6 Tasks 1-6 pending (frontend). CC deep audit running. Codex audit filed 17 GH issues (#80-#98). Bootcamp TL floor fix deployed. Render sync fix deployed. Quality scoring 972/972 complete (avg 3.44). System in lockdown — autonomous trading.
+> Last updated: March 31, 2026 evening · Sprints 4A-5 + Sprint 6 partial (.env) MERGED. Sprint 7 (reliability) DRAFTED. CC deep audit complete: 71 issues filed (#100-#169). 87 total open issues. Render sync fixed (shadow_trades syncing). Quality scoring 972/972 complete (avg 3.44). System in lockdown — 25 open positions, trading autonomously.
 
 ---
 
@@ -18,7 +18,7 @@
 - **Next model:** Qwen 2.5 14B or Qwen3 14B (requires RTX 3090, Phase 2)
 - **Dashboard:** halcyonlab.app (Render) — Arcis branding, Palette H, dark/light toggle
 - **Hardware:** RTX 3060 12GB, Windows 11 (RTX 3090 + headless Linux planned Phase 2)
-- **GitHub Issues:** 17 open (#80-#98 from audits), 3 milestones, CI on PRs, daily audit
+- **GitHub Issues:** 87 open (#80-#169 from two audits), 3 milestones, CI on PRs
 - **Release:** v0.1.0 — Arcis
 
 ---
@@ -92,7 +92,8 @@
 | 5 (CC) | #78 ✅ | Dashboard polish (8 pages redesigned) |
 | 6 partial (CC) | #88 ✅ | .env secret migration — 10 modules, 11 tests |
 | 6 remaining (CC) | Pending | Tasks 1-6: data collectors grid, training pipeline, scan metrics, card contrast |
-| CC deep audit | Running | Exhaustive 12-category code review, filing GH issues |
+| CC deep audit | ✅ Complete | 71 issues filed (#100-#169), health 6.5/10 |
+| 7 (CC) | DRAFTED | Reliability: crash protection, GTC brackets, heartbeat, TL stub (~22 issues) |
 
 ---
 
