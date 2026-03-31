@@ -7,6 +7,7 @@ Config keys: base_url, grammar_context_window, grammar_file, grammar_model_path,
 Tests: tests/test_grammar_client.py
 """
 
+import gc
 import logging
 from pathlib import Path
 
@@ -19,6 +20,9 @@ logger = logging.getLogger(__name__)
 _GRAMMAR = None
 _MODEL = None
 _MODEL_KEY: tuple[str, str] | None = None
+
+# #166: minimum free VRAM (MB) required before loading grammar model
+_MIN_FREE_VRAM_MB = 1500
 
 
 def _import_llama_cpp():
@@ -81,6 +85,31 @@ def _unload_ollama_if_running(config: dict) -> None:
         logger.debug("[GRAMMAR] Ollama unload skipped: %s", exc)
 
 
+def _release_model() -> None:
+    """Release previous model state and reclaim VRAM.
+
+    #163: Prevents VRAM leak when model version changes by explicitly
+    deleting the cached model, running gc, and clearing CUDA cache.
+    """
+    global _MODEL, _GRAMMAR, _MODEL_KEY
+    if _MODEL is not None:
+        logger.info("[GRAMMAR] Releasing previous model to free VRAM")
+        del _MODEL
+        _MODEL = None
+    if _GRAMMAR is not None:
+        del _GRAMMAR
+        _GRAMMAR = None
+    _MODEL_KEY = None
+    gc.collect()
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            logger.debug("[GRAMMAR] CUDA cache cleared")
+    except ImportError:
+        pass
+
+
 def _load_runtime() -> tuple[object | None, object | None]:
     """Load and cache the llama.cpp runtime and grammar file."""
     global _GRAMMAR, _MODEL, _MODEL_KEY
@@ -97,6 +126,11 @@ def _load_runtime() -> tuple[object | None, object | None]:
     cache_key = (str(model_path.resolve()), str(grammar_file.resolve()))
     if _MODEL is not None and _GRAMMAR is not None and _MODEL_KEY == cache_key:
         return _MODEL, _GRAMMAR
+
+    # #163: release previous model before loading new one to avoid VRAM leak
+    if _MODEL is not None and _MODEL_KEY != cache_key:
+        logger.info("[GRAMMAR] Model version changed — releasing old model")
+        _release_model()
 
     Llama, LlamaGrammar = _import_llama_cpp()
     if Llama is None or LlamaGrammar is None:

@@ -629,6 +629,9 @@ class WatchLoop:
                 print(f"  -> Email sent for {ticker}")
             elif self.email_mode == "daily_summary":
                 self._daily_packets.append(rendered)
+                # #164: cap list to prevent unbounded memory growth
+                if len(self._daily_packets) > 200:
+                    self._daily_packets = self._daily_packets[-100:]
             elif self.email_mode == "digest":
                 pass  # Handled by scheduled midday/EOD digest
 
@@ -786,6 +789,8 @@ class WatchLoop:
         if self.email_mode == "daily_summary" and self._daily_packets:
             body += "\n\n" + "=" * 60 + "\nDAILY PACKET SUMMARY\n" + "=" * 60 + "\n"
             body += "\n\n".join(self._daily_packets)
+            # #164: clear buffer after sending EOD digest to prevent unbounded growth
+            self._daily_packets = []
 
         print(body)
 
@@ -2083,6 +2088,16 @@ class WatchLoop:
             log_activity(DATA_COLLECTION, f"Overnight collection: {len(results)} collectors", results)
         except Exception as e:
             logger.warning("[WATCH] log_activity failed: %s", e)
+
+        # Run retention policy to prune old rows (#123)
+        try:
+            from src.data_collection.retention import run_retention
+            retention_result = run_retention()
+            if retention_result:
+                results["retention"] = retention_result
+                logger.info("[WATCH] Retention pruned: %s", retention_result)
+        except Exception as e:
+            logger.warning("[WATCH] Retention failed: %s", e)
 
         # 1J. Track collector failures and alert at 3+ consecutive
         try:

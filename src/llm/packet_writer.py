@@ -8,6 +8,7 @@ Tests: tests/test_confidence.py, tests/test_grammar_client.py, tests/test_xml_fo
 """
 
 import logging
+import re
 
 from src.llm.client import is_llm_available, generate
 from src.llm.prompts import PACKET_SYSTEM_PROMPT
@@ -15,6 +16,36 @@ from src.models import TradePacket
 from src.universe.company_names import get_company_name
 
 logger = logging.getLogger(__name__)
+
+# #154: context window overflow protection — max tokens before truncation
+_MAX_PROMPT_TOKENS = 7000
+
+# #156: patterns to strip from enrichment text to block prompt injection
+_INJECTION_TAG_RE = re.compile(r"<[^>]+>", re.DOTALL)
+_INJECTION_INSTRUCTION_RE = re.compile(
+    r"\b(?:you are|ignore previous)\b|"
+    r"\b(?:system|assistant|human)\s*:",
+    re.IGNORECASE,
+)
+_ENRICHMENT_CHAR_CAP = 500
+
+
+def _sanitize_enrichment_text(text: str) -> str:
+    """Strip injection patterns and cap length for enrichment sections.
+
+    Removes XML-like tags, common instruction patterns, and limits
+    text to _ENRICHMENT_CHAR_CAP characters.
+    """
+    if not text:
+        return text
+    cleaned = _INJECTION_TAG_RE.sub("", text)
+    cleaned = _INJECTION_INSTRUCTION_RE.sub("", cleaned)
+    # Collapse multiple whitespace from removals
+    cleaned = re.sub(r"\s{2,}", " ", cleaned).strip()
+    if len(cleaned) > _ENRICHMENT_CHAR_CAP:
+        cleaned = cleaned[:_ENRICHMENT_CHAR_CAP] + "..."
+        logger.debug("[LLM] Enrichment text truncated to %d chars", _ENRICHMENT_CHAR_CAP)
+    return cleaned
 
 
 def _build_feature_prompt(packet: TradePacket, features: dict) -> str:
@@ -56,29 +87,37 @@ Typical pullback depth: {features.get('sector_pullback_depth', 'n/a')} | Recover
 Sector-specific factors:
 {factors_str}"""
 
-    # SECTION 4: Fundamental Snapshot (new)
-    fundamental_text = features.get('fundamental_summary', 'No fundamental data available')
+    # SECTION 4: Fundamental Snapshot (new)  — #156: sanitize enrichment
+    fundamental_text = _sanitize_enrichment_text(
+        features.get('fundamental_summary', 'No fundamental data available')
+    )
     prompt += f"""
 
 === FUNDAMENTAL SNAPSHOT ===
 {fundamental_text}"""
 
-    # SECTION 5: Insider Activity (new)
-    insider_text = features.get('insider_summary', 'No insider data available')
+    # SECTION 5: Insider Activity (new)  — #156: sanitize enrichment
+    insider_text = _sanitize_enrichment_text(
+        features.get('insider_summary', 'No insider data available')
+    )
     prompt += f"""
 
 === INSIDER ACTIVITY ===
 {insider_text}"""
 
-    # SECTION 6: Recent News
-    news_text = features.get('news_summary', 'No recent news')
+    # SECTION 6: Recent News  — #156: sanitize enrichment
+    news_text = _sanitize_enrichment_text(
+        features.get('news_summary', 'No recent news')
+    )
     prompt += f"""
 
 === RECENT NEWS ===
 {news_text}"""
 
-    # SECTION 7: Macro Context
-    macro_text = features.get('macro_summary', 'No macro data available')
+    # SECTION 7: Macro Context  — #156: sanitize enrichment
+    macro_text = _sanitize_enrichment_text(
+        features.get('macro_summary', 'No macro data available')
+    )
     prompt += f"""
 
 === MACRO CONTEXT ===
@@ -200,8 +239,11 @@ def _parse_llm_response(response: str) -> tuple[int | None, str | None, str | No
         metadata_text = md_match.group(1).strip()
         conv_match = re.search(r'Conviction:\s*(\d+)', metadata_text)
         if conv_match:
-            conviction = int(conv_match.group(1))
-            conviction = max(1, min(10, conviction))
+            raw_conv = int(conv_match.group(1))
+            # #169: flag hallucinated conviction before clamping
+            if raw_conv < 1 or raw_conv > 10:
+                logger.warning("[LLM] Conviction %d outside 1-10 range — clamping", raw_conv)
+            conviction = max(1, min(10, raw_conv))
 
     # Fallback to plain-text parsing for backward compatibility
     if why_now is None and "WHY NOW:" in response.upper():
@@ -222,8 +264,11 @@ def _parse_llm_response(response: str) -> tuple[int | None, str | None, str | No
     if conviction is None and "CONVICTION:" in response.upper():
         conv_match = re.search(r'CONVICTION:\s*(\d+)', response, re.IGNORECASE)
         if conv_match:
-            conviction = int(conv_match.group(1))
-            conviction = max(1, min(10, conviction))
+            raw_conv = int(conv_match.group(1))
+            # #169: flag hallucinated conviction before clamping
+            if raw_conv < 1 or raw_conv > 10:
+                logger.warning("[LLM] Conviction %d outside 1-10 range — clamping", raw_conv)
+            conviction = max(1, min(10, raw_conv))
 
     # Fallback: if response has substantial prose but no tags, use first paragraph as why_now
     if not why_now and not deeper_analysis and len(response) > 200:
@@ -261,6 +306,16 @@ def enhance_packet_with_llm(packet: TradePacket, features: dict,
         return packet
 
     prompt = _build_feature_prompt(packet, features)
+
+    # #154: context window overflow protection
+    estimated_tokens = len(prompt) // 4
+    if estimated_tokens > _MAX_PROMPT_TOKENS:
+        logger.warning(
+            "[LLM] Prompt ~%d tokens exceeds %d limit for %s — using condensed prompt",
+            estimated_tokens, _MAX_PROMPT_TOKENS, packet.ticker,
+        )
+        prompt = _build_condensed_prompt(packet, features)
+
     response = None
     grammar_enabled = llm_cfg.get("use_grammar_enforcement", False)
 
@@ -302,11 +357,15 @@ def enhance_packet_with_llm(packet: TradePacket, features: dict,
         logger.warning("[LLM] Failed to parse response — fallback to template for %s", packet.ticker)
         return packet
 
+    # #168: if conviction is None after parsing, default to 5 for paper trades
+    if conviction is None:
+        conviction = 5
+        logger.warning("[LLM] Conviction is None for %s — defaulting to %d", packet.ticker, conviction)
+
     # Only update prose fields — never touch deterministic fields
     packet.why_now = why_now
     packet.deeper_analysis = deeper_analysis
-    if conviction is not None:
-        packet.llm_conviction = conviction
+    packet.llm_conviction = conviction
     logger.info("[LLM] Enhanced packet for %s (conviction: %s)", packet.ticker,
                 conviction if conviction else "n/a")
 

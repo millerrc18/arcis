@@ -72,11 +72,12 @@ class TestTickerValidation:
         assert "ticker" in reason.lower() or "universe" in reason.lower()
 
     @patch("src.universe.sp100.get_sp100_universe", side_effect=Exception("unavailable"))
-    def test_universe_unavailable_passes_silently(self, mock_universe):
-        """If universe check fails, should pass silently."""
+    def test_universe_unavailable_rejects_fail_closed(self, mock_universe):
+        """#162: If universe check fails, should REJECT (fail closed)."""
         packet = _make_packet(ticker="ANYTHING")
-        is_valid, _ = validate_llm_output(packet, _make_features(), _make_config())
-        assert is_valid is True
+        is_valid, reason = validate_llm_output(packet, _make_features(), _make_config())
+        assert is_valid is False
+        assert "fail closed" in reason.lower()
 
 
 class TestEntryPriceDeviation:
