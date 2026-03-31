@@ -79,9 +79,25 @@ def run_scan(config: dict, dry_run: bool = False, send_email_flag: bool = False,
         for _t in features:
             features[_t]["traffic_light"] = traffic_light
             features[_t]["traffic_light_multiplier"] = traffic_light.get("sizing_multiplier", 1.0)
-        logger.info("[SCAN] Traffic Light: score=%d mult=%.1f regime=%s",
+
+        # Bootcamp override: floor the multiplier at 0.5 so we collect data in all regimes.
+        # The regime is still RECORDED accurately for training data — only sizing is relaxed.
+        bootcamp_cfg = config.get("bootcamp", {})
+        if bootcamp_cfg.get("enabled", False):
+            tl_mult = traffic_light.get("sizing_multiplier", 1.0)
+            bootcamp_floor = bootcamp_cfg.get("traffic_light_floor", 0.5)
+            if tl_mult < bootcamp_floor:
+                logger.info("[SCAN] Bootcamp override: Traffic Light mult %.1f -> %.1f (floor)",
+                            tl_mult, bootcamp_floor)
+                for _t in features:
+                    features[_t]["traffic_light_multiplier"] = bootcamp_floor
+
+        # Log effective multiplier (may differ from raw if bootcamp override applied)
+        effective_mult = next(iter(features.values()), {}).get("traffic_light_multiplier", 1.0)
+        logger.info("[SCAN] Traffic Light: score=%d mult=%.1f (effective=%.1f) regime=%s",
                     traffic_light.get("total_score", -1),
                     traffic_light.get("sizing_multiplier", 1.0),
+                    effective_mult,
                     traffic_light.get("regime_label", "unknown"))
     except Exception as e:
         logger.warning("[SCAN] Traffic Light failed: %s — using default", e)
