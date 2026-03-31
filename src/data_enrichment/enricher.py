@@ -11,6 +11,7 @@ Called AFTER compute_all_features and BEFORE ranking/packet generation.
 """
 
 import logging
+import os
 import time
 
 logger = logging.getLogger(__name__)
@@ -35,8 +36,8 @@ def enrich_features(features: dict[str, dict], config: dict) -> dict[str, dict]:
         return features
 
     cache_hours = enrichment_cfg.get("cache_hours", 24)
-    finnhub_key = enrichment_cfg.get("finnhub_api_key")
-    fred_key = enrichment_cfg.get("fred_api_key")
+    finnhub_key = os.environ.get("FINNHUB_API_KEY") or enrichment_cfg.get("finnhub_api_key")
+    fred_key = os.environ.get("FRED_API_KEY") or enrichment_cfg.get("fred_api_key")
     lookback_days = enrichment_cfg.get("insider_lookback_days", 90)
 
     # 1. Fetch macro context ONCE (shared across all tickers)
