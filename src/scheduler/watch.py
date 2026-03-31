@@ -4,7 +4,9 @@ Simple Python loop — no APScheduler or cron dependencies.
 """
 
 import time
+import signal
 import logging
+from collections import deque
 from logging.handlers import RotatingFileHandler
 from datetime import datetime, date
 from pathlib import Path
@@ -12,6 +14,10 @@ from zoneinfo import ZoneInfo
 
 import sqlite3
 import uuid
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from src.config import load_config
 from src.llm.client import is_llm_available
@@ -109,6 +115,11 @@ class WatchLoop:
         self._saturday_reports_done = False
         self._daily_audit_done = False
         self._consecutive_errors = 0
+        self._backoff_seconds = 0
+        self._shutdown_requested = False
+        self._scan_in_progress = False
+        self._error_timestamps: deque = deque(maxlen=20)
+        self._hourly_alert_sent = False
 
         # Overnight schedule flags
         self._post_close_done = False
@@ -330,7 +341,7 @@ class WatchLoop:
 
         print(f"""
 {'='*45}
- HALCYON LAB - WATCH MODE
+ ARCIS - WATCH MODE
 {'='*45}
  Time: {now.strftime('%Y-%m-%d %H:%M:%S')} ET
  LLM: {llm_status}
@@ -362,7 +373,7 @@ class WatchLoop:
             from src.notifications.telegram import notify_system_event, is_telegram_enabled
             if is_telegram_enabled():
                 notify_system_event(
-                    "HALCYON LAB STARTED",
+                    "ARCIS STARTED",
                     f"Model: {model_name}\nMode: {'Overnight' if self.overnight else 'Standard'}\nTraining: {training_str}"
                 )
                 print(" Telegram: connected ✓")
@@ -1058,9 +1069,27 @@ class WatchLoop:
             logger.debug("Render sync startup failed: %s", e)
             print(f" Render sync: error ({e})")
 
+        # Register signal handlers for graceful shutdown
+        def _handle_shutdown(signum, frame):
+            sig_name = signal.Signals(signum).name
+            logger.info("[WATCH] Received %s — initiating graceful shutdown", sig_name)
+            print(f"\n[WATCH] Received {sig_name} — shutting down gracefully...")
+            self._shutdown_requested = True
+
+        signal.signal(signal.SIGTERM, _handle_shutdown)
+        # Write initial heartbeat
+        Path("data").mkdir(exist_ok=True)
+        Path("data/watchdog.txt").write_text(datetime.now(ET).isoformat())
+
         try:
-            while True:
+            while not self._shutdown_requested:
                 now = datetime.now(ET)
+
+                # Write heartbeat every iteration (~60s)
+                try:
+                    Path("data/watchdog.txt").write_text(now.isoformat())
+                except Exception:
+                    pass
 
                 # Reset daily state at midnight
                 today = now.date()
@@ -1098,9 +1127,16 @@ class WatchLoop:
 
                 # 2. Market hours scan
                 elif self._should_scan(now):
-                    print(f"[WATCH] {time_str} ET -- market open, scanning...")
-                    self._safe_run("scan", self._run_scan)
-                    self._last_scan_time = now
+                    if self._scan_in_progress:
+                        logger.warning("[WATCH] Previous scan still running — skipping this cycle")
+                    else:
+                        print(f"[WATCH] {time_str} ET -- market open, scanning...")
+                        self._scan_in_progress = True
+                        try:
+                            self._safe_run("scan", self._run_scan)
+                        finally:
+                            self._scan_in_progress = False
+                        self._last_scan_time = now
                     # 1E. Check VIX regime alert after each scan
                     self._safe_run("VIX regime check", self._check_vix_regime_alert)
 
@@ -1406,27 +1442,58 @@ class WatchLoop:
 
                 time.sleep(60)
 
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, SystemExit):
             print(f"\nShutting down watch mode...")
             print(f"Final shadow status:")
             print(f"  {self._trades_managed_today} trades managed today")
             print("Goodbye.")
+        except Exception as fatal_exc:
+            import traceback
+            logger.critical("[WATCH] Fatal exception escaped main loop: %s", fatal_exc)
+            logger.critical(traceback.format_exc())
+            try:
+                from src.notifications.telegram import send_telegram
+                send_telegram(
+                    f"🚨 <b>FATAL</b>: Watch loop crashed\n<code>{fatal_exc}</code>"
+                )
+            except Exception:
+                pass
+            raise
 
     def _safe_run(self, name: str, func):
-        """Run a function with error recovery."""
+        """Run a function with exponential backoff error recovery."""
         import traceback
         try:
-            if self._consecutive_errors >= 3:
-                print(f"[WATCH] Cooldown: 3 consecutive errors, waiting 5 minutes...")
-                time.sleep(300)
-                self._consecutive_errors = 0
+            if self._backoff_seconds > 0:
+                print(f"[WATCH] Backoff: waiting {self._backoff_seconds}s before {name}...")
+                time.sleep(self._backoff_seconds)
             func()
+            # Success — reset backoff
             self._consecutive_errors = 0
+            self._backoff_seconds = 0
         except Exception as e:
             self._consecutive_errors += 1
+            self._error_timestamps.append(time.time())
+            # Exponential backoff: 10s, 30s, 60s, cap 60s
+            if self._backoff_seconds == 0:
+                self._backoff_seconds = 10
+            elif self._backoff_seconds < 60:
+                self._backoff_seconds = min(self._backoff_seconds * 3, 60)
             logger.error("[WATCH] Error in %s: %s", name, e)
             logger.error(traceback.format_exc())
-            print(f"[WATCH] ERROR in {name}: {e} (error {self._consecutive_errors}/3)")
+            print(f"[WATCH] ERROR in {name}: {e} (error {self._consecutive_errors}, backoff {self._backoff_seconds}s)")
+            # Instability alert: >5 errors in last hour
+            cutoff = time.time() - 3600
+            recent = sum(1 for t in self._error_timestamps if t > cutoff)
+            if recent > 5 and not self._hourly_alert_sent:
+                self._hourly_alert_sent = True
+                try:
+                    from src.notifications.telegram import send_telegram
+                    send_telegram(f"\u26a0\ufe0f Watch loop unstable \u2014 {recent} exceptions in last hour")
+                except Exception:
+                    pass
+            elif recent <= 5:
+                self._hourly_alert_sent = False
 
     def _run_bracket_health_check(self, context: str) -> None:
         """Run bracket health monitoring for the requested scheduler context."""

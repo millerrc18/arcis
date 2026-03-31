@@ -8,11 +8,11 @@ Tests: tests/test_expanded_notifications.py, tests/test_live_trading.py
 """
 
 import logging
-import sqlite3
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import load_config
+from src.utils.db import connect_db
 from src.journal.store import (
     get_open_shadow_trades,
     get_open_shadow_trade_for_ticker,
@@ -163,7 +163,7 @@ def open_shadow_trade(
         from src.risk.governor import drawdown_adjusted_risk
         starting_capital = config.get("risk", {}).get("starting_capital", 100000)
         # Compute peak equity and current drawdown from closed trades
-        with sqlite3.connect(db_path) as _conn:
+        with connect_db(db_path) as _conn:
             _row = _conn.execute(
                 "SELECT COALESCE(SUM(pnl_dollars), 0) FROM shadow_trades WHERE status = 'closed'"
             ).fetchone()
@@ -326,7 +326,7 @@ def open_shadow_trade(
     if signal_price and signal_price > 0 and trade_id and trade_data.get("status") == "open":
         try:
             is_bps = ((actual_fill - signal_price) / signal_price) * 10000
-            with sqlite3.connect(db_path) as _is_conn:
+            with connect_db(db_path) as _is_conn:
                 _is_conn.execute(
                     "UPDATE shadow_trades SET signal_price = ?, implementation_shortfall_bps = ? "
                     "WHERE trade_id = ?",
@@ -366,6 +366,38 @@ def open_shadow_trade(
     return trade_id
 
 
+def _retry_exit(trade: dict, db_path: str = "ai_research_desk.sqlite3") -> None:
+    """Retry exit for trades stuck in exit_pending or exit_failed."""
+    ticker = trade["ticker"]
+    shares = trade.get("shares", trade.get("planned_shares", 0))
+    try:
+        exit_result = _submit_exit_order(trade, shares)
+        exit_status = exit_result.get("status") if isinstance(exit_result, dict) else None
+        if _is_filled_status(exit_status):
+            fill_price = float(exit_result.get("filled_avg_price", 0))
+            entry_price = trade.get("actual_entry_price") or trade.get("entry_price", 0)
+            pnl_dollars = (fill_price - entry_price) * shares if entry_price else 0
+            pnl_pct = ((fill_price - entry_price) / entry_price * 100) if entry_price else 0
+            close_shadow_trade(
+                trade["trade_id"],
+                exit_price=fill_price,
+                exit_time=datetime.now(ZoneInfo("America/New_York")).isoformat(),
+                exit_reason=trade.get("exit_reason", "retry_exit"),
+                pnl_dollars=round(pnl_dollars, 2),
+                pnl_pct=round(pnl_pct, 2),
+                db_path=db_path,
+            )
+            logger.info("[RETRY] Successfully closed %s on retry", ticker)
+        elif _is_pending_status(exit_status):
+            logger.info("[RETRY] Exit still pending for %s", ticker)
+        else:
+            update_shadow_trade(trade["trade_id"], {"status": "exit_failed"}, db_path)
+            logger.warning("[RETRY] Exit retry failed for %s (status=%s)", ticker, exit_status)
+    except Exception as e:
+        update_shadow_trade(trade["trade_id"], {"status": "exit_failed"}, db_path)
+        logger.error("[RETRY] Exit retry exception for %s: %s", ticker, e)
+
+
 def check_and_manage_open_trades(
     db_path: str = "ai_research_desk.sqlite3",
     source_filter: str | None = None,
@@ -390,7 +422,9 @@ def check_and_manage_open_trades(
     now = datetime.now(et)
 
     for trade in open_trades:
-        if trade.get("status") == "exit_pending":
+        # Retry exit for failed exits instead of skipping
+        if trade.get("status") in ("exit_pending", "exit_failed"):
+            _retry_exit(trade, db_path)
             continue
 
         ticker = trade["ticker"]
@@ -428,7 +462,9 @@ def check_and_manage_open_trades(
             entry_time = datetime.fromisoformat(entry_time_str)
             days_open = (now - entry_time).days
         except (ValueError, TypeError):
-            days_open = 0
+            days_open = 999  # Force timeout if timestamp unparseable
+            logger.warning("[EXECUTOR] Could not parse entry time '%s' for trade %s — defaulting to days_open=999",
+                           entry_time_str, trade.get("trade_id"))
 
         # Update trade with current MFE/MAE and duration
         update_shadow_trade(
@@ -443,6 +479,7 @@ def check_and_manage_open_trades(
 
         # For bracket orders, check Alpaca for exit fills
         bracket_exit = False
+        exit_reason = None
         if trade.get("order_type") == "bracket" and trade.get("alpaca_order_id"):
             try:
                 from src.shadow_trading.alpaca_adapter import get_order_status
@@ -463,20 +500,28 @@ def check_and_manage_open_trades(
                         if leg_price:
                             current_price = leg_price
                             bracket_exit = True
+                            # Identify leg type: stop legs have stop_price, limit legs are take-profit
+                            leg_type = leg.get("order_type", "")
+                            if leg_type == "stop" or leg.get("stop_price"):
+                                exit_reason = "stop_loss"
+                            elif leg_type == "limit" or leg.get("limit_price"):
+                                exit_reason = "take_profit"
                             break
             except Exception as e:
                 logger.debug("[SHADOW] Bracket order status check failed for %s: %s — using polling", ticker, e)
 
-        # Check exit conditions
-        exit_reason = None
-        if current_price <= stop_price and stop_price > 0:
-            exit_reason = "stop_hit"
-        elif current_price >= target_2 and target_2 > 0:
-            exit_reason = "target_2_hit"
-        elif current_price >= target_1 and target_1 > 0:
-            exit_reason = "target_1_hit"
-        elif days_open >= timeout_days:
-            exit_reason = "timeout"
+        # Check exit conditions (bracket leg detection may have already set exit_reason)
+        if not bracket_exit:
+            exit_reason = None
+        if exit_reason is None:
+            if current_price <= stop_price and stop_price > 0:
+                exit_reason = "stop_hit"
+            elif current_price >= target_2 and target_2 > 0:
+                exit_reason = "target_2_hit"
+            elif current_price >= target_1 and target_1 > 0:
+                exit_reason = "target_1_hit"
+            elif days_open >= timeout_days:
+                exit_reason = "timeout"
 
         if exit_reason:
             # Exit slippage tracking
@@ -529,10 +574,22 @@ def check_and_manage_open_trades(
                     continue
                 else:
                     logger.error(
-                        "[EXIT] Broker exit failed for %s — position still open (status=%s)",
+                        "[EXIT] Broker exit failed for %s — marking exit_failed (status=%s)",
                         ticker,
                         exit_status,
                     )
+                    update_shadow_trade(
+                        trade["trade_id"],
+                        {"status": "exit_failed", "exit_reason": exit_reason},
+                        db_path,
+                    )
+                    try:
+                        from src.notifications.telegram import send_telegram
+                        send_telegram(
+                            f"⚠️ Exit order FAILED for {ticker} — will retry next cycle"
+                        )
+                    except Exception:
+                        pass
                     continue
 
             pnl_dollars = (current_price - entry_price) * shares
@@ -897,13 +954,12 @@ def open_live_trade(
 def _check_open_milestones(db_path: str = "ai_research_desk.sqlite3",
                            source: str = "paper") -> None:
     """Check for trade open milestones and send notifications."""
-    import sqlite3
     try:
         from src.notifications.telegram import notify_milestone, is_telegram_enabled
         if not is_telegram_enabled():
             return
 
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             # Count total opened trades for this source
             total = conn.execute(
                 "SELECT COUNT(*) FROM shadow_trades WHERE COALESCE(source,'paper') = ?",
@@ -923,14 +979,12 @@ def _check_open_milestones(db_path: str = "ai_research_desk.sqlite3",
 
 def _check_close_milestones(db_path: str = "ai_research_desk.sqlite3") -> None:
     """Check for trade close milestones and send notifications."""
-    import sqlite3
     try:
         from src.notifications.telegram import notify_milestone, is_telegram_enabled
         if not is_telegram_enabled():
             return
 
-        with sqlite3.connect(db_path) as conn:
-            conn.row_factory = sqlite3.Row
+        with connect_db(db_path) as conn:
 
             closed_total = conn.execute(
                 "SELECT COUNT(*) FROM shadow_trades WHERE status='closed'"
@@ -1043,14 +1097,12 @@ def _check_close_milestones(db_path: str = "ai_research_desk.sqlite3") -> None:
 
 def _check_loss_streak(db_path: str = "ai_research_desk.sqlite3") -> None:
     """Check for consecutive losses and alert at 3+."""
-    import sqlite3
     try:
         from src.notifications.telegram import notify_streak_alert, is_telegram_enabled
         if not is_telegram_enabled():
             return
 
-        with sqlite3.connect(db_path) as conn:
-            conn.row_factory = sqlite3.Row
+        with connect_db(db_path) as conn:
             recent = conn.execute(
                 "SELECT ticker, pnl_dollars, pnl_pct FROM shadow_trades "
                 "WHERE status='closed' ORDER BY actual_exit_time DESC LIMIT 10"
@@ -1084,8 +1136,7 @@ def _check_loss_streak(db_path: str = "ai_research_desk.sqlite3") -> None:
                 max_dd = min(r["pnl_pct"] for r in recent[:streak])
 
                 # Historical max streak
-                with sqlite3.connect(db_path) as conn:
-                    conn.row_factory = sqlite3.Row
+                with connect_db(db_path) as conn:
                     all_closed = conn.execute(
                         "SELECT pnl_dollars FROM shadow_trades WHERE status='closed' "
                         "ORDER BY actual_exit_time ASC"
@@ -1112,14 +1163,12 @@ def _check_loss_streak(db_path: str = "ai_research_desk.sqlite3") -> None:
 
 def _check_sector_exposure(db_path: str = "ai_research_desk.sqlite3") -> None:
     """Check sector concentration after each trade open."""
-    import sqlite3
     try:
         from src.notifications.telegram import notify_exposure_alert, is_telegram_enabled
         if not is_telegram_enabled():
             return
 
-        with sqlite3.connect(db_path) as conn:
-            conn.row_factory = sqlite3.Row
+        with connect_db(db_path) as conn:
             open_trades = conn.execute(
                 "SELECT ticker FROM shadow_trades WHERE status='open'"
             ).fetchall()
@@ -1129,8 +1178,7 @@ def _check_sector_exposure(db_path: str = "ai_research_desk.sqlite3") -> None:
 
         # Get sector for each ticker (best-effort from recommendations)
         sectors: dict[str, list[str]] = {}
-        with sqlite3.connect(db_path) as conn:
-            conn.row_factory = sqlite3.Row
+        with connect_db(db_path) as conn:
             for trade in open_trades:
                 ticker = trade["ticker"]
                 rec = conn.execute(

@@ -1,149 +1,725 @@
 {
   "oversized_files": [
-    "src/cli/commands.py",
-    "src/council/agent_data.py",
-    "src/council/engine.py",
-    "src/evaluation/cto_report.py",
-    "src/evaluation/system_validator.py",
-    "src/journal/store.py",
-    "src/notifications/telegram.py",
-    "src/scheduler/watch.py",
-    "src/shadow_trading/alpaca_adapter.py",
-    "src/shadow_trading/executor.py",
-    "src/sync/render_sync.py",
-    "src/training/backfill.py",
-    "src/training/curriculum.py",
-    "src/training/trainer.py",
-    "src/training/versioning.py"
+    {
+      "file": "src/api/cloud_routes/core.py",
+      "lines": 413
+    },
+    {
+      "file": "src/api/cloud_routes/training.py",
+      "lines": 408
+    },
+    {
+      "file": "src/cli/commands.py",
+      "lines": 1072
+    },
+    {
+      "file": "src/council/agent_data.py",
+      "lines": 438
+    },
+    {
+      "file": "src/council/engine.py",
+      "lines": 596
+    },
+    {
+      "file": "src/evaluation/cto_report.py",
+      "lines": 752
+    },
+    {
+      "file": "src/evaluation/system_validator.py",
+      "lines": 950
+    },
+    {
+      "file": "src/journal/store.py",
+      "lines": 524
+    },
+    {
+      "file": "src/notifications/telegram.py",
+      "lines": 1458
+    },
+    {
+      "file": "src/scheduler/watch.py",
+      "lines": 2898
+    },
+    {
+      "file": "src/shadow_trading/alpaca_adapter.py",
+      "lines": 526
+    },
+    {
+      "file": "src/shadow_trading/executor.py",
+      "lines": 1233
+    },
+    {
+      "file": "src/sync/render_sync.py",
+      "lines": 778
+    },
+    {
+      "file": "src/training/backfill.py",
+      "lines": 444
+    },
+    {
+      "file": "src/training/curriculum.py",
+      "lines": 461
+    },
+    {
+      "file": "src/training/trainer.py",
+      "lines": 761
+    },
+    {
+      "file": "src/training/versioning.py",
+      "lines": 595
+    }
   ],
   "oversized_functions": [
-    "src/api/cloud_routes/analytics.py:create_router",
-    "src/api/cloud_routes/analytics.py:health_score",
-    "src/api/cloud_routes/core.py:create_router",
-    "src/api/cloud_routes/council.py:create_router",
-    "src/api/cloud_routes/notes.py:create_router",
-    "src/api/cloud_routes/trades.py:create_router",
-    "src/api/cloud_routes/training.py:create_router",
-    "src/api/routes/shadow.py:close_trade",
-    "src/cli/commands.py:cmd_live_close",
-    "src/council/agent_data.py:gather_tactical_data",
-    "src/council/agent_data.py:gather_strategic_data",
-    "src/council/agent_data.py:gather_risk_data",
-    "src/council/agent_data.py:gather_innovation_data",
-    "src/council/agent_data.py:gather_macro_data",
-    "src/council/aggregation.py:aggregate_votes",
-    "src/council/context.py:build_shared_context",
-    "src/council/engine.py:run_session",
-    "src/council/parsing.py:parse_agent_response",
-    "src/council/protocol.py:run_round_2",
-    "src/council/value_tracker.py:compute_attribution",
-    "src/data_collection/analyst_collector.py:collect_analyst_estimates",
-    "src/data_collection/edgar_collector.py:collect_new_filings",
-    "src/data_collection/insider_collector.py:collect_insider_transactions",
-    "src/data_collection/macro_collector.py:collect_macro_snapshots",
-    "src/data_collection/options_collector.py:collect_options_chains",
-    "src/data_collection/options_metrics.py:compute_options_metrics",
-    "src/data_collection/research_synthesizer.py:run_weekly_synthesis",
-    "src/data_collection/short_interest_collector.py:collect_short_interest",
-    "src/data_collection/trends_collector.py:collect_google_trends",
-    "src/data_enrichment/earnings_signals.py:compute_earnings_signals",
-    "src/data_enrichment/enricher.py:enrich_features",
-    "src/data_enrichment/fundamentals.py:fetch_fundamental_snapshot",
-    "src/data_enrichment/insiders.py:_fetch_from_finnhub",
-    "src/data_enrichment/macro.py:fetch_macro_context",
-    "src/data_enrichment/news.py:fetch_recent_news",
-    "src/data_enrichment/news.py:fetch_historical_news",
-    "src/email/digest_builder.py:build_premarket_digest",
-    "src/email/digest_builder.py:build_midday_digest",
-    "src/email/digest_builder.py:build_evening_digest",
-    "src/evaluation/auditor.py:run_daily_audit",
-    "src/evaluation/auditor.py:run_weekly_audit",
-    "src/evaluation/auditor.py:check_escalation",
-    "src/evaluation/backtester.py:backtest_model",
-    "src/evaluation/cto_report.py:generate_cto_report",
-    "src/evaluation/cto_report.py:_compute_trade_summary",
-    "src/evaluation/cto_report.py:_compute_training_status",
-    "src/evaluation/cto_report.py:_compute_fund_metrics",
-    "src/evaluation/cto_report.py:format_cto_report",
-    "src/evaluation/feature_importance.py:compute_feature_importance",
-    "src/evaluation/gate_evaluator.py:evaluate_50_trade_gate",
-    "src/evaluation/postmortem.py:generate_postmortem",
-    "src/evaluation/scorecard.py:generate_weekly_scorecard",
-    "src/evaluation/scorecard.py:generate_bootcamp_scorecard",
-    "src/evaluation/system_validator.py:_check_database",
-    "src/evaluation/system_validator.py:_check_trading",
-    "src/evaluation/system_validator.py:_check_training",
-    "src/evaluation/system_validator.py:_check_api",
-    "src/evaluation/system_validator.py:_check_scheduler",
-    "src/evaluation/system_validator.py:_check_llm",
-    "src/features/engine.py:compute_features",
-    "src/features/engine.py:compute_all_features",
-    "src/features/regime.py:compute_market_regime",
-    "src/features/setup_classifier.py:classify_setup",
-    "src/features/traffic_light.py:compute_traffic_light",
-    "src/journal/store.py:initialize_database",
-    "src/journal/store.py:log_recommendation",
-    "src/llm/packet_writer.py:_build_feature_prompt",
-    "src/llm/packet_writer.py:_parse_llm_response",
-    "src/llm/packet_writer.py:enhance_packet_with_llm",
-    "src/main.py:build_parser",
-    "src/notifications/telegram.py:check_action_reminders",
-    "src/notifications/telegram.py:handle_command",
-    "src/notifications/telegram.py:_cmd_pnl",
-    "src/notifications/telegram.py:_cmd_council",
-    "src/packets/eod_recap.py:build_eod_recap",
-    "src/packets/eod_recap.py:get_shadow_data_for_recap",
-    "src/packets/template.py:build_packet_from_features",
-    "src/packets/watchlist.py:build_morning_watchlist",
-    "src/ranking/ranker.py:rank_universe",
-    "src/risk/governor.py:get_portfolio_state",
-    "src/risk/governor.py:check_trade",
-    "src/scheduler/watch.py:__init__",
-    "src/scheduler/watch.py:_check_digest_schedule",
-    "src/scheduler/watch.py:_print_banner",
-    "src/scheduler/watch.py:_run_scan",
-    "src/scheduler/watch.py:_ensure_all_tables",
-    "src/scheduler/watch.py:run",
-    "src/scheduler/watch.py:_run_saturday_reports",
-    "src/scheduler/watch.py:_run_post_close_capture",
-    "src/scheduler/watch.py:_run_data_collection",
-    "src/scheduler/watch.py:_send_premarket_brief",
-    "src/scheduler/watch.py:_send_eod_report",
-    "src/scheduler/watch.py:_send_weekly_digest",
-    "src/scheduler/watch.py:_save_daily_metric_snapshot",
-    "src/services/scan_service.py:run_scan",
-    "src/services/system_service.py:get_system_status",
-    "src/services/watchlist_service.py:generate_morning_watchlist",
-    "src/shadow_trading/bracket_monitor.py:check_bracket_health",
-    "src/shadow_trading/executor.py:open_shadow_trade",
-    "src/shadow_trading/executor.py:check_and_manage_open_trades",
-    "src/shadow_trading/executor.py:open_live_trade",
-    "src/shadow_trading/executor.py:_check_close_milestones",
-    "src/shadow_trading/executor.py:_check_loss_streak",
-    "src/shadow_trading/metrics.py:compute_shadow_metrics",
-    "src/shadow_trading/reconcile.py:reconcile_live_trades",
-    "src/training/ab_evaluation.py:run_shadow_evaluation",
-    "src/training/backfill.py:run_historical_backfill",
-    "src/training/bootstrap.py:generate_synthetic_training_data",
-    "src/training/canary.py:evaluate",
-    "src/training/curriculum.py:classify_difficulty",
-    "src/training/curriculum.py:generate_contrastive_training_data",
-    "src/training/data_collector.py:collect_training_examples_from_closed_trades",
-    "src/training/dpo_pipeline.py:generate_preference_pairs",
-    "src/training/historical_data.py:fetch_historical_universe",
-    "src/training/historical_scanner.py:scan_historical_date",
-    "src/training/historical_scanner.py:compute_outcome",
-    "src/training/historical_scanner.py:generate_backfill_example",
-    "src/training/leakage_detector.py:check_outcome_leakage",
-    "src/training/quality_filter.py:score_training_example",
-    "src/training/report.py:generate_training_report",
-    "src/training/trainer.py:export_training_data",
-    "src/training/trainer.py:evaluate_on_holdout",
-    "src/training/trainer.py:run_fine_tune",
-    "src/training/validation.py:validate_training_dataset",
-    "src/training/versioning.py:init_training_tables",
-    "src/training/versioning.py:get_cost_summary",
-    "src/universe/sp100.py:get_sp100_universe"
+    {
+      "file": "src/api/cloud_routes/analytics.py",
+      "function": "create_router",
+      "lines": 183
+    },
+    {
+      "file": "src/api/cloud_routes/analytics.py",
+      "function": "health_score",
+      "lines": 90
+    },
+    {
+      "file": "src/api/cloud_routes/core.py",
+      "function": "create_router",
+      "lines": 387
+    },
+    {
+      "file": "src/api/cloud_routes/council.py",
+      "function": "create_router",
+      "lines": 93
+    },
+    {
+      "file": "src/api/cloud_routes/notes.py",
+      "function": "create_router",
+      "lines": 131
+    },
+    {
+      "file": "src/api/cloud_routes/trades.py",
+      "function": "create_router",
+      "lines": 285
+    },
+    {
+      "file": "src/api/cloud_routes/training.py",
+      "function": "create_router",
+      "lines": 338
+    },
+    {
+      "file": "src/api/routes/actions.py",
+      "function": "_run_collect_data",
+      "lines": 78
+    },
+    {
+      "file": "src/api/routes/shadow.py",
+      "function": "close_trade",
+      "lines": 89
+    },
+    {
+      "file": "src/cli/commands.py",
+      "function": "cmd_live_close",
+      "lines": 70
+    },
+    {
+      "file": "src/cli/commands.py",
+      "function": "cmd_collect_data",
+      "lines": 71
+    },
+    {
+      "file": "src/council/agent_data.py",
+      "function": "gather_tactical_data",
+      "lines": 86
+    },
+    {
+      "file": "src/council/agent_data.py",
+      "function": "gather_strategic_data",
+      "lines": 68
+    },
+    {
+      "file": "src/council/agent_data.py",
+      "function": "gather_risk_data",
+      "lines": 75
+    },
+    {
+      "file": "src/council/agent_data.py",
+      "function": "gather_innovation_data",
+      "lines": 87
+    },
+    {
+      "file": "src/council/agent_data.py",
+      "function": "gather_macro_data",
+      "lines": 81
+    },
+    {
+      "file": "src/council/aggregation.py",
+      "function": "aggregate_votes",
+      "lines": 68
+    },
+    {
+      "file": "src/council/context.py",
+      "function": "build_shared_context",
+      "lines": 69
+    },
+    {
+      "file": "src/council/engine.py",
+      "function": "run_session",
+      "lines": 91
+    },
+    {
+      "file": "src/council/parsing.py",
+      "function": "parse_agent_response",
+      "lines": 63
+    },
+    {
+      "file": "src/council/protocol.py",
+      "function": "run_round_2",
+      "lines": 63
+    },
+    {
+      "file": "src/council/value_tracker.py",
+      "function": "compute_attribution",
+      "lines": 69
+    },
+    {
+      "file": "src/data_collection/analyst_collector.py",
+      "function": "collect_analyst_estimates",
+      "lines": 94
+    },
+    {
+      "file": "src/data_collection/edgar_collector.py",
+      "function": "collect_new_filings",
+      "lines": 132
+    },
+    {
+      "file": "src/data_collection/insider_collector.py",
+      "function": "collect_insider_transactions",
+      "lines": 79
+    },
+    {
+      "file": "src/data_collection/macro_collector.py",
+      "function": "collect_macro_snapshots",
+      "lines": 66
+    },
+    {
+      "file": "src/data_collection/options_collector.py",
+      "function": "collect_options_chains",
+      "lines": 112
+    },
+    {
+      "file": "src/data_collection/options_metrics.py",
+      "function": "compute_options_metrics",
+      "lines": 126
+    },
+    {
+      "file": "src/data_collection/research_synthesizer.py",
+      "function": "run_weekly_synthesis",
+      "lines": 126
+    },
+    {
+      "file": "src/data_collection/short_interest_collector.py",
+      "function": "collect_short_interest",
+      "lines": 78
+    },
+    {
+      "file": "src/data_collection/trends_collector.py",
+      "function": "collect_google_trends",
+      "lines": 93
+    },
+    {
+      "file": "src/data_enrichment/earnings_signals.py",
+      "function": "compute_earnings_signals",
+      "lines": 132
+    },
+    {
+      "file": "src/data_enrichment/enricher.py",
+      "function": "enrich_features",
+      "lines": 121
+    },
+    {
+      "file": "src/data_enrichment/fundamentals.py",
+      "function": "fetch_fundamental_snapshot",
+      "lines": 99
+    },
+    {
+      "file": "src/data_enrichment/insiders.py",
+      "function": "_fetch_from_finnhub",
+      "lines": 93
+    },
+    {
+      "file": "src/data_enrichment/macro.py",
+      "function": "fetch_macro_context",
+      "lines": 71
+    },
+    {
+      "file": "src/data_enrichment/news.py",
+      "function": "fetch_recent_news",
+      "lines": 96
+    },
+    {
+      "file": "src/data_enrichment/news.py",
+      "function": "fetch_historical_news",
+      "lines": 90
+    },
+    {
+      "file": "src/email/digest_builder.py",
+      "function": "build_premarket_digest",
+      "lines": 70
+    },
+    {
+      "file": "src/email/digest_builder.py",
+      "function": "build_midday_digest",
+      "lines": 68
+    },
+    {
+      "file": "src/email/digest_builder.py",
+      "function": "build_evening_digest",
+      "lines": 61
+    },
+    {
+      "file": "src/evaluation/auditor.py",
+      "function": "run_daily_audit",
+      "lines": 73
+    },
+    {
+      "file": "src/evaluation/auditor.py",
+      "function": "run_weekly_audit",
+      "lines": 72
+    },
+    {
+      "file": "src/evaluation/auditor.py",
+      "function": "check_escalation",
+      "lines": 86
+    },
+    {
+      "file": "src/evaluation/backtester.py",
+      "function": "backtest_model",
+      "lines": 160
+    },
+    {
+      "file": "src/evaluation/cto_report.py",
+      "function": "generate_cto_report",
+      "lines": 132
+    },
+    {
+      "file": "src/evaluation/cto_report.py",
+      "function": "_compute_trade_summary",
+      "lines": 82
+    },
+    {
+      "file": "src/evaluation/cto_report.py",
+      "function": "_compute_training_status",
+      "lines": 63
+    },
+    {
+      "file": "src/evaluation/cto_report.py",
+      "function": "_compute_fund_metrics",
+      "lines": 87
+    },
+    {
+      "file": "src/evaluation/cto_report.py",
+      "function": "format_cto_report",
+      "lines": 62
+    },
+    {
+      "file": "src/evaluation/feature_importance.py",
+      "function": "compute_feature_importance",
+      "lines": 162
+    },
+    {
+      "file": "src/evaluation/gate_evaluator.py",
+      "function": "evaluate_50_trade_gate",
+      "lines": 89
+    },
+    {
+      "file": "src/evaluation/postmortem.py",
+      "function": "generate_postmortem",
+      "lines": 144
+    },
+    {
+      "file": "src/evaluation/scorecard.py",
+      "function": "generate_weekly_scorecard",
+      "lines": 148
+    },
+    {
+      "file": "src/evaluation/scorecard.py",
+      "function": "generate_bootcamp_scorecard",
+      "lines": 74
+    },
+    {
+      "file": "src/evaluation/system_validator.py",
+      "function": "_check_database",
+      "lines": 120
+    },
+    {
+      "file": "src/evaluation/system_validator.py",
+      "function": "_check_trading",
+      "lines": 123
+    },
+    {
+      "file": "src/evaluation/system_validator.py",
+      "function": "_check_training",
+      "lines": 131
+    },
+    {
+      "file": "src/evaluation/system_validator.py",
+      "function": "_check_api",
+      "lines": 68
+    },
+    {
+      "file": "src/evaluation/system_validator.py",
+      "function": "_check_scheduler",
+      "lines": 108
+    },
+    {
+      "file": "src/evaluation/system_validator.py",
+      "function": "_check_llm",
+      "lines": 77
+    },
+    {
+      "file": "src/features/engine.py",
+      "function": "compute_features",
+      "lines": 95
+    },
+    {
+      "file": "src/features/engine.py",
+      "function": "compute_all_features",
+      "lines": 73
+    },
+    {
+      "file": "src/features/regime.py",
+      "function": "compute_market_regime",
+      "lines": 96
+    },
+    {
+      "file": "src/features/setup_classifier.py",
+      "function": "classify_setup",
+      "lines": 110
+    },
+    {
+      "file": "src/features/traffic_light.py",
+      "function": "compute_traffic_light",
+      "lines": 83
+    },
+    {
+      "file": "src/journal/store.py",
+      "function": "initialize_database",
+      "lines": 67
+    },
+    {
+      "file": "src/journal/store.py",
+      "function": "log_recommendation",
+      "lines": 81
+    },
+    {
+      "file": "src/llm/packet_writer.py",
+      "function": "_build_feature_prompt",
+      "lines": 119
+    },
+    {
+      "file": "src/llm/packet_writer.py",
+      "function": "_parse_llm_response",
+      "lines": 73
+    },
+    {
+      "file": "src/llm/packet_writer.py",
+      "function": "enhance_packet_with_llm",
+      "lines": 80
+    },
+    {
+      "file": "src/main.py",
+      "function": "build_parser",
+      "lines": 163
+    },
+    {
+      "file": "src/notifications/telegram.py",
+      "function": "check_action_reminders",
+      "lines": 132
+    },
+    {
+      "file": "src/notifications/telegram.py",
+      "function": "handle_command",
+      "lines": 73
+    },
+    {
+      "file": "src/notifications/telegram.py",
+      "function": "_cmd_pnl",
+      "lines": 65
+    },
+    {
+      "file": "src/notifications/telegram.py",
+      "function": "_cmd_council",
+      "lines": 83
+    },
+    {
+      "file": "src/packets/eod_recap.py",
+      "function": "build_eod_recap",
+      "lines": 132
+    },
+    {
+      "file": "src/packets/eod_recap.py",
+      "function": "get_shadow_data_for_recap",
+      "lines": 71
+    },
+    {
+      "file": "src/packets/template.py",
+      "function": "build_packet_from_features",
+      "lines": 122
+    },
+    {
+      "file": "src/packets/watchlist.py",
+      "function": "build_morning_watchlist",
+      "lines": 99
+    },
+    {
+      "file": "src/ranking/ranker.py",
+      "function": "rank_universe",
+      "lines": 64
+    },
+    {
+      "file": "src/risk/governor.py",
+      "function": "get_portfolio_state",
+      "lines": 64
+    },
+    {
+      "file": "src/risk/governor.py",
+      "function": "check_trade",
+      "lines": 173
+    },
+    {
+      "file": "src/scheduler/watch.py",
+      "function": "__init__",
+      "lines": 100
+    },
+    {
+      "file": "src/scheduler/watch.py",
+      "function": "_check_digest_schedule",
+      "lines": 64
+    },
+    {
+      "file": "src/scheduler/watch.py",
+      "function": "_print_banner",
+      "lines": 70
+    },
+    {
+      "file": "src/scheduler/watch.py",
+      "function": "_run_scan",
+      "lines": 275
+    },
+    {
+      "file": "src/scheduler/watch.py",
+      "function": "_ensure_all_tables",
+      "lines": 168
+    },
+    {
+      "file": "src/scheduler/watch.py",
+      "function": "run",
+      "lines": 454
+    },
+    {
+      "file": "src/scheduler/watch.py",
+      "function": "_run_saturday_reports",
+      "lines": 78
+    },
+    {
+      "file": "src/scheduler/watch.py",
+      "function": "_run_post_close_capture",
+      "lines": 67
+    },
+    {
+      "file": "src/scheduler/watch.py",
+      "function": "_run_data_collection",
+      "lines": 195
+    },
+    {
+      "file": "src/scheduler/watch.py",
+      "function": "_send_premarket_brief",
+      "lines": 96
+    },
+    {
+      "file": "src/scheduler/watch.py",
+      "function": "_send_eod_report",
+      "lines": 88
+    },
+    {
+      "file": "src/scheduler/watch.py",
+      "function": "_send_weekly_digest",
+      "lines": 160
+    },
+    {
+      "file": "src/scheduler/watch.py",
+      "function": "_save_daily_metric_snapshot",
+      "lines": 67
+    },
+    {
+      "file": "src/services/scan_service.py",
+      "function": "run_scan",
+      "lines": 242
+    },
+    {
+      "file": "src/services/system_service.py",
+      "function": "get_system_status",
+      "lines": 126
+    },
+    {
+      "file": "src/services/watchlist_service.py",
+      "function": "generate_morning_watchlist",
+      "lines": 82
+    },
+    {
+      "file": "src/shadow_trading/bracket_monitor.py",
+      "function": "check_bracket_health",
+      "lines": 89
+    },
+    {
+      "file": "src/shadow_trading/executor.py",
+      "function": "open_shadow_trade",
+      "lines": 299
+    },
+    {
+      "file": "src/shadow_trading/executor.py",
+      "function": "check_and_manage_open_trades",
+      "lines": 300
+    },
+    {
+      "file": "src/shadow_trading/executor.py",
+      "function": "open_live_trade",
+      "lines": 247
+    },
+    {
+      "file": "src/shadow_trading/executor.py",
+      "function": "_check_close_milestones",
+      "lines": 115
+    },
+    {
+      "file": "src/shadow_trading/executor.py",
+      "function": "_check_loss_streak",
+      "lines": 63
+    },
+    {
+      "file": "src/shadow_trading/metrics.py",
+      "function": "compute_shadow_metrics",
+      "lines": 90
+    },
+    {
+      "file": "src/shadow_trading/reconcile.py",
+      "function": "reconcile_live_trades",
+      "lines": 103
+    },
+    {
+      "file": "src/sync/render_sync.py",
+      "function": "pull_commands",
+      "lines": 112
+    },
+    {
+      "file": "src/training/ab_evaluation.py",
+      "function": "run_shadow_evaluation",
+      "lines": 94
+    },
+    {
+      "file": "src/training/backfill.py",
+      "function": "run_historical_backfill",
+      "lines": 248
+    },
+    {
+      "file": "src/training/bootstrap.py",
+      "function": "generate_synthetic_training_data",
+      "lines": 131
+    },
+    {
+      "file": "src/training/canary.py",
+      "function": "evaluate",
+      "lines": 142
+    },
+    {
+      "file": "src/training/curriculum.py",
+      "function": "classify_difficulty",
+      "lines": 68
+    },
+    {
+      "file": "src/training/curriculum.py",
+      "function": "generate_contrastive_training_data",
+      "lines": 85
+    },
+    {
+      "file": "src/training/data_collector.py",
+      "function": "collect_training_examples_from_closed_trades",
+      "lines": 115
+    },
+    {
+      "file": "src/training/dpo_pipeline.py",
+      "function": "generate_preference_pairs",
+      "lines": 90
+    },
+    {
+      "file": "src/training/historical_data.py",
+      "function": "fetch_historical_universe",
+      "lines": 96
+    },
+    {
+      "file": "src/training/historical_scanner.py",
+      "function": "scan_historical_date",
+      "lines": 96
+    },
+    {
+      "file": "src/training/historical_scanner.py",
+      "function": "compute_outcome",
+      "lines": 111
+    },
+    {
+      "file": "src/training/historical_scanner.py",
+      "function": "generate_backfill_example",
+      "lines": 80
+    },
+    {
+      "file": "src/training/leakage_detector.py",
+      "function": "check_outcome_leakage",
+      "lines": 187
+    },
+    {
+      "file": "src/training/quality_filter.py",
+      "function": "score_training_example",
+      "lines": 76
+    },
+    {
+      "file": "src/training/report.py",
+      "function": "generate_training_report",
+      "lines": 97
+    },
+    {
+      "file": "src/training/trainer.py",
+      "function": "export_training_data",
+      "lines": 141
+    },
+    {
+      "file": "src/training/trainer.py",
+      "function": "evaluate_on_holdout",
+      "lines": 88
+    },
+    {
+      "file": "src/training/trainer.py",
+      "function": "run_fine_tune",
+      "lines": 194
+    },
+    {
+      "file": "src/training/validation.py",
+      "function": "validate_training_dataset",
+      "lines": 149
+    },
+    {
+      "file": "src/training/versioning.py",
+      "function": "init_training_tables",
+      "lines": 98
+    },
+    {
+      "file": "src/training/versioning.py",
+      "function": "get_cost_summary",
+      "lines": 79
+    },
+    {
+      "file": "src/universe/sp100.py",
+      "function": "get_sp100_universe",
+      "lines": 105
+    }
   ],
   "missing_docstring_headers": [],
   "missing_migrate_tables": [

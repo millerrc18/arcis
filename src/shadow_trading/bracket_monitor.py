@@ -13,6 +13,8 @@ import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from src.utils.db import connect_db
+
 logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
@@ -70,7 +72,7 @@ def _record_check(
 ) -> None:
     """Persist one health-check record."""
     ensure_bracket_health_table(db_path)
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.execute(
             "INSERT INTO bracket_health "
             "(check_id, trade_id, ticker, stop_leg_status, target_leg_status, "
@@ -108,8 +110,7 @@ def check_bracket_health(
 
     ensure_bracket_health_table(db_path)
 
-    with sqlite3.connect(db_path) as conn:
-        conn.row_factory = sqlite3.Row
+    with connect_db(db_path) as conn:
         trades = conn.execute(
             "SELECT trade_id, ticker, alpaca_order_id "
             "FROM shadow_trades "

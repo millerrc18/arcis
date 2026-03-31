@@ -1,4 +1,4 @@
-"""Build Score -- single composite KPI (0-100) for Halcyon Lab.
+"""Build Score -- single composite KPI (0-100) for Arcis.
 
 Six components combined via geometric mean with daily idle-day decay.
 See docs/research/Build_Score_Specification__Composite_KPI.md for the

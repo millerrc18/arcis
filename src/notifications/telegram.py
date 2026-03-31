@@ -838,6 +838,7 @@ def handle_command(command: str, args: str) -> str:
                 "/gpu — GPU details (nvidia-smi)\n"
                 "/disk — Disk usage\n"
                 "/uptime — Watch loop uptime\n"
+                "/heartbeat — Watchdog heartbeat age\n"
                 "/help — This message"
             )
 
@@ -871,6 +872,8 @@ def handle_command(command: str, args: str) -> str:
             return _cmd_disk()
         elif command == "/uptime":
             return _cmd_uptime()
+        elif command == "/heartbeat":
+            return _cmd_heartbeat()
         else:
             return f"Unknown command: {command}\nSend /help for available commands."
 
@@ -1422,3 +1425,34 @@ def _cmd_uptime() -> str:
         f"Day: {now.strftime('%A')}\n"
         f"Next: {next_event}"
     )
+
+
+def _cmd_heartbeat() -> str:
+    """Report watchdog heartbeat age."""
+    from pathlib import Path
+
+    watchdog_file = Path("data/watchdog.txt")
+    if not watchdog_file.exists():
+        return "💔 <b>HEARTBEAT</b>\nNo watchdog file found — watch loop may not be running."
+
+    try:
+        last_beat = datetime.fromisoformat(watchdog_file.read_text().strip())
+        now = datetime.now(ET)
+        age_seconds = (now - last_beat).total_seconds()
+        age_min = age_seconds / 60
+
+        if age_min < 2:
+            status = "💚 Healthy"
+        elif age_min < 10:
+            status = "💛 Delayed"
+        else:
+            status = "🔴 STALE — loop may be stuck"
+
+        return (
+            f"💓 <b>HEARTBEAT</b>\n"
+            f"Last beat: {last_beat.strftime('%H:%M:%S ET')}\n"
+            f"Age: {age_min:.1f} min\n"
+            f"Status: {status}"
+        )
+    except Exception as e:
+        return f"💔 <b>HEARTBEAT</b>\nError reading watchdog: {e}"

@@ -11,10 +11,11 @@ Detects orphaned positions (on Alpaca but not in DB) and stale records
 """
 
 import logging
-import sqlite3
 from datetime import datetime
 from uuid import uuid4
 from zoneinfo import ZoneInfo
+
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +49,7 @@ def reconcile_live_trades(
     alpaca_tickers = {p["symbol"]: p for p in alpaca_positions}
 
     # Get tracked live trades
-    with sqlite3.connect(db_path) as conn:
-        conn.row_factory = sqlite3.Row
+    with connect_db(db_path) as conn:
         tracked = conn.execute(
             "SELECT trade_id, ticker FROM shadow_trades "
             "WHERE source = 'live' AND status = 'open'"
@@ -102,7 +102,7 @@ def reconcile_live_trades(
         # Mark stale records as closed
         for ticker in stale:
             trade_id = tracked_tickers[ticker]
-            with sqlite3.connect(db_path) as conn:
+            with connect_db(db_path) as conn:
                 conn.execute(
                     "UPDATE shadow_trades SET status = 'closed', "
                     "exit_reason = 'reconciled_stale', updated_at = ? "

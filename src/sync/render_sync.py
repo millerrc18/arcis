@@ -688,7 +688,9 @@ class RenderSyncThread(threading.Thread):
         self.interval_seconds = interval_seconds
         self.db_path = db_path
         self._stop_event = threading.Event()
+        self._sync_lock = threading.Lock()
         self._on_commands_pulled = on_commands_pulled
+        self.sync_last_success: float = 0.0
 
     def stop(self) -> None:
         """Signal the thread to stop."""
@@ -700,8 +702,13 @@ class RenderSyncThread(threading.Thread):
             "Render sync thread started (interval=%ds)", self.interval_seconds
         )
         while not self._stop_event.is_set():
+            if not self._sync_lock.acquire(blocking=False):
+                logger.warning("Sync cycle already in progress — skipping")
+                self._stop_event.wait(self.interval_seconds)
+                continue
             try:
                 summary = run_sync_cycle(self.database_url, self.db_path)
+                self.sync_last_success = time.time()
                 synced_count = sum(summary.get("synced", {}).values())
                 error_count = len(summary.get("errors", []))
                 if synced_count > 0 or error_count > 0:
@@ -719,6 +726,13 @@ class RenderSyncThread(threading.Thread):
                         logger.error("Command execution callback failed: %s", exc)
             except Exception as exc:
                 logger.error("Unhandled error in sync cycle: %s", exc)
+                try:
+                    from src.notifications.telegram import send_telegram
+                    send_telegram(f"🚨 Render sync error: <code>{exc}</code>")
+                except Exception:
+                    pass
+            finally:
+                self._sync_lock.release()
 
             self._stop_event.wait(self.interval_seconds)
 

@@ -182,9 +182,22 @@ def create_router(runtime, verify_auth):
     router = APIRouter()
 
     @router.get("/api/traffic-light/current", dependencies=[Depends(verify_auth)])
-    async def get_traffic_light_current():
-        """Current Traffic Light regime — stub, replaced in Sprint 4B."""
-        return {"regime": "UNKNOWN", "score": 0, "vix": 0}
+    def get_traffic_light_current():
+        """Current Traffic Light regime and VIX from live database."""
+        try:
+            row = runtime.query_one(
+                "SELECT current_regime, last_total_score FROM traffic_light_state WHERE id = 1"
+            )
+            vix_row = runtime.query_one(
+                "SELECT vix FROM vix_term_structure ORDER BY collected_date DESC LIMIT 1"
+            )
+            return {
+                "regime": row["current_regime"] if row else "UNKNOWN",
+                "score": row["last_total_score"] if row else 0,
+                "vix": round(float(vix_row["vix"]), 2) if vix_row else 0,
+            }
+        except Exception:
+            return {"regime": "UNKNOWN", "score": 0, "vix": 0}
 
     @router.get("/api/health/hshs", dependencies=[Depends(verify_auth)])
     def health_hshs():

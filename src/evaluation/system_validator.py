@@ -531,7 +531,8 @@ def _check_api(config: dict) -> list[dict]:
     # Cloud API healthz
     try:
         import requests
-        resp = requests.get("https://halcyon-lab-api.onrender.com/healthz", timeout=5)
+        render_url = os.environ.get("RENDER_API_URL", "https://halcyon-lab-api.onrender.com")
+        resp = requests.get(f"{render_url}/healthz", timeout=5)
         if resp.status_code == 200:
             checks.append(_check("api_cloud_healthz", "pass",
                                   "Cloud API /healthz OK"))

@@ -16,6 +16,20 @@ import time
 
 logger = logging.getLogger(__name__)
 
+_missing_key_alerts_sent: set[str] = set()
+
+
+def _alert_missing_key(key_name: str) -> None:
+    """Send a one-time Telegram alert for a missing API key."""
+    if key_name in _missing_key_alerts_sent:
+        return
+    _missing_key_alerts_sent.add(key_name)
+    try:
+        from src.notifications.telegram import send_telegram
+        send_telegram(f"\u26a0\ufe0f Missing API key: <b>{key_name}</b> \u2014 data collection degraded")
+    except Exception:
+        pass
+
 
 def enrich_features(features: dict[str, dict], config: dict) -> dict[str, dict]:
     """Add fundamental, insider, and macro data to all ticker feature dicts.
@@ -39,6 +53,11 @@ def enrich_features(features: dict[str, dict], config: dict) -> dict[str, dict]:
     finnhub_key = os.environ.get("FINNHUB_API_KEY") or enrichment_cfg.get("finnhub_api_key")
     fred_key = os.environ.get("FRED_API_KEY") or enrichment_cfg.get("fred_api_key")
     lookback_days = enrichment_cfg.get("insider_lookback_days", 90)
+
+    if not finnhub_key:
+        _alert_missing_key("FINNHUB_API_KEY")
+    if not fred_key:
+        _alert_missing_key("FRED_API_KEY")
 
     # 1. Fetch macro context ONCE (shared across all tickers)
     macro_summary = "No macro data available"

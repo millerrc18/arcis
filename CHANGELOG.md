@@ -2,6 +2,35 @@
 
 ## [Unreleased] - 2026-03-31
 
+### Sprint 7: Reliability & Critical Bug Fixes
+
+**P0 fixes (trading risk / system crash):**
+- Watch loop crash protection: top-level exception handler with Telegram CRITICAL alert, graceful SIGTERM handling, exponential backoff (10s/30s/60s cap) replacing fixed 5-min cooldown, hourly instability alerts (#159, #155, #157)
+- Bracket orders changed from DAY to GTC time-in-force — positions now protected overnight/weekends (#101)
+- Exit-failed recovery: failed exits marked `exit_failed` and retried next scan cycle with Telegram alert (#100)
+- Timestamp parse failure now defaults to days_open=999 (force timeout) instead of 0 (disable timeout) (#105)
+- Stop-loss vs take-profit bracket leg identification in exit_reason field (#103)
+- Traffic Light API: replaced UNKNOWN stub with live DB query (#89)
+- Render sync crash detection: Telegram alert on error, mutex to prevent overlapping cycles (#161, #130)
+- load_dotenv added to watch.py for standalone execution (#90)
+
+**P1 fixes (will cause problems soon):**
+- Heartbeat: writes timestamp to data/watchdog.txt every 60s, /heartbeat Telegram command (#150)
+- Scan overlap prevention: _scan_in_progress flag prevents concurrent scans (#151)
+- SQLite busy_timeout: new `src/utils/db.py` helper with PRAGMA busy_timeout=5000; migrated executor, bracket_monitor, reconcile (#160)
+- Missing API key alerts: one-time Telegram alert per missing key (FINNHUB, FRED) (#124)
+
+**Cosmetic:**
+- Renamed "HALCYON LAB" to "ARCIS" in watch banner and startup notification (#94)
+- Updated build_score.py docstring from "Halcyon Lab" to "Arcis" (#96)
+- Replaced hardcoded Render URL with RENDER_API_URL env var (#91)
+
+**Tests:** +18 new tests (1143 total) across 3 new test files: test_watch_resilience.py, test_bracket_safety.py, test_db_util.py
+
+**Issues closed:** #89, #90, #91, #94, #96, #100, #101, #103, #105, #124, #130, #150, #151, #155, #157, #159, #160, #161
+
+---
+
 ### Sprint 6: Data Pipeline Visibility
 
 #### API Wiring (Task 1)
