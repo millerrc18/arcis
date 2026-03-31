@@ -1,5 +1,11 @@
 """Between-scan inference scoring using the already-loaded Ollama model.
 
+Called by: scheduler.watch
+Calls: llm.client, training.quality_filter, training.versioning
+Owns tables: none
+Config keys: none
+Tests: tests/test_scorer.py
+
 The key insight: the Ollama inference model is already loaded in VRAM for scans.
 Scoring training examples between scans requires zero VRAM overhead — just API calls
 to the same running Ollama instance. We stop 3 minutes before each scan to guarantee

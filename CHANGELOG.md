@@ -1,5 +1,38 @@
 # Changelog
 
+## [Unreleased] - 2026-03-30
+
+### Sprint 4D: The Flywheel — AI-Agent-Friendly Repo Structure
+
+#### AGENTS.md Rewrite
+- Rewrote AGENTS.md as machine-parseable module registry with 138 modules
+- Added 5-field entries (Purpose, Called by, Calls, Owns tables, Config keys, Tests) for every module
+- Added Dependency Hierarchy (4-layer architecture) and "Where New Things Go" routing table
+
+#### Standard Docstring Headers
+- Added 5-field docstring headers to all 138 Python modules in src/ (was 0, now 138/138)
+- Format: Called by, Calls, Owns tables, Config keys, Tests
+
+#### New Files
+- Created `docs/conventions.md` — pattern library and reference card for AI agents
+- Created `tests/test_repo_structure.py` — automated guardrails (file size, function length, docstrings, migrate tables)
+- Created `docs/sprints/TEMPLATE.md` — standardized sprint prompt template
+
+#### Infrastructure
+- Regenerated `config/known_violations.json` — missing_docstring_headers reduced from 138 to 0
+- Grandfathered 15 oversized files, 127 oversized functions, 11 missing migrate tables
+
+---
+
+## 2026-03-30 — Sprint 4A: Arcis Brand Infrastructure
+
+- Rebranded the product to "Arcis" across the dashboard, API copy, notifications, docs, and public assets.
+- Applied Palette H (Electric Focus) with dark mode as the default theme and added persisted light mode support.
+- Replaced Space Grotesk with Inter-based display typography and refreshed PWA metadata, manifest values, and cache keys.
+- Added `GET /api/build-score` and `GET /api/traffic-light/current` cloud API stubs plus matching frontend API helpers.
+- Updated safe log and backup artifact names to `arcis.log` and `arcis_YYYYMMDD.sqlite3`.
+- Refreshed documentation and governance counts: 165 Python files, 33,810 LOC, 77 test files, 1,046 tests, 42 DB tables, 105 API routes, 53 CLI commands, 13 dashboard pages, 32 notification functions, and 66 research docs.
+
 ## [Unreleased] - 2026-03-27/29
 
 ### Weekend Mega Sprint (4 sprints: Stabilize + Hotfix + Build + Document)
@@ -72,7 +105,7 @@
 
 ### Research & Architecture
 - 6 new research documents (35 total), all strategy decisions confirmed
-- Master blueprint v2, Halcyon Framework v2 updated
+- Master blueprint v2, Arcis Framework v2 updated
 - Council redesign architecture finalized (vote-first, value tracking)
 - 24 deep research prompts generated
 

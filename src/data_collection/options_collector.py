@@ -1,7 +1,13 @@
 """EOD options chain snapshot collector via yfinance.
 
+Called by: api/routes/actions.py, cli/commands.py, scheduler/watch.py
+Calls: universe/sp100.py
+Owns tables: options_chains
+Config keys: none
+Tests: none
+
 Captures full options chains for the universe, filtered to
-expirations ≤6 months out and strikes within ±30% of spot.
+expirations <=6 months out and strikes within +/-30% of spot.
 """
 
 import logging

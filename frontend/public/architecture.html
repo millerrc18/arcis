@@ -3,47 +3,47 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Halcyon Lab — System Architecture</title>
+<title>Arcis — System Architecture</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
-  :root, [data-theme="light"] {
-    --teal: #0D9488; --teal-light: #14B8A6; --teal-bg: #F0FDFA;
-    --indigo: #6366F1; --indigo-light: #818CF8; --indigo-bg: #EEF2FF;
-    --amber: #F59E0B; --amber-light: #FBBF24; --amber-bg: #FFFBEB;
-    --rose: #E11D48; --rose-light: #FB7185; --rose-bg: #FFF1F2;
-    --slate: #475569; --slate-light: #64748B; --slate-bg: #F1F5F9;
-    --emerald: #059669; --emerald-light: #34D399;
-    --purple: #7C3AED; --purple-light: #A78BFA; --purple-bg: #F5F3FF;
-    --dark: #0F172A; --body-bg: #F8FAFC; --page-bg: #FFFFFF;
-    --section-bg: rgba(226,232,240,0.4); --risk-section-bg: rgba(254,226,226,0.3);
-    --training-section-bg: rgba(254,249,195,0.25); --border-subtle: #E2E8F0;
-    --text-primary: #0F172A; --text-secondary: #475569; --text-muted: #64748B;
-    --card-bg: #FFFFFF; --card-border: #E2E8F0; --formula-bg: #FFFFFF;
-    --metrics-bg: #0F172A; --metrics-text: #FFFFFF; --metrics-label: #94A3B8;
-    --overlay-bg: rgba(0,0,0,0.3); --detail-bg: #FFFFFF; --detail-border: var(--teal);
-    --planned-text: #0F172A; --planned-sub: #64748B;
+  :root, [data-theme="dark"] {
+    --arcis-accent: #2563EB; --arcis-accent-light: #3B82F6; --arcis-accent-muted: rgba(37, 99, 235, 0.08);
+    --chart-4-base: #A78BFA; --chart-4-soft: #E879F9; --chart-4-muted: rgba(167, 139, 250, 0.12);
+    --arcis-warning: #F59E0B; --chart-7-soft: #FBBF24; --arcis-warning-muted: rgba(245, 158, 11, 0.12);
+    --arcis-danger: #EF4444; --chart-5-soft: #FB7185; --arcis-danger-muted: rgba(239, 68, 68, 0.12);
+    --arcis-text-muted: #52525B; --arcis-text-secondary: #A1A1AA; --arcis-bg-elevated: #12121A;
+    --arcis-success: #22C55E; --arcis-teal-light: #14B8A6;
+    --chart-8-base: #E879F9; --chart-8-soft: #A78BFA; --chart-8-muted: rgba(232, 121, 249, 0.12);
+    --dark: #E4E4E7; --body-bg: #050507; --page-bg: #0C0C10;
+    --section-bg: #12121A; --risk-section-bg: rgba(239, 68, 68, 0.12);
+    --training-section-bg: rgba(245, 158, 11, 0.12); --border-subtle: rgba(37, 99, 235, 0.08);
+    --text-primary: #E4E4E7; --text-secondary: #A1A1AA; --text-muted: #52525B;
+    --card-bg: #0C0C10; --card-border: rgba(37, 99, 235, 0.08); --formula-bg: #0C0C10;
+    --metrics-bg: #12121A; --metrics-text: #E4E4E7; --metrics-label: #A1A1AA;
+    --overlay-bg: rgba(0,0,0,0.6); --detail-bg: #0C0C10; --detail-border: var(--arcis-accent);
+    --planned-text: #E4E4E7; --planned-sub: #A1A1AA;
     --radius: 8px; --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
     --shadow-lg: 0 4px 12px rgba(0,0,0,0.1);
   }
-  [data-theme="dark"] {
-    --teal: #14B8A6; --teal-light: #2DD4BF; --teal-bg: #0D3331;
-    --indigo: #818CF8; --indigo-light: #A5B4FC; --indigo-bg: #1E1B4B;
-    --amber: #FBBF24; --amber-light: #FDE68A; --amber-bg: #422006;
-    --rose: #FB7185; --rose-light: #FDA4AF; --rose-bg: #3B1020;
-    --slate: #94A3B8; --slate-light: #CBD5E1; --slate-bg: #1E293B;
-    --emerald: #34D399; --emerald-light: #6EE7B7;
-    --purple: #A78BFA; --purple-light: #C4B5FD; --purple-bg: #2E1065;
-    --dark: #F1F5F9; --body-bg: #0B1120; --page-bg: #111827;
-    --section-bg: rgba(30,41,59,0.6); --risk-section-bg: rgba(59,16,32,0.4);
-    --training-section-bg: rgba(66,32,6,0.3); --border-subtle: #1E293B;
-    --text-primary: #F1F5F9; --text-secondary: #CBD5E1; --text-muted: #94A3B8;
-    --card-bg: #1E293B; --card-border: #334155; --formula-bg: #1E293B;
-    --metrics-bg: #020617; --metrics-text: #F1F5F9; --metrics-label: #64748B;
-    --overlay-bg: rgba(0,0,0,0.6); --detail-bg: #1E293B; --detail-border: var(--teal);
-    --planned-text: #F1F5F9; --planned-sub: #94A3B8;
-    --shadow: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
-    --shadow-lg: 0 4px 12px rgba(0,0,0,0.4);
+  [data-theme="light"] {
+    --arcis-accent: #1D4ED8; --arcis-accent-light: #2563EB; --arcis-accent-muted: rgba(37, 99, 235, 0.06);
+    --chart-4-base: #A78BFA; --chart-4-soft: #E879F9; --chart-4-muted: rgba(167, 139, 250, 0.10);
+    --arcis-warning: #F59E0B; --chart-7-soft: #FBBF24; --arcis-warning-muted: rgba(245, 158, 11, 0.10);
+    --arcis-danger: #EF4444; --chart-5-soft: #FB7185; --arcis-danger-muted: rgba(239, 68, 68, 0.10);
+    --arcis-text-muted: #64748B; --arcis-text-secondary: #475569; --arcis-bg-elevated: #F1F5F9;
+    --arcis-success: #22C55E; --arcis-teal-light: #14B8A6;
+    --chart-8-base: #E879F9; --chart-8-soft: #A78BFA; --chart-8-muted: rgba(232, 121, 249, 0.10);
+    --dark: #0F172A; --body-bg: #F8FAFC; --page-bg: #FFFFFF;
+    --section-bg: #F1F5F9; --risk-section-bg: rgba(239, 68, 68, 0.08);
+    --training-section-bg: rgba(245, 158, 11, 0.08); --border-subtle: #E2E8F0;
+    --text-primary: #0F172A; --text-secondary: #475569; --text-muted: #64748B;
+    --card-bg: #FFFFFF; --card-border: #E2E8F0; --formula-bg: #FFFFFF;
+    --metrics-bg: #F1F5F9; --metrics-text: #0F172A; --metrics-label: #64748B;
+    --overlay-bg: rgba(0,0,0,0.3); --detail-bg: #FFFFFF; --detail-border: var(--arcis-accent);
+    --planned-text: #0F172A; --planned-sub: #475569;
+    --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+    --shadow-lg: 0 4px 12px rgba(0,0,0,0.1);
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -61,12 +61,12 @@
 
   .theme-toggle {
     position: absolute; right: 0; top: 50%; transform: translateY(-50%);
-    background: var(--slate-bg); border: 1px solid var(--border-subtle);
+    background: var(--arcis-bg-elevated); border: 1px solid var(--border-subtle);
     border-radius: 20px; padding: 4px 10px; cursor: pointer;
     font-size: 10px; color: var(--text-secondary); font-family: inherit;
     transition: all 0.2s; display: flex; align-items: center; gap: 4px;
   }
-  .theme-toggle:hover { background: var(--teal-bg); color: var(--teal); border-color: var(--teal); }
+  .theme-toggle:hover { background: var(--arcis-accent-muted); color: var(--arcis-accent); border-color: var(--arcis-accent); }
 
   .legend {
     display: flex; justify-content: center; gap: 14px; margin-bottom: 8px;
@@ -74,11 +74,11 @@
   }
   .legend-item { display: flex; align-items: center; gap: 3px; }
   .legend-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
-  .legend-dot.active { background: var(--teal); }
-  .legend-dot.planned { border: 1.5px dashed var(--amber); }
-  .legend-dot.ai { background: var(--indigo); }
-  .legend-dot.training { background: var(--amber); }
-  .legend-dot.risk { background: var(--rose); }
+  .legend-dot.active { background: var(--arcis-accent); }
+  .legend-dot.planned { border: 1.5px dashed var(--arcis-warning); }
+  .legend-dot.ai { background: var(--chart-4-base); }
+  .legend-dot.training { background: var(--arcis-warning); }
+  .legend-dot.risk { background: var(--arcis-danger); }
 
   .section { margin-bottom: 6px; }
   .section-title {
@@ -89,10 +89,10 @@
     display: flex; gap: 4px; flex-wrap: wrap; justify-content: center;
     padding: 5px 4px; border-radius: var(--radius);
   }
-  .section-row.data-bg { background: var(--slate-bg); }
-  .section-row.risk-bg { background: var(--rose-bg); }
-  .section-row.training-bg { background: var(--amber-bg); }
-  .section-row.infra-bg { background: var(--slate-bg); }
+  .section-row.data-bg { background: var(--arcis-bg-elevated); }
+  .section-row.risk-bg { background: var(--arcis-danger-muted); }
+  .section-row.training-bg { background: var(--arcis-warning-muted); }
+  .section-row.infra-bg { background: var(--arcis-bg-elevated); }
 
   .box {
     border-radius: 6px; padding: 5px 7px; cursor: pointer;
@@ -100,22 +100,22 @@
     flex-shrink: 0;
   }
   .box:hover { transform: translateY(-1px); box-shadow: var(--shadow-lg); }
-  .box.active-teal { background: linear-gradient(135deg, var(--teal-light), var(--teal)); color: white; }
-  .box.active-indigo { background: linear-gradient(135deg, var(--indigo-light), var(--indigo)); color: white; }
-  .box.active-amber { background: linear-gradient(135deg, var(--amber-light), var(--amber)); color: white; }
-  .box.active-rose { background: linear-gradient(135deg, var(--rose-light), var(--rose)); color: white; }
-  .box.active-emerald { background: linear-gradient(135deg, var(--emerald-light), var(--emerald)); color: white; }
-  .box.active-slate { background: linear-gradient(135deg, var(--slate-light), var(--slate)); color: white; }
-  .box.active-purple { background: linear-gradient(135deg, var(--purple-light), var(--purple)); color: white; }
+  .box.active-teal { background: linear-gradient(135deg, var(--arcis-accent-light), var(--arcis-accent)); color: white; }
+  .box.active-indigo { background: linear-gradient(135deg, var(--chart-4-soft), var(--chart-4-base)); color: white; }
+  .box.active-amber { background: linear-gradient(135deg, var(--chart-7-soft), var(--arcis-warning)); color: white; }
+  .box.active-rose { background: linear-gradient(135deg, var(--chart-5-soft), var(--arcis-danger)); color: white; }
+  .box.active-emerald { background: linear-gradient(135deg, var(--arcis-teal-light), var(--arcis-success)); color: white; }
+  .box.active-slate { background: linear-gradient(135deg, var(--arcis-text-secondary), var(--arcis-text-muted)); color: white; }
+  .box.active-purple { background: linear-gradient(135deg, var(--chart-8-soft), var(--chart-8-base)); color: white; }
   .box.active-kill { background: linear-gradient(135deg, #991B1B, #7F1D1D); color: white; }
   .box.planned {
-    background: var(--card-bg); border: 1.5px dashed var(--amber); color: var(--planned-text);
+    background: var(--card-bg); border: 1.5px dashed var(--arcis-warning); color: var(--planned-text);
   }
   .box.future { background: var(--card-bg); border: 1.5px dashed var(--border-subtle); color: var(--text-muted); }
 
   .box-title { font-size: 8px; font-weight: 700; line-height: 1.2; }
   .box-sub { font-size: 6.5px; opacity: 0.85; line-height: 1.3; margin-top: 1px; }
-  .planned .box-sub { color: var(--slate-light); }
+  .planned .box-sub { color: var(--arcis-text-secondary); }
   .box-sub2 { font-size: 6px; opacity: 0.7; line-height: 1.3; }
 
   .expand-indicator {
@@ -140,20 +140,20 @@
   .detail-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
   .detail-item label {
     display: block; font-size: 9px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 0.5px; color: var(--teal); margin-bottom: 2px;
+    letter-spacing: 0.5px; color: var(--arcis-accent); margin-bottom: 2px;
   }
   .detail-item p { font-size: 12px; color: var(--text-primary); line-height: 1.5; }
   .detail-item p code {
     font-family: 'JetBrains Mono', monospace; font-size: 10px;
-    background: var(--slate-bg); padding: 1px 4px; border-radius: 3px; color: var(--text-secondary);
+    background: var(--arcis-bg-elevated); padding: 1px 4px; border-radius: 3px; color: var(--text-secondary);
   }
   .status-badge {
     display: inline-block; font-size: 9px; font-weight: 600; padding: 2px 8px;
     border-radius: 10px; margin-bottom: 10px;
   }
-  .status-badge.live { background: var(--teal-bg); color: var(--teal); }
-  .status-badge.planned { background: var(--amber-bg); color: var(--amber); }
-  .status-badge.future { background: var(--slate-bg); color: var(--slate); }
+  .status-badge.live { background: var(--arcis-accent-muted); color: var(--arcis-accent); }
+  .status-badge.planned { background: var(--arcis-warning-muted); color: var(--arcis-warning); }
+  .status-badge.future { background: var(--arcis-bg-elevated); color: var(--arcis-text-muted); }
 
   .overlay {
     display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -165,15 +165,15 @@
   .desks-row { display: flex; gap: 5px; justify-content: center; }
   .desk {
     border-radius: var(--radius); padding: 5px; flex: 1; max-width: 33%;
-    background: var(--card-bg); border: 2px solid var(--teal);
+    background: var(--card-bg); border: 2px solid var(--arcis-accent);
   }
-  .desk.planned-desk { border-color: var(--amber); border-style: dashed; }
+  .desk.planned-desk { border-color: var(--arcis-warning); border-style: dashed; }
   .desk-header {
     font-size: 7.5px; font-weight: 700; text-align: center;
     padding: 3px; border-radius: 4px; margin-bottom: 4px;
   }
-  .desk-header.active-header { background: var(--teal); color: white; }
-  .desk-header.planned-header { background: var(--amber-bg); color: var(--amber); }
+  .desk-header.active-header { background: var(--arcis-accent); color: white; }
+  .desk-header.planned-header { background: var(--arcis-warning-muted); color: var(--arcis-warning); }
   .desk-sub { font-size: 6px; color: var(--text-muted); text-align: center; margin-bottom: 4px; }
   .desk-strategies { display: flex; gap: 3px; flex-wrap: wrap; }
   .desk-strategies .box { flex: 1; min-width: 70px; text-align: center; }
@@ -183,17 +183,17 @@
     display: inline-block; font-size: 6.5px; font-weight: 700; padding: 1px 6px;
     border-radius: 8px; color: white; margin-top: 3px;
   }
-  .phase-pill.p1 { background: var(--teal); }
-  .phase-pill.p34 { background: var(--amber); }
-  .phase-pill.p56 { background: var(--slate); }
+  .phase-pill.p1 { background: var(--arcis-accent); }
+  .phase-pill.p34 { background: var(--arcis-warning); }
+  .phase-pill.p56 { background: var(--arcis-text-muted); }
 
   /* Flywheel arrow */
   .flywheel-label {
-    text-align: center; font-size: 7px; font-weight: 700; color: var(--amber);
+    text-align: center; font-size: 7px; font-weight: 700; color: var(--arcis-warning);
     letter-spacing: 0.5px; margin: 2px 0;
   }
   .flywheel-arrow {
-    text-align: center; font-size: 10px; color: var(--amber); margin: -2px 0;
+    text-align: center; font-size: 10px; color: var(--arcis-warning); margin: -2px 0;
   }
 
   /* Phase timeline */
@@ -215,11 +215,11 @@
 
   /* Portfolio formula */
   .formula-bar {
-    text-align: center; border: 1px solid var(--teal); border-radius: 6px;
+    text-align: center; border: 1px solid var(--arcis-accent); border-radius: 6px;
     padding: 4px 8px; margin-top: 4px; font-size: 8px; color: var(--text-primary);
     background: var(--formula-bg);
   }
-  .formula-bar strong { color: var(--teal); }
+  .formula-bar strong { color: var(--arcis-accent); }
 
   /* Footer */
   footer {
@@ -250,7 +250,7 @@
 <div class="page" id="page">
   <header>
     <div class="header-text">
-      <h1>HALCYON LAB — System Architecture</h1>
+      <h1>ARCIS — System Architecture</h1>
       <p>Autonomous AI-Powered Equity Trading System · v1 Live · March 2026</p>
     </div>
     <button class="theme-toggle" onclick="toggleTheme()" id="themeBtn">☀ Light</button>
@@ -312,7 +312,7 @@
 
   <!-- METRICS BAR -->
   <div class="metrics-bar">
-    <div class="metric-group"><label>Codebase</label><p>165 files · 29K LOC · 1,075 tests · 49 routes</p></div>
+    <div class="metric-group"><label>Codebase</label><p>165 files · 33.8K LOC · 1,046 tests · 105 API routes · 53 CLI commands</p></div>
     <div class="metric-group"><label>HSHS Dimensions</label><p>Performance · Model Quality · Data Asset · Flywheel · Defensibility</p></div>
     <div class="metric-group"><label>Phase Gates</label><p>50 trades → 100 (PSR>90%) → 200 (SR≥1.0) → 500 (DSR>0.95)</p></div>
   </div>
@@ -326,7 +326,7 @@
   </div>
 
   <footer>
-    Halcyon Lab · github.com/millerrc18/halcyon-lab · halcyonlab.app · 59 research docs · Framework v2<br/>
+    Arcis · github.com/millerrc18/halcyon-lab · halcyonlab.app · 66 research docs · Arcis Framework v2<br/>
     Core principle: Training data quality is the #1 competitive advantage. The data asset is the most valuable component.
   </footer>
 </div>
@@ -344,11 +344,11 @@ function toggleTheme() {
   const next = current === 'light' ? 'dark' : 'light';
   document.documentElement.setAttribute('data-theme', next);
   document.getElementById('themeBtn').textContent = next === 'dark' ? '☾ Dark' : '☀ Light';
-  localStorage.setItem('halcyon-theme', next);
+  localStorage.setItem('arcis-architecture-theme', next);
 }
 // Restore saved theme
 (function() {
-  const saved = localStorage.getItem('halcyon-theme') || 'light';
+  const saved = localStorage.getItem('arcis-architecture-theme') || 'dark';
   document.documentElement.setAttribute('data-theme', saved);
   const btn = document.getElementById('themeBtn');
   if (btn) btn.textContent = saved === 'dark' ? '☾ Dark' : '☀ Light';
@@ -511,7 +511,7 @@ const DATA = {
     },
     { id:'llm', cls:'active-indigo', title:'LLM Packet Writer', sub:'Ollama → halcyonlatest', sub2:'XML: why_now · analysis · metadata',
       what:'Sends enriched feature data to the local Qwen3 8B model (halcyonlatest) which generates trade commentary in XML format: <code>&lt;why_now&gt;</code> (2-3 sentence thesis), <code>&lt;analysis&gt;</code> (4-6 paragraphs), <code>&lt;metadata&gt;</code> (conviction 1-10, direction, time horizon, key risk).',
-      why:'The LLM commentary IS the product. It synthesizes technical, fundamental, insider, news, and macro data into a unified investment thesis. The conviction score drives position sizing. Commentary quality is what separates Halcyon from a simple rules-based scanner.',
+      why:'The LLM commentary IS the product. It synthesizes technical, fundamental, insider, news, and macro data into a unified investment thesis. The conviction score drives position sizing. Commentary quality is what separates Arcis from a simple rules-based scanner.',
       who:'<code>src/llm/packet_writer.py</code> (<code>enhance_packet_with_llm()</code>). Parser: <code>_parse_llm_response()</code>.',
       when:'Every packet-worthy ticker during scans. Full prompt + condensed fallback. 180s timeout.',
       where:'Commentary stored in <code>recommendations</code> table. Raw prompts in <code>enriched_prompt</code> column for training data.'
@@ -662,8 +662,8 @@ const DATA = {
       when:'Sync every 2 minutes while watch loop runs. Frontend deployed on git push.',
       where:'Render dashboard. DATABASE_URL in environment variables.'
     },
-    { id:'sqlite', cls:'active-slate', title:'SQLite (36 tables)', sub:'WAL mode · Backups', sub2:'Local primary DB',
-      what:'36-table SQLite database: recommendations, shadow_trades, training_examples, model_versions, council sessions/votes, validation results, traffic-light state, notes, and more. WAL mode for concurrent access. Daily automated backups.',
+    { id:'sqlite', cls:'active-slate', title:'SQLite (42 tables)', sub:'WAL mode · Backups', sub2:'Local primary DB',
+      what:'42-table SQLite database: recommendations, shadow_trades, training_examples, model_versions, council sessions/votes, validation results, traffic-light state, notes, and more. WAL mode for concurrent access. Daily automated backups.',
       why:'SQLite is the right choice at this scale — zero configuration, single file, fast reads, and the WAL mode handles concurrent access from the scan pipeline and API server. Renders to Postgres for cloud access.',
       who:'Used by virtually every module. Accessed via <code>sqlite3.connect("ai_research_desk.sqlite3")</code>.',
       when:'Written to continuously during market hours. Backed up daily at EOD.',

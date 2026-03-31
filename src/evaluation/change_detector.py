@@ -1,5 +1,11 @@
 """CUSUM (Cumulative Sum) performance change detection.
 
+Called by: scheduler.watch
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: tests/test_change_detector.py
+
 Implements symmetric CUSUM filter (Lopez de Prado, AFML Ch.17)
 to detect strategy drift from the paper P&L stream.
 """

@@ -1,4 +1,11 @@
-"""Scan API routes."""
+"""Scan API routes.
+
+Called by: api.app
+Calls: config, services.recap_service, services.scan_service, services.watchlist_service
+Owns tables: none
+Config keys: none
+Tests: tests/test_local_api_routes.py
+"""
 from fastapi import APIRouter
 from src.config import load_config
 from src.services.scan_service import run_scan

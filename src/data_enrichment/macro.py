@@ -1,5 +1,11 @@
 """Macroeconomic context from FRED API.
 
+Called by: data_enrichment/enricher.py
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: tests/test_enrichment.py
+
 Free tier: 120 requests/minute.
 Series: FEDFUNDS, DGS10, DGS2, CPIAUCSL, UNRATE
 """

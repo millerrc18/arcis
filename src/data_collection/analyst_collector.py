@@ -1,5 +1,11 @@
 """Analyst estimates and price target collector via Finnhub.
 
+Called by: scheduler/watch.py
+Calls: config.py
+Owns tables: analyst_estimates
+Config keys: data_enrichment
+Tests: tests/test_data_collectors.py
+
 Collects consensus recommendations and price targets nightly.
 Batches 20 tickers per night to stay within Finnhub free-tier limits.
 Rotates through the full S&P 100 universe over multiple nights.

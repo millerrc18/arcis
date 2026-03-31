@@ -1,5 +1,11 @@
 """FOMC & Fed communications collector.
 
+Called by: scheduler/watch.py
+Calls: none
+Owns tables: fed_communications
+Config keys: none
+Tests: tests/test_data_collectors.py
+
 Scrapes Federal Reserve website for FOMC statements, minutes,
 Beige Book summaries, and Fed speeches. Stores full text for
 future NLP analysis.
@@ -23,7 +29,7 @@ ET = ZoneInfo("America/New_York")
 DB_PATH = "ai_research_desk.sqlite3"
 FED_BASE = "https://www.federalreserve.gov"
 FED_HEADERS = {
-    "User-Agent": "Halcyon Lab halcyonlabai@gmail.com",
+    "User-Agent": "Arcis halcyonlabai@gmail.com",
     "Accept": "text/html",
 }
 

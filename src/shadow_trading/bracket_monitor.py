@@ -1,7 +1,10 @@
 """Bracket order health monitoring — verifies stop/target legs are active.
 
-Called by: watch.py (APScheduler, every 5 minutes during market hours)
-Calls: alpaca_adapter.py, telegram.py, sqlite3
+Called by: scheduler.watch
+Calls: notifications.telegram, shadow_trading.alpaca_adapter
+Owns tables: bracket_health
+Config keys: none
+Tests: tests/test_bracket_monitor.py
 """
 
 import logging

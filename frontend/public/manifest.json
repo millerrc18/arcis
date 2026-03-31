@@ -1,11 +1,11 @@
 {
-  "name": "Halcyon Lab",
-  "short_name": "Halcyon",
+  "name": "Arcis",
+  "short_name": "Arcis",
   "description": "AI-Powered Autonomous Equity Trading",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0F172A",
-  "theme_color": "#0F172A",
+  "background_color": "#050507",
+  "theme_color": "#050507",
   "orientation": "any",
   "icons": [
     {

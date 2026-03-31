@@ -1,7 +1,10 @@
 """SQLite journal storage for recommendations and shadow trades.
 
-Called by: scan_service.py, executor.py, API routes
-Calls: sqlite3, models.py
+Called by: api.app, api.routes.packets, api.routes.shadow, api.routes.system, cli.commands, evaluation.cto_report, evaluation.feature_importance, evaluation.scorecard, main, packets.eod_recap, risk.governor, scheduler.watch, services.recap_service, services.review_service, services.scan_service, services.shadow_service, shadow_trading.executor, shadow_trading.reconcile, training.versioning
+Calls: models
+Owns tables: recommendations, shadow_trades, validation_results
+Config keys: none
+Tests: tests/test_change_detector.py, tests/test_digest_builder.py, tests/test_gate_evaluator.py, tests/test_live_trading.py, tests/test_reconcile.py, tests/test_review.py, tests/test_scorecard.py
 """
 
 import sqlite3

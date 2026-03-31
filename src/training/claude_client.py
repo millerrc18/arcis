@@ -1,4 +1,11 @@
-"""Claude API client for generating training data."""
+"""Claude API client for generating training data.
+
+Called by: council.protocol, evaluation.auditor, training.ab_evaluation, training.backfill, training.bootstrap, training.canary, training.curriculum, training.data_collector, training.quality_filter, training.trainer
+Calls: config, training.versioning
+Owns tables: none
+Config keys: anthropic_api_key, api, training
+Tests: tests/test_leakage_detector.py
+"""
 
 import logging
 

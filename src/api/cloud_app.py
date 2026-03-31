@@ -1,5 +1,11 @@
 """Stripped-down read-only FastAPI for Render cloud deployment.
 
+Called by: none (entry point)
+Calls: api.cloud_routes.analytics, api.cloud_routes.core, api.cloud_routes.council, api.cloud_routes.notes, api.cloud_routes.trades, api.cloud_routes.training, sync.render_sync
+Owns tables: user_notes
+Config keys: none
+Tests: tests/test_cloud_app.py, tests/test_cloud_auth.py
+
 Reads exclusively from Postgres (no SQLite, no Ollama dependency).
 Auth: optional bearer token via API_SECRET env var.
 """
@@ -51,9 +57,9 @@ CLOUD_ACTION_MSG = {
 
 
 app = FastAPI(
-    title="Halcyon Lab Cloud API",
+    title="Arcis Cloud API",
     version="1.0.0",
-    description="Read-only cloud API for the Halcyon Lab trading system",
+    description="Read-only cloud API for the Arcis trading system",
 )
 
 app.add_middleware(

@@ -1,5 +1,11 @@
 """CTO performance report generator.
 
+Called by: api.routes.actions, api.routes.system, cli.commands, evaluation.auditor, scheduler.watch
+Calls: config, evaluation.feature_importance, evaluation.hshs_live, evaluation.metrics, journal.store, training.leakage_detector, training.validation, training.versioning, universe.sectors
+Owns tables: none
+Config keys: bootcamp, enabled, phase, risk
+Tests: tests/test_confidence.py, tests/test_cto_report.py
+
 Produces a comprehensive structured report for CTO analysis,
 designed to be consumed by Claude for strategic recommendations.
 """

@@ -1,7 +1,10 @@
 """Council response parsing and normalization.
 
-Called by: protocol.py, tests
-Calls: json, council/constants.py
+Called by: council/protocol.py
+Calls: council/constants.py
+Owns tables: none
+Config keys: none
+Tests: none
 """
 
 import json

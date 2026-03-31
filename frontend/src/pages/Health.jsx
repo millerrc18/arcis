@@ -41,9 +41,9 @@ function scoreColor(score) {
 }
 
 function overallColor(score) {
-  if (score > 70) return 'var(--teal-400)'
-  if (score > 50) return 'var(--amber-400)'
-  return 'var(--danger)'
+  if (score > 70) return 'var(--arcis-accent)'
+  if (score > 50) return 'var(--arcis-warning)'
+  return 'var(--arcis-danger)'
 }
 
 export default function Health() {
@@ -201,15 +201,15 @@ export default function Health() {
               <div className="text-6xl font-semibold" style={{ fontFamily: 'var(--font-mono)', color: overallColor(hshsOverall) }}>
                 {hshsOverall.toFixed(1)}
               </div>
-              <div className="text-sm mt-3" style={{ color: 'var(--slate-300)' }}>Out of 100</div>
-              <div className="mt-4 text-xs uppercase tracking-wide" style={{ color: 'var(--slate-500)' }}>
+              <div className="text-sm mt-3" style={{ color: 'var(--arcis-text-secondary)' }}>Out of 100</div>
+              <div className="mt-4 text-xs uppercase tracking-wide" style={{ color: 'var(--arcis-text-muted)' }}>
                 Phase Weights
               </div>
               <div className="mt-3 space-y-2">
                 {Object.entries(DIMENSION_LABELS).map(([key, label]) => (
                   <div key={key} className="flex items-center justify-between text-sm">
-                    <span style={{ color: 'var(--slate-300)' }}>{label}</span>
-                    <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--slate-100)' }}>
+                    <span style={{ color: 'var(--arcis-text-secondary)' }}>{label}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-primary)' }}>
                       {weights[key] != null ? `${(weights[key] * 100).toFixed(0)}%` : '--'}
                     </span>
                   </div>
@@ -217,20 +217,20 @@ export default function Health() {
               </div>
             </div>
 
-            <div className="rounded-lg p-4 lg:col-span-2" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-              <h3 className="text-sm uppercase tracking-wide mb-3" style={{ color: 'var(--slate-400)' }}>
+            <div className="rounded-lg p-4 lg:col-span-2" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+              <h3 className="text-sm uppercase tracking-wide mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>
                 HSHS Radar
               </h3>
               <ResponsiveContainer width="100%" height={320}>
                 <RadarChart data={radarData} cx="50%" cy="50%" outerRadius="72%">
-                  <PolarGrid stroke="var(--slate-600)" />
-                  <PolarAngleAxis dataKey="dimension" tick={{ fontSize: 11, fill: 'var(--slate-300)' }} />
-                  <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fontSize: 10, fill: 'var(--slate-500)' }} />
-                  <Radar dataKey="score" stroke="var(--teal-400)" fill="var(--teal-400)" fillOpacity={0.2} />
+                  <PolarGrid stroke="var(--arcis-border)" />
+                  <PolarAngleAxis dataKey="dimension" tick={{ fontSize: 11, fill: 'var(--arcis-text-secondary)' }} />
+                  <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fontSize: 10, fill: 'var(--arcis-text-muted)' }} />
+                  <Radar dataKey="score" stroke="var(--arcis-accent)" fill="var(--arcis-accent)" fillOpacity={0.2} />
                   <Tooltip
                     contentStyle={{
-                      background: 'var(--slate-700)',
-                      border: '1px solid var(--slate-600)',
+                      background: 'var(--arcis-bg-surface)',
+                      border: '1px solid var(--arcis-border)',
                       borderRadius: 8,
                       fontSize: 12,
                     }}

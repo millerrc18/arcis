@@ -1,5 +1,11 @@
 """Quality drift metrics for monitoring model output degradation.
 
+Called by: training.canary
+Calls: none
+Owns tables: quality_drift_metrics
+Config keys: none
+Tests: tests/test_leakage_detector.py, tests/test_quality_drift.py
+
 Computes diversity and quality metrics across model outputs to detect
 training-induced drift (mode collapse, vocabulary shrinkage, repetition).
 

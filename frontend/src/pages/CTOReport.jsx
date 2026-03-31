@@ -7,15 +7,15 @@ import MetricTrend from '../components/MetricTrend'
 
 function KpiCard({ label, value, target, good }) {
   return (
-    <div className="rounded-lg p-4" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-      <div className="text-xs uppercase tracking-wide" style={{ color: 'var(--slate-400)' }}>{label}</div>
+    <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+      <div className="text-xs uppercase tracking-wide" style={{ color: 'var(--arcis-text-secondary)' }}>{label}</div>
       <div className="text-2xl font-medium mt-1" style={{
         fontFamily: 'var(--font-mono)',
-        color: good === true ? 'var(--teal-400)' : good === false ? 'var(--danger)' : 'var(--slate-100)',
+        color: good === true ? 'var(--arcis-accent)' : good === false ? 'var(--arcis-danger)' : 'var(--arcis-text-primary)',
       }}>
         {value}
       </div>
-      {target && <div className="text-xs mt-1" style={{ color: 'var(--slate-400)' }}>{target}</div>}
+      {target && <div className="text-xs mt-1" style={{ color: 'var(--arcis-text-secondary)' }}>{target}</div>}
     </div>
   )
 }
@@ -24,13 +24,13 @@ function SectionTable({ title, headers, rows }) {
   if (!rows || rows.length === 0) return null
   return (
     <div className="mb-6">
-      <h2 className="text-sm font-medium mb-3" style={{ color: 'var(--slate-300)' }}>{title}</h2>
-      <div className="rounded-lg overflow-hidden" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
+      <h2 className="text-sm font-medium mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>{title}</h2>
+      <div className="rounded-lg overflow-hidden" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
         <table className="w-full text-sm">
           <thead>
-            <tr style={{ borderBottom: '1px solid var(--slate-600)' }}>
+            <tr style={{ borderBottom: '1px solid var(--arcis-border)' }}>
               {headers.map((h, i) => (
-                <th key={i} className={`p-3 ${i === 0 ? 'text-left' : 'text-right'}`} style={{ color: 'var(--slate-400)' }}>{h}</th>
+                <th key={i} className={`p-3 ${i === 0 ? 'text-left' : 'text-right'}`} style={{ color: 'var(--arcis-text-secondary)' }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -39,10 +39,10 @@ function SectionTable({ title, headers, rows }) {
               <tr key={i} style={{ borderBottom: '1px solid rgba(51, 65, 85, 0.5)' }}>
                 {row.map((cell, j) => {
                   const color = cell.color
-                    ? (cell.color.includes('emerald') || cell.color.includes('green') ? 'var(--teal-400)' : cell.color.includes('red') ? 'var(--danger)' : undefined)
+                    ? (cell.color.includes('emerald') || cell.color.includes('green') ? 'var(--arcis-accent)' : cell.color.includes('red') ? 'var(--arcis-danger)' : undefined)
                     : undefined
                   return (
-                    <td key={j} className={`p-3 ${j === 0 ? '' : 'text-right'}`} style={{ color: j === 0 ? 'var(--slate-100)' : color }}>
+                    <td key={j} className={`p-3 ${j === 0 ? '' : 'text-right'}`} style={{ color: j === 0 ? 'var(--arcis-text-primary)' : color }}>
                       {cell.text != null ? cell.text : cell}
                     </td>
                   )
@@ -66,9 +66,9 @@ export default function CTOReport() {
   if (isLoading) return <LoadingSpinner />
   if (error) return (
     <div className="text-center py-12">
-      <p className="mb-4" style={{ color: 'var(--danger)' }}>Failed to load CTO report</p>
+      <p className="mb-4" style={{ color: 'var(--arcis-danger)' }}>Failed to load CTO report</p>
       <button onClick={() => window.location.reload()}
-        className="px-4 py-2 text-white rounded text-sm" style={{ background: 'var(--teal-500)' }}>Retry</button>
+        className="px-4 py-2 text-white rounded text-sm" style={{ background: 'var(--arcis-accent)' }}>Retry</button>
     </div>
   )
   if (!data) return <EmptyState message="No report data available" />
@@ -88,15 +88,15 @@ export default function CTOReport() {
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-medium" style={{ color: 'var(--slate-100)' }}>CTO performance report</h1>
-          <p className="text-sm" style={{ color: 'var(--slate-400)' }}>
+          <h1 className="text-xl font-medium" style={{ color: 'var(--arcis-text-primary)' }}>CTO performance report</h1>
+          <p className="text-sm" style={{ color: 'var(--arcis-text-secondary)' }}>
             {period.start} to {period.end} | {status.model_version || 'base'} | {status.dataset_size || 0} examples
           </p>
         </div>
         <button
           onClick={() => navigator.clipboard.writeText(JSON.stringify(data, null, 2))}
           className="px-3 py-1.5 text-xs rounded transition-colors"
-          style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}
+          style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}
         >
           Copy JSON
         </button>
@@ -208,23 +208,23 @@ export default function CTOReport() {
       {/* Confidence calibration */}
       {data.confidence_calibration && (
         <div className="mb-6">
-          <h2 className="text-sm font-medium mb-3" style={{ color: 'var(--slate-300)' }}>Confidence calibration</h2>
+          <h2 className="text-sm font-medium mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>Confidence calibration</h2>
           <div className="grid grid-cols-3 gap-3 mb-3">
             {Object.entries(data.confidence_calibration.by_conviction_band || {}).map(([band, s]) => (
-              <div key={band} className="rounded-lg p-3 text-center" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-                <div className="text-xs" style={{ color: 'var(--slate-400)' }}>Conviction {band}</div>
+              <div key={band} className="rounded-lg p-3 text-center" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+                <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Conviction {band}</div>
                 <div className="text-lg mt-1" style={{ fontFamily: 'var(--font-mono)' }}>{s.trades > 0 ? `${(s.win_rate * 100).toFixed(0)}%` : 'n/a'}</div>
-                <div className="text-xs" style={{ color: 'var(--slate-400)' }}>{s.trades} trades</div>
+                <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>{s.trades} trades</div>
               </div>
             ))}
           </div>
-          <div className="text-sm" style={{ color: 'var(--slate-300)' }}>
+          <div className="text-sm" style={{ color: 'var(--arcis-text-secondary)' }}>
             Correlation: {data.confidence_calibration.correlation_with_outcomes?.toFixed(3) || 'n/a'}
             {data.confidence_calibration.is_calibrated != null && (
               <span className="ml-3">
                 {data.confidence_calibration.is_calibrated
-                  ? <span style={{ color: 'var(--teal-400)' }}>Calibrated</span>
-                  : <span style={{ color: 'var(--amber-400)' }}>Not calibrated</span>}
+                  ? <span style={{ color: 'var(--arcis-accent)' }}>Calibrated</span>
+                  : <span style={{ color: 'var(--arcis-warning)' }}>Not calibrated</span>}
               </span>
             )}
           </div>
@@ -244,7 +244,7 @@ export default function CTOReport() {
       {/* Fund metrics */}
       {data.fund_metrics && (
         <div className="mb-6">
-          <h2 className="text-sm font-medium mb-3" style={{ color: 'var(--slate-300)' }}>Fund metrics</h2>
+          <h2 className="text-sm font-medium mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>Fund metrics</h2>
           <div className="grid grid-cols-3 gap-3">
             <MetricCard label="Sortino ratio" value={data.fund_metrics.sortino_ratio != null ? data.fund_metrics.sortino_ratio : 'n/a'} />
             <MetricCard label="Calmar ratio" value={data.fund_metrics.calmar_ratio != null ? data.fund_metrics.calmar_ratio.toFixed(2) : 'n/a'} />

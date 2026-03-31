@@ -481,18 +481,18 @@ def main():
         try:
             cur.execute(sql)
             if column:
-                print(f"  ✅ Added {table}.{column}")
+                print(f"  [OK] Added {table}.{column}")
             else:
-                print(f"  ✅ Created/verified table: {table}")
+                print(f"  [OK] Created/verified table: {table}")
         except psycopg2.errors.DuplicateColumn:
             conn.rollback()
-            print(f"  ⏭️  {table}.{column} already exists")
+            print(f"  [SKIP] {table}.{column} already exists")
         except psycopg2.errors.DuplicateTable:
             conn.rollback()
-            print(f"  ⏭️  {table} already exists")
+            print(f"  [SKIP] {table} already exists")
         except Exception as e:
             conn.rollback()
-            print(f"  ❌ {table}: {e}")
+            print(f"  [ERROR] {table}: {e}")
 
     conn.close()
     print("\nDone! Render Postgres schema is up to date.")

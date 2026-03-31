@@ -102,6 +102,7 @@ export const api = {
   // Actions
   triggerActionScan: () => fetchApi('/actions/scan', { method: 'POST' }),
   triggerCtoReport: () => fetchApi('/actions/cto-report', { method: 'POST' }),
+  triggerCollectData: () => fetchApi('/actions/collect-data', { method: 'POST' }),
   triggerCollectTraining: () => fetchApi('/actions/collect-training', { method: 'POST' }),
   triggerTrainPipeline: () => fetchApi('/actions/train-pipeline', { method: 'POST' }),
   triggerScore: () => fetchApi('/actions/score', { method: 'POST' }),

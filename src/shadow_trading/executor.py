@@ -1,4 +1,11 @@
-"""Shadow trade execution flow: entry and exit monitoring."""
+"""Shadow trade execution flow: entry and exit monitoring.
+
+Called by: api.routes.shadow, cli.commands, evaluation.backtester, packets.eod_recap, risk.governor, scheduler.watch, services.scan_service, services.shadow_service, shadow_trading.ledger
+Calls: config, data_ingestion.market_data, evaluation.postmortem, journal.store, llm.postmortem_writer, llm.validator, models, notifications.telegram, risk.governor, shadow_trading.alpaca_adapter, shadow_trading.models, utils.activity_logger
+Owns tables: none
+Config keys: bootcamp, enabled, live_trading, max_open_positions, max_positions, max_price, min_score, risk, shadow_trading, starting_capital, timeout_days
+Tests: tests/test_expanded_notifications.py, tests/test_live_trading.py
+"""
 
 import logging
 import sqlite3

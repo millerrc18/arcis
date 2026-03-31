@@ -1,5 +1,11 @@
 """Static company name lookup for S&P 100 tickers.
 
+Called by: llm.packet_writer, packets.eod_recap, packets.template, packets.watchlist, services.scan_service, services.watchlist_service, training.historical_scanner, training.leakage_detector
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: none
+
 No API calls — same static approach as the universe file.
 """
 

@@ -1,4 +1,11 @@
-"""Assistant postmortem generation for closed shadow trades."""
+"""Assistant postmortem generation for closed shadow trades.
+
+Called by: shadow_trading.executor
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: tests/test_postmortem.py
+"""
 
 
 def generate_postmortem(trade: dict, features_at_entry: dict | None = None) -> str:

@@ -1,6 +1,6 @@
 export default function PnlText({ value, percent }) {
-  if (value === null || value === undefined) return <span style={{ color: 'var(--slate-400)' }}>--</span>
-  const color = value > 0 ? 'var(--bullish)' : value < 0 ? 'var(--bearish)' : 'var(--slate-400)'
+  if (value === null || value === undefined) return <span style={{ color: 'var(--arcis-text-secondary)' }}>--</span>
+  const color = value > 0 ? 'var(--arcis-success)' : value < 0 ? 'var(--arcis-danger)' : 'var(--arcis-text-secondary)'
   const sign = value > 0 ? '+' : ''
   return (
     <span style={{ fontFamily: 'var(--font-mono)', color }}>

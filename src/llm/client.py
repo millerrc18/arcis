@@ -1,4 +1,11 @@
-"""Ollama LLM client with graceful fallback."""
+"""Ollama LLM client with graceful fallback.
+
+Called by: data_collection.research_collector, llm.packet_writer, llm.postmortem_writer, llm.watchlist_writer, scheduler.premarket, scheduler.scorer, scheduler.vram_manager, scheduler.watch, services.system_service, training.ab_evaluation, training.dpo_pipeline, training.trainer
+Calls: config, training.versioning
+Owns tables: none
+Config keys: base_url, enabled, llm, max_tokens, model, temperature, timeout_seconds
+Tests: tests/test_llm_client.py
+"""
 
 import json
 import logging

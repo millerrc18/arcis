@@ -417,4 +417,4 @@ Representative direct reproductions:
 
 This is a serious prototype with real intellectual energy behind it. It is not yet a system whose most important claims are protected by equally serious engineering boundaries.
 
-The gap is fixable. The fastest route to making Halcyon meaningfully stronger is not another feature wave. It is making data truth, execution truth, and contract truth boringly reliable.
+The gap is fixable. The fastest route to making Arcis meaningfully stronger is not another feature wave. It is making data truth, execution truth, and contract truth boringly reliable.

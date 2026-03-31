@@ -1,5 +1,11 @@
 """GICS sector mapping for S&P 100 constituents.
 
+Called by: evaluation.cto_report, features.engine, features.regime, risk.governor
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: tests/test_regime.py
+
 Cross-referenced with src/universe/sp100.py for complete coverage.
 """
 

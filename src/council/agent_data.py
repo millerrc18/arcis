@@ -1,7 +1,10 @@
 """Council agent data gathering from repo-native tables.
 
-Called by: agents.py, protocol.py
-Calls: sqlite3, hshs_live.py
+Called by: council/agents.py
+Calls: evaluation/hshs_live.py
+Owns tables: none
+Config keys: none
+Tests: none
 """
 
 import logging

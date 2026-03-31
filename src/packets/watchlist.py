@@ -1,4 +1,11 @@
-"""Morning watchlist email formatter."""
+"""Morning watchlist email formatter.
+
+Called by: scheduler.watch, services.watchlist_service
+Calls: universe.company_names
+Owns tables: none
+Config keys: none
+Tests: tests/test_packet_builders.py
+"""
 
 from src.universe.company_names import get_company_name
 
@@ -99,7 +106,7 @@ def build_morning_watchlist(watchlist: list[dict], packet_worthy: list[dict],
 
     # Footer
     lines.append("---")
-    lines.append("Halcyon Lab AI Research Desk")
+    lines.append("Arcis Systematic Equity Research")
     lines.append("Quality over quantity. No packets is a valid answer.")
 
     return "\n".join(lines)

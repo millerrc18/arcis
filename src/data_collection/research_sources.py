@@ -1,7 +1,10 @@
 """Research source crawlers for nightly paper collection.
 
-Called by: research_collector.py
-Calls: requests, xml.etree, Reddit/GitHub/arXiv/HF feeds
+Called by: data_collection/research_collector.py
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: none
 """
 
 import logging
@@ -15,7 +18,7 @@ import requests
 
 logger = logging.getLogger(__name__)
 TZ = ZoneInfo("America/New_York")
-USER_AGENT = "Halcyon Lab Research Collector halcyonlabai@gmail.com"
+USER_AGENT = "Arcis Research Collector halcyonlabai@gmail.com"
 
 RELEVANCE_KEYWORDS = [
     "trading", "portfolio", "equity", "stock", "fine-tun", "lora", "qlora",

@@ -1,7 +1,10 @@
 """Cloud council and activity routes for session review pages.
 
-Called by: cloud_app.py
-Calls: council_sessions, activity_log
+Called by: api.cloud_app
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: none
 """
 
 from datetime import datetime, timedelta

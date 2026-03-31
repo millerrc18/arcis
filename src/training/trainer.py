@@ -1,4 +1,11 @@
-"""Fine-tuning orchestrator with Unsloth and auto-rollback."""
+"""Fine-tuning orchestrator with Unsloth and auto-rollback.
+
+Called by: api.routes.actions, cli.commands, scheduler.watch, services.training_service, training.report
+Calls: config, llm.client, training.canary, training.claude_client, training.curriculum, training.dpo_pipeline, training.versioning
+Owns tables: none
+Config keys: auto_rollback_expectancy_drop, auto_rollback_winrate_drop, auto_train_min_examples, auto_train_threshold, auto_train_time_days, enabled, training
+Tests: tests/test_holdout.py, tests/test_leakage_detector.py, tests/test_trainer.py, tests/test_training_data.py
+"""
 
 import json
 import logging

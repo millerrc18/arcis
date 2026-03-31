@@ -1,7 +1,10 @@
 """Cloud core routes for auth, status, config, and actions.
 
-Called by: cloud_app.py
-Calls: render_sync.py, FastAPI
+Called by: api.cloud_app
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: none
 """
 
 from datetime import datetime, timedelta
@@ -191,6 +194,7 @@ def create_router(runtime, verify_auth):
     for path in (
         "/api/actions/scan",
         "/api/actions/cto-report",
+        "/api/actions/collect-data",
         "/api/actions/collect-training",
         "/api/actions/train-pipeline",
         "/api/actions/score",

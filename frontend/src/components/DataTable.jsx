@@ -34,11 +34,11 @@ export default function DataTable({ columns, data, onRowClick }) {
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr style={{ borderBottom: '1px solid var(--slate-600)' }}>
+          <tr style={{ borderBottom: '1px solid var(--arcis-border)' }}>
             {columns.map(col => (
               <th key={col.key}
                   className={`py-2 px-3 text-xs uppercase tracking-wide cursor-pointer ${numTypes.includes(col.type) ? 'text-right' : 'text-left'}`}
-                  style={{ color: 'var(--slate-400)' }}
+                  style={{ color: 'var(--arcis-text-secondary)' }}
                   onClick={() => handleSort(col.key)}>
                 {col.label} {sortKey === col.key ? (sortAsc ? '\u2191' : '\u2193') : ''}
               </th>
@@ -50,10 +50,10 @@ export default function DataTable({ columns, data, onRowClick }) {
             <tr key={i}
                 className={`transition-colors ${onRowClick ? 'cursor-pointer' : ''}`}
                 style={{
-                  borderBottom: '1px solid var(--slate-600)',
+                  borderBottom: '1px solid var(--arcis-border)',
                   background: i % 2 === 0 ? 'transparent' : 'rgba(30, 41, 59, 0.5)',
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--slate-700)'}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--arcis-bg-surface)'}
                 onMouseLeave={(e) => e.currentTarget.style.background = i % 2 === 0 ? 'transparent' : 'rgba(30, 41, 59, 0.5)'}
                 onClick={() => onRowClick?.(row)}>
               {columns.map(col => {
@@ -61,7 +61,7 @@ export default function DataTable({ columns, data, onRowClick }) {
                 const isNum = numTypes.includes(col.type)
                 let style = {}
                 if (col.type === 'currency' && val != null) {
-                  style.color = val > 0 ? 'var(--bullish)' : val < 0 ? 'var(--bearish)' : undefined
+                  style.color = val > 0 ? 'var(--arcis-success)' : val < 0 ? 'var(--arcis-danger)' : undefined
                 }
                 return (
                   <td key={col.key}
@@ -76,7 +76,7 @@ export default function DataTable({ columns, data, onRowClick }) {
         </tbody>
       </table>
       {(!data || data.length === 0) && (
-        <div className="text-center py-8" style={{ color: 'var(--slate-400)' }}>No data available</div>
+        <div className="text-center py-8" style={{ color: 'var(--arcis-text-secondary)' }}>No data available</div>
       )}
     </div>
   )

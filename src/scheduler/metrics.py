@@ -1,5 +1,11 @@
 """Schedule metrics tracking for the 24/7 compute scheduler.
 
+Called by: api.routes.system
+Calls: none
+Owns tables: schedule_metrics
+Config keys: none
+Tests: none
+
 Tracks GPU utilization, scoring throughput, VRAM handoff success,
 and other operational metrics for the compute schedule.
 """

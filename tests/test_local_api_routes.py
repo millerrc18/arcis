@@ -10,6 +10,7 @@ from src.api.routes.packets import router as packets_router
 from src.api.routes.training import router as training_router
 from src.api.routes.scan import router as scan_router
 from src.api.routes.review import router as review_router
+from src.api.routes.system import router as system_router
 
 
 # ── Fixtures ──
@@ -40,6 +41,13 @@ def scan_client():
 def review_client():
     app = FastAPI()
     app.include_router(review_router, prefix="/api")
+    return TestClient(app)
+
+
+@pytest.fixture
+def system_client():
+    app = FastAPI()
+    app.include_router(system_router, prefix="/api")
     return TestClient(app)
 
 
@@ -232,3 +240,46 @@ class TestReviewRoutes:
         r = review_client.post("/api/review/mark-executed/AAPL")
         assert r.status_code == 200
         assert r.json()["success"] is True
+
+
+class TestSystemRoutes:
+    def test_data_collection_stats_shape(self, system_client, tmp_path, monkeypatch):
+        import sqlite3
+
+        monkeypatch.chdir(tmp_path)
+        conn = sqlite3.connect("ai_research_desk.sqlite3")
+        conn.executescript(
+            """
+            CREATE TABLE options_chains (collected_at TEXT, ticker TEXT);
+            CREATE TABLE options_metrics (collected_date TEXT, ticker TEXT);
+            CREATE TABLE vix_term_structure (collected_date TEXT);
+            CREATE TABLE macro_snapshots (collected_date TEXT, series_id TEXT);
+            CREATE TABLE google_trends (collected_date TEXT, ticker TEXT);
+            CREATE TABLE cboe_ratios (collected_date TEXT, ratio_type TEXT);
+            CREATE TABLE earnings_calendar (collected_at TEXT, ticker TEXT);
+            CREATE TABLE edgar_filings (collected_at TEXT, ticker TEXT);
+            CREATE TABLE insider_transactions (collected_at TEXT, ticker TEXT);
+            CREATE TABLE short_interest (collected_at TEXT, ticker TEXT);
+            CREATE TABLE fed_communications (collected_at TEXT, comm_type TEXT);
+            CREATE TABLE analyst_estimates (collected_at TEXT, ticker TEXT);
+
+            INSERT INTO options_metrics VALUES ('2026-03-30', 'AAPL');
+            INSERT INTO earnings_calendar VALUES ('2026-03-30T21:00:00', 'MSFT');
+            INSERT INTO fed_communications VALUES ('2026-03-29T20:00:00', 'minutes');
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        r = system_client.get("/api/data-collection-stats")
+        assert r.status_code == 200
+        data = r.json()
+        assert "earnings_calendar" in data
+        assert "analyst_estimates" in data
+
+        for table_stats in data.values():
+            assert set(table_stats.keys()) == {"total_records", "latest_collection", "coverage_count"}
+
+        assert data["options_metrics"]["total_records"] == 1
+        assert data["options_metrics"]["latest_collection"] == "2026-03-30"
+        assert data["options_metrics"]["coverage_count"] == 1

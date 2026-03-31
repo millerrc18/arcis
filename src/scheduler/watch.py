@@ -1,4 +1,10 @@
-"""Watch loop for automated daily cadence.
+"""Watch loop — automated daily cadence for the Arcis trading system.
+
+Called by: main.py (CLI entry point)
+Calls: scan_service, executor, bracket_monitor, council.engine, telegram, render_sync, data_collection/*, training/*
+Owns tables: none (orchestrator)
+Config keys: automation.*, bootcamp.*, scheduler.*
+Tests: tests/test_watch_bootstrap.py
 
 Simple Python loop — no APScheduler or cron dependencies.
 """

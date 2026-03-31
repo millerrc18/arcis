@@ -1,5 +1,11 @@
 """Outcome leakage detector for training data quality assurance.
 
+Called by: api.routes.actions, cli.commands, evaluation.cto_report, scheduler.watch
+Calls: universe.company_names, universe.sp100
+Owns tables: none
+Config keys: none
+Tests: tests/test_leakage_detector.py
+
 Tests whether generated commentary inadvertently reveals trade outcomes
 by training a classifier to predict win/loss from text alone.
 
