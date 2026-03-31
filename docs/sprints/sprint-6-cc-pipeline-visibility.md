@@ -1,7 +1,7 @@
 # Sprint 6: Data Pipeline Visibility (Claude Code)
 
 > **Executor:** Claude Code
-> **Scope:** 7 tasks
+> **Scope:** 8 tasks
 > **Prerequisite:** Sprint 5 MERGED
 > **Read first:** AGENTS.md, docs/conventions.md
 > **Context:** The backend has API endpoints for data collection stats and training pipeline status, but the frontend never calls them. Ryan can't see if collectors are running or if training data is growing. All tasks are frontend-only except wiring api.js methods. The backend APIs already exist.
@@ -202,7 +202,77 @@ Apply `.arcis-card` to every card/panel across all dashboard pages. This creates
 
 ---
 
-## Task 7: Documentation Update (MANDATORY)
+## Task 7: Complete .env Secret Migration
+
+**Problem:** Sprint 4B wired `load_dotenv()` into `main.py`, but individual modules still read secrets from the YAML config dict instead of `os.environ`. The `.env` file is loaded but nothing actually uses it.
+
+**Pattern:** Each secret-reading function should check `os.environ` first, then fall back to YAML config for backward compatibility:
+
+```python
+import os
+
+def _get_finnhub_key() -> str | None:
+    # .env takes precedence (loaded by load_dotenv in main.py)
+    key = os.environ.get("FINNHUB_API_KEY")
+    if key:
+        return key
+    # Fallback to YAML config (backward compat)
+    try:
+        from src.config import load_config
+        config = load_config()
+        return config.get("data_enrichment", {}).get("finnhub_api_key")
+    except Exception:
+        return None
+```
+
+**Modules to update (6 files):**
+
+1. **`src/notifications/telegram.py`** — `_load_telegram_config()` function
+   - Add: `os.environ.get("TELEGRAM_BOT_TOKEN")` and `os.environ.get("TELEGRAM_CHAT_ID")` 
+   - Fall back to: `config["telegram"]["bot_token"]` and `config["telegram"]["chat_id"]`
+
+2. **`src/training/claude_client.py`** — wherever `anthropic_api_key` is read (~line 72)
+   - Add: `os.environ.get("ANTHROPIC_API_KEY")`
+   - Fall back to: `config["training"]["anthropic_api_key"]`
+
+3. **`src/data_collection/analyst_collector.py`** — `_get_finnhub_key()` function
+   - Add: `os.environ.get("FINNHUB_API_KEY")`
+   - Fall back to: `config["data_enrichment"]["finnhub_api_key"]`
+
+4. **`src/data_collection/insider_collector.py`** — `_get_finnhub_key()` function (same pattern)
+
+5. **`src/data_collection/short_interest_collector.py`** — `_get_finnhub_key()` function (same pattern)
+
+6. **`src/data_collection/macro_collector.py`** — `_get_fred_key()` function
+   - Add: `os.environ.get("FRED_API_KEY")`
+   - Fall back to: `config["data_enrichment"]["fred_api_key"]`
+
+**Also check and update if needed:**
+- `src/data_enrichment/insiders.py` — receives `finnhub_api_key` as argument (caller should pass from env)
+- `src/data_enrichment/news.py` — receives `finnhub_api_key` as argument (same)
+- `src/council/protocol.py` — Anthropic key for council sessions
+- `src/email/notifier.py` — EMAIL_PASSWORD
+
+**Verify after changes:**
+```bash
+# Every env var in .env.example should have at least one os.environ.get() reference in src/
+for var in ALPACA_API_KEY ALPACA_API_SECRET ANTHROPIC_API_KEY FINNHUB_API_KEY FRED_API_KEY TELEGRAM_BOT_TOKEN TELEGRAM_CHAT_ID EMAIL_PASSWORD; do
+    count=$(grep -rn "os.environ.get(\"$var\")\|os.getenv(\"$var\")" src/ --include="*.py" | grep -v __pycache__ | wc -l)
+    echo "$var: $count references"
+done
+```
+
+All should show ≥1 reference. If any show 0, that secret isn't wired to `.env` yet.
+
+**Write tests:** Add `tests/test_env_secrets.py` with ≥4 tests:
+- When env var is set, it takes precedence over YAML
+- When env var is not set, falls back to YAML
+- When neither is set, returns None gracefully
+- Placeholder values (e.g., "your-api-key-here") are treated as unset
+
+---
+
+## Task 8: Documentation Update (MANDATORY)
 
 Run verification from `docs/sprint-checklist.md`. Update:
 - AGENTS.md counts
