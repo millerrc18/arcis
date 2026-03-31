@@ -1,4 +1,11 @@
-"""FastAPI application for the Arcis dashboard."""
+"""FastAPI application for the Arcis dashboard.
+
+Called by: none (entry point)
+Calls: api.routes, api.websocket, journal.store, log_config
+Owns tables: none
+Config keys: none
+Tests: none
+"""
 import os
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles

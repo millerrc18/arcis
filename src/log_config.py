@@ -1,4 +1,11 @@
-"""Logging configuration for the Arcis system."""
+"""Logging configuration for the Arcis system.
+
+Called by: api.app, main
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: none
+"""
 
 import logging
 import sys

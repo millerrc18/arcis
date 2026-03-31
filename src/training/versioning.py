@@ -1,4 +1,11 @@
-"""Model versioning and performance tracking for the training pipeline."""
+"""Model versioning and performance tracking for the training pipeline.
+
+Called by: api.routes.system, cli.commands, evaluation.auditor, evaluation.cto_report, llm.client, llm.grammar_client, notifications.telegram, scheduler.premarket, scheduler.scorer, scheduler.vram_manager, scheduler.watch, services.scan_service, services.system_service, services.training_service, training.ab_evaluation, training.backfill, training.bootstrap, training.claude_client, training.curriculum, training.data_collector, training.dpo_pipeline, training.quality_filter, training.report, training.trainer, training.validation
+Calls: journal.store
+Owns tables: api_costs, audit_reports, metric_snapshots, model_evaluations, model_versions, training_examples
+Config keys: none
+Tests: tests/test_ab_evaluation.py, tests/test_auditor.py, tests/test_dpo_pipeline.py, tests/test_holdout.py, tests/test_leakage_detector.py, tests/test_premarket.py, tests/test_scorer.py, tests/test_trainer.py, tests/test_training_data.py, tests/test_validation.py, tests/test_versioning.py
+"""
 
 import logging
 import sqlite3

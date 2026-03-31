@@ -1,5 +1,29 @@
 # Changelog
 
+## [Unreleased] - 2026-03-30
+
+### Sprint 4D: The Flywheel — AI-Agent-Friendly Repo Structure
+
+#### AGENTS.md Rewrite
+- Rewrote AGENTS.md as machine-parseable module registry with 138 modules
+- Added 5-field entries (Purpose, Called by, Calls, Owns tables, Config keys, Tests) for every module
+- Added Dependency Hierarchy (4-layer architecture) and "Where New Things Go" routing table
+
+#### Standard Docstring Headers
+- Added 5-field docstring headers to all 138 Python modules in src/ (was 0, now 138/138)
+- Format: Called by, Calls, Owns tables, Config keys, Tests
+
+#### New Files
+- Created `docs/conventions.md` — pattern library and reference card for AI agents
+- Created `tests/test_repo_structure.py` — automated guardrails (file size, function length, docstrings, migrate tables)
+- Created `docs/sprints/TEMPLATE.md` — standardized sprint prompt template
+
+#### Infrastructure
+- Regenerated `config/known_violations.json` — missing_docstring_headers reduced from 138 to 0
+- Grandfathered 15 oversized files, 127 oversized functions, 11 missing migrate tables
+
+---
+
 ## 2026-03-30 — Sprint 4A: Arcis Brand Infrastructure
 
 - Rebranded the product to "Arcis" across the dashboard, API copy, notifications, docs, and public assets.

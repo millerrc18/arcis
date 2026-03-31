@@ -1,4 +1,10 @@
-"""Council Engine v2 — vote-first Modified Delphi sessions.
+"""Council Engine v2 -- vote-first Modified Delphi sessions.
+
+Called by: cli/commands.py, notifications/telegram.py, scheduler/watch.py
+Calls: council/constants.py, council/protocol.py, council/value_tracker.py
+Owns tables: council_sessions, council_votes, council_calibrations, council_debug_log
+Config keys: none
+Tests: tests/test_council.py
 
 Orchestrates council sessions with conditional rounds, parameter
 auto-application, value tracking, calibration, and debug logging.

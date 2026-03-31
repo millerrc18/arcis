@@ -1,7 +1,10 @@
 """Council agent system prompts and names.
 
-Called by: agents.py, protocol.py
+Called by: council/agents.py
 Calls: none
+Owns tables: none
+Config keys: none
+Tests: none
 """
 
 AGENT_OUTPUT_SCHEMA = """\

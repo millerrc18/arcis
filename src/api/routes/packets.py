@@ -1,4 +1,11 @@
-"""Packets API routes."""
+"""Packets API routes.
+
+Called by: api.app
+Calls: journal.store
+Owns tables: none
+Config keys: none
+Tests: tests/test_local_api_routes.py
+"""
 from fastapi import APIRouter
 from src.journal.store import get_recommendations_in_period, get_recommendation_by_id
 

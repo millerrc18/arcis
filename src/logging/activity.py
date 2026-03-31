@@ -1,7 +1,10 @@
 """Persistent activity logging for the Arcis system.
 
-Called by: api/routes/system.py, tests
-Calls: sqlite3
+Called by: api.routes.system, notifications.telegram, scheduler.watch
+Calls: none
+Owns tables: activity_log
+Config keys: none
+Tests: tests/test_activity_log.py
 """
 
 import json

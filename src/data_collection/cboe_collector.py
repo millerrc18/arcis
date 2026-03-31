@@ -1,5 +1,11 @@
 """CBOE Put/Call ratio collector.
 
+Called by: api/routes/actions.py, cli/commands.py, scheduler/watch.py
+Calls: none
+Owns tables: cboe_ratios
+Config keys: none
+Tests: none
+
 Fetches daily aggregate put/call ratios.
 Uses yfinance for CBOE P/C ratio proxy data.
 """

@@ -1,5 +1,11 @@
 """SEC EDGAR filing collector.
 
+Called by: scheduler/watch.py
+Calls: features/filing_nlp.py
+Owns tables: edgar_filings
+Config keys: none
+Tests: tests/test_data_collectors.py
+
 Collects 10-K, 10-Q, and 8-K filings for the S&P 100 universe.
 Stores filing metadata + parsed section text.
 

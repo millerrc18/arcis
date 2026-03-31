@@ -1,5 +1,11 @@
 """Expanded FRED macro indicator collector.
 
+Called by: api/routes/actions.py, cli/commands.py, scheduler/watch.py
+Calls: config.py
+Owns tables: macro_snapshots
+Config keys: data_enrichment, fred, fred_api_key
+Tests: tests/test_data_collectors.py
+
 Supplements the existing macro enrichment with additional series:
 supply chain, credit stress, oil, dollar index, etc.
 """

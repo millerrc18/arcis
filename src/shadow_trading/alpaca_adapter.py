@@ -1,5 +1,11 @@
 """Alpaca paper trading adapter with safety guardrails.
 
+Called by: cli.commands, evaluation.system_validator, risk.governor, services.shadow_service, shadow_trading.bracket_monitor, shadow_trading.executor, shadow_trading.reconcile
+Calls: config
+Owns tables: none
+Config keys: alpaca, api_key, api_secret, base_url, default_order_type, enabled, live_trading, max_open_positions, max_positions, secret_key, shadow_trading, starting_capital, timeout_days
+Tests: tests/test_bracket_orders.py, tests/test_live_trading.py
+
 Uses the alpaca-py SDK for paper trading operations.
 SAFETY: Will refuse to operate if not pointed at a paper trading endpoint.
 """

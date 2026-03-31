@@ -1,4 +1,11 @@
-"""Shadow trading service."""
+"""Shadow trading service.
+
+Called by: api.routes.shadow, cli.commands
+Calls: journal.store, shadow_trading.alpaca_adapter, shadow_trading.executor, shadow_trading.metrics
+Owns tables: none
+Config keys: shadow_trading
+Tests: tests/test_services.py
+"""
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo

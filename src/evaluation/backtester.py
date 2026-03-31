@@ -1,5 +1,11 @@
 """Walk-forward model backtesting framework.
 
+Called by: cli.commands
+Calls: config, data_ingestion.market_data, features.engine, packets.template, ranking.ranker, shadow_trading.executor, training.backfill, universe.sp100
+Owns tables: none
+Config keys: none
+Tests: tests/test_backtester.py
+
 Evaluates a trained model on historical data it wasn't trained on.
 Different from the backfill which creates training data — this evaluates
 a trained model's quality on unseen history.

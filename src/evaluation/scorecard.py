@@ -1,4 +1,11 @@
-"""Weekly and bootcamp scorecard generation."""
+"""Weekly and bootcamp scorecard generation.
+
+Called by: services.review_service
+Calls: journal.store, shadow_trading.metrics
+Owns tables: none
+Config keys: none
+Tests: tests/test_scorecard.py
+"""
 
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo

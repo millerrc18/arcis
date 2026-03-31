@@ -1,4 +1,11 @@
-"""Review and evaluation service."""
+"""Review and evaluation service.
+
+Called by: api.routes.review, cli.commands
+Calls: evaluation.scorecard, journal.store
+Owns tables: none
+Config keys: none
+Tests: tests/test_services.py
+"""
 import logging
 
 logger = logging.getLogger(__name__)

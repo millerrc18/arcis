@@ -1,5 +1,11 @@
 """Telegram notification client for Arcis.
 
+Called by: cli.commands, data_collection.research_synthesizer, scheduler.watch, services.scan_service, shadow_trading.bracket_monitor, shadow_trading.executor, training.canary, training.ingestion_gate
+Calls: config, council.engine, logging.activity, training.versioning
+Owns tables: none
+Config keys: bot_token, chat_id, enabled, telegram
+Tests: tests/test_action_reminders.py, tests/test_expanded_notifications.py, tests/test_live_trading.py, tests/test_system_validator.py
+
 Sends real-time alerts for trade opens/closes, scan results,
 system events, and overnight pipeline status.
 

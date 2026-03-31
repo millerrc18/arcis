@@ -1,4 +1,11 @@
-"""Training progress report generator."""
+"""Training progress report generator.
+
+Called by: scheduler.watch, services.training_service
+Calls: training.trainer, training.versioning
+Owns tables: none
+Config keys: none
+Tests: tests/test_leakage_detector.py
+"""
 
 from src.training.trainer import should_train, check_model_performance
 from src.training.versioning import (

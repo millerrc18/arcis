@@ -1,4 +1,11 @@
-"""Shadow trading API routes."""
+"""Shadow trading API routes.
+
+Called by: api.app
+Calls: config, journal.store, services.shadow_service, shadow_trading.executor
+Owns tables: none
+Config keys: none
+Tests: none
+"""
 from fastapi import APIRouter
 from src.config import load_config
 from src.services.shadow_service import get_shadow_status, get_shadow_history, get_shadow_account

@@ -1,4 +1,11 @@
-"""WebSocket live update manager for the dashboard."""
+"""WebSocket live update manager for the dashboard.
+
+Called by: api.app, api.routes.actions, scheduler.watch
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: tests/test_websocket.py
+"""
 
 import logging
 from datetime import datetime

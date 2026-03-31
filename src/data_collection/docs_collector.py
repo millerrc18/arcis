@@ -1,4 +1,11 @@
-"""Collect markdown documentation files into research_docs SQLite table for cloud sync."""
+"""Collect markdown documentation files into research_docs SQLite table for cloud sync.
+
+Called by: scheduler/watch.py
+Calls: none
+Owns tables: research_docs
+Config keys: none
+Tests: tests/test_docs_collector.py
+"""
 
 import hashlib
 import logging

@@ -1,4 +1,11 @@
-"""A/B shadow model evaluation with promotion logic."""
+"""A/B shadow model evaluation with promotion logic.
+
+Called by: cli.commands
+Calls: config, llm.client, llm.prompts, training.claude_client, training.versioning
+Owns tables: none
+Config keys: llm
+Tests: tests/test_ab_evaluation.py, tests/test_leakage_detector.py
+"""
 
 import logging
 import sqlite3

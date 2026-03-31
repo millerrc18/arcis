@@ -1,7 +1,10 @@
-"""Event calendar risk scoring — continuous 0-10 additive system.
+"""Event calendar risk scoring -- continuous 0-10 additive system.
 
-Called by: scan_service.py, watch.py
-Calls: sqlite3 (earnings_calendar, economic_calendar tables)
+Called by: services.scan_service
+Calls: none
+Owns tables: none
+Config keys: block_threshold, sizing_floor
+Tests: tests/test_event_risk_score.py
 """
 
 import calendar

@@ -1,7 +1,10 @@
 """Shared council context assembly from current repo schemas.
 
-Called by: protocol.py, tests
-Calls: agents.py, hshs_live.py, sqlite3
+Called by: council/protocol.py
+Calls: council/agents.py, evaluation/hshs_live.py
+Owns tables: none
+Config keys: none
+Tests: none
 """
 
 from datetime import datetime

@@ -1,7 +1,10 @@
 """Grammar-constrained LLM client using llama-cpp-python with GBNF.
 
-Called by: packet_writer.py
-Calls: llama_cpp (optional dependency)
+Called by: llm.packet_writer
+Calls: config, training.versioning
+Owns tables: none
+Config keys: base_url, grammar_context_window, grammar_file, grammar_model_path, llm, model, model_file_path
+Tests: tests/test_grammar_client.py
 """
 
 import logging

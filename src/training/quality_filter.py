@@ -1,5 +1,11 @@
 """LLM-as-Judge quality scoring for training examples.
 
+Called by: api.routes.actions, cli.commands, scheduler.scorer, training.dpo_pipeline
+Calls: training.claude_client, training.versioning
+Owns tables: none
+Config keys: none
+Tests: tests/test_leakage_detector.py, tests/test_quality_filter.py, tests/test_quality_rubric.py
+
 Process-first rubric: scores analytical process blind to trade outcome,
 then applies outcome-conditional overlays.
 """

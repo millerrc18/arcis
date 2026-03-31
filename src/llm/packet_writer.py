@@ -1,4 +1,11 @@
-"""LLM-enhanced trade packet writer with template fallback."""
+"""LLM-enhanced trade packet writer with template fallback.
+
+Called by: scheduler.watch, services.scan_service
+Calls: llm.client, llm.grammar_client, llm.prompts, models, strategy.canary, universe.company_names
+Owns tables: none
+Config keys: enabled, llm, max_tokens, temperature, use_grammar_enforcement
+Tests: tests/test_confidence.py, tests/test_grammar_client.py, tests/test_xml_format.py
+"""
 
 import logging
 

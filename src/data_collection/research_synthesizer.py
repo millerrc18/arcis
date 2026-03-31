@@ -1,5 +1,11 @@
 """Weekly research intelligence synthesis via Claude API.
 
+Called by: scheduler/watch.py
+Calls: notifications/telegram.py
+Owns tables: none
+Config keys: none
+Tests: none
+
 Runs Sunday 6 PM ET. Reads high-relevance papers from the past week,
 sends to Claude Sonnet for structured analysis, stores digest.
 Cost: ~$0.50/week.

@@ -1,7 +1,10 @@
 """Council parameter rate-limiting logic.
 
-Called by: protocol.py, engine.py
-Calls: sqlite3, council/constants.py
+Called by: council/protocol.py
+Calls: council/constants.py
+Owns tables: none
+Config keys: none
+Tests: none
 """
 
 import logging

@@ -1,7 +1,10 @@
 """Arcis CLI bootstrap and parser wiring.
 
-Called by: shell entrypoints, tests
-Calls: cli/commands.py, log_config.py, journal/store.py
+Called by: none (entry point)
+Calls: cli.commands, config, journal.store, log_config
+Owns tables: none
+Config keys: file, level, logging
+Tests: tests/test_live_trading.py, tests/test_main_refactor.py
 """
 
 import argparse

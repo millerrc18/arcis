@@ -1,4 +1,11 @@
-"""SMTP email notifier for the Systematic Equity Research."""
+"""SMTP email notifier for the Arcis system.
+
+Called by: cli.commands, evaluation.auditor, scheduler.watch, services.recap_service, services.scan_service, services.watchlist_service
+Calls: config
+Owns tables: none
+Config keys: cc_addresses, email, from_address, password, smtp_port, smtp_server, to_address, use_tls, username
+Tests: none
+"""
 
 import logging
 import smtplib

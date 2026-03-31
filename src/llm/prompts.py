@@ -1,6 +1,12 @@
 """System prompts for LLM-enhanced output.
 
-These are the most important strings in the codebase — they determine
+Called by: llm.packet_writer, llm.postmortem_writer, llm.watchlist_writer, training.ab_evaluation, training.backfill, training.bootstrap, training.data_collector, training.historical_scanner
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: tests/test_self_blinding.py
+
+These are the most important strings in the codebase -- they determine
 the quality of analyst-style prose the LLM produces.
 """
 

@@ -1,5 +1,11 @@
 """Rule-based setup type classifier for equity trades.
 
+Called by: features.engine
+Calls: none
+Owns tables: setup_signals
+Config keys: none
+Tests: tests/test_setup_classifier.py
+
 Uses 5 discriminative features (ADX, ATR/price ratio, volume profile,
 price vs MAs, RSI) to classify every scanned stock into one of 6
 setup types. Each classification includes confidence and desk routing.

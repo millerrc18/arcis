@@ -1,5 +1,11 @@
 """Data enrichment orchestrator.
 
+Called by: scheduler/watch.py, services/scan_service.py
+Calls: data_enrichment/earnings_signals.py, data_enrichment/fundamentals.py, data_enrichment/insiders.py, data_enrichment/macro.py, data_enrichment/news.py
+Owns tables: none
+Config keys: cache_hours, data_enrichment, enabled, finnhub_api_key, fred_api_key, insider_lookback_days
+Tests: tests/test_enrichment.py
+
 Adds fundamental, insider, and macro data to all ticker feature dicts.
 Called AFTER compute_all_features and BEFORE ranking/packet generation.
 """

@@ -1,5 +1,11 @@
 """Arcis System Health Score (HSHS) computation.
 
+Called by: evaluation.hshs_live
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: tests/test_hshs.py
+
 Five dimensions scored 0-100, combined via weighted geometric mean.
 Phase-dependent weights shift priorities as the system matures.
 """

@@ -1,4 +1,10 @@
-"""Council value tracking — counterfactual P&L computation.
+"""Council value tracking -- counterfactual P&L computation.
+
+Called by: council/engine.py
+Calls: council/constants.py
+Owns tables: council_parameter_log, council_parameter_state
+Config keys: none
+Tests: none
 
 Tracks whether council parameter adjustments create or destroy value
 by comparing actual P&L to counterfactual P&L (default parameters).
@@ -7,7 +13,7 @@ Architecture: AI_Council_Redesign_v2__Architecture_and_Implementation.md
 
 FIX #5: Counterfactual attribution limited to position_sizing_multiplier.
         cash_reserve_target_pct and scan_aggressiveness require replay
-        simulation for proper counterfactual — deferred to Phase 2.
+        simulation for proper counterfactual -- deferred to Phase 2.
 
 Decisions:
 - Both holistic + per-agent value tracking from day 1

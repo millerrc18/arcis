@@ -1,4 +1,11 @@
-"""Feature engine for pullback-in-trend setup analysis."""
+"""Feature engine for pullback-in-trend setup analysis.
+
+Called by: evaluation.backtester, features.regime, scheduler.premarket, scheduler.watch, services.recap_service, services.scan_service, services.watchlist_service, training.bootstrap, training.historical_scanner
+Calls: features.earnings, features.event_proximity, features.regime, features.setup_classifier, universe.sectors
+Owns tables: none
+Config keys: none
+Tests: tests/test_features.py
+"""
 
 import logging
 

@@ -1,7 +1,10 @@
 """Cloud research, training, and data-surface routes.
 
-Called by: cloud_app.py
-Calls: training_examples, research_docs
+Called by: api.cloud_app
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: none
 """
 
 from datetime import datetime, timedelta

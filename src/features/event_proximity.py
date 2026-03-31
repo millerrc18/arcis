@@ -1,5 +1,11 @@
 """Market event proximity features (FOMC, CPI, NFP, GDP).
 
+Called by: features.engine
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: tests/test_event_proximity.py
+
 Loads the pre-generated market_event_calendar.csv and provides
 proximity-based features for the feature engine and risk governor.
 """
