@@ -70,10 +70,17 @@ def parse_agent_response(raw: str | None, agent_name: str) -> dict:
         position_map = {"offensive": "bullish", "defensive": "bearish", "neutral": "neutral"}
         data["direction"] = position_map.get(data.get("position", "neutral"), "neutral")
 
-    confidence = data.get("confidence", 0.5)
-    if isinstance(confidence, int) and confidence > 1:
-        confidence = confidence / 10.0
-    data["confidence"] = max(0.0, min(1.0, float(confidence)))
+    # #121 — Type-validate confidence: non-numeric values default to 0.5
+    raw_confidence = data.get("confidence", 0.5)
+    try:
+        confidence = float(raw_confidence)
+        if confidence > 1:
+            confidence = confidence / 10.0
+        confidence = max(0.0, min(1.0, confidence))
+    except (TypeError, ValueError):
+        logger.warning("[COUNCIL] Invalid confidence value: %s — defaulting to 0.5", raw_confidence)
+        confidence = 0.5
+    data["confidence"] = confidence
 
     params = data.get("parameters", {})
     params.setdefault("position_sizing_multiplier", PARAMETER_DEFAULTS["position_sizing_multiplier"])

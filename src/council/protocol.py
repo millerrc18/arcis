@@ -31,25 +31,47 @@ ET = ZoneInfo("America/New_York")
 
 
 def _call_claude(system_prompt: str, user_prompt: str) -> tuple[str | None, dict]:
-    """Call Claude via the shared training client with timing metadata."""
+    """Call Claude via the shared training client with timing metadata.
+
+    #117 — Retries with exponential backoff on Anthropic rate limit errors.
+    """
     debug = {"latency_ms": 0, "raw": None}
     start = time.monotonic()
-    try:
-        from src.training.claude_client import generate_training_example
 
-        raw = generate_training_example(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            purpose="council",
-        )
-        debug["latency_ms"] = int((time.monotonic() - start) * 1000)
-        debug["raw"] = raw
-        return raw, debug
-    except Exception as exc:
-        debug["latency_ms"] = int((time.monotonic() - start) * 1000)
-        debug["raw"] = str(exc)
-        logger.error("[COUNCIL] Claude API call failed: %s", exc)
-        return None, debug
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            from src.training.claude_client import generate_training_example
+
+            raw = generate_training_example(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                purpose="council",
+            )
+            debug["latency_ms"] = int((time.monotonic() - start) * 1000)
+            debug["raw"] = raw
+            return raw, debug
+        except Exception as exc:
+            exc_name = type(exc).__name__
+            # #117 — Catch rate limit errors (RateLimitError or HTTP 429)
+            if "RateLimitError" in exc_name or "429" in str(exc):
+                wait = (attempt + 1) * 10  # 10s, 20s, 30s
+                logger.warning(
+                    "[COUNCIL] Rate limited, retrying in %ds (attempt %d/%d)",
+                    wait, attempt + 1, max_retries,
+                )
+                time.sleep(wait)
+                continue
+            debug["latency_ms"] = int((time.monotonic() - start) * 1000)
+            debug["raw"] = str(exc)
+            logger.error("[COUNCIL] Claude API call failed: %s", exc)
+            return None, debug
+
+    # All retries exhausted
+    debug["latency_ms"] = int((time.monotonic() - start) * 1000)
+    debug["raw"] = "Rate limit retries exhausted"
+    logger.error("[COUNCIL] Rate limit retries exhausted after %d attempts", max_retries)
+    return None, debug
 
 
 def _normalize_claude_result(result: object) -> tuple[str | None, dict]:

@@ -4,8 +4,10 @@ Called by: council/protocol.py
 Calls: council/constants.py
 Owns tables: none
 Config keys: none
-Tests: none
+Tests: tests/test_council_aggregation.py
 """
+
+import logging
 
 from src.council.constants import (
     DECISION_THRESHOLDS,
@@ -14,12 +16,25 @@ from src.council.constants import (
     PARAMETER_DEFAULTS,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def aggregate_votes(
     assessments: list[dict],
     session_type: str = "daily",
 ) -> dict:
     """Aggregate council assessments into a consensus direction and parameters."""
+    # #118 — Filter out votes where parsing failed (no valid direction/assessment)
+    valid_assessments = [
+        a for a in assessments
+        if not a.get("_parse_failed") and a.get("direction")
+    ]
+    filtered_count = len(assessments) - len(valid_assessments)
+    if filtered_count:
+        logger.warning("[COUNCIL] Filtered %d unparseable votes from tally", filtered_count)
+    if not valid_assessments:
+        valid_assessments = assessments  # Fallback to all if everything failed
+
     weights = DOMAIN_WEIGHTS.get(session_type, DOMAIN_WEIGHTS["daily"])
     numerator = 0.0
     denominator = 0.0
@@ -29,7 +44,7 @@ def aggregate_votes(
     param_den = 0.0
     scan_votes = {"conservative": 0.0, "normal": 0.0, "aggressive": 0.0}
 
-    for assessment in assessments:
+    for assessment in valid_assessments:
         agent = assessment.get("agent", "unknown")
         direction = assessment.get("direction", "neutral")
         confidence = assessment.get("confidence", 0.5)
@@ -55,8 +70,10 @@ def aggregate_votes(
     score = numerator / denominator if denominator > 0 else 0.0
     confidence_avg = sum(confidences) / len(confidences) if confidences else 0.0
     max_votes = max(vote_dist.values()) if vote_dist else 0
-    total_agents = len(assessments)
-    consensus_reached = max_votes >= 3
+    total_agents = len(valid_assessments)
+    # #119 — Dynamic majority threshold instead of hardcoded 3
+    consensus_threshold = total_agents // 2 + 1
+    consensus_reached = max_votes >= consensus_threshold
     consensus_type = f"{max_votes}-{total_agents - max_votes}" if total_agents > 0 else "0-0"
 
     if score > DECISION_THRESHOLDS["lean_bullish"]:
