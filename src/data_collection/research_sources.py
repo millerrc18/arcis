@@ -18,7 +18,7 @@ import requests
 
 logger = logging.getLogger(__name__)
 TZ = ZoneInfo("America/New_York")
-USER_AGENT = "Halcyon Lab Research Collector halcyonlabai@gmail.com"
+USER_AGENT = "Arcis Research Collector halcyonlabai@gmail.com"
 
 RELEVANCE_KEYWORDS = [
     "trading", "portfolio", "equity", "stock", "fine-tun", "lora", "qlora",

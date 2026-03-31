@@ -1,4 +1,4 @@
-"""Tests for the Halcyon System Health Score (HSHS) computation."""
+"""Tests for the Arcis System Health Score (HSHS) computation."""
 
 import math
 import pytest

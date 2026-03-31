@@ -1,4 +1,4 @@
-"""Persistent activity logging for the Halcyon Lab system.
+"""Persistent activity logging for the Arcis system.
 
 Called by: api.routes.system, notifications.telegram, scheduler.watch
 Calls: none

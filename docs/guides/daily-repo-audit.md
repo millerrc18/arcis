@@ -1,6 +1,6 @@
 # Daily Repo Audit
 
-Halcyon now includes a hosted daily repo-audit workflow:
+Arcis now includes a hosted daily repo-audit workflow:
 
 - Workflow: `.github/workflows/daily-repo-audit.yml`
 - Audit runner: `scripts/daily_repo_audit.py`

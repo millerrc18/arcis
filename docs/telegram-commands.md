@@ -1,6 +1,6 @@
-# Telegram Bot Command Reference
+# Arcis Telegram Command Reference
 
-Halcyon Lab includes a Telegram bot for real-time notifications and interactive commands. The bot pushes alerts for trade opens/closes, earnings warnings, overnight data collection, system events, and more. It also accepts commands for quick status checks from your phone.
+Arcis includes a Telegram bot for real-time notifications and interactive commands. The bot pushes alerts for trade opens/closes, earnings warnings, overnight data collection, system events, and more. It also accepts commands for quick status checks from your phone.
 
 ## Setup
 
@@ -157,9 +157,30 @@ RECENT ACTIVITY (last 10)
   ...
 ```
 
+### /logs
+
+Last 20 lines of `arcis.log` for quick remote debugging.
+
+**Example response:**
+```
+LAST 20 LOG LINES
+  14:30:01 scan_complete -- packets=3 watchlist=8
+  14:30:02 notify_scan_complete -- telegram_sent=true
+  14:31:15 council_session -- skipped consensus strong
+  ...
+```
+
 ### /help
 
 Lists all available commands with short descriptions. Also triggered by `/start` when first interacting with the bot.
+
+### Additional utility commands
+
+- `/health` — GPU and system health check
+- `/pull` — Git pull latest code
+- `/gpu` — GPU details via `nvidia-smi`
+- `/disk` — Disk usage snapshot
+- `/uptime` — Watch loop uptime
 
 ## Notification Types
 

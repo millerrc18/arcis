@@ -1,4 +1,4 @@
-"""System validation engine for Halcyon Lab.
+"""System validation engine for Arcis.
 
 Called by: api.routes.system, cli.commands, scheduler.watch
 Calls: config, risk.governor, shadow_trading.alpaca_adapter
@@ -824,7 +824,7 @@ def _check_llm(config: dict) -> list[dict]:
             f"{base_url}/api/generate",
             json={
                 "model": model_name,
-                "prompt": "Reply with exactly: HALCYON_OK",
+                "prompt": "Reply with exactly: ARCIS_OK",
                 "stream": False,
                 "options": {"num_predict": 20},
             },
@@ -832,7 +832,7 @@ def _check_llm(config: dict) -> list[dict]:
         )
         if resp.status_code == 200:
             response_text = resp.json().get("response", "")
-            if "HALCYON_OK" in response_text or len(response_text) > 3:
+            if "ARCIS_OK" in response_text or len(response_text) > 3:
                 checks.append(_check("llm_inference_test", "pass",
                                       "Inference test passed"))
             else:

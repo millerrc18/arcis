@@ -17,50 +17,54 @@ logger = logging.getLogger(__name__)
 
 _DATA_COLLECTION_QUERIES = {
     "options_chains": (
-        "SELECT COUNT(*), MIN(collected_at), MAX(collected_at), COUNT(DISTINCT ticker) "
-        "FROM options_chains",
-        ("total_records", "first_collected", "last_collected", "tickers_covered"),
-        "total_records",
+        "SELECT COUNT(*), MAX(collected_at), COUNT(DISTINCT ticker) FROM options_chains"
     ),
     "options_metrics": (
-        "SELECT COUNT(*), MAX(collected_date), COUNT(DISTINCT ticker) "
-        "FROM options_metrics",
-        ("total_records", "last_date", "tickers_covered"),
-        "total_records",
+        "SELECT COUNT(*), MAX(collected_date), COUNT(DISTINCT ticker) FROM options_metrics"
     ),
     "vix_term_structure": (
-        "SELECT COUNT(*), MIN(collected_date), MAX(collected_date) "
-        "FROM vix_term_structure",
-        ("days_of_history", "first_date", "last_date"),
-        "days_of_history",
+        "SELECT COUNT(*), MAX(collected_date), COUNT(DISTINCT collected_date) FROM vix_term_structure"
     ),
     "macro_snapshots": (
-        "SELECT COUNT(*), COUNT(DISTINCT series_id), MAX(collected_date) "
-        "FROM macro_snapshots",
-        ("total_records", "series_tracked", "last_date"),
-        "total_records",
+        "SELECT COUNT(*), MAX(collected_date), COUNT(DISTINCT series_id) FROM macro_snapshots"
     ),
     "google_trends": (
-        "SELECT COUNT(*), COUNT(DISTINCT ticker), MAX(collected_date) "
-        "FROM google_trends",
-        ("total_records", "tickers_all_time", "last_date"),
-        "total_records",
+        "SELECT COUNT(*), MAX(collected_date), COUNT(DISTINCT ticker) FROM google_trends"
     ),
     "cboe_ratios": (
-        "SELECT COUNT(*), MAX(collected_date) FROM cboe_ratios",
-        ("total_records", "last_date"),
-        "total_records",
+        "SELECT COUNT(*), MAX(collected_date), COUNT(DISTINCT ratio_type) FROM cboe_ratios"
+    ),
+    "earnings_calendar": (
+        "SELECT COUNT(*), MAX(collected_at), COUNT(DISTINCT ticker) FROM earnings_calendar"
+    ),
+    "edgar_filings": (
+        "SELECT COUNT(*), MAX(collected_at), COUNT(DISTINCT ticker) FROM edgar_filings"
+    ),
+    "insider_transactions": (
+        "SELECT COUNT(*), MAX(collected_at), COUNT(DISTINCT ticker) FROM insider_transactions"
+    ),
+    "short_interest": (
+        "SELECT COUNT(*), MAX(collected_at), COUNT(DISTINCT ticker) FROM short_interest"
+    ),
+    "fed_communications": (
+        "SELECT COUNT(*), MAX(collected_at), COUNT(DISTINCT comm_type) FROM fed_communications"
+    ),
+    "analyst_estimates": (
+        "SELECT COUNT(*), MAX(collected_at), COUNT(DISTINCT ticker) FROM analyst_estimates"
     ),
 }
 
 
-def _build_table_stats(row: tuple | None, fields: tuple[str, ...], zero_field: str) -> dict:
-    """Normalize a stats row into a response dict, with a stable zero shape."""
-    if not row or not row[0]:
-        return {zero_field: 0}
+def _build_table_stats(row: tuple | None) -> dict:
+    """Normalize a stats row into a stable response shape."""
+    if not row:
+        return {"total_records": 0, "latest_collection": None, "coverage_count": 0}
+
+    total_records = row[0] or 0
     return {
-        field: row[idx]
-        for idx, field in enumerate(fields)
+        "total_records": total_records,
+        "latest_collection": row[1] if total_records else None,
+        "coverage_count": row[2] if total_records else 0,
     }
 
 
@@ -257,16 +261,9 @@ def data_collection_stats():
 
     try:
         with sqlite3.connect(db_path) as conn:
-            for table_name, (sql, fields, zero_field) in _DATA_COLLECTION_QUERIES.items():
+            for table_name, sql in _DATA_COLLECTION_QUERIES.items():
                 row = conn.execute(sql).fetchone()
-                stats[table_name] = _build_table_stats(row, fields, zero_field)
-
-            if stats["google_trends"].get("total_records", 0):
-                week_row = conn.execute(
-                    "SELECT COUNT(DISTINCT ticker) FROM google_trends "
-                    "WHERE collected_date >= date('now', '-7 days')"
-                ).fetchone()
-                stats["google_trends"]["tickers_this_week"] = week_row[0] if week_row else 0
+                stats[table_name] = _build_table_stats(row)
 
     except Exception as e:
         logger.warning("data_collection_stats error: %s", e)

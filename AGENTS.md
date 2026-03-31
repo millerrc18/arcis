@@ -1,10 +1,10 @@
 <!-- Counts verified 2026-03-30: 138 src modules (registered), 77 test files, 1045 tests, 53 CLI commands, 13 dashboard pages, 59 research docs. Guardrails: 15 oversized files, 127 oversized functions, 0 missing docstrings, 11 missing migrate tables (all grandfathered). -->
 
-# AGENTS.md — Halcyon Lab Governance Document
+# AGENTS.md — Arcis Governance Document
 
 ## Purpose
 
-Halcyon Lab is an autonomous AI trading system that scans, analyzes, and executes equity trades. It combines systematic technical scoring with LLM-generated institutional-quality trade commentary, multi-source data enrichment, bracket orders via Alpaca, a risk governor with kill switch, and a self-improving training pipeline with quality gates.
+Arcis is an autonomous AI trading system that scans, analyzes, and executes equity trades. It combines systematic technical scoring with LLM-generated institutional-quality trade commentary, multi-source data enrichment, bracket orders via Alpaca, a risk governor with kill switch, and a self-improving training pipeline with quality gates.
 
 **Core Principle:** Training data quality is our #1 competitive advantage. Never sacrifice quality for speed.
 
@@ -29,7 +29,7 @@ The system is live in **bootcamp mode** — shadow paper trading on Alpaca with 
 ### src/api/
 
 #### src/api/app.py
-- **Purpose:** FastAPI application for the Halcyon Lab dashboard.
+- **Purpose:** FastAPI application for the Arcis dashboard.
 - **Called by:** none (entry point)
 - **Calls:** api.routes, api.websocket, journal.store, log_config
 - **Owns tables:** none
@@ -171,7 +171,7 @@ The system is live in **bootcamp mode** — shadow paper trading on Alpaca with 
 ### src/cli/
 
 #### src/cli/commands.py
-- **Purpose:** CLI command implementations for Halcyon Lab.
+- **Purpose:** CLI command implementations for Arcis.
 - **Called by:** main
 - **Calls:** config, council.engine, data_collection.cboe_collector, data_collection.macro_collector, data_collection.options_collector, data_collection.options_metrics, data_collection.trends_collector, data_collection.vix_collector, data_ingestion.market_data, email.notifier, evaluation.backtester, evaluation.cto_report, evaluation.feature_importance, evaluation.gate_evaluator, evaluation.system_validator, journal.store, notifications.telegram, packets.template, risk.governor, scheduler.watch, services.recap_service, services.review_service, services.scan_service, services.shadow_service, services.system_service, services.training_service, services.watchlist_service, shadow_trading.alpaca_adapter, shadow_trading.executor, shadow_trading.reconcile, training.ab_evaluation, training.backfill, training.bootstrap, training.curriculum, training.dpo_pipeline, training.leakage_detector, training.quality_filter, training.trainer, training.validation, training.versioning, universe.sp100
 - **Owns tables:** none
@@ -453,7 +453,7 @@ The system is live in **bootcamp mode** — shadow paper trading on Alpaca with 
 ### src/email/
 
 #### src/email/digest_builder.py
-- **Purpose:** Build fund-manager-style email digests for Halcyon Lab.
+- **Purpose:** Build fund-manager-style email digests for Arcis.
 - **Called by:** scheduler.watch
 - **Calls:** none
 - **Owns tables:** none
@@ -567,7 +567,7 @@ The system is live in **bootcamp mode** — shadow paper trading on Alpaca with 
 - **Tests:** tests/test_statistics.py
 
 #### src/evaluation/system_validator.py
-- **Purpose:** System validation engine for Halcyon Lab.
+- **Purpose:** System validation engine for Arcis.
 - **Called by:** api.routes.system, cli.commands, scheduler.watch
 - **Calls:** config, risk.governor, shadow_trading.alpaca_adapter
 - **Owns tables:** validation_results
@@ -711,7 +711,7 @@ The system is live in **bootcamp mode** — shadow paper trading on Alpaca with 
 ### src/logging/
 
 #### src/logging/activity.py
-- **Purpose:** Persistent activity logging for the Halcyon Lab system.
+- **Purpose:** Persistent activity logging for the Arcis system.
 - **Called by:** api.routes.system, notifications.telegram, scheduler.watch
 - **Calls:** none
 - **Owns tables:** activity_log
@@ -721,7 +721,7 @@ The system is live in **bootcamp mode** — shadow paper trading on Alpaca with 
 ### src/notifications/
 
 #### src/notifications/telegram.py
-- **Purpose:** Telegram notification client for Halcyon Lab.
+- **Purpose:** Telegram notification client for Arcis.
 - **Called by:** cli.commands, data_collection.research_synthesizer, scheduler.watch, services.scan_service, shadow_trading.bracket_monitor, shadow_trading.executor, training.canary, training.ingestion_gate
 - **Calls:** config, council.engine, logging.activity, training.versioning
 - **Owns tables:** none
@@ -1153,7 +1153,7 @@ The system is live in **bootcamp mode** — shadow paper trading on Alpaca with 
 - **Tests:** tests/test_data_integrity.py
 
 #### src/log_config.py
-- **Purpose:** Logging configuration for the Halcyon Lab system.
+- **Purpose:** Logging configuration for the Arcis system.
 - **Called by:** api.app, main
 - **Calls:** none
 - **Owns tables:** none
@@ -1161,7 +1161,7 @@ The system is live in **bootcamp mode** — shadow paper trading on Alpaca with 
 - **Tests:** none
 
 #### src/main.py
-- **Purpose:** Halcyon Lab CLI bootstrap and parser wiring.
+- **Purpose:** Arcis CLI bootstrap and parser wiring.
 - **Called by:** none (entry point)
 - **Calls:** cli.commands, config, journal.store, log_config
 - **Owns tables:** none
@@ -1177,7 +1177,7 @@ The system is live in **bootcamp mode** — shadow paper trading on Alpaca with 
 - **Tests:** tests/test_grammar_client.py
 
 #### src/schemas.py
-- **Purpose:** Pydantic models for the Halcyon Lab system.
+- **Purpose:** Pydantic models for the Arcis system.
 - **Called by:** models
 - **Calls:** none
 - **Owns tables:** none

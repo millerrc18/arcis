@@ -29,7 +29,7 @@ ET = ZoneInfo("America/New_York")
 DB_PATH = "ai_research_desk.sqlite3"
 FED_BASE = "https://www.federalreserve.gov"
 FED_HEADERS = {
-    "User-Agent": "Halcyon Lab halcyonlabai@gmail.com",
+    "User-Agent": "Arcis halcyonlabai@gmail.com",
     "Accept": "text/html",
 }
 

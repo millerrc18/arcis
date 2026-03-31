@@ -1,4 +1,4 @@
-"""CLI command implementations for Halcyon Lab.
+"""CLI command implementations for Arcis.
 
 Called by: main
 Calls: config, council.engine, data_collection.cboe_collector, data_collection.macro_collector, data_collection.options_collector, data_collection.options_metrics, data_collection.trends_collector, data_collection.vix_collector, data_ingestion.market_data, email.notifier, evaluation.backtester, evaluation.cto_report, evaluation.feature_importance, evaluation.gate_evaluator, evaluation.system_validator, journal.store, notifications.telegram, packets.template, risk.governor, scheduler.watch, services.recap_service, services.review_service, services.scan_service, services.shadow_service, services.system_service, services.training_service, services.watchlist_service, shadow_trading.alpaca_adapter, shadow_trading.executor, shadow_trading.reconcile, training.ab_evaluation, training.backfill, training.bootstrap, training.curriculum, training.dpo_pipeline, training.leakage_detector, training.quality_filter, training.trainer, training.validation, training.versioning, universe.sp100
@@ -27,7 +27,7 @@ def cmd_demo_packet(args):
 def cmd_send_test_email(args):
     success = send_email(
         "[TRADE DESK] Test Email",
-        "This is a test from the AI Research Desk. Email delivery is working.",
+        "This is a test from Arcis. Email delivery is working.",
     )
     print("Test email sent successfully." if success else "Failed to send test email.")
 
@@ -43,7 +43,7 @@ def cmd_send_test_telegram(args):
         print('    chat_id: "your-chat-id"')
         return
     success = send_telegram(
-        "🧪 <b>HALCYON LAB — TEST</b>\n"
+        "🧪 <b>ARCIS — TEST</b>\n"
         "Telegram notifications are working!\n"
         "You'll receive alerts for:\n"
         "  • Trade opens/closes\n"
@@ -785,7 +785,7 @@ def cmd_preflight(args):
     from src.services.system_service import get_system_status
 
     status = get_system_status(load_config())
-    print("\nHALCYON LAB - PREFLIGHT CHECK")
+    print("\nARCIS - PREFLIGHT CHECK")
     print(f"  Config:    {'OK' if status['config_loaded'] else 'FAIL'}")
     print(f"  Source:    {status.get('config_source', 'unknown')}")
     print(f"  Email:     {'OK' if status['email_configured'] else 'FAIL'}")
@@ -813,7 +813,7 @@ def cmd_train_pipeline(args):
     from src.training.quality_filter import score_all_unscored
     from src.training.trainer import run_fine_tune
 
-    print("\n=== HALCYON TRAINING PIPELINE ===\n")
+    print("\n=== ARCIS TRAINING PIPELINE ===\n")
 
     print("[1/5] Scoring unscored training examples...")
     result = score_all_unscored()
@@ -884,50 +884,76 @@ def cmd_performance_report(args):
 
 def cmd_collect_data(args):
     """Run data collection pipeline manually."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from src.data_collection.analyst_collector import collect_analyst_estimates
     from src.data_collection.cboe_collector import collect_cboe_ratios
+    from src.data_collection.edgar_collector import collect_new_filings
+    from src.data_collection.fed_collector import collect_fed_communications
+    from src.data_collection.insider_collector import collect_insider_transactions
     from src.data_collection.macro_collector import collect_macro_snapshots
     from src.data_collection.options_collector import collect_options_chains
     from src.data_collection.options_metrics import compute_options_metrics
+    from src.data_collection.short_interest_collector import collect_short_interest
     from src.data_collection.trends_collector import collect_google_trends
     from src.data_collection.vix_collector import collect_vix_term_structure
     from src.universe.sp100 import get_sp100_universe
 
+    def _run(label: str, fn, *call_args, **call_kwargs):
+        print(label)
+        try:
+            result = fn(*call_args, **call_kwargs)
+            print(f"  {result}")
+            return result
+        except Exception as exc:
+            print(f"  failed: {exc}")
+            return {"error": str(exc)}
+
     print("\n=== DATA COLLECTION ===\n")
     universe = get_sp100_universe()
+    now = datetime.now(ZoneInfo("America/New_York"))
+    results = {}
 
-    print("[1/7] Collecting options chains...")
-    print(f"  {collect_options_chains(universe)}")
+    results["options"] = _run("[1/12] Collecting options chains...", collect_options_chains, universe)
+    results["metrics"] = _run("[2/12] Computing options metrics...", compute_options_metrics, universe)
+    results["vix"] = _run("[3/12] VIX term structure...", collect_vix_term_structure)
+    results["cboe"] = _run("[4/12] CBOE ratios...", collect_cboe_ratios)
+    results["macro"] = _run("[5/12] FRED macro indicators...", collect_macro_snapshots)
+    results["trends"] = _run("[6/12] Google Trends (batch)...", collect_google_trends, universe, batch_size=20)
 
-    print("[2/7] Computing options metrics...")
-    print(f"  {compute_options_metrics(universe)}")
-
-    print("[3/7] VIX term structure...")
-    print(f"  {collect_vix_term_structure()}")
-
-    print("[4/7] CBOE ratios...")
-    print(f"  {collect_cboe_ratios()}")
-
-    print("[5/7] FRED macro indicators...")
-    print(f"  {collect_macro_snapshots()}")
-
-    print("[6/7] Google Trends (batch)...")
-    print(f"  {collect_google_trends(universe, batch_size=20)}")
-
-    print("[7/7] Earnings calendar...")
+    print("[7/12] Earnings calendar...")
     try:
         from scripts.fetch_earnings_calendar import fetch_earnings_dates
 
-        result = fetch_earnings_dates(universe)
-        print(f"  {result}")
-        upcoming = result.get("upcoming_7d", [])
+        results["earnings"] = fetch_earnings_dates(universe)
+        print(f"  {results['earnings']}")
+        upcoming = results["earnings"].get("upcoming_7d", [])
         if upcoming:
             print("\n  ⚠️  EARNINGS THIS WEEK:")
             for item in upcoming:
                 print(f"    • {item}")
     except Exception as exc:
+        results["earnings"] = {"error": str(exc)}
         print(f"  Earnings fetch failed: {exc}")
 
-    print("\nData collection complete.")
+    results["edgar"] = _run("[8/12] SEC EDGAR filings...", collect_new_filings, universe)
+    results["insider"] = _run("[9/12] Insider transactions...", collect_insider_transactions, universe)
+
+    if now.day in (1, 2, 15, 16):
+        results["short_interest"] = _run("[10/12] Short interest...", collect_short_interest, universe)
+    else:
+        results["short_interest"] = {"status": "skipped", "reason": "not settlement date"}
+        print("[10/12] Short interest...")
+        print("  skipped (not settlement date)")
+
+    results["fed"] = _run("[11/12] Fed communications...", collect_fed_communications)
+    results["analyst"] = _run("[12/12] Analyst estimates (batch)...", collect_analyst_estimates, universe, batch_size=20)
+
+    failed_collectors = [name for name, result in results.items() if isinstance(result, dict) and "error" in result]
+    print(f"\nData collection complete. Collectors: {len(results)}, failures: {len(failed_collectors)}")
+    if failed_collectors:
+        print(f"Failed collectors: {', '.join(failed_collectors)}")
 
 
 def cmd_fetch_earnings(args):

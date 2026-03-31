@@ -139,7 +139,7 @@ def build_eod_recap(packet_worthy: list[dict], watchlist: list[dict],
 
     # Footer
     lines.append("---")
-    lines.append("Halcyon Lab AI Research Desk")
+    lines.append("Arcis Systematic Equity Research")
     lines.append(f"EOD recap for {date_str}. Full post-trade review is only required for trades you actually execute.")
 
     return "\n".join(lines)

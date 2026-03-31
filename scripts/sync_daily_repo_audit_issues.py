@@ -21,7 +21,7 @@ def _request(method: str, url: str, token: str, payload: dict | None = None) -> 
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
-            "User-Agent": "halcyon-daily-repo-audit",
+            "User-Agent": "arcis-daily-repo-audit",
         },
     )
     with urllib.request.urlopen(req) as resp:

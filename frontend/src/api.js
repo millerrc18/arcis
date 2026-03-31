@@ -77,6 +77,8 @@ export const api = {
   getDoc: (docId) => fetchApi(`/docs/${docId}`),
   getMetricHistory: (days = 90) => fetchApi(`/metric-history?days=${days}`),
   getCosts: (days = 30) => fetchApi(`/costs?days=${days}`),
+  getBuildScore: () => fetchApi('/build-score'),
+  getTrafficLightCurrent: () => fetchApi('/traffic-light/current'),
   // Council
   getCouncilLatest: () => fetchApi('/council/latest'),
   getCouncilHistory: (days = 30) => fetchApi(`/council/history?days=${days}`),
@@ -101,6 +103,7 @@ export const api = {
   // Actions
   triggerActionScan: () => fetchApi('/actions/scan', { method: 'POST' }),
   triggerCtoReport: () => fetchApi('/actions/cto-report', { method: 'POST' }),
+  triggerCollectData: () => fetchApi('/actions/collect-data', { method: 'POST' }),
   triggerCollectTraining: () => fetchApi('/actions/collect-training', { method: 'POST' }),
   triggerTrainPipeline: () => fetchApi('/actions/train-pipeline', { method: 'POST' }),
   triggerScore: () => fetchApi('/actions/score', { method: 'POST' }),

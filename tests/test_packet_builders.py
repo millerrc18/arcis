@@ -235,4 +235,4 @@ class TestBuildEodRecap:
 
     def test_footer_present(self, mock_name):
         result = build_eod_recap([], [], [], "2025-06-15")
-        assert "Halcyon Lab AI Research Desk" in result
+        assert "Arcis Systematic Equity Research" in result

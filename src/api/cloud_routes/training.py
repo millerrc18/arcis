@@ -11,6 +11,61 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 
+_DATA_COLLECTION_QUERIES = {
+    "options_chains": (
+        "SELECT COUNT(*) AS total_records, MAX(collected_at) AS latest_collection, "
+        "COUNT(DISTINCT ticker) AS coverage_count FROM options_chains"
+    ),
+    "options_metrics": (
+        "SELECT COUNT(*) AS total_records, MAX(collected_date) AS latest_collection, "
+        "COUNT(DISTINCT ticker) AS coverage_count FROM options_metrics"
+    ),
+    "vix_term_structure": (
+        "SELECT COUNT(*) AS total_records, MAX(collected_date) AS latest_collection, "
+        "COUNT(DISTINCT collected_date) AS coverage_count FROM vix_term_structure"
+    ),
+    "macro_snapshots": (
+        "SELECT COUNT(*) AS total_records, MAX(collected_date) AS latest_collection, "
+        "COUNT(DISTINCT series_id) AS coverage_count FROM macro_snapshots"
+    ),
+    "google_trends": (
+        "SELECT COUNT(*) AS total_records, MAX(collected_date) AS latest_collection, "
+        "COUNT(DISTINCT ticker) AS coverage_count FROM google_trends"
+    ),
+    "cboe_ratios": (
+        "SELECT COUNT(*) AS total_records, MAX(collected_date) AS latest_collection, "
+        "COUNT(DISTINCT ratio_type) AS coverage_count FROM cboe_ratios"
+    ),
+    "earnings_calendar": (
+        "SELECT COUNT(*) AS total_records, MAX(collected_at) AS latest_collection, "
+        "COUNT(DISTINCT ticker) AS coverage_count FROM earnings_calendar"
+    ),
+    "edgar_filings": (
+        "SELECT COUNT(*) AS total_records, MAX(collected_at) AS latest_collection, "
+        "COUNT(DISTINCT ticker) AS coverage_count FROM edgar_filings"
+    ),
+    "insider_transactions": (
+        "SELECT COUNT(*) AS total_records, MAX(collected_at) AS latest_collection, "
+        "COUNT(DISTINCT ticker) AS coverage_count FROM insider_transactions"
+    ),
+    "short_interest": (
+        "SELECT COUNT(*) AS total_records, MAX(collected_at) AS latest_collection, "
+        "COUNT(DISTINCT ticker) AS coverage_count FROM short_interest"
+    ),
+    "fed_communications": (
+        "SELECT COUNT(*) AS total_records, MAX(collected_at) AS latest_collection, "
+        "COUNT(DISTINCT comm_type) AS coverage_count FROM fed_communications"
+    ),
+    "analyst_estimates": (
+        "SELECT COUNT(*) AS total_records, MAX(collected_at) AS latest_collection, "
+        "COUNT(DISTINCT ticker) AS coverage_count FROM analyst_estimates"
+    ),
+}
+
+
+def _zero_data_collection_shape() -> dict:
+    return {"total_records": 0, "latest_collection": None, "coverage_count": 0}
+
 
 def create_router(runtime, verify_auth):
     """Build the cloud training/data router."""
@@ -124,6 +179,23 @@ def create_router(runtime, verify_auth):
         except Exception as exc:
             runtime.logger.error("Earnings error: %s", exc)
             return {"days_ahead": days, "count": 0, "earnings": [], "error": str(exc)}
+
+    @router.get("/api/data-collection-stats", dependencies=[Depends(verify_auth)])
+    def data_collection_stats():
+        stats = {}
+        for table_name, sql in _DATA_COLLECTION_QUERIES.items():
+            try:
+                row = runtime.query_one(sql) or {}
+                total_records = row.get("total_records", 0) or 0
+                stats[table_name] = {
+                    "total_records": total_records,
+                    "latest_collection": row.get("latest_collection") if total_records else None,
+                    "coverage_count": row.get("coverage_count", 0) if total_records else 0,
+                }
+            except Exception as exc:
+                runtime.logger.warning("[API] data_collection_stats %s failed: %s", table_name, exc)
+                stats[table_name] = _zero_data_collection_shape()
+        return stats
 
     @router.get("/api/audit/latest", dependencies=[Depends(verify_auth)])
     def audit_latest():

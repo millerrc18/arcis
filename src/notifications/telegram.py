@@ -1,4 +1,4 @@
-"""Telegram notification client for Halcyon Lab.
+"""Telegram notification client for Arcis.
 
 Called by: cli.commands, data_collection.research_synthesizer, scheduler.watch, services.scan_service, shadow_trading.bracket_monitor, shadow_trading.executor, training.canary, training.ingestion_gate
 Calls: config, council.engine, logging.activity, training.versioning
@@ -726,7 +726,7 @@ def check_action_reminders(db_path: str = "ai_research_desk.sqlite3") -> list[st
             if now.weekday() == 6 and now.hour == 17:
                 notify_action_required(
                     "Weekly review ritual",
-                    "Export 20 recent training examples + halcyon.log + dashboard screenshots.\n"
+                    "Export 20 recent training examples + arcis.log + dashboard screenshots.\n"
                     "Review with Claude for format drift, look-ahead bias, regime gaps.\n"
                     "Prepare Monday action items.",
                     urgency="normal",
@@ -821,7 +821,7 @@ def handle_command(command: str, args: str) -> str:
     try:
         if command == "/help" or command == "/start":
             return (
-                "🤖 <b>HALCYON LAB COMMANDS</b>\n\n"
+                "🤖 <b>ARCIS COMMANDS</b>\n\n"
                 "/status — System status\n"
                 "/trades — Open trades\n"
                 "/pnl — Current P&L\n"
@@ -833,7 +833,7 @@ def handle_command(command: str, args: str) -> str:
                 "/health — GPU & system health\n"
                 "/log — Recent activity log\n"
                 "/pull — Git pull latest code\n"
-                "/logs — Last 20 lines of halcyon.log\n"
+                "/logs — Last 20 lines of arcis.log\n"
                 "/gpu — GPU details (nvidia-smi)\n"
                 "/disk — Disk usage\n"
                 "/uptime — Watch loop uptime\n"
@@ -1278,9 +1278,9 @@ def _cmd_pull() -> str:
 
 
 def _cmd_logs() -> str:
-    """Last 20 lines of halcyon.log."""
+    """Last 20 lines of arcis.log."""
     import os
-    log_path = os.path.join("logs", "halcyon.log")
+    log_path = os.path.join("logs", "arcis.log")
     try:
         with open(log_path, "r") as f:
             lines = f.readlines()

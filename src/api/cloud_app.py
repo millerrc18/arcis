@@ -57,9 +57,9 @@ CLOUD_ACTION_MSG = {
 
 
 app = FastAPI(
-    title="Halcyon Lab Cloud API",
+    title="Arcis Cloud API",
     version="1.0.0",
-    description="Read-only cloud API for the Halcyon Lab trading system",
+    description="Read-only cloud API for the Arcis trading system",
 )
 
 app.add_middleware(

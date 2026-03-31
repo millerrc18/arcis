@@ -1,4 +1,4 @@
-"""Pydantic models for the Halcyon Lab system.
+"""Pydantic models for the Arcis system.
 
 Called by: models
 Calls: none

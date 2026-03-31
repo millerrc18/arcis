@@ -1,4 +1,4 @@
-# Halcyon Lab — Training Guide
+# Arcis — Training Guide
 
 ## Core Principle
 

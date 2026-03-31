@@ -2,32 +2,32 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Halcyon Lab — Master Blueprint (11×17)</title>
+<title>Arcis — Master Blueprint (11×17)</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400&display=swap');
-  :root,[data-theme="light"]{
-    --teal:#0D9488;--teal-l:#14B8A6;--teal-bg:#F0FDFA;
-    --indigo:#6366F1;--indigo-l:#818CF8;--indigo-bg:#EEF2FF;
-    --amber:#F59E0B;--amber-l:#FBBF24;--amber-bg:#FFFBEB;
-    --rose:#E11D48;--rose-l:#FB7185;--rose-bg:#FFF1F2;
-    --emerald:#059669;--emerald-l:#34D399;
-    --purple:#7C3AED;--purple-l:#A78BFA;
-    --slate:#475569;--slate-l:#64748B;--slate-bg:#F1F5F9;
-    --bg:#F8FAFC;--page:#FFF;--text:#0F172A;--text2:#475569;--muted:#94A3B8;
-    --card:#FFF;--border:#E2E8F0;--detail-bg:#FFF;--overlay:rgba(0,0,0,.3);
-    --flow-bg:rgba(226,232,240,0.35);
+  :root,[data-theme="dark"]{
+    --arcis-accent:#2563EB;--arcis-accent-light:#3B82F6;--arcis-accent-muted:rgba(37,99,235,.08);
+    --chart-4-base:#A78BFA;--chart-4-soft:#E879F9;--chart-4-muted:rgba(167,139,250,.12);
+    --arcis-warning:#F59E0B;--chart-7-soft:#FBBF24;--arcis-warning-muted:rgba(245,158,11,.12);
+    --arcis-danger:#EF4444;--chart-5-soft:#FB7185;--arcis-danger-muted:rgba(239,68,68,.12);
+    --arcis-success:#22C55E;--arcis-teal-light:#14B8A6;
+    --chart-8-base:#E879F9;--chart-8-soft:#A78BFA;
+    --arcis-text-muted:#52525B;--arcis-text-secondary:#A1A1AA;--arcis-bg-elevated:#12121A;
+    --bg:#050507;--page:#0C0C10;--text:#E4E4E7;--text2:#A1A1AA;--muted:#52525B;
+    --card:#0C0C10;--border:rgba(37,99,235,.08);--detail-bg:#0C0C10;--overlay:rgba(0,0,0,.6);
+    --flow-bg:#12121A;
   }
-  [data-theme="dark"]{
-    --teal:#14B8A6;--teal-l:#2DD4BF;--teal-bg:#0D3331;
-    --indigo:#818CF8;--indigo-l:#A5B4FC;--indigo-bg:#1E1B4B;
-    --amber:#FBBF24;--amber-l:#FDE68A;--amber-bg:#422006;
-    --rose:#FB7185;--rose-l:#FDA4AF;--rose-bg:#3B1020;
-    --emerald:#34D399;--emerald-l:#6EE7B7;
-    --purple:#A78BFA;--purple-l:#C4B5FD;
-    --slate:#94A3B8;--slate-l:#CBD5E1;--slate-bg:#1E293B;
-    --bg:#0B1120;--page:#111827;--text:#F1F5F9;--text2:#CBD5E1;--muted:#64748B;
-    --card:#1E293B;--border:#334155;--detail-bg:#1E293B;--overlay:rgba(0,0,0,.6);
-    --flow-bg:rgba(30,41,59,0.5);
+  [data-theme="light"]{
+    --arcis-accent:#1D4ED8;--arcis-accent-light:#2563EB;--arcis-accent-muted:rgba(37,99,235,.06);
+    --chart-4-base:#A78BFA;--chart-4-soft:#E879F9;--chart-4-muted:rgba(167,139,250,.10);
+    --arcis-warning:#F59E0B;--chart-7-soft:#FBBF24;--arcis-warning-muted:rgba(245,158,11,.10);
+    --arcis-danger:#EF4444;--chart-5-soft:#FB7185;--arcis-danger-muted:rgba(239,68,68,.10);
+    --arcis-success:#22C55E;--arcis-teal-light:#14B8A6;
+    --chart-8-base:#E879F9;--chart-8-soft:#A78BFA;
+    --arcis-text-muted:#64748B;--arcis-text-secondary:#475569;--arcis-bg-elevated:#F1F5F9;
+    --bg:#F8FAFC;--page:#FFF;--text:#0F172A;--text2:#475569;--muted:#64748B;
+    --card:#FFF;--border:#E2E8F0;--detail-bg:#FFF;--overlay:rgba(0,0,0,.3);
+    --flow-bg:#F1F5F9;
   }
   *{margin:0;padding:0;box-sizing:border-box}
   body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text)}
@@ -44,15 +44,15 @@
   }
 
   /* Header spans full width */
-  .hdr{grid-column:1/-1;display:flex;align-items:flex-start;justify-content:space-between;border-bottom:2px solid var(--teal);padding-bottom:5px;margin-bottom:4px}
-  .hdr h1{font-size:18px;font-weight:700;color:var(--teal);letter-spacing:-.5px}
+  .hdr{grid-column:1/-1;display:flex;align-items:flex-start;justify-content:space-between;border-bottom:2px solid var(--arcis-accent);padding-bottom:5px;margin-bottom:4px}
+  .hdr h1{font-size:18px;font-weight:700;color:var(--arcis-accent);letter-spacing:-.5px}
   .hdr-sub{font-size:9px;color:var(--muted);margin-top:1px}
   .legend{display:flex;gap:10px;font-size:7.5px;color:var(--muted);margin-top:3px;flex-wrap:wrap}
   .legend span{display:flex;align-items:center;gap:2px}
   .legend i{width:8px;height:8px;border-radius:2px;display:inline-block;flex-shrink:0}
-  .lg-a{background:var(--teal)}.lg-p{border:1.5px dashed var(--amber)}.lg-ai{background:var(--indigo)}.lg-t{background:var(--amber)}.lg-r{background:var(--rose)}
-  .toggle{background:var(--slate-bg);border:1px solid var(--border);border-radius:16px;padding:3px 10px;cursor:pointer;font-size:9px;color:var(--text2);font-family:inherit;white-space:nowrap;margin-top:4px}
-  .toggle:hover{border-color:var(--teal);color:var(--teal)}
+  .lg-a{background:var(--arcis-accent)}.lg-p{border:1.5px dashed var(--arcis-warning)}.lg-ai{background:var(--chart-4-base)}.lg-t{background:var(--arcis-warning)}.lg-r{background:var(--arcis-danger)}
+  .toggle{background:var(--arcis-bg-elevated);border:1px solid var(--border);border-radius:16px;padding:3px 10px;cursor:pointer;font-size:9px;color:var(--text2);font-family:inherit;white-space:nowrap;margin-top:4px}
+  .toggle:hover{border-color:var(--arcis-accent);color:var(--arcis-accent)}
 
   /* LEFT COLUMN: Data sources + infrastructure */
   .left{display:flex;flex-direction:column;gap:4px;overflow:hidden}
@@ -60,11 +60,11 @@
 
   /* CENTER COLUMN: Narrative flow */
   .center{display:flex;flex-direction:column;align-items:center;gap:0;position:relative;background:var(--flow-bg);border-radius:12px;padding:6px 10px;overflow:hidden}
-  .flow-title{font-size:9px;font-weight:700;color:var(--teal);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
-  .flow-arrow{color:var(--teal);font-size:12px;line-height:1;margin:1px 0}
+  .flow-title{font-size:9px;font-weight:700;color:var(--arcis-accent);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px}
+  .flow-arrow{color:var(--arcis-accent);font-size:12px;line-height:1;margin:1px 0}
   .flow-label{font-size:7px;color:var(--muted);font-weight:600;margin:0 0 1px}
-  .flywheel-arrow{color:var(--amber);font-size:10px;line-height:1;margin:2px 0}
-  .flywheel-label{font-size:7.5px;font-weight:700;color:var(--amber);letter-spacing:.5px}
+  .flywheel-arrow{color:var(--arcis-warning);font-size:10px;line-height:1;margin:2px 0}
+  .flywheel-label{font-size:7.5px;font-weight:700;color:var(--arcis-warning);letter-spacing:.5px}
 
   /* RIGHT COLUMN: Training + parallel systems */
   .right{display:flex;flex-direction:column;gap:4px;overflow:hidden}
@@ -73,15 +73,15 @@
   .box{border-radius:6px;padding:5px 7px;cursor:pointer;position:relative;transition:all .12s;width:100%}
   .box:hover{transform:translateY(-1px);box-shadow:0 3px 10px rgba(0,0,0,.12);z-index:10}
   .box.flow-box{max-width:360px;width:100%}
-  .b-teal{background:linear-gradient(135deg,var(--teal-l),var(--teal));color:#fff}
-  .b-indigo{background:linear-gradient(135deg,var(--indigo-l),var(--indigo));color:#fff}
-  .b-amber{background:linear-gradient(135deg,var(--amber-l),var(--amber));color:#fff}
-  .b-rose{background:linear-gradient(135deg,var(--rose-l),var(--rose));color:#fff}
-  .b-emerald{background:linear-gradient(135deg,var(--emerald-l),var(--emerald));color:#fff}
-  .b-slate{background:linear-gradient(135deg,var(--slate-l),var(--slate));color:#fff}
-  .b-purple{background:linear-gradient(135deg,var(--purple-l),var(--purple));color:#fff}
+  .b-teal{background:linear-gradient(135deg,var(--arcis-accent-light),var(--arcis-accent));color:#fff}
+  .b-indigo{background:linear-gradient(135deg,var(--chart-4-soft),var(--chart-4-base));color:#fff}
+  .b-amber{background:linear-gradient(135deg,var(--chart-7-soft),var(--arcis-warning));color:#fff}
+  .b-rose{background:linear-gradient(135deg,var(--chart-5-soft),var(--arcis-danger));color:#fff}
+  .b-emerald{background:linear-gradient(135deg,var(--arcis-teal-light),var(--arcis-success));color:#fff}
+  .b-slate{background:linear-gradient(135deg,var(--arcis-text-secondary),var(--arcis-text-muted));color:#fff}
+  .b-purple{background:linear-gradient(135deg,var(--chart-8-soft),var(--chart-8-base));color:#fff}
   .b-kill{background:linear-gradient(135deg,#991B1B,#7F1D1D);color:#fff}
-  .b-plan{background:var(--card);border:1.5px dashed var(--amber);color:var(--text)}
+  .b-plan{background:var(--card);border:1.5px dashed var(--arcis-warning);color:var(--text)}
   .b-future{background:var(--card);border:1.5px dashed var(--border);color:var(--muted)}
   .bt{font-size:8px;font-weight:700;line-height:1.2}.bs{font-size:6.5px;opacity:.85;line-height:1.25;margin-top:1px}.bs2{font-size:6px;opacity:.7}
   .expand-i{position:absolute;top:2px;right:4px;font-size:6px;opacity:.35}
@@ -91,15 +91,15 @@
   .side-box .bt{font-size:7.5px}.side-box .bs{font-size:6px}
 
   /* Desk mini-cards */
-  .desk-card{border:1.5px solid var(--teal);border-radius:6px;padding:4px;background:var(--card);width:100%}
-  .desk-card.planned{border-color:var(--amber);border-style:dashed}
+  .desk-card{border:1.5px solid var(--arcis-accent);border-radius:6px;padding:4px;background:var(--card);width:100%}
+  .desk-card.planned{border-color:var(--arcis-warning);border-style:dashed}
   .desk-hdr{font-size:7px;font-weight:700;text-align:center;padding:2px;border-radius:3px;margin-bottom:2px}
-  .desk-hdr.active{background:var(--teal);color:#fff}
-  .desk-hdr.plan{background:var(--amber-bg);color:var(--amber)}
+  .desk-hdr.active{background:var(--arcis-accent);color:#fff}
+  .desk-hdr.plan{background:var(--arcis-warning-muted);color:var(--arcis-warning)}
   .strat-row{display:flex;gap:2px}
   .strat-row .box{flex:1;text-align:center;padding:3px 4px}
   .pill{font-size:5.5px;font-weight:700;padding:1px 5px;border-radius:6px;color:#fff;display:inline-block}
-  .pill-1{background:var(--teal)}.pill-34{background:var(--amber)}.pill-56{background:var(--slate)}
+  .pill-1{background:var(--arcis-accent)}.pill-34{background:var(--arcis-warning)}.pill-56{background:var(--arcis-text-muted)}
 
   /* Outcomes row */
   .outcomes{display:flex;gap:3px;width:100%;max-width:360px}
@@ -113,24 +113,24 @@
   .metrics label{font-size:6px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
   .metrics p{font-size:7.5px;color:#fff;margin-top:1px}
   [data-theme="dark"] .metrics{background:#020617}
-  .formula{text-align:center;border:1px solid var(--teal);border-radius:6px;padding:3px;font-size:7.5px;color:var(--text);background:var(--card)}
-  .formula strong{color:var(--teal)}
+  .formula{text-align:center;border:1px solid var(--arcis-accent);border-radius:6px;padding:3px;font-size:7.5px;color:var(--text);background:var(--card)}
+  .formula strong{color:var(--arcis-accent)}
   footer{grid-column:1/-1;text-align:center;font-size:6.5px;color:var(--muted);margin-top:2px}
 
   /* Detail panel */
   .overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:var(--overlay);z-index:999;backdrop-filter:blur(2px)}
   .overlay.show{display:block}
-  .detail-panel{display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--detail-bg);border-radius:12px;padding:18px 22px;z-index:1000;box-shadow:0 20px 60px rgba(0,0,0,.25);max-width:480px;width:90%;max-height:80vh;overflow-y:auto;border-top:4px solid var(--teal)}
+  .detail-panel{display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--detail-bg);border-radius:12px;padding:18px 22px;z-index:1000;box-shadow:0 20px 60px rgba(0,0,0,.25);max-width:480px;width:90%;max-height:80vh;overflow-y:auto;border-top:4px solid var(--arcis-accent)}
   .detail-panel.show{display:block}
   .detail-panel h3{font-size:14px;font-weight:700;margin-bottom:8px;color:var(--text)}
   .detail-panel .close{position:absolute;top:10px;right:14px;cursor:pointer;font-size:18px;color:var(--muted);background:none;border:none;font-family:inherit}
   .detail-panel .close:hover{color:var(--text)}
   .dg{display:grid;gap:8px}
-  .dg label{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--teal)}
+  .dg label{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--arcis-accent)}
   .dg p{font-size:11px;color:var(--text);line-height:1.5}
-  .dg code{font-family:'JetBrains Mono',monospace;font-size:9px;background:var(--slate-bg);padding:1px 4px;border-radius:3px}
+  .dg code{font-family:'JetBrains Mono',monospace;font-size:9px;background:var(--arcis-bg-elevated);padding:1px 4px;border-radius:3px}
   .badge{display:inline-block;font-size:8px;font-weight:600;padding:2px 7px;border-radius:8px;margin-bottom:6px}
-  .badge-live{background:var(--teal-bg);color:var(--teal)}.badge-plan{background:var(--amber-bg);color:var(--amber)}.badge-future{background:var(--slate-bg);color:var(--slate)}
+  .badge-live{background:var(--arcis-accent-muted);color:var(--arcis-accent)}.badge-plan{background:var(--arcis-warning-muted);color:var(--arcis-warning)}.badge-future{background:var(--arcis-bg-elevated);color:var(--arcis-text-muted)}
 
   /* Connector lines between columns */
   .conn{position:absolute;pointer-events:none}
@@ -141,7 +141,7 @@
   <!-- HEADER -->
   <div class="hdr">
     <div>
-      <h1>HALCYON LAB — Master Blueprint</h1>
+      <h1>ARCIS — Master Blueprint</h1>
       <div class="hdr-sub">Autonomous AI-Powered Equity Trading System · Architecture v2 · March 2026</div>
       <div class="legend">
         <span><i class="lg-a"></i> Active</span>
@@ -177,7 +177,7 @@
   <div class="bottom">
     <div class="phases" id="phases"></div>
     <div class="metrics">
-      <div><label>Codebase</label><p>141 files · 29K LOC · 1,032 tests · 72 routes · 50 CLI</p></div>
+      <div><label>Codebase</label><p>165 files · 33.8K LOC · 1,046 tests · 105 API routes · 53 CLI</p></div>
       <div><label>HSHS</label><p>Performance · Model Quality · Data Asset · Flywheel · Defensibility</p></div>
       <div><label>Gates</label><p>50 trades → 100 (PSR>90%) → 200 (SR≥1.0) → 500 (DSR>0.95)</p></div>
       <div><label>Audit</label><p>38 issues (3C · 8H · 15M · 12L) → Reliability Sprint queued</p></div>
@@ -185,15 +185,15 @@
     <div class="formula"><strong>SR = S×√N / √(1+(N−1)×ρ)</strong> · 4 strategies (ρ=0.15): SR≈0.99 · 8 strategies: SR≈1.17 · Equal-weight → Inv-vol → Correlation-aware + Black-Litterman</div>
   </div>
 
-  <footer>halcyonlab.app · github.com/millerrc18/halcyon-lab · 34 research docs · Framework v2 · Core: the data asset — not the model, not the returns — is the most valuable component</footer>
+  <footer>halcyonlab.app · github.com/millerrc18/halcyon-lab · 66 research docs · Arcis Framework v2 · Core: the data asset — not the model, not the returns — is the most valuable component</footer>
 </div>
 
 <div class="overlay" id="ov" onclick="closeD()"></div>
 <div class="detail-panel" id="dp"><button class="close" onclick="closeD()">&times;</button><div id="dc"></div></div>
 
 <script>
-function toggleTheme(){const c=document.documentElement.getAttribute('data-theme')||'light',n=c==='light'?'dark':'light';document.documentElement.setAttribute('data-theme',n);document.getElementById('themeBtn').textContent=n==='dark'?'☾ Dark':'☀ Light';localStorage.setItem('hl-bp',n)}
-(function(){const s=localStorage.getItem('hl-bp')||'light';document.documentElement.setAttribute('data-theme',s);const b=document.getElementById('themeBtn');if(b)b.textContent=s==='dark'?'☾ Dark':'☀ Light'})();
+function toggleTheme(){const c=document.documentElement.getAttribute('data-theme')||'light',n=c==='light'?'dark':'light';document.documentElement.setAttribute('data-theme',n);document.getElementById('themeBtn').textContent=n==='dark'?'☾ Dark':'☀ Light';localStorage.setItem('arcis-blueprint-theme',n)}
+(function(){const s=localStorage.getItem('arcis-blueprint-theme')||'dark';document.documentElement.setAttribute('data-theme',s);const b=document.getElementById('themeBtn');if(b)b.textContent=s==='dark'?'☾ Dark':'☀ Light'})();
 function showD(i){const st=i.c?.includes('plan')?'plan':i.c?.includes('future')?'future':'live';document.getElementById('dc').innerHTML=`<h3>${i.t}</h3><span class="badge badge-${st}">${{live:'Active',plan:'Planned',future:'Future'}[st]}</span><div class="dg"><div><label>What</label><p>${i.W||'—'}</p></div><div><label>Why</label><p>${i.Y||'—'}</p></div><div><label>Who (code)</label><p>${i.H||'—'}</p></div><div><label>When</label><p>${i.N||'—'}</p></div><div><label>Where</label><p>${i.R||'—'}</p></div></div>`;document.getElementById('dp').classList.add('show');document.getElementById('ov').classList.add('show')}
 function closeD(){document.getElementById('dp').classList.remove('show');document.getElementById('ov').classList.remove('show')}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeD()});
@@ -213,8 +213,8 @@ const L=document.getElementById('left-col');
   {c:'b-teal side-box',t:'Options / VIX / CBOE',s:'Chains · Term structure · Put/call',W:'Full EOD options chains, VIX term structure, CBOE ratios.',Y:'Passive collection for future Options Desk. VIX powers regime detection.',H:'<code>options_collector.py</code>, <code>vix_collector.py</code>',N:'Nightly 9:30PM',R:'<code>options_chains</code>, <code>vix_term_structure</code>'},
   {c:'b-teal side-box',t:'12 Night Collectors',s:'Short int · Fed · Trends · Earnings',W:'12 specialized collectors each producing irreplaceable daily snapshots.',Y:'Temporal coverage is the #1 defensible asset. Cannot be reconstructed.',H:'<code>src/data_collection/</code> 12 modules',N:'9:30PM nightly, concurrent',R:'12 dedicated tables → Render'},
   {c:'b-plan side-box',t:'Unusual Whales ($50/mo)',s:'Options flow · Phase 2',W:'Unusual options activity: block trades, sweeps, dark pool.',Y:'Highest-value alt data for budget.',H:'Future integration',N:'Phase 2, passive only',R:'New <code>options_flow</code> table'},
-  {c:'b-slate side-box',t:'SQLite (35 tables)',s:'WAL · Backups · Local primary',W:'35 tables, WAL mode, daily backup.',Y:'Right choice at this scale. Zero config.',H:'All modules',N:'Written continuously',R:'<code>ai_research_desk.sqlite3</code>'},
-  {c:'b-teal side-box',t:'halcyonlab.app',s:'11 pages · Render · AuthGate · PWA',W:'React 18 dashboard. 11 pages. Accessible anywhere.',Y:'Makes the system observable.',H:'<code>frontend/src/</code> + <code>cloud_app.py</code>',N:'Always. 30s refresh.',R:'Render: API $7 + Postgres $7'},
+  {c:'b-slate side-box',t:'SQLite (42 tables)',s:'WAL · Backups · Local primary',W:'42 tables, WAL mode, daily backup.',Y:'Right choice at this scale. Zero config.',H:'All modules',N:'Written continuously',R:'<code>ai_research_desk.sqlite3</code>'},
+  {c:'b-teal side-box',t:'halcyonlab.app',s:'13 pages · Render · AuthGate · PWA',W:'React 18 dashboard. 13 pages. Accessible anywhere.',Y:'Makes the system observable.',H:'<code>frontend/src/</code> + <code>cloud_app.py</code>',N:'Always. 30s refresh.',R:'Render: API $7 + Postgres $7'},
   {c:'b-teal side-box',t:'Telegram (29 types)',s:'Trade · P&L · Council · Regime',W:'29 notification types + command interface.',Y:'Push notifications = always aware.',H:'<code>src/notifications/telegram.py</code>',N:'Real-time + scheduled',R:'Telegram Bot API'},
   {c:'b-slate side-box',t:'RTX 3060 12GB → 3090',s:'75% util · Inference ≤30% · Train ≤45%',W:'Consumer GPU. Upgrade path: 3090 → dual 3090.',Y:'Strategic slack (25%) prevents latency degradation.',H:'<code>src/scheduler/vram_manager.py</code>',N:'24/7. Handoffs at 5:15AM/6:50PM.',R:'Ryan\'s machine'},
   {c:'b-slate side-box',t:'$64/month total',s:'Render $14 · APIs $50 · → $125 Ph2',W:'Architecture designed for minimal cost.',Y:'$64/mo vs institutional $100K+/mo.',H:'<code>api_costs</code> table',N:'Tracked per API call',R:'Monthly CTO report'},
@@ -315,7 +315,7 @@ const R=document.getElementById('right-col');
   {c:'b-amber side-box',t:'Champion-Challenger',s:'Holdout eval · Auto-rollback',W:'New model must beat old on 15% holdout. Otherwise auto-rollback.',Y:'Prevents regression. No bad models reach production.',H:'<code>src/training/canary.py</code>, <code>ab_evaluation.py</code>',N:'After every retrain',R:'<code>model_versions</code> table'},
   {c:'b-indigo side-box',t:'GGUF → Ollama deploy',s:'llama.cpp · Q8_0 → halcyonlatest',s2:'↺ FLYWHEEL: better model → better next trade',W:'Merge adapter → GGUF → Q8_0 → register Ollama → verify.',Y:'The loop closes. New model deployed. Next scan is smarter.',H:'<code>src/training/trainer.py</code> export',N:'After challenger passes',R:'Ollama model directory'},
   {c:'b-indigo side-box',t:'AI Council (5 agents)',s:'Vote-first · Sizing · Tilts · Risk posture',W:'Tactical, Strategic, Red Team, Innovation, Macro.',Y:'5 independent analytical lenses. Earns authority via accuracy.',H:'<code>src/council/</code>',N:'Daily 8:30AM ($0.50)',R:'<code>council_sessions</code>'},
-  {c:'b-plan side-box',t:'System Validator (50+ checks)',s:'DB · Trading · Training · API · LLM',W:'Automated validation across 8 categories.',Y:'141 files = too complex for manual. Catches drift before it hurts.',H:'<code>src/evaluation/system_validator.py</code>',N:'Daily 4:30PM + on-demand',R:'Dashboard + Telegram on failure'},
+  {c:'b-plan side-box',t:'System Validator (50+ checks)',s:'DB · Trading · Training · API · LLM',W:'Automated validation across 8 categories.',Y:'165 files = too complex for manual. Catches drift before it hurts.',H:'<code>src/evaluation/system_validator.py</code>',N:'Daily 4:30PM + on-demand',R:'Dashboard + Telegram on failure'},
 ].forEach(i=>mk(i,R,'side-box'));
 
 // PHASES

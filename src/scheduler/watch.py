@@ -26,7 +26,7 @@ ET = ZoneInfo("America/New_York")
 
 
 class WatchLoop:
-    """Automated daily cadence loop for the AI Research Desk."""
+    """Automated daily cadence loop for the Systematic Equity Research."""
 
     def __init__(self, config: dict, email_mode: str | None = None,
                  overnight: bool = False):
@@ -291,7 +291,7 @@ class WatchLoop:
 
         print(f"""
 {'='*45}
- HALCYON LAB - WATCH MODE
+ ARCIS - WATCH MODE
 {'='*45}
  Time: {now.strftime('%Y-%m-%d %H:%M:%S')} ET
  LLM: {llm_status}
@@ -323,7 +323,7 @@ class WatchLoop:
             from src.notifications.telegram import notify_system_event, is_telegram_enabled
             if is_telegram_enabled():
                 notify_system_event(
-                    "HALCYON LAB STARTED",
+                    "ARCIS STARTED",
                     f"Model: {model_name}\nMode: {'Overnight' if self.overnight else 'Standard'}\nTraining: {training_str}"
                 )
                 print(" Telegram: connected ✓")
@@ -678,10 +678,9 @@ class WatchLoop:
             print("[WATCH] EOD recap computed (digest mode — email sent via scheduled digest).")
 
     @staticmethod
-    def _ensure_all_tables():
+    def _ensure_all_tables(db_path: str = "ai_research_desk.sqlite3"):
         """Create all expected SQLite tables on startup to prevent missing-table errors."""
         import sqlite3
-        db_path = "ai_research_desk.sqlite3"
         tables = [
             """CREATE TABLE IF NOT EXISTS council_sessions (
                 session_id TEXT PRIMARY KEY, session_type TEXT NOT NULL,
@@ -780,6 +779,40 @@ class WatchLoop:
                 actual_outcome TEXT,
                 correct INTEGER,
                 created_at TEXT NOT NULL)""",
+            """CREATE TABLE IF NOT EXISTS council_debug_log (
+                debug_id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                agent_name TEXT NOT NULL,
+                round INTEGER NOT NULL,
+                system_prompt_hash TEXT,
+                user_message TEXT,
+                raw_response TEXT,
+                parsed_successfully INTEGER DEFAULT 0,
+                parse_error TEXT,
+                latency_ms INTEGER,
+                created_at TEXT NOT NULL)""",
+            """CREATE TABLE IF NOT EXISTS council_parameter_log (
+                log_id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                agent_name TEXT,
+                parameter_name TEXT NOT NULL,
+                default_value REAL NOT NULL,
+                council_value REAL NOT NULL,
+                applied_value REAL NOT NULL,
+                rate_limited INTEGER DEFAULT 0,
+                attribution_start TEXT NOT NULL,
+                attribution_end TEXT,
+                trades_during_window INTEGER DEFAULT 0,
+                pnl_during_window REAL,
+                counterfactual_pnl REAL,
+                value_added_dollars REAL,
+                created_at TEXT NOT NULL)""",
+            """CREATE TABLE IF NOT EXISTS council_parameter_state (
+                parameter_name TEXT PRIMARY KEY,
+                current_value REAL NOT NULL,
+                default_value REAL NOT NULL,
+                last_session_id TEXT,
+                last_updated TEXT NOT NULL)""",
             """CREATE TABLE IF NOT EXISTS traffic_light_state (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 current_regime TEXT NOT NULL DEFAULT 'GREEN',
@@ -836,12 +869,21 @@ class WatchLoop:
                         conn.execute(_alter)
                     except Exception as e:
                         logger.debug("[WATCH] %s (likely exists): %s", _alter[:50], e)
+                for idx in [
+                    """CREATE INDEX IF NOT EXISTS idx_council_debug_session
+                       ON council_debug_log(session_id)""",
+                    """CREATE INDEX IF NOT EXISTS idx_param_log_session
+                       ON council_parameter_log(session_id)""",
+                    """CREATE INDEX IF NOT EXISTS idx_param_log_window
+                       ON council_parameter_log(attribution_start, attribution_end)""",
+                ]:
+                    conn.execute(idx)
             logger.info("[WATCH] All SQLite tables verified/created")
 
             # Populate research docs from markdown files
             try:
                 from src.data_collection.docs_collector import populate_research_docs
-                result = populate_research_docs()
+                result = populate_research_docs(db_path=db_path)
                 logger.info("[WATCH] Research docs: %s", result)
             except Exception as e:
                 logger.debug("[WATCH] Docs population failed: %s", e)
@@ -870,7 +912,7 @@ class WatchLoop:
         backup_dir = Path("backups")
         backup_dir.mkdir(exist_ok=True)
 
-        backup_path = backup_dir / f"halcyon_{datetime.now(ET).strftime('%Y%m%d')}.sqlite3"
+        backup_path = backup_dir / f"arcis_{datetime.now(ET).strftime('%Y%m%d')}.sqlite3"
         try:
             src = sqlite3.connect("ai_research_desk.sqlite3")
             dst = sqlite3.connect(str(backup_path))
@@ -879,7 +921,7 @@ class WatchLoop:
             src.close()
 
             # Prune old backups (keep last 7)
-            backups = sorted(backup_dir.glob("halcyon_*.sqlite3"))
+            backups = sorted(backup_dir.glob("arcis_*.sqlite3"))
             for old in backups[:-7]:
                 old.unlink()
 
@@ -893,7 +935,7 @@ class WatchLoop:
         log_dir = Path("logs")
         log_dir.mkdir(exist_ok=True)
         fh = RotatingFileHandler(
-            log_dir / "halcyon.log", maxBytes=10_000_000, backupCount=7
+            log_dir / "arcis.log", maxBytes=10_000_000, backupCount=7
         )
         fh.setLevel(logging.INFO)
         fh.setFormatter(logging.Formatter(

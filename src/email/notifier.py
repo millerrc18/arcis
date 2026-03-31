@@ -1,4 +1,4 @@
-"""SMTP email notifier for the AI Research Desk.
+"""SMTP email notifier for the Arcis system.
 
 Called by: cli.commands, evaluation.auditor, scheduler.watch, services.recap_service, services.scan_service, services.watchlist_service
 Calls: config

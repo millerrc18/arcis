@@ -1,4 +1,4 @@
-const CACHE_NAME = 'halcyon-lab-v1';
+const CACHE_NAME = 'arcis-dashboard-v1';
 const SHELL_ASSETS = [
   '/',
   '/index.html',

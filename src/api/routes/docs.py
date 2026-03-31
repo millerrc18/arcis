@@ -19,7 +19,7 @@ DOCS = [
     {"id": "architecture", "path": "docs/architecture.md", "title": "Architecture"},
     {"id": "training-guide", "path": "docs/training-guide.md", "title": "Training Guide"},
     {"id": "roadmap", "path": "docs/roadmap.md", "title": "Roadmap"},
-    {"id": "cli-reference", "path": "docs/cli-reference.md", "title": "CLI Reference (49 commands)"},
+    {"id": "cli-reference", "path": "docs/cli-reference.md", "title": "CLI Reference (53 commands)"},
     {"id": "telegram-commands", "path": "docs/telegram-commands.md", "title": "Telegram Bot Commands"},
 
     # Research — Training & Model
@@ -33,7 +33,7 @@ DOCS = [
 
     # Research — Strategy & Data
     {"id": "research-alt-data", "path": "docs/research/Alternative_Data_Signals_for_Large-Cap_Short-Horizon_Trading__A_Cost-Benefit_Analysis_for_the_Halcyon_Lab_Stack.md", "title": "Research: Alternative Data Signals"},
-    {"id": "research-halcyon-framework", "path": "docs/research/The_Halcyon_Framework__Compute__Value__and_Moat_for_a_Solo_AI_Trading_System.md", "title": "Research: Halcyon Framework (Compute, Value, Moat)"},
+    {"id": "research-arcis-framework", "path": "docs/research/The_Halcyon_Framework__Compute__Value__and_Moat_for_a_Solo_AI_Trading_System.md", "title": "Research: Arcis Framework (Compute, Value, Moat)"},
     {"id": "research-universe-size", "path": "docs/research/Optimal_Trading_Universe_Size__S&P_500_Filtered_to_325_Stocks.md", "title": "Research: Optimal Universe Size (~325 Stocks)"},
 
     # Research — Business & Operations
@@ -57,7 +57,7 @@ DOCS = [
     {"id": "research-options-education", "path": "docs/research/Options_Trading_Education_Plan_for_System_Builders.md", "title": "Research: Options Trading Education Plan"},
     {"id": "research-ai-council", "path": "docs/research/AI_Council_Multi-Agent_Deliberation_Architecture.md", "title": "Research: AI Council Deliberation Architecture"},
     {"id": "research-data-audit", "path": "docs/research/Data_Infrastructure_Audit_Per_Desk_Collection_Requirements.md", "title": "Research: Data Infrastructure Audit Per Desk"},
-    {"id": "research-brand-identity", "path": "docs/research/Halcyon_Lab_Complete_Brand_Identity_System.md", "title": "Research: Halcyon Lab Brand Identity System"},
+    {"id": "research-brand-identity", "path": "docs/research/Halcyon_Lab_Complete_Brand_Identity_System.md", "title": "Research: Arcis Brand Identity System"},
 ]
 
 

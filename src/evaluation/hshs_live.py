@@ -249,7 +249,7 @@ SCORERS = {
 
 
 def compute_hshs(db_path: str = DEFAULT_DB_PATH) -> dict:
-    """Compute the live Halcyon System Health Score from database state.
+    """Compute the live Arcis System Health Score from database state.
 
     Returns:
         Dict with keys: hshs, dimensions, weights, phase, months_active, computed_at.

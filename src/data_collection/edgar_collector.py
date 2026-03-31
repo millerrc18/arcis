@@ -10,7 +10,7 @@ Collects 10-K, 10-Q, and 8-K filings for the S&P 100 universe.
 Stores filing metadata + parsed section text.
 
 API: https://data.sec.gov (no key required, 10 req/sec limit)
-User-Agent: Halcyon Lab halcyonlabai@gmail.com
+User-Agent: Arcis halcyonlabai@gmail.com
 """
 
 import json
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
 DB_PATH = "ai_research_desk.sqlite3"
-SEC_HEADERS = {"User-Agent": "Halcyon Lab halcyonlabai@gmail.com"}
+SEC_HEADERS = {"User-Agent": "Arcis halcyonlabai@gmail.com"}
 MAX_TEXT_BYTES = 5 * 1024 * 1024  # 5MB limit per filing
 
 _INIT_SQL = """
