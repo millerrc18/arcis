@@ -1,4 +1,11 @@
-"""Three-stage curriculum training with difficulty classification and contrastive pairs."""
+"""Three-stage curriculum training with difficulty classification and contrastive pairs.
+
+Called by: api.routes.actions, cli.commands, training.trainer
+Calls: training.claude_client, training.ingestion_gate, training.versioning
+Owns tables: none
+Config keys: none
+Tests: tests/test_curriculum.py, tests/test_leakage_detector.py
+"""
 
 import json
 import logging

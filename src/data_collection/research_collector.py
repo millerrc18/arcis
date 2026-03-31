@@ -1,4 +1,10 @@
-"""Research intelligence collector — discovers and scores papers/posts nightly.
+"""Research intelligence collector -- discovers and scores papers/posts nightly.
+
+Called by: scheduler/watch.py
+Calls: data_collection/research_sources.py, llm/client.py
+Owns tables: none
+Config keys: none
+Tests: none
 
 Sources: arXiv, SSRN, HuggingFace daily papers, Reddit, GitHub trending,
          Anthropic/OpenAI blogs, SEC/FINRA regulatory.

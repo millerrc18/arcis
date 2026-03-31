@@ -1,5 +1,11 @@
 """S&P 100 (OEX) constituent universe.
 
+Called by: api.routes.actions, cli.commands, data_collection.options_collector, evaluation.backtester, features.earnings, llm.validator, scheduler.premarket, scheduler.watch, services.recap_service, services.scan_service, services.watchlist_service, training.bootstrap, training.historical_data, training.leakage_detector
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: tests/test_regime.py, tests/test_universe.py
+
 Last verified: 2025-03-24
 Source: S&P Dow Jones Indices / public OEX constituent lists.
 Refresh periodically — constituents change with index rebalances.

@@ -1,7 +1,10 @@
 """Council protocol constants and thresholds.
 
-Called by: protocol.py, engine.py, value_tracker.py
+Called by: council/aggregation.py, council/engine.py, council/parsing.py, council/protocol.py, council/rate_limiter.py, council/value_tracker.py
 Calls: none
+Owns tables: none
+Config keys: none
+Tests: none
 """
 
 DOMAIN_WEIGHTS = {

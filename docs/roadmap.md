@@ -1,8 +1,8 @@
-# Halcyon Lab Roadmap
+# Arcis Roadmap
 
-**Last Updated:** 2026-03-29
+**Last Updated:** 2026-03-30
 
-Halcyon Lab is still in Bootcamp mode: one live pullback strategy, full shadow execution, continuous enrichment, council governance, and a guarded training loop. The roadmap below consolidates the confirmed weekend decisions from the March 28-29, 2026 research pass into a single operating plan.
+Arcis is still in Bootcamp mode: one live pullback strategy, full shadow execution, continuous enrichment, council governance, and a guarded training loop. The roadmap below consolidates the confirmed weekend decisions from the March 28-29, 2026 research pass into a single operating plan.
 
 ## Phase 1: Bootcamp (Current)
 
@@ -14,6 +14,7 @@ Halcyon Lab is still in Bootcamp mode: one live pullback strategy, full shadow e
 - Council v2 with vote-first sessions, calibration logs, and value tracking.
 - Self-blinded training pipeline with ingestion gates, leakage checks, and holdout evaluation.
 - Cloud dashboard with live ledger, health, council, notes, docs, and validation views.
+- Arcis brand system: Palette H, Inter display typography, persisted dark/light theme toggle, and dashboard API stubs for Build Score plus current Traffic Light state.
 
 ### Remaining Before the 50-Trade Gate
 - Reach 50 closed Bootcamp trades with enough regime diversity to support a real gate decision.

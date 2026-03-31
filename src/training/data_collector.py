@@ -1,4 +1,11 @@
-"""Training data collection from closed trades using the self-blinding pipeline."""
+"""Training data collection from closed trades using the self-blinding pipeline.
+
+Called by: api.routes.actions, scheduler.watch
+Calls: config, llm.prompts, training.claude_client, training.ingestion_gate, training.versioning
+Owns tables: none
+Config keys: enabled, training
+Tests: tests/test_leakage_detector.py, tests/test_self_blinding.py
+"""
 
 import json
 import logging

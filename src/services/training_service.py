@@ -1,4 +1,11 @@
-"""Training pipeline service."""
+"""Training pipeline service.
+
+Called by: api.routes.training, cli.commands
+Calls: training.bootstrap, training.report, training.trainer, training.versioning
+Owns tables: none
+Config keys: none
+Tests: tests/test_services.py
+"""
 import logging
 
 logger = logging.getLogger(__name__)

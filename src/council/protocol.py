@@ -1,7 +1,10 @@
 """Council protocol orchestration for vote-first sessions.
 
-Called by: engine.py, tests
-Calls: council submodules, training/claude_client.py
+Called by: council/engine.py
+Calls: council/agents.py, council/aggregation.py, council/constants.py, council/context.py, council/parsing.py, council/rate_limiter.py, training/claude_client.py
+Owns tables: none
+Config keys: none
+Tests: tests/test_council.py
 """
 
 import logging

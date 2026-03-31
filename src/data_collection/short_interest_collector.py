@@ -1,5 +1,11 @@
 """FINRA short interest collector via Finnhub.
 
+Called by: scheduler/watch.py
+Calls: config.py
+Owns tables: short_interest
+Config keys: data_enrichment
+Tests: tests/test_data_collectors.py
+
 Collects short interest snapshots biweekly (1st and 15th of each month).
 FINRA publishes short interest data twice monthly at settlement dates.
 """

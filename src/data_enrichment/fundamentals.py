@@ -1,5 +1,11 @@
 """SEC EDGAR fundamental data fetcher using XBRL API.
 
+Called by: data_enrichment/enricher.py
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: tests/test_enrichment.py
+
 Free, no API key required. Rate limit: 10 requests/second.
 Requires User-Agent header per SEC guidelines.
 """
@@ -17,7 +23,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 CACHE_DIR = Path(".cache/fundamentals")
-SEC_USER_AGENT = "HalcyonLab/1.0 (halcyonlabai@gmail.com)"
+SEC_USER_AGENT = "Arcis/1.0 (halcyonlabai@gmail.com)"
 SEC_BASE = "https://data.sec.gov/api/xbrl/companyconcept"
 SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 

@@ -1,5 +1,11 @@
 """VIX term structure snapshot collector.
 
+Called by: api/routes/actions.py, cli/commands.py, scheduler/watch.py
+Calls: none
+Owns tables: vix_term_structure
+Config keys: none
+Tests: none
+
 Captures VIX, VIX9D, VIX3M, VIX1Y and computes term structure ratios.
 """
 

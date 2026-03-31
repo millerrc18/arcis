@@ -1,4 +1,11 @@
-"""Morning watchlist service."""
+"""Morning watchlist service.
+
+Called by: api.routes.scan, cli.commands
+Calls: data_ingestion.market_data, email.notifier, features.engine, llm.watchlist_writer, packets.watchlist, ranking.ranker, universe.company_names, universe.sp100
+Owns tables: none
+Config keys: none
+Tests: tests/test_services.py
+"""
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo

@@ -1,5 +1,11 @@
 """Derived per-ticker options metrics computed from raw chain snapshots.
 
+Called by: api/routes/actions.py, cli/commands.py, scheduler/watch.py
+Calls: none
+Owns tables: options_metrics
+Config keys: none
+Tests: none
+
 Must run AFTER collect_options_chains().
 """
 

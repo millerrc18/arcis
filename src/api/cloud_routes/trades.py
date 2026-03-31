@@ -1,7 +1,10 @@
 """Cloud trade and market routes for packets, journals, and ledgers.
 
-Called by: cloud_app.py
-Calls: shadow_trades, recommendations
+Called by: api.cloud_app
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: none
 """
 
 import statistics

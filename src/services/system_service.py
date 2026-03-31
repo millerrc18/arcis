@@ -1,4 +1,11 @@
-"""System service for preflight checks and config management."""
+"""System service for preflight checks and config management.
+
+Called by: api.routes.system, cli.commands
+Calls: llm.client, risk.governor, training.versioning
+Owns tables: none
+Config keys: alpaca, api_key, api_secret, base_url, bootcamp, bot_token, chat_id, email, enabled, live_trading, llm, model, password, phase, shadow_trading, smtp_server, telegram, training, username
+Tests: tests/test_services.py
+"""
 import logging
 import sqlite3
 from pathlib import Path

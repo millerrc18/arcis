@@ -67,7 +67,7 @@
 
 ## Sunday - Review Ritual
 - [ ] Export 20 recent training examples
-- [ ] Export halcyon.log
+- [ ] Export arcis.log
 - [ ] Dashboard screenshots
 - [ ] Research digest reviewed
 - [ ] Monday action items:

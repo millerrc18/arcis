@@ -1,5 +1,11 @@
 """Insider trading data fetcher.
 
+Called by: data_enrichment/enricher.py
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: tests/test_enrichment.py
+
 Primary source: Finnhub API (free tier: 60 calls/min).
 Fallback: SEC EDGAR Form 4 data.
 """

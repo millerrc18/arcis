@@ -1,21 +1,21 @@
 # Architecture
 
 ## System Overview
-Halcyon Lab is an autonomous equity trading system for the S&P 100 that combines deterministic technical ranking, event-aware risk overlays, LLM-generated trade commentary, bracket-order execution through Alpaca, and a self-improving training loop. The live runtime is centered on the watch loop and scan service: market data and enrichment flow into feature computation, regime and event risk size the opportunity set, the ranker surfaces candidates, the packet writer produces structured commentary, the governor enforces hard limits, and the executor journals and manages trades end to end.
+Arcis is an autonomous equity trading system for the S&P 100 that combines deterministic technical ranking, event-aware risk overlays, LLM-generated trade commentary, bracket-order execution through Alpaca, and a self-improving training loop. The live runtime is centered on the watch loop and scan service: market data and enrichment flow into feature computation, regime and event risk size the opportunity set, the ranker surfaces candidates, the packet writer produces structured commentary, the governor enforces hard limits, and the executor journals and manages trades end to end.
 
 ## Module Inventory
 ### `./`
 - `src/__init__.py`: Package marker for src.
-- `src/config.py`: Configuration loader for the AI Research Desk.
+- `src/config.py`: Configuration loader for the Systematic Equity Research.
 - `src/data_integrity.py`: Data integrity assertions for critical data boundaries.
-- `src/log_config.py`: Logging configuration for the Halcyon Lab system.
-- `src/main.py`: Halcyon Lab CLI bootstrap and parser wiring.
+- `src/log_config.py`: Logging configuration for the Arcis system.
+- `src/main.py`: Arcis CLI bootstrap and parser wiring.
 - `src/models.py`: Backward-compatible schema re-exports for packet construction and older imports.
-- `src/schemas.py`: Pydantic models for the Halcyon Lab system.
+- `src/schemas.py`: Pydantic models for the Arcis system.
 
 ### `api/`
 - `src/api/__init__.py`: Package marker for api.
-- `src/api/app.py`: FastAPI application for the Halcyon Lab dashboard.
+- `src/api/app.py`: FastAPI application for the Arcis dashboard.
 - `src/api/cloud_app.py`: Stripped-down read-only FastAPI for Render cloud deployment.
 - `src/api/websocket.py`: WebSocket live update manager for the dashboard.
 
@@ -32,7 +32,7 @@ Halcyon Lab is an autonomous equity trading system for the S&P 100 that combines
 
 ### `cli/`
 - `src/cli/__init__.py`: Package marker for cli.
-- `src/cli/commands.py`: CLI command implementations for Halcyon Lab.
+- `src/cli/commands.py`: CLI command implementations for Arcis.
 
 ### `council/`
 - `src/council/__init__.py`: Package marker for council.
@@ -73,8 +73,8 @@ Halcyon Lab is an autonomous equity trading system for the S&P 100 that combines
 
 ### `email/`
 - `src/email/__init__.py`: Package marker for email.
-- `src/email/digest_builder.py`: Build fund-manager-style email digests for Halcyon Lab.
-- `src/email/notifier.py`: SMTP email notifier for the AI Research Desk.
+- `src/email/digest_builder.py`: Build fund-manager-style email digests for Arcis.
+- `src/email/notifier.py`: SMTP email notifier for the Systematic Equity Research.
 
 ### `evaluation/`
 - `src/evaluation/__init__.py`: Package marker for evaluation.
@@ -84,13 +84,13 @@ Halcyon Lab is an autonomous equity trading system for the S&P 100 that combines
 - `src/evaluation/cto_report.py`: CTO performance report generator.
 - `src/evaluation/feature_importance.py`: Feature importance tracking with trend detection.
 - `src/evaluation/gate_evaluator.py`: 50-trade gate evaluation for Phase 1 -> Phase 2 decision.
-- `src/evaluation/hshs.py`: Halcyon System Health Score (HSHS) computation.
+- `src/evaluation/hshs.py`: Arcis System Health Score (HSHS) computation.
 - `src/evaluation/hshs_live.py`: Live HSHS computation from database state.
 - `src/evaluation/metrics.py`: Lightweight evaluation metrics helpers used by reporting and tests.
 - `src/evaluation/postmortem.py`: Assistant postmortem generation for closed shadow trades.
 - `src/evaluation/scorecard.py`: Weekly and bootcamp scorecard generation.
 - `src/evaluation/statistics.py`: Statistical validation functions for the walk-forward framework.
-- `src/evaluation/system_validator.py`: System validation engine for Halcyon Lab.
+- `src/evaluation/system_validator.py`: System validation engine for Arcis.
 
 ### `features/`
 - `src/features/__init__.py`: Package marker for features.
@@ -119,11 +119,11 @@ Halcyon Lab is an autonomous equity trading system for the S&P 100 that combines
 
 ### `logging/`
 - `src/logging/__init__.py`: Package marker for logging.
-- `src/logging/activity.py`: Persistent activity logging for the Halcyon Lab system.
+- `src/logging/activity.py`: Persistent activity logging for the Arcis system.
 
 ### `notifications/`
 - `src/notifications/__init__.py`: Package marker for notifications.
-- `src/notifications/telegram.py`: Telegram notification client for Halcyon Lab.
+- `src/notifications/telegram.py`: Telegram notification client for Arcis.
 
 ### `packets/`
 - `src/packets/__init__.py`: Package marker for packets.
@@ -252,7 +252,9 @@ Sync direction:
 - `GET /api/audit/latest`: Most recent daily audit report.
 - `GET /api/docs`: Documentation listing from research_docs table.
 - `GET /api/docs/{doc_id}`: Individual doc content from research_docs table.
-- `GET /api/health/hshs`: Compute and return the live Halcyon System Health Score.
+- `GET /api/health/hshs`: Compute and return the live Arcis System Health Score.
+- `GET /api/build-score`: Build Score composite KPI stub for the dashboard.
+- `GET /api/traffic-light/current`: Current Traffic Light regime stub for the dashboard.
 - `GET /api/notes`: List all notes for the Notes page.
 - `POST /api/notes`: Create a new note.
 - `PUT /api/notes/{note_id}`: Update a note in place.

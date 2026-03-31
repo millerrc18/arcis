@@ -1,4 +1,11 @@
-"""Shadow ledger performance metrics."""
+"""Shadow ledger performance metrics.
+
+Called by: evaluation.scorecard, services.shadow_service
+Calls: evaluation.metrics
+Owns tables: none
+Config keys: none
+Tests: tests/test_shadow_metrics.py
+"""
 
 
 def compute_shadow_metrics(trades: list[dict]) -> dict:

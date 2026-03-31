@@ -3,8 +3,9 @@ import { Outlet, NavLink } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api'
 import { IS_CLOUD } from '../config'
-import { LayoutDashboard, FileText, TrendingUp, Brain, BarChart3, Settings, Map, BookOpen, Users, Activity, Menu, X, DollarSign, ShieldCheck, ScrollText } from 'lucide-react'
+import { LayoutDashboard, FileText, TrendingUp, Brain, BarChart3, Settings, Map, BookOpen, Users, Activity, Menu, X, DollarSign, ShieldCheck } from 'lucide-react'
 import StatusBadge from './StatusBadge'
+import ThemeToggle from './ThemeToggle'
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -35,10 +36,15 @@ export default function Layout() {
       )}
 
       {/* Sidebar */}
-      <aside className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 fixed md:static z-40 w-56 h-full bg-[var(--slate-900)] border-r border-[var(--slate-600)] flex flex-col shrink-0 transition-transform duration-200`}>
-        <div className="p-4 border-b border-[var(--slate-600)]">
-          <h1 className="text-lg font-semibold tracking-wide" style={{ fontFamily: 'var(--font-display)', color: 'var(--teal-400)' }}>HALCYON LAB</h1>
-          <div className="text-xs mt-1" style={{ color: 'var(--slate-400)' }}>AI Research Desk</div>
+      <aside className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 fixed md:static z-40 w-56 h-full flex flex-col shrink-0 transition-transform duration-200`} style={{ background: 'var(--arcis-bg-primary)', borderRight: '1px solid var(--arcis-border)' }}>
+        <div className="p-4" style={{ borderBottom: '1px solid var(--arcis-border)' }}>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h1 className="text-2xl font-extrabold" style={{ color: 'var(--arcis-accent)', letterSpacing: '-0.03em' }}>ARCIS</h1>
+              <div className="text-xs mt-1 uppercase tracking-[0.04em]" style={{ color: 'var(--arcis-text-secondary)' }}>Systematic Equity Research</div>
+            </div>
+            <ThemeToggle />
+          </div>
         </div>
         <nav className="flex-1 py-2 overflow-y-auto">
           {navItems.map(({ to, icon: Icon, label }) => (
@@ -47,14 +53,19 @@ export default function Layout() {
               className={({ isActive }) =>
                 `flex items-center gap-3 px-4 py-2 text-sm transition-colors relative ${
                   isActive
-                    ? 'text-[var(--slate-50)] bg-[var(--teal-900)]/40'
-                    : 'text-[var(--slate-300)] hover:text-[var(--slate-50)] hover:bg-[var(--slate-700)]'
+                    ? 'text-[var(--arcis-text-primary)]'
+                    : 'text-[var(--arcis-text-secondary)] hover:text-[var(--arcis-text-primary)]'
                 }`
               }>
               {({ isActive }) => (
                 <>
-                  {isActive && <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded-r" style={{ background: 'var(--teal-400)' }} />}
-                  <Icon size={18} style={{ color: isActive ? 'var(--teal-400)' : 'var(--slate-400)' }} />
+                  {isActive && (
+                    <>
+                      <span className="absolute inset-x-2 inset-y-0 rounded-lg" style={{ background: 'var(--arcis-accent-muted)' }} />
+                      <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded-r" style={{ background: 'var(--arcis-accent)' }} />
+                    </>
+                  )}
+                  <Icon size={18} className="relative z-10" style={{ color: isActive ? 'var(--arcis-accent)' : 'var(--arcis-text-secondary)' }} />
                   <span>{label}</span>
                 </>
               )}
@@ -62,20 +73,20 @@ export default function Layout() {
           ))}
         </nav>
         {status && (
-          <div className="p-4 border-t border-[var(--slate-600)] text-xs space-y-1">
+          <div className="p-4 text-xs space-y-1" style={{ borderTop: '1px solid var(--arcis-border)' }}>
             <div className="flex justify-between">
-              <span style={{ color: 'var(--slate-400)' }}>LLM</span>
+              <span style={{ color: 'var(--arcis-text-secondary)' }}>LLM</span>
               {IS_CLOUD
                 ? <StatusBadge text="Cloud" variant="info" />
                 : <StatusBadge text={status.ollama_available ? 'Online' : 'Offline'} variant={status.ollama_available ? 'success' : 'danger'} />
               }
             </div>
             <div className="flex justify-between">
-              <span style={{ color: 'var(--slate-400)' }}>Model</span>
-              <span style={{ color: 'var(--slate-300)' }}>{status.model_version || (IS_CLOUD ? 'cloud' : '--')}</span>
+              <span style={{ color: 'var(--arcis-text-secondary)' }}>Model</span>
+              <span style={{ color: 'var(--arcis-text-secondary)' }}>{status.model_version || (IS_CLOUD ? 'cloud' : '--')}</span>
             </div>
             <div className="flex justify-between">
-              <span style={{ color: 'var(--slate-400)' }}>Shadow</span>
+              <span style={{ color: 'var(--arcis-text-secondary)' }}>Shadow</span>
               {IS_CLOUD
                 ? <StatusBadge text="Cloud" variant="info" />
                 : <StatusBadge text={status.shadow_trading_enabled ? 'Active' : 'Off'} variant={status.shadow_trading_enabled ? 'success' : 'neutral'} />
@@ -88,11 +99,14 @@ export default function Layout() {
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header bar */}
-        <header className="flex items-center h-12 px-4 border-b shrink-0 md:hidden" style={{ background: 'var(--slate-800)', borderColor: 'var(--slate-600)' }}>
-          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1 rounded" style={{ color: 'var(--slate-300)' }}>
-            {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
-          </button>
-          <span className="ml-3 text-sm font-semibold" style={{ fontFamily: 'var(--font-display)', color: 'var(--teal-400)' }}>HALCYON LAB</span>
+        <header className="flex items-center h-14 px-4 border-b shrink-0 md:hidden justify-between" style={{ background: 'var(--arcis-bg-primary)', borderColor: 'var(--arcis-border)' }}>
+          <div className="flex items-center">
+            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1 rounded" style={{ color: 'var(--arcis-text-secondary)' }}>
+              {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
+            </button>
+            <span className="ml-3 text-base font-extrabold" style={{ color: 'var(--arcis-accent)', letterSpacing: '-0.03em' }}>ARCIS</span>
+          </div>
+          <ThemeToggle />
         </header>
         <main className="flex-1 overflow-y-auto p-6">
           <Outlet />

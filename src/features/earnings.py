@@ -1,5 +1,11 @@
 """Earnings date lookup and event-risk classification.
 
+Called by: features.engine
+Calls: universe.sp100
+Owns tables: none
+Config keys: none
+Tests: tests/test_earnings.py
+
 Checks the earnings_calendar table first (populated by overnight scraper),
 falls back to yfinance if no cached data exists.
 """

@@ -1,5 +1,11 @@
 """Historical scanner with outcome tracking and training example generation.
 
+Called by: training.backfill
+Calls: config, data_enrichment.news, features.engine, features.regime, llm.prompts, ranking.ranker, training.historical_data, universe.company_names
+Owns tables: none
+Config keys: data_enrichment, finnhub_api_key, include_news_in_backfill
+Tests: tests/test_backfill.py, tests/test_leakage_detector.py
+
 Runs the scoring engine against point-in-time historical data, tracks
 real trade outcomes, and builds training examples from real setups.
 """

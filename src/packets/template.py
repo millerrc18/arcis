@@ -1,3 +1,12 @@
+"""Build a real TradePacket from computed features and config.
+
+Called by: cli.commands, evaluation.backtester, scheduler.watch, services.scan_service
+Calls: models, universe.company_names
+Owns tables: none
+Config keys: planned_risk_pct_max, risk, starting_capital
+Tests: tests/test_packet_builders.py
+"""
+
 from src.models import PositionSizing, TradePacket
 from src.universe.company_names import get_company_name
 

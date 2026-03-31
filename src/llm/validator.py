@@ -1,5 +1,11 @@
 """LLM output validation layer.
 
+Called by: shadow_trading.executor
+Calls: universe.sp100
+Owns tables: none
+Config keys: risk
+Tests: tests/test_llm_validator.py
+
 Hard-coded bounds on every AI-generated trade signal BEFORE it reaches
 the executor. Prevents hallucination-driven trades.
 """
@@ -60,13 +66,17 @@ def validate_llm_output(packet, features: dict, config: dict) -> tuple[bool, str
         if stop_dist_pct < 0.005 or stop_dist_pct > 0.15:
             return False, f"Stop distance {stop_dist_pct:.1%} outside 0.5%-15% range"
 
-    # 5. Position size must not exceed 5% of portfolio
+    # 5. Position size must not exceed the configured governor portfolio cap
     starting_capital = config.get("risk", {}).get("starting_capital", 100000)
+    max_position_pct = config.get("risk_governor", {}).get("max_position_pct", 0.05)
     alloc = getattr(packet, "position_sizing", None)
     if alloc and hasattr(alloc, "allocation_dollars"):
         alloc_pct = alloc.allocation_dollars / starting_capital
-        if alloc_pct > 0.05:
-            return False, f"Allocation {alloc_pct:.1%} exceeds 5% portfolio cap"
+        if alloc_pct > max_position_pct:
+            return False, (
+                f"Allocation {alloc_pct:.1%} exceeds "
+                f"{max_position_pct:.0%} portfolio cap"
+            )
 
     # 6. Conviction must be 1-10
     conviction = getattr(packet, "llm_conviction", None)

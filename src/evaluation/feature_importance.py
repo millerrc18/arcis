@@ -1,5 +1,11 @@
 """Feature importance tracking with trend detection.
 
+Called by: cli.commands, evaluation.cto_report
+Calls: journal.store
+Owns tables: none
+Config keys: none
+Tests: tests/test_feature_importance.py
+
 Computes which features most strongly predict trade outcomes.
 """
 

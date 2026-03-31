@@ -1,5 +1,11 @@
 """Canary rules-based scoring — a simple baseline to compare against the LLM.
 
+Called by: llm.packet_writer
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: none
+
 Runs alongside the LLM. If the LLM template fallback rate exceeds 50%,
 the canary score is logged for comparison.
 """

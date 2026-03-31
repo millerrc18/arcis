@@ -1,4 +1,11 @@
-"""Shadow trade data model."""
+"""Shadow trade data model.
+
+Called by: shadow_trading.executor
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: none
+"""
 
 from dataclasses import dataclass, field
 from datetime import datetime

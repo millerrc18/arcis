@@ -1,5 +1,11 @@
 """Risk governor — hard limits enforced before every trade.
 
+Called by: api.routes.system, cli.commands, evaluation.auditor, evaluation.system_validator, services.system_service, shadow_trading.executor
+Calls: config, journal.store, shadow_trading.alpaca_adapter, shadow_trading.executor, universe.sectors
+Owns tables: none
+Config keys: bootcamp, enabled, max_correlated, max_daily_loss_pct, max_open_positions, max_position_pct, max_sector_pct, risk, risk_governor, vol_halt_pct
+Tests: tests/test_auditor.py, tests/test_risk_governor.py
+
 The risk governor is the LAST check before an order is placed.
 It cannot be overridden by the trading logic. If any limit is
 breached, the trade is rejected with an explanation.
@@ -12,11 +18,15 @@ from src.config import load_config
 
 logger = logging.getLogger(__name__)
 
-_HALT_FILE = "data/trading_halted"
+_DEFAULT_HALT_FILE = "data/trading_halted"
+_HALT_FILE = _DEFAULT_HALT_FILE
 
 
 def _get_halt_path() -> Path:
-    """Resolve the kill-switch file path from config, falling back to the legacy path."""
+    """Resolve the kill-switch file path from config, with test overrides supported."""
+    if _HALT_FILE != _DEFAULT_HALT_FILE:
+        return Path(_HALT_FILE)
+
     try:
         cfg = load_config()
     except Exception as exc:
@@ -24,7 +34,7 @@ def _get_halt_path() -> Path:
         cfg = {}
 
     configured = cfg.get("risk_governor", {}).get("kill_switch_file")
-    return Path(configured or _HALT_FILE)
+    return Path(configured or _DEFAULT_HALT_FILE)
 
 
 def _global_halt(halt: bool):

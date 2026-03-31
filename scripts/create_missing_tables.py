@@ -175,6 +175,7 @@ TABLES = [
     )""",
 
     # Indexes
+    "CREATE INDEX IF NOT EXISTS idx_build_score_date ON build_score_history(score_date)",
     "CREATE INDEX IF NOT EXISTS idx_edgar_ticker_date ON edgar_filings(ticker, filing_date)",
     "CREATE INDEX IF NOT EXISTS idx_insider_ticker_date ON insider_transactions(ticker, filing_date)",
     "CREATE INDEX IF NOT EXISTS idx_council_created ON council_sessions(created_at)",

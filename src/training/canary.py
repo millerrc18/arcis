@@ -1,5 +1,11 @@
 """Canary monitoring for detecting model quality degradation.
 
+Called by: training.trainer
+Calls: notifications.telegram, training.claude_client, training.quality_drift
+Owns tables: canary_evaluations
+Config keys: none
+Tests: tests/test_canary.py, tests/test_leakage_detector.py
+
 Maintains a fixed set of 25 "canary" examples that are NEVER used in training.
 After each retraining cycle, scores the model's output on canaries and compares
 to previous cycles to detect early warning signals of degradation:

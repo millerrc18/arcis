@@ -1,4 +1,11 @@
-"""Training dataset validation and quality checks."""
+"""Training dataset validation and quality checks.
+
+Called by: cli.commands, evaluation.cto_report
+Calls: training.versioning
+Owns tables: none
+Config keys: none
+Tests: tests/test_leakage_detector.py, tests/test_validation.py
+"""
 
 import logging
 import math

@@ -1,4 +1,11 @@
-"""Training API routes."""
+"""Training API routes.
+
+Called by: api.app
+Calls: services.training_service
+Owns tables: none
+Config keys: none
+Tests: tests/test_local_api_routes.py
+"""
 from fastapi import APIRouter
 from src.services.training_service import (
     get_training_status, get_training_history, get_training_report,

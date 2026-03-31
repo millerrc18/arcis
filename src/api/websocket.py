@@ -1,4 +1,11 @@
-"""WebSocket live update manager for the dashboard."""
+"""WebSocket live update manager for the dashboard.
+
+Called by: api.app, api.routes.actions, scheduler.watch
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: tests/test_websocket.py
+"""
 
 import logging
 from datetime import datetime
@@ -47,10 +54,16 @@ def broadcast_sync(event_type: str, data: dict):
     """Fire-and-forget broadcast from synchronous code."""
     try:
         import asyncio
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            loop.create_task(manager.broadcast(event_type, data))
-        else:
+
+        if not manager.active_connections:
+            return
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
             asyncio.run(manager.broadcast(event_type, data))
+            return
+
+        loop.create_task(manager.broadcast(event_type, data))
     except Exception as e:
         logging.getLogger(__name__).warning("broadcast_sync error: %s", e)

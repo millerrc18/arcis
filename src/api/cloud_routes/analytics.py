@@ -1,7 +1,10 @@
 """Cloud analytics routes and helpers for HSHS and CTO reporting.
 
-Called by: cloud_app.py
-Calls: canary_evaluations, shadow_trades
+Called by: api.cloud_app
+Calls: evaluation.hshs_live
+Owns tables: none
+Config keys: none
+Tests: none
 """
 
 import statistics
@@ -178,6 +181,37 @@ def create_router(runtime, verify_auth):
     """Build the cloud analytics router."""
     router = APIRouter()
 
+    @router.get("/api/build-score", dependencies=[Depends(verify_auth)])
+    async def get_build_score():
+        """Build Score composite KPI — stub, replaced in Sprint 4B."""
+        return {
+            "build_score": 0,
+            "delta_7d": 0,
+            "components": {
+                "gate_velocity": 0,
+                "system_health": 0,
+                "data_asset_value": 0,
+                "model_quality": 0,
+                "research_velocity": 0,
+                "reliability": 0,
+            },
+            "data_asset_detail": {"quality": 0, "diversity": 0, "freshness": 0},
+            "phase_progress": {
+                "current_phase": 1,
+                "trades_closed": 0,
+                "trades_required": 50,
+                "pct_complete": 0,
+                "estimated_weeks_remaining": 0,
+            },
+            "decay_today": False,
+            "history_7d": [],
+        }
+
+    @router.get("/api/traffic-light/current", dependencies=[Depends(verify_auth)])
+    async def get_traffic_light_current():
+        """Current Traffic Light regime — stub, replaced in Sprint 4B."""
+        return {"regime": "UNKNOWN", "score": 0, "vix": 0}
+
     @router.get("/api/health/hshs", dependencies=[Depends(verify_auth)])
     def health_hshs():
         try:
@@ -328,5 +362,15 @@ def create_router(runtime, verify_auth):
         except Exception as exc:
             runtime.logger.error("[API] cto_report failed: %s", exc, exc_info=True)
             return {"error": str(exc)}
+
+    @router.get("/api/build-score", dependencies=[Depends(verify_auth)])
+    def build_score():
+        try:
+            from src.evaluation.build_score import compute_build_score
+
+            return compute_build_score()
+        except Exception as exc:
+            runtime.logger.error("[API] build-score failed: %s", exc, exc_info=True)
+            return {"build_score": 0, "components": {}, "error": str(exc)}
 
     return router

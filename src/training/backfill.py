@@ -1,5 +1,11 @@
 """Historical backfill orchestrator for high-quality training data generation.
 
+Called by: cli.commands, evaluation.backtester
+Calls: llm.prompts, training.claude_client, training.historical_data, training.historical_scanner, training.ingestion_gate, training.versioning
+Owns tables: none
+Config keys: none
+Tests: tests/test_backfill.py, tests/test_leakage_detector.py
+
 Downloads real historical price data, runs the scoring engine against it,
 tracks real outcomes, and generates gold-standard commentary from real
 setups with real results.

@@ -1,5 +1,11 @@
 """Pre-market inference tasks that run after Ollama is loaded but before market opens.
 
+Called by: scheduler.watch
+Calls: config, data_enrichment.news, data_ingestion.market_data, features.engine, llm.client, ranking.ranker, training.versioning, universe.sp100
+Owns tables: none
+Config keys: none
+Tests: tests/test_premarket.py
+
 Schedule (all times ET):
 6:00 AM - Pre-market data refresh (CPU, 2 min) -- ALREADY EXISTS in watch loop
 6:02 AM - Rolling feature computation (CPU, ~58 min)

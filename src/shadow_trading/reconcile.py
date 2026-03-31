@@ -1,5 +1,11 @@
 """Reconcile Alpaca live positions with shadow_trades database.
 
+Called by: cli.commands
+Calls: journal.store, shadow_trading.alpaca_adapter
+Owns tables: none
+Config keys: none
+Tests: tests/test_reconcile.py
+
 Detects orphaned positions (on Alpaca but not in DB) and stale records
 (in DB but not on Alpaca). Backfills missing records and marks stale ones.
 """

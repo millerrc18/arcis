@@ -1,5 +1,11 @@
 """SEC insider transactions collector via Finnhub.
 
+Called by: scheduler/watch.py
+Calls: config.py
+Owns tables: insider_transactions
+Config keys: data_enrichment
+Tests: tests/test_data_collectors.py
+
 Collects Form 4 insider buy/sell data for S&P 100 universe nightly.
 Stores metadata: insider name, title, transaction type, shares, price, value.
 """

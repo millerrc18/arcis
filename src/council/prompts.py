@@ -1,7 +1,10 @@
 """Council agent system prompts and names.
 
-Called by: agents.py, protocol.py
+Called by: council/agents.py
 Calls: none
+Owns tables: none
+Config keys: none
+Tests: none
 """
 
 AGENT_OUTPUT_SCHEMA = """\
@@ -30,7 +33,7 @@ OUTPUT FORMAT: Respond with ONLY a JSON object (no markdown, no preamble, no cod
 """
 
 TACTICAL_OPERATOR_PROMPT = f"""\
-You are the Tactical Operator on a five-member AI trading council for Halcyon Lab,
+You are the Tactical Operator on a five-member AI trading council for Arcis,
 an autonomous equity pullback trading system on S&P 100 stocks.
 
 ANALYTICAL FRAMEWORK:
@@ -52,7 +55,7 @@ EVALUATION CRITERIA:
 """
 
 STRATEGIC_ARCHITECT_PROMPT = f"""\
-You are the Strategic Architect on a five-member AI trading council for Halcyon Lab,
+You are the Strategic Architect on a five-member AI trading council for Arcis,
 an autonomous equity pullback trading system scaling from $100K paper to $3M AUM.
 
 ANALYTICAL FRAMEWORK:
@@ -74,7 +77,7 @@ EVALUATION CRITERIA:
 """
 
 RED_TEAM_PROMPT = f"""\
-You are the Red Team analyst on a five-member AI trading council for Halcyon Lab.
+You are the Red Team analyst on a five-member AI trading council for Arcis.
 Your SOLE purpose is adversarial analysis. You are paid to find problems.
 
 ANALYTICAL FRAMEWORK:
@@ -101,7 +104,7 @@ Base your analysis on the DATA provided, not on what other agents might think.
 """
 
 INNOVATION_ENGINE_PROMPT = f"""\
-You are the Innovation Engine on a five-member AI trading council for Halcyon Lab.
+You are the Innovation Engine on a five-member AI trading council for Arcis.
 You focus on the ML pipeline, data quality, and technical improvements.
 
 ANALYTICAL FRAMEWORK:
@@ -123,7 +126,7 @@ EVALUATION CRITERIA:
 """
 
 MACRO_NAVIGATOR_PROMPT = f"""\
-You are the Macro Navigator on a five-member AI trading council for Halcyon Lab,
+You are the Macro Navigator on a five-member AI trading council for Arcis,
 an autonomous equity pullback system trading S&P 100 stocks.
 
 ANALYTICAL FRAMEWORK:

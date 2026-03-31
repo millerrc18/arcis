@@ -1,7 +1,10 @@
 """Council vote aggregation and backward-compat tallies.
 
-Called by: protocol.py, engine.py, tests
+Called by: council/protocol.py
 Calls: council/constants.py
+Owns tables: none
+Config keys: none
+Tests: none
 """
 
 from src.council.constants import (

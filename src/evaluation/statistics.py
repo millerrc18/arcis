@@ -1,5 +1,11 @@
 """Statistical validation functions for the walk-forward framework.
 
+Called by: evaluation.gate_evaluator
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: tests/test_statistics.py
+
 Implements: Sharpe ratio with Lo (2002) SE correction, Bailey & Lopez de Prado PSR,
 MinTRL, BCa bootstrap CI, binomial win rate test, t-test + Wilcoxon on expectancy,
 profit factor, Calmar ratio, Sortino ratio, max drawdown.

@@ -156,15 +156,15 @@ export default function Notes() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="text-xl font-medium" style={{ color: 'var(--slate-100)' }}>Notes</h2>
-          <p className="text-sm mt-1" style={{ color: 'var(--slate-400)' }}>
+          <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text-primary)' }}>Notes</h2>
+          <p className="text-sm mt-1" style={{ color: 'var(--arcis-text-secondary)' }}>
             Search, pin, and edit operating notes directly from the dashboard.
           </p>
         </div>
         <button
           onClick={handleCreateNote}
           className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium"
-          style={{ background: 'var(--teal-500)', color: 'white' }}
+          style={{ background: 'var(--arcis-accent)', color: 'white' }}
         >
           <Plus size={16} />
           New Note
@@ -172,22 +172,22 @@ export default function Notes() {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-[320px,1fr] gap-4">
-        <div className="rounded-lg p-4" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
+        <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
           <div className="relative mb-4">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--slate-400)' }} />
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--arcis-text-secondary)' }} />
             <input
               type="text"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search notes..."
               className="w-full pl-9 pr-3 py-2 rounded-lg text-sm"
-              style={{ background: 'var(--slate-800)', border: '1px solid var(--slate-600)', color: 'var(--slate-100)' }}
+              style={{ background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)' }}
             />
           </div>
 
           <div className="space-y-2 max-h-[65vh] overflow-y-auto">
             {filteredNotes.length === 0 ? (
-              <div className="text-sm text-center py-8" style={{ color: 'var(--slate-400)' }}>
+              <div className="text-sm text-center py-8" style={{ color: 'var(--arcis-text-secondary)' }}>
                 {notes.length === 0 ? 'No notes yet.' : 'No notes match this search.'}
               </div>
             ) : (
@@ -199,19 +199,19 @@ export default function Notes() {
                     onClick={() => setSelectedId(note.note_id)}
                     className="w-full text-left rounded-lg p-3 transition-colors"
                     style={{
-                      background: active ? 'rgba(20, 184, 166, 0.12)' : 'var(--slate-800)',
-                      border: `1px solid ${active ? 'rgba(20, 184, 166, 0.45)' : 'var(--slate-600)'}`,
+                      background: active ? 'rgba(20, 184, 166, 0.12)' : 'var(--arcis-bg-primary)',
+                      border: `1px solid ${active ? 'rgba(20, 184, 166, 0.45)' : 'var(--arcis-border)'}`,
                     }}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <div className="font-medium text-sm" style={{ color: 'var(--slate-100)' }}>
+                      <div className="font-medium text-sm" style={{ color: 'var(--arcis-text-primary)' }}>
                         {note.title}
                       </div>
                       {note.pinned && (
-                        <Pin size={14} style={{ color: 'var(--amber-400)', flexShrink: 0 }} />
+                        <Pin size={14} style={{ color: 'var(--arcis-warning)', flexShrink: 0 }} />
                       )}
                     </div>
-                    <div className="text-xs mt-2" style={{ color: 'var(--slate-400)' }}>
+                    <div className="text-xs mt-2" style={{ color: 'var(--arcis-text-secondary)' }}>
                       {previewText(note.content)}
                     </div>
                     {(note.tags || []).length > 0 && (
@@ -220,7 +220,7 @@ export default function Notes() {
                           <span
                             key={tag}
                             className="px-2 py-0.5 rounded-full text-xs"
-                            style={{ background: 'rgba(148, 163, 184, 0.18)', color: 'var(--slate-300)' }}
+                            style={{ background: 'rgba(148, 163, 184, 0.18)', color: 'var(--arcis-text-secondary)' }}
                           >
                             {tag}
                           </span>
@@ -234,9 +234,9 @@ export default function Notes() {
           </div>
         </div>
 
-        <div className="rounded-lg p-4 md:p-5" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
+        <div className="rounded-lg p-4 md:p-5" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
           {!selectedNote || !draft ? (
-            <div className="h-full min-h-[360px] flex items-center justify-center text-sm" style={{ color: 'var(--slate-400)' }}>
+            <div className="h-full min-h-[360px] flex items-center justify-center text-sm" style={{ color: 'var(--arcis-text-secondary)' }}>
               Select a note or create a new one.
             </div>
           ) : (
@@ -248,13 +248,13 @@ export default function Notes() {
                   onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
                   onBlur={flushSave}
                   className="flex-1 min-w-[220px] text-lg font-medium bg-transparent border-b pb-2"
-                  style={{ borderColor: 'var(--slate-600)', color: 'var(--slate-100)', outline: 'none' }}
+                  style={{ borderColor: 'var(--arcis-border)', color: 'var(--arcis-text-primary)', outline: 'none' }}
                 />
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setDraft((current) => ({ ...current, pinned: !current.pinned }))}
                     className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm"
-                    style={{ background: 'var(--slate-800)', border: '1px solid var(--slate-600)', color: 'var(--slate-200)' }}
+                    style={{ background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)' }}
                   >
                     {draft.pinned ? <PinOff size={14} /> : <Pin size={14} />}
                     {draft.pinned ? 'Unpin' : 'Pin'}
@@ -262,7 +262,7 @@ export default function Notes() {
                   <button
                     onClick={() => handleDeleteNote(selectedNote.note_id)}
                     className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm"
-                    style={{ background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.35)', color: '#fca5a5' }}
+                    style={{ background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.35)', color: 'var(--arcis-danger)' }}
                   >
                     <Trash2 size={14} />
                     Delete
@@ -278,9 +278,9 @@ export default function Notes() {
                   onBlur={flushSave}
                   placeholder="tags, comma, separated"
                   className="w-full px-3 py-2 rounded-lg text-sm"
-                  style={{ background: 'var(--slate-800)', border: '1px solid var(--slate-600)', color: 'var(--slate-100)' }}
+                  style={{ background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)' }}
                 />
-                <div className="px-3 py-2 rounded-lg text-sm flex items-center justify-center" style={{ background: 'var(--slate-800)', border: '1px solid var(--slate-600)', color: 'var(--slate-400)' }}>
+                <div className="px-3 py-2 rounded-lg text-sm flex items-center justify-center" style={{ background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-secondary)' }}>
                   {saveState === 'saving' && 'Saving...'}
                   {saveState === 'pending' && 'Autosave in 2s'}
                   {saveState === 'saved' && 'Saved'}
@@ -296,9 +296,9 @@ export default function Notes() {
                 placeholder="Write anything operational here..."
                 className="w-full min-h-[420px] px-4 py-3 rounded-lg text-sm"
                 style={{
-                  background: 'var(--slate-900)',
-                  border: '1px solid var(--slate-600)',
-                  color: 'var(--slate-100)',
+                  background: 'var(--arcis-bg-primary)',
+                  border: '1px solid var(--arcis-border)',
+                  color: 'var(--arcis-text-primary)',
                   fontFamily: 'var(--font-mono)',
                   outline: 'none',
                 }}
