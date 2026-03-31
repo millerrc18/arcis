@@ -426,6 +426,7 @@ class TestStartRenderSync:
         MockThread.assert_called_once_with(
             database_url="postgresql://user:pass@host:5432/halcyon",
             interval_seconds=60,
+            on_commands_pulled=None,
         )
         mock_instance.start.assert_called_once()
 

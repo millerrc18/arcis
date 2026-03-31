@@ -87,7 +87,6 @@ export const api = {
   // Health Score
   getHealthScore: () => fetchApi('/health/score'),
   getHSHS: () => fetchApi('/health/hshs'),
-  getBuildScore: () => fetchApi('/build-score'),
   // Notes
   fetchNotes: () => fetchApi('/notes'),
   createNote: (data) => fetchApi('/notes', { method: 'POST', body: JSON.stringify(data) }),
@@ -99,14 +98,21 @@ export const api = {
   // Settings
   getSettings: () => fetchApi('/settings'),
   updateSettings: (data) => fetchApi('/settings', { method: 'POST', body: JSON.stringify(data) }),
-  // Actions
+  clearOverrides: () => fetchApi('/settings/overrides', { method: 'DELETE' }),
+  // Actions (via command queue)
   triggerActionScan: () => fetchApi('/actions/scan', { method: 'POST' }),
   triggerCtoReport: () => fetchApi('/actions/cto-report', { method: 'POST' }),
-  triggerCollectData: () => fetchApi('/actions/collect-data', { method: 'POST' }),
   triggerCollectTraining: () => fetchApi('/actions/collect-training', { method: 'POST' }),
   triggerTrainPipeline: () => fetchApi('/actions/train-pipeline', { method: 'POST' }),
   triggerScore: () => fetchApi('/actions/score', { method: 'POST' }),
   triggerCouncil: () => fetchApi('/actions/council', { method: 'POST' }),
+  triggerCollectData: () => fetchApi('/actions/collect-data', { method: 'POST' }),
+  // Command queue
+  submitCommand: (data) => fetchApi('/commands/submit', { method: 'POST', body: JSON.stringify(data) }),
+  getCommandStatus: (id) => fetchApi(`/commands/${id}/status`),
+  getRecentCommands: (limit = 20) => fetchApi(`/commands/recent?limit=${limit}`),
+  // Logs
+  getRecentLogs: (params = {}) => fetchApi(`/logs/recent?${new URLSearchParams(params)}`),
   // Projections
   getProjectionsLive: () => fetchApi('/projections/live'),
   // System Validation

@@ -1,24 +1,17 @@
-"""Watch loop — automated daily cadence for the Arcis trading system.
-
-Called by: main.py (CLI entry point)
-Calls: scan_service, executor, bracket_monitor, council.engine, telegram, render_sync, data_collection/*, training/*
-Owns tables: none (orchestrator)
-Config keys: automation.*, bootcamp.*, scheduler.*
-Tests: tests/test_watch_bootstrap.py
+"""Watch loop for automated daily cadence.
 
 Simple Python loop — no APScheduler or cron dependencies.
 """
 
 import time
 import logging
-
-from dotenv import load_dotenv
-
-load_dotenv()  # reads .env before any os.environ lookups
 from logging.handlers import RotatingFileHandler
 from datetime import datetime, date
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+import sqlite3
+import uuid
 
 from src.config import load_config
 from src.llm.client import is_llm_available
@@ -27,6 +20,48 @@ from src.scheduler.scorer import GuardedScorer
 logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
+
+
+class DBLogHandler(logging.Handler):
+    """Log handler that writes structured entries to log_entries SQLite table.
+
+    Captures WARNING+ by default. Keeps last 500 entries (prunes on write).
+    """
+
+    def __init__(self, db_path: str = "ai_research_desk.sqlite3", max_entries: int = 500):
+        super().__init__(level=logging.WARNING)
+        self.db_path = db_path
+        self.max_entries = max_entries
+        self._write_count = 0
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            log_id = str(uuid.uuid4())
+            source = record.name.split(".")[-1] if "." in record.name else record.name
+            message = record.getMessage()[:2000]
+            details = None
+            if record.exc_info and record.exc_info[1]:
+                details = str(record.exc_info[1])[:5000]
+
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute(
+                    "INSERT INTO log_entries "
+                    "(log_id, log_level, source, message, details_json, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (log_id, record.levelname, source, message, details,
+                     datetime.now(ET).isoformat()),
+                )
+                self._write_count += 1
+                # Prune old entries every 50 writes
+                if self._write_count % 50 == 0:
+                    conn.execute(
+                        "DELETE FROM log_entries WHERE log_id NOT IN "
+                        "(SELECT log_id FROM log_entries ORDER BY created_at DESC LIMIT ?)",
+                        (self.max_entries,),
+                    )
+                conn.commit()
+        except Exception:
+            pass  # Never let logging crash the system
 
 
 class WatchLoop:
@@ -906,6 +941,10 @@ class WatchLoop:
         logging.getLogger().addHandler(fh)
         logging.getLogger().setLevel(logging.INFO)
 
+        # Add DB log handler for dashboard log viewer
+        db_handler = DBLogHandler()
+        logging.getLogger().addHandler(db_handler)
+
         self._print_banner()
 
         # Ensure all expected tables exist
@@ -920,12 +959,32 @@ class WatchLoop:
             logger.warning("[WATCH] ⚠️ starting_capital is $%d — this seems low for paper trading. Expected $100,000.", capital)
             print(f" ⚠️ WARNING: starting_capital is ${capital:,} — expected $100,000 for paper trading")
 
+        # Apply dashboard config overrides
+        try:
+            from src.config_overrides import get_effective_config
+            self.config = get_effective_config(self.config)
+            logger.info("[WATCH] Config overrides applied")
+        except Exception as e:
+            logger.debug("Config overrides not available: %s", e)
+
+        # Command executor callback for sync thread
+        def _on_commands_pulled(commands):
+            try:
+                from src.commands.executor import execute_commands
+                execute_commands(commands, self.config)
+            except Exception as exc:
+                logger.error("[WATCH] Command execution failed: %s", exc)
+
         # Start Render cloud sync background thread
         try:
             from src.sync.render_sync import start_render_sync
-            sync_thread = start_render_sync(self.config)
+            sync_thread = start_render_sync(
+                self.config,
+                on_commands_pulled=_on_commands_pulled,
+            )
             if sync_thread:
                 print(" Render sync: enabled ✓")
+                print(" Command queue: enabled ✓")
             else:
                 print(" Render sync: disabled")
         except Exception as e:

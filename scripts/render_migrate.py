@@ -452,22 +452,50 @@ MIGRATIONS = [
     ("model_versions", "holdout_details", "ALTER TABLE model_versions ADD COLUMN holdout_details TEXT"),
     ("model_versions", "_idx_version_id", "CREATE UNIQUE INDEX IF NOT EXISTS idx_model_versions_version_id ON model_versions(version_id)"),
 
-    # Build Score history
-    ("build_score_history", None, """CREATE TABLE IF NOT EXISTS build_score_history (
-        score_id TEXT PRIMARY KEY,
-        score_date TEXT NOT NULL,
-        build_score REAL NOT NULL,
-        gate_velocity REAL,
-        system_health REAL,
-        data_asset_value REAL,
-        model_quality REAL,
-        research_velocity REAL,
-        reliability REAL,
-        decay_applied INTEGER DEFAULT 0,
-        components_json TEXT,
+    # Command queue tables (Sprint 4C: Dashboard as Control Plane)
+    ("pending_commands", None, """CREATE TABLE IF NOT EXISTS pending_commands (
+        command_id TEXT PRIMARY KEY,
+        command_type TEXT NOT NULL,
+        command_name TEXT NOT NULL,
+        payload_json TEXT DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'pending',
+        priority INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL,
+        claimed_at TEXT,
+        expires_at TEXT,
+        created_by TEXT DEFAULT 'dashboard'
+    )"""),
+
+    ("command_results", None, """CREATE TABLE IF NOT EXISTS command_results (
+        result_id TEXT PRIMARY KEY,
+        command_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        result_json TEXT DEFAULT '{}',
+        error_message TEXT,
+        execution_ms INTEGER,
         created_at TEXT NOT NULL
     )"""),
-    ("build_score_history", "_idx_score_date", "CREATE INDEX IF NOT EXISTS idx_build_score_date ON build_score_history(score_date)"),
+
+    ("config_overrides", None, """CREATE TABLE IF NOT EXISTS config_overrides (
+        setting_key TEXT PRIMARY KEY,
+        setting_value TEXT NOT NULL,
+        previous_value TEXT,
+        updated_at TEXT NOT NULL,
+        updated_by TEXT DEFAULT 'dashboard'
+    )"""),
+
+    ("log_entries", None, """CREATE TABLE IF NOT EXISTS log_entries (
+        log_id TEXT PRIMARY KEY,
+        log_level TEXT NOT NULL,
+        source TEXT NOT NULL,
+        message TEXT NOT NULL,
+        details_json TEXT,
+        created_at TEXT NOT NULL
+    )"""),
+
+    ("pending_commands", "_idx_status", "CREATE INDEX IF NOT EXISTS idx_pending_commands_status ON pending_commands(status, created_at)"),
+    ("command_results", "_idx_command", "CREATE INDEX IF NOT EXISTS idx_command_results_command ON command_results(command_id)"),
+    ("log_entries", "_idx_level", "CREATE INDEX IF NOT EXISTS idx_log_entries_level ON log_entries(log_level, created_at)"),
 ]
 
 

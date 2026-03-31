@@ -2,36 +2,38 @@
 
 ## [Unreleased] - 2026-03-30
 
-### Sprint 4D: The Flywheel — AI-Agent-Friendly Repo Structure
+### Sprint 4C: Dashboard as Control Plane
 
-#### AGENTS.md Rewrite
-- Rewrote AGENTS.md as machine-parseable module registry with 138 modules
-- Added 5-field entries (Purpose, Called by, Calls, Owns tables, Config keys, Tests) for every module
-- Added Dependency Hierarchy (4-layer architecture) and "Where New Things Go" routing table
+#### Command Queue System
+- Added: pull-based command queue pattern (pending_commands, command_results, config_overrides, log_entries tables)
+- Added: bidirectional sync — cloud pulls commands to local, local pushes results to cloud
+- Added: command executor with 10 command types (scan, council, collect-data, halt-trading, etc.)
+- Added: 5-minute command expiry, 10/min rate limiting, 10KB result truncation
+- Added: DBLogHandler that writes WARNING+ to log_entries table (last 500 entries)
 
-#### Standard Docstring Headers
-- Added 5-field docstring headers to all 138 Python modules in src/ (was 0, now 138/138)
-- Format: Called by, Calls, Owns tables, Config keys, Tests
+#### Config Override System
+- Added: dashboard-editable settings with whitelisted keys only
+- Added: config overrides merge with YAML defaults (overrides win for whitelisted keys)
+- Added: blocked prefixes for API keys, DB paths, and secrets (never editable remotely)
+- Added: "Reset to YAML" to clear all dashboard overrides
 
-#### New Files
-- Created `docs/conventions.md` — pattern library and reference card for AI agents
-- Created `tests/test_repo_structure.py` — automated guardrails (file size, function length, docstrings, migrate tables)
-- Created `docs/sprints/TEMPLATE.md` — standardized sprint prompt template
+#### Cloud API Overhaul
+- Changed: all stub action endpoints now submit commands via queue instead of returning "must be done locally"
+- Added: POST /api/commands/submit, GET /api/commands/{id}/status, GET /api/commands/recent
+- Added: GET /api/logs/recent with level and source filtering
+- Added: DELETE /api/settings/overrides to clear all overrides
+- Changed: POST /api/settings now submits config_change commands via queue
 
-#### Infrastructure
-- Regenerated `config/known_violations.json` — missing_docstring_headers reduced from 138 to 0
-- Grandfathered 15 oversized files, 127 oversized functions, 11 missing migrate tables
+#### Frontend
+- Added: editable Settings page with toggle/number inputs and source badges (yaml default vs dashboard override)
+- Added: Logs page with filterable log table and recent commands history
+- Added: command pending indicator on Dashboard (blue pulsing badge)
+- Added: 14th dashboard page (Logs) to navigation
 
----
-
-## 2026-03-30 — Sprint 4A: Arcis Brand Infrastructure
-
-- Rebranded the product to "Arcis" across the dashboard, API copy, notifications, docs, and public assets.
-- Applied Palette H (Electric Focus) with dark mode as the default theme and added persisted light mode support.
-- Replaced Space Grotesk with Inter-based display typography and refreshed PWA metadata, manifest values, and cache keys.
-- Added `GET /api/build-score` and `GET /api/traffic-light/current` cloud API stubs plus matching frontend API helpers.
-- Updated safe log and backup artifact names to `arcis.log` and `arcis_YYYYMMDD.sqlite3`.
-- Refreshed documentation and governance counts: 165 Python files, 33,810 LOC, 77 test files, 1,046 tests, 42 DB tables, 105 API routes, 53 CLI commands, 13 dashboard pages, 32 notification functions, and 66 research docs.
+#### Documentation
+- Added: ADR 012 — Pull-based command queue architecture decision
+- Updated: AGENTS.md counts (169 Python files, 77 test files, 40 DB tables, 55 API routes)
+- Added: 15 tests in test_command_queue.py (submission, expiry, whitelist, rate limiting, round-trip)
 
 ## [Unreleased] - 2026-03-27/29
 
@@ -105,7 +107,7 @@
 
 ### Research & Architecture
 - 6 new research documents (35 total), all strategy decisions confirmed
-- Master blueprint v2, Arcis Framework v2 updated
+- Master blueprint v2, Halcyon Framework v2 updated
 - Council redesign architecture finalized (vote-first, value tracking)
 - 24 deep research prompts generated
 

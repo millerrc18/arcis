@@ -171,9 +171,37 @@ Arcis is an autonomous equity trading system for the S&P 100 that combines deter
 - `src/strategy/__init__.py`: Package marker for strategy.
 - `src/strategy/canary.py`: Canary rules-based scoring - a simple baseline to compare against the LLM.
 
+### `commands/`
+- `src/commands/__init__.py`: Package marker for commands.
+- `src/commands/executor.py`: Command executor for dashboard-submitted commands via the pull-based command queue.
+
+### `config/`
+- `src/config/__init__.py`: Package marker for config.
+- `src/config/overrides.py`: Config override system for dashboard-editable settings with whitelisted keys.
+
 ### `sync/`
 - `src/sync/__init__.py`: Package marker for sync.
-- `src/sync/render_sync.py`: Background sync thread that pushes local SQLite data to Render Postgres.
+- `src/sync/render_sync.py`: Background sync thread that pushes local SQLite data to Render Postgres and pulls commands from cloud.
+
+### Command Queue Architecture
+
+The dashboard is a full control plane via a pull-based command queue:
+
+```
+Dashboard writes -> Render Postgres (pending_commands)
+    | pull on sync cycle (120s)
+Local watch loop executes command
+    | push on next sync
+Render Postgres (command_results) -> Dashboard reads result
+```
+
+New tables: `pending_commands`, `command_results`, `config_overrides`, `log_entries`.
+
+Sync direction:
+- `pending_commands`: cloud to local (PULL)
+- `config_overrides`: cloud to local (PULL)
+- `command_results`: local to cloud (PUSH)
+- `log_entries`: local to cloud (PUSH, last 500)
 
 ### `training/`
 - `src/training/__init__.py`: Package marker for training.
