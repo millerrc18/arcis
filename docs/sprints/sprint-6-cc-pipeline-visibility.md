@@ -1,7 +1,7 @@
 # Sprint 6: Data Pipeline Visibility (Claude Code)
 
 > **Executor:** Claude Code
-> **Scope:** 6 tasks
+> **Scope:** 7 tasks
 > **Prerequisite:** Sprint 5 MERGED
 > **Read first:** AGENTS.md, docs/conventions.md
 > **Context:** The backend has API endpoints for data collection stats and training pipeline status, but the frontend never calls them. Ryan can't see if collectors are running or if training data is growing. All tasks are frontend-only except wiring api.js methods. The backend APIs already exist.
@@ -167,7 +167,42 @@ Add a small scan metrics sparkline or summary to the main Dashboard page:
 
 ---
 
-## Task 6: Documentation Update (MANDATORY)
+## Task 6: Fix KPI Card Contrast on Dashboard
+
+**Problem:** KPI cards and the dashboard background are both so dark they blend together — everything looks like one black surface. Cards need visible separation from the background.
+
+**Fix across ALL pages that use cards (Dashboard, Health, Training, Settings, CTO Report):**
+
+1. **Card background:** Change from `var(--arcis-bg-surface)` (#0C0C10) to `var(--arcis-bg-elevated)` (#12121A). This gives a subtle but visible lift above the background (#050507).
+2. **Card border:** Add `border: 1px solid var(--arcis-border)` (rgba blue, 8% opacity). Subtle but provides edge definition.
+3. **Card shadow (dark mode only):** Add `box-shadow: 0 1px 3px rgba(0,0,0,0.4)` for depth perception.
+4. **Section headers:** Ensure section titles above card groups use `var(--arcis-text-secondary)` — not muted, not primary. They need to be visible but not dominant.
+5. **Hover state on interactive cards:** On hover, lighten the border to `var(--arcis-border-hover)` (rgba blue, 15% opacity).
+6. **Light mode check:** Verify these changes look good in light mode too — light mode already has better contrast, so the changes should be subtle or no-op there.
+
+**Create a shared CSS class** (e.g., `.arcis-card`) in `index.css` so all pages use the same card styling:
+```css
+.arcis-card {
+  background: var(--arcis-bg-elevated);
+  border: 1px solid var(--arcis-border);
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  transition: border-color 0.15s ease;
+}
+.arcis-card:hover {
+  border-color: var(--arcis-border-hover);
+}
+[data-theme="light"] .arcis-card {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+```
+
+Apply `.arcis-card` to every card/panel across all dashboard pages. This creates consistency and makes future styling changes a single-line CSS update.
+
+---
+
+## Task 7: Documentation Update (MANDATORY)
 
 Run verification from `docs/sprint-checklist.md`. Update:
 - AGENTS.md counts
