@@ -31,7 +31,6 @@ function CategoryCard({ name, checks, expanded, onToggle }) {
   const warned = checks.filter((c) => c.status === 'warn').length
   const failed = checks.filter((c) => c.status === 'fail').length
 
-  const catColor = failed > 0 ? 'var(--arcis-danger)' : warned > 0 ? 'var(--arcis-warning)' : 'var(--arcis-accent)'
   const catIcon = failed > 0 ? '\u274c' : warned > 0 ? '\u26a0\ufe0f' : '\u2705'
 
   return (
@@ -84,18 +83,58 @@ export default function Validation() {
   const qc = useQueryClient()
   const [expanded, setExpanded] = useState({})
   const [refreshing, setRefreshing] = useState(false)
+  const [error, setError] = useState(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['validation'],
     queryFn: api.getValidation,
-    refetchInterval: 300000, // 5 minutes
+    refetchInterval: 300000,
   })
 
   const handleRefresh = async () => {
     setRefreshing(true)
+    setError(null)
     try {
+      // Try direct validation first (works when API is serving)
       await api.runValidation()
       qc.invalidateQueries({ queryKey: ['validation'] })
+    } catch (err) {
+      // If direct call fails, try via command queue
+      try {
+        const cmd = await api.submitCommand({
+          command_type: 'action',
+          command_name: 'validate-system',
+        })
+        // Poll for completion
+        const cmdId = cmd?.command_id
+        if (cmdId) {
+          let attempts = 0
+          const poll = setInterval(async () => {
+            attempts++
+            try {
+              const status = await api.getCommandStatus(cmdId)
+              if (status?.status === 'success' || status?.result_status === 'success') {
+                clearInterval(poll)
+                qc.invalidateQueries({ queryKey: ['validation'] })
+                setRefreshing(false)
+              } else if (status?.status === 'error' || status?.result_status === 'error' || attempts > 20) {
+                clearInterval(poll)
+                setError(status?.error || 'Validation timed out')
+                setRefreshing(false)
+              }
+            } catch {
+              if (attempts > 20) {
+                clearInterval(poll)
+                setError('Watch loop offline \u2014 validation requires the local system to be running')
+                setRefreshing(false)
+              }
+            }
+          }, 3000)
+          return
+        }
+      } catch {
+        setError('Watch loop offline \u2014 validation requires the local system to be running')
+      }
     } finally {
       setRefreshing(false)
     }
@@ -121,15 +160,23 @@ export default function Validation() {
         <button
           onClick={handleRefresh}
           disabled={refreshing}
-          className="px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+          className="px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
           style={{
             background: 'var(--arcis-accent-hover)',
             color: 'var(--arcis-text-primary)',
           }}
         >
+          {refreshing && <LoadingSpinner size="sm" />}
           {refreshing ? 'Running...' : 'Run Validation'}
         </button>
       </div>
+
+      {/* Error message */}
+      {error && (
+        <div className="rounded-lg p-3 text-sm" style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)', color: 'var(--arcis-danger)' }}>
+          {error}
+        </div>
+      )}
 
       {/* Summary bar */}
       <div
@@ -150,25 +197,25 @@ export default function Validation() {
 
         <div className="flex gap-6 text-center">
           <div>
-            <div className="text-2xl font-bold" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-accent)' }}>
+            <div className="text-2xl font-bold financial-data" style={{ color: 'var(--arcis-accent)' }}>
               {result.checks_passed || 0}
             </div>
             <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Passed</div>
           </div>
           <div>
-            <div className="text-2xl font-bold" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-warning)' }}>
+            <div className="text-2xl font-bold financial-data" style={{ color: 'var(--arcis-warning)' }}>
               {result.checks_warning || 0}
             </div>
             <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Warnings</div>
           </div>
           <div>
-            <div className="text-2xl font-bold" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-danger)' }}>
+            <div className="text-2xl font-bold financial-data" style={{ color: 'var(--arcis-danger)' }}>
               {result.checks_failed || 0}
             </div>
             <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Failed</div>
           </div>
           <div>
-            <div className="text-2xl font-bold" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-secondary)' }}>
+            <div className="text-2xl font-bold financial-data" style={{ color: 'var(--arcis-text-secondary)' }}>
               {result.checks_total || 0}
             </div>
             <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Total</div>
