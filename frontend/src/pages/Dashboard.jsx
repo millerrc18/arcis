@@ -115,7 +115,7 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-medium" style={{ color: 'var(--slate-100)' }}>Dashboard</h2>
+        <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text-primary)' }}>Dashboard</h2>
         <Tooltip content="EMERGENCY: Immediately stops all new trade entries. Open positions are NOT closed — they continue to be managed by bracket orders. Use only in emergencies. Resume with the 'resume-trading' CLI command.">
           <button
             onClick={() => {
@@ -124,7 +124,7 @@ export default function Dashboard() {
               }
             }}
             className="px-4 py-2 rounded-lg font-medium text-sm text-white transition-colors"
-            style={{ background: isHalted ? 'var(--success)' : 'var(--danger)' }}
+            style={{ background: isHalted ? 'var(--arcis-success)' : 'var(--arcis-danger)' }}
           >
             {isHalted ? 'RESUME TRADING' : 'HALT TRADING'}
           </button>
@@ -133,7 +133,7 @@ export default function Dashboard() {
 
       {/* Halt warning banner */}
       {isHalted && (
-        <div className="rounded-lg p-3 text-sm" style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)', color: '#fca5a5' }}>
+        <div className="rounded-lg p-3 text-sm" style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)', color: 'var(--arcis-danger)' }}>
           Trading is HALTED. No new positions will be opened. Click "Resume Trading" to resume.
         </div>
       )}
@@ -143,7 +143,7 @@ export default function Dashboard() {
         <div className="rounded-lg p-3 text-sm" style={{
           background: auditAssessment === 'red' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(245, 158, 11, 0.15)',
           border: `1px solid ${auditAssessment === 'red' ? 'rgba(239, 68, 68, 0.4)' : 'rgba(245, 158, 11, 0.4)'}`,
-          color: auditAssessment === 'red' ? '#fca5a5' : 'var(--amber-300)',
+          color: auditAssessment === 'red' ? 'var(--arcis-danger)' : 'var(--arcis-warning)',
         }}>
           <span className="font-medium uppercase">Audit: {auditAssessment}</span>
           {auditSummary && <span className="ml-2">{'\u2014'} {auditSummary.slice(0, 300)}</span>}
@@ -152,39 +152,39 @@ export default function Dashboard() {
 
       {/* Toast notification */}
       {toast && (
-        <div className="fixed top-4 right-4 z-50 rounded-lg px-4 py-2 text-sm shadow-lg" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
+        <div className="fixed top-4 right-4 z-50 rounded-lg px-4 py-2 text-sm shadow-lg" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
           {toast}
         </div>
       )}
 
       {/* D3: Actions with tooltips */}
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-xs uppercase tracking-wide mr-2" style={{ color: 'var(--slate-400)' }}>Actions</span>
+        <span className="text-xs uppercase tracking-wide mr-2" style={{ color: 'var(--arcis-text-secondary)' }}>Actions</span>
         <Tooltip content="Triggers an immediate market scan outside the normal 30-min schedule. Use when you want to check for new setups between scheduled scans.">
           <button onClick={() => scanMutation.mutate()} disabled={scanMutation.isPending}
             className="px-3 py-1.5 text-xs rounded-md disabled:opacity-50 transition-colors"
-            style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
+            style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
             {scanMutation.isPending ? 'Scanning...' : 'Run Scan'}
           </button>
         </Tooltip>
         <Tooltip content="Generates a CTO Performance Report covering the last 7 days. Includes Sharpe, win rate, P&L, and strategy assessment. Normally runs automatically on Saturdays.">
           <button onClick={() => ctoMutation.mutate()} disabled={ctoMutation.isPending}
             className="px-3 py-1.5 text-xs rounded-md disabled:opacity-50 transition-colors"
-            style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
+            style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
             {ctoMutation.isPending ? 'Generating...' : 'Generate CTO Report'}
           </button>
         </Tooltip>
         <Tooltip content="Collects training examples from recently closed trades. Normally runs automatically at 4:30 PM ET and 6:00 PM ET.">
           <button onClick={() => collectMutation.mutate()} disabled={collectMutation.isPending}
             className="px-3 py-1.5 text-xs rounded-md disabled:opacity-50 transition-colors"
-            style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
+            style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
             {collectMutation.isPending ? 'Collecting...' : 'Collect Training Data'}
           </button>
         </Tooltip>
         <Tooltip content="Runs the overnight data-collection pipeline on demand (options, macro, VIX, Fed communications, and other enrichment snapshots).">
           <button onClick={() => collectDataMutation.mutate()} disabled={collectDataMutation.isPending}
             className="px-3 py-1.5 text-xs rounded-md disabled:opacity-50 transition-colors"
-            style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
+            style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
             {collectDataMutation.isPending ? 'Collecting Data...' : 'Collect Data'}
           </button>
         </Tooltip>
@@ -192,36 +192,36 @@ export default function Dashboard() {
 
       {/* D2: Headline KPIs — fixed thresholds */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <div className="rounded-lg p-3" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-          <div className="text-xs" style={{ color: 'var(--slate-400)' }}>Sharpe ratio</div>
-          <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: hasTrades ? ((kpis.sharpe_ratio || 0) > 0.5 ? 'var(--teal-400)' : (kpis.sharpe_ratio || 0) < 0 ? 'var(--danger)' : 'var(--slate-100)') : 'var(--slate-100)' }}>
+        <div className="rounded-lg p-3" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+          <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Sharpe ratio</div>
+          <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: hasTrades ? ((kpis.sharpe_ratio || 0) > 0.5 ? 'var(--arcis-accent)' : (kpis.sharpe_ratio || 0) < 0 ? 'var(--arcis-danger)' : 'var(--arcis-text-primary)') : 'var(--arcis-text-primary)' }}>
             {hasTrades ? (kpis.sharpe_ratio || 0).toFixed(2) : '--'}
           </div>
         </div>
-        <div className="rounded-lg p-3" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-          <div className="text-xs" style={{ color: 'var(--slate-400)' }}>Win rate</div>
-          <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: hasTrades ? ((kpis.win_rate || 0) > 0.45 ? 'var(--teal-400)' : 'var(--danger)') : 'var(--slate-100)' }}>
+        <div className="rounded-lg p-3" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+          <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Win rate</div>
+          <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: hasTrades ? ((kpis.win_rate || 0) > 0.45 ? 'var(--arcis-accent)' : 'var(--arcis-danger)') : 'var(--arcis-text-primary)' }}>
             {hasTrades ? `${((kpis.win_rate || 0) * 100).toFixed(1)}%` : '--'}
           </div>
         </div>
-        <div className="rounded-lg p-3" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-          <div className="text-xs" style={{ color: 'var(--slate-400)' }}>Max drawdown</div>
-          <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: hasTrades ? ((kpis.max_drawdown_pct || 0) < 15 ? 'var(--teal-400)' : 'var(--danger)') : 'var(--slate-100)' }}>
+        <div className="rounded-lg p-3" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+          <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Max drawdown</div>
+          <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: hasTrades ? ((kpis.max_drawdown_pct || 0) < 15 ? 'var(--arcis-accent)' : 'var(--arcis-danger)') : 'var(--arcis-text-primary)' }}>
             {hasTrades ? `${(kpis.max_drawdown_pct || 0).toFixed(1)}%` : '--'}
           </div>
         </div>
         <Tooltip content="Measures how well the model's confidence predictions match actual outcomes. Requires 50+ closed trades for statistical significance.">
-          <div className="rounded-lg p-3" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-            <div className="text-xs" style={{ color: 'var(--slate-400)' }}>Confidence cal.</div>
-            <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: 'var(--slate-100)' }}>
+          <div className="rounded-lg p-3" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+            <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Confidence cal.</div>
+            <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-primary)' }}>
               {closedCount >= 50 ? (kpis.confidence_calibration || 0).toFixed(3) : `< ${closedCount}/50 trades`}
             </div>
           </div>
         </Tooltip>
         <Tooltip content="Average quality score from Claude-graded rubric evaluation of trade reasoning. Requires running the scoring pipeline ($5-8 API cost).">
-          <div className="rounded-lg p-3" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-            <div className="text-xs" style={{ color: 'var(--slate-400)' }}>Rubric score</div>
-            <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: 'var(--slate-100)' }}>
+          <div className="rounded-lg p-3" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+            <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Rubric score</div>
+            <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-primary)' }}>
               {kpis.avg_rubric_score != null ? `${kpis.avg_rubric_score.toFixed(1)}/5` : 'Not scored yet'}
             </div>
           </div>
@@ -238,36 +238,36 @@ export default function Dashboard() {
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        <div className="lg:col-span-3 rounded-lg p-4" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-          <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--slate-400)' }}>Cumulative P&L</h3>
+        <div className="lg:col-span-3 rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+          <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>Cumulative P&L</h3>
           {chartData.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
               <AreaChart data={chartData}>
-                <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--slate-400)' }} />
-                <YAxis tick={{ fontSize: 11, fill: 'var(--slate-400)' }} />
-                <RechartsTooltip contentStyle={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)', borderRadius: 8, fontSize: 12 }} />
-                <Area type="monotone" dataKey="cumPnl" stroke="var(--teal-400)" fill="var(--teal-400)" fillOpacity={0.1} />
+                <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--arcis-text-secondary)' }} />
+                <YAxis tick={{ fontSize: 11, fill: 'var(--arcis-text-secondary)' }} />
+                <RechartsTooltip contentStyle={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 8, fontSize: 12 }} />
+                <Area type="monotone" dataKey="cumPnl" stroke="var(--arcis-accent)" fill="var(--arcis-accent)" fillOpacity={0.1} />
               </AreaChart>
             </ResponsiveContainer>
           ) : (
-            <div className="text-center py-12 text-sm" style={{ color: 'var(--slate-400)' }}>No closed trades yet</div>
+            <div className="text-center py-12 text-sm" style={{ color: 'var(--arcis-text-secondary)' }}>No closed trades yet</div>
           )}
         </div>
-        <div className="lg:col-span-2 rounded-lg p-4" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-          <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--slate-400)' }}>Training Progress</h3>
+        <div className="lg:col-span-2 rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+          <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>Training Progress</h3>
           {training && (
             <div className="space-y-3 text-sm">
-              <div className="flex justify-between"><span style={{ color: 'var(--slate-300)' }}>Model</span><span>{training.model_name}</span></div>
-              <div className="flex justify-between"><span style={{ color: 'var(--slate-300)' }}>Examples</span><span style={{ fontFamily: 'var(--font-mono)' }}>{training.dataset_total}</span></div>
-              <div className="flex justify-between"><span style={{ color: 'var(--slate-300)' }}>New</span><span style={{ fontFamily: 'var(--font-mono)' }}>{training.new_since_last_train}</span></div>
-              <div className="flex justify-between"><span style={{ color: 'var(--slate-300)' }}>Status</span>
+              <div className="flex justify-between"><span style={{ color: 'var(--arcis-text-secondary)' }}>Model</span><span>{training.model_name}</span></div>
+              <div className="flex justify-between"><span style={{ color: 'var(--arcis-text-secondary)' }}>Examples</span><span style={{ fontFamily: 'var(--font-mono)' }}>{training.dataset_total}</span></div>
+              <div className="flex justify-between"><span style={{ color: 'var(--arcis-text-secondary)' }}>New</span><span style={{ fontFamily: 'var(--font-mono)' }}>{training.new_since_last_train}</span></div>
+              <div className="flex justify-between"><span style={{ color: 'var(--arcis-text-secondary)' }}>Status</span>
                 <StatusBadge text={training.train_queued ? 'Queued' : 'Collecting'} variant={training.train_queued ? 'warning' : 'info'} />
               </div>
               <div className="mt-2">
-                <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--slate-600)' }}>
-                  <div className="h-full rounded-full" style={{ background: 'var(--teal-500)', width: `${Math.min(100, (training.new_since_last_train / 50) * 100)}%` }} />
+                <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--arcis-border)' }}>
+                  <div className="h-full rounded-full" style={{ background: 'var(--arcis-accent)', width: `${Math.min(100, (training.new_since_last_train / 50) * 100)}%` }} />
                 </div>
-                <div className="text-xs mt-1" style={{ color: 'var(--slate-400)' }}>{training.new_since_last_train}/50 to next training</div>
+                <div className="text-xs mt-1" style={{ color: 'var(--arcis-text-secondary)' }}>{training.new_since_last_train}/50 to next training</div>
               </div>
             </div>
           )}
@@ -278,24 +278,24 @@ export default function Dashboard() {
       <ActivityFeed />
 
       {/* Open trades table */}
-      <div className="rounded-lg p-4" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-        <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--slate-400)' }}>Open Shadow Trades</h3>
+      <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+        <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>Open Shadow Trades</h3>
         <DataTable columns={tradeColumns} data={openTrades?.open_trades || []} />
       </div>
 
       {/* Today's packets */}
       {packets && packets.length > 0 && (
-        <div className="rounded-lg p-4" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-          <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--slate-400)' }}>Today's Packets ({packets.length})</h3>
+        <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+          <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>Today's Packets ({packets.length})</h3>
           <div className="space-y-3">
             {packets.slice(0, 5).map((p, i) => (
-              <div key={i} className="rounded p-3" style={{ border: '1px solid var(--slate-600)' }}>
+              <div key={i} className="rounded p-3" style={{ border: '1px solid var(--arcis-border)' }}>
                 <div className="flex items-center gap-3 mb-1">
                   <span className="font-medium">{p.ticker}</span>
-                  <span className="text-sm" style={{ color: 'var(--slate-300)' }}>{p.company_name}</span>
+                  <span className="text-sm" style={{ color: 'var(--arcis-text-secondary)' }}>{p.company_name}</span>
                   <StatusBadge text={`Score: ${p.priority_score || 0}`} variant="info" />
                 </div>
-                <p className="text-sm" style={{ color: 'var(--slate-300)' }}>{(p.thesis_text || '').slice(0, 200)}...</p>
+                <p className="text-sm" style={{ color: 'var(--arcis-text-secondary)' }}>{(p.thesis_text || '').slice(0, 200)}...</p>
               </div>
             ))}
           </div>

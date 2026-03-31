@@ -1,4 +1,4 @@
-# Halcyon Lab — Render Deployment Guide
+# Arcis — Render Deployment Guide
 
 This guide documents the current Render deployment path for the read-only cloud dashboard. The local machine remains the source of truth for trading, training, and data collection; Render hosts the remote frontend, API, and Postgres mirror.
 
@@ -14,13 +14,13 @@ The Postgres database is created separately in Render and wired into the API thr
 ## Prerequisites
 
 - A Render account connected to the GitHub repository
-- A local Halcyon Lab instance with a populated SQLite database
+- A local Arcis instance with a populated SQLite database
 - `DATABASE_URL` from the Render Postgres instance
 - A local Python environment with project dependencies installed
 
 ## Step 1: Create the Render Postgres Database
 
-1. In Render, create a PostgreSQL database for Halcyon Lab.
+1. In Render, create a PostgreSQL database for Arcis.
 2. Copy the **external** connection string for running migrations from your local machine.
 3. Copy the **internal** connection string if you also want to compare it against the API service config later.
 

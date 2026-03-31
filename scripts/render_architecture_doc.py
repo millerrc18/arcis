@@ -1,4 +1,4 @@
-"""Render docs/architecture.md from the live Halcyon Lab codebase."""
+"""Render docs/architecture.md from the live Arcis codebase."""
 
 from __future__ import annotations
 
@@ -135,7 +135,7 @@ def main() -> None:
     content = f"""# Architecture
 
 ## System Overview
-Halcyon Lab is an autonomous equity trading system for the S&P 100 that combines deterministic technical ranking, event-aware risk overlays, LLM-generated trade commentary, bracket-order execution through Alpaca, and a self-improving training loop. The live runtime is centered on the watch loop and scan service: market data and enrichment flow into feature computation, regime and event risk size the opportunity set, the ranker surfaces candidates, the packet writer produces structured commentary, the governor enforces hard limits, and the executor journals and manages trades end to end.
+Arcis is an autonomous equity trading system for the S&P 100 that combines deterministic technical ranking, event-aware risk overlays, LLM-generated trade commentary, bracket-order execution through Alpaca, and a self-improving training loop. The live runtime is centered on the watch loop and scan service: market data and enrichment flow into feature computation, regime and event risk size the opportunity set, the ranker surfaces candidates, the packet writer produces structured commentary, the governor enforces hard limits, and the executor journals and manages trades end to end.
 
 ## Module Inventory
 {module_inventory}

@@ -17,7 +17,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 CACHE_DIR = Path(".cache/fundamentals")
-SEC_USER_AGENT = "HalcyonLab/1.0 (halcyonlabai@gmail.com)"
+SEC_USER_AGENT = "Arcis/1.0 (halcyonlabai@gmail.com)"
 SEC_BASE = "https://data.sec.gov/api/xbrl/companyconcept"
 SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 

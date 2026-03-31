@@ -1,4 +1,4 @@
-# Halcyon Lab Codebase Audit Report
+# Arcis Codebase Audit Report
 **Date:** 2026-03-25
 **Auditor:** Claude Code
 

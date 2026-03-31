@@ -1,17 +1,17 @@
-# Halcyon Lab — System State Document
+# Arcis — System State Document
 ## March 27, 2026, 3:00 AM ET
 
-> This document captures the complete state of Halcyon Lab at the end of the first build marathon.
+> This document captures the complete state of Arcis at the end of the first build marathon.
 > It serves as the baseline for all future progress tracking.
 
 ---
 
 ## System Identity
 
-**Name:** Halcyon Lab
-**Brand:** Kingfisher (teal #2DD4BF, amber #FBBF24, slate #0F172A)
+**Name:** Arcis
+**Brand:** Arcis Palette H (Electric Focus: blue #3B82F6, teal #14B8A6, graphite #050507)
 **Domain:** halcyonlab.app (IONOS, 2-year prepaid)
-**Tagline:** AI Research Desk
+**Tagline:** Systematic Equity Research
 **Business model:** Returns-based. Scale capital under management, not subscriptions.
 **Moat:** Training data quality — hardest to replicate, compounds over time.
 
@@ -180,7 +180,7 @@
 |--------|---------|--------|
 | v1 | Mega Sprint (9 WS: Council, Render, classifier, features, etc.) | ✅ Complete |
 | v2 | Cleanup (flywheel, live trading, auth, logging, docs) | ✅ Complete |
-| v3 | Notifications + Dashboard Brand Overhaul (12 notifications, kingfisher) | ✅ Complete |
+| v3 | Notifications + Dashboard Brand Overhaul (12 notifications, Arcis prelaunch brand) | ✅ Complete |
 | v4 | Free Data Collectors (5 new, FRED expansion, Trends fix) | ✅ Complete |
 | v5 | Critical fixes + Cloud API + Dashboard 2.0 + Ops + Research-informed | 🔄 In progress (CC working) |
 | v5-FU1 | Training data cleanup + Observability + Visualizations | 📋 Queued |
@@ -210,7 +210,7 @@
 15. Halcyon v2 Training Dataset Specification
 
 ### Infrastructure & Operations
-16. Halcyon Framework (Compute, Value, Moat)
+16. Arcis Framework (Compute, Value, Moat)
 17. Optimal 24x7 GPU Schedule
 18. Data Infrastructure Audit Per Desk
 19. Market Data APIs Comparison 2026
@@ -218,9 +218,9 @@
 
 ### Business & Legal
 21. AI-Powered Equity Research Business Plan
-22. Halcyon Lab Business Plan Operating Manual
+22. Arcis Business Plan Operating Manual
 23. From Solo Trader to Fund Manager (Operational Roadmap)
-24. Halcyon Lab Complete Brand Identity System
+24. Arcis Complete Brand Identity System
 25. Competitive Benchmarking Report
 26. Options Trading Education Plan
 
@@ -285,7 +285,7 @@
 
 ### Weekly Ritual (Sunday nights)
 - [ ] Export 20 recent training examples → upload for Claude review
-- [ ] Upload halcyon.log for anomaly analysis
+- [ ] Upload arcis.log for anomaly analysis
 - [ ] Screenshot dashboard → review with Claude
 - [ ] Review research digest (once collector #13 is live)
 - [ ] Prepare Monday action items

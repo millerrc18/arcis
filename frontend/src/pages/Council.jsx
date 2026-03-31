@@ -92,23 +92,23 @@ function DirectionBadge({ direction }) {
 
 function AgentCard({ agent }) {
   return (
-    <div className="rounded-lg p-4" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
+    <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
       <div className="flex items-center justify-between gap-3">
-        <div className="font-medium text-sm" style={{ color: 'var(--slate-100)' }}>{agent.displayName}</div>
+        <div className="font-medium text-sm" style={{ color: 'var(--arcis-text-primary)' }}>{agent.displayName}</div>
         <DirectionBadge direction={agent.direction} />
       </div>
-      <div className="text-xs mt-3" style={{ color: 'var(--slate-400)' }}>
-        Confidence: <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--slate-100)' }}>
+      <div className="text-xs mt-3" style={{ color: 'var(--arcis-text-secondary)' }}>
+        Confidence: <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-primary)' }}>
           {agent.confidence != null ? `${(agent.confidence * 100).toFixed(0)}%` : '--'}
         </span>
       </div>
       {agent.reasoning && (
-        <p className="text-sm mt-3 leading-relaxed" style={{ color: 'var(--slate-300)' }}>
+        <p className="text-sm mt-3 leading-relaxed" style={{ color: 'var(--arcis-text-secondary)' }}>
           {agent.reasoning}
         </p>
       )}
       {agent.risk && (
-        <div className="mt-3 text-xs" style={{ color: '#fca5a5' }}>
+        <div className="mt-3 text-xs" style={{ color: 'var(--arcis-danger)' }}>
           Risk: {agent.risk}
         </div>
       )}
@@ -129,25 +129,25 @@ function DirectionDistribution({ agents }) {
   }))
 
   return (
-    <div className="rounded-lg p-4" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-      <h4 className="text-xs uppercase tracking-wide mb-3" style={{ color: 'var(--slate-400)' }}>
+    <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+      <h4 className="text-xs uppercase tracking-wide mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>
         Direction Split
       </h4>
       <ResponsiveContainer width="100%" height={140}>
         <BarChart data={data}>
-          <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--slate-400)' }} />
-          <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: 'var(--slate-400)' }} />
+          <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--arcis-text-secondary)' }} />
+          <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: 'var(--arcis-text-secondary)' }} />
           <Tooltip
             contentStyle={{
-              background: 'var(--slate-700)',
-              border: '1px solid var(--slate-600)',
+              background: 'var(--arcis-bg-surface)',
+              border: '1px solid var(--arcis-border)',
               borderRadius: 8,
               fontSize: 12,
             }}
           />
           <Bar dataKey="count" radius={[4, 4, 0, 0]}>
             {data.map((entry) => (
-              <Cell key={entry.direction} fill={DIRECTION_COLORS[entry.direction] || 'var(--slate-400)'} />
+              <Cell key={entry.direction} fill={DIRECTION_COLORS[entry.direction] || 'var(--arcis-text-secondary)'} />
             ))}
           </Bar>
         </BarChart>
@@ -161,14 +161,14 @@ function AdjustmentTable({ adjustments }) {
   if (!rows.length) return null
 
   return (
-    <div className="rounded-lg p-4" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-      <h4 className="text-xs uppercase tracking-wide mb-3" style={{ color: 'var(--slate-400)' }}>
+    <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+      <h4 className="text-xs uppercase tracking-wide mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>
         Parameter Adjustments
       </h4>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr style={{ color: 'var(--slate-400)' }}>
+            <tr style={{ color: 'var(--arcis-text-secondary)' }}>
               <th className="text-left py-2 font-medium">Parameter</th>
               <th className="text-left py-2 font-medium">Previous</th>
               <th className="text-left py-2 font-medium">Recommended</th>
@@ -177,11 +177,11 @@ function AdjustmentTable({ adjustments }) {
           </thead>
           <tbody>
             {rows.map(([name, values]) => (
-              <tr key={name} style={{ borderTop: '1px solid var(--slate-600)' }}>
-                <td className="py-2" style={{ color: 'var(--slate-100)' }}>{name}</td>
-                <td className="py-2" style={{ fontFamily: 'var(--font-mono)', color: 'var(--slate-300)' }}>{formatAdjustment(values.previous)}</td>
-                <td className="py-2" style={{ fontFamily: 'var(--font-mono)', color: 'var(--slate-300)' }}>{formatAdjustment(values.recommended)}</td>
-                <td className="py-2" style={{ fontFamily: 'var(--font-mono)', color: 'var(--slate-100)' }}>{formatAdjustment(values.applied)}</td>
+              <tr key={name} style={{ borderTop: '1px solid var(--arcis-border)' }}>
+                <td className="py-2" style={{ color: 'var(--arcis-text-primary)' }}>{name}</td>
+                <td className="py-2" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-secondary)' }}>{formatAdjustment(values.previous)}</td>
+                <td className="py-2" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-secondary)' }}>{formatAdjustment(values.recommended)}</td>
+                <td className="py-2" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-primary)' }}>{formatAdjustment(values.applied)}</td>
               </tr>
             ))}
           </tbody>
@@ -206,24 +206,24 @@ function ExpandableSessionRow({ session, isLatest }) {
   const timestamp = session.created_at ? new Date(session.created_at).toLocaleString() : '--'
 
   return (
-    <div className="rounded-lg" style={{ border: '1px solid var(--slate-600)' }}>
+    <div className="rounded-lg" style={{ border: '1px solid var(--arcis-border)' }}>
       <button
         onClick={() => setExpanded((value) => !value)}
         className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left"
         style={{ background: isLatest ? 'rgba(20, 184, 166, 0.08)' : 'transparent' }}
       >
         <div className="flex items-center gap-3">
-          {expanded ? <ChevronDown size={14} style={{ color: 'var(--slate-400)' }} /> : <ChevronRight size={14} style={{ color: 'var(--slate-400)' }} />}
+          {expanded ? <ChevronDown size={14} style={{ color: 'var(--arcis-text-secondary)' }} /> : <ChevronRight size={14} style={{ color: 'var(--arcis-text-secondary)' }} />}
           <div>
-            <div className="text-sm font-medium" style={{ color: 'var(--slate-100)' }}>
+            <div className="text-sm font-medium" style={{ color: 'var(--arcis-text-primary)' }}>
               {session.session_type || 'session'}
             </div>
-            <div className="text-xs mt-1" style={{ color: 'var(--slate-400)' }}>{timestamp}</div>
+            <div className="text-xs mt-1" style={{ color: 'var(--arcis-text-secondary)' }}>{timestamp}</div>
           </div>
         </div>
         <div className="flex items-center gap-3 flex-wrap justify-end">
           <DirectionBadge direction={session.consensus || detailSession?.result_json?.votes?.direction} />
-          <span className="text-xs" style={{ color: 'var(--slate-400)' }}>{consensusLabel}</span>
+          <span className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>{consensusLabel}</span>
         </div>
       </button>
 
@@ -234,25 +234,25 @@ function ExpandableSessionRow({ session, isLatest }) {
           ) : (
             <>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div className="rounded-lg p-3" style={{ background: 'var(--slate-800)' }}>
-                  <div className="text-xs" style={{ color: 'var(--slate-400)' }}>Consensus</div>
-                  <div className="text-sm mt-1" style={{ color: 'var(--slate-100)' }}>{consensusLabel}</div>
+                <div className="rounded-lg p-3" style={{ background: 'var(--arcis-bg-primary)' }}>
+                  <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Consensus</div>
+                  <div className="text-sm mt-1" style={{ color: 'var(--arcis-text-primary)' }}>{consensusLabel}</div>
                 </div>
-                <div className="rounded-lg p-3" style={{ background: 'var(--slate-800)' }}>
-                  <div className="text-xs" style={{ color: 'var(--slate-400)' }}>Rounds</div>
-                  <div className="text-sm mt-1" style={{ color: 'var(--slate-100)' }}>{detailSession.rounds_completed ?? detailSession.result_json?.session_meta?.rounds_completed ?? '--'}</div>
+                <div className="rounded-lg p-3" style={{ background: 'var(--arcis-bg-primary)' }}>
+                  <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Rounds</div>
+                  <div className="text-sm mt-1" style={{ color: 'var(--arcis-text-primary)' }}>{detailSession.rounds_completed ?? detailSession.result_json?.session_meta?.rounds_completed ?? '--'}</div>
                 </div>
-                <div className="rounded-lg p-3" style={{ background: 'var(--slate-800)' }}>
-                  <div className="text-xs" style={{ color: 'var(--slate-400)' }}>Confidence</div>
-                  <div className="text-sm mt-1" style={{ color: 'var(--slate-100)' }}>
+                <div className="rounded-lg p-3" style={{ background: 'var(--arcis-bg-primary)' }}>
+                  <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Confidence</div>
+                  <div className="text-sm mt-1" style={{ color: 'var(--arcis-text-primary)' }}>
                     {detailSession.result_json?.votes?.confidence_avg != null
                       ? `${(detailSession.result_json.votes.confidence_avg * 100).toFixed(0)}%`
                       : '--'}
                   </div>
                 </div>
-                <div className="rounded-lg p-3" style={{ background: 'var(--slate-800)' }}>
-                  <div className="text-xs" style={{ color: 'var(--slate-400)' }}>Cost</div>
-                  <div className="text-sm mt-1" style={{ color: 'var(--slate-100)' }}>
+                <div className="rounded-lg p-3" style={{ background: 'var(--arcis-bg-primary)' }}>
+                  <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Cost</div>
+                  <div className="text-sm mt-1" style={{ color: 'var(--arcis-text-primary)' }}>
                     {detailSession.total_cost != null ? `$${Number(detailSession.total_cost).toFixed(4)}` : '--'}
                   </div>
                 </div>
@@ -317,8 +317,8 @@ export default function Council() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h2 className="text-xl font-medium" style={{ color: 'var(--slate-100)' }}>Advisory Council</h2>
-          <p className="text-sm mt-1" style={{ color: 'var(--slate-400)' }}>
+          <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text-primary)' }}>Advisory Council</h2>
+          <p className="text-sm mt-1" style={{ color: 'var(--arcis-text-secondary)' }}>
             Five-agent vote-first council with conditional Round 2 and tracked parameter changes.
           </p>
         </div>
@@ -326,16 +326,16 @@ export default function Council() {
           onClick={() => runCouncil.mutate()}
           disabled={runCouncil.isPending}
           className="px-4 py-2 rounded-lg font-medium text-sm text-white disabled:opacity-50"
-          style={{ background: 'var(--teal-500)' }}
+          style={{ background: 'var(--arcis-accent)' }}
         >
           {runCouncil.isPending ? 'Running...' : 'Run Council Now'}
         </button>
       </div>
 
-      <div className="rounded-lg p-4" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
+      <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="text-sm font-medium" style={{ color: 'var(--slate-100)' }}>Ask A Strategic Question</div>
-          <div className="text-xs" style={{ color: 'var(--slate-400)' }}>
+          <div className="text-sm font-medium" style={{ color: 'var(--arcis-text-primary)' }}>Ask A Strategic Question</div>
+          <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>
             Founder-style question routed to the council strategic endpoint.
           </div>
         </div>
@@ -346,19 +346,19 @@ export default function Council() {
             onChange={(event) => setStrategicQuestion(event.target.value)}
             placeholder="What should the council evaluate next?"
             className="flex-1 px-3 py-2 rounded-lg text-sm"
-            style={{ background: 'var(--slate-800)', border: '1px solid var(--slate-600)', color: 'var(--slate-100)' }}
+            style={{ background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)' }}
           />
           <button
             onClick={() => askStrategic.mutate(strategicQuestion)}
             disabled={askStrategic.isPending || !strategicQuestion.trim()}
             className="px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
-            style={{ background: 'var(--slate-800)', border: '1px solid var(--slate-600)', color: 'var(--slate-100)' }}
+            style={{ background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)' }}
           >
             {askStrategic.isPending ? 'Sending...' : 'Ask Council'}
           </button>
         </div>
         {askStrategic.data && (
-          <div className="mt-3 text-sm rounded-lg px-3 py-2" style={{ background: 'rgba(148, 163, 184, 0.12)', color: 'var(--slate-300)' }}>
+          <div className="mt-3 text-sm rounded-lg px-3 py-2" style={{ background: 'rgba(148, 163, 184, 0.12)', color: 'var(--arcis-text-secondary)' }}>
             {askStrategic.data.message || askStrategic.data.error || 'Request sent.'}
           </div>
         )}
@@ -366,27 +366,27 @@ export default function Council() {
 
       {latestAgents.length > 0 ? (
         <>
-          <div className="rounded-lg p-6" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
+          <div className="rounded-lg p-6" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
             <div className="flex items-center justify-between gap-4 flex-wrap">
               <div>
-                <div className="text-xs uppercase tracking-wide" style={{ color: 'var(--slate-400)' }}>Latest Consensus</div>
+                <div className="text-xs uppercase tracking-wide" style={{ color: 'var(--arcis-text-secondary)' }}>Latest Consensus</div>
                 <div className="mt-2 flex items-center gap-3">
                   <DirectionBadge direction={session.consensus || session.result_json?.votes?.direction} />
-                  <span className="text-lg font-medium" style={{ color: 'var(--slate-100)' }}>{consensusLabel}</span>
+                  <span className="text-lg font-medium" style={{ color: 'var(--arcis-text-primary)' }}>{consensusLabel}</span>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <div className="text-xs" style={{ color: 'var(--slate-400)' }}>Confidence</div>
-                  <div className="text-sm mt-1" style={{ fontFamily: 'var(--font-mono)', color: 'var(--slate-100)' }}>
+                  <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Confidence</div>
+                  <div className="text-sm mt-1" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-primary)' }}>
                     {session.result_json?.votes?.confidence_avg != null
                       ? `${(session.result_json.votes.confidence_avg * 100).toFixed(0)}%`
                       : '--'}
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs" style={{ color: 'var(--slate-400)' }}>Rounds</div>
-                  <div className="text-sm mt-1" style={{ fontFamily: 'var(--font-mono)', color: 'var(--slate-100)' }}>
+                  <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Rounds</div>
+                  <div className="text-sm mt-1" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-primary)' }}>
                     {session.rounds_completed ?? session.result_json?.session_meta?.rounds_completed ?? '--'}
                   </div>
                 </div>
@@ -394,7 +394,7 @@ export default function Council() {
             </div>
 
             {session.trigger_reason && (
-              <p className="text-sm mt-4" style={{ color: 'var(--slate-300)' }}>{session.trigger_reason}</p>
+              <p className="text-sm mt-4" style={{ color: 'var(--arcis-text-secondary)' }}>{session.trigger_reason}</p>
             )}
           </div>
 
@@ -402,7 +402,7 @@ export default function Council() {
           <AdjustmentTable adjustments={adjustments} />
 
           <div>
-            <h3 className="text-sm uppercase tracking-wide mb-3" style={{ color: 'var(--slate-400)' }}>
+            <h3 className="text-sm uppercase tracking-wide mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>
               Agent Assessments ({latestAgents.length})
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
@@ -413,15 +413,15 @@ export default function Council() {
           </div>
         </>
       ) : (
-        <div className="rounded-lg p-12 text-center" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-          <div className="text-sm" style={{ color: 'var(--slate-400)' }}>
+        <div className="rounded-lg p-12 text-center" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+          <div className="text-sm" style={{ color: 'var(--arcis-text-secondary)' }}>
             No council session yet. Run the council to populate the dashboard.
           </div>
         </div>
       )}
 
-      <div className="rounded-lg p-4" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-        <h3 className="text-sm uppercase tracking-wide mb-3" style={{ color: 'var(--slate-400)' }}>
+      <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+        <h3 className="text-sm uppercase tracking-wide mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>
           Session History
         </h3>
         {sessions.length > 0 ? (
@@ -431,7 +431,7 @@ export default function Council() {
             ))}
           </div>
         ) : (
-          <div className="text-center py-6 text-sm" style={{ color: 'var(--slate-400)' }}>
+          <div className="text-center py-6 text-sm" style={{ color: 'var(--arcis-text-secondary)' }}>
             No historical sessions yet.
           </div>
         )}

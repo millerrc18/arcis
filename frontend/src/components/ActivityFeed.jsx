@@ -6,27 +6,27 @@ import useWebSocket from '../hooks/useWebSocket'
 import { TrendingUp, TrendingDown, CheckCircle, XCircle, Brain, AlertTriangle, Shield, Database, Settings } from 'lucide-react'
 
 const EVENT_STYLE = {
-  trade_opened: { icon: TrendingUp, color: 'var(--teal-400)' },
-  trade_closed_win: { icon: CheckCircle, color: 'var(--success)' },
-  trade_closed_loss: { icon: XCircle, color: 'var(--danger)' },
-  trade_closed: { icon: CheckCircle, color: 'var(--success)' },
-  training_complete: { icon: Brain, color: 'var(--success)' },
-  action_complete: { icon: CheckCircle, color: 'var(--success)' },
-  scan_complete: { icon: Database, color: 'var(--info)' },
-  scan_started: { icon: Database, color: 'var(--info)' },
-  overnight_task: { icon: Database, color: 'var(--info)' },
-  pre_market_refresh: { icon: Database, color: 'var(--info)' },
-  training_started: { icon: Brain, color: 'var(--amber-400)' },
-  training_collection: { icon: Brain, color: 'var(--amber-400)' },
-  action_started: { icon: Settings, color: 'var(--amber-400)' },
-  order_submitted: { icon: TrendingUp, color: 'var(--amber-400)' },
-  order_filled: { icon: TrendingUp, color: 'var(--amber-400)' },
-  action_error: { icon: AlertTriangle, color: 'var(--danger)' },
-  error: { icon: AlertTriangle, color: 'var(--danger)' },
-  risk_alert: { icon: Shield, color: 'var(--danger)' },
-  llm_generation: { icon: Brain, color: 'var(--info)' },
-  data_collection: { icon: Database, color: 'var(--slate-400)' },
-  system: { icon: Settings, color: 'var(--info)' },
+  trade_opened: { icon: TrendingUp, color: 'var(--arcis-accent)' },
+  trade_closed_win: { icon: CheckCircle, color: 'var(--arcis-success)' },
+  trade_closed_loss: { icon: XCircle, color: 'var(--arcis-danger)' },
+  trade_closed: { icon: CheckCircle, color: 'var(--arcis-success)' },
+  training_complete: { icon: Brain, color: 'var(--arcis-success)' },
+  action_complete: { icon: CheckCircle, color: 'var(--arcis-success)' },
+  scan_complete: { icon: Database, color: 'var(--arcis-info)' },
+  scan_started: { icon: Database, color: 'var(--arcis-info)' },
+  overnight_task: { icon: Database, color: 'var(--arcis-info)' },
+  pre_market_refresh: { icon: Database, color: 'var(--arcis-info)' },
+  training_started: { icon: Brain, color: 'var(--arcis-warning)' },
+  training_collection: { icon: Brain, color: 'var(--arcis-warning)' },
+  action_started: { icon: Settings, color: 'var(--arcis-warning)' },
+  order_submitted: { icon: TrendingUp, color: 'var(--arcis-warning)' },
+  order_filled: { icon: TrendingUp, color: 'var(--arcis-warning)' },
+  action_error: { icon: AlertTriangle, color: 'var(--arcis-danger)' },
+  error: { icon: AlertTriangle, color: 'var(--arcis-danger)' },
+  risk_alert: { icon: Shield, color: 'var(--arcis-danger)' },
+  llm_generation: { icon: Brain, color: 'var(--arcis-info)' },
+  data_collection: { icon: Database, color: 'var(--arcis-text-secondary)' },
+  system: { icon: Settings, color: 'var(--arcis-info)' },
 }
 
 function getEventStyle(evt) {
@@ -35,7 +35,7 @@ function getEventStyle(evt) {
       ? EVENT_STYLE.trade_closed_win
       : EVENT_STYLE.trade_closed_loss
   }
-  return EVENT_STYLE[evt.type] || EVENT_STYLE[evt.category] || { icon: Settings, color: 'var(--slate-400)' }
+  return EVENT_STYLE[evt.type] || EVENT_STYLE[evt.category] || { icon: Settings, color: 'var(--arcis-text-secondary)' }
 }
 
 function formatEvent(evt) {
@@ -114,22 +114,22 @@ export default function ActivityFeed() {
   }, [events.length])
 
   return (
-    <div className="rounded-lg p-4" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
+    <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm uppercase tracking-wide" style={{ color: 'var(--slate-400)' }}>Live Activity</h3>
+        <h3 className="text-sm uppercase tracking-wide" style={{ color: 'var(--arcis-text-secondary)' }}>Live Activity</h3>
         <div className="flex items-center gap-3">
           {wsEvents.length > 0 && (
             <button
               onClick={clearEvents}
               className="text-xs hover:opacity-80"
-              style={{ color: 'var(--slate-400)' }}
+              style={{ color: 'var(--arcis-text-secondary)' }}
             >
               Clear
             </button>
           )}
           <div className="flex items-center gap-1.5">
-            <div className="w-2 h-2 rounded-full" style={{ background: connected ? 'var(--success)' : (IS_CLOUD || events.length > 0) ? 'var(--info)' : 'var(--slate-500)' }} />
-            <span className="text-xs" style={{ color: 'var(--slate-400)' }}>
+            <div className="w-2 h-2 rounded-full" style={{ background: connected ? 'var(--arcis-success)' : (IS_CLOUD || events.length > 0) ? 'var(--arcis-info)' : 'var(--arcis-text-muted)' }} />
+            <span className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>
               {connected ? 'Live' : IS_CLOUD ? 'Polling' : events.length > 0 ? 'Polling' : 'Idle'}
             </span>
           </div>
@@ -137,18 +137,18 @@ export default function ActivityFeed() {
       </div>
       <div ref={scrollRef} className="space-y-1 max-h-64 overflow-y-auto text-sm" style={{ fontFamily: 'var(--font-mono)' }}>
         {events.length === 0 && (
-          <p className="text-xs" style={{ color: 'var(--slate-400)' }}>Waiting for events...</p>
+          <p className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Waiting for events...</p>
         )}
         {events.map((evt, i) => {
           const style = getEventStyle(evt)
           const Icon = style.icon
           return (
             <div key={i} className="flex gap-2 items-start">
-              <span className="text-xs shrink-0 pt-0.5" style={{ color: 'var(--slate-400)' }}>
+              <span className="text-xs shrink-0 pt-0.5" style={{ color: 'var(--arcis-text-secondary)' }}>
                 {new Date(evt.timestamp || evt.created_at).toLocaleTimeString()}
               </span>
               <Icon size={12} className="shrink-0 mt-1" style={{ color: style.color }} />
-              <span style={{ color: 'var(--slate-300)' }}>{formatEvent(evt)}</span>
+              <span style={{ color: 'var(--arcis-text-secondary)' }}>{formatEvent(evt)}</span>
             </div>
           )
         })}

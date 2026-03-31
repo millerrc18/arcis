@@ -1,4 +1,4 @@
-"""CLI command implementations for Halcyon Lab.
+"""CLI command implementations for Arcis.
 
 Called by: main.py
 Calls: service modules, training modules, evaluation modules
@@ -24,7 +24,7 @@ def cmd_demo_packet(args):
 def cmd_send_test_email(args):
     success = send_email(
         "[TRADE DESK] Test Email",
-        "This is a test from the AI Research Desk. Email delivery is working.",
+        "This is a test from Arcis. Email delivery is working.",
     )
     print("Test email sent successfully." if success else "Failed to send test email.")
 
@@ -40,7 +40,7 @@ def cmd_send_test_telegram(args):
         print('    chat_id: "your-chat-id"')
         return
     success = send_telegram(
-        "🧪 <b>HALCYON LAB — TEST</b>\n"
+        "🧪 <b>ARCIS — TEST</b>\n"
         "Telegram notifications are working!\n"
         "You'll receive alerts for:\n"
         "  • Trade opens/closes\n"
@@ -782,7 +782,7 @@ def cmd_preflight(args):
     from src.services.system_service import get_system_status
 
     status = get_system_status(load_config())
-    print("\nHALCYON LAB - PREFLIGHT CHECK")
+    print("\nARCIS - PREFLIGHT CHECK")
     print(f"  Config:    {'OK' if status['config_loaded'] else 'FAIL'}")
     print(f"  Source:    {status.get('config_source', 'unknown')}")
     print(f"  Email:     {'OK' if status['email_configured'] else 'FAIL'}")
@@ -810,7 +810,7 @@ def cmd_train_pipeline(args):
     from src.training.quality_filter import score_all_unscored
     from src.training.trainer import run_fine_tune
 
-    print("\n=== HALCYON TRAINING PIPELINE ===\n")
+    print("\n=== ARCIS TRAINING PIPELINE ===\n")
 
     print("[1/5] Scoring unscored training examples...")
     result = score_all_unscored()

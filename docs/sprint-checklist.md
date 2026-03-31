@@ -9,7 +9,7 @@
   - Total LOC (`find src -name "*.py" -exec wc -l {} + | tail -1`)
   - Test file count and test function count
   - Database table count (grep CREATE TABLE across all files)
-  - API route count (grep @app.get/post in cloud_app.py + routes/)
+  - API route count (grep route decorators across all `src/api/**/*.py`)
   - CLI command count (grep add_parser in main.py)
   - Dashboard page count (ls frontend/src/pages/)
   - Data source count (enrichment + collection)
@@ -38,8 +38,8 @@
 
 ## Tier 3: Update Periodically (flag if stale)
 
-- [ ] **Architecture Diagram** (`halcyon-architecture-v2.html`) — If any system component was added, removed, or changed. This is the visual source of truth.
-- [ ] **Halcyon Framework v2** — If research findings change strategy, training, or infrastructure decisions
+- [ ] **Architecture Diagram** (`frontend/public/architecture.html`) — If any system component was added, removed, or changed. This is the visual source of truth.
+- [ ] **Arcis Framework v2** — If research findings change strategy, training, or infrastructure decisions
 - [ ] **docs/system-state-YYYY-MM-DD.md** — Generate new snapshot after major sprints
 
 ## Verification Commands
@@ -53,7 +53,7 @@ echo "LOC:" && find src -name "*.py" ! -path "*__pycache__*" -exec wc -l {} + | 
 echo "Test files:" && find tests -name "*.py" | wc -l
 echo "Tests:" && find tests -name "*.py" -exec grep -c "def test_" {} + | awk -F: '{s+=$2}END{print s}'
 echo "DB tables:" && grep -rn "CREATE TABLE" src/ scripts/ --include="*.py" | grep -v __pycache__ | sed 's/.*CREATE TABLE IF NOT EXISTS //;s/ (.*//' | sort -u | wc -l
-echo "API routes:" && grep -c "@app\.\|@router\." src/api/cloud_app.py src/api/routes/*.py 2>/dev/null | awk -F: '{s+=$2}END{print s}'
+echo "API routes:" && rg -n "@(app|router)\.(get|post|put|delete|patch)" src/api --glob '*.py' | wc -l
 echo "CLI commands:" && grep -c "add_parser" src/main.py
 echo "Dashboard pages:" && ls frontend/src/pages/*.jsx | wc -l
 echo "Notifications:" && grep -c "^def notify_" src/notifications/telegram.py

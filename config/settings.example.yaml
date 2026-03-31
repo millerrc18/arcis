@@ -148,7 +148,7 @@ bootcamp:
 # ─────────────────────────────────────────────────────────────────
 logging:
   level: INFO
-  file: logs/halcyon.log
+  file: logs/arcis.log
 
 telegram:
   enabled: false

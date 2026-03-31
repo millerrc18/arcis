@@ -1,4 +1,4 @@
-"""Build fund-manager-style email digests for Halcyon Lab.
+"""Build fund-manager-style email digests for Arcis.
 
 Four digests per day, each with a specific purpose:
 1. Pre-market (7:30 AM): Portfolio status, overnight events, today's plan
@@ -72,10 +72,10 @@ def build_premarket_digest(db_path: str = "ai_research_desk.sqlite3") -> tuple[s
             "FROM council_sessions ORDER BY created_at DESC LIMIT 1",
         )
 
-    subject = f"Halcyon Pre-Market — {now.strftime('%b %d')} | {len(paper_trades)} paper, {len(live_trades)} live"
+    subject = f"Arcis Pre-Market — {now.strftime('%b %d')} | {len(paper_trades)} paper, {len(live_trades)} live"
 
     lines = [
-        "HALCYON LAB — PRE-MARKET BRIEF",
+        "ARCIS — PRE-MARKET BRIEF",
         now.strftime("%A, %B %d, %Y"),
         "",
         "━━━ PORTFOLIO STATUS ━━━",
@@ -103,7 +103,7 @@ def build_premarket_digest(db_path: str = "ai_research_desk.sqlite3") -> tuple[s
     lines.extend([
         "", "━━━ TODAY'S PLAN ━━━",
         "Market scans: every 30 min (9:30 AM – 4:00 PM ET)",
-        "EOD recap at 4:15 PM", "", "— Halcyon Lab",
+        "EOD recap at 4:15 PM", "", "— Arcis",
     ])
 
     return subject, "\n".join(lines)
@@ -149,10 +149,10 @@ def build_midday_digest(db_path: str = "ai_research_desk.sqlite3") -> tuple[str,
     llm_rate = f"{llm_success}/{llm_total} ({llm_success / llm_total * 100:.0f}%)" if llm_total > 0 else "n/a"
     closed_pnl = sum(t["pnl_dollars"] or 0 for t in closed_today)
 
-    subject = f"Halcyon Midday — {len(opened_today)} opened, {len(closed_today)} closed, P&L: ${closed_pnl:+.2f}"
+    subject = f"Arcis Midday — {len(opened_today)} opened, {len(closed_today)} closed, P&L: ${closed_pnl:+.2f}"
 
     lines = [
-        "HALCYON LAB — MIDDAY UPDATE",
+        "ARCIS — MIDDAY UPDATE",
         f"{now.strftime('%A, %B %d')} — 12:00 PM ET",
         "", "━━━ MORNING ACTIVITY ━━━",
         f"Scans completed:  {len(scans)}",
@@ -176,7 +176,7 @@ def build_midday_digest(db_path: str = "ai_research_desk.sqlite3") -> tuple[str,
         for alert in risk_alerts:
             lines.append(f"  ! {alert['detail']}")
 
-    lines.extend(["", "— Halcyon Lab"])
+    lines.extend(["", "— Arcis"])
     return subject, "\n".join(lines)
 
 
@@ -199,10 +199,10 @@ def build_eod_digest(db_path: str = "ai_research_desk.sqlite3") -> tuple[str, st
     total_pnl = sum(t["pnl_dollars"] or 0 for t in all_closed)
     win_rate = sum(1 for t in all_closed if (t["pnl_dollars"] or 0) > 0) / total_trades if total_trades else 0
 
-    subject = f"Halcyon EOD — {now.strftime('%b %d')} | {len(closed)} closed, P&L: ${closed_pnl:+.2f} | Total: ${total_pnl:+.2f}"
+    subject = f"Arcis EOD — {now.strftime('%b %d')} | {len(closed)} closed, P&L: ${closed_pnl:+.2f} | Total: ${total_pnl:+.2f}"
 
     lines = [
-        "HALCYON LAB — END OF DAY RECAP",
+        "ARCIS — END OF DAY RECAP",
         now.strftime("%A, %B %d, %Y"),
         "", "━━━ TODAY'S RESULTS ━━━",
         f"Trades opened:  {len(opened)}", f"Trades closed:  {len(closed)}",
@@ -233,7 +233,7 @@ def build_eod_digest(db_path: str = "ai_research_desk.sqlite3") -> tuple[str, st
         if len(paper) > 10:
             lines.append(f"  ...and {len(paper) - 10} more")
 
-    lines.extend(["", "— Halcyon Lab"])
+    lines.extend(["", "— Arcis"])
     return subject, "\n".join(lines)
 
 
@@ -265,10 +265,10 @@ def build_evening_digest(db_path: str = "ai_research_desk.sqlite3") -> tuple[str
     llm_rate = f"{llm_s / llm_t * 100:.0f}%" if llm_t > 0 else "n/a"
     cost = costs_today["total"] if costs_today and costs_today["total"] else 0
 
-    subject = f"Halcyon Evening — {total_ex} examples, {closed_count}/50 trades, LLM {llm_rate}"
+    subject = f"Arcis Evening — {total_ex} examples, {closed_count}/50 trades, LLM {llm_rate}"
 
     lines = [
-        "HALCYON LAB — EVENING DIGEST", now.strftime("%A, %B %d, %Y"),
+        "ARCIS — EVENING DIGEST", now.strftime("%A, %B %d, %Y"),
         "", "━━━ DATA ASSET ━━━",
         f"Training examples:  {total_ex}/2,800 target ({total_ex / 2800 * 100:.1f}%)",
         f"Added today:        {today_ex}",
@@ -295,7 +295,7 @@ def build_evening_digest(db_path: str = "ai_research_desk.sqlite3") -> tuple[str
     lines.extend([
         "", "━━━ COSTS ━━━",
         f"API spend today:    ${cost:.2f}" if cost else "API spend today:    $0.00",
-        "", "— Halcyon Lab",
+        "", "— Arcis",
     ])
 
     return subject, "\n".join(lines)

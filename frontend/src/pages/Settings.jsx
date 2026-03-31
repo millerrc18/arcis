@@ -14,24 +14,24 @@ export default function Settings() {
   if (isLoading) return <LoadingSpinner />
 
   const Section = ({ title, children }) => (
-    <div className="rounded-lg p-4" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-      <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--slate-400)' }}>{title}</h3>
+    <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+      <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>{title}</h3>
       <div className="space-y-3 text-sm">{children}</div>
     </div>
   )
 
   const Row = ({ label, value }) => (
     <div className="flex justify-between">
-      <span style={{ color: 'var(--slate-300)' }}>{label}</span>
+      <span style={{ color: 'var(--arcis-text-secondary)' }}>{label}</span>
       <span style={{ fontFamily: 'var(--font-mono)' }}>{String(value)}</span>
     </div>
   )
 
   return (
     <div className="space-y-6">
-      <h2 className="text-xl font-medium" style={{ color: 'var(--slate-100)' }}>Settings</h2>
+      <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text-primary)' }}>Settings</h2>
 
-      <div className="rounded-lg p-3 text-sm" style={{ background: 'rgba(245, 158, 11, 0.15)', border: '1px solid rgba(245, 158, 11, 0.4)', color: 'var(--amber-300)' }}>
+      <div className="rounded-lg p-3 text-sm" style={{ background: 'rgba(245, 158, 11, 0.15)', border: '1px solid rgba(245, 158, 11, 0.4)', color: 'var(--arcis-warning)' }}>
         {IS_CLOUD
           ? 'Cloud mode — showing cached configuration. Changes require local access.'
           : 'Configuration changes require a watch loop restart to take effect.'}
@@ -78,8 +78,8 @@ export default function Settings() {
 
       {/* System Health */}
       {status && (
-        <div className="rounded-lg p-4" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-          <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--slate-400)' }}>System Health</h3>
+        <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+          <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>System Health</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
             {[
               ['Config', status.config_loaded],
@@ -92,7 +92,7 @@ export default function Settings() {
               ['Bootcamp', status.bootcamp_enabled],
             ].map(([label, ok]) => (
               <div key={label} className="flex items-center justify-between">
-                <span style={{ color: 'var(--slate-300)' }}>{label}</span>
+                <span style={{ color: 'var(--arcis-text-secondary)' }}>{label}</span>
                 <StatusBadge text={ok ? 'OK' : 'Off'} variant={ok ? 'success' : 'neutral'} />
               </div>
             ))}
@@ -103,7 +103,7 @@ export default function Settings() {
       {/* API Cost Tracking */}
       {costs && (
         <>
-          <h3 className="text-sm uppercase tracking-wide" style={{ color: 'var(--slate-400)' }}>API Costs</h3>
+          <h3 className="text-sm uppercase tracking-wide" style={{ color: 'var(--arcis-text-secondary)' }}>API Costs</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <MetricCard label="All Time" value={`$${(costs.total_all_time ?? costs.total_cost ?? 0).toFixed(2)}`} />
             <MetricCard label="Today" value={`$${(costs.total_today ?? 0).toFixed(4)}`} />
@@ -113,16 +113,16 @@ export default function Settings() {
 
           {/* Breakdown by purpose (local format) */}
           {costs.by_purpose && Object.keys(costs.by_purpose).length > 0 && (
-            <div className="rounded-lg p-4" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-              <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--slate-400)' }}>Cost by Purpose (30d)</h3>
+            <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+              <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>Cost by Purpose (30d)</h3>
               <div className="space-y-2 text-sm">
                 {Object.entries(costs.by_purpose)
                   .sort((a, b) => b[1].cost - a[1].cost)
                   .map(([purpose, data]) => (
                     <div key={purpose} className="flex items-center justify-between">
-                      <span className="capitalize" style={{ color: 'var(--slate-300)' }}>{purpose.replace(/_/g, ' ')}</span>
+                      <span className="capitalize" style={{ color: 'var(--arcis-text-secondary)' }}>{purpose.replace(/_/g, ' ')}</span>
                       <div className="flex items-center gap-4" style={{ fontFamily: 'var(--font-mono)' }}>
-                        <span className="text-xs" style={{ color: 'var(--slate-400)' }}>{data.calls} calls</span>
+                        <span className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>{data.calls} calls</span>
                         <span>${data.cost.toFixed(4)}</span>
                       </div>
                     </div>
@@ -133,14 +133,14 @@ export default function Settings() {
 
           {/* Breakdown (cloud format) */}
           {!costs.by_purpose && costs.breakdown && costs.breakdown.length > 0 && (
-            <div className="rounded-lg p-4" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-              <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--slate-400)' }}>Cost Breakdown (30d)</h3>
+            <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+              <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>Cost Breakdown (30d)</h3>
               <div className="space-y-2 text-sm">
                 {costs.breakdown.map((row, i) => (
                   <div key={i} className="flex items-center justify-between">
-                    <span className="capitalize" style={{ color: 'var(--slate-300)' }}>{(row.purpose || row.model || 'unknown').replace(/_/g, ' ')}</span>
+                    <span className="capitalize" style={{ color: 'var(--arcis-text-secondary)' }}>{(row.purpose || row.model || 'unknown').replace(/_/g, ' ')}</span>
                     <div className="flex items-center gap-4" style={{ fontFamily: 'var(--font-mono)' }}>
-                      <span className="text-xs" style={{ color: 'var(--slate-400)' }}>{row.call_count || 0} calls</span>
+                      <span className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>{row.call_count || 0} calls</span>
                       <span>${(row.total_cost || 0).toFixed(4)}</span>
                     </div>
                   </div>
@@ -151,17 +151,17 @@ export default function Settings() {
 
           {/* Daily spend chart */}
           {costs.daily && costs.daily.length > 0 && (
-            <div className="rounded-lg p-4" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-              <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--slate-400)' }}>Daily Spend (30d)</h3>
+            <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+              <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>Daily Spend (30d)</h3>
               <ResponsiveContainer width="100%" height={180}>
                 <BarChart data={costs.daily}>
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--slate-400)' }} tickFormatter={d => d.slice(5)} />
-                  <YAxis tick={{ fontSize: 10, fill: 'var(--slate-400)' }} tickFormatter={v => `$${v}`} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--arcis-text-secondary)' }} tickFormatter={d => d.slice(5)} />
+                  <YAxis tick={{ fontSize: 10, fill: 'var(--arcis-text-secondary)' }} tickFormatter={v => `$${v}`} />
                   <Tooltip
-                    contentStyle={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)', borderRadius: 8, fontSize: 12 }}
+                    contentStyle={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 8, fontSize: 12 }}
                     formatter={v => [`$${v.toFixed(4)}`, 'Cost']}
                   />
-                  <Bar dataKey="cost" fill="var(--teal-400)" radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="cost" fill="var(--arcis-accent)" radius={[2, 2, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

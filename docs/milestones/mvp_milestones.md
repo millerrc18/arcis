@@ -1,4 +1,4 @@
-# Halcyon Lab — Milestones
+# Arcis — Milestones
 
 ## Completed Milestones
 

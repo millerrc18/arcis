@@ -1,9 +1,9 @@
 const variants = {
-  success: { bg: 'rgba(16, 185, 129, 0.15)', text: 'var(--success)', border: 'var(--success)' },
-  danger: { bg: 'rgba(239, 68, 68, 0.15)', text: 'var(--danger)', border: 'var(--danger)' },
-  warning: { bg: 'rgba(245, 158, 11, 0.15)', text: 'var(--warning)', border: 'var(--warning)' },
-  info: { bg: 'rgba(59, 130, 246, 0.15)', text: 'var(--info)', border: 'var(--info)' },
-  neutral: { bg: 'var(--slate-700)', text: 'var(--slate-300)', border: 'var(--slate-600)' },
+  success: { bg: 'rgba(34, 197, 94, 0.15)', text: 'var(--arcis-success)', border: 'var(--arcis-success)' },
+  danger: { bg: 'rgba(239, 68, 68, 0.15)', text: 'var(--arcis-danger)', border: 'var(--arcis-danger)' },
+  warning: { bg: 'rgba(245, 158, 11, 0.15)', text: 'var(--arcis-warning)', border: 'var(--arcis-warning)' },
+  info: { bg: 'var(--arcis-accent-muted)', text: 'var(--arcis-info)', border: 'var(--arcis-info)' },
+  neutral: { bg: 'var(--arcis-bg-surface)', text: 'var(--arcis-text-secondary)', border: 'var(--arcis-border)' },
 }
 
 export default function StatusBadge({ text, variant = 'neutral' }) {

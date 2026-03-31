@@ -1,6 +1,6 @@
 # Email Setup Guide
 
-This guide explains how to configure SMTP email delivery for the AI Research Desk so trade packets, watchlists, and recaps reach Ryan's inbox.
+This guide explains how to configure SMTP email delivery for the Systematic Equity Research so trade packets, watchlists, and recaps reach Ryan's inbox.
 
 ## Recommended: Gmail with an App Password
 
@@ -8,7 +8,7 @@ This guide explains how to configure SMTP email delivery for the AI Research Des
    - Go to <https://myaccount.google.com/security> and turn on 2-Step Verification.
 2. **Create an App Password.**
    - Go to <https://myaccount.google.com/apppasswords>.
-   - Select **Mail** as the app and **Other** as the device (name it something like "halcyon").
+   - Select **Mail** as the app and **Other** as the device (name it something like "arcis").
    - Click **Generate**. Google will show a 16-character password — copy it.
 3. **Fill in `config/settings.local.yaml`** (see below for the template).
    - `smtp_server`: `smtp.gmail.com`
@@ -45,7 +45,7 @@ email:
 Once the `send-test-email` CLI command is available (coming in the next milestone), run it to confirm delivery end-to-end:
 
 ```bash
-python -m halcyon send-test-email
+python -m src.main send-test-email
 ```
 
 If the test email does not arrive, check:

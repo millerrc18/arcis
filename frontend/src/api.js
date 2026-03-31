@@ -77,6 +77,8 @@ export const api = {
   getDoc: (docId) => fetchApi(`/docs/${docId}`),
   getMetricHistory: (days = 90) => fetchApi(`/metric-history?days=${days}`),
   getCosts: (days = 30) => fetchApi(`/costs?days=${days}`),
+  getBuildScore: () => fetchApi('/build-score'),
+  getTrafficLightCurrent: () => fetchApi('/traffic-light/current'),
   // Council
   getCouncilLatest: () => fetchApi('/council/latest'),
   getCouncilHistory: (days = 30) => fetchApi(`/council/history?days=${days}`),

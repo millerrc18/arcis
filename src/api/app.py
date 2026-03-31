@@ -1,4 +1,4 @@
-"""FastAPI application for the Halcyon Lab dashboard."""
+"""FastAPI application for the Arcis dashboard."""
 import os
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.api.routes import system, scan, shadow, training, review, packets, docs, actions
 from src.api.websocket import manager
 
-app = FastAPI(title="Halcyon Lab", version="1.0.0")
+app = FastAPI(title="Arcis", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,

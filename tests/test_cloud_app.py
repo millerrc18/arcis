@@ -202,6 +202,28 @@ class TestMetricsEndpoint:
         assert data[0]["metrics_json"] == {"win_rate": 0.6}
 
 
+# ── Analytics stub endpoints ────────────────────────────────────────
+
+class TestAnalyticsStubEndpoints:
+    """Tests for new analytics stub endpoints."""
+
+    def test_build_score_stub_shape(self, client):
+        resp = client.get("/api/build-score")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["build_score"] == 0
+        assert data["delta_7d"] == 0
+        assert data["components"]["gate_velocity"] == 0
+        assert data["phase_progress"]["trades_required"] == 50
+        assert data["history_7d"] == []
+
+    def test_traffic_light_current_stub_shape(self, client):
+        resp = client.get("/api/traffic-light/current")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data == {"regime": "UNKNOWN", "score": 0, "vix": 0}
+
+
 # ── Schedule metrics endpoint ────────────────────────────────────────
 
 class TestScheduleMetricsEndpoint:

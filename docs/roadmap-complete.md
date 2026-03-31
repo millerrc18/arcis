@@ -1,4 +1,4 @@
-# Halcyon Lab — Complete Roadmap (Research-Informed)
+# Arcis — Complete Roadmap (Research-Informed)
 ## Updated March 27, 2026
 
 > Every gate is performance-based, not time-based. Quarters are estimates; actual timelines depend on trade accumulation and gate metrics. Sources cited for every decision.
@@ -48,7 +48,7 @@
 - [ ] Slippage tracking (signal vs fill price on every trade) *(Risk research: essential for concordance testing)*
 
 **Dashboard & Operations:**
-- [x] halcyonlab.app live (Render, kingfisher brand, 11 pages)
+- [x] halcyonlab.app live (Render, Arcis brand, 13 pages)
 - [x] Telegram notifications (22/27 types wired)
 - [x] PWA installable
 - [x] Cloud auth (Bearer token, localStorage 7-day)
@@ -271,7 +271,7 @@
 
 **Business:**
 - [ ] 12+ month live track record milestone *(LLC research: minimum for institutional allocators)*
-- [ ] Draft "initiating coverage" memo on Halcyon as a strategy
+- [ ] Draft "initiating coverage" memo on Arcis as a strategy
 - [ ] Begin GIPS-principled performance reporting *(Walk-forward research: clean transition to full GIPS later)*
 - [ ] Engage securities attorney for preliminary fund conversations *(LLC research: Month 13-24)*
 
@@ -348,7 +348,7 @@
 
 ## Hardware Roadmap
 
-### Phase 2: Dedicated Halcyon Machine (~$1,500-2,000)
+### Phase 2: Dedicated Arcis Machine (~$1,500-2,000)
 Purpose: 24/7 uninterrupted operation, separate from personal desktop. Unlocks 14B model + GRPO training.
 
 | Component | Spec | Cost |

@@ -104,6 +104,6 @@ def generate_training_report(db_path: str = "ai_research_desk.sqlite3") -> str:
     lines.append("")
 
     lines.append("---")
-    lines.append("Halcyon Lab Training Pipeline")
+    lines.append("Arcis Training Pipeline")
 
     return "\n".join(lines)

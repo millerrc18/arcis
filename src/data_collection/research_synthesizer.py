@@ -16,7 +16,7 @@ from src.config import load_config
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
-SYNTHESIS_PROMPT = """You are the research intelligence analyst for Halcyon Lab, an AI-powered autonomous equity trading system.
+SYNTHESIS_PROMPT = """You are the research intelligence analyst for Arcis, an AI-powered autonomous equity trading system.
 
 SYSTEM CONTEXT:
 - Qwen3 8B fine-tuned via QLoRA, 978 training examples growing to 10K
@@ -32,11 +32,11 @@ THIS WEEK'S PAPERS ({count} papers, relevance >= 0.6):
 Produce a structured digest with exactly 4 sections. For each finding, reference the specific paper by title. Be concrete — "consider changing X to Y" not "this could be useful."
 
 <actionable>
-[Findings that suggest specific changes to Halcyon's architecture, training pipeline, strategy, or infrastructure. Include paper title, what it found, and the specific change to consider.]
+[Findings that suggest specific changes to Arcis architecture, training pipeline, strategy, or infrastructure. Include paper title, what it found, and the specific change to consider.]
 </actionable>
 
 <threats>
-[Competitive developments, open-source releases, or market structure changes that could erode Halcyon's moat. Include what to monitor.]
+[Competitive developments, open-source releases, or market structure changes that could erode Arcis's moat. Include what to monitor.]
 </threats>
 
 <techniques>
