@@ -45,6 +45,12 @@ MIGRATIONS = [
     ("shadow_trades", "fill_exit_price", "ALTER TABLE shadow_trades ADD COLUMN fill_exit_price REAL"),
     ("shadow_trades", "exit_slippage_bps", "ALTER TABLE shadow_trades ADD COLUMN exit_slippage_bps REAL"),
 
+    # Columns added by executor.py and Sprint 4E migration (missing from original Postgres schema)
+    ("shadow_trades", "signal_price", "ALTER TABLE shadow_trades ADD COLUMN signal_price REAL"),
+    ("shadow_trades", "fill_price", "ALTER TABLE shadow_trades ADD COLUMN fill_price REAL"),
+    ("shadow_trades", "implementation_shortfall_bps", "ALTER TABLE shadow_trades ADD COLUMN implementation_shortfall_bps REAL"),
+    ("shadow_trades", "strategy_type", "ALTER TABLE shadow_trades ADD COLUMN strategy_type TEXT DEFAULT 'pullback'"),
+
     # NLP columns on edgar_filings
     ("edgar_filings", "sentiment_polarity", "ALTER TABLE edgar_filings ADD COLUMN sentiment_polarity REAL"),
     ("edgar_filings", "sentiment_negative_count", "ALTER TABLE edgar_filings ADD COLUMN sentiment_negative_count INTEGER"),
@@ -67,6 +73,10 @@ MIGRATIONS = [
     ("training_examples", "instruction", "ALTER TABLE training_examples ADD COLUMN instruction TEXT"),
     ("training_examples", "difficulty", "ALTER TABLE training_examples ADD COLUMN difficulty TEXT"),
     ("training_examples", "quality_score_auto", "ALTER TABLE training_examples ADD COLUMN quality_score_auto REAL"),
+
+    # Columns added by Sprint 4E migration
+    ("training_examples", "outcome_type", "ALTER TABLE training_examples ADD COLUMN outcome_type TEXT"),
+    ("training_examples", "regime", "ALTER TABLE training_examples ADD COLUMN regime TEXT"),
 
     # setup_signals: SQLite has rich signal data, Postgres was created minimal
     ("setup_signals", "signal_id", "ALTER TABLE setup_signals ADD COLUMN signal_id TEXT"),

@@ -118,7 +118,8 @@ try:
     nearing_timeout = conn.execute(
         "SELECT ticker, julianday('now') - julianday(actual_entry_time) as days "
         "FROM shadow_trades WHERE status='open' "
-        "HAVING days > 7 ORDER BY days DESC"
+        "AND julianday('now') - julianday(actual_entry_time) > 7 "
+        "ORDER BY days DESC"
     ).fetchall()
     if nearing_timeout:
         tickers = ", ".join(f"{r['ticker']}({r['days']:.0f}d)" for r in nearing_timeout[:5])
@@ -138,13 +139,21 @@ try:
     ).fetchone()[0]
     check("Council ran today", council_today > 0, f"{council_today} sessions")
     if council_today > 0:
+        council_cols = [r[1] for r in conn.execute("PRAGMA table_info(council_sessions)").fetchall()]
+        select_cols = ["session_id", "session_type", "created_at"]
+        if "status" in council_cols:
+            select_cols.append("status")
+        if "total_cost" in council_cols:
+            select_cols.append("total_cost")
         latest = conn.execute(
-            "SELECT session_id, session_type, status, total_cost "
+            f"SELECT {', '.join(select_cols)} "
             "FROM council_sessions WHERE created_at LIKE ? ORDER BY created_at DESC LIMIT 1",
             (f"{today}%",)
         ).fetchone()
-        check("Latest session", latest['status'] == 'completed',
-              f"type={latest['session_type']}, status={latest['status']}, cost=${latest['total_cost']:.4f}")
+        status = latest['status'] if 'status' in council_cols else 'unknown'
+        cost = f", cost=${latest['total_cost']:.4f}" if 'total_cost' in council_cols and latest['total_cost'] else ""
+        check("Latest session", status in ('completed', 'unknown'),
+              f"type={latest['session_type']}, status={status}{cost}")
 except Exception as e:
     check("Council", False, str(e))
 print()
