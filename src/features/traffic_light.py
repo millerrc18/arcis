@@ -45,7 +45,8 @@ def _ensure_state_table(db_path: str = "ai_research_desk.sqlite3"):
                     last_trend_score INTEGER DEFAULT 0,
                     last_credit_score INTEGER DEFAULT 0,
                     last_total_score INTEGER DEFAULT 0,
-                    updated_at TEXT
+                    updated_at TEXT,
+                    last_transition_at TEXT
                 )
             """)
             # Ensure exactly one row
@@ -54,6 +55,10 @@ def _ensure_state_table(db_path: str = "ai_research_desk.sqlite3"):
                 conn.execute(
                     f"INSERT INTO {STATE_TABLE} (id, current_regime) VALUES (1, 'GREEN')"
                 )
+            # Migrate: add last_transition_at if missing (#144)
+            cols = [r[1] for r in conn.execute(f"PRAGMA table_info({STATE_TABLE})").fetchall()]
+            if "last_transition_at" not in cols:
+                conn.execute(f"ALTER TABLE {STATE_TABLE} ADD COLUMN last_transition_at TEXT")
             conn.commit()
     except Exception as e:
         logger.warning("[TRAFFIC] State table creation failed: %s", e)
@@ -160,17 +165,42 @@ def compute_traffic_light(
     total_score = vix_score + trend_score + credit_score
     raw_regime = _score_to_regime(total_score)
 
-    # Persistence filter
+    # Persistence filter with debounce (#144)
     persistence_applied = False
     final_regime = raw_regime
     try:
         with sqlite3.connect(db_path) as conn:
             state = conn.execute(
-                f"SELECT current_regime, pending_regime, pending_count FROM {STATE_TABLE} WHERE id = 1"
+                f"SELECT current_regime, pending_regime, pending_count, last_transition_at "
+                f"FROM {STATE_TABLE} WHERE id = 1"
             ).fetchone()
             if state:
-                current, pending, count = state
-                if raw_regime == current:
+                current, pending, count, last_transition_at = state
+
+                # Debounce: ignore persistence if last transition <5 min ago (#144)
+                _debounce_skip = False
+                if last_transition_at:
+                    try:
+                        _last_t = datetime.fromisoformat(last_transition_at)
+                        _elapsed = (datetime.now(ET) - _last_t).total_seconds()
+                        if _elapsed < 300:
+                            _debounce_skip = True
+                            logger.debug(
+                                "[TRAFFIC] Debounce: last transition %.0fs ago, skipping persistence",
+                                _elapsed,
+                            )
+                    except (ValueError, TypeError):
+                        pass
+
+                if _debounce_skip:
+                    final_regime = current
+                    conn.execute(
+                        f"UPDATE {STATE_TABLE} SET last_vix_score = ?, last_trend_score = ?, "
+                        f"last_credit_score = ?, last_total_score = ?, updated_at = ? WHERE id = 1",
+                        (vix_score, trend_score, credit_score, total_score, datetime.now(ET).isoformat()),
+                    )
+                    conn.commit()
+                elif raw_regime == current:
                     # Same as current — reset pending
                     final_regime = current
                     conn.execute(
@@ -185,11 +215,13 @@ def compute_traffic_light(
                     if new_count >= 5:
                         # Persistence threshold met (5 consecutive readings ≈ 2.5 hours)
                         final_regime = raw_regime
+                        _now_iso = datetime.now(ET).isoformat()
                         conn.execute(
                             f"UPDATE {STATE_TABLE} SET current_regime = ?, pending_regime = NULL, "
                             f"pending_count = 0, last_vix_score = ?, last_trend_score = ?, "
-                            f"last_credit_score = ?, last_total_score = ?, updated_at = ? WHERE id = 1",
-                            (raw_regime, vix_score, trend_score, credit_score, total_score, datetime.now(ET).isoformat()),
+                            f"last_credit_score = ?, last_total_score = ?, updated_at = ?, "
+                            f"last_transition_at = ? WHERE id = 1",
+                            (raw_regime, vix_score, trend_score, credit_score, total_score, _now_iso, _now_iso),
                         )
                     else:
                         # Not yet — keep current, update pending count
