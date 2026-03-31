@@ -15,6 +15,7 @@ import {
 import { api } from '../api'
 import LoadingSpinner from '../components/LoadingSpinner'
 import MetricCard from '../components/MetricCard'
+import StatusBadge from '../components/StatusBadge'
 import { TrendingUp, TrendingDown, Minus, AlertTriangle } from 'lucide-react'
 
 const DIMENSION_LABELS = {
@@ -56,6 +57,11 @@ export default function Health() {
     queryKey: ['build-score'],
     queryFn: api.getBuildScore,
     refetchInterval: 120000,
+  })
+  const { data: trainingHistory } = useQuery({
+    queryKey: ['training-history'],
+    queryFn: api.getTrainingHistory,
+    refetchInterval: 300000,
   })
 
   if (hshsLoading && buildLoading) return <LoadingSpinner />
@@ -106,11 +112,11 @@ export default function Health() {
 
       {/* Build Score hero section */}
       {hasBuild && (
-        <div className="rounded-lg p-6" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
+        <div className="arcis-card" style={{ padding: '24px' }}>
           <div className="flex flex-col lg:flex-row gap-6">
             {/* Score display */}
             <div className="flex flex-col items-center lg:items-start gap-1 min-w-[160px]">
-              <div className="text-xs uppercase tracking-wide" style={{ color: 'var(--slate-400)' }}>Build Score</div>
+              <div className="text-xs uppercase tracking-wide" style={{ color: 'var(--arcis-text-secondary)' }}>Build Score</div>
               <div className="text-6xl font-semibold" style={{ fontFamily: 'var(--font-mono)', color: scoreColor(buildScore) }}>
                 {buildScore.toFixed(1)}
               </div>
@@ -188,13 +194,13 @@ export default function Health() {
 
       {/* HSHS section */}
       {!hasHshs ? (
-        <div className="rounded-lg p-12 text-center" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
+        <div className="arcis-card text-center" style={{ padding: '48px' }}>
           <div className="text-sm" style={{ color: 'var(--slate-400)' }}>Collecting HSHS data...</div>
         </div>
       ) : (
         <>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="rounded-lg p-6 lg:col-span-1" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
+            <div className="arcis-card lg:col-span-1" style={{ padding: '24px' }}>
               <div className="text-xs uppercase tracking-wide mb-2" style={{ color: 'var(--slate-400)' }}>
                 HSHS Composite
               </div>
@@ -217,7 +223,7 @@ export default function Health() {
               </div>
             </div>
 
-            <div className="rounded-lg p-4 lg:col-span-2" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+            <div className="arcis-card lg:col-span-2">
               <h3 className="text-sm uppercase tracking-wide mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>
                 HSHS Radar
               </h3>
@@ -247,6 +253,41 @@ export default function Health() {
           </div>
         </>
       )}
+      {/* Model History */}
+      <div className="arcis-card">
+        <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>Model History</h3>
+        {trainingHistory && trainingHistory.length > 1 ? (
+          <div className="space-y-3">
+            {trainingHistory.map((run, i) => {
+              const statusVariant = run.status === 'active' ? 'success' : run.status === 'evaluation' ? 'warning' : run.status === 'rejected' ? 'danger' : 'neutral'
+              return (
+                <div key={run.model_version || i} className="flex items-center gap-4 border-l-2 pl-4 py-2"
+                  style={{ borderColor: run.status === 'active' ? 'var(--arcis-success)' : run.status === 'rejected' ? 'var(--arcis-danger)' : 'var(--arcis-border)' }}>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium" style={{ color: 'var(--arcis-text-primary)' }}>{run.model_version || `v${i + 1}`}</span>
+                      <StatusBadge text={run.status || 'unknown'} variant={statusVariant} />
+                    </div>
+                    <div className="text-xs mt-0.5" style={{ color: 'var(--arcis-text-secondary)' }}>
+                      {run.created_at ? run.created_at.slice(0, 10) : '--'}
+                    </div>
+                  </div>
+                  <div className="text-sm text-right" style={{ fontFamily: 'var(--font-mono)' }}>
+                    <div style={{ color: 'var(--arcis-text-primary)' }}>{run.example_count ?? '--'} examples</div>
+                    {run.holdout_score != null && (
+                      <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Holdout: {run.holdout_score.toFixed(3)}</div>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="text-sm text-center py-4" style={{ color: 'var(--arcis-text-muted)' }}>
+            First model — no comparisons yet. Next model will be trained after more closed trades accumulate.
+          </div>
+        )}
+      </div>
     </div>
   )
 }

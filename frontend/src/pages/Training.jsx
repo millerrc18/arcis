@@ -5,6 +5,41 @@ import MetricCard from '../components/MetricCard'
 import StatusBadge from '../components/StatusBadge'
 import LoadingSpinner from '../components/LoadingSpinner'
 
+const COLLECTOR_NAMES = {
+  options_chains: 'Options Chains',
+  options_metrics: 'Options Metrics',
+  vix_term_structure: 'VIX Term Structure',
+  cboe_ratios: 'CBOE Put/Call Ratios',
+  macro_snapshots: 'FRED Macro Data',
+  google_trends: 'Google Trends',
+  earnings_calendar: 'Earnings Calendar',
+  sec_filings: 'SEC EDGAR Filings',
+  insider_transactions: 'Insider Transactions',
+  research_docs: 'Research Docs',
+  analyst_estimates: 'Analyst Estimates',
+  short_interest: 'Short Interest',
+}
+
+function relativeDate(dateStr) {
+  if (!dateStr) return 'Never'
+  const ms = Date.now() - new Date(dateStr).getTime()
+  const mins = Math.floor(ms / 60000)
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.floor(hrs / 24)
+  if (days === 1) return 'Yesterday'
+  return `${days} days ago`
+}
+
+function freshnessColor(dateStr) {
+  if (!dateStr) return 'var(--arcis-danger)'
+  const days = (Date.now() - new Date(dateStr).getTime()) / 86400000
+  if (days <= 1.5) return 'var(--arcis-success)'
+  if (days <= 7) return 'var(--arcis-warning)'
+  return 'var(--arcis-danger)'
+}
+
 const OUTCOME_COLORS = {
   WIN: 'var(--arcis-success)',
   LOSS: 'var(--arcis-danger)',
@@ -16,6 +51,7 @@ const OUTCOME_TARGETS = { WIN: 40, LOSS: 25, TIMEOUT: 5, PASS: 15 }
 export default function Training() {
   const { data: status, isLoading } = useQuery({ queryKey: ['training-status'], queryFn: api.getTrainingStatus, refetchInterval: 60000 })
   const { data: history } = useQuery({ queryKey: ['training-versions'], queryFn: api.getTrainingVersions, refetchInterval: 60000 })
+  const { data: collectorStats } = useQuery({ queryKey: ['data-collection-stats'], queryFn: api.getDataCollectionStats, refetchInterval: 300000 })
   const [toast, setToast] = useState(null)
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
 
@@ -91,7 +127,7 @@ export default function Training() {
 
       {/* Hero metrics */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="rounded-lg p-5 text-center" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+        <div className="arcis-card text-center" style={{ padding: '20px' }}>
           <div className="text-3xl font-bold financial-data" style={{ color: 'var(--arcis-text-primary)' }}>{total.toLocaleString()}</div>
           <div className="text-xs uppercase tracking-wide mt-1" style={{ color: 'var(--arcis-text-secondary)' }}>Total Examples</div>
         </div>
@@ -100,9 +136,117 @@ export default function Training() {
         <MetricCard label="Active Model" value={status?.model_name || 'base'} />
       </div>
 
+      {/* Data Collectors */}
+      {collectorStats && (
+        <div>
+          <h3 className="text-sm uppercase tracking-wide mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>Data Collectors</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {Object.entries(COLLECTOR_NAMES).map(([key, name]) => {
+              const stats = collectorStats[key]
+              const records = stats?.total_records ?? 0
+              const latest = stats?.latest_collection
+              const coverage = stats?.coverage_count
+              return (
+                <div key={key} className="arcis-card" style={{ padding: '12px' }}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-medium" style={{ color: 'var(--arcis-text-primary)' }}>{name}</span>
+                    <span className="inline-block w-2 h-2 rounded-full" style={{ background: freshnessColor(latest) }} />
+                  </div>
+                  {records > 0 ? (
+                    <>
+                      <div className="financial-data text-lg" style={{ color: 'var(--arcis-text-primary)' }}>{records.toLocaleString()}</div>
+                      <div className="flex items-center gap-2 text-xs mt-1" style={{ color: 'var(--arcis-text-muted)' }}>
+                        <span>{relativeDate(latest)}</span>
+                        {coverage != null && <span>{coverage} tickers</span>}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-xs mt-1" style={{ color: 'var(--arcis-text-muted)' }}>No data collected yet</div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Pipeline Status */}
+      {status && (status.format_compliance || status.quality || status.quadrant_distribution) && (
+        <div className="arcis-card">
+          <h3 className="text-sm uppercase tracking-wide mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>Pipeline Status</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+            {/* Active model */}
+            <div>
+              <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>Active Model</div>
+              <div className="flex items-center gap-2 mt-1">
+                <span className="font-medium" style={{ color: 'var(--arcis-text-primary)' }}>{status.model_version || 'base'}</span>
+                <StatusBadge text={status.model_status || 'active'} variant={status.model_status === 'active' ? 'success' : 'neutral'} />
+              </div>
+              {status.holdout_score != null && (
+                <div className="text-xs financial-data mt-0.5" style={{ color: 'var(--arcis-text-secondary)' }}>Holdout: {status.holdout_score.toFixed(3)}</div>
+              )}
+            </div>
+            {/* Quality */}
+            {status.quality && (
+              <div>
+                <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>Avg Process Score</div>
+                <div className="financial-data text-lg mt-1" style={{ color: 'var(--arcis-text-primary)' }}>
+                  {status.quality.avg_process_score != null ? status.quality.avg_process_score.toFixed(2) : '--'}
+                </div>
+              </div>
+            )}
+            {/* Format compliance */}
+            {status.format_compliance && (
+              <div>
+                <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>Format Compliance</div>
+                <div className="text-xs mt-1" style={{ color: 'var(--arcis-text-secondary)' }}>
+                  XML: {status.format_compliance.xml ?? 0} | Plain: {status.format_compliance.plain_text ?? 0}
+                </div>
+              </div>
+            )}
+            {/* Leakage */}
+            {status.quality && (
+              <div>
+                <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>Leakage Test</div>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="financial-data" style={{ color: 'var(--arcis-text-primary)' }}>
+                    {status.quality.leakage_accuracy != null ? status.quality.leakage_accuracy.toFixed(3) : '--'}
+                  </span>
+                  {status.quality.leakage_accuracy != null && (
+                    <StatusBadge
+                      text={status.quality.leakage_accuracy < 0.55 ? 'OK' : status.quality.leakage_accuracy < 0.6 ? 'Marginal' : 'Leaking'}
+                      variant={status.quality.leakage_accuracy < 0.55 ? 'success' : status.quality.leakage_accuracy < 0.6 ? 'warning' : 'danger'}
+                    />
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+          {/* Quadrant distribution */}
+          {status.quadrant_distribution && (
+            <div className="mt-4 pt-3" style={{ borderTop: '1px solid var(--arcis-border)' }}>
+              <div className="text-xs mb-2" style={{ color: 'var(--arcis-text-muted)' }}>Quadrant Distribution</div>
+              <div className="grid grid-cols-2 gap-2 max-w-xs text-xs">
+                {[
+                  ['Good Process + Good Outcome', status.quadrant_distribution.good_good, 'var(--arcis-success)'],
+                  ['Good Process + Bad Outcome', status.quadrant_distribution.good_bad, 'var(--arcis-accent)'],
+                  ['Bad Process + Good Outcome', status.quadrant_distribution.bad_good, 'var(--arcis-warning)'],
+                  ['Bad Process + Bad Outcome', status.quadrant_distribution.bad_bad, 'var(--arcis-danger)'],
+                ].map(([label, count, color]) => (
+                  <div key={label} className="flex items-center justify-between px-2 py-1.5 rounded" style={{ background: 'var(--arcis-bg-primary)' }}>
+                    <span style={{ color: 'var(--arcis-text-secondary)' }}>{label.split('+')[0].trim()}<br />{label.split('+')[1]?.trim()}</span>
+                    <span className="financial-data text-lg" style={{ color }}>{count ?? 0}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Outcome distribution */}
       {outcomes ? (
-        <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+        <div className="arcis-card">
           <h3 className="text-sm uppercase tracking-wide mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>Outcome Distribution</h3>
           <div className="flex gap-0.5 h-6 rounded-full overflow-hidden mb-3" style={{ background: 'var(--arcis-border)' }}>
             {outcomes.filter(o => o.pct > 0).map(o => (
@@ -137,7 +281,7 @@ export default function Training() {
           </div>
         </div>
       ) : (
-        <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+        <div className="arcis-card">
           <h3 className="text-sm uppercase tracking-wide mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>Outcome Distribution</h3>
           <div className="text-sm py-4 text-center" style={{ color: 'var(--arcis-text-muted)' }}>
             Outcome data pending migration
@@ -146,7 +290,7 @@ export default function Training() {
       )}
 
       {/* Dataset breakdown by source */}
-      <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+      <div className="arcis-card">
         <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>Source Breakdown</h3>
         {sources ? (
           <div className="space-y-2">
@@ -186,7 +330,7 @@ export default function Training() {
       {/* Ticker + Regime coverage */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Ticker coverage */}
-        <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+        <div className="arcis-card">
           <h3 className="text-sm uppercase tracking-wide mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>Ticker Coverage</h3>
           {tickerCoverage ? (
             <>
@@ -203,7 +347,7 @@ export default function Training() {
         </div>
 
         {/* Regime coverage */}
-        <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+        <div className="arcis-card">
           <h3 className="text-sm uppercase tracking-wide mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>Regime Coverage</h3>
           {regimeCoverage ? (
             <div className="flex flex-wrap gap-2">
@@ -225,7 +369,7 @@ export default function Training() {
 
       {/* Recent examples */}
       {recentExamples && recentExamples.length > 0 && (
-        <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+        <div className="arcis-card">
           <h3 className="text-sm uppercase tracking-wide mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>Recent Examples</h3>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -268,7 +412,7 @@ export default function Training() {
       )}
 
       {/* Training progress */}
-      <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+      <div className="arcis-card">
         <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>Next Training</h3>
         <div className="h-3 rounded-full overflow-hidden mb-2" style={{ background: 'var(--arcis-border)' }}>
           <div className="h-full rounded-full transition-all" style={{ background: 'var(--arcis-accent)', width: `${Math.min(100, ((status?.new_since_last_train || 0) / 50) * 100)}%` }} />
@@ -278,7 +422,7 @@ export default function Training() {
       </div>
 
       {/* Version history */}
-      <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+      <div className="arcis-card">
         <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>Version History</h3>
         <div className="space-y-3">
           {versions.map((v, i) => (

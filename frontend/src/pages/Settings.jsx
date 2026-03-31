@@ -176,7 +176,7 @@ export default function Settings() {
         {Object.entries(sections).map(([sectionName, items]) => {
           const Icon = SECTION_ICONS[sectionName] || Settings2
           return (
-            <div key={sectionName} className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+            <div key={sectionName} className="arcis-card">
               <div className="flex items-center gap-2 mb-3">
                 <Icon size={16} style={{ color: 'var(--arcis-accent)' }} />
                 <h3 className="text-sm uppercase tracking-wide font-medium" style={{ color: 'var(--arcis-text-primary)' }}>{sectionName}</h3>
@@ -199,7 +199,7 @@ export default function Settings() {
 
       {/* Reset button */}
       {hasOverrides && (
-        <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+        <div className="arcis-card">
           {showResetConfirm ? (
             <div className="flex items-center justify-between">
               <span className="text-sm" style={{ color: 'var(--arcis-danger)' }}>
@@ -233,7 +233,7 @@ export default function Settings() {
 
       {/* System Health */}
       {status && (
-        <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+        <div className="arcis-card">
           <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>System Health</h3>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
             {[
@@ -268,7 +268,7 @@ export default function Settings() {
 
           {/* Breakdown by purpose */}
           {costs.by_purpose && Object.keys(costs.by_purpose).length > 0 && (
-            <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+            <div className="arcis-card">
               <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>Cost by Purpose (30d)</h3>
               <div className="space-y-2 text-sm">
                 {Object.entries(costs.by_purpose)
@@ -288,7 +288,7 @@ export default function Settings() {
 
           {/* Breakdown (cloud format) */}
           {!costs.by_purpose && costs.breakdown && costs.breakdown.length > 0 && (
-            <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+            <div className="arcis-card">
               <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>Cost Breakdown (30d)</h3>
               <div className="space-y-2 text-sm">
                 {costs.breakdown.map((row, i) => (
@@ -306,7 +306,7 @@ export default function Settings() {
 
           {/* Daily spend chart */}
           {costs.daily && costs.daily.length > 0 && (
-            <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+            <div className="arcis-card">
               <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>Daily Spend (30d)</h3>
               <ResponsiveContainer width="100%" height={180}>
                 <BarChart data={costs.daily}>

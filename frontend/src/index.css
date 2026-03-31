@@ -76,3 +76,18 @@ body {
   font-variant-numeric: tabular-nums lining-nums;
   font-feature-settings: "tnum" 1, "lnum" 1, "zero" 1;
 }
+
+.arcis-card {
+  background: var(--arcis-bg-elevated);
+  border: 1px solid var(--arcis-border);
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  transition: border-color 0.15s ease;
+}
+.arcis-card:hover {
+  border-color: var(--arcis-border-hover);
+}
+[data-theme="light"] .arcis-card {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}

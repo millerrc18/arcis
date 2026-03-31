@@ -8,7 +8,7 @@ import MetricTrend from '../components/MetricTrend'
 function KpiCard({ label, value, target, good, minTrades, actualTrades }) {
   const needsMore = minTrades && actualTrades < minTrades
   return (
-    <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+    <div className="arcis-card">
       <div className="text-xs uppercase tracking-wide" style={{ color: 'var(--arcis-text-secondary)' }}>{label}</div>
       {needsMore ? (
         <>
@@ -38,7 +38,7 @@ function SectionTable({ title, headers, rows }) {
   return (
     <div className="mb-6">
       <h2 className="text-sm font-medium mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>{title}</h2>
-      <div className="rounded-lg overflow-hidden" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+      <div className="arcis-card overflow-hidden" style={{ padding: 0 }}>
         <table className="w-full text-sm">
           <thead>
             <tr style={{ borderBottom: '1px solid var(--arcis-border)' }}>
@@ -117,7 +117,7 @@ export default function CTOReport() {
       </div>
 
       {/* Phase progress bar */}
-      <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+      <div className="arcis-card">
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-medium" style={{ color: 'var(--arcis-text-primary)' }}>Phase 1 Gate Progress</span>
           <span className="text-sm financial-data" style={{ color: tradesClosed >= 50 ? 'var(--arcis-success)' : 'var(--arcis-accent)' }}>
@@ -249,7 +249,7 @@ export default function CTOReport() {
         <div className="mb-6">
           <h2 className="text-sm font-medium mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>Confidence calibration</h2>
           {tradesClosed < 10 ? (
-            <div className="rounded-lg p-4 text-center" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+            <div className="arcis-card text-center">
               <div className="text-sm" style={{ color: 'var(--arcis-text-muted)' }}>
                 Requires 10+ trades with conviction scores recorded ({tradesClosed} available)
               </div>
@@ -258,7 +258,7 @@ export default function CTOReport() {
             <>
               <div className="grid grid-cols-3 gap-3 mb-3">
                 {Object.entries(data.confidence_calibration.by_conviction_band || {}).map(([band, s]) => (
-                  <div key={band} className="rounded-lg p-3 text-center" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+                  <div key={band} className="arcis-card text-center" style={{ padding: '12px' }}>
                     <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Conviction {band}</div>
                     <div className="text-lg mt-1 financial-data">{s.trades > 0 ? `${(s.win_rate * 100).toFixed(0)}%` : 'n/a'}</div>
                     <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>{s.trades} trades</div>
@@ -310,7 +310,7 @@ export default function CTOReport() {
 
       {/* Fund metrics notice when not enough data */}
       {data.fund_metrics && tradesClosed < 20 && (
-        <div className="rounded-lg p-4 text-center" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+        <div className="arcis-card text-center">
           <h2 className="text-sm font-medium mb-2" style={{ color: 'var(--arcis-text-secondary)' }}>Fund metrics</h2>
           <div className="text-sm" style={{ color: 'var(--arcis-text-muted)' }}>
             Sortino, Calmar, beta, alpha require 20+ closed trades ({tradesClosed} available)

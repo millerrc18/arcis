@@ -54,7 +54,7 @@ function BuildScoreHero({ data }) {
   }
 
   return (
-    <div className="rounded-lg p-5" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
+    <div className="arcis-card" style={{ padding: '20px' }}>
       <div className="flex flex-col lg:flex-row gap-6">
         {/* Left: Score + delta */}
         <div className="flex flex-col items-center lg:items-start gap-1 min-w-[140px]">
@@ -131,6 +131,7 @@ export default function Dashboard() {
   const { data: configData } = useQuery({ queryKey: ['config'], queryFn: api.getConfig, refetchInterval: 300000 })
   const { data: accountData } = useQuery({ queryKey: ['shadow-account'], queryFn: api.getAccount, refetchInterval: 60000 })
   const { data: buildScore } = useQuery({ queryKey: ['build-score'], queryFn: api.getBuildScore, refetchInterval: 120000 })
+  const { data: scanMetrics } = useQuery({ queryKey: ['scan-metrics'], queryFn: () => api.getScanMetrics(50), refetchInterval: 60000 })
 
   const [toast, setToast] = useState(null)
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
@@ -234,7 +235,7 @@ export default function Dashboard() {
 
       {/* Toast notification */}
       {toast && (
-        <div className="fixed top-4 right-4 z-50 rounded-lg px-4 py-2 text-sm shadow-lg" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
+        <div className="fixed top-4 right-4 z-50 rounded-lg px-4 py-2 text-sm shadow-lg" style={{ background: 'var(--arcis-bg-elevated)', border: '1px solid var(--arcis-border)' }}>
           {toast}
         </div>
       )}
@@ -270,35 +271,35 @@ export default function Dashboard() {
 
       {/* Headline KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <div className="rounded-lg p-3" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-          <div className="text-xs" style={{ color: 'var(--slate-400)' }}>Sharpe ratio</div>
+        <div className="arcis-card" style={{ padding: '12px' }}>
+          <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Sharpe ratio</div>
           <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: hasTrades ? ((kpis.sharpe_ratio || 0) > 0.5 ? 'var(--teal-400)' : (kpis.sharpe_ratio || 0) < 0 ? 'var(--danger)' : 'var(--slate-100)') : 'var(--slate-100)' }}>
             {hasTrades ? (kpis.sharpe_ratio || 0).toFixed(2) : '--'}
           </div>
         </div>
-        <div className="rounded-lg p-3" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-          <div className="text-xs" style={{ color: 'var(--slate-400)' }}>Win rate</div>
+        <div className="arcis-card" style={{ padding: '12px' }}>
+          <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Win rate</div>
           <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: hasTrades ? ((kpis.win_rate || 0) > 0.45 ? 'var(--teal-400)' : 'var(--danger)') : 'var(--slate-100)' }}>
             {hasTrades ? `${((kpis.win_rate || 0) * 100).toFixed(1)}%` : '--'}
           </div>
         </div>
-        <div className="rounded-lg p-3" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-          <div className="text-xs" style={{ color: 'var(--slate-400)' }}>Max drawdown</div>
+        <div className="arcis-card" style={{ padding: '12px' }}>
+          <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Max drawdown</div>
           <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: hasTrades ? ((kpis.max_drawdown_pct || 0) < 15 ? 'var(--teal-400)' : 'var(--danger)') : 'var(--slate-100)' }}>
             {hasTrades ? `${(kpis.max_drawdown_pct || 0).toFixed(1)}%` : '--'}
           </div>
         </div>
         <Tooltip content="Measures how well the model's confidence predictions match actual outcomes. Requires 50+ closed trades.">
-          <div className="rounded-lg p-3" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-            <div className="text-xs" style={{ color: 'var(--slate-400)' }}>Confidence cal.</div>
+          <div className="arcis-card" style={{ padding: '12px' }}>
+            <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Confidence cal.</div>
             <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: 'var(--slate-100)' }}>
               {closedCount >= 50 ? (kpis.confidence_calibration || 0).toFixed(3) : `< ${closedCount}/50 trades`}
             </div>
           </div>
         </Tooltip>
         <Tooltip content="Average quality score from Claude-graded rubric evaluation of trade reasoning.">
-          <div className="rounded-lg p-3" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-            <div className="text-xs" style={{ color: 'var(--slate-400)' }}>Rubric score</div>
+          <div className="arcis-card" style={{ padding: '12px' }}>
+            <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Rubric score</div>
             <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: 'var(--slate-100)' }}>
               {kpis.avg_rubric_score != null ? `${kpis.avg_rubric_score.toFixed(1)}/5` : 'Not scored yet'}
             </div>
@@ -316,8 +317,8 @@ export default function Dashboard() {
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        <div className="lg:col-span-3 rounded-lg p-4" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-          <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--slate-400)' }}>Cumulative P&L</h3>
+        <div className="lg:col-span-3 arcis-card">
+          <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>Cumulative P&L</h3>
           {chartData.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
               <AreaChart data={chartData}>
@@ -331,8 +332,8 @@ export default function Dashboard() {
             <div className="text-center py-12 text-sm" style={{ color: 'var(--slate-400)' }}>No closed trades yet</div>
           )}
         </div>
-        <div className="lg:col-span-2 rounded-lg p-4" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-          <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--slate-400)' }}>Training Progress</h3>
+        <div className="lg:col-span-2 arcis-card">
+          <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>Training Progress</h3>
           {training && (
             <div className="space-y-3 text-sm">
               <div className="flex justify-between"><span style={{ color: 'var(--slate-300)' }}>Model</span><span>{training.model_name}</span></div>
@@ -356,15 +357,15 @@ export default function Dashboard() {
       <ActivityFeed />
 
       {/* Open trades table */}
-      <div className="rounded-lg p-4" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-        <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--slate-400)' }}>Open Shadow Trades</h3>
+      <div className="arcis-card">
+        <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>Open Shadow Trades</h3>
         <DataTable columns={tradeColumns} data={openTrades?.open_trades || []} />
       </div>
 
       {/* Today's packets */}
       {packets && packets.length > 0 && (
-        <div className="rounded-lg p-4" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-          <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--slate-400)' }}>Today's Packets ({packets.length})</h3>
+        <div className="arcis-card">
+          <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>Today's Packets ({packets.length})</h3>
           <div className="space-y-3">
             {packets.slice(0, 5).map((p, i) => (
               <div key={i} className="rounded p-3" style={{ border: '1px solid var(--slate-600)' }}>
@@ -379,6 +380,62 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* Scan Metrics */}
+      {scanMetrics && Array.isArray(scanMetrics) && scanMetrics.length > 0 && (() => {
+        const today = new Date().toISOString().slice(0, 10)
+        const todayScans = scanMetrics.filter(m => (m.created_at || m.scan_date || '').slice(0, 10) === today)
+        const totalToday = todayScans.length
+        const packetsToday = todayScans.reduce((s, m) => s + (m.packet_worthy || 0), 0)
+        const llmSuccessToday = todayScans.reduce((s, m) => s + (m.llm_success || 0), 0)
+        const llmTotalToday = todayScans.reduce((s, m) => s + (m.llm_total || 0), 0)
+        const llmRate = llmTotalToday > 0 ? (llmSuccessToday / llmTotalToday * 100) : 0
+        const llmColor = llmRate > 90 ? 'var(--arcis-success)' : llmRate > 70 ? 'var(--arcis-warning)' : 'var(--arcis-danger)'
+
+        // Aggregate by day for sparkline (last 7 days)
+        const byDay = {}
+        scanMetrics.forEach(m => {
+          const d = (m.created_at || m.scan_date || '').slice(0, 10)
+          if (!d) return
+          if (!byDay[d]) byDay[d] = 0
+          byDay[d]++
+        })
+        const sparkData = Object.entries(byDay).sort((a, b) => a[0].localeCompare(b[0])).slice(-7).map(([date, count]) => ({ date: date.slice(5), count }))
+
+        return (
+          <div className="arcis-card">
+            <h3 className="text-sm uppercase tracking-wide mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>Scan Metrics</h3>
+            <div className="flex flex-col md:flex-row gap-4">
+              <div className="flex gap-4 text-sm">
+                <div>
+                  <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>Today's Scans</div>
+                  <div className="financial-data text-lg" style={{ color: 'var(--arcis-text-primary)' }}>{totalToday}</div>
+                </div>
+                <div>
+                  <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>Packets</div>
+                  <div className="financial-data text-lg" style={{ color: 'var(--arcis-text-primary)' }}>{packetsToday}</div>
+                </div>
+                <div>
+                  <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>LLM Success</div>
+                  <div className="financial-data text-lg" style={{ color: llmColor }}>
+                    {llmTotalToday > 0 ? `${llmRate.toFixed(0)}%` : '--'}
+                  </div>
+                </div>
+              </div>
+              {sparkData.length > 1 && (
+                <div className="flex-1 min-w-[200px]">
+                  <div className="text-xs mb-1" style={{ color: 'var(--arcis-text-muted)' }}>7-Day Trend</div>
+                  <ResponsiveContainer width="100%" height={48}>
+                    <LineChart data={sparkData}>
+                      <Line type="monotone" dataKey="count" stroke="var(--arcis-accent)" strokeWidth={2} dot={false} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

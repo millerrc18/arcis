@@ -1,6 +1,44 @@
 # Changelog
 
-## [Unreleased] - 2026-03-30
+## [Unreleased] - 2026-03-31
+
+### Sprint 6: Data Pipeline Visibility
+
+#### API Wiring (Task 1)
+- Added: `getDataCollectionStats`, `getTrainingHistory`, `getScanMetrics` methods to frontend api.js
+
+#### Data Collectors Grid (Task 2)
+- Added: 12-card collector grid on Training page with freshness indicators (green/yellow/red)
+- Added: row counts, relative dates ("2h ago", "yesterday"), and ticker coverage per collector
+- Added: responsive grid (3 cols desktop, 2 tablet, 1 mobile)
+
+#### Training Pipeline Status (Task 3)
+- Added: pipeline status section on Training page with active model card and status badge
+- Added: format compliance display (XML vs plain_text counts)
+- Added: leakage test indicator with OK/Marginal/Leaking thresholds
+- Added: quadrant distribution 2x2 grid (good/bad process x good/bad outcome)
+
+#### Model History (Task 4)
+- Added: model history timeline on Health page with version, status badge, example count, holdout score
+- Added: graceful single-model state ("First model — no comparisons yet")
+
+#### Scan Metrics Trend (Task 5)
+- Added: scan metrics section on Dashboard with today's summary (scans, packets, LLM success rate)
+- Added: 7-day trend sparkline using Recharts LineChart
+- Added: LLM success rate color coding (green >90%, yellow 70-90%, red <70%)
+
+#### Card Contrast Fix (Task 6)
+- Added: `.arcis-card` CSS class in index.css (elevated bg, border, shadow, hover state)
+- Changed: all card elements across Dashboard, Health, Training, Settings, CTOReport to use `.arcis-card`
+- Changed: MetricCard component migrated from inline styles to `.arcis-card`
+- Changed: Dashboard cards migrated from `--slate-*` to `--arcis-*` design tokens
+- Added: light mode shadow variant for `.arcis-card`
+
+#### Documentation (Task 7)
+- Updated: CHANGELOG.md with Sprint 6 entry
+- Verified: 1,110 tests maintained, frontend builds successfully
+
+---
 
 ### Sprint 5: Dashboard Polish & UX
 
