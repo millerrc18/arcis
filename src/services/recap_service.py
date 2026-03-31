@@ -1,4 +1,11 @@
-"""EOD recap service."""
+"""EOD recap service.
+
+Called by: api.routes.scan, cli.commands
+Calls: data_ingestion.market_data, email.notifier, features.engine, journal.store, packets.eod_recap, ranking.ranker, universe.sp100
+Owns tables: none
+Config keys: shadow_trading
+Tests: tests/test_services.py
+"""
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo

@@ -1,7 +1,10 @@
 """Research source crawlers for nightly paper collection.
 
-Called by: research_collector.py
-Calls: requests, xml.etree, Reddit/GitHub/arXiv/HF feeds
+Called by: data_collection/research_collector.py
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: none
 """
 
 import logging

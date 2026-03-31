@@ -1,7 +1,10 @@
 """AI Council agent registry and public exports.
 
-Called by: protocol.py, tests
-Calls: council/prompts.py, council/agent_data.py
+Called by: council/context.py, council/protocol.py
+Calls: council/agent_data.py, council/prompts.py
+Owns tables: none
+Config keys: none
+Tests: tests/test_council.py
 """
 
 from src.council.agent_data import (

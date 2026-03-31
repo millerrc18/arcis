@@ -1,4 +1,11 @@
-"""DPO preference pair generation and export pipeline."""
+"""DPO preference pair generation and export pipeline.
+
+Called by: cli.commands, training.trainer
+Calls: llm.client, training.quality_filter, training.versioning
+Owns tables: preference_pairs
+Config keys: none
+Tests: tests/test_dpo_pipeline.py, tests/test_leakage_detector.py
+"""
 
 import json
 import logging

@@ -1,4 +1,11 @@
-"""Market data ingestion via yfinance."""
+"""Market data ingestion via yfinance.
+
+Called by: cli/commands.py, evaluation/backtester.py, scheduler/premarket.py, scheduler/watch.py, services/recap_service.py, services/scan_service.py, services/watchlist_service.py, shadow_trading/executor.py, training/bootstrap.py
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: tests/test_ingestion.py
+"""
 
 import logging
 

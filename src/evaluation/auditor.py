@@ -1,5 +1,11 @@
 """Daily and weekly auditor agent for risk monitoring.
 
+Called by: scheduler.watch
+Calls: config, email.notifier, evaluation.cto_report, risk.governor, training.claude_client, training.versioning
+Owns tables: none
+Config keys: none
+Tests: tests/test_auditor.py
+
 Analyzes trading activity and identifies strategy drift, concentration risk,
 execution quality issues, model behavior problems, and regime awareness gaps.
 """

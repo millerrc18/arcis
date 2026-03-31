@@ -1,5 +1,11 @@
 """Build fund-manager-style email digests for Halcyon Lab.
 
+Called by: scheduler.watch
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: tests/test_digest_builder.py
+
 Four digests per day, each with a specific purpose:
 1. Pre-market (7:30 AM): Portfolio status, overnight events, today's plan
 2. Midday (12:00 PM): Morning activity, P&L update, any risk alerts

@@ -1,5 +1,11 @@
 """PEAD (Post-Earnings Announcement Drift) enrichment signals.
 
+Called by: data_enrichment/enricher.py
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: tests/test_earnings_signals.py
+
 Computes 5 earnings-related signals for pullback trade commentary:
 1. Earnings proximity (days until next earnings)
 2. Last surprise direction and magnitude

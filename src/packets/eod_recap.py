@@ -1,4 +1,11 @@
-"""End-of-day recap email formatter."""
+"""End-of-day recap email formatter.
+
+Called by: scheduler.watch, services.recap_service
+Calls: config, journal.store, shadow_trading.executor, universe.company_names
+Owns tables: none
+Config keys: shadow_trading
+Tests: tests/test_packet_builders.py
+"""
 
 from src.universe.company_names import get_company_name
 

@@ -1,5 +1,11 @@
 """FOMC & Fed communications collector.
 
+Called by: scheduler/watch.py
+Calls: none
+Owns tables: fed_communications
+Config keys: none
+Tests: tests/test_data_collectors.py
+
 Scrapes Federal Reserve website for FOMC statements, minutes,
 Beige Book summaries, and Fed speeches. Stores full text for
 future NLP analysis.

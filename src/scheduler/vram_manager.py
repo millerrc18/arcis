@@ -1,5 +1,11 @@
 """VRAM transition management between Ollama inference and PyTorch training.
 
+Called by: scheduler.watch
+Calls: config, llm.client, training.versioning
+Owns tables: none
+Config keys: llm
+Tests: tests/test_vram_manager.py
+
 The RTX 3060 has 12GB VRAM. Ollama inference uses ~5-6GB. PyTorch training
 uses ~10-11GB. They CANNOT coexist. This manager handles clean transitions:
 

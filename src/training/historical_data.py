@@ -1,5 +1,11 @@
 """Historical data fetcher with point-in-time slicing for backfill engine.
 
+Called by: training.backfill, training.historical_scanner
+Calls: universe.sp100
+Owns tables: none
+Config keys: none
+Tests: tests/test_backfill.py, tests/test_leakage_detector.py
+
 Downloads bulk OHLCV data and provides point-in-time slicing to prevent
 lookahead bias in historical feature computation.
 """

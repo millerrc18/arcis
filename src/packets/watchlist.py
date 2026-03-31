@@ -1,4 +1,11 @@
-"""Morning watchlist email formatter."""
+"""Morning watchlist email formatter.
+
+Called by: scheduler.watch, services.watchlist_service
+Calls: universe.company_names
+Owns tables: none
+Config keys: none
+Tests: tests/test_packet_builders.py
+"""
 
 from src.universe.company_names import get_company_name
 

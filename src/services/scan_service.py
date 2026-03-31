@@ -1,4 +1,11 @@
-"""Scan pipeline service."""
+"""Scan pipeline service.
+
+Called by: api.routes.actions, api.routes.scan, cli.commands
+Calls: data_enrichment.enricher, data_ingestion.market_data, data_integrity, email.notifier, features.engine, features.event_risk_score, features.traffic_light, journal.store, llm.packet_writer, notifications.telegram, packets.template, ranking.ranker, shadow_trading.executor, training.versioning, universe.company_names, universe.sp100
+Owns tables: none
+Config keys: enabled, event_risk, shadow_trading
+Tests: tests/test_services.py
+"""
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo

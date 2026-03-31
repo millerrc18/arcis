@@ -1,4 +1,11 @@
-"""System API routes."""
+"""System API routes.
+
+Called by: api.app
+Calls: config, evaluation.cto_report, evaluation.system_validator, journal.store, logging.activity, risk.governor, scheduler.metrics, services.system_service, training.versioning
+Owns tables: none
+Config keys: none
+Tests: none
+"""
 import logging
 
 from fastapi import APIRouter, Query

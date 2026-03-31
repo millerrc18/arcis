@@ -1,4 +1,11 @@
-"""Synthetic training data bootstrapping via Claude API."""
+"""Synthetic training data bootstrapping via Claude API.
+
+Called by: cli.commands, services.training_service
+Calls: config, data_ingestion.market_data, features.engine, llm.prompts, training.claude_client, training.ingestion_gate, training.versioning, universe.sp100
+Owns tables: none
+Config keys: none
+Tests: tests/test_leakage_detector.py, tests/test_training_data.py
+"""
 
 import json
 import logging

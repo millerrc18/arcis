@@ -1,4 +1,10 @@
-"""Traffic Light regime overlay — controls position sizing.
+"""Traffic Light regime overlay -- controls position sizing.
+
+Called by: services.scan_service
+Calls: none
+Owns tables: traffic_light_state
+Config keys: none
+Tests: tests/test_traffic_light.py
 
 Three indicators scored 0-2 each (0=green, 1=yellow, 2=red):
 1. VIX Level: <20 → 0, 20-30 → 1, >30 → 2

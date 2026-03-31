@@ -1,5 +1,11 @@
 """Live HSHS computation from database state.
 
+Called by: api.cloud_routes.analytics, council.agent_data, council.context, evaluation.cto_report
+Calls: evaluation.hshs
+Owns tables: none
+Config keys: none
+Tests: tests/test_hshs_live.py
+
 Queries the actual database to compute each HSHS dimension score (0-100),
 then delegates to compute_hshs_score() for the weighted geometric mean.
 """

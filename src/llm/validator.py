@@ -1,5 +1,11 @@
 """LLM output validation layer.
 
+Called by: shadow_trading.executor
+Calls: universe.sp100
+Owns tables: none
+Config keys: risk
+Tests: tests/test_llm_validator.py
+
 Hard-coded bounds on every AI-generated trade signal BEFORE it reaches
 the executor. Prevents hallucination-driven trades.
 """

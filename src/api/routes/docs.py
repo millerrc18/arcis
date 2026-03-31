@@ -1,4 +1,11 @@
-"""Documentation API routes."""
+"""Documentation API routes.
+
+Called by: api.app
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: none
+"""
 from pathlib import Path
 from fastapi import APIRouter, HTTPException
 

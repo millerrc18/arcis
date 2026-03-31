@@ -1,7 +1,10 @@
 """CLI command implementations for Halcyon Lab.
 
-Called by: main.py
-Calls: service modules, training modules, evaluation modules
+Called by: main
+Calls: config, council.engine, data_collection.cboe_collector, data_collection.macro_collector, data_collection.options_collector, data_collection.options_metrics, data_collection.trends_collector, data_collection.vix_collector, data_ingestion.market_data, email.notifier, evaluation.backtester, evaluation.cto_report, evaluation.feature_importance, evaluation.gate_evaluator, evaluation.system_validator, journal.store, notifications.telegram, packets.template, risk.governor, scheduler.watch, services.recap_service, services.review_service, services.scan_service, services.shadow_service, services.system_service, services.training_service, services.watchlist_service, shadow_trading.alpaca_adapter, shadow_trading.executor, shadow_trading.reconcile, training.ab_evaluation, training.backfill, training.bootstrap, training.curriculum, training.dpo_pipeline, training.leakage_detector, training.quality_filter, training.trainer, training.validation, training.versioning, universe.sp100
+Owns tables: none
+Config keys: enabled, live_trading, shadow_trading, starting_capital
+Tests: none
 """
 
 import json

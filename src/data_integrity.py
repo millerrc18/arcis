@@ -1,5 +1,11 @@
 """Data integrity assertions for critical data boundaries.
 
+Called by: services.scan_service
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: tests/test_data_integrity.py
+
 Logs and skips bad data rather than crashing the pipeline.
 """
 

@@ -1,5 +1,11 @@
 """Background sync thread that pushes local SQLite data to Render Postgres.
 
+Called by: api.cloud_app, scheduler.watch
+Calls: none
+Owns tables: sync_state
+Config keys: database_url, enabled, mode, pk, render, sync_interval_seconds, time_col
+Tests: tests/test_data_collectors.py, tests/test_render_sync.py
+
 Runs every sync_interval_seconds (default 120s) as a daemon thread.
 Tracks last_synced_at per table in a local sync_state SQLite table.
 Handles failures gracefully -- log and retry next cycle, never crash.

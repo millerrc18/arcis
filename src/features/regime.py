@@ -1,4 +1,11 @@
-"""Market regime indicators: SPY trend, volatility, breadth, RSI, sector context."""
+"""Market regime indicators: SPY trend, volatility, breadth, RSI, sector context.
+
+Called by: features.engine, ranking.ranker, scheduler.watch, training.historical_scanner
+Calls: features.engine, universe.sectors
+Owns tables: none
+Config keys: none
+Tests: tests/test_regime.py
+"""
 
 import numpy as np
 import pandas as pd

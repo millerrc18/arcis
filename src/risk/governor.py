@@ -1,5 +1,11 @@
 """Risk governor — hard limits enforced before every trade.
 
+Called by: api.routes.system, cli.commands, evaluation.auditor, evaluation.system_validator, services.system_service, shadow_trading.executor
+Calls: config, journal.store, shadow_trading.alpaca_adapter, shadow_trading.executor, universe.sectors
+Owns tables: none
+Config keys: bootcamp, enabled, max_correlated, max_daily_loss_pct, max_open_positions, max_position_pct, max_sector_pct, risk, risk_governor, vol_halt_pct
+Tests: tests/test_auditor.py, tests/test_risk_governor.py
+
 The risk governor is the LAST check before an order is placed.
 It cannot be overridden by the trading logic. If any limit is
 breached, the trade is rejected with an explanation.

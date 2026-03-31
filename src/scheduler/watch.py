@@ -1,5 +1,11 @@
 """Watch loop for automated daily cadence.
 
+Called by: cli.commands
+Calls: api.websocket, config, council.engine, data_collection.analyst_collector, data_collection.cboe_collector, data_collection.docs_collector, data_collection.edgar_collector, data_collection.fed_collector, data_collection.insider_collector, data_collection.macro_collector, data_collection.options_collector, data_collection.options_metrics, data_collection.research_collector, data_collection.research_synthesizer, data_collection.short_interest_collector, data_collection.trends_collector, data_collection.vix_collector, data_enrichment.enricher, data_enrichment.news, data_ingestion.market_data, email.digest_builder, email.notifier, evaluation.auditor, evaluation.change_detector, evaluation.cto_report, evaluation.system_validator, features.engine, features.regime, journal.store, llm.client, llm.packet_writer, llm.watchlist_writer, logging.activity, notifications.telegram, packets.eod_recap, packets.template, packets.watchlist, ranking.ranker, scheduler.premarket, scheduler.scorer, scheduler.vram_manager, shadow_trading.bracket_monitor, shadow_trading.executor, sync.render_sync, training.data_collector, training.leakage_detector, training.report, training.trainer, training.versioning, universe.sp100, utils.activity_logger
+Owns tables: activity_log, analyst_estimates, api_costs, canary_evaluations, council_calibrations, council_sessions, council_votes, edgar_filings, fed_communications, insider_transactions, quality_drift_metrics, research_digests, research_docs, research_papers, scan_metrics, schedule_metrics, setup_signals, short_interest, traffic_light_state, training_examples, user_notes
+Config keys: automation, bootcamp, email, email_mode, enabled, eod, eod_recap_hour_et, evening, live_trading, llm, market_close_hour_et, market_open_hour_et, market_open_minute_et, max_packets_per_scan, midday, morning_watchlist_hour_et, phase, premarket, risk, scan_interval_minutes, shadow_trading, training
+Tests: none
+
 Simple Python loop — no APScheduler or cron dependencies.
 """
 

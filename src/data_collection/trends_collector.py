@@ -1,5 +1,11 @@
 """Google Trends market-wide sentiment collector.
 
+Called by: api/routes/actions.py, cli/commands.py, scheduler/watch.py
+Calls: none
+Owns tables: google_trends
+Config keys: none
+Tests: tests/test_data_collectors.py
+
 Collects search interest for market sentiment terms (not per-ticker).
 Per research: "Google Trends alpha is inverted for large caps."
 Market-wide sentiment terms are more useful as regime/sentiment indicators.

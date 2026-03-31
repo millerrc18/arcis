@@ -1,4 +1,11 @@
-"""Review API routes."""
+"""Review API routes.
+
+Called by: api.app
+Calls: services.review_service
+Owns tables: none
+Config keys: none
+Tests: tests/test_local_api_routes.py
+"""
 from fastapi import APIRouter
 from src.services.review_service import (
     get_pending_reviews, get_recommendation, submit_review,

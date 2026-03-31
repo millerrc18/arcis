@@ -1,4 +1,11 @@
-"""LLM-enhanced postmortem writer with template fallback."""
+"""LLM-enhanced postmortem writer with template fallback.
+
+Called by: shadow_trading.executor
+Calls: config, llm.client, llm.prompts
+Owns tables: none
+Config keys: enabled, llm
+Tests: tests/test_llm_writers.py
+"""
 
 import logging
 

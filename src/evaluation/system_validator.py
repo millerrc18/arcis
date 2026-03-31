@@ -1,5 +1,11 @@
 """System validation engine for Halcyon Lab.
 
+Called by: api.routes.system, cli.commands, scheduler.watch
+Calls: config, risk.governor, shadow_trading.alpaca_adapter
+Owns tables: validation_results
+Config keys: alpaca, anthropic_api_key, api_key, api_secret, base_url, bot_token, chat_id, data_enrichment, database_url, email, enabled, finnhub_api_key, fred_api_key, live_trading, llm, max_positions, model, render, risk, risk_governor, secret_key, shadow_trading, smtp_server, telegram, timeout_days, training
+Tests: tests/test_system_validator.py
+
 Runs 50+ checks across 8 categories (database, trading, training, api,
 collectors, notifications, scheduler, llm) and returns structured results.
 """

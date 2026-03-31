@@ -1,7 +1,10 @@
 """Training data ingestion validation — prevents format contamination.
 
-Called by: generator.py, training example creation paths
-Calls: sqlite3 (training_examples for duplicate detection)
+Called by: training.backfill, training.bootstrap, training.curriculum, training.data_collector
+Calls: notifications.telegram
+Owns tables: none
+Config keys: none
+Tests: tests/test_ingestion_gate.py, tests/test_leakage_detector.py
 """
 
 import logging

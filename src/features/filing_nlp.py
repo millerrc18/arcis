@@ -1,5 +1,11 @@
 """SEC filing NLP feature extraction.
 
+Called by: data_collection.edgar_collector
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: tests/test_filing_nlp.py
+
 Loughran-McDonald dictionary sentiment, cautionary phrase detection,
 and filing-to-filing sentiment delta computation.
 """

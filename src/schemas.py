@@ -1,4 +1,11 @@
-"""Pydantic models for the Halcyon Lab system."""
+"""Pydantic models for the Halcyon Lab system.
+
+Called by: models
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: none
+"""
 
 from datetime import datetime
 from typing import Optional

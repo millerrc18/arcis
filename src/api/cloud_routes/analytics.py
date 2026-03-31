@@ -1,7 +1,10 @@
 """Cloud analytics routes and helpers for HSHS and CTO reporting.
 
-Called by: cloud_app.py
-Calls: canary_evaluations, shadow_trades
+Called by: api.cloud_app
+Calls: evaluation.hshs_live
+Owns tables: none
+Config keys: none
+Tests: none
 """
 
 import statistics

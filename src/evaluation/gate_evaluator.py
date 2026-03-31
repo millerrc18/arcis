@@ -1,5 +1,11 @@
 """50-trade gate evaluation for Phase 1 -> Phase 2 decision.
 
+Called by: cli.commands
+Calls: evaluation.statistics
+Owns tables: none
+Config keys: none
+Tests: tests/test_gate_evaluator.py
+
 Decision rules:
 - 4+ GREEN with 0 RED -> PROCEED to Phase 2
 - Mixed GREEN/YELLOW with 0 RED -> EXTEND to 75 trades

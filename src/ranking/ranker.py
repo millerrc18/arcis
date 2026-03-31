@@ -1,4 +1,11 @@
-"""Deterministic ranking and qualification for trade candidates."""
+"""Deterministic ranking and qualification for trade candidates.
+
+Called by: evaluation.backtester, scheduler.premarket, scheduler.watch, services.recap_service, services.scan_service, services.watchlist_service, training.historical_scanner
+Calls: config, features.regime
+Owns tables: none
+Config keys: bootcamp, enabled, packet_worthy_threshold, qualification_threshold, ranking, regime_adaptive, watchlist_threshold
+Tests: tests/test_ranking.py, tests/test_regime.py
+"""
 
 import logging
 

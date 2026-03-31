@@ -1,4 +1,11 @@
-"""LLM-enhanced morning watchlist narrative writer."""
+"""LLM-enhanced morning watchlist narrative writer.
+
+Called by: scheduler.watch, services.watchlist_service
+Calls: llm.client, llm.prompts
+Owns tables: none
+Config keys: enabled, llm
+Tests: tests/test_llm_writers.py
+"""
 
 import logging
 

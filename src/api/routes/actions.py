@@ -1,4 +1,11 @@
-"""Action endpoints for triggering system operations from the dashboard."""
+"""Action endpoints for triggering system operations from the dashboard.
+
+Called by: api.app
+Calls: api.websocket, config, data_collection.cboe_collector, data_collection.macro_collector, data_collection.options_collector, data_collection.options_metrics, data_collection.trends_collector, data_collection.vix_collector, evaluation.cto_report, services.scan_service, training.curriculum, training.data_collector, training.leakage_detector, training.quality_filter, training.trainer, universe.sp100
+Owns tables: none
+Config keys: none
+Tests: none
+"""
 
 import logging
 import threading

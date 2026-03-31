@@ -1,7 +1,13 @@
 """News data fetcher using Finnhub Company News API.
 
+Called by: data_enrichment/enricher.py, scheduler/premarket.py, scheduler/watch.py, training/historical_scanner.py
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: tests/test_news.py
+
 Primary source: Finnhub API (free tier: 60 calls/min, shared with insider fetcher).
-Returns headlines and simple sentiment — NOT full article text.
+Returns headlines and simple sentiment -- NOT full article text.
 """
 
 import logging

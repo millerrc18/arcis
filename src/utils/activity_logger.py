@@ -1,5 +1,11 @@
 """Structured activity logger for dashboard display and observability.
 
+Called by: scheduler.watch, shadow_trading.executor
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: tests/test_activity_logger.py
+
 Writes to the activity_log SQLite table. Each event has:
 - event_type: category of event (scan_complete, trade_opened, etc.)
 - detail: human-readable description

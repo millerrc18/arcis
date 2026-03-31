@@ -1,7 +1,10 @@
 """Cloud notes routes and payload models for the Notes dashboard.
 
-Called by: cloud_app.py
-Calls: user_notes, psycopg2
+Called by: api.cloud_app
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: none
 """
 
 import json
