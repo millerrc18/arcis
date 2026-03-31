@@ -4,6 +4,7 @@
 > **Scope:** 10 tasks (~65 GitHub issues)
 > **Prerequisite:** Sprint 7 MERGED
 > **Read first:** AGENTS.md, docs/conventions.md
+> **Implementation details:** `docs/sprints/sprint-8-details.md` — exact line numbers, code patterns, gotchas for every fix. READ THIS BEFORE STARTING EACH TASK.
 > **Context:** Sprint 7 fixed critical reliability issues (crash handler, GTC brackets, heartbeat, TL stub). This sprint addresses EVERYTHING remaining — training pipeline, council, LLM, data pipeline, frontend, trading logic, config, and documentation. Goal: close every open issue.
 > **Test baseline:** Check at start. Must not decrease.
 > **Note:** This is a large sprint. Work through tasks sequentially. If any task exceeds 60 lines in a single function or 400 lines in a single file, extract into helper functions/modules.
