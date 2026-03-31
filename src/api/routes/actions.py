@@ -167,29 +167,69 @@ def _run_collect_data():
         broadcast_sync("action_started", {"action": "collect-data"})
     except Exception as e:
         logger.warning("[ACTIONS] broadcast collect-data action_started failed: %s", e)
+
+    def _execute_collector(results: dict, key: str, fn, *args, **kwargs):
+        try:
+            results[key] = fn(*args, **kwargs)
+        except Exception as exc:
+            logger.warning("[ACTIONS] %s collection failed: %s", key, exc)
+            results[key] = {"error": str(exc)}
+
     try:
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        from src.data_collection.analyst_collector import collect_analyst_estimates
+        from src.data_collection.cboe_collector import collect_cboe_ratios
+        from src.data_collection.edgar_collector import collect_new_filings
+        from src.data_collection.fed_collector import collect_fed_communications
+        from src.data_collection.insider_collector import collect_insider_transactions
+        from src.data_collection.macro_collector import collect_macro_snapshots
         from src.data_collection.options_collector import collect_options_chains
         from src.data_collection.options_metrics import compute_options_metrics
-        from src.data_collection.vix_collector import collect_vix_term_structure
-        from src.data_collection.macro_collector import collect_macro_snapshots
-        from src.data_collection.cboe_collector import collect_cboe_ratios
+        from src.data_collection.short_interest_collector import collect_short_interest
         from src.data_collection.trends_collector import collect_google_trends
+        from src.data_collection.vix_collector import collect_vix_term_structure
         from src.universe.sp100 import get_sp100_universe
 
         universe = get_sp100_universe()
-        results = {}
-        results["options"] = collect_options_chains(universe)
-        results["metrics"] = compute_options_metrics(universe)
-        results["vix"] = collect_vix_term_structure()
-        results["cboe"] = collect_cboe_ratios()
-        results["macro"] = collect_macro_snapshots()
-        results["trends"] = collect_google_trends(universe, batch_size=20)
+        now = datetime.now(ZoneInfo("America/New_York"))
+        results: dict[str, dict | str] = {}
+
+        _execute_collector(results, "options", collect_options_chains, universe)
+        _execute_collector(results, "metrics", compute_options_metrics, universe)
+        _execute_collector(results, "vix", collect_vix_term_structure)
+        _execute_collector(results, "cboe", collect_cboe_ratios)
+        _execute_collector(results, "macro", collect_macro_snapshots)
+        _execute_collector(results, "trends", collect_google_trends, universe, batch_size=20)
+
+        try:
+            from scripts.fetch_earnings_calendar import fetch_earnings_dates
+            results["earnings"] = fetch_earnings_dates(universe)
+        except Exception as exc:
+            logger.warning("[ACTIONS] earnings collection failed: %s", exc)
+            results["earnings"] = {"error": str(exc)}
+
+        _execute_collector(results, "edgar", collect_new_filings, universe)
+        _execute_collector(results, "insider", collect_insider_transactions, universe)
+
+        if now.day in (1, 2, 15, 16):
+            _execute_collector(results, "short_interest", collect_short_interest, universe)
+        else:
+            results["short_interest"] = {"status": "skipped", "reason": "not settlement date"}
+
+        _execute_collector(results, "fed", collect_fed_communications)
+        _execute_collector(results, "analyst", collect_analyst_estimates, universe, batch_size=20)
+
+        failed_collectors = [name for name, result in results.items() if isinstance(result, dict) and "error" in result]
 
         try:
             broadcast_sync("action_complete", {
                 "action": "collect-data",
-                "contracts": results["options"].get("contracts_stored", 0),
-                "tickers": results["options"].get("tickers_collected", 0),
+                "collectors_total": len(results),
+                "collectors_failed": len(failed_collectors),
+                "failed_collectors": failed_collectors,
+                "results": results,
             })
         except Exception as e:
             logger.warning("[ACTIONS] broadcast collect-data action_complete failed: %s", e)

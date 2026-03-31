@@ -66,6 +66,7 @@ export default function Dashboard() {
   })
   const scanMutation = useMutation(handleCloudAction(api.triggerActionScan, 'Scan started...', 'Scan failed'))
   const ctoMutation = useMutation(handleCloudAction(api.triggerCtoReport, 'CTO report generating...', 'CTO report failed'))
+  const collectDataMutation = useMutation(handleCloudAction(api.triggerCollectData, 'Data collection started...', 'Data collection failed'))
   const collectMutation = useMutation(handleCloudAction(api.triggerCollectTraining, 'Training data collection started...', 'Collection failed'))
 
   const isHalted = haltData?.halted || false
@@ -178,6 +179,13 @@ export default function Dashboard() {
             className="px-3 py-1.5 text-xs rounded-md disabled:opacity-50 transition-colors"
             style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
             {collectMutation.isPending ? 'Collecting...' : 'Collect Training Data'}
+          </button>
+        </Tooltip>
+        <Tooltip content="Runs the overnight data-collection pipeline on demand (options, macro, VIX, Fed communications, and other enrichment snapshots).">
+          <button onClick={() => collectDataMutation.mutate()} disabled={collectDataMutation.isPending}
+            className="px-3 py-1.5 text-xs rounded-md disabled:opacity-50 transition-colors"
+            style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+            {collectDataMutation.isPending ? 'Collecting Data...' : 'Collect Data'}
           </button>
         </Tooltip>
       </div>
