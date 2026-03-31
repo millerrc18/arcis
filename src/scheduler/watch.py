@@ -146,6 +146,7 @@ class WatchLoop:
         self._earnings_warning_done = False
         self._premarket_bracket_check_done = False
         self._postclose_bracket_check_done = False
+        self._postclose_reconcile_done = False
         self._last_bracket_check_time: datetime | None = None
 
         # Research synthesis + daily metrics
@@ -202,6 +203,7 @@ class WatchLoop:
         self._earnings_warning_done = False
         self._premarket_bracket_check_done = False
         self._postclose_bracket_check_done = False
+        self._postclose_reconcile_done = False
         self._last_bracket_check_time = None
         # Research + metrics
         self._research_synthesis_done = False
@@ -1196,6 +1198,15 @@ class WatchLoop:
                     )
                     self._postclose_bracket_check_done = True
 
+                # 4b. Post-close paper reconciliation (4:30–4:35 PM ET)
+                if (hour == 16 and now.minute >= 30 and now.minute < 35
+                        and not self._postclose_reconcile_done):
+                    self._safe_run(
+                        "post-close reconciliation",
+                        self._run_postclose_reconciliation,
+                    )
+                    self._postclose_reconcile_done = True
+
                 # 5. Training data collection (4:30 PM ET)
                 elif (self.training_enabled and hour == 16 and now.minute >= 30
                       and not self._training_collection_done):
@@ -1439,6 +1450,52 @@ class WatchLoop:
             result.get("protected", 0),
             result.get("checked", 0),
         )
+
+    def _run_postclose_reconciliation(self):
+        """Reconcile paper positions against Alpaca and send Telegram summary."""
+        from src.shadow_trading.reconcile import reconcile_paper_trades
+
+        result = reconcile_paper_trades()
+
+        if result.get("error"):
+            msg = f"[Reconcile] Alpaca API error — skipped: {result['error']}"
+            logger.warning("[WATCH] %s", msg)
+            try:
+                from src.notifications.telegram import send_telegram, is_telegram_enabled
+                if is_telegram_enabled():
+                    send_telegram(f"\u26a0\ufe0f {msg}")
+            except Exception:
+                pass
+            return
+
+        orphaned = result["orphaned"]
+        stale = result["stale"]
+        discrep = result["discrepancies"]
+        backfilled = result["backfilled"]
+
+        if not orphaned and not stale and not discrep:
+            msg = (
+                f"\u2705 Reconciliation: {result['local_count']} local / "
+                f"{result['alpaca_count']} Alpaca \u2014 all matched"
+            )
+        else:
+            parts = []
+            if orphaned:
+                parts.append(f"{len(orphaned)} orphaned (backfilled: {backfilled})")
+            if stale:
+                tickers = [s["ticker"] for s in stale]
+                parts.append(f"{len(stale)} stale: {tickers}")
+            if discrep:
+                parts.append(f"{len(discrep)} mismatched")
+            msg = f"\u274c Reconciliation: {', '.join(parts)}"
+
+        logger.info("[WATCH] %s", msg)
+        try:
+            from src.notifications.telegram import send_telegram, is_telegram_enabled
+            if is_telegram_enabled():
+                send_telegram(msg)
+        except Exception as e:
+            logger.warning("[WATCH] Reconciliation Telegram alert failed: %s", e)
 
     def _run_daily_audit(self):
         """Run the daily auditor agent."""

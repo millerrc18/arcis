@@ -2,6 +2,16 @@
 
 ## [Unreleased] - 2026-03-31
 
+### Automated Daily Reconciliation (#170)
+
+#### Paper Trade Reconciliation
+- Added: `reconcile_paper_trades()` in `src/shadow_trading/reconcile.py` — compares Alpaca paper positions with local `shadow_trades` (source='paper')
+- Added: Orphaned position backfill with `order_type='reconciled'`, stale trade detection (alert-only, no auto-close), qty discrepancy reporting
+- Added: `_run_postclose_reconciliation()` in watch loop — runs daily at 4:30 PM ET postclose, sends Telegram summary
+- Added: 4 tests in `tests/test_reconcile.py` (all-matched, orphaned backfill, stale no-auto-close, qty discrepancy)
+
+---
+
 ### Sprint 6: Data Pipeline Visibility
 
 #### API Wiring (Task 1)
