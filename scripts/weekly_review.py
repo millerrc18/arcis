@@ -300,6 +300,94 @@ except Exception as e:
     print(f"  Error: {e}")
 print()
 
+
+# === 7. DATA INVENTORY — Is our data growing? ===
+print("[7/7] DATA INVENTORY — Growth Tracking")
+print("-" * 60)
+try:
+    # Core tables to track
+    inventory_tables = [
+        ("shadow_trades", "total", None),
+        ("shadow_trades", "open", "status='open'"),
+        ("shadow_trades", "closed", "status='closed'"),
+        ("training_examples", "total", None),
+        ("training_examples", "this week", "created_at > datetime('now', '-7 days')"),
+        ("scan_metrics", "total", None),
+        ("scan_metrics", "this week", "created_at > datetime('now', '-7 days')"),
+        ("council_sessions", "total", None),
+        ("council_sessions", "this week", "created_at > datetime('now', '-7 days')"),
+        ("recommendations", "total", None),
+        ("recommendations", "this week", "created_at > datetime('now', '-7 days')"),
+        ("options_chains", "total", None),
+        ("options_metrics", "total", None),
+        ("vix_term_structure", "total", None),
+        ("macro_snapshots", "total", None),
+        ("insider_transactions", "total", None),
+        ("earnings_calendar", "total", None),
+        ("research_docs", "total", None),
+        ("log_entries", "total", None),
+        ("pending_commands", "total", None),
+        ("command_results", "total", None),
+        ("build_score_history", "total", None),
+    ]
+
+    print(f"  {'Table':<25s} {'Metric':<12s} {'Count':>8s}")
+    print(f"  {'-'*25} {'-'*12} {'-'*8}")
+    for table, metric, where_clause in inventory_tables:
+        if table not in tables:
+            continue
+        try:
+            if where_clause:
+                row = conn.execute(f"SELECT COUNT(*) FROM {table} WHERE {where_clause}").fetchone()
+            else:
+                row = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
+            count = row[0]
+            # Highlight zeros in important tables
+            flag = " ⚠️" if count == 0 and metric == "this week" and table in ("scan_metrics", "council_sessions", "training_examples") else ""
+            print(f"  {table:<25s} {metric:<12s} {count:>8,d}{flag}")
+        except Exception:
+            pass
+
+    # Save snapshot for next week's delta comparison
+    snapshot_path = REPO_ROOT / "data" / "weekly_snapshots.jsonl"
+    try:
+        import json
+        from datetime import datetime
+        snapshot = {"date": datetime.now().strftime("%Y-%m-%d")}
+        for table, metric, where_clause in inventory_tables:
+            if table not in tables or metric != "total":
+                continue
+            try:
+                row = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
+                snapshot[table] = row[0]
+            except Exception:
+                pass
+        snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(snapshot_path, "a") as f:
+            f.write(json.dumps(snapshot) + "\n")
+        
+        # Show deltas from last week if we have a previous snapshot
+        lines = snapshot_path.read_text().strip().split("\n")
+        if len(lines) >= 2:
+            prev = json.loads(lines[-2])
+            curr = json.loads(lines[-1])
+            print(f"\n  Week-over-week deltas (vs {prev['date']}):")
+            for key in curr:
+                if key == "date":
+                    continue
+                old = prev.get(key, 0)
+                new = curr.get(key, 0)
+                delta = new - old
+                if delta != 0:
+                    sign = "+" if delta > 0 else ""
+                    print(f"    {key:<25s} {old:>8,d} → {new:>8,d}  ({sign}{delta:,d})")
+    except Exception as e:
+        print(f"\n  (Snapshot tracking: {e})")
+
+except Exception as e:
+    print(f"  Error: {e}")
+print()
+
 conn.close()
 
 print("=" * 60)
