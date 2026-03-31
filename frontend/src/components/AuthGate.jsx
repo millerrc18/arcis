@@ -58,17 +58,17 @@ export default function AuthGate({ children }) {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--slate-900)' }}>
+    <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--arcis-bg-primary)' }}>
       <form
         onSubmit={handleSubmit}
         className="rounded-xl p-8 w-full max-w-sm shadow-lg"
-        style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}
+        style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}
       >
         <h1
           className="text-center mb-6"
-          style={{ fontFamily: 'var(--font-display)', fontSize: '28px', fontWeight: 600, color: 'var(--teal-400)' }}
+          style={{ fontSize: '28px', fontWeight: 800, color: 'var(--arcis-accent)', letterSpacing: '-0.03em' }}
         >
-          HALCYON LAB
+          ARCIS
         </h1>
         <input
           type="password"
@@ -77,11 +77,11 @@ export default function AuthGate({ children }) {
           placeholder="Dashboard password"
           className="w-full px-4 py-2 rounded-lg mb-4 text-sm outline-none transition-shadow"
           style={{
-            background: 'var(--slate-800)',
-            border: '1px solid var(--slate-600)',
-            color: 'var(--slate-100)',
+            background: 'var(--arcis-bg-elevated)',
+            border: '1px solid var(--arcis-border)',
+            color: 'var(--arcis-text-primary)',
           }}
-          onFocus={(e) => e.target.style.boxShadow = '0 0 0 2px var(--teal-400)'}
+          onFocus={(e) => e.target.style.boxShadow = '0 0 0 2px var(--arcis-accent)'}
           onBlur={(e) => e.target.style.boxShadow = 'none'}
           autoFocus
           disabled={loading}
@@ -90,14 +90,14 @@ export default function AuthGate({ children }) {
           type="submit"
           disabled={loading || !password}
           className="w-full py-2 font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ background: 'var(--teal-500)', color: 'white' }}
-          onMouseEnter={(e) => { if (!e.target.disabled) e.target.style.background = 'var(--teal-600)' }}
-          onMouseLeave={(e) => e.target.style.background = 'var(--teal-500)'}
+          style={{ background: 'var(--arcis-accent)', color: 'white' }}
+          onMouseEnter={(e) => { if (!e.target.disabled) e.target.style.background = 'var(--arcis-accent-hover)' }}
+          onMouseLeave={(e) => e.target.style.background = 'var(--arcis-accent)'}
         >
           {loading ? 'Signing in...' : 'Sign in'}
         </button>
         {error && (
-          <p className="mt-3 text-sm text-center" style={{ color: 'var(--danger)' }}>{error}</p>
+          <p className="mt-3 text-sm text-center" style={{ color: 'var(--arcis-danger)' }}>{error}</p>
         )}
       </form>
     </div>

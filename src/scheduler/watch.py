@@ -20,7 +20,7 @@ ET = ZoneInfo("America/New_York")
 
 
 class WatchLoop:
-    """Automated daily cadence loop for the AI Research Desk."""
+    """Automated daily cadence loop for the Systematic Equity Research."""
 
     def __init__(self, config: dict, email_mode: str | None = None,
                  overnight: bool = False):
@@ -285,7 +285,7 @@ class WatchLoop:
 
         print(f"""
 {'='*45}
- HALCYON LAB - WATCH MODE
+ ARCIS - WATCH MODE
 {'='*45}
  Time: {now.strftime('%Y-%m-%d %H:%M:%S')} ET
  LLM: {llm_status}
@@ -317,7 +317,7 @@ class WatchLoop:
             from src.notifications.telegram import notify_system_event, is_telegram_enabled
             if is_telegram_enabled():
                 notify_system_event(
-                    "HALCYON LAB STARTED",
+                    "ARCIS STARTED",
                     f"Model: {model_name}\nMode: {'Overnight' if self.overnight else 'Standard'}\nTraining: {training_str}"
                 )
                 print(" Telegram: connected ✓")
@@ -906,7 +906,7 @@ class WatchLoop:
         backup_dir = Path("backups")
         backup_dir.mkdir(exist_ok=True)
 
-        backup_path = backup_dir / f"halcyon_{datetime.now(ET).strftime('%Y%m%d')}.sqlite3"
+        backup_path = backup_dir / f"arcis_{datetime.now(ET).strftime('%Y%m%d')}.sqlite3"
         try:
             src = sqlite3.connect("ai_research_desk.sqlite3")
             dst = sqlite3.connect(str(backup_path))
@@ -915,7 +915,7 @@ class WatchLoop:
             src.close()
 
             # Prune old backups (keep last 7)
-            backups = sorted(backup_dir.glob("halcyon_*.sqlite3"))
+            backups = sorted(backup_dir.glob("arcis_*.sqlite3"))
             for old in backups[:-7]:
                 old.unlink()
 
@@ -929,7 +929,7 @@ class WatchLoop:
         log_dir = Path("logs")
         log_dir.mkdir(exist_ok=True)
         fh = RotatingFileHandler(
-            log_dir / "halcyon.log", maxBytes=10_000_000, backupCount=7
+            log_dir / "arcis.log", maxBytes=10_000_000, backupCount=7
         )
         fh.setLevel(logging.INFO)
         fh.setFormatter(logging.Formatter(

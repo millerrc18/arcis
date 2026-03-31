@@ -1,4 +1,4 @@
-"""Logging configuration for the Halcyon Lab system."""
+"""Logging configuration for the Arcis system."""
 
 import logging
 import sys

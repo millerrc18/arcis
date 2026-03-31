@@ -1,4 +1,4 @@
-"""Halcyon System Health Score (HSHS) computation.
+"""Arcis System Health Score (HSHS) computation.
 
 Five dimensions scored 0-100, combined via weighted geometric mean.
 Phase-dependent weights shift priorities as the system matures.
@@ -74,7 +74,7 @@ def _weighted_geometric_mean(values: Dict[str, float], weights: Dict[str, float]
 
 
 def compute_hshs_score(dimensions: Dict[str, float], months_active: int = 3) -> dict:
-    """Compute the Halcyon System Health Score.
+    """Compute the Arcis System Health Score.
 
     Args:
         dimensions: Dict with keys performance, model_quality, data_asset,

@@ -1,4 +1,4 @@
-"""Pydantic models for the Halcyon Lab system."""
+"""Pydantic models for the Arcis system."""
 
 from datetime import datetime
 from typing import Optional

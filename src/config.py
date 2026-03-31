@@ -1,4 +1,4 @@
-"""Configuration loader for the AI Research Desk.
+"""Configuration loader for the Systematic Equity Research.
 
 Loads settings from config/settings.local.yaml, falling back to
 config/settings.example.yaml if the local file does not exist.

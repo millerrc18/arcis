@@ -1,4 +1,4 @@
-"""SQLite schema reporter for Halcyon Lab.
+"""SQLite schema reporter for Arcis.
 
 Emits every table, column, and index from the configured SQLite database.
 Used by docs/architecture.md and sprint verification gates.

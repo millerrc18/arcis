@@ -29,17 +29,17 @@ const GATE_THRESHOLDS = {
 }
 
 function gatePill(value, key) {
-  if (value == null) return { color: 'var(--slate-500)', label: 'pending' }
+  if (value == null) return { color: 'var(--arcis-text-muted)', label: 'pending' }
   const t = GATE_THRESHOLDS[key]
-  if (!t) return { color: 'var(--slate-500)', label: '--' }
+  if (!t) return { color: 'var(--arcis-text-muted)', label: '--' }
   if (t.invert) {
-    if (value <= t.green) return { color: 'var(--teal-500)', label: 'pass' }
-    if (value <= t.yellow) return { color: 'var(--amber-500)', label: 'watch' }
-    return { color: 'var(--danger)', label: 'fail' }
+    if (value <= t.green) return { color: 'var(--arcis-accent)', label: 'pass' }
+    if (value <= t.yellow) return { color: 'var(--arcis-warning)', label: 'watch' }
+    return { color: 'var(--arcis-danger)', label: 'fail' }
   }
-  if (value >= t.green) return { color: 'var(--teal-500)', label: 'pass' }
-  if (value >= t.yellow) return { color: 'var(--amber-500)', label: 'watch' }
-  return { color: 'var(--danger)', label: 'fail' }
+  if (value >= t.green) return { color: 'var(--arcis-accent)', label: 'pass' }
+  if (value >= t.yellow) return { color: 'var(--arcis-warning)', label: 'watch' }
+  return { color: 'var(--arcis-danger)', label: 'fail' }
 }
 
 function computeProjections(params) {
@@ -123,7 +123,7 @@ export default function RevenueProjection() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium uppercase tracking-wide" style={{ color: 'var(--slate-400)' }}>
+        <h3 className="text-sm font-medium uppercase tracking-wide" style={{ color: 'var(--arcis-text-secondary)' }}>
           Revenue Projection
         </h3>
         <div className="flex gap-1">
@@ -131,9 +131,9 @@ export default function RevenueProjection() {
             <button key={m.key} onClick={() => handleMode(m.key)}
               className="px-3 py-1 text-xs rounded-md transition-colors"
               style={{
-                background: mode === m.key ? 'var(--teal-900)' : 'var(--slate-700)',
-                color: mode === m.key ? 'var(--teal-400)' : 'var(--slate-300)',
-                border: `1px solid ${mode === m.key ? 'var(--teal-700)' : 'var(--slate-600)'}`,
+                background: mode === m.key ? 'var(--arcis-accent-muted)' : 'var(--arcis-bg-surface)',
+                color: mode === m.key ? 'var(--arcis-accent)' : 'var(--arcis-text-secondary)',
+                border: `1px solid ${mode === m.key ? 'var(--arcis-accent-hover)' : 'var(--arcis-border)'}`,
               }}>
               {m.label}
             </button>
@@ -145,9 +145,9 @@ export default function RevenueProjection() {
       {metrics && (
         <div className="grid grid-cols-6 gap-2">
           {metrics.map((m, i) => (
-            <div key={i} className="rounded-lg p-2 text-center" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-              <div className="text-[10px] uppercase" style={{ color: 'var(--slate-400)' }}>{m.label}</div>
-              <div className="text-sm font-medium mt-0.5" style={{ fontFamily: 'var(--font-mono)', color: 'var(--slate-100)' }}>
+            <div key={i} className="rounded-lg p-2 text-center" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+              <div className="text-[10px] uppercase" style={{ color: 'var(--arcis-text-secondary)' }}>{m.label}</div>
+              <div className="text-sm font-medium mt-0.5" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-primary)' }}>
                 {m.value != null ? m.fmt(m.value) : '--'}
               </div>
               {m.key && <GatePill value={m.key === 'winRate' ? m.raw : m.value} metricKey={m.key} />}
@@ -159,88 +159,88 @@ export default function RevenueProjection() {
       {/* Sliders */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div>
-          <label className="text-[10px] uppercase" style={{ color: 'var(--slate-400)' }}>
+          <label className="text-[10px] uppercase" style={{ color: 'var(--arcis-text-secondary)' }}>
             Sharpe {liveLocked ? '(locked)' : ''}
           </label>
           <input type="range" min="0.1" max="1.5" step="0.05" disabled={liveLocked}
             value={effectiveParams.sharpe}
             onChange={e => setSliders(s => ({ ...s, sharpe: parseFloat(e.target.value) }))}
-            className="w-full accent-[var(--teal-500)]" />
-          <div className="text-xs text-center" style={{ fontFamily: 'var(--font-mono)', color: 'var(--slate-300)' }}>
+            className="w-full accent-[var(--arcis-accent)]" />
+          <div className="text-xs text-center" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-secondary)' }}>
             {effectiveParams.sharpe.toFixed(2)}
           </div>
         </div>
         <div>
-          <label className="text-[10px] uppercase" style={{ color: 'var(--slate-400)' }}>Portfolio Vol %</label>
+          <label className="text-[10px] uppercase" style={{ color: 'var(--arcis-text-secondary)' }}>Portfolio Vol %</label>
           <input type="range" min="8" max="25" step="1"
             value={sliders.vol}
             onChange={e => setSliders(s => ({ ...s, vol: parseInt(e.target.value) }))}
-            className="w-full accent-[var(--teal-500)]" />
-          <div className="text-xs text-center" style={{ fontFamily: 'var(--font-mono)', color: 'var(--slate-300)' }}>
+            className="w-full accent-[var(--arcis-accent)]" />
+          <div className="text-xs text-center" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-secondary)' }}>
             {sliders.vol}%
           </div>
         </div>
         <div>
-          <label className="text-[10px] uppercase" style={{ color: 'var(--slate-400)' }}>Breakout Month</label>
+          <label className="text-[10px] uppercase" style={{ color: 'var(--arcis-text-secondary)' }}>Breakout Month</label>
           <input type="range" min="6" max="18" step="1"
             value={sliders.brkMonth}
             onChange={e => setSliders(s => ({ ...s, brkMonth: parseInt(e.target.value) }))}
-            className="w-full accent-[var(--teal-500)]" />
-          <div className="text-xs text-center" style={{ fontFamily: 'var(--font-mono)', color: 'var(--slate-300)' }}>
+            className="w-full accent-[var(--arcis-accent)]" />
+          <div className="text-xs text-center" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-secondary)' }}>
             Month {sliders.brkMonth}
           </div>
         </div>
         <div>
-          <label className="text-[10px] uppercase" style={{ color: 'var(--slate-400)' }}>Diversification %</label>
+          <label className="text-[10px] uppercase" style={{ color: 'var(--arcis-text-secondary)' }}>Diversification %</label>
           <input type="range" min="10" max="60" step="5"
             value={sliders.divBenefit}
             onChange={e => setSliders(s => ({ ...s, divBenefit: parseInt(e.target.value) }))}
-            className="w-full accent-[var(--teal-500)]" />
-          <div className="text-xs text-center" style={{ fontFamily: 'var(--font-mono)', color: 'var(--slate-300)' }}>
+            className="w-full accent-[var(--arcis-accent)]" />
+          <div className="text-xs text-center" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-secondary)' }}>
             {sliders.divBenefit}%
           </div>
         </div>
       </div>
 
       {/* Chart */}
-      <div className="rounded-lg p-4" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
+      <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
         <ResponsiveContainer width="100%" height={220}>
           <ComposedChart data={projections}>
-            <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'var(--slate-400)' }} />
-            <YAxis yAxisId="pnl" tick={{ fontSize: 10, fill: 'var(--slate-400)' }} tickFormatter={v => `$${(v/1000).toFixed(0)}K`} />
-            <YAxis yAxisId="cap" orientation="right" tick={{ fontSize: 10, fill: 'var(--slate-400)' }} tickFormatter={v => v >= 1000000 ? `$${(v/1000000).toFixed(1)}M` : `$${(v/1000).toFixed(0)}K`} />
-            <Tooltip contentStyle={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)', borderRadius: 8, fontSize: 12 }}
+            <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'var(--arcis-text-secondary)' }} />
+            <YAxis yAxisId="pnl" tick={{ fontSize: 10, fill: 'var(--arcis-text-secondary)' }} tickFormatter={v => `$${(v/1000).toFixed(0)}K`} />
+            <YAxis yAxisId="cap" orientation="right" tick={{ fontSize: 10, fill: 'var(--arcis-text-secondary)' }} tickFormatter={v => v >= 1000000 ? `$${(v/1000000).toFixed(1)}M` : `$${(v/1000).toFixed(0)}K`} />
+            <Tooltip contentStyle={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 8, fontSize: 12 }}
               formatter={(v, name) => [`$${v.toLocaleString()}`, name]} />
-            <Bar yAxisId="pnl" dataKey="cumPnl" name="Cumulative P&L" fill="var(--teal-500)" radius={[2,2,0,0]} fillOpacity={0.7} />
-            <Line yAxisId="cap" dataKey="capital" name="Capital" stroke="var(--amber-400)" strokeWidth={2} dot={{ r: 3 }} />
+            <Bar yAxisId="pnl" dataKey="cumPnl" name="Cumulative P&L" fill="var(--arcis-accent)" radius={[2,2,0,0]} fillOpacity={0.7} />
+            <Line yAxisId="cap" dataKey="capital" name="Capital" stroke="var(--arcis-warning)" strokeWidth={2} dot={{ r: 3 }} />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
 
       {/* Projection table */}
-      <div className="rounded-lg overflow-hidden" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
+      <div className="rounded-lg overflow-hidden" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
         <table className="w-full text-xs">
           <thead>
-            <tr style={{ borderBottom: '1px solid var(--slate-600)' }}>
+            <tr style={{ borderBottom: '1px solid var(--arcis-border)' }}>
               {['Phase', 'Capital', 'Sharpe', 'Ann. Return', 'Period P&L', 'Cumulative', 'Costs'].map(h => (
-                <th key={h} className="p-2 text-right first:text-left" style={{ color: 'var(--slate-400)' }}>{h}</th>
+                <th key={h} className="p-2 text-right first:text-left" style={{ color: 'var(--arcis-text-secondary)' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {projections.map((p, i) => (
               <tr key={i} style={{ borderBottom: '1px solid rgba(51,65,85,0.5)' }}>
-                <td className="p-2" style={{ color: 'var(--slate-100)' }}>{p.name}</td>
+                <td className="p-2" style={{ color: 'var(--arcis-text-primary)' }}>{p.name}</td>
                 <td className="p-2 text-right" style={{ fontFamily: 'var(--font-mono)' }}>${p.capital.toLocaleString()}</td>
                 <td className="p-2 text-right" style={{ fontFamily: 'var(--font-mono)' }}>{p.sharpe}</td>
                 <td className="p-2 text-right" style={{ fontFamily: 'var(--font-mono)' }}>{p.annReturn}%</td>
-                <td className="p-2 text-right" style={{ fontFamily: 'var(--font-mono)', color: p.periodPnl >= 0 ? 'var(--teal-400)' : 'var(--danger)' }}>
+                <td className="p-2 text-right" style={{ fontFamily: 'var(--font-mono)', color: p.periodPnl >= 0 ? 'var(--arcis-accent)' : 'var(--arcis-danger)' }}>
                   ${p.periodPnl.toLocaleString()}
                 </td>
-                <td className="p-2 text-right" style={{ fontFamily: 'var(--font-mono)', color: p.cumPnl >= 0 ? 'var(--teal-400)' : 'var(--danger)' }}>
+                <td className="p-2 text-right" style={{ fontFamily: 'var(--font-mono)', color: p.cumPnl >= 0 ? 'var(--arcis-accent)' : 'var(--arcis-danger)' }}>
                   ${p.cumPnl.toLocaleString()}
                 </td>
-                <td className="p-2 text-right" style={{ fontFamily: 'var(--font-mono)', color: 'var(--slate-400)' }}>
+                <td className="p-2 text-right" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-secondary)' }}>
                   ${p.cost.toLocaleString()}
                 </td>
               </tr>

@@ -11,10 +11,10 @@ export function toast(message, type = 'info') {
 }
 
 const colorMap = {
-  success: { bg: 'rgba(16, 185, 129, 0.2)', border: 'var(--success)', text: 'var(--teal-200)' },
-  error: { bg: 'rgba(239, 68, 68, 0.2)', border: 'var(--danger)', text: '#fca5a5' },
-  info: { bg: 'rgba(59, 130, 246, 0.2)', border: 'var(--info)', text: '#93c5fd' },
-  warning: { bg: 'rgba(245, 158, 11, 0.2)', border: 'var(--warning)', text: 'var(--amber-200)' },
+  success: { bg: 'rgba(34, 197, 94, 0.2)', border: 'var(--arcis-success)', text: 'var(--arcis-text-primary)' },
+  error: { bg: 'rgba(239, 68, 68, 0.2)', border: 'var(--arcis-danger)', text: 'var(--arcis-text-primary)' },
+  info: { bg: 'rgba(59, 130, 246, 0.2)', border: 'var(--arcis-info)', text: 'var(--arcis-text-primary)' },
+  warning: { bg: 'rgba(245, 158, 11, 0.2)', border: 'var(--arcis-warning)', text: 'var(--arcis-text-primary)' },
 }
 
 export default function ToastContainer() {

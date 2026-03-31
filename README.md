@@ -1,6 +1,6 @@
-# Halcyon Lab
+# Arcis
 
-Halcyon Lab is an autonomous AI-powered equity trading system for S&P 100 swing trades. It combines systematic scoring, multi-source enrichment, local LLM trade commentary, Alpaca bracket execution, a hard risk governor, and a self-improving training pipeline built around self-blinded data quality.
+Arcis is an autonomous AI-powered equity trading system for S&P 100 swing trades. It combines systematic scoring, multi-source enrichment, local LLM trade commentary, Alpaca bracket execution, a hard risk governor, and a self-improving training pipeline built around self-blinded data quality.
 
 ## Current Surface
 
@@ -8,8 +8,9 @@ Halcyon Lab is an autonomous AI-powered equity trading system for S&P 100 swing 
 - **Model**: `halcyon-v1` on Qwen3 8B, served locally through Ollama for packet generation
 - **Risk stack**: validator, 8-check governor, kill switch, traffic-light overlay, system validation, and live/cloud diagnostics
 - **Dashboard**: 13 pages across local/cloud surfaces, including Council, Health, Validation, Notes, Live Ledger, and CTO Report
+- **Brand system**: Arcis identity with Palette H, refreshed PWA metadata, and a persisted dark/light dashboard theme
 - **Data moat**: 12 nightly collectors plus enrichment for technicals, regime, sector, fundamentals, insiders, news, macro, filings, earnings, and options context
-- **Research library**: 59 synced research documents plus governance and architecture docs
+- **Research library**: 66 synced research documents plus governance and architecture docs
 - **Cloud mirror**: Render frontend + FastAPI + Postgres read replica kept fresh by the local render sync thread
 
 ## Key Capabilities

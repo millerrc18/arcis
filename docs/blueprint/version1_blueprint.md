@@ -1,10 +1,10 @@
 > **DEPRECATION NOTICE**: This was the original v1 blueprint. See [docs/architecture.md](../architecture.md) for the current system architecture.
 
-# AI Research Desk - Version 1 Blueprint (Historical)
+# Systematic Equity Research - Version 1 Blueprint (Historical)
 
 ## 1. Objective
 
-Build a focused, always-on AI research desk that monitors the S&P 100, identifies high-conviction short swing opportunities, generates institutional-style trade packets, emails those packets to Ryan's work email, logs every recommendation, and maintains a shadow paper-trading ledger so performance can be measured before live automation is considered.
+Build a focused, always-on research workflow that monitors the S&P 100, identifies high-conviction short swing opportunities, generates institutional-style trade packets, emails those packets to Ryan's work email, logs every recommendation, and maintains a shadow paper-trading ledger so performance can be measured before live automation is considered.
 
 Version 1 exists to answer one question:
 

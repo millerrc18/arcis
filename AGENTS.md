@@ -1,10 +1,10 @@
-<!-- Counts verified 2026-03-29: 165 Python files, 76 test files, 1075 tests, 53 CLI commands, 49 API routes, 36 DB tables (active SQLite schema), 59 research docs. -->
+<!-- Counts verified 2026-03-30: 165 Python files, 33,810 LOC, 77 test files, 1046 tests, 53 CLI commands, 105 API routes, 42 DB tables (active SQLite schema), 32 notification functions, 66 research docs. -->
 
-# AGENTS.md — Halcyon Lab Governance Document
+# AGENTS.md — Arcis Governance Document
 
 ## Purpose
 
-Halcyon Lab is an autonomous AI trading system that scans, analyzes, and executes equity trades. It combines systematic technical scoring with LLM-generated institutional-quality trade commentary, multi-source data enrichment, bracket orders via Alpaca, a risk governor with kill switch, and a self-improving training pipeline with quality gates.
+Arcis is an autonomous AI trading system that scans, analyzes, and executes equity trades. It combines systematic technical scoring with LLM-generated institutional-quality trade commentary, multi-source data enrichment, bracket orders via Alpaca, a risk governor with kill switch, and a self-improving training pipeline with quality gates.
 
 **Core Principle:** Training data quality is our #1 competitive advantage. Never sacrifice quality for speed.
 
@@ -19,6 +19,8 @@ The system is live in **bootcamp mode** — shadow paper trading on Alpaca with 
 **Active Model:** halcyon-v1 (Qwen3 8B fine-tuned on 790 examples via QLoRA)
 **Training Data:** 976 self-blinded examples, scored with process-first rubric
 **Universe:** S&P 100 (expanding to ~325 stocks in Phase 2)
+
+**Repository Snapshot (2026-03-30):** 165 Python files, 33,810 LOC, 77 test files, 1,046 tests, 42 database tables, 105 API routes, 53 CLI commands, 13 dashboard pages, 32 notification functions, and 66 research documents.
 
 ## Architecture Overview
 
@@ -216,12 +218,12 @@ Each desk launches only after the previous desk is profitable. See docs/roadmap.
 - **SEC EDGAR** — Fundamental data
 - **Telegram Bot API** — Real-time push notifications
 
-## Research Library (59 documents)
+## Research Library (66 documents)
 
 See the dashboard Docs page for the complete research library covering:
 
 - Training methodology (formats, rubric, self-blinding, degradation prevention, gaps/innovation, GRPO)
-- Strategy (alternative data, Halcyon Framework, optimal universe size, options trading)
+- Strategy (alternative data, Arcis Framework, optimal universe size, options trading)
 - Business (fund path/regulatory/tax, scaling plan)
 - Model selection (Qwen3 8B guide)
 

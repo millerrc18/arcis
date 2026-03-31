@@ -1,4 +1,4 @@
-"""SMTP email notifier for the AI Research Desk."""
+"""SMTP email notifier for the Systematic Equity Research."""
 
 import logging
 import smtplib

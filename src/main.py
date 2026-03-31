@@ -1,4 +1,4 @@
-"""Halcyon Lab CLI bootstrap and parser wiring.
+"""Arcis CLI bootstrap and parser wiring.
 
 Called by: shell entrypoints, tests
 Calls: cli/commands.py, log_config.py, journal/store.py
@@ -65,8 +65,8 @@ from src.journal.store import initialize_database
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the top-level Halcyon Lab CLI parser."""
-    parser = argparse.ArgumentParser(description="Halcyon Lab — AI Trading Desk")
+    """Build the top-level Arcis CLI parser."""
+    parser = argparse.ArgumentParser(description="Arcis — Systematic Equity Research")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     init_db = subparsers.add_parser("init-db")
@@ -239,7 +239,7 @@ def main():
     logging_config = config.get("logging", {})
     setup_logging(
         level=logging_config.get("level", "INFO"),
-        log_file=logging_config.get("file", "logs/halcyon.log"),
+        log_file=logging_config.get("file", "logs/arcis.log"),
     )
     initialize_database()
     args = build_parser().parse_args()
