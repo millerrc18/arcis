@@ -375,7 +375,7 @@ export default function Council() {
                   <span className="text-lg font-medium" style={{ color: 'var(--slate-100)' }}>{consensusLabel}</span>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-4">
                 <div>
                   <div className="text-xs" style={{ color: 'var(--slate-400)' }}>Confidence</div>
                   <div className="text-sm mt-1" style={{ fontFamily: 'var(--font-mono)', color: 'var(--slate-100)' }}>
@@ -390,11 +390,27 @@ export default function Council() {
                     {session.rounds_completed ?? session.result_json?.session_meta?.rounds_completed ?? '--'}
                   </div>
                 </div>
+                <div>
+                  <div className="text-xs" style={{ color: 'var(--slate-400)' }}>Cost</div>
+                  <div className="text-sm mt-1" style={{ fontFamily: 'var(--font-mono)', color: 'var(--slate-100)' }}>
+                    {session.total_cost != null ? `$${Number(session.total_cost).toFixed(4)}` : '--'}
+                  </div>
+                </div>
               </div>
             </div>
 
             {session.trigger_reason && (
               <p className="text-sm mt-4" style={{ color: 'var(--slate-300)' }}>{session.trigger_reason}</p>
+            )}
+
+            {/* Council Summary */}
+            {session.result_json?.summary && (
+              <div className="mt-4 rounded-lg p-4" style={{ background: 'rgba(20, 184, 166, 0.06)', border: '1px solid rgba(20, 184, 166, 0.15)' }}>
+                <div className="text-xs uppercase tracking-wide mb-2" style={{ color: 'var(--teal-400)' }}>Council Summary</div>
+                <p className="text-sm leading-relaxed" style={{ color: 'var(--slate-200)' }}>
+                  {session.result_json.summary}
+                </p>
+              </div>
             )}
           </div>
 

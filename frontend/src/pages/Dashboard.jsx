@@ -9,27 +9,113 @@ import PnlText from '../components/PnlText'
 import StatusBadge from '../components/StatusBadge'
 import ActivityFeed from '../components/ActivityFeed'
 import Tooltip from '../components/Tooltip'
-import { XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, Area, AreaChart } from 'recharts'
+import { XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, Area, AreaChart, Line, LineChart } from 'recharts'
+import { TrendingUp, TrendingDown, Minus, AlertTriangle, Zap } from 'lucide-react'
 
 function parseAuditSummary(raw) {
   if (!raw) return null
   let text = raw
-  // Strip code fences and JSON wrapper
   text = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '')
-  // Try to parse as JSON to extract summary
   try {
     const parsed = JSON.parse(text)
     return parsed.summary || parsed.overall_summary || text
   } catch {
-    // Not JSON — try to extract summary from structured text
     const match = text.match(/"summary"\s*:\s*"([^"]+)"/i)
     if (match) return match[1]
-    // Strip leading JSON keys
     text = text.replace(/^\s*\{\s*"overall_assessment"\s*:\s*"[^"]*"\s*,?\s*/i, '')
     text = text.replace(/^\s*"summary"\s*:\s*"?/i, '')
     text = text.replace(/"?\s*,?\s*"[^"]*"\s*:\s*[\[{].*$/s, '')
     return text.trim().replace(/^"|"$/g, '') || raw.slice(0, 200)
   }
+}
+
+function scoreColor(score) {
+  if (score >= 70) return 'var(--teal-400)'
+  if (score >= 40) return 'var(--amber-400)'
+  return 'var(--danger)'
+}
+
+function BuildScoreHero({ data }) {
+  if (!data) return null
+  const score = data.build_score ?? 0
+  const delta = data.delta_7d
+  const decay = data.decay_today
+  const components = data.components || {}
+  const phase = data.phase_progress || {}
+  const history = (data.history_7d || []).map((v, i) => ({ day: i + 1, score: v }))
+
+  const componentLabels = {
+    gate_velocity: 'Gate Velocity',
+    system_health: 'System Health',
+    data_asset_value: 'Data Asset',
+    model_quality: 'Model Quality',
+    research_velocity: 'Research Velocity',
+    reliability: 'Reliability',
+  }
+
+  return (
+    <div className="rounded-lg p-5" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
+      <div className="flex flex-col lg:flex-row gap-6">
+        {/* Left: Score + delta */}
+        <div className="flex flex-col items-center lg:items-start gap-1 min-w-[140px]">
+          <div className="text-xs uppercase tracking-wide" style={{ color: 'var(--slate-400)' }}>Build Score</div>
+          <div className="text-5xl font-bold" style={{ fontFamily: 'var(--font-mono)', color: scoreColor(score) }}>
+            {score.toFixed(1)}
+          </div>
+          <div className="flex items-center gap-2 mt-1">
+            {delta != null && (
+              <span className="flex items-center gap-1 text-sm" style={{ color: delta > 0 ? 'var(--success)' : delta < 0 ? 'var(--danger)' : 'var(--slate-400)' }}>
+                {delta > 0 ? <TrendingUp size={14} /> : delta < 0 ? <TrendingDown size={14} /> : <Minus size={14} />}
+                {delta > 0 ? '+' : ''}{delta.toFixed(1)} 7d
+              </span>
+            )}
+            {decay && (
+              <Tooltip content="Idle day: no closed trades, new examples, or scans today. -1 decay applied.">
+                <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(239,68,68,0.15)', color: '#fca5a5' }}>
+                  <AlertTriangle size={10} /> Decay
+                </span>
+              </Tooltip>
+            )}
+          </div>
+        </div>
+
+        {/* Center: Component bars */}
+        <div className="flex-1 grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2">
+          {Object.entries(componentLabels).map(([key, label]) => {
+            const val = components[key] ?? 0
+            return (
+              <div key={key}>
+                <div className="flex justify-between text-xs mb-1">
+                  <span style={{ color: 'var(--slate-400)' }}>{label}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', color: scoreColor(val) }}>{val.toFixed(0)}</span>
+                </div>
+                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--slate-600)' }}>
+                  <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, val)}%`, background: scoreColor(val) }} />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Right: Sparkline + phase */}
+        <div className="flex flex-col items-center gap-2 min-w-[120px]">
+          {history.length > 1 && (
+            <ResponsiveContainer width={120} height={48}>
+              <LineChart data={history}>
+                <Line type="monotone" dataKey="score" stroke="var(--teal-400)" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+          <div className="text-xs text-center" style={{ color: 'var(--slate-400)' }}>
+            Phase {phase.current_phase || 1}: {phase.trades_closed || 0}/{phase.trades_required || 50} trades
+          </div>
+          <div className="h-1.5 w-full max-w-[100px] rounded-full overflow-hidden" style={{ background: 'var(--slate-600)' }}>
+            <div className="h-full rounded-full" style={{ width: `${phase.pct_complete || 0}%`, background: 'var(--teal-500)' }} />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 export default function Dashboard() {
@@ -44,6 +130,7 @@ export default function Dashboard() {
   const { data: ctoData } = useQuery({ queryKey: ['cto-report'], queryFn: () => api.getCtoReport(7), refetchInterval: 60000 })
   const { data: configData } = useQuery({ queryKey: ['config'], queryFn: api.getConfig, refetchInterval: 300000 })
   const { data: accountData } = useQuery({ queryKey: ['shadow-account'], queryFn: api.getAccount, refetchInterval: 60000 })
+  const { data: buildScore } = useQuery({ queryKey: ['build-score'], queryFn: api.getBuildScore, refetchInterval: 120000 })
 
   const [toast, setToast] = useState(null)
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
@@ -70,20 +157,17 @@ export default function Dashboard() {
 
   const isHalted = haltData?.halted || false
 
-  // D1: Parse audit data properly
   const auditAssessment = auditData?.overall_assessment || auditData?.audit?.overall_assessment
   const rawSummary = auditData?.summary || auditData?.audit?.summary
   const auditSummary = parseAuditSummary(rawSummary)
 
   if (statusLoading) return <LoadingSpinner />
 
-  // D2: Fix shadow equity — use account endpoint which correctly computes starting_capital + closed_pnl
   const startingCapital = configData?.risk?.starting_capital || 100000
   const rawEquity = accountData?.equity
   const equity = (rawEquity && rawEquity > 0) ? rawEquity : (startingCapital + (accountData?.closed_pnl || 0))
   const equityDelta = equity - startingCapital
 
-  // Build cumulative P&L chart data
   const chartData = (closedData?.trades || [])
     .filter(t => t.pnl_dollars != null)
     .reverse()
@@ -105,17 +189,16 @@ export default function Dashboard() {
     { key: 'target_1', label: 'Target', type: 'currency' },
   ]
 
-  // D2: Compute metrics with lower thresholds
   const kpis = ctoData?.headline_kpis || {}
   const ts = ctoData?.trade_summary || {}
   const closedCount = ts.trades_closed || accountData?.total_closed || 0
-  const hasTrades = closedCount >= 2  // Show with >= 2 trades (was 5)
+  const hasTrades = closedCount >= 2
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-medium" style={{ color: 'var(--slate-100)' }}>Dashboard</h2>
-        <Tooltip content="EMERGENCY: Immediately stops all new trade entries. Open positions are NOT closed — they continue to be managed by bracket orders. Use only in emergencies. Resume with the 'resume-trading' CLI command.">
+        <Tooltip content="EMERGENCY: Immediately stops all new trade entries. Open positions are NOT closed.">
           <button
             onClick={() => {
               if (isHalted || confirm('Are you sure? This stops all new trades.')) {
@@ -137,7 +220,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* D1: Audit warning banner — cleaned up */}
+      {/* Audit warning banner */}
       {auditAssessment && auditAssessment !== 'green' && (
         <div className="rounded-lg p-3 text-sm" style={{
           background: auditAssessment === 'red' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(245, 158, 11, 0.15)',
@@ -156,24 +239,27 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* D3: Actions with tooltips */}
+      {/* BUILD SCORE HERO */}
+      <BuildScoreHero data={buildScore} />
+
+      {/* Actions */}
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-xs uppercase tracking-wide mr-2" style={{ color: 'var(--slate-400)' }}>Actions</span>
-        <Tooltip content="Triggers an immediate market scan outside the normal 30-min schedule. Use when you want to check for new setups between scheduled scans.">
+        <Tooltip content="Triggers an immediate market scan outside the normal 30-min schedule.">
           <button onClick={() => scanMutation.mutate()} disabled={scanMutation.isPending}
             className="px-3 py-1.5 text-xs rounded-md disabled:opacity-50 transition-colors"
             style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
             {scanMutation.isPending ? 'Scanning...' : 'Run Scan'}
           </button>
         </Tooltip>
-        <Tooltip content="Generates a CTO Performance Report covering the last 7 days. Includes Sharpe, win rate, P&L, and strategy assessment. Normally runs automatically on Saturdays.">
+        <Tooltip content="Generates a CTO Performance Report covering the last 7 days.">
           <button onClick={() => ctoMutation.mutate()} disabled={ctoMutation.isPending}
             className="px-3 py-1.5 text-xs rounded-md disabled:opacity-50 transition-colors"
             style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
             {ctoMutation.isPending ? 'Generating...' : 'Generate CTO Report'}
           </button>
         </Tooltip>
-        <Tooltip content="Collects training examples from recently closed trades. Normally runs automatically at 4:30 PM ET and 6:00 PM ET.">
+        <Tooltip content="Collects training examples from recently closed trades.">
           <button onClick={() => collectMutation.mutate()} disabled={collectMutation.isPending}
             className="px-3 py-1.5 text-xs rounded-md disabled:opacity-50 transition-colors"
             style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
@@ -182,7 +268,7 @@ export default function Dashboard() {
         </Tooltip>
       </div>
 
-      {/* D2: Headline KPIs — fixed thresholds */}
+      {/* Headline KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <div className="rounded-lg p-3" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
           <div className="text-xs" style={{ color: 'var(--slate-400)' }}>Sharpe ratio</div>
@@ -202,7 +288,7 @@ export default function Dashboard() {
             {hasTrades ? `${(kpis.max_drawdown_pct || 0).toFixed(1)}%` : '--'}
           </div>
         </div>
-        <Tooltip content="Measures how well the model's confidence predictions match actual outcomes. Requires 50+ closed trades for statistical significance.">
+        <Tooltip content="Measures how well the model's confidence predictions match actual outcomes. Requires 50+ closed trades.">
           <div className="rounded-lg p-3" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
             <div className="text-xs" style={{ color: 'var(--slate-400)' }}>Confidence cal.</div>
             <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: 'var(--slate-100)' }}>
@@ -210,7 +296,7 @@ export default function Dashboard() {
             </div>
           </div>
         </Tooltip>
-        <Tooltip content="Average quality score from Claude-graded rubric evaluation of trade reasoning. Requires running the scoring pipeline ($5-8 API cost).">
+        <Tooltip content="Average quality score from Claude-graded rubric evaluation of trade reasoning.">
           <div className="rounded-lg p-3" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
             <div className="text-xs" style={{ color: 'var(--slate-400)' }}>Rubric score</div>
             <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: 'var(--slate-100)' }}>
@@ -220,7 +306,7 @@ export default function Dashboard() {
         </Tooltip>
       </div>
 
-      {/* D2: System status cards — fixed equity */}
+      {/* System status cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard label="Shadow Equity" value={equity.toLocaleString(undefined, { minimumFractionDigits: 0 })} prefix="$" delta={equityDelta} />
         <MetricCard label="Open Trades" value={openTrades?.open_count || accountData?.open_positions || 0} />

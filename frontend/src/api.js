@@ -87,6 +87,7 @@ export const api = {
   // Health Score
   getHealthScore: () => fetchApi('/health/score'),
   getHSHS: () => fetchApi('/health/hshs'),
+  getBuildScore: () => fetchApi('/build-score'),
   // Notes
   fetchNotes: () => fetchApi('/notes'),
   createNote: (data) => fetchApi('/notes', { method: 'POST', body: JSON.stringify(data) }),

@@ -329,4 +329,14 @@ def create_router(runtime, verify_auth):
             runtime.logger.error("[API] cto_report failed: %s", exc, exc_info=True)
             return {"error": str(exc)}
 
+    @router.get("/api/build-score", dependencies=[Depends(verify_auth)])
+    def build_score():
+        try:
+            from src.evaluation.build_score import compute_build_score
+
+            return compute_build_score()
+        except Exception as exc:
+            runtime.logger.error("[API] build-score failed: %s", exc, exc_info=True)
+            return {"build_score": 0, "components": {}, "error": str(exc)}
+
     return router

@@ -5,6 +5,10 @@ Simple Python loop — no APScheduler or cron dependencies.
 
 import time
 import logging
+
+from dotenv import load_dotenv
+
+load_dotenv()  # reads .env before any os.environ lookups
 from logging.handlers import RotatingFileHandler
 from datetime import datetime, date
 from pathlib import Path
