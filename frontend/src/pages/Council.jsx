@@ -11,6 +11,7 @@ import {
 } from 'recharts'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { api } from '../api'
+import { formatTimestamp } from '../utils/formatTimestamp'
 import LoadingSpinner from '../components/LoadingSpinner'
 import StatusBadge from '../components/StatusBadge'
 
@@ -203,7 +204,7 @@ function ExpandableSessionRow({ session, isLatest }) {
   const agents = normalizeAgents(detailSession?.result_json?.agent_assessments || data?.votes || [])
   const adjustments = detailSession?.result_json?.parameter_adjustments || {}
   const consensusLabel = buildConsensusLabel(agents)
-  const timestamp = session.created_at ? new Date(session.created_at).toLocaleString() : '--'
+  const timestamp = formatTimestamp(session.created_at)
 
   return (
     <div className="rounded-lg" style={{ border: '1px solid var(--arcis-border)' }}>
@@ -300,6 +301,10 @@ export default function Council() {
 
   const askStrategic = useMutation({
     mutationFn: api.askCouncilStrategic,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['council-latest'] })
+      queryClient.invalidateQueries({ queryKey: ['council-history'] })
+    },
   })
 
   const session = latest?.session || latest || {}
