@@ -78,6 +78,9 @@ MIGRATIONS = [
     ("training_examples", "outcome_type", "ALTER TABLE training_examples ADD COLUMN outcome_type TEXT"),
     ("training_examples", "regime", "ALTER TABLE training_examples ADD COLUMN regime TEXT"),
 
+    # Activity log level column (added by Sprint 4E migration)
+    ("activity_log", "level", "ALTER TABLE activity_log ADD COLUMN level TEXT DEFAULT 'INFO'"),
+
     # setup_signals: SQLite has rich signal data, Postgres was created minimal
     ("setup_signals", "signal_id", "ALTER TABLE setup_signals ADD COLUMN signal_id TEXT"),
     ("setup_signals", "date", "ALTER TABLE setup_signals ADD COLUMN date TEXT"),

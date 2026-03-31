@@ -25,9 +25,17 @@
 - Updated build_score.py docstring from "Halcyon Lab" to "Arcis" (#96)
 - Replaced hardcoded Render URL with RENDER_API_URL env var (#91)
 
-**Tests:** +18 new tests (1143 total) across 3 new test files: test_watch_resilience.py, test_bracket_safety.py, test_db_util.py
+**Tests:** +18 new tests (1168 total) across 3 new test files: test_watch_resilience.py, test_bracket_safety.py, test_db_util.py
 
 **Issues closed:** #89, #90, #91, #94, #96, #100, #101, #103, #105, #124, #130, #150, #151, #155, #157, #159, #160, #161
+
+### Automated Daily Reconciliation (#170)
+
+#### Paper Trade Reconciliation
+- Added: `reconcile_paper_trades()` in `src/shadow_trading/reconcile.py` — compares Alpaca paper positions with local `shadow_trades` (source='paper')
+- Added: Orphaned position backfill with `order_type='reconciled'`, stale trade detection (alert-only, no auto-close), qty discrepancy reporting
+- Added: `_run_postclose_reconciliation()` in watch loop — runs daily at 4:30 PM ET postclose, sends Telegram summary
+- Added: 4 tests in `tests/test_reconcile.py` (all-matched, orphaned backfill, stale no-auto-close, qty discrepancy)
 
 ---
 
