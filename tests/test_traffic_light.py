@@ -105,3 +105,11 @@ class TestComputeTrafficLight:
         # 6th call: persistence threshold (5) met → switches
         r_final = compute_traffic_light(spy=bearish_spy, vix=35.0, db_path=db)
         assert r_final["regime_label"] != "GREEN"  # Should have switched
+
+    def test_vix_30_6_produces_red_vix_component(self, tmp_path):
+        """Sprint 4E: VIX 30.6 should produce vix_score=2 (RED component)."""
+        db = str(tmp_path / "tl.sqlite3")
+        result = compute_traffic_light(vix=30.6, db_path=db)
+        assert result["vix_score"] == 2, f"VIX 30.6 should score 2, got {result['vix_score']}"
+        # Total score should be at least 2 (VIX alone), so not GREEN
+        assert result["total_score"] >= 2

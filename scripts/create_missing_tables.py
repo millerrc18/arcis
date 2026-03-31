@@ -174,6 +174,21 @@ TABLES = [
         created_at TEXT NOT NULL
     )""",
 
+    # Build score history (referenced by build_score.py but never explicitly created)
+    """CREATE TABLE IF NOT EXISTS build_score_history (
+        score_id TEXT PRIMARY KEY,
+        score_date TEXT,
+        build_score REAL,
+        gate_velocity REAL,
+        system_health REAL,
+        data_asset_value REAL,
+        model_quality REAL,
+        research_velocity REAL,
+        reliability REAL,
+        decay_applied INTEGER DEFAULT 0,
+        components_json TEXT,
+        created_at TEXT)""",
+
     # Indexes
     "CREATE INDEX IF NOT EXISTS idx_build_score_date ON build_score_history(score_date)",
     "CREATE INDEX IF NOT EXISTS idx_edgar_ticker_date ON edgar_filings(ticker, filing_date)",
@@ -182,6 +197,14 @@ TABLES = [
     "CREATE INDEX IF NOT EXISTS idx_pending_commands_status ON pending_commands(status, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_command_results_command ON command_results(command_id)",
     "CREATE INDEX IF NOT EXISTS idx_log_entries_level ON log_entries(log_level, created_at)",
+]
+
+# Column additions that may be missing on existing installations
+ALTER_STATEMENTS = [
+    ("shadow_trades", "strategy_type", "ALTER TABLE shadow_trades ADD COLUMN strategy_type TEXT DEFAULT 'pullback'"),
+    ("training_examples", "outcome_type", "ALTER TABLE training_examples ADD COLUMN outcome_type TEXT"),
+    ("training_examples", "regime", "ALTER TABLE training_examples ADD COLUMN regime TEXT"),
+    ("activity_log", "level", "ALTER TABLE activity_log ADD COLUMN level TEXT DEFAULT 'INFO'"),
 ]
 
 
@@ -203,9 +226,22 @@ def main():
         except Exception as e:
             print(f"  ❌ {e}")
 
+    # Add missing columns to existing tables
+    print("\nAdding missing columns...")
+    for table, column, sql in ALTER_STATEMENTS:
+        try:
+            existing = [r[1] for r in cur.execute(f"PRAGMA table_info({table})").fetchall()]
+            if column in existing:
+                print(f"  ✅ {table}.{column} (already exists)")
+            else:
+                cur.execute(sql)
+                print(f"  ✅ {table}.{column} (added)")
+        except Exception as e:
+            print(f"  ❌ {table}.{column}: {e}")
+
     conn.commit()
     conn.close()
-    print("\nDone! All tables created. Sync errors will stop on next cycle.")
+    print("\nDone! All tables and columns created. Sync errors will stop on next cycle.")
 
 
 if __name__ == "__main__":

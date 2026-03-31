@@ -457,6 +457,9 @@ class WatchLoop:
 
         if spy.empty:
             print("[WATCH] ERROR: Could not fetch SPY benchmark. Skipping scan.")
+            self._record_scan_metrics(universe_count=len(universe),
+                                      features_count=0, packet_worthy=0,
+                                      llm_success=0, llm_total=0)
             return
 
         features = compute_all_features(ohlcv, spy)
@@ -467,6 +470,32 @@ class WatchLoop:
             features = enrich_features(features, self.config)
         except Exception as e:
             logger.warning("[WATCH] Data enrichment failed: %s", e)
+
+        # ═══ TRAFFIC LIGHT (must run before trade decisions) ═══
+        try:
+            from src.features.traffic_light import compute_traffic_light
+            import sqlite3 as _sq
+            _vix_val = None
+            try:
+                with _sq.connect("ai_research_desk.sqlite3") as _vc:
+                    _vr = _vc.execute(
+                        "SELECT vix FROM vix_term_structure ORDER BY collected_date DESC LIMIT 1"
+                    ).fetchone()
+                    if _vr:
+                        _vix_val = float(_vr[0])
+            except Exception:
+                pass
+            tl = compute_traffic_light(spy, vix=_vix_val)
+            for _t in features:
+                features[_t]["traffic_light"] = tl
+                features[_t]["traffic_light_multiplier"] = tl.get("sizing_multiplier", 1.0)
+            logger.info("[WATCH] Traffic Light: score=%d mult=%.1f regime=%s vix=%.1f",
+                        tl.get("total_score", -1), tl.get("sizing_multiplier", 1.0),
+                        tl.get("regime_label", "unknown"), _vix_val or 0.0)
+        except Exception as e:
+            logger.warning("[WATCH] Traffic Light failed: %s — using default", e)
+            for _t in features:
+                features[_t]["traffic_light_multiplier"] = 1.0
 
         ranked = rank_universe(features)
         candidates = get_top_candidates(ranked)
@@ -483,6 +512,9 @@ class WatchLoop:
 
         if not packet_worthy:
             print(f"[WATCH] No packet-worthy setups. {len(candidates['watchlist'])} on watchlist.")
+            self._record_scan_metrics(
+                universe_count=len(universe), features_count=len(features),
+                packet_worthy=0, llm_success=0, llm_total=0)
             try:
                 broadcast_sync("scan_complete", {"tickers_scanned": len(universe),
                                                  "packets": 0})
@@ -671,6 +703,41 @@ class WatchLoop:
                     )
             except Exception as e:
                 logger.warning("[WATCH] notify_first_scan_summary failed: %s", e)
+
+        # ═══ SCAN METRICS (record every scan cycle) ═══
+        self._record_scan_metrics(
+            universe_count=len(universe), features_count=len(features),
+            packet_worthy=len(packet_worthy),
+            llm_success=len(packet_worthy), llm_total=len(packet_worthy))
+
+    def _record_scan_metrics(self, *, universe_count: int = 0,
+                             features_count: int = 0, packet_worthy: int = 0,
+                             llm_success: int = 0, llm_total: int = 0):
+        """Write a row to scan_metrics for every scan cycle (success or failure)."""
+        try:
+            import sqlite3 as _sq
+            if not hasattr(self, '_scan_number'):
+                self._scan_number = 0
+            self._scan_number += 1
+            now = datetime.now(ET)
+            with _sq.connect("ai_research_desk.sqlite3") as conn:
+                conn.execute(
+                    "INSERT INTO scan_metrics "
+                    "(scan_number, scan_time, universe_count, features_count, "
+                    "scored_count, packet_worthy, risk_passed, paper_traded, "
+                    "live_traded, llm_success, llm_total, llm_fallback, "
+                    "avg_conviction, duration_seconds, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (self._scan_number, now.strftime("%H:%M"), universe_count,
+                     features_count, features_count, packet_worthy,
+                     packet_worthy, packet_worthy, 0, llm_success, llm_total,
+                     0, 0.0, 0.0, now.isoformat()),
+                )
+                conn.commit()
+            logger.info("[WATCH] Recorded scan_metrics #%d (packets=%d)",
+                        self._scan_number, packet_worthy)
+        except Exception as e:
+            logger.warning("[WATCH] Failed to record scan_metrics: %s", e)
 
     def _run_eod_recap(self):
         """Execute the EOD recap pipeline."""
@@ -2061,6 +2128,15 @@ class WatchLoop:
         except Exception as e:
             logger.error("[WATCH] Council session failed: %s", e)
             print(f"[WATCH] Council session failed: {e}")
+            # Notify on failure so ops knows the council didn't run
+            try:
+                from src.notifications.telegram import send_telegram, is_telegram_enabled
+                if is_telegram_enabled():
+                    send_telegram(
+                        f"🚨 <b>COUNCIL FAILED</b>\n{type(e).__name__}: {e}"
+                    )
+            except Exception:
+                pass  # Don't cascade failures
 
     # ── Ollama Warm-Up ─────────────────────────────────────────────
 
