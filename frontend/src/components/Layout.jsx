@@ -3,7 +3,7 @@ import { Outlet, NavLink } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api'
 import { IS_CLOUD } from '../config'
-import { LayoutDashboard, FileText, TrendingUp, Brain, BarChart3, Settings, Map, BookOpen, Users, Activity, Menu, X, DollarSign, ShieldCheck } from 'lucide-react'
+import { LayoutDashboard, FileText, TrendingUp, Brain, BarChart3, Settings, Map, BookOpen, Users, Activity, Menu, X, DollarSign, ShieldCheck, ScrollText } from 'lucide-react'
 import StatusBadge from './StatusBadge'
 import ThemeToggle from './ThemeToggle'
 
