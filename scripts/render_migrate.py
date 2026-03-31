@@ -451,6 +451,23 @@ MIGRATIONS = [
     ("model_versions", "holdout_score", "ALTER TABLE model_versions ADD COLUMN holdout_score REAL"),
     ("model_versions", "holdout_details", "ALTER TABLE model_versions ADD COLUMN holdout_details TEXT"),
     ("model_versions", "_idx_version_id", "CREATE UNIQUE INDEX IF NOT EXISTS idx_model_versions_version_id ON model_versions(version_id)"),
+
+    # Build Score history
+    ("build_score_history", None, """CREATE TABLE IF NOT EXISTS build_score_history (
+        score_id TEXT PRIMARY KEY,
+        score_date TEXT NOT NULL,
+        build_score REAL NOT NULL,
+        gate_velocity REAL,
+        system_health REAL,
+        data_asset_value REAL,
+        model_quality REAL,
+        research_velocity REAL,
+        reliability REAL,
+        decay_applied INTEGER DEFAULT 0,
+        components_json TEXT,
+        created_at TEXT NOT NULL
+    )"""),
+    ("build_score_history", "_idx_score_date", "CREATE INDEX IF NOT EXISTS idx_build_score_date ON build_score_history(score_date)"),
 ]
 
 

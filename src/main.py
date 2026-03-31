@@ -9,6 +9,10 @@ Tests: tests/test_live_trading.py, tests/test_main_refactor.py
 
 import argparse
 
+from dotenv import load_dotenv
+
+load_dotenv()  # reads .env before any os.environ lookups
+
 from src.cli.commands import (
     cmd_backfill_training,
     cmd_backtest,

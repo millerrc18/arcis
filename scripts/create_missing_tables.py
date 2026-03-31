@@ -133,7 +133,24 @@ TABLES = [
         UNIQUE(ticker, date, source)
     )""",
 
+    # Build Score history
+    """CREATE TABLE IF NOT EXISTS build_score_history (
+        score_id TEXT PRIMARY KEY,
+        score_date TEXT NOT NULL,
+        build_score REAL NOT NULL,
+        gate_velocity REAL,
+        system_health REAL,
+        data_asset_value REAL,
+        model_quality REAL,
+        research_velocity REAL,
+        reliability REAL,
+        decay_applied INTEGER DEFAULT 0,
+        components_json TEXT,
+        created_at TEXT NOT NULL
+    )""",
+
     # Indexes
+    "CREATE INDEX IF NOT EXISTS idx_build_score_date ON build_score_history(score_date)",
     "CREATE INDEX IF NOT EXISTS idx_edgar_ticker_date ON edgar_filings(ticker, filing_date)",
     "CREATE INDEX IF NOT EXISTS idx_insider_ticker_date ON insider_transactions(ticker, filing_date)",
     "CREATE INDEX IF NOT EXISTS idx_council_created ON council_sessions(created_at)",

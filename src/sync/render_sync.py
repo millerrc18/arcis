@@ -113,6 +113,11 @@ SYNC_TABLES: dict[str, dict] = {
         "time_col": "collected_at",
         "pk": "id",
     },
+    "build_score_history": {
+        "mode": "incremental",
+        "time_col": "created_at",
+        "pk": "score_id",
+    },
     "api_costs": {
         "mode": "incremental",
         "time_col": "created_at",

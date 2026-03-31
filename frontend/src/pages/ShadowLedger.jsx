@@ -5,77 +5,124 @@ import MetricCard from '../components/MetricCard'
 import DataTable from '../components/DataTable'
 import LoadingSpinner from '../components/LoadingSpinner'
 import EmptyState from '../components/EmptyState'
+import Tooltip from '../components/Tooltip'
 import { TrendingUp, ChevronDown, ChevronRight } from 'lucide-react'
 import {
-  XAxis, YAxis, Tooltip, ResponsiveContainer, Area, AreaChart,
-  BarChart, Bar, Cell, CartesianGrid, Line, LineChart, ReferenceLine,
+  XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, Area, AreaChart,
+  BarChart, Bar, Cell, CartesianGrid, ReferenceLine,
 } from 'recharts'
 
+function computeRMultiple(trade) {
+  if (!trade.entry_price || !trade.stop_price || !trade.pnl_pct) return null
+  const riskPct = Math.abs(trade.entry_price - trade.stop_price) / trade.entry_price * 100
+  if (riskPct === 0) return null
+  return trade.pnl_pct / riskPct
+}
+
+function computeIsCapture(trade) {
+  if (!trade.entry_price || !trade.target_1 || !trade.actual_exit_price) return null
+  const totalRange = Math.abs(trade.target_1 - trade.entry_price)
+  if (totalRange === 0) return null
+  const captured = trade.actual_exit_price - trade.entry_price
+  return (captured / totalRange) * 100
+}
+
 function TradeDetail({ trade }) {
+  const rMultiple = computeRMultiple(trade)
+  const isCapture = computeIsCapture(trade)
+
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs p-3 rounded-lg" style={{ background: 'rgba(100,116,139,0.15)' }}>
       <div>
-        <span style={{ color: 'var(--arcis-text-secondary)' }}>Entry: </span>
+        <span style={{ color: 'var(--slate-400)' }}>Entry: </span>
         <span style={{ fontFamily: 'var(--font-mono)' }}>${trade.entry_price?.toFixed(2)}</span>
       </div>
       {trade.actual_exit_price != null && (
         <div>
-          <span style={{ color: 'var(--arcis-text-secondary)' }}>Exit: </span>
+          <span style={{ color: 'var(--slate-400)' }}>Exit: </span>
           <span style={{ fontFamily: 'var(--font-mono)' }}>${trade.actual_exit_price?.toFixed(2)}</span>
         </div>
       )}
       {trade.setup_confidence != null && (
         <div>
-          <span style={{ color: 'var(--arcis-text-secondary)' }}>Conviction: </span>
+          <span style={{ color: 'var(--slate-400)' }}>Conviction: </span>
           <span style={{ fontFamily: 'var(--font-mono)' }}>{(trade.setup_confidence * 100).toFixed(0)}%</span>
         </div>
       )}
       {trade.setup_type && (
         <div>
-          <span style={{ color: 'var(--arcis-text-secondary)' }}>Setup: </span>
+          <span style={{ color: 'var(--slate-400)' }}>Setup: </span>
           <span>{trade.setup_type}</span>
         </div>
       )}
       {trade.sector && (
         <div>
-          <span style={{ color: 'var(--arcis-text-secondary)' }}>Sector: </span>
+          <span style={{ color: 'var(--slate-400)' }}>Sector: </span>
           <span>{trade.sector}</span>
         </div>
       )}
       {trade.planned_shares != null && (
         <div>
-          <span style={{ color: 'var(--arcis-text-secondary)' }}>Shares: </span>
+          <span style={{ color: 'var(--slate-400)' }}>Shares: </span>
           <span style={{ fontFamily: 'var(--font-mono)' }}>{trade.planned_shares}</span>
         </div>
       )}
       {trade.planned_allocation != null && (
         <div>
-          <span style={{ color: 'var(--arcis-text-secondary)' }}>Allocation: </span>
+          <span style={{ color: 'var(--slate-400)' }}>Allocation: </span>
           <span style={{ fontFamily: 'var(--font-mono)' }}>${trade.planned_allocation?.toFixed(0)}</span>
         </div>
       )}
       {trade.mfe_dollars != null && (
         <div>
-          <span style={{ color: 'var(--arcis-text-secondary)' }}>MFE: </span>
-          <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-success)' }}>${trade.mfe_dollars?.toFixed(2)}</span>
+          <span style={{ color: 'var(--slate-400)' }}>MFE: </span>
+          <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--success)' }}>${trade.mfe_dollars?.toFixed(2)}</span>
         </div>
       )}
       {trade.mae_dollars != null && (
         <div>
-          <span style={{ color: 'var(--arcis-text-secondary)' }}>MAE: </span>
-          <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-danger)' }}>${trade.mae_dollars?.toFixed(2)}</span>
+          <span style={{ color: 'var(--slate-400)' }}>MAE: </span>
+          <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--danger)' }}>${trade.mae_dollars?.toFixed(2)}</span>
         </div>
       )}
       {trade.exit_reason && (
         <div>
-          <span style={{ color: 'var(--arcis-text-secondary)' }}>Exit: </span>
+          <span style={{ color: 'var(--slate-400)' }}>Exit: </span>
           <span>{trade.exit_reason}</span>
         </div>
       )}
       {trade.entry_slippage_pct != null && (
         <div>
-          <span style={{ color: 'var(--arcis-text-secondary)' }}>Slippage: </span>
-          <span style={{ fontFamily: 'var(--font-mono)' }}>{trade.entry_slippage_pct?.toFixed(3)}%</span>
+          <span style={{ color: 'var(--slate-400)' }}>Entry Slippage: </span>
+          <span style={{ fontFamily: 'var(--font-mono)', color: Math.abs(trade.entry_slippage_pct) > 0.1 ? 'var(--warning)' : 'var(--slate-200)' }}>
+            {trade.entry_slippage_pct?.toFixed(3)}%
+          </span>
+        </div>
+      )}
+      {trade.entry_slippage_bps != null && (
+        <div>
+          <span style={{ color: 'var(--slate-400)' }}>Slippage (bps): </span>
+          <span style={{ fontFamily: 'var(--font-mono)' }}>{trade.entry_slippage_bps?.toFixed(1)}</span>
+        </div>
+      )}
+      {rMultiple != null && (
+        <div>
+          <Tooltip content="Profit/loss relative to initial risk (entry-to-stop distance). >1R = good trade management.">
+            <span style={{ color: 'var(--slate-400)' }}>R-Multiple: </span>
+          </Tooltip>
+          <span style={{ fontFamily: 'var(--font-mono)', color: rMultiple >= 1 ? 'var(--success)' : rMultiple >= 0 ? 'var(--slate-200)' : 'var(--danger)' }}>
+            {rMultiple.toFixed(2)}R
+          </span>
+        </div>
+      )}
+      {isCapture != null && (
+        <div>
+          <Tooltip content="Percentage of the entry-to-target range captured. >100% means exceeded target.">
+            <span style={{ color: 'var(--slate-400)' }}>IS Capture: </span>
+          </Tooltip>
+          <span style={{ fontFamily: 'var(--font-mono)', color: isCapture >= 50 ? 'var(--success)' : isCapture >= 0 ? 'var(--slate-200)' : 'var(--danger)' }}>
+            {isCapture.toFixed(1)}%
+          </span>
         </div>
       )}
     </div>
@@ -89,19 +136,22 @@ function ExpandableTradeRow({ trade, columns }) {
       <tr
         onClick={() => setExpanded(!expanded)}
         className="cursor-pointer hover:opacity-80 transition-opacity"
-        style={{ borderBottom: '1px solid var(--arcis-border)' }}
+        style={{ borderBottom: '1px solid var(--slate-600)' }}
       >
         <td className="py-2 px-2">
-          {expanded ? <ChevronDown size={12} style={{ color: 'var(--arcis-text-secondary)' }} /> : <ChevronRight size={12} style={{ color: 'var(--arcis-text-secondary)' }} />}
+          {expanded ? <ChevronDown size={12} style={{ color: 'var(--slate-400)' }} /> : <ChevronRight size={12} style={{ color: 'var(--slate-400)' }} />}
         </td>
         {columns.map(col => (
           <td key={col.key} className="py-2 px-2 text-sm" style={{
             fontFamily: col.type !== 'text' ? 'var(--font-mono)' : undefined,
             color: col.key === 'pnl_dollars' || col.key === 'pnl_pct'
-              ? ((trade[col.key] || 0) >= 0 ? 'var(--arcis-success)' : 'var(--arcis-danger)')
-              : 'var(--arcis-text-primary)',
+              ? ((trade[col.key] || 0) >= 0 ? 'var(--success)' : 'var(--danger)')
+              : col.key === 'r_multiple'
+              ? ((trade._rMultiple || 0) >= 1 ? 'var(--success)' : (trade._rMultiple || 0) >= 0 ? 'var(--slate-200)' : 'var(--danger)')
+              : 'var(--slate-200)',
           }}>
-            {col.type === 'currency' ? `$${(trade[col.key] || 0).toFixed(2)}`
+            {col.render ? col.render(trade) :
+              col.type === 'currency' ? `$${(trade[col.key] || 0).toFixed(2)}`
               : col.type === 'percent' ? `${(trade[col.key] || 0).toFixed(2)}%`
               : trade[col.key] ?? '--'}
           </td>
@@ -133,12 +183,12 @@ function EquityCurveTab({ trades }) {
   return (
     <ResponsiveContainer width="100%" height={300}>
       <AreaChart data={data}>
-        <CartesianGrid strokeDasharray="3 3" stroke="var(--arcis-border)" />
-        <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--arcis-text-secondary)' }} />
-        <YAxis tick={{ fontSize: 11, fill: 'var(--arcis-text-secondary)' }} />
-        <Tooltip contentStyle={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 8, fontSize: 12 }} />
-        <ReferenceLine y={100000} stroke="var(--arcis-text-muted)" strokeDasharray="3 3" />
-        <Area type="monotone" dataKey="equity" stroke="var(--arcis-accent)" fill="var(--arcis-accent)" fillOpacity={0.1} />
+        <CartesianGrid strokeDasharray="3 3" stroke="var(--slate-600)" />
+        <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--slate-400)' }} />
+        <YAxis tick={{ fontSize: 11, fill: 'var(--slate-400)' }} />
+        <RTooltip contentStyle={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)', borderRadius: 8, fontSize: 12 }} />
+        <ReferenceLine y={100000} stroke="var(--slate-500)" strokeDasharray="3 3" />
+        <Area type="monotone" dataKey="equity" stroke="var(--teal-400)" fill="var(--teal-400)" fillOpacity={0.1} />
       </AreaChart>
     </ResponsiveContainer>
   )
@@ -148,7 +198,6 @@ function DistributionTab({ trades }) {
   const pnls = trades.map(t => t.pnl_pct || 0)
   if (pnls.length === 0) return <EmptyState message="No trades for distribution" />
 
-  // Histogram bins
   const min = Math.floor(Math.min(...pnls))
   const max = Math.ceil(Math.max(...pnls))
   const binSize = Math.max(1, Math.ceil((max - min) / 10))
@@ -160,15 +209,15 @@ function DistributionTab({ trades }) {
 
   return (
     <div className="space-y-4">
-      <h4 className="text-xs uppercase tracking-wide" style={{ color: 'var(--arcis-text-secondary)' }}>P&L Distribution</h4>
+      <h4 className="text-xs uppercase tracking-wide" style={{ color: 'var(--slate-400)' }}>P&L Distribution</h4>
       <ResponsiveContainer width="100%" height={200}>
         <BarChart data={bins}>
-          <XAxis dataKey="range" tick={{ fontSize: 10, fill: 'var(--arcis-text-secondary)' }} />
-          <YAxis tick={{ fontSize: 11, fill: 'var(--arcis-text-secondary)' }} allowDecimals={false} />
-          <Tooltip contentStyle={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 8, fontSize: 12 }} />
+          <XAxis dataKey="range" tick={{ fontSize: 10, fill: 'var(--slate-400)' }} />
+          <YAxis tick={{ fontSize: 11, fill: 'var(--slate-400)' }} allowDecimals={false} />
+          <RTooltip contentStyle={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)', borderRadius: 8, fontSize: 12 }} />
           <Bar dataKey="count" radius={[4, 4, 0, 0]}>
             {bins.map((entry, i) => (
-              <Cell key={i} fill={entry.isPositive ? 'var(--arcis-success)' : 'var(--arcis-danger)'} />
+              <Cell key={i} fill={entry.isPositive ? 'var(--success)' : 'var(--danger)'} />
             ))}
           </Bar>
         </BarChart>
@@ -193,20 +242,20 @@ function SectorTab({ trades }) {
 
   return (
     <div className="space-y-4">
-      <h4 className="text-xs uppercase tracking-wide" style={{ color: 'var(--arcis-text-secondary)' }}>Sector Exposure</h4>
+      <h4 className="text-xs uppercase tracking-wide" style={{ color: 'var(--slate-400)' }}>Sector Exposure</h4>
       <ResponsiveContainer width="100%" height={200}>
         <BarChart data={data} layout="vertical">
-          <XAxis type="number" tick={{ fontSize: 11, fill: 'var(--arcis-text-secondary)' }} />
-          <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: 'var(--arcis-text-secondary)' }} width={100} />
-          <Tooltip contentStyle={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 8, fontSize: 12 }} />
-          <Bar dataKey="count" fill="var(--arcis-accent)" radius={[0, 4, 4, 0]} />
+          <XAxis type="number" tick={{ fontSize: 11, fill: 'var(--slate-400)' }} />
+          <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: 'var(--slate-300)' }} width={100} />
+          <RTooltip contentStyle={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)', borderRadius: 8, fontSize: 12 }} />
+          <Bar dataKey="count" fill="var(--teal-500)" radius={[0, 4, 4, 0]} />
         </BarChart>
       </ResponsiveContainer>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
         {data.map(s => (
           <div key={s.name} className="rounded p-2 text-xs" style={{ background: 'rgba(100,116,139,0.15)' }}>
-            <div className="font-medium" style={{ color: 'var(--arcis-text-primary)' }}>{s.name}</div>
-            <div style={{ fontFamily: 'var(--font-mono)', color: s.pnl >= 0 ? 'var(--arcis-success)' : 'var(--arcis-danger)' }}>
+            <div className="font-medium" style={{ color: 'var(--slate-200)' }}>{s.name}</div>
+            <div style={{ fontFamily: 'var(--font-mono)', color: s.pnl >= 0 ? 'var(--success)' : 'var(--danger)' }}>
               ${s.pnl.toFixed(2)}
             </div>
           </div>
@@ -217,7 +266,6 @@ function SectorTab({ trades }) {
 }
 
 function CalendarTab({ trades }) {
-  // Group by date
   const byDate = {}
   for (const t of trades) {
     const d = (t.actual_exit_time || t.created_at || '').slice(0, 10)
@@ -231,15 +279,15 @@ function CalendarTab({ trades }) {
 
   return (
     <div className="space-y-2">
-      <h4 className="text-xs uppercase tracking-wide" style={{ color: 'var(--arcis-text-secondary)' }}>Daily P&L</h4>
+      <h4 className="text-xs uppercase tracking-wide" style={{ color: 'var(--slate-400)' }}>Daily P&L</h4>
       <div className="grid grid-cols-7 gap-1">
         {dates.map(d => (
           <div key={d.date} className="rounded p-2 text-center text-xs" style={{
             background: d.pnl > 0 ? 'rgba(34,197,94,0.15)' : d.pnl < 0 ? 'rgba(239,68,68,0.15)' : 'rgba(100,116,139,0.1)',
-            border: `1px solid ${d.pnl > 0 ? 'rgba(34,197,94,0.3)' : d.pnl < 0 ? 'rgba(239,68,68,0.3)' : 'var(--arcis-border)'}`,
+            border: `1px solid ${d.pnl > 0 ? 'rgba(34,197,94,0.3)' : d.pnl < 0 ? 'rgba(239,68,68,0.3)' : 'var(--slate-600)'}`,
           }}>
-            <div style={{ color: 'var(--arcis-text-secondary)', fontSize: '0.625rem' }}>{d.date.slice(5)}</div>
-            <div style={{ fontFamily: 'var(--font-mono)', color: d.pnl >= 0 ? 'var(--arcis-success)' : 'var(--arcis-danger)' }}>
+            <div style={{ color: 'var(--slate-400)', fontSize: '0.625rem' }}>{d.date.slice(5)}</div>
+            <div style={{ fontFamily: 'var(--font-mono)', color: d.pnl >= 0 ? 'var(--success)' : 'var(--danger)' }}>
               ${d.pnl.toFixed(0)}
             </div>
           </div>
@@ -273,7 +321,11 @@ export default function ShadowLedger() {
     { key: 'pnl_dollars', label: 'P&L', type: 'currency' },
     { key: 'pnl_pct', label: 'P&L %', type: 'percent' },
     { key: 'duration_days', label: 'Days', type: 'number' },
-    { key: 'exit_reason', label: 'Exit Reason', type: 'text' },
+    { key: 'entry_slippage_bps', label: 'Slip (bps)', type: 'number',
+      render: (t) => t.entry_slippage_bps != null ? t.entry_slippage_bps.toFixed(1) : '--' },
+    { key: 'r_multiple', label: 'R-Mult', type: 'number',
+      render: (t) => { const r = computeRMultiple(t); return r != null ? `${r.toFixed(2)}R` : '--' } },
+    { key: 'exit_reason', label: 'Exit', type: 'text' },
   ]
 
   const metrics = closedData?.metrics || {}
@@ -281,7 +333,6 @@ export default function ShadowLedger() {
   const equity = accountData?.equity || 100000
   const startingCapital = accountData?.starting_capital || 100000
 
-  // Compute additional metrics
   const closedPnls = closedTrades.map(t => t.pnl_dollars || 0)
   const wins = closedPnls.filter(p => p > 0)
   const losses = closedPnls.filter(p => p <= 0)
@@ -289,7 +340,6 @@ export default function ShadowLedger() {
     ? (wins.reduce((a, b) => a + b, 0) / Math.abs(losses.reduce((a, b) => a + b, 0))).toFixed(2)
     : wins.length > 0 ? '99.00' : '--'
 
-  // Max drawdown
   let running = 0, peak = 0, maxDD = 0
   for (const p of closedPnls) {
     running += p
@@ -299,28 +349,40 @@ export default function ShadowLedger() {
   }
   const maxDDPct = startingCapital > 0 ? ((maxDD / startingCapital) * 100).toFixed(1) : '0.0'
 
+  // Compute avg slippage and avg R-multiple for closed trades
+  const slippages = closedTrades.filter(t => t.entry_slippage_bps != null).map(t => t.entry_slippage_bps)
+  const avgSlippage = slippages.length > 0 ? (slippages.reduce((a, b) => a + b, 0) / slippages.length).toFixed(1) : '--'
+  const rMultiples = closedTrades.map(computeRMultiple).filter(r => r != null)
+  const avgR = rMultiples.length > 0 ? (rMultiples.reduce((a, b) => a + b, 0) / rMultiples.length).toFixed(2) : '--'
+
   return (
     <div className="space-y-6">
-      <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text-primary)' }}>Shadow Ledger</h2>
+      <h2 className="text-xl font-medium" style={{ color: 'var(--slate-100)' }}>Shadow Ledger</h2>
 
-      {/* F1: Enhanced metrics strip */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+      {/* Enhanced metrics strip with IS columns */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
         <MetricCard label="Paper Equity" value={equity.toLocaleString()} prefix="$" delta={equity - startingCapital} />
         <MetricCard label="Open / Max" value={`${accountData?.open_positions || openData?.open_count || 0} / 50`} />
         <MetricCard label="Closed" value={`${closedTrades.length} / 50`} delta={closedTrades.length >= 50 ? 'Gate met' : null} />
         <MetricCard label="Win Rate" value={metrics.win_rate != null ? `${metrics.win_rate.toFixed(1)}%` : accountData?.win_rate != null ? `${(accountData.win_rate * 100).toFixed(1)}%` : '--'} />
         <MetricCard label="Profit Factor" value={profitFactor} />
         <MetricCard label="Max DD" value={`${maxDDPct}%`} />
+        <Tooltip content="Average entry slippage in basis points across all closed trades">
+          <MetricCard label="Avg Slip (bps)" value={avgSlippage} />
+        </Tooltip>
+        <Tooltip content="Average R-Multiple: P&L relative to initial risk (entry-to-stop)">
+          <MetricCard label="Avg R-Mult" value={avgR !== '--' ? `${avgR}R` : '--'} />
+        </Tooltip>
       </div>
 
       {/* Tab bar */}
-      <div className="flex gap-1" style={{ borderBottom: '1px solid var(--arcis-border)' }}>
+      <div className="flex gap-1" style={{ borderBottom: '1px solid var(--slate-600)' }}>
         {['open', 'closed'].map(t => (
           <button key={t} onClick={() => setTab(t)}
             className="px-4 py-2 text-sm capitalize transition-colors"
             style={{
-              color: tab === t ? 'var(--arcis-text-primary)' : 'var(--arcis-text-secondary)',
-              borderBottom: tab === t ? '2px solid var(--arcis-accent)' : '2px solid transparent',
+              color: tab === t ? 'var(--slate-50)' : 'var(--slate-400)',
+              borderBottom: tab === t ? '2px solid var(--teal-400)' : '2px solid transparent',
             }}>
             {t} {t === 'open' ? `(${openData?.open_count || 0})` : `(${closedTrades.length})`}
           </button>
@@ -328,7 +390,7 @@ export default function ShadowLedger() {
       </div>
 
       {tab === 'open' ? (
-        <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+        <div className="rounded-lg p-4" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
           {openLoading ? <LoadingSpinner /> :
            !openData?.open_trades?.length ? <EmptyState message="No open trades" icon={TrendingUp} /> :
            <DataTable columns={openCols} data={openData.open_trades} />}
@@ -343,17 +405,17 @@ export default function ShadowLedger() {
             <MetricCard label="Total P&L" value={(metrics.total_pnl || 0).toFixed(2)} prefix="$" delta={metrics.total_pnl} />
           </div>
 
-          {/* F2: Expandable trade rows */}
-          <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+          {/* Expandable trade rows with IS columns */}
+          <div className="rounded-lg p-4" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
             {closedLoading ? <LoadingSpinner /> :
              !closedTrades.length ? <EmptyState message="No closed trades" icon={TrendingUp} /> :
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr style={{ borderBottom: '1px solid var(--arcis-border)' }}>
+                    <tr style={{ borderBottom: '1px solid var(--slate-600)' }}>
                       <th className="py-2 px-2 w-6"></th>
                       {closedCols.map(col => (
-                        <th key={col.key} className="py-2 px-2 text-left text-xs uppercase" style={{ color: 'var(--arcis-text-secondary)' }}>
+                        <th key={col.key} className="py-2 px-2 text-left text-xs uppercase" style={{ color: 'var(--slate-400)' }}>
                           {col.label}
                         </th>
                       ))}
@@ -369,10 +431,10 @@ export default function ShadowLedger() {
             }
           </div>
 
-          {/* F3: Visualization tabs */}
+          {/* Visualization tabs */}
           {closedTrades.length > 0 && (
-            <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
-              <div className="flex gap-2 mb-4" style={{ borderBottom: '1px solid var(--arcis-border)' }}>
+            <div className="rounded-lg p-4" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
+              <div className="flex gap-2 mb-4" style={{ borderBottom: '1px solid var(--slate-600)' }}>
                 {[
                   { key: 'equity', label: 'Equity Curve' },
                   { key: 'distribution', label: 'Distribution' },
@@ -382,8 +444,8 @@ export default function ShadowLedger() {
                   <button key={t.key} onClick={() => setVizTab(t.key)}
                     className="px-3 py-2 text-xs transition-colors"
                     style={{
-                      color: vizTab === t.key ? 'var(--arcis-text-primary)' : 'var(--arcis-text-secondary)',
-                      borderBottom: vizTab === t.key ? '2px solid var(--arcis-accent)' : '2px solid transparent',
+                      color: vizTab === t.key ? 'var(--slate-50)' : 'var(--slate-400)',
+                      borderBottom: vizTab === t.key ? '2px solid var(--teal-400)' : '2px solid transparent',
                     }}>
                     {t.label}
                   </button>
