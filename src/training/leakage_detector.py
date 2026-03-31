@@ -109,6 +109,22 @@ def check_outcome_leakage(db_path: str = "ai_research_desk.sqlite3") -> dict:
     majority_baseline = max(n_wins, n_losses) / len(labels)
     win_pct = round(n_wins / len(labels) * 100, 1)
 
+    # #113 — Minimum sample size check: TF-IDF produces unreliable results
+    # with too few examples per class (tiny vocabulary, random accuracy ~0.5).
+    if min(n_wins, n_losses) < 30:
+        return {
+            "status": "INSUFFICIENT_DATA",
+            "balanced_accuracy": None,
+            "is_leaking": None,
+            "n_examples": len(texts),
+            "class_balance": {
+                "wins": n_wins,
+                "losses": n_losses,
+                "win_pct": win_pct,
+            },
+            "reason": f"Need >=30 per class (have {n_wins} win, {n_losses} loss)",
+        }
+
     # Vectorize with conservative settings
     vectorizer = TfidfVectorizer(max_features=100, stop_words="english",
                                  min_df=3, max_df=0.8)
