@@ -11,6 +11,7 @@ Returns headlines and simple sentiment -- NOT full article text.
 """
 
 import logging
+import os
 import pickle
 import time
 from datetime import datetime, timedelta
@@ -113,6 +114,7 @@ def fetch_recent_news(ticker: str, lookback_days: int = 7,
         result = {k: v for k, v in cached.items() if not k.startswith("_")}
         return result if result else None
 
+    finnhub_api_key = finnhub_api_key or os.environ.get("FINNHUB_API_KEY")
     if not finnhub_api_key:
         return None
 
@@ -199,6 +201,7 @@ def fetch_historical_news(ticker: str, as_of_date: str, lookback_days: int = 7,
         result = {k: v for k, v in cached.items() if not k.startswith("_")}
         return result if result else None
 
+    finnhub_api_key = finnhub_api_key or os.environ.get("FINNHUB_API_KEY")
     if not finnhub_api_key:
         return None
 

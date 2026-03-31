@@ -22,6 +22,7 @@ Setup:
 """
 
 import logging
+import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -36,13 +37,13 @@ TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
 
 
 def _get_telegram_config() -> dict:
-    """Load Telegram config from settings."""
+    """Load Telegram config from settings. .env takes precedence over YAML."""
     config = load_config()
     tg = config.get("telegram", {})
     return {
         "enabled": tg.get("enabled", False),
-        "bot_token": tg.get("bot_token", ""),
-        "chat_id": str(tg.get("chat_id", "")),
+        "bot_token": os.environ.get("TELEGRAM_BOT_TOKEN") or tg.get("bot_token", ""),
+        "chat_id": os.environ.get("TELEGRAM_CHAT_ID") or str(tg.get("chat_id", "")),
     }
 
 

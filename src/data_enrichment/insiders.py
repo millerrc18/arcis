@@ -11,6 +11,7 @@ Fallback: SEC EDGAR Form 4 data.
 """
 
 import logging
+import os
 import pickle
 import time
 from datetime import datetime, timedelta
@@ -167,7 +168,8 @@ def fetch_insider_activity(
 
     result = None
 
-    # Try Finnhub
+    # Try Finnhub (.env fallback when caller doesn't provide key)
+    finnhub_api_key = finnhub_api_key or os.environ.get("FINNHUB_API_KEY")
     if finnhub_api_key:
         result = _fetch_from_finnhub(ticker, finnhub_api_key, lookback_days)
         time.sleep(1.0)  # Rate limit

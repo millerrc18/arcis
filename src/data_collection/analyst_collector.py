@@ -12,6 +12,7 @@ Rotates through the full S&P 100 universe over multiple nights.
 """
 
 import logging
+import os
 import sqlite3
 import time
 from datetime import datetime, timedelta
@@ -56,6 +57,10 @@ def _init_table(db_path: str) -> None:
 
 
 def _get_finnhub_key() -> str | None:
+    """Get Finnhub API key. .env takes precedence over YAML config."""
+    env_key = os.environ.get("FINNHUB_API_KEY")
+    if env_key:
+        return env_key
     try:
         from src.config import load_config
         config = load_config()

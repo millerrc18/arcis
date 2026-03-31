@@ -8,6 +8,7 @@ Tests: tests/test_leakage_detector.py
 """
 
 import logging
+import os
 
 from src.config import load_config
 
@@ -69,7 +70,7 @@ def generate_training_example(
 
     config = load_config()
     training_cfg = config.get("training", {})
-    api_key = training_cfg.get("anthropic_api_key", "")
+    api_key = os.environ.get("ANTHROPIC_API_KEY") or training_cfg.get("anthropic_api_key", "")
 
     if not api_key or api_key == "your-anthropic-api-key-here":
         logger.warning("Anthropic API key not configured")

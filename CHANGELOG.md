@@ -34,9 +34,16 @@
 - Changed: Dashboard cards migrated from `--slate-*` to `--arcis-*` design tokens
 - Added: light mode shadow variant for `.arcis-card`
 
-#### Documentation (Task 7)
+#### .env Secret Migration (Task 7)
+- Added: `os.environ.get()` with YAML fallback to 10 modules (telegram, claude_client, 3 Finnhub collectors, macro collector, email notifier, insiders enrichment, news enrichment)
+- Added: `TELEGRAM_CHAT_ID` to `.env.example`
+- Added: `tests/test_env_secrets.py` with 11 tests covering env precedence, YAML fallback, missing keys, and placeholder detection
+- Pattern: `.env` (via `load_dotenv`) takes precedence; YAML config is backward-compatible fallback
+
+#### Documentation (Task 8)
 - Updated: CHANGELOG.md with Sprint 6 entry
-- Verified: 1,110 tests maintained, frontend builds successfully
+- Updated: AGENTS.md counts
+- Verified: test baseline maintained, frontend builds successfully
 
 ---
 

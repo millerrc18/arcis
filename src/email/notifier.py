@@ -8,6 +8,7 @@ Tests: none
 """
 
 import logging
+import os
 import smtplib
 from email.mime.text import MIMEText
 
@@ -30,7 +31,7 @@ def send_email(subject: str, body: str, to_address: str | None = None) -> bool:
     smtp_port = email_cfg.get("smtp_port", 587)
     use_tls = email_cfg.get("use_tls", True)
     username = email_cfg.get("username", "")
-    password = email_cfg.get("password", "")
+    password = os.environ.get("EMAIL_PASSWORD") or email_cfg.get("password", "")
     from_address = email_cfg.get("from_address", username)
     recipient = to_address or email_cfg.get("to_address", "")
     cc_addresses = email_cfg.get("cc_addresses", [])
