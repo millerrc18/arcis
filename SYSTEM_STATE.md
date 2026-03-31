@@ -3,7 +3,7 @@
 **This document is updated after every conversation with Claude. It IS the system state.**
 **Claude: You MUST read this file at the start of every session and update it after every substantive change.**
 
-> Last updated: March 31, 2026 evening · Sprints 4A-5 + Sprint 6 partial (.env) MERGED. Sprint 7 (reliability) DRAFTED. CC deep audit complete: 71 issues filed (#100-#169). 87 total open issues. Render sync fixed (shadow_trades syncing). Quality scoring 972/972 complete (avg 3.44). System in lockdown — 25 open positions, trading autonomously.
+> Last updated: March 31, 2026 night · Sprint 7 (reliability) MERGED. Reconciliation (#170) MERGED. Sprint 8 (comprehensive) DRAFTED. CC deep audit complete: 71 issues (#100-#169). 87 total open issues (~20 closed by Sprint 7). Render sync fixed. Quality scoring 100% complete (972/972, avg 3.44). System in lockdown — 25 open positions. Tests: 1,168.
 
 ---
 
@@ -11,7 +11,7 @@
 - **Phase:** 1 (Bootcamp) — paper trading $100K + $100 live via Alpaca
 - **Open positions:** ~25
 - **Closed trades:** 5 (need 50 for Phase 1 gate) — 5/5 winners, 4.1% avg gain, 2.2d hold
-- **Tests:** 1,125 test functions across 82 test files
+- **Tests:** 1,168 test functions across 85 test files
 - **Python files:** 169 | **Dashboard pages:** 14 | **Research docs:** 67
 - **Monthly cost:** ~$64 (Render $7 + Ollama free + Claude API ~$50 + domain $7)
 - **Model:** halcyonlatest / halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF 8.7GB) via Ollama
@@ -93,7 +93,9 @@
 | 6 partial (CC) | #88 ✅ | .env secret migration — 10 modules, 11 tests |
 | 6 remaining (CC) | Pending | Tasks 1-6: data collectors grid, training pipeline, scan metrics, card contrast |
 | CC deep audit | ✅ Complete | 71 issues filed (#100-#169), health 6.5/10 |
-| 7 (CC) | DRAFTED | Reliability: crash protection, GTC brackets, heartbeat, TL stub (~22 issues) |
+| 7 (CC) | #172 ✅ | Reliability: crash handler, GTC brackets, heartbeat, TL stub, sync mutex, backoff (18 issues closed) |
+| Reconciliation | #171 ✅ | Daily postclose paper trade reconciliation vs Alpaca |
+| 8 (CC) | DRAFTED | Comprehensive cleanup: all remaining ~63 issues + Sprint 6 Tasks 1-6 |
 
 ---
 
