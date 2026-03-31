@@ -1,10 +1,11 @@
 # Sprint 4E: Post-Review Cleanup & Production Hardening (Claude Code)
 
 > **Executor:** Claude Code
-> **Scope:** 9 tasks
-> **Prerequisite:** Sprints 4A + 4B + 4D MERGED. Sprint 4C (command queue) is deferred — this cleanup is more urgent.
+> **Scope:** 10 tasks
+> **Prerequisite:** Sprints 4A + 4B + 4C + 4D ALL MERGED. This is the final cleanup sprint.
 > **Read first:** AGENTS.md, docs/conventions.md
-> **Context:** First weekly review found 6 issues that need fixing before the system can trade reliably.
+> **Context:** First weekly review found issues. Some were caused by computer sleep (now resolved — screen turns off, PC stays on). Schema gaps and wiring issues still need fixing. Leakage investigation completed: false alarm (balanced accuracy 0.613 can't beat majority baseline of 0.714). After this sprint, system goes into autonomous trading mode for the week.
+> **Test baseline:** 1,105 test functions. Must not decrease.
 
 ---
 
@@ -14,13 +15,16 @@
 |---|---|---|---|
 | 1 | `strategy_type` column missing from production DB | 🚨 P0 | ALTER TABLE never ran on live DB |
 | 2 | `outcome_type` column missing from training_examples | 🚨 P0 | Same — schema migration gap |
-| 3 | VIX 30.6 but Traffic Light says GREEN (score 1) | 🚨 P0 | Traffic Light not updating from VIX data |
-| 4 | scan_metrics table has 0 records | 🚨 P0 | Scans not being recorded |
+| 3 | VIX 30.6 but Traffic Light says GREEN (score 1) | 🚨 P0 | Traffic Light not updating from VIX data (may be partly caused by computer sleep) |
+| 4 | scan_metrics table has 0 records | 🚨 P0 | Scans not recorded — likely caused by computer sleep interrupting watch loop |
 | 5 | 0 quality-scored training examples (out of 972) | ⚠️ P1 | Quality rubric not applied |
-| 6 | Only 1 council session since go-live | ⚠️ P1 | Council scheduler not triggering |
-| 7 | Leakage test at 0.613 (threshold 0.55) | ⚠️ P1 | Investigate — may be look-ahead bias |
+| 6 | Only 1 council session since go-live | ⚠️ P1 | Council scheduler not triggering (computer sleep was a factor) |
+| 7 | ~~Leakage test at 0.613~~ | ✅ CLOSED | False alarm: balanced accuracy can't beat 71.4% majority baseline. "Forbidden words" are structural XML template fields, not look-ahead. Class imbalance (71% WIN) is the real issue — addressed in v2 training spec. |
 | 8 | `level` column missing from activity_log | ⚠️ P2 | Schema gap |
 | 9 | README still references old architecture | ⚠️ P2 | Stale docs |
+| 10 | Sprint 4C command queue tables not created on production DB | 🚨 P0 | create_missing_tables.py updated but never run on live DB |
+
+**Note:** Computer sleeping during market hours (now resolved) likely caused issues #3, #4, and #6. The fixes should still be applied to make the system resilient to future sleep/restart events.
 
 ---
 
@@ -44,30 +48,32 @@ find tests -name "test_*.py" -exec grep -c "def test_" {} + | awk -F: '{s+=$2}EN
 
 ---
 
-## Task 1: Fix Production DB Schema — Missing Columns
+## Task 1: Fix Production DB Schema — Missing Columns + Tables
 
-The codebase expects columns that don't exist in the production `ai_research_desk.sqlite3`:
-
-```sql
--- shadow_trades: add strategy_type
-ALTER TABLE shadow_trades ADD COLUMN strategy_type TEXT DEFAULT 'pullback';
-
--- training_examples: add outcome_type
-ALTER TABLE training_examples ADD COLUMN outcome_type TEXT;
-
--- training_examples: add regime (if missing)
-ALTER TABLE training_examples ADD COLUMN regime TEXT;
-
--- activity_log: add level (if missing)
-ALTER TABLE activity_log ADD COLUMN level TEXT DEFAULT 'INFO';
-```
+The codebase expects columns and tables that don't exist in the production `ai_research_desk.sqlite3`. Sprint 4C added command queue tables to `create_missing_tables.py` but the script was never run on the live DB.
 
 **Create `scripts/migrate_production_db.py`** — a safe migration script that:
 1. Checks which columns already exist (using `PRAGMA table_info`)
-2. Only adds columns that are missing
-3. Prints what it did
-4. Does NOT drop or modify existing data
-5. Works on both `ai_research_desk.sqlite3` and any other DB path passed as argument
+2. Only adds columns that are missing via ALTER TABLE
+3. Runs `create_missing_tables.py` logic to create any missing tables (including 4C's command queue tables: pending_commands, command_results, config_overrides, log_entries, build_score_history)
+4. Prints what it did
+5. Does NOT drop or modify existing data
+6. Works on both `ai_research_desk.sqlite3` and any other DB path passed as argument
+
+Missing columns to add:
+```sql
+ALTER TABLE shadow_trades ADD COLUMN strategy_type TEXT DEFAULT 'pullback';
+ALTER TABLE training_examples ADD COLUMN outcome_type TEXT;
+ALTER TABLE training_examples ADD COLUMN regime TEXT;
+ALTER TABLE activity_log ADD COLUMN level TEXT DEFAULT 'INFO';
+```
+
+After creating the script, **RUN IT** against the production database:
+```bash
+python scripts/migrate_production_db.py
+```
+
+Verify it worked by checking all tables and columns exist (see V1 in the validation plan).
 
 **Also update `scripts/create_missing_tables.py`** to include these ALTER TABLE statements so new installations get them automatically.
 
