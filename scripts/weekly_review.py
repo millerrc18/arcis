@@ -192,9 +192,19 @@ try:
         ).fetchone()
         print(f"Training examples: {total} total, {recent} this week")
         if scored[1]:
-            print(f"Scored: {scored[0]}, avg quality: {scored[1]:.2f}")
+            print(f"Scored (Claude API): {scored[0]}, avg quality: {scored[1]:.2f}")
         else:
-            print(f"Scored: {scored[0]}, avg quality: N/A")
+            print(f"Scored (Claude API): {scored[0]}, avg quality: N/A")
+
+        # Auto-scored by GuardedScorer (Ollama, free, runs between scans)
+        if has_column("training_examples", "quality_score_auto"):
+            auto_scored = conn.execute(
+                "SELECT COUNT(*), AVG(quality_score_auto) FROM training_examples WHERE quality_score_auto IS NOT NULL"
+            ).fetchone()
+            if auto_scored[1]:
+                print(f"Auto-scored (Ollama): {auto_scored[0]}, avg quality: {auto_scored[1]:.2f}")
+            else:
+                print(f"Auto-scored (Ollama): {auto_scored[0]}, avg quality: N/A")
 
         # Outcome distribution (only if column exists)
         if has_column("training_examples", "outcome_type"):
