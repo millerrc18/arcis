@@ -44,6 +44,7 @@ export default function Dashboard() {
   const { data: ctoData } = useQuery({ queryKey: ['cto-report'], queryFn: () => api.getCtoReport(7), refetchInterval: 60000 })
   const { data: configData } = useQuery({ queryKey: ['config'], queryFn: api.getConfig, refetchInterval: 300000 })
   const { data: accountData } = useQuery({ queryKey: ['shadow-account'], queryFn: api.getAccount, refetchInterval: 60000 })
+  const { data: cmdData } = useQuery({ queryKey: ['commands-recent'], queryFn: () => api.getRecentCommands(5), refetchInterval: 15000 })
 
   const [toast, setToast] = useState(null)
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
@@ -134,6 +135,14 @@ export default function Dashboard() {
       {isHalted && (
         <div className="rounded-lg p-3 text-sm" style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)', color: '#fca5a5' }}>
           Trading is HALTED. No new positions will be opened. Click "Resume Trading" to resume.
+        </div>
+      )}
+
+      {/* Command queue status */}
+      {cmdData?.commands?.some(c => c.status === 'pending' || c.status === 'claimed') && (
+        <div className="rounded-lg p-3 text-sm flex items-center gap-2" style={{ background: 'rgba(59, 130, 246, 0.15)', border: '1px solid rgba(59, 130, 246, 0.4)', color: '#93c5fd' }}>
+          <span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--blue-400)' }} />
+          Command pending: {cmdData.commands.find(c => c.status === 'pending' || c.status === 'claimed')?.command_name}
         </div>
       )}
 

@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query'
+import { useState, useCallback } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import { IS_CLOUD } from '../config'
 import LoadingSpinner from '../components/LoadingSpinner'
@@ -6,74 +7,169 @@ import StatusBadge from '../components/StatusBadge'
 import MetricCard from '../components/MetricCard'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 
+const SETTING_META = {
+  'shadow_trading.max_positions': { label: 'Max Positions', type: 'number', section: 'Shadow Trading', min: 1, max: 100 },
+  'shadow_trading.enabled': { label: 'Enabled', type: 'toggle', section: 'Shadow Trading' },
+  'shadow_trading.timeout_days.default': { label: 'Timeout Days (Default)', type: 'number', section: 'Shadow Trading', min: 1, max: 60 },
+  'shadow_trading.timeout_days.pullback': { label: 'Timeout Days (Pullback)', type: 'number', section: 'Shadow Trading', min: 1, max: 60 },
+  'risk.planned_risk_pct_min': { label: 'Risk % Min', type: 'number', section: 'Risk', min: 0.001, max: 0.1, step: 0.001 },
+  'risk.planned_risk_pct_max': { label: 'Risk % Max', type: 'number', section: 'Risk', min: 0.001, max: 0.1, step: 0.001 },
+  'llm.min_conviction_score': { label: 'Min Conviction Score', type: 'number', section: 'LLM', min: 0, max: 100 },
+  'llm.enabled': { label: 'Enabled', type: 'toggle', section: 'LLM' },
+  'scheduler.scan_interval_minutes': { label: 'Scan Interval (min)', type: 'number', section: 'Scheduler', min: 5, max: 120 },
+}
+
+function getNestedValue(obj, path) {
+  return path.split('.').reduce((o, k) => o?.[k], obj)
+}
+
+function SettingInput({ settingKey, meta, currentValue, overrideInfo, onUpdate, pending }) {
+  const isOverridden = !!overrideInfo
+  const displayValue = isOverridden ? overrideInfo.value : currentValue
+
+  if (meta.type === 'toggle') {
+    return (
+      <div className="flex items-center justify-between py-2">
+        <div className="flex items-center gap-2">
+          <span className="text-sm" style={{ color: 'var(--slate-300)' }}>{meta.label}</span>
+          <span className="text-xs px-1.5 py-0.5 rounded" style={{
+            background: isOverridden ? 'rgba(59, 130, 246, 0.2)' : 'rgba(100, 116, 139, 0.2)',
+            color: isOverridden ? 'var(--blue-400)' : 'var(--slate-500)',
+          }}>
+            {isOverridden ? 'dashboard override' : 'yaml default'}
+          </span>
+        </div>
+        <button
+          onClick={() => onUpdate(settingKey, !displayValue)}
+          disabled={pending}
+          className="relative w-10 h-5 rounded-full transition-colors"
+          style={{ background: displayValue ? 'var(--teal-500)' : 'var(--slate-600)' }}
+        >
+          <span className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform"
+            style={{ transform: displayValue ? 'translateX(20px)' : 'translateX(0)' }} />
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-center justify-between py-2">
+      <div className="flex items-center gap-2">
+        <span className="text-sm" style={{ color: 'var(--slate-300)' }}>{meta.label}</span>
+        <span className="text-xs px-1.5 py-0.5 rounded" style={{
+          background: isOverridden ? 'rgba(59, 130, 246, 0.2)' : 'rgba(100, 116, 139, 0.2)',
+          color: isOverridden ? 'var(--blue-400)' : 'var(--slate-500)',
+        }}>
+          {isOverridden ? 'dashboard override' : 'yaml default'}
+        </span>
+      </div>
+      <input
+        type="number"
+        value={displayValue ?? ''}
+        min={meta.min}
+        max={meta.max}
+        step={meta.step || 1}
+        disabled={pending}
+        className="w-24 text-right text-sm rounded px-2 py-1"
+        style={{ background: 'var(--slate-800)', border: '1px solid var(--slate-600)', color: 'var(--slate-100)' }}
+        onBlur={(e) => {
+          const v = meta.step && meta.step < 1 ? parseFloat(e.target.value) : parseInt(e.target.value, 10)
+          if (!isNaN(v) && v !== displayValue) onUpdate(settingKey, v)
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.target.blur()
+        }}
+        onChange={() => {}} // controlled display; actual update on blur
+      />
+    </div>
+  )
+}
+
 export default function Settings() {
+  const queryClient = useQueryClient()
   const { data: config, isLoading } = useQuery({ queryKey: ['config'], queryFn: api.getConfig })
   const { data: status } = useQuery({ queryKey: ['status'], queryFn: api.getStatus })
   const { data: costs } = useQuery({ queryKey: ['costs'], queryFn: () => api.getCosts(30), refetchInterval: 120000 })
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: api.getSettings, refetchInterval: 15000 })
+
+  const [pendingKeys, setPendingKeys] = useState(new Set())
+
+  const updateMutation = useMutation({
+    mutationFn: ({ key, value }) => api.updateSettings({ key, value }),
+    onMutate: ({ key }) => setPendingKeys(prev => new Set(prev).add(key)),
+    onSettled: (_, __, { key }) => {
+      setPendingKeys(prev => { const n = new Set(prev); n.delete(key); return n })
+      queryClient.invalidateQueries({ queryKey: ['settings'] })
+    },
+  })
+
+  const clearMutation = useMutation({
+    mutationFn: () => api.clearOverrides(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['settings'] }),
+  })
+
+  const handleUpdate = useCallback((key, value) => {
+    updateMutation.mutate({ key, value })
+  }, [updateMutation])
 
   if (isLoading) return <LoadingSpinner />
 
+  const overrides = settings?.overrides || {}
+
+  // Group settings by section
+  const sections = {}
+  for (const [key, meta] of Object.entries(SETTING_META)) {
+    if (!sections[meta.section]) sections[meta.section] = []
+    sections[meta.section].push({ key, meta })
+  }
+
   const Section = ({ title, children }) => (
     <div className="rounded-lg p-4" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)' }}>
-      <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--slate-400)' }}>{title}</h3>
-      <div className="space-y-3 text-sm">{children}</div>
+      <h3 className="text-sm uppercase tracking-wide mb-3" style={{ color: 'var(--slate-400)' }}>{title}</h3>
+      <div className="divide-y" style={{ borderColor: 'var(--slate-600)' }}>{children}</div>
     </div>
   )
 
-  const Row = ({ label, value }) => (
-    <div className="flex justify-between">
-      <span style={{ color: 'var(--slate-300)' }}>{label}</span>
-      <span style={{ fontFamily: 'var(--font-mono)' }}>{String(value)}</span>
-    </div>
-  )
+  const hasOverrides = Object.keys(overrides).length > 0
 
   return (
     <div className="space-y-6">
-      <h2 className="text-xl font-medium" style={{ color: 'var(--slate-100)' }}>Settings</h2>
-
-      <div className="rounded-lg p-3 text-sm" style={{ background: 'rgba(245, 158, 11, 0.15)', border: '1px solid rgba(245, 158, 11, 0.4)', color: 'var(--amber-300)' }}>
-        {IS_CLOUD
-          ? 'Cloud mode — showing cached configuration. Changes require local access.'
-          : 'Configuration changes require a watch loop restart to take effect.'}
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-medium" style={{ color: 'var(--slate-100)' }}>Settings</h2>
+        {hasOverrides && (
+          <button
+            onClick={() => clearMutation.mutate()}
+            disabled={clearMutation.isPending}
+            className="text-xs px-3 py-1.5 rounded transition-colors"
+            style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)', color: 'var(--red-400)' }}
+          >
+            {clearMutation.isPending ? 'Resetting...' : 'Reset to YAML'}
+          </button>
+        )}
       </div>
 
+      {!IS_CLOUD && (
+        <div className="rounded-lg p-3 text-sm" style={{ background: 'rgba(245, 158, 11, 0.15)', border: '1px solid rgba(245, 158, 11, 0.4)', color: 'var(--amber-300)' }}>
+          Local mode — edits here take effect on the next sync cycle (up to 60s).
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Section title="Risk">
-          <Row label="Starting Capital" value={`$${config?.risk?.starting_capital || 1000}`} />
-          <Row label="Risk Min" value={`${((config?.risk?.planned_risk_pct_min || 0) * 100).toFixed(1)}%`} />
-          <Row label="Risk Max" value={`${((config?.risk?.planned_risk_pct_max || 0) * 100).toFixed(1)}%`} />
-        </Section>
-
-        <Section title="Shadow Trading">
-          <Row label="Enabled" value={config?.shadow_trading?.enabled ? 'Yes' : 'No'} />
-          <Row label="Max Positions" value={config?.shadow_trading?.max_positions || 10} />
-          <Row label="Timeout Days" value={config?.shadow_trading?.timeout_days || 15} />
-        </Section>
-
-        <Section title="LLM">
-          <Row label="Enabled" value={config?.llm?.enabled ? 'Yes' : 'No'} />
-          <Row label="Model" value={config?.llm?.model || 'qwen3:8b'} />
-          <Row label="Temperature" value={config?.llm?.temperature || 0.7} />
-        </Section>
-
-        <Section title="Bootcamp">
-          <Row label="Enabled" value={config?.bootcamp?.enabled ? 'Yes' : 'No'} />
-          <Row label="Phase" value={config?.bootcamp?.phase || 1} />
-          <Row label="Qualification Threshold" value={config?.bootcamp?.qualification_threshold || 40} />
-          <Row label="Email Mode" value={config?.bootcamp?.email_mode || 'full_stream'} />
-        </Section>
-
-        <Section title="Automation">
-          <Row label="Morning Watchlist" value={`${config?.automation?.morning_watchlist_hour_et || 8}:00 ET`} />
-          <Row label="EOD Recap" value={`${config?.automation?.eod_recap_hour_et || 16}:00 ET`} />
-          <Row label="Scan Interval" value={`${config?.automation?.scan_interval_minutes || 30} min`} />
-        </Section>
-
-        <Section title="Training">
-          <Row label="Enabled" value={config?.training?.enabled ? 'Yes' : 'No'} />
-          <Row label="Claude Model" value={config?.training?.claude_model || '--'} />
-          <Row label="Train Threshold" value={config?.training?.auto_train_threshold || 50} />
-        </Section>
+        {Object.entries(sections).map(([sectionName, items]) => (
+          <Section key={sectionName} title={sectionName}>
+            {items.map(({ key, meta }) => (
+              <SettingInput
+                key={key}
+                settingKey={key}
+                meta={meta}
+                currentValue={getNestedValue(settings || config, key.replace('scheduler.', 'automation.'))}
+                overrideInfo={overrides[key]}
+                onUpdate={handleUpdate}
+                pending={pendingKeys.has(key)}
+              />
+            ))}
+          </Section>
+        ))}
       </div>
 
       {/* System Health */}

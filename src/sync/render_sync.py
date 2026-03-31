@@ -191,6 +191,21 @@ SYNC_TABLES: dict[str, dict] = {
         "time_col": "updated_at",
         "pk": "note_id",
     },
+    # Command queue tables (Sprint 4C) — bidirectional sync
+    # command_results: local → cloud (push)
+    "command_results": {
+        "mode": "incremental",
+        "time_col": "created_at",
+        "pk": "result_id",
+    },
+    # log_entries: local → cloud (push, last 500 only)
+    "log_entries": {
+        "mode": "incremental",
+        "time_col": "created_at",
+        "pk": "log_id",
+    },
+    # pending_commands and config_overrides are PULLED from cloud, not pushed
+    # (handled by pull_commands() in the sync cycle)
 }
 
 
@@ -481,6 +496,121 @@ def sync_table(
     raise ValueError(f"Unknown sync mode for {table_name}: {mode}")
 
 
+def pull_commands(database_url: str, db_path: str = LOCAL_DB) -> list[dict]:
+    """Pull pending commands from Render Postgres into local SQLite.
+
+    1. Read pending_commands WHERE status='pending' AND expires_at > NOW()
+    2. Insert into local SQLite
+    3. Update Postgres status to 'claimed' with claimed_at
+    4. Also pull config_overrides (full table replace)
+    5. Return list of pulled commands for immediate execution
+    """
+    try:
+        import psycopg2
+    except ImportError:
+        return []
+
+    now = datetime.now(ET).isoformat()
+    pulled = []
+
+    pg_conn = None
+    try:
+        pg_conn = psycopg2.connect(database_url)
+    except Exception as exc:
+        logger.error("pull_commands: cannot connect to Postgres: %s", exc)
+        return []
+
+    try:
+        # 1. Pull pending commands
+        cursor = pg_conn.cursor()
+        cursor.execute(
+            "SELECT command_id, command_type, command_name, payload_json, "
+            "status, priority, created_at, claimed_at, expires_at, created_by "
+            "FROM pending_commands "
+            "WHERE status = 'pending' AND (expires_at IS NULL OR expires_at > %s) "
+            "ORDER BY priority DESC, created_at ASC",
+            (now,),
+        )
+        columns = [desc[0] for desc in cursor.description]
+        rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+        if rows:
+            # Insert into local SQLite
+            local_conn = sqlite3.connect(db_path)
+            local_cur = local_conn.cursor()
+            for row in rows:
+                try:
+                    local_cur.execute(
+                        "INSERT OR IGNORE INTO pending_commands "
+                        "(command_id, command_type, command_name, payload_json, "
+                        "status, priority, created_at, claimed_at, expires_at, created_by) "
+                        "VALUES (?, ?, ?, ?, 'claimed', ?, ?, ?, ?, ?)",
+                        (
+                            row["command_id"], row["command_type"],
+                            row["command_name"], row["payload_json"],
+                            row["priority"], row["created_at"],
+                            now, row["expires_at"], row["created_by"],
+                        ),
+                    )
+                    pulled.append(row)
+                except Exception as exc:
+                    logger.error("pull_commands: local insert failed: %s", exc)
+            local_conn.commit()
+            local_conn.close()
+
+            # Update Postgres status to 'claimed'
+            command_ids = [r["command_id"] for r in rows]
+            placeholders = ", ".join(["%s"] * len(command_ids))
+            cursor.execute(
+                f"UPDATE pending_commands SET status = 'claimed', claimed_at = %s "
+                f"WHERE command_id IN ({placeholders})",
+                [now] + command_ids,
+            )
+            pg_conn.commit()
+            logger.info("Pulled %d commands from cloud", len(pulled))
+
+        cursor.close()
+
+        # 2. Pull config_overrides (full table replace)
+        cursor = pg_conn.cursor()
+        cursor.execute(
+            "SELECT setting_key, setting_value, previous_value, updated_at, updated_by "
+            "FROM config_overrides"
+        )
+        override_cols = [desc[0] for desc in cursor.description]
+        override_rows = [dict(zip(override_cols, row)) for row in cursor.fetchall()]
+        cursor.close()
+
+        if override_rows:
+            local_conn = sqlite3.connect(db_path)
+            local_cur = local_conn.cursor()
+            local_cur.execute("DELETE FROM config_overrides")
+            for row in override_rows:
+                local_cur.execute(
+                    "INSERT INTO config_overrides "
+                    "(setting_key, setting_value, previous_value, updated_at, updated_by) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (
+                        row["setting_key"], row["setting_value"],
+                        row["previous_value"], row["updated_at"],
+                        row["updated_by"],
+                    ),
+                )
+            local_conn.commit()
+            local_conn.close()
+            logger.info("Pulled %d config overrides from cloud", len(override_rows))
+
+    except Exception as exc:
+        logger.error("pull_commands failed: %s", exc)
+    finally:
+        try:
+            pg_conn.close()
+        except Exception:
+            pass
+
+    return pulled
+
+
 def run_sync_cycle(database_url: str, db_path: str = LOCAL_DB) -> dict:
     """Run one full sync cycle across all tables. Returns summary dict."""
     try:
@@ -517,6 +647,16 @@ def run_sync_cycle(database_url: str, db_path: str = LOCAL_DB) -> dict:
         except Exception:
             pass
 
+    # Pull commands from cloud (bidirectional)
+    try:
+        pulled = pull_commands(database_url, db_path)
+        if pulled:
+            summary["pulled_commands"] = len(pulled)
+            summary["commands"] = pulled
+    except Exception as exc:
+        logger.error("Command pull failed: %s", exc)
+        summary["errors"].append(f"pull_commands: {exc}")
+
     return summary
 
 
@@ -530,12 +670,14 @@ class RenderSyncThread(threading.Thread):
         database_url: str,
         interval_seconds: int = 120,
         db_path: str = LOCAL_DB,
+        on_commands_pulled: callable = None,
     ):
         super().__init__(daemon=True, name="render-sync")
         self.database_url = database_url
         self.interval_seconds = interval_seconds
         self.db_path = db_path
         self._stop_event = threading.Event()
+        self._on_commands_pulled = on_commands_pulled
 
     def stop(self) -> None:
         """Signal the thread to stop."""
@@ -557,6 +699,13 @@ class RenderSyncThread(threading.Thread):
                         synced_count,
                         error_count,
                     )
+                # Execute pulled commands via callback
+                commands = summary.get("commands", [])
+                if commands and self._on_commands_pulled:
+                    try:
+                        self._on_commands_pulled(commands)
+                    except Exception as exc:
+                        logger.error("Command execution callback failed: %s", exc)
             except Exception as exc:
                 logger.error("Unhandled error in sync cycle: %s", exc)
 
@@ -565,7 +714,10 @@ class RenderSyncThread(threading.Thread):
         logger.info("Render sync thread stopped")
 
 
-def start_render_sync(config: dict) -> RenderSyncThread | None:
+def start_render_sync(
+    config: dict,
+    on_commands_pulled: callable = None,
+) -> RenderSyncThread | None:
     """Start the background sync thread if render sync is enabled in config.
 
     Config expected:
@@ -573,6 +725,11 @@ def start_render_sync(config: dict) -> RenderSyncThread | None:
           enabled: true
           database_url: "postgresql://user:pass@host:5432/halcyon"
           sync_interval_seconds: 120
+
+    Args:
+        config: Application configuration dict.
+        on_commands_pulled: Optional callback(commands: list[dict]) invoked
+            when commands are pulled from the cloud command queue.
     """
     render_cfg = config.get("render", {})
     if not render_cfg.get("enabled", False):
@@ -589,6 +746,7 @@ def start_render_sync(config: dict) -> RenderSyncThread | None:
     thread = RenderSyncThread(
         database_url=database_url,
         interval_seconds=interval,
+        on_commands_pulled=on_commands_pulled,
     )
     thread.start()
     logger.info("Render sync thread launched")

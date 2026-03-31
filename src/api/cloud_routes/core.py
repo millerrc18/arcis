@@ -1,17 +1,72 @@
-"""Cloud core routes for auth, status, config, and actions.
+"""Cloud core routes for auth, status, config, actions, and command queue.
 
 Called by: cloud_app.py
-Calls: render_sync.py, FastAPI
+Calls: render_sync.py, FastAPI, Postgres command queue
 """
 
+import uuid
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+
+
+class CommandSubmission(BaseModel):
+    command_name: str
+    command_type: str = "action"
+    payload: dict = {}
+    priority: int = 0
+
+
+class SettingsUpdate(BaseModel):
+    key: str
+    value: object
 
 
 def create_router(runtime, verify_auth):
     """Build the cloud core router."""
     router = APIRouter()
+
+    # ── Helpers ─────────────────────────────────────────────────────
+
+    def _submit_command(
+        command_name: str,
+        command_type: str = "action",
+        payload: dict | None = None,
+        priority: int = 0,
+    ) -> dict:
+        """Write a command to pending_commands in Render Postgres."""
+        command_id = str(uuid.uuid4())
+        now = datetime.now(runtime.et)
+        expires_at = (now + timedelta(minutes=5)).isoformat()
+
+        import json
+        payload_json = json.dumps(payload or {})
+
+        try:
+            with runtime.get_pg(readonly=False) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO pending_commands "
+                        "(command_id, command_type, command_name, payload_json, "
+                        "status, priority, created_at, expires_at, created_by) "
+                        "VALUES (%s, %s, %s, %s, 'pending', %s, %s, %s, 'dashboard')",
+                        (
+                            command_id, command_type, command_name,
+                            payload_json, priority, now.isoformat(), expires_at,
+                        ),
+                    )
+                    conn.commit()
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Database unavailable: {exc}")
+
+        return {
+            "command_id": command_id,
+            "status": "pending",
+            "expires_at": expires_at,
+        }
+
+    # ── Health & auth ──────────────────────────────────────────────
 
     @router.get("/healthz")
     def healthz():
@@ -38,6 +93,8 @@ def create_router(runtime, verify_auth):
     @router.get("/api/auth", dependencies=[Depends(verify_auth)])
     def auth_check():
         return {"authenticated": True}
+
+    # ── Status & config ────────────────────────────────────────────
 
     @router.get("/api/status", dependencies=[Depends(verify_auth)])
     def status():
@@ -141,38 +198,210 @@ def create_router(runtime, verify_auth):
             runtime.logger.error("[API] costs failed: %s", exc, exc_info=True)
             return {"days": days, "total_cost": 0, "breakdown": [], "error": str(exc)}
 
+    # ── Command queue endpoints ────────────────────────────────────
+
+    @router.post("/api/commands/submit", dependencies=[Depends(verify_auth)])
+    def submit_command(body: CommandSubmission):
+        """Submit a command to the queue for local execution."""
+        try:
+            result = _submit_command(
+                command_name=body.command_name,
+                command_type=body.command_type,
+                payload=body.payload,
+                priority=body.priority,
+            )
+            return result
+        except Exception as exc:
+            runtime.logger.error("Command submission failed: %s", exc)
+            raise HTTPException(status_code=500, detail=str(exc))
+
+    @router.get("/api/commands/{command_id}/status", dependencies=[Depends(verify_auth)])
+    def command_status(command_id: str):
+        """Check command + result status."""
+        cmd = runtime.query_one(
+            "SELECT * FROM pending_commands WHERE command_id = %s",
+            (command_id,),
+        )
+        if not cmd:
+            raise HTTPException(status_code=404, detail="Command not found")
+
+        result = runtime.query_one(
+            "SELECT * FROM command_results WHERE command_id = %s "
+            "ORDER BY created_at DESC LIMIT 1",
+            (command_id,),
+        )
+        return {"command": cmd, "result": result}
+
+    @router.get("/api/commands/recent", dependencies=[Depends(verify_auth)])
+    def recent_commands(limit: int = 20):
+        """Last N commands with their results."""
+        commands = runtime.query(
+            "SELECT c.*, r.status as result_status, r.result_json, "
+            "r.error_message, r.execution_ms "
+            "FROM pending_commands c "
+            "LEFT JOIN command_results r ON c.command_id = r.command_id "
+            "ORDER BY c.created_at DESC LIMIT %s",
+            (min(limit, 50),),
+        )
+        return {"commands": commands, "count": len(commands)}
+
+    # ── Log entries ────────────────────────────────────────────────
+
+    @router.get("/api/logs/recent", dependencies=[Depends(verify_auth)])
+    def recent_logs(level: str = "INFO", limit: int = 100, source: str = None):
+        """Query log_entries table."""
+        params = []
+        where_clauses = []
+
+        if level and level != "ALL":
+            level_order = {"DEBUG": 0, "INFO": 1, "WARNING": 2, "ERROR": 3, "CRITICAL": 4}
+            min_level = level_order.get(level.upper(), 1)
+            allowed = [k for k, v in level_order.items() if v >= min_level]
+            placeholders = ", ".join(["%s"] * len(allowed))
+            where_clauses.append(f"log_level IN ({placeholders})")
+            params.extend(allowed)
+
+        if source:
+            where_clauses.append("source = %s")
+            params.append(source)
+
+        where = " AND ".join(where_clauses) if where_clauses else "1=1"
+        params.append(min(limit, 500))
+
+        logs = runtime.query(
+            f"SELECT * FROM log_entries WHERE {where} "
+            f"ORDER BY created_at DESC LIMIT %s",
+            tuple(params),
+        )
+        return {"logs": logs, "count": len(logs)}
+
+    # ── Settings (now writes to command queue) ─────────────────────
+
     @router.get("/api/settings", dependencies=[Depends(verify_auth)])
     def get_settings():
+        """Return current settings including any dashboard overrides."""
+        from src.config_overrides import WHITELISTED_KEYS
+
+        # Read overrides from Postgres
+        overrides = {}
+        try:
+            rows = runtime.query(
+                "SELECT setting_key, setting_value, updated_at FROM config_overrides"
+            )
+            for row in rows:
+                import json
+                try:
+                    overrides[row["setting_key"]] = {
+                        "value": json.loads(row["setting_value"]),
+                        "updated_at": row["updated_at"],
+                    }
+                except (json.JSONDecodeError, TypeError):
+                    overrides[row["setting_key"]] = {
+                        "value": row["setting_value"],
+                        "updated_at": row["updated_at"],
+                    }
+        except Exception:
+            pass
+
         return {
+            "whitelisted_keys": sorted(WHITELISTED_KEYS),
+            "overrides": overrides,
             "risk": {
                 "max_position_pct": 0.25,
                 "max_open_positions": 50,
                 "max_sector_pct": 0.22,
+                "planned_risk_pct_min": 0.005,
+                "planned_risk_pct_max": 0.01,
             },
-            "bootcamp": {
-                "max_packets_per_scan": 20,
-                "min_score": 40,
+            "shadow_trading": {
+                "enabled": True,
+                "max_positions": 50,
+                "timeout_days": {"default": 15, "pullback": 7},
             },
-            "trading": {
-                "email_mode": "daily_summary",
+            "llm": {
+                "enabled": True,
+                "min_conviction_score": 0,
             },
-            "schedule": {
-                "between_scan_scoring": True,
-                "overnight_schedule": True,
-            },
-            "system": {
-                "model_version": "halcyonlatest",
-                "python_version": "3.12",
-                "environment": "cloud",
+            "scheduler": {
+                "scan_interval_minutes": 30,
             },
         }
 
     @router.post("/api/settings", dependencies=[Depends(verify_auth)])
-    def update_settings():
-        return {
-            "error": "cloud_mode",
-            "message": "Settings can only be changed on the local machine.",
-        }
+    def update_settings(body: SettingsUpdate):
+        """Submit a config change command via the queue."""
+        return _submit_command(
+            command_name="update_setting",
+            command_type="config_change",
+            payload={"key": body.key, "value": body.value},
+        )
+
+    @router.delete("/api/settings/overrides", dependencies=[Depends(verify_auth)])
+    def clear_overrides():
+        """Clear all dashboard overrides (reset to YAML defaults)."""
+        try:
+            with runtime.get_pg(readonly=False) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM config_overrides")
+                    conn.commit()
+            return {"message": "All overrides cleared"}
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc))
+
+    # ── Action endpoints (now submit to command queue) ─────────────
+
+    @router.post("/api/actions/scan", dependencies=[Depends(verify_auth)])
+    def action_scan():
+        return _submit_command("scan")
+
+    @router.post("/api/actions/council", dependencies=[Depends(verify_auth)])
+    def action_council(body: dict = None):
+        payload = body or {}
+        return _submit_command("council", payload=payload)
+
+    @router.post("/api/actions/collect-data", dependencies=[Depends(verify_auth)])
+    def action_collect_data():
+        return _submit_command("collect-data")
+
+    @router.post("/api/actions/collect-training", dependencies=[Depends(verify_auth)])
+    def action_collect_training():
+        return _submit_command("collect-training")
+
+    @router.post("/api/actions/train-pipeline", dependencies=[Depends(verify_auth)])
+    def action_train_pipeline():
+        return _submit_command("train-pipeline")
+
+    @router.post("/api/halt-trading", dependencies=[Depends(verify_auth)])
+    def action_halt_trading():
+        return _submit_command("halt-trading", priority=10)
+
+    @router.post("/api/resume-trading", dependencies=[Depends(verify_auth)])
+    def action_resume_trading():
+        return _submit_command("resume-trading", priority=10)
+
+    @router.post("/api/shadow/close/{ticker}", dependencies=[Depends(verify_auth)])
+    def action_close_position(ticker: str):
+        return _submit_command("close-position", payload={"ticker": ticker})
+
+    @router.post("/api/actions/cto-report", dependencies=[Depends(verify_auth)])
+    def action_cto_report():
+        return _submit_command("scan")  # CTO report is part of scan output
+
+    @router.post("/api/actions/score", dependencies=[Depends(verify_auth)])
+    def action_score():
+        return _submit_command("scan")
+
+    @router.post("/api/training/train", dependencies=[Depends(verify_auth)])
+    def training_train():
+        return _submit_command("train-pipeline")
+
+    @router.post("/api/training/bootstrap", dependencies=[Depends(verify_auth)])
+    def training_bootstrap():
+        return _submit_command("collect-training")
+
+    @router.post("/api/training/rollback", dependencies=[Depends(verify_auth)])
+    def training_rollback():
+        return _submit_command("train-pipeline", payload={"rollback": True})
 
     @router.post("/api/live/reconcile", dependencies=[Depends(verify_auth)])
     def live_reconcile():
@@ -180,39 +409,5 @@ def create_router(runtime, verify_auth):
             "error": "cloud_mode",
             "message": "Reconciliation must be run locally via CLI: python -m src.main reconcile-live",
         }
-
-    def _cloud_only_action():
-        return runtime.cloud_action_msg
-
-    def _cloud_only_close_action(ticker: str):
-        _ = ticker
-        return runtime.cloud_action_msg
-
-    for path in (
-        "/api/actions/scan",
-        "/api/actions/cto-report",
-        "/api/actions/collect-training",
-        "/api/actions/train-pipeline",
-        "/api/actions/score",
-        "/api/actions/council",
-        "/api/halt-trading",
-        "/api/resume-trading",
-        "/api/training/train",
-        "/api/training/bootstrap",
-        "/api/training/rollback",
-    ):
-        router.add_api_route(
-            path,
-            _cloud_only_action,
-            methods=["POST"],
-            dependencies=[Depends(verify_auth)],
-        )
-
-    router.add_api_route(
-        "/api/shadow/close/{ticker}",
-        _cloud_only_close_action,
-        methods=["POST"],
-        dependencies=[Depends(verify_auth)],
-    )
 
     return router

@@ -20,6 +20,7 @@ import Council from './pages/Council'
 import Health from './pages/Health'
 import Notes from './pages/Notes'
 import Validation from './pages/Validation'
+import Logs from './pages/Logs'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -82,6 +83,7 @@ export default function App() {
                 <Route path="/council" element={<Council />} />
                 <Route path="/health" element={<Health />} />
                 <Route path="/validation" element={<Validation />} />
+                <Route path="/logs" element={<Logs />} />
               </Route>
             </Routes>
           </BrowserRouter>

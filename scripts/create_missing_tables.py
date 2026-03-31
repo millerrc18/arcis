@@ -133,10 +133,54 @@ TABLES = [
         UNIQUE(ticker, date, source)
     )""",
 
+    # Command queue (Sprint 4C: Dashboard as Control Plane)
+    """CREATE TABLE IF NOT EXISTS pending_commands (
+        command_id TEXT PRIMARY KEY,
+        command_type TEXT NOT NULL,
+        command_name TEXT NOT NULL,
+        payload_json TEXT DEFAULT '{}',
+        status TEXT NOT NULL DEFAULT 'pending',
+        priority INTEGER DEFAULT 0,
+        created_at TEXT NOT NULL,
+        claimed_at TEXT,
+        expires_at TEXT,
+        created_by TEXT DEFAULT 'dashboard'
+    )""",
+
+    """CREATE TABLE IF NOT EXISTS command_results (
+        result_id TEXT PRIMARY KEY,
+        command_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        result_json TEXT DEFAULT '{}',
+        error_message TEXT,
+        execution_ms INTEGER,
+        created_at TEXT NOT NULL
+    )""",
+
+    """CREATE TABLE IF NOT EXISTS config_overrides (
+        setting_key TEXT PRIMARY KEY,
+        setting_value TEXT NOT NULL,
+        previous_value TEXT,
+        updated_at TEXT NOT NULL,
+        updated_by TEXT DEFAULT 'dashboard'
+    )""",
+
+    """CREATE TABLE IF NOT EXISTS log_entries (
+        log_id TEXT PRIMARY KEY,
+        log_level TEXT NOT NULL,
+        source TEXT NOT NULL,
+        message TEXT NOT NULL,
+        details_json TEXT,
+        created_at TEXT NOT NULL
+    )""",
+
     # Indexes
     "CREATE INDEX IF NOT EXISTS idx_edgar_ticker_date ON edgar_filings(ticker, filing_date)",
     "CREATE INDEX IF NOT EXISTS idx_insider_ticker_date ON insider_transactions(ticker, filing_date)",
     "CREATE INDEX IF NOT EXISTS idx_council_created ON council_sessions(created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_pending_commands_status ON pending_commands(status, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_command_results_command ON command_results(command_id)",
+    "CREATE INDEX IF NOT EXISTS idx_log_entries_level ON log_entries(log_level, created_at)",
 ]
 
 

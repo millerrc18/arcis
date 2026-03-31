@@ -1,5 +1,40 @@
 # Changelog
 
+## [Unreleased] - 2026-03-30
+
+### Sprint 4C: Dashboard as Control Plane
+
+#### Command Queue System
+- Added: pull-based command queue pattern (pending_commands, command_results, config_overrides, log_entries tables)
+- Added: bidirectional sync — cloud pulls commands to local, local pushes results to cloud
+- Added: command executor with 10 command types (scan, council, collect-data, halt-trading, etc.)
+- Added: 5-minute command expiry, 10/min rate limiting, 10KB result truncation
+- Added: DBLogHandler that writes WARNING+ to log_entries table (last 500 entries)
+
+#### Config Override System
+- Added: dashboard-editable settings with whitelisted keys only
+- Added: config overrides merge with YAML defaults (overrides win for whitelisted keys)
+- Added: blocked prefixes for API keys, DB paths, and secrets (never editable remotely)
+- Added: "Reset to YAML" to clear all dashboard overrides
+
+#### Cloud API Overhaul
+- Changed: all stub action endpoints now submit commands via queue instead of returning "must be done locally"
+- Added: POST /api/commands/submit, GET /api/commands/{id}/status, GET /api/commands/recent
+- Added: GET /api/logs/recent with level and source filtering
+- Added: DELETE /api/settings/overrides to clear all overrides
+- Changed: POST /api/settings now submits config_change commands via queue
+
+#### Frontend
+- Added: editable Settings page with toggle/number inputs and source badges (yaml default vs dashboard override)
+- Added: Logs page with filterable log table and recent commands history
+- Added: command pending indicator on Dashboard (blue pulsing badge)
+- Added: 14th dashboard page (Logs) to navigation
+
+#### Documentation
+- Added: ADR 012 — Pull-based command queue architecture decision
+- Updated: AGENTS.md counts (169 Python files, 77 test files, 40 DB tables, 55 API routes)
+- Added: 15 tests in test_command_queue.py (submission, expiry, whitelist, rate limiting, round-trip)
+
 ## [Unreleased] - 2026-03-27/29
 
 ### Weekend Mega Sprint (4 sprints: Stabilize + Hotfix + Build + Document)
