@@ -346,11 +346,58 @@ self._daily_packets = []
 ```
 Also add a cap: `if len(self._daily_packets) > 200: self._daily_packets = self._daily_packets[-100:]`
 
-### #166 — VRAM threshold too low (500MB)
+### #166 — VRAM handoff fails: threshold too low, no torch cleanup, short timeout
 
-**Where:** `src/llm/grammar_client.py` — find where free VRAM is checked
+**Where:** `src/scheduler/vram_manager.py` — `_wait_for_vram_clear()` and `handoff_to_training()`
 
-**Fix:** Change threshold from 500MB to 1500MB.
+**Current behavior (broken):**
+- Threshold is 500MB — a partially unloaded Qwen3 8B Q8_0 (8.7GB) can leave 2GB+ in VRAM
+- After killing Ollama, no `torch.cuda.empty_cache()` call — GPU memory fragments persist
+- Final wait after kill is only 15s — Windows process cleanup is slow
+- Result: handoff fails every night, overnight training never runs
+
+**Fix — 4 changes in `vram_manager.py`:**
+
+1. **Raise threshold** from 500MB to 1500MB in ALL `_wait_for_vram_clear()` calls:
+```python
+def _wait_for_vram_clear(self, threshold_mb: int = 1500,
+                         timeout_seconds: int = 30) -> bool:
+```
+Also update the three call sites in `handoff_to_training()` and `handoff_to_inference()` that pass `threshold_mb=500` explicitly.
+
+2. **Add torch.cuda.empty_cache() after killing Ollama:**
+```python
+# After killing Ollama process:
+try:
+    import torch
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        logger.info("[VRAM] torch.cuda.empty_cache() called")
+except ImportError:
+    pass
+```
+Insert this after the `taskkill`/`pkill` call and the `time.sleep(5)`.
+
+3. **Increase final timeout** from 15s to 45s after killing Ollama:
+```python
+if not self._wait_for_vram_clear(threshold_mb=1500, timeout_seconds=45):
+    logger.error("[VRAM] Handoff to training FAILED — VRAM not clear even after killing Ollama")
+    return False
+```
+
+4. **Add a force-kill retry** — if the first `taskkill` doesn't work, try killing `ollama_llama_server.exe` (the actual inference subprocess on Windows):
+```python
+if platform.system() == "Windows":
+    subprocess.run(["taskkill", "/f", "/im", "ollama.exe"],
+                   capture_output=True, timeout=10)
+    # Also kill the inference subprocess directly
+    subprocess.run(["taskkill", "/f", "/im", "ollama_llama_server.exe"],
+                   capture_output=True, timeout=10)
+```
+
+**Also update `handoff_to_inference()`** — same threshold and torch cleanup changes.
+
+**Acceptance:** After fix, `handoff_to_training()` succeeds when Ollama is running with Qwen3 8B loaded. VRAM drops below 1500MB within 45s. Log shows `[VRAM] Handoff to training: Ollama unloaded, VRAM at XMB`.
 
 ### #153 — LLM timeout configurable
 
