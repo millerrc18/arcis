@@ -11,6 +11,7 @@ expirations <=6 months out and strikes within +/-30% of spot.
 """
 
 import logging
+import math
 import sqlite3
 import time
 from datetime import datetime, timedelta
@@ -98,6 +99,12 @@ def collect_options_chains(
                 logger.debug("No price data for %s, skipping options", ticker)
                 continue
             underlying_price = float(hist["Close"].iloc[-1])
+
+            # Validate underlying_price (#125)
+            if underlying_price is None or math.isnan(underlying_price) or underlying_price <= 0:
+                logger.warning("[OPTIONS] %s: invalid underlying_price (%.4s), skipping",
+                               ticker, underlying_price)
+                continue
 
             strike_low = underlying_price * 0.70
             strike_high = underlying_price * 1.30
