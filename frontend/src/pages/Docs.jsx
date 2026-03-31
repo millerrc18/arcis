@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api'
 import LoadingSpinner from '../components/LoadingSpinner'
-import { Search } from 'lucide-react'
+import { Search, ArrowLeft, FileText } from 'lucide-react'
 
 function renderMarkdown(md) {
   if (!md) return ''
@@ -57,12 +57,9 @@ function renderMarkdown(md) {
     if (inList && line.trim() === '') { html.push('</ul>'); inList = false; continue }
     if (inList && !line.match(/^\s/)) { html.push('</ul>'); inList = false }
 
-    // Table support: lines starting with |
     if (line.trim().startsWith('|') && line.trim().endsWith('|')) {
       const cells = line.split('|').slice(1, -1).map(c => c.trim())
-      // Skip separator rows (|---|---|)
       if (cells.every(c => c.match(/^[-:]+$/))) continue
-      // Detect if this is a header row (first table row before separator)
       const nextLine = i + 1 < lines.length ? lines[i + 1] : ''
       const isHeader = nextLine.trim().startsWith('|') && nextLine.split('|').slice(1, -1).every(c => c.trim().match(/^[-:]+$/))
       const tag = isHeader ? 'th' : 'td'
@@ -70,7 +67,6 @@ function renderMarkdown(md) {
         ? 'padding:0.5rem 0.75rem;text-align:left;font-weight:500;color:var(--arcis-text-primary);border-bottom:2px solid var(--arcis-text-muted)'
         : 'padding:0.5rem 0.75rem;color:var(--arcis-text-secondary);border-bottom:1px solid var(--arcis-bg-surface)'
       const rowHtml = cells.map(c => `<${tag} style="${style}">${inline(c)}</${tag}>`).join('')
-      // Wrap in scrollable div for mobile
       if (isHeader || (i === 0 || !lines[i - 1]?.trim().startsWith('|'))) {
         html.push('<div style="overflow-x:auto;margin:0.75rem 0"><table style="width:100%;border-collapse:collapse;font-size:0.8125rem">')
       }
@@ -119,6 +115,71 @@ const CATEGORY_ORDER = [
   'Uncategorized',
 ]
 
+function DocSidebar({ docList, groupedDocs, search, setSearch, activeDoc, setActiveDoc, listLoading }) {
+  return (
+    <div className="space-y-3">
+      <h2 className="text-sm font-medium uppercase tracking-wide" style={{ color: 'var(--arcis-text-secondary)' }}>
+        Documentation {docList ? `(${docList.length})` : ''}
+      </h2>
+
+      <div className="relative">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--arcis-text-secondary)' }} />
+        <input
+          type="text"
+          placeholder="Search docs..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="w-full pl-9 pr-3 py-2 rounded-lg text-sm"
+          style={{
+            background: 'var(--arcis-bg-primary)',
+            border: '1px solid var(--arcis-border)',
+            color: 'var(--arcis-text-primary)',
+            outline: 'none',
+          }}
+        />
+      </div>
+
+      {listLoading ? (
+        <LoadingSpinner />
+      ) : (
+        <div className="space-y-4 max-h-[calc(100vh-200px)] overflow-y-auto">
+          {groupedDocs.map(g => (
+            <div key={g.label}>
+              <div className="text-xs uppercase tracking-wide px-3 mb-1" style={{ color: 'var(--arcis-text-muted)' }}>{g.label}</div>
+              <div className="space-y-0.5">
+                {g.docs.map(d => (
+                  <button
+                    key={d.id}
+                    onClick={() => setActiveDoc(d.id)}
+                    className="w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center gap-2"
+                    style={{
+                      background: activeDoc === d.id ? 'var(--arcis-bg-elevated)' : 'transparent',
+                      color: activeDoc === d.id ? 'var(--arcis-text-primary)' : 'var(--arcis-text-secondary)',
+                    }}
+                  >
+                    <FileText size={13} className="shrink-0" style={{ color: 'var(--arcis-text-muted)' }} />
+                    <span className="truncate">{d.title}</span>
+                    {d.size_kb > 0 && (
+                      <span className="ml-auto text-xs shrink-0" style={{ color: 'var(--arcis-text-muted)' }}>
+                        {d.size_kb < 1 ? '<1' : Math.round(d.size_kb)}kb
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+          {groupedDocs.length === 0 && (
+            <div className="text-center py-4 text-sm" style={{ color: 'var(--arcis-text-secondary)' }}>
+              {search ? 'No docs match your search' : 'No documents available'}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Docs() {
   const [activeDoc, setActiveDoc] = useState(null)
   const [search, setSearch] = useState('')
@@ -132,7 +193,6 @@ export default function Docs() {
     enabled: !!activeDoc,
   })
 
-  // Group docs by category and filter by search
   const groupedDocs = useMemo(() => {
     const docs = docList || []
     const filtered = search
@@ -149,101 +209,64 @@ export default function Docs() {
       .map(cat => ({ label: cat, docs: groups[cat] }))
   }, [docList, search])
 
-  // Auto-select first doc if none selected
-  if (!activeDoc && docList?.length > 0) {
+  // Auto-select first doc on desktop if none selected
+  if (!activeDoc && docList?.length > 0 && window.innerWidth >= 768) {
     setActiveDoc(docList[0].id)
   }
 
+  const showingDoc = activeDoc && doc
+
   return (
     <div className="max-w-5xl mx-auto">
-      {/* Mobile: toggle between doc list and content */}
       <div className="flex flex-col md:flex-row gap-4 md:gap-6">
-        {/* Sidebar — full width on mobile, fixed 240px on desktop */}
-        <nav className={`w-full md:w-60 md:shrink-0 ${activeDoc && docList?.length > 0 ? 'hidden md:block' : ''}`}>
-          <h2 className="text-sm font-medium uppercase tracking-wide mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>
-            Documentation {docList ? `(${docList.length})` : ''}
-          </h2>
-
-        {/* Search bar */}
-        <div className="relative mb-4">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--arcis-text-secondary)' }} />
-          <input
-            type="text"
-            placeholder="Search docs..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 rounded-lg text-sm"
-            style={{
-              background: 'var(--arcis-bg-primary)',
-              border: '1px solid var(--arcis-border)',
-              color: 'var(--arcis-text-primary)',
-              outline: 'none',
-            }}
+        {/* Sidebar: always visible on desktop, hidden when viewing doc on mobile */}
+        <nav className={`w-full md:w-72 md:shrink-0 rounded-lg p-4 ${activeDoc ? 'hidden md:block' : ''}`}
+          style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+          <DocSidebar
+            docList={docList}
+            groupedDocs={groupedDocs}
+            search={search}
+            setSearch={setSearch}
+            activeDoc={activeDoc}
+            setActiveDoc={setActiveDoc}
+            listLoading={listLoading}
           />
+        </nav>
+
+        {/* Content area */}
+        <div className="flex-1 min-w-0">
+          {/* Mobile back button - sticky at top */}
+          {activeDoc && (
+            <button
+              onClick={() => setActiveDoc(null)}
+              className="md:hidden sticky top-0 z-10 w-full mb-3 flex items-center gap-2 px-4 py-3 rounded-lg text-sm font-medium"
+              style={{ background: 'var(--arcis-bg-surface)', color: 'var(--arcis-accent)', border: '1px solid var(--arcis-border)' }}
+            >
+              <ArrowLeft size={16} />
+              Back to documents
+            </button>
+          )}
+
+          {docLoading ? (
+            <LoadingSpinner />
+          ) : showingDoc ? (
+            <div className="rounded-lg p-4 md:p-6" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+              <div
+                className="mx-auto"
+                style={{ maxWidth: '720px', overflowWrap: 'break-word', wordBreak: 'break-word' }}
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(doc.content) }}
+              />
+            </div>
+          ) : (
+            <div className="hidden md:flex items-center justify-center py-16 rounded-lg" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-secondary)' }}>
+              <div className="text-center">
+                <FileText size={32} className="mx-auto mb-3" style={{ color: 'var(--arcis-text-muted)' }} />
+                <div className="text-sm">Select a document to view</div>
+              </div>
+            </div>
+          )}
         </div>
-
-        {listLoading ? (
-          <LoadingSpinner />
-        ) : (
-          <div className="space-y-4 max-h-[calc(100vh-200px)] overflow-y-auto">
-            {groupedDocs.map(g => (
-              <div key={g.label}>
-                <div className="text-xs uppercase tracking-wide px-3 mb-1" style={{ color: 'var(--arcis-text-secondary)' }}>{g.label}</div>
-                <div className="space-y-0.5">
-                  {g.docs.map(d => (
-                    <button
-                      key={d.id}
-                      onClick={() => setActiveDoc(d.id)}
-                      className="w-full text-left px-3 py-1.5 rounded-lg text-sm transition-colors"
-                      style={{
-                        background: activeDoc === d.id ? 'var(--arcis-bg-surface)' : 'transparent',
-                        color: activeDoc === d.id ? 'var(--arcis-text-primary)' : 'var(--arcis-text-secondary)',
-                      }}
-                    >
-                      {d.title}
-                      {d.size_kb > 0 && (
-                        <span className="ml-1 text-xs" style={{ color: 'var(--arcis-text-muted)' }}>
-                          {d.size_kb < 1 ? '<1' : Math.round(d.size_kb)}kb
-                        </span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-            {groupedDocs.length === 0 && (
-              <div className="text-center py-4 text-sm" style={{ color: 'var(--arcis-text-secondary)' }}>
-                {search ? 'No docs match your search' : 'No documents available'}
-              </div>
-            )}
-          </div>
-        )}
-      </nav>
-
-      <div className="flex-1 min-w-0">
-        {activeDoc && (
-          <button
-            onClick={() => setActiveDoc(null)}
-            className="md:hidden mb-3 text-sm px-3 py-1.5 rounded-lg"
-            style={{ background: 'var(--arcis-bg-surface)', color: 'var(--arcis-accent)', border: '1px solid var(--arcis-border)' }}
-          >
-            ← Back to docs
-          </button>
-        )}
-        {docLoading ? (
-          <LoadingSpinner />
-        ) : doc ? (
-          <div className="rounded-lg p-4 md:p-6" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
-            <div
-              dangerouslySetInnerHTML={{ __html: renderMarkdown(doc.content) }}
-              style={{ overflowWrap: 'break-word', wordBreak: 'break-word' }}
-            />
-          </div>
-        ) : (
-          <div className="text-center py-12" style={{ color: 'var(--arcis-text-secondary)' }}>Select a document</div>
-        )}
       </div>
-    </div>
     </div>
   )
 }

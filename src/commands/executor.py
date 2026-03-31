@@ -198,6 +198,20 @@ def _handle_get_logs(payload: dict, config: dict) -> dict:
 
 # ── Command dispatch table ────────────────────────────────────────
 
+def _handle_validate_system(payload, db_path, config):
+    """Run full system validation."""
+    from src.evaluation.system_validator import run_full_validation, save_validation_result
+
+    result = run_full_validation(db_path)
+    save_validation_result(result, db_path)
+    return {
+        "overall_status": result.get("overall_status", "unknown"),
+        "checks_passed": result.get("checks_passed", 0),
+        "checks_warning": result.get("checks_warning", 0),
+        "checks_failed": result.get("checks_failed", 0),
+    }
+
+
 COMMAND_HANDLERS = {
     "scan": _handle_scan,
     "council": _handle_council,
@@ -209,6 +223,7 @@ COMMAND_HANDLERS = {
     "close-position": _handle_close_position,
     "update_setting": _handle_update_setting,
     "get_logs": _handle_get_logs,
+    "validate-system": _handle_validate_system,
 }
 
 

@@ -2,6 +2,71 @@
 
 ## [Unreleased] - 2026-03-30
 
+### Sprint 5: Dashboard Polish & UX
+
+#### Shadow Ledger (Task 1)
+- Added: summary row (total positions, unrealized P&L, avg days held)
+- Added: P&L values with colorblind-accessible arrows (▲/▼) + `financial-data` class
+- Added: alternating row shading via `var(--arcis-bg-elevated)`
+- Added: mobile-responsive columns (hide IS bps, strategy on <768px)
+- Added: default sort by P&L% descending (best performers at top)
+- Fixed: all `var(--slate-*)` references migrated to `var(--arcis-*)` design tokens
+
+#### Validation Page (Task 2)
+- Added: `validate-system` command to executor (command queue integration)
+- Added: error state display when watch loop offline
+- Enhanced: fallback from direct API to command queue for validation runs
+
+#### Training Page (Task 3)
+- Added: hero section with large total examples count, weekly count, avg quality
+- Added: outcome distribution horizontal stacked bar (WIN/LOSS/TIMEOUT/PASS)
+- Added: v2 spec targets vs actual comparison grid
+- Added: source breakdown bar chart (historical_backfill, blinded_win, etc.)
+- Added: ticker coverage progress bar and regime coverage display
+- Added: recent examples table (last 10 with ticker, source, outcome, quality, date)
+- Added: graceful handling when outcome_type data pending migration
+
+#### CTO Report (Task 4)
+- Added: Phase 1 gate progress bar (X/50 trades)
+- Added: minimum-data notices ("Requires N+ closed trades" instead of N/A)
+- Added: early win rate callout (100% on <10 trades note)
+- Changed: fund metrics only shown when 20+ trades available
+- Changed: confidence calibration section shows data requirements when <10 trades
+
+#### Docs Page (Task 5)
+- Added: sticky mobile back button ("← Back to documents") always visible on mobile
+- Added: two-column desktop layout (300px sidebar + content viewer)
+- Added: single-column mobile navigation (list → detail → back)
+- Added: document viewer max-width 720px for comfortable reading
+- Added: file icon indicators and sidebar card styling
+
+#### Notes Page (Task 6)
+- Added: tag filter pills at top for quick category filtering
+- Added: pinned-first + reverse chronological default sort
+- Added: relative date formatting (e.g., "2h ago", "Mar 15")
+- Added: empty state with icon ("No notes yet — add your first note above")
+- Changed: textarea placeholder to "Add a note..." for cleaner UX
+
+#### Logs Page (Task 7)
+- Added: expandable log rows (click to show details_json as formatted JSON)
+- Added: "Run Command" dropdown with common commands (scan, council, collect-data, validate)
+- Added: command auto-refresh at 10s (faster than logs at 30s)
+- Added: empty state messages for both logs and commands
+- Added: CRITICAL level background highlighting (red tint)
+- Fixed: all `var(--slate-*)` references migrated to `var(--arcis-*)` design tokens
+
+#### Settings Page (Task 8)
+- Added: section icons (Settings2, Shield, Brain, Clock) from lucide-react
+- Added: setting descriptions below each label
+- Added: "Saved ✓" animation feedback on setting changes
+- Added: reset confirmation dialog (two-step: click → confirm)
+- Added: system health items in card-style background tiles
+- Fixed: all `var(--slate-*)` references migrated to `var(--arcis-*)` design tokens
+
+#### Backend
+- Added: `validate-system` command handler in executor.py
+- Test count: 1,110 (unchanged)
+
 ### Sprint 4E: Post-Review Cleanup & Production Hardening
 
 #### Database Schema
