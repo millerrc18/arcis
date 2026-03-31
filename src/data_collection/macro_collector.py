@@ -11,6 +11,7 @@ supply chain, credit stress, oil, dollar index, etc.
 """
 
 import logging
+import os
 import sqlite3
 import time
 from datetime import datetime
@@ -93,13 +94,17 @@ def _init_table(db_path: str) -> None:
 
 
 def _get_fred_api_key() -> str | None:
-    """Get FRED API key from config.
+    """Get FRED API key. .env takes precedence over YAML config.
 
     Checks multiple config paths for backwards compatibility:
-    - data_enrichment.fred_api_key (primary — matches settings.example.yaml)
+    - os.environ FRED_API_KEY (primary — from .env)
+    - data_enrichment.fred_api_key (matches settings.example.yaml)
     - fred.api_key
     - fred_api_key (top-level)
     """
+    env_key = os.environ.get("FRED_API_KEY")
+    if env_key:
+        return env_key
     try:
         from src.config import load_config
         config = load_config()
