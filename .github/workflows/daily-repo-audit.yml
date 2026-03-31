@@ -2,7 +2,7 @@ name: Daily Repo Audit
 
 on:
   schedule:
-    - cron: "15 * * * *"
+    - cron: "0 12 * * *"  # Daily at noon UTC (8 AM ET) — was hourly, reduced to save Actions minutes
   workflow_dispatch:
 
 concurrency:
