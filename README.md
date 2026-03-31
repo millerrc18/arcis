@@ -1,114 +1,71 @@
 # Arcis
 
-Arcis is an autonomous AI-powered equity trading system for S&P 100 swing trades. It combines systematic scoring, multi-source enrichment, local LLM trade commentary, Alpaca bracket execution, a hard risk governor, and a self-improving training pipeline built around self-blinded data quality.
+Systematic equity research platform built on fine-tuned LLMs and a 5-agent AI council. Arcis scans the S&P 100 universe for high-conviction pullback setups, generates trade packets with local inference, and executes bracket orders through Alpaca -- all governed by a hard risk stack and regime-aware sizing.
 
-## Current Surface
+## Current Status
 
-- **Strategy**: pullback-in-strong-trend equity trading with bracket orders and regime-aware sizing
-- **Model**: `halcyon-v1` on Qwen3 8B, served locally through Ollama for packet generation
-- **Risk stack**: validator, 8-check governor, kill switch, traffic-light overlay, system validation, and live/cloud diagnostics
-- **Dashboard**: 13 pages across local/cloud surfaces, including Council, Health, Validation, Notes, Live Ledger, and CTO Report
-- **Brand system**: Arcis identity with Palette H, refreshed PWA metadata, and a persisted dark/light dashboard theme
-- **Data moat**: 12 nightly collectors plus enrichment for technicals, regime, sector, fundamentals, insiders, news, macro, filings, earnings, and options context
-- **Research library**: 66 synced research documents plus governance and architecture docs
-- **Cloud mirror**: Render frontend + FastAPI + Postgres read replica kept fresh by the local render sync thread
+- **Phase 1 Bootcamp** -- paper trading with ~25 active positions
+- **Model**: `halcyon-v1` (Qwen3 8B, QLoRA fine-tuned on 790 examples)
+- **Dashboard**: [halcyonlab.app](https://halcyonlab.app) (14 pages)
 
-## Key Capabilities
+## Architecture
 
-- **Systematic scoring**: 0-100 setup ranking from technical, regime, sector, and event-aware features
-- **Multi-source enrichment**: SEC EDGAR, Finnhub, FRED, options/VIX, analyst estimates, insider activity, short interest, and Fed communications
-- **LLM packet writing**: XML trade commentary with `why_now`, `analysis`, and `metadata` blocks
-- **Council and governance**: 5-agent council, parameter adjustments, calibration tracking, HSHS health scoring, and validation results
-- **Training flywheel**: self-blinded generation, quality scoring, leakage checks, curriculum SFT, canary evaluation, and rollback protection
-- **Operations**: 24/7 scheduler, render sync, Telegram alerts, postmortems, nightly collection, and weekly reporting
+```
+watch loop -> scan universe -> compute features -> rank
+    -> LLM packet generation -> governor risk checks
+    -> executor (bracket orders) -> bracket monitor
+    -> training flywheel (self-blinded examples)
+```
 
-## Prerequisites
-
-- Python 3.12+
-- Node.js 18+ for the frontend
-- Ollama for local inference
-- NVIDIA GPU with 12GB+ VRAM recommended for the local model/training workflow
-- Alpaca paper/live credentials
-- API keys for Finnhub, FRED, and Anthropic if you want the full enrichment and training loop
+The scheduler runs 24/7: pre-market watchlist, intraday scans every 30 min, EOD recaps, overnight data collection, and weekly training cycles.
 
 ## Quick Start
 
 ```bash
-# 1. Clone and set up the environment
-git clone <repo-url> && cd halcyon-lab
-python -m venv .venv
-
-# Windows
-.venv\Scripts\activate
-
-# macOS / Linux
-source .venv/bin/activate
-
+# Set up environment
+python -m venv .venv && .venv\Scripts\activate  # Windows
 pip install -r requirements.txt
-```
 
-```bash
-# 2. Configure local settings
+# Configure
 cp config/settings.example.yaml config/settings.local.yaml
-# Fill in API keys, broker credentials, and optional Render sync settings
-```
+# Fill in API keys and broker credentials
 
-```bash
-# 3. Initialize the database
+# Initialize DB + pull model
 python -m src.main init-db
-```
-
-```bash
-# 4. Pull the local model (or register your fine-tuned build)
 ollama pull qwen3:8b
-```
 
-```bash
-# 5. Run a dry scan
+# Test scan
 python -m src.main scan --verbose --dry-run
-```
 
-```bash
-# 6. Build the frontend and start the dashboard
-cd frontend && npm install && npm run build && cd ..
-python -m src.main dashboard
-```
-
-```bash
-# 7. Start the autonomous scheduler
+# Start autonomous scheduler
 python -m src.main watch --email-mode daily_summary --overnight
 ```
 
-## Common Workflows
+## Dashboard
+
+Local: `python -m src.main dashboard` (localhost:8000)
+Cloud: [halcyonlab.app](https://halcyonlab.app) (Render + Postgres read replica)
 
 ```bash
-# Full training pipeline
-python -m src.main train-pipeline --force
-
-# Manual data collection
-python -m src.main collect-data
-
-# Morning / end-of-day ops
-python -m src.main morning-watchlist
-python -m src.main eod-recap
-
-# Reporting and health
-python -m src.main cto-report
-python -m src.main evaluate-gate
-python -m src.main check-leakage
+cd frontend && npm install && npm run build && cd ..
 ```
 
-## Cloud Deployment
+## Tech Stack
 
-Render deployment and sync setup are documented in [docs/deployment.md](docs/deployment.md). The cloud surface is read-only: local trading, training, and collection remain the source of truth, while Render hosts the remote dashboard and Postgres mirror.
+- **Backend**: Python 3.12, FastAPI, SQLite (local), Postgres (cloud)
+- **Frontend**: React 18, Vite, Tailwind CSS
+- **Inference**: Ollama (Qwen3 8B), Anthropic Claude (council)
+- **Broker**: Alpaca (paper + live)
+- **Data**: Finnhub, FRED, SEC EDGAR, Yahoo Finance
+- **Ops**: Telegram alerts, Render sync, 12 nightly data collectors
 
-## Documentation
+## Research
 
-- [Architecture](docs/architecture.md) — system modules, route surfaces, data flow, and council architecture
-- [Deployment](docs/deployment.md) — Render blueprint, Postgres migration, sync setup, auth, and verification
-- [Roadmap](docs/roadmap.md) — phase plan and gating milestones
-- [Training Guide](docs/training-guide.md) — training data, quality scoring, curriculum, and evaluation
-- [CLI Reference](docs/cli-reference.md) — command surface and flags
+67 documents in `docs/research/` covering regime detection, position sizing, risk management, training methodology, and market microstructure.
+
+## SEC Compliance
+
+All trading activity is AI-informed, systematic, and research-driven. The system operates under paper trading during the bootcamp phase. No advisory services are provided.
 
 ## License
 

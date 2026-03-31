@@ -2,6 +2,32 @@
 
 ## [Unreleased] - 2026-03-30
 
+### Sprint 4E: Post-Review Cleanup & Production Hardening
+
+#### Database Schema
+- Added: `strategy_type` column to shadow_trades (DEFAULT 'pullback')
+- Added: `outcome_type` and `regime` columns to training_examples
+- Added: `level` column to activity_log (DEFAULT 'INFO')
+- Added: `build_score_history` CREATE TABLE to create_missing_tables.py
+- Added: scripts/migrate_production_db.py (safe, idempotent migration)
+- Backfilled: outcome_type on 969/972 training examples from trade outcomes
+
+#### Watch Loop Fixes
+- Fixed: Traffic Light now computed during watch loop scans (was only in scan_service)
+- Fixed: VIX read from vix_term_structure DB table instead of relying on vix_proxy feature
+- Fixed: scan_metrics now recorded for every scan cycle (success, empty, or failed)
+- Fixed: Council failure sends Telegram notification (was silent on error)
+
+#### Robustness
+- Fixed: weekly_review.py checks column existence via PRAGMA before querying
+- Added: schema health section to weekly review (expected vs actual columns)
+- Updated: README.md rewritten for Arcis (75 lines, private-repo focused)
+
+#### Tests
+- Added: tests/test_db_migration.py (4 tests: idempotent, adds columns, preserves data, creates tables)
+- Added: test_vix_30_6_produces_red_vix_component in test_traffic_light.py
+- Test count: 1,105 -> 1,110
+
 ### Sprint 4C: Dashboard as Control Plane
 
 #### Command Queue System
