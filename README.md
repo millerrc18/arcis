@@ -26,6 +26,8 @@ Systematic equity research platform built on fine-tuned LLMs and a 5-agent AI co
 
 See [Database Schema (40 tables)](docs/database-schema.md) for the full ERD and table index.
 
+See [Interactive Architecture (5W detail)](https://halcyonlab.app/architecture.html) for the full system diagram with expandable component details.
+
 See the [Interactive Architecture Diagram](https://halcyonlab.app/architecture.html) for clickable component details (Who/What/When/Where/Why) — also available as an [8.5×11 printable version](https://halcyonlab.app/architecture-letter.html).
 
 The scheduler runs 24/7: pre-market watchlist, intraday scans every 15 min, EOD recaps, overnight data collection (12 collectors), daily council sessions, and weekly training cycles.
