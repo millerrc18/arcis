@@ -1,208 +1,423 @@
-# ═══════════════════════════════════════════════════════════════════════
-# Halcyon Lab — Application Configuration
-# ═══════════════════════════════════════════════════════════════════════
-# Copy to config/settings.local.yaml and edit. YAML handles ALL non-secret
-# configuration; secrets belong in .env (see .env.example).
+# ═══════════════════════════════════════════════════════════════════════════
+# Arcis — Application Configuration Reference
+# ═══════════════════════════════════════════════════════════════════════════
 #
-# Section index:
-#   app             — environment, timezone
-#   email           — SMTP for digest emails
-#   alpaca          — paper/live trading API
-#   risk            — position sizing, capital
-#   shadow_trading  — paper trading toggle
-#   live_trading    — dual execution (paper + live)
-#   automation      — scan cadence, market hours
-#   llm             — local Ollama model config
-#   api             — Claude API model selection
-#   training        — training pipeline config
-#   data_enrichment — Finnhub/FRED enrichment
-#   risk_governor   — circuit breakers
-#   event_risk      — earnings/event blocking
-#   regime_adaptive — regime-aware thresholds
-#   bootcamp        — high-volume data collection mode
-#   logging         — log level and file
-#   telegram        — push notifications
-#   render          — cloud dashboard sync
-#   council         — AI Council deliberation
-#   execution       — order type configuration
-# ═══════════════════════════════════════════════════════════════════════
+# HOW TO USE:
+#   1. Copy this file to config/settings.yaml
+#   2. Edit values for your environment
+#   3. Commit settings.yaml to git (secrets are in .env, not here)
+#
+# SECRETS GO IN .env (not this file):
+#   ALPACA_API_KEY, ALPACA_API_SECRET      Paper trading credentials
+#   ALPACA_LIVE_API_KEY, ALPACA_LIVE_SECRET_KEY   Live trading
+#   ANTHROPIC_API_KEY                      Claude API (council + scoring)
+#   FINNHUB_API_KEY                        Market data enrichment
+#   FRED_API_KEY                           Macro economic data
+#   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID   Push notifications
+#   EMAIL_PASSWORD                         SMTP for digest emails
+#   DATABASE_URL                           Render Postgres connection
+#
+# SECTION INDEX:
+#   app .................. Environment and timezone
+#   email ................ SMTP digest email configuration
+#   alpaca ............... Broker API connection (paper account)
+#   risk ................. Capital and position sizing
+#   shadow_trading ....... Paper trading on/off + limits
+#   live_trading ......... Real-money dual execution (paper + live)
+#   automation ........... Scan cadence and market hours
+#   llm .................. Local Ollama model configuration
+#   api .................. Claude API model selection for tasks
+#   training ............. Training pipeline thresholds
+#   data_enrichment ...... Finnhub / FRED enrichment settings
+#   risk_governor ........ Circuit breakers and hard limits
+#   event_risk ........... Earnings and event-calendar risk scoring
+#   regime_adaptive ...... Dynamic thresholds by market regime
+#   bootcamp ............. Phase 1 high-volume data collection mode
+#   logging .............. Log level and output file
+#   telegram ............. Real-time push notification config
+#   render ............... Cloud dashboard sync settings
+#   council .............. AI Council (5-agent deliberation)
+#   execution ............ Order type and timeout
+#
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+# ─── APP ────────────────────────────────────────────────────────────────
+# Core application settings.
+# ────────────────────────────────────────────────────────────────────────
 
 app:
-  environment: local       # "local" or "cloud" (Render deployment)
-  timezone: America/New_York  # All schedule times use this timezone
+  environment: local            # "local" — runs on your machine with Ollama
+                                # "cloud" — Render deployment (no LLM access)
+  timezone: America/New_York    # All scheduled events use this timezone.
+                                # Must be a valid IANA timezone string.
 
-# ── Email / SMTP configuration ──────────────────────────────────────
-# Fill these in inside config/settings.local.yaml (never commit that file).
-# For Gmail: use smtp.gmail.com / port 587 / an App Password (not your
-# regular password).  For other providers, use the SMTP host and
-# credentials they supply.  See docs/guides/email_setup.md for details.
-# ─────────────────────────────────────────────────────────────────────
+
+# ─── EMAIL ──────────────────────────────────────────────────────────────
+# SMTP configuration for digest emails (pre-market, midday, EOD, evening).
+# For Gmail: use smtp.gmail.com / port 587 / an App Password (NOT your
+# regular password — generate one at myaccount.google.com/apppasswords).
+# Password should be in .env as EMAIL_PASSWORD, not here.
+# ────────────────────────────────────────────────────────────────────────
+
 email:
   smtp_server: smtp.gmail.com
   smtp_port: 587
   use_tls: true
-  username: your-assistant-email@gmail.com
-  password: your-app-password-here
+  username: your-assistant-email@gmail.com   # The sending email address
+  password: your-app-password-here           # MOVE THIS TO .env → EMAIL_PASSWORD
   from_address: your-assistant-email@gmail.com
-  to_address: your.work@email.com
-  cc_addresses: # Optional: CC additional emails
+  to_address: your.work@email.com            # Primary recipient
+  cc_addresses:                              # Optional additional recipients
     - your.personal@email.com
-  digest_times:
-    premarket: "07:30" # Portfolio status, overnight events
-    midday: "12:00" # Morning trades, P&L, risk alerts
-    eod: "16:15" # Full day recap, cumulative stats
-    evening: "20:00" # Training data, model quality, costs
+  digest_times:                              # When to send each digest (ET)
+    premarket: "07:30"                       #   Portfolio status, overnight events
+    midday: "12:00"                          #   Morning trades, P&L, risk alerts
+    eod: "16:15"                             #   Full day recap, cumulative stats
+    evening: "20:00"                         #   Training data, model quality, costs
+
+
+# ─── ALPACA ─────────────────────────────────────────────────────────────
+# Broker API connection for paper trading.
+# ⚠️  Keys should be in .env as ALPACA_API_KEY and ALPACA_API_SECRET.
+# The base_url determines paper vs live — DO NOT change this to the
+# live URL unless you know what you're doing.
+# ────────────────────────────────────────────────────────────────────────
 
 alpaca:
-  api_key: YOUR_PAPER_API_KEY
-  api_secret: YOUR_PAPER_API_SECRET
-  base_url: https://paper-api.alpaca.markets
+  api_key: YOUR_PAPER_API_KEY                # → .env: ALPACA_API_KEY
+  api_secret: YOUR_PAPER_API_SECRET          # → .env: ALPACA_API_SECRET
+  base_url: https://paper-api.alpaca.markets # Paper trading endpoint.
+                                             # Live would be https://api.alpaca.markets
+                                             # but the adapter has a safety check.
+
+
+# ─── RISK ───────────────────────────────────────────────────────────────
+# Base capital and per-trade risk parameters. These feed into position
+# sizing: shares = max_risk_dollars / stop_distance.
+# ────────────────────────────────────────────────────────────────────────
 
 risk:
-  starting_capital: 100000 # Should match your paper/live trading account
-  planned_risk_pct_min: 0.005
-  planned_risk_pct_max: 0.01
-  max_open_positions: 10
+  starting_capital: 100000      # Dollar amount matching your paper/live account.
+                                # Used to calculate position sizes and P&L percentages.
+  planned_risk_pct_min: 0.005   # Minimum risk per trade (0.5% of capital = $500).
+                                # Applied when conviction is low.
+  planned_risk_pct_max: 0.01    # Maximum risk per trade (1.0% of capital = $1,000).
+                                # Applied when conviction is high.
+  max_open_positions: 10        # Hard cap on simultaneous open positions.
+                                # Overridden by bootcamp.max_positions when bootcamp is on.
+
+
+# ─── SHADOW TRADING (Paper) ────────────────────────────────────────────
+# Controls the paper trading system. When enabled, qualifying stocks
+# automatically get bracket orders placed on your Alpaca paper account.
+# ────────────────────────────────────────────────────────────────────────
 
 shadow_trading:
-  enabled: false # Set to true to enable paper trading
-  max_positions: 10
-  default_order_type: market
-  timeout_days: 15 # Auto-close after this many days
+  enabled: false                # true = auto-trade qualifying stocks on paper account.
+                                # false = scan and score only, no orders placed.
+  max_positions: 10             # Max simultaneous paper positions (see also bootcamp).
+  default_order_type: market    # "market" — immediate fill at current price.
+                                # "limit" — see execution section below.
+  timeout_days: 15              # Auto-close any position held longer than this.
+                                # Pullback strategy default: 7 days.
+                                # Set per-strategy via strategy configs (future).
 
-# ── Live Trading (Dual Execution) ────────────────────────────────
-# When enabled, qualifying setups execute on BOTH paper and live
-# accounts simultaneously. Paper trades continue as before for the
-# training flywheel; live trades use real capital with tighter risk.
-# SAFETY: Requires LLM commentary (no template fallback), skips
-# first scan of day, halts if equity drops below 50% of starting.
-# ─────────────────────────────────────────────────────────────────
+
+# ─── LIVE TRADING (Dual Execution) ─────────────────────────────────────
+# When enabled, qualifying setups execute on BOTH paper AND live accounts
+# simultaneously. Paper trades continue for the training flywheel.
+# Live trades use real capital with tighter risk limits.
+#
+# SAFETY FEATURES:
+#   - Requires LLM commentary (no template fallback allowed)
+#   - Skips the first scan of the day (waits for market to settle)
+#   - Halts automatically if equity drops below 50% of starting capital
+#   - LLM conviction must be non-null for any live trade
+#
+# ⚠️  Live API keys should be in .env as ALPACA_LIVE_API_KEY and
+#     ALPACA_LIVE_SECRET_KEY — not in this file.
+# ────────────────────────────────────────────────────────────────────────
+
 live_trading:
-  enabled: false
-  api_key: "your-live-alpaca-api-key"
-  secret_key: "your-live-alpaca-secret-key"
-  starting_capital: 100 # USD starting capital for live account
-  max_open_positions: 2 # Conservative limit for live trading
+  enabled: false                           # true = real money. Be very sure.
+  api_key: "your-live-alpaca-api-key"      # → .env: ALPACA_LIVE_API_KEY
+  secret_key: "your-live-alpaca-secret-key"  # → .env: ALPACA_LIVE_SECRET_KEY
+  starting_capital: 100                    # USD. Keep small while validating.
+  max_open_positions: 2                    # Very conservative for live trading.
   risk:
-    planned_risk_pct_max: 0.02 # 2% max risk per trade
-    stop_atr_multiplier: 1.0 # ATR multiplier for stop placement
-    target_atr_multiplier: 2.0 # ATR multiplier for target placement
-    timeout_days: 7 # Auto-close live trades after N days
-  min_score: null # Optional: minimum priority score for live trades
-  max_price: null # Optional: maximum stock price for live trades
+    planned_risk_pct_max: 0.02             # 2% max risk per live trade.
+    stop_atr_multiplier: 1.0               # Tighter stops than paper (paper uses 2.0).
+    target_atr_multiplier: 2.0             # Target at 2x ATR from entry.
+    timeout_days: 7                        # Auto-close live trades after 7 days.
+  min_score: null                          # Optional: minimum ranker score (0-100) for live.
+                                           # null = use same threshold as paper.
+  max_price: null                          # Optional: skip stocks above this price.
+                                           # null = no price limit.
+
+
+# ─── AUTOMATION ─────────────────────────────────────────────────────────
+# Controls when the watch loop runs scans, sends watchlists, and recaps.
+# All times are Eastern Time (ET).
+# ────────────────────────────────────────────────────────────────────────
 
 automation:
-  morning_watchlist_hour_et: 8
-  eod_recap_hour_et: 16
-  scan_interval_minutes: 30
-  market_open_hour_et: 9
+  morning_watchlist_hour_et: 8             # Send morning watchlist at 8:00 AM ET.
+  eod_recap_hour_et: 16                    # Send EOD recap at 4:00 PM ET.
+  scan_interval_minutes: 30                # Minutes between market scans (9:30-4:00 ET).
+                                           # 15 = more responsive, higher API usage.
+                                           # 30 = default, good balance.
+                                           # 60 = minimal, for slow strategies.
+  market_open_hour_et: 9                   # NYSE opens at 9:30 ET.
   market_open_minute_et: 30
-  market_close_hour_et: 16
+  market_close_hour_et: 16                 # NYSE closes at 4:00 PM ET.
+
+
+# ─── LLM (Local Ollama) ────────────────────────────────────────────────
+# Local language model for trade commentary generation. Runs on GPU via
+# Ollama. The model writes analysis + conviction scores for each trade
+# packet. Currently a commentary engine; graduates to decision-maker
+# in Phase 2 after conviction calibration.
+# ────────────────────────────────────────────────────────────────────────
 
 llm:
-  enabled: true
-  model: "qwen3:8b"
-  base_url: "http://localhost:11434"
-  temperature: 0.7
-  max_tokens: 1500
-  timeout_seconds: 180
-  use_grammar_enforcement: false # Enable after testing llama-cpp-python
-  grammar_file: "config/trade_commentary.gbnf"
+  enabled: true                            # false = skip LLM commentary, use template fallback.
+  model: "qwen3:8b"                        # Ollama model tag. Must be pulled first:
+                                           #   ollama pull qwen3:8b
+                                           # Custom fine-tuned: "halcyonlatest" after training.
+  base_url: "http://localhost:11434"        # Ollama API endpoint. Default port 11434.
+  temperature: 0.7                         # 0.0 = deterministic, 1.0 = creative.
+                                           # 0.7 = balanced for trade analysis.
+  max_tokens: 1500                         # Max output tokens per LLM call.
+                                           # Trade commentaries are typically 400-800 tokens.
+  timeout_seconds: 180                     # Max wait for LLM response.
+                                           # Qwen3 8B on RTX 3060: ~30-60s typical.
+                                           # Increase to 300 if seeing timeouts under load.
+  use_grammar_enforcement: false           # true = constrained XML output via llama-cpp-python.
+                                           # Requires llama-cpp-python + GBNF grammar file.
+                                           # Ollama cannot enforce output format natively.
+  grammar_file: "config/trade_commentary.gbnf"  # GBNF grammar for constrained decoding.
+
+
+# ─── API (Claude) ───────────────────────────────────────────────────────
+# Claude API model selection for different tasks. Each task can use a
+# different model tier based on quality requirements.
+# Sonnet = fast + cheap (~$3/M input). Opus = highest quality (~$15/M input).
+# ⚠️  API key in .env as ANTHROPIC_API_KEY.
+# ────────────────────────────────────────────────────────────────────────
 
 api:
   models:
-    training_generation: "claude-sonnet-4-20250514"
-    training_generation_anchor: "claude-opus-4-20250514"
-    quality_scoring: "claude-sonnet-4-20250514"
-    council_automated: "claude-sonnet-4-20250514"
-  anchor_count: 75
-  anchor_min_score: 4.5
+    training_generation: "claude-sonnet-4-20250514"        # Generates training examples from closed trades.
+    training_generation_anchor: "claude-opus-4-20250514"   # Generates anchor (highest quality) examples.
+    quality_scoring: "claude-sonnet-4-20250514"            # Scores training example quality (1-5).
+    council_automated: "claude-sonnet-4-20250514"          # Powers the 5-agent AI council sessions.
+  anchor_count: 75             # Number of highest-quality "anchor" examples to maintain.
+                               # These get oversampled during training (golden ratio 62/38).
+  anchor_min_score: 4.5        # Minimum quality score to qualify as an anchor.
+
+
+# ─── TRAINING ───────────────────────────────────────────────────────────
+# Controls the automated training pipeline. The system collects training
+# examples from closed trades, scores them for quality, and periodically
+# fine-tunes the local LLM.
+# ────────────────────────────────────────────────────────────────────────
 
 training:
   enabled: true
-  anthropic_api_key: "your-anthropic-api-key-here"
-  claude_model: "claude-sonnet-4-20250514" # Used by scoring + training gen. Sonnet recommended.
-  auto_train_threshold: 50 # Fine-tune when N new examples accumulate
-  auto_train_time_days: 7 # Or fine-tune if N days since last train
-  auto_train_min_examples: 20 # Min new examples for time-based trigger
-  auto_rollback_expectancy_drop: 0.20 # Rollback if expectancy drops >20%
-  auto_rollback_winrate_drop: 0.10 # Rollback if win rate drops >10%
+  anthropic_api_key: "your-anthropic-api-key-here"  # → .env: ANTHROPIC_API_KEY
+  claude_model: "claude-sonnet-4-20250514"           # Used by quality scoring + training gen.
+  auto_train_threshold: 50     # Trigger fine-tune when this many NEW examples accumulate
+                               # since the last training run.
+  auto_train_time_days: 7      # OR trigger fine-tune if this many days since last train.
+  auto_train_min_examples: 20  # Minimum new examples for the time-based trigger.
+                               # Prevents training on tiny batches.
+  auto_rollback_expectancy_drop: 0.20  # Rollback new model if expectancy drops >20%.
+                                       # Champion-challenger comparison on holdout set.
+  auto_rollback_winrate_drop: 0.10     # Rollback if win rate drops >10%.
+
+
+# ─── DATA ENRICHMENT ───────────────────────────────────────────────────
+# Adds fundamental, insider, news, and macro data to trade packets.
+# Runs during each scan cycle. Enrichment data feeds into both the
+# ranker features and LLM prompt context.
+# ⚠️  API keys in .env as FINNHUB_API_KEY and FRED_API_KEY.
+# ────────────────────────────────────────────────────────────────────────
 
 data_enrichment:
   enabled: true
-  finnhub_api_key: "your-finnhub-api-key" # Free at finnhub.io
-  fred_api_key: "your-fred-api-key" # Free at fred.stlouisfed.org
-  cache_hours: 24 # Cache fundamental/macro data
-  insider_lookback_days: 90
-  include_news_in_backfill: true # Include Finnhub news in historical backfill
+  finnhub_api_key: "your-finnhub-api-key"  # → .env: FINNHUB_API_KEY
+                                           # Free tier: 60 calls/min. Get at finnhub.io.
+  fred_api_key: "your-fred-api-key"        # → .env: FRED_API_KEY
+                                           # Free. Get at fred.stlouisfed.org/docs/api.
+  cache_hours: 24              # How long to cache enrichment data before re-fetching.
+                               # 24 = fetch fresh data once per day.
+                               # 6 = more responsive to intraday changes.
+  insider_lookback_days: 90    # Days of insider transaction history to include.
+  include_news_in_backfill: true  # Include Finnhub news headlines in historical backfill.
+
+
+# ─── RISK GOVERNOR ──────────────────────────────────────────────────────
+# Circuit breakers that override all other logic. These are HARD limits
+# — if any check fails, the trade is rejected regardless of score or
+# LLM conviction.
+# ────────────────────────────────────────────────────────────────────────
 
 risk_governor:
-  enabled: true
-  max_daily_loss_pct: 0.03 # Halt all trading if portfolio drops 3% in a day
-  max_position_pct: 0.10 # No single position > 10% of equity
-  max_open_positions: 10 # Maximum simultaneous positions
-  max_sector_pct: 0.30 # No sector > 30% of portfolio
-  max_correlated: 3 # Max positions in same sector
-  vol_halt_pct: 35.0 # Halt new longs if VIX proxy > 35%
-  kill_switch_file: data/trading_halted
+  enabled: true                # false = disable all risk checks (DANGEROUS — never do this in live).
+  max_daily_loss_pct: 0.03     # HALT all trading if portfolio drops 3% in one day.
+                               # Uses realized P&L only (not unrealized).
+  max_position_pct: 0.10       # No single position can exceed 10% of portfolio equity.
+  max_open_positions: 10       # Maximum simultaneous open positions.
+                               # Overridden by bootcamp.max_positions when bootcamp enabled.
+  max_sector_pct: 0.30         # No single sector can exceed 30% of portfolio.
+                               # Prevents concentration risk (e.g., all tech).
+  max_correlated: 3            # Max positions in the same GICS sector.
+  vol_halt_pct: 35.0           # Halt new longs if VIX proxy exceeds this level.
+                               # 35 = only during significant market stress.
+  kill_switch_file: data/trading_halted  # If this file exists, ALL trading halts immediately.
+                                         # Create it: touch data/trading_halted
+                                         # Remove it: rm data/trading_halted
+
+
+# ─── EVENT RISK ─────────────────────────────────────────────────────────
+# Continuous 0-10 scoring for earnings, FOMC, CPI, and other events.
+# Affects position sizing (multiplier) and can hard-block new trades.
+# ────────────────────────────────────────────────────────────────────────
 
 event_risk:
   enabled: true
-  block_threshold: 8      # hard block above this score
-  alert_threshold: 6      # Telegram alert above this
-  sizing_floor: 0.25      # minimum sizing multiplier
+  block_threshold: 8           # Score ≥8 = hard block. No new positions opened.
+                               # Typical trigger: earnings within 1-2 days.
+  alert_threshold: 6           # Score ≥6 = Telegram alert, but trade still allowed.
+  sizing_floor: 0.25           # Minimum sizing multiplier from event risk.
+                               # 0.25 = position size reduced to 25% max.
+
+
+# ─── REGIME ADAPTIVE ───────────────────────────────────────────────────
+# When enabled, the ranker qualification threshold automatically adjusts
+# based on market regime (VIX level + trend direction).
+#
+# Regime thresholds (packet_worthy score required):
+#   BULL_LOW_VOL:     40   (easiest — most trades)
+#   BULL_HIGH_VOL:    50
+#   TRANSITION:       60
+#   CORRECTION:       65
+#   BEAR_EARLY:       75
+#   BEAR_ESTABLISHED: 80
+#   CRISIS:           90   (hardest — very few trades)
+# ────────────────────────────────────────────────────────────────────────
 
 regime_adaptive:
-  enabled: true # Auto-adjust qualification thresholds by market regime
+  enabled: true                # false = use static qualification_threshold from bootcamp/ranking.
+
+
+# ─── BOOTCAMP (Phase 1 Data Collection) ────────────────────────────────
+# High-volume mode for the initial data collection phase. Lowers
+# qualification thresholds and raises position limits to generate as
+# many training examples as possible across all market conditions.
+#
+# ⚠️  When enabled, overrides risk.max_open_positions and
+#     ranking.packet_worthy_threshold with the values below.
+# ────────────────────────────────────────────────────────────────────────
 
 bootcamp:
-  enabled: false
-  phase: 1 # 1 = data collection, 2 = optimization, 3 = ML/LLM learning
-  # Override thresholds for high-volume data collection
-  qualification_threshold: 40 # Normal: 70 — lowered to capture more trades
-  watchlist_threshold: 25 # Normal: 45 — lowered for broader watchlist
-  # Override position limits
-  max_positions: 50 # No practical limit during bootcamp
-  # Email preferences
-  email_mode: full_stream # full_stream / daily_summary / digest / silent
-  max_packets_per_scan: 8 # Cap packets per scan to fit in 30-min window
-  scan_interval_minutes: 30 # How often to re-scan during market hours
+  enabled: false               # true = Phase 1 data collection mode.
+  phase: 1                     # 1 = data collection (current)
+                               # 2 = optimization (after 50-trade gate)
+                               # 3 = ML/LLM learning (after 100-trade gate)
+  qualification_threshold: 40  # Ranker score needed to open a trade.
+                               # Normal (non-bootcamp): 70.
+                               # Lower = more trades = more training data.
+  watchlist_threshold: 25      # Ranker score to appear on watchlist.
+                               # Normal: 45. Lower = broader monitoring.
+  max_positions: 50            # Effectively unlimited during bootcamp.
+                               # The goal is volume, not risk management.
+  traffic_light_floor: 0.5     # Minimum Traffic Light sizing multiplier.
+                               # Normal RED regime = 0.1x (barely trades).
+                               # Bootcamp = 0.5x (still trades in volatility).
+                               # The data from volatile regimes is MORE valuable.
+  email_mode: full_stream      # "full_stream" — email every packet immediately.
+                               # "daily_summary" — one email at EOD.
+                               # "digest" — multiple digests per day (see email.digest_times).
+                               # "silent" — no emails, Telegram only.
+  max_packets_per_scan: 8      # Cap packets per scan cycle. Prevents 20+ trades in one scan.
+  scan_interval_minutes: 30    # How often to scan during market hours.
+                               # Must fit LLM inference time (8 packets × ~30s = 4 min).
 
-# ── Telegram Notifications ───────────────────────────────────────
-# Real-time push alerts for trade opens/closes, earnings warnings,
-# overnight collection results, and system events.
-# Setup: message @BotFather on Telegram → /newbot → copy token
-#        message your bot → /start → get chat_id from
-#        https://api.telegram.org/bot<TOKEN>/getUpdates
-# ─────────────────────────────────────────────────────────────────
+
+# ─── LOGGING ────────────────────────────────────────────────────────────
+
 logging:
-  level: INFO
-  file: logs/arcis.log
+  level: INFO                  # DEBUG, INFO, WARNING, ERROR, CRITICAL.
+                               # DEBUG = very verbose (every function call).
+                               # INFO = recommended for production.
+  file: logs/arcis.log         # Log file path. Auto-rotated: 10MB × 7 files.
+
+
+# ─── TELEGRAM ───────────────────────────────────────────────────────────
+# Real-time push alerts: trade opens/closes, earnings warnings, council
+# results, overnight collection, system errors. 32 supported commands.
+#
+# SETUP:
+#   1. Message @BotFather on Telegram → /newbot → copy the token
+#   2. Message your new bot → /start
+#   3. Get your chat_id from: https://api.telegram.org/bot<TOKEN>/getUpdates
+#   4. Put token + chat_id in .env (not here)
+#
+# ⚠️  Secrets in .env as TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.
+# ────────────────────────────────────────────────────────────────────────
 
 telegram:
-  enabled: false
-  bot_token: "your-bot-token-from-botfather"
-  chat_id: "your-chat-id"
+  enabled: false               # true = send Telegram notifications.
+  bot_token: "your-bot-token-from-botfather"   # → .env: TELEGRAM_BOT_TOKEN
+  chat_id: "your-chat-id"                      # → .env: TELEGRAM_CHAT_ID
+
+
+# ─── RENDER (Cloud Dashboard) ──────────────────────────────────────────
+# Syncs local SQLite data to Render Postgres every N seconds.
+# The React dashboard at halcyonlab.app reads from Postgres.
+# ⚠️  Connection string in .env as DATABASE_URL.
+# ────────────────────────────────────────────────────────────────────────
 
 render:
-  enabled: false
-  database_url: "postgresql://user:pass@host:5432/halcyon"
-  sync_interval_seconds: 120
+  enabled: false               # true = sync local data to Render Postgres.
+  database_url: "postgresql://user:pass@host:5432/halcyon"  # → .env: DATABASE_URL
+  sync_interval_seconds: 120   # How often to push data to Render.
+                               # 120 = every 2 minutes. Dashboard is near-real-time.
+                               # 300 = every 5 minutes. Lower bandwidth.
 
-# ── AI Council ────────────────────────────────────────────
-# 5-agent Modified Delphi deliberation system.
-# Model configured in api.models.council_automated above.
-# ──────────────────────────────────────────────────────────
+
+# ─── AI COUNCIL ─────────────────────────────────────────────────────────
+# 5-agent Modified Delphi deliberation system. Runs daily (or weekly)
+# to produce a market consensus (BULLISH/NEUTRAL/BEARISH).
+# Agents: tactical_operator, strategic_architect, red_team,
+#         innovation_engine, macro_navigator.
+# Cost: ~$0.14 per session via Claude Sonnet API.
+# ────────────────────────────────────────────────────────────────────────
+
 council:
   enabled: true
-  daily_hour_et: 8
-  daily_minute_et: 30
-  rounds: 3
-  temperature: 0.8
+  daily_hour_et: 8             # Run daily session at this hour (ET).
+  daily_minute_et: 30          # Run daily session at this minute.
+                               # 8:30 AM = before market open, after pre-market data.
+  rounds: 3                    # Max deliberation rounds per session.
+                               # Round 1: independent votes.
+                               # Round 2: shared context, revised votes (if contested).
+                               # Round 3: final vote (rarely needed).
+  temperature: 0.8             # Agent creativity. Higher = more diverse opinions.
+  max_session_cost: 2.00       # Cost cap in dollars. Skips Round 2 if exceeding.
 
-# ── Execution Configuration ─────────────────────────────────────
-# Controls how bracket orders are placed for shadow/live trades.
-# ─────────────────────────────────────────────────────────────────
+
+# ─── EXECUTION ──────────────────────────────────────────────────────────
+# Controls how bracket orders are placed on Alpaca.
+# A bracket order = entry + stop-loss + take-profit as one atomic order.
+# All bracket orders use GTC (Good-Til-Canceled) time-in-force.
+# ────────────────────────────────────────────────────────────────────────
+
 execution:
-  order_type: limit                # "market" or "limit"
-  limit_timeout_seconds: 300       # Cancel unfilled limit orders after N seconds
+  order_type: limit            # "market" — fill immediately at best available price.
+                               # "limit" — place limit order at entry_zone price.
+                               #   Better fills but may not execute if price moves away.
+  limit_timeout_seconds: 300   # Cancel unfilled limit orders after 5 minutes.
+                               # Only applies when order_type is "limit".
