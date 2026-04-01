@@ -3,7 +3,7 @@
 **This document is updated after every conversation with Claude. It IS the system state.**
 **Claude: You MUST read this file at the start of every session and update it after every substantive change.**
 
-> Last updated: April 1, 2026 (early AM) · All sprints merged (4A-8 + reconciliation + analytics + dashboard redesign). 6 post-merge hotfixes pushed. 5 open issues remain (from 87). Tests: 1,235. 173 Python files, 101 test files, 14 dashboard pages, 40 sync tables. BSL 1.1 license. Dashboard fully functional on Render Postgres. All 40 sync tables have Postgres CREATE TABLE entries.
+> Last updated: April 1, 2026 · All sprints merged (4A-8 + reconciliation + analytics + dashboard redesign + log audit + data integrity fix). 82 issues closed (87→5). Tests: 1,235. 173 Python files, 101 test files. BSL 1.1 license. Dashboard on Render Postgres. Reconciliation data integrity fixed (actual_exit_time backfilled). Double logging fixed. Idempotent ALTER TABLEs. Next sprint: React Flow interactive diagrams + UI polish.
 
 ---
 
@@ -193,6 +193,8 @@ Also installed (not repo-relevant): hookify, playground, plugin-dev, mcp-server-
 | 8 (CC) | #173 ✅ | Comprehensive cleanup: 63 issues closed — training, council, LLM, data, trading, frontend, config |
 | Analytics migration | #174 ✅ | Cloud endpoints read Postgres: HSHS, CTO Report, Build Score, Training Status, system/validation |
 | Dashboard redesign | #175 ✅ | Shadow/Live Ledger redesign, CTO period selector, Validation feedback, Build Score scheduling |
+| Log audit | #176 ✅ | Double logging fix, idempotent ALTER TABLEs, validate-system, DNS retry, SQLite retry, LLM timing |
+| Data integrity | #177 ✅ | Reconciliation actual_exit_time fix, paper trade auto-close, bracket status constant, backfill migration |
 
 ### Post-Merge Hotfixes (April 1)
 - ✅ VRAM handoff complete: torch.cuda.empty_cache(), ollama_llama_server kill, 45s timeout, Ollama restart on failure
@@ -354,3 +356,5 @@ GRPO training: RunPod A100 cloud ($14/mo), not local hardware.
 - [x] ~~Config documentation~~ — settings.example.yaml expanded from 208 → 423 lines
 - [x] ~~CC tooling installed~~ — GitHub MCP, Context7, SQLite MCP, ruff hooks, CLAUDE.md, skills, subagents
 - [x] ~~87 → 5 open issues~~ — two audits (Codex + CC deep) filed 87 issues, 82 closed
+- [x] ~~Log audit~~ PR #176 — Double logging, idempotent ALTER TABLEs, DNS retry, SQLite retry, LLM timing
+- [x] ~~Data integrity~~ PR #177 — Reconciliation actual_exit_time fix, paper auto-close, bracket constant
