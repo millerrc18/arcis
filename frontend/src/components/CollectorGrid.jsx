@@ -15,9 +15,9 @@ const COLLECTOR_NAMES = {
   macro_snapshots: 'FRED Macro Data',
   google_trends: 'Google Trends',
   earnings_calendar: 'Earnings Calendar',
-  sec_filings: 'SEC EDGAR Filings',
+  edgar_filings: 'SEC EDGAR Filings',
   insider_transactions: 'Insider Transactions',
-  research_docs: 'Research Docs',
+  fed_communications: 'Fed Communications',
   analyst_estimates: 'Analyst Estimates',
   short_interest: 'Short Interest',
 }

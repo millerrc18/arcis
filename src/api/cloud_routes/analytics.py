@@ -202,9 +202,67 @@ def create_router(runtime, verify_auth):
     @router.get("/api/health/hshs", dependencies=[Depends(verify_auth)])
     def health_hshs():
         try:
-            from src.evaluation.hshs_live import compute_hshs
+            # Compute HSHS dimensions from Postgres (mirrors health/score logic)
+            closed_trades = runtime.query(
+                "SELECT pnl_dollars, pnl_pct FROM shadow_trades WHERE status = 'closed'"
+            )
+            example_row = runtime.query_one("SELECT COUNT(*) as count FROM training_examples")
+            scan = runtime.query_one(
+                "SELECT llm_success, llm_total FROM scan_metrics ORDER BY created_at DESC LIMIT 1"
+            )
+            canary = runtime.query_one(
+                "SELECT verdict, perplexity, distinct_2 FROM canary_evaluations ORDER BY created_at DESC LIMIT 1"
+            )
+            open_count_row = runtime.query_one(
+                "SELECT COUNT(*) as c FROM shadow_trades WHERE status = 'open'"
+            )
+            source_rows = runtime.query(
+                "SELECT source, COUNT(*) as cnt FROM training_examples GROUP BY source"
+            )
+            regime_row = runtime.query_one(
+                "SELECT COUNT(DISTINCT regime_label) as cnt FROM training_examples WHERE regime_label IS NOT NULL"
+            )
+            ticker_row = runtime.query_one(
+                "SELECT COUNT(DISTINCT ticker) as cnt FROM training_examples WHERE ticker IS NOT NULL"
+            )
 
-            return compute_hshs()
+            closed_count = len(closed_trades)
+            open_count = open_count_row["c"] if open_count_row else 0
+            example_count = example_row["count"] if example_row else 0
+            source_map = {row["source"]: row["cnt"] for row in source_rows}
+
+            perf_score, _ = _compute_performance_score(closed_trades)
+            mq_score, _ = _compute_model_quality_score(scan, canary)
+            da_score, _ = _compute_data_asset_score(example_count)
+            fw_score, _ = _compute_flywheel_score(closed_count, open_count)
+            def_score, _ = _compute_defensibility_score(
+                example_count, source_map,
+                regime_row["cnt"] if regime_row else 0,
+                ticker_row["cnt"] if ticker_row else 0,
+            )
+
+            dimensions = {
+                "performance": round(perf_score, 2),
+                "model_quality": round(mq_score, 2),
+                "data_asset": round(da_score, 2),
+                "flywheel_velocity": round(fw_score, 2),
+                "defensibility": round(def_score, 2),
+            }
+            weights = {
+                "performance": PERFORMANCE_WEIGHT,
+                "model_quality": MODEL_QUALITY_WEIGHT,
+                "data_asset": DATA_ASSET_WEIGHT,
+                "flywheel_velocity": FLYWHEEL_WEIGHT,
+                "defensibility": DEFENSIBILITY_WEIGHT,
+            }
+            overall = round(sum(dimensions[k] * weights[k] for k in dimensions), 1)
+
+            return {
+                "hshs": overall,
+                "dimensions": dimensions,
+                "weights": weights,
+                "phase": "early",
+            }
         except Exception as exc:
             runtime.logger.error("[API] HSHS computation failed: %s", exc)
             return {"hshs": 0, "dimensions": {}, "error": str(exc)}
@@ -312,8 +370,11 @@ def create_router(runtime, verify_auth):
                 "SELECT COUNT(*) as c FROM shadow_trades WHERE status = 'open'"
             )
             closed_recent = runtime.query(
-                "SELECT ticker, pnl_dollars, pnl_pct, exit_reason FROM shadow_trades "
-                "WHERE status = 'closed' AND actual_exit_time >= %s ORDER BY actual_exit_time DESC",
+                "SELECT st.ticker, st.pnl_dollars, st.pnl_pct, st.exit_reason, "
+                "st.duration_days, st.recommendation_id "
+                "FROM shadow_trades st "
+                "WHERE st.status = 'closed' AND st.actual_exit_time >= %s "
+                "ORDER BY st.actual_exit_time DESC",
                 (cutoff,),
             )
             packet_count = runtime.query_one(
@@ -323,7 +384,124 @@ def create_router(runtime, verify_auth):
             latest_audit = runtime.query_one(
                 "SELECT overall_assessment, summary FROM audit_reports ORDER BY created_at DESC LIMIT 1"
             )
+            example_row = runtime.query_one("SELECT COUNT(*) as c FROM training_examples")
+            model_row = runtime.query_one(
+                "SELECT version_name FROM model_versions WHERE status = 'active' "
+                "ORDER BY created_at DESC LIMIT 1"
+            )
+
             summary = _compute_trade_summary(closed_recent, open_count["c"] if open_count else 0)
+
+            # By exit reason
+            by_exit_reason = {}
+            for trade in closed_recent:
+                reason = trade.get("exit_reason") or "unknown"
+                if reason not in by_exit_reason:
+                    by_exit_reason[reason] = {"count": 0, "pnls": []}
+                by_exit_reason[reason]["count"] += 1
+                by_exit_reason[reason]["pnls"].append(trade.get("pnl_pct", 0) or 0)
+            for reason, data in by_exit_reason.items():
+                pnls = data.pop("pnls")
+                data["avg_pnl"] = round(sum(pnls) / len(pnls), 2) if pnls else 0
+
+            # By sector/regime - join with recommendations
+            rec_ids = [t["recommendation_id"] for t in closed_recent if t.get("recommendation_id")]
+            rec_map = {}
+            if rec_ids:
+                placeholders = ", ".join(["%s"] * len(rec_ids))
+                recs = runtime.query(
+                    f"SELECT recommendation_id, priority_score, setup_type, regime_label "
+                    f"FROM recommendations WHERE recommendation_id IN ({placeholders})",
+                    tuple(rec_ids),
+                )
+                rec_map = {r["recommendation_id"]: r for r in recs}
+
+            # By score band
+            by_score_band = {}
+            for trade in closed_recent:
+                rec = rec_map.get(trade.get("recommendation_id"), {})
+                score = rec.get("priority_score", 0) or 0
+                if score >= 80:
+                    band = "80-100"
+                elif score >= 60:
+                    band = "60-79"
+                elif score >= 40:
+                    band = "40-59"
+                else:
+                    band = "0-39"
+                if band not in by_score_band:
+                    by_score_band[band] = {"trades": 0, "wins": 0, "pnls": []}
+                by_score_band[band]["trades"] += 1
+                pnl = trade.get("pnl_dollars", 0) or 0
+                if pnl > 0:
+                    by_score_band[band]["wins"] += 1
+                by_score_band[band]["pnls"].append(trade.get("pnl_pct", 0) or 0)
+            for band, data in by_score_band.items():
+                pnls = data.pop("pnls")
+                data["win_rate"] = round(data["wins"] / data["trades"], 3) if data["trades"] else 0
+                data["avg_pnl"] = round(sum(pnls) / len(pnls), 2) if pnls else 0
+
+            # By sector
+            by_sector = {}
+            for trade in closed_recent:
+                rec = rec_map.get(trade.get("recommendation_id"), {})
+                sector = rec.get("setup_type") or "unknown"
+                if sector not in by_sector:
+                    by_sector[sector] = {"trades": 0, "wins": 0}
+                by_sector[sector]["trades"] += 1
+                if (trade.get("pnl_dollars", 0) or 0) > 0:
+                    by_sector[sector]["wins"] += 1
+            for sector, data in by_sector.items():
+                data["win_rate"] = round(data["wins"] / data["trades"], 3) if data["trades"] else 0
+
+            # By regime
+            by_regime = {}
+            for trade in closed_recent:
+                rec = rec_map.get(trade.get("recommendation_id"), {})
+                regime = rec.get("regime_label") or "unknown"
+                if regime not in by_regime:
+                    by_regime[regime] = {"trades": 0, "wins": 0}
+                by_regime[regime]["trades"] += 1
+                if (trade.get("pnl_dollars", 0) or 0) > 0:
+                    by_regime[regime]["wins"] += 1
+            for regime, data in by_regime.items():
+                data["win_rate"] = round(data["wins"] / data["trades"], 3) if data["trades"] else 0
+
+            # Execution analysis
+            durations = [t.get("duration_days", 0) or 0 for t in closed_recent]
+            timeouts = [t for t in closed_recent if t.get("exit_reason") == "timeout"]
+            targets_hit = [t for t in closed_recent if t.get("exit_reason") in ("target_1", "target_2")]
+            execution_analysis = {
+                "avg_hold_period_days": round(sum(durations) / len(durations), 1) if durations else 0,
+                "targets_hit_pct": round(len(targets_hit) / len(closed_recent) * 100, 1) if closed_recent else 0,
+                "timeout_pct": round(len(timeouts) / len(closed_recent) * 100, 1) if closed_recent else 0,
+            }
+
+            # Fund metrics
+            pnls = [t.get("pnl_pct", 0) or 0 for t in closed_recent]
+            pnl_dollars = [t.get("pnl_dollars", 0) or 0 for t in closed_recent]
+            fund_metrics = {"sortino_ratio": None, "calmar_ratio": None, "var_95": None}
+            if len(pnls) >= 2:
+                mean_ret = sum(pnls) / len(pnls)
+                downside = [p for p in pnls if p < 0]
+                if downside:
+                    downside_dev = (sum(d ** 2 for d in downside) / len(downside)) ** 0.5
+                    fund_metrics["sortino_ratio"] = round(mean_ret / downside_dev, 3) if downside_dev else None
+                sorted_pnls = sorted(pnls)
+                idx_95 = max(0, int(len(sorted_pnls) * 0.05))
+                fund_metrics["var_95"] = round(sorted_pnls[idx_95], 2)
+                total_ret = sum(pnl_dollars)
+                running = 0
+                peak = 0
+                max_dd = 0
+                for p in pnl_dollars:
+                    running += p
+                    peak = max(peak, running)
+                    max_dd = max(max_dd, peak - running)
+                if max_dd > 0:
+                    ann_ret = mean_ret * 252
+                    fund_metrics["calmar_ratio"] = round(ann_ret / (max_dd / 100000 * 100), 3) if max_dd else None
+
             return {
                 "report_period": {
                     "start": cutoff[:10],
@@ -331,15 +509,16 @@ def create_router(runtime, verify_auth):
                 },
                 "headline_kpis": summary["headline_kpis"],
                 "trade_summary": summary["trade_summary"],
-                "fund_metrics": {
-                    "psr": None,
-                    "calmar_ratio": None,
-                    "dsr": None,
-                    "information_ratio": None,
-                },
+                "by_exit_reason": by_exit_reason,
+                "by_score_band": by_score_band,
+                "by_sector": by_sector,
+                "by_regime": by_regime,
+                "execution_analysis": execution_analysis,
+                "fund_metrics": fund_metrics,
+                "confidence_calibration": {},
                 "system_status": {
-                    "model_version": "cloud",
-                    "dataset_size": 0,
+                    "model_version": model_row["version_name"] if model_row else "cloud",
+                    "dataset_size": example_row["c"] if example_row else 0,
                 },
                 "period_days": days,
                 "packets_generated": packet_count["c"] if packet_count else 0,
@@ -353,9 +532,60 @@ def create_router(runtime, verify_auth):
     @router.get("/api/build-score", dependencies=[Depends(verify_auth)])
     def build_score():
         try:
-            from src.evaluation.build_score import compute_build_score
+            # Read from synced build_score_history table instead of computing
+            # from local SQLite
+            latest = runtime.query_one(
+                "SELECT build_score, gate_velocity, system_health, "
+                "data_asset_value, model_quality, research_velocity, "
+                "reliability, decay_applied, created_at "
+                "FROM build_score_history ORDER BY created_at DESC LIMIT 1"
+            )
+            if not latest:
+                return {"build_score": 0, "components": {}}
 
-            return compute_build_score()
+            components = {
+                "gate_velocity": latest.get("gate_velocity", 0) or 0,
+                "system_health": latest.get("system_health", 0) or 0,
+                "data_asset_value": latest.get("data_asset_value", 0) or 0,
+                "model_quality": latest.get("model_quality", 0) or 0,
+                "research_velocity": latest.get("research_velocity", 0) or 0,
+                "reliability": latest.get("reliability", 0) or 0,
+            }
+
+            # History: last 7 days of scores
+            history_rows = runtime.query(
+                "SELECT build_score FROM build_score_history "
+                "ORDER BY created_at DESC LIMIT 7"
+            )
+            history_7d = [r["build_score"] for r in reversed(history_rows)] if history_rows else []
+
+            # Delta 7d
+            delta_7d = None
+            if len(history_7d) >= 2:
+                delta_7d = round(history_7d[-1] - history_7d[0], 1)
+
+            # Phase progress from closed trades
+            closed_row = runtime.query_one(
+                "SELECT COUNT(*) as c FROM shadow_trades WHERE status = 'closed'"
+            )
+            closed_count = closed_row["c"] if closed_row else 0
+            phase_progress = {
+                "current_phase": 1,
+                "trades_required": 50,
+                "trades_closed": closed_count,
+                "pct_complete": round(min(100, (closed_count / 50) * 100), 1),
+            }
+
+            return {
+                "build_score": latest.get("build_score", 0) or 0,
+                "delta_7d": delta_7d,
+                "components": components,
+                "data_asset_detail": {},
+                "phase_progress": phase_progress,
+                "decay_today": bool(latest.get("decay_applied")),
+                "history_7d": history_7d,
+                "computed_at": latest.get("created_at", ""),
+            }
         except Exception as exc:
             runtime.logger.error("[API] build-score failed: %s", exc, exc_info=True)
             return {"build_score": 0, "components": {}, "error": str(exc)}

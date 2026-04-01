@@ -459,11 +459,17 @@ class TestSyncTablesConfig:
                 f"{table_name} has invalid mode: {config['mode']}"
             )
 
-    def test_options_chains_not_synced(self):
-        assert "options_chains" not in SYNC_TABLES
+    def test_options_chains_synced(self):
+        assert "options_chains" in SYNC_TABLES
+        assert SYNC_TABLES["options_chains"]["mode"] == "latest_only"
 
-    def test_google_trends_not_synced(self):
-        assert "google_trends" not in SYNC_TABLES
+    def test_google_trends_synced(self):
+        assert "google_trends" in SYNC_TABLES
+        assert SYNC_TABLES["google_trends"]["mode"] == "latest_only"
+
+    def test_cboe_ratios_synced(self):
+        assert "cboe_ratios" in SYNC_TABLES
+        assert SYNC_TABLES["cboe_ratios"]["mode"] == "latest_only"
 
     def test_training_examples_synced(self):
         assert "training_examples" in SYNC_TABLES
