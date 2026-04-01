@@ -321,6 +321,16 @@ GRPO training: RunPod A100 cloud ($14/mo), not local hardware.
 
 ---
 
+## CC Sprint Queue
+
+| Priority | Sprint | Prompt | Status |
+|---|---|---|---|
+| 1 | React Flow interactive diagrams | `docs/sprints/sprint-react-flow.md` | QUEUED — next after data integrity ships |
+| 2 | Repo reorganization | TBD | Backlog |
+| 3 | architecture.md refresh | TBD | Backlog |
+
+---
+
 ## TODO (non-urgent)
 - [ ] **Repo reorganization** — file structure needs cleanup: stale sprint docs, duplicate scripts, orphaned files, inconsistent naming, `ai_research_desk.sqlite3-wal` tracked in git. Audit and propose new structure before executing.
 - [ ] **architecture.md refresh** — 1,235-line module registry is stale (counts from March 27). CC sprint task: read all 173 Python files and regenerate.
