@@ -175,8 +175,11 @@ MIGRATIONS = [
         last_trend_score INTEGER DEFAULT 0,
         last_credit_score INTEGER DEFAULT 0,
         last_total_score INTEGER DEFAULT 0,
-        updated_at TEXT
+        updated_at TEXT,
+        last_transition_at TEXT
     )"""),
+    ("traffic_light_state", "last_transition_at",
+     "ALTER TABLE traffic_light_state ADD COLUMN last_transition_at TEXT"),
 
     ("council_calibrations", None, """CREATE TABLE IF NOT EXISTS council_calibrations (
         calibration_id TEXT PRIMARY KEY,
