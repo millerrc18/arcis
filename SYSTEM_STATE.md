@@ -68,12 +68,14 @@
 | **github** | GitHub issues, PRs, actions — direct management without `gh` CLI | `~/.claude.json` (project-scoped) |
 | **sqlite** | Direct SQL queries against `ai_research_desk.sqlite3` (40 tables) | `~/.claude.json` (project-scoped) |
 
-### Hooks (2)
+### Hooks (4)
 
 | Hook | Trigger | What It Does |
 |---|---|---|
 | **Auto-lint Python** | PostToolUse (Edit/Write) | Runs `ruff check --fix` + `ruff format` on any edited `.py` file |
+| **Auto-lint JSX** | PostToolUse (Edit/Write) | Runs `eslint --fix` on any edited `.js`/`.jsx` file in `frontend/src/` |
 | **Block .env edits** | PreToolUse (Edit/Write) | Prevents Claude from modifying `.env` or `.env.*` files — must be edited manually |
+| **Block lock file edits** | PreToolUse (Edit/Write) | Prevents Claude from directly editing `*lock.json` or `*lock` files |
 
 Config: `.claude/settings.json`
 
@@ -107,14 +109,13 @@ Config: `.claude/agents/<name>.md`
 | **.claude/settings.json** | Hooks configuration |
 | **.claude/settings.local.json** | Permission allowlist for specific bash commands |
 
-### Plugins (28 installed, 12 relevant)
+### Plugins (28 installed, 11 relevant)
 
 | Plugin | Slash Commands / Features | Relevance |
 |---|---|---|
 | **commit-commands** | `/commit`, `/commit-push-pr`, `/clean_gone` | Git workflow |
 | **code-simplifier** | `/simplify` — Opus-powered review of changed code | Post-edit quality |
 | **ralph-loop** | `/loop 5m <cmd>`, `/cancel-ralph` | Recurring monitoring |
-| **pyright-lsp** | Real-time Python type checking via Pyright | Type errors in 173 .py files |
 | **telegram** | `/telegram:configure`, `/telegram:access` | DM bot → Claude session |
 | **claude-md-management** | `/revise-claude-md`, `/claude-md-improver` | CLAUDE.md maintenance |
 | **claude-code-setup** | `/claude-automation-recommender` | Automation discovery |
@@ -125,6 +126,8 @@ Config: `.claude/agents/<name>.md`
 | **security-guidance** | Security best practices | Trading system security |
 
 Also installed (not repo-relevant): hookify, playground, plugin-dev, mcp-server-dev, explanatory-output-style, code-review, context7, github, playwright, superpowers, 6 LSP plugins (rust, ruby, go, swift, clang, jdtls)
+
+**Removed:** pyright-lsp (incompatible with Windows — tries to spawn `pyright-langserver` as Unix command)
 
 ### Telegram Channel
 
@@ -138,8 +141,9 @@ Also installed (not repo-relevant): hookify, playground, plugin-dev, mcp-server-
 | Package | Version | Purpose |
 |---|---|---|
 | **ruff** | 0.15.8 | Python linter + formatter (used by auto-lint hook) |
-| **pyright** | 1.1.408 | Python static type checker (used by pyright-lsp plugin) |
+| **pyright** | 1.1.408 | Python static type checker (venv only — plugin removed, use `pyright src/` manually) |
 | **bun** | 1.3.11 | JavaScript runtime (required by telegram plugin MCP server) |
+| **@xyflow/react** | latest | React Flow library for Architecture + DB Schema pages |
 
 ### Config Files Added
 
@@ -348,8 +352,9 @@ GRPO training: RunPod A100 cloud ($14/mo), not local hardware.
 ---
 
 ## TODO (non-urgent)
+- [ ] **Move SQLite off OneDrive** — DB corrupted April 1 due to OneDrive sync conflict with WAL files. Recreated fresh (data safe on Render Postgres). Move to `C:\halcyon-data\` or exclude from OneDrive sync to prevent recurrence.
 - [ ] **Repo reorganization** — file structure needs cleanup: stale sprint docs, duplicate scripts, orphaned files, inconsistent naming, `ai_research_desk.sqlite3-wal` tracked in git. Audit and propose new structure before executing.
-- [ ] **architecture.md refresh** — 1,235-line module registry is stale (counts from March 27). CC sprint task: read all 173 Python files and regenerate.
+- [ ] **architecture.md refresh** — 1,245-line module registry is stale (counts from March 27). CC sprint task: read all 175 Python files and regenerate.
 - [ ] Rename GitHub repo `halcyon-lab` → `arcis`
 - [ ] GitHub Pro ($4/mo) for branch protection
 - [ ] UPS: CyberPower CP1500PFCLCD (~$220)
@@ -384,3 +389,7 @@ GRPO training: RunPod A100 cloud ($14/mo), not local hardware.
 - [x] ~~87 → 5 open issues~~ — two audits (Codex + CC deep) filed 87 issues, 82 closed
 - [x] ~~Log audit~~ PR #176 — Double logging, idempotent ALTER TABLEs, DNS retry, SQLite retry, LLM timing
 - [x] ~~Data integrity~~ PR #177 — Reconciliation actual_exit_time fix, paper auto-close, bracket constant
+- [x] ~~Mega Sprint~~ PR #178 — Intra-day reconciliation (15 min), exit_failed recovery, Telegram gating, profit factor ∞, React Flow (Architecture + DB Schema), sidebar sections, ticker logos, chart visibility, activity feed normalizer, position existence check
+- [x] ~~SQLite DB recovery~~ — Corrupted by OneDrive sync; recreated fresh, data safe on Render Postgres
+- [x] ~~Plugin fixes~~ — Alpaca MCP wrapped with `cmd /c` for Windows; pyright-lsp removed (Windows incompatible)
+- [x] ~~gh CLI re-authenticated~~ — PAT token refreshed
