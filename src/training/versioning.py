@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
-TRAINING_SCHEMA = """
+TRAINING_TABLES_SCHEMA = """
 CREATE TABLE IF NOT EXISTS model_versions (
     version_id TEXT PRIMARY KEY,
     version_name TEXT NOT NULL,
@@ -42,8 +42,9 @@ CREATE TABLE IF NOT EXISTS training_examples (
     output_text TEXT NOT NULL,
     quality_score REAL
 );
+"""
 
--- Training table indexes
+TRAINING_INDEXES_SCHEMA = """
 CREATE INDEX IF NOT EXISTS idx_training_examples_source ON training_examples(source);
 CREATE INDEX IF NOT EXISTS idx_training_examples_ticker ON training_examples(ticker);
 CREATE INDEX IF NOT EXISTS idx_training_examples_created_at ON training_examples(created_at);
@@ -55,7 +56,27 @@ CREATE INDEX IF NOT EXISTS idx_model_versions_status ON model_versions(status);
 def init_training_tables(db_path: str = "ai_research_desk.sqlite3") -> None:
     """Create training tables if they don't exist."""
     with sqlite3.connect(db_path) as conn:
-        conn.executescript(TRAINING_SCHEMA)
+        conn.executescript(TRAINING_TABLES_SCHEMA)
+        conn.commit()
+
+        # Migration: add columns introduced with training_examples v2
+        # (CREATE TABLE IF NOT EXISTS is a no-op on existing tables,
+        #  so new columns must be added via ALTER TABLE)
+        for col, col_def in [
+            ("recommendation_id", "TEXT"),
+            ("feature_snapshot", "TEXT"),
+            ("trade_outcome", "TEXT"),
+            ("instruction", "TEXT NOT NULL DEFAULT ''"),
+        ]:
+            try:
+                conn.execute(
+                    f"ALTER TABLE training_examples ADD COLUMN {col} {col_def}"
+                )
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass
+
+        conn.executescript(TRAINING_INDEXES_SCHEMA)
         conn.commit()
 
         # Migration: add holdout_score to model_versions

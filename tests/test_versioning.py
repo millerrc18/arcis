@@ -5,6 +5,7 @@ import sqlite3
 import tempfile
 
 from src.training.versioning import (
+    TRAINING_TABLES_SCHEMA,
     get_active_model_name,
     get_active_model_version,
     get_model_history,
@@ -193,3 +194,73 @@ def test_update_config_model_quoted_value():
         content = f.read()
     assert "halcyon-v1.0.0" in content
     os.unlink(path)
+
+
+# ── Schema drift guard ──────────────────────────────────────────────
+
+
+def test_init_training_tables_migrates_old_schema():
+    """init_training_tables must handle a DB with the legacy training_examples schema.
+
+    Guards against schema drift: if a column is added to TRAINING_TABLES_SCHEMA
+    but no ALTER TABLE migration is added, this test will fail because the
+    old-schema DB won't gain the new column after init.
+    """
+    import re
+
+    db = _tmp_db()
+    # Recreate the old schema (documented in test_db_migration.py lines 21-25)
+    with sqlite3.connect(db) as conn:
+        conn.execute("""CREATE TABLE training_examples (
+            id INTEGER PRIMARY KEY, example_id TEXT UNIQUE, ticker TEXT,
+            trade_date TEXT, input_text TEXT, output_text TEXT,
+            quality_score REAL, curriculum_stage TEXT, outcome TEXT,
+            source TEXT, model_version TEXT, created_at TEXT)""")
+        conn.execute(
+            "INSERT INTO training_examples "
+            "(example_id, ticker, input_text, output_text, source, created_at) "
+            "VALUES ('old1', 'AAPL', 'test', 'test', 'backfill', '2025-01-01')"
+        )
+        conn.commit()
+
+    init_training_tables(db)  # must not crash
+
+    # Auto-discover expected columns from the schema constant
+    te_match = re.search(
+        r"CREATE TABLE.*?training_examples\s*\((.*?)\);",
+        TRAINING_TABLES_SCHEMA,
+        re.DOTALL,
+    )
+    assert te_match, "Could not parse training_examples from TRAINING_TABLES_SCHEMA"
+    expected_cols = set()
+    for line in te_match.group(1).split("\n"):
+        line = line.strip().rstrip(",")
+        if line and not line.startswith("--"):
+            col_name = line.split()[0]
+            if col_name.upper() not in (
+                "PRIMARY", "UNIQUE", "FOREIGN", "CHECK", "CONSTRAINT",
+            ):
+                expected_cols.add(col_name)
+
+    # Compare against actual DB columns
+    with sqlite3.connect(db) as conn:
+        actual_cols = {
+            r[1] for r in conn.execute(
+                "PRAGMA table_info(training_examples)"
+            ).fetchall()
+        }
+
+    missing = expected_cols - actual_cols
+    assert not missing, (
+        f"Columns {missing} defined in TRAINING_TABLES_SCHEMA but missing after "
+        f"init_training_tables() on a legacy DB — add ALTER TABLE migrations"
+    )
+
+    # Existing data preserved
+    with sqlite3.connect(db) as conn:
+        assert conn.execute(
+            "SELECT 1 FROM training_examples WHERE example_id='old1'"
+        ).fetchone()
+
+    # Idempotent — second call must not crash
+    init_training_tables(db)
