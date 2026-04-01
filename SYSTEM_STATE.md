@@ -335,10 +335,53 @@ GRPO training: RunPod A100 cloud ($14/mo), not local hardware.
 
 ## Hardware Decisions
 - Keep Q8_0 quantization — quality is king
-- RTX 3090 + headless Linux ($1,500 all-in) — Phase 2
 - GRPO: RunPod A100 cloud ($14/mo), not local
 - **UPS: CyberPower CP1500PFCLCD (~$220) — BUY IMMEDIATELY** (contributing factor in DB corruption incident #181)
-- **Local PostgreSQL (Phase 2)** — replaces SQLite as primary store, eliminates cloud sync corruption class entirely
+
+### Phase 2: Dedicated Trading Server (~$1,300)
+
+**Trigger:** Phase 1 gate passed (50 closed trades) OR database corruption recurrence.
+
+| Component | Spec | Cost | Why |
+|---|---|---|---|
+| GPU | RTX 3090 24GB (used) | ~$700 | 14B model, GRPO, multi-LoRA serving |
+| CPU | Ryzen 5 5600 or i5-12400 | ~$120 | 6 cores — GPU does the heavy lifting |
+| RAM | 32GB DDR4 | ~$60 | Postgres + Python + Ollama headroom |
+| Storage | 1TB NVMe | ~$70 | Fast DB I/O, model storage |
+| Case + PSU | Basic mATX + 750W | ~$120 | 3090 needs 350W TDP |
+| UPS | CyberPower CP1500PFCLCD | ~$220 | Non-negotiable after incident #181 |
+| **Total** | | **~$1,290** | |
+
+**Software stack:**
+- Ubuntu Server 24.04 (headless, no desktop, no cloud sync)
+- PostgreSQL 16 (local primary — replaces SQLite entirely)
+- Ollama (inference + training, 24GB VRAM)
+- Watch loop runs 24/7, no sleep/restart interruptions
+- Render Postgres becomes cloud read-replica (keep for dashboard)
+- SSH from Windows machine for management + Claude Code sessions
+
+**Architecture after Phase 2:**
+```
+[Dedicated Linux Server]               [Render Cloud]
+  PostgreSQL 16 (primary) ──sync────→  PostgreSQL (read replica)
+  Ollama (halcyon-v1 / v2)              FastAPI (cloud_app.py)
+  Watch Loop (24/7)                     React Dashboard
+  Training Pipeline                     halcyonlab.app
+  12 Data Collectors
+
+[Windows PC]
+  SSH → Linux server
+  Claude Code sessions
+  Development only — no production data
+```
+
+**What this eliminates:**
+- OneDrive/cloud sync corruption (incident #181 root cause)
+- SQLite concurrency issues (Postgres handles natively)
+- Power loss corruption (UPS)
+- GPU contention with daily use
+- Windows sleep/restart interruptions
+- VRAM handoff complexity (24GB = inference + training without swapping)
 
 ---
 
