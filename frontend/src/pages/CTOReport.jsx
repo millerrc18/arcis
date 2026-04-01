@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api'
 import LoadingSpinner from '../components/LoadingSpinner'
@@ -69,10 +70,18 @@ function SectionTable({ title, headers, rows }) {
   )
 }
 
+const PERIOD_OPTIONS = [
+  { label: '7d', days: 7 },
+  { label: '30d', days: 30 },
+  { label: '90d', days: 90 },
+  { label: 'All', days: 365 },
+]
+
 export default function CTOReport() {
+  const [days, setDays] = useState(30)
   const { data, isLoading, error } = useQuery({
-    queryKey: ['cto-report'],
-    queryFn: () => api.getCtoReport(7),
+    queryKey: ['cto-report', days],
+    queryFn: () => api.getCtoReport(days),
     refetchInterval: 120000,
   })
 
@@ -85,6 +94,22 @@ export default function CTOReport() {
     </div>
   )
   if (!data) return <EmptyState message="No report data available" />
+
+  // Detect backend error responses that pass as valid data
+  if (data?.error) return (
+    <div className="max-w-4xl mx-auto space-y-6">
+      <h1 className="text-xl font-medium" style={{ color: 'var(--arcis-text-primary)' }}>CTO performance report</h1>
+      <div className="arcis-card" style={{ borderColor: 'var(--arcis-danger)' }}>
+        <div className="text-sm font-medium mb-2" style={{ color: 'var(--arcis-danger)' }}>Report generation failed</div>
+        <pre className="text-xs overflow-auto p-2 rounded" style={{ background: 'var(--arcis-bg-surface)', color: 'var(--arcis-text-secondary)' }}>
+          {data.error}
+        </pre>
+        <p className="text-xs mt-3" style={{ color: 'var(--arcis-text-muted)' }}>
+          This usually means a required database table is missing on the cloud. Run the migration script to fix.
+        </p>
+      </div>
+    </div>
+  )
 
   const period = data?.report_period || {}
   const kpis = data?.headline_kpis || {}
@@ -107,13 +132,31 @@ export default function CTOReport() {
             {period?.start || 'N/A'} to {period?.end || 'N/A'} | {status?.model_version || 'base'} | {status?.dataset_size ?? 0} examples
           </p>
         </div>
-        <button
-          onClick={() => navigator.clipboard.writeText(JSON.stringify(data, null, 2))}
-          className="px-3 py-1.5 text-xs rounded transition-colors"
-          style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)' }}
-        >
-          Copy JSON
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Period selector */}
+          <div className="flex rounded overflow-hidden" style={{ border: '1px solid var(--arcis-border)' }}>
+            {PERIOD_OPTIONS.map(opt => (
+              <button
+                key={opt.days}
+                onClick={() => setDays(opt.days)}
+                className="px-3 py-1.5 text-xs transition-colors"
+                style={{
+                  background: days === opt.days ? 'var(--arcis-accent)' : 'var(--arcis-bg-surface)',
+                  color: days === opt.days ? '#fff' : 'var(--arcis-text-secondary)',
+                }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => navigator.clipboard.writeText(JSON.stringify(data, null, 2))}
+            className="px-3 py-1.5 text-xs rounded transition-colors"
+            style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)' }}
+          >
+            Copy JSON
+          </button>
+        </div>
       </div>
 
       {/* Phase progress bar */}
@@ -284,8 +327,8 @@ export default function CTOReport() {
       {data?.execution_analysis && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <MetricCard label="Avg hold (days)" value={data.execution_analysis?.avg_hold_period_days?.toFixed(1) || 'n/a'} />
-          <MetricCard label="Targets hit" value={data.execution_analysis?.targets_hit_pct != null ? `${(data.execution_analysis.targets_hit_pct * 100).toFixed(0)}%` : 'n/a'} />
-          <MetricCard label="Timeouts" value={data.execution_analysis?.timeout_pct != null ? `${(data.execution_analysis.timeout_pct * 100).toFixed(0)}%` : 'n/a'} />
+          <MetricCard label="Targets hit" value={data.execution_analysis?.targets_hit_pct != null ? `${data.execution_analysis.targets_hit_pct.toFixed(1)}%` : 'n/a'} />
+          <MetricCard label="Timeouts" value={data.execution_analysis?.timeout_pct != null ? `${data.execution_analysis.timeout_pct.toFixed(1)}%` : 'n/a'} />
           <MetricCard label="Avg MFE (winners)" value={data.execution_analysis?.avg_mfe_winners != null ? `$${data.execution_analysis.avg_mfe_winners.toFixed(2)}` : 'n/a'} />
         </div>
       )}

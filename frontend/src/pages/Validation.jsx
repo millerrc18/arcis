@@ -84,6 +84,7 @@ export default function Validation() {
   const [expanded, setExpanded] = useState({})
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState(null)
+  const [lastRunResult, setLastRunResult] = useState(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['validation'],
@@ -94,10 +95,20 @@ export default function Validation() {
   const handleRefresh = async () => {
     setRefreshing(true)
     setError(null)
+    setLastRunResult(null)
+    const startTime = Date.now()
     try {
       // Try direct validation first (works when API is serving)
-      await api.runValidation()
+      const result = await api.runValidation()
       qc.invalidateQueries({ queryKey: ['validation'] })
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+      setLastRunResult({
+        status: result?.overall_status || 'completed',
+        passed: result?.checks_passed || 0,
+        warned: result?.checks_warning || 0,
+        failed: result?.checks_failed || 0,
+        elapsed,
+      })
     } catch (err) {
       // If direct call fails, try via command queue
       try {
@@ -116,6 +127,8 @@ export default function Validation() {
               if (status?.status === 'success' || status?.result_status === 'success') {
                 clearInterval(poll)
                 qc.invalidateQueries({ queryKey: ['validation'] })
+                const elapsed = ((Date.now() - startTime) / 1000).toFixed(1)
+                setLastRunResult({ status: 'completed', elapsed })
                 setRefreshing(false)
               } else if (status?.status === 'error' || status?.result_status === 'error' || attempts > 20) {
                 clearInterval(poll)
@@ -175,6 +188,32 @@ export default function Validation() {
       {error && (
         <div className="rounded-lg p-3 text-sm" style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)', color: 'var(--arcis-danger)' }}>
           {error}
+        </div>
+      )}
+
+      {/* Success feedback */}
+      {lastRunResult && !error && (
+        <div className="rounded-lg p-3 text-sm flex items-center justify-between" style={{
+          background: lastRunResult.failed > 0
+            ? 'rgba(239, 68, 68, 0.1)'
+            : lastRunResult.warned > 0
+              ? 'rgba(245, 158, 11, 0.1)'
+              : 'rgba(34, 197, 94, 0.1)',
+          border: `1px solid ${lastRunResult.failed > 0
+            ? 'rgba(239, 68, 68, 0.3)'
+            : lastRunResult.warned > 0
+              ? 'rgba(245, 158, 11, 0.3)'
+              : 'rgba(34, 197, 94, 0.3)'}`,
+          color: 'var(--arcis-text-primary)',
+        }}>
+          <span>
+            Validation complete: {lastRunResult.passed || 0} passed
+            {lastRunResult.warned > 0 && `, ${lastRunResult.warned} warnings`}
+            {lastRunResult.failed > 0 && `, ${lastRunResult.failed} failed`}
+          </span>
+          <span className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>
+            {lastRunResult.elapsed}s
+          </span>
         </div>
       )}
 
