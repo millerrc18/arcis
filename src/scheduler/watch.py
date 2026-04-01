@@ -1045,22 +1045,16 @@ class WatchLoop:
 
     def run(self):
         """Main watch loop. Checks every 60 seconds."""
-        # Set up file logging with rotation
-        log_dir = Path("logs")
-        log_dir.mkdir(exist_ok=True)
-        fh = RotatingFileHandler(
-            log_dir / "halcyon.log", maxBytes=10_000_000, backupCount=7
-        )
-        fh.setLevel(logging.INFO)
-        fh.setFormatter(logging.Formatter(
-            "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-        ))
-        logging.getLogger().addHandler(fh)
-        logging.getLogger().setLevel(logging.INFO)
+        # Logging is already configured by main.py → setup_logging() which sets up
+        # console + rotating file handler (logs/arcis.log). Only add the DB handler
+        # here for the dashboard log viewer. Do NOT add another file handler — that
+        # caused every message to appear twice (once per handler).
+        root = logging.getLogger()
 
-        # Add DB log handler for dashboard log viewer
-        db_handler = DBLogHandler()
-        logging.getLogger().addHandler(db_handler)
+        # Guard against duplicate DB handlers on restart
+        if not any(isinstance(h, DBLogHandler) for h in root.handlers):
+            db_handler = DBLogHandler()
+            root.addHandler(db_handler)
 
         self._print_banner()
 
@@ -2179,7 +2173,7 @@ class WatchLoop:
                     import sqlite3 as _sq
                     with _sq.connect("ai_research_desk.sqlite3") as _cn:
                         top = _cn.execute(
-                            "SELECT title, relevance_score FROM research_papers ORDER BY created_at DESC LIMIT 1"
+                            "SELECT title, relevance_score FROM research_papers ORDER BY collected_at DESC LIMIT 1"
                         ).fetchone()
                     top_title = top[0] if top else "Unknown"
                     top_score = top[1] if top else 0
@@ -2558,6 +2552,29 @@ class WatchLoop:
                 from src.features.regime import classify_regime
                 regime = classify_regime({"vix_proxy": vix})
 
+                # Risk governor rejection summary for today's scans
+                risk_row = conn.execute(
+                    "SELECT COALESCE(SUM(packet_worthy),0) as worthy, "
+                    "COALESCE(SUM(risk_passed),0) as passed "
+                    "FROM scan_metrics WHERE scan_time LIKE ?",
+                    (f"{today_str}%",),
+                ).fetchone()
+                risk_worthy = risk_row["worthy"] if risk_row else 0
+                risk_passed = risk_row["passed"] if risk_row else 0
+                risk_rejected = risk_worthy - risk_passed
+
+                # Log rejection summary to activity_log
+                if risk_rejected > 0:
+                    conn.execute(
+                        "INSERT INTO activity_log (event_type, detail, level, created_at) "
+                        "VALUES (?, ?, ?, ?)",
+                        ("risk_rejection_summary",
+                         f"{risk_rejected} rejected / {risk_worthy} qualified today",
+                         "INFO",
+                         datetime.now(ET).isoformat()),
+                    )
+                    conn.commit()
+
             notify_eod_report(
                 paper_open=paper_open_row["cnt"], paper_open_pnl=paper_open_row["pnl"],
                 paper_closed_today=paper_closed_row["cnt"], paper_closed_pnl=paper_closed_row["pnl"],
@@ -2569,6 +2586,7 @@ class WatchLoop:
                 worst_ticker=worst["ticker"] if worst else "N/A",
                 worst_pct=worst["pnl_pct"] if worst else 0.0,
                 regime=regime, vix=vix, vix_change=vix - vix_prev,
+                risk_rejected=risk_rejected, risk_qualified=risk_worthy,
             )
             print("[WATCH] EOD report sent via Telegram.")
         except Exception as e:

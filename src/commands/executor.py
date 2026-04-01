@@ -203,12 +203,12 @@ def _handle_get_logs(payload: dict, config: dict) -> dict:
 
 # ── Command dispatch table ────────────────────────────────────────
 
-def _handle_validate_system(payload, db_path, config):
+def _handle_validate_system(payload: dict, config: dict) -> dict:
     """Run full system validation."""
     from src.evaluation.system_validator import run_full_validation, save_validation_result
 
-    result = run_full_validation(db_path)
-    save_validation_result(result, db_path)
+    result = run_full_validation(LOCAL_DB)
+    save_validation_result(result, LOCAL_DB)
     return {
         "overall_status": result.get("overall_status", "unknown"),
         "checks_passed": result.get("checks_passed", 0),

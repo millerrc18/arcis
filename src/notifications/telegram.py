@@ -368,7 +368,8 @@ def notify_eod_report(paper_open: int, paper_open_pnl: float,
                       win_rate: float, wins: int, losses: int,
                       best_ticker: str, best_pct: float,
                       worst_ticker: str, worst_pct: float,
-                      regime: str, vix: float, vix_change: float) -> bool:
+                      regime: str, vix: float, vix_change: float,
+                      risk_rejected: int = 0, risk_qualified: int = 0) -> bool:
     """Alert: 4:00 PM end-of-day P&L report with paper/live split."""
     now = datetime.now(ET).strftime("%H:%M ET")
 
@@ -382,6 +383,8 @@ def notify_eod_report(paper_open: int, paper_open_pnl: float,
         f"Best: {best_ticker} {best_pct:+.1f}% | Worst: {worst_ticker} {worst_pct:+.1f}%\n"
         f"Regime: {regime} | VIX: {vix:.1f} ({vix_change:+.1f})"
     )
+    if risk_qualified > 0:
+        msg += f"\nRisk governor: {risk_qualified - risk_rejected}/{risk_qualified} passed ({risk_rejected} blocked)"
     return send_telegram(msg)
 
 
