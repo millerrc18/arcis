@@ -3,7 +3,7 @@
 **This document is updated after every conversation with Claude. It IS the system state.**
 **Claude: You MUST read this file at the start of every session and update it after every substantive change.**
 
-> Last updated: March 31, 2026 night · Sprint 8 (comprehensive) MERGED — 63 issues closed. Sprint 7 MERGED. Reconciliation MERGED. All audit issues addressed. Tests: 1,225. System in lockdown — 25 open positions. Near-zero open issues remaining.
+> Last updated: March 31, 2026 night · Sprint 8 MERGED (63 issues). Analytics migration MERGED (#174). VRAM fix pushed. 5 open issues remain. Tests: 1,225. System in lockdown — 25 open positions. Dashboard now reads from Render Postgres (HSHS, CTO Report, Build Score, Training Status all live).
 
 ---
 
@@ -96,6 +96,7 @@
 | 7 (CC) | #172 ✅ | Reliability: crash handler, GTC brackets, heartbeat, TL stub, sync mutex, backoff (18 issues closed) |
 | Reconciliation | #171 ✅ | Daily postclose paper trade reconciliation vs Alpaca |
 | 8 (CC) | #173 ✅ | Comprehensive cleanup: 63 issues closed — training, council, LLM, data, trading, frontend, config |
+| Analytics migration | #174 ✅ | Cloud endpoints read Postgres: HSHS, CTO Report, Build Score, Training Status, system/validation |
 
 ---
 
