@@ -33,6 +33,7 @@ MIGRATIONS = [
     ("recommendations", "llm_conviction", "ALTER TABLE recommendations ADD COLUMN llm_conviction INTEGER"),
     ("recommendations", "llm_conviction_reason", "ALTER TABLE recommendations ADD COLUMN llm_conviction_reason TEXT"),
     ("recommendations", "model_version", "ALTER TABLE recommendations ADD COLUMN model_version TEXT"),
+    ("recommendations", "market_regime", "ALTER TABLE recommendations ADD COLUMN market_regime TEXT"),
 
     # shadow_trades — new columns added via ALTER TABLE in store.py
     ("shadow_trades", "order_type", "ALTER TABLE shadow_trades ADD COLUMN order_type TEXT"),

@@ -21,7 +21,7 @@ def create_router(runtime, verify_auth):
     def shadow_open():
         try:
             rows = runtime.query(
-                "SELECT st.*, r.setup_type, r.regime_label, r.priority_score "
+                "SELECT st.*, r.setup_type, r.market_regime, r.priority_score "
                 "FROM shadow_trades st "
                 "LEFT JOIN recommendations r ON st.recommendation_id = r.recommendation_id "
                 "WHERE st.status = 'open' ORDER BY st.created_at DESC"
@@ -58,7 +58,7 @@ def create_router(runtime, verify_auth):
         try:
             cutoff = (datetime.now(runtime.et) - timedelta(days=days)).isoformat()
             rows = runtime.query(
-                "SELECT st.*, r.setup_type, r.regime_label, r.priority_score "
+                "SELECT st.*, r.setup_type, r.market_regime, r.priority_score "
                 "FROM shadow_trades st "
                 "LEFT JOIN recommendations r ON st.recommendation_id = r.recommendation_id "
                 "WHERE st.status = 'closed' "

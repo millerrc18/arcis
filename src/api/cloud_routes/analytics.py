@@ -410,7 +410,7 @@ def create_router(runtime, verify_auth):
             if rec_ids:
                 placeholders = ", ".join(["%s"] * len(rec_ids))
                 recs = runtime.query(
-                    f"SELECT recommendation_id, priority_score, setup_type, regime_label "
+                    f"SELECT recommendation_id, priority_score, setup_type, market_regime "
                     f"FROM recommendations WHERE recommendation_id IN ({placeholders})",
                     tuple(rec_ids),
                 )
@@ -458,7 +458,7 @@ def create_router(runtime, verify_auth):
             by_regime = {}
             for trade in closed_recent:
                 rec = rec_map.get(trade.get("recommendation_id"), {})
-                regime = rec.get("regime_label") or "unknown"
+                regime = rec.get("market_regime") or "unknown"
                 if regime not in by_regime:
                     by_regime[regime] = {"trades": 0, "wins": 0}
                 by_regime[regime]["trades"] += 1
