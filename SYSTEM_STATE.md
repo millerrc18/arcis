@@ -389,9 +389,10 @@ GRPO training: RunPod A100 cloud ($14/mo), not local hardware.
 
 | Priority | Sprint | Prompt | Status |
 |---|---|---|---|
-| 1 | React Flow interactive diagrams | `docs/sprints/sprint-react-flow.md` | ✅ DONE — PR #178 (Architecture + DB Schema pages) |
-| 2 | Repo reorganization | TBD | Backlog |
-| 3 | architecture.md refresh | TBD | Backlog |
+| 1 | **Schema Registry** | `docs/sprints/sprint-schema-registry.md` | QUEUED — **fire next** (prevents all schema-drift bugs) |
+| 2 | React Flow interactive diagrams | `docs/sprints/sprint-react-flow.md` | ✅ DONE — PR #178 (Architecture + DB Schema pages) |
+| 3 | Repo reorganization | TBD | Backlog |
+| 4 | architecture.md refresh | TBD | Backlog |
 
 ---
 
