@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from src.config import load_config
+from src.config import DB_PATH, load_config
 from src.training.versioning import init_training_tables
 
 logger = logging.getLogger(__name__)
@@ -23,7 +23,7 @@ ET = ZoneInfo("America/New_York")
 def run_shadow_evaluation(new_model: str, current_model: str,
                           input_text: str, ticker: str = "",
                           recommendation_id: str = "",
-                          db_path: str = "ai_research_desk.sqlite3") -> dict:
+                          db_path: str = DB_PATH) -> dict:
     """Generate commentary from both models for the same input.
 
     Both models see identical input. Neither knows the other exists.
@@ -135,7 +135,7 @@ def _score_output(judge_prompt: str, output: str) -> float | None:
 
 def check_promotion_ready(new_model: str, min_evaluations: int = 20,
                           min_win_rate: float = 0.60,
-                          db_path: str = "ai_research_desk.sqlite3") -> dict:
+                          db_path: str = DB_PATH) -> dict:
     """Check if a model in evaluation status should be promoted.
 
     Returns dict with ready status, evaluations count, win rate, and recommendation.
@@ -180,7 +180,7 @@ def check_promotion_ready(new_model: str, min_evaluations: int = 20,
     }
 
 
-def get_evaluation_status(db_path: str = "ai_research_desk.sqlite3") -> dict | None:
+def get_evaluation_status(db_path: str = DB_PATH) -> dict | None:
     """Get the current A/B evaluation progress."""
     from src.training.versioning import get_evaluation_model
 

@@ -197,6 +197,9 @@ TABLES = [
     "CREATE INDEX IF NOT EXISTS idx_pending_commands_status ON pending_commands(status, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_command_results_command ON command_results(command_id)",
     "CREATE INDEX IF NOT EXISTS idx_log_entries_level ON log_entries(log_level, created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_shadow_trades_status ON shadow_trades(status)",
+    "CREATE INDEX IF NOT EXISTS idx_shadow_trades_status_time ON shadow_trades(status, actual_entry_time)",
+    "CREATE INDEX IF NOT EXISTS idx_recommendations_created_at ON recommendations(created_at)",
 ]
 
 # Column additions that may be missing on existing installations

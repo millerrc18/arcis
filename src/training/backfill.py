@@ -23,6 +23,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from src.config import DB_PATH
 from src.llm.prompts import BLINDED_ANALYSIS_PROMPT, QUALITY_ENHANCEMENT_PROMPT
 from src.training.claude_client import generate_training_example
 from src.training.ingestion_gate import (
@@ -198,7 +199,7 @@ def run_historical_backfill(
     min_score: float = 70,
     quality_filter: list[str] | None = None,
     max_examples: int = 2000,
-    db_path: str = "ai_research_desk.sqlite3",
+    db_path: str = DB_PATH,
 ) -> dict:
     """Run the complete historical backfill pipeline.
 

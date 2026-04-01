@@ -14,6 +14,13 @@ from pathlib import Path
 
 KNOWN = json.loads(Path("config/known_violations.json").read_text(encoding="utf-8"))
 
+# Pre-compute lookup sets from known violations JSON
+_KNOWN_FILES = {v["file"] for v in KNOWN.get("oversized_files", [])}
+_KNOWN_FUNCTIONS = {
+    f"{v['file']}:{v['function']}" for v in KNOWN.get("oversized_functions", [])
+}
+_KNOWN_DOCSTRINGS = set(KNOWN.get("missing_docstring_headers", []))
+
 
 def test_no_file_over_400_lines():
     for p in Path("src").rglob("*.py"):
@@ -21,7 +28,8 @@ def test_no_file_over_400_lines():
             continue
         lines = len(p.read_text(encoding="utf-8").splitlines())
         if lines > 400:
-            if str(p).replace("\\", "/") in KNOWN.get("oversized_files", []):
+            normalized = str(p).replace("\\", "/")
+            if normalized in _KNOWN_FILES:
                 warnings.warn(f"GRANDFATHERED: {p} ({lines} lines)")
             else:
                 assert False, f"NEW VIOLATION: {p} is {lines} lines (max 400)"
@@ -40,7 +48,7 @@ def test_no_function_over_60_lines():
                 length = node.end_lineno - node.lineno
                 if length > 60:
                     key = f"{str(p).replace(chr(92), '/')}:{node.name}"
-                    if key in KNOWN.get("oversized_functions", []):
+                    if key in _KNOWN_FUNCTIONS:
                         warnings.warn(f"GRANDFATHERED: {key} ({length} lines)")
                     else:
                         assert False, f"NEW VIOLATION: {key} is {length} lines (max 60)"
@@ -63,7 +71,7 @@ def test_all_modules_have_standard_docstring():
         )
         if not has or not all(f in tree.body[0].value.value for f in required):
             key = str(p).replace("\\", "/")
-            if key in KNOWN.get("missing_docstring_headers", []):
+            if key in _KNOWN_DOCSTRINGS:
                 warnings.warn(f"GRANDFATHERED: {p} missing standard docstring")
             else:
                 missing = [

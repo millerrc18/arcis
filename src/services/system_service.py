@@ -10,6 +10,8 @@ import logging
 import sqlite3
 from pathlib import Path
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 
 
@@ -94,7 +96,7 @@ def get_system_status(config: dict) -> dict:
     journal_recs = 0
     journal_trades = 0
     try:
-        db_path = Path("ai_research_desk.sqlite3")
+        db_path = Path(DB_PATH)
         if db_path.exists():
             with sqlite3.connect(str(db_path)) as conn:
                 journal_recs = conn.execute("SELECT COUNT(*) FROM recommendations").fetchone()[0]

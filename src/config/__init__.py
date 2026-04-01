@@ -4,17 +4,21 @@ Called by: api.routes.actions, api.routes.scan, api.routes.shadow, api.routes.sy
 Calls: none
 Owns tables: none
 Config keys: none
-Tests: none
+Tests: tests/test_config_tech_debt.py
 
 Loads settings from config/settings.local.yaml, falling back to
 config/settings.example.yaml if the local file does not exist.
 Caches the config after first load.
 """
 
+import os
 import sys
 from pathlib import Path
 
 import yaml
+
+# Central database path constant — override via ARCIS_DB_PATH env var.
+DB_PATH = os.environ.get("ARCIS_DB_PATH", "ai_research_desk.sqlite3")
 
 _config_cache: dict | None = None
 
@@ -25,7 +29,8 @@ def load_config() -> dict:
     if _config_cache is not None:
         return _config_cache
 
-    config_dir = Path(__file__).resolve().parent.parent / "config"
+    # __file__ is src/config/__init__.py, so parent.parent reaches project root
+    config_dir = Path(__file__).resolve().parent.parent.parent / "config"
     local_path = config_dir / "settings.local.yaml"
     example_path = config_dir / "settings.example.yaml"
 
@@ -42,7 +47,7 @@ def load_config() -> dict:
         print("ERROR: No configuration file found.", file=sys.stderr)
         return {}
 
-    with open(config_path, "r") as f:
+    with open(config_path, "r", encoding="utf-8") as f:
         _config_cache = yaml.safe_load(f) or {}
 
     return _config_cache

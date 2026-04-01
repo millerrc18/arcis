@@ -1,4 +1,11 @@
-"""Action endpoints for triggering system operations from the dashboard."""
+"""Action endpoints for triggering system operations from the dashboard.
+
+Called by: api.app
+Calls: services.scan_service, services.training_service, training.data_collector
+Owns tables: none
+Config keys: none
+Tests: tests/test_local_api_routes.py
+"""
 
 import logging
 import threading
