@@ -2,7 +2,7 @@
 
 ![version](https://img.shields.io/badge/version-v0.1.0-blue?style=flat-square)
 ![phase](https://img.shields.io/badge/phase-1%20bootcamp-orange?style=flat-square)
-![tests](https://img.shields.io/badge/tests-1%2C235%20passing-brightgreen?style=flat-square)
+![tests](https://img.shields.io/badge/tests-1%2C245%20passing-brightgreen?style=flat-square)
 ![python](https://img.shields.io/badge/python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)
 ![model](https://img.shields.io/badge/model-Qwen3%208B-purple?style=flat-square)
 ![license](https://img.shields.io/badge/license-BSL%201.1-yellow?style=flat-square)
@@ -13,10 +13,10 @@ Systematic equity research platform built on fine-tuned LLMs and a 5-agent AI co
 
 ## Current Status
 
-- **Phase 1 Bootcamp** — paper trading $100K with ~25 active positions, 5/5 winners
+- **Phase 1 Bootcamp** — paper trading $100K, 13 closed trades (12W/1L, 92% WR)
 - **Model**: `halcyon-v1.0.0` (Qwen3 8B, QLoRA fine-tuned on 972 scored examples)
-- **Dashboard**: [halcyonlab.app](https://halcyonlab.app) (14 pages, Palette H dark/light)
-- **Quality scoring**: 972/972 examples scored (avg 3.44/5.0), automated via GuardedScorer
+- **Dashboard**: [halcyonlab.app](https://halcyonlab.app) (16 pages, Palette H dark/light)
+- **Current counts**: See [SYSTEM_STATE.md](SYSTEM_STATE.md) for live metrics (tests, files, tables, etc.)
 
 ## Architecture
 

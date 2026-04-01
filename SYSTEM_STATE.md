@@ -3,7 +3,7 @@
 **This document is updated after every conversation with Claude. It IS the system state.**
 **Claude: You MUST read this file at the start of every session and update it after every substantive change.**
 
-> Last updated: April 1, 2026 (PM) · All sprints merged (4A-8 + reconciliation + analytics + dashboard redesign + log audit + data integrity + mega sprint). Mega Sprint: 15-min intra-day reconciliation, exit_failed recovery, Telegram gating, profit factor fix, React Flow pages, sidebar reorg, UI fixes. Tests: 1,245. 175 Python files, 101 test files, 16 dashboard pages, 40 sync tables. BSL 1.1 license.
+> Last updated: April 1, 2026 (PM) · All sprints merged (4A-8 + reconciliation + analytics + dashboard redesign + log audit + data integrity + mega sprint). Mega Sprint: 15-min intra-day reconciliation, exit_failed recovery, Telegram gating, profit factor fix, React Flow pages, sidebar reorg, UI fixes. Tests: 1,228. 173 Python files, 101 test files, 16 dashboard pages, 40 sync tables. BSL 1.1 license.
 
 ---
 
@@ -11,8 +11,8 @@
 - **Phase:** 1 (Bootcamp) — paper trading $100K + $100 live via Alpaca
 - **Open positions:** 25
 - **Closed trades:** 13 (need 50 for Phase 1 gate) — 12W/1L, 92% WR, $860 total P&L
-- **Tests:** 1,245 test functions across 101 test files
-- **Python files:** 175 | **Dashboard pages:** 16 | **Research docs:** 66
+- **Tests:** 1,228 test functions across 101 test files
+- **Python files:** 173 | **Dashboard pages:** 16 | **Research docs:** 60
 - **Monthly cost:** ~$64 (Render $7 + Ollama free + Claude API ~$50 + domain $7)
 - **Model:** halcyonlatest / halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF 8.7GB) via Ollama
 - **Next model:** Qwen 2.5 14B or Qwen3 14B (requires RTX 3090, Phase 2)
