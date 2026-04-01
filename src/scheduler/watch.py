@@ -179,6 +179,9 @@ class WatchLoop:
         self._daily_validation_done = False
         self._daily_build_score_done = False
 
+        # Intra-day reconciliation throttle
+        self._last_reconcile_time: datetime | None = None
+
         # Collector failure tracking: {collector_name: consecutive_failure_count}
         self._collector_failures: dict[str, int] = {}
         self._scan_number = 0
@@ -223,6 +226,7 @@ class WatchLoop:
         self._postclose_bracket_check_done = False
         self._postclose_reconcile_done = False
         self._last_bracket_check_time = None
+        self._last_reconcile_time = None
         # Research + metrics
         self._research_synthesis_done = False
         self._daily_metric_snapshot_done = False
@@ -590,6 +594,7 @@ class WatchLoop:
             self._trades_managed_today += 1
 
             # ═══ SHADOW TRADE EXECUTION (enables the training flywheel) ═══
+            trade_id = None
             try:
                 from src.shadow_trading.executor import open_shadow_trade
                 trade_id = open_shadow_trade(rec_id, packet, feat)
@@ -600,72 +605,73 @@ class WatchLoop:
             except Exception as e:
                 logger.warning("[WATCH] Shadow trade failed for %s: %s", ticker, e)
 
-            # ═══ LIVE TRADE EXECUTION (dual execution if enabled) ═══
-            live_cfg = self.config.get("live_trading", {})
-            now_live = datetime.now(ET)
-            hour_live = now_live.hour
-            if (live_cfg.get("enabled", False)
-                    and getattr(packet, 'llm_conviction', None) is not None
-                    and not (hour_live == 9 and now_live.minute < 31)):  # Skip first scan
-                try:
-                    from src.shadow_trading.executor import open_live_trade
-                    live_id = open_live_trade(rec_id, packet, feat)
-                    if live_id:
-                        print(f"  -> LIVE trade opened: {live_id}")
-                except Exception as e:
-                    logger.warning("[WATCH] Live trade failed for %s: %s", ticker, e)
-
-            try:
-                broadcast_sync("trade_opened", {"ticker": ticker, "side": "BUY",
-                                                "score": candidate["score"]})
-            except Exception as e:
-                logger.warning("[WATCH] broadcast trade_opened failed: %s", e)
-
-            # Telegram notification
-            try:
-                from src.notifications.telegram import notify_trade_opened, is_telegram_enabled
-                if is_telegram_enabled():
-                    from src.notifications.telegram import send_telegram
-                    from src.shadow_trading.executor import _parse_price
-
-                    entry_price = _parse_price(packet.entry_zone)
-                    stop_price = _parse_price(packet.stop_invalidation)
-                    target_price = _parse_price(packet.targets.split("/")[0])
-                    shares = (
-                        max(1, int(packet.position_sizing.allocation_dollars / entry_price))
-                        if entry_price > 0
-                        else 1
-                    )
+            if trade_id:
+                # ═══ LIVE TRADE EXECUTION (dual execution if enabled) ═══
+                live_cfg = self.config.get("live_trading", {})
+                now_live = datetime.now(ET)
+                hour_live = now_live.hour
+                if (live_cfg.get("enabled", False)
+                        and getattr(packet, 'llm_conviction', None) is not None
+                        and not (hour_live == 9 and now_live.minute < 31)):  # Skip first scan
                     try:
-                        notify_trade_opened(
-                            ticker,
-                            entry_price,
-                            stop_price,
-                            target_price,
-                            int(candidate["score"]),
-                            shares,
-                            setup_type=feat.get("setup_type"),
-                            setup_confidence=feat.get("setup_confidence"),
-                        )
-                    except Exception:
-                        send_telegram(
-                            f"🟢 <b>TRADE OPENED: {ticker}</b>\n"
-                            f"Score: {int(candidate['score'])}/100 | Shares: {shares}"
-                        )
-            except Exception as e:
-                logger.warning("[WATCH] notify_trade_opened failed: %s", e)
+                        from src.shadow_trading.executor import open_live_trade
+                        live_id = open_live_trade(rec_id, packet, feat)
+                        if live_id:
+                            print(f"  -> LIVE trade opened: {live_id}")
+                    except Exception as e:
+                        logger.warning("[WATCH] Live trade failed for %s: %s", ticker, e)
 
-            if self.email_mode == "full_stream":
-                subject = f"[TRADE DESK] Action Packet - {ticker}"
-                send_email(subject, rendered)
-                print(f"  -> Email sent for {ticker}")
-            elif self.email_mode == "daily_summary":
-                self._daily_packets.append(rendered)
-                # #164: cap list to prevent unbounded memory growth
-                if len(self._daily_packets) > 200:
-                    self._daily_packets = self._daily_packets[-100:]
-            elif self.email_mode == "digest":
-                pass  # Handled by scheduled midday/EOD digest
+                try:
+                    broadcast_sync("trade_opened", {"ticker": ticker, "side": "BUY",
+                                                    "score": candidate["score"]})
+                except Exception as e:
+                    logger.warning("[WATCH] broadcast trade_opened failed: %s", e)
+
+                # Telegram notification
+                try:
+                    from src.notifications.telegram import notify_trade_opened, is_telegram_enabled
+                    if is_telegram_enabled():
+                        from src.notifications.telegram import send_telegram
+                        from src.shadow_trading.executor import _parse_price
+
+                        entry_price = _parse_price(packet.entry_zone)
+                        stop_price = _parse_price(packet.stop_invalidation)
+                        target_price = _parse_price(packet.targets.split("/")[0])
+                        shares = (
+                            max(1, int(packet.position_sizing.allocation_dollars / entry_price))
+                            if entry_price > 0
+                            else 1
+                        )
+                        try:
+                            notify_trade_opened(
+                                ticker,
+                                entry_price,
+                                stop_price,
+                                target_price,
+                                int(candidate["score"]),
+                                shares,
+                                setup_type=feat.get("setup_type"),
+                                setup_confidence=feat.get("setup_confidence"),
+                            )
+                        except Exception:
+                            send_telegram(
+                                f"🟢 <b>TRADE OPENED: {ticker}</b>\n"
+                                f"Score: {int(candidate['score'])}/100 | Shares: {shares}"
+                            )
+                except Exception as e:
+                    logger.warning("[WATCH] notify_trade_opened failed: %s", e)
+
+                if self.email_mode == "full_stream":
+                    subject = f"[TRADE DESK] Action Packet - {ticker}"
+                    send_email(subject, rendered)
+                    print(f"  -> Email sent for {ticker}")
+                elif self.email_mode == "daily_summary":
+                    self._daily_packets.append(rendered)
+                    # #164: cap list to prevent unbounded memory growth
+                    if len(self._daily_packets) > 200:
+                        self._daily_packets = self._daily_packets[-100:]
+                elif self.email_mode == "digest":
+                    pass  # Handled by scheduled midday/EOD digest
 
         # Manage existing open trades (stop/target/timeout exits)
         try:
@@ -677,6 +683,20 @@ class WatchLoop:
                       f"(P&L: ${action.get('pnl_dollars', 0):+.2f})")
         except Exception as e:
             logger.warning("[WATCH] Trade management failed: %s", e)
+
+        # Intra-day reconciliation every 15 minutes during market hours
+        if (self._last_reconcile_time is None or
+                (now - self._last_reconcile_time).total_seconds() > 900):
+            try:
+                from src.shadow_trading.reconcile import reconcile_paper_trades
+                result = reconcile_paper_trades(dry_run=False)
+                closed = result.get("marked_closed", [])
+                if closed:
+                    logger.info("[WATCH] Intra-day reconciliation closed %d stale trades: %s",
+                                len(closed), closed)
+                self._last_reconcile_time = now
+            except Exception as e:
+                logger.warning("[WATCH] Intra-day reconciliation failed: %s", e)
 
         # Independent live trade check (fires even if paper trading disabled)
         try:

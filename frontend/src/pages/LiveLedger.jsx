@@ -26,7 +26,7 @@ function TickerLogo({ ticker }) {
     )
   }
   return (
-    <img src={`https://logos.stockanalysis.com/${symbol}.svg`} alt="" className="shrink-0 rounded"
+    <img src={`https://logos.stockanalysis.com/${symbol.toLowerCase().replace('.', '-')}.svg`} alt="" className="shrink-0 rounded"
       style={{ width: 20, height: 20, objectFit: 'contain' }} onError={() => setFailed(true)} loading="lazy" />
   )
 }
@@ -372,7 +372,7 @@ export default function LiveLedger() {
                 <YAxis tick={{ fontSize: 11, fill: 'var(--arcis-text-secondary)' }} />
                 <RTooltip contentStyle={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 8, fontSize: 12 }} />
                 <ReferenceLine y={startingCapital} stroke="var(--arcis-text-muted)" strokeDasharray="3 3" />
-                <Area type="monotone" dataKey="equity" stroke="var(--arcis-accent)" fill="var(--arcis-accent)" fillOpacity={0.1} />
+                <Area type="monotone" dataKey="equity" stroke="var(--arcis-accent)" fill="var(--arcis-accent)" fillOpacity={0.25} strokeWidth={2} />
               </AreaChart>
             </ResponsiveContainer>
           )}

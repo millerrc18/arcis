@@ -80,13 +80,19 @@ function formatEvent(evt) {
 }
 
 function normalizeActivityLogEntry(entry) {
+  let parsed = {}
+  try {
+    if (typeof entry.detail === 'string' && entry.detail.startsWith('{')) {
+      parsed = JSON.parse(entry.detail)
+    }
+  } catch { /* detail is plain text */ }
   return {
-    type: entry.event || entry.category || 'system',
-    category: entry.category || 'system',
-    timestamp: entry.created_at || entry.timestamp || new Date().toISOString(),
-    data: typeof entry.metadata === 'string' ? JSON.parse(entry.metadata || '{}') : (entry.metadata || {}),
-    detail: entry.detail || '',
-    event: entry.event,
+    type: entry.event_type || parsed.event || 'system',
+    category: parsed.category || entry.event_type || 'system',
+    timestamp: entry.created_at || new Date().toISOString(),
+    data: parsed,
+    detail: typeof entry.detail === 'string' ? entry.detail : '',
+    event: entry.event_type || parsed.event,
   }
 }
 

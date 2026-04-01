@@ -325,7 +325,7 @@ export default function Dashboard() {
                 <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--arcis-text-muted)' }} />
                 <YAxis tick={{ fontSize: 11, fill: 'var(--arcis-text-muted)' }} />
                 <RechartsTooltip contentStyle={{ background: 'var(--arcis-bg-elevated)', border: '1px solid var(--arcis-text-secondary)', borderRadius: 8, fontSize: 12 }} />
-                <Area type="monotone" dataKey="cumPnl" stroke="var(--teal-400)" fill="var(--teal-400)" fillOpacity={0.1} />
+                <Area type="monotone" dataKey="cumPnl" stroke="var(--teal-400)" fill="var(--teal-400)" fillOpacity={0.25} strokeWidth={2} />
               </AreaChart>
             </ResponsiveContainer>
           ) : (

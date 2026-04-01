@@ -3,25 +3,35 @@ import { Outlet, NavLink } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api'
 import { IS_CLOUD } from '../config'
-import { LayoutDashboard, FileText, TrendingUp, Brain, BarChart3, Settings, Map, BookOpen, Users, Activity, Menu, X, DollarSign, ShieldCheck, ScrollText } from 'lucide-react'
+import { LayoutDashboard, FileText, TrendingUp, Brain, BarChart3, Settings, Map, BookOpen, Users, Activity, Menu, X, DollarSign, ShieldCheck, ScrollText, Network, Database } from 'lucide-react'
 import StatusBadge from './StatusBadge'
 import ThemeToggle from './ThemeToggle'
 
-const navItems = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/shadow', icon: TrendingUp, label: 'Shadow Ledger' },
-  { to: '/live', icon: DollarSign, label: 'Live Ledger' },
-  { to: '/packets', icon: FileText, label: 'Packets' },
-  { to: '/council', icon: Users, label: 'Council' },
-  { to: '/health', icon: Activity, label: 'Health Score' },
-  { to: '/validation', icon: ShieldCheck, label: 'Validation' },
-  { to: '/training', icon: Brain, label: 'Training' },
-  { to: '/cto-report', icon: BarChart3, label: 'CTO Report' },
-  { to: '/docs', icon: BookOpen, label: 'Docs' },
-  { to: '/notes', icon: FileText, label: 'Notes' },
-  { to: '/logs', icon: ScrollText, label: 'Logs' },
-  { to: '/roadmap', icon: Map, label: 'Roadmap' },
-  { to: '/settings', icon: Settings, label: 'Settings' },
+const navSections = [
+  { label: 'Trading', items: [
+    { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+    { to: '/packets', icon: FileText, label: 'Packets' },
+    { to: '/shadow', icon: TrendingUp, label: 'Shadow Ledger' },
+    { to: '/live', icon: DollarSign, label: 'Live Ledger' },
+  ]},
+  { label: 'Intelligence', items: [
+    { to: '/training', icon: Brain, label: 'Training' },
+    { to: '/council', icon: Users, label: 'Council' },
+    { to: '/cto-report', icon: BarChart3, label: 'CTO Report' },
+  ]},
+  { label: 'System', items: [
+    { to: '/architecture', icon: Network, label: 'Architecture' },
+    { to: '/schema', icon: Database, label: 'DB Schema' },
+    { to: '/health', icon: Activity, label: 'Health Score' },
+    { to: '/validation', icon: ShieldCheck, label: 'Validation' },
+    { to: '/logs', icon: ScrollText, label: 'Logs' },
+  ]},
+  { label: 'Reference', items: [
+    { to: '/settings', icon: Settings, label: 'Settings' },
+    { to: '/roadmap', icon: Map, label: 'Roadmap' },
+    { to: '/docs', icon: BookOpen, label: 'Docs' },
+    { to: '/notes', icon: FileText, label: 'Notes' },
+  ]},
 ]
 
 export default function Layout() {
@@ -46,30 +56,38 @@ export default function Layout() {
             <ThemeToggle />
           </div>
         </div>
-        <nav className="flex-1 py-2 overflow-y-auto">
-          {navItems.map(({ to, icon: Icon, label }) => (
-            <NavLink key={to} to={to} end={to === '/'}
-              onClick={() => setSidebarOpen(false)}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-4 py-2 text-sm transition-colors relative ${
-                  isActive
-                    ? 'text-[var(--arcis-text-primary)]'
-                    : 'text-[var(--arcis-text-secondary)] hover:text-[var(--arcis-text-primary)]'
-                }`
-              }>
-              {({ isActive }) => (
-                <>
-                  {isActive && (
+        <nav className="flex-1 py-1 overflow-y-auto">
+          {navSections.map(section => (
+            <div key={section.label}>
+              <div className="px-4 pt-4 pb-1 text-[10px] uppercase tracking-[0.08em] font-medium"
+                style={{ color: 'var(--arcis-text-muted)' }}>
+                {section.label}
+              </div>
+              {section.items.map(({ to, icon: Icon, label }) => (
+                <NavLink key={to} to={to} end={to === '/'}
+                  onClick={() => setSidebarOpen(false)}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-4 py-2 text-sm transition-colors relative ${
+                      isActive
+                        ? 'text-[var(--arcis-text-primary)]'
+                        : 'text-[var(--arcis-text-secondary)] hover:text-[var(--arcis-text-primary)]'
+                    }`
+                  }>
+                  {({ isActive }) => (
                     <>
-                      <span className="absolute inset-x-2 inset-y-0 rounded-lg" style={{ background: 'var(--arcis-accent-muted)' }} />
-                      <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded-r" style={{ background: 'var(--arcis-accent)' }} />
+                      {isActive && (
+                        <>
+                          <span className="absolute inset-x-2 inset-y-0 rounded-lg" style={{ background: 'var(--arcis-accent-muted)' }} />
+                          <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded-r" style={{ background: 'var(--arcis-accent)' }} />
+                        </>
+                      )}
+                      <Icon size={18} className="relative z-10" style={{ color: isActive ? 'var(--arcis-accent)' : 'var(--arcis-text-secondary)' }} />
+                      <span>{label}</span>
                     </>
                   )}
-                  <Icon size={18} className="relative z-10" style={{ color: isActive ? 'var(--arcis-accent)' : 'var(--arcis-text-secondary)' }} />
-                  <span>{label}</span>
-                </>
-              )}
-            </NavLink>
+                </NavLink>
+              ))}
+            </div>
           ))}
         </nav>
         {status && (
