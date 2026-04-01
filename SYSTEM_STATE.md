@@ -3,7 +3,7 @@
 **This document is updated after every conversation with Claude. It IS the system state.**
 **Claude: You MUST read this file at the start of every session and update it after every substantive change.**
 
-> Last updated: March 31, 2026 night · Sprint 7 (reliability) MERGED. Reconciliation (#170) MERGED. Sprint 8 (comprehensive) DRAFTED. CC deep audit complete: 71 issues (#100-#169). 87 total open issues (~20 closed by Sprint 7). Render sync fixed. Quality scoring 100% complete (972/972, avg 3.44). System in lockdown — 25 open positions. Tests: 1,168.
+> Last updated: March 31, 2026 night · Sprint 8 (comprehensive) MERGED — 63 issues closed. Sprint 7 MERGED. Reconciliation MERGED. All audit issues addressed. Tests: 1,225. System in lockdown — 25 open positions. Near-zero open issues remaining.
 
 ---
 
@@ -11,14 +11,14 @@
 - **Phase:** 1 (Bootcamp) — paper trading $100K + $100 live via Alpaca
 - **Open positions:** ~25
 - **Closed trades:** 5 (need 50 for Phase 1 gate) — 5/5 winners, 4.1% avg gain, 2.2d hold
-- **Tests:** 1,168 test functions across 85 test files
+- **Tests:** 1,225 test functions across 101 test files
 - **Python files:** 169 | **Dashboard pages:** 14 | **Research docs:** 67
 - **Monthly cost:** ~$64 (Render $7 + Ollama free + Claude API ~$50 + domain $7)
 - **Model:** halcyonlatest / halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF 8.7GB) via Ollama
 - **Next model:** Qwen 2.5 14B or Qwen3 14B (requires RTX 3090, Phase 2)
 - **Dashboard:** halcyonlab.app (Render) — Arcis branding, Palette H, dark/light toggle
 - **Hardware:** RTX 3060 12GB, Windows 11 (RTX 3090 + headless Linux planned Phase 2)
-- **GitHub Issues:** 87 open (#80-#169 from two audits), 3 milestones, CI on PRs
+- **GitHub Issues:** ~5 remaining (from 87), 3 milestones, CI on PRs
 - **Release:** v0.1.0 — Arcis
 
 ---
@@ -95,7 +95,7 @@
 | CC deep audit | ✅ Complete | 71 issues filed (#100-#169), health 6.5/10 |
 | 7 (CC) | #172 ✅ | Reliability: crash handler, GTC brackets, heartbeat, TL stub, sync mutex, backoff (18 issues closed) |
 | Reconciliation | #171 ✅ | Daily postclose paper trade reconciliation vs Alpaca |
-| 8 (CC) | DRAFTED | Comprehensive cleanup: all remaining ~63 issues + Sprint 6 Tasks 1-6 |
+| 8 (CC) | #173 ✅ | Comprehensive cleanup: 63 issues closed — training, council, LLM, data, trading, frontend, config |
 
 ---
 
