@@ -1,7 +1,9 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react'
 
 const MAX_EVENTS = 100
-const RECONNECT_DELAY = 5000
+const INITIAL_DELAY = 3000
+const MAX_DELAY = 60000
+const MAX_RETRIES = 5
 
 const WebSocketContext = createContext(null)
 
@@ -10,6 +12,7 @@ export function WebSocketProvider({ children }) {
   const [connected, setConnected] = useState(false)
   const wsRef = useRef(null)
   const reconnectRef = useRef(null)
+  const retriesRef = useRef(0)
   const subscribersRef = useRef(new Set())
 
   const subscribe = useCallback((callback) => {
@@ -21,18 +24,25 @@ export function WebSocketProvider({ children }) {
 
   useEffect(() => {
     function connect() {
+      // Stop retrying after MAX_RETRIES — WebSocket endpoint likely doesn't exist
+      if (retriesRef.current >= MAX_RETRIES) {
+        console.debug('[WS] Max retries reached — WebSocket unavailable (cloud mode)')
+        return
+      }
+
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
       const ws = new WebSocket(`${protocol}//${window.location.host}/ws/live`)
       wsRef.current = ws
 
-      ws.onopen = () => setConnected(true)
+      ws.onopen = () => {
+        setConnected(true)
+        retriesRef.current = 0 // Reset on successful connection
+      }
 
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data)
-          // Add to event buffer for ActivityFeed
           setEvents(prev => [msg, ...prev].slice(0, MAX_EVENTS))
-          // Notify subscribers (cache invalidation, toasts, etc.)
           subscribersRef.current.forEach(cb => cb(msg))
         } catch {
           // ignore malformed messages
@@ -41,7 +51,11 @@ export function WebSocketProvider({ children }) {
 
       ws.onclose = () => {
         setConnected(false)
-        reconnectRef.current = setTimeout(connect, RECONNECT_DELAY)
+        retriesRef.current += 1
+        if (retriesRef.current < MAX_RETRIES) {
+          const delay = Math.min(INITIAL_DELAY * Math.pow(2, retriesRef.current - 1), MAX_DELAY)
+          reconnectRef.current = setTimeout(connect, delay)
+        }
       }
 
       ws.onerror = () => ws.close()
