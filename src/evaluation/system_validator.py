@@ -19,12 +19,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from src.config import load_config
+from src.config import DB_PATH, load_config
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
-
-DB_PATH = "ai_research_desk.sqlite3"
 
 # Expected tables in the system
 EXPECTED_TABLES = [

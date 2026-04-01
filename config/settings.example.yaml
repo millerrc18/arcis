@@ -1,6 +1,35 @@
+# ═══════════════════════════════════════════════════════════════════════
+# Halcyon Lab — Application Configuration
+# ═══════════════════════════════════════════════════════════════════════
+# Copy to config/settings.local.yaml and edit. YAML handles ALL non-secret
+# configuration; secrets belong in .env (see .env.example).
+#
+# Section index:
+#   app             — environment, timezone
+#   email           — SMTP for digest emails
+#   alpaca          — paper/live trading API
+#   risk            — position sizing, capital
+#   shadow_trading  — paper trading toggle
+#   live_trading    — dual execution (paper + live)
+#   automation      — scan cadence, market hours
+#   llm             — local Ollama model config
+#   api             — Claude API model selection
+#   training        — training pipeline config
+#   data_enrichment — Finnhub/FRED enrichment
+#   risk_governor   — circuit breakers
+#   event_risk      — earnings/event blocking
+#   regime_adaptive — regime-aware thresholds
+#   bootcamp        — high-volume data collection mode
+#   logging         — log level and file
+#   telegram        — push notifications
+#   render          — cloud dashboard sync
+#   council         — AI Council deliberation
+#   execution       — order type configuration
+# ═══════════════════════════════════════════════════════════════════════
+
 app:
-  environment: local
-  timezone: America/New_York
+  environment: local       # "local" or "cloud" (Render deployment)
+  timezone: America/New_York  # All schedule times use this timezone
 
 # ── Email / SMTP configuration ──────────────────────────────────────
 # Fill these in inside config/settings.local.yaml (never commit that file).

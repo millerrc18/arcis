@@ -61,6 +61,26 @@ def _classify_legs(order_status: dict) -> tuple[str | None, str | None]:
     return stop_status, target_status
 
 
+def _check_partial_fills(order_status: dict, expected_qty: float) -> list[str]:
+    """Detect partial fills on bracket legs (#104).
+
+    Returns list of warning messages for any partially filled legs.
+    """
+    warnings = []
+    for leg in order_status.get("legs", []) or []:
+        leg_status = str(leg.get("status") or "").lower()
+        if leg_status != "partially_filled":
+            continue
+        filled_qty = float(leg.get("filled_qty") or 0)
+        leg_type = str(leg.get("type") or leg.get("order_type") or "").lower()
+        leg_label = "stop" if "stop" in leg_type else "target"
+        if filled_qty < expected_qty:
+            warnings.append(
+                f"{leg_label} leg partially filled: {filled_qty}/{expected_qty} shares"
+            )
+    return warnings
+
+
 def _record_check(
     trade_id: str,
     ticker: str,
@@ -111,12 +131,20 @@ def check_bracket_health(
     ensure_bracket_health_table(db_path)
 
     with connect_db(db_path) as conn:
-        trades = conn.execute(
-            "SELECT trade_id, ticker, alpaca_order_id "
-            "FROM shadow_trades "
-            "WHERE status = 'open' AND alpaca_order_id IS NOT NULL "
-            "AND COALESCE(order_type, '') = 'bracket'"
-        ).fetchall()
+        try:
+            trades = conn.execute(
+                "SELECT trade_id, ticker, alpaca_order_id, planned_shares "
+                "FROM shadow_trades "
+                "WHERE status = 'open' AND alpaca_order_id IS NOT NULL "
+                "AND COALESCE(order_type, '') = 'bracket'"
+            ).fetchall()
+        except Exception:
+            trades = conn.execute(
+                "SELECT trade_id, ticker, alpaca_order_id "
+                "FROM shadow_trades "
+                "WHERE status = 'open' AND alpaca_order_id IS NOT NULL "
+                "AND COALESCE(order_type, '') = 'bracket'"
+            ).fetchall()
 
     checked = 0
     protected = 0
@@ -144,6 +172,24 @@ def check_bracket_health(
             stop_status in ACTIVE_LEG_STATUSES
             and target_status in ACTIVE_LEG_STATUSES
         )
+
+        # Check for partial fills on bracket legs (#104)
+        try:
+            expected_qty = float(trade["planned_shares"] or 0)
+        except (KeyError, IndexError):
+            expected_qty = 0
+        if expected_qty > 0:
+            try:
+                partial_warnings = _check_partial_fills(order_status, expected_qty)
+                for pw in partial_warnings:
+                    _alert(
+                        f"PARTIAL FILL: {trade['ticker']} {pw} — "
+                        f"position may not be fully protected"
+                    )
+                    if action_taken is None:
+                        action_taken = "alerted_partial_fill"
+            except Exception:
+                pass
 
         if intact:
             protected += 1

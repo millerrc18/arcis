@@ -86,17 +86,17 @@ export default function CTOReport() {
   )
   if (!data) return <EmptyState message="No report data available" />
 
-  const period = data.report_period || {}
-  const kpis = data.headline_kpis || {}
-  const ts = data.trade_summary || {}
-  const status = data.system_status || {}
+  const period = data?.report_period || {}
+  const kpis = data?.headline_kpis || {}
+  const ts = data?.trade_summary || {}
+  const status = data?.system_status || {}
 
-  const sharpe = kpis.sharpe_ratio || 0
-  const winRate = kpis.win_rate || 0
-  const maxDD = kpis.max_drawdown_pct || 0
-  const cal = kpis.confidence_calibration || 0
-  const rubric = kpis.avg_rubric_score
-  const tradesClosed = ts.trades_closed || 0
+  const sharpe = kpis?.sharpe_ratio ?? 0
+  const winRate = kpis?.win_rate ?? 0
+  const maxDD = kpis?.max_drawdown_pct ?? 0
+  const cal = kpis?.confidence_calibration ?? 0
+  const rubric = kpis?.avg_rubric_score ?? null
+  const tradesClosed = ts?.trades_closed ?? 0
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -104,7 +104,7 @@ export default function CTOReport() {
         <div>
           <h1 className="text-xl font-medium" style={{ color: 'var(--arcis-text-primary)' }}>CTO performance report</h1>
           <p className="text-sm" style={{ color: 'var(--arcis-text-secondary)' }}>
-            {period.start} to {period.end} | {status.model_version || 'base'} | {status.dataset_size || 0} examples
+            {period?.start || 'N/A'} to {period?.end || 'N/A'} | {status?.model_version || 'base'} | {status?.dataset_size ?? 0} examples
           </p>
         </div>
         <button
@@ -178,13 +178,13 @@ export default function CTOReport() {
       {/* Trade summary */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <MetricCard label="Trades closed" value={tradesClosed} />
-        <MetricCard label="Trades open" value={ts.trades_open || 0} />
-        <MetricCard label="Profit factor" value={ts.profit_factor || 'n/a'} />
-        <MetricCard label="Expectancy" value={ts.expectancy_dollars != null ? `$${ts.expectancy_dollars.toFixed(2)}` : 'n/a'} />
-        <MetricCard label="Total P&L" value={ts.total_pnl != null ? `$${ts.total_pnl.toFixed(2)}` : 'n/a'} />
-        <MetricCard label="Avg winner" value={ts.avg_winner_pct != null ? `${ts.avg_winner_pct.toFixed(1)}%` : 'n/a'} />
-        <MetricCard label="Avg loser" value={ts.avg_loser_pct != null ? `${ts.avg_loser_pct.toFixed(1)}%` : 'n/a'} />
-        <MetricCard label="Max consec. losses" value={ts.max_consecutive_losses || 0} />
+        <MetricCard label="Trades open" value={ts?.trades_open ?? 0} />
+        <MetricCard label="Profit factor" value={ts?.profit_factor ?? 'n/a'} />
+        <MetricCard label="Expectancy" value={ts?.expectancy_dollars != null ? `$${Number(ts.expectancy_dollars).toFixed(2)}` : 'n/a'} />
+        <MetricCard label="Total P&L" value={ts?.total_pnl != null ? `$${Number(ts.total_pnl).toFixed(2)}` : 'n/a'} />
+        <MetricCard label="Avg winner" value={ts?.avg_winner_pct != null ? `${Number(ts.avg_winner_pct).toFixed(1)}%` : 'n/a'} />
+        <MetricCard label="Avg loser" value={ts?.avg_loser_pct != null ? `${Number(ts.avg_loser_pct).toFixed(1)}%` : 'n/a'} />
+        <MetricCard label="Max consec. losses" value={ts?.max_consecutive_losses ?? 0} />
       </div>
 
       {/* By score band */}
@@ -257,7 +257,7 @@ export default function CTOReport() {
           ) : (
             <>
               <div className="grid grid-cols-3 gap-3 mb-3">
-                {Object.entries(data.confidence_calibration.by_conviction_band || {}).map(([band, s]) => (
+                {Object.entries(data?.confidence_calibration?.by_conviction_band || {}).map(([band, s]) => (
                   <div key={band} className="arcis-card text-center" style={{ padding: '12px' }}>
                     <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Conviction {band}</div>
                     <div className="text-lg mt-1 financial-data">{s.trades > 0 ? `${(s.win_rate * 100).toFixed(0)}%` : 'n/a'}</div>
@@ -266,8 +266,8 @@ export default function CTOReport() {
                 ))}
               </div>
               <div className="text-sm" style={{ color: 'var(--arcis-text-secondary)' }}>
-                Correlation: {data.confidence_calibration.correlation_with_outcomes?.toFixed(3) || 'n/a'}
-                {data.confidence_calibration.is_calibrated != null && (
+                Correlation: {data?.confidence_calibration?.correlation_with_outcomes?.toFixed(3) || 'n/a'}
+                {data?.confidence_calibration?.is_calibrated != null && (
                   <span className="ml-3">
                     {data.confidence_calibration.is_calibrated
                       ? <span style={{ color: 'var(--arcis-accent)' }}>Calibrated</span>
@@ -281,12 +281,12 @@ export default function CTOReport() {
       )}
 
       {/* Execution analysis */}
-      {data.execution_analysis && (
+      {data?.execution_analysis && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <MetricCard label="Avg hold (days)" value={data.execution_analysis.avg_hold_period_days?.toFixed(1) || 'n/a'} />
-          <MetricCard label="Targets hit" value={data.execution_analysis.targets_hit_pct != null ? `${(data.execution_analysis.targets_hit_pct * 100).toFixed(0)}%` : 'n/a'} />
-          <MetricCard label="Timeouts" value={data.execution_analysis.timeout_pct != null ? `${(data.execution_analysis.timeout_pct * 100).toFixed(0)}%` : 'n/a'} />
-          <MetricCard label="Avg MFE (winners)" value={data.execution_analysis.avg_mfe_winners != null ? `$${data.execution_analysis.avg_mfe_winners.toFixed(2)}` : 'n/a'} />
+          <MetricCard label="Avg hold (days)" value={data.execution_analysis?.avg_hold_period_days?.toFixed(1) || 'n/a'} />
+          <MetricCard label="Targets hit" value={data.execution_analysis?.targets_hit_pct != null ? `${(data.execution_analysis.targets_hit_pct * 100).toFixed(0)}%` : 'n/a'} />
+          <MetricCard label="Timeouts" value={data.execution_analysis?.timeout_pct != null ? `${(data.execution_analysis.timeout_pct * 100).toFixed(0)}%` : 'n/a'} />
+          <MetricCard label="Avg MFE (winners)" value={data.execution_analysis?.avg_mfe_winners != null ? `$${data.execution_analysis.avg_mfe_winners.toFixed(2)}` : 'n/a'} />
         </div>
       )}
 

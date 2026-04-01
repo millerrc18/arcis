@@ -313,25 +313,26 @@ def get_portfolio_state(db_path: str = "ai_research_desk.sqlite3") -> dict:
     except Exception as e:
         logger.debug("Alpaca account unreachable, using config starting_capital: %s", e)
 
-    # Build position list with sectors
+    # Build position list with sectors — use current price for allocation (#145)
     positions = []
-    daily_pnl = 0.0
     for t in open_trades:
         ticker = t.get("ticker", "")
         sector = SECTOR_MAP.get(ticker, "Unknown")
         entry_price = t.get("actual_entry_price") or t.get("entry_price", 0)
         shares = t.get("planned_shares", 1)
-        allocation = entry_price * shares
 
-        # Try to get unrealized P&L
-        unrealized = 0.0
+        # Use current price for sector exposure if available (#145)
+        current_price = entry_price
         try:
             from src.shadow_trading.executor import _get_current_price_safe
-            current = _get_current_price_safe(ticker)
-            if current and entry_price > 0:
-                unrealized = (current - entry_price) * shares
+            fetched = _get_current_price_safe(ticker)
+            if fetched and fetched > 0:
+                current_price = fetched
         except Exception as e:
             logger.debug("Could not get current price for %s: %s", ticker, e)
+
+        allocation = current_price * shares
+        unrealized = (current_price - entry_price) * shares if entry_price > 0 else 0.0
 
         positions.append({
             "ticker": ticker,
@@ -339,9 +340,26 @@ def get_portfolio_state(db_path: str = "ai_research_desk.sqlite3") -> dict:
             "allocation": allocation,
             "unrealized_pnl": unrealized,
         })
-        daily_pnl += unrealized
 
-    # Sector exposure
+    # Daily P&L: use REALIZED (closed) trades from today only (#109)
+    import sqlite3 as _sq3
+    from datetime import datetime as _dt
+    from zoneinfo import ZoneInfo as _ZI
+    _today_str = _dt.now(_ZI("America/New_York")).strftime("%Y-%m-%d")
+    daily_pnl = 0.0
+    try:
+        with _sq3.connect(db_path) as _conn:
+            _rows = _conn.execute(
+                "SELECT COALESCE(SUM(pnl_dollars), 0) FROM shadow_trades "
+                "WHERE status = 'closed' AND pnl_dollars IS NOT NULL "
+                "AND actual_exit_time >= ?",
+                (_today_str,),
+            ).fetchone()
+            daily_pnl = float(_rows[0]) if _rows else 0.0
+    except Exception as e:
+        logger.debug("[RISK] Realized daily P&L query failed: %s", e)
+
+    # Sector exposure — uses current prices (#145)
     sector_totals = {}
     for p in positions:
         sector_totals[p["sector"]] = sector_totals.get(p["sector"], 0) + p["allocation"]

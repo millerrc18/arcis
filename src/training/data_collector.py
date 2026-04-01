@@ -29,6 +29,29 @@ logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
 
+# #110 — Fields that correlate with trade outcome and MUST NOT appear in
+# the feature_snapshot stored alongside training examples.
+OUTCOME_FIELDS = {
+    "pnl_dollars", "pnl_pct", "exit_reason", "max_favorable_excursion",
+    "max_adverse_excursion", "actual_exit_price", "actual_exit_time",
+    "duration_days", "status", "outcome_type",
+}
+
+
+def _sanitize_feature_snapshot(snapshot: str) -> str:
+    """Remove lines containing outcome-correlated fields from feature text.
+
+    Works on the text-based feature_snapshot stored with training examples.
+    Strips any line whose key (before the colon) matches an OUTCOME_FIELD.
+    """
+    lines = snapshot.split("\n")
+    clean = []
+    for line in lines:
+        key = line.split(":")[0].strip().lower().replace(" ", "_") if ":" in line else ""
+        if key not in OUTCOME_FIELDS:
+            clean.append(line)
+    return "\n".join(clean)
+
 
 def _build_feature_input(rec: dict) -> str:
     """Build structured feature text from a recommendation record."""
@@ -143,10 +166,24 @@ def collect_training_examples_from_closed_trades(
 
         # ═══ STORE THE EXAMPLE ═══
         pnl = trade.get("pnl_dollars", 0) or 0
-        source = "blinded_win" if pnl > 0 else "blinded_loss"
+        exit_reason = trade.get("exit_reason", "") or ""
+
+        # #116 — Detect partial closes (both target and stop hit)
+        if "partial" in exit_reason.lower():
+            source = "blinded_partial"
+            logger.info("[TRAINING] Partial close detected for %s — stored but excluded from training", trade.get("ticker"))
+        elif pnl > 0:
+            source = "blinded_win"
+        elif pnl < 0:
+            source = "blinded_loss"
+        else:
+            source = "blinded_timeout"
 
         # Store the outcome for metadata (NOT in the training example itself)
         outcome_text = _build_outcome_text(trade)
+
+        # #110 — Sanitize feature snapshot: remove outcome-correlated fields
+        feature_input = _sanitize_feature_snapshot(feature_input)
 
         example_id = str(uuid.uuid4())
         created_at = datetime.now(ET).isoformat()

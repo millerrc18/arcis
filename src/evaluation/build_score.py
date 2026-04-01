@@ -11,6 +11,12 @@ Components:
     model_quality     -- 7-day rolling LLM success rate
     research_velocity -- HSHS flywheel_velocity proxy
     reliability       -- scan success rate (60%) + uptime proxy (40%)
+
+Called by: api.cloud_routes.analytics, evaluation.hshs_live
+Calls: evaluation.hshs
+Owns tables: build_score_history
+Config keys: none
+Tests: tests/test_cloud_analytics.py
 """
 
 import logging

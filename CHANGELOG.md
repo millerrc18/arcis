@@ -2,6 +2,95 @@
 
 ## [Unreleased] - 2026-03-31
 
+### Sprint 8: Comprehensive Cleanup — All Remaining Issues
+
+**Training Pipeline Safety (Task 1):**
+- Sanitize feature snapshots: remove outcome-correlated fields before storage (#110)
+- Exclude canary example IDs from exported training data (#111)
+- Leakage detector returns INSUFFICIENT_DATA when <30 examples per class (#113)
+- Temporal split applied BEFORE quality filter to prevent future leakage (#114)
+- Dynamic gradient accumulation prevents crash on small datasets (#115)
+- Partial close detection: label as PARTIAL and exclude from training (#116)
+
+**Council Fixes (Task 2):**
+- Exponential backoff retry on Anthropic rate limit errors (#117)
+- Filter unparseable votes from consensus tally (#118)
+- Dynamic majority threshold (len//2+1) instead of hardcoded 3 (#119)
+- Cost cap check before Round 2 with configurable max_session_cost (#120)
+- Type-validate confidence values — non-numeric defaults to 0.5 (#121)
+- Auto-create value tracker tables on first access (#122)
+
+**LLM Pipeline Hardening (Task 3):**
+- Configurable LLM timeout via llm.inference_timeout_seconds (#153)
+- Context window overflow protection with enrichment truncation (#154)
+- Prompt injection sanitization for news/filing enrichment data (#156)
+- Universe lookup failure rejects trade (fail closed) (#162)
+- Grammar client VRAM leak fix on model version change (#163)
+- Daily packets list capped at 200 and cleared after EOD digest (#164)
+- VRAM threshold increased from 500MB to 1500MB (#166)
+- Empty string LLM responses treated as failure (#167)
+- Conviction None defaults to 5 with warning (#168)
+- Out-of-range conviction logged as hallucination before clamping (#169)
+
+**Data Pipeline Robustness (Task 4):**
+- Nightly retention policy: prunes old rows from 7 tables (#123)
+- Options collector validates underlying_price (reject NaN/None/0) (#125)
+- EDGAR accession numbers normalized to dashed format (#126)
+- EDGAR NLP UPDATE checks columns exist via PRAGMA (#127)
+- CBOE collector returns None on regex failure (#128)
+- Short interest collector uses cursor.rowcount (#129)
+- Sync timezone handling verified (#131)
+- Enricher rate limiting: Finnhub 1s, SEC 0.1s intervals (#133)
+
+**Trading Logic Fixes (Task 5):**
+- Atomic duplicate position check with BEGIN IMMEDIATE (#99)
+- Alpaca API failure counter with Telegram alert at >50% failure rate (#102)
+- Partial fill detection on bracket legs (#104)
+- Backfilled positions flagged with zero stop/target (#107)
+- Stale record closure attempts yfinance P&L, falls back to reconciled_stale (#108)
+- Daily loss limit uses realized (closed) trades only (#109)
+- Traffic light persistence debounce (5-minute cooldown) (#144)
+- Sector exposure uses current market price (#145)
+
+**Frontend Bug Fixes (Task 6):**
+- Verified all fetchApi() calls match backend routes, added getBuildScore (#81, #134)
+- Per-page ErrorBoundary wrapping all routes (#135)
+- ShadowLedger reads starting capital from API (#138)
+- CTOReport uses optional chaining on all data fields (#139)
+- Council page invalidates queries after askStrategic mutation (#140)
+- Training page derives outcome types dynamically (#142)
+
+**Frontend Security & UX (Task 7):**
+- AuthGate hashes password with SHA-256, 24h expiry (#137)
+- Docs page sanitizes HTML to prevent XSS (#136)
+- .env.example clarifies VITE_API_SECRET is dashboard-only (#148)
+- formatTimestamp utility with Intl.DateTimeFormat (#141)
+- Text labels alongside color-coded status indicators (#143)
+
+**Sprint 6 Visibility (Task 8):**
+- All 6 Sprint 6 tasks were already implemented; refactored Training.jsx (450→315 lines)
+
+**Config, Performance & Tech Debt (Task 9):**
+- Central DB_PATH constant in src/config (#83)
+- Added missing env vars to .env.example (#84)
+- Added 10+ minimal import tests for untested modules (#85)
+- Updated AGENTS.md route count (55→124) (#86)
+- Added indexes on shadow_trades.status and recommendations.created_at (#92, #97)
+- Replaced all var(--slate-*) with var(--arcis-*) (#93)
+- Moved config_overrides.py to src/config/overrides.py (#95)
+- Added comprehensive comments to settings.example.yaml (#98)
+- Research collector logs fallback to keyword scoring (#146)
+- NYSE holiday awareness for 2026 (#149)
+- Sleep/crash recovery detection with gap alerting (#152)
+- reload_config() clears cache on demand (#165)
+
+**Tests:** +78 new tests (1225 total, up from 1147) across 16 new test files
+**Files:** 173 Python modules, 101 test files
+
+**Issues closed:** #81, #83, #84, #85, #86, #92, #93, #95, #97, #98, #99, #102, #104, #107, #108, #109, #110, #111, #113, #114, #115, #116, #117, #118, #119, #120, #121, #122, #123, #125, #126, #127, #128, #129, #131, #133, #134, #135, #136, #137, #138, #139, #140, #141, #142, #143, #144, #145, #146, #148, #149, #152, #153, #154, #156, #162, #163, #164, #165, #166, #167, #168, #169
+
+---
+
 ### Sprint 7: Reliability & Critical Bug Fixes
 
 **P0 fixes (trading risk / system crash):**

@@ -154,15 +154,27 @@ class TestTrainingEndpoints:
     @patch("src.api.cloud_app._query")
     @patch("src.api.cloud_app._query_one")
     def test_training_status(self, mock_one, mock_query, client):
-        # _query_one is called: active_model, total_examples, win_examples, loss_examples, synthetic_examples
+        # _query_one calls: active_model, total_examples, win_examples, loss_examples,
+        #   synthetic_examples, avg_quality, ticker_coverage, week_count
         mock_one.side_effect = [
             {"version_name": "v1.0", "status": "active"},  # active_model
             {"c": 978},    # total_examples
             {"c": 200},    # win_examples
             {"c": 100},    # loss_examples
             {"c": 5},      # synthetic_examples
+            {"avg": 3.44}, # avg_quality
+            {"covered": 42},  # ticker_coverage
+            {"c": 10},    # examples_this_week
         ]
-        mock_query.return_value = [{"count": 5}]
+        # _query calls: total_versions, outcome_counts, source_counts,
+        #   regime_coverage, recent_examples
+        mock_query.side_effect = [
+            [{"count": 5}],  # total_versions
+            [{"outcome": "win", "count": 200}],  # outcome_counts
+            [{"source": "blinded_win", "count": 200}],  # source_counts
+            [{"curriculum_stage": "bull", "count": 100}],  # regime_coverage
+            [{"ticker": "AAPL", "source": "blinded_win", "outcome_type": "win", "quality_score": 3.5, "created_at": "2026-01-01"}],  # recent
+        ]
 
         resp = client.get("/api/training/status")
         assert resp.status_code == 200
@@ -171,6 +183,9 @@ class TestTrainingEndpoints:
         assert data["model_name"] == "v1.0"
         assert data["dataset_total"] == 978
         assert data["total_versions"] == 5
+        assert data["avg_quality_score"] == 3.44
+        assert data["outcome_counts"] == {"win": 200}
+        assert data["examples_this_week"] == 10
 
     @patch("src.api.cloud_app._query")
     def test_training_versions(self, mock_query, client):
@@ -207,15 +222,17 @@ class TestMetricsEndpoint:
 class TestAnalyticsStubEndpoints:
     """Tests for new analytics stub endpoints."""
 
-    def test_build_score_stub_shape(self, client):
+    @patch("src.api.cloud_app._query")
+    @patch("src.api.cloud_app._query_one")
+    def test_build_score_stub_shape(self, mock_one, mock_query, client):
+        # No build_score_history rows → returns empty shape
+        mock_one.return_value = None
+        mock_query.return_value = []
         resp = client.get("/api/build-score")
         assert resp.status_code == 200
         data = resp.json()
         assert data["build_score"] == 0
-        assert data["delta_7d"] == 0
-        assert data["components"]["gate_velocity"] == 0
-        assert data["phase_progress"]["trades_required"] == 50
-        assert data["history_7d"] == []
+        assert data["components"] == {}
 
     def test_traffic_light_current_stub_shape(self, client):
         resp = client.get("/api/traffic-light/current")
@@ -591,8 +608,15 @@ class TestNewEndpoints:
     @patch("src.api.cloud_app._query_one")
     @patch("src.api.cloud_app._query")
     def test_cto_report(self, mock_query, mock_one, client):
+        # query_one: open_count, packet_count, latest_audit, example_row, model_row
+        mock_one.side_effect = [
+            {"c": 0},    # open_count
+            {"c": 0},    # packet_count
+            None,        # latest_audit
+            {"c": 100},  # example_row
+            {"version_name": "v1.0"},  # model_row
+        ]
         mock_query.return_value = []
-        mock_one.return_value = {"c": 0}
         resp = client.get("/api/cto-report")
         assert resp.status_code == 200
         data = resp.json()
@@ -967,9 +991,19 @@ class TestFrontendContracts:
     @patch("src.api.cloud_app._query")
     def test_cto_report_shape(self, mock_query, mock_one, client):
         """Dashboard.jsx reads: headline_kpis.sharpe_ratio, trade_summary.trades_closed, etc."""
-        mock_one.side_effect = [{"c": 5}, None, None]
+        # query_one: open_count, packet_count, latest_audit, example_row, model_row
+        mock_one.side_effect = [
+            {"c": 0},     # open_count
+            {"c": 5},     # packet_count
+            None,         # latest_audit
+            {"c": 100},   # example_row
+            {"version_name": "v1.0"},  # model_row
+        ]
+        # query: closed_recent, rec_map lookup
         mock_query.side_effect = [
-            [{"ticker": "AAPL", "pnl_dollars": 100, "pnl_pct": 4.0, "exit_reason": "target"}],
+            [{"ticker": "AAPL", "pnl_dollars": 100, "pnl_pct": 4.0, "exit_reason": "target",
+              "duration_days": 3, "recommendation_id": None}],
+            [],  # rec lookup (no rec_ids to look up)
         ]
         r = client.get("/api/cto-report?days=30")
         assert r.status_code == 200
@@ -980,6 +1014,9 @@ class TestFrontendContracts:
         assert "trades_closed" in ts
         assert "total_pnl" in ts
         assert "expectancy_dollars" in ts
+        assert "by_exit_reason" in data
+        assert "by_score_band" in data
+        assert "execution_analysis" in data
 
     @patch("src.api.cloud_app._query_one")
     @patch("src.api.cloud_app._query")

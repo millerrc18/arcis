@@ -10,6 +10,7 @@ Tests: none
 import json
 import sys
 
+from src.config import DB_PATH
 from src.email.notifier import send_email
 from src.journal.store import initialize_database
 from src.packets.template import build_demo_packet
@@ -277,7 +278,7 @@ def cmd_live_history(args):
 
     try:
         initialize_database()
-        with sqlite3.connect("ai_research_desk.sqlite3") as conn:
+        with sqlite3.connect(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 """SELECT ticker, actual_entry_price, actual_exit_price,
@@ -583,7 +584,7 @@ def cmd_train(args):
         if active:
             import sqlite3
 
-            with sqlite3.connect("ai_research_desk.sqlite3") as conn:
+            with sqlite3.connect(DB_PATH) as conn:
                 conn.execute(
                     "UPDATE model_versions SET version_name = ? WHERE version_id = ?",
                     (version_name, active["version_id"]),

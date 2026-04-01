@@ -3,7 +3,7 @@
 **This document is updated after every conversation with Claude. It IS the system state.**
 **Claude: You MUST read this file at the start of every session and update it after every substantive change.**
 
-> Last updated: March 31, 2026 evening · Sprints 4A-5 + Sprint 6 partial (.env) MERGED. Sprint 7 (reliability) DRAFTED. CC deep audit complete: 71 issues filed (#100-#169). 87 total open issues. Render sync fixed (shadow_trades syncing). Quality scoring 972/972 complete (avg 3.44). System in lockdown — 25 open positions, trading autonomously.
+> Last updated: March 31, 2026 night · Sprint 8 MERGED (63 issues). Analytics migration MERGED (#174). VRAM fix pushed. 5 open issues remain. Tests: 1,225. System in lockdown — 25 open positions. Dashboard now reads from Render Postgres (HSHS, CTO Report, Build Score, Training Status all live).
 
 ---
 
@@ -11,14 +11,14 @@
 - **Phase:** 1 (Bootcamp) — paper trading $100K + $100 live via Alpaca
 - **Open positions:** ~25
 - **Closed trades:** 5 (need 50 for Phase 1 gate) — 5/5 winners, 4.1% avg gain, 2.2d hold
-- **Tests:** 1,125 test functions across 82 test files
+- **Tests:** 1,225 test functions across 101 test files
 - **Python files:** 169 | **Dashboard pages:** 14 | **Research docs:** 67
 - **Monthly cost:** ~$64 (Render $7 + Ollama free + Claude API ~$50 + domain $7)
 - **Model:** halcyonlatest / halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF 8.7GB) via Ollama
 - **Next model:** Qwen 2.5 14B or Qwen3 14B (requires RTX 3090, Phase 2)
 - **Dashboard:** halcyonlab.app (Render) — Arcis branding, Palette H, dark/light toggle
 - **Hardware:** RTX 3060 12GB, Windows 11 (RTX 3090 + headless Linux planned Phase 2)
-- **GitHub Issues:** 87 open (#80-#169 from two audits), 3 milestones, CI on PRs
+- **GitHub Issues:** ~5 remaining (from 87), 3 milestones, CI on PRs
 - **Release:** v0.1.0 — Arcis
 
 ---
@@ -152,7 +152,10 @@ Config: `.claude/agents/<name>.md`
 | 6 partial (CC) | #88 ✅ | .env secret migration — 10 modules, 11 tests |
 | 6 remaining (CC) | Pending | Tasks 1-6: data collectors grid, training pipeline, scan metrics, card contrast |
 | CC deep audit | ✅ Complete | 71 issues filed (#100-#169), health 6.5/10 |
-| 7 (CC) | DRAFTED | Reliability: crash protection, GTC brackets, heartbeat, TL stub (~22 issues) |
+| 7 (CC) | #172 ✅ | Reliability: crash handler, GTC brackets, heartbeat, TL stub, sync mutex, backoff (18 issues closed) |
+| Reconciliation | #171 ✅ | Daily postclose paper trade reconciliation vs Alpaca |
+| 8 (CC) | #173 ✅ | Comprehensive cleanup: 63 issues closed — training, council, LLM, data, trading, frontend, config |
+| Analytics migration | #174 ✅ | Cloud endpoints read Postgres: HSHS, CTO Report, Build Score, Training Status, system/validation |
 
 ---
 

@@ -1,6 +1,12 @@
 """Watch loop for automated daily cadence.
 
 Simple Python loop — no APScheduler or cron dependencies.
+
+Called by: cli.commands, main
+Calls: services.scan_service, services.shadow_service, services.watchlist_service, data_collection.*, sync.render_sync
+Owns tables: scan_metrics, log_entries
+Config keys: automation.scan_interval_minutes, automation.morning_watchlist_hour_et, automation.eod_recap_hour_et
+Tests: tests/test_watch_bootstrap.py, tests/test_watch_resilience.py, tests/test_watch_import.py
 """
 
 import time
@@ -19,7 +25,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from src.config import load_config
+from src.config import DB_PATH, load_config
 from src.llm.client import is_llm_available
 from src.scheduler.scorer import GuardedScorer
 
@@ -34,7 +40,7 @@ class DBLogHandler(logging.Handler):
     Captures WARNING+ by default. Keeps last 500 entries (prunes on write).
     """
 
-    def __init__(self, db_path: str = "ai_research_desk.sqlite3", max_entries: int = 500):
+    def __init__(self, db_path: str = DB_PATH, max_entries: int = 500):
         super().__init__(level=logging.WARNING)
         self.db_path = db_path
         self.max_entries = max_entries
@@ -229,9 +235,16 @@ class WatchLoop:
         self._scan_number = 0
 
     def _is_market_open(self, now: datetime) -> bool:
-        """Check if market is currently open (weekday, between open and close)."""
+        """Check if market is currently open (weekday, not holiday, between open and close)."""
         if now.weekday() >= 5:  # Saturday=5, Sunday=6
             return False
+        # Holiday check (#149)
+        try:
+            from src.scheduler.holidays import is_market_holiday
+            if is_market_holiday(check_date=now.date()):
+                return False
+        except Exception:
+            pass  # If holiday module fails, assume market open
         market_open = now.replace(hour=self.market_open_hour,
                                   minute=self.market_open_minute, second=0)
         market_close = now.replace(hour=self.market_close_hour,
@@ -311,6 +324,23 @@ class WatchLoop:
         if self._last_scan_time is None:
             return True
         elapsed = (now - self._last_scan_time).total_seconds() / 60
+
+        # Sleep recovery detection (#152): if gap > 30 min during market hours,
+        # the computer likely slept. Log warning and send Telegram alert.
+        if elapsed > 30 and self._is_market_open(now):
+            logger.warning(
+                "[WATCH] Possible sleep recovery detected: %.0f min since last scan "
+                "(expected %d min). Resuming scans.",
+                elapsed, self.scan_interval,
+            )
+            try:
+                from src.notifications.telegram import send_telegram
+                send_telegram(
+                    f"Sleep recovery: {elapsed:.0f}min gap detected during market hours. Resuming scans."
+                )
+            except Exception:
+                pass  # Telegram optional
+
         return elapsed >= self.scan_interval
 
     def _print_banner(self):
@@ -629,6 +659,9 @@ class WatchLoop:
                 print(f"  -> Email sent for {ticker}")
             elif self.email_mode == "daily_summary":
                 self._daily_packets.append(rendered)
+                # #164: cap list to prevent unbounded memory growth
+                if len(self._daily_packets) > 200:
+                    self._daily_packets = self._daily_packets[-100:]
             elif self.email_mode == "digest":
                 pass  # Handled by scheduled midday/EOD digest
 
@@ -786,6 +819,8 @@ class WatchLoop:
         if self.email_mode == "daily_summary" and self._daily_packets:
             body += "\n\n" + "=" * 60 + "\nDAILY PACKET SUMMARY\n" + "=" * 60 + "\n"
             body += "\n\n".join(self._daily_packets)
+            # #164: clear buffer after sending EOD digest to prevent unbounded growth
+            self._daily_packets = []
 
         print(body)
 
@@ -2083,6 +2118,16 @@ class WatchLoop:
             log_activity(DATA_COLLECTION, f"Overnight collection: {len(results)} collectors", results)
         except Exception as e:
             logger.warning("[WATCH] log_activity failed: %s", e)
+
+        # Run retention policy to prune old rows (#123)
+        try:
+            from src.data_collection.retention import run_retention
+            retention_result = run_retention()
+            if retention_result:
+                results["retention"] = retention_result
+                logger.info("[WATCH] Retention pruned: %s", retention_result)
+        except Exception as e:
+            logger.warning("[WATCH] Retention failed: %s", e)
 
         # 1J. Track collector failures and alert at 3+ consecutive
         try:

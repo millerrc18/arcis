@@ -127,9 +127,9 @@ Fix: When model version changes, explicitly release previous grammar/model state
 File: `src/scheduler/watch.py`
 Fix: Cap `_daily_packets` at 100 entries. If exceeded, drop oldest. Or clear at EOD after sending digest.
 
-**#166 — VRAM manager threshold too generous — 500MB allows partially unloaded models**
-File: `src/llm/grammar_client.py` or VRAM manager
-Fix: Increase minimum free VRAM threshold to 1500MB before loading a model.
+**#166 — VRAM handoff fails: threshold too low, no torch cleanup, short timeout**
+File: `src/scheduler/vram_manager.py`
+Fix: Raise `_wait_for_vram_clear()` threshold from 500MB to 1500MB (all call sites). Add `torch.cuda.empty_cache()` after killing Ollama. Increase final timeout from 15s to 45s. On Windows, also kill `ollama_llama_server.exe` (the actual inference subprocess). See sprint-8-details.md for full code.
 
 **#153 — LLM timeout of 180s may be too short**
 File: `src/llm/client.py`

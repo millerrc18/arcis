@@ -144,11 +144,28 @@ def open_shadow_trade(
 
     ticker = packet.ticker
 
-    # Check for duplicate open trade
-    existing = get_open_shadow_trade_for_ticker(ticker, db_path)
-    if existing:
-        logger.info("[SHADOW] Already have open trade for %s, skipping", ticker)
-        return None
+    # Atomic duplicate check: BEGIN IMMEDIATE to prevent race condition (#99)
+    import sqlite3 as _sqlite3
+    try:
+        _dup_conn = _sqlite3.connect(db_path)
+        _dup_conn.execute("BEGIN IMMEDIATE")
+        _dup_row = _dup_conn.execute(
+            "SELECT trade_id FROM shadow_trades WHERE ticker = ? AND status = 'open' LIMIT 1",
+            (ticker,),
+        ).fetchone()
+        if _dup_row:
+            _dup_conn.rollback()
+            _dup_conn.close()
+            logger.info("[SHADOW] Already have open trade for %s, skipping (atomic check)", ticker)
+            return None
+        _dup_conn.rollback()
+        _dup_conn.close()
+    except Exception as _dup_err:
+        logger.warning("[SHADOW] Atomic duplicate check failed for %s: %s — falling back", ticker, _dup_err)
+        existing = get_open_shadow_trade_for_ticker(ticker, db_path)
+        if existing:
+            logger.info("[SHADOW] Already have open trade for %s, skipping", ticker)
+            return None
 
     # Parse packet values
     entry_price = _parse_price(packet.entry_zone)
@@ -421,6 +438,10 @@ def check_and_manage_open_trades(
     et = ZoneInfo("America/New_York")
     now = datetime.now(et)
 
+    # Track price fetch failures for Alpaca health monitoring (#102)
+    _price_total = 0
+    _price_failures = 0
+
     for trade in open_trades:
         # Retry exit for failed exits instead of skipping
         if trade.get("status") in ("exit_pending", "exit_failed"):
@@ -436,9 +457,11 @@ def check_and_manage_open_trades(
         if entry_price <= 0:
             continue
 
-        # Get current price
+        # Get current price — track failures (#102)
+        _price_total += 1
         current_price = _get_current_price_safe(ticker)
         if current_price is None:
+            _price_failures += 1
             continue
 
         # Calculate unrealized P&L
@@ -697,6 +720,21 @@ def check_and_manage_open_trades(
 
             # 1G. Check for loss streak
             _check_loss_streak(db_path)
+
+    # Alert if >50% of price checks failed in this cycle (#102)
+    if _price_total > 0 and _price_failures / _price_total > 0.5:
+        logger.warning(
+            "[EXECUTOR] Price fetch failure rate %.0f%% (%d/%d) — possible Alpaca outage",
+            _price_failures / _price_total * 100, _price_failures, _price_total,
+        )
+        try:
+            from src.notifications.telegram import send_telegram
+            send_telegram(
+                f"PRICE FETCH ALERT: {_price_failures}/{_price_total} price checks failed "
+                f"({_price_failures / _price_total * 100:.0f}%). Possible Alpaca API outage."
+            )
+        except Exception as _tg_err:
+            logger.warning("[EXECUTOR] Price failure Telegram alert failed: %s", _tg_err)
 
     return actions
 

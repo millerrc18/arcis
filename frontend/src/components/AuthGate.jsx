@@ -3,7 +3,15 @@ import { API_BASE, IS_CLOUD } from '../config'
 
 const TOKEN_KEY = 'hl_token'
 const TOKEN_TS_KEY = 'hl_token_ts'
-const SESSION_MAX_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
+const SESSION_MAX_MS = 24 * 60 * 60 * 1000 // 24 hours
+
+async function hashPassword(password) {
+  const encoder = new TextEncoder()
+  const data = encoder.encode(password)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
+}
 
 function isSessionValid() {
   const token = localStorage.getItem(TOKEN_KEY)
@@ -40,11 +48,12 @@ export default function AuthGate({ children }) {
     setError('')
     setLoading(true)
     try {
+      const hashed = await hashPassword(password)
       const res = await fetch(`${API_BASE}/auth`, {
-        headers: { Authorization: `Bearer ${password}` },
+        headers: { Authorization: `Bearer ${hashed}` },
       })
       if (res.ok) {
-        localStorage.setItem(TOKEN_KEY, password)
+        localStorage.setItem(TOKEN_KEY, hashed)
         localStorage.setItem(TOKEN_TS_KEY, String(Date.now()))
         setAuthed(true)
       } else {

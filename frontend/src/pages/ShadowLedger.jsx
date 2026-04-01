@@ -211,15 +211,15 @@ function SummaryRow({ trades, type }) {
   )
 }
 
-function EquityCurveTab({ trades }) {
+function EquityCurveTab({ trades, startingCapital = 100000 }) {
   const data = useMemo(() => {
     const sorted = [...trades].reverse()
-    let running = 100000
+    let running = startingCapital
     return sorted.map(t => {
       running += (t.pnl_dollars || 0)
       return { date: (t.actual_exit_time || t.created_at || '').slice(5, 10), equity: Math.round(running) }
     })
-  }, [trades])
+  }, [trades, startingCapital])
 
   if (data.length === 0) return <EmptyState message="No closed trades for equity curve" />
 
@@ -230,7 +230,7 @@ function EquityCurveTab({ trades }) {
         <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--arcis-text-secondary)' }} />
         <YAxis tick={{ fontSize: 11, fill: 'var(--arcis-text-secondary)' }} />
         <RTooltip contentStyle={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 8, fontSize: 12 }} />
-        <ReferenceLine y={100000} stroke="var(--arcis-text-muted)" strokeDasharray="3 3" />
+        <ReferenceLine y={startingCapital} stroke="var(--arcis-text-muted)" strokeDasharray="3 3" />
         <Area type="monotone" dataKey="equity" stroke="var(--arcis-accent)" fill="var(--arcis-accent)" fillOpacity={0.1} />
       </AreaChart>
     </ResponsiveContainer>
@@ -527,7 +527,7 @@ export default function ShadowLedger() {
                   </button>
                 ))}
               </div>
-              {vizTab === 'equity' && <EquityCurveTab trades={closedTrades} />}
+              {vizTab === 'equity' && <EquityCurveTab trades={closedTrades} startingCapital={startingCapital} />}
               {vizTab === 'distribution' && <DistributionTab trades={closedTrades} />}
               {vizTab === 'sector' && <SectorTab trades={closedTrades} />}
               {vizTab === 'calendar' && <CalendarTab trades={closedTrades} />}

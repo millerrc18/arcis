@@ -136,7 +136,7 @@ class VRAMManager:
             logger.warning("[VRAM] Reload request failed: %s", e)
         return False
 
-    def _wait_for_vram_clear(self, threshold_mb: int = 500,
+    def _wait_for_vram_clear(self, threshold_mb: int = 1500,
                              timeout_seconds: int = 30) -> bool:
         """Wait until VRAM usage drops below threshold."""
         if not self._nvidia_smi:
@@ -176,12 +176,12 @@ class VRAMManager:
         time.sleep(3)
 
         # Step 2: Verify VRAM clear
-        if not self._wait_for_vram_clear(threshold_mb=500, timeout_seconds=30):
+        if not self._wait_for_vram_clear(threshold_mb=1500, timeout_seconds=30):
             # Retry unload
             logger.warning("[VRAM] VRAM not clear, retrying unload...")
             self._unload_ollama()
             time.sleep(3)
-            if not self._wait_for_vram_clear(threshold_mb=500, timeout_seconds=30):
+            if not self._wait_for_vram_clear(threshold_mb=1500, timeout_seconds=30):
                 # Kill Ollama process entirely to free VRAM
                 logger.warning("[VRAM] Killing Ollama process to reclaim VRAM...")
                 try:
@@ -189,14 +189,40 @@ class VRAMManager:
                     if platform.system() == "Windows":
                         subprocess.run(["taskkill", "/f", "/im", "ollama.exe"],
                                        capture_output=True, timeout=10)
+                        # Also kill the inference subprocess directly
+                        subprocess.run(["taskkill", "/f", "/im", "ollama_llama_server.exe"],
+                                       capture_output=True, timeout=10)
                     else:
                         subprocess.run(["pkill", "-f", "ollama"],
                                        capture_output=True, timeout=10)
                     time.sleep(5)
                 except Exception as kill_err:
                     logger.warning("[VRAM] Failed to kill Ollama: %s", kill_err)
-                if not self._wait_for_vram_clear(threshold_mb=500, timeout_seconds=15):
+
+                # Clear GPU memory fragments after killing processes
+                try:
+                    import torch
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                        logger.info("[VRAM] torch.cuda.empty_cache() called")
+                except ImportError:
+                    pass
+
+                if not self._wait_for_vram_clear(threshold_mb=1500, timeout_seconds=45):
                     logger.error("[VRAM] Handoff to training FAILED — VRAM not clear even after killing Ollama")
+                    # Ollama was killed but training can't start — restart Ollama so inference still works
+                    logger.info("[VRAM] Restarting Ollama to restore inference capability...")
+                    try:
+                        import platform as _plat
+                        if _plat.system() == "Windows":
+                            subprocess.Popen(["ollama", "serve"], creationflags=subprocess.CREATE_NO_WINDOW)
+                        else:
+                            subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        time.sleep(5)
+                        self._reload_ollama()
+                        logger.info("[VRAM] Ollama restarted after failed training handoff")
+                    except Exception as restart_err:
+                        logger.error("[VRAM] Failed to restart Ollama: %s", restart_err)
                     return False
 
         used_after = self.get_vram_used_mb()
@@ -225,8 +251,17 @@ class VRAMManager:
 
         time.sleep(3)
 
+        # Clear GPU memory fragments after killing training
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                logger.info("[VRAM] torch.cuda.empty_cache() called after training kill")
+        except ImportError:
+            pass
+
         # Step 2: Verify VRAM clear
-        if not self._wait_for_vram_clear(threshold_mb=500, timeout_seconds=30):
+        if not self._wait_for_vram_clear(threshold_mb=1500, timeout_seconds=30):
             logger.warning("[VRAM] VRAM not clear after killing training process")
             # Continue anyway — Ollama may still be able to load
 

@@ -70,20 +70,20 @@ export default function App() {
           <BrowserRouter>
             <Routes>
               <Route element={<Layout />}>
-                <Route index element={<Dashboard />} />
-                <Route path="/packets" element={<Packets />} />
-                <Route path="/shadow" element={<ShadowLedger />} />
-                <Route path="/training" element={<Training />} />
-                <Route path="/live" element={<LiveLedger />} />
-                <Route path="/cto-report" element={<CTOReport />} />
-                <Route path="/settings" element={<Settings />} />
-                <Route path="/roadmap" element={<Roadmap />} />
-                <Route path="/docs" element={<Docs />} />
-                <Route path="/notes" element={<Notes />} />
-                <Route path="/council" element={<Council />} />
-                <Route path="/health" element={<Health />} />
-                <Route path="/validation" element={<Validation />} />
-                <Route path="/logs" element={<Logs />} />
+                <Route index element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
+                <Route path="/packets" element={<ErrorBoundary><Packets /></ErrorBoundary>} />
+                <Route path="/shadow" element={<ErrorBoundary><ShadowLedger /></ErrorBoundary>} />
+                <Route path="/training" element={<ErrorBoundary><Training /></ErrorBoundary>} />
+                <Route path="/live" element={<ErrorBoundary><LiveLedger /></ErrorBoundary>} />
+                <Route path="/cto-report" element={<ErrorBoundary><CTOReport /></ErrorBoundary>} />
+                <Route path="/settings" element={<ErrorBoundary><Settings /></ErrorBoundary>} />
+                <Route path="/roadmap" element={<ErrorBoundary><Roadmap /></ErrorBoundary>} />
+                <Route path="/docs" element={<ErrorBoundary><Docs /></ErrorBoundary>} />
+                <Route path="/notes" element={<ErrorBoundary><Notes /></ErrorBoundary>} />
+                <Route path="/council" element={<ErrorBoundary><Council /></ErrorBoundary>} />
+                <Route path="/health" element={<ErrorBoundary><Health /></ErrorBoundary>} />
+                <Route path="/validation" element={<ErrorBoundary><Validation /></ErrorBoundary>} />
+                <Route path="/logs" element={<ErrorBoundary><Logs /></ErrorBoundary>} />
               </Route>
             </Routes>
           </BrowserRouter>

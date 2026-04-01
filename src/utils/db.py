@@ -1,14 +1,17 @@
 """SQLite connection helper with busy_timeout.
 
-Called by: scheduler/watch.py, shadow_trading/executor.py, sync/render_sync.py, and others
-Owns tables: (none)
-Config keys: (none)
+Called by: scheduler.watch, shadow_trading.executor, sync.render_sync, and others
+Calls: none
+Owns tables: none
+Config keys: none
 Tests: tests/test_db_util.py
 """
 
 import sqlite3
 
-DEFAULT_DB = "ai_research_desk.sqlite3"
+from src.config import DB_PATH
+
+DEFAULT_DB = DB_PATH
 BUSY_TIMEOUT_MS = 5000
 
 

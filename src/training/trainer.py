@@ -63,9 +63,13 @@ def main():
              {"role":"assistant","content":ex["output"]}], tokenize=False)}
 
     dataset = Dataset.from_list(examples).map(fmt)
+    if len(dataset) < 5:
+        print(f"[TRAIN] Dataset too small ({len(dataset)} examples) — skipping")
+        sys.exit(0)
+    effective_gas = min(16, max(1, len(dataset)))
     trainer = SFTTrainer(model=model, processing_class=tokenizer,
         train_dataset=dataset, max_seq_length=1024,
-        args=TrainingArguments(per_device_train_batch_size=1, gradient_accumulation_steps=16,
+        args=TrainingArguments(per_device_train_batch_size=1, gradient_accumulation_steps=effective_gas,
             num_train_epochs=1, learning_rate=2e-4, bf16=True, logging_steps=10,
             output_dir="training_data/checkpoints", report_to="none"))
     trainer.train()
@@ -145,9 +149,14 @@ def main():
         if len(ds) == 0:
             print(f"  Empty dataset for {name}, skipping")
             continue
+        if len(ds) < 5:
+            print(f"  Dataset too small for {name} ({len(ds)} examples) — skipping")
+            continue
+        # #115 — Dynamic gradient accumulation to prevent crash on small datasets
+        effective_gas = min(16, max(1, len(ds)))
         sft_config = SFTConfig(
             per_device_train_batch_size=1,
-            gradient_accumulation_steps=16,
+            gradient_accumulation_steps=effective_gas,
             num_train_epochs=1,
             learning_rate=lr,
             bf16=True,
@@ -296,8 +305,8 @@ def export_training_data(
     with _sqlite3.connect(db_path) as conn:
         conn.row_factory = _sqlite3.Row
         rows = conn.execute(
-            "SELECT instruction, input_text, output_text, created_at, quality_score, "
-            "curriculum_stage, quality_score_auto "
+            "SELECT example_id, instruction, input_text, output_text, created_at, "
+            "quality_score, curriculum_stage, quality_score_auto, source "
             "FROM training_examples ORDER BY created_at ASC"
         ).fetchall()
 
@@ -313,23 +322,40 @@ def export_training_data(
     examples = [dict(row) for row in rows]
     total = len(examples)
 
-    # Quality filter: only export examples where quality_score_auto >= 3.0 (or NULL)
-    examples = [e for e in examples
-                if e.get("quality_score_auto") is None or e["quality_score_auto"] >= 3.0]
+    # #111 — Exclude canary examples from training data
+    try:
+        from src.training.canary import CanaryMonitor, DEFAULT_CANARY_PATH
+        if DEFAULT_CANARY_PATH.exists():
+            monitor = CanaryMonitor(db_path=db_path)
+            canary_list = monitor.load_canaries()
+            canary_ids = {e.get("example_id") for e in canary_list if e.get("example_id")}
+            if canary_ids:
+                before = len(examples)
+                examples = [e for e in examples if e.get("example_id") not in canary_ids]
+                filtered = before - len(examples)
+                if filtered:
+                    logger.warning("[TRAINING] Filtered %d canary examples from training data", filtered)
+    except Exception as e:
+        logger.debug("[TRAINING] Canary exclusion skipped: %s", e)
 
-    # Calculate split point with 5-day temporal gap
+    # #116 — Exclude partial-close examples from training (stored for review only)
+    examples = [e for e in examples if "partial" not in (e.get("source") or "")]
+
+    # #114 — Apply temporal split FIRST, then quality filter within each split.
+    # This prevents future leakage when quality filtering removes recent examples.
+    from datetime import datetime as _dt, timedelta as _td
+
     split_idx = int(len(examples) * (1 - holdout_pct))
     if split_idx >= len(examples):
         split_idx = len(examples) - 1
 
     split_date = examples[split_idx]["created_at"][:10] if split_idx < len(examples) else ""
 
-    from datetime import datetime as _dt, timedelta as _td
     holdout_start_idx = split_idx
     if split_date:
         try:
             split_dt = _dt.fromisoformat(split_date)
-            gap_dt = split_dt + _td(days=5)  # 5-day temporal gap per research recommendation
+            gap_dt = split_dt + _td(days=5)
             gap_date = gap_dt.strftime("%Y-%m-%d")
             for i in range(split_idx, len(examples)):
                 if examples[i]["created_at"][:10] >= gap_date:
@@ -340,8 +366,15 @@ def export_training_data(
         except (ValueError, TypeError):
             holdout_start_idx = split_idx
 
-    train_examples = examples[:split_idx]
-    holdout_examples = examples[holdout_start_idx:]
+    train_examples_raw = examples[:split_idx]
+    holdout_examples_raw = examples[holdout_start_idx:]
+
+    # Quality filter applied AFTER temporal split — independently per split
+    def _quality_ok(e):
+        return e.get("quality_score_auto") is None or e["quality_score_auto"] >= 3.0
+
+    train_examples = [e for e in train_examples_raw if _quality_ok(e)]
+    holdout_examples = [e for e in holdout_examples_raw if _quality_ok(e)]
 
     def _write_jsonl(path, exs):
         with open(path, "w") as f:

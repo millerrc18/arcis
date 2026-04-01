@@ -65,7 +65,7 @@ def create_router(runtime, verify_auth):
             total_pnl = sum(pnls)
             metrics = {
                 "total_trades": len(rows),
-                "win_rate": round(len(wins) / len(rows) * 100, 1) if rows else 0,
+                "win_rate": round(len(wins) / len(rows), 3) if rows else 0,
                 "avg_gain": round(sum(wins) / len(wins), 2) if wins else 0,
                 "avg_loss": round(sum(losses) / len(losses), 2) if losses else 0,
                 "expectancy": round(total_pnl / len(rows), 2) if rows else 0,

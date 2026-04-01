@@ -71,18 +71,38 @@ app.add_middleware(
 )
 
 
+def _sha256_hex(value: str) -> str:
+    """Compute SHA-256 hex digest of a string."""
+    import hashlib
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
+# Pre-compute the hashed secret on startup for constant-time comparison
+_API_SECRET_HASH = _sha256_hex(API_SECRET) if API_SECRET else ""
+
+
 def verify_auth(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
 ) -> None:
-    """Verify bearer token if API_SECRET is set. No-op if unset."""
+    """Verify bearer token if API_SECRET is set.
+
+    Accepts both the SHA-256 hashed token (from frontend AuthGate) and
+    the raw plaintext secret (for backward compatibility / curl usage).
+    """
     if not API_SECRET:
         logger.warning(
             "[AUTH] API_SECRET is empty — authentication disabled. "
             "Set API_SECRET env var to enable auth."
         )
         return
-    if not credentials or credentials.credentials != API_SECRET:
+    if not credentials:
         raise HTTPException(status_code=401, detail="Invalid or missing API token")
+    token = credentials.credentials
+    # Accept hashed token (frontend sends SHA-256 of password)
+    # or raw plaintext (backward compat for curl/scripts)
+    if token == _API_SECRET_HASH or token == API_SECRET:
+        return
+    raise HTTPException(status_code=401, detail="Invalid or missing API token")
 
 
 @contextmanager

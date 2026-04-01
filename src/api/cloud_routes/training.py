@@ -90,6 +90,60 @@ def create_router(runtime, verify_auth):
                 "SELECT COUNT(*) as c FROM training_examples WHERE source = 'synthetic_claude' OR source = 'synthetic'"
             )
             model_name = active_model["version_name"] if active_model else "base"
+
+            # Avg quality score (COALESCE auto vs manual)
+            avg_row = runtime.query_one(
+                "SELECT AVG(COALESCE(quality_score_auto, quality_score)) as avg "
+                "FROM training_examples "
+                "WHERE COALESCE(quality_score_auto, quality_score) IS NOT NULL"
+            )
+            avg_quality = round(avg_row["avg"], 2) if avg_row and avg_row["avg"] else None
+
+            # Outcome counts
+            outcome_rows = runtime.query(
+                "SELECT outcome, COUNT(*) as count FROM training_examples "
+                "WHERE outcome IS NOT NULL GROUP BY outcome"
+            )
+            outcome_counts = {r["outcome"]: r["count"] for r in outcome_rows} if outcome_rows else None
+
+            # Source counts
+            source_rows = runtime.query(
+                "SELECT source, COUNT(*) as count FROM training_examples GROUP BY source"
+            )
+            source_counts = {r["source"]: r["count"] for r in source_rows} if source_rows else None
+
+            # Ticker coverage
+            ticker_row = runtime.query_one(
+                "SELECT COUNT(DISTINCT ticker) as covered FROM training_examples "
+                "WHERE ticker IS NOT NULL"
+            )
+            ticker_coverage = {
+                "covered": ticker_row["covered"] if ticker_row else 0,
+                "total": 102,
+            } if ticker_row and ticker_row["covered"] else None
+
+            # Regime coverage
+            regime_rows = runtime.query(
+                "SELECT curriculum_stage, COUNT(*) as count FROM training_examples "
+                "WHERE curriculum_stage IS NOT NULL GROUP BY curriculum_stage"
+            )
+            regime_coverage = {r["curriculum_stage"]: r["count"] for r in regime_rows} if regime_rows else None
+
+            # Examples this week
+            week_ago = (datetime.now(runtime.et) - timedelta(days=7)).isoformat()
+            week_row = runtime.query_one(
+                "SELECT COUNT(*) as c FROM training_examples WHERE created_at >= %s",
+                (week_ago,),
+            )
+            examples_this_week = week_row["c"] if week_row else 0
+
+            # Recent examples
+            recent_rows = runtime.query(
+                "SELECT ticker, source, outcome as outcome_type, "
+                "COALESCE(quality_score_auto, quality_score) as quality_score, "
+                "created_at FROM training_examples ORDER BY created_at DESC LIMIT 10"
+            )
+
             return {
                 "active_model": active_model,
                 "total_versions": total_versions[0]["count"] if total_versions else 0,
@@ -102,6 +156,13 @@ def create_router(runtime, verify_auth):
                 "train_queued": False,
                 "train_reason": "Cloud mode — training runs locally",
                 "rollback_status": "n/a (cloud mode)",
+                "avg_quality_score": avg_quality,
+                "outcome_counts": outcome_counts,
+                "source_counts": source_counts,
+                "ticker_coverage": ticker_coverage,
+                "regime_coverage": regime_coverage,
+                "examples_this_week": examples_this_week,
+                "recent_examples": recent_rows,
             }
         except HTTPException:
             raise
@@ -279,10 +340,13 @@ def create_router(runtime, verify_auth):
         try:
             total = runtime.query_one("SELECT COUNT(*) as c FROM training_examples")
             scored = runtime.query_one(
-                "SELECT COUNT(*) as c FROM training_examples WHERE quality_score IS NOT NULL"
+                "SELECT COUNT(*) as c FROM training_examples "
+                "WHERE COALESCE(quality_score_auto, quality_score) IS NOT NULL"
             )
             avg_score = runtime.query_one(
-                "SELECT AVG(quality_score) as avg FROM training_examples WHERE quality_score IS NOT NULL"
+                "SELECT AVG(COALESCE(quality_score_auto, quality_score)) as avg "
+                "FROM training_examples "
+                "WHERE COALESCE(quality_score_auto, quality_score) IS NOT NULL"
             )
             return {
                 "total_examples": total["c"] if total else 0,
@@ -397,12 +461,19 @@ def create_router(runtime, verify_auth):
             }
 
     @router.get("/api/scan/metrics", dependencies=[Depends(verify_auth)])
-    def scan_metrics_latest():
+    def scan_metrics_list(limit: int = 20):
         try:
-            row = runtime.query_one("SELECT * FROM scan_metrics ORDER BY created_at DESC LIMIT 1")
-            return row or {}
+            rows = runtime.query(
+                "SELECT * FROM scan_metrics ORDER BY created_at DESC LIMIT %s",
+                (min(limit, 100),),
+            )
+            return rows
         except Exception as exc:
-            runtime.logger.error("[API] scan_metrics_latest failed: %s", exc, exc_info=True)
-            return {"error": str(exc)}
+            runtime.logger.error("[API] scan_metrics failed: %s", exc, exc_info=True)
+            return []
+
+    @router.get("/api/training/history", dependencies=[Depends(verify_auth)])
+    def training_history():
+        return training_versions()
 
     return router
