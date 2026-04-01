@@ -210,6 +210,19 @@ class VRAMManager:
 
                 if not self._wait_for_vram_clear(threshold_mb=1500, timeout_seconds=45):
                     logger.error("[VRAM] Handoff to training FAILED — VRAM not clear even after killing Ollama")
+                    # Ollama was killed but training can't start — restart Ollama so inference still works
+                    logger.info("[VRAM] Restarting Ollama to restore inference capability...")
+                    try:
+                        import platform as _plat
+                        if _plat.system() == "Windows":
+                            subprocess.Popen(["ollama", "serve"], creationflags=subprocess.CREATE_NO_WINDOW)
+                        else:
+                            subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        time.sleep(5)
+                        self._reload_ollama()
+                        logger.info("[VRAM] Ollama restarted after failed training handoff")
+                    except Exception as restart_err:
+                        logger.error("[VRAM] Failed to restart Ollama: %s", restart_err)
                     return False
 
         used_after = self.get_vram_used_mb()
