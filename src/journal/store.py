@@ -182,6 +182,14 @@ def initialize_database(db_path: str = "ai_research_desk.sqlite3") -> None:
         """)
         conn.commit()
 
+        # Migration: backfill actual_exit_time for trades closed by reconciliation
+        # that were missing this field (causes them to be invisible to dashboard)
+        conn.execute(
+            "UPDATE shadow_trades SET actual_exit_time = COALESCE(updated_at, created_at) "
+            "WHERE status = 'closed' AND actual_exit_time IS NULL"
+        )
+        conn.commit()
+
         # Implementation Shortfall columns
         for _alter in [
             "ALTER TABLE shadow_trades ADD COLUMN signal_price REAL",

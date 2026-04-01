@@ -75,7 +75,7 @@ def test_reconcile_backfills_orphaned(mock_positions, db_path):
 
 @patch("src.shadow_trading.alpaca_adapter.get_live_positions", return_value=[])
 def test_reconcile_marks_stale(mock_positions, db_path):
-    """DB records with no Alpaca position should be marked closed."""
+    """DB records with no Alpaca position should be marked closed with actual_exit_time."""
     # Insert a stale live trade
     insert_shadow_trade(
         {
@@ -95,15 +95,16 @@ def test_reconcile_marks_stale(mock_positions, db_path):
     assert result["stale"] == ["MSFT"]
     assert result["marked_closed"] == ["MSFT"]
 
-    # Verify row updated
+    # Verify row updated with actual_exit_time set
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT status, exit_reason FROM shadow_trades WHERE ticker = 'MSFT'"
+            "SELECT status, exit_reason, actual_exit_time FROM shadow_trades WHERE ticker = 'MSFT'"
         ).fetchone()
 
     assert row["status"] == "closed"
     assert row["exit_reason"] == "reconciled_stale"
+    assert row["actual_exit_time"] is not None
 
 
 @patch("src.shadow_trading.alpaca_adapter.get_live_positions", return_value=MOCK_ALPACA_POSITIONS)
@@ -235,8 +236,8 @@ def test_paper_reconcile_backfills_orphaned(mock_positions, db_path):
     "src.shadow_trading.alpaca_adapter.get_all_positions",
     return_value=[],
 )
-def test_paper_reconcile_stale_not_auto_closed(mock_positions, db_path):
-    """Stale paper trades should be flagged but NOT auto-closed."""
+def test_paper_reconcile_stale_auto_closed(mock_positions, db_path):
+    """Stale paper trades older than 1 hour should be auto-closed."""
     insert_shadow_trade(
         {
             "ticker": "MSFT",
@@ -255,12 +256,56 @@ def test_paper_reconcile_stale_not_auto_closed(mock_positions, db_path):
 
     assert len(result["stale"]) == 1
     assert result["stale"][0]["ticker"] == "MSFT"
+    assert result["marked_closed"] == ["MSFT"]
 
-    # Verify status is still 'open' — NOT auto-closed
+    # Verify trade is closed with actual_exit_time set
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT status, exit_reason FROM shadow_trades WHERE ticker = 'MSFT'"
+            "SELECT status, exit_reason, actual_exit_time FROM shadow_trades WHERE ticker = 'MSFT'"
+        ).fetchone()
+
+    assert row["status"] == "closed"
+    assert row["exit_reason"] == "reconciled_stale"
+    assert row["actual_exit_time"] is not None
+
+
+@patch(
+    "src.shadow_trading.alpaca_adapter.get_all_positions",
+    return_value=[],
+)
+def test_paper_reconcile_skips_recent_trade(mock_positions, db_path):
+    """Stale paper trades less than 1 hour old should NOT be auto-closed (safety guard)."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    # Create a trade with a very recent created_at (now)
+    now_str = datetime.now(ZoneInfo("America/New_York")).isoformat()
+    insert_shadow_trade(
+        {
+            "ticker": "NVDA",
+            "status": "open",
+            "source": "paper",
+            "direction": "long",
+            "entry_price": 800.0,
+            "planned_shares": 2,
+            "created_at": now_str,
+            "updated_at": now_str,
+        },
+        db_path,
+    )
+
+    result = reconcile_paper_trades(db_path=db_path, dry_run=False)
+
+    assert len(result["stale"]) == 1
+    assert result["stale"][0]["ticker"] == "NVDA"
+    assert result["marked_closed"] == []  # NOT closed — too recent
+
+    # Verify status is still 'open'
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT status, exit_reason FROM shadow_trades WHERE ticker = 'NVDA'"
         ).fetchone()
 
     assert row["status"] == "open"
@@ -303,3 +348,41 @@ def test_paper_reconcile_qty_discrepancy(mock_positions, db_path):
     assert len(result["discrepancies"]) == 1
     assert result["discrepancies"][0]["ticker"] == "AAPL"
     assert "qty mismatch" in result["discrepancies"][0]["issue"]
+
+
+@patch("src.shadow_trading.alpaca_adapter.get_live_positions", return_value=[])
+def test_reconcile_stale_without_yfinance(mock_positions, db_path):
+    """Stale trades should be closed even when yfinance price lookup fails."""
+    insert_shadow_trade(
+        {
+            "ticker": "FAKE",
+            "status": "open",
+            "source": "live",
+            "direction": "long",
+            "entry_price": 100.0,
+            "actual_entry_price": 100.0,
+            "planned_shares": 10,
+            "created_at": "2026-03-27T10:00:00",
+            "updated_at": "2026-03-27T10:00:00",
+        },
+        db_path,
+    )
+
+    result = reconcile_live_trades(db_path=db_path, dry_run=False)
+
+    assert result["marked_closed"] == ["FAKE"]
+
+    # Verify trade is closed with defaults (pnl=0, exit_price=0) and actual_exit_time set
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT status, exit_reason, actual_exit_time, pnl_dollars, actual_exit_price "
+            "FROM shadow_trades WHERE ticker = 'FAKE'"
+        ).fetchone()
+
+    assert row["status"] == "closed"
+    assert row["exit_reason"] == "reconciled_stale"
+    assert row["actual_exit_time"] is not None
+    # P&L defaults to 0.0 when yfinance fails (better than invisible trade)
+    assert row["pnl_dollars"] == 0.0
+    assert row["actual_exit_price"] == 0.0
