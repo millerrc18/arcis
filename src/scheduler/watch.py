@@ -2451,10 +2451,29 @@ class WatchLoop:
                     "SELECT COUNT(*) FROM shadow_trades WHERE status='open' AND source='live'"
                 ).fetchone()[0]
 
+            # S&P futures + 10Y from yfinance (works pre-market)
+            spy_futures_pct = 0.0
+            ten_year = 0.0
+            try:
+                import yfinance as yf
+                es = yf.Ticker("ES=F")
+                es_hist = es.history(period="2d")
+                if len(es_hist) >= 2:
+                    prev_close = es_hist["Close"].iloc[-2]
+                    latest = es_hist["Close"].iloc[-1]
+                    spy_futures_pct = ((latest - prev_close) / prev_close) * 100
+
+                tnx = yf.Ticker("^TNX")
+                tnx_hist = tnx.history(period="1d")
+                if len(tnx_hist) >= 1:
+                    ten_year = tnx_hist["Close"].iloc[-1]
+            except Exception as yf_err:
+                logger.debug("[WATCH] yfinance pre-market fetch failed: %s", yf_err)
+
             notify_premarket_brief(
                 vix=vix, vix_change=vix_change, regime=regime,
-                spy_futures_pct=0.0,  # Not available pre-market without live data feed
-                ten_year=0.0,
+                spy_futures_pct=spy_futures_pct,
+                ten_year=ten_year,
                 earnings_today=earnings_today,
                 fomc_days=fomc_days, nfp_days=nfp_days,
                 council_consensus=council_consensus,
