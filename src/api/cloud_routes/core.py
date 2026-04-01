@@ -413,4 +413,47 @@ def create_router(runtime, verify_auth):
             "message": "Reconciliation must be run locally via CLI: python -m src.main reconcile-live",
         }
 
+    @router.get("/api/system/validation", dependencies=[Depends(verify_auth)])
+    def system_validation(fresh: bool = False):
+        """Return latest validation result from synced data."""
+        if fresh:
+            try:
+                _submit_command("validate-system")
+            except Exception:
+                pass
+
+        try:
+            import json as _json
+
+            row = runtime.query_one(
+                "SELECT results_json FROM validation_results "
+                "ORDER BY created_at DESC LIMIT 1"
+            )
+            if not row or not row.get("results_json"):
+                return {
+                    "overall_status": "unknown",
+                    "categories": {},
+                    "checks_passed": 0,
+                    "checks_failed": 0,
+                    "checks_warning": 0,
+                    "checks_total": 0,
+                }
+            result = row["results_json"]
+            if isinstance(result, str):
+                result = _json.loads(result)
+            return result
+        except HTTPException:
+            raise
+        except Exception as exc:
+            runtime.logger.error("[API] system_validation failed: %s", exc)
+            return {
+                "overall_status": "unknown",
+                "categories": {},
+                "checks_passed": 0,
+                "checks_failed": 0,
+                "checks_warning": 0,
+                "checks_total": 0,
+                "error": str(exc),
+            }
+
     return router

@@ -79,6 +79,21 @@ SYNC_TABLES: dict[str, dict] = {
         "time_col": "collected_date",
         "pk": "id",
     },
+    "options_chains": {
+        "mode": "latest_only",
+        "time_col": "collected_at",
+        "pk": "id",
+    },
+    "cboe_ratios": {
+        "mode": "latest_only",
+        "time_col": "collected_date",
+        "pk": "id",
+    },
+    "google_trends": {
+        "mode": "latest_only",
+        "time_col": "collected_date",
+        "pk": "id",
+    },
     "council_sessions": {
         "mode": "incremental",
         "time_col": "created_at",
