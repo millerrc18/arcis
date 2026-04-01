@@ -3,7 +3,7 @@
 **This document is updated after every conversation with Claude. It IS the system state.**
 **Claude: You MUST read this file at the start of every session and update it after every substantive change.**
 
-> Last updated: March 31, 2026 night · Sprint 8 MERGED (63 issues). Analytics migration MERGED (#174). VRAM fix pushed. 5 open issues remain. Tests: 1,225. System in lockdown — 25 open positions. Dashboard now reads from Render Postgres (HSHS, CTO Report, Build Score, Training Status all live).
+> Last updated: March 31, 2026 (end of session) · Sprints 5-8 + reconciliation + analytics migration + dashboard redesign ALL MERGED. 5 open issues remain (from 87). Tests: 1,235. 173 Python files, 101 test files. System in lockdown — 25 open positions, 5/5 winners. Dashboard fully functional on Render Postgres. BSL 1.1 license. CC tooling installed (GitHub MCP, Context7, SQLite MCP, ruff hooks, CLAUDE.md).
 
 ---
 
@@ -11,14 +11,15 @@
 - **Phase:** 1 (Bootcamp) — paper trading $100K + $100 live via Alpaca
 - **Open positions:** ~25
 - **Closed trades:** 5 (need 50 for Phase 1 gate) — 5/5 winners, 4.1% avg gain, 2.2d hold
-- **Tests:** 1,225 test functions across 101 test files
-- **Python files:** 169 | **Dashboard pages:** 14 | **Research docs:** 67
+- **Tests:** 1,235 test functions across 101 test files
+- **Python files:** 173 | **Dashboard pages:** 14 | **Research docs:** 77
 - **Monthly cost:** ~$64 (Render $7 + Ollama free + Claude API ~$50 + domain $7)
 - **Model:** halcyonlatest / halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF 8.7GB) via Ollama
 - **Next model:** Qwen 2.5 14B or Qwen3 14B (requires RTX 3090, Phase 2)
 - **Dashboard:** halcyonlab.app (Render) — Arcis branding, Palette H, dark/light toggle
 - **Hardware:** RTX 3060 12GB, Windows 11 (RTX 3090 + headless Linux planned Phase 2)
-- **GitHub Issues:** ~5 remaining (from 87), 3 milestones, CI on PRs
+- **GitHub Issues:** 5 open (from 87 — 82 closed this session), 3 milestones, CI on PRs
+- **License:** BSL 1.1 (source-visible, no commercial use until 2030)
 - **Release:** v0.1.0 — Arcis
 
 ---
@@ -156,6 +157,7 @@ Config: `.claude/agents/<name>.md`
 | Reconciliation | #171 ✅ | Daily postclose paper trade reconciliation vs Alpaca |
 | 8 (CC) | #173 ✅ | Comprehensive cleanup: 63 issues closed — training, council, LLM, data, trading, frontend, config |
 | Analytics migration | #174 ✅ | Cloud endpoints read Postgres: HSHS, CTO Report, Build Score, Training Status, system/validation |
+| Dashboard redesign | #175 ✅ | Shadow/Live Ledger redesign, CTO period selector, Validation feedback, Build Score scheduling |
 
 ---
 
@@ -287,15 +289,33 @@ GRPO training: RunPod A100 cloud ($14/mo), not local hardware.
 
 ## TODO (non-urgent)
 - [ ] Rename GitHub repo `halcyon-lab` → `arcis`
-- [ ] Commit settings.yaml to git (secrets removed)
-- [ ] Fire Sprint 6 Tasks 1-6 to CC (data collectors grid, card contrast)
 - [ ] GitHub Pro ($4/mo) for branch protection
 - [ ] UPS: CyberPower CP1500PFCLCD (~$220)
 - [ ] RTX 3090 + headless Linux machine ($1,500) — Phase 2
 - [ ] Logo SVG cleanup — ChatGPT raster design chosen (top-left blue on black). Needs Fiverr ($50-100) to recreate as clean vector SVG. Current attempts in docs/logo-dark.svg and docs/logo-light.svg are placeholders.
 - [ ] Domain: arcis.app or arciscapital.com
 - [ ] Wyoming LLC formation (July 2026 target)
-- [x] ~~Close stale PR #55~~ (done March 31)
-- [x] ~~Run render_migrate.py~~ (done March 31)
-- [x] ~~Fix duplicate build-score route #80~~ (done March 31)
-- [x] ~~Fix Render sync — missing shadow_trades columns~~ (done March 31)
+
+### Remaining GitHub Issues (5)
+- [ ] #147 — No exponential backoff on network failures in enrichment
+- [ ] #132 — Fallback to settings.example.yaml with placeholder keys — no validation
+- [ ] #112 — VRAM not freed after training — GPU memory leak
+- [ ] #106 — Kill switch not atomic, no staleness check
+- [ ] #82 — Silent exception swallowing in council/context.py
+
+### Completed This Session (March 31)
+- [x] ~~Sprint 5~~ PR #78 — Dashboard polish (8 pages)
+- [x] ~~Sprint 6 partial~~ PR #88 — .env secret migration (10 modules)
+- [x] ~~Sprint 7~~ PR #172 — Reliability (18 issues closed)
+- [x] ~~Sprint 8~~ PR #173 — Comprehensive cleanup (63 issues closed)
+- [x] ~~Reconciliation~~ PR #171 — Daily postclose Alpaca reconciliation
+- [x] ~~Analytics migration~~ PR #174 — Cloud endpoints read Postgres
+- [x] ~~Dashboard redesign~~ PR #175 — Ledger redesign, CTO period selector, Build Score scheduling
+- [x] ~~VRAM handoff fix~~ — torch.cuda.empty_cache(), ollama_llama_server kill, Ollama restart on failure
+- [x] ~~Bootcamp TL floor~~ — 0.5 (was 0.1) for data collection in volatile regimes
+- [x] ~~.env migration complete~~ — enricher.py FRED/Finnhub fix
+- [x] ~~License~~ — MIT → BSL 1.1
+- [x] ~~README badges~~ — shields.io (version, phase, tests, python, model, license, issues, dashboard)
+- [x] ~~Config documentation~~ — settings.example.yaml expanded from 208 → 423 lines
+- [x] ~~CC tooling installed~~ — GitHub MCP, Context7, SQLite MCP, ruff hooks, CLAUDE.md, skills, subagents
+- [x] ~~87 → 5 open issues~~ — two audits (Codex + CC deep) filed 87 issues, 82 closed
