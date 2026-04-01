@@ -292,7 +292,7 @@ GRPO training: RunPod A100 cloud ($14/mo), not local hardware.
 - [ ] GitHub Pro ($4/mo) for branch protection
 - [ ] UPS: CyberPower CP1500PFCLCD (~$220)
 - [ ] RTX 3090 + headless Linux machine ($1,500) — Phase 2
-- [ ] Logo design (Looka $20, then Fiverr $100-150)
+- [ ] Logo SVG cleanup — ChatGPT raster design chosen (top-left blue on black). Needs Fiverr ($50-100) to recreate as clean vector SVG. Current attempts in docs/logo-dark.svg and docs/logo-light.svg are placeholders.
 - [ ] Domain: arcis.app or arciscapital.com
 - [ ] Wyoming LLC formation (July 2026 target)
 - [x] ~~Close stale PR #55~~ (done March 31)
