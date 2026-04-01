@@ -189,13 +189,26 @@ class VRAMManager:
                     if platform.system() == "Windows":
                         subprocess.run(["taskkill", "/f", "/im", "ollama.exe"],
                                        capture_output=True, timeout=10)
+                        # Also kill the inference subprocess directly
+                        subprocess.run(["taskkill", "/f", "/im", "ollama_llama_server.exe"],
+                                       capture_output=True, timeout=10)
                     else:
                         subprocess.run(["pkill", "-f", "ollama"],
                                        capture_output=True, timeout=10)
                     time.sleep(5)
                 except Exception as kill_err:
                     logger.warning("[VRAM] Failed to kill Ollama: %s", kill_err)
-                if not self._wait_for_vram_clear(threshold_mb=1500, timeout_seconds=15):
+
+                # Clear GPU memory fragments after killing processes
+                try:
+                    import torch
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                        logger.info("[VRAM] torch.cuda.empty_cache() called")
+                except ImportError:
+                    pass
+
+                if not self._wait_for_vram_clear(threshold_mb=1500, timeout_seconds=45):
                     logger.error("[VRAM] Handoff to training FAILED — VRAM not clear even after killing Ollama")
                     return False
 
@@ -224,6 +237,15 @@ class VRAMManager:
                 self._training_process.wait(timeout=10)
 
         time.sleep(3)
+
+        # Clear GPU memory fragments after killing training
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                logger.info("[VRAM] torch.cuda.empty_cache() called after training kill")
+        except ImportError:
+            pass
 
         # Step 2: Verify VRAM clear
         if not self._wait_for_vram_clear(threshold_mb=1500, timeout_seconds=30):
