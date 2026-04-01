@@ -11,6 +11,8 @@ All project rules, architecture, data sources, and constraints are in **AGENTS.m
 - **Risk governor is sacred** — never bypass or weaken risk checks without explicit approval
 - **Test count must not drop** — CI enforces a minimum of 1105 tests
 - **Mock all external APIs in tests** — no network calls from pytest (Alpaca, Finnhub, yfinance, FRED, Ollama)
+- **Schema migrations required** — adding a column to any `CREATE TABLE IF NOT EXISTS` constant also requires a corresponding `ALTER TABLE ADD COLUMN` migration (wrapped in try/except) that runs BEFORE any indexes on that column. `CREATE TABLE IF NOT EXISTS` is a no-op on existing tables — it does NOT add missing columns
+- **Test baseline before changes** — run `python -m pytest tests/ -q` at the start of any coding session and note the pass count. After changes, the pass count must not decrease and the failure count must not increase. Never dismiss test failures as "pre-existing" without investigating
 
 ## Common Commands
 
