@@ -54,6 +54,65 @@
 
 ---
 
+## Claude Code Automations
+
+**Installed March 31, 2026.** Claude Code extensibility layer — MCP servers, hooks, skills, subagents, and project governance.
+
+### MCP Servers (4)
+
+| Server | Purpose | Config |
+|---|---|---|
+| **alpaca** | Direct Alpaca paper/live trading API access | `.mcp.json` (repo, gitignored) |
+| **context7** | Live documentation lookup for all libraries (FastAPI, alpaca-py, React, yfinance, etc.) | `~/.claude.json` (project-scoped) |
+| **github** | GitHub issues, PRs, actions — direct management without `gh` CLI | `~/.claude.json` (project-scoped) |
+| **sqlite** | Direct SQL queries against `ai_research_desk.sqlite3` (40 tables) | `~/.claude.json` (project-scoped) |
+
+### Hooks (2)
+
+| Hook | Trigger | What It Does |
+|---|---|---|
+| **Auto-lint Python** | PostToolUse (Edit/Write) | Runs `ruff check --fix` + `ruff format` on any edited `.py` file |
+| **Block .env edits** | PreToolUse (Edit/Write) | Prevents Claude from modifying `.env` or `.env.*` files — must be edited manually |
+
+Config: `.claude/settings.json`
+
+### Skills (3)
+
+| Skill | Invocation | Purpose |
+|---|---|---|
+| **gen-test** | `/gen-test src/risk/governor.py` | Generates pytest test files matching project conventions (class-based, mock-heavy, issue-tagged) |
+| **post-close-check** | `/post-close-check` | Runs `post_close_check.py`, parses reconciliation results, suggests fixes for discrepancies |
+| **config-check** | `/config-check` or `/config-check --fix` | Runs `check_config.py` to detect drift between `settings.example.yaml` and `settings.local.yaml`, also cross-checks `.env.example` vs `.env` |
+
+All skills are user-only (`disable-model-invocation: true`). Config: `.claude/skills/<name>/SKILL.md`
+
+### Subagents (3)
+
+| Agent | Purpose | When to Use |
+|---|---|---|
+| **security-reviewer** | Credential exposure, SQL injection, risk governor bypass detection, API auth gaps | Before merging PRs touching `src/risk/`, `src/api/`, or `.env`-adjacent code |
+| **test-runner** | Runs full pytest suite, groups failures by module, identifies root causes, checks CI guardian minimum (1105) | After any code changes, before commits |
+| **migration-checker** | Reviews DB schema changes for idempotency, cross-script sync (`migrate_production_db.py` ↔ `render_migrate.py`), backwards compatibility | Any time columns or tables are added/modified |
+
+Config: `.claude/agents/<name>.md`
+
+### Project Governance
+
+| File | Purpose |
+|---|---|
+| **CLAUDE.md** | Project root — key rules, common commands, architecture quick ref. Points to AGENTS.md for full governance. |
+| **AGENTS.md** | Full system governance (architecture, data sources, conventions, module registry) |
+| **.claude/settings.json** | Hooks configuration |
+| **.claude/settings.local.json** | Permission allowlist for specific bash commands |
+
+### Dependencies Added
+
+| Package | Version | Purpose |
+|---|---|---|
+| **ruff** | 0.15.8 | Python linter + formatter (used by auto-lint hook) |
+
+---
+
 ## What's Deployed & Running
 
 | Component | Status |
