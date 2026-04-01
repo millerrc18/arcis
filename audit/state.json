@@ -1,7 +1,7 @@
 {
-  "run_count": 4,
+  "run_count": 5,
   "current_focus_index": 0,
-  "file_index": 60,
+  "file_index": 75,
   "file_list": [
     "src/__init__.py",
     "src/api/__init__.py",
@@ -180,5 +180,85 @@
     "frontend/src/pages/Training.jsx",
     "frontend/src/pages/Validation.jsx"
   ],
-  "last_run": "2026-04-01T12:00:00Z"
+  "last_run": "2026-04-01T12:30:00Z",
+  "findings": {
+    "run_5": {
+      "focus": "code_quality",
+      "files_audited": [
+        "src/evaluation/metrics.py",
+        "src/evaluation/postmortem.py",
+        "src/evaluation/scorecard.py",
+        "src/evaluation/statistics.py",
+        "src/evaluation/system_validator.py",
+        "src/features/__init__.py",
+        "src/features/earnings.py",
+        "src/features/engine.py",
+        "src/features/event_proximity.py",
+        "src/features/filing_nlp.py",
+        "src/features/regime.py",
+        "src/features/setup_classifier.py",
+        "src/features/traffic_light.py",
+        "src/journal/__init__.py",
+        "src/journal/store.py"
+      ],
+      "medium": [
+        {
+          "file": "src/evaluation/system_validator.py",
+          "finding": "File is 949 lines (exceeds 400). Contains 6 functions over 50 lines. Should be refactored into per-category modules.",
+          "lines": "entire file"
+        },
+        {
+          "file": "src/journal/store.py",
+          "finding": "File is 533 lines (exceeds 400). initialize_database (76 lines) and log_recommendation (81 lines) exceed 50-line guideline. Migration logic should be extracted.",
+          "lines": "126-202, 204-285"
+        },
+        {
+          "file": "src/evaluation/postmortem.py",
+          "finding": "generate_postmortem is 144 lines (exceeds 50). Parameter features_at_entry is accepted but never used (dead parameter).",
+          "lines": "11-155"
+        },
+        {
+          "file": "src/evaluation/scorecard.py",
+          "finding": "generate_weekly_scorecard is 148 lines (exceeds 50). Should split data gathering from formatting.",
+          "lines": "22-170"
+        },
+        {
+          "file": "src/features/engine.py",
+          "finding": "compute_features (95 lines) and compute_all_features (73 lines) both exceed 50-line guideline.",
+          "lines": "68-163, 166-239"
+        },
+        {
+          "file": "src/features/regime.py",
+          "finding": "compute_market_regime is 96 lines (exceeds 50).",
+          "lines": "53-149"
+        },
+        {
+          "file": "src/features/setup_classifier.py",
+          "finding": "classify_setup is 110 lines (exceeds 50).",
+          "lines": "87-197"
+        },
+        {
+          "file": "src/features/traffic_light.py",
+          "finding": "compute_traffic_light is 110 lines (exceeds 50).",
+          "lines": "150-260"
+        }
+      ],
+      "low": [
+        {
+          "file": "src/features/earnings.py",
+          "finding": "datetime imported but unused (only date is needed)"
+        },
+        {
+          "file": "src/features/event_proximity.py",
+          "finding": "datetime imported but unused"
+        },
+        {
+          "file": "src/features/filing_nlp.py",
+          "finding": "logging/logger defined but never called in the file"
+        }
+      ],
+      "high": [],
+      "github_issues_blocked": "gh CLI and GITHUB_TOKEN not available — 8 medium findings need manual issue creation"
+    }
+  }
 }
