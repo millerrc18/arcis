@@ -1,0 +1,144 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 520" fill="none">
+  <style>
+    text { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+    .title { font-size: 14px; font-weight: 700; fill: #E2E8F0; }
+    .subtitle { font-size: 10px; fill: #94A3B8; }
+    .label { font-size: 11px; font-weight: 600; fill: #F1F5F9; }
+    .detail { font-size: 9px; fill: #94A3B8; }
+    .arrow { stroke: #475569; stroke-width: 1.5; fill: none; marker-end: url(#arrowhead); }
+    .arrow-data { stroke: #3B82F6; stroke-width: 1.5; fill: none; stroke-dasharray: 4 3; marker-end: url(#arrowblue); }
+  </style>
+  <defs>
+    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#475569"/>
+    </marker>
+    <marker id="arrowblue" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6" fill="#3B82F6"/>
+    </marker>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0F172A"/>
+      <stop offset="100%" stop-color="#020617"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="520" rx="12" fill="url(#bg)"/>
+  <rect width="900" height="520" rx="12" stroke="#1E293B" stroke-width="1" fill="none"/>
+
+  <!-- Header -->
+  <text x="450" y="32" text-anchor="middle" class="title" font-size="16">Arcis — System Architecture</text>
+  <text x="450" y="48" text-anchor="middle" class="subtitle">Autonomous Equity Trading Platform</text>
+
+  <!-- ═══ ROW 1: Market Data → Features → Ranking ═══ -->
+
+  <!-- Market Data -->
+  <rect x="30" y="70" width="140" height="70" rx="8" fill="#1E293B" stroke="#334155" stroke-width="1"/>
+  <text x="100" y="93" text-anchor="middle" class="label">📡 Market Data</text>
+  <text x="100" y="108" text-anchor="middle" class="detail">yfinance · Alpaca</text>
+  <text x="100" y="120" text-anchor="middle" class="detail">S&amp;P 100 universe</text>
+
+  <!-- Feature Engine -->
+  <rect x="210" y="70" width="160" height="70" rx="8" fill="#1E293B" stroke="#334155" stroke-width="1"/>
+  <text x="290" y="93" text-anchor="middle" class="label">⚙️ Feature Engine</text>
+  <text x="290" y="108" text-anchor="middle" class="detail">Trend · RS · Pullback · ATR</text>
+  <text x="290" y="120" text-anchor="middle" class="detail">Volume · Options · Regime</text>
+
+  <!-- Ranker -->
+  <rect x="410" y="70" width="140" height="70" rx="8" fill="#1E293B" stroke="#334155" stroke-width="1"/>
+  <text x="480" y="93" text-anchor="middle" class="label">📊 Ranker (0-100)</text>
+  <text x="480" y="108" text-anchor="middle" class="detail">Deterministic scoring</text>
+  <text x="480" y="120" text-anchor="middle" class="detail">Regime-adaptive threshold</text>
+
+  <!-- Arrows Row 1 -->
+  <line x1="170" y1="105" x2="208" y2="105" class="arrow"/>
+  <line x1="370" y1="105" x2="408" y2="105" class="arrow"/>
+
+  <!-- ═══ ROW 2: LLM → Risk Governor → Executor ═══ -->
+
+  <!-- LLM -->
+  <rect x="210" y="170" width="160" height="70" rx="8" fill="#1E1B4B" stroke="#4338CA" stroke-width="1"/>
+  <text x="290" y="193" text-anchor="middle" class="label">🧠 LLM (Qwen3 8B)</text>
+  <text x="290" y="208" text-anchor="middle" class="detail">Conviction · Why-Now · Analysis</text>
+  <text x="290" y="220" text-anchor="middle" class="detail">Local Ollama · RTX 3060</text>
+
+  <!-- Risk Governor -->
+  <rect x="410" y="170" width="140" height="70" rx="8" fill="#1C1917" stroke="#78350F" stroke-width="1"/>
+  <text x="480" y="193" text-anchor="middle" class="label">🛡️ Risk Governor</text>
+  <text x="480" y="208" text-anchor="middle" class="detail">8 checks · Traffic Light</text>
+  <text x="480" y="220" text-anchor="middle" class="detail">Position · Sector · DD limit</text>
+
+  <!-- Executor -->
+  <rect x="590" y="170" width="140" height="70" rx="8" fill="#052E16" stroke="#166534" stroke-width="1"/>
+  <text x="660" y="193" text-anchor="middle" class="label">💰 Executor</text>
+  <text x="660" y="208" text-anchor="middle" class="detail">Bracket orders (GTC)</text>
+  <text x="660" y="220" text-anchor="middle" class="detail">Entry + Stop + Target</text>
+
+  <!-- Alpaca -->
+  <rect x="770" y="170" width="110" height="70" rx="8" fill="#1E293B" stroke="#334155" stroke-width="1"/>
+  <text x="825" y="193" text-anchor="middle" class="label">🦙 Alpaca</text>
+  <text x="825" y="208" text-anchor="middle" class="detail">Paper $100K</text>
+  <text x="825" y="220" text-anchor="middle" class="detail">Live $100</text>
+
+  <!-- Arrows Row 2 -->
+  <line x1="480" y1="140" x2="480" y2="168" class="arrow"/>
+  <line x1="480" y1="140" x2="290" y2="168" class="arrow"/>
+  <line x1="370" y1="205" x2="408" y2="205" class="arrow"/>
+  <line x1="550" y1="205" x2="588" y2="205" class="arrow"/>
+  <line x1="730" y1="205" x2="768" y2="205" class="arrow"/>
+
+  <!-- ═══ ROW 3: Council · Training Flywheel · Dashboard ═══ -->
+
+  <!-- AI Council -->
+  <rect x="30" y="280" width="160" height="80" rx="8" fill="#1E1B4B" stroke="#4338CA" stroke-width="1"/>
+  <text x="110" y="303" text-anchor="middle" class="label">🏛️ AI Council (5 agents)</text>
+  <text x="110" y="318" text-anchor="middle" class="detail">Modified Delphi protocol</text>
+  <text x="110" y="330" text-anchor="middle" class="detail">Claude Sonnet · $0.14/session</text>
+  <text x="110" y="342" text-anchor="middle" class="detail">Daily market consensus</text>
+
+  <!-- Training Flywheel -->
+  <rect x="230" y="280" width="200" height="80" rx="8" fill="#172554" stroke="#1D4ED8" stroke-width="1"/>
+  <text x="330" y="303" text-anchor="middle" class="label">🔄 Training Flywheel</text>
+  <text x="330" y="318" text-anchor="middle" class="detail">Self-blinded examples → Quality scoring</text>
+  <text x="330" y="330" text-anchor="middle" class="detail">GuardedScorer (Ollama, free)</text>
+  <text x="330" y="342" text-anchor="middle" class="detail">972 examples · avg 3.44/5.0</text>
+
+  <!-- Data Collectors -->
+  <rect x="470" y="280" width="160" height="80" rx="8" fill="#1E293B" stroke="#334155" stroke-width="1"/>
+  <text x="550" y="303" text-anchor="middle" class="label">📦 12 Data Collectors</text>
+  <text x="550" y="318" text-anchor="middle" class="detail">FRED · Finnhub · EDGAR</text>
+  <text x="550" y="330" text-anchor="middle" class="detail">Options · Insider · VIX</text>
+  <text x="550" y="342" text-anchor="middle" class="detail">Overnight schedule</text>
+
+  <!-- Dashboard -->
+  <rect x="670" y="280" width="210" height="80" rx="8" fill="#1E293B" stroke="#3B82F6" stroke-width="1"/>
+  <text x="775" y="303" text-anchor="middle" class="label">📱 Dashboard (halcyonlab.app)</text>
+  <text x="775" y="318" text-anchor="middle" class="detail">14 pages · Render Postgres sync</text>
+  <text x="775" y="330" text-anchor="middle" class="detail">Command queue · Config overrides</text>
+  <text x="775" y="342" text-anchor="middle" class="detail">Arcis Palette H · Dark/Light</text>
+
+  <!-- Data flow arrows (dashed blue) -->
+  <path d="M660,240 L660,260 L775,278" class="arrow-data"/>
+  <path d="M290,240 L290,260 L330,278" class="arrow-data"/>
+  <path d="M550,360 L550,380 L330,380 L330,362" class="arrow-data"/>
+
+  <!-- ═══ ROW 4: Watch Loop (spans full width) ═══ -->
+  <rect x="30" y="400" width="850" height="50" rx="8" fill="#0C1220" stroke="#1E40AF" stroke-width="1"/>
+  <text x="450" y="422" text-anchor="middle" class="label">⏰ Watch Loop — 24/7 Autonomous Scheduler</text>
+  <text x="450" y="436" text-anchor="middle" class="detail">Pre-market watchlist (8AM) · Scans every 15min (9:30-4PM) · EOD recap · Overnight collectors · Heartbeat · Reconciliation</text>
+
+  <!-- Telegram -->
+  <rect x="30" y="470" width="180" height="36" rx="6" fill="#1E293B" stroke="#334155" stroke-width="1"/>
+  <text x="120" y="493" text-anchor="middle" class="label">📲 Telegram (32 commands)</text>
+
+  <!-- SQLite -->
+  <rect x="240" y="470" width="180" height="36" rx="6" fill="#1E293B" stroke="#334155" stroke-width="1"/>
+  <text x="330" y="493" text-anchor="middle" class="label">🗃️ SQLite (40 tables)</text>
+
+  <!-- Render Sync -->
+  <rect x="450" y="470" width="180" height="36" rx="6" fill="#1E293B" stroke="#334155" stroke-width="1"/>
+  <text x="540" y="493" text-anchor="middle" class="label">☁️ Render Postgres Sync</text>
+
+  <!-- CI -->
+  <rect x="660" y="470" width="220" height="36" rx="6" fill="#1E293B" stroke="#334155" stroke-width="1"/>
+  <text x="770" y="493" text-anchor="middle" class="label">🔧 CI · 1,225 tests · Guardrails</text>
+</svg>

@@ -5,7 +5,7 @@
 ![tests](https://img.shields.io/badge/tests-1%2C225%20passing-brightgreen?style=flat-square)
 ![python](https://img.shields.io/badge/python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)
 ![model](https://img.shields.io/badge/model-Qwen3%208B-purple?style=flat-square)
-![license](https://img.shields.io/github/license/millerrc18/halcyon-lab?style=flat-square)
+![license](https://img.shields.io/badge/license-BSL%201.1-yellow?style=flat-square)
 ![issues](https://img.shields.io/github/issues/millerrc18/halcyon-lab?style=flat-square)
 ![dashboard](https://img.shields.io/badge/dashboard-halcyonlab.app-00C7B7?style=flat-square&logo=render&logoColor=white)
 
@@ -20,12 +20,9 @@ Systematic equity research platform built on fine-tuned LLMs and a 5-agent AI co
 
 ## Architecture
 
-```
-watch loop → scan universe (every 15 min) → compute features → rank (0-100)
-    → LLM packet generation → governor risk checks (8 checks)
-    → executor (bracket orders: entry + stop + target) → bracket monitor
-    → training flywheel (self-blinded examples → quality scoring → retrain)
-```
+<p align="center">
+  <img src="docs/architecture.svg" alt="Arcis System Architecture" width="100%"/>
+</p>
 
 The scheduler runs 24/7: pre-market watchlist, intraday scans every 15 min, EOD recaps, overnight data collection (12 collectors), daily council sessions, and weekly training cycles.
 
