@@ -657,27 +657,33 @@ MIGRATIONS = [
 ]
 
 
+def _wrap_alter_idempotent(sql: str) -> str:
+    """Wrap ALTER TABLE ADD COLUMN in PL/pgSQL to be idempotent.
+
+    Returns the original SQL for non-ALTER statements (CREATE TABLE/INDEX).
+    """
+    sql_upper = sql.strip().upper()
+    if sql_upper.startswith("ALTER TABLE") and "ADD COLUMN" in sql_upper:
+        return f"DO $$ BEGIN {sql}; EXCEPTION WHEN duplicate_column THEN NULL; END $$;"
+    return sql
+
+
 def main():
-    print(f"Connecting to Postgres...")
+    print("Connecting to Postgres...")
     conn = psycopg2.connect(DATABASE_URL)
     conn.autocommit = True
     cur = conn.cursor()
 
     for table, column, sql in MIGRATIONS:
         try:
-            cur.execute(sql)
+            cur.execute(_wrap_alter_idempotent(sql))
             if column:
-                print(f"  [OK] Added {table}.{column}")
+                print(f"  [OK] {table}.{column}")
             else:
                 print(f"  [OK] Created/verified table: {table}")
-        except psycopg2.errors.DuplicateColumn:
-            conn.rollback()
-            print(f"  [SKIP] {table}.{column} already exists")
         except psycopg2.errors.DuplicateTable:
-            conn.rollback()
             print(f"  [SKIP] {table} already exists")
         except Exception as e:
-            conn.rollback()
             print(f"  [ERROR] {table}: {e}")
 
     conn.close()

@@ -306,18 +306,26 @@ def get_all_positions() -> list[dict]:
 
 
 def get_current_price(ticker: str) -> float | None:
-    """Get the latest trade price for a ticker."""
-    try:
-        client = _get_data_client()
-        from alpaca.data.requests import StockLatestTradeRequest
-        request = StockLatestTradeRequest(symbol_or_symbols=ticker)
-        trades = client.get_stock_latest_trade(request)
-        if ticker in trades:
-            return float(trades[ticker].price)
-        return None
-    except Exception as e:
-        logger.warning(f"Failed to get current price for {ticker}: {e}")
-        return None
+    """Get the latest trade price for a ticker. Retries on network/DNS errors."""
+    for attempt in range(3):
+        try:
+            client = _get_data_client()
+            from alpaca.data.requests import StockLatestTradeRequest
+            request = StockLatestTradeRequest(symbol_or_symbols=ticker)
+            trades = client.get_stock_latest_trade(request)
+            if ticker in trades:
+                return float(trades[ticker].price)
+            return None
+        except (ConnectionError, OSError) as e:
+            if attempt < 2:
+                import time as _time
+                _time.sleep(2 ** attempt)
+                continue
+            logger.warning("Failed to get current price for %s after 3 retries: %s", ticker, e)
+            return None
+        except Exception as e:
+            logger.warning("Failed to get current price for %s: %s", ticker, e)
+            return None
 
 
 def get_order_status(order_id: str) -> dict:

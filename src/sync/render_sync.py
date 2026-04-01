@@ -21,6 +21,9 @@ from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
 
+_PG_CONNECT_RETRIES = 3
+_PG_CONNECT_BACKOFF = [2, 5, 10]  # seconds between retries
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
@@ -249,10 +252,17 @@ CREATE TABLE IF NOT EXISTS sync_state (
 """
 
 
+def _sqlite_conn(db_path: str = LOCAL_DB) -> sqlite3.Connection:
+    """Create a SQLite connection with busy_timeout for concurrent access."""
+    conn = sqlite3.connect(db_path, timeout=10)
+    conn.execute("PRAGMA busy_timeout = 10000")
+    return conn
+
+
 def _init_sync_state(db_path: str = LOCAL_DB) -> None:
     """Ensure the sync_state table exists."""
     try:
-        with sqlite3.connect(db_path) as conn:
+        with _sqlite_conn(db_path) as conn:
             conn.executescript(SYNC_STATE_SCHEMA)
     except Exception as exc:
         logger.error("Failed to init sync_state table: %s", exc)
@@ -261,7 +271,7 @@ def _init_sync_state(db_path: str = LOCAL_DB) -> None:
 def get_last_synced_at(table_name: str, db_path: str = LOCAL_DB) -> str | None:
     """Return the last_synced_at timestamp for a table, or None."""
     try:
-        with sqlite3.connect(db_path) as conn:
+        with _sqlite_conn(db_path) as conn:
             row = conn.execute(
                 "SELECT last_synced_at FROM sync_state WHERE table_name = ?",
                 (table_name,),
@@ -273,18 +283,26 @@ def get_last_synced_at(table_name: str, db_path: str = LOCAL_DB) -> str | None:
 
 
 def set_last_synced_at(table_name: str, ts: str, db_path: str = LOCAL_DB) -> None:
-    """Upsert the last_synced_at timestamp for a table."""
-    try:
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                "INSERT INTO sync_state (table_name, last_synced_at) "
-                "VALUES (?, ?) "
-                "ON CONFLICT(table_name) DO UPDATE SET last_synced_at = excluded.last_synced_at",
-                (table_name, ts),
-            )
-            conn.commit()
-    except Exception as exc:
-        logger.error("Failed to update sync_state for %s: %s", table_name, exc)
+    """Upsert the last_synced_at timestamp for a table. Retries on lock."""
+    for attempt in range(3):
+        try:
+            with _sqlite_conn(db_path) as conn:
+                conn.execute(
+                    "INSERT INTO sync_state (table_name, last_synced_at) "
+                    "VALUES (?, ?) "
+                    "ON CONFLICT(table_name) DO UPDATE SET last_synced_at = excluded.last_synced_at",
+                    (table_name, ts),
+                )
+                conn.commit()
+            return
+        except sqlite3.OperationalError as exc:
+            if "locked" in str(exc) and attempt < 2:
+                time.sleep(1 + attempt)
+                continue
+            logger.error("Failed to update sync_state for %s: %s", table_name, exc)
+        except Exception as exc:
+            logger.error("Failed to update sync_state for %s: %s", table_name, exc)
+            return
 
 
 # ── Core sync logic ─────────────────────────────────────────────────
@@ -639,10 +657,29 @@ def pull_commands(database_url: str, db_path: str = LOCAL_DB) -> list[dict]:
     return pulled
 
 
+def _connect_pg_with_retry(database_url: str):
+    """Connect to Postgres with retry + exponential backoff for DNS/network failures."""
+    import psycopg2
+    last_exc = None
+    for attempt in range(_PG_CONNECT_RETRIES):
+        try:
+            return psycopg2.connect(database_url)
+        except Exception as exc:
+            last_exc = exc
+            if attempt < _PG_CONNECT_RETRIES - 1:
+                delay = _PG_CONNECT_BACKOFF[min(attempt, len(_PG_CONNECT_BACKOFF) - 1)]
+                logger.warning(
+                    "Postgres connect attempt %d/%d failed: %s — retrying in %ds",
+                    attempt + 1, _PG_CONNECT_RETRIES, exc, delay,
+                )
+                time.sleep(delay)
+    raise last_exc
+
+
 def run_sync_cycle(database_url: str, db_path: str = LOCAL_DB) -> dict:
     """Run one full sync cycle across all tables. Returns summary dict."""
     try:
-        import psycopg2
+        import psycopg2  # noqa: F401
     except ImportError:
         logger.error("psycopg2 not installed — cannot sync to Render")
         return {"synced": {}, "errors": ["psycopg2 not installed"],
@@ -653,9 +690,10 @@ def run_sync_cycle(database_url: str, db_path: str = LOCAL_DB) -> dict:
 
     pg_conn = None
     try:
-        pg_conn = psycopg2.connect(database_url)
+        pg_conn = _connect_pg_with_retry(database_url)
     except Exception as exc:
-        logger.error("Cannot connect to Render Postgres: %s", exc)
+        logger.error("Cannot connect to Render Postgres after %d retries: %s",
+                      _PG_CONNECT_RETRIES, exc)
         summary["errors"].append(f"connection_failed: {exc}")
         return summary
 

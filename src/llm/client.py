@@ -10,6 +10,7 @@ Tests: tests/test_llm_client.py
 import json
 import logging
 import re
+import time
 
 import requests
 
@@ -89,6 +90,7 @@ def generate(prompt: str, system_prompt: str, temperature: float | None = None,
         temp = temperature if temperature is not None else cfg["temperature"]
         tokens = max_tokens if max_tokens is not None else cfg["max_tokens"]
 
+        t0 = time.monotonic()
         resp = requests.post(
             f"{cfg['base_url']}/v1/chat/completions",
             json={
@@ -103,6 +105,7 @@ def generate(prompt: str, system_prompt: str, temperature: float | None = None,
             timeout=cfg["timeout_seconds"],
         )
         resp.raise_for_status()
+        elapsed = time.monotonic() - t0
         data = resp.json()
         content = data["choices"][0]["message"]["content"]
         content = _strip_think_blocks(content)
@@ -110,6 +113,7 @@ def generate(prompt: str, system_prompt: str, temperature: float | None = None,
         if not content or not content.strip():
             logger.warning("[LLM] Empty response from Ollama — treating as failure")
             return None
+        logger.info("[LLM] Inference completed in %.1fs (%d chars)", elapsed, len(content))
         return content
     except Exception as e:
         logger.warning("[LLM] generate failed: %s", e)
@@ -132,6 +136,7 @@ def generate_structured(prompt: str, system_prompt: str, response_schema: dict,
     try:
         cfg = _get_llm_config()
 
+        t0 = time.monotonic()
         resp = requests.post(
             f"{cfg['base_url']}/v1/chat/completions",
             json={
@@ -149,6 +154,7 @@ def generate_structured(prompt: str, system_prompt: str, response_schema: dict,
             timeout=cfg["timeout_seconds"],
         )
         resp.raise_for_status()
+        elapsed = time.monotonic() - t0
         data = resp.json()
         content = data["choices"][0]["message"]["content"]
         content = _strip_think_blocks(content)
@@ -156,6 +162,7 @@ def generate_structured(prompt: str, system_prompt: str, response_schema: dict,
         if not content or not content.strip():
             logger.warning("[LLM] Empty structured response from Ollama — treating as failure")
             return None
+        logger.info("[LLM] Structured inference completed in %.1fs", elapsed)
         return json.loads(content)
     except (json.JSONDecodeError, KeyError, IndexError) as e:
         logger.warning("[LLM] Structured parse failed: %s", e)

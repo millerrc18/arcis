@@ -77,13 +77,14 @@
 
 Config: `.claude/settings.json`
 
-### Skills (3)
+### Skills (4)
 
 | Skill | Invocation | Purpose |
 |---|---|---|
 | **gen-test** | `/gen-test src/risk/governor.py` | Generates pytest test files matching project conventions (class-based, mock-heavy, issue-tagged) |
 | **post-close-check** | `/post-close-check` | Runs `post_close_check.py`, parses reconciliation results, suggests fixes for discrepancies |
 | **config-check** | `/config-check` or `/config-check --fix` | Runs `check_config.py` to detect drift between `settings.example.yaml` and `settings.local.yaml`, also cross-checks `.env.example` vs `.env` |
+| **market-monitor** | `/market-monitor 5m` | Wraps `/loop` to run post-close reconciliation on a recurring interval (default 10m). Stop with `/cancel-ralph`. |
 
 All skills are user-only (`disable-model-invocation: true`). Config: `.claude/skills/<name>/SKILL.md`
 
@@ -106,11 +107,45 @@ Config: `.claude/agents/<name>.md`
 | **.claude/settings.json** | Hooks configuration |
 | **.claude/settings.local.json** | Permission allowlist for specific bash commands |
 
+### Plugins (28 installed, 12 relevant)
+
+| Plugin | Slash Commands / Features | Relevance |
+|---|---|---|
+| **commit-commands** | `/commit`, `/commit-push-pr`, `/clean_gone` | Git workflow |
+| **code-simplifier** | `/simplify` — Opus-powered review of changed code | Post-edit quality |
+| **ralph-loop** | `/loop 5m <cmd>`, `/cancel-ralph` | Recurring monitoring |
+| **pyright-lsp** | Real-time Python type checking via Pyright | Type errors in 173 .py files |
+| **telegram** | `/telegram:configure`, `/telegram:access` | DM bot → Claude session |
+| **claude-md-management** | `/revise-claude-md`, `/claude-md-improver` | CLAUDE.md maintenance |
+| **claude-code-setup** | `/claude-automation-recommender` | Automation discovery |
+| **skill-creator** | Create/test/eval custom skills | Skill development |
+| **frontend-design** | Frontend component design guidance | React dashboard |
+| **feature-dev** | Feature planning and implementation | Sprint planning |
+| **pr-review-toolkit** | PR review checklists and analysis | PR workflow |
+| **security-guidance** | Security best practices | Trading system security |
+
+Also installed (not repo-relevant): hookify, playground, plugin-dev, mcp-server-dev, explanatory-output-style, code-review, context7, github, playwright, superpowers, 6 LSP plugins (rust, ruby, go, swift, clang, jdtls)
+
+### Telegram Channel
+
+- **Bot token**: Copied from `.env` to `~/.claude/channels/telegram/.env`
+- **Runtime**: Bun 1.3.11
+- **To activate**: `claude --channels plugin:telegram@claude-plugins-official`
+- **Then pair**: DM bot on Telegram → `/telegram:access pair <code>` → `/telegram:access policy allowlist`
+
 ### Dependencies Added
 
 | Package | Version | Purpose |
 |---|---|---|
 | **ruff** | 0.15.8 | Python linter + formatter (used by auto-lint hook) |
+| **pyright** | 1.1.408 | Python static type checker (used by pyright-lsp plugin) |
+| **bun** | 1.3.11 | JavaScript runtime (required by telegram plugin MCP server) |
+
+### Config Files Added
+
+| File | Purpose |
+|---|---|
+| **pyrightconfig.json** | Pyright config — scans `src/`, `scripts/`, `tests/` with basic type checking, uses `.venv` |
 
 ---
 
