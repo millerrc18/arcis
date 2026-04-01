@@ -295,6 +295,7 @@ GRPO training: RunPod A100 cloud ($14/mo), not local hardware.
 - [ ] Logo SVG cleanup — ChatGPT raster design chosen (top-left blue on black). Needs Fiverr ($50-100) to recreate as clean vector SVG. Current attempts in docs/logo-dark.svg and docs/logo-light.svg are placeholders.
 - [ ] Domain: arcis.app or arciscapital.com
 - [ ] Wyoming LLC formation (July 2026 target)
+- [ ] WebSocket live endpoint (Phase 2+) — frontend client exists (WebSocketContext.jsx), needs backend `/ws/live` endpoint in watch loop. Low priority, polling works fine for 15-30 min scan intervals.
 
 ### Remaining GitHub Issues (5)
 - [ ] #147 — No exponential backoff on network failures in enrichment
