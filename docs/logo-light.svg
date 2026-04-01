@@ -1,5 +1,11 @@
-<svg version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
-	 width="100%" viewBox="768 0 768 512" enable-background="new 0 0 1536 1024" xml:space="preserve">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="768 0 768 512" width="100%">
+<defs>
+  <clipPath id="crop-light">
+    <rect x="768" y="0" width="768" height="512"/>
+  </clipPath>
+</defs>
+<g clip-path="url(#crop-light)">
+
 <path fill="#040407" opacity="1.000000" stroke="none" 
 	d="
 M1.000000,655.000000 
@@ -4584,4 +4590,6 @@ M384.163757,813.777161
 	C370.521027,812.707520 373.570343,805.085876 377.057068,796.371033 
 	C379.714600,802.861450 381.875946,808.140137 384.163757,813.777161 
 z"/>
+
+</g>
 </svg>
