@@ -24,6 +24,8 @@ Systematic equity research platform built on fine-tuned LLMs and a 5-agent AI co
   <img src="docs/architecture.svg" alt="Arcis System Architecture" width="100%"/>
 </p>
 
+See [Database Schema (40 tables)](docs/database-schema.md) for the full ERD and table index.
+
 The scheduler runs 24/7: pre-market watchlist, intraday scans every 15 min, EOD recaps, overnight data collection (12 collectors), daily council sessions, and weekly training cycles.
 
 ## Quick Start
