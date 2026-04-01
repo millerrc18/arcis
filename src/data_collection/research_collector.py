@@ -89,6 +89,7 @@ def score_relevance(title: str, abstract: str) -> tuple[float, str]:
         logger.debug("[RESEARCH] Relevance scoring failed: %s", e)
 
     # Default: keyword-based scoring
+    logger.info("[RESEARCH] LLM relevance scoring unavailable, falling back to keyword scoring for: %s", title[:80])
     text = (title + " " + (abstract or "")).lower()
     hits = sum(1 for kw in RELEVANCE_KEYWORDS if kw in text)
     default_score = min(0.9, 0.2 + hits * 0.1)

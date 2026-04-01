@@ -34,14 +34,16 @@ def validate_llm_output(packet, features: dict, config: dict) -> tuple[bool, str
     Returns (is_valid, rejection_reason).
     Catches: hallucinated tickers, nonsensical prices, oversized positions, etc.
     """
-    # 1. Ticker must exist in our universe
+    # 1. Ticker must exist in our universe — #162: fail closed on exception
     try:
         from src.universe.sp100 import get_sp100_universe
         universe = get_sp100_universe()
         if packet.ticker not in universe:
             return False, f"Ticker {packet.ticker} not in S&P 100 universe"
-    except Exception:
-        pass  # Universe check is best-effort
+    except Exception as exc:
+        logger.error("[VALIDATOR] Universe lookup failed — rejecting %s (fail closed): %s",
+                     packet.ticker, exc)
+        return False, f"Universe lookup failed for {packet.ticker} — rejecting (fail closed)"
 
     # 2. Entry price must be within 10% of current market price
     current = float(features.get("current_price", 0) or 0)

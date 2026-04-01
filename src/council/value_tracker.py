@@ -84,7 +84,9 @@ def get_current_parameters(db_path: str = DB_PATH) -> dict:
     """Get current active council parameter values.
 
     Falls back to defaults if no state stored.
+    #122 — Auto-create tables on first access.
     """
+    init_value_tables(db_path)
     params = PARAMETER_DEFAULTS.copy()
     try:
         with sqlite3.connect(db_path) as conn:

@@ -319,7 +319,25 @@ class CouncilEngine:
         sycophancy_flags = []
 
         if aggregation["round2_needed"]:
-            logger.info("Round 2 triggered — no 3/5 consensus in Round 1")
+            # #120 — Cost cap: check cumulative cost before Round 2
+            from src.config import load_config as _load_config
+            _cfg = _load_config()
+            max_cost = _cfg.get("council", {}).get("max_session_cost", 2.0)
+            round1_cost = _estimate_session_cost(1)
+            round2_est = _estimate_session_cost(1)
+            if round1_cost + round2_est > max_cost:
+                logger.warning(
+                    "[COUNCIL] Cost cap reached ($%.2f > $%.2f) — skipping Round 2",
+                    round1_cost + round2_est, max_cost,
+                )
+                return {
+                    "aggregation": aggregation,
+                    "final_assessments": round1,
+                    "rounds_completed": 1,
+                    "sycophancy_flags": [],
+                }
+
+            logger.info("Round 2 triggered — no consensus in Round 1")
             try:
                 round2, sycophancy_flags = run_round_2(
                     round1,

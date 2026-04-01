@@ -509,6 +509,9 @@ MIGRATIONS = [
     ("pending_commands", "_idx_status", "CREATE INDEX IF NOT EXISTS idx_pending_commands_status ON pending_commands(status, created_at)"),
     ("command_results", "_idx_command", "CREATE INDEX IF NOT EXISTS idx_command_results_command ON command_results(command_id)"),
     ("log_entries", "_idx_level", "CREATE INDEX IF NOT EXISTS idx_log_entries_level ON log_entries(log_level, created_at)"),
+    ("shadow_trades", "_idx_status", "CREATE INDEX IF NOT EXISTS idx_shadow_trades_status ON shadow_trades(status)"),
+    ("shadow_trades", "_idx_status_time", "CREATE INDEX IF NOT EXISTS idx_shadow_trades_status_time ON shadow_trades(status, actual_entry_time)"),
+    ("recommendations", "_idx_created_at", "CREATE INDEX IF NOT EXISTS idx_recommendations_created_at ON recommendations(created_at)"),
 ]
 
 

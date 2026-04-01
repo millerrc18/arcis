@@ -4,8 +4,11 @@ Processes commands pulled from the cloud command queue.
 Safety: commands expire after 5 min, rate-limited to 10/min,
 results truncated to 10KB.
 
-Called by: watch.py (via sync callback)
-Calls: scan, council, training, shadow trading, config overrides
+Called by: scheduler.watch
+Calls: services.scan_service, council.engine, training.trainer, shadow_trading.executor, config.overrides
+Owns tables: command_results
+Config keys: none
+Tests: tests/test_executor_import.py
 """
 
 import json
@@ -17,9 +20,11 @@ from collections import deque
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
-LOCAL_DB = "ai_research_desk.sqlite3"
+LOCAL_DB = DB_PATH
 MAX_RESULT_SIZE = 10 * 1024  # 10KB
 EXPIRY_SECONDS = 300  # 5 minutes
 MAX_COMMANDS_PER_MINUTE = 10

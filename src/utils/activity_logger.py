@@ -20,6 +20,8 @@ import sqlite3
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
@@ -39,7 +41,7 @@ RESEARCH_DIGEST = "research_digest"
 
 
 def log_activity(event_type: str, detail: str, metadata: dict | None = None,
-                 db_path: str = "ai_research_desk.sqlite3") -> None:
+                 db_path: str = DB_PATH) -> None:
     """Log a structured activity event for dashboard display."""
     try:
         now = datetime.now(ET).isoformat()

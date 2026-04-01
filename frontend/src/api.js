@@ -3,7 +3,7 @@ import { clearAuthSession } from './components/AuthGate'
 
 const TOKEN_KEY = 'hl_token'
 const TOKEN_TS_KEY = 'hl_token_ts'
-const SESSION_MAX_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
+const SESSION_MAX_MS = 24 * 60 * 60 * 1000 // 24 hours
 
 function authHeaders() {
   const headers = { 'Content-Type': 'application/json' }
@@ -80,6 +80,7 @@ export const api = {
   getDoc: (docId) => fetchApi(`/docs/${docId}`),
   getMetricHistory: (days = 90) => fetchApi(`/metric-history?days=${days}`),
   getCosts: (days = 30) => fetchApi(`/costs?days=${days}`),
+  getBuildScore: () => fetchApi('/build-score'),
   // Council
   getCouncilLatest: () => fetchApi('/council/latest'),
   getCouncilHistory: (days = 30) => fetchApi(`/council/history?days=${days}`),

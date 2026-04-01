@@ -99,6 +99,18 @@ def _get_cik(ticker: str) -> str | None:
     return cik
 
 
+def _normalize_accession(raw: str) -> str:
+    """Normalize accession number to dashed format: 0001193125-21-123456.
+
+    Handles both '0001193125-21-123456' and '000119312521123456' inputs.
+    """
+    stripped = raw.replace("-", "")
+    if len(stripped) == 18:
+        return f"{stripped[:10]}-{stripped[10:12]}-{stripped[12:]}"
+    # If not 18 digits, return as-is (already dashed or unusual format)
+    return raw
+
+
 def _fetch_filings_from_submissions(
     cik: str, form_type: str, since_date: str
 ) -> list[dict]:
@@ -129,7 +141,7 @@ def _fetch_filings_from_submissions(
             filings.append({
                 "form_type": form,
                 "filing_date": filing_date,
-                "accession_number": accession.replace("-", ""),
+                "accession_number": _normalize_accession(accession),
                 "description": desc,
                 "accession_raw": accession,
             })
@@ -222,6 +234,57 @@ def _parse_sections(text: str, form_type: str) -> dict[str, str]:
     return sections
 
 
+def _ensure_nlp_columns(conn: sqlite3.Connection) -> bool:
+    """Check that NLP sentiment columns exist; add them if missing.
+
+    Returns True if columns are available, False on failure.
+    """
+    cols = {c[1] for c in conn.execute("PRAGMA table_info(edgar_filings)").fetchall()}
+    needed = ["sentiment_polarity", "sentiment_negative_count",
+              "sentiment_uncertainty_count", "cautionary_phrases"]
+    missing = [c for c in needed if c not in cols]
+    if not missing:
+        return True
+    try:
+        for col in missing:
+            conn.execute(f"ALTER TABLE edgar_filings ADD COLUMN {col} TEXT")  # noqa: S608
+        return True
+    except Exception as e:
+        logger.warning("[EDGAR] Cannot add NLP columns: %s", e)
+        return False
+
+
+def _run_nlp_scoring(conn: sqlite3.Connection, accession: str, full_text: str) -> None:
+    """Score filing text for sentiment and cautionary phrases.
+
+    Checks columns exist before UPDATE to avoid OperationalError (#127).
+    """
+    if not _ensure_nlp_columns(conn):
+        return
+
+    from src.features.filing_nlp import (
+        score_filing_sentiment,
+        detect_cautionary_phrases,
+    )
+    sentiment = score_filing_sentiment(full_text)
+    cautions = detect_cautionary_phrases(full_text)
+    conn.execute(
+        """UPDATE edgar_filings SET
+            sentiment_polarity = ?,
+            sentiment_negative_count = ?,
+            sentiment_uncertainty_count = ?,
+            cautionary_phrases = ?
+        WHERE accession_number = ?""",
+        (
+            sentiment.get("polarity"),
+            sentiment.get("negative_count"),
+            sentiment.get("uncertainty_count", 0),
+            json.dumps([c["phrase"] for c in cautions]) if cautions else None,
+            accession,
+        ),
+    )
+
+
 def collect_new_filings(
     tickers: list[str],
     lookback_days: int = 730,
@@ -312,27 +375,7 @@ def collect_new_filings(
                         # Run NLP sentiment scoring on the filing text
                         if full_text and len(full_text) > 100:
                             try:
-                                from src.features.filing_nlp import (
-                                    score_filing_sentiment,
-                                    detect_cautionary_phrases,
-                                )
-                                sentiment = score_filing_sentiment(full_text)
-                                cautions = detect_cautionary_phrases(full_text)
-                                conn.execute(
-                                    """UPDATE edgar_filings SET
-                                        sentiment_polarity = ?,
-                                        sentiment_negative_count = ?,
-                                        sentiment_uncertainty_count = ?,
-                                        cautionary_phrases = ?
-                                    WHERE accession_number = ?""",
-                                    (
-                                        sentiment.get("polarity"),
-                                        sentiment.get("negative_count"),
-                                        sentiment.get("uncertainty_count", 0),
-                                        json.dumps([c["phrase"] for c in cautions]) if cautions else None,
-                                        accession,
-                                    ),
-                                )
+                                _run_nlp_scoring(conn, accession, full_text)
                             except ImportError:
                                 pass  # pysentiment2 not installed
                             except Exception as nlp_err:

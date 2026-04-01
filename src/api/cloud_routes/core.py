@@ -1,7 +1,10 @@
 """Cloud core routes for auth, status, config, actions, and command queue.
 
-Called by: cloud_app.py
-Calls: render_sync.py, FastAPI, Postgres command queue
+Called by: api.cloud_app
+Calls: sync.render_sync
+Owns tables: none (reads Postgres)
+Config keys: none
+Tests: tests/test_cloud_app.py
 """
 
 import uuid

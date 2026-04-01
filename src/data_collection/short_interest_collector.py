@@ -106,7 +106,7 @@ def collect_short_interest(
                         dtc = round(short_vol / avg_vol, 2)
 
                     try:
-                        conn.execute(
+                        cursor = conn.execute(
                             """INSERT OR IGNORE INTO short_interest
                             (ticker, settlement_date, short_interest,
                              avg_daily_volume, days_to_cover, short_pct_float,
@@ -122,7 +122,7 @@ def collect_short_interest(
                                 collected_at,
                             ),
                         )
-                        if conn.total_changes:
+                        if cursor.rowcount > 0:
                             records_stored += 1
                     except sqlite3.IntegrityError:
                         pass  # Duplicate — already have this settlement date

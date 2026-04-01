@@ -18,6 +18,25 @@ logger = logging.getLogger(__name__)
 
 _missing_key_alerts_sent: set[str] = set()
 
+# Per-API rate tracking (#133)
+_last_request_time: dict[str, float] = {}
+
+# Minimum interval between requests per API (seconds)
+_RATE_LIMITS: dict[str, float] = {
+    "finnhub": 1.0,
+    "sec": 0.1,
+}
+
+
+def _rate_limit(api_name: str, min_interval: float | None = None) -> None:
+    """Sleep if needed to enforce minimum interval between API calls."""
+    interval = min_interval or _RATE_LIMITS.get(api_name, 1.0)
+    now = time.time()
+    last = _last_request_time.get(api_name, 0)
+    if now - last < interval:
+        time.sleep(interval - (now - last))
+    _last_request_time[api_name] = time.time()
+
 
 def _alert_missing_key(key_name: str) -> None:
     """Send a one-time Telegram alert for a missing API key."""
@@ -89,7 +108,7 @@ def enrich_features(features: dict[str, dict], config: dict) -> dict[str, dict]:
             feat["fundamental_summary"] = format_fundamental_summary(fund_data, price)
             if fund_data is None:
                 missing_fundamentals += 1
-            time.sleep(0.1)  # Rate limit for SEC EDGAR
+            _rate_limit("sec")
         except Exception as e:
             feat["fundamental_summary"] = "No fundamental data available"
             missing_fundamentals += 1
@@ -101,6 +120,7 @@ def enrich_features(features: dict[str, dict], config: dict) -> dict[str, dict]:
                 fetch_insider_activity,
                 format_insider_summary,
             )
+            _rate_limit("finnhub")
             insider_data = fetch_insider_activity(
                 ticker,
                 lookback_days=lookback_days,
@@ -121,6 +141,7 @@ def enrich_features(features: dict[str, dict], config: dict) -> dict[str, dict]:
                 fetch_recent_news,
                 format_news_summary,
             )
+            _rate_limit("finnhub")
             news_data = fetch_recent_news(
                 ticker,
                 finnhub_api_key=finnhub_key,

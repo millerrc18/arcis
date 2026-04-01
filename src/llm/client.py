@@ -36,13 +36,20 @@ def _get_llm_config() -> dict:
     except Exception:
         pass  # Fall back to config model
 
+    # #153: inference_timeout_seconds is the preferred key; fall back to
+    # the legacy timeout_seconds, then to the 300s default.
+    timeout = llm_cfg.get(
+        "inference_timeout_seconds",
+        llm_cfg.get("timeout_seconds", 300),
+    )
+
     return {
         "enabled": llm_cfg.get("enabled", False),
         "model": model,
         "base_url": llm_cfg.get("base_url", "http://localhost:11434"),
         "temperature": llm_cfg.get("temperature", 0.7),
         "max_tokens": llm_cfg.get("max_tokens", 1500),
-        "timeout_seconds": llm_cfg.get("timeout_seconds", 180),
+        "timeout_seconds": timeout,
     }
 
 
@@ -98,9 +105,14 @@ def generate(prompt: str, system_prompt: str, temperature: float | None = None,
         resp.raise_for_status()
         data = resp.json()
         content = data["choices"][0]["message"]["content"]
-        return _strip_think_blocks(content)
+        content = _strip_think_blocks(content)
+        # #167: treat empty / whitespace-only response as failure
+        if not content or not content.strip():
+            logger.warning("[LLM] Empty response from Ollama — treating as failure")
+            return None
+        return content
     except Exception as e:
-        logger.warning("LLM generate failed: %s", e)
+        logger.warning("[LLM] generate failed: %s", e)
         return None
 
 
@@ -140,10 +152,14 @@ def generate_structured(prompt: str, system_prompt: str, response_schema: dict,
         data = resp.json()
         content = data["choices"][0]["message"]["content"]
         content = _strip_think_blocks(content)
+        # #167: treat empty / whitespace-only response as failure
+        if not content or not content.strip():
+            logger.warning("[LLM] Empty structured response from Ollama — treating as failure")
+            return None
         return json.loads(content)
     except (json.JSONDecodeError, KeyError, IndexError) as e:
-        logger.warning("LLM structured parse failed: %s", e)
+        logger.warning("[LLM] Structured parse failed: %s", e)
         return None
     except Exception as e:
-        logger.warning("LLM structured generate failed: %s", e)
+        logger.warning("[LLM] Structured generate failed: %s", e)
         return None

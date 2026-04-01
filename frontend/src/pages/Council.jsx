@@ -11,6 +11,7 @@ import {
 } from 'recharts'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { api } from '../api'
+import { formatTimestamp } from '../utils/formatTimestamp'
 import LoadingSpinner from '../components/LoadingSpinner'
 import StatusBadge from '../components/StatusBadge'
 
@@ -203,7 +204,7 @@ function ExpandableSessionRow({ session, isLatest }) {
   const agents = normalizeAgents(detailSession?.result_json?.agent_assessments || data?.votes || [])
   const adjustments = detailSession?.result_json?.parameter_adjustments || {}
   const consensusLabel = buildConsensusLabel(agents)
-  const timestamp = session.created_at ? new Date(session.created_at).toLocaleString() : '--'
+  const timestamp = formatTimestamp(session.created_at)
 
   return (
     <div className="rounded-lg" style={{ border: '1px solid var(--arcis-border)' }}>
@@ -300,6 +301,10 @@ export default function Council() {
 
   const askStrategic = useMutation({
     mutationFn: api.askCouncilStrategic,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['council-latest'] })
+      queryClient.invalidateQueries({ queryKey: ['council-history'] })
+    },
   })
 
   const session = latest?.session || latest || {}
@@ -391,8 +396,8 @@ export default function Council() {
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs" style={{ color: 'var(--slate-400)' }}>Cost</div>
-                  <div className="text-sm mt-1" style={{ fontFamily: 'var(--font-mono)', color: 'var(--slate-100)' }}>
+                  <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>Cost</div>
+                  <div className="text-sm mt-1" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text)' }}>
                     {session.total_cost != null ? `$${Number(session.total_cost).toFixed(4)}` : '--'}
                   </div>
                 </div>
@@ -407,7 +412,7 @@ export default function Council() {
             {session.result_json?.summary && (
               <div className="mt-4 rounded-lg p-4" style={{ background: 'rgba(20, 184, 166, 0.06)', border: '1px solid rgba(20, 184, 166, 0.15)' }}>
                 <div className="text-xs uppercase tracking-wide mb-2" style={{ color: 'var(--teal-400)' }}>Council Summary</div>
-                <p className="text-sm leading-relaxed" style={{ color: 'var(--slate-200)' }}>
+                <p className="text-sm leading-relaxed" style={{ color: 'var(--arcis-text-muted)' }}>
                   {session.result_json.summary}
                 </p>
               </div>

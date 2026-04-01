@@ -59,7 +59,9 @@ def _fetch_cboe_pc_ratio() -> dict:
             timeout=15,
         )
         if resp.status_code == 200 and "text" in resp.headers.get("content-type", ""):
-            return _parse_cboe_page(resp.text)
+            parsed = _parse_cboe_page(resp.text)
+            if parsed is not None:
+                return parsed
     except Exception as e:
         logger.debug("[CBOE] Website fetch failed: %s", e)
 
@@ -84,25 +86,33 @@ def _fetch_cboe_pc_ratio() -> dict:
     return {"equity_pc_ratio": None, "index_pc_ratio": None, "total_pc_ratio": None}
 
 
-def _parse_cboe_page(html: str) -> dict:
-    """Parse P/C ratios from CBOE market statistics page."""
-    # CBOE page format varies; extract what we can
+def _parse_cboe_page(html: str) -> dict | None:
+    """Parse P/C ratios from CBOE market statistics page.
+
+    Returns dict with ratio values, or None if regex extraction fails
+    entirely (page format changed).
+    """
     import re
     result = {"equity_pc_ratio": None, "index_pc_ratio": None, "total_pc_ratio": None}
 
-    # Look for ratio patterns in the page
     patterns = [
         (r"(?:equity|equities).*?(?:put/call|p/c).*?([\d.]+)", "equity_pc_ratio"),
         (r"(?:index).*?(?:put/call|p/c).*?([\d.]+)", "index_pc_ratio"),
         (r"(?:total).*?(?:put/call|p/c).*?([\d.]+)", "total_pc_ratio"),
     ]
+    matched_any = False
     for pattern, key in patterns:
         match = re.search(pattern, html, re.IGNORECASE)
         if match:
             try:
                 result[key] = float(match.group(1))
+                matched_any = True
             except ValueError:
                 pass
+
+    if not matched_any:
+        logger.warning("[CBOE] Regex extraction failed — page format may have changed")
+        return None
 
     return result
 

@@ -11,6 +11,7 @@ Detects orphaned positions (on Alpaca but not in DB) and stale records
 """
 
 import logging
+import sqlite3
 from datetime import datetime
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -98,22 +99,62 @@ def reconcile_live_trades(
                 float(pos.get("qty", 0)),
                 float(pos.get("avg_entry_price", 0)),
             )
+            # #107: Explicit warning — backfilled positions have no protection
+            logger.warning(
+                "[RECONCILE] Backfilled %s with stop_price=0, target_1=0 — "
+                "MANUAL INTERVENTION NEEDED: set stop-loss and targets",
+                ticker,
+            )
 
-        # Mark stale records as closed
+        # Mark stale records as closed — attempt P&L via yfinance (#108)
         for ticker in stale:
             trade_id = tracked_tickers[ticker]
+            pnl_dollars = None
+            exit_price = None
+
+            # Try to fetch last known price for P&L calculation
+            try:
+                with connect_db(db_path) as conn:
+                    entry_row = conn.execute(
+                        "SELECT actual_entry_price, entry_price, planned_shares "
+                        "FROM shadow_trades WHERE trade_id = ?",
+                        (trade_id,),
+                    ).fetchone()
+                if entry_row:
+                    entry_px = float(entry_row["actual_entry_price"] or entry_row["entry_price"] or 0)
+                    shares = float(entry_row["planned_shares"] or 1)
+                    if entry_px > 0:
+                        try:
+                            from src.data_ingestion.market_data import fetch_ohlcv
+                            data = fetch_ohlcv([ticker], period="5d")
+                            if ticker in data and not data[ticker].empty:
+                                exit_price = float(data[ticker]["Close"].iloc[-1])
+                                pnl_dollars = round((exit_price - entry_px) * shares, 2)
+                        except Exception as _yf_err:
+                            logger.debug("[RECONCILE] yfinance lookup failed for stale %s: %s", ticker, _yf_err)
+            except Exception as _db_err:
+                logger.debug("[RECONCILE] Entry price lookup failed for stale %s: %s", ticker, _db_err)
+
             with connect_db(db_path) as conn:
-                conn.execute(
-                    "UPDATE shadow_trades SET status = 'closed', "
-                    "exit_reason = 'reconciled_stale', updated_at = ? "
-                    "WHERE trade_id = ?",
-                    (now.isoformat(), trade_id),
-                )
+                if pnl_dollars is not None:
+                    conn.execute(
+                        "UPDATE shadow_trades SET status = 'closed', "
+                        "exit_reason = 'reconciled_stale', pnl_dollars = ?, "
+                        "actual_exit_price = ?, updated_at = ? WHERE trade_id = ?",
+                        (pnl_dollars, exit_price, now.isoformat(), trade_id),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE shadow_trades SET status = 'closed', "
+                        "exit_reason = 'reconciled_stale', pnl_dollars = NULL, "
+                        "updated_at = ? WHERE trade_id = ?",
+                        (now.isoformat(), trade_id),
+                    )
             marked_closed.append(ticker)
             logger.info(
-                "[RECONCILE] Marked stale record as closed: %s (trade_id=%s)",
-                ticker,
-                trade_id,
+                "[RECONCILE] Marked stale record as closed: %s (trade_id=%s, pnl=%s)",
+                ticker, trade_id,
+                f"${pnl_dollars:.2f}" if pnl_dollars is not None else "UNKNOWN",
             )
 
     return {

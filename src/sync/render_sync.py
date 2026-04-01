@@ -19,10 +19,12 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
-LOCAL_DB = "ai_research_desk.sqlite3"
+LOCAL_DB = DB_PATH
 
 # ── Tables and sync strategies ───────────────────────────────────────
 # "incremental" = sync rows where created_at > last_synced_at

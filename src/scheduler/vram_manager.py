@@ -136,7 +136,7 @@ class VRAMManager:
             logger.warning("[VRAM] Reload request failed: %s", e)
         return False
 
-    def _wait_for_vram_clear(self, threshold_mb: int = 500,
+    def _wait_for_vram_clear(self, threshold_mb: int = 1500,
                              timeout_seconds: int = 30) -> bool:
         """Wait until VRAM usage drops below threshold."""
         if not self._nvidia_smi:
@@ -176,12 +176,12 @@ class VRAMManager:
         time.sleep(3)
 
         # Step 2: Verify VRAM clear
-        if not self._wait_for_vram_clear(threshold_mb=500, timeout_seconds=30):
+        if not self._wait_for_vram_clear(threshold_mb=1500, timeout_seconds=30):
             # Retry unload
             logger.warning("[VRAM] VRAM not clear, retrying unload...")
             self._unload_ollama()
             time.sleep(3)
-            if not self._wait_for_vram_clear(threshold_mb=500, timeout_seconds=30):
+            if not self._wait_for_vram_clear(threshold_mb=1500, timeout_seconds=30):
                 # Kill Ollama process entirely to free VRAM
                 logger.warning("[VRAM] Killing Ollama process to reclaim VRAM...")
                 try:
@@ -195,7 +195,7 @@ class VRAMManager:
                     time.sleep(5)
                 except Exception as kill_err:
                     logger.warning("[VRAM] Failed to kill Ollama: %s", kill_err)
-                if not self._wait_for_vram_clear(threshold_mb=500, timeout_seconds=15):
+                if not self._wait_for_vram_clear(threshold_mb=1500, timeout_seconds=15):
                     logger.error("[VRAM] Handoff to training FAILED — VRAM not clear even after killing Ollama")
                     return False
 
@@ -226,7 +226,7 @@ class VRAMManager:
         time.sleep(3)
 
         # Step 2: Verify VRAM clear
-        if not self._wait_for_vram_clear(threshold_mb=500, timeout_seconds=30):
+        if not self._wait_for_vram_clear(threshold_mb=1500, timeout_seconds=30):
             logger.warning("[VRAM] VRAM not clear after killing training process")
             # Continue anyway — Ollama may still be able to load
 

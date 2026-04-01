@@ -105,6 +105,20 @@ function inline(text) {
     .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" style="color:var(--arcis-accent)" class="hover:underline" target="_blank" rel="noopener">$1</a>')
 }
 
+/** Strip dangerous HTML tags and attributes to prevent XSS */
+function sanitizeHtml(html) {
+  if (!html) return ''
+  return html
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/<iframe\b[^>]*>.*?<\/iframe>/gi, '')
+    .replace(/<object\b[^>]*>.*?<\/object>/gi, '')
+    .replace(/<embed\b[^>]*\/?>/gi, '')
+    .replace(/<form\b[^>]*>.*?<\/form>/gi, '')
+    .replace(/\bon\w+\s*=\s*"[^"]*"/gi, '')
+    .replace(/\bon\w+\s*=\s*'[^']*'/gi, '')
+    .replace(/javascript\s*:/gi, '')
+}
+
 const CATEGORY_ORDER = [
   'Core',
   'Strategy & Markets',
@@ -254,7 +268,7 @@ export default function Docs() {
               <div
                 className="mx-auto"
                 style={{ maxWidth: '720px', overflowWrap: 'break-word', wordBreak: 'break-word' }}
-                dangerouslySetInnerHTML={{ __html: renderMarkdown(doc.content) }}
+                dangerouslySetInnerHTML={{ __html: sanitizeHtml(renderMarkdown(doc.content)) }}
               />
             </div>
           ) : (

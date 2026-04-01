@@ -1,44 +1,12 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import { api } from '../api'
+import { formatRelativeTime, formatDate } from '../utils/formatTimestamp'
 import MetricCard from '../components/MetricCard'
 import StatusBadge from '../components/StatusBadge'
 import LoadingSpinner from '../components/LoadingSpinner'
-
-const COLLECTOR_NAMES = {
-  options_chains: 'Options Chains',
-  options_metrics: 'Options Metrics',
-  vix_term_structure: 'VIX Term Structure',
-  cboe_ratios: 'CBOE Put/Call Ratios',
-  macro_snapshots: 'FRED Macro Data',
-  google_trends: 'Google Trends',
-  earnings_calendar: 'Earnings Calendar',
-  sec_filings: 'SEC EDGAR Filings',
-  insider_transactions: 'Insider Transactions',
-  research_docs: 'Research Docs',
-  analyst_estimates: 'Analyst Estimates',
-  short_interest: 'Short Interest',
-}
-
-function relativeDate(dateStr) {
-  if (!dateStr) return 'Never'
-  const ms = Date.now() - new Date(dateStr).getTime()
-  const mins = Math.floor(ms / 60000)
-  if (mins < 60) return `${mins}m ago`
-  const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
-  const days = Math.floor(hrs / 24)
-  if (days === 1) return 'Yesterday'
-  return `${days} days ago`
-}
-
-function freshnessColor(dateStr) {
-  if (!dateStr) return 'var(--arcis-danger)'
-  const days = (Date.now() - new Date(dateStr).getTime()) / 86400000
-  if (days <= 1.5) return 'var(--arcis-success)'
-  if (days <= 7) return 'var(--arcis-warning)'
-  return 'var(--arcis-danger)'
-}
+import CollectorGrid from '../components/CollectorGrid'
+import PipelineStatus from '../components/PipelineStatus'
 
 const OUTCOME_COLORS = {
   WIN: 'var(--arcis-success)',
@@ -68,17 +36,22 @@ export default function Training() {
 
   const versions = history?.versions || []
 
-  // Compute outcome distribution
+  // Compute outcome distribution — derive types dynamically from data
   const outcomes = useMemo(() => {
     const total = status?.dataset_total || 0
     const hasOutcomes = status?.outcome_counts != null
     if (!hasOutcomes || total === 0) return null
     const counts = status.outcome_counts
-    return ['WIN', 'LOSS', 'TIMEOUT', 'PASS'].map(type => ({
+    const knownTypes = ['WIN', 'LOSS', 'TIMEOUT', 'PASS']
+    const dataTypes = [...new Set([
+      ...Object.keys(counts).map(k => k.toUpperCase()),
+      ...knownTypes,
+    ])]
+    return dataTypes.map(type => ({
       type,
       count: counts[type] || counts[type.toLowerCase()] || 0,
       pct: total > 0 ? ((counts[type] || counts[type.toLowerCase()] || 0) / total * 100) : 0,
-    }))
+    })).filter(o => o.count > 0 || knownTypes.includes(o.type))
   }, [status])
 
   // Source breakdown
@@ -137,112 +110,10 @@ export default function Training() {
       </div>
 
       {/* Data Collectors */}
-      {collectorStats && (
-        <div>
-          <h3 className="text-sm uppercase tracking-wide mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>Data Collectors</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {Object.entries(COLLECTOR_NAMES).map(([key, name]) => {
-              const stats = collectorStats[key]
-              const records = stats?.total_records ?? 0
-              const latest = stats?.latest_collection
-              const coverage = stats?.coverage_count
-              return (
-                <div key={key} className="arcis-card" style={{ padding: '12px' }}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm font-medium" style={{ color: 'var(--arcis-text-primary)' }}>{name}</span>
-                    <span className="inline-block w-2 h-2 rounded-full" style={{ background: freshnessColor(latest) }} />
-                  </div>
-                  {records > 0 ? (
-                    <>
-                      <div className="financial-data text-lg" style={{ color: 'var(--arcis-text-primary)' }}>{records.toLocaleString()}</div>
-                      <div className="flex items-center gap-2 text-xs mt-1" style={{ color: 'var(--arcis-text-muted)' }}>
-                        <span>{relativeDate(latest)}</span>
-                        {coverage != null && <span>{coverage} tickers</span>}
-                      </div>
-                    </>
-                  ) : (
-                    <div className="text-xs mt-1" style={{ color: 'var(--arcis-text-muted)' }}>No data collected yet</div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
+      <CollectorGrid stats={collectorStats} />
 
       {/* Pipeline Status */}
-      {status && (status.format_compliance || status.quality || status.quadrant_distribution) && (
-        <div className="arcis-card">
-          <h3 className="text-sm uppercase tracking-wide mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>Pipeline Status</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-            {/* Active model */}
-            <div>
-              <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>Active Model</div>
-              <div className="flex items-center gap-2 mt-1">
-                <span className="font-medium" style={{ color: 'var(--arcis-text-primary)' }}>{status.model_version || 'base'}</span>
-                <StatusBadge text={status.model_status || 'active'} variant={status.model_status === 'active' ? 'success' : 'neutral'} />
-              </div>
-              {status.holdout_score != null && (
-                <div className="text-xs financial-data mt-0.5" style={{ color: 'var(--arcis-text-secondary)' }}>Holdout: {status.holdout_score.toFixed(3)}</div>
-              )}
-            </div>
-            {/* Quality */}
-            {status.quality && (
-              <div>
-                <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>Avg Process Score</div>
-                <div className="financial-data text-lg mt-1" style={{ color: 'var(--arcis-text-primary)' }}>
-                  {status.quality.avg_process_score != null ? status.quality.avg_process_score.toFixed(2) : '--'}
-                </div>
-              </div>
-            )}
-            {/* Format compliance */}
-            {status.format_compliance && (
-              <div>
-                <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>Format Compliance</div>
-                <div className="text-xs mt-1" style={{ color: 'var(--arcis-text-secondary)' }}>
-                  XML: {status.format_compliance.xml ?? 0} | Plain: {status.format_compliance.plain_text ?? 0}
-                </div>
-              </div>
-            )}
-            {/* Leakage */}
-            {status.quality && (
-              <div>
-                <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>Leakage Test</div>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className="financial-data" style={{ color: 'var(--arcis-text-primary)' }}>
-                    {status.quality.leakage_accuracy != null ? status.quality.leakage_accuracy.toFixed(3) : '--'}
-                  </span>
-                  {status.quality.leakage_accuracy != null && (
-                    <StatusBadge
-                      text={status.quality.leakage_accuracy < 0.55 ? 'OK' : status.quality.leakage_accuracy < 0.6 ? 'Marginal' : 'Leaking'}
-                      variant={status.quality.leakage_accuracy < 0.55 ? 'success' : status.quality.leakage_accuracy < 0.6 ? 'warning' : 'danger'}
-                    />
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-          {/* Quadrant distribution */}
-          {status.quadrant_distribution && (
-            <div className="mt-4 pt-3" style={{ borderTop: '1px solid var(--arcis-border)' }}>
-              <div className="text-xs mb-2" style={{ color: 'var(--arcis-text-muted)' }}>Quadrant Distribution</div>
-              <div className="grid grid-cols-2 gap-2 max-w-xs text-xs">
-                {[
-                  ['Good Process + Good Outcome', status.quadrant_distribution.good_good, 'var(--arcis-success)'],
-                  ['Good Process + Bad Outcome', status.quadrant_distribution.good_bad, 'var(--arcis-accent)'],
-                  ['Bad Process + Good Outcome', status.quadrant_distribution.bad_good, 'var(--arcis-warning)'],
-                  ['Bad Process + Bad Outcome', status.quadrant_distribution.bad_bad, 'var(--arcis-danger)'],
-                ].map(([label, count, color]) => (
-                  <div key={label} className="flex items-center justify-between px-2 py-1.5 rounded" style={{ background: 'var(--arcis-bg-primary)' }}>
-                    <span style={{ color: 'var(--arcis-text-secondary)' }}>{label.split('+')[0].trim()}<br />{label.split('+')[1]?.trim()}</span>
-                    <span className="financial-data text-lg" style={{ color }}>{count ?? 0}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+      <PipelineStatus status={status} />
 
       {/* Outcome distribution */}
       {outcomes ? (
