@@ -279,10 +279,13 @@ def create_router(runtime, verify_auth):
         try:
             total = runtime.query_one("SELECT COUNT(*) as c FROM training_examples")
             scored = runtime.query_one(
-                "SELECT COUNT(*) as c FROM training_examples WHERE quality_score IS NOT NULL"
+                "SELECT COUNT(*) as c FROM training_examples "
+                "WHERE COALESCE(quality_score_auto, quality_score) IS NOT NULL"
             )
             avg_score = runtime.query_one(
-                "SELECT AVG(quality_score) as avg FROM training_examples WHERE quality_score IS NOT NULL"
+                "SELECT AVG(COALESCE(quality_score_auto, quality_score)) as avg "
+                "FROM training_examples "
+                "WHERE COALESCE(quality_score_auto, quality_score) IS NOT NULL"
             )
             return {
                 "total_examples": total["c"] if total else 0,
