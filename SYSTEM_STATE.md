@@ -3,7 +3,7 @@
 **This document is updated after every conversation with Claude. It IS the system state.**
 **Claude: You MUST read this file at the start of every session and update it after every substantive change.**
 
-> Last updated: March 31, 2026 (end of session) · Sprints 5-8 + reconciliation + analytics migration + dashboard redesign ALL MERGED. 5 open issues remain (from 87). Tests: 1,235. 173 Python files, 101 test files. System in lockdown — 25 open positions, 5/5 winners. Dashboard fully functional on Render Postgres. BSL 1.1 license. CC tooling installed (GitHub MCP, Context7, SQLite MCP, ruff hooks, CLAUDE.md).
+> Last updated: April 1, 2026 (early AM) · All sprints merged (4A-8 + reconciliation + analytics + dashboard redesign). 6 post-merge hotfixes pushed. 5 open issues remain (from 87). Tests: 1,235. 173 Python files, 101 test files, 14 dashboard pages, 40 sync tables. BSL 1.1 license. Dashboard fully functional on Render Postgres. All 40 sync tables have Postgres CREATE TABLE entries.
 
 ---
 
@@ -12,7 +12,7 @@
 - **Open positions:** ~25
 - **Closed trades:** 5 (need 50 for Phase 1 gate) — 5/5 winners, 4.1% avg gain, 2.2d hold
 - **Tests:** 1,235 test functions across 101 test files
-- **Python files:** 173 | **Dashboard pages:** 14 | **Research docs:** 77
+- **Python files:** 173 | **Dashboard pages:** 14 | **Research docs:** 66
 - **Monthly cost:** ~$64 (Render $7 + Ollama free + Claude API ~$50 + domain $7)
 - **Model:** halcyonlatest / halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF 8.7GB) via Ollama
 - **Next model:** Qwen 2.5 14B or Qwen3 14B (requires RTX 3090, Phase 2)
@@ -133,7 +133,8 @@ Config: `.claude/agents/<name>.md`
 | Risk governor | ✅ DEPLOYED — 8 checks |
 | 12 overnight collectors | ✅ RUNNING |
 | Telegram | ✅ LIVE — 32 functions |
-| Dashboard (Arcis) | ✅ LIVE — 14 pages, Sprint 5 polish merged |
+| Dashboard (Arcis) | ✅ LIVE — 14 pages, Sprint 5 polish merged, ledger redesign, CTO period selector |
+| Render sync | ✅ LIVE — 40/40 tables configured, all Postgres CREATE TABLE entries present |
 | Module registry (AGENTS.md) | ✅ LIVE — 138 entries |
 | Automated guardrails | ✅ LIVE — test_repo_structure.py |
 | CI on PRs | ✅ LIVE — tests + guardrails + frontend build |
@@ -151,13 +152,20 @@ Config: `.claude/agents/<name>.md`
 | 4E (CC) | #77 ✅ | DB migration, Traffic Light, scan recording, README |
 | 5 (CC) | #78 ✅ | Dashboard polish (8 pages redesigned) |
 | 6 partial (CC) | #88 ✅ | .env secret migration — 10 modules, 11 tests |
-| 6 remaining (CC) | Pending | Tasks 1-6: data collectors grid, training pipeline, scan metrics, card contrast |
 | CC deep audit | ✅ Complete | 71 issues filed (#100-#169), health 6.5/10 |
 | 7 (CC) | #172 ✅ | Reliability: crash handler, GTC brackets, heartbeat, TL stub, sync mutex, backoff (18 issues closed) |
 | Reconciliation | #171 ✅ | Daily postclose paper trade reconciliation vs Alpaca |
 | 8 (CC) | #173 ✅ | Comprehensive cleanup: 63 issues closed — training, council, LLM, data, trading, frontend, config |
 | Analytics migration | #174 ✅ | Cloud endpoints read Postgres: HSHS, CTO Report, Build Score, Training Status, system/validation |
 | Dashboard redesign | #175 ✅ | Shadow/Live Ledger redesign, CTO period selector, Validation feedback, Build Score scheduling |
+
+### Post-Merge Hotfixes (April 1)
+- ✅ VRAM handoff complete: torch.cuda.empty_cache(), ollama_llama_server kill, 45s timeout, Ollama restart on failure
+- ✅ 7 missing Postgres tables added to render_migrate.py (build_score_history, audit_reports, metric_snapshots, earnings_calendar, macro_snapshots, options_metrics, vix_term_structure)
+- ✅ `recommendations.regime_label` → `market_regime` — fixed 503 on shadow/open, shadow/closed, cto-report
+- ✅ API costs $0.00 — endpoint read `estimated_cost`, data in `cost_dollars` — fixed with COALESCE
+- ✅ WebSocket console spam — exponential backoff + max 5 retries
+- ✅ Pre-market brief S&P futures + 10Y yield — was hardcoded 0.0, now pulls from yfinance (ES=F, ^TNX)
 
 ---
 
@@ -190,28 +198,17 @@ Config: `.claude/agents/<name>.md`
 
 ---
 
-## GitHub Issues (from audits)
+## GitHub Issues
 
-| # | Label | Title | Status |
-|---|---|---|---|
-| #80 | bug | Duplicate /api/build-score route | ✅ Fixed |
-| #81 | bug | Frontend calls nonexistent cloud endpoints | Sprint 6 Tasks 1-6 |
-| #82 | tech-debt | Silent exception swallowing in council context | Open |
-| #83 | tech-debt | Hardcoded ai_research_desk.sqlite3 in ~30 files | Open |
-| #84 | documentation | .env.example missing 3 env vars | Sprint 6 Task 7 covers |
-| #85 | test-gap | 73 modules without test files | Open (ongoing) |
-| #86 | documentation | AGENTS.md route count stale (55 vs 76) | Open |
-| #87 | documentation | Audit Summary — 6.5/10 health | Tracking |
-| #89 | bug | Traffic Light API returns UNKNOWN (stub) | Open — P0 |
-| #90 | bug | load_dotenv() missing from watch.py | Open — P1 |
-| #91 | bug | Hardcoded Render URL in system_validator | Open — P1 |
-| #92 | performance | No index on shadow_trades.status | Open — P2 |
-| #93 | tech-debt | ~40 var(--slate-*) in Dashboard/Council | Sprint 6 Task 6 |
-| #94 | tech-debt | Watch loop banner says HALCYON LAB | Open — P3 |
-| #95 | tech-debt | config_overrides.py in wrong location | Open — P3 |
-| #96 | tech-debt | build_score.py docstring says Halcyon Lab | Open — P3 |
-| #97 | performance | No index on recommendations.created_at | Open — P3 |
-| #98 | documentation | YAML config options undocumented | Open — P2 |
+87 issues filed across two audits (Codex + CC deep). 82 closed via Sprints 7-8. **5 remaining:**
+
+| # | Priority | Title |
+|---|---|---|
+| #147 | P2 | No exponential backoff on network failures in enrichment |
+| #132 | P2 | Fallback to settings.example.yaml with placeholder keys — no validation |
+| #112 | P2 | VRAM not freed after training — GPU memory leak |
+| #106 | P2 | Kill switch not atomic, no staleness check |
+| #82 | P3 | Silent exception swallowing in council/context.py |
 
 ---
 
@@ -288,6 +285,8 @@ GRPO training: RunPod A100 cloud ($14/mo), not local hardware.
 ---
 
 ## TODO (non-urgent)
+- [ ] **Repo reorganization** — file structure needs cleanup: stale sprint docs, duplicate scripts, orphaned files, inconsistent naming, `ai_research_desk.sqlite3-wal` tracked in git. Audit and propose new structure before executing.
+- [ ] **architecture.md refresh** — 1,235-line module registry is stale (counts from March 27). CC sprint task: read all 173 Python files and regenerate.
 - [ ] Rename GitHub repo `halcyon-lab` → `arcis`
 - [ ] GitHub Pro ($4/mo) for branch protection
 - [ ] UPS: CyberPower CP1500PFCLCD (~$220)
