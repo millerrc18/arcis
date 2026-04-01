@@ -568,7 +568,7 @@ export default function ShadowLedger() {
         <MetricCard label="Paper Equity" value={equity.toLocaleString()} prefix="$" delta={equity - startingCapital} />
         <MetricCard label="Open / Max" value={`${accountData?.open_positions || openData?.open_count || 0} / 50`} />
         <MetricCard label="Closed" value={`${closedTrades.length} / 50`} delta={closedTrades.length >= 50 ? 'Gate met' : null} />
-        <MetricCard label="Win Rate" value={metrics.win_rate != null ? `${metrics.win_rate.toFixed(1)}%` : accountData?.win_rate != null ? `${(accountData.win_rate * 100).toFixed(1)}%` : '--'} />
+        <MetricCard label="Win Rate" value={metrics.win_rate != null ? `${(metrics.win_rate * 100).toFixed(1)}%` : accountData?.win_rate != null ? `${(accountData.win_rate * 100).toFixed(1)}%` : '--'} />
         <MetricCard label="Profit Factor" value={profitFactor} />
         <MetricCard label="Max DD" value={`${maxDDPct}%`} />
         <Tooltip content="Average entry slippage in basis points across all closed trades">
