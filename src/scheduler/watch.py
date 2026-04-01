@@ -177,6 +177,7 @@ class WatchLoop:
         self._digest_evening_done = False
         self._action_reminders_done = False
         self._daily_validation_done = False
+        self._daily_build_score_done = False
 
         # Collector failure tracking: {collector_name: consecutive_failure_count}
         self._collector_failures: dict[str, int] = {}
@@ -232,6 +233,7 @@ class WatchLoop:
         self._digest_evening_done = False
         self._action_reminders_done = False
         self._daily_validation_done = False
+        self._daily_build_score_done = False
         self._scan_number = 0
 
     def _is_market_open(self, now: datetime) -> bool:
@@ -1260,6 +1262,20 @@ class WatchLoop:
                     except Exception as e:
                         logger.warning("[WATCH] Validation failed: %s", e)
                     self._daily_validation_done = True
+
+                # 4c. Daily build score snapshot (4:45 PM ET)
+                if (hour == 16 and now.minute >= 45
+                        and not self._daily_build_score_done):
+                    try:
+                        from src.evaluation.build_score import persist_build_score
+                        result = persist_build_score()
+                        logger.info(
+                            "[WATCH] Build score persisted: %.1f",
+                            result.get("build_score", 0),
+                        )
+                    except Exception as e:
+                        logger.warning("[WATCH] Build score persistence failed: %s", e)
+                    self._daily_build_score_done = True
 
                 if (hour == 16 and now.minute >= 30 and now.minute < 35
                         and not self._postclose_bracket_check_done):

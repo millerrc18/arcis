@@ -21,7 +21,10 @@ def create_router(runtime, verify_auth):
     def shadow_open():
         try:
             rows = runtime.query(
-                "SELECT * FROM shadow_trades WHERE status = 'open' ORDER BY created_at DESC"
+                "SELECT st.*, r.setup_type, r.regime_label, r.priority_score "
+                "FROM shadow_trades st "
+                "LEFT JOIN recommendations r ON st.recommendation_id = r.recommendation_id "
+                "WHERE st.status = 'open' ORDER BY st.created_at DESC"
             )
             closed_pnl_row = runtime.query_one(
                 "SELECT COALESCE(SUM(pnl_dollars), 0) as total FROM shadow_trades WHERE status = 'closed'"
@@ -55,8 +58,11 @@ def create_router(runtime, verify_auth):
         try:
             cutoff = (datetime.now(runtime.et) - timedelta(days=days)).isoformat()
             rows = runtime.query(
-                "SELECT * FROM shadow_trades WHERE status = 'closed' "
-                "AND actual_exit_time >= %s ORDER BY actual_exit_time DESC",
+                "SELECT st.*, r.setup_type, r.regime_label, r.priority_score "
+                "FROM shadow_trades st "
+                "LEFT JOIN recommendations r ON st.recommendation_id = r.recommendation_id "
+                "WHERE st.status = 'closed' "
+                "AND st.actual_exit_time >= %s ORDER BY st.actual_exit_time DESC",
                 (cutoff,),
             )
             pnls = [row.get("pnl_dollars", 0) or 0 for row in rows]

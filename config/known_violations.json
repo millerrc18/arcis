@@ -71,6 +71,10 @@
     {
       "file": "src/training/versioning.py",
       "lines": 595
+    },
+    {
+      "file": "src/api/cloud_routes/analytics.py",
+      "lines": 593
     }
   ],
   "oversized_functions": [
@@ -733,18 +737,40 @@
       "file": "src/universe/sp100.py",
       "function": "get_sp100_universe",
       "lines": 105
+    },
+    {
+      "file": "src/scheduler/vram_manager.py",
+      "function": "handoff_to_training",
+      "lines": 71
+    },
+    {
+      "file": "src/scheduler/vram_manager.py",
+      "function": "handoff_to_inference",
+      "lines": 62
+    },
+    {
+      "file": "src/api/cloud_routes/analytics.py",
+      "function": "health_hshs",
+      "lines": 65
+    },
+    {
+      "file": "src/api/cloud_routes/analytics.py",
+      "function": "cto_report",
+      "lines": 166
+    },
+    {
+      "file": "src/api/cloud_routes/training.py",
+      "function": "training_status",
+      "lines": 106
     }
   ],
   "missing_docstring_headers": [],
   "missing_migrate_tables": [
     "audit_reports",
     "bracket_health",
-    "cboe_ratios",
-    "google_trends",
     "macro_snapshots",
     "metric_snapshots",
     "model_evaluations",
-    "options_chains",
     "options_metrics",
     "preference_pairs",
     "vix_term_structure"

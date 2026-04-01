@@ -383,6 +383,52 @@ MIGRATIONS = [
         UNIQUE(ticker, date, source)
     )"""),
 
+    # Options / sentiment data tables (synced as latest_only snapshots)
+    ("options_chains", None, """CREATE TABLE IF NOT EXISTS options_chains (
+        id SERIAL PRIMARY KEY,
+        collected_at TEXT NOT NULL,
+        ticker TEXT NOT NULL,
+        expiration TEXT NOT NULL,
+        strike REAL NOT NULL,
+        option_type TEXT NOT NULL,
+        bid REAL,
+        ask REAL,
+        last_price REAL,
+        volume INTEGER,
+        open_interest INTEGER,
+        implied_volatility REAL,
+        delta REAL,
+        gamma REAL,
+        theta REAL,
+        vega REAL,
+        in_the_money INTEGER,
+        underlying_price REAL
+    )"""),
+    ("options_chains", "_idx_ticker_date", "CREATE INDEX IF NOT EXISTS idx_options_chains_ticker_date ON options_chains(ticker, collected_at)"),
+    ("options_chains", "_idx_collected", "CREATE INDEX IF NOT EXISTS idx_options_chains_collected ON options_chains(collected_at)"),
+
+    ("cboe_ratios", None, """CREATE TABLE IF NOT EXISTS cboe_ratios (
+        id SERIAL PRIMARY KEY,
+        collected_at TEXT NOT NULL,
+        collected_date TEXT NOT NULL,
+        equity_pc_ratio REAL,
+        index_pc_ratio REAL,
+        total_pc_ratio REAL,
+        equity_pc_vs_20d_avg REAL
+    )"""),
+    ("cboe_ratios", "_idx_date", "CREATE INDEX IF NOT EXISTS idx_cboe_ratios_date ON cboe_ratios(collected_date)"),
+
+    ("google_trends", None, """CREATE TABLE IF NOT EXISTS google_trends (
+        id SERIAL PRIMARY KEY,
+        collected_at TEXT NOT NULL,
+        collected_date TEXT NOT NULL,
+        ticker TEXT NOT NULL,
+        search_interest REAL,
+        interest_vs_90d_avg REAL,
+        spike_flag INTEGER
+    )"""),
+    ("google_trends", "_idx_ticker_date", "CREATE INDEX IF NOT EXISTS idx_google_trends_ticker_date ON google_trends(ticker, collected_date)"),
+
     # Research intelligence tables
     ("research_papers", None, """CREATE TABLE IF NOT EXISTS research_papers (
         id SERIAL PRIMARY KEY,
