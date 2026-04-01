@@ -457,4 +457,32 @@ def create_router(runtime, verify_auth):
                 "error": str(exc),
             }
 
+    TABLE_WHITELIST = [
+        "shadow_trades", "recommendations", "trade_exits", "bracket_orders",
+        "trade_postmortems", "position_snapshots", "live_trades",
+        "training_examples", "training_runs", "model_versions", "holdout_results",
+        "preference_pairs", "contrastive_pairs", "quality_scores",
+        "options_chains", "options_metrics", "vix_term_structure", "cboe_ratios",
+        "macro_snapshots", "google_trends", "earnings_calendar", "edgar_filings",
+        "insider_transactions", "short_interest", "fed_communications", "analyst_estimates",
+        "activity_log", "log_entries", "command_queue", "command_results",
+        "config_overrides", "scan_metrics", "metric_snapshots",
+        "council_sessions", "council_votes", "audit_reports", "build_score_history",
+        "hshs_snapshots", "validation_checks",
+        "feature_cache", "enrichment_cache", "news_cache", "regime_history",
+        "sector_snapshots", "fundamental_snapshots",
+    ]
+
+    @router.get("/api/system/table-counts", dependencies=[Depends(verify_auth)])
+    def table_counts():
+        """Return row counts for whitelisted tables (for DB Schema page)."""
+        counts = {}
+        for table in TABLE_WHITELIST:
+            try:
+                row = runtime.query_one(f"SELECT COUNT(*) as c FROM {table}")
+                counts[table] = row["c"] if row else 0
+            except Exception:
+                counts[table] = -1
+        return counts
+
     return router

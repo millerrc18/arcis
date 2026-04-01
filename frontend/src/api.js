@@ -122,4 +122,6 @@ export const api = {
   // System Validation
   getValidation: () => fetchApi('/system/validation'),
   runValidation: () => fetchApi('/system/validation?fresh=true'),
+  // DB Schema
+  getTableCounts: () => fetchApi('/system/table-counts'),
 }

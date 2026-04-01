@@ -442,6 +442,14 @@ def check_and_manage_open_trades(
     _price_total = 0
     _price_failures = 0
 
+    # Pre-fetch Alpaca positions for existence checking (single API call)
+    _alpaca_tickers: set[str] = set()
+    try:
+        from src.shadow_trading.alpaca_adapter import get_all_positions
+        _alpaca_tickers = {p["symbol"] for p in get_all_positions()}
+    except Exception as e:
+        logger.debug("[EXECUTOR] Could not fetch positions for existence check: %s", e)
+
     for trade in open_trades:
         # Retry exit for failed exits instead of skipping
         if trade.get("status") in ("exit_pending", "exit_failed"):
@@ -532,6 +540,14 @@ def check_and_manage_open_trades(
                             break
             except Exception as e:
                 logger.warning("[SHADOW] Bracket order status check failed for %s: %s — falling back to price polling", ticker, e)
+
+        # Position existence check — log-only alarm for reconciliation
+        if not bracket_exit and _alpaca_tickers and ticker not in _alpaca_tickers:
+            logger.warning(
+                "[EXECUTOR] %s not in Alpaca positions (trade_id=%s) "
+                "— will be caught by next reconciliation cycle",
+                ticker, trade.get("trade_id"),
+            )
 
         # Check exit conditions (bracket leg detection may have already set exit_reason)
         if not bracket_exit:

@@ -21,6 +21,8 @@ import Health from './pages/Health'
 import Notes from './pages/Notes'
 import Validation from './pages/Validation'
 import Logs from './pages/Logs'
+import Architecture from './pages/Architecture'
+import DBSchema from './pages/DBSchema'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -84,6 +86,8 @@ export default function App() {
                 <Route path="/health" element={<ErrorBoundary><Health /></ErrorBoundary>} />
                 <Route path="/validation" element={<ErrorBoundary><Validation /></ErrorBoundary>} />
                 <Route path="/logs" element={<ErrorBoundary><Logs /></ErrorBoundary>} />
+                <Route path="/architecture" element={<ErrorBoundary><Architecture /></ErrorBoundary>} />
+                <Route path="/schema" element={<ErrorBoundary><DBSchema /></ErrorBoundary>} />
               </Route>
             </Routes>
           </BrowserRouter>

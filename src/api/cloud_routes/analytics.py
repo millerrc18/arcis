@@ -33,7 +33,7 @@ def _compute_performance_score(closed_trades: list[dict]) -> tuple[float, dict]:
     mean_pnl = sum(pnls) / len(pnls)
     std_pnl = max((sum((pnl - mean_pnl) ** 2 for pnl in pnls) / len(pnls)) ** 0.5, 0.001)
     sharpe = mean_pnl / std_pnl
-    profit_factor = (sum(wins) / abs(sum(losses))) if losses and sum(losses) != 0 else 99
+    profit_factor = (sum(wins) / abs(sum(losses))) if losses and sum(losses) != 0 else None
 
     running = 0
     peak = 0
@@ -52,7 +52,7 @@ def _compute_performance_score(closed_trades: list[dict]) -> tuple[float, dict]:
     return perf_score, {
         "win_rate": round(win_rate, 3),
         "sharpe": round(sharpe, 2),
-        "profit_factor": round(min(profit_factor, 99), 2),
+        "profit_factor": profit_factor if profit_factor is None else round(profit_factor, 2),
         "max_drawdown_pct": round(max_dd_pct, 2),
         "net_pnl": round(sum(pnl_dollars), 2),
         "trade_count": closed_count,
@@ -142,7 +142,7 @@ def _compute_trade_summary(closed_recent: list[dict], open_count: int) -> dict:
 
     gross_wins = sum(wins) if wins else 0
     gross_losses = abs(sum(losses)) if losses else 0
-    profit_factor = round(gross_wins / gross_losses, 2) if gross_losses > 0 else (999 if gross_wins > 0 else 0)
+    profit_factor = round(gross_wins / gross_losses, 2) if gross_losses > 0 else (None if gross_wins > 0 else 0)
 
     cumulative = 0
     peak = 0

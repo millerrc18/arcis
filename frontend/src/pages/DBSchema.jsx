@@ -1,0 +1,167 @@
+import { useCallback, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '../api'
+import {
+  ReactFlow,
+  Background,
+  Controls,
+  MiniMap,
+  useNodesState,
+  useEdgesState,
+} from '@xyflow/react'
+import '@xyflow/react/dist/style.css'
+
+const CLUSTERS = {
+  trading: { color: '#22C55E', label: 'Trading', tables: [
+    'shadow_trades', 'recommendations', 'trade_exits', 'bracket_orders',
+    'trade_postmortems', 'position_snapshots', 'live_trades',
+  ]},
+  training: { color: '#8B5CF6', label: 'Training', tables: [
+    'training_examples', 'training_runs', 'model_versions', 'holdout_results',
+    'preference_pairs', 'contrastive_pairs', 'quality_scores',
+  ]},
+  data: { color: '#3B82F6', label: 'Data Collection', tables: [
+    'options_chains', 'options_metrics', 'vix_term_structure', 'cboe_ratios',
+    'macro_snapshots', 'google_trends', 'earnings_calendar', 'edgar_filings',
+    'insider_transactions', 'short_interest', 'fed_communications', 'analyst_estimates',
+  ]},
+  system: { color: '#F59E0B', label: 'System', tables: [
+    'activity_log', 'log_entries', 'command_queue', 'command_results',
+    'config_overrides', 'scan_metrics', 'metric_snapshots',
+  ]},
+  intelligence: { color: '#0D9488', label: 'Intelligence', tables: [
+    'council_sessions', 'council_votes', 'audit_reports', 'build_score_history',
+    'hshs_snapshots', 'validation_checks',
+  ]},
+  enrichment: { color: '#EF4444', label: 'Enrichment', tables: [
+    'feature_cache', 'enrichment_cache', 'news_cache', 'regime_history',
+    'sector_snapshots', 'fundamental_snapshots',
+  ]},
+}
+
+// Foreign key relationships (source → target)
+const FK_EDGES = [
+  ['shadow_trades', 'recommendations'],
+  ['trade_exits', 'shadow_trades'],
+  ['trade_postmortems', 'shadow_trades'],
+  ['bracket_orders', 'shadow_trades'],
+  ['position_snapshots', 'shadow_trades'],
+  ['training_examples', 'shadow_trades'],
+  ['quality_scores', 'training_examples'],
+  ['holdout_results', 'model_versions'],
+  ['council_votes', 'council_sessions'],
+  ['build_score_history', 'hshs_snapshots'],
+  ['command_results', 'command_queue'],
+  ['live_trades', 'recommendations'],
+]
+
+function buildNodes(counts) {
+  const nodes = []
+  const clusterEntries = Object.entries(CLUSTERS)
+  const clusterWidth = 200
+  const cols = 3
+  const rowSpacing = 50
+
+  clusterEntries.forEach(([clusterId, cluster], ci) => {
+    const col = ci % cols
+    const row = Math.floor(ci / cols)
+    const baseX = col * 420
+    const baseY = row * (cluster.tables.length * rowSpacing + 120)
+
+    cluster.tables.forEach((table, ti) => {
+      const count = counts?.[table]
+      const countLabel = count != null ? (count >= 0 ? ` (${count.toLocaleString()})` : ' (err)') : ''
+      nodes.push({
+        id: table,
+        position: { x: baseX, y: baseY + ti * rowSpacing },
+        data: { label: `${table}${countLabel}` },
+        style: {
+          background: '#0C0C10',
+          border: `1px solid ${cluster.color}`,
+          borderRadius: 6,
+          padding: '6px 12px',
+          fontSize: 11,
+          color: '#E4E4E7',
+          fontFamily: "'JetBrains Mono', monospace",
+          minWidth: clusterWidth,
+          textAlign: 'left',
+        },
+      })
+    })
+  })
+
+  return nodes
+}
+
+function buildEdges() {
+  return FK_EDGES.map(([source, target], i) => ({
+    id: `fk-${i}`,
+    source,
+    target,
+    type: 'smoothstep',
+    animated: false,
+    style: { stroke: '#475569', strokeWidth: 1, strokeDasharray: '4 4' },
+  }))
+}
+
+export default function DBSchema() {
+  const { data: counts } = useQuery({
+    queryKey: ['table-counts'],
+    queryFn: () => api.getTableCounts().catch(() => ({})),
+    refetchInterval: 300000,
+  })
+
+  const nodes = useMemo(() => buildNodes(counts), [counts])
+  const edges = useMemo(() => buildEdges(), [])
+
+  const [flowNodes, , onNodesChange] = useNodesState(nodes)
+  const [flowEdges, , onEdgesChange] = useEdgesState(edges)
+
+  const onInit = useCallback((instance) => {
+    instance.fitView({ padding: 0.15 })
+  }, [])
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--arcis-text-primary)' }}>DB Schema</h1>
+          <p className="text-sm mt-1" style={{ color: 'var(--arcis-text-secondary)' }}>
+            40 tables across 6 domains — dashed lines show foreign keys, counts refresh every 5 min
+          </p>
+        </div>
+        <div className="flex gap-3 flex-wrap">
+          {Object.values(CLUSTERS).map(({ color, label }) => (
+            <div key={label} className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>
+              <span className="w-2.5 h-2.5 rounded-sm" style={{ background: color }} />
+              {label}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="arcis-card" style={{ height: 'calc(100vh - 180px)', padding: 0, overflow: 'hidden' }}>
+        <ReactFlow
+          nodes={flowNodes}
+          edges={flowEdges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onInit={onInit}
+          fitView
+          proOptions={{ hideAttribution: true }}
+          style={{ background: 'var(--arcis-bg-elevated)' }}
+        >
+          <Background color="#1E293B" gap={20} />
+          <Controls
+            style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 8 }}
+          />
+          <MiniMap
+            style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 8 }}
+            nodeColor="#3B82F6"
+            maskColor="rgba(5, 5, 7, 0.7)"
+          />
+        </ReactFlow>
+      </div>
+    </div>
+  )
+}

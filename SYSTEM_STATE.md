@@ -3,16 +3,16 @@
 **This document is updated after every conversation with Claude. It IS the system state.**
 **Claude: You MUST read this file at the start of every session and update it after every substantive change.**
 
-> Last updated: April 1, 2026 · All sprints merged (4A-8 + reconciliation + analytics + dashboard redesign + log audit + data integrity fix). 82 issues closed (87→5). Tests: 1,235. 173 Python files, 101 test files. BSL 1.1 license. Dashboard on Render Postgres. Reconciliation data integrity fixed (actual_exit_time backfilled). Double logging fixed. Idempotent ALTER TABLEs. Next sprint: React Flow interactive diagrams + UI polish.
+> Last updated: April 1, 2026 (PM) · All sprints merged (4A-8 + reconciliation + analytics + dashboard redesign + log audit + data integrity + mega sprint). Mega Sprint: 15-min intra-day reconciliation, exit_failed recovery, Telegram gating, profit factor fix, React Flow pages, sidebar reorg, UI fixes. Tests: 1,245. 175 Python files, 101 test files, 16 dashboard pages, 40 sync tables. BSL 1.1 license.
 
 ---
 
 ## Current System State
 - **Phase:** 1 (Bootcamp) — paper trading $100K + $100 live via Alpaca
-- **Open positions:** ~25
-- **Closed trades:** 5 (need 50 for Phase 1 gate) — 5/5 winners, 4.1% avg gain, 2.2d hold
-- **Tests:** 1,235 test functions across 101 test files
-- **Python files:** 173 | **Dashboard pages:** 14 | **Research docs:** 66
+- **Open positions:** 25
+- **Closed trades:** 13 (need 50 for Phase 1 gate) — 12W/1L, 92% WR, $860 total P&L
+- **Tests:** 1,245 test functions across 101 test files
+- **Python files:** 175 | **Dashboard pages:** 16 | **Research docs:** 66
 - **Monthly cost:** ~$64 (Render $7 + Ollama free + Claude API ~$50 + domain $7)
 - **Model:** halcyonlatest / halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF 8.7GB) via Ollama
 - **Next model:** Qwen 2.5 14B or Qwen3 14B (requires RTX 3090, Phase 2)
@@ -167,8 +167,9 @@ Also installed (not repo-relevant): hookify, playground, plugin-dev, mcp-server-
 | HSHS health score | ✅ DEPLOYED — 85.33 |
 | Risk governor | ✅ DEPLOYED — 8 checks |
 | 12 overnight collectors | ✅ RUNNING |
-| Telegram | ✅ LIVE — 32 functions |
-| Dashboard (Arcis) | ✅ LIVE — 14 pages, Sprint 5 polish merged, ledger redesign, CTO period selector |
+| Telegram | ✅ LIVE — 32 functions, gated behind trade_id (no spam on rejected trades) |
+| Intra-day reconciliation | ✅ LIVE — every 15 min during market hours, resolves exit_failed/exit_pending trades |
+| Dashboard (Arcis) | ✅ LIVE — 16 pages (+Architecture, DB Schema), sidebar sections, chart visibility fix |
 | Render sync | ✅ LIVE — 40/40 tables configured, all Postgres CREATE TABLE entries present |
 | Module registry (AGENTS.md) | ✅ LIVE — 138 entries |
 | Automated guardrails | ✅ LIVE — test_repo_structure.py |
@@ -196,7 +197,21 @@ Also installed (not repo-relevant): hookify, playground, plugin-dev, mcp-server-
 | Log audit | #176 ✅ | Double logging fix, idempotent ALTER TABLEs, validate-system, DNS retry, SQLite retry, LLM timing |
 | Data integrity | #177 ✅ | Reconciliation actual_exit_time fix, paper trade auto-close, bracket status constant, backfill migration |
 
-### Post-Merge Hotfixes (April 1)
+### Mega Sprint (April 1 PM)
+- ✅ **Intra-day reconciliation** — every 15 min during market hours (was only 4:30 PM post-close)
+- ✅ **exit_failed recovery** — reconciler now resolves stuck trades: gone from Alpaca → close with P&L, still on Alpaca → revert to open
+- ✅ **Position existence check** — executor pre-fetches Alpaca positions, logs WARNING for vanished tickers
+- ✅ **Telegram gating** — broadcast_sync, Telegram, live trade, email all gated behind `if trade_id:` (no spam on risk-rejected)
+- ✅ **Profit factor** — backend returns `None` (not 99/999) for infinite; frontend shows ∞ symbol
+- ✅ **Ticker logos** — lowercased URLs + dot-to-dash for BRK.B-style tickers; onError fallback already existed
+- ✅ **Chart visibility** — fillOpacity 0.1→0.25, strokeWidth=2 on all Area charts (ShadowLedger, LiveLedger, Dashboard)
+- ✅ **Activity feed** — cloud normalizer now maps `event_type` (not `event`), parses JSON `detail` field
+- ✅ **Sidebar** — grouped into 4 sections (Trading, Intelligence, System, Reference) with section headers
+- ✅ **React Flow** — Architecture page (interactive system diagram) + DB Schema page (40-table ERD with live row counts)
+- ✅ **Data recovery** — 8 exit_failed trades closed (DUK, EXC, SO, COST, BK, CAT, CVX, BMY), 3 premature exits reverted to open (PFE, COP, MO)
+- ✅ **table-counts API** — new `/api/system/table-counts` endpoint for DB Schema page (local + cloud)
+
+### Post-Merge Hotfixes (April 1 AM)
 - ✅ VRAM handoff complete: torch.cuda.empty_cache(), ollama_llama_server kill, 45s timeout, Ollama restart on failure
 - ✅ 7 missing Postgres tables added to render_migrate.py (build_score_history, audit_reports, metric_snapshots, earnings_calendar, macro_snapshots, options_metrics, vix_term_structure)
 - ✅ `recommendations.regime_label` → `market_regime` — fixed 503 on shadow/open, shadow/closed, cto-report
@@ -250,12 +265,13 @@ Also installed (not repo-relevant): hookify, playground, plugin-dev, mcp-server-
 ---
 
 ## Weekly Review Findings (March 30)
-- 5/5 winners, $43.26 P&L, avg 4.1% in 2.2 days
+- 13 closed (after exit_failed recovery): 12W/1L, $860 total P&L, 92% WR
 - HSHS: 85.33
 - Leakage: FALSE ALARM
 - Class imbalance: 71.4% WIN / 28.6% LOSS (v2 targets 40/25/5/15)
 - 972 training examples, 20 unique tickers
 - Computer sleep issues resolved
+- 11 exit_failed trades found — 8 truly exited (closed), 3 premature (reverted to open)
 
 ---
 
@@ -263,7 +279,7 @@ Also installed (not repo-relevant): hookify, playground, plugin-dev, mcp-server-
 
 | Gate | Requirement | Current | Status |
 |---|---|---|---|
-| Phase 1 → 2 | 50 closed trades, WR≥45%, Sharpe≥0.15, PF≥1.3, DD≤12% | 5 closed | 10% |
+| Phase 1 → 2 | 50 closed trades, WR≥45%, Sharpe≥0.15, PF≥1.3, DD≤12% | 13 closed, 92% WR | 26% |
 | Phase 2 → 3 | 100 closed + Strategy #2 live + RTX 3090 | 0 | Not started |
 | GRPO | 100+ closed trades | 0 | Blocked on data |
 | Fund formation | Track record + $2M AUM | N/A | Year 3+ |
@@ -325,7 +341,7 @@ GRPO training: RunPod A100 cloud ($14/mo), not local hardware.
 
 | Priority | Sprint | Prompt | Status |
 |---|---|---|---|
-| 1 | React Flow interactive diagrams | `docs/sprints/sprint-react-flow.md` | QUEUED — next after data integrity ships |
+| 1 | React Flow interactive diagrams | `docs/sprints/sprint-react-flow.md` | ✅ DONE — PR #178 (Architecture + DB Schema pages) |
 | 2 | Repo reorganization | TBD | Backlog |
 | 3 | architecture.md refresh | TBD | Backlog |
 

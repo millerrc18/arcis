@@ -361,6 +361,76 @@ def reconcile_paper_trades(
             [s["ticker"] for s in stale],
         )
 
+    # ── Resolve stuck exit_failed / exit_pending trades ──────────────
+    # These trades detected an exit condition but failed to submit the
+    # exit order.  If the position is gone from Alpaca, the bracket
+    # filled — close with estimated P&L.  If still on Alpaca, revert to
+    # open so the normal exit logic can retry.
+    resolved_closed = []
+    resolved_reopened = []
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        stuck = conn.execute(
+            "SELECT trade_id, ticker, exit_reason, actual_entry_price, "
+            "       entry_price, planned_shares, stop_price, target_1, target_2 "
+            "FROM shadow_trades "
+            "WHERE source = 'paper' AND status IN ('exit_failed', 'exit_pending')"
+        ).fetchall()
+
+    if stuck and not dry_run:
+        for row in stuck:
+            ticker = row["ticker"]
+            trade_id = row["trade_id"]
+            if ticker in alpaca_tickers:
+                # Position still live — exit detection was premature, revert
+                with sqlite3.connect(db_path) as conn:
+                    conn.execute(
+                        "UPDATE shadow_trades SET status = 'open', exit_reason = NULL "
+                        "WHERE trade_id = ?",
+                        (trade_id,),
+                    )
+                resolved_reopened.append(ticker)
+                logger.info(
+                    "[RECONCILE-PAPER] Reverted premature exit to open: %s", ticker,
+                )
+            else:
+                # Position gone — bracket filled, close with estimated P&L
+                entry_px = float(row["actual_entry_price"] or row["entry_price"] or 0)
+                shares = float(row["planned_shares"] or 1)
+                reason = row["exit_reason"] or "reconciled_stale"
+
+                if reason in ("stop_hit", "stop_loss"):
+                    exit_px = float(row["stop_price"] or 0)
+                elif reason in ("target_1_hit", "take_profit"):
+                    exit_px = float(row["target_1"] or 0)
+                elif reason == "target_2_hit":
+                    exit_px = float(row["target_2"] or 0)
+                else:
+                    exit_px = entry_px  # fallback — P&L unknown
+
+                pnl_dollars = round((exit_px - entry_px) * shares, 2) if entry_px > 0 else 0.0
+                pnl_pct = round((exit_px - entry_px) / entry_px * 100, 2) if entry_px > 0 else 0.0
+
+                close_shadow_trade(
+                    trade_id=trade_id,
+                    exit_price=exit_px,
+                    exit_time=now.isoformat(),
+                    exit_reason=reason,
+                    pnl_dollars=pnl_dollars,
+                    pnl_pct=pnl_pct,
+                    db_path=db_path,
+                )
+                resolved_closed.append(ticker)
+                logger.info(
+                    "[RECONCILE-PAPER] Closed stuck %s trade: %s (pnl=$%.2f)",
+                    reason, ticker, pnl_dollars,
+                )
+    elif stuck:
+        logger.info(
+            "[RECONCILE-PAPER] %d stuck exit_failed/exit_pending trades found (dry_run): %s",
+            len(stuck), [dict(r)["ticker"] for r in stuck],
+        )
+
     return {
         "alpaca_count": len(alpaca_positions),
         "local_count": len(tracked),
@@ -370,5 +440,7 @@ def reconcile_paper_trades(
         "discrepancies": discrepancies,
         "backfilled": backfilled,
         "marked_closed": marked_closed,
+        "resolved_closed": resolved_closed,
+        "resolved_reopened": resolved_reopened,
         "error": None,
     }

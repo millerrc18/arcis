@@ -110,7 +110,7 @@ Universe (S&P 100 → expanding to ~325 stocks)
 | 2:30 AM         | Leakage detector with model probing                          | Training         |
 | 4:30 AM         | DB maintenance, health checks, backups                       | CPU              |
 
-## Dashboard Pages (13)
+## Dashboard Pages (16)
 
 - **Dashboard** — KPIs, cumulative P&L, open trades, action buttons, live activity feed
 - **Packets** — Trade recommendations with expandable analysis
@@ -125,6 +125,9 @@ Universe (S&P 100 → expanding to ~325 stocks)
 - **Roadmap** — 6-phase plan with confirmed decision tracking
 - **Docs** — 59 research documents plus core governance docs
 - **Notes** — Operator notes with pinning, tags, and autosave editing
+- **Logs** — System log viewer
+- **Architecture** — Interactive React Flow system pipeline diagram
+- **DB Schema** — Interactive ERD with 40 tables, live row counts, foreign key edges
 
 ## CLI Commands (53)
 

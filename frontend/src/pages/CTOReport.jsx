@@ -222,7 +222,7 @@ export default function CTOReport() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <MetricCard label="Trades closed" value={tradesClosed} />
         <MetricCard label="Trades open" value={ts?.trades_open ?? 0} />
-        <MetricCard label="Profit factor" value={ts?.profit_factor ?? 'n/a'} />
+        <MetricCard label="Profit factor" value={ts?.profit_factor != null ? ts.profit_factor : (tradesClosed > 0 ? '\u221e' : 'n/a')} />
         <MetricCard label="Expectancy" value={ts?.expectancy_dollars != null ? `$${Number(ts.expectancy_dollars).toFixed(2)}` : 'n/a'} />
         <MetricCard label="Total P&L" value={ts?.total_pnl != null ? `$${Number(ts.total_pnl).toFixed(2)}` : 'n/a'} />
         <MetricCard label="Avg winner" value={ts?.avg_winner_pct != null ? `${Number(ts.avg_winner_pct).toFixed(1)}%` : 'n/a'} />
