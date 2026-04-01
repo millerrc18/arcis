@@ -189,7 +189,8 @@ def create_router(runtime, verify_auth):
             cutoff = (datetime.now(runtime.et) - timedelta(days=days)).isoformat()
             rows = runtime.query(
                 "SELECT model, purpose, SUM(input_tokens) as total_input, "
-                "SUM(output_tokens) as total_output, SUM(estimated_cost) as total_cost, "
+                "SUM(output_tokens) as total_output, "
+                "SUM(COALESCE(cost_dollars, estimated_cost, 0)) as total_cost, "
                 "COUNT(*) as call_count "
                 "FROM api_costs WHERE created_at >= %s "
                 "GROUP BY model, purpose ORDER BY total_cost DESC",
