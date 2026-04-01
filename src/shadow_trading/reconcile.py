@@ -65,7 +65,7 @@ def reconcile_live_trades(
     marked_closed = []
 
     if not dry_run:
-        from src.journal.store import insert_shadow_trade
+        from src.journal.store import insert_shadow_trade, close_shadow_trade
 
         # Backfill orphaned positions
         for ticker in orphaned:
@@ -109,8 +109,9 @@ def reconcile_live_trades(
         # Mark stale records as closed — attempt P&L via yfinance (#108)
         for ticker in stale:
             trade_id = tracked_tickers[ticker]
-            pnl_dollars = None
-            exit_price = None
+            pnl_dollars = 0.0
+            pnl_pct = 0.0
+            exit_price = 0.0
 
             # Try to fetch last known price for P&L calculation
             try:
@@ -130,31 +131,26 @@ def reconcile_live_trades(
                             if ticker in data and not data[ticker].empty:
                                 exit_price = float(data[ticker]["Close"].iloc[-1])
                                 pnl_dollars = round((exit_price - entry_px) * shares, 2)
+                                pnl_pct = round((exit_price - entry_px) / entry_px * 100, 2)
                         except Exception as _yf_err:
                             logger.debug("[RECONCILE] yfinance lookup failed for stale %s: %s", ticker, _yf_err)
             except Exception as _db_err:
                 logger.debug("[RECONCILE] Entry price lookup failed for stale %s: %s", ticker, _db_err)
 
-            with connect_db(db_path) as conn:
-                if pnl_dollars is not None:
-                    conn.execute(
-                        "UPDATE shadow_trades SET status = 'closed', "
-                        "exit_reason = 'reconciled_stale', pnl_dollars = ?, "
-                        "actual_exit_price = ?, updated_at = ? WHERE trade_id = ?",
-                        (pnl_dollars, exit_price, now.isoformat(), trade_id),
-                    )
-                else:
-                    conn.execute(
-                        "UPDATE shadow_trades SET status = 'closed', "
-                        "exit_reason = 'reconciled_stale', pnl_dollars = NULL, "
-                        "updated_at = ? WHERE trade_id = ?",
-                        (now.isoformat(), trade_id),
-                    )
+            close_shadow_trade(
+                trade_id=trade_id,
+                exit_price=exit_price,
+                exit_time=now.isoformat(),
+                exit_reason="reconciled_stale",
+                pnl_dollars=pnl_dollars,
+                pnl_pct=pnl_pct,
+                db_path=db_path,
+            )
             marked_closed.append(ticker)
             logger.info(
                 "[RECONCILE] Marked stale record as closed: %s (trade_id=%s, pnl=%s)",
                 ticker, trade_id,
-                f"${pnl_dollars:.2f}" if pnl_dollars is not None else "UNKNOWN",
+                f"${pnl_dollars:.2f}" if pnl_dollars != 0.0 else "UNKNOWN",
             )
 
     return {
@@ -172,8 +168,9 @@ def reconcile_paper_trades(
 ) -> dict:
     """Reconcile Alpaca paper positions with local shadow_trades.
 
-    Unlike reconcile_live_trades, stale paper trades are NOT auto-closed —
-    they are only flagged for manual review.
+    Stale paper trades (in DB but not on Alpaca) are auto-closed with
+    exit_reason='reconciled_stale' after a 1-hour safety guard to avoid
+    false closures from transient Alpaca API blips.
 
     Args:
         db_path: Path to SQLite database
@@ -188,6 +185,7 @@ def reconcile_paper_trades(
             "stale": [{"ticker": str, "trade_id": str}],
             "discrepancies": [{"ticker": str, "issue": str}],
             "backfilled": [str],
+            "marked_closed": [str],
             "error": str | None,
         }
     """
@@ -227,6 +225,7 @@ def reconcile_paper_trades(
     discrepancies = []
     matched = 0
     backfilled = []
+    marked_closed = []
 
     # Alpaca has it, local doesn't → orphaned
     for ticker, pos in alpaca_tickers.items():
@@ -248,7 +247,7 @@ def reconcile_paper_trades(
             else:
                 matched += 1
 
-    # Local has it, Alpaca doesn't → stale (do NOT auto-close)
+    # Local has it, Alpaca doesn't → stale
     for ticker, rec in tracked_map.items():
         if ticker not in alpaca_tickers:
             stale.append({
@@ -257,7 +256,7 @@ def reconcile_paper_trades(
             })
 
     if not dry_run:
-        from src.journal.store import insert_shadow_trade
+        from src.journal.store import insert_shadow_trade, close_shadow_trade
 
         for orph in orphaned:
             trade_data = {
@@ -290,9 +289,74 @@ def reconcile_paper_trades(
                 orph["avg_price"],
             )
 
-    if stale:
+        # Auto-close stale paper trades with 1-hour safety guard
+        for stale_entry in stale:
+            ticker = stale_entry["ticker"]
+            trade_id = stale_entry["trade_id"]
+
+            # Safety: skip trades less than 1 hour old to avoid false closures
+            # from transient Alpaca API blips
+            with connect_db(db_path) as conn:
+                trade_row = conn.execute(
+                    "SELECT actual_entry_price, entry_price, planned_shares, created_at "
+                    "FROM shadow_trades WHERE trade_id = ?",
+                    (trade_id,),
+                ).fetchone()
+
+            if trade_row:
+                created_at_str = trade_row["created_at"] or ""
+                try:
+                    created = datetime.fromisoformat(created_at_str)
+                    if (now - created).total_seconds() < 3600:
+                        logger.info(
+                            "[RECONCILE-PAPER] Skipping recent trade %s (< 1 hour old)",
+                            ticker,
+                        )
+                        continue
+                except (ValueError, TypeError):
+                    pass
+
+            pnl_dollars = 0.0
+            pnl_pct = 0.0
+            exit_price = 0.0
+
+            # Try to fetch last known price for P&L calculation
+            if trade_row:
+                entry_px = float(trade_row["actual_entry_price"] or trade_row["entry_price"] or 0)
+                shares = float(trade_row["planned_shares"] or 1)
+                if entry_px > 0:
+                    try:
+                        from src.data_ingestion.market_data import fetch_ohlcv
+                        data = fetch_ohlcv([ticker], period="5d")
+                        if ticker in data and not data[ticker].empty:
+                            exit_price = float(data[ticker]["Close"].iloc[-1])
+                            pnl_dollars = round((exit_price - entry_px) * shares, 2)
+                            pnl_pct = round((exit_price - entry_px) / entry_px * 100, 2)
+                    except Exception as _yf_err:
+                        logger.debug(
+                            "[RECONCILE-PAPER] yfinance lookup failed for stale %s: %s",
+                            ticker, _yf_err,
+                        )
+
+            close_shadow_trade(
+                trade_id=trade_id,
+                exit_price=exit_price,
+                exit_time=now.isoformat(),
+                exit_reason="reconciled_stale",
+                pnl_dollars=pnl_dollars,
+                pnl_pct=pnl_pct,
+                db_path=db_path,
+            )
+            marked_closed.append(ticker)
+            logger.info(
+                "[RECONCILE-PAPER] Auto-closed stale paper trade: %s (trade_id=%s, pnl=%s)",
+                ticker, trade_id,
+                f"${pnl_dollars:.2f}" if pnl_dollars != 0.0 else "UNKNOWN",
+            )
+
+    if stale and not marked_closed:
         logger.warning(
-            "[RECONCILE-PAPER] %d stale paper trades (not auto-closed): %s",
+            "[RECONCILE-PAPER] %d stale paper trades detected (skipped — too recent): %s",
             len(stale),
             [s["ticker"] for s in stale],
         )
@@ -305,5 +369,6 @@ def reconcile_paper_trades(
         "stale": stale,
         "discrepancies": discrepancies,
         "backfilled": backfilled,
+        "marked_closed": marked_closed,
         "error": None,
     }

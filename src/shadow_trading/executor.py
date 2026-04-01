@@ -509,7 +509,7 @@ def check_and_manage_open_trades(
                 order_status = get_order_status(trade["alpaca_order_id"])
                 parent_status = order_status.get("status", "")
                 # Check parent order status
-                if parent_status in ("filled", "partially_filled"):
+                if parent_status in FILLED_ORDER_STATUSES:
                     exit_price = order_status.get("filled_avg_price")
                     if exit_price:
                         current_price = exit_price
@@ -531,7 +531,7 @@ def check_and_manage_open_trades(
                                 exit_reason = "take_profit"
                             break
             except Exception as e:
-                logger.debug("[SHADOW] Bracket order status check failed for %s: %s — using polling", ticker, e)
+                logger.warning("[SHADOW] Bracket order status check failed for %s: %s — falling back to price polling", ticker, e)
 
         # Check exit conditions (bracket leg detection may have already set exit_reason)
         if not bracket_exit:
