@@ -29,20 +29,6 @@ FILLED_ORDER_STATUSES = {"filled", "partially_filled", "closed"}
 PENDING_ORDER_STATUSES = {"new", "accepted", "pending_new", "accepted_for_bidding", "held"}
 
 
-def _normalize_order_status(status) -> str:
-    """Normalize Alpaca OrderStatus enum to lowercase string.
-
-    The Alpaca SDK returns enum objects like OrderStatus.PENDING_NEW.
-    str() gives 'OrderStatus.PENDING_NEW', not 'pending_new'.
-    This handles both enum and raw string formats.
-    """
-    s = str(status or "").lower()
-    # Strip 'orderstatus.' prefix from Alpaca SDK enum string representation
-    if "." in s:
-        s = s.rsplit(".", 1)[-1]
-    return s
-
-
 def _parse_price(value) -> float:
     """Parse a price value that may be a string like '$78.82 area' or a float."""
     if isinstance(value, (int, float)):
@@ -58,12 +44,12 @@ def _parse_price(value) -> float:
 
 def _is_filled_status(status: str | None) -> bool:
     """Return True when a broker order status represents a completed exit."""
-    return _normalize_order_status(status) in FILLED_ORDER_STATUSES
+    return str(status or "").lower() in FILLED_ORDER_STATUSES
 
 
 def _is_pending_status(status: str | None) -> bool:
     """Return True when an exit order exists but has not filled yet."""
-    return _normalize_order_status(status) in PENDING_ORDER_STATUSES
+    return str(status or "").lower() in PENDING_ORDER_STATUSES
 
 
 def _submit_exit_order(trade: dict, shares: int) -> dict:
@@ -523,7 +509,7 @@ def check_and_manage_open_trades(
                 order_status = get_order_status(trade["alpaca_order_id"])
                 parent_status = order_status.get("status", "")
                 # Check parent order status
-                if parent_status in ("filled", "partially_filled"):
+                if parent_status in FILLED_ORDER_STATUSES:
                     exit_price = order_status.get("filled_avg_price")
                     if exit_price:
                         current_price = exit_price
@@ -545,7 +531,7 @@ def check_and_manage_open_trades(
                                 exit_reason = "take_profit"
                             break
             except Exception as e:
-                logger.debug("[SHADOW] Bracket order status check failed for %s: %s — using polling", ticker, e)
+                logger.warning("[SHADOW] Bracket order status check failed for %s: %s — falling back to price polling", ticker, e)
 
         # Check exit conditions (bracket leg detection may have already set exit_reason)
         if not bracket_exit:
