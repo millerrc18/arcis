@@ -460,6 +460,101 @@ MIGRATIONS = [
         created_at TEXT NOT NULL
     )"""),
 
+    # ── Tables that exist locally but were missing from Postgres migration ──
+
+    ("build_score_history", None, """CREATE TABLE IF NOT EXISTS build_score_history (
+        score_id TEXT PRIMARY KEY,
+        score_date TEXT,
+        build_score REAL,
+        gate_velocity REAL,
+        system_health REAL,
+        data_asset_value REAL,
+        model_quality REAL,
+        research_velocity REAL,
+        reliability REAL,
+        decay_applied INTEGER DEFAULT 0,
+        components_json TEXT,
+        created_at TEXT
+    )"""),
+    ("build_score_history", "_idx_score_date", "CREATE INDEX IF NOT EXISTS idx_build_score_date ON build_score_history(score_date)"),
+
+    ("audit_reports", None, """CREATE TABLE IF NOT EXISTS audit_reports (
+        audit_id TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL,
+        audit_date TEXT NOT NULL,
+        overall_assessment TEXT NOT NULL,
+        summary TEXT,
+        flags TEXT,
+        metrics_to_watch TEXT,
+        model_health TEXT,
+        full_report TEXT
+    )"""),
+
+    ("metric_snapshots", None, """CREATE TABLE IF NOT EXISTS metric_snapshots (
+        snapshot_id TEXT PRIMARY KEY,
+        created_at TEXT NOT NULL,
+        snapshot_date TEXT NOT NULL,
+        metrics_json TEXT NOT NULL
+    )"""),
+    ("metric_snapshots", "_idx_snapshot_date", "CREATE INDEX IF NOT EXISTS idx_metric_snapshots_date ON metric_snapshots(snapshot_date)"),
+
+    ("earnings_calendar", None, """CREATE TABLE IF NOT EXISTS earnings_calendar (
+        id SERIAL PRIMARY KEY,
+        ticker TEXT NOT NULL,
+        earnings_date TEXT NOT NULL,
+        earnings_time TEXT,
+        confirmed INTEGER DEFAULT 0,
+        collected_at TEXT NOT NULL
+    )"""),
+    ("earnings_calendar", "_idx_ticker", "CREATE INDEX IF NOT EXISTS idx_earnings_ticker ON earnings_calendar(ticker)"),
+    ("earnings_calendar", "_idx_date", "CREATE INDEX IF NOT EXISTS idx_earnings_date ON earnings_calendar(earnings_date)"),
+
+    ("macro_snapshots", None, """CREATE TABLE IF NOT EXISTS macro_snapshots (
+        id SERIAL PRIMARY KEY,
+        collected_at TEXT NOT NULL,
+        collected_date TEXT NOT NULL,
+        series_id TEXT NOT NULL,
+        series_name TEXT NOT NULL,
+        value REAL,
+        previous_value REAL,
+        change_pct REAL
+    )"""),
+    ("macro_snapshots", "_idx_date", "CREATE INDEX IF NOT EXISTS idx_macro_snapshots_date ON macro_snapshots(collected_date)"),
+    ("macro_snapshots", "_idx_series", "CREATE INDEX IF NOT EXISTS idx_macro_snapshots_series ON macro_snapshots(series_id, collected_date)"),
+
+    ("options_metrics", None, """CREATE TABLE IF NOT EXISTS options_metrics (
+        id SERIAL PRIMARY KEY,
+        collected_at TEXT NOT NULL,
+        collected_date TEXT NOT NULL,
+        ticker TEXT NOT NULL,
+        iv_rank REAL,
+        iv_percentile REAL,
+        put_call_volume_ratio REAL,
+        put_call_oi_ratio REAL,
+        atm_iv_30d REAL,
+        iv_skew REAL,
+        unusual_volume_flag INTEGER,
+        max_unusual_volume_ratio REAL,
+        total_call_volume INTEGER,
+        total_put_volume INTEGER,
+        total_call_oi INTEGER,
+        total_put_oi INTEGER
+    )"""),
+    ("options_metrics", "_idx_ticker_date", "CREATE INDEX IF NOT EXISTS idx_options_metrics_ticker_date ON options_metrics(ticker, collected_date)"),
+
+    ("vix_term_structure", None, """CREATE TABLE IF NOT EXISTS vix_term_structure (
+        id SERIAL PRIMARY KEY,
+        collected_at TEXT NOT NULL,
+        collected_date TEXT NOT NULL,
+        vix REAL,
+        vix9d REAL,
+        vix3m REAL,
+        vix1y REAL,
+        term_structure_slope REAL,
+        near_term_ratio REAL
+    )"""),
+    ("vix_term_structure", "_idx_date", "CREATE INDEX IF NOT EXISTS idx_vix_ts_date ON vix_term_structure(collected_date)"),
+
     ("scan_metrics", None, """CREATE TABLE IF NOT EXISTS scan_metrics (
         id SERIAL PRIMARY KEY,
         scan_number INTEGER,
