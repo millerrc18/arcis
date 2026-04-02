@@ -14,17 +14,31 @@ Every database bug from the March 31 – April 1 session traces to one root caus
 
 ### Bugs caused by schema drift (this session alone):
 
-| Bug | Root cause | Hours to fix |
-|---|---|---|
-| `regime_label` vs `market_regime` — 503 on 3 endpoints | trades.py used wrong column name for recommendations table | 1 |
-| `estimated_cost` vs `cost_dollars` — API costs showed $0 | watch.py and versioning.py created api_costs with different column names | 0.5 |
-| 7 missing Postgres tables — sync errors every cycle | sync config referenced tables that render_migrate.py didn't create | 2 |
-| `actual_exit_time` NULL — closed trades invisible | reconcile.py bypassed close_shadow_trade(), used raw SQL missing a column | 3 |
-| `activity_log.level` missing — sync errors | ALTER TABLE in render_migrate.py never applied | 0.5 |
-| `signal_price` missing — shadow_trades won't sync | ALTER TABLE exists but Postgres didn't have it | 1 |
-| Database corruption — total data loss | OneDrive + SQLite WAL (separate issue, but recovery was complicated by schema confusion) | 4 |
+| Bug | Root cause | Hours to fix | GH Issue |
+|---|---|---|---|
+| `regime_label` vs `market_regime` — 503 on 3 endpoints | trades.py used wrong column name for recommendations table | 1 | — |
+| `estimated_cost` vs `cost_dollars` — API costs showed $0 | watch.py and versioning.py created api_costs with different column names | 0.5 | — |
+| 7 missing Postgres tables — sync errors every cycle | sync config referenced tables that render_migrate.py didn't create | 2 | — |
+| `actual_exit_time` NULL — closed trades invisible | reconcile.py bypassed close_shadow_trade(), used raw SQL missing a column | 3 | — |
+| `activity_log.level` missing — sync errors | ALTER TABLE in render_migrate.py never applied | 0.5 | — |
+| `signal_price` missing — shadow_trades won't sync | ALTER TABLE exists but Postgres didn't have it | 1 | — |
+| Database corruption — total data loss | OneDrive + SQLite WAL (separate issue, but recovery was complicated by schema confusion) | 4 | #181 |
 
-**Total: ~12 hours of debugging caused by schema drift.** This sprint prevents all future instances.
+### Bugs discovered in April 1 PM log review (post-recovery):
+
+| Bug | Root cause | GH Issue |
+|---|---|---|
+| 11 SQLite tables missing time columns — sync fails every cycle | Recovery script created tables from Postgres with generic TEXT cols; sync config expects `collected_date`, `created_at` etc. that don't exist | #184 |
+| Postgres duplicate key violations on 4+ tables | Recovery pulled data FROM Postgres; sync tries to INSERT same rows back; needs upsert-or-skip | #185 |
+| `traffic_light_state.last_transition_at` missing in Postgres | New column from PR #178, render_migrate.py not yet run | #186 |
+| Intra-day reconciliation crashes: `name 'now' is not defined` | PR #178 code bug — `now` not in scope where reconciliation block fires | #182 |
+| LLM conviction parsing 99% broken — 143/145 return None | Parser can't extract conviction field; all trades use default=5 | #183 |
+| 44 failed shadow trades — insufficient buying power | Risk governor checks position count but not buying power; retries every scan | #187 |
+| PFE backfilled with -14 shares | Short position in long-only system; reconciliation doesn't validate share sign | #188 |
+
+**Issues #184, #185, and #186 are DIRECTLY prevented by the schema registry.** The recovery script and sync config would both read from the registry, guaranteeing column name consistency.
+
+**Total: ~12+ hours of debugging caused by schema drift, plus ongoing sync failures every 2 minutes.**
 
 ### Where tables are currently created (the problem):
 

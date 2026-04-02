@@ -418,10 +418,21 @@ GRPO training: RunPod A100 cloud ($14/mo), not local hardware.
 - [ ] Wyoming LLC formation (July 2026 target)
 - [ ] WebSocket live endpoint (Phase 2+) — frontend client exists (WebSocketContext.jsx), needs backend `/ws/live` endpoint in watch loop. Low priority.
 
-### Remaining GitHub Issues (6)
+### Remaining GitHub Issues (12)
+
+**Critical (real money / data integrity):**
+- [ ] #182 — Intra-day reconciliation crashes: `name 'now' is not defined` (PR #178 bug)
+- [ ] #183 — LLM conviction parsing 99% broken — 143/145 return None, all trades use default=5
+- [ ] #184 — Recovery DB missing 11 time columns — sync fails for 11 tables every cycle
+- [ ] #185 — Postgres duplicate key violations after recovery — sync inserts conflict
+- [ ] #186 — Postgres missing `traffic_light_state.last_transition_at` — 28 sync errors
+- [ ] #187 — 44 failed shadow trades — insufficient buying power, retries every scan
+- [ ] #188 — PFE backfilled with -14 shares — short position in long-only system
 - [ ] #181 — [INCIDENT] SQLite database corruption — RCCA + corrective actions documented
+
+**Pre-existing:**
 - [ ] #147 — No exponential backoff on network failures in enrichment
-- [ ] #132 — Fallback to settings.example.yaml with placeholder keys — no validation
+- [ ] #132 — Fallback to settings.example.yaml with placeholder keys
 - [ ] #112 — VRAM not freed after training — GPU memory leak
 - [ ] #106 — Kill switch not atomic, no staleness check
 - [ ] #82 — Silent exception swallowing in council/context.py
