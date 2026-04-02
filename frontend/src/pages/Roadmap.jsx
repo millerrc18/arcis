@@ -21,17 +21,20 @@ const CAT = {
 }
 
 const ROADMAP_DATA = {
-  lastUpdated: '2026-03-27',
+  lastUpdated: '2026-04-02',
   phases: [
     { id: 'p1', name: 'Phase 1 — Bootcamp', status: 'active', capital: '$100K paper + $100 live', cost: '$64/mo', timeline: 'Apr–Jun 2026',
       desc: 'Prove the system has an edge. Accumulate 50+ closed trades. Build foundational infrastructure.',
-      gate: { label: '50+ closed trades, positive expectancy across 6 metrics', metrics: [
+      gate: { label: '50+ trades, positive expectancy, alpha attribution, stress test, mean reversion data', metrics: [
         { key: 'trades_closed', label: 'Closed trades', target: 50, op: '>=', fmt: '' },
         { key: 'win_rate', label: 'Win rate', target: 0.45, op: '>=', fmt: 'pct' },
         { key: 'profit_factor', label: 'Profit factor', target: 1.3, op: '>=' },
         { key: 'expectancy_dollars', label: 'Expectancy', target: 0, op: '>', fmt: 'dollar' },
         { key: 'max_drawdown_pct', label: 'Max drawdown', target: 12, op: '<=', fmt: 'pctVal' },
         { key: 'sharpe_ratio', label: 'Per-trade Sharpe', target: 0.15, op: '>=' },
+        { key: 'alpha_paired_trades', label: 'Alpha paired trades', target: 50, op: '>=' },
+        { key: 'stress_test_completed', label: 'Stress tests (08/20/22)', target: 3, op: '>=' },
+        { key: 'mr_paper_trades', label: 'Mean reversion paper', target: 100, op: '>=' },
       ]},
       subphases: [
         { label: 'Weeks 1–2: Core system', items: [
@@ -66,18 +69,27 @@ const ROADMAP_DATA = {
           { l: 'SQLite WAL + backups', s: 'done', c: 'ops', d: 'WAL mode, busy_timeout 5000ms, daily backup. Prevents data loss.', r: 'Risk Management' },
           { l: 'Revenue projection model', s: 'done', c: 'ops', d: '3 scenarios + live mode. Locks to actual Sharpe at 20+ trades.', r: 'Research synthesis' },
           { l: 'Score + retrain halcyon-v1', s: 'in-progress', c: 'ai', d: 'Quality score 969 examples, prune bottom 15%, retrain with curriculum. First Saturday retrain.', r: 'Training data audit' },
+          { l: 'Alpha attribution experiment', s: 'pending', c: 'validation', d: 'Parallel ranker-only shadow portfolio to measure model value-add vs. systematic scoring alone. Requires ≥50 paired trades.', r: 'Deep Research Synthesis: "single most informative test"' },
+          { l: 'Paper-trade mean reversion (Strategy #2)', s: 'pending', c: 'strategy', d: 'Connors RSI(2) mean reversion on S&P 100. Moved from Phase 2 to NOW. ≥100 paper trades needed for gate.', r: 'Deep Research: moved from Phase 2 to Phase 1' },
+          { l: 'Open Collective2 account', s: 'pending', c: 'ops', d: 'Verified track record platform (~$99/mo). Track record clock starts immediately. Required for external credibility.', r: 'Revenue Sequencing: Month 3 milestone' },
+          { l: '8 outcome metadata columns', s: 'pending', c: 'data', d: 'Add to shadow_trades: hold_period_return, benchmark_return, alpha_vs_spy, max_drawdown_during_trade, exit_efficiency, entry_timing_score, thesis_accuracy, sector_at_exit.', r: 'Deep Research: flywheel optimization' },
+          { l: 'Stress test suite (2008/2020/2022)', s: 'pending', c: 'validation', d: 'Walk-forward backtest through GFC, COVID crash, and 2022 bear market. Must complete before Phase 2 gate.', r: 'Deep Research: Phase 1→2 gate addition' },
+          { l: '4-tier multi-cadence scanning', s: 'pending', c: 'strategy', d: '15min position monitoring, 30min price alerts, 60min sentiment updates, daily fundamental refresh.', r: 'Deep Research: scanning intervals study' },
+          { l: 'Outcome-conditioned training prompts', s: 'pending', c: 'ai', d: 'Generate 3-5 training examples per trade instead of 1. Prompt variations: "given it went up 5%..." and "given it hit stop...".', r: 'Deep Research: 3-5x data yield per trade' },
+          { l: 'Expand training XML 7→11 sections', s: 'pending', c: 'ai', d: 'Add 4 sections: options flow, sector relative, event calendar proximity, cross-asset correlation. Random source subsetting for robustness.', r: 'Deep Research: horizontal training data study' },
         ]},
       ],
     },
     { id: 'p2', name: 'Phase 2 — Micro live + LLC', status: 'locked', capital: '$100 → $1,000 live', cost: '$125/mo', timeline: 'Jul–Sep 2026',
       desc: 'Validate edge with real money. Form legal entity. Random benchmark for statistical proof. Scale to 100+ trades.',
-      gate: { label: '100+ trades, PSR >90%, paper-live concordance passes', metrics: [
+      gate: { label: '100+ trades, PSR >90%, paper-live concordance, options paper at $15-25K', metrics: [
         { key: 'win_rate', label: 'Win rate', target: 0.43, op: '>=', fmt: 'pct' },
         { key: 'profit_factor', label: 'Profit factor', target: 1.4, op: '>=' },
         { key: 'sharpe_ratio', label: 'Sharpe', target: 1.0, op: '>=' },
         { key: 'psr', label: 'PSR(0)', target: 0.90, op: '>=', fmt: 'pct' },
         { key: 'max_drawdown_pct', label: 'Max DD', target: 15, op: '<=', fmt: 'pctVal' },
         { key: 'calmar', label: 'Calmar', target: 1.0, op: '>=' },
+        { key: 'options_paper_trades', label: 'Options paper trades', target: 50, op: '>=' },
       ]},
       subphases: [
         { label: 'Month 1: Legal + data', items: [
@@ -121,7 +133,7 @@ const ROADMAP_DATA = {
         { label: 'Months 3–6: Validation + scaling', items: [
           { l: 'Fama-French factor exposure', s: 'pending', c: 'risk', d: 'Detect hidden tilts: market, size, value, momentum, profitability.', r: 'Risk Management' },
           { l: 'Series 65 exam study (40-80 hrs)', s: 'pending', c: 'legal', d: '$187 fee. Required before taking outside capital.', r: 'Risk Management' },
-          { l: 'Options data collection ($50/mo)', s: 'pending', c: 'data', d: 'Unusual Whales. Passive collection for Phase 4 options desk.', r: 'Options research' },
+          { l: 'Options paper-trading ($15-25K vertical spreads)', s: 'pending', c: 'strategy', d: 'Vertical spreads only at $15-25K capital. Moved from Phase 3-4 at $50K. Conservative defined-risk positions.', r: 'Deep Research: options moved to Phase 2 at lower capital tier' },
           { l: 'Scale live $1K → $5K', s: 'pending', c: 'strategy', d: '100-150 more trades. PSR >90%, Sharpe >0.2, DD <20%.', r: 'Walk-Forward Validation' },
         ]},
       ],
@@ -184,6 +196,30 @@ const ROADMAP_DATA = {
     { phase: 'Fund', cost: '$5K-15K+', detail: 'Professional fund ops' },
   ],
 }
+
+const REVENUE_MILESTONES = [
+  { month: 0, label: 'Now', stream: 'Personal trading + $1K/mo capital injections', color: 'var(--arcis-teal-light)' },
+  { month: 3, label: 'Mo 3', stream: 'Open Collective2 (~$99/mo) — track record clock starts', color: 'var(--arcis-teal-light)' },
+  { month: 6, label: 'Mo 6', stream: 'Phase 1 gate → go live ($5-10K) — verifiable live returns', color: 'var(--chart-4)' },
+  { month: 12, label: 'Mo 12', stream: 'Signal marketplace + RIA outreach — first external revenue', color: 'var(--chart-4)' },
+  { month: 18, label: 'Mo 18', stream: 'Wyoming LLC + Section 475(f) — legal entity', color: 'var(--chart-1)' },
+  { month: 24, label: 'Mo 24', stream: 'Fund formation at $1-2M AUM — mgmt + performance fees', color: 'var(--chart-7)' },
+  { month: 36, label: 'Mo 36', stream: 'Fund self-sustaining at $2M+ AUM (1.5% + 17.5%) — day job optional', color: 'var(--chart-7)' },
+]
+
+const EXIT_FRAMEWORK = [
+  { phase: '1', trades: '13 → 50', strategy: 'Pure mechanical brackets', detail: 'Fix live stop to 2.0x ATR. Log MFE/MAE for every trade. No discretion.', pct: 25, color: 'var(--arcis-teal-light)' },
+  { phase: '2', trades: '50 → 200', strategy: 'Mechanical + rule-based', detail: 'Time-based stop tightening (2.0x → 1.5x by day 5). Signal exit: close > 5-day SMA.', pct: 50, color: 'var(--chart-4)' },
+  { phase: '3', trades: '200 → 500', strategy: 'Evaluate LLM pilot', detail: 'Thesis invalidation detection on days 5-7 only. A/B test vs mechanical exits.', pct: 75, color: 'var(--chart-1)' },
+  { phase: '4', trades: '500+', strategy: 'Full active (if validated)', detail: 'Separate exit-specialist LoRA. Daily conviction updates. Full LLM exit management.', pct: 100, color: 'var(--chart-7)' },
+]
+
+const GPU_TARGETS = [
+  { block: 'Market hours', time: '9:30-4:00 ET', current: 4.4, target: 35, activities: 'Inference + alpha backtest + eval warmup', color: 'var(--arcis-teal-light)' },
+  { block: 'Post-close', time: '4:00-7:00 ET', current: 5, target: 50, activities: 'Stress testing + Monte Carlo + outcome training gen', color: 'var(--chart-4)' },
+  { block: 'Overnight', time: '7:00-5:15 ET', current: 10, target: 60, activities: 'Continuous eval + parameter backtesting + scenario gen', color: 'var(--chart-1)' },
+  { block: 'Weekend', time: 'Sat-Sun', current: 15, target: 75, activities: 'Full retrain + exhaustive backtest + stress suite', color: 'var(--chart-7)' },
+]
 
 // ═══════════════════════════════════════════════════════════════
 // Components
@@ -358,6 +394,95 @@ export default function Roadmap() {
 
       <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-border)' }}>
         <RevenueProjection />
+      </div>
+
+      {/* Revenue Milestones Timeline */}
+      <div className="rounded-lg p-5" style={{ background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-border)' }}>
+        <div className="flex items-center gap-2 mb-4">
+          <DollarSign size={16} style={{ color: 'var(--arcis-teal-light)' }} />
+          <h2 className="text-sm font-medium" style={{ color: 'var(--arcis-text-primary)' }}>Revenue milestones</h2>
+          <span className="text-xs" style={{ color: 'var(--arcis-text-muted)', fontFamily: 'var(--font-mono)' }}>0 → 36 months</span>
+        </div>
+        <div className="relative ml-3">
+          {/* Vertical timeline line */}
+          <div className="absolute left-0 top-1 bottom-1 w-px" style={{ background: 'var(--arcis-border)' }} />
+          <div className="space-y-3">
+            {REVENUE_MILESTONES.map((m, i) => (
+              <div key={i} className="relative flex items-start gap-4 pl-5">
+                {/* Timeline dot */}
+                <div className="absolute left-0 top-1.5 w-2 h-2 rounded-full -translate-x-[3.5px]"
+                     style={{ background: m.color, boxShadow: `0 0 6px ${m.color}40` }} />
+                <div className="shrink-0 w-10 text-right" style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: m.color, fontWeight: 600 }}>
+                  {m.label}
+                </div>
+                <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)', lineHeight: 1.5 }}>
+                  {m.stream}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Exit Management + GPU Utilization */}
+      <div className="grid grid-cols-2 gap-4">
+        {/* Exit Management Framework */}
+        <div className="rounded-lg p-5" style={{ border: '1px solid var(--arcis-border)' }}>
+          <h2 className="text-sm font-medium mb-4" style={{ color: 'var(--arcis-text-primary)' }}>Exit management framework</h2>
+          <div className="space-y-2">
+            {EXIT_FRAMEWORK.map((e, i) => {
+              const active = i === 0
+              return (
+                <div key={i} className="rounded-lg p-3 relative overflow-hidden"
+                     style={{ background: 'var(--arcis-bg-primary)', border: `1px solid ${active ? e.color + '40' : 'var(--arcis-bg-surface)'}`, borderLeft: `3px solid ${e.color}` }}>
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <span style={{ color: e.color, fontSize: 11, fontWeight: 600, fontFamily: 'var(--font-mono)' }}>Phase {e.phase}</span>
+                      <span style={{ color: 'var(--arcis-text-muted)', fontSize: 10 }}>{e.trades} trades</span>
+                    </div>
+                    {active && <span style={{ fontSize: 9, color: e.color, background: e.color + '15', padding: '1px 6px', borderRadius: 3, fontWeight: 500 }}>CURRENT</span>}
+                  </div>
+                  <div className="text-xs font-medium mb-1" style={{ color: 'var(--arcis-text-primary)' }}>{e.strategy}</div>
+                  <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>{e.detail}</div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* GPU Utilization Targets */}
+        <div className="rounded-lg p-5" style={{ border: '1px solid var(--arcis-border)' }}>
+          <div className="flex items-center gap-2 mb-4">
+            <Cpu size={16} style={{ color: 'var(--arcis-text-secondary)' }} />
+            <h2 className="text-sm font-medium" style={{ color: 'var(--arcis-text-primary)' }}>GPU utilization targets</h2>
+          </div>
+          <div className="space-y-3">
+            {GPU_TARGETS.map((g, i) => (
+              <div key={i} className="rounded-lg p-3" style={{ background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-bg-surface)' }}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-medium" style={{ color: 'var(--arcis-text-primary)' }}>{g.block}</span>
+                  <span style={{ fontSize: 10, color: 'var(--arcis-text-muted)', fontFamily: 'var(--font-mono)' }}>{g.time}</span>
+                </div>
+                {/* Progress bar: current (solid) + target (outline) */}
+                <div className="relative h-2 rounded-full overflow-hidden mb-2" style={{ background: 'var(--arcis-bg-surface)' }}>
+                  <div className="absolute inset-y-0 left-0 rounded-full transition-all"
+                       style={{ width: `${g.current}%`, background: g.color, opacity: 0.4 }} />
+                  <div className="absolute inset-y-0 left-0 rounded-full"
+                       style={{ width: `${g.target}%`, border: `1px solid ${g.color}`, borderRadius: 9999 }} />
+                  <div className="absolute inset-y-0 left-0 rounded-full"
+                       style={{ width: `${g.current}%`, background: g.color }} />
+                </div>
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <div className="flex items-center gap-3">
+                    <span style={{ color: 'var(--arcis-text-muted)' }}>Now: <span style={{ color: g.color, fontFamily: 'var(--font-mono)', fontWeight: 500 }}>{g.current}%</span></span>
+                    <span style={{ color: 'var(--arcis-text-muted)' }}>Target: <span style={{ color: g.color, fontFamily: 'var(--font-mono)', fontWeight: 500 }}>{g.target}%</span></span>
+                  </div>
+                </div>
+                <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>{g.activities}</div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
