@@ -33,6 +33,21 @@ python -m src.main validate-schema --fix    # Auto-fix missing tables/columns
 python scripts/render_migrate.py            # Sync Postgres schema from registry
 ```
 
+## Startup / Restart Sequence
+
+```bash
+git pull origin main
+python -m src.main validate-schema --fix    # Ensure local DB matches registry
+python -m src.main watch                    # Standard watch loop
+# OR with overnight + digest email:
+python -m src.main watch --email-mode digest --overnight
+```
+
+### Postgres sync (after schema changes)
+```bash
+DATABASE_URL="<render-postgres-url>" python scripts/render_migrate.py
+```
+
 ## Common Commands
 
 ```bash
