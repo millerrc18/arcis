@@ -12,20 +12,24 @@ The system has extensive research on **entry decisions** — signal selection, t
 
 - **Capital**: $5K starting (Phase 1 paper trading, 13 closed trades, 12W/1L, 92% win rate, $860 P&L)
 - **Statistical caveat**: 13 trades is not significant. Binomial p-value for 12/13 at true 50% = 0.0017, but at true 65% = 0.054 — barely significant even against a generous null.
-- **Max positions**: 2 simultaneous (hard-coded)
+- **Max positions**: 39 open (risk governor allows up to 50, buying power is the actual constraint)
 - **Position sizing**: Equal weight (1/N), 1% risk per trade. At $5K, that's $50 risk per trade on ~$2,500 positions.
 - **Exit rules**: Alpaca bracket order (stop-loss + take-profit) set at entry, plus 8-day timeout. ATR-based stop widening by VIX regime: 2.0× (Normal), 2.5× (Elevated), 3.0× (Crisis).
-- **LLM**: halcyon-v1.0.0 — Qwen3 8B, Q8_0 GGUF (8.7GB), served via Ollama on RTX 3060 12GB. ~10–15 sec/packet inference.
+- **LLM**: halcyon-v1.0.0 — Qwen3 8B, Q8_0 GGUF (8.7GB), served via Ollama on RTX 3060 12GB. ~47 sec/packet inference (slower than expected — investigate).
+- **LLM conviction parsing**: 99% broken — 143/145 responses return None, all trades use default conviction=5. The model generates good prose but the XML parser fails to extract the conviction field. This is the #1 model quality issue.
 - **LLM role today**: Generates entry thesis with conviction score, entry price, stop, target. Does NOT revisit the thesis after entry. Goes dark until trade closes.
 - **Post-trade**: Auto-postmortem generated after close, used as training data via Claude Haiku 4.5 distillation (~$0.07/day).
 - **Phase gates**: 50 trades → Phase 2 (live capital). Gate criteria: win rate ≥45%, Sharpe ≥0.15, profit factor ≥1.3, max DD ≤12%. Currently 26% through gate.
 - **GPU utilization during market hours**: ~4.4% (inference only — 95% idle)
 - **Codebase**: 175 Python files, 1,245 tests, 16 dashboard pages (React 18 + React Flow), Render Postgres cloud (~$64/mo)
 - **Multi-desk roadmap**: Pullback (active) → Mean Reversion → Evolved PEAD → Momentum → Intraday, each gated by prior desk's profitability
-- **Hardware path**: RTX 3060 (12GB) → 3090 (24GB, ~$700–900 used) → 4090/5090 as revenue justifies
+- **Hardware path**: RTX 3060 (12GB) → dedicated trading server with RTX 3090 (24GB) + headless Ubuntu + local PostgreSQL 16 (~$1,300 all-in, Phase 2)
 - **AI Council**: 5-agent Modified Delphi protocol via Claude Sonnet API (~$0.50/session) for high-stakes decisions
 - **Known alpha attribution gap**: Do NOT know if the LLM adds alpha over a simple rules-based pullback scanner with the same entry criteria. This is an untested assumption.
 - **Flywheel status**: Zero complete cycles. No trade has yet gone: entry → outcome → training data → improved model → better entry.
+- **Database**: SQLite local (corrupted once by OneDrive sync — recovered from Render Postgres). Migrating to local PostgreSQL 16 in Phase 2 to eliminate corruption risk. Schema registry sprint in progress to prevent schema drift.
+- **Live trading risk**: Risk governor rejects paper trades for sector concentration/correlation, but live trades bypass the governor and execute anyway. Fix deployed but not yet restarted. 4 live trades (MO, WMT, CAT, CVX) opened without risk governor approval.
+- **Open issues**: 12 GitHub issues, 7 from April 1 log review (#182–#188)
 
 ### What's Already Researched (Don't Repeat — Build On These Conclusions)
 
@@ -68,7 +72,7 @@ These aren't independent questions — they form a dependency graph:
 
 The red team exercise surfaced a finding that changes the priority of all other research: **the entire AI thesis is unvalidated.** The deterministic ranker scores candidates 0–100 on quantitative criteria before the LLM sees them. Every one of the 13 winning trades was ranker-qualified first. The LLM adds analytical narrative and conviction scoring, but we do not know if it filters out bad trades the ranker approved, upgrades mediocre candidates, or simply adds expensive commentary to trades that would have worked anyway.
 
-If the LLM adds zero alpha over the ranker, then: the 175 Python files of LLM infrastructure are a zero-value asset, the training pipeline is unnecessary, the GRPO roadmap is wasted effort, and the correct strategy is a simple systematic scanner. The AI thesis — the fund/investor communication, the fund narrative, the moat — is built on an assumption we can test but haven't.
+If the LLM adds zero alpha over the ranker, then: the 175 Python files of LLM infrastructure are a zero-value asset, the training pipeline is unnecessary, the GRPO roadmap is wasted effort, and the correct strategy is a simple systematic scanner. The entire AI thesis — the fund narrative, the moat, the competitive differentiation — is built on an assumption we can test but haven't.
 
 ### Specific Research Questions
 
@@ -79,7 +83,7 @@ Design a rigorous alpha attribution experiment that can run alongside the existi
 - **Parallel shadow portfolio**: A second Alpaca paper account running the ranker-only strategy (same universe, same entry criteria, same bracket parameters, minus the LLM). What is the minimum number of paired trades needed to detect a 10% win rate difference at 80% power?
 - **Backtest-based attribution**: Using historical data and the existing ranker, can we retroactively test how many of the 13 trades would have been taken by the ranker alone? Would the ranker have rejected any that the LLM upgraded? Would the ranker have taken trades the LLM rejected?
 - **What "alpha" means in this context**: Is the LLM's value in *selection* (picking better candidates from the ranker's qualified list), *sizing* (adjusting conviction/position size), *timing* (better entry points within the pullback), or *risk management* (better stop/target placement)? The experiment should decompose attribution across these dimensions.
-- **The null hypothesis**: If we cannot reject "ranker alone = ranker + LLM" after 50 paired trades, what is the correct strategic pivot? (Hint: the LLM may still have value as a fund/investor communication commentary engine even if it doesn't improve trade selection.)
+- **The null hypothesis**: If we cannot reject "ranker alone = ranker + LLM" after 50 paired trades, what is the correct strategic pivot? (Hint: the LLM may still have value as a research/explanation engine for investor communications even if it doesn't improve trade selection.)
 
 #### 0.2 If the LLM Adds Alpha — What Next?
 
@@ -91,8 +95,8 @@ If the experiment shows the LLM meaningfully improves selection (>10% win rate i
 
 If the LLM adds zero alpha to trade selection:
 - Is the correct move to abandon the LLM entirely, or to reposition it as a commentary/explanation engine for the fund business?
-- Does a systematic rules-based scanner with no LLM have a viable business model? (signal marketplace (Phase 3+), API, fund/investor communication with rules-based picks?)
-- What is the LLM's value as a *business asset* (investor communications, investor communication, research reports) even if it's not a *trading asset*?
+- Does a systematic rules-based scanner with no LLM have a viable business model? (Signal marketplace, API, systematic fund with rules-based picks?)
+- What is the LLM's value as a *business asset* (investor communications, research reports, due diligence documentation) even if it's not a *trading asset*?
 - Should engineering effort shift from model improvement to strategy diversification?
 
 ---
@@ -227,11 +231,10 @@ Small portfolios need concentration to grow fast but can't afford concentration 
 
 #### 2.6 The Bear Market Silence Problem
 
-The red team exposed this as worse than a portfolio risk — it's a **business continuity risk**. The pullback-in-uptrend strategy generates zero signals when the 200-day MA rolls over. In a 2022-style grind, the system goes silent for months. This kills four things simultaneously: trading returns, training data generation (flywheel stops), investor communications (nothing to write about), and the signal marketplace (Phase 3+) track record.
+The red team exposed this as worse than a portfolio risk — it's a **business continuity risk**. The pullback-in-uptrend strategy generates zero signals when the 200-day MA rolls over. In a 2022-style grind, the system goes silent for months. This kills three things simultaneously: trading returns, training data generation (flywheel stops), and the verifiable track record on signal marketplaces.
 
 - **Minimum viable strategy diversification for flywheel continuity**: What is the simplest strategy that generates signals in bear/sideways markets to keep the data flywheel running even when pullbacks are unavailable? (Mean reversion? VIX-based timing? Sector rotation? Cash-secured puts for income?)
 - **Should parallel paper-trading of strategy #2 start in Phase 1?** The competitor war room revealed that multi-strategy from day one generates 3–5× more data. The current roadmap gates strategy #2 behind Phase 1 completion. Is that gate too conservative? Could paper-trading a mean reversion strategy alongside the live pullback strategy provide regime diversification with zero capital risk?
-- **The "publishing in silence" problem**: If the fund has no trades to discuss during a bear market, what content maintains subscriber retention? (Market analysis without trades? Educational content? Bear market strategy previews? Transparent "the system is sidelined and here's why"?)
 - **How long can the flywheel be paused before data advantage erodes?** If the system goes 3–6 months without generating new outcome-labeled data, does the training dataset become stale? How quickly does model quality degrade without new examples from current market conditions?
 
 #### 2.7 Capital Injection and Compound Growth Modeling
@@ -246,7 +249,9 @@ The red team exposed this as worse than a portfolio risk — it's a **business c
 
 ### The Core Question
 
-Growing a $5K portfolio through trading returns alone is slow. Even at an exceptional 40% annual return, $5K → $7K after year 1. **What revenue strategy accelerates the path from solo trader to sustainable business, and how does that strategy interact with the trading system's performance?**
+Growing a $5K portfolio through trading returns alone is slow. Even at an exceptional 40% annual return, $5K → $7K after year 1. **What revenue strategy accelerates the path from solo trader to sustainable fund, and how does that strategy interact with the trading system's performance?**
+
+The business model is **investing returns at scale**, not media or subscriptions. Revenue comes from growing AUM and charging management/performance fees. The question is how to bridge the gap from $5K personal capital to $2M+ AUM where fund economics work.
 
 ### Specific Research Questions
 
@@ -255,32 +260,44 @@ Growing a $5K portfolio through trading returns alone is slow. Even at an except
 For a solo operator with an AI trading system, rank all viable revenue streams by **capital efficiency** (revenue generated per dollar invested and per hour spent):
 
 - **Personal trading returns** — Pure compounding, no operational overhead, but slow at small scale
-- **fund management** ($29–$99/month) — Realistic ramp from 0 to 100 to 1,000 investors?
-- **signal marketplace (Phase 3+)** (Collective2, Darwinex) — Realistic revenue timeline? Does marketplace exposure cannibalize or complement management fee revenue?
+- **Fund management fees** (1.5% management + 17.5% performance) — At what AUM does the fund become self-sustaining? What's the minimum AUM for institutional credibility?
+- **Signal marketplace** (Collective2, Darwinex) — Builds verifiable track record while generating revenue. Realistic timeline? Does marketplace exposure create alpha leakage for S&P 100 swing trades?
 - **White-label research** for RIAs — At what track record length do small RIAs pay for AI-generated research?
 - **API/SaaS** — Selling signal access or the platform itself. At what stage is this viable?
-- **Consulting/education** — Teaching others to build similar systems. Accelerates or distracts?
-- **Managed accounts** — At what AUM does this become viable? Regulatory complexity?
+- **Consulting/education** — Teaching others to build similar systems. Accelerates or distracts from the core fund business?
+- **Managed accounts** — Bridge between personal trading and full fund formation. Regulatory complexity?
+- **Capital injections from day job** — $1K/month from defense contractor salary. At what portfolio size does this become irrelevant vs. trading returns?
 
-For each: estimated months-to-first-revenue, Year 1 revenue range, marginal cost, regulatory requirements, and whether it **strengthens or weakens** the core trading system.
+For each: estimated months-to-first-revenue, Year 1 revenue range, marginal cost, regulatory requirements, and whether it **strengthens or weakens** the core trading system and fund formation path.
 
-#### 3.2 Revenue Sequencing and Compounding
+#### 3.2 Revenue Sequencing and the Fund Formation Path
 
-- In what order should revenue streams activate?
+The planned path is: Wyoming LLC (~July 2026) → Section 475(f) MTM election → incubator track record → registered fund. Revenue sequence:
+
+- In what order should revenue streams activate relative to fund milestones?
 - At what trading performance threshold should each launch?
-- How do streams compound with each other? (investor base → fund investor base? signal marketplace (Phase 3+) → consulting clients?)
+- How do streams compound with each other? (Signal marketplace verifiable track record → fund investor conversations? Consulting network → LP introductions?)
 - Minimum viable revenue to quit day job (Virginia cost of living, ~$80K–$100K/year)?
+- At what AUM does trading income alone justify quitting? ($2M AUM × 1.5% management = $30K. Need ~$6M+ AUM for management fees alone, or strong performance fees.)
 
 #### 3.3 Alpha Leakage from Signal Publication
 
 - Academic evidence on capacity and crowding effects for S&P 100 swing trading?
-- At what investor count does signal publication move mega-cap prices? (Quantify.)
-- Does delayed publication (24 hours after entry) preserve alpha while providing subscriber value?
-- Does the "teach the methodology" approach avoid leakage while generating revenue?
+- At what follower count does signal publication move mega-cap prices? (Quantify — likely never for S&P 100, but verify.)
+- Does delayed publication (24 hours after entry) preserve alpha while providing marketplace value?
+- Is the signal marketplace primarily a track-record-building tool rather than a revenue tool at this stage?
 
 #### 3.4 The Compound Growth Model
 
-Build a 5-year projection model combining trading returns + capital injections + fund management fee revenue + signal marketplace (Phase 3+) + fund fees + operating costs under conservative/base/aggressive scenarios. Show when "quit the day job" becomes rational.
+Build a 5-year projection model combining:
+- Trading returns at 15%, 25%, 40% annual rates
+- Capital injections from day job ($1K/month, declining)
+- Fund management fees (at projected AUM growth)
+- Signal marketplace income
+- Operating costs at each stage (~$64/mo now → ~$125/mo Phase 2 → ~$220/mo Phase 3)
+- Fund formation costs (LLC $100, CPA $500-2K/year, legal $5-10K for fund launch)
+
+Show when "quit the day job" becomes rational under each scenario.
 
 ---
 
@@ -567,8 +584,8 @@ The researcher should consider:
 - **Renaissance Technologies** — Zuckerman biography for organizational structure insights
 - **Two Sigma, DE Shaw, Citadel** — Contemporary quant fund architectures
 - **Preqin, Eurekahedge** — Emerging manager data, small fund performance and survival rates
-- **fund/investor communication economics** — Stratechery ($5M+ ARR), Morning Brew ($75M exit), Seeking Alpha
-- **Collective2, Darwinex** — signal marketplace (Phase 3+) dynamics and revenue data
+- **Collective2, Darwinex** — Signal marketplace dynamics, track record verification, revenue data
+- **Emerging fund manager case studies** — Solo operators who scaled to institutional AUM
 - **OpenAI, Anthropic, Google DeepMind** — AI scaling laws and emergent capabilities as analogies for investment in compute
 
 ---
@@ -580,7 +597,7 @@ This is not academic — every finding feeds directly into implementation decisi
 - **Part 1 findings** → determines whether the next sprint adds trailing stop logic, LLM thesis updates, or neither to the existing bracket order system
 - **Part 2 findings** → sets the position count, risk percentage, and strategy diversification parameters for each capital milestone in SYSTEM_STATE.md
 - **Part 2.3 findings** → determines whether options paper-trading begins alongside equity positions in Phase 1 or waits for a specific capital threshold
-- **Part 3 findings** → determines whether fund/investor communication development begins before or after the 50-trade Phase 1 gate
+- **Part 3 findings** → determines revenue stream sequencing (signal marketplace, fund formation, consulting) relative to the 50-trade Phase 1 gate
 - **Part 6 findings** → identifies the first flywheel improvement to implement (likely: richer postmortem data capture or continuous evaluation pipeline)
 - **Part 7 findings** → determines what background compute tasks get scheduled into the 95% idle GPU time starting this week
 - **Part 8 findings** → shapes the investor narrative and competitive positioning for the business plan
