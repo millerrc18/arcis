@@ -11,6 +11,8 @@ Usage: python scripts/assign_curriculum_stages.py
 import sqlite3
 import sys
 
+from src.config import DB_PATH
+
 
 def detect_enrichment(text: str) -> dict:
     """Detect which enrichment sources are present in the input text."""
@@ -33,7 +35,7 @@ def detect_enrichment(text: str) -> dict:
 
 
 def main():
-    db_path = "ai_research_desk.sqlite3"
+    db_path = DB_PATH
     try:
         conn = sqlite3.connect(db_path)
     except Exception as e:

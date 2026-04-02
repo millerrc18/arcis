@@ -20,10 +20,10 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
-
-DB_PATH = "ai_research_desk.sqlite3"
 FINNHUB_BASE = "https://finnhub.io/api/v1"
 
 _INIT_SQL = """

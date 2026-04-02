@@ -16,13 +16,14 @@ from datetime import datetime
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
 from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 
 
 def reconcile_live_trades(
-    db_path: str = "ai_research_desk.sqlite3", dry_run: bool = False
+    db_path: str = DB_PATH, dry_run: bool = False
 ) -> dict:
     """Reconcile Alpaca live positions with local shadow_trades.
 
@@ -164,7 +165,7 @@ def reconcile_live_trades(
 
 
 def reconcile_paper_trades(
-    db_path: str = "ai_research_desk.sqlite3", dry_run: bool = False
+    db_path: str = DB_PATH, dry_run: bool = False
 ) -> dict:
     """Reconcile Alpaca paper positions with local shadow_trades.
 

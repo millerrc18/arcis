@@ -7,11 +7,16 @@ Usage:
 Idempotent: safe to run multiple times. Never drops or modifies existing data.
 """
 
+import os
 import sqlite3
 import sys
 from pathlib import Path
 
-DEFAULT_DB = "ai_research_desk.sqlite3"
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.config import DB_PATH
+
+DEFAULT_DB = DB_PATH
 
 
 def get_existing_columns(conn: sqlite3.Connection, table: str) -> list[str]:

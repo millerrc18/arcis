@@ -23,10 +23,10 @@ from zoneinfo import ZoneInfo
 import requests
 from bs4 import BeautifulSoup
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
-
-DB_PATH = "ai_research_desk.sqlite3"
 FED_BASE = "https://www.federalreserve.gov"
 FED_HEADERS = {
     "User-Agent": "Arcis halcyonlabai@gmail.com",

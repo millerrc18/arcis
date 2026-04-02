@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
 from src.models import TradePacket
 
 
@@ -123,7 +124,7 @@ CREATE INDEX IF NOT EXISTS idx_shadow_trades_status_exit ON shadow_trades(status
 """
 
 
-def initialize_database(db_path: str = "ai_research_desk.sqlite3") -> None:
+def initialize_database(db_path: str = DB_PATH) -> None:
     path = Path(db_path)
     with sqlite3.connect(path) as conn:
         conn.executescript(SCHEMA)
@@ -206,7 +207,7 @@ def log_recommendation(
     features: dict,
     score: float,
     qualification: str,
-    db_path: str = "ai_research_desk.sqlite3",
+    db_path: str = DB_PATH,
     model_version: str = "base",
     enriched_prompt: str | None = None,
     llm_conviction: int | None = None,
@@ -285,7 +286,7 @@ def log_recommendation(
     return rec_id
 
 
-def get_todays_recommendations(db_path: str = "ai_research_desk.sqlite3") -> list[dict]:
+def get_todays_recommendations(db_path: str = DB_PATH) -> list[dict]:
     """Query recommendations created today (ET timezone)."""
     initialize_database(db_path)
 
@@ -312,7 +313,7 @@ def get_todays_recommendations(db_path: str = "ai_research_desk.sqlite3") -> lis
 # ── Shadow trade CRUD ─────────────────────────────────────────────────
 
 
-def insert_shadow_trade(trade: dict, db_path: str = "ai_research_desk.sqlite3") -> str:
+def insert_shadow_trade(trade: dict, db_path: str = DB_PATH) -> str:
     """Insert a shadow trade record and return the trade_id."""
     initialize_database(db_path)
     trade_id = trade.get("trade_id", str(uuid.uuid4()))
@@ -331,7 +332,7 @@ def insert_shadow_trade(trade: dict, db_path: str = "ai_research_desk.sqlite3") 
 
 
 def update_shadow_trade(
-    trade_id: str, updates: dict, db_path: str = "ai_research_desk.sqlite3"
+    trade_id: str, updates: dict, db_path: str = DB_PATH
 ) -> None:
     """Update fields on an existing shadow trade."""
     if not updates:
@@ -348,7 +349,7 @@ def update_shadow_trade(
         conn.commit()
 
 
-def get_open_shadow_trades(db_path: str = "ai_research_desk.sqlite3") -> list[dict]:
+def get_open_shadow_trades(db_path: str = DB_PATH) -> list[dict]:
     """Return all broker-open shadow trades, including pending exits."""
     initialize_database(db_path)
     with sqlite3.connect(db_path) as conn:
@@ -361,7 +362,7 @@ def get_open_shadow_trades(db_path: str = "ai_research_desk.sqlite3") -> list[di
 
 
 def get_shadow_trade(
-    trade_id: str, db_path: str = "ai_research_desk.sqlite3"
+    trade_id: str, db_path: str = DB_PATH
 ) -> dict | None:
     """Return a single shadow trade by ID, or None."""
     initialize_database(db_path)
@@ -374,7 +375,7 @@ def get_shadow_trade(
 
 
 def get_closed_shadow_trades(
-    days: int = 30, db_path: str = "ai_research_desk.sqlite3"
+    days: int = 30, db_path: str = DB_PATH
 ) -> list[dict]:
     """Return closed shadow trades from the last N days."""
     initialize_database(db_path)
@@ -397,7 +398,7 @@ def close_shadow_trade(
     exit_reason: str,
     pnl_dollars: float,
     pnl_pct: float,
-    db_path: str = "ai_research_desk.sqlite3",
+    db_path: str = DB_PATH,
 ) -> None:
     """Close a shadow trade with exit details."""
     update_shadow_trade(
@@ -415,7 +416,7 @@ def close_shadow_trade(
 
 
 def get_open_shadow_trade_for_ticker(
-    ticker: str, db_path: str = "ai_research_desk.sqlite3"
+    ticker: str, db_path: str = DB_PATH
 ) -> dict | None:
     """Return an open shadow trade for a given ticker, or None."""
     initialize_database(db_path)
@@ -434,7 +435,7 @@ def get_open_shadow_trade_for_ticker(
 
 
 def get_recommendation_by_id(
-    recommendation_id: str, db_path: str = "ai_research_desk.sqlite3"
+    recommendation_id: str, db_path: str = DB_PATH
 ) -> dict | None:
     """Return a single recommendation by ID."""
     initialize_database(db_path)
@@ -448,7 +449,7 @@ def get_recommendation_by_id(
 
 
 def get_recommendations_by_ticker(
-    ticker: str, limit: int = 10, db_path: str = "ai_research_desk.sqlite3"
+    ticker: str, limit: int = 10, db_path: str = DB_PATH
 ) -> list[dict]:
     """Return recent recommendations for a ticker."""
     initialize_database(db_path)
@@ -462,7 +463,7 @@ def get_recommendations_by_ticker(
 
 
 def get_recommendations_pending_review(
-    db_path: str = "ai_research_desk.sqlite3",
+    db_path: str = DB_PATH,
 ) -> list[dict]:
     """Return recommendations where ryan_executed=1 and user_grade is null."""
     initialize_database(db_path)
@@ -475,7 +476,7 @@ def get_recommendations_pending_review(
 
 
 def update_recommendation(
-    recommendation_id: str, updates: dict, db_path: str = "ai_research_desk.sqlite3"
+    recommendation_id: str, updates: dict, db_path: str = DB_PATH
 ) -> None:
     """Update fields on an existing recommendation."""
     if not updates:
@@ -492,14 +493,14 @@ def update_recommendation(
 
 
 def update_recommendation_review(
-    recommendation_id: str, review_data: dict, db_path: str = "ai_research_desk.sqlite3"
+    recommendation_id: str, review_data: dict, db_path: str = DB_PATH
 ) -> None:
     """Save review data for a recommendation."""
     update_recommendation(recommendation_id, review_data, db_path)
 
 
 def get_all_shadow_trades(
-    days: int = 30, db_path: str = "ai_research_desk.sqlite3"
+    days: int = 30, db_path: str = DB_PATH
 ) -> list[dict]:
     """Return all shadow trades (any status) from the last N days."""
     initialize_database(db_path)
@@ -516,7 +517,7 @@ def get_all_shadow_trades(
 
 
 def get_recommendations_in_period(
-    days: int = 7, db_path: str = "ai_research_desk.sqlite3"
+    days: int = 7, db_path: str = DB_PATH
 ) -> list[dict]:
     """Return all recommendations from the last N days."""
     initialize_database(db_path)

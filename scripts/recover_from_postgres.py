@@ -11,6 +11,10 @@ import os
 import sqlite3
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.config import DB_PATH
+
 def main():
     # Load .env
     from dotenv import load_dotenv
@@ -28,7 +32,7 @@ def main():
         print("ERROR: psycopg2 not installed. Run: pip install psycopg2-binary")
         sys.exit(1)
 
-    LOCAL_DB = "ai_research_desk.sqlite3"
+    LOCAL_DB = DB_PATH
 
     # Back up existing (corrupted) file
     if os.path.exists(LOCAL_DB):

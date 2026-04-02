@@ -16,6 +16,8 @@ import sqlite3
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
@@ -33,7 +35,7 @@ CREATE INDEX IF NOT EXISTS idx_schedule_metrics_date
 """
 
 
-def init_schedule_metrics(db_path: str = "ai_research_desk.sqlite3") -> None:
+def init_schedule_metrics(db_path: str = DB_PATH) -> None:
     """Create schedule_metrics table if not exists."""
     with sqlite3.connect(db_path) as conn:
         conn.executescript(SCHEDULE_METRICS_SCHEMA)
@@ -42,7 +44,7 @@ def init_schedule_metrics(db_path: str = "ai_research_desk.sqlite3") -> None:
 
 def record_metric(metric_name: str, metric_value: float,
                   details: str | None = None,
-                  db_path: str = "ai_research_desk.sqlite3") -> None:
+                  db_path: str = DB_PATH) -> None:
     """Record a single schedule metric for today."""
     init_schedule_metrics(db_path)
     metric_date = datetime.now(ET).strftime("%Y-%m-%d")
@@ -57,7 +59,7 @@ def record_metric(metric_name: str, metric_value: float,
 
 def upsert_daily_metric(metric_name: str, metric_value: float,
                         details: str | None = None,
-                        db_path: str = "ai_research_desk.sqlite3") -> None:
+                        db_path: str = DB_PATH) -> None:
     """Insert or update a metric for today (replaces existing value)."""
     init_schedule_metrics(db_path)
     metric_date = datetime.now(ET).strftime("%Y-%m-%d")
@@ -84,7 +86,7 @@ def upsert_daily_metric(metric_name: str, metric_value: float,
 
 
 def get_metrics(days: int = 30,
-                db_path: str = "ai_research_desk.sqlite3") -> list[dict]:
+                db_path: str = DB_PATH) -> list[dict]:
     """Get schedule metrics for the last N days."""
     init_schedule_metrics(db_path)
     cutoff = (datetime.now(ET) - timedelta(days=days)).strftime("%Y-%m-%d")
@@ -111,7 +113,7 @@ def get_metrics(days: int = 30,
     return sorted(by_date.values(), key=lambda x: x["date"], reverse=True)
 
 
-def get_todays_metrics(db_path: str = "ai_research_desk.sqlite3") -> dict:
+def get_todays_metrics(db_path: str = DB_PATH) -> dict:
     """Get today's running metric totals."""
     init_schedule_metrics(db_path)
     today = datetime.now(ET).strftime("%Y-%m-%d")

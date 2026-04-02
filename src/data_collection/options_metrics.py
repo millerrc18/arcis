@@ -14,10 +14,10 @@ import sqlite3
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
-
-DB_PATH = "ai_research_desk.sqlite3"
 
 _INIT_SQL = """
 CREATE TABLE IF NOT EXISTS options_metrics (

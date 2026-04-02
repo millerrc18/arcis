@@ -20,6 +20,7 @@ from src.training.ingestion_gate import (
     should_halt_batch,
     validate_training_example,
 )
+from src.config import DB_PATH
 from src.training.versioning import init_training_tables
 
 logger = logging.getLogger(__name__)
@@ -175,7 +176,7 @@ def assign_curriculum_stage(example: dict, difficulty: str) -> str:
     return "structure"
 
 
-def classify_all_examples(db_path: str = "ai_research_desk.sqlite3") -> dict:
+def classify_all_examples(db_path: str = DB_PATH) -> dict:
     """Classify all untagged training examples. Returns counts by difficulty and stage."""
     init_training_tables(db_path)
 
@@ -217,7 +218,7 @@ def classify_all_examples(db_path: str = "ai_research_desk.sqlite3") -> dict:
     }
 
 
-def find_contrastive_pairs(db_path: str = "ai_research_desk.sqlite3") -> list[tuple[dict, dict]]:
+def find_contrastive_pairs(db_path: str = DB_PATH) -> list[tuple[dict, dict]]:
     """Find pairs of training examples with similar inputs but opposite outcomes.
 
     Matching criteria: same sector, similar score (within 10 points),
@@ -273,7 +274,7 @@ def find_contrastive_pairs(db_path: str = "ai_research_desk.sqlite3") -> list[tu
 
 
 def generate_contrastive_training_data(max_pairs: int = 50,
-                                       db_path: str = "ai_research_desk.sqlite3") -> int:
+                                       db_path: str = DB_PATH) -> int:
     """Generate contrastive pair training examples via Claude API.
     Returns count of examples created (2 per pair).
     """

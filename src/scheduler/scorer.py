@@ -21,6 +21,7 @@ import sqlite3
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
 from src.training.quality_filter import QUALITY_JUDGE_PROMPT
 from src.training.versioning import init_training_tables
 
@@ -41,7 +42,7 @@ class GuardedScorer:
         scan_minutes: list[int] | None = None,
         skip_windows: list[int] | None = None,
         max_per_window: int = 50,
-        db_path: str = "ai_research_desk.sqlite3",
+        db_path: str = DB_PATH,
     ):
         self.guard_minutes = guard_minutes
         self.scan_minutes = scan_minutes or [0, 30]

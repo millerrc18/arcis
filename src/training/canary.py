@@ -26,6 +26,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
 from src.training.quality_drift import (
     compute_all_metrics,
     check_degradation,
@@ -100,7 +101,7 @@ class CanaryMonitor:
     def __init__(
         self,
         canary_path: str | Path | None = None,
-        db_path: str = "ai_research_desk.sqlite3",
+        db_path: str = DB_PATH,
     ):
         self.canary_path = Path(canary_path) if canary_path else DEFAULT_CANARY_PATH
         self.db_path = db_path

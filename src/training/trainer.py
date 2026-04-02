@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from src.config import load_config
+from src.config import DB_PATH, load_config
 from src.training.versioning import (
     get_active_model_version,
     get_next_semver,
@@ -236,7 +236,7 @@ if __name__ == "__main__":
 '''
 
 
-def should_train(db_path: str = "ai_research_desk.sqlite3") -> tuple[bool, str]:
+def should_train(db_path: str = DB_PATH) -> tuple[bool, str]:
     """Check if fine-tuning should be triggered.
 
     Returns (should_train, reason_string).
@@ -276,7 +276,7 @@ def should_train(db_path: str = "ai_research_desk.sqlite3") -> tuple[bool, str]:
 def export_training_data(
     output_dir: str = "training_data",
     holdout_pct: float = 0.15,
-    db_path: str = "ai_research_desk.sqlite3",
+    db_path: str = DB_PATH,
 ) -> tuple[dict, int]:
     """Export training data with curriculum split and chronological holdout.
 
@@ -442,7 +442,7 @@ def export_training_data(
 
 
 def evaluate_on_holdout(model_name: str = "halcyon-latest",
-                        db_path: str = "ai_research_desk.sqlite3") -> dict:
+                        db_path: str = DB_PATH) -> dict:
     """Run the trained model on holdout examples and measure quality.
 
     For each holdout example:
@@ -532,7 +532,7 @@ where each N is 1-5."""
     return result
 
 
-def run_fine_tune(db_path: str = "ai_research_desk.sqlite3") -> dict | None:
+def run_fine_tune(db_path: str = DB_PATH) -> dict | None:
     """Run the full fine-tuning pipeline.
 
     Returns the new model version record on success, or None on failure.
@@ -736,7 +736,7 @@ def _find_gguf(directory: str) -> str | None:
     return None
 
 
-def check_model_performance(db_path: str = "ai_research_desk.sqlite3") -> dict:
+def check_model_performance(db_path: str = DB_PATH) -> dict:
     """Check if the active model is performing well vs previous version.
 
     Returns action dict with 'action' key: 'rolled_back', 'waiting', or 'none'.

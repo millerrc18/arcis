@@ -12,9 +12,9 @@ import sqlite3
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-logger = logging.getLogger(__name__)
+from src.config import DB_PATH
 
-DB_PATH = "ai_research_desk.sqlite3"
+logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
 

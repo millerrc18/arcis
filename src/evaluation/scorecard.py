@@ -16,11 +16,12 @@ from src.journal.store import (
     get_all_shadow_trades,
     get_recommendations_in_period,
 )
+from src.config import DB_PATH
 from src.shadow_trading.metrics import compute_shadow_metrics
 
 
 def generate_weekly_scorecard(
-    weeks_back: int = 1, db_path: str = "ai_research_desk.sqlite3"
+    weeks_back: int = 1, db_path: str = DB_PATH
 ) -> str:
     """Generate a weekly scorecard covering the last N weeks."""
     et = ZoneInfo("America/New_York")
@@ -171,7 +172,7 @@ def generate_weekly_scorecard(
 
 
 def generate_bootcamp_scorecard(
-    days: int = 30, db_path: str = "ai_research_desk.sqlite3"
+    days: int = 30, db_path: str = DB_PATH
 ) -> str:
     """Generate a full bootcamp scorecard covering N days."""
     et = ZoneInfo("America/New_York")

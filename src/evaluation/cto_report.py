@@ -15,6 +15,8 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
@@ -29,7 +31,7 @@ def _compute_hshs() -> dict:
         return {"hshs": 0, "error": str(e)}
 
 
-def generate_cto_report(days: int = 7, db_path: str = "ai_research_desk.sqlite3") -> dict:
+def generate_cto_report(days: int = 7, db_path: str = DB_PATH) -> dict:
     """Generate a comprehensive structured performance report for CTO analysis.
 
     Returns a dict (JSON-serializable) with all performance data.

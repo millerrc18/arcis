@@ -15,10 +15,12 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
-DEFAULT_DB_PATH = "ai_research_desk.sqlite3"
+DEFAULT_DB_PATH = DB_PATH
 EVENT_CALENDAR_FALLBACK = Path("data/reference/market_event_calendar.csv")
 MACRO_EVENT_TYPES = {"FOMC", "NFP", "CPI"}
 

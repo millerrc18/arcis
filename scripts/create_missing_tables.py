@@ -7,10 +7,13 @@ Usage:
     python scripts/create_missing_tables.py
 """
 
-import sqlite3
 import os
+import sqlite3
+import sys
 
-DB_PATH = "ai_research_desk.sqlite3"
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.config import DB_PATH
 
 TABLES = [
     # AI Council

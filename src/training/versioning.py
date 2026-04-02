@@ -13,6 +13,8 @@ import uuid
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
@@ -53,7 +55,7 @@ CREATE INDEX IF NOT EXISTS idx_model_versions_status ON model_versions(status);
 """
 
 
-def init_training_tables(db_path: str = "ai_research_desk.sqlite3") -> None:
+def init_training_tables(db_path: str = DB_PATH) -> None:
     """Create training tables if they don't exist."""
     with sqlite3.connect(db_path) as conn:
         conn.executescript(TRAINING_TABLES_SCHEMA)
@@ -174,7 +176,7 @@ def init_training_tables(db_path: str = "ai_research_desk.sqlite3") -> None:
         conn.commit()
 
 
-def save_metric_snapshot(metrics: dict, db_path: str = "ai_research_desk.sqlite3") -> None:
+def save_metric_snapshot(metrics: dict, db_path: str = DB_PATH) -> None:
     """Save a metric snapshot for historical trending.
 
     Called automatically by the CTO report generator. Stores one snapshot
@@ -201,7 +203,7 @@ def save_metric_snapshot(metrics: dict, db_path: str = "ai_research_desk.sqlite3
         conn.commit()
 
 
-def get_metric_history(days: int = 90, db_path: str = "ai_research_desk.sqlite3") -> list[dict]:
+def get_metric_history(days: int = 90, db_path: str = DB_PATH) -> list[dict]:
     """Retrieve historical metric snapshots for trending.
 
     Returns a list of {date, metrics} dicts, sorted chronologically.
@@ -227,7 +229,7 @@ def get_metric_history(days: int = 90, db_path: str = "ai_research_desk.sqlite3"
             continue
     return result
 
-def get_active_model_version(db_path: str = "ai_research_desk.sqlite3") -> dict | None:
+def get_active_model_version(db_path: str = DB_PATH) -> dict | None:
     """Return the currently active model version, or None if using base."""
     init_training_tables(db_path)
     with sqlite3.connect(db_path) as conn:
@@ -244,7 +246,7 @@ def register_model_version(
     synthetic_count: int,
     outcome_count: int,
     model_file_path: str,
-    db_path: str = "ai_research_desk.sqlite3",
+    db_path: str = DB_PATH,
     holdout_score: float | None = None,
     holdout_details: str | None = None,
     status: str = "active",
@@ -275,7 +277,7 @@ def register_model_version(
     return version_id
 
 
-def get_evaluation_model(db_path: str = "ai_research_desk.sqlite3") -> dict | None:
+def get_evaluation_model(db_path: str = DB_PATH) -> dict | None:
     """Return a model in 'evaluation' status, or None."""
     init_training_tables(db_path)
     with sqlite3.connect(db_path) as conn:
@@ -286,7 +288,7 @@ def get_evaluation_model(db_path: str = "ai_research_desk.sqlite3") -> dict | No
     return dict(row) if row else None
 
 
-def promote_evaluation_model(db_path: str = "ai_research_desk.sqlite3") -> dict | None:
+def promote_evaluation_model(db_path: str = DB_PATH) -> dict | None:
     """Promote the evaluation model to active status."""
     init_training_tables(db_path)
     with sqlite3.connect(db_path) as conn:
@@ -303,7 +305,7 @@ def promote_evaluation_model(db_path: str = "ai_research_desk.sqlite3") -> dict 
     return dict(eval_model)
 
 
-def reject_evaluation_model(db_path: str = "ai_research_desk.sqlite3") -> dict | None:
+def reject_evaluation_model(db_path: str = DB_PATH) -> dict | None:
     """Reject the evaluation model (set to rejected status)."""
     init_training_tables(db_path)
     with sqlite3.connect(db_path) as conn:
@@ -319,7 +321,7 @@ def reject_evaluation_model(db_path: str = "ai_research_desk.sqlite3") -> dict |
     return dict(eval_model)
 
 
-def rollback_model(db_path: str = "ai_research_desk.sqlite3") -> dict | None:
+def rollback_model(db_path: str = DB_PATH) -> dict | None:
     """Roll back active model to previous retired version. Returns restored version or None."""
     init_training_tables(db_path)
     with sqlite3.connect(db_path) as conn:
@@ -347,7 +349,7 @@ def rollback_model(db_path: str = "ai_research_desk.sqlite3") -> dict | None:
     return None
 
 
-def get_model_history(db_path: str = "ai_research_desk.sqlite3") -> list[dict]:
+def get_model_history(db_path: str = DB_PATH) -> list[dict]:
     """Return all model versions ordered by created_at descending."""
     init_training_tables(db_path)
     with sqlite3.connect(db_path) as conn:
@@ -358,7 +360,7 @@ def get_model_history(db_path: str = "ai_research_desk.sqlite3") -> list[dict]:
     return [dict(row) for row in rows]
 
 
-def get_next_semver(db_path: str = "ai_research_desk.sqlite3") -> str:
+def get_next_semver(db_path: str = DB_PATH) -> str:
     """Compute the next semver version name from model history.
 
     Convention: halcyon-v{major}.{minor}.{patch}
@@ -415,13 +417,13 @@ def update_config_model(version_name: str, config_path: str = "config/settings.l
     return True
 
 
-def get_active_model_name(db_path: str = "ai_research_desk.sqlite3") -> str:
+def get_active_model_name(db_path: str = DB_PATH) -> str:
     """Return active model version name, or 'base' if none exists."""
     version = get_active_model_version(db_path)
     return version["version_name"] if version else "base"
 
 
-def get_performance_by_version(db_path: str = "ai_research_desk.sqlite3") -> list[dict]:
+def get_performance_by_version(db_path: str = DB_PATH) -> list[dict]:
     """Query closed shadow trades grouped by model_version on their recommendation."""
     from src.journal.store import initialize_database
     initialize_database(db_path)
@@ -457,7 +459,7 @@ def get_performance_by_version(db_path: str = "ai_research_desk.sqlite3") -> lis
     return results
 
 
-def get_training_example_counts(db_path: str = "ai_research_desk.sqlite3") -> dict:
+def get_training_example_counts(db_path: str = DB_PATH) -> dict:
     """Return counts of training examples by source."""
     init_training_tables(db_path)
     with sqlite3.connect(db_path) as conn:
@@ -473,7 +475,7 @@ def get_training_example_counts(db_path: str = "ai_research_desk.sqlite3") -> di
     return counts
 
 
-def get_new_examples_since(since_date: str, db_path: str = "ai_research_desk.sqlite3") -> int:
+def get_new_examples_since(since_date: str, db_path: str = DB_PATH) -> int:
     """Count training examples created after the given date."""
     init_training_tables(db_path)
     with sqlite3.connect(db_path) as conn:
@@ -484,7 +486,7 @@ def get_new_examples_since(since_date: str, db_path: str = "ai_research_desk.sql
     return row[0] if row else 0
 
 
-def _migrate_model_version_column(db_path: str = "ai_research_desk.sqlite3") -> None:
+def _migrate_model_version_column(db_path: str = DB_PATH) -> None:
     """Add model_version column to recommendations table if it doesn't exist."""
     try:
         with sqlite3.connect(db_path) as conn:
@@ -511,7 +513,7 @@ def log_api_cost(
     purpose: str,
     input_tokens: int,
     output_tokens: int,
-    db_path: str = "ai_research_desk.sqlite3",
+    db_path: str = DB_PATH,
 ) -> None:
     """Log an API call's token usage and cost. Never raises."""
     try:
@@ -534,7 +536,7 @@ def log_api_cost(
         logger.debug("Failed to log API cost: %s", e)
 
 
-def get_cost_summary(days: int = 30, db_path: str = "ai_research_desk.sqlite3") -> dict:
+def get_cost_summary(days: int = 30, db_path: str = DB_PATH) -> dict:
     """Return cost summary: total, by purpose, by day."""
     init_training_tables(db_path)
     now = datetime.now(ET)

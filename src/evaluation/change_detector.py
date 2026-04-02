@@ -14,6 +14,8 @@ import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
@@ -53,7 +55,7 @@ def cusum_detect(pnl_series: list[float], threshold: float = 2.0,
     }
 
 
-def check_performance_drift(db_path: str = "ai_research_desk.sqlite3") -> dict:
+def check_performance_drift(db_path: str = DB_PATH) -> dict:
     """Run CUSUM on closed trade P&L to detect strategy drift."""
     import sqlite3
 

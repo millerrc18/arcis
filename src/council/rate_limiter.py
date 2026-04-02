@@ -12,6 +12,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
 from src.council.constants import PARAMETER_BOUNDS, PARAMETER_DEFAULTS, RATE_LIMITS
 
 logger = logging.getLogger(__name__)
@@ -45,7 +46,7 @@ def _weekly_baseline(param: str, db_path: str) -> float:
 def apply_rate_limiters(
     recommended: dict,
     current: dict,
-    db_path: str = "ai_research_desk.sqlite3",
+    db_path: str = DB_PATH,
 ) -> dict:
     """Apply daily and weekly cumulative council rate limits."""
     applied = {}

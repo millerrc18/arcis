@@ -16,6 +16,8 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
@@ -85,7 +87,7 @@ def _make_id(filename: str) -> str:
     return hashlib.md5(filename.encode()).hexdigest()[:12]
 
 
-def populate_research_docs(db_path: str = "ai_research_desk.sqlite3") -> dict:
+def populate_research_docs(db_path: str = DB_PATH) -> dict:
     """Scan docs/ and docs/research/ for .md files and populate research_docs table."""
     project_root = Path(__file__).resolve().parent.parent.parent
     docs_dirs = [

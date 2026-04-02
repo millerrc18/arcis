@@ -18,10 +18,12 @@ import logging
 import sqlite3
 from contextlib import closing
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 
 
-def check_outcome_leakage(db_path: str = "ai_research_desk.sqlite3") -> dict:
+def check_outcome_leakage(db_path: str = DB_PATH) -> dict:
     """Test whether generated commentary leaks outcome information.
 
     Trains a simple classifier (TF-IDF + logistic regression) to predict

@@ -21,6 +21,8 @@ from collections import Counter
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
@@ -45,7 +47,7 @@ DISTINCT_2_DROP_THRESHOLD = 0.10
 SELF_BLEU_RISE_THRESHOLD = 0.15
 
 
-def init_quality_drift_tables(db_path: str = "ai_research_desk.sqlite3") -> None:
+def init_quality_drift_tables(db_path: str = DB_PATH) -> None:
     """Create quality_drift_metrics table if it doesn't exist."""
     with sqlite3.connect(db_path) as conn:
         conn.executescript(QUALITY_DRIFT_SCHEMA)
@@ -277,7 +279,7 @@ def store_metrics(
     model_version: str | None = None,
     degradation_flag: int = 0,
     details: str = "",
-    db_path: str = "ai_research_desk.sqlite3",
+    db_path: str = DB_PATH,
 ) -> str:
     """Store quality drift metrics to the database.
 
@@ -313,7 +315,7 @@ def store_metrics(
 
 
 def get_previous_metrics(
-    db_path: str = "ai_research_desk.sqlite3",
+    db_path: str = DB_PATH,
 ) -> dict | None:
     """Retrieve the most recent quality drift metrics from the database."""
     init_quality_drift_tables(db_path)

@@ -11,9 +11,14 @@ Usage:
     python scripts/validate_training_format.py   # verify 100% pass after
 """
 
+import os
 import re
 import sqlite3
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.config import DB_PATH
 
 
 def convert_plain_to_xml(text: str) -> str | None:
@@ -162,7 +167,7 @@ def is_xml_format(text: str) -> bool:
 
 
 def main():
-    db_path = "ai_research_desk.sqlite3"
+    db_path = DB_PATH
     conn = sqlite3.connect(db_path)
     rows = conn.execute('SELECT example_id, output_text FROM training_examples').fetchall()
 

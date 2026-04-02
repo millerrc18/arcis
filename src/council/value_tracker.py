@@ -26,12 +26,12 @@ import uuid
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
 from src.council.constants import PARAMETER_DEFAULTS
 
 logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
-DB_PATH = "ai_research_desk.sqlite3"
 
 SCHEMA = """\
 CREATE TABLE IF NOT EXISTS council_parameter_log (

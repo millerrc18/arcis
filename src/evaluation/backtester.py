@@ -17,13 +17,13 @@ import math
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from src.config import load_config
+from src.config import DB_PATH, load_config
 
 logger = logging.getLogger(__name__)
 
 
 def backtest_model(model_name: str, months: int = 6,
-                   db_path: str = "ai_research_desk.sqlite3") -> dict:
+                   db_path: str = DB_PATH) -> dict:
     """Run a walk-forward backtest of a trained model on historical data.
 
     Process:

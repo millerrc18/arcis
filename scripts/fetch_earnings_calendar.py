@@ -13,17 +13,21 @@ Also callable from the watch loop overnight schedule.
 
 import argparse
 import logging
+import os
 import sqlite3
+import sys
 import time
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import yfinance as yf
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
-
-DB_PATH = "ai_research_desk.sqlite3"
 
 _INIT_SQL = """
 CREATE TABLE IF NOT EXISTS earnings_calendar (

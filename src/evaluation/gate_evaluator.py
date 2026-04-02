@@ -18,10 +18,12 @@ import sqlite3
 
 import numpy as np
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 
 
-def evaluate_50_trade_gate(db_path: str = "ai_research_desk.sqlite3") -> dict:
+def evaluate_50_trade_gate(db_path: str = DB_PATH) -> dict:
     """Run the full 50-trade gate evaluation."""
     from src.evaluation.statistics import (
         sharpe_ratio, probabilistic_sharpe_ratio, bootstrap_sharpe_ci,

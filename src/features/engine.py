@@ -11,6 +11,8 @@ import logging
 
 import pandas as pd
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 
 
@@ -244,7 +246,7 @@ def _load_options_metrics() -> dict[str, dict]:
     import sqlite3
     result = {}
     try:
-        with sqlite3.connect("ai_research_desk.sqlite3") as conn:
+        with sqlite3.connect(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 """SELECT ticker, iv_rank, pc_vol_ratio, pc_oi_ratio,

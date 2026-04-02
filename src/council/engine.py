@@ -25,6 +25,7 @@ import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
 from src.council.constants import PARAMETER_DEFAULTS, RATE_LIMITS
 from src.council.protocol import (
     aggregate_votes,
@@ -38,8 +39,6 @@ from src.council.protocol import (
 logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
-
-DB_PATH = "ai_research_desk.sqlite3"
 
 COUNCIL_SCHEMA = """\
 CREATE TABLE IF NOT EXISTS council_sessions (

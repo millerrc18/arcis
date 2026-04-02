@@ -526,7 +526,7 @@ class WatchLoop:
             import sqlite3 as _sq
             _vix_val = None
             try:
-                with _sq.connect("ai_research_desk.sqlite3") as _vc:
+                with _sq.connect(DB_PATH) as _vc:
                     _vr = _vc.execute(
                         "SELECT vix FROM vix_term_structure ORDER BY collected_date DESC LIMIT 1"
                     ).fetchone()
@@ -788,7 +788,7 @@ class WatchLoop:
                 self._scan_number = 0
             self._scan_number += 1
             now = datetime.now(ET)
-            with _sq.connect("ai_research_desk.sqlite3") as conn:
+            with _sq.connect(DB_PATH) as conn:
                 conn.execute(
                     "INSERT INTO scan_metrics "
                     "(scan_number, scan_time, universe_count, features_count, "
@@ -857,7 +857,7 @@ class WatchLoop:
     def _ensure_all_tables():
         """Create all expected SQLite tables on startup to prevent missing-table errors."""
         import sqlite3
-        db_path = "ai_research_desk.sqlite3"
+        db_path = DB_PATH
         tables = [
             """CREATE TABLE IF NOT EXISTS council_sessions (
                 session_id TEXT PRIMARY KEY, session_type TEXT NOT NULL,
@@ -1029,14 +1029,48 @@ class WatchLoop:
         """Configure SQLite for production use."""
         import sqlite3
         try:
-            conn = sqlite3.connect("ai_research_desk.sqlite3")
+            conn = sqlite3.connect(DB_PATH)
+
+            # Integrity check — abort before any writes if DB is corrupted
+            result = conn.execute("PRAGMA integrity_check").fetchone()[0]
+            if result != "ok":
+                logger.critical("[DB] INTEGRITY CHECK FAILED: %s", result)
+                try:
+                    from src.notifications.telegram import send_telegram
+                    send_telegram("\U0001f534 DATABASE CORRUPTED \u2014 integrity check failed. Watch loop halted.")
+                except Exception:
+                    pass
+                conn.close()
+                import sys
+                sys.exit(1)
+
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=NORMAL")
             conn.execute("PRAGMA busy_timeout=5000")
             conn.close()
             logger.info("[DB] SQLite configured: WAL mode, synchronous=NORMAL, busy_timeout=5000ms")
+        except SystemExit:
+            raise
         except Exception as exc:
             logger.warning("[DB] SQLite configuration failed: %s", exc)
+
+    @staticmethod
+    def _check_row_counts():
+        """Sanity-check that critical tables aren't unexpectedly empty."""
+        import sqlite3
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            count = conn.execute("SELECT COUNT(*) FROM shadow_trades").fetchone()[0]
+            conn.close()
+            if count == 0:
+                logger.warning("[DB] shadow_trades is empty \u2014 possible fresh database or corruption recovery")
+                try:
+                    from src.notifications.telegram import send_telegram
+                    send_telegram("\u26a0\ufe0f Database has 0 shadow trades \u2014 verify this is expected")
+                except Exception:
+                    pass
+        except Exception as exc:
+            logger.warning("[DB] Row count check failed: %s", exc)
 
     def _backup_database(self):
         """Create a daily backup of the SQLite database using the Online Backup API."""
@@ -1048,7 +1082,7 @@ class WatchLoop:
 
         backup_path = backup_dir / f"halcyon_{datetime.now(ET).strftime('%Y%m%d')}.sqlite3"
         try:
-            src = sqlite3.connect("ai_research_desk.sqlite3")
+            src = sqlite3.connect(DB_PATH)
             dst = sqlite3.connect(str(backup_path))
             src.backup(dst)
             dst.close()
@@ -1081,8 +1115,11 @@ class WatchLoop:
         # Ensure all expected tables exist
         self._ensure_all_tables()
 
-        # Configure SQLite for production use (WAL mode)
+        # Configure SQLite for production use (WAL mode) + integrity check
         self._configure_database()
+
+        # Sanity-check critical table row counts
+        self._check_row_counts()
 
         # Validate starting capital
         capital = self.config.get("risk", {}).get("starting_capital", 0)
@@ -1210,7 +1247,7 @@ class WatchLoop:
                             from src.notifications.telegram import notify_daily_summary, is_telegram_enabled
                             if is_telegram_enabled():
                                 import sqlite3
-                                with sqlite3.connect("ai_research_desk.sqlite3") as _conn:
+                                with sqlite3.connect(DB_PATH) as _conn:
                                     _conn.row_factory = sqlite3.Row
                                     _today = datetime.now(ET).strftime("%Y-%m-%d")
                                     _open = _conn.execute(
@@ -1244,7 +1281,7 @@ class WatchLoop:
                         from src.notifications.telegram import notify_scoring_summary, is_telegram_enabled
                         if is_telegram_enabled() and self._daily_scored > 0:
                             import sqlite3
-                            with sqlite3.connect("ai_research_desk.sqlite3") as conn:
+                            with sqlite3.connect(DB_PATH) as conn:
                                 backlog = conn.execute(
                                     "SELECT COUNT(*) FROM training_examples WHERE quality_score IS NULL"
                                 ).fetchone()[0]
@@ -1742,7 +1779,7 @@ class WatchLoop:
                 try:
                     import sqlite3 as _sq
                     from datetime import timedelta as _td
-                    with _sq.connect("ai_research_desk.sqlite3") as _rc:
+                    with _sq.connect(DB_PATH) as _rc:
                         _week_ago = (datetime.now(ET) - _td(days=7)).isoformat()
                         _new_wk = _rc.execute(
                             "SELECT COUNT(*) FROM training_examples WHERE created_at > ?",
@@ -2191,7 +2228,7 @@ class WatchLoop:
                 from src.notifications.telegram import notify_research_papers, is_telegram_enabled
                 if is_telegram_enabled():
                     import sqlite3 as _sq
-                    with _sq.connect("ai_research_desk.sqlite3") as _cn:
+                    with _sq.connect(DB_PATH) as _cn:
                         top = _cn.execute(
                             "SELECT title, relevance_score FROM research_papers ORDER BY collected_at DESC LIMIT 1"
                         ).fetchone()
@@ -2389,7 +2426,7 @@ class WatchLoop:
             return
 
         try:
-            with sqlite3.connect("ai_research_desk.sqlite3") as conn:
+            with sqlite3.connect(DB_PATH) as conn:
                 conn.row_factory = sqlite3.Row
 
                 # VIX from vix_term_structure (latest)
@@ -2507,7 +2544,7 @@ class WatchLoop:
 
         try:
             today_str = datetime.now(ET).strftime("%Y-%m-%d")
-            with sqlite3.connect("ai_research_desk.sqlite3") as conn:
+            with sqlite3.connect(DB_PATH) as conn:
                 conn.row_factory = sqlite3.Row
 
                 # Paper open
@@ -2621,7 +2658,7 @@ class WatchLoop:
 
         try:
             today_str = datetime.now(ET).strftime("%Y-%m-%d")
-            with sqlite3.connect("ai_research_desk.sqlite3") as conn:
+            with sqlite3.connect(DB_PATH) as conn:
                 training_total = conn.execute(
                     "SELECT COUNT(*) FROM training_examples"
                 ).fetchone()[0]
@@ -2673,7 +2710,7 @@ class WatchLoop:
             return
 
         try:
-            with sqlite3.connect("ai_research_desk.sqlite3") as conn:
+            with sqlite3.connect(DB_PATH) as conn:
                 row = conn.execute(
                     "SELECT vix FROM vix_term_structure ORDER BY collected_at DESC LIMIT 1"
                 ).fetchone()
@@ -2737,7 +2774,7 @@ class WatchLoop:
             period_start = week_ago.strftime("%b %d")
             week_ago_str = week_ago.strftime("%Y-%m-%d")
 
-            with sqlite3.connect("ai_research_desk.sqlite3") as conn:
+            with sqlite3.connect(DB_PATH) as conn:
                 conn.row_factory = sqlite3.Row
 
                 # Trades this week
@@ -2892,7 +2929,7 @@ class WatchLoop:
             return
 
         try:
-            with sqlite3.connect("ai_research_desk.sqlite3") as conn:
+            with sqlite3.connect(DB_PATH) as conn:
                 conn.row_factory = sqlite3.Row
 
                 open_trades = conn.execute(
@@ -3006,7 +3043,7 @@ class WatchLoop:
     def _save_daily_metric_snapshot(self):
         """Save daily metric snapshot at EOD for MetricTrend chart."""
         import sqlite3
-        db_path = "ai_research_desk.sqlite3"
+        db_path = DB_PATH
         try:
             from src.training.versioning import save_metric_snapshot
             with sqlite3.connect(db_path) as conn:

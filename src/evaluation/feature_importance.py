@@ -15,12 +15,14 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
 
 def compute_feature_importance(days: int = 30,
-                               db_path: str = "ai_research_desk.sqlite3") -> dict:
+                               db_path: str = DB_PATH) -> dict:
     """Compute which features most strongly predict trade outcomes.
 
     Uses closed trades from the last N days. For each feature,

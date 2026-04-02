@@ -21,6 +21,8 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
@@ -198,7 +200,7 @@ def classify_setup(features: dict, ohlcv: pd.DataFrame | None = None) -> dict:
 
 
 def log_setup_signal(ticker: str, classification: dict, features: dict,
-                     regime: str = "", db_path: str = "ai_research_desk.sqlite3"):
+                     regime: str = "", db_path: str = DB_PATH):
     """Store a setup classification in the signal zoo table."""
     _ensure_setup_signals_table(db_path)
 
@@ -234,7 +236,7 @@ def log_setup_signal(ticker: str, classification: dict, features: dict,
         logger.debug("Failed to log setup signal: %s", e)
 
 
-def _ensure_setup_signals_table(db_path: str = "ai_research_desk.sqlite3"):
+def _ensure_setup_signals_table(db_path: str = DB_PATH):
     """Create the setup_signals table if it doesn't exist."""
     try:
         with sqlite3.connect(db_path) as conn:

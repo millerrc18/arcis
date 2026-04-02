@@ -25,13 +25,15 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
 STATE_TABLE = "traffic_light_state"
 
 
-def _ensure_state_table(db_path: str = "ai_research_desk.sqlite3"):
+def _ensure_state_table(db_path: str = DB_PATH):
     """Create the traffic_light_state table if it doesn't exist."""
     try:
         with sqlite3.connect(db_path) as conn:
@@ -102,7 +104,7 @@ def _classify_trend(spy: pd.DataFrame | None) -> int:
         return 1  # Default yellow on error
 
 
-def _classify_credit(db_path: str = "ai_research_desk.sqlite3") -> int:
+def _classify_credit(db_path: str = DB_PATH) -> int:
     """Classify HY credit spread z-score from macro_snapshots."""
     try:
         with sqlite3.connect(db_path) as conn:
@@ -150,7 +152,7 @@ def _regime_to_multiplier(regime: str) -> float:
 def compute_traffic_light(
     spy: pd.DataFrame | None = None,
     vix: float | None = None,
-    db_path: str = "ai_research_desk.sqlite3",
+    db_path: str = DB_PATH,
 ) -> dict:
     """Compute the Traffic Light regime overlay.
 

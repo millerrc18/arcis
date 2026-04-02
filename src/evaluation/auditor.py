@@ -17,7 +17,7 @@ import uuid
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from src.config import load_config
+from src.config import DB_PATH, load_config
 from src.training.versioning import init_training_tables
 
 logger = logging.getLogger(__name__)
@@ -84,7 +84,7 @@ OUTPUT FORMAT (JSON):
 }"""
 
 
-def run_daily_audit(db_path: str = "ai_research_desk.sqlite3") -> dict:
+def run_daily_audit(db_path: str = DB_PATH) -> dict:
     """Run the daily auditor agent on today's trading activity.
 
     Generates the CTO report for today, sends it to Claude for analysis,
@@ -160,7 +160,7 @@ def run_daily_audit(db_path: str = "ai_research_desk.sqlite3") -> dict:
     return result
 
 
-def run_weekly_audit(days: int = 7, db_path: str = "ai_research_desk.sqlite3") -> dict:
+def run_weekly_audit(days: int = 7, db_path: str = DB_PATH) -> dict:
     """Run a deeper weekly audit that looks at trends."""
     from src.evaluation.cto_report import generate_cto_report
     from src.training.claude_client import generate_training_example
@@ -235,7 +235,7 @@ def run_weekly_audit(days: int = 7, db_path: str = "ai_research_desk.sqlite3") -
     return result
 
 
-def check_escalation(audit: dict, db_path: str = "ai_research_desk.sqlite3") -> list[dict]:
+def check_escalation(audit: dict, db_path: str = DB_PATH) -> list[dict]:
     """Check if any audit flags require immediate escalation.
 
     Escalation actions:

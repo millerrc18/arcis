@@ -19,10 +19,10 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
-
-DB_PATH = "ai_research_desk.sqlite3"
 FRED_BASE = "https://api.stlouisfed.org/fred/series/observations"
 
 FRED_SERIES = {

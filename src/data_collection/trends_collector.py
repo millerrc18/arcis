@@ -19,10 +19,10 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
-
-DB_PATH = "ai_research_desk.sqlite3"
 
 MARKET_SENTIMENT_TERMS = [
     "stock market crash",
