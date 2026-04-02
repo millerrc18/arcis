@@ -174,7 +174,8 @@ Also installed (not repo-relevant): hookify, playground, plugin-dev, mcp-server-
 | Telegram | ✅ LIVE — 32 functions, gated behind trade_id (no spam on rejected trades) |
 | Intra-day reconciliation | ✅ LIVE — every 15 min during market hours, resolves exit_failed/exit_pending trades |
 | Dashboard (Arcis) | ✅ LIVE — 16 pages (+Architecture, DB Schema), sidebar sections, chart visibility fix |
-| Render sync | ✅ LIVE — 40/40 tables configured, all Postgres CREATE TABLE entries present |
+| Schema registry | ✅ LIVE — 46 tables in `src/schema/registry.py`, single source of truth for SQLite + Postgres |
+| Render sync | ✅ LIVE — 40/46 tables synced to Postgres, SYNC_TABLES generated from registry |
 | Module registry (AGENTS.md) | ✅ LIVE — 138 entries |
 | Automated guardrails | ✅ LIVE — test_repo_structure.py |
 | CI on PRs | ✅ LIVE — tests + guardrails + frontend build |
@@ -389,7 +390,7 @@ GRPO training: RunPod A100 cloud ($14/mo), not local hardware.
 
 | Priority | Sprint | Prompt | Status |
 |---|---|---|---|
-| 1 | **Schema Registry** | `docs/sprints/sprint-schema-registry.md` | QUEUED — **fire next** (prevents all schema-drift bugs) |
+| 1 | **Schema Registry** | `docs/sprints/sprint-schema-registry.md` | ✅ DONE — 46 tables in registry, all DDL removed from source, guardrail tests + hookify |
 | 2 | React Flow interactive diagrams | `docs/sprints/sprint-react-flow.md` | ✅ DONE — PR #178 (Architecture + DB Schema pages) |
 | 3 | Repo reorganization | TBD | Backlog |
 | 4 | architecture.md refresh | TBD | Backlog |
