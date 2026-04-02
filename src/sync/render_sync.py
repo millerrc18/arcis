@@ -212,20 +212,28 @@ def _upsert_to_postgres(
     pk: str,
     columns: list[str],
     rows: list[dict],
+    conflict_col: str | None = None,
 ) -> int:
-    """Upsert rows into Postgres using ON CONFLICT. Returns count of upserted rows."""
+    """Upsert rows into Postgres using ON CONFLICT. Returns count of upserted rows.
+
+    Args:
+        conflict_col: Override the ON CONFLICT target (e.g., for tables with
+            UNIQUE constraints that differ from the PK, like edgar_filings
+            which has a UNIQUE accession_number).
+    """
     if not rows or not columns:
         return 0
 
+    conflict_target = conflict_col or pk
     col_list = ", ".join(columns)
     placeholders = ", ".join(["%s"] * len(columns))
     update_set = ", ".join(
-        f"{col} = EXCLUDED.{col}" for col in columns if col != pk
+        f"{col} = EXCLUDED.{col}" for col in columns if col != conflict_target
     )
 
     sql = (
         f"INSERT INTO {table_name} ({col_list}) VALUES ({placeholders}) "
-        f"ON CONFLICT ({pk}) DO UPDATE SET {update_set}"
+        f"ON CONFLICT ({conflict_target}) DO UPDATE SET {update_set}"
     )
 
     count = 0
@@ -296,6 +304,7 @@ def sync_table(
     mode = table_config["mode"]
     time_col = table_config.get("time_col")
     pk = table_config["pk"]
+    conflict_col = table_config.get("conflict_col")
 
     # Special handling for council_votes (no time_col of its own)
     if table_name == "council_votes":
@@ -303,14 +312,14 @@ def sync_table(
         rows, columns = _fetch_council_votes_for_new_sessions(since, db_path)
         if not rows:
             return 0
-        return _upsert_to_postgres(pg_conn, table_name, pk, columns, rows)
+        return _upsert_to_postgres(pg_conn, table_name, pk, columns, rows, conflict_col)
 
     if mode == "incremental":
         since = get_last_synced_at(table_name, db_path)
         rows, columns = _fetch_incremental_rows(table_name, time_col, since, db_path)
         if not rows:
             return 0
-        count = _upsert_to_postgres(pg_conn, table_name, pk, columns, rows)
+        count = _upsert_to_postgres(pg_conn, table_name, pk, columns, rows, conflict_col)
         # Update sync state to latest time_col value
         latest_ts = max(r.get(time_col, "") for r in rows)
         if latest_ts:
@@ -333,7 +342,7 @@ def sync_table(
         rows, columns = _fetch_full_rows(table_name, db_path)
         if not rows:
             return 0
-        return _upsert_to_postgres(pg_conn, table_name, pk, columns, rows)
+        return _upsert_to_postgres(pg_conn, table_name, pk, columns, rows, conflict_col)
 
     raise ValueError(f"Unknown sync mode for {table_name}: {mode}")
 

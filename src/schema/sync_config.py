@@ -21,5 +21,7 @@ def generate_sync_tables() -> dict[str, dict]:
         entry["pk"] = pk
         if table.sync_mode in ("incremental", "latest_only") and table.sync_time_column:
             entry["time_col"] = table.sync_time_column
+        if table.sync_conflict_col:
+            entry["conflict_col"] = table.sync_conflict_col
         config[name] = entry
     return config

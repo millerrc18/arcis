@@ -57,6 +57,7 @@ class TableDef:
     sync_mode: str = "incremental"  # incremental, full, latest_only
     sync_time_column: str | None = "created_at"
     sync_pk: str | None = None  # Defaults to primary_key if None
+    sync_conflict_col: str | None = None  # Override ON CONFLICT target (e.g., UNIQUE columns)
 
 
 TABLES: dict[str, TableDef] = {}
@@ -600,6 +601,7 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="collected_at",
     sync_pk="id",
+    sync_conflict_col="accession_number",
 ))
 
 _register(TableDef(

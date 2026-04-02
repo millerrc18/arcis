@@ -414,7 +414,7 @@ class WatchLoop:
                     "ARCIS STARTED",
                     f"Model: {model_name}\nMode: {'Overnight' if self.overnight else 'Standard'}\nTraining: {training_str}"
                 )
-                print(" Telegram: connected ✓")
+                print(" Telegram: connected (ok)")
             else:
                 print(" Telegram: not configured")
         except Exception as e:
@@ -1006,8 +1006,8 @@ class WatchLoop:
                 on_commands_pulled=_on_commands_pulled,
             )
             if sync_thread:
-                print(" Render sync: enabled ✓")
-                print(" Command queue: enabled ✓")
+                print(" Render sync: enabled (ok)")
+                print(" Command queue: enabled (ok)")
             else:
                 print(" Render sync: disabled")
         except Exception as e:
