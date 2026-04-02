@@ -1,5 +1,5 @@
 {
-  "run_count": 5,
+  "run_count": 6,
   "current_focus_index": 0,
   "file_index": 75,
   "file_list": [
@@ -180,8 +180,88 @@
     "frontend/src/pages/Training.jsx",
     "frontend/src/pages/Validation.jsx"
   ],
-  "last_run": "2026-04-01T12:30:00Z",
+  "last_run": "2026-04-02T12:00:00Z",
   "findings": {
+    "run_4": {
+      "focus_area": "code_quality",
+      "files_audited": [
+        "src/data_enrichment/earnings_signals.py",
+        "src/data_enrichment/enricher.py",
+        "src/data_enrichment/fundamentals.py",
+        "src/data_enrichment/insiders.py",
+        "src/data_enrichment/macro.py",
+        "src/data_enrichment/news.py",
+        "src/data_ingestion/__init__.py",
+        "src/data_ingestion/market_data.py",
+        "src/data_integrity.py",
+        "src/email/__init__.py",
+        "src/email/digest_builder.py",
+        "src/email/notifier.py",
+        "src/evaluation/__init__.py",
+        "src/evaluation/auditor.py",
+        "src/evaluation/backtester.py"
+      ],
+      "medium": [
+        {
+          "file": "src/data_enrichment/fundamentals.py",
+          "lines": "7, 9",
+          "description": "Unused imports: `json` (line 7) and `os` (line 9) are imported but never referenced in the file.",
+          "suggested_fix": "Remove `import json` and `import os` from the import block."
+        },
+        {
+          "file": "src/evaluation/backtester.py",
+          "lines": "7, 12",
+          "description": "Unused imports: `json` (line 7) and `Path` (line 12) are imported but never referenced in the file.",
+          "suggested_fix": "Remove `import json` and `from pathlib import Path` from the import block."
+        },
+        {
+          "file": "src/evaluation/backtester.py",
+          "lines": "19-179",
+          "description": "backtest_model() is 160 lines — mixes data fetching, day-by-day simulation, trade execution, and metric computation in a single function. Hard to test and maintain.",
+          "suggested_fix": "Extract into helpers: _fetch_backtest_data(), _simulate_trading_day(), _compute_backtest_metrics(), _compute_regime_summary()."
+        },
+        {
+          "file": "src/data_enrichment/news.py",
+          "lines": "85-272",
+          "description": "fetch_recent_news (95 lines) and fetch_historical_news (89 lines) share ~70% identical logic for caching, API calls, headline parsing, and sentiment classification.",
+          "suggested_fix": "Extract shared logic into a private _fetch_and_parse_news() helper; have both public functions delegate to it with date parameters."
+        },
+        {
+          "file": "src/evaluation/auditor.py",
+          "lines": "118-128, 198-208, 249",
+          "description": "Duplicated JSON-from-LLM parsing logic in run_daily_audit and run_weekly_audit (identical try/except blocks). Also redundant `import sqlite3` at line 249 shadows module-level import.",
+          "suggested_fix": "Extract a _parse_audit_json(response) helper. Remove the inner `import sqlite3` at line 249."
+        }
+      ],
+      "low": [
+        {
+          "file": "src/data_enrichment/earnings_signals.py",
+          "description": "compute_earnings_signals is 132 lines; sequential but long."
+        },
+        {
+          "file": "src/data_enrichment/enricher.py",
+          "description": "enrich_features is 116 lines with repeated try/except blocks and imports inside the for-loop body."
+        },
+        {
+          "file": "src/data_enrichment/insiders.py",
+          "description": "_fetch_from_finnhub is 93 lines; straightforward but long."
+        },
+        {
+          "file": "src/email/digest_builder.py",
+          "description": "_safe_fetchall and _safe_fetchone missing type hints; 4 digest functions all >50 lines with duplicated query patterns."
+        },
+        {
+          "file": "src/data_enrichment/macro.py",
+          "description": "fetch_macro_context is 71 lines, borderline."
+        },
+        {
+          "file": "src/evaluation/auditor.py",
+          "description": "check_escalation is 86 lines."
+        }
+      ],
+      "high": [],
+      "github_issues_status": "BLOCKED — no GitHub token or gh CLI available in this environment. 5 medium issues need to be created manually."
+    },
     "run_5": {
       "focus": "code_quality",
       "files_audited": [
