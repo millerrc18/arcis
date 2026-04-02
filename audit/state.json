@@ -1,7 +1,7 @@
 {
-  "run_count": 6,
+  "run_count": 7,
   "current_focus_index": 0,
-  "file_index": 75,
+  "file_index": 90,
   "file_list": [
     "src/__init__.py",
     "src/api/__init__.py",
@@ -180,7 +180,7 @@
     "frontend/src/pages/Training.jsx",
     "frontend/src/pages/Validation.jsx"
   ],
-  "last_run": "2026-04-02T12:00:00Z",
+  "last_run": "2026-04-02T18:00:00Z",
   "findings": {
     "run_4": {
       "focus_area": "code_quality",
@@ -339,6 +339,80 @@
       ],
       "high": [],
       "github_issues_blocked": "gh CLI and GITHUB_TOKEN not available — 8 medium findings need manual issue creation"
+    },
+    "run_7": {
+      "focus_area": "code_quality",
+      "files_audited": [
+        "src/llm/__init__.py",
+        "src/llm/client.py",
+        "src/llm/packet_writer.py",
+        "src/llm/postmortem_writer.py",
+        "src/llm/prompts.py",
+        "src/llm/validator.py",
+        "src/llm/watchlist_writer.py",
+        "src/log_config.py",
+        "src/logging/__init__.py",
+        "src/logging/activity.py",
+        "src/main.py",
+        "src/models.py",
+        "src/notifications/__init__.py",
+        "src/notifications/telegram.py",
+        "src/packets/__init__.py"
+      ],
+      "medium": [
+        {
+          "file": "src/llm/packet_writer.py",
+          "lines": "51-178, 206-285, 288-382",
+          "description": "Three functions exceed 50 lines: _build_feature_prompt (128 lines), _parse_llm_response (80 lines), enhance_packet_with_llm (95 lines). Also redundant `import re` at line 218 inside _parse_llm_response shadows module-level import at line 11.",
+          "suggested_fix": "Extract prompt sections into per-section helpers. Split _parse_llm_response into _parse_xml_response and _parse_plaintext_fallback. Extract grammar/condensed retry logic from enhance_packet_with_llm. Remove inner `import re`."
+        },
+        {
+          "file": "src/notifications/telegram.py",
+          "lines": "entire file (1461 lines)",
+          "description": "File is 1461 lines — 3.6x over the 400-line guideline. Mixes notification formatters, Telegram command handlers, action reminder logic, and system queries in one file.",
+          "suggested_fix": "Split into: notifications/telegram_client.py (send_telegram, config), notifications/telegram_alerts.py (notify_* functions), notifications/telegram_commands.py (_cmd_* handlers + handle_command), notifications/action_reminders.py (check_action_reminders)."
+        },
+        {
+          "file": "src/notifications/telegram.py",
+          "lines": "676-808",
+          "description": "check_action_reminders is 133 lines. Mixes 5 unrelated reminder checks (gate milestones, Sunday review, API rotation, unscored training, retrain overdue) in one function with deeply nested try/except blocks.",
+          "suggested_fix": "Extract each reminder into its own function: _check_gate_milestone(), _check_sunday_review(), _check_api_rotation(), _check_unscored_training(), _check_retrain_overdue(). check_action_reminders becomes an orchestrator."
+        },
+        {
+          "file": "src/main.py",
+          "lines": "76-250",
+          "description": "build_parser is 175 lines — a single function wiring all 50+ CLI subcommands. Hard to navigate and maintain.",
+          "suggested_fix": "Group subcommand registration by domain: _register_scan_commands(), _register_trading_commands(), _register_training_commands(), _register_evaluation_commands(), _register_system_commands(). build_parser calls each."
+        }
+      ],
+      "low": [
+        {
+          "file": "src/llm/postmortem_writer.py",
+          "description": "Duplicate log line: line 55 repeats line 54 with added indentation ('  [LLM] Enhanced postmortem...')."
+        },
+        {
+          "file": "src/llm/watchlist_writer.py",
+          "description": "Duplicate log line: line 68 repeats line 67 with added indentation ('  [LLM] Generated watchlist narrative')."
+        },
+        {
+          "file": "src/llm/validator.py",
+          "description": "validate_llm_output is 61 lines (borderline). `packet` parameter at line 31 has no type hint."
+        },
+        {
+          "file": "src/logging/activity.py",
+          "description": "_table_created global (line 21) is set in _ensure_table but never read. _ensure_table is a no-op."
+        },
+        {
+          "file": "src/notifications/telegram.py",
+          "description": "Multiple redundant inner imports: `import os` at line 1289 shadows module-level import; `from datetime import datetime` imported twice inside _cmd_trades (lines 946, 963); `from datetime import datetime as dt` at line 751."
+        },
+        {
+          "file": "src/notifications/telegram.py",
+          "description": "Several command handlers exceed 50 lines: _cmd_pnl (66 lines), _cmd_council (84 lines), _cmd_trades (58 lines)."
+        }
+      ],
+      "high": [],
+      "github_issues_status": "BLOCKED — no gh CLI, no GitHub MCP tools, no GITHUB_TOKEN. 4 medium issues need to be created manually or in a future run with GitHub access."
     }
   }
 }
