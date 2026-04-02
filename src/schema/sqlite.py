@@ -45,11 +45,37 @@ def generate_create_sql(table: TableDef) -> str:
 
 
 def create_all_tables(db_path: str) -> None:
-    """Create all tables defined in the registry. Idempotent."""
+    """Create all tables defined in the registry. Idempotent.
+
+    Creates tables first, then indexes separately — existing tables may
+    be missing columns that indexes reference. ensure_columns() fills
+    the gaps, so indexes are retried after column migration.
+    """
+    deferred_indexes: list[tuple[str, str]] = []
     with sqlite3.connect(db_path) as conn:
         for table in TABLES.values():
-            conn.executescript(generate_create_sql(table))
+            sql = generate_create_sql(table)
+            # Split CREATE TABLE from CREATE INDEX to handle schema drift
+            for statement in sql.split(";\n"):
+                statement = statement.strip()
+                if not statement:
+                    continue
+                try:
+                    conn.execute(statement)
+                except sqlite3.OperationalError as e:
+                    if "no such column" in str(e) and "INDEX" in statement.upper():
+                        deferred_indexes.append((table.name, statement))
+                    else:
+                        logger.warning("[SCHEMA] %s: %s", table.name, e)
         conn.commit()
+
+    # Retry deferred indexes after ensure_columns has a chance to run
+    if deferred_indexes:
+        logger.debug(
+            "[SCHEMA] %d indexes deferred (missing columns)",
+            len(deferred_indexes),
+        )
+
     logger.info("[SCHEMA] Created/verified %d tables in %s", len(TABLES), db_path)
 
 
@@ -93,4 +119,22 @@ def ensure_columns(db_path: str) -> list[str]:
         conn.commit()
     if added:
         logger.info("[SCHEMA] Added %d columns: %s", len(added), added)
+
+    # Retry indexes that were deferred during create_all_tables
+    # (they failed because columns were missing — now added above)
+    for table in TABLES.values():
+        for idx in table.indexes:
+            unique = "UNIQUE " if idx.unique else ""
+            idx_cols = ", ".join(idx.columns)
+            try:
+                conn_retry = sqlite3.connect(db_path)
+                conn_retry.execute(
+                    f"CREATE {unique}INDEX IF NOT EXISTS {idx.name} "
+                    f"ON {table.name}({idx_cols})"
+                )
+                conn_retry.commit()
+                conn_retry.close()
+            except sqlite3.OperationalError:
+                pass  # Column still missing or index already exists
+
     return added
