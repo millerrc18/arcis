@@ -32,224 +32,20 @@ LOCAL_DB = DB_PATH
 # ── Tables and sync strategies ───────────────────────────────────────
 # "incremental" = sync rows where created_at > last_synced_at
 # "latest_only" = drop and re-insert latest snapshot (no created_at)
-SYNC_TABLES: dict[str, dict] = {
-    "shadow_trades": {
-        "mode": "incremental",
-        "time_col": "updated_at",
-        "pk": "trade_id",
-    },
-    "recommendations": {
-        "mode": "incremental",
-        "time_col": "created_at",
-        "pk": "recommendation_id",
-    },
-    "model_versions": {
-        "mode": "full",
-        "pk": "version_id",
-    },
-    "metric_snapshots": {
-        "mode": "incremental",
-        "time_col": "created_at",
-        "pk": "snapshot_id",
-    },
-    "audit_reports": {
-        "mode": "incremental",
-        "time_col": "created_at",
-        "pk": "audit_id",
-    },
-    "schedule_metrics": {
-        "mode": "incremental",
-        "time_col": "metric_date",
-        "pk": "id",
-    },
-    "earnings_calendar": {
-        "mode": "incremental",
-        "time_col": "collected_at",
-        "pk": "id",
-    },
-    "options_metrics": {
-        "mode": "latest_only",
-        "time_col": "collected_date",
-        "pk": "id",
-    },
-    "vix_term_structure": {
-        "mode": "latest_only",
-        "time_col": "collected_date",
-        "pk": "id",
-    },
-    "macro_snapshots": {
-        "mode": "latest_only",
-        "time_col": "collected_date",
-        "pk": "id",
-    },
-    "options_chains": {
-        "mode": "latest_only",
-        "time_col": "collected_at",
-        "pk": "id",
-    },
-    "cboe_ratios": {
-        "mode": "latest_only",
-        "time_col": "collected_date",
-        "pk": "id",
-    },
-    "google_trends": {
-        "mode": "latest_only",
-        "time_col": "collected_date",
-        "pk": "id",
-    },
-    "council_sessions": {
-        "mode": "incremental",
-        "time_col": "created_at",
-        "pk": "session_id",
-    },
-    "council_votes": {
-        "mode": "incremental",
-        "time_col": None,  # synced via session_id FK lookup
-        "pk": "vote_id",
-    },
-    # New data collection tables
-    "insider_transactions": {
-        "mode": "incremental",
-        "time_col": "collected_at",
-        "pk": "id",
-    },
-    "short_interest": {
-        "mode": "incremental",
-        "time_col": "collected_at",
-        "pk": "id",
-    },
-    "analyst_estimates": {
-        "mode": "incremental",
-        "time_col": "collected_at",
-        "pk": "id",
-    },
-    "fed_communications": {
-        "mode": "incremental",
-        "time_col": "collected_at",
-        "pk": "id",
-    },
-    "edgar_filings": {
-        "mode": "incremental",
-        "time_col": "collected_at",
-        "pk": "id",
-    },
-    "build_score_history": {
-        "mode": "incremental",
-        "time_col": "created_at",
-        "pk": "score_id",
-    },
-    "api_costs": {
-        "mode": "incremental",
-        "time_col": "created_at",
-        "pk": "cost_id",
-    },
-    "training_examples": {
-        "mode": "incremental",
-        "time_col": "created_at",
-        "pk": "example_id",
-    },
-    "activity_log": {
-        "mode": "incremental",
-        "time_col": "created_at",
-        "pk": "id",
-    },
-    "setup_signals": {
-        "mode": "incremental",
-        "time_col": "created_at",
-        "pk": "signal_id",
-    },
-    "quality_drift_metrics": {
-        "mode": "incremental",
-        "time_col": "created_at",
-        "pk": "id",
-    },
-    "canary_evaluations": {
-        "mode": "incremental",
-        "time_col": "created_at",
-        "pk": "id",
-    },
-    "research_papers": {
-        "mode": "incremental",
-        "time_col": "collected_at",
-        "pk": "id",
-    },
-    "research_digests": {
-        "mode": "incremental",
-        "time_col": "created_at",
-        "pk": "id",
-    },
-    "scan_metrics": {
-        "mode": "incremental",
-        "time_col": "created_at",
-        "pk": "id",
-    },
-    "research_docs": {
-        "mode": "incremental",
-        "time_col": "updated_at",
-        "pk": "id",
-    },
-    "validation_results": {
-        "mode": "incremental",
-        "time_col": "created_at",
-        "pk": "result_id",
-    },
-    # v2 council + value tracker tables
-    "traffic_light_state": {
-        "mode": "full",
-        "pk": "id",
-    },
-    "council_calibrations": {
-        "mode": "incremental",
-        "time_col": "created_at",
-        "pk": "calibration_id",
-    },
-    "council_debug_log": {
-        "mode": "incremental",
-        "time_col": "created_at",
-        "pk": "debug_id",
-    },
-    "council_parameter_log": {
-        "mode": "incremental",
-        "time_col": "created_at",
-        "pk": "log_id",
-    },
-    "council_parameter_state": {
-        "mode": "full",
-        "pk": "parameter_name",
-    },
-    "user_notes": {
-        "mode": "incremental",
-        "time_col": "updated_at",
-        "pk": "note_id",
-    },
-    # Command queue tables (Sprint 4C) — bidirectional sync
-    # command_results: local → cloud (push)
-    "command_results": {
-        "mode": "incremental",
-        "time_col": "created_at",
-        "pk": "result_id",
-    },
-    # log_entries: local → cloud (push, last 500 only)
-    "log_entries": {
-        "mode": "incremental",
-        "time_col": "created_at",
-        "pk": "log_id",
-    },
-    # pending_commands and config_overrides are PULLED from cloud, not pushed
-    # (handled by pull_commands() in the sync cycle)
-}
+# Generated from schema registry — see src/schema/sync_config.py
+from src.schema.sync_config import generate_sync_tables
+SYNC_TABLES: dict[str, dict] = generate_sync_tables()
+# NOTE: pending_commands and config_overrides are PULLED from cloud, not pushed
+# (handled by pull_commands() in the sync cycle)
 
 
 class TableFetchError(RuntimeError):
     """Raised when a configured sync table cannot be read from SQLite."""
 
 # ── Sync state table (local SQLite) ─────────────────────────────────
-SYNC_STATE_SCHEMA = """
-CREATE TABLE IF NOT EXISTS sync_state (
-    table_name TEXT PRIMARY KEY,
-    last_synced_at TEXT NOT NULL
-);
-"""
+
+from src.schema.registry import TABLES as _REGISTRY_TABLES
+from src.schema.sqlite import generate_create_sql as _generate_create_sql
 
 
 def _sqlite_conn(db_path: str = LOCAL_DB) -> sqlite3.Connection:
@@ -260,10 +56,10 @@ def _sqlite_conn(db_path: str = LOCAL_DB) -> sqlite3.Connection:
 
 
 def _init_sync_state(db_path: str = LOCAL_DB) -> None:
-    """Ensure the sync_state table exists."""
+    """Ensure the sync_state table exists (from schema registry)."""
     try:
         with _sqlite_conn(db_path) as conn:
-            conn.executescript(SYNC_STATE_SCHEMA)
+            conn.executescript(_generate_create_sql(_REGISTRY_TABLES["sync_state"]))
     except Exception as exc:
         logger.error("Failed to init sync_state table: %s", exc)
 

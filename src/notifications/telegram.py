@@ -28,7 +28,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-from src.config import load_config
+from src.config import DB_PATH, load_config
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -673,7 +673,7 @@ def notify_action_required(action: str, detail: str, urgency: str = "normal") ->
     return send_telegram(msg)
 
 
-def check_action_reminders(db_path: str = "ai_research_desk.sqlite3") -> list[str]:
+def check_action_reminders(db_path: str = DB_PATH) -> list[str]:
     """Check all conditions that require manual action. Returns list of actions sent.
 
     Called daily at 8 PM from the watch loop. Checks:
@@ -920,7 +920,7 @@ def _cmd_trades() -> str:
     """List open trades with paper/live split."""
     import sqlite3
     try:
-        with sqlite3.connect("ai_research_desk.sqlite3") as conn:
+        with sqlite3.connect(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 """SELECT ticker, entry_price, pnl_pct, pnl_dollars, created_at,
@@ -980,7 +980,7 @@ def _cmd_pnl() -> str:
     """Current P&L summary with paper/live split."""
     import sqlite3
     try:
-        with sqlite3.connect("ai_research_desk.sqlite3") as conn:
+        with sqlite3.connect(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
 
             # Overall stats
@@ -1048,7 +1048,7 @@ def _cmd_last_scan() -> str:
     """Last scan result."""
     import sqlite3
     try:
-        with sqlite3.connect("ai_research_desk.sqlite3") as conn:
+        with sqlite3.connect(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 """SELECT ticker, priority_score, created_at
@@ -1117,7 +1117,7 @@ def _cmd_scoring() -> str:
     """Scoring backlog status."""
     import sqlite3
     try:
-        with sqlite3.connect("ai_research_desk.sqlite3") as conn:
+        with sqlite3.connect(DB_PATH) as conn:
             total = conn.execute(
                 "SELECT COUNT(*) FROM training_examples"
             ).fetchone()[0]
@@ -1321,7 +1321,7 @@ def _cmd_disk() -> str:
     import shutil
 
     dirs = {
-        "DB": "ai_research_desk.sqlite3",
+        "DB": DB_PATH,
         "Logs": "logs",
         "Models": "models",
     }

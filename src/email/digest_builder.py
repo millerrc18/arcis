@@ -18,6 +18,8 @@ import sqlite3
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
@@ -42,7 +44,7 @@ def _safe_fetchone(conn, sql, params=()):
         raise
 
 
-def build_premarket_digest(db_path: str = "ai_research_desk.sqlite3") -> tuple[str, str]:
+def build_premarket_digest(db_path: str = DB_PATH) -> tuple[str, str]:
     """Pre-market brief: portfolio status, overnight events, today's plan."""
     now = datetime.now(ET)
 
@@ -115,7 +117,7 @@ def build_premarket_digest(db_path: str = "ai_research_desk.sqlite3") -> tuple[s
     return subject, "\n".join(lines)
 
 
-def build_midday_digest(db_path: str = "ai_research_desk.sqlite3") -> tuple[str, str]:
+def build_midday_digest(db_path: str = DB_PATH) -> tuple[str, str]:
     """Midday update: morning trades, P&L, risk alerts."""
     now = datetime.now(ET)
     today = now.strftime("%Y-%m-%d")
@@ -186,7 +188,7 @@ def build_midday_digest(db_path: str = "ai_research_desk.sqlite3") -> tuple[str,
     return subject, "\n".join(lines)
 
 
-def build_eod_digest(db_path: str = "ai_research_desk.sqlite3") -> tuple[str, str]:
+def build_eod_digest(db_path: str = DB_PATH) -> tuple[str, str]:
     """EOD recap: full day summary, all trades, P&L, position snapshot."""
     now = datetime.now(ET)
     today = now.strftime("%Y-%m-%d")
@@ -243,7 +245,7 @@ def build_eod_digest(db_path: str = "ai_research_desk.sqlite3") -> tuple[str, st
     return subject, "\n".join(lines)
 
 
-def build_evening_digest(db_path: str = "ai_research_desk.sqlite3") -> tuple[str, str]:
+def build_evening_digest(db_path: str = DB_PATH) -> tuple[str, str]:
     """Evening digest: model quality, training data, flywheel velocity."""
     now = datetime.now(ET)
     today = now.strftime("%Y-%m-%d")

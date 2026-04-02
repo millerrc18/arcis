@@ -16,7 +16,7 @@ from collections import Counter
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from src.config import load_config
+from src.config import DB_PATH, load_config
 from src.llm.prompts import TRAINING_EXAMPLE_PROMPT
 from src.training.claude_client import generate_training_example
 from src.training.ingestion_gate import (
@@ -42,7 +42,7 @@ def estimate_bootstrap_cost(n_examples: int) -> float:
 
 def generate_synthetic_training_data(
     n_examples: int,
-    db_path: str = "ai_research_desk.sqlite3",
+    db_path: str = DB_PATH,
 ) -> int:
     """Generate synthetic training examples using real features and fake outcomes.
 

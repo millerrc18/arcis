@@ -26,45 +26,12 @@ import uuid
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
 from src.council.constants import PARAMETER_DEFAULTS
 
 logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
-DB_PATH = "ai_research_desk.sqlite3"
-
-SCHEMA = """\
-CREATE TABLE IF NOT EXISTS council_parameter_log (
-    log_id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    agent_name TEXT,
-    parameter_name TEXT NOT NULL,
-    default_value REAL NOT NULL,
-    council_value REAL NOT NULL,
-    applied_value REAL NOT NULL,
-    rate_limited INTEGER DEFAULT 0,
-    attribution_start TEXT NOT NULL,
-    attribution_end TEXT,
-    trades_during_window INTEGER DEFAULT 0,
-    pnl_during_window REAL,
-    counterfactual_pnl REAL,
-    value_added_dollars REAL,
-    created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS council_parameter_state (
-    parameter_name TEXT PRIMARY KEY,
-    current_value REAL NOT NULL,
-    default_value REAL NOT NULL,
-    last_session_id TEXT,
-    last_updated TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_param_log_session
-    ON council_parameter_log(session_id);
-CREATE INDEX IF NOT EXISTS idx_param_log_window
-    ON council_parameter_log(attribution_start, attribution_end);
-"""
 
 # Parameters where counterfactual P&L can be computed
 # FIX #5: Only position_sizing_multiplier has a clean counterfactual
@@ -72,10 +39,11 @@ ATTRIBUTABLE_PARAMETERS = {"position_sizing_multiplier"}
 
 
 def init_value_tables(db_path: str = DB_PATH) -> None:
-    """Create value tracking tables if they don't exist."""
+    """Create value tracking tables and run column migrations via the schema registry."""
     try:
-        with sqlite3.connect(db_path) as conn:
-            conn.executescript(SCHEMA)
+        from src.schema.sqlite import create_all_tables, ensure_columns
+        create_all_tables(db_path)
+        ensure_columns(db_path)
     except Exception as e:
         logger.warning("[VALUE] Table creation failed: %s", e)
 

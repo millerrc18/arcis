@@ -21,6 +21,7 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
 from src.data_collection.research_sources import (
     RELEVANCE_KEYWORDS,
     crawl_ai_blogs,
@@ -130,7 +131,7 @@ def _store_paper(paper: dict, score: float, reason: str,
 # ── Main Collector ───────────────────────────────────────────────────
 
 
-def collect_research_papers(db_path: str = "ai_research_desk.sqlite3") -> dict:
+def collect_research_papers(db_path: str = DB_PATH) -> dict:
     """Nightly research paper collection. Returns {source: count} dict."""
     results = {}
     all_papers = []

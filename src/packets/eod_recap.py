@@ -7,6 +7,7 @@ Config keys: shadow_trading
 Tests: tests/test_packet_builders.py
 """
 
+from src.config import DB_PATH
 from src.universe.company_names import get_company_name
 
 
@@ -145,7 +146,7 @@ def build_eod_recap(packet_worthy: list[dict], watchlist: list[dict],
     return "\n".join(lines)
 
 
-def get_shadow_data_for_recap(db_path: str = "ai_research_desk.sqlite3") -> dict:
+def get_shadow_data_for_recap(db_path: str = DB_PATH) -> dict:
     """Gather shadow ledger data for the EOD recap."""
     from datetime import datetime
     from zoneinfo import ZoneInfo

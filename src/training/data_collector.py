@@ -15,7 +15,7 @@ from collections import Counter
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from src.config import load_config
+from src.config import DB_PATH, load_config
 from src.llm.prompts import BLINDED_ANALYSIS_PROMPT, QUALITY_ENHANCEMENT_PROMPT
 from src.training.claude_client import generate_training_example
 from src.training.ingestion_gate import (
@@ -81,7 +81,7 @@ MFE: ${trade.get('max_favorable_excursion', 0):.2f} | MAE: ${trade.get('max_adve
 
 
 def collect_training_examples_from_closed_trades(
-    db_path: str = "ai_research_desk.sqlite3",
+    db_path: str = DB_PATH,
 ) -> int:
     """Generate training examples from closed trades using the self-blinding pipeline.
 

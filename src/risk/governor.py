@@ -14,7 +14,7 @@ breached, the trade is rejected with an explanation.
 import logging
 from pathlib import Path
 
-from src.config import load_config
+from src.config import DB_PATH, load_config
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ def drawdown_adjusted_risk(base_risk_pct: float, current_dd_pct: float,
     return base_risk_pct * scale
 
 
-def compute_current_drawdown(db_path: str = "ai_research_desk.sqlite3",
+def compute_current_drawdown(db_path: str = DB_PATH,
                               starting_capital: float = 100000) -> float:
     """Compute current drawdown percentage from peak equity."""
     import sqlite3
@@ -293,7 +293,7 @@ class RiskGovernor:
         }
 
 
-def get_portfolio_state(db_path: str = "ai_research_desk.sqlite3") -> dict:
+def get_portfolio_state(db_path: str = DB_PATH) -> dict:
     """Get current portfolio state for risk checks."""
     from src.journal.store import get_open_shadow_trades
     from src.universe.sectors import SECTOR_MAP

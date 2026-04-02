@@ -910,20 +910,13 @@ def save_validation_result(result: dict, db_path: str = DB_PATH) -> str:
 
     Returns the result_id.
     """
+    from src.schema.sqlite import create_all_tables as _create_all
+
     result_id = str(uuid.uuid4())
+    # Ensure schema exists via registry (idempotent)
+    _create_all(db_path)
     conn = sqlite3.connect(db_path)
     try:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS validation_results (
-                result_id TEXT PRIMARY KEY,
-                created_at TEXT NOT NULL,
-                overall_status TEXT NOT NULL,
-                checks_passed INTEGER NOT NULL,
-                checks_failed INTEGER NOT NULL,
-                checks_warning INTEGER NOT NULL,
-                results_json TEXT NOT NULL
-            )
-        """)
         conn.execute(
             "INSERT INTO validation_results VALUES (?, ?, ?, ?, ?, ?, ?)",
             (

@@ -23,7 +23,7 @@ import sqlite3
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from src.config import load_config
+from src.config import DB_PATH, load_config
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -32,7 +32,7 @@ ET = ZoneInfo("America/New_York")
 class PreMarketPipeline:
     """Pre-market inference pipeline for filling the 6AM-9:25AM window."""
 
-    def __init__(self, db_path: str = "ai_research_desk.sqlite3"):
+    def __init__(self, db_path: str = DB_PATH):
         self.db_path = db_path
         self.config = load_config()
 

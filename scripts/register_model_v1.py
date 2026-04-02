@@ -17,6 +17,7 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from src.config import DB_PATH
 from src.training.versioning import (
     get_active_model_version,
     get_next_semver,
@@ -32,7 +33,7 @@ def main():
     parser.add_argument("--version", default=None, help="Override version name (default: auto)")
     args = parser.parse_args()
 
-    db_path = "ai_research_desk.sqlite3"
+    db_path = DB_PATH
     config_path = "config/settings.local.yaml"
     init_training_tables(db_path)
 

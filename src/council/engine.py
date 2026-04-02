@@ -25,6 +25,7 @@ import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
 from src.council.constants import PARAMETER_DEFAULTS, RATE_LIMITS
 from src.council.protocol import (
     aggregate_votes,
@@ -39,90 +40,11 @@ logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
 
-DB_PATH = "ai_research_desk.sqlite3"
-
-COUNCIL_SCHEMA = """\
-CREATE TABLE IF NOT EXISTS council_sessions (
-    session_id TEXT PRIMARY KEY,
-    session_type TEXT NOT NULL,
-    trigger_reason TEXT,
-    created_at TEXT NOT NULL,
-    consensus TEXT,
-    confidence_weighted_score REAL,
-    is_contested INTEGER DEFAULT 0,
-    total_cost REAL,
-    rounds_completed INTEGER DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS council_votes (
-    vote_id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    agent_name TEXT NOT NULL,
-    round INTEGER NOT NULL,
-    position TEXT,
-    confidence INTEGER,
-    recommendation TEXT,
-    key_data_points TEXT,
-    risk_flags TEXT,
-    vote TEXT,
-    is_devils_advocate INTEGER DEFAULT 0,
-    FOREIGN KEY (session_id) REFERENCES council_sessions(session_id)
-);
-
-CREATE TABLE IF NOT EXISTS council_calibrations (
-    calibration_id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    agent_name TEXT NOT NULL,
-    prediction TEXT NOT NULL,
-    prediction_confidence REAL NOT NULL,
-    verification_date TEXT NOT NULL,
-    actual_outcome TEXT,
-    correct INTEGER,
-    created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS council_debug_log (
-    debug_id TEXT PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    agent_name TEXT NOT NULL,
-    round INTEGER NOT NULL,
-    system_prompt_hash TEXT,
-    user_message TEXT,
-    raw_response TEXT,
-    parsed_successfully INTEGER DEFAULT 0,
-    parse_error TEXT,
-    latency_ms INTEGER,
-    created_at TEXT NOT NULL,
-    FOREIGN KEY (session_id) REFERENCES council_sessions(session_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_council_votes_session
-    ON council_votes(session_id);
-CREATE INDEX IF NOT EXISTS idx_council_sessions_created
-    ON council_sessions(created_at);
-CREATE INDEX IF NOT EXISTS idx_council_calibrations_session
-    ON council_calibrations(session_id);
-CREATE INDEX IF NOT EXISTS idx_council_debug_session
-    ON council_debug_log(session_id);
-"""
-
-
 def init_council_tables(db_path: str = DB_PATH) -> None:
-    """Create all council tables if they do not exist."""
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(COUNCIL_SCHEMA)
-        # Safe ALTERs for v2 columns (backward compat)
-        for alter in [
-            "ALTER TABLE council_sessions ADD COLUMN result_json TEXT",
-            "ALTER TABLE council_votes ADD COLUMN direction TEXT",
-            "ALTER TABLE council_votes ADD COLUMN confidence_float REAL",
-            "ALTER TABLE council_votes ADD COLUMN assessment_json TEXT",
-        ]:
-            try:
-                conn.execute(alter)
-            except sqlite3.OperationalError:
-                pass  # Column already exists
-        conn.commit()
+    """Create all council tables and run column migrations via the schema registry."""
+    from src.schema.sqlite import create_all_tables, ensure_columns
+    create_all_tables(db_path)
+    ensure_columns(db_path)
 
 
 def _store_votes(

@@ -19,34 +19,13 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
-
-DB_PATH = "ai_research_desk.sqlite3"
 FINNHUB_BASE = "https://finnhub.io/api/v1"
 
-_INIT_SQL = """
-CREATE TABLE IF NOT EXISTS short_interest (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    ticker TEXT NOT NULL,
-    settlement_date TEXT NOT NULL,
-    short_interest REAL,
-    avg_daily_volume REAL,
-    days_to_cover REAL,
-    short_pct_float REAL,
-    source TEXT DEFAULT 'finnhub',
-    collected_at TEXT NOT NULL,
-    UNIQUE(ticker, settlement_date)
-);
-
-CREATE INDEX IF NOT EXISTS idx_short_interest_ticker_date
-    ON short_interest(ticker, settlement_date);
-"""
-
-
-def _init_table(db_path: str) -> None:
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(_INIT_SQL)
+# Table creation handled by src/schema/registry.py
 
 
 def _get_finnhub_key() -> str | None:
@@ -70,8 +49,6 @@ def collect_short_interest(
 
     Returns: {"tickers_processed": int, "records_stored": int}
     """
-    _init_table(db_path)
-
     api_key = _get_finnhub_key()
     if not api_key:
         logger.warning("[SHORT] No Finnhub API key configured")

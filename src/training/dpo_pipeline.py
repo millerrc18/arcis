@@ -14,6 +14,7 @@ import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
 from src.training.versioning import init_training_tables
 
 logger = logging.getLogger(__name__)
@@ -21,28 +22,12 @@ ET = ZoneInfo("America/New_York")
 
 
 def _ensure_preference_table(db_path: str) -> None:
-    """Create preference_pairs table if it doesn't exist."""
-    with sqlite3.connect(db_path) as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS preference_pairs (
-                pair_id TEXT PRIMARY KEY,
-                created_at TEXT NOT NULL,
-                ticker TEXT,
-                scan_date TEXT,
-                input_text TEXT NOT NULL,
-                chosen_output TEXT NOT NULL,
-                rejected_output TEXT NOT NULL,
-                chosen_source TEXT,
-                rejected_source TEXT,
-                quality_delta REAL,
-                notes TEXT
-            )
-        """)
-        conn.commit()
+    """No-op: table creation handled by src/schema/registry.py at startup."""
+    pass
 
 
 def generate_preference_pairs(n_pairs: int = 100,
-                               db_path: str = "ai_research_desk.sqlite3") -> int:
+                               db_path: str = DB_PATH) -> int:
     """Generate preference pairs for DPO training.
 
     For each pair:
@@ -135,7 +120,7 @@ def generate_preference_pairs(n_pairs: int = 100,
 
 
 def export_preference_pairs(output_dir: str = "training_data",
-                            db_path: str = "ai_research_desk.sqlite3") -> int:
+                            db_path: str = DB_PATH) -> int:
     """Export preference pairs to JSONL for DPO training.
 
     Format per line:
@@ -173,7 +158,7 @@ def export_preference_pairs(output_dir: str = "training_data",
     return len(rows)
 
 
-def get_preference_pair_count(db_path: str = "ai_research_desk.sqlite3") -> int:
+def get_preference_pair_count(db_path: str = DB_PATH) -> int:
     """Return the count of preference pairs in the database."""
     _ensure_preference_table(db_path)
     with sqlite3.connect(db_path) as conn:

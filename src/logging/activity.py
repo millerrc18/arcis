@@ -13,10 +13,10 @@ import sqlite3
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
-
-DB_PATH = "ai_research_desk.sqlite3"
 
 _table_created = False
 
@@ -25,34 +25,13 @@ VALID_CATEGORIES = {
     "training", "system", "error",
 }
 
-_CREATE_TABLE_SQL = """
-CREATE TABLE IF NOT EXISTS activity_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    event_type TEXT NOT NULL,
-    detail TEXT,
-    created_at TEXT NOT NULL
-);
-"""
-
-_CREATE_INDEXES_SQL = [
-    "CREATE INDEX IF NOT EXISTS idx_activity_log_created_at ON activity_log(created_at);",
-    "CREATE INDEX IF NOT EXISTS idx_activity_log_event_type ON activity_log(event_type);",
-]
+# Table creation handled by src/schema/registry.py
 
 
 def _ensure_table():
-    """Create the activity_log table if it doesn't exist yet."""
+    """No-op: table creation handled by src/schema/registry.py at startup."""
     global _table_created
-    if _table_created:
-        return
-    try:
-        with sqlite3.connect(DB_PATH) as conn:
-            conn.execute(_CREATE_TABLE_SQL)
-            for idx_sql in _CREATE_INDEXES_SQL:
-                conn.execute(idx_sql)
-        _table_created = True
-    except Exception as e:
-        logger.warning("[ACTIVITY] Table creation failed: %s", e)
+    _table_created = True
 
 
 def log_activity(

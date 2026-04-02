@@ -15,6 +15,7 @@ import sqlite3
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
 from src.evaluation.hshs import DIMENSION_KEYS, compute_hshs_score
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 SYSTEM_START = datetime(2026, 3, 25, tzinfo=ET)
 
-DEFAULT_DB_PATH = "ai_research_desk.sqlite3"
+DEFAULT_DB_PATH = DB_PATH
 
 
 # ---------------------------------------------------------------------------

@@ -1071,3 +1071,27 @@ def cmd_validate_system(args):
         print("\n--fix: Attempting auto-fixes...")
         initialize_database()
         print("  Re-ran initialize_database() to ensure all tables exist.")
+
+
+def cmd_validate_schema(args):
+    """Validate database schema against the schema registry."""
+    from src.schema.validator import validate_sqlite, validate_codebase, fix_issues
+
+    print("Validating SQLite schema...")
+    issues = validate_sqlite(DB_PATH)
+    code_issues = validate_codebase()
+
+    all_issues = issues + code_issues
+    for issue in all_issues:
+        print(f"  {issue}")
+
+    if not all_issues:
+        print("Schema OK — no issues found.")
+        return
+
+    print(f"\n{len(issues)} database issues, {len(code_issues)} codebase violations")
+
+    if getattr(args, "fix", False) and issues:
+        actions = fix_issues(issues, DB_PATH)
+        for a in actions:
+            print(f"  FIX: {a}")

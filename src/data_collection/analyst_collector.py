@@ -20,40 +20,13 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
-
-DB_PATH = "ai_research_desk.sqlite3"
 FINNHUB_BASE = "https://finnhub.io/api/v1"
 
-_INIT_SQL = """
-CREATE TABLE IF NOT EXISTS analyst_estimates (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    ticker TEXT NOT NULL,
-    date TEXT NOT NULL,
-    consensus_buy INTEGER,
-    consensus_hold INTEGER,
-    consensus_sell INTEGER,
-    consensus_strong_buy INTEGER,
-    consensus_strong_sell INTEGER,
-    price_target_high REAL,
-    price_target_low REAL,
-    price_target_mean REAL,
-    price_target_median REAL,
-    num_analysts INTEGER,
-    source TEXT DEFAULT 'finnhub',
-    collected_at TEXT NOT NULL,
-    UNIQUE(ticker, date, source)
-);
-
-CREATE INDEX IF NOT EXISTS idx_analyst_ticker_date
-    ON analyst_estimates(ticker, date);
-"""
-
-
-def _init_table(db_path: str) -> None:
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(_INIT_SQL)
+# Table creation handled by src/schema/registry.py
 
 
 def _get_finnhub_key() -> str | None:
@@ -95,8 +68,6 @@ def collect_analyst_estimates(
 
     Returns: {"tickers_processed": int, "estimates_stored": int}
     """
-    _init_table(db_path)
-
     api_key = _get_finnhub_key()
     if not api_key:
         logger.warning("[ANALYST] No Finnhub API key configured")

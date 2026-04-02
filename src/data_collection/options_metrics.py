@@ -14,41 +14,12 @@ import sqlite3
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
-DB_PATH = "ai_research_desk.sqlite3"
-
-_INIT_SQL = """
-CREATE TABLE IF NOT EXISTS options_metrics (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    collected_at TEXT NOT NULL,
-    collected_date TEXT NOT NULL,
-    ticker TEXT NOT NULL,
-    iv_rank REAL,
-    iv_percentile REAL,
-    put_call_volume_ratio REAL,
-    put_call_oi_ratio REAL,
-    atm_iv_30d REAL,
-    iv_skew REAL,
-    unusual_volume_flag INTEGER,
-    max_unusual_volume_ratio REAL,
-    total_call_volume INTEGER,
-    total_put_volume INTEGER,
-    total_call_oi INTEGER,
-    total_put_oi INTEGER
-);
-
-CREATE INDEX IF NOT EXISTS idx_options_metrics_ticker_date
-    ON options_metrics(ticker, collected_date);
-CREATE INDEX IF NOT EXISTS idx_options_metrics_date
-    ON options_metrics(collected_date);
-"""
-
-
-def _init_table(db_path: str) -> None:
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(_INIT_SQL)
+# Table creation handled by src/schema/registry.py
 
 
 def compute_options_metrics(
@@ -59,7 +30,6 @@ def compute_options_metrics(
 
     Returns: {"tickers_computed": int, "unusual_flags": int}
     """
-    _init_table(db_path)
     now = datetime.now(ET)
     today_str = now.strftime("%Y-%m-%d")
 

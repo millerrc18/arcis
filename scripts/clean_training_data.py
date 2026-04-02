@@ -9,9 +9,14 @@ Fixes 4 problems:
 Usage: python scripts/clean_training_data.py
 """
 
+import os
 import re
 import sqlite3
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.config import DB_PATH
 
 
 def clean_output(text: str) -> str:
@@ -50,7 +55,7 @@ def clean_output(text: str) -> str:
 
 
 def main():
-    db_path = "ai_research_desk.sqlite3"
+    db_path = DB_PATH
     try:
         conn = sqlite3.connect(db_path)
     except Exception as e:

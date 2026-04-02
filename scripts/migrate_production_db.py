@@ -7,11 +7,16 @@ Usage:
 Idempotent: safe to run multiple times. Never drops or modifies existing data.
 """
 
+import os
 import sqlite3
 import sys
 from pathlib import Path
 
-DEFAULT_DB = "ai_research_desk.sqlite3"
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.config import DB_PATH
+
+DEFAULT_DB = DB_PATH
 
 
 def get_existing_columns(conn: sqlite3.Connection, table: str) -> list[str]:
@@ -62,59 +67,19 @@ def migrate_columns(conn: sqlite3.Connection) -> list[str]:
 # ── Table migrations (CREATE TABLE IF NOT EXISTS) ────────────────────────
 
 def migrate_tables(conn: sqlite3.Connection) -> list[str]:
-    """Create missing tables from create_missing_tables.py + any extras."""
-    from pathlib import Path
-    import importlib.util
+    """Create missing tables from the schema registry."""
+    from src.schema.registry import TABLES
+    from src.schema.sqlite import generate_create_sql
 
     actions = []
 
-    # Import and run the canonical table creator
-    script_dir = Path(__file__).resolve().parent
-    spec = importlib.util.spec_from_file_location(
-        "create_missing_tables",
-        script_dir / "create_missing_tables.py",
-    )
-    mod = importlib.util.module_from_spec(spec)
-
-    # Temporarily override DB_PATH so it uses our connection's DB
-    import types
-    spec.loader.exec_module(mod)
-
-    for sql in mod.TABLES:
+    for table in TABLES.values():
+        sql = generate_create_sql(table)
         try:
-            conn.execute(sql)
-            if "CREATE TABLE" in sql:
-                name = sql.split("EXISTS")[1].split("(")[0].strip()
-                actions.append(f"TABLE: {name} (created or already exists)")
-            elif "CREATE INDEX" in sql:
-                name = sql.split("EXISTS")[1].split("ON")[0].strip()
-                actions.append(f"INDEX: {name} (created or already exists)")
+            conn.executescript(sql)
+            actions.append(f"TABLE: {table.name} (created or already exists)")
         except Exception as e:
-            actions.append(f"ERROR: {e}")
-
-    # Extra tables/indexes not in create_missing_tables.py
-    extra_tables = [
-        """CREATE TABLE IF NOT EXISTS build_score_history (
-            score_id TEXT PRIMARY KEY,
-            score_date TEXT,
-            build_score REAL,
-            gate_velocity REAL,
-            system_health REAL,
-            data_asset_value REAL,
-            model_quality REAL,
-            research_velocity REAL,
-            reliability REAL,
-            decay_applied INTEGER DEFAULT 0,
-            components_json TEXT,
-            created_at TEXT)""",
-    ]
-    for sql in extra_tables:
-        try:
-            conn.execute(sql)
-            name = sql.split("EXISTS")[1].split("(")[0].strip()
-            actions.append(f"TABLE: {name} (created or already exists)")
-        except Exception as e:
-            actions.append(f"ERROR: {e}")
+            actions.append(f"ERROR: {table.name}: {e}")
 
     conn.commit()
     return actions

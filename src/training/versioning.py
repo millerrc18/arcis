@@ -13,168 +13,19 @@ import uuid
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
-TRAINING_TABLES_SCHEMA = """
-CREATE TABLE IF NOT EXISTS model_versions (
-    version_id TEXT PRIMARY KEY,
-    version_name TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    training_examples_count INTEGER,
-    synthetic_examples_count INTEGER,
-    outcome_examples_count INTEGER,
-    model_file_path TEXT,
-    status TEXT NOT NULL DEFAULT 'active',
-    notes TEXT
-);
-
-CREATE TABLE IF NOT EXISTS training_examples (
-    example_id TEXT PRIMARY KEY,
-    created_at TEXT NOT NULL,
-    source TEXT NOT NULL,
-    ticker TEXT,
-    recommendation_id TEXT,
-    feature_snapshot TEXT,
-    trade_outcome TEXT,
-    instruction TEXT NOT NULL,
-    input_text TEXT NOT NULL,
-    output_text TEXT NOT NULL,
-    quality_score REAL
-);
-"""
-
-TRAINING_INDEXES_SCHEMA = """
-CREATE INDEX IF NOT EXISTS idx_training_examples_source ON training_examples(source);
-CREATE INDEX IF NOT EXISTS idx_training_examples_ticker ON training_examples(ticker);
-CREATE INDEX IF NOT EXISTS idx_training_examples_created_at ON training_examples(created_at);
-CREATE INDEX IF NOT EXISTS idx_training_examples_recommendation_id ON training_examples(recommendation_id);
-CREATE INDEX IF NOT EXISTS idx_model_versions_status ON model_versions(status);
-"""
+def init_training_tables(db_path: str = DB_PATH) -> None:
+    """Create training tables and run column migrations via the schema registry."""
+    from src.schema.sqlite import create_all_tables, ensure_columns
+    create_all_tables(db_path)
+    ensure_columns(db_path)
 
 
-def init_training_tables(db_path: str = "ai_research_desk.sqlite3") -> None:
-    """Create training tables if they don't exist."""
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(TRAINING_TABLES_SCHEMA)
-        conn.commit()
-
-        # Migration: add columns introduced with training_examples v2
-        # (CREATE TABLE IF NOT EXISTS is a no-op on existing tables,
-        #  so new columns must be added via ALTER TABLE)
-        for col, col_def in [
-            ("recommendation_id", "TEXT"),
-            ("feature_snapshot", "TEXT"),
-            ("trade_outcome", "TEXT"),
-            ("instruction", "TEXT NOT NULL DEFAULT ''"),
-        ]:
-            try:
-                conn.execute(
-                    f"ALTER TABLE training_examples ADD COLUMN {col} {col_def}"
-                )
-                conn.commit()
-            except sqlite3.OperationalError:
-                pass
-
-        conn.executescript(TRAINING_INDEXES_SCHEMA)
-        conn.commit()
-
-        # Migration: add holdout_score to model_versions
-        try:
-            conn.execute("ALTER TABLE model_versions ADD COLUMN holdout_score REAL")
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass
-
-        # Migration: add holdout_details (JSON blob) to model_versions
-        try:
-            conn.execute("ALTER TABLE model_versions ADD COLUMN holdout_details TEXT")
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass
-
-        # Migration: add curriculum columns to training_examples
-        for col, col_type in [("difficulty", "TEXT"), ("curriculum_stage", "TEXT"),
-                               ("quality_score_auto", "REAL")]:
-            try:
-                conn.execute(f"ALTER TABLE training_examples ADD COLUMN {col} {col_type}")
-                conn.commit()
-            except sqlite3.OperationalError:
-                pass
-
-        # Model evaluations table for A/B testing
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS model_evaluations (
-                evaluation_id TEXT PRIMARY KEY,
-                created_at TEXT NOT NULL,
-                recommendation_id TEXT,
-                ticker TEXT,
-                input_text TEXT NOT NULL,
-                current_model TEXT NOT NULL,
-                current_output TEXT,
-                current_score REAL,
-                new_model TEXT NOT NULL,
-                new_output TEXT,
-                new_score REAL,
-                winner TEXT,
-                score_delta REAL
-            )
-        """)
-        conn.commit()
-
-        # Audit reports table
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS audit_reports (
-                audit_id TEXT PRIMARY KEY,
-                created_at TEXT NOT NULL,
-                audit_date TEXT NOT NULL,
-                overall_assessment TEXT NOT NULL,
-                summary TEXT,
-                flags TEXT,
-                metrics_to_watch TEXT,
-                model_health TEXT,
-                full_report TEXT
-            )
-        """)
-        conn.commit()
-
-        # Metric snapshots for historical trending
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS metric_snapshots (
-                snapshot_id TEXT PRIMARY KEY,
-                created_at TEXT NOT NULL,
-                snapshot_date TEXT NOT NULL,
-                metrics_json TEXT NOT NULL
-            )
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_metric_snapshots_date
-            ON metric_snapshots(snapshot_date)
-        """)
-        conn.commit()
-
-        # API cost tracking table
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS api_costs (
-                cost_id TEXT PRIMARY KEY,
-                created_at TEXT NOT NULL,
-                model TEXT NOT NULL,
-                purpose TEXT NOT NULL,
-                input_tokens INTEGER NOT NULL,
-                output_tokens INTEGER NOT NULL,
-                cost_dollars REAL NOT NULL
-            )
-        """)
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_api_costs_created_at ON api_costs(created_at)"
-        )
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_api_costs_purpose ON api_costs(purpose)"
-        )
-        conn.commit()
-
-
-def save_metric_snapshot(metrics: dict, db_path: str = "ai_research_desk.sqlite3") -> None:
+def save_metric_snapshot(metrics: dict, db_path: str = DB_PATH) -> None:
     """Save a metric snapshot for historical trending.
 
     Called automatically by the CTO report generator. Stores one snapshot
@@ -201,7 +52,7 @@ def save_metric_snapshot(metrics: dict, db_path: str = "ai_research_desk.sqlite3
         conn.commit()
 
 
-def get_metric_history(days: int = 90, db_path: str = "ai_research_desk.sqlite3") -> list[dict]:
+def get_metric_history(days: int = 90, db_path: str = DB_PATH) -> list[dict]:
     """Retrieve historical metric snapshots for trending.
 
     Returns a list of {date, metrics} dicts, sorted chronologically.
@@ -227,7 +78,7 @@ def get_metric_history(days: int = 90, db_path: str = "ai_research_desk.sqlite3"
             continue
     return result
 
-def get_active_model_version(db_path: str = "ai_research_desk.sqlite3") -> dict | None:
+def get_active_model_version(db_path: str = DB_PATH) -> dict | None:
     """Return the currently active model version, or None if using base."""
     init_training_tables(db_path)
     with sqlite3.connect(db_path) as conn:
@@ -244,7 +95,7 @@ def register_model_version(
     synthetic_count: int,
     outcome_count: int,
     model_file_path: str,
-    db_path: str = "ai_research_desk.sqlite3",
+    db_path: str = DB_PATH,
     holdout_score: float | None = None,
     holdout_details: str | None = None,
     status: str = "active",
@@ -275,7 +126,7 @@ def register_model_version(
     return version_id
 
 
-def get_evaluation_model(db_path: str = "ai_research_desk.sqlite3") -> dict | None:
+def get_evaluation_model(db_path: str = DB_PATH) -> dict | None:
     """Return a model in 'evaluation' status, or None."""
     init_training_tables(db_path)
     with sqlite3.connect(db_path) as conn:
@@ -286,7 +137,7 @@ def get_evaluation_model(db_path: str = "ai_research_desk.sqlite3") -> dict | No
     return dict(row) if row else None
 
 
-def promote_evaluation_model(db_path: str = "ai_research_desk.sqlite3") -> dict | None:
+def promote_evaluation_model(db_path: str = DB_PATH) -> dict | None:
     """Promote the evaluation model to active status."""
     init_training_tables(db_path)
     with sqlite3.connect(db_path) as conn:
@@ -303,7 +154,7 @@ def promote_evaluation_model(db_path: str = "ai_research_desk.sqlite3") -> dict 
     return dict(eval_model)
 
 
-def reject_evaluation_model(db_path: str = "ai_research_desk.sqlite3") -> dict | None:
+def reject_evaluation_model(db_path: str = DB_PATH) -> dict | None:
     """Reject the evaluation model (set to rejected status)."""
     init_training_tables(db_path)
     with sqlite3.connect(db_path) as conn:
@@ -319,7 +170,7 @@ def reject_evaluation_model(db_path: str = "ai_research_desk.sqlite3") -> dict |
     return dict(eval_model)
 
 
-def rollback_model(db_path: str = "ai_research_desk.sqlite3") -> dict | None:
+def rollback_model(db_path: str = DB_PATH) -> dict | None:
     """Roll back active model to previous retired version. Returns restored version or None."""
     init_training_tables(db_path)
     with sqlite3.connect(db_path) as conn:
@@ -347,7 +198,7 @@ def rollback_model(db_path: str = "ai_research_desk.sqlite3") -> dict | None:
     return None
 
 
-def get_model_history(db_path: str = "ai_research_desk.sqlite3") -> list[dict]:
+def get_model_history(db_path: str = DB_PATH) -> list[dict]:
     """Return all model versions ordered by created_at descending."""
     init_training_tables(db_path)
     with sqlite3.connect(db_path) as conn:
@@ -358,7 +209,7 @@ def get_model_history(db_path: str = "ai_research_desk.sqlite3") -> list[dict]:
     return [dict(row) for row in rows]
 
 
-def get_next_semver(db_path: str = "ai_research_desk.sqlite3") -> str:
+def get_next_semver(db_path: str = DB_PATH) -> str:
     """Compute the next semver version name from model history.
 
     Convention: halcyon-v{major}.{minor}.{patch}
@@ -415,13 +266,13 @@ def update_config_model(version_name: str, config_path: str = "config/settings.l
     return True
 
 
-def get_active_model_name(db_path: str = "ai_research_desk.sqlite3") -> str:
+def get_active_model_name(db_path: str = DB_PATH) -> str:
     """Return active model version name, or 'base' if none exists."""
     version = get_active_model_version(db_path)
     return version["version_name"] if version else "base"
 
 
-def get_performance_by_version(db_path: str = "ai_research_desk.sqlite3") -> list[dict]:
+def get_performance_by_version(db_path: str = DB_PATH) -> list[dict]:
     """Query closed shadow trades grouped by model_version on their recommendation."""
     from src.journal.store import initialize_database
     initialize_database(db_path)
@@ -457,7 +308,7 @@ def get_performance_by_version(db_path: str = "ai_research_desk.sqlite3") -> lis
     return results
 
 
-def get_training_example_counts(db_path: str = "ai_research_desk.sqlite3") -> dict:
+def get_training_example_counts(db_path: str = DB_PATH) -> dict:
     """Return counts of training examples by source."""
     init_training_tables(db_path)
     with sqlite3.connect(db_path) as conn:
@@ -473,7 +324,7 @@ def get_training_example_counts(db_path: str = "ai_research_desk.sqlite3") -> di
     return counts
 
 
-def get_new_examples_since(since_date: str, db_path: str = "ai_research_desk.sqlite3") -> int:
+def get_new_examples_since(since_date: str, db_path: str = DB_PATH) -> int:
     """Count training examples created after the given date."""
     init_training_tables(db_path)
     with sqlite3.connect(db_path) as conn:
@@ -484,14 +335,10 @@ def get_new_examples_since(since_date: str, db_path: str = "ai_research_desk.sql
     return row[0] if row else 0
 
 
-def _migrate_model_version_column(db_path: str = "ai_research_desk.sqlite3") -> None:
+def _migrate_model_version_column(db_path: str = DB_PATH) -> None:
     """Add model_version column to recommendations table if it doesn't exist."""
-    try:
-        with sqlite3.connect(db_path) as conn:
-            conn.execute("ALTER TABLE recommendations ADD COLUMN model_version TEXT")
-            conn.commit()
-    except sqlite3.OperationalError:
-        pass  # Column already exists
+    from src.schema.sqlite import ensure_columns
+    ensure_columns(db_path)
 
 
 # ---------------------------------------------------------------------------
@@ -511,7 +358,7 @@ def log_api_cost(
     purpose: str,
     input_tokens: int,
     output_tokens: int,
-    db_path: str = "ai_research_desk.sqlite3",
+    db_path: str = DB_PATH,
 ) -> None:
     """Log an API call's token usage and cost. Never raises."""
     try:
@@ -534,7 +381,7 @@ def log_api_cost(
         logger.debug("Failed to log API cost: %s", e)
 
 
-def get_cost_summary(days: int = 30, db_path: str = "ai_research_desk.sqlite3") -> dict:
+def get_cost_summary(days: int = 30, db_path: str = DB_PATH) -> dict:
     """Return cost summary: total, by purpose, by day."""
     init_training_tables(db_path)
     now = datetime.now(ET)

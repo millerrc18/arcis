@@ -38,17 +38,7 @@ API_SECRET = os.environ.get("API_SECRET", "")
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 security = HTTPBearer(auto_error=False)
 
-USER_NOTES_SCHEMA = """
-CREATE TABLE IF NOT EXISTS user_notes (
-    note_id TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
-    content TEXT DEFAULT '',
-    tags TEXT DEFAULT '[]',
-    pinned INTEGER DEFAULT 0,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-"""
+# user_notes table DDL is driven by the schema registry (see src/schema/registry.py)
 
 CLOUD_ACTION_MSG = {
     "error": "cloud_mode",
@@ -168,10 +158,13 @@ def _normalize_tags(tags: list[str] | str | None) -> list[str]:
 
 
 def _ensure_user_notes_table() -> None:
-    """Create the user_notes table if it is missing."""
+    """Create the user_notes table if it is missing (from schema registry)."""
+    from src.schema.registry import TABLES as _REG
+    from src.schema.postgres import generate_create_sql as _pg_create
+
     with get_pg(readonly=False) as conn:
         with conn.cursor() as cur:
-            cur.execute(USER_NOTES_SCHEMA)
+            cur.execute(_pg_create(_REG["user_notes"]))
             conn.commit()
 
 

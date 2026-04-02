@@ -28,6 +28,9 @@ Thumbs.db
 
 # Runtime data
 *.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.sqlite3-journal
 logs/
 data/
 !data/reference/

@@ -203,6 +203,46 @@ Each desk launches only after the previous desk is profitable. See docs/roadmap.
 3. **Blueprint** — Technical architecture (see docs/architecture.md)
 4. **Code** — Implementation
 
+## Database Schema Governance
+
+**Source of truth:** `src/schema/registry.py` — 46 tables defined as structured `TableDef` dataclasses
+**Validation:** `python -m src.main validate-schema [--fix] [--postgres]`
+**CI guardrails:** `test_no_create_table_in_source`, `test_no_alter_table_in_source` in `tests/test_schema.py`
+**Hookify rule:** `.claude/hookify.block-schema-drift.local.md` blocks DDL in Python files outside `src/schema/`
+
+### Schema architecture
+```
+src/schema/registry.py          <- THE source of truth (46 TableDef definitions)
+    |
+    +-- src/schema/sqlite.py     <- Generates CREATE TABLE for SQLite
+    +-- src/schema/postgres.py   <- Generates CREATE TABLE for Postgres
+    +-- src/schema/validator.py  <- Compares live DB against registry
+    +-- src/schema/sync_config.py <- Generates SYNC_TABLES config
+    |
+    +-- src/journal/store.py     <- initialize_database() reads from registry
+    +-- scripts/render_migrate.py <- Reads from registry (no manual DDL)
+    +-- src/sync/render_sync.py  <- SYNC_TABLES generated from registry
+```
+
+### Rules for AI agents (Claude Code, Codex, etc.)
+- You MUST NOT write `CREATE TABLE` or `ALTER TABLE` outside `src/schema/registry.py`
+- You MUST add new tables/columns to the registry FIRST, then run `validate-schema --fix`
+- You MUST run `python -m src.main validate-schema` before submitting any PR that touches the database
+- Tests will fail if DDL appears outside the schema module (`tests/test_schema.py` guardrail)
+
+### Adding a new table (step by step)
+1. Add `TableDef` to `TABLES` in `src/schema/registry.py`
+2. Run `python -m src.main validate-schema --fix` — creates the table in SQLite
+3. Run `python scripts/render_migrate.py` — creates the table in Postgres
+4. Set `sync_to_postgres=True` in the TableDef if cloud sync is needed
+5. Commit `registry.py` + any code that uses the new table
+
+### Adding a column (step by step)
+1. Add `ColumnDef` to the table's columns list in `src/schema/registry.py`
+2. Run `python -m src.main validate-schema --fix` — adds column to SQLite
+3. Run `python scripts/render_migrate.py` — adds column to Postgres (idempotent)
+4. Commit `registry.py` + any code that uses the new column
+
 ## Technology Stack
 
 - **Python 3.12+** — Core runtime

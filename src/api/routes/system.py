@@ -9,7 +9,7 @@ Tests: none
 import logging
 
 from fastapi import APIRouter, Query
-from src.config import load_config
+from src.config import DB_PATH, load_config
 from src.services.system_service import get_system_status
 
 router = APIRouter(tags=["system"])
@@ -144,7 +144,7 @@ def latest_audit():
     from src.training.versioning import init_training_tables
     import sqlite3
     init_training_tables()
-    with sqlite3.connect("ai_research_desk.sqlite3") as conn:
+    with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             "SELECT * FROM audit_reports ORDER BY created_at DESC LIMIT 1"
@@ -172,7 +172,7 @@ def audit_history(days: int = 7):
     init_training_tables()
     et = ZoneInfo("America/New_York")
     cutoff = (datetime.now(et) - timedelta(days=days)).isoformat()
-    with sqlite3.connect("ai_research_desk.sqlite3") as conn:
+    with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT * FROM audit_reports WHERE created_at >= ? ORDER BY created_at DESC",
@@ -256,7 +256,7 @@ def data_collection_stats():
     """Return summary stats for all data collection tables."""
     import sqlite3
 
-    db_path = "ai_research_desk.sqlite3"
+    db_path = DB_PATH
     stats = {}
 
     try:
@@ -383,7 +383,7 @@ _TABLE_WHITELIST = [
 def table_counts():
     """Return row counts for whitelisted tables (for DB Schema page)."""
     import sqlite3
-    conn = sqlite3.connect("ai_research_desk.sqlite3")
+    conn = sqlite3.connect(DB_PATH)
     counts = {}
     for table in _TABLE_WHITELIST:
         try:

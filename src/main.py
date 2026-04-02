@@ -64,10 +64,12 @@ from src.cli.commands import (
     cmd_training_history,
     cmd_training_report,
     cmd_training_status,
+    cmd_validate_schema,
     cmd_validate_system,
     cmd_validate_training,
     cmd_watch,
 )
+from src.config import DB_PATH
 from src.journal.store import initialize_database
 
 
@@ -77,7 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     init_db = subparsers.add_parser("init-db")
-    init_db.add_argument("--db-path", default="ai_research_desk.sqlite3")
+    init_db.add_argument("--db-path", default=DB_PATH)
     init_db.set_defaults(func=cmd_init_db)
 
     subparsers.add_parser("demo-packet").set_defaults(func=cmd_demo_packet)
@@ -233,6 +235,17 @@ def build_parser() -> argparse.ArgumentParser:
     validate_system.add_argument("--json", action="store_true", help="Output structured JSON")
     validate_system.add_argument("--fix", action="store_true", help="Attempt auto-fixes for common issues")
     validate_system.set_defaults(func=cmd_validate_system)
+
+    validate_schema = subparsers.add_parser(
+        "validate-schema", help="Validate database schema against registry"
+    )
+    validate_schema.add_argument(
+        "--fix", action="store_true", help="Auto-fix missing tables/columns"
+    )
+    validate_schema.add_argument(
+        "--postgres", action="store_true", help="Also validate Render Postgres"
+    )
+    validate_schema.set_defaults(func=cmd_validate_schema)
 
     return parser
 

@@ -14,6 +14,7 @@ import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
 from src.council.aggregation import aggregate_votes, tally_votes
 from src.council.constants import (
     PARAMETER_DEFAULTS,
@@ -104,7 +105,7 @@ def _build_round_1_prompt(shared_context: str, agent_data: str, custom_question:
 def run_round_1(
     shared_context: str,
     session_id: str | None = None,
-    db_path: str = "ai_research_desk.sqlite3",
+    db_path: str = DB_PATH,
     custom_question: str | None = None,
 ) -> list[dict]:
     """Round 1: all agents assess independently."""
@@ -145,7 +146,7 @@ def run_round_2(
     round1_assessments: list[dict],
     shared_context: str = "",
     session_id: str | None = None,
-    db_path: str = "ai_research_desk.sqlite3",
+    db_path: str = DB_PATH,
 ) -> tuple[list[dict], list[str]]:
     """Round 2: agents see the Round 1 summary and may revise their view."""
     from src.council.agents import AGENT_PROMPTS
@@ -215,7 +216,7 @@ def _store_debug_log(
     user_prompt: str,
     debug: dict,
     assessment: dict,
-    db_path: str = "ai_research_desk.sqlite3",
+    db_path: str = DB_PATH,
 ) -> None:
     """Store a council debug log entry for replay and incident review."""
     try:

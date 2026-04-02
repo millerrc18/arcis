@@ -11,8 +11,27 @@ All project rules, architecture, data sources, and constraints are in **AGENTS.m
 - **Risk governor is sacred** — never bypass or weaken risk checks without explicit approval
 - **Test count must not drop** — CI enforces a minimum of 1105 tests
 - **Mock all external APIs in tests** — no network calls from pytest (Alpaca, Finnhub, yfinance, FRED, Ollama)
-- **Schema migrations required** — adding a column to any `CREATE TABLE IF NOT EXISTS` constant also requires a corresponding `ALTER TABLE ADD COLUMN` migration (wrapped in try/except) that runs BEFORE any indexes on that column. `CREATE TABLE IF NOT EXISTS` is a no-op on existing tables — it does NOT add missing columns
+- **Schema registry is the single source of truth** — all 46 tables are defined in `src/schema/registry.py`. See "Database Schema Rules" below
 - **Test baseline before changes** — run `python -m pytest tests/ -q` at the start of any coding session and note the pass count. After changes, the pass count must not decrease and the failure count must not increase. Never dismiss test failures as "pre-existing" without investigating
+
+## Database Schema Rules (MANDATORY)
+
+All database tables are defined in `src/schema/registry.py` — the single source of truth.
+
+1. **NEVER write `CREATE TABLE` in any file except `src/schema/registry.py`** — CI guardrail tests and hookify rules will block it
+2. **NEVER write `ALTER TABLE` in any file except `src/schema/registry.py`** — column additions go through the registry
+3. **To add a new table:** Add a `TableDef` to `TABLES` in `src/schema/registry.py`, then run `python -m src.main validate-schema --fix`
+4. **To add a column:** Add a `ColumnDef` to the table's columns list in `src/schema/registry.py`, then run `python -m src.main validate-schema --fix`
+5. **To rename a column:** Add the new column to registry, add a migration note in the column description, run `validate-schema --fix`. NEVER rename in-place.
+6. **Before any PR that touches database tables:** Run `python -m src.main validate-schema` and include the output in the PR description
+7. **CI enforcement:** `test_no_create_table_in_source` and `test_no_alter_table_in_source` run on every PR — they fail if DDL appears outside `src/schema/`
+
+### Schema commands
+```bash
+python -m src.main validate-schema          # Check schema drift
+python -m src.main validate-schema --fix    # Auto-fix missing tables/columns
+python scripts/render_migrate.py            # Sync Postgres schema from registry
+```
 
 ## Common Commands
 

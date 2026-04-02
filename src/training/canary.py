@@ -26,6 +26,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
 from src.training.quality_drift import (
     compute_all_metrics,
     check_degradation,
@@ -36,21 +37,7 @@ ET = ZoneInfo("America/New_York")
 
 DEFAULT_CANARY_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "reference" / "canary_set.jsonl"
 
-CANARY_SCHEMA = """
-CREATE TABLE IF NOT EXISTS canary_evaluations (
-    eval_id TEXT PRIMARY KEY,
-    created_at TEXT NOT NULL,
-    model_version TEXT NOT NULL,
-    avg_score REAL,
-    score_delta_pct REAL,
-    distinct_1 REAL,
-    distinct_2 REAL,
-    self_bleu REAL,
-    vocab_size INTEGER,
-    degradation_detected INTEGER DEFAULT 0,
-    details TEXT
-);
-"""
+# Table creation handled by src/schema/registry.py
 
 # Perplexity increase threshold: >5% is an early warning
 PERPLEXITY_INCREASE_THRESHOLD = 0.05
@@ -59,9 +46,8 @@ SCORE_DROP_THRESHOLD = 0.05
 
 
 def _init_canary_tables(db_path: str) -> None:
-    """Create canary_evaluations table if it doesn't exist."""
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(CANARY_SCHEMA)
+    """No-op: table creation handled by src/schema/registry.py at startup."""
+    pass
 
 
 def _simple_score(expected: str, actual: str) -> float:
@@ -100,7 +86,7 @@ class CanaryMonitor:
     def __init__(
         self,
         canary_path: str | Path | None = None,
-        db_path: str = "ai_research_desk.sqlite3",
+        db_path: str = DB_PATH,
     ):
         self.canary_path = Path(canary_path) if canary_path else DEFAULT_CANARY_PATH
         self.db_path = db_path

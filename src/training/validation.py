@@ -12,12 +12,13 @@ import math
 import sqlite3
 from collections import Counter
 
+from src.config import DB_PATH
 from src.training.versioning import init_training_tables
 
 logger = logging.getLogger(__name__)
 
 
-def validate_training_dataset(db_path: str = "ai_research_desk.sqlite3") -> dict:
+def validate_training_dataset(db_path: str = DB_PATH) -> dict:
     """Run automated quality checks on the entire training dataset.
 
     Checks: format compliance (WHY NOW + DEEPER ANALYSIS present),

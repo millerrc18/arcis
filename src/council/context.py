@@ -10,10 +10,12 @@ Tests: none
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
+
 ET = ZoneInfo("America/New_York")
 
 
-def build_shared_context(db_path: str = "ai_research_desk.sqlite3") -> str:
+def build_shared_context(db_path: str = DB_PATH) -> str:
     """Build a concise shared market context for all agents."""
     from src.council.agents import _query_db
 

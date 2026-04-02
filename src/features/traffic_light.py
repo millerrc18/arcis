@@ -25,43 +25,27 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
 STATE_TABLE = "traffic_light_state"
 
 
-def _ensure_state_table(db_path: str = "ai_research_desk.sqlite3"):
-    """Create the traffic_light_state table if it doesn't exist."""
+def _ensure_state_table(db_path: str = DB_PATH):
+    """Seed the singleton row if missing; schema handled by registry."""
     try:
         with sqlite3.connect(db_path) as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS traffic_light_state (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    current_regime TEXT NOT NULL DEFAULT 'GREEN',
-                    pending_regime TEXT,
-                    pending_count INTEGER DEFAULT 0,
-                    last_vix_score INTEGER DEFAULT 0,
-                    last_trend_score INTEGER DEFAULT 0,
-                    last_credit_score INTEGER DEFAULT 0,
-                    last_total_score INTEGER DEFAULT 0,
-                    updated_at TEXT,
-                    last_transition_at TEXT
-                )
-            """)
             # Ensure exactly one row
             existing = conn.execute(f"SELECT COUNT(*) FROM {STATE_TABLE}").fetchone()[0]
             if existing == 0:
                 conn.execute(
                     f"INSERT INTO {STATE_TABLE} (id, current_regime) VALUES (1, 'GREEN')"
                 )
-            # Migrate: add last_transition_at if missing (#144)
-            cols = [r[1] for r in conn.execute(f"PRAGMA table_info({STATE_TABLE})").fetchall()]
-            if "last_transition_at" not in cols:
-                conn.execute(f"ALTER TABLE {STATE_TABLE} ADD COLUMN last_transition_at TEXT")
             conn.commit()
     except Exception as e:
-        logger.warning("[TRAFFIC] State table creation failed: %s", e)
+        logger.warning("[TRAFFIC] State table seed failed: %s", e)
 
 
 def _classify_vix(vix: float | None) -> int:
@@ -102,7 +86,7 @@ def _classify_trend(spy: pd.DataFrame | None) -> int:
         return 1  # Default yellow on error
 
 
-def _classify_credit(db_path: str = "ai_research_desk.sqlite3") -> int:
+def _classify_credit(db_path: str = DB_PATH) -> int:
     """Classify HY credit spread z-score from macro_snapshots."""
     try:
         with sqlite3.connect(db_path) as conn:
@@ -150,7 +134,7 @@ def _regime_to_multiplier(regime: str) -> float:
 def compute_traffic_light(
     spy: pd.DataFrame | None = None,
     vix: float | None = None,
-    db_path: str = "ai_research_desk.sqlite3",
+    db_path: str = DB_PATH,
 ) -> dict:
     """Compute the Traffic Light regime overlay.
 

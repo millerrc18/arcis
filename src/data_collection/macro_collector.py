@@ -19,10 +19,10 @@ from zoneinfo import ZoneInfo
 
 import requests
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
-
-DB_PATH = "ai_research_desk.sqlite3"
 FRED_BASE = "https://api.stlouisfed.org/fred/series/observations"
 
 FRED_SERIES = {
@@ -69,28 +69,7 @@ FRED_SERIES = {
     "M2SL": "M2 Money Supply",
 }
 
-_INIT_SQL = """
-CREATE TABLE IF NOT EXISTS macro_snapshots (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    collected_at TEXT NOT NULL,
-    collected_date TEXT NOT NULL,
-    series_id TEXT NOT NULL,
-    series_name TEXT NOT NULL,
-    value REAL,
-    previous_value REAL,
-    change_pct REAL
-);
-
-CREATE INDEX IF NOT EXISTS idx_macro_snapshots_date
-    ON macro_snapshots(collected_date);
-CREATE INDEX IF NOT EXISTS idx_macro_snapshots_series
-    ON macro_snapshots(series_id, collected_date);
-"""
-
-
-def _init_table(db_path: str) -> None:
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(_INIT_SQL)
+# Table creation handled by src/schema/registry.py
 
 
 def _get_fred_api_key() -> str | None:
@@ -160,8 +139,6 @@ def collect_macro_snapshots(db_path: str = DB_PATH) -> dict:
 
     Returns: {"series_collected": int, "notable_changes": list}
     """
-    _init_table(db_path)
-
     api_key = _get_fred_api_key()
     if not api_key:
         logger.warning("[MACRO] No FRED API key configured")

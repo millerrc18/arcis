@@ -7,6 +7,7 @@ Config keys: none
 Tests: tests/test_leakage_detector.py
 """
 
+from src.config import DB_PATH
 from src.training.trainer import should_train, check_model_performance
 from src.training.versioning import (
     get_active_model_version,
@@ -16,7 +17,7 @@ from src.training.versioning import (
 )
 
 
-def generate_training_report(db_path: str = "ai_research_desk.sqlite3") -> str:
+def generate_training_report(db_path: str = DB_PATH) -> str:
     """Build a comprehensive plain-text training progress report."""
     lines = []
     lines.append("[TRADE DESK] Training Progress Report")

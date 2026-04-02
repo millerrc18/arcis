@@ -26,6 +26,8 @@ import uuid
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
+
 logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
@@ -46,7 +48,7 @@ EXPECTED_WEEKLY_SCANS = 65  # 13/day x 5 days
 
 DECAY_POINTS = 1  # daily idle-day penalty
 
-DEFAULT_DB = "ai_research_desk.sqlite3"
+DEFAULT_DB = DB_PATH
 
 def _score_gate_velocity(conn: sqlite3.Connection) -> float:
     """Weekly closed-trade count vs target rate."""

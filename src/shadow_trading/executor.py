@@ -11,7 +11,7 @@ import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from src.config import load_config
+from src.config import DB_PATH, load_config
 from src.utils.db import connect_db
 from src.journal.store import (
     get_open_shadow_trades,
@@ -68,7 +68,7 @@ def open_shadow_trade(
     recommendation_id: str,
     packet: TradePacket,
     features: dict,
-    db_path: str = "ai_research_desk.sqlite3",
+    db_path: str = DB_PATH,
 ) -> str | None:
     """Open a shadow trade for a packet-worthy recommendation.
 
@@ -383,7 +383,7 @@ def open_shadow_trade(
     return trade_id
 
 
-def _retry_exit(trade: dict, db_path: str = "ai_research_desk.sqlite3") -> None:
+def _retry_exit(trade: dict, db_path: str = DB_PATH) -> None:
     """Retry exit for trades stuck in exit_pending or exit_failed."""
     ticker = trade["ticker"]
     shares = trade.get("shares", trade.get("planned_shares", 0))
@@ -416,7 +416,7 @@ def _retry_exit(trade: dict, db_path: str = "ai_research_desk.sqlite3") -> None:
 
 
 def check_and_manage_open_trades(
-    db_path: str = "ai_research_desk.sqlite3",
+    db_path: str = DB_PATH,
     source_filter: str | None = None,
 ) -> list[dict]:
     """Check all open shadow trades and manage exits.
@@ -759,7 +759,7 @@ def open_live_trade(
     recommendation_id: str,
     packet: TradePacket,
     features: dict,
-    db_path: str = "ai_research_desk.sqlite3",
+    db_path: str = DB_PATH,
 ) -> str | None:
     """Open a LIVE trade for a packet-worthy recommendation.
 
@@ -1005,7 +1005,7 @@ def open_live_trade(
     return trade_id
 
 
-def _check_open_milestones(db_path: str = "ai_research_desk.sqlite3",
+def _check_open_milestones(db_path: str = DB_PATH,
                            source: str = "paper") -> None:
     """Check for trade open milestones and send notifications."""
     try:
@@ -1031,7 +1031,7 @@ def _check_open_milestones(db_path: str = "ai_research_desk.sqlite3",
         logger.debug("[MILESTONE] Open milestone check failed: %s", e)
 
 
-def _check_close_milestones(db_path: str = "ai_research_desk.sqlite3") -> None:
+def _check_close_milestones(db_path: str = DB_PATH) -> None:
     """Check for trade close milestones and send notifications."""
     try:
         from src.notifications.telegram import notify_milestone, is_telegram_enabled
@@ -1149,7 +1149,7 @@ def _check_close_milestones(db_path: str = "ai_research_desk.sqlite3") -> None:
         logger.debug("[MILESTONE] Close milestone check failed: %s", e)
 
 
-def _check_loss_streak(db_path: str = "ai_research_desk.sqlite3") -> None:
+def _check_loss_streak(db_path: str = DB_PATH) -> None:
     """Check for consecutive losses and alert at 3+."""
     try:
         from src.notifications.telegram import notify_streak_alert, is_telegram_enabled
@@ -1215,7 +1215,7 @@ def _check_loss_streak(db_path: str = "ai_research_desk.sqlite3") -> None:
         logger.debug("[STREAK] Loss streak check failed: %s", e)
 
 
-def _check_sector_exposure(db_path: str = "ai_research_desk.sqlite3") -> None:
+def _check_sector_exposure(db_path: str = DB_PATH) -> None:
     """Check sector concentration after each trade open."""
     try:
         from src.notifications.telegram import notify_exposure_alert, is_telegram_enabled

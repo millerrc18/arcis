@@ -15,6 +15,7 @@ import logging
 import re
 import sqlite3
 
+from src.config import DB_PATH
 from src.training.versioning import init_training_tables
 
 logger = logging.getLogger(__name__)
@@ -183,16 +184,9 @@ def score_training_example(input_text: str, output_text: str,
     return scores
 
 
-def score_all_unscored(db_path: str = "ai_research_desk.sqlite3") -> dict:
+def score_all_unscored(db_path: str = DB_PATH) -> dict:
     """Score all training examples without quality_score_auto. Returns summary stats."""
     init_training_tables(db_path)
-
-    # Ensure column exists
-    with sqlite3.connect(db_path) as conn:
-        try:
-            conn.execute("ALTER TABLE training_examples ADD COLUMN quality_score_auto REAL")
-        except sqlite3.OperationalError:
-            pass
 
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
