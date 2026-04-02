@@ -3,7 +3,7 @@
 **This document is updated after every conversation with Claude. It IS the system state.**
 **Claude: You MUST read this file at the start of every session and update it after every substantive change.**
 
-> Last updated: April 1, 2026 (PM) · All sprints merged (4A-8 + reconciliation + analytics + dashboard redesign + log audit + data integrity + mega sprint). Mega Sprint: 15-min intra-day reconciliation, exit_failed recovery, Telegram gating, profit factor fix, React Flow pages, sidebar reorg, UI fixes. Tests: 1,228. 173 Python files, 101 test files, 16 dashboard pages, 40 sync tables. BSL 1.1 license.
+> Last updated: April 2, 2026 · Deep research synthesis approved: 8 new strategy decisions (#17-24), 3 new Phase 1 gate requirements (alpha attribution, stress test, MR paper trades), Strategy #2 paper-trading moved to NOW, options moved to Phase 2 at $15-25K, Collective2 account approved, 10-item CC sprint queue. Schema registry complete. 12 open GH issues. 13 closed trades (12W/1L, $860 P&L). Tests: 1,245. 175 Python files. 16 dashboard pages.
 
 ---
 
@@ -284,10 +284,10 @@ Also installed (not repo-relevant): hookify, playground, plugin-dev, mcp-server-
 
 | Gate | Requirement | Current | Status |
 |---|---|---|---|
-| Phase 1 → 2 | 50 closed trades, WR≥45%, Sharpe≥0.15, PF≥1.3, DD≤12% | 13 closed, 92% WR | 26% |
-| Phase 2 → 3 | 100 closed + Strategy #2 live + RTX 3090 | 0 | Not started |
+| Phase 1 → 2 | 50 closed trades, WR≥45%, Sharpe≥0.15, PF≥1.3, DD≤12%, **alpha attribution running (≥50 paired trades)**, **stress test completed (2008/2020/2022)**, **≥100 mean reversion paper trades** | 13 closed, 92% WR, 0 paired, 0 MR paper | 26% |
+| Phase 2 → 3 | 100 closed + Strategy #2 live + RTX 3090 + **options paper-trading at $15-25K** | 0 | Not started |
 | GRPO | 100+ closed trades | 0 | Blocked on data |
-| Fund formation | Track record + $2M AUM | N/A | Year 3+ |
+| Fund formation | Track record + $2M AUM + Collective2 24-month verified | N/A | Year 3+ |
 
 ---
 
@@ -304,9 +304,9 @@ GRPO training: RunPod A100 cloud ($14/mo), not local hardware.
 
 ---
 
-## Strategy Decisions (16 confirmed)
+## Strategy Decisions (24 confirmed)
 1. Strategy #1 = Pullback-in-uptrend (LIVE)
-2. Strategy #2 = Mean Reversion / Connors RSI(2) (Phase 2)
+2. Strategy #2 = Mean Reversion / Connors RSI(2) — **PAPER-TRADING NOW** (moved from Phase 2 gate, research: "YES, unambiguously")
 3. Strategy #3 = Evolved PEAD (Phase 3)
 4. RL = Dr. GRPO (at 100 trades)
 5. Breakout = pullback feature, not separate strategy
@@ -321,6 +321,14 @@ GRPO training: RunPod A100 cloud ($14/mo), not local hardware.
 14. Council: alert 8wk, auto-tighten 12wk, restore 4wk
 15. Council: holistic + per-agent value tracking
 16. Council: daily + weekly, monthly after 3 months
+17. **Alpha attribution experiment: parallel ranker-only shadow portfolio (second Alpaca paper account)**
+18. **Mechanical bracket exits optimal through 200 trades, then phased LLM management**
+19. **Options moved to Phase 2 at $15-25K (vertical spreads only, was $50K)**
+20. **Collective2 account: open immediately for independently verified track record**
+21. **Training data: expand from 7→11 XML sections with random source subsetting**
+22. **Scanning: 4-tier multi-cadence (15min position / 30min price / 60min sentiment / daily fundamentals)**
+23. **Outcome-conditioned training prompts: 3-5x data yield per closed trade**
+24. **8 new outcome metadata columns in shadow_trades via schema registry**
 
 ---
 
@@ -392,8 +400,47 @@ GRPO training: RunPod A100 cloud ($14/mo), not local hardware.
 |---|---|---|---|
 | 1 | **Schema Registry** | `docs/sprints/sprint-schema-registry.md` | ✅ DONE — 46 tables in registry, all DDL removed from source, guardrail tests + hookify |
 | 2 | React Flow interactive diagrams | `docs/sprints/sprint-react-flow.md` | ✅ DONE — PR #178 (Architecture + DB Schema pages) |
-| 3 | Repo reorganization | TBD | Backlog |
-| 4 | architecture.md refresh | TBD | Backlog |
+| 3 | **Fix critical bugs (#182, #183, #184)** | Inline fixes | QUEUED — reconciliation crash, conviction parsing, recovery DB columns |
+| 4 | **Alpha attribution experiment** | `docs/research/deep-research/SYNTHESIS-framework-update-roadmap-changes.md` | QUEUED — parallel ranker-only shadow portfolio |
+| 5 | **Mean reversion paper-trading** | TBD | QUEUED — Strategy #2 config + second watch loop |
+| 6 | **Multi-cadence scanning (4-tier)** | TBD | QUEUED — split position monitoring from scanning |
+| 7 | **Outcome metadata + conditioned training** | TBD | QUEUED — 8 columns + 3-5x data yield |
+| 8 | **Historical stress testing** | TBD | QUEUED — 2008, 2020, 2022 scenarios |
+| 9 | Repo reorganization | TBD | Backlog |
+| 10 | architecture.md refresh | TBD | Backlog |
+
+## Revenue Milestones
+
+| Month | Stream | Milestone |
+|---|---|---|
+| 0 (now) | Personal trading + capital injections ($1K/mo) | Start |
+| 3 | Open Collective2 account (~$99/mo) | Track record clock starts |
+| 6 | Phase 1 gate → go live ($5-10K) | Verifiable live returns |
+| 12 | Signal marketplace revenue ($200-$1K/mo) + RIA outreach | First external revenue |
+| 18 | Wyoming LLC + Section 475(f) | Legal entity |
+| 24 | Fund formation at $1-2M AUM | Management + performance fees |
+| 36 | Fund self-sustaining at $2M+ AUM (1.5%+17.5%) | Day job optional |
+
+## GPU Utilization Framework (UPDATED — April 2, 2026)
+
+**Old target:** 75% sustained (reality: 4.4% — 95% idle)
+**New target:** Phase into 40-70% utilization across all time blocks
+
+| Time Block | Current | Target | Activities |
+|---|---|---|---|
+| Market hours (9:30-4:00) | 4.4% | 30-40% | Inference + alpha backtest + nightly eval warmup |
+| Post-close (4:00-7:00) | ~5% | 40-60% | Stress testing + Monte Carlo + outcome-conditioned training gen |
+| Overnight (7:00-5:15) | ~10% | 50-70% | Continuous evaluation + parameter backtesting + scenario gen |
+| Weekend | Training only | 70-80% | Full retrain + exhaustive backtest + stress test suite |
+
+## Exit Management Framework (NEW — April 2, 2026)
+
+| Phase | Trades | Strategy | Key Additions |
+|---|---|---|---|
+| 1 (now) | 13→50 | Pure mechanical brackets | Fix live stop to 2.0× ATR, MFE/MAE logging |
+| 2 | 50→200 | Mechanical + rule-based | Time-based stop tightening (2.0×→1.5× by day 5), signal exit (close > 5-day SMA) |
+| 3 | 200→500 | Evaluate LLM pilot | Thesis invalidation detection on days 5-7 only |
+| 4 | 500+ | Full active if validated | Separate exit-specialist LoRA, daily conviction updates past day 3 |
 
 ---
 
