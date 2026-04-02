@@ -335,9 +335,53 @@ GRPO training: RunPod A100 cloud ($14/mo), not local hardware.
 
 ## Hardware Decisions
 - Keep Q8_0 quantization — quality is king
-- RTX 3090 + headless Linux ($1,500 all-in) — Phase 2
 - GRPO: RunPod A100 cloud ($14/mo), not local
-- UPS: CyberPower CP1500PFCLCD (~$220) — non-negotiable
+- **UPS: CyberPower CP1500PFCLCD (~$220) — BUY IMMEDIATELY** (contributing factor in DB corruption incident #181)
+
+### Phase 2: Dedicated Trading Server (~$1,300)
+
+**Trigger:** Phase 1 gate passed (50 closed trades) OR database corruption recurrence.
+
+| Component | Spec | Cost | Why |
+|---|---|---|---|
+| GPU | RTX 3090 24GB (used) | ~$700 | 14B model, GRPO, multi-LoRA serving |
+| CPU | Ryzen 5 5600 or i5-12400 | ~$120 | 6 cores — GPU does the heavy lifting |
+| RAM | 32GB DDR4 | ~$60 | Postgres + Python + Ollama headroom |
+| Storage | 1TB NVMe | ~$70 | Fast DB I/O, model storage |
+| Case + PSU | Basic mATX + 750W | ~$120 | 3090 needs 350W TDP |
+| UPS | CyberPower CP1500PFCLCD | ~$220 | Non-negotiable after incident #181 |
+| **Total** | | **~$1,290** | |
+
+**Software stack:**
+- Ubuntu Server 24.04 (headless, no desktop, no cloud sync)
+- PostgreSQL 16 (local primary — replaces SQLite entirely)
+- Ollama (inference + training, 24GB VRAM)
+- Watch loop runs 24/7, no sleep/restart interruptions
+- Render Postgres becomes cloud read-replica (keep for dashboard)
+- SSH from Windows machine for management + Claude Code sessions
+
+**Architecture after Phase 2:**
+```
+[Dedicated Linux Server]               [Render Cloud]
+  PostgreSQL 16 (primary) ──sync────→  PostgreSQL (read replica)
+  Ollama (halcyon-v1 / v2)              FastAPI (cloud_app.py)
+  Watch Loop (24/7)                     React Dashboard
+  Training Pipeline                     halcyonlab.app
+  12 Data Collectors
+
+[Windows PC]
+  SSH → Linux server
+  Claude Code sessions
+  Development only — no production data
+```
+
+**What this eliminates:**
+- OneDrive/cloud sync corruption (incident #181 root cause)
+- SQLite concurrency issues (Postgres handles natively)
+- Power loss corruption (UPS)
+- GPU contention with daily use
+- Windows sleep/restart interruptions
+- VRAM handoff complexity (24GB = inference + training without swapping)
 
 ---
 
@@ -345,28 +389,50 @@ GRPO training: RunPod A100 cloud ($14/mo), not local hardware.
 
 | Priority | Sprint | Prompt | Status |
 |---|---|---|---|
-| 1 | React Flow interactive diagrams | `docs/sprints/sprint-react-flow.md` | ✅ DONE — PR #178 (Architecture + DB Schema pages) |
-| 2 | Repo reorganization | TBD | Backlog |
-| 3 | architecture.md refresh | TBD | Backlog |
+| 1 | **Schema Registry** | `docs/sprints/sprint-schema-registry.md` | QUEUED — **fire next** (prevents all schema-drift bugs) |
+| 2 | React Flow interactive diagrams | `docs/sprints/sprint-react-flow.md` | ✅ DONE — PR #178 (Architecture + DB Schema pages) |
+| 3 | Repo reorganization | TBD | Backlog |
+| 4 | architecture.md refresh | TBD | Backlog |
 
 ---
 
 ## TODO (non-urgent)
-- [ ] **Move SQLite off OneDrive** — DB corrupted April 1 due to OneDrive sync conflict with WAL files. Recreated fresh (data safe on Render Postgres). Move to `C:\halcyon-data\` or exclude from OneDrive sync to prevent recurrence.
-- [ ] **Repo reorganization** — file structure needs cleanup: stale sprint docs, duplicate scripts, orphaned files, inconsistent naming, `ai_research_desk.sqlite3-wal` tracked in git. Audit and propose new structure before executing.
+
+### CRITICAL — Database Corruption Corrective Actions (Issue #181)
+- [ ] **Move repo off OneDrive** — DB corrupted April 1 due to OneDrive sync conflict with WAL files. Move to `C:\Projects\halcyon-lab` or exclude `*.sqlite3*` from OneDrive sync. ROOT CAUSE of corruption.
+- [ ] **Add `*.sqlite3*` to `.gitignore`** — WAL and SHM files tracked in git compound the problem
+- [ ] **Startup integrity check** — `PRAGMA integrity_check` on startup, Telegram alert if malformed, refuse to overwrite with empty DB
+- [ ] **Startup row count sanity check** — if shadow_trades drops from 50+ to 0, alert and abort instead of silently running on empty DB
+- [ ] **Automated daily SQLite backup** — copy DB to `backups/` at EOD, keep 7 days, Telegram alert on backup failure
+- [ ] **UPS: CyberPower CP1500PFCLCD (~$220)** — non-negotiable, prevents power-loss WAL corruption
+- [ ] **Local PostgreSQL server (Phase 2)** — eliminates SQLite corruption risk entirely. Postgres handles concurrent writes, WAL, and crash recovery natively. Replaces SQLite as primary local store, Render Postgres becomes cloud replica.
+
+### Infrastructure
+- [ ] **Repo reorganization** — file structure needs cleanup: stale sprint docs, duplicate scripts, orphaned files, inconsistent naming
 - [ ] **architecture.md refresh** — 1,245-line module registry is stale (counts from March 27). CC sprint task: read all 175 Python files and regenerate.
 - [ ] Rename GitHub repo `halcyon-lab` → `arcis`
 - [ ] GitHub Pro ($4/mo) for branch protection
-- [ ] UPS: CyberPower CP1500PFCLCD (~$220)
 - [ ] RTX 3090 + headless Linux machine ($1,500) — Phase 2
-- [ ] Logo SVG cleanup — ChatGPT raster design chosen (top-left blue on black). Needs Fiverr ($50-100) to recreate as clean vector SVG. Current attempts in docs/logo-dark.svg and docs/logo-light.svg are placeholders.
+- [ ] Logo SVG cleanup — ChatGPT raster design chosen (top-left blue on black). Needs Fiverr ($50-100) to recreate as clean vector SVG.
 - [ ] Domain: arcis.app or arciscapital.com
 - [ ] Wyoming LLC formation (July 2026 target)
-- [ ] WebSocket live endpoint (Phase 2+) — frontend client exists (WebSocketContext.jsx), needs backend `/ws/live` endpoint in watch loop. Low priority, polling works fine for 15-30 min scan intervals.
+- [ ] WebSocket live endpoint (Phase 2+) — frontend client exists (WebSocketContext.jsx), needs backend `/ws/live` endpoint in watch loop. Low priority.
 
-### Remaining GitHub Issues (5)
+### Remaining GitHub Issues (12)
+
+**Critical (real money / data integrity):**
+- [ ] #182 — Intra-day reconciliation crashes: `name 'now' is not defined` (PR #178 bug)
+- [ ] #183 — LLM conviction parsing 99% broken — 143/145 return None, all trades use default=5
+- [ ] #184 — Recovery DB missing 11 time columns — sync fails for 11 tables every cycle
+- [ ] #185 — Postgres duplicate key violations after recovery — sync inserts conflict
+- [ ] #186 — Postgres missing `traffic_light_state.last_transition_at` — 28 sync errors
+- [ ] #187 — 44 failed shadow trades — insufficient buying power, retries every scan
+- [ ] #188 — PFE backfilled with -14 shares — short position in long-only system
+- [ ] #181 — [INCIDENT] SQLite database corruption — RCCA + corrective actions documented
+
+**Pre-existing:**
 - [ ] #147 — No exponential backoff on network failures in enrichment
-- [ ] #132 — Fallback to settings.example.yaml with placeholder keys — no validation
+- [ ] #132 — Fallback to settings.example.yaml with placeholder keys
 - [ ] #112 — VRAM not freed after training — GPU memory leak
 - [ ] #106 — Kill switch not atomic, no staleness check
 - [ ] #82 — Silent exception swallowing in council/context.py

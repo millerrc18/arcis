@@ -192,9 +192,16 @@
 - [ ] GRPO reward model experiments begin (if hardware allows) *(GRPO research: needs RTX 3090 for Qwen3 8B)*
 - [ ] Monthly retrain cadence (not weekly) once dataset >3,000 *(Perplexity: diminishing returns from weekly at scale)*
 
-**Hardware:**
-- [ ] RTX 3090 24GB upgrade (~$700-900 used) *(GRPO research: highest-ROI purchase; unlocks 14B model + GRPO)*
-- [ ] UPS for power protection (~$200) *(Risk research: CyberPower CP1500PFCLCD)*
+**Hardware: Dedicated Trading Server (~$1,300)**
+- [ ] RTX 3090 24GB (used, ~$700) — 14B model, GRPO, multi-LoRA serving
+- [ ] Ryzen 5 5600 / i5-12400 (~$120) + 32GB DDR4 (~$60) + 1TB NVMe (~$70)
+- [ ] mATX case + 750W PSU (~$120) — 3090 needs 350W TDP
+- [ ] UPS: CyberPower CP1500PFCLCD (~$220) — **non-negotiable** (incident #181)
+- [ ] Ubuntu Server 24.04 (headless, no desktop, no cloud sync)
+- [ ] PostgreSQL 16 local (replaces SQLite — eliminates OneDrive corruption class)
+- [ ] Ollama serves inference 24/7, training overnight — no VRAM handoff needed (24GB)
+- [ ] Render Postgres becomes cloud read-replica for dashboard
+- [ ] SSH from Windows for management + Claude Code sessions
 
 **Risk Management:** *(Risk research: Phase 3 priorities)*
 - [ ] Beta-adjusted reverse stress testing ("distance to ruin" metric)
@@ -381,7 +388,7 @@ Purpose: Multi-model inference, parallel training, multi-desk operation.
 ### Upgrade Triggers (performance-gated, not calendar)
 | Trigger | Action | Cost |
 |---------|--------|------|
-| Phase 1 gate passed (50 trades) | Build Phase 2 machine | ~$1,500 |
+| Phase 1 gate passed (50 trades) | Build Phase 2 dedicated server (RTX 3090 + Linux + Postgres) | ~$1,300 |
 | Revenue exceeds $500/mo | Add cellular failover | $30/mo |
 | 200+ trades, breakout strategy ready | Consider Phase 4 GPU upgrade | ~$2,000 |
 | Fund formation ($3M AUM) | Full Phase 4 build | ~$5,000 |
