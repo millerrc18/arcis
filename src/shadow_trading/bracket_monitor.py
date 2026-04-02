@@ -22,25 +22,12 @@ ET = ZoneInfo("America/New_York")
 DEFAULT_DB_PATH = DB_PATH
 ACTIVE_LEG_STATUSES = {"new", "held"}
 
-BRACKET_HEALTH_SCHEMA = """
-CREATE TABLE IF NOT EXISTS bracket_health (
-    check_id TEXT PRIMARY KEY,
-    trade_id TEXT NOT NULL,
-    ticker TEXT NOT NULL,
-    stop_leg_status TEXT,
-    target_leg_status TEXT,
-    bracket_intact INTEGER DEFAULT 1,
-    action_taken TEXT,
-    checked_at TEXT NOT NULL
-);
-"""
+# Table creation handled by src/schema/registry.py
 
 
 def ensure_bracket_health_table(db_path: str = DEFAULT_DB_PATH) -> None:
-    """Create the bracket_health audit table if needed."""
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(BRACKET_HEALTH_SCHEMA)
-        conn.commit()
+    """No-op: table creation handled by src/schema/registry.py at startup."""
+    pass
 
 
 def _classify_legs(order_status: dict) -> tuple[str | None, str | None]:

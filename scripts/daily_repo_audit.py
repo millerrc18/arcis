@@ -351,10 +351,7 @@ def _paper_entry_requires_broker_probe() -> tuple[bool, str]:
 def _council_schema_probe() -> tuple[bool, str]:
     from src.council.agents import gather_macro_data, gather_tactical_data
     from src.council.protocol import build_shared_context
-    from src.data_collection.macro_collector import _init_table as init_macro_table
-    from src.data_collection.vix_collector import _init_table as init_vix_table
     from src.journal.store import initialize_database
-    from src.training.versioning import init_training_tables
 
     fd, raw_path = tempfile.mkstemp(suffix=".sqlite3")
     os.close(fd)
@@ -362,9 +359,6 @@ def _council_schema_probe() -> tuple[bool, str]:
 
     try:
         initialize_database(str(db_path))
-        init_training_tables(str(db_path))
-        init_vix_table(str(db_path))
-        init_macro_table(str(db_path))
 
         now = _utc_now()
         with sqlite3.connect(db_path) as conn:

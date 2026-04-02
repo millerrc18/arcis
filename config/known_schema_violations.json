@@ -1,0 +1,5 @@
+{
+  "_comment": "Schema migration complete. All CREATE TABLE/ALTER TABLE moved to src/schema/registry.py. This file is kept for the guardrail tests — add entries here only for temporary exemptions during future migrations.",
+  "allowed_create_table": [],
+  "allowed_alter_table": []
+}

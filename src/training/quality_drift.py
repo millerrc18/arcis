@@ -26,21 +26,7 @@ from src.config import DB_PATH
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
-QUALITY_DRIFT_SCHEMA = """
-CREATE TABLE IF NOT EXISTS quality_drift_metrics (
-    metric_id TEXT PRIMARY KEY,
-    created_at TEXT NOT NULL,
-    cycle_number INTEGER,
-    model_version TEXT,
-    distinct_1 REAL,
-    distinct_2 REAL,
-    self_bleu REAL,
-    vocab_size INTEGER,
-    avg_length REAL,
-    degradation_flag INTEGER DEFAULT 0,
-    details TEXT
-);
-"""
+# Table creation handled by src/schema/registry.py
 
 # Thresholds: distinct_2 drop >10% OR self_BLEU rise >15% = investigate
 DISTINCT_2_DROP_THRESHOLD = 0.10
@@ -48,9 +34,8 @@ SELF_BLEU_RISE_THRESHOLD = 0.15
 
 
 def init_quality_drift_tables(db_path: str = DB_PATH) -> None:
-    """Create quality_drift_metrics table if it doesn't exist."""
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(QUALITY_DRIFT_SCHEMA)
+    """No-op: table creation handled by src/schema/registry.py at startup."""
+    pass
 
 
 def _tokenize(text: str) -> list[str]:

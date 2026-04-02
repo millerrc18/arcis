@@ -188,13 +188,6 @@ def score_all_unscored(db_path: str = DB_PATH) -> dict:
     """Score all training examples without quality_score_auto. Returns summary stats."""
     init_training_tables(db_path)
 
-    # Ensure column exists
-    with sqlite3.connect(db_path) as conn:
-        try:
-            conn.execute("ALTER TABLE training_examples ADD COLUMN quality_score_auto REAL")
-        except sqlite3.OperationalError:
-            pass
-
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(

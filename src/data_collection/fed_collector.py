@@ -33,28 +33,7 @@ FED_HEADERS = {
     "Accept": "text/html",
 }
 
-_INIT_SQL = """
-CREATE TABLE IF NOT EXISTS fed_communications (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    comm_type TEXT NOT NULL,
-    title TEXT,
-    date TEXT NOT NULL,
-    speaker TEXT,
-    url TEXT,
-    full_text TEXT,
-    word_count INTEGER,
-    collected_at TEXT NOT NULL,
-    UNIQUE(comm_type, date, title)
-);
-
-CREATE INDEX IF NOT EXISTS idx_fed_comm_type_date
-    ON fed_communications(comm_type, date);
-"""
-
-
-def _init_table(db_path: str) -> None:
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(_INIT_SQL)
+# Table creation handled by src/schema/registry.py
 
 
 def _fetch_page(url: str) -> BeautifulSoup | None:
@@ -310,8 +289,6 @@ def collect_fed_communications(
 
     Returns: {"statements": int, "minutes": int, "beige_book": int, "speeches": int}
     """
-    _init_table(db_path)
-
     now = datetime.now(ET)
     collected_at = now.isoformat()
 

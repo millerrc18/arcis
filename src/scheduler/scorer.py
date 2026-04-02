@@ -87,15 +87,6 @@ class GuardedScorer:
         """Query training examples that haven't been auto-scored."""
         init_training_tables(self.db_path)
 
-        # Ensure quality_score_auto column exists
-        with sqlite3.connect(self.db_path) as conn:
-            try:
-                conn.execute(
-                    "ALTER TABLE training_examples ADD COLUMN quality_score_auto REAL"
-                )
-            except sqlite3.OperationalError:
-                pass
-
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(

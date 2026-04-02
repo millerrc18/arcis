@@ -4,8 +4,8 @@ import os
 import sqlite3
 import tempfile
 
+from src.schema.registry import TABLES
 from src.training.versioning import (
-    TRAINING_TABLES_SCHEMA,
     get_active_model_name,
     get_active_model_version,
     get_model_history,
@@ -202,12 +202,10 @@ def test_update_config_model_quoted_value():
 def test_init_training_tables_migrates_old_schema():
     """init_training_tables must handle a DB with the legacy training_examples schema.
 
-    Guards against schema drift: if a column is added to TRAINING_TABLES_SCHEMA
+    Guards against schema drift: if a column is added to the schema registry
     but no ALTER TABLE migration is added, this test will fail because the
     old-schema DB won't gain the new column after init.
     """
-    import re
-
     db = _tmp_db()
     # Recreate the old schema (documented in test_db_migration.py lines 21-25)
     with sqlite3.connect(db) as conn:
@@ -225,22 +223,10 @@ def test_init_training_tables_migrates_old_schema():
 
     init_training_tables(db)  # must not crash
 
-    # Auto-discover expected columns from the schema constant
-    te_match = re.search(
-        r"CREATE TABLE.*?training_examples\s*\((.*?)\);",
-        TRAINING_TABLES_SCHEMA,
-        re.DOTALL,
-    )
-    assert te_match, "Could not parse training_examples from TRAINING_TABLES_SCHEMA"
-    expected_cols = set()
-    for line in te_match.group(1).split("\n"):
-        line = line.strip().rstrip(",")
-        if line and not line.startswith("--"):
-            col_name = line.split()[0]
-            if col_name.upper() not in (
-                "PRIMARY", "UNIQUE", "FOREIGN", "CHECK", "CONSTRAINT",
-            ):
-                expected_cols.add(col_name)
+    # Discover expected columns from the schema registry
+    te_table = TABLES.get("training_examples")
+    assert te_table, "training_examples not found in schema registry TABLES"
+    expected_cols = {col.name for col in te_table.columns}
 
     # Compare against actual DB columns
     with sqlite3.connect(db) as conn:
@@ -252,7 +238,7 @@ def test_init_training_tables_migrates_old_schema():
 
     missing = expected_cols - actual_cols
     assert not missing, (
-        f"Columns {missing} defined in TRAINING_TABLES_SCHEMA but missing after "
+        f"Columns {missing} defined in schema registry but missing after "
         f"init_training_tables() on a legacy DB — add ALTER TABLE migrations"
     )
 

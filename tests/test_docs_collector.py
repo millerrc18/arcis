@@ -6,12 +6,13 @@ from unittest.mock import patch
 
 import pytest
 
+from src.schema.sqlite import generate_create_sql
+from src.schema.registry import TABLES
 from src.data_collection.docs_collector import (
     _categorize,
     _extract_title,
     _make_id,
     populate_research_docs,
-    RESEARCH_DOCS_SCHEMA,
 )
 
 
@@ -101,6 +102,9 @@ class TestPopulateResearchDocs:
         (docs_dir / "notes.txt").write_text("not markdown", encoding="utf-8")
 
         db_path = str(tmp_path / "test.sqlite3")
+        # Pre-create the research_docs table (table creation is now via registry)
+        with sqlite3.connect(db_path) as conn:
+            conn.executescript(generate_create_sql(TABLES["research_docs"]))
         return db_path
 
     def test_finds_md_files_and_inserts(self, tmp_path):
@@ -145,7 +149,7 @@ class TestPopulateResearchDocs:
 
         # Create schema so the table exists
         with sqlite3.connect(db_path) as conn:
-            conn.executescript(RESEARCH_DOCS_SCHEMA)
+            conn.executescript(generate_create_sql(TABLES["research_docs"]))
 
         # Directly verify: no md files -> no rows
         with sqlite3.connect(db_path) as conn:
@@ -161,7 +165,7 @@ class TestPopulateResearchDocs:
         # No .md files means nothing should be collected
         db_path = str(tmp_path / "test.sqlite3")
         with sqlite3.connect(db_path) as conn:
-            conn.executescript(RESEARCH_DOCS_SCHEMA)
+            conn.executescript(generate_create_sql(TABLES["research_docs"]))
             rows = conn.execute("SELECT * FROM research_docs").fetchall()
         assert len(rows) == 0
 
@@ -172,7 +176,7 @@ class TestPopulateResearchDocs:
         doc_id = _make_id(rel_path)
 
         with sqlite3.connect(db_path) as conn:
-            conn.executescript(RESEARCH_DOCS_SCHEMA)
+            conn.executescript(generate_create_sql(TABLES["research_docs"]))
             conn.execute(
                 "INSERT INTO research_docs (id, filename, title, category, content, size_kb, updated_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",

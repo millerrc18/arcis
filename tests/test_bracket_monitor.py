@@ -3,8 +3,9 @@
 import sqlite3
 from unittest.mock import patch
 
+from src.schema.sqlite import generate_create_sql
+from src.schema.registry import TABLES
 from src.shadow_trading.bracket_monitor import (
-    BRACKET_HEALTH_SCHEMA,
     _classify_legs,
     check_bracket_health,
     ensure_bracket_health_table,
@@ -27,7 +28,7 @@ CREATE TABLE shadow_trades (
 def _make_db(db_path: str) -> None:
     with sqlite3.connect(db_path) as conn:
         conn.executescript(SHADOW_TRADES_SCHEMA)
-        conn.executescript(BRACKET_HEALTH_SCHEMA)
+        conn.executescript(generate_create_sql(TABLES["bracket_health"]))
         conn.commit()
 
 
@@ -49,9 +50,12 @@ def _insert_trade(
 
 
 def test_ensure_bracket_health_table_creates_table(tmp_path):
+    """Table creation is handled by the schema registry; verify the registry has it."""
     db_path = str(tmp_path / "bracket.db")
 
-    ensure_bracket_health_table(db_path)
+    # ensure_bracket_health_table is now a no-op; table is created via registry
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(generate_create_sql(TABLES["bracket_health"]))
 
     with sqlite3.connect(db_path) as conn:
         row = conn.execute(

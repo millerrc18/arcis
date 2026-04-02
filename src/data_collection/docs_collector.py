@@ -21,17 +21,7 @@ from src.config import DB_PATH
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
-RESEARCH_DOCS_SCHEMA = """
-CREATE TABLE IF NOT EXISTS research_docs (
-    id TEXT PRIMARY KEY,
-    filename TEXT NOT NULL,
-    title TEXT NOT NULL,
-    category TEXT NOT NULL DEFAULT 'Uncategorized',
-    content TEXT NOT NULL,
-    size_kb REAL NOT NULL DEFAULT 0,
-    updated_at TEXT NOT NULL
-);
-"""
+# Table creation handled by src/schema/registry.py
 
 # Category mapping based on filename keywords
 DOC_CATEGORIES = {
@@ -127,7 +117,6 @@ def populate_research_docs(db_path: str = DB_PATH) -> dict:
     # Write to SQLite
     try:
         with sqlite3.connect(db_path) as conn:
-            conn.executescript(RESEARCH_DOCS_SCHEMA)
             for doc in docs_found:
                 conn.execute(
                     "INSERT INTO research_docs (id, filename, title, category, content, size_kb, updated_at) "

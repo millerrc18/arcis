@@ -17,189 +17,20 @@ from src.config import DB_PATH
 from src.models import TradePacket
 
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS recommendations (
-    recommendation_id TEXT PRIMARY KEY,
-    created_at TEXT NOT NULL,
-    ticker TEXT NOT NULL,
-    company_name TEXT,
-    mode TEXT,
-    setup_type TEXT,
-    priority_score REAL,
-    confidence_score REAL,
-    packet_type TEXT,
-    price_at_recommendation REAL,
-    market_regime TEXT,
-    sector_context TEXT,
-    trend_state TEXT,
-    relative_strength_state TEXT,
-    pullback_depth_pct REAL,
-    atr REAL,
-    volume_state TEXT,
-    recommendation TEXT,
-    thesis_text TEXT,
-    entry_zone TEXT,
-    stop_level TEXT,
-    target_1 TEXT,
-    target_2 TEXT,
-    expected_hold_period TEXT,
-    position_size_dollars REAL,
-    position_size_pct REAL,
-    estimated_dollar_risk REAL,
-    reasons_to_trade TEXT,
-    reasons_to_pass TEXT,
-    earnings_date TEXT,
-    event_risk_flag TEXT,
-    hold_window_overlaps_earnings INTEGER,
-    event_risk_warning_text TEXT,
-    conservative_sizing_applied INTEGER,
-    packet_sent INTEGER,
-    packet_sent_at TEXT,
-    ryan_approved INTEGER,
-    ryan_executed INTEGER,
-    ryan_notes TEXT,
-    shadow_entry_price REAL,
-    shadow_entry_time TEXT,
-    shadow_exit_price REAL,
-    shadow_exit_time TEXT,
-    shadow_pnl_dollars REAL,
-    shadow_pnl_pct REAL,
-    max_favorable_excursion REAL,
-    max_adverse_excursion REAL,
-    shadow_duration_days REAL,
-    thesis_success INTEGER,
-    assistant_postmortem TEXT,
-    lesson_tag TEXT,
-    user_grade TEXT,
-    repeatable_setup INTEGER
-);
-
-CREATE TABLE IF NOT EXISTS shadow_trades (
-    trade_id TEXT PRIMARY KEY,
-    recommendation_id TEXT,
-    ticker TEXT NOT NULL,
-    direction TEXT DEFAULT 'long',
-    status TEXT DEFAULT 'pending',
-    entry_price REAL,
-    stop_price REAL,
-    target_1 REAL,
-    target_2 REAL,
-    planned_shares INTEGER,
-    planned_allocation REAL,
-    actual_entry_price REAL,
-    actual_entry_time TEXT,
-    actual_exit_price REAL,
-    actual_exit_time TEXT,
-    exit_reason TEXT,
-    pnl_dollars REAL,
-    pnl_pct REAL,
-    max_favorable_excursion REAL,
-    max_adverse_excursion REAL,
-    duration_days INTEGER,
-    earnings_adjacent INTEGER DEFAULT 0,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    alpaca_order_id TEXT,
-    order_type TEXT,
-    timeout_days INTEGER DEFAULT 15,
-    source TEXT DEFAULT 'paper',
-    setup_type TEXT,
-    setup_confidence REAL,
-    signal_entry_price REAL,
-    fill_entry_price REAL,
-    entry_slippage_bps REAL,
-    signal_exit_price REAL,
-    fill_exit_price REAL,
-    exit_slippage_bps REAL
-);
-
--- Indexes for frequently queried columns
-CREATE INDEX IF NOT EXISTS idx_recommendations_ticker ON recommendations(ticker);
-CREATE INDEX IF NOT EXISTS idx_recommendations_created_at ON recommendations(created_at);
-CREATE INDEX IF NOT EXISTS idx_shadow_trades_status ON shadow_trades(status);
-CREATE INDEX IF NOT EXISTS idx_shadow_trades_ticker ON shadow_trades(ticker);
-CREATE INDEX IF NOT EXISTS idx_shadow_trades_recommendation_id ON shadow_trades(recommendation_id);
-CREATE INDEX IF NOT EXISTS idx_shadow_trades_created_at ON shadow_trades(created_at);
-CREATE INDEX IF NOT EXISTS idx_shadow_trades_status_exit ON shadow_trades(status, actual_exit_time);
-"""
-
-
 def initialize_database(db_path: str = DB_PATH) -> None:
-    path = Path(db_path)
-    with sqlite3.connect(path) as conn:
-        conn.executescript(SCHEMA)
-        conn.commit()
-        # Migration: add model_version column if missing
-        try:
-            conn.execute("ALTER TABLE recommendations ADD COLUMN model_version TEXT")
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass  # Column already exists
+    """Create journal tables and run column migrations via the schema registry."""
+    from src.schema.sqlite import create_all_tables, ensure_columns
+    create_all_tables(db_path)
+    ensure_columns(db_path)
 
-        # Migration: add order_type column to shadow_trades if missing
-        try:
-            conn.execute("ALTER TABLE shadow_trades ADD COLUMN order_type TEXT")
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        # Migration: add enriched_prompt column to recommendations if missing
-        try:
-            conn.execute("ALTER TABLE recommendations ADD COLUMN enriched_prompt TEXT")
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        # Migration: add llm_conviction columns
-        try:
-            conn.execute("ALTER TABLE recommendations ADD COLUMN llm_conviction INTEGER")
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass
-        try:
-            conn.execute("ALTER TABLE recommendations ADD COLUMN llm_conviction_reason TEXT")
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass
-
-        # Migration: add source column to shadow_trades for paper/live tracking
-        try:
-            conn.execute("ALTER TABLE shadow_trades ADD COLUMN source TEXT DEFAULT 'paper'")
-            conn.commit()
-        except sqlite3.OperationalError:
-            pass  # Column already exists
-
-        # Validation results table
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS validation_results (
-                result_id TEXT PRIMARY KEY,
-                created_at TEXT NOT NULL,
-                overall_status TEXT NOT NULL,
-                checks_passed INTEGER NOT NULL,
-                checks_failed INTEGER NOT NULL,
-                checks_warning INTEGER NOT NULL,
-                results_json TEXT NOT NULL
-            )
-        """)
-        conn.commit()
-
-        # Migration: backfill actual_exit_time for trades closed by reconciliation
-        # that were missing this field (causes them to be invisible to dashboard)
+    # Data migration: backfill actual_exit_time for trades closed by reconciliation
+    # that were missing this field (causes them to be invisible to dashboard)
+    with sqlite3.connect(Path(db_path)) as conn:
         conn.execute(
             "UPDATE shadow_trades SET actual_exit_time = COALESCE(updated_at, created_at) "
             "WHERE status = 'closed' AND actual_exit_time IS NULL"
         )
         conn.commit()
-
-        # Implementation Shortfall columns
-        for _alter in [
-            "ALTER TABLE shadow_trades ADD COLUMN signal_price REAL",
-            "ALTER TABLE shadow_trades ADD COLUMN implementation_shortfall_bps REAL",
-        ]:
-            try:
-                conn.execute(_alter)
-            except sqlite3.OperationalError:
-                pass  # Column already exists
 
 
 def log_recommendation(

@@ -856,162 +856,10 @@ class WatchLoop:
     @staticmethod
     def _ensure_all_tables():
         """Create all expected SQLite tables on startup to prevent missing-table errors."""
-        import sqlite3
-        db_path = DB_PATH
-        tables = [
-            """CREATE TABLE IF NOT EXISTS council_sessions (
-                session_id TEXT PRIMARY KEY, session_type TEXT NOT NULL,
-                trigger_reason TEXT, created_at TEXT NOT NULL, consensus TEXT,
-                confidence_weighted_score REAL, is_contested INTEGER DEFAULT 0,
-                total_cost REAL, rounds_completed INTEGER DEFAULT 0)""",
-            """CREATE TABLE IF NOT EXISTS council_votes (
-                vote_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, agent_name TEXT NOT NULL,
-                round INTEGER NOT NULL, position TEXT, confidence INTEGER,
-                recommendation TEXT, key_data_points TEXT, risk_flags TEXT,
-                vote TEXT, is_devils_advocate INTEGER DEFAULT 0)""",
-            """CREATE TABLE IF NOT EXISTS schedule_metrics (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, metric_date TEXT,
-                metric_name TEXT, metric_value REAL, details TEXT)""",
-            """CREATE TABLE IF NOT EXISTS setup_signals (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT, scan_date TEXT,
-                setup_type TEXT, confidence REAL, features_json TEXT, created_at TEXT)""",
-            """CREATE TABLE IF NOT EXISTS canary_evaluations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, model_version TEXT,
-                perplexity REAL, distinct_2 REAL, verdict TEXT, details TEXT, created_at TEXT)""",
-            """CREATE TABLE IF NOT EXISTS quality_drift_metrics (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, metric_date TEXT,
-                avg_score REAL, score_std REAL, pass_rate REAL,
-                template_fallback_rate REAL, created_at TEXT)""",
-            """CREATE TABLE IF NOT EXISTS activity_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, event_type TEXT,
-                detail TEXT, created_at TEXT)""",
-            """CREATE TABLE IF NOT EXISTS api_costs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, model TEXT, purpose TEXT,
-                input_tokens INTEGER, output_tokens INTEGER,
-                estimated_cost REAL, created_at TEXT)""",
-            """CREATE TABLE IF NOT EXISTS training_examples (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, example_id TEXT UNIQUE,
-                ticker TEXT, trade_date TEXT, input_text TEXT, output_text TEXT,
-                quality_score REAL, curriculum_stage TEXT, outcome TEXT,
-                source TEXT, model_version TEXT, created_at TEXT)""",
-            """CREATE TABLE IF NOT EXISTS research_papers (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, source TEXT NOT NULL,
-                external_id TEXT UNIQUE, title TEXT NOT NULL, authors TEXT,
-                abstract TEXT, url TEXT NOT NULL, published_date TEXT,
-                categories TEXT, relevance_score REAL, relevance_reason TEXT,
-                full_text TEXT, actionable INTEGER DEFAULT 0,
-                action_taken TEXT, collected_at TEXT NOT NULL)""",
-            """CREATE TABLE IF NOT EXISTS research_digests (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, week_start TEXT NOT NULL,
-                week_end TEXT NOT NULL, papers_reviewed INTEGER,
-                actionable_count INTEGER, digest_text TEXT, threats TEXT,
-                opportunities TEXT, created_at TEXT NOT NULL)""",
-            """CREATE TABLE IF NOT EXISTS scan_metrics (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, scan_number INTEGER,
-                scan_time TEXT, universe_count INTEGER, features_count INTEGER,
-                scored_count INTEGER, packet_worthy INTEGER, risk_passed INTEGER,
-                paper_traded INTEGER, live_traded INTEGER, llm_success INTEGER,
-                llm_total INTEGER, llm_fallback INTEGER, avg_conviction REAL,
-                duration_seconds REAL, created_at TEXT)""",
-            # Tables created by data collectors that sync needs
-            """CREATE TABLE IF NOT EXISTS short_interest (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT NOT NULL,
-                settlement_date TEXT, short_interest INTEGER, avg_daily_volume INTEGER,
-                days_to_cover REAL, short_pct_float REAL, source TEXT,
-                collected_at TEXT NOT NULL)""",
-            """CREATE TABLE IF NOT EXISTS edgar_filings (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT NOT NULL,
-                cik TEXT NOT NULL, form_type TEXT NOT NULL, filing_date TEXT NOT NULL,
-                accession_number TEXT UNIQUE NOT NULL, filing_url TEXT,
-                description TEXT, full_text TEXT, sections_json TEXT,
-                word_count INTEGER, collected_at TEXT NOT NULL,
-                sentiment_polarity REAL, sentiment_negative_count INTEGER,
-                sentiment_uncertainty_count INTEGER, cautionary_phrases TEXT,
-                sentiment_delta_polarity REAL)""",
-            """CREATE TABLE IF NOT EXISTS insider_transactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT NOT NULL,
-                insider_name TEXT, title TEXT, transaction_type TEXT,
-                shares INTEGER, price REAL, value REAL, transaction_date TEXT,
-                ownership_type TEXT, source TEXT, collected_at TEXT NOT NULL)""",
-            """CREATE TABLE IF NOT EXISTS fed_communications (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, event_type TEXT NOT NULL,
-                event_date TEXT NOT NULL, title TEXT, summary TEXT,
-                sentiment TEXT, key_phrases TEXT, url TEXT,
-                source TEXT, collected_at TEXT NOT NULL)""",
-            """CREATE TABLE IF NOT EXISTS analyst_estimates (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT NOT NULL,
-                metric TEXT, period TEXT, estimate REAL, actual REAL,
-                surprise REAL, surprise_pct REAL, num_analysts INTEGER,
-                source TEXT, collected_at TEXT NOT NULL)""",
-            """CREATE TABLE IF NOT EXISTS research_docs (
-                id TEXT PRIMARY KEY, filename TEXT, title TEXT, category TEXT,
-                content TEXT, size_kb REAL, updated_at TEXT)""",
-            """CREATE TABLE IF NOT EXISTS council_calibrations (
-                calibration_id TEXT PRIMARY KEY,
-                session_id TEXT NOT NULL,
-                agent_name TEXT,
-                prediction TEXT NOT NULL,
-                prediction_confidence REAL NOT NULL,
-                verification_date TEXT NOT NULL,
-                actual_outcome TEXT,
-                correct INTEGER,
-                created_at TEXT NOT NULL)""",
-            """CREATE TABLE IF NOT EXISTS traffic_light_state (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                current_regime TEXT NOT NULL DEFAULT 'GREEN',
-                pending_regime TEXT,
-                pending_count INTEGER DEFAULT 0,
-                last_vix_score INTEGER DEFAULT 0,
-                last_trend_score INTEGER DEFAULT 0,
-                last_credit_score INTEGER DEFAULT 0,
-                last_total_score INTEGER DEFAULT 0,
-                updated_at TEXT)""",
-            """CREATE TABLE IF NOT EXISTS user_notes (
-                note_id TEXT PRIMARY KEY,
-                title TEXT NOT NULL,
-                content TEXT DEFAULT '',
-                tags TEXT DEFAULT '[]',
-                pinned INTEGER DEFAULT 0,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
-            )""",
-        ]
-        # Slippage columns on shadow_trades
-        slippage_cols = [
-            ("signal_entry_price", "REAL"), ("fill_entry_price", "REAL"),
-            ("entry_slippage_bps", "REAL"), ("signal_exit_price", "REAL"),
-            ("fill_exit_price", "REAL"), ("exit_slippage_bps", "REAL"),
-        ]
-        # NLP columns on edgar_filings (for existing DBs)
-        edgar_nlp_cols = [
-            ("sentiment_polarity", "REAL"), ("sentiment_negative_count", "INTEGER"),
-            ("sentiment_uncertainty_count", "INTEGER"), ("cautionary_phrases", "TEXT"),
-            ("sentiment_delta_polarity", "REAL"),
-        ]
+        from src.schema.sqlite import create_all_tables, ensure_columns
         try:
-            with sqlite3.connect(db_path) as conn:
-                for ddl in tables:
-                    conn.execute(ddl)
-                for col, typ in slippage_cols:
-                    try:
-                        conn.execute(f"ALTER TABLE shadow_trades ADD COLUMN {col} {typ}")
-                    except Exception as e:
-                        logger.debug("[WATCH] ALTER TABLE shadow_trades ADD %s (likely exists): %s", col, e)
-                for col, typ in edgar_nlp_cols:
-                    try:
-                        conn.execute(f"ALTER TABLE edgar_filings ADD COLUMN {col} {typ}")
-                    except Exception as e:
-                        logger.debug("[WATCH] ALTER TABLE edgar_filings ADD %s (likely exists): %s", col, e)
-                # Council + IS columns
-                for _alter in [
-                    "ALTER TABLE council_sessions ADD COLUMN result_json TEXT",
-                    "ALTER TABLE shadow_trades ADD COLUMN signal_price REAL",
-                    "ALTER TABLE shadow_trades ADD COLUMN implementation_shortfall_bps REAL",
-                ]:
-                    try:
-                        conn.execute(_alter)
-                    except Exception as e:
-                        logger.debug("[WATCH] %s (likely exists): %s", _alter[:50], e)
+            create_all_tables(DB_PATH)
+            ensure_columns(DB_PATH)
             logger.info("[WATCH] All SQLite tables verified/created")
 
             # Populate research docs from markdown files
@@ -1022,7 +870,14 @@ class WatchLoop:
             except Exception as e:
                 logger.debug("[WATCH] Docs population failed: %s", e)
         except Exception as exc:
-            logger.warning("[WATCH] Table creation error: %s", exc)
+            logger.critical("[WATCH] SCHEMA CREATION FAILED: %s — cannot continue", exc)
+            try:
+                from src.notifications.telegram import send_telegram
+                send_telegram(f"\U0001f534 SCHEMA CREATION FAILED: {exc} — watch loop halted")
+            except Exception:
+                pass
+            import sys
+            sys.exit(1)
 
     @staticmethod
     def _configure_database():

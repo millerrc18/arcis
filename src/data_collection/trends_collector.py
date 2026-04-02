@@ -35,25 +35,7 @@ MARKET_SENTIMENT_TERMS = [
     "market correction",
 ]
 
-_INIT_SQL = """
-CREATE TABLE IF NOT EXISTS google_trends (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    collected_at TEXT NOT NULL,
-    collected_date TEXT NOT NULL,
-    ticker TEXT NOT NULL,
-    search_interest REAL,
-    interest_vs_90d_avg REAL,
-    spike_flag INTEGER
-);
-
-CREATE INDEX IF NOT EXISTS idx_google_trends_ticker_date
-    ON google_trends(ticker, collected_date);
-"""
-
-
-def _init_table(db_path: str) -> None:
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(_INIT_SQL)
+# Table creation handled by src/schema/registry.py
 
 
 def collect_google_trends(
@@ -68,8 +50,6 @@ def collect_google_trends(
 
     Returns: {"terms_collected": int, "spikes_detected": int}
     """
-    _init_table(db_path)
-
     try:
         from pytrends.request import TrendReq
     except ImportError:

@@ -20,25 +20,7 @@ from src.config import DB_PATH
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
-_INIT_SQL = """
-CREATE TABLE IF NOT EXISTS cboe_ratios (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    collected_at TEXT NOT NULL,
-    collected_date TEXT NOT NULL,
-    equity_pc_ratio REAL,
-    index_pc_ratio REAL,
-    total_pc_ratio REAL,
-    equity_pc_vs_20d_avg REAL
-);
-
-CREATE INDEX IF NOT EXISTS idx_cboe_ratios_date
-    ON cboe_ratios(collected_date);
-"""
-
-
-def _init_table(db_path: str) -> None:
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(_INIT_SQL)
+# Table creation handled by src/schema/registry.py
 
 
 def _fetch_cboe_pc_ratio() -> dict:
@@ -136,7 +118,6 @@ def collect_cboe_ratios(db_path: str = DB_PATH) -> dict:
 
     Returns: {"equity_pc_ratio": float, "index_pc_ratio": float, "total_pc_ratio": float}
     """
-    _init_table(db_path)
     now = datetime.now(ET)
     today_str = now.strftime("%Y-%m-%d")
 

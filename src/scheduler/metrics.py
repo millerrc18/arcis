@@ -21,25 +21,12 @@ from src.config import DB_PATH
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
-SCHEDULE_METRICS_SCHEMA = """
-CREATE TABLE IF NOT EXISTS schedule_metrics (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    metric_date TEXT NOT NULL,
-    metric_name TEXT NOT NULL,
-    metric_value REAL,
-    details TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_schedule_metrics_date
-    ON schedule_metrics(metric_date, metric_name);
-"""
+# Table creation handled by src/schema/registry.py
 
 
 def init_schedule_metrics(db_path: str = DB_PATH) -> None:
-    """Create schedule_metrics table if not exists."""
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(SCHEDULE_METRICS_SCHEMA)
-        conn.commit()
+    """No-op: table creation handled by src/schema/registry.py at startup."""
+    pass
 
 
 def record_metric(metric_name: str, metric_value: float,

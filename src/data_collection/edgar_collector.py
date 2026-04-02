@@ -30,33 +30,10 @@ ET = ZoneInfo("America/New_York")
 SEC_HEADERS = {"User-Agent": "Arcis halcyonlabai@gmail.com"}
 MAX_TEXT_BYTES = 5 * 1024 * 1024  # 5MB limit per filing
 
-_INIT_SQL = """
-CREATE TABLE IF NOT EXISTS edgar_filings (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    ticker TEXT NOT NULL,
-    cik TEXT NOT NULL,
-    form_type TEXT NOT NULL,
-    filing_date TEXT NOT NULL,
-    accession_number TEXT UNIQUE NOT NULL,
-    filing_url TEXT,
-    description TEXT,
-    full_text TEXT,
-    sections_json TEXT,
-    word_count INTEGER,
-    collected_at TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_edgar_ticker_date
-    ON edgar_filings(ticker, filing_date);
-"""
+# Table creation handled by src/schema/registry.py
 
 # CIK lookup cache (populated from SEC)
 _cik_cache: dict[str, str] = {}
-
-
-def _init_table(db_path: str) -> None:
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(_INIT_SQL)
 
 
 def _load_cik_lookup() -> dict[str, str]:
@@ -235,23 +212,18 @@ def _parse_sections(text: str, form_type: str) -> dict[str, str]:
 
 
 def _ensure_nlp_columns(conn: sqlite3.Connection) -> bool:
-    """Check that NLP sentiment columns exist; add them if missing.
+    """Check that NLP sentiment columns exist (schema handled by registry).
 
-    Returns True if columns are available, False on failure.
+    Returns True if columns are available, False otherwise.
     """
     cols = {c[1] for c in conn.execute("PRAGMA table_info(edgar_filings)").fetchall()}
     needed = ["sentiment_polarity", "sentiment_negative_count",
               "sentiment_uncertainty_count", "cautionary_phrases"]
     missing = [c for c in needed if c not in cols]
-    if not missing:
-        return True
-    try:
-        for col in missing:
-            conn.execute(f"ALTER TABLE edgar_filings ADD COLUMN {col} TEXT")  # noqa: S608
-        return True
-    except Exception as e:
-        logger.warning("[EDGAR] Cannot add NLP columns: %s", e)
+    if missing:
+        logger.warning("[EDGAR] NLP columns missing — registry schema may need update: %s", missing)
         return False
+    return True
 
 
 def _run_nlp_scoring(conn: sqlite3.Connection, accession: str, full_text: str) -> None:
@@ -296,8 +268,6 @@ def collect_new_filings(
 
     Returns: {"tickers_processed": int, "filings_stored": int}
     """
-    _init_table(db_path)
-
     now = datetime.now(ET)
     collected_at = now.isoformat()
 

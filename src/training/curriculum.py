@@ -362,15 +362,8 @@ def generate_contrastive_training_data(max_pairs: int = 50,
 
 
 def _ensure_curriculum_columns(db_path: str) -> None:
-    """Add curriculum columns if they don't exist."""
-    with sqlite3.connect(db_path) as conn:
-        for col, col_type in [("difficulty", "TEXT"), ("curriculum_stage", "TEXT"),
-                               ("quality_score_auto", "REAL")]:
-            try:
-                conn.execute(f"ALTER TABLE training_examples ADD COLUMN {col} {col_type}")
-            except sqlite3.OperationalError:
-                pass
-        conn.commit()
+    """No-op: columns are in the schema registry and handled by ensure_columns()."""
+    pass
 
 
 def _extract_score(text: str) -> float | None:

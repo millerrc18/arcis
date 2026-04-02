@@ -68,8 +68,9 @@ def ensure_columns(db_path: str) -> list[str]:
                         f"PRAGMA table_info({table.name})"
                     ).fetchall()
                 }
-            except sqlite3.OperationalError:
-                continue  # Table doesn't exist yet
+            except sqlite3.OperationalError as e:
+                logger.debug("[SCHEMA] Skipping %s: %s", table.name, e)
+                continue
             for col in table.columns:
                 if col.name not in existing:
                     default_clause = (
@@ -81,8 +82,14 @@ def ensure_columns(db_path: str) -> list[str]:
                             f"{col.name} {col.type}{default_clause}"
                         )
                         added.append(f"{table.name}.{col.name}")
-                    except sqlite3.OperationalError:
-                        pass  # Column already exists (race condition guard)
+                    except sqlite3.OperationalError as e:
+                        if "duplicate column" in str(e).lower():
+                            pass  # Expected race condition
+                        else:
+                            logger.warning(
+                                "[SCHEMA] Failed to add %s.%s: %s",
+                                table.name, col.name, e,
+                            )
         conn.commit()
     if added:
         logger.info("[SCHEMA] Added %d columns: %s", len(added), added)

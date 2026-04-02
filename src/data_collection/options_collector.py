@@ -25,40 +25,7 @@ from src.universe.sp100 import to_yfinance_ticker
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
-_INIT_SQL = """
-CREATE TABLE IF NOT EXISTS options_chains (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    collected_at TEXT NOT NULL,
-    ticker TEXT NOT NULL,
-    expiration TEXT NOT NULL,
-    strike REAL NOT NULL,
-    option_type TEXT NOT NULL,
-    bid REAL,
-    ask REAL,
-    last_price REAL,
-    volume INTEGER,
-    open_interest INTEGER,
-    implied_volatility REAL,
-    delta REAL,
-    gamma REAL,
-    theta REAL,
-    vega REAL,
-    in_the_money INTEGER,
-    underlying_price REAL
-);
-
-CREATE INDEX IF NOT EXISTS idx_options_chains_ticker_date
-    ON options_chains(ticker, collected_at);
-CREATE INDEX IF NOT EXISTS idx_options_chains_collected
-    ON options_chains(collected_at);
-CREATE INDEX IF NOT EXISTS idx_options_chains_expiration
-    ON options_chains(ticker, expiration);
-"""
-
-
-def _init_table(db_path: str) -> None:
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(_INIT_SQL)
+# Table creation handled by src/schema/registry.py
 
 
 def collect_options_chains(
@@ -69,7 +36,6 @@ def collect_options_chains(
 
     Returns: {"tickers_collected": int, "contracts_stored": int, "errors": int}
     """
-    _init_table(db_path)
     now = datetime.now(ET)
     collected_at = now.isoformat()
     max_expiration = now + timedelta(days=180)

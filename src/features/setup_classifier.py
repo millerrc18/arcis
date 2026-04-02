@@ -237,31 +237,5 @@ def log_setup_signal(ticker: str, classification: dict, features: dict,
 
 
 def _ensure_setup_signals_table(db_path: str = DB_PATH):
-    """Create the setup_signals table if it doesn't exist."""
-    try:
-        with sqlite3.connect(db_path) as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS setup_signals (
-                    signal_id TEXT PRIMARY KEY,
-                    created_at TEXT NOT NULL,
-                    ticker TEXT NOT NULL,
-                    date TEXT NOT NULL,
-                    setup_type TEXT NOT NULL,
-                    confidence REAL,
-                    theoretical_entry REAL,
-                    theoretical_stop REAL,
-                    theoretical_target REAL,
-                    regime TEXT,
-                    adx REAL,
-                    atr_ratio REAL,
-                    rsi REAL,
-                    volume_profile TEXT,
-                    actual_return_1d REAL,
-                    actual_return_5d REAL,
-                    actual_return_10d REAL,
-                    actual_return_20d REAL,
-                    was_traded INTEGER DEFAULT 0
-                )
-            """)
-    except Exception as e:
-        logger.debug("setup_signals table creation error: %s", e)
+    """No-op: table creation handled by src/schema/registry.py at startup."""
+    pass

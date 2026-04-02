@@ -25,31 +25,7 @@ logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 FINNHUB_BASE = "https://finnhub.io/api/v1"
 
-_INIT_SQL = """
-CREATE TABLE IF NOT EXISTS insider_transactions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    ticker TEXT NOT NULL,
-    insider_name TEXT,
-    title TEXT,
-    transaction_type TEXT,
-    transaction_date TEXT,
-    filing_date TEXT,
-    shares REAL,
-    price REAL,
-    value REAL,
-    shares_after REAL,
-    source TEXT DEFAULT 'finnhub',
-    collected_at TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_insider_ticker_date
-    ON insider_transactions(ticker, filing_date);
-"""
-
-
-def _init_table(db_path: str) -> None:
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(_INIT_SQL)
+# Table creation handled by src/schema/registry.py
 
 
 def _get_finnhub_key() -> str | None:
@@ -82,8 +58,6 @@ def collect_insider_transactions(
 
     Returns: {"tickers_processed": int, "transactions_stored": int}
     """
-    _init_table(db_path)
-
     api_key = _get_finnhub_key()
     if not api_key:
         logger.warning("[INSIDER] No Finnhub API key configured")
