@@ -48,16 +48,19 @@ https://halcyon-api.onrender.com/api
 The current Postgres bootstrap path is `scripts/render_migrate.py`. It is safe to rerun.
 
 ```bash
-# Windows PowerShell
+# Quick — extract DATABASE_URL from local config:
+DATABASE_URL=$(python -c "import yaml; cfg=yaml.safe_load(open('config/settings.local.yaml')); print(cfg['render']['database_url'])") python scripts/render_migrate.py
+
+# Or set manually (Windows PowerShell):
 $env:DATABASE_URL = "postgresql://..."
 .venv\Scripts\python.exe scripts/render_migrate.py
 
-# macOS / Linux
+# Or set manually (macOS / Linux):
 export DATABASE_URL="postgresql://..."
-.venv/Scripts/python.exe scripts/render_migrate.py
+python scripts/render_migrate.py
 ```
 
-This script creates missing synced tables and applies additive schema fixes so Render Postgres matches the live sync contract used by `src/sync/render_sync.py`.
+This script creates missing synced tables and adds missing columns so Render Postgres matches the schema registry (`src/schema/registry.py`). It is idempotent and safe to rerun. **Run this after any schema change** — if you add a column to the registry and run `validate-schema --fix` for SQLite, Render Postgres will not pick it up until you also run `render_migrate.py`.
 
 ## Step 4: Configure Local Render Sync
 
@@ -75,8 +78,10 @@ The watch loop starts the Render sync thread automatically when `render.enabled`
 ## Step 5: Start the Local Watch Loop
 
 ```bash
-python -m src.main watch --email-mode daily_summary --overnight
+python -m src.main watch --email-mode digest --overnight
 ```
+
+The watch loop uses a **PID lockfile** (`data/watch.lock`) to prevent duplicate instances. If a second `watch` command is started while one is already running, it will exit with an error message. If the lockfile is stale (the process died without cleanup), it is automatically removed.
 
 During the watch loop, `src/sync/render_sync.py` pushes incremental, latest-only, and full-sync tables into Render Postgres on the configured interval.
 

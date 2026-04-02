@@ -1,14 +1,18 @@
 """Watch loop for automated daily cadence.
 
 Simple Python loop — no APScheduler or cron dependencies.
+Uses a PID lockfile (data/watch.lock) to prevent duplicate instances.
 
 Called by: cli.commands, main
 Calls: services.scan_service, services.shadow_service, services.watchlist_service, data_collection.*, sync.render_sync
 Owns tables: scan_metrics, log_entries
+Owns files: data/watch.lock (PID lockfile), data/watchdog.txt (heartbeat)
 Config keys: automation.scan_interval_minutes, automation.morning_watchlist_hour_et, automation.eod_recap_hour_et
 Tests: tests/test_watch_bootstrap.py, tests/test_watch_resilience.py, tests/test_watch_import.py
 """
 
+import os
+import sys
 import time
 import signal
 import logging
@@ -952,8 +956,68 @@ class WatchLoop:
         except Exception as exc:
             logger.warning("[DB] Backup failed: %s", exc)
 
+    # ── PID lockfile to prevent duplicate watch loops ──────────────────
+    LOCKFILE = Path("data/watch.lock")
+
+    @staticmethod
+    def _is_pid_alive(pid: int) -> bool:
+        """Check if a process is alive (cross-platform)."""
+        if sys.platform == "win32":
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            SYNCHRONIZE = 0x00100000
+            handle = kernel32.OpenProcess(SYNCHRONIZE, False, pid)
+            if handle:
+                kernel32.CloseHandle(handle)
+                return True
+            return False
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True  # exists but we lack permission
+
+    def _acquire_lock(self):
+        """Acquire PID lockfile. Exits if another watch loop is running."""
+        self.LOCKFILE.parent.mkdir(exist_ok=True)
+        if self.LOCKFILE.exists():
+            try:
+                old_pid = int(self.LOCKFILE.read_text().strip())
+                if self._is_pid_alive(old_pid):
+                    logger.error(
+                        "[WATCH] Another watch loop is running (PID %d). Exiting.",
+                        old_pid,
+                    )
+                    print(f"[WATCH] ERROR: Another watch loop is already running (PID {old_pid})")
+                    print(f"[WATCH] Kill it first:  taskkill /PID {old_pid} /F")
+                    sys.exit(1)
+                else:
+                    logger.warning(
+                        "[WATCH] Removing stale lockfile (was PID %s)",
+                        self.LOCKFILE.read_text().strip(),
+                    )
+                    self.LOCKFILE.unlink(missing_ok=True)
+            except ValueError:
+                self.LOCKFILE.unlink(missing_ok=True)
+        self.LOCKFILE.write_text(str(os.getpid()))
+        logger.info("[WATCH] Acquired lockfile (PID %d)", os.getpid())
+
+    def _release_lock(self):
+        """Release PID lockfile if it belongs to this process."""
+        try:
+            if self.LOCKFILE.exists():
+                if self.LOCKFILE.read_text().strip() == str(os.getpid()):
+                    self.LOCKFILE.unlink(missing_ok=True)
+                    logger.info("[WATCH] Released lockfile")
+        except Exception:
+            pass
+
     def run(self):
         """Main watch loop. Checks every 60 seconds."""
+        self._acquire_lock()
+
         # Logging is already configured by main.py → setup_logging() which sets up
         # console + rotating file handler (logs/arcis.log). Only add the DB handler
         # here for the dashboard log viewer. Do NOT add another file handler — that
@@ -1427,6 +1491,8 @@ class WatchLoop:
             except Exception:
                 pass
             raise
+        finally:
+            self._release_lock()
 
     def _safe_run(self, name: str, func):
         """Run a function with exponential backoff error recovery."""

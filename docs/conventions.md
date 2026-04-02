@@ -53,10 +53,13 @@ Use `none` for empty fields. Entry points use `Called by: none (entry point)`.
 
 ## Adding a DB Table
 
-1. Add `CREATE TABLE IF NOT EXISTS` in the owning module
-2. Add the same `CREATE TABLE` to `scripts/render_migrate.py`
-3. If the table needs cloud sync, add it to `src/sync/render_sync.py` config
-4. Update AGENTS.md module registry (Owns tables field)
+> **All tables are defined in `src/schema/registry.py`** — the single source of truth. Never write `CREATE TABLE` or `ALTER TABLE` outside `src/schema/`.
+
+1. Add a `TableDef` to `TABLES` in `src/schema/registry.py`
+2. Run `python -m src.main validate-schema --fix` to create it locally
+3. Run `python scripts/render_migrate.py` to sync it to Render Postgres
+4. If the table needs cloud sync, add it to `src/sync/render_sync.py` config
+5. Update AGENTS.md module registry (Owns tables field)
 
 ## CSS / Frontend Rules
 

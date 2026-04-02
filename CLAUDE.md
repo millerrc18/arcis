@@ -43,8 +43,25 @@ python -m src.main watch                    # Standard watch loop
 python -m src.main watch --email-mode digest --overnight
 ```
 
+The watch loop uses a **PID lockfile** (`data/watch.lock`) to prevent duplicate instances. If you see `ERROR: Another watch loop is already running (PID ...)`, either kill the existing process or remove a stale lockfile:
+
+```bash
+# Check what's running
+powershell -Command "Get-CimInstance Win32_Process -Filter \"name='python.exe' and CommandLine like '%watch%'\" | Select-Object ProcessId, CreationDate | Format-List"
+
+# Kill a stuck/duplicate watch loop
+taskkill /PID <pid> /F /T
+
+# Remove stale lockfile (only if no watch process is running)
+rm data/watch.lock
+```
+
 ### Postgres sync (after schema changes)
 ```bash
+# Extract DATABASE_URL from config and run migrate:
+DATABASE_URL=$(python -c "import yaml; cfg=yaml.safe_load(open('config/settings.local.yaml')); print(cfg['render']['database_url'])") python scripts/render_migrate.py
+
+# Or set manually:
 DATABASE_URL="<render-postgres-url>" python scripts/render_migrate.py
 ```
 
