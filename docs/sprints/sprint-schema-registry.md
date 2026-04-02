@@ -668,3 +668,284 @@ A standalone document explaining:
 - [ ] `python scripts/render_migrate.py` runs clean
 - [ ] Watch loop starts and validates schema without errors
 - [ ] Render sync works for all 40 tables
+
+---
+
+## Task 8: End-to-End Dashboard Verification
+
+**This is the most important task.** The registry is useless if the dashboard still shows wrong data. After ALL schema changes, verify EVERY page, EVERY KPI, EVERY data path from database → API → frontend.
+
+### 8A: Complete Data Dependency Map
+
+Build this map by reading the frontend JSX pages AND the API routes. Document it in `docs/dashboard-data-map.md`. Every row must be verified after the sprint.
+
+**Page: Dashboard (`/`)**
+
+| KPI | Frontend call | API endpoint | Tables | Key columns |
+|---|---|---|---|---|
+| Paper Equity | `api.getAccount()` | `/api/shadow/account` | `shadow_trades` | `entry_price`, `planned_shares`, `pnl_dollars`, `status` |
+| Open / Max | `api.getOpenTrades()` | `/api/shadow/open` | `shadow_trades`, `recommendations` | `status`, `recommendation_id` |
+| Closed / 50 | `api.getClosedTrades()` | `/api/shadow/closed` | `shadow_trades`, `recommendations` | `status`, `actual_exit_time` |
+| Win Rate | `api.getMetrics()` | `/api/shadow/metrics` | `shadow_trades` | `pnl_dollars`, `pnl_pct`, `actual_exit_time` |
+| Profit Factor | `api.getMetrics()` | `/api/shadow/metrics` | `shadow_trades` | `pnl_dollars` |
+| Max DD | `api.getMetrics()` | `/api/shadow/metrics` | `shadow_trades` | `pnl_dollars` (cumulative) |
+| Activity Feed | `api.getActivityFeed()` | `/api/activity/feed` | `activity_log` | `event_type`, `detail`, `level`, `created_at` |
+| Open Trades Table | `api.getOpenTrades()` | `/api/shadow/open` | `shadow_trades`, `recommendations` | `ticker`, `entry_price`, `pnl_dollars`, `pnl_pct`, `created_at` |
+
+**Page: Shadow Ledger (`/shadow`)**
+
+| KPI | Frontend call | API endpoint | Tables | Key columns |
+|---|---|---|---|---|
+| Paper Equity | `api.getAccount()` | `/api/shadow/account` | `shadow_trades` | `entry_price`, `planned_shares`, `pnl_dollars`, `status` |
+| Open / Max | `api.getOpenTrades()` | `/api/shadow/open` | `shadow_trades` | `status` |
+| Closed / 50 | `api.getClosedTrades()` | `/api/shadow/closed` | `shadow_trades` | `status`, `actual_exit_time` |
+| Win Rate | `api.getMetrics()` | `/api/shadow/metrics` | `shadow_trades` | `pnl_dollars`, `actual_exit_time` |
+| Profit Factor | `api.getMetrics()` | `/api/shadow/metrics` | `shadow_trades` | `pnl_dollars` |
+| Max DD | `api.getMetrics()` | `/api/shadow/metrics` | `shadow_trades` | `pnl_dollars` |
+| Avg Slip (BPS) | `api.getMetrics()` | `/api/shadow/metrics` | `shadow_trades` | `signal_price`, `fill_price`, `implementation_shortfall_bps` |
+| Avg R-Mult | `api.getMetrics()` | `/api/shadow/metrics` | `shadow_trades` | `pnl_dollars`, `stop_price`, `entry_price` |
+| Open tab | `api.getOpenTrades()` | `/api/shadow/open` | `shadow_trades`, `recommendations` | `ticker`, `entry_price`, `pnl_dollars`, `pnl_pct`, `created_at`, `setup_type` |
+| Closed tab | `api.getClosedTrades(90)` | `/api/shadow/closed?days=90` | `shadow_trades`, `recommendations` | `ticker`, `actual_exit_price`, `pnl_dollars`, `pnl_pct`, `actual_exit_time`, `exit_reason`, `market_regime` |
+
+**Page: Live Ledger (`/live`)**
+
+| KPI | Frontend call | API endpoint | Tables | Key columns |
+|---|---|---|---|---|
+| Live Equity | `api.getLiveSummary()` | `/api/live/summary` | `shadow_trades` | `source='live'`, `entry_price`, `pnl_dollars` |
+| Live Trades | `api.getLiveTrades()` | `/api/live/trades` | `shadow_trades` | `source='live'` |
+
+**Page: CTO Report (`/cto-report`)**
+
+| KPI | Frontend call | API endpoint | Tables | Key columns |
+|---|---|---|---|---|
+| Performance metrics | `api.getCtoReport()` | `/api/cto-report` | `shadow_trades`, `recommendations` | `status`, `actual_exit_time`, `pnl_dollars`, `pnl_pct`, `market_regime`, `exit_reason` |
+| Audit summary | `api.getCtoReport()` | `/api/cto-report` | `audit_reports` | `overall_assessment`, `summary` |
+| Training status | `api.getCtoReport()` | `/api/cto-report` | `training_examples`, `model_versions` | `COUNT(*)`, `version_name`, `status` |
+| Scan metrics | `api.getCtoReport()` | `/api/cto-report` | `scan_metrics` | `llm_total`, `llm_success`, `template_fallback_rate` |
+
+**Page: Training (`/training`)**
+
+| KPI | Frontend call | API endpoint | Tables | Key columns |
+|---|---|---|---|---|
+| Example count | `api.getTrainingStatus()` | `/api/training/status` | `training_examples` | `COUNT(*)` |
+| Model version | `api.getTrainingVersions()` | `/api/training/versions` | `model_versions` | `version_name`, `status` |
+
+**Page: Health Score (`/health`)**
+
+| KPI | Frontend call | API endpoint | Tables | Key columns |
+|---|---|---|---|---|
+| HSHS score | `api.getHSHS()` | `/api/health/hshs` | computed | Geometric mean of 5 dimensions |
+| Build Score | `api.getBuildScore()` | `/api/build-score` | `build_score_history` | All 6 component scores |
+
+**Page: Council (`/council`)**
+
+| KPI | Frontend call | API endpoint | Tables | Key columns |
+|---|---|---|---|---|
+| Latest session | `api.getCouncilLatest()` | `/api/council/latest` | `council_sessions` | `session_id`, `result_json`, `created_at` |
+| Agent votes | `api.getCouncilSession(id)` | `/api/council/session/{id}` | `council_votes` | `session_id`, `agent_name`, `vote`, `reasoning` |
+
+**Page: Settings (`/settings`)**
+
+| KPI | Frontend call | API endpoint | Tables | Key columns |
+|---|---|---|---|---|
+| API costs | `api.getCosts()` | `/api/costs` | `api_costs` | `cost_dollars` (NOT estimated_cost) |
+| Config overrides | `api.getSettings()` | `/api/settings` | `config_overrides` | `key`, `value` |
+
+**Page: DB Schema (`/schema`)**
+
+| KPI | Frontend call | API endpoint | Tables | Key columns |
+|---|---|---|---|---|
+| Row counts | `api.getTableCounts()` | `/api/system/table-counts` | All whitelisted | `COUNT(*)` |
+
+**Page: Logs (`/logs`)**
+
+| KPI | Frontend call | API endpoint | Tables | Key columns |
+|---|---|---|---|---|
+| Log entries | `api.getRecentLogs()` | `/api/logs/recent` | `log_entries` | `timestamp`, `level`, `source`, `message` |
+
+**Pages with no DB dependency (static/hardcoded):** Architecture (`/architecture`), Docs (`/docs` reads `research_docs`), Roadmap (`/roadmap`), Notes (`/notes` reads `user_notes`), Packets (`/packets` reads `recommendations`).
+
+### 8B: Dashboard Verification Script
+
+**File:** `scripts/verify_dashboard.py`
+
+Hits EVERY cloud API endpoint and validates the response:
+
+```python
+"""Verify every dashboard API endpoint returns valid data.
+
+Usage:
+    python scripts/verify_dashboard.py                    # local (localhost:8000)
+    python scripts/verify_dashboard.py --cloud URL        # cloud (halcyonlab.app)
+
+For each endpoint:
+    1. Returns HTTP 200
+    2. Response is valid JSON
+    3. Key fields are present and non-null
+    4. Specific value checks where applicable
+"""
+
+CHECKS = [
+    {"path": "/api/shadow/open", "expect_fields": ["trades"]},
+    {"path": "/api/shadow/closed?days=90", "expect_fields": ["trades"],
+     "checks": [("len(data['trades'])", ">", 0, "No closed trades — actual_exit_time issue?")]},
+    {"path": "/api/shadow/metrics?days=90",
+     "expect_fields": ["win_rate", "sharpe", "profit_factor", "max_drawdown_pct"]},
+    {"path": "/api/shadow/account", "expect_fields": ["equity"]},
+    {"path": "/api/cto-report?days=90", "expect_fields": ["performance", "trade_summary"]},
+    {"path": "/api/build-score", "expect_fields": ["build_score"]},
+    {"path": "/api/health/hshs"},
+    {"path": "/api/health/score"},
+    {"path": "/api/training/status", "expect_fields": ["total_examples"],
+     "checks": [("data.get('total_examples',0)", ">", 900, "Training examples < 900")]},
+    {"path": "/api/training/versions"},
+    {"path": "/api/council/latest"},
+    {"path": "/api/costs?days=90"},
+    {"path": "/api/activity/feed?limit=10",
+     "checks": [("'task: ?' not in str(data)", "==", True, "Activity feed has 'task: ?' entries")]},
+    {"path": "/api/logs/recent?limit=10"},
+    {"path": "/api/docs"},
+    {"path": "/api/notes"},
+    {"path": "/api/system/table-counts"},
+    {"path": "/api/traffic-light/current"},
+    {"path": "/api/live/trades"},
+    {"path": "/api/live/summary"},
+    {"path": "/api/packets?days=7"},
+    {"path": "/api/projections/live"},
+    {"path": "/api/system/validation"},
+    {"path": "/api/config"},
+    {"path": "/api/settings"},
+    {"path": "/api/halt-status"},
+]
+```
+
+### 8C: Column Name Consistency Scan
+
+**File:** `scripts/verify_column_names.py`
+
+Scans ALL `.py` files for SQL queries containing column names. Cross-references against the registry. Flags any column used in a query that doesn't exist in the registry for that table.
+
+Known past conflicts to verify are resolved:
+- `regime_label` → must all be `market_regime`
+- `estimated_cost` → must all be `cost_dollars`
+- `created_at` in research_papers → must be `collected_at`
+
+### 8D: Critical Data Path Tests
+
+**File:** `tests/test_dashboard_data.py`
+
+```python
+def test_closed_trades_visible_in_all_query_locations():
+    """Insert a trade, close it via close_shadow_trade(), verify it appears in ALL 10+ query locations."""
+    # 1. Insert shadow_trade
+    # 2. Close via close_shadow_trade() (NOT raw SQL)
+    # 3. Query via get_closed_shadow_trades() — visible?
+    # 4. Query via /shadow/closed SQL — visible?
+    # 5. Query via /shadow/metrics SQL — visible?
+    # 6. Query via /cto-report SQL — visible?
+    # 7. Query via /build-score SQL — visible?
+    # 8. Query via risk governor daily P&L SQL — visible?
+    # ALL must pass. If any fails, the actual_exit_time bug is back.
+
+def test_activity_feed_no_unknown_events():
+    """Activity feed events must map to readable labels."""
+
+def test_api_costs_column_name():
+    """api_costs table uses cost_dollars, not estimated_cost."""
+
+def test_shadow_open_joins_recommendations():
+    """Open trades endpoint joins shadow_trades → recommendations without error."""
+
+def test_cto_report_uses_market_regime():
+    """CTO report references market_regime, not regime_label."""
+```
+
+### 8E: Post-Sprint Visual Verification Checklist
+
+**After ALL code changes, before PR merge, verify each page visually.**
+
+Include this checklist in the PR description:
+
+```markdown
+## Dashboard Verification (16 pages)
+
+### Trading
+- [ ] Dashboard — equity, open/max, closed/50, win rate, activity feed, open trades table
+- [ ] Packets — recent packets load, detail expands
+- [ ] Shadow Ledger — all 8 KPIs, open tab with P&L, closed tab with exit details
+- [ ] Live Ledger — live trades or "no live trades" message
+
+### Intelligence
+- [ ] Training — 972 examples, halcyon-v1.0.0, collecting status
+- [ ] Council — latest session, agent votes
+- [ ] CTO Report — period selector, performance metrics, audit summary
+
+### System
+- [ ] Architecture — React Flow renders, zoom/pan works
+- [ ] DB Schema — tables grouped, row counts show numbers
+- [ ] Health Score — HSHS displays
+- [ ] Validation — results load
+- [ ] Logs — entries display with timestamps
+
+### Reference
+- [ ] Settings — API costs show dollars, config values display
+- [ ] Roadmap — phase gates show progress
+- [ ] Docs — doc list loads, content renders
+- [ ] Notes — notes load, CRUD works
+```
+
+---
+
+## Updated Acceptance Criteria (Final)
+
+### Registry
+- [ ] `src/schema/registry.py` defines ALL 40+ tables
+- [ ] Every table in SYNC_TABLES, render_migrate.py, and initialize_database() is in the registry
+- [ ] No conflicting column names
+
+### Table Creation
+- [ ] `initialize_database()` reads from registry
+- [ ] `render_migrate.py` reads from registry
+- [ ] `render_sync.py` SYNC_TABLES generated from registry
+- [ ] All collector CREATE TABLE statements removed
+
+### Validation
+- [ ] `validate-schema` CLI command works
+- [ ] `--fix` auto-creates missing tables/columns
+- [ ] Startup validates and alerts on drift
+
+### Tests
+- [ ] `test_no_create_table_in_source` passes
+- [ ] `test_no_alter_table_in_source` passes
+- [ ] `test_closed_trades_visible_in_all_query_locations` passes
+- [ ] `test_activity_feed_no_unknown_events` passes
+- [ ] `test_api_costs_column_name` passes
+- [ ] All existing tests pass (>= 1,245)
+
+### Agent Guardrails
+- [ ] CLAUDE.md updated with schema rules
+- [ ] AGENTS.md updated with governance section
+- [ ] CC hook blocks CREATE TABLE outside schema/
+- [ ] CI guardrail tests run on every PR
+
+### Dashboard Verification
+- [ ] `docs/dashboard-data-map.md` — every page → endpoint → table → column
+- [ ] `scripts/verify_dashboard.py` — all endpoints return 200 with valid data
+- [ ] `scripts/verify_column_names.py` — 0 column name mismatches
+- [ ] `tests/test_dashboard_data.py` — all critical data path tests pass
+- [ ] 16/16 dashboard pages verified visually (checklist in PR)
+
+### Documentation
+- [ ] `docs/schema-governance.md` created
+- [ ] `docs/dashboard-data-map.md` created
+- [ ] `docs/database-schema.md` regenerated from registry
+- [ ] SYSTEM_STATE.md updated
+- [ ] README.md updated
+
+### Zero Regressions
+- [ ] All Python tests pass (>= 1,245)
+- [ ] `npm run build` succeeds
+- [ ] `python scripts/render_migrate.py` runs clean
+- [ ] Watch loop starts and validates schema without errors
+- [ ] Render sync works for all 40 tables
+- [ ] Every dashboard page loads without 503/500 errors
