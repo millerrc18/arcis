@@ -145,7 +145,7 @@ Arcis is an autonomous equity trading system for the S&P 100 that combines deter
 - `src/scheduler/premarket.py`: Pre-market inference tasks that run after Ollama is loaded but before market opens.
 - `src/scheduler/scorer.py`: Between-scan inference scoring using the already-loaded Ollama model.
 - `src/scheduler/vram_manager.py`: VRAM transition management between Ollama inference and PyTorch training.
-- `src/scheduler/watch.py`: Watch loop for automated daily cadence.
+- `src/scheduler/watch.py`: Watch loop for automated daily cadence. Uses a PID lockfile (`data/watch.lock`) to prevent duplicate instances — a second `watch` command will refuse to start if one is already running.
 
 ### `services/`
 - `src/services/__init__.py`: Package marker for services.
