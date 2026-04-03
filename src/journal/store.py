@@ -262,7 +262,7 @@ def close_shadow_trade(
                 from src.data_ingestion.market_data import fetch_spy_benchmark
                 spy = fetch_spy_benchmark()
                 if not spy.empty:
-                    regime = compute_market_regime(spy)
+                    regime = compute_market_regime(spy, {})
                     fields["regime_at_exit"] = regime.get("regime_label", "")
                 # Time to target (days from entry to exit)
                 if trade["actual_entry_time"] and exit_time:
