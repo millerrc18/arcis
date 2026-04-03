@@ -4,6 +4,7 @@ description: Audit documentation accuracy — MASTER.md drift, stale comments, m
 model: sonnet
 maxTurns: 30
 tools: Read, Grep, Glob, Bash
+effort: max
 ---
 
 # Comment & Documentation Auditor

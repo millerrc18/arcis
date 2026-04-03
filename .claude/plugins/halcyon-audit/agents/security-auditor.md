@@ -4,6 +4,7 @@ description: Audit codebase for credential exposure, SQL injection, API auth gap
 model: sonnet
 maxTurns: 30
 tools: Read, Grep, Glob, Bash
+effort: max
 ---
 
 # Security Auditor

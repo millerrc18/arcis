@@ -4,6 +4,7 @@ description: Audit trading execution paths for silent failures, risk governor by
 model: sonnet
 maxTurns: 30
 tools: Read, Grep, Glob, Bash
+effort: max
 ---
 
 # Trading Safety Auditor

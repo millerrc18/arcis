@@ -4,6 +4,7 @@ description: Audit codebase for oversized functions, god objects, dead code, dup
 model: sonnet
 maxTurns: 30
 tools: Read, Grep, Glob, Bash
+effort: max
 ---
 
 # Code Quality Auditor

@@ -4,6 +4,7 @@ description: Audit codebase for violations of CLAUDE.md rules, MASTER.md archite
 model: sonnet
 maxTurns: 30
 tools: Read, Grep, Glob, Bash
+effort: max
 ---
 
 # Compliance Auditor

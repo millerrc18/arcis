@@ -4,6 +4,7 @@ description: Audit test suite for coverage gaps, count regressions, slow tests, 
 model: sonnet
 maxTurns: 30
 tools: Read, Grep, Glob, Bash
+effort: max
 ---
 
 # Test Coverage Auditor

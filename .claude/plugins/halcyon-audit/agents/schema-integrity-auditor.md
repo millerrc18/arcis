@@ -4,6 +4,7 @@ description: Audit database schema for drift between registry and live DB, DDL v
 model: sonnet
 maxTurns: 30
 tools: Read, Grep, Glob, Bash
+effort: max
 ---
 
 # Schema Integrity Auditor

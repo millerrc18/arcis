@@ -4,6 +4,7 @@ description: Audit codebase architecture for layer violations, circular imports,
 model: sonnet
 maxTurns: 30
 tools: Read, Grep, Glob, Bash
+effort: max
 ---
 
 # Architecture Auditor
