@@ -20,6 +20,59 @@
 
 ---
 
+## Research Traceability
+
+Every sprint deliverable traces to a specific research document. CC should read the linked research when it needs deeper context on WHY a decision was made.
+
+### Source Research Documents
+
+| ID | Document | Path | Lines | Key Findings |
+|---|---|---|---|---|
+| **R1** | Horizontal Training Data | `docs/research/deep-research/horizontal-training-data-RESULTS.md` | 228 | Only 7-8 orthogonal dimensions for S&P 100. 11-section hard cap. Random source subsetting. |
+| **R2** | Scanning Intervals | `docs/research/deep-research/scanning-intervals-RESULTS.md` | 240 | 4-tier cadence. Split position monitoring from scanning. 60% API reduction. FMP 250/day binding. |
+| **R3** | Full Strategy (9-part) | `docs/research/deep-research/full-strategy-RESULTS.md` | 984 | Alpha attribution experiment. Mechanical brackets through 200 trades. Options at $15-25K. Revenue sequencing. GPU priority stack. Flywheel friction audit. |
+| **R4** | Framework Synthesis | `docs/research/deep-research/SYNTHESIS-framework-update-roadmap-changes.md` | 237 | 8 approved strategy decisions (#17-24). Phase gate changes. Exit management framework. GPU targets. |
+| **R5** | Red Team Interview | `docs/research/deep-research/red-team-interview.md` | 208 | 7 interview scenarios. Known gaps list. "Does the LLM add alpha?" surfaced as existential question. |
+
+### Sprint-to-Research Mapping
+
+| Sprint | Task | Research Source | What to Read |
+|---|---|---|---|
+| **A** | Audit banner redesign | — | No research dependency (UX fix) |
+| **A** | Build score / CTO report | — | No research dependency (bug fix) |
+| **A** | MASTER.md creation | R4 | Section 5 (strategy decisions), Section 6 (phase gates), Section 7 (frameworks) |
+| **3** | Alpha attribution experiment design | R3 Part 0 | "Deliverable 1: Alpha Attribution Experiment Design" — McNemar's test, 200+ paired trades, decomposition framework |
+| **3** | Parallel shadow portfolio | R3 Part 0 | "The Parallel Shadow Portfolio" — matched pairs vs independent, 3 trade categories |
+| **3** | Statistical power requirements | R3 Part 0 | Power table: 200 trades for 10% detection at 80% power. 50 trades = only 28% power. |
+| **3** | Historical backtest | R3 Part 7 | "Deliverable 23: GPU Activity Priority Stack" — alpha attribution backtest is #1 priority |
+| **4** | RSI(2) mean reversion scanner | R3 Part 2 | "Should paper-trading of strategy #2 start in Phase 1? YES, unambiguously." + 130-390 examples in 6 months |
+| **4** | Strategy-aware exit dispatcher | R3 Part 1 | "Deliverable 5: Phased Recommendation" — mechanical brackets Phase 1-2, LLM pilot Phase 3 |
+| **4** | RSI exit threshold (>70) | R4 Strategy #2 | Mean Reversion / Connors RSI(2), ρ=−0.35 |
+| **5** | 4-tier multi-cadence | R2 | Full document — information half-life table, polling schedule, dual-cadence architecture |
+| **5** | Staleness detection | R2 Section 4 | "Staleness Tolerance Matrix" — acceptable/warning/critical per dimension |
+| **5** | Position monitor split | R2 Section 7 | "Open Position Monitoring vs. Universe Scanning" — different cadences for different jobs |
+| **6** | Outcome-conditioned prompts | R3 Part 6 | "Deliverable 20: Friction Audit" — 5 categories of signal waste, 3-5x yield target |
+| **6** | Contrastive examples (DPO pairs) | R3 Part 6 | "Link 2: Outcomes → Training Data" — outcome-type-blind generation identified as HIGH friction |
+| **6** | 8 metadata columns | R3 Part 6 | "Fix: Add 8 columns to shadow_trades" — regime_at_entry/exit, vix, time_to_target, etc. |
+| **7** | Stress testing (2008/2020/2022) | R3 Part 7 | "Deliverable 23" — historical stress testing is #2 GPU priority, answers allocator's #1 question |
+| **7** | VIX-regime stop validation | R3 Part 1 | "Deliverable 3: Optimal Mechanical Exit Parameters" — ATR multipliers by regime |
+| **7** | Extended backtester metrics | R3 Part 2 | "Deliverable 8: The Options Case" + Part 1 evidence table for calmar, monthly returns |
+
+### Additional Research (reference only, not sprint-blocking)
+
+| Topic | Document | Path |
+|---|---|---|
+| Training data architecture (11 sections) | Horizontal Training Data (prompt) | `docs/research/deep-research/horizontal-training-data-DRAFT.md` |
+| Position management literature | Full Strategy prompt Part 1 | `docs/research/deep-research/full-strategy.md` |
+| Options minimum capital derivation | Full Strategy Results Part 2.3 | `docs/research/deep-research/full-strategy-RESULTS.md` |
+| Revenue stream ranking | Full Strategy Results Part 3 | `docs/research/deep-research/full-strategy-RESULTS.md` |
+| Insurgent advantage analysis | Full Strategy Results Part 8 | `docs/research/deep-research/full-strategy-RESULTS.md` |
+| Self-blinding pipeline | Research corpus | `docs/research/Prompt_Engineering_for_Outcome-Conditioned_Training_Data_Generation_...md` |
+| Quality rubric (6 dimensions) | Research corpus | `docs/research/Gold-Standard_Rubric_for_Scoring_Equity_Trade_Commentary_...md` |
+| Model degradation prevention | Research corpus | `docs/research/Preventing_Model_Degradation_in_Iterative_QLoRA_Retraining_...md` |
+
+---
+
 # SPRINT A: Dashboard Polish + Documentation Consolidation
 
 > **Priority:** HIGH — Dashboard shows misleading data + agents waste 34K tokens reading 5 overlapping docs
