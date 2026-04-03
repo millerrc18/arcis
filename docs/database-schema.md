@@ -135,6 +135,7 @@ Paper/shadow trades tracked from entry to exit with execution quality
 | `implementation_shortfall_bps` | REAL | Yes |  |  |
 | `strategy_type` | TEXT | Yes | `pullback` |  |
 | `actual_shares` | INTEGER | Yes |  |  |
+| `exit_retry_count` | INTEGER | Yes | `0` | Tracks exit order retry attempts (max 3 before abandoning) |
 
 **Indexes:** `idx_shadow_trades_status`, `idx_shadow_trades_ticker`, `idx_shadow_trades_recommendation_id`, `idx_shadow_trades_created_at`, `idx_shadow_trades_status_exit`
 

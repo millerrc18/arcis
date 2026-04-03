@@ -22,12 +22,17 @@ Arcis is an autonomous equity trading system for the S&P 100 that combines deter
 ### `api/routes/`
 - `src/api/routes/__init__.py`: Package marker for routes.
 - `src/api/routes/actions.py`: Action endpoints for triggering system operations from the dashboard.
+- `src/api/routes/council.py`: Council session review routes (latest, history, session detail).
 - `src/api/routes/docs.py`: Documentation API routes.
+- `src/api/routes/health.py`: Build score, HSHS, and health score routes.
+- `src/api/routes/live.py`: Live ledger routes (trades, summary).
+- `src/api/routes/logs.py`: Log viewer and command queue routes.
+- `src/api/routes/notes.py`: User notes CRUD routes.
 - `src/api/routes/packets.py`: Packets API routes.
 - `src/api/routes/review.py`: Review API routes.
 - `src/api/routes/scan.py`: Scan API routes.
 - `src/api/routes/shadow.py`: Shadow trading API routes.
-- `src/api/routes/system.py`: System API routes.
+- `src/api/routes/system.py`: System API routes (activity feed, settings, table counts, scan metrics, training history).
 - `src/api/routes/training.py`: Training API routes.
 
 ### `cli/`
