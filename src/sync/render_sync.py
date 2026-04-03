@@ -9,6 +9,8 @@ Tests: tests/test_data_collectors.py, tests/test_render_sync.py
 Runs every sync_interval_seconds (default 120s) as a daemon thread.
 Tracks last_synced_at per table in a local sync_state SQLite table.
 Handles failures gracefully -- log and retry next cycle, never crash.
+Per-table Postgres reconnection: if the connection dies mid-cycle,
+each table attempts reconnect (3 retries with 2/5/10s backoff) independently.
 """
 
 import json

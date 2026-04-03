@@ -14,7 +14,7 @@ Halcyon Lab is an autonomous AI trading system that scans, analyzes, and execute
 
 ## Current System State
 
-The system is live in **bootcamp mode** — shadow paper trading on Alpaca with halcyon-v1 (fine-tuned Qwen3 8B). Full data enrichment, bracket orders, risk governor, daily/weekly auditor, validation holdout, A/B model evaluation, learned confidence, walk-forward backtesting, 24/7 compute scheduler (73% GPU target), comprehensive data collection pipeline, Telegram push notifications, and a 14-page web dashboard (including Notes, Council, Health, Live Ledger, and System Validation).
+The system is live in **bootcamp mode** — shadow paper trading on Alpaca with halcyon-v1 (fine-tuned Qwen3 8B). Full data enrichment, bracket orders, risk governor, daily/weekly auditor, validation holdout, A/B model evaluation, learned confidence, walk-forward backtesting, 24/7 compute scheduler (73% GPU target), comprehensive data collection pipeline, Telegram push notifications, and a 16-page web dashboard (including Notes, Council, Health, Live Ledger, and System Validation).
 
 **Active Model:** halcyon-v1 (Qwen3 8B fine-tuned on 790 examples via QLoRA)
 **Training Data:** 976 self-blinded examples, scored with process-first rubric
@@ -86,7 +86,7 @@ Universe (S&P 100 → expanding to ~325 stocks)
 
 | Time (ET)       | Task                                                         | GPU Mode         |
 | --------------- | ------------------------------------------------------------ | ---------------- |
-| 5:15 AM         | Morning VRAM handoff (training → Ollama)                     | Transition       |
+| 5:15 AM         | Morning VRAM handoff (training → Ollama, aggressive escalation) | Transition       |
 | 5:30 AM         | Post-close capture (MFE/MAE update, regime logging)          | Inference        |
 | 6:00 AM         | Pre-market refresh + rolling feature computation             | CPU + Inference  |
 | 7:00 AM         | Self-blinded training data generation (historical)           | Inference        |
@@ -100,7 +100,7 @@ Universe (S&P 100 → expanding to ~325 stocks)
 | 5:30 PM         | Post-close capture                                           | CPU              |
 | 6:00 PM         | Training data collection from closed trades                  | CPU              |
 | 6:45 PM         | Preference pair generation / RL prep                         | Inference        |
-| 6:50 PM         | Evening VRAM handoff (Ollama → training subprocess)          | Transition       |
+| 6:50 PM         | Evening VRAM handoff (Ollama → training subprocess, logs to file) | Transition       |
 | 7:00 PM         | Walk-forward backtesting                                     | Training         |
 | 9:30 PM         | Data collection (12 collectors: options, VIX, FRED 34+, trends, CBOE, earnings, EDGAR, insider, short interest, Fed, analyst) | CPU (concurrent) |
 | 10:00 PM        | News ingestion (full universe)                               | CPU (concurrent) |
@@ -127,7 +127,7 @@ Universe (S&P 100 → expanding to ~325 stocks)
 - **Notes** — Operator notes with pinning, tags, and autosave editing
 - **Logs** — System log viewer
 - **Architecture** — Interactive React Flow system pipeline diagram
-- **DB Schema** — Interactive ERD with 40 tables, live row counts, foreign key edges
+- **DB Schema** — Interactive ERD with 46 tables, live row counts, foreign key edges
 
 ## CLI Commands
 

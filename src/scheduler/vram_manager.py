@@ -3,6 +3,7 @@
 Called by: scheduler.watch
 Calls: config, llm.client, training.versioning
 Owns tables: none
+Owns files: logs/training_*.log (subprocess output)
 Config keys: llm
 Tests: tests/test_vram_manager.py
 
@@ -11,6 +12,10 @@ uses ~10-11GB. They CANNOT coexist. This manager handles clean transitions:
 
 Evening (6:50 PM): Ollama -> unload -> verify VRAM clear -> launch training subprocess
 Morning (5:15 AM): kill training -> verify VRAM clear -> reload Ollama -> warm up
+
+Training subprocess output is redirected to logs/training_{task}.log to avoid
+pipe buffer deadlocks. Inference handoff escalates aggressively if VRAM
+stays high: kill Ollama processes, clear CUDA cache, then fail if still stuck.
 
 Training runs as a SUBPROCESS so that process termination guarantees complete
 VRAM release -- the OS reclaims all CUDA memory when the process exits.
