@@ -25,9 +25,11 @@ from src.training.quality_drift import (
 
 @pytest.fixture
 def db_path():
-    """Create a temporary database."""
+    """Create a temporary database with quality drift schema."""
     fd, path = tempfile.mkstemp(suffix=".sqlite3")
     os.close(fd)
+    from tests.conftest import init_test_db
+    init_test_db(path, ["quality_drift_metrics"])
     yield path
     try:
         os.unlink(path)

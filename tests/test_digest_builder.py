@@ -10,14 +10,14 @@ from src.email.digest_builder import (
     build_midday_digest,
     build_premarket_digest,
 )
-from src.journal.store import initialize_database
+from tests.conftest import init_test_db
 
 
 @pytest.fixture
 def db_path(tmp_path):
-    """Create a temporary DB with all tables."""
+    """Create a temporary DB with all tables from registry."""
     path = str(tmp_path / "test_digest.sqlite3")
-    initialize_database(path)
+    init_test_db(path)
     return path
 
 
@@ -43,16 +43,10 @@ def populated_db(db_path):
              50.0, 2.5, "target_hit", "2026-03-27T15:00:00",
              "2026-03-27T09:30:00", "2026-03-27T15:00:00"),
         )
-        # Training examples (table may not exist from initialize_database, create it)
         conn.execute(
-            "CREATE TABLE IF NOT EXISTS training_examples ("
-            "example_id TEXT PRIMARY KEY, ticker TEXT, quality_score_auto REAL, "
-            "created_at TEXT, updated_at TEXT)"
-        )
-        conn.execute(
-            "INSERT INTO training_examples (example_id, ticker, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?)",
-            ("ex1", "AAPL", "2026-03-27T10:00:00", "2026-03-27T10:00:00"),
+            "INSERT INTO training_examples (example_id, ticker, created_at, source, "
+            "instruction, input_text, output_text) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("ex1", "AAPL", "2026-03-27T10:00:00", "backfill", "evaluate", "input", "output"),
         )
     return db_path
 

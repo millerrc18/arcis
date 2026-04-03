@@ -7,36 +7,25 @@ from src.scheduler.watch import WatchLoop
 
 
 def test_ensure_all_tables_creates_council_sync_tables(tmp_path, monkeypatch):
-    """Verify _ensure_all_tables defines the expected council and activity tables.
+    """Verify the schema registry defines the expected council and activity tables.
 
-    _ensure_all_tables() uses a hardcoded DB path internally, so we verify
-    the table DDL statements are present in the function source.
+    Post schema registry migration, table DDL is centralized in
+    src/schema/registry.py rather than in _ensure_all_tables.
     """
-    import inspect
-    source = inspect.getsource(WatchLoop._ensure_all_tables)
-    # Tables created directly by _ensure_all_tables
-    assert "council_sessions" in source
-    assert "council_votes" in source
-    assert "activity_log" in source
-    assert "api_costs" in source
+    from src.schema.registry import TABLES
+    assert "council_sessions" in TABLES
+    assert "council_votes" in TABLES
+    assert "activity_log" in TABLES
+    assert "api_costs" in TABLES
 
 
 def test_weekly_synthesis_skips_cleanly_without_api_key(tmp_path, monkeypatch, caplog):
     db_path = tmp_path / "research.db"
 
+    from tests.conftest import init_test_db
+    init_test_db(str(db_path), ["research_papers"])
+
     with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            """CREATE TABLE research_papers (
-                title TEXT,
-                authors TEXT,
-                abstract TEXT,
-                url TEXT,
-                source TEXT,
-                relevance_score REAL,
-                relevance_reason TEXT,
-                collected_at TEXT
-            )"""
-        )
         conn.execute(
             """INSERT INTO research_papers
                (title, authors, abstract, url, source, relevance_score,

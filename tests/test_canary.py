@@ -46,9 +46,11 @@ def canary_file(tmp_path):
 
 @pytest.fixture
 def db_path():
-    """Create a temporary database."""
+    """Create a temporary database with canary schema."""
     fd, path = tempfile.mkstemp(suffix=".sqlite3")
     os.close(fd)
+    from tests.conftest import init_test_db
+    init_test_db(path, ["canary_evaluations"])
     yield path
     try:
         os.unlink(path)

@@ -35,11 +35,11 @@ def _safe_fetchall(conn, sql, params=()):
 
 
 def _safe_fetchone(conn, sql, params=()):
-    """Execute query, return one row. Returns None if table missing."""
+    """Execute query, return one row. Returns None if table/column missing."""
     try:
         return conn.execute(sql, params).fetchone()
     except sqlite3.OperationalError as e:
-        if "no such table" in str(e):
+        if "no such table" in str(e) or "no such column" in str(e):
             return None
         raise
 
@@ -259,7 +259,7 @@ def build_evening_digest(db_path: str = DB_PATH) -> tuple[str, str]:
         avg_quality = _safe_fetchone(conn, "SELECT AVG(quality_score_auto) as avg FROM training_examples WHERE quality_score_auto IS NOT NULL")
         closed_total = _safe_fetchone(conn, "SELECT COUNT(*) as c FROM shadow_trades WHERE status = 'closed'")
         scan_today = _safe_fetchone(conn, "SELECT SUM(llm_success) as s, SUM(llm_total) as t FROM scan_metrics WHERE date(created_at) = ?", (today,))
-        canary = _safe_fetchone(conn, "SELECT verdict, perplexity, distinct_2, created_at FROM canary_evaluations ORDER BY created_at DESC LIMIT 1")
+        canary = _safe_fetchone(conn, "SELECT degradation_detected, avg_score, distinct_2, created_at FROM canary_evaluations ORDER BY created_at DESC LIMIT 1")
         costs_today = _safe_fetchone(conn, "SELECT SUM(cost_dollars) as total FROM api_costs WHERE date(created_at) = ?", (today,))
 
     total_ex = total_examples["c"] if total_examples else 0
@@ -291,9 +291,10 @@ def build_evening_digest(db_path: str = DB_PATH) -> tuple[str, str]:
     ])
 
     if canary:
-        lines.extend(["", "━━━ MODEL QUALITY ━━━", f"Canary verdict:     {canary['verdict']}"])
-        if canary["perplexity"]:
-            lines.append(f"Perplexity:         {canary['perplexity']:.2f}")
+        verdict = "DEGRADED" if canary["degradation_detected"] else "HEALTHY"
+        lines.extend(["", "━━━ MODEL QUALITY ━━━", f"Canary verdict:     {verdict}"])
+        if canary["avg_score"]:
+            lines.append(f"Avg score:          {canary['avg_score']:.2f}")
         if canary["distinct_2"]:
             lines.append(f"Distinct-2:         {canary['distinct_2']:.4f}")
         lines.append(f"Last evaluated:     {canary['created_at'][:10]}")

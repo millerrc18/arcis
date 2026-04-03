@@ -39,6 +39,8 @@ ET = ZoneInfo("America/New_York")
 def populated_db(tmp_path):
     """DB with data in all tables that council agents query."""
     db_path = str(tmp_path / "test_subsystems.sqlite3")
+    from tests.conftest import init_test_db
+    init_test_db(db_path)  # create all tables from registry
     init_council_tables(db_path)
     init_value_tables(db_path)
 
@@ -49,47 +51,10 @@ def populated_db(tmp_path):
     week_ago = (now - timedelta(days=7)).isoformat()
 
     with sqlite3.connect(db_path) as conn:
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS vix_term_structure (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                collected_date TEXT, vix REAL, vix9d REAL, vix3m REAL, vix1y REAL
-            );
-            CREATE TABLE IF NOT EXISTS traffic_light_state (
-                id INTEGER PRIMARY KEY, current_regime TEXT, last_total_score INTEGER
-            );
-            CREATE TABLE IF NOT EXISTS scan_metrics (
-                id INTEGER PRIMARY KEY AUTOINCREMENT, scan_time TEXT,
-                packet_worthy INTEGER, llm_success INTEGER, llm_total INTEGER,
-                avg_conviction REAL, created_at TEXT
-            );
-            CREATE TABLE IF NOT EXISTS shadow_trades (
-                trade_id TEXT PRIMARY KEY, recommendation_id TEXT,
-                ticker TEXT NOT NULL, direction TEXT DEFAULT 'long',
-                status TEXT NOT NULL, planned_allocation REAL,
-                actual_entry_time TEXT, actual_exit_time TEXT,
-                pnl_dollars REAL, pnl_pct REAL, exit_reason TEXT,
-                max_adverse_excursion REAL, created_at TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS recommendations (
-                recommendation_id TEXT PRIMARY KEY, created_at TEXT,
-                ticker TEXT, sector_context TEXT
-            );
-            CREATE TABLE IF NOT EXISTS training_examples (
-                example_id TEXT PRIMARY KEY, created_at TEXT NOT NULL,
-                quality_score REAL, source TEXT, curriculum_stage TEXT
-            );
-            CREATE TABLE IF NOT EXISTS model_versions (
-                version_id TEXT PRIMARY KEY, created_at TEXT
-            );
-            CREATE TABLE IF NOT EXISTS macro_snapshots (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                series_id TEXT, collected_date TEXT, value REAL
-            );
-        """)
 
         conn.execute(
-            "INSERT INTO vix_term_structure (collected_date, vix, vix9d, vix3m, vix1y) "
-            "VALUES (?, 18.5, 16.0, 20.1, 22.0)", (today,)
+            "INSERT INTO vix_term_structure (collected_at, collected_date, vix, vix9d, vix3m, vix1y) "
+            "VALUES (?, ?, 18.5, 16.0, 20.1, 22.0)", (now_iso, today)
         )
         conn.execute(
             "INSERT INTO traffic_light_state (id, current_regime, last_total_score) "
@@ -108,31 +73,34 @@ def populated_db(tmp_path):
         conn.execute(
             "INSERT INTO shadow_trades "
             "(trade_id, recommendation_id, ticker, status, planned_allocation, "
-            "actual_entry_time, pnl_pct, pnl_dollars, created_at) "
-            "VALUES (?, ?, 'AAPL', 'open', 10000, ?, NULL, NULL, ?)",
-            (str(uuid.uuid4()), rec_id, yesterday, yesterday)
+            "actual_entry_time, pnl_pct, pnl_dollars, created_at, updated_at) "
+            "VALUES (?, ?, 'AAPL', 'open', 10000, ?, NULL, NULL, ?, ?)",
+            (str(uuid.uuid4()), rec_id, yesterday, yesterday, yesterday)
         )
         conn.execute(
             "INSERT INTO shadow_trades "
             "(trade_id, recommendation_id, ticker, status, planned_allocation, "
             "actual_entry_time, actual_exit_time, pnl_pct, pnl_dollars, exit_reason, "
-            "max_adverse_excursion, created_at) "
-            "VALUES (?, ?, 'MSFT', 'closed', 9000, ?, ?, 2.1, 189.0, 'target_hit', -1.5, ?)",
-            (str(uuid.uuid4()), rec_id, week_ago, yesterday, week_ago)
+            "max_adverse_excursion, created_at, updated_at) "
+            "VALUES (?, ?, 'MSFT', 'closed', 9000, ?, ?, 2.1, 189.0, 'target_hit', -1.5, ?, ?)",
+            (str(uuid.uuid4()), rec_id, week_ago, yesterday, week_ago, yesterday)
         )
 
         conn.execute(
-            "INSERT INTO training_examples (example_id, created_at, quality_score, source, curriculum_stage) "
-            "VALUES ('ex1', ?, 22.0, 'blinded_win', 'stage_2')", (now_iso,)
+            "INSERT INTO training_examples (example_id, created_at, quality_score, source, "
+            "curriculum_stage, instruction, input_text, output_text) "
+            "VALUES ('ex1', ?, 22.0, 'blinded_win', 'stage_2', 'evaluate', 'input', 'output')", (now_iso,)
         )
         conn.execute(
-            "INSERT INTO model_versions (version_id, created_at) VALUES ('v1', ?)", (now_iso,)
+            "INSERT INTO model_versions (version_id, version_name, status, created_at) VALUES ('v1', 'halcyon-v1.0.0', 'released', ?)", (now_iso,)
         )
         conn.executemany(
-            "INSERT INTO macro_snapshots (series_id, collected_date, value) VALUES (?, ?, ?)",
-            [("DFF", today, 5.25), ("T10Y2Y", today, 0.42),
-             ("T10Y3M", today, 0.15), ("BAMLH0A0HYM2", today, 3.8),
-             ("UNRATE", today, 4.1)],
+            "INSERT INTO macro_snapshots (series_id, series_name, collected_date, collected_at, value) VALUES (?, ?, ?, ?, ?)",
+            [("DFF", "Fed Funds Rate", today, now_iso, 5.25),
+             ("T10Y2Y", "10Y-2Y Spread", today, now_iso, 0.42),
+             ("T10Y3M", "10Y-3M Spread", today, now_iso, 0.15),
+             ("BAMLH0A0HYM2", "HY Spread", today, now_iso, 3.8),
+             ("UNRATE", "Unemployment", today, now_iso, 4.1)],
         )
 
     return db_path

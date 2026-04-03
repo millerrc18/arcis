@@ -11,91 +11,34 @@ import pytest
 
 @pytest.fixture
 def tmp_db():
-    """Create a temporary SQLite database with core schema."""
+    """Create a temporary SQLite database with core schema from registry."""
     fd, path = tempfile.mkstemp(suffix=".sqlite3")
     os.close(fd)
+    from tests.conftest import init_test_db
+    init_test_db(path)  # create all tables from registry
     conn = sqlite3.connect(path)
-    conn.executescript("""
-        CREATE TABLE recommendations (
-            recommendation_id TEXT PRIMARY KEY,
-            created_at TEXT NOT NULL,
-            ticker TEXT NOT NULL
-        );
-        CREATE TABLE shadow_trades (
-            trade_id TEXT PRIMARY KEY,
-            recommendation_id TEXT,
-            status TEXT DEFAULT 'open',
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        );
-        CREATE TABLE training_examples (
-            example_id TEXT PRIMARY KEY,
-            created_at TEXT NOT NULL,
-            quality_score REAL,
-            stage TEXT
-        );
-        CREATE TABLE model_versions (
-            version_id TEXT PRIMARY KEY,
-            version_name TEXT,
-            status TEXT,
-            created_at TEXT NOT NULL
-        );
-        CREATE TABLE validation_results (
-            result_id TEXT PRIMARY KEY,
-            created_at TEXT NOT NULL,
-            overall_status TEXT NOT NULL,
-            checks_passed INTEGER NOT NULL,
-            checks_failed INTEGER NOT NULL,
-            checks_warning INTEGER NOT NULL,
-            results_json TEXT NOT NULL
-        );
-        CREATE TABLE activity_log (
-            id INTEGER PRIMARY KEY,
-            timestamp TEXT,
-            action TEXT
-        );
-        CREATE TABLE schedule_metrics (
-            id INTEGER PRIMARY KEY,
-            metric_date TEXT,
-            metric_name TEXT,
-            metric_value REAL
-        );
-        CREATE TABLE council_sessions (
-            session_id TEXT PRIMARY KEY,
-            created_at TEXT
-        );
-        CREATE TABLE canary_evaluations (
-            id INTEGER PRIMARY KEY,
-            verdict TEXT,
-            created_at TEXT
-        );
-        CREATE TABLE quality_drift_metrics (
-            id INTEGER PRIMARY KEY,
-            metric_date TEXT,
-            avg_score REAL,
-            pass_rate REAL,
-            created_at TEXT
-        );
-    """)
     # Insert some sample data
     conn.execute(
-        "INSERT INTO recommendations VALUES ('rec1', '2026-03-28T10:00:00', 'AAPL')"
+        "INSERT INTO recommendations (recommendation_id, created_at, ticker) VALUES ('rec1', '2026-03-28T10:00:00', 'AAPL')"
     )
     conn.execute(
-        "INSERT INTO shadow_trades VALUES ('t1', 'rec1', 'closed', '2026-03-27T10:00:00', '2026-03-28T10:00:00')"
+        "INSERT INTO shadow_trades (trade_id, recommendation_id, ticker, status, created_at, updated_at) VALUES ('t1', 'rec1', 'AAPL', 'closed', '2026-03-27T10:00:00', '2026-03-28T10:00:00')"
     )
     for i in range(150):
         conn.execute(
-            "INSERT INTO training_examples VALUES (?, ?, ?, ?)",
-            (f"ex{i}", "2026-03-28T10:00:00", 75.0 + (i % 20), "structure"),
+            "INSERT INTO training_examples (example_id, created_at, source, instruction, input_text, output_text, quality_score_auto) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (f"ex{i}", "2026-03-28T10:00:00", "backfill", "evaluate", "input", "output", 75.0 + (i % 20)),
         )
     conn.execute(
-        "INSERT INTO model_versions VALUES ('v1', 'halcyon-v1.0.0', 'released', '2026-03-25T10:00:00')"
+        "INSERT INTO model_versions (version_id, version_name, status, created_at) VALUES ('v1', 'halcyon-v1.0.0', 'released', '2026-03-25T10:00:00')"
     )
     conn.commit()
     conn.close()
     yield path
-    os.unlink(path)
+    try:
+        os.unlink(path)
+    except PermissionError:
+        pass
 
 
 @pytest.fixture

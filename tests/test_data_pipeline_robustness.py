@@ -17,9 +17,11 @@ import pytest
 
 @pytest.fixture
 def tmp_db():
-    """Create a temporary SQLite database for testing."""
+    """Create a temporary SQLite database with required schemas."""
     fd, path = tempfile.mkstemp(suffix=".sqlite3")
     os.close(fd)
+    from tests.conftest import init_test_db
+    init_test_db(path, ["edgar_filings", "scan_metrics"])
     yield path
     try:
         os.unlink(path)
@@ -205,9 +207,7 @@ class TestRateLimiter:
 class TestEdgarNlpColumns:
     def test_ensure_nlp_columns_adds_missing(self, tmp_db):
         """_ensure_nlp_columns adds sentiment columns if they're absent."""
-        from src.data_collection.edgar_collector import _ensure_nlp_columns, _init_table
-
-        _init_table(tmp_db)
+        from src.data_collection.edgar_collector import _ensure_nlp_columns
 
         with sqlite3.connect(tmp_db) as conn:
             result = _ensure_nlp_columns(conn)

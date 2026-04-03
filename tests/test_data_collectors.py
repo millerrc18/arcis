@@ -14,9 +14,14 @@ import pytest
 
 @pytest.fixture
 def tmp_db():
-    """Create a temporary SQLite database for testing."""
+    """Create a temporary SQLite database with collector schemas."""
     fd, path = tempfile.mkstemp(suffix=".sqlite3")
     os.close(fd)
+    from tests.conftest import init_test_db
+    init_test_db(path, [
+        "edgar_filings", "insider_transactions", "short_interest",
+        "analyst_estimates", "fed_communications",
+    ])
     yield path
     try:
         os.unlink(path)
@@ -88,8 +93,7 @@ class TestEdgarFilingParser:
         assert _parse_sections(None, "10-K") == {}
 
     def test_collect_creates_table(self, tmp_db):
-        from src.data_collection.edgar_collector import _init_table
-        _init_table(tmp_db)
+        """Verify edgar_filings table exists (created by fixture from registry)."""
         with sqlite3.connect(tmp_db) as conn:
             tables = conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'"
@@ -113,8 +117,7 @@ class TestEdgarFilingParser:
 
 class TestInsiderTransactions:
     def test_collect_creates_table(self, tmp_db):
-        from src.data_collection.insider_collector import _init_table
-        _init_table(tmp_db)
+        """Verify insider_transactions table exists (created by fixture from registry)."""
         with sqlite3.connect(tmp_db) as conn:
             tables = conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'"
@@ -181,8 +184,7 @@ class TestInsiderTransactions:
 
 class TestShortInterest:
     def test_collect_creates_table(self, tmp_db):
-        from src.data_collection.short_interest_collector import _init_table
-        _init_table(tmp_db)
+        """Verify short_interest table exists (created by fixture from registry)."""
         with sqlite3.connect(tmp_db) as conn:
             tables = conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'"
@@ -229,8 +231,7 @@ class TestShortInterest:
 
 class TestAnalystEstimates:
     def test_collect_creates_table(self, tmp_db):
-        from src.data_collection.analyst_collector import _init_table
-        _init_table(tmp_db)
+        """Verify analyst_estimates table exists (created by fixture from registry)."""
         with sqlite3.connect(tmp_db) as conn:
             tables = conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'"
@@ -276,8 +277,7 @@ class TestAnalystEstimates:
 
 class TestFedCommunications:
     def test_collect_creates_table(self, tmp_db):
-        from src.data_collection.fed_collector import _init_table
-        _init_table(tmp_db)
+        """Verify fed_communications table exists (created by fixture from registry)."""
         with sqlite3.connect(tmp_db) as conn:
             tables = conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table'"
