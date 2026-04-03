@@ -367,7 +367,7 @@ class WatchLoop:
         stats = {
             "open_paper": "N/A", "open_live": "N/A",
             "equity": "N/A", "buying_power": "N/A",
-            "today_pnl": "N/A", "open_pnl": "N/A",
+            "today_pnl": "N/A",
             "phase_trades": "N/A", "phase_required": 50,
             "last_audit": "N/A", "audit_age": "",
         }
@@ -386,11 +386,14 @@ class WatchLoop:
                     "SELECT COUNT(*) FROM shadow_trades WHERE status='closed'"
                 ).fetchone()[0]
                 stats["phase_trades"] = closed
-                # Open P&L
-                open_pnl_row = conn.execute(
-                    "SELECT COALESCE(SUM(pnl_dollars), 0) FROM shadow_trades WHERE status='open'"
+                # Today's closed P&L
+                today_str = datetime.now(ET).strftime("%Y-%m-%d")
+                closed_today = conn.execute(
+                    "SELECT COALESCE(SUM(pnl_dollars), 0) FROM shadow_trades "
+                    "WHERE status='closed' AND actual_exit_time LIKE ?",
+                    (f"{today_str}%",)
                 ).fetchone()
-                stats["open_pnl"] = round(open_pnl_row[0], 2) if open_pnl_row else 0
+                stats["today_pnl"] = round(float(closed_today[0] or 0), 2)
                 # Last audit
                 audit_row = conn.execute(
                     "SELECT overall_assessment, created_at FROM audit_reports "
@@ -464,7 +467,7 @@ class WatchLoop:
  Portfolio:
    Open positions: {live['open_paper']} paper / {live['open_live']} live
    Account equity: {live['equity']} | Buying power: {live['buying_power']}
-   Open P&L: ${live['open_pnl'] if isinstance(live['open_pnl'], (int, float)) else 'N/A'}
+   Today P&L: ${live['today_pnl'] if isinstance(live['today_pnl'], (int, float)) else 'N/A'}
 
  Schedule:
    Morning watchlist: {self.morning_hour}:00 ET
@@ -490,7 +493,7 @@ class WatchLoop:
         print(f"\n{'─'*3} ARCIS STATUS ({time_str} ET) {'─'*30}")
         print(f" Phase 1: {live['phase_trades']}/{live['phase_required']} | "
               f"{live['open_paper']} open | Equity: {live['equity']} | "
-              f"Open P&L: ${live['open_pnl'] if isinstance(live['open_pnl'], (int, float)) else 'N/A'}")
+              f"Today P&L: ${live['today_pnl'] if isinstance(live['today_pnl'], (int, float)) else 'N/A'}")
         last_scan = self._last_scan_time.strftime("%H:%M") if self._last_scan_time else "none"
         print(f" Last scan: {last_scan} | Audit: {live['last_audit']} | Sync: OK")
         print(f"{'─'*46}\n")
