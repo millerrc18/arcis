@@ -1,12 +1,17 @@
 """Universe scanner — Tier 2 (30-min) full universe scan pipeline.
 
-Extracted from watch.py for multi-cadence scanning architecture.
-Runs the full scan pipeline: OHLCV fetch, feature computation, ranking,
-LLM enhancement, shadow trade execution.
+PLACEHOLDER: This module defines the interface for future extraction
+of the scan pipeline from watch.py. The actual scan logic currently
+lives in watch.py._run_scan() and is called directly by the main loop.
 
-Called by: scheduler.watch
-Calls: data_ingestion.market_data, features.engine, ranking.ranker, llm.packet_writer
-Owns tables: scan_metrics
+Full extraction is deferred because _run_scan() has deep coupling to
+WatchLoop state (daily packets, scan metrics, trade management, Telegram
+notifications, live trade execution). Extracting safely requires careful
+testing of the full pipeline end-to-end.
+
+Called by: none (placeholder — watch.py calls _run_scan() directly)
+Calls: none
+Owns tables: none
 Config keys: bootcamp.*, shadow_trading.*, automation.*
 Tests: tests/test_universe_scanner.py
 """
@@ -22,13 +27,13 @@ ET = ZoneInfo("America/New_York")
 
 
 def run_universe_scan(config: dict, db_path: str = DB_PATH) -> dict:
-    """Run Tier 2 universe scan (30-min cadence).
+    """Placeholder for Tier 2 universe scan (30-min cadence).
 
-    This is the main scan pipeline extracted from watch.py._run_scan().
-    The actual scan logic remains in watch.py for now — this module
-    provides the interface for the multi-cadence orchestrator.
+    The actual scan logic remains in watch.py._run_scan() for now.
+    This interface exists so the multi-cadence orchestrator has a
+    consistent call pattern across all 4 tiers.
 
-    Returns summary dict.
+    # TODO: Extract _run_scan() logic here when pipeline is stable
     """
     summary = {
         "universe_count": 0,
@@ -38,5 +43,5 @@ def run_universe_scan(config: dict, db_path: str = DB_PATH) -> dict:
         "errors": 0,
     }
 
-    logger.info("[SCAN] Tier 2 universe scan started")
+    logger.info("[SCAN] Tier 2 universe scan — using watch.py._run_scan() directly")
     return summary

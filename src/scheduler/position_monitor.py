@@ -54,6 +54,16 @@ def run_position_monitor(config: dict | None = None, db_path: str = DB_PATH) -> 
         logger.warning("[POSITION] Live trade check failed: %s", e)
         summary["errors"] += 1
 
+    # 2.5. Check for stale price data on open positions
+    try:
+        from src.data_enrichment.staleness import get_stale_tickers
+        stale = get_stale_tickers("price", threshold="warning", db_path=db_path)
+        if stale:
+            logger.warning("[POSITION] Stale price data for %d tickers: %s",
+                           len(stale), stale[:5])
+    except Exception:
+        pass  # Staleness check is advisory only
+
     # 3. Intra-day reconciliation
     try:
         from src.shadow_trading.reconcile import reconcile_paper_trades

@@ -203,13 +203,18 @@ def collect_training_examples_from_closed_trades(
         logger.info("  [TRAINING] Generated blinded example for %s (%s)", trade.get('ticker'), source)
         count += 1
 
-        # ═══ OUTCOME-CONDITIONED EXAMPLES (Sprint 6: 3-5x data yield) ═══
+        # ═══ OUTCOME-CONDITIONED TEMPLATES (Sprint 6: 3-5x data yield) ═══
+        # These store prompt templates (system + user) with empty output_text.
+        # Actual LLM generation is done in a separate batch step to avoid
+        # inline API costs (~$0.01/call) and latency during collection.
+        # Source prefix "outcome_template_" marks them as unpopulated —
+        # exclude from training until output_text is filled by batch generation.
         try:
             from src.training.outcome_prompts import generate_training_examples
             oc_examples = generate_training_examples(trade, {}, feature_input)
             for oc_ex in oc_examples:
                 oc_id = str(uuid.uuid4())
-                oc_source = f"outcome_{oc_ex['type']}"
+                oc_source = f"outcome_template_{oc_ex['type']}"
                 with sqlite3.connect(db_path) as conn:
                     conn.execute(
                         """INSERT INTO training_examples
@@ -221,8 +226,7 @@ def collect_training_examples_from_closed_trades(
                          oc_ex["system"], feature_input, ""),
                     )
                     conn.commit()
-                count += 1
-            logger.info("  [TRAINING] Generated %d outcome-conditioned examples for %s",
+            logger.info("  [TRAINING] Stored %d outcome-conditioned templates for %s",
                         len(oc_examples), trade.get("ticker"))
         except Exception as e:
             logger.warning("[TRAINING] Outcome-conditioned generation failed for %s: %s",

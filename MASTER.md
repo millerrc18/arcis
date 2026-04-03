@@ -63,7 +63,7 @@ with an unbeatable technological moat.
 | Dashboard pages | 18 |
 | Research docs | 60 |
 | Schema tables | 49 (registry) |
-| GitHub issues | 5 open (82 closed from 87 filed) |
+| GitHub issues | 17 open |
 | Monthly cost | ~$64 (Render $7 + Ollama free + Claude API ~$50 + domain $7) |
 | Hardware | RTX 3060 12GB, Windows 11, Z690, 24/7 operation |
 | HSHS health score | 85.33 |
