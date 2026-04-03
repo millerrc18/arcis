@@ -252,3 +252,84 @@ def test_training_running_finished():
     mock_proc.poll.return_value = 0
     vm._training_process = mock_proc
     assert vm.training_running is False
+
+
+# ── VRAM inference handoff escalation (#198) ────────────────────────
+
+
+def test_handoff_to_inference_escalates_when_vram_not_clear():
+    """When VRAM stays high after training kill, should kill Ollama processes (#198)."""
+    from src.scheduler.vram_manager import VRAMManager
+    with patch("src.scheduler.vram_manager._find_nvidia_smi",
+               return_value="nvidia-smi"):
+        vm = VRAMManager()
+
+    # Simulate training process that exits cleanly
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_proc.pid = 12345
+    vm._training_process = mock_proc
+
+    # nvidia-smi always reports high VRAM (above 1500MB threshold)
+    mock_smi = MagicMock()
+    mock_smi.returncode = 0
+    mock_smi.stdout = "5000\n"
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+
+    with patch("subprocess.run", return_value=mock_smi) as mock_run, \
+         patch("subprocess.Popen"), \
+         patch("requests.post", return_value=mock_resp), \
+         patch("time.sleep"):
+        result = vm.handoff_to_inference()
+
+    # Should have attempted to kill Ollama processes (taskkill or pkill)
+    kill_calls = [c for c in mock_run.call_args_list
+                  if any("taskkill" in str(a) or "pkill" in str(a)
+                         for a in c.args + tuple(c.kwargs.values()))]
+    assert len(kill_calls) > 0, "Should have called taskkill/pkill to kill Ollama"
+
+
+def test_handoff_to_inference_returns_false_after_escalation_failure():
+    """When aggressive cleanup also fails, should return False (#198)."""
+    from src.scheduler.vram_manager import VRAMManager
+    with patch("src.scheduler.vram_manager._find_nvidia_smi",
+               return_value="nvidia-smi"):
+        vm = VRAMManager()
+
+    # nvidia-smi always reports high VRAM
+    mock_smi = MagicMock()
+    mock_smi.returncode = 0
+    mock_smi.stdout = "5000\n"
+
+    with patch("subprocess.run", return_value=mock_smi), \
+         patch("subprocess.Popen"), \
+         patch("requests.post", side_effect=Exception("Connection refused")), \
+         patch("time.sleep"):
+        result = vm.handoff_to_inference()
+
+    assert result is False
+
+
+def test_handoff_to_inference_no_escalation_on_clean_vram():
+    """When VRAM clears normally, should NOT kill Ollama processes (#198)."""
+    from src.scheduler.vram_manager import VRAMManager
+    with patch("src.scheduler.vram_manager._find_nvidia_smi", return_value=None):
+        vm = VRAMManager()
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+
+    with patch("requests.post", return_value=mock_resp), \
+         patch("src.llm.client.is_llm_available", return_value=True), \
+         patch("subprocess.run") as mock_run, \
+         patch("time.sleep"):
+        result = vm.handoff_to_inference()
+
+    assert result is True
+    # Should NOT have called taskkill/pkill
+    kill_calls = [c for c in mock_run.call_args_list
+                  if any("taskkill" in str(a) or "pkill" in str(a)
+                         for a in c.args + tuple(c.kwargs.values()))]
+    assert len(kill_calls) == 0
