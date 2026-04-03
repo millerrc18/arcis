@@ -447,6 +447,7 @@ export default function ShadowLedger() {
   const [tab, setTab] = useState('open')
   const [vizTab, setVizTab] = useState('equity')
   const [filter, setFilter] = useState('')
+  const [strategyFilter, setStrategyFilter] = useState('')
   const [sortKey, setSortKey] = useState('pnl_pct')
   const [sortDir, setSortDir] = useState('desc')
 
@@ -458,15 +459,17 @@ export default function ShadowLedger() {
     let trades = openData?.open_trades || []
     if (filter) trades = trades.filter(t => (t.ticker || '').toLowerCase().includes(filter.toLowerCase())
       || (t.setup_type || '').toLowerCase().includes(filter.toLowerCase()))
+    if (strategyFilter) trades = trades.filter(t => t.strategy_type === strategyFilter)
     return sortTrades(trades, sortKey, sortDir)
-  }, [openData, filter, sortKey, sortDir])
+  }, [openData, filter, strategyFilter, sortKey, sortDir])
 
   const closedTrades = useMemo(() => {
     let trades = closedData?.trades || []
     if (filter) trades = trades.filter(t => (t.ticker || '').toLowerCase().includes(filter.toLowerCase())
       || (t.setup_type || '').toLowerCase().includes(filter.toLowerCase()))
+    if (strategyFilter) trades = trades.filter(t => t.strategy_type === strategyFilter)
     return sortTrades(trades, sortKey, sortDir)
-  }, [closedData, filter, sortKey, sortDir])
+  }, [closedData, filter, strategyFilter, sortKey, sortDir])
 
   const equity = accountData?.equity || 100000
   const startingCapital = accountData?.starting_capital || 100000
@@ -608,6 +611,21 @@ export default function ShadowLedger() {
               }}
             />
           </div>
+
+          {/* Strategy filter */}
+          <select
+            value={strategyFilter}
+            onChange={e => setStrategyFilter(e.target.value)}
+            className="pl-2 pr-2 py-1.5 text-xs rounded-lg appearance-none"
+            style={{
+              background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)',
+              color: 'var(--arcis-text-primary)', outline: 'none',
+            }}
+          >
+            <option value="">All strategies</option>
+            <option value="pullback">Pullback</option>
+            <option value="mean_reversion">Mean Reversion</option>
+          </select>
 
           {/* Sort dropdown */}
           <div className="relative">

@@ -37,7 +37,7 @@ def _score_performance(conn: sqlite3.Connection) -> float:
         cur = conn.execute(
             "SELECT COUNT(*) as total FROM shadow_trades WHERE status = 'closed'"
         )
-        total = cur.fetchone()[0] or 0
+        total = int(cur.fetchone()[0] or 0)
 
         if total == 0:
             return 5.0  # Minimal baseline -- system exists but no trades yet
@@ -46,7 +46,7 @@ def _score_performance(conn: sqlite3.Connection) -> float:
             "SELECT COUNT(*) FROM shadow_trades "
             "WHERE status = 'closed' AND pnl_dollars > 0"
         )
-        winners = cur.fetchone()[0] or 0
+        winners = int(cur.fetchone()[0] or 0)
         win_rate = winners / total if total else 0
 
         # Profit factor: gross profit / gross loss
@@ -70,13 +70,14 @@ def _score_performance(conn: sqlite3.Connection) -> float:
             "SELECT COALESCE(MIN(pnl_pct), 0) FROM shadow_trades "
             "WHERE status = 'closed'"
         )
-        max_dd = abs(float(cur.fetchone()[0] or 0))
+        raw = cur.fetchone()[0]
+        max_dd = abs(float(raw)) if raw is not None else 0.0
 
         # Scoring components (each 0-25, summed to 0-100)
-        wr_score = min(25.0, win_rate * 50)  # 50% WR = 25 pts
-        pf_score = min(25.0, profit_factor * 12.5)  # 2.0 PF = 25 pts
-        dd_score = max(0.0, 25.0 - max_dd * 2.5)  # <10% DD = 25 pts
-        count_score = min(25.0, total * 2.5)  # 10 trades = 25 pts
+        wr_score = min(25.0, float(win_rate) * 50)  # 50% WR = 25 pts
+        pf_score = min(25.0, float(profit_factor) * 12.5)  # 2.0 PF = 25 pts
+        dd_score = max(0.0, 25.0 - float(max_dd) * 2.5)  # <10% DD = 25 pts
+        count_score = min(25.0, float(total) * 2.5)  # 10 trades = 25 pts
 
         return min(100.0, wr_score + pf_score + dd_score + count_score)
 
@@ -108,12 +109,12 @@ def _score_model_quality(conn: sqlite3.Connection) -> float:
             "WHERE quality_score IS NOT NULL"
         )
         row = cur.fetchone()
-        avg_quality = row[0] if row and row[0] is not None else 0.5
+        avg_quality = float(row[0]) if row and row[0] is not None else 0.5
 
         # Scoring components
-        fallback_score = min(35.0, (1 - fallback_rate) * 35)  # 0% fallback = 35
-        quality_score = min(35.0, avg_quality * 35)  # 1.0 quality = 35
-        volume_score = min(30.0, total_examples * 0.3)  # 100 examples = 30
+        fallback_score = min(35.0, (1 - float(fallback_rate)) * 35)  # 0% fallback = 35
+        quality_score = min(35.0, float(avg_quality) * 35)  # 1.0 quality = 35
+        volume_score = min(30.0, float(total_examples) * 0.3)  # 100 examples = 30
 
         return min(100.0, fallback_score + quality_score + volume_score)
 

@@ -424,7 +424,7 @@ def _retry_exit(trade: dict, db_path: str = DB_PATH) -> None:
     from src.shadow_trading.alpaca_adapter import cancel_paper_order
 
     ticker = trade["ticker"]
-    retry_count = trade.get("exit_retry_count", 0) or 0
+    retry_count = int(trade.get("exit_retry_count") or 0)
 
     # Enforce max retry limit
     if retry_count >= _MAX_EXIT_RETRIES:
@@ -443,13 +443,13 @@ def _retry_exit(trade: dict, db_path: str = DB_PATH) -> None:
     update_shadow_trade(trade["trade_id"],
                         {"exit_retry_count": retry_count + 1}, db_path)
 
-    shares = trade.get("shares", trade.get("planned_shares", 0))
+    shares = int(trade.get("shares") or trade.get("planned_shares") or 0)
     try:
         exit_result = _submit_exit_order(trade, shares)
         exit_status = exit_result.get("status") if isinstance(exit_result, dict) else None
         if _is_filled_status(exit_status):
             fill_price = float(exit_result.get("filled_avg_price", 0))
-            entry_price = trade.get("actual_entry_price") or trade.get("entry_price", 0)
+            entry_price = float(trade.get("actual_entry_price") or trade.get("entry_price") or 0)
             pnl_dollars = (fill_price - entry_price) * shares if entry_price else 0
             pnl_pct = ((fill_price - entry_price) / entry_price * 100) if entry_price else 0
             close_shadow_trade(
@@ -515,10 +515,10 @@ def check_and_manage_open_trades(
             continue
 
         ticker = trade["ticker"]
-        entry_price = trade.get("actual_entry_price") or trade.get("entry_price", 0)
-        stop_price = trade.get("stop_price", 0)
-        target_1 = trade.get("target_1", 0)
-        target_2 = trade.get("target_2", 0)
+        entry_price = float(trade.get("actual_entry_price") or trade.get("entry_price") or 0)
+        stop_price = float(trade.get("stop_price") or 0)
+        target_1 = float(trade.get("target_1") or 0)
+        target_2 = float(trade.get("target_2") or 0)
 
         if entry_price <= 0:
             continue
@@ -531,13 +531,13 @@ def check_and_manage_open_trades(
             continue
 
         # Calculate unrealized P&L
-        shares = trade.get("planned_shares", 1)
+        shares = int(trade.get("planned_shares") or 1)
         unrealized_pnl = (current_price - entry_price) * shares
         unrealized_pct = ((current_price - entry_price) / entry_price * 100) if entry_price > 0 else 0
 
         # Update MFE/MAE
-        mfe = trade.get("max_favorable_excursion") or 0.0
-        mae = trade.get("max_adverse_excursion") or 0.0
+        mfe = float(trade.get("max_favorable_excursion") or 0)
+        mae = float(trade.get("max_adverse_excursion") or 0)
 
         price_move = current_price - entry_price
         if price_move > mfe:

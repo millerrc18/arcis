@@ -55,6 +55,7 @@ def get_shadow_status(config: dict) -> dict:
             "timeout_days": timeout,
             "exit_reason": t.get("exit_reason"),
             "earnings_adjacent": bool(t.get("earnings_adjacent", 0)),
+            "strategy_type": t.get("strategy_type", "pullback"),
             "created_at": t.get("created_at", ""),
         })
 
@@ -109,6 +110,7 @@ def get_shadow_history(days: int = 30) -> dict:
             "timeout_days": 15,
             "exit_reason": t.get("exit_reason"),
             "earnings_adjacent": bool(t.get("earnings_adjacent", 0)),
+            "strategy_type": t.get("strategy_type", "pullback"),
             "created_at": t.get("created_at", ""),
         })
 

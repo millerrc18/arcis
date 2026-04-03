@@ -39,7 +39,7 @@ def run_sentiment_refresh(config: dict, db_path: str = DB_PATH) -> dict:
         import yfinance as yf
         vix_data = yf.download("^VIX", period="1d", progress=False)
         if vix_data is not None and not vix_data.empty:
-            vix_val = float(vix_data["Close"].iloc[-1])
+            vix_val = float(vix_data["Close"].iloc[-1].item())
             summary["refreshed"].append(f"VIX={vix_val:.1f}")
             logger.info("[SENTIMENT] VIX refreshed: %.1f", vix_val)
             try:
@@ -57,7 +57,7 @@ def run_sentiment_refresh(config: dict, db_path: str = DB_PATH) -> dict:
         from src.features.regime import compute_market_regime
         spy = fetch_spy_benchmark()
         if not spy.empty:
-            regime = compute_market_regime(spy)
+            regime = compute_market_regime(spy, {})
             summary["refreshed"].append(f"regime={regime.get('regime_label', '?')}")
             logger.info("[SENTIMENT] Regime refreshed: %s", regime.get("regime_label"))
             try:
