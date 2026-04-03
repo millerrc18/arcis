@@ -425,3 +425,97 @@ class TestLiveLedger:
         assert data["open_positions"] == 1
         assert data["closed_trades"] == 1
         assert data["total_pnl"] == 50.0
+
+
+@pytest.fixture
+def logs_db(tmp_path):
+    """Create a DB with log_entries and command tables."""
+    db_path = str(tmp_path / "logs.sqlite3")
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "CREATE TABLE log_entries ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "log_level TEXT, source TEXT, message TEXT, "
+        "details_json TEXT, created_at TEXT NOT NULL)"
+    )
+    conn.execute(
+        "INSERT INTO log_entries (log_level, source, message, created_at) "
+        "VALUES ('INFO', 'scanner', 'Scan started', '2026-04-02T14:00:00')"
+    )
+    conn.execute(
+        "INSERT INTO log_entries (log_level, source, message, created_at) "
+        "VALUES ('ERROR', 'llm', 'Timeout', '2026-04-02T14:01:00')"
+    )
+    conn.execute(
+        "CREATE TABLE pending_commands ("
+        "command_id TEXT PRIMARY KEY, command_type TEXT, "
+        "command_name TEXT, payload_json TEXT, "
+        "status TEXT DEFAULT 'pending', priority INTEGER DEFAULT 0, "
+        "created_at TEXT, expires_at TEXT, created_by TEXT)"
+    )
+    conn.execute(
+        "CREATE TABLE command_results ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "command_id TEXT, status TEXT, result_json TEXT, "
+        "error_message TEXT, execution_ms INTEGER, "
+        "created_at TEXT)"
+    )
+    conn.commit()
+    conn.close()
+    return db_path
+
+
+@pytest.fixture
+def logs_client(logs_db):
+    with patch("src.api.routes.logs.DB_PATH", logs_db), \
+         patch("src.config.DB_PATH", logs_db):
+        import importlib
+        import src.api.routes.logs as logs_mod
+        importlib.reload(logs_mod)
+        import src.api.app as app_mod
+        importlib.reload(app_mod)
+        yield TestClient(app_mod.app)
+
+
+class TestLogs:
+    def test_recent_logs(self, logs_client):
+        resp = logs_client.get("/api/logs/recent?level=INFO&limit=50")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "logs" in data
+        assert data["count"] == 2
+
+    def test_recent_logs_level_filter(self, logs_client):
+        resp = logs_client.get("/api/logs/recent?level=ERROR&limit=50")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["count"] == 1
+        assert data["logs"][0]["log_level"] == "ERROR"
+
+
+class TestCommands:
+    def test_submit_command(self, logs_client):
+        resp = logs_client.post("/api/commands/submit", json={
+            "command_name": "scan",
+            "command_type": "action",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "command_id" in data
+        assert data["status"] == "pending"
+
+    def test_command_status(self, logs_client):
+        create_resp = logs_client.post("/api/commands/submit", json={
+            "command_name": "scan",
+        })
+        cmd_id = create_resp.json()["command_id"]
+        resp = logs_client.get(f"/api/commands/{cmd_id}/status")
+        assert resp.status_code == 200
+        assert resp.json()["command"]["command_id"] == cmd_id
+
+    def test_recent_commands(self, logs_client):
+        logs_client.post("/api/commands/submit", json={"command_name": "scan"})
+        resp = logs_client.get("/api/commands/recent?limit=10")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["count"] >= 1
