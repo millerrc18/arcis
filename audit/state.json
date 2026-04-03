@@ -1,7 +1,7 @@
 {
-  "run_count": 7,
+  "run_count": 8,
   "current_focus_index": 0,
-  "file_index": 90,
+  "file_index": 105,
   "file_list": [
     "src/__init__.py",
     "src/api/__init__.py",
@@ -180,7 +180,7 @@
     "frontend/src/pages/Training.jsx",
     "frontend/src/pages/Validation.jsx"
   ],
-  "last_run": "2026-04-02T18:00:00Z",
+  "last_run": "2026-04-03T12:00:00Z",
   "findings": {
     "run_4": {
       "focus_area": "code_quality",
@@ -413,6 +413,101 @@
       ],
       "high": [],
       "github_issues_status": "BLOCKED — no gh CLI, no GitHub MCP tools, no GITHUB_TOKEN. 4 medium issues need to be created manually or in a future run with GitHub access."
+    },
+    "run_8": {
+      "focus_area": "code_quality",
+      "files_audited": [
+        "src/packets/eod_recap.py",
+        "src/packets/template.py",
+        "src/packets/watchlist.py",
+        "src/ranking/__init__.py",
+        "src/ranking/ranker.py",
+        "src/risk/__init__.py",
+        "src/risk/governor.py",
+        "src/scheduler/__init__.py",
+        "src/scheduler/metrics.py",
+        "src/scheduler/premarket.py",
+        "src/scheduler/scorer.py",
+        "src/scheduler/vram_manager.py",
+        "src/scheduler/watch.py",
+        "src/schemas.py",
+        "src/services/__init__.py"
+      ],
+      "high": [
+        {
+          "file": "src/scheduler/watch.py",
+          "lines": "entire file (3031 lines)",
+          "description": "File is 3031 lines — 7.6x over the 400-line guideline. WatchLoop is a god object with 50+ methods and 40+ state flags. _run_scan (296 lines), run() (479 lines), _run_data_collection (206 lines), _send_premarket_brief (116 lines), _send_eod_report (113 lines) all far exceed 50-line guideline. This is the single largest maintainability and testability risk in the codebase.",
+          "suggested_fix": "Split into domain modules: scheduler/scan_runner.py (scan logic), scheduler/overnight.py (data collection, training handoffs), scheduler/notifications.py (Telegram brief/report/digest methods), scheduler/trade_manager.py (shadow/live trade execution). WatchLoop becomes an orchestrator that delegates to these modules. Extract the 40+ boolean flags into a DailyState dataclass."
+        }
+      ],
+      "medium": [
+        {
+          "file": "src/scheduler/watch.py",
+          "lines": "489-784",
+          "description": "_run_scan is 296 lines mixing data fetching, feature computation, trade execution, Telegram notifications, reconciliation, and metrics recording in a single method.",
+          "suggested_fix": "Extract: _execute_trades(packet_worthy), _notify_scan_results(candidates), _manage_existing_trades(), _run_intraday_reconciliation(). _run_scan becomes a ~40-line orchestrator."
+        },
+        {
+          "file": "src/scheduler/watch.py",
+          "lines": "1017-1496",
+          "description": "run() is 479 lines — the main loop contains deeply nested schedule dispatch logic with 25+ time-based conditionals. Extremely hard to test individual schedule slots.",
+          "suggested_fix": "Extract schedule dispatch into _dispatch_market_hours(now), _dispatch_post_close(now), _dispatch_overnight(now), _dispatch_weekend(now). run() becomes a ~50-line loop calling dispatch methods."
+        },
+        {
+          "file": "src/risk/governor.py",
+          "lines": "111-284",
+          "description": "check_trade is 174 lines containing 8 sequential risk checks. Each check follows the same pattern (compute, append to checks, return reject if failed) but is inlined rather than extracted.",
+          "suggested_fix": "Extract each check into a method: _check_emergency_halt(), _check_daily_loss(), _check_position_size(), _check_max_positions(), _check_sector_concentration(), _check_correlation(), _check_volatility(), _check_duplicate(). check_trade iterates over them."
+        },
+        {
+          "file": "src/risk/governor.py",
+          "lines": "296-379",
+          "description": "get_portfolio_state is 83 lines mixing Alpaca API calls, SQLite queries, sector exposure calculations, and daily P&L computation. Uses awkward underscore-prefixed aliases (_sq3, _dt, _ZI) to avoid shadowing.",
+          "suggested_fix": "Extract _fetch_equity_from_alpaca(), _compute_daily_realized_pnl(), _compute_sector_exposure(). Use normal import names — the function is self-contained."
+        },
+        {
+          "file": "src/packets/eod_recap.py",
+          "lines": "162, 206",
+          "description": "get_shadow_data_for_recap calls get_open_shadow_trades(db_path) twice — once at line 162 (assigned to open_trades) and again at line 206 (assigned to all_trades). The second call is redundant since both return the same data.",
+          "suggested_fix": "Remove the second call at line 206. Replace `all_trades` with `open_trades` which already holds the same result."
+        },
+        {
+          "file": "src/scheduler/vram_manager.py",
+          "lines": "324-342",
+          "description": "launch_training_subprocess opens a file handle (line 334) that is stored on self._training_log_file but only closed in handoff_to_inference. If training completes normally without a handoff call, the file handle leaks.",
+          "suggested_fix": "Use a context manager pattern or add a close_training_log() method called after _training_process exits. Alternatively, check and close in the training_running property when poll() returns non-None."
+        },
+        {
+          "file": "src/scheduler/premarket.py",
+          "lines": "109",
+          "description": "run_training_generation imports `generate` from src.llm.client at line 109 but never calls it — the function body explicitly skips generation (lines 145-151: 'For now, log the distribution and skip generation').",
+          "suggested_fix": "Remove the unused `from src.llm.client import generate` import."
+        }
+      ],
+      "low": [
+        {
+          "file": "src/packets/template.py",
+          "description": "build_packet_from_features is 123 lines — mostly sequential parameter assembly, but could benefit from extracting _compute_position_sizing() and _build_deeper_analysis()."
+        },
+        {
+          "file": "src/packets/watchlist.py",
+          "description": "build_morning_watchlist is 88 lines — mostly formatting, borderline."
+        },
+        {
+          "file": "src/risk/governor.py",
+          "description": "Line 209: re-imports `from src.config import load_config` which is already imported at module level (line 17)."
+        },
+        {
+          "file": "src/scheduler/watch.py",
+          "description": "Line 725: `'actions' in dir()` is fragile — checks global scope, not local variables. Should initialize `actions = []` before the try block."
+        },
+        {
+          "file": "src/scheduler/watch.py",
+          "description": "Multiple redundant `import sqlite3` statements inside methods (lines 530, 1168, 1202, 2344, 2461, 2575) when sqlite3 is already imported at module level (line 25)."
+        }
+      ],
+      "github_issues_status": "BLOCKED — no gh CLI, no GitHub MCP tools, no GITHUB_TOKEN. 1 high and 7 medium issues need to be created when GitHub access is available."
     }
   }
 }
