@@ -527,3 +527,272 @@ Bug Bash (#2) ─────┬──── Alpha Attribution (#3)
 - Training yield at 3–5x per trade
 - Stress test results ready for allocator conversations
 - GPU utilization: 4.4% → estimated 35–50% during market hours
+
+---
+
+## Gap Analysis Addendum (3x Iteration — April 2, 2026)
+
+Three iterations of gap analysis against the actual codebase found 11 issues. Each is assigned to the sprint it affects with a specific fix.
+
+### Sprint 3 Gaps: Alpha Attribution
+
+**Gap 1: Mechanical outcome simulator not specified.**
+The plan says "simulation ledger" but doesn't explain how outcomes are computed without placing Alpaca orders.
+
+**Fix:** Post-close job fetches historical OHLCV for each pending attribution row's holding period (entry date → entry date + timeout_days). Simulates bracket logic mechanically:
+```python
+def simulate_mechanical_outcome(entry_price, stop_price, target_price, 
+                                 timeout_days, historical_ohlcv):
+    """Check if price hit stop, target, or timed out during holding period."""
+    for day_idx, row in enumerate(historical_ohlcv.itertuples()):
+        if row.Low <= stop_price:
+            return "loss", stop_price, day_idx + 1
+        if row.High >= target_price:
+            return "win", target_price, day_idx + 1
+    # Timeout — use closing price on last day
+    return "timeout", historical_ohlcv.iloc[-1]["Close"], timeout_days
+```
+Uses yfinance historical data (free, no rate limit concern for ~30 tickers/day). Runs in the post-close job (4:30 PM) alongside reconciliation.
+
+**Gap 2: Attribution rows must be created BEFORE LLM processing.**
+The plan implies logging after the scan. But to capture `llm_rejected` trades (the most informative category), rows must exist before the LLM runs.
+
+**Fix:** Two-phase logging in `_run_scan()`:
+```
+Phase 1 (after ranking, before LLM):
+  → Create attribution_trades row for every packet_worthy candidate
+  → Set llm_action = "pending"
+
+Phase 2 (after LLM):
+  → Update attribution row: llm_action = "taken" / "rejected" / "parse_failed" / "conviction_none"
+  → Record llm_conviction value
+```
+
+### Sprint 4 Gaps: Mean Reversion
+
+**Gap 3: RSI-based exit incompatible with current reconciliation.**
+`check_and_manage_open_trades()` (executor.py line 418) checks bracket fills and timeouts. MR's RSI(2) > 70 exit is a conditional signal exit that doesn't use Alpaca brackets at all.
+
+**Fix:** Add strategy-aware exit dispatcher at the top of the per-trade loop in `check_and_manage_open_trades()`:
+```python
+for trade in open_trades:
+    # Strategy-specific exit check (BEFORE bracket/timeout logic)
+    if trade.get("strategy_type") == "mean_reversion":
+        mr_exit = _check_mean_reversion_exit(trade, db_path)
+        if mr_exit:
+            actions.append(mr_exit)
+            continue  # Skip bracket/timeout logic for this trade
+    
+    # Existing bracket/timeout logic for pullback strategy...
+```
+
+`_check_mean_reversion_exit()` needs to:
+1. Fetch last 5 days of OHLCV for the ticker (via `_get_current_price_safe` won't work — needs series data)
+2. Compute RSI(2) from the close prices
+3. If RSI(2) > 70, submit sell order via Alpaca and close the shadow trade with `exit_reason="rsi_exit"`
+4. Also check stop-loss (2.5× ATR) and timeout (5 days) as fallbacks
+
+**Gap 4: RSI computation hardcoded to period=14.**
+`_compute_rsi()` exists in `src/features/regime.py` and `src/features/setup_classifier.py` but both hardcode period=14.
+
+**Fix:** Extract to shared utility `src/features/indicators.py`:
+```python
+def compute_rsi(close: pd.Series, period: int = 14) -> float:
+    """Compute RSI with configurable period."""
+    ...
+```
+Both existing callers updated to use shared version. MR scanner calls with `period=2`.
+
+**Gap 5: `paper_only` enforcement in executor.**
+The plan mentions `paper_only: true` in config but doesn't specify where enforcement happens. Currently, `open_shadow_trade()` doesn't check strategy-level config — only the global `shadow_trading.enabled` and `live_trading.enabled`.
+
+**Fix:** Add to `open_shadow_trade()`:
+```python
+strategy_type = kwargs.get("strategy_type", "pullback")
+strategy_cfg = config.get("strategies", {}).get(strategy_type, {})
+if strategy_cfg.get("paper_only", False):
+    # Force source="paper", skip live execution entirely
+    trade_data["source"] = "paper"
+```
+And in `_run_scan()`, the live trade execution block must check:
+```python
+if strategy_type != "pullback" and strategy_cfg.get("paper_only"):
+    # Do NOT open live trade for paper-only strategies
+    continue
+```
+
+**Gap 6: MR trade manager needs OHLCV history, not just current price.**
+`_get_current_price_safe()` returns a single float. RSI(2) needs the last 5+ days of closes.
+
+**Fix:** Add `_get_recent_ohlcv_safe(ticker, days=10)` helper:
+```python
+def _get_recent_ohlcv_safe(ticker: str, days: int = 10) -> pd.DataFrame | None:
+    """Fetch recent OHLCV for strategy-specific exit calculations."""
+    try:
+        from src.data_ingestion.market_data import fetch_ohlcv
+        data = fetch_ohlcv([ticker], period=f"{days}d")
+        return data.get(ticker)
+    except Exception:
+        return None
+```
+Called only for MR trades (not pullback), so API cost is ~5-10 extra yfinance calls per scan cycle (number of open MR positions).
+
+### Sprint 5 Gaps: Multi-Cadence
+
+**Gap 7: No concurrency model for simultaneous tier firing.**
+Tier 1 (15 min) and Tier 2 (30 min) can fire at the same timestamp. Both need yfinance.
+
+**Fix:** Sequential execution within the main loop tick, Tier 1 first:
+```python
+def _tick(self, now):
+    # Tier 1 runs FIRST — fast (held tickers only, ~50 API calls)
+    if self._should_monitor_positions(now):
+        self._run_position_monitor()
+    
+    # Tier 2 runs SECOND — slower (full universe, ~100 API calls + LLM)
+    if self._should_scan_universe(now):
+        self._run_universe_scan()
+    
+    # Tier 3 runs THIRD — moderate (sentiment/regime, ~200 API calls)
+    if self._should_refresh_sentiment(now):
+        self._run_sentiment_refresh()
+```
+No parallelism, no mutex. Simple, debuggable, works for a solo operator. Position monitor takes <30 seconds for 5-10 held tickers, so Tier 2 starts at most 30 seconds late.
+
+**Gap 8: Staleness should be per-ticker, not per-source.**
+The plan defines staleness thresholds per data dimension. But one ticker's Finnhub data can be stale while another's is fresh (if API rate limit interrupted the refresh mid-batch).
+
+**Fix:** `data_freshness` table tracks `(source, ticker, last_fetched_at)`, not just `(source, last_fetched_at)`. Staleness check in enricher:
+```python
+def is_stale(source: str, ticker: str, threshold_minutes: int) -> bool:
+    row = query_one(
+        "SELECT last_fetched_at FROM data_freshness WHERE source=? AND ticker=?",
+        (source, ticker)
+    )
+    if not row:
+        return True  # Never fetched = stale
+    age = (datetime.now(ET) - parse(row["last_fetched_at"])).total_seconds() / 60
+    return age > threshold_minutes
+```
+
+### Sprint 6 Gaps: Training Pipeline
+
+**Gap 9: `outcome_type` classifier needed.**
+The plan uses outcome-conditioned prompts but doesn't specify how `exit_reason` maps to WIN/LOSS/TIMEOUT.
+
+**Fix:** Add to `src/training/outcome_prompts.py`:
+```python
+def classify_outcome(trade: dict) -> str:
+    """Map trade exit_reason to training outcome type."""
+    pnl = trade.get("pnl_dollars", 0)
+    exit_reason = trade.get("exit_reason", "")
+    
+    if exit_reason in ("timeout", "reconciled_stale"):
+        return "TIMEOUT"
+    if pnl > 0:
+        return "WIN"
+    return "LOSS"
+```
+
+PASS examples come from a different source — ranker-qualified candidates that were NOT traded (either LLM rejected or risk governor blocked). These live in `attribution_trades` (Sprint 3) with `llm_action = "rejected"`. **Sprint 6 therefore benefits from Sprint 3 completing first** — PASS examples come from the attribution ledger.
+
+**Gap 10: Contrastive examples must maintain self-blinding.**
+The "opposite decision" prompt cannot reveal that the opposite happened. E.g., for a WIN trade, the contrastive prompt says "analyze why this setup should be PASSED" — but it must not say "this trade actually won."
+
+**Fix:** Contrastive prompts use the SAME feature snapshot as the primary, with a different instruction:
+```
+Primary (WIN): "Analyze this pullback setup and explain why it merits a BUY."
+Contrastive (PASS): "Analyze this pullback setup and explain why it should be PASSED."
+```
+Neither prompt reveals the outcome. The model produces authentic reasoning for both sides. The (BUY, PASS) pair becomes a natural DPO preference pair.
+
+### Sprint 7 Gaps: Stress Testing
+
+**Gap 11: Survivorship bias — S&P 100 is hardcoded to today's members.**
+META didn't exist until 2012. TSLA joined S&P 100 in 2020. Using today's list for 2008 introduces survivorship bias.
+
+**Fix:** Pragmatic approach (not perfect, but honest):
+```python
+def get_stress_test_universe(scenario: str) -> list[str]:
+    """Filter S&P 100 to tickers with available data for the test period."""
+    full_universe = get_sp100_universe()
+    start = SCENARIOS[scenario]["start"]
+    
+    valid = []
+    for ticker in full_universe:
+        data = yf.download(ticker, start=start, end=start, progress=False)
+        if data is not None and len(data) > 0:
+            valid.append(ticker)
+    
+    # Log survivorship bias warning
+    excluded = set(full_universe) - set(valid)
+    if excluded:
+        logger.warning("[STRESS] Excluded %d tickers (no data for %s): %s",
+                       len(excluded), scenario, sorted(excluded))
+    
+    return valid
+```
+The stress test report explicitly notes: "Universe filtered to N tickers with available data. Results may exhibit survivorship bias for tickers that joined S&P 100 after the test period."
+
+**Gap 12: Backtester missing key metrics.**
+Current `backtest_model()` returns basic stats. Stress testing needs:
+
+**Fix:** Extend return dict in `backtester.py`:
+```python
+return {
+    # Existing
+    "model", "period", "trades_generated", "total_return", "win_rate",
+    "sharpe", "profit_factor",
+    # NEW for stress testing
+    "max_drawdown_pct": max_dd,
+    "max_drawdown_duration_days": max_dd_duration,
+    "calmar_ratio": annualized_return / max_dd if max_dd > 0 else None,
+    "monthly_returns": monthly_returns_list,
+    "trade_gap_days": longest_period_without_trade,
+    "regime_breakdown": {
+        "normal": {"trades": N, "win_rate": X, "avg_pnl": Y},
+        "elevated": {...},
+        "crisis": {...},
+    },
+    "equity_curve": [{"date": d, "equity": e} for d, e in curve],
+    "vix_at_worst_drawdown": vix_val,
+}
+```
+
+---
+
+## Updated Sprint Dependencies (Post-Gap Analysis)
+
+```
+Bug Bash (#2) ─────┬──── Alpha Attribution (#3) ────┬──── Stress Testing (#7)
+                    │    (attribution_trades table     │    (extends backtester,
+                    │     + mechanical simulator)       │     adds stress metrics)
+                    │         │                         │
+                    │         │ PASS examples feed ──────┘
+                    │         │                    
+                    ├──── Mean Reversion (#4) ──────── Multi-Cadence (#5)
+                    │    (RSI(2) scanner +              (extracts watch.py +
+                    │     strategy-aware exit            position monitor uses
+                    │     dispatcher)                    MR RSI exit logic)
+                    │                                    
+                    └──── Training Pipeline (#6)
+                          (uses PASS examples from #3,
+                           more trades from #4)
+```
+
+**New dependency discovered:** Sprint 6 (Training) benefits significantly from Sprint 3 (Attribution) — PASS examples come from the attribution ledger. Sprint 6 CAN run without Sprint 3, but PASS examples would be unavailable.
+
+**Sprint 5 (Multi-Cadence) now depends on Sprint 4 (Mean Reversion)** — the position monitor's RSI(2) exit check is a mean reversion feature that doesn't exist until Sprint 4 builds it.
+
+---
+
+## Risk Register (Post-Gap Analysis)
+
+| Risk | Sprint | Severity | Mitigation |
+|---|---|---|---|
+| watch.py extraction breaks existing scan flow | #5 | HIGH | Extract one module at a time, test after each extraction |
+| RSI(2) exit fires too aggressively (whipsaws) | #4 | MEDIUM | Add configurable RSI exit threshold + minimum hold period (2 days) |
+| Attribution simulator disagrees with real Alpaca fills | #3 | MEDIUM | Use conservative slippage estimate (5 bps); flag >10 bps discrepancies |
+| Survivorship bias invalidates stress test conclusions | #7 | MEDIUM | Report excludes affected tickers; note limitation prominently |
+| Contrastive training examples introduce bias | #6 | LOW | TF-IDF leakage detector catches directional bias; run after each batch |
+| Tier 1 + Tier 2 sequential execution adds 30s latency | #5 | LOW | Acceptable for 2-15 day strategy; not latency-sensitive |
