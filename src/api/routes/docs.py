@@ -14,11 +14,9 @@ router = APIRouter(tags=["docs"])
 # Docs we serve, in display order
 DOCS = [
     # Core documentation
-    {"id": "agents", "path": "AGENTS.md", "title": "AGENTS.md — Governance"},
+    {"id": "master", "path": "MASTER.md", "title": "MASTER.md — Governance & System State"},
     {"id": "readme", "path": "README.md", "title": "README"},
-    {"id": "architecture", "path": "docs/architecture.md", "title": "Architecture"},
     {"id": "training-guide", "path": "docs/training-guide.md", "title": "Training Guide"},
-    {"id": "roadmap", "path": "docs/roadmap.md", "title": "Roadmap"},
     {"id": "cli-reference", "path": "docs/cli-reference.md", "title": "CLI Reference (53 commands)"},
     {"id": "telegram-commands", "path": "docs/telegram-commands.md", "title": "Telegram Bot Commands"},
 
@@ -62,10 +60,10 @@ DOCS = [
 
 
 def _find_project_root() -> Path:
-    """Walk up from this file to find the repo root (has AGENTS.md)."""
+    """Walk up from this file to find the repo root (has MASTER.md or CLAUDE.md)."""
     p = Path(__file__).resolve()
     for parent in [p] + list(p.parents):
-        if (parent / "AGENTS.md").exists():
+        if (parent / "MASTER.md").exists() or (parent / "CLAUDE.md").exists():
             return parent
     return Path.cwd()
 

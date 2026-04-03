@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify SYSTEM_STATE.md counts match actual code/DB state.
+"""Verify MASTER.md counts match actual code/DB state.
 
 Run after every sprint or as part of CI to catch documentation drift.
 
@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-STATE_FILE = ROOT / "SYSTEM_STATE.md"
+STATE_FILE = ROOT / "MASTER.md"
 
 
 def _read_state():
@@ -78,7 +78,7 @@ def check_test_files(state_text):
 
 def main():
     if not STATE_FILE.exists():
-        print(f"ERROR: {STATE_FILE} not found")
+        print(f"ERROR: {STATE_FILE} not found (expected MASTER.md)")
         sys.exit(1)
 
     state_text = _read_state()
@@ -96,14 +96,14 @@ def main():
 
     print("=" * 60)
     print("  Documentation Drift Report")
-    print("  Source: SYSTEM_STATE.md")
+    print("  Source: MASTER.md")
     print("=" * 60)
     print()
 
     for check_fn in checks:
         name, documented, actual = check_fn(state_text)
         if documented is None:
-            print(f"  SKIP  {name}: not found in SYSTEM_STATE.md")
+            print(f"  SKIP  {name}: not found in MASTER.md")
             skipped += 1
         elif documented == actual:
             print(f"  PASS  {name}: {actual}")
@@ -119,7 +119,7 @@ def main():
     print()
 
     if warned:
-        print("  Update SYSTEM_STATE.md to fix warnings.")
+        print("  Update MASTER.md Section 2 to fix warnings.")
         print("  (This is the only file that needs count updates.)")
 
     return 1 if warned else 0
