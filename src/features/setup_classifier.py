@@ -59,15 +59,9 @@ def _compute_adx(high: pd.Series, low: pd.Series, close: pd.Series,
 
 
 def _compute_rsi(close: pd.Series, period: int = 14) -> float:
-    """Compute RSI for the most recent value."""
-    delta = close.diff()
-    gain = delta.where(delta > 0, 0).rolling(period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(period).mean()
-    last_loss = loss.iloc[-1]
-    if last_loss == 0:
-        return 100.0
-    rs = gain.iloc[-1] / last_loss
-    return round(100 - (100 / (1 + rs)), 1)
+    """Compute RSI for the most recent value (delegates to shared utility)."""
+    from src.features.indicators import compute_rsi
+    return compute_rsi(close, period)
 
 
 def _volume_profile(volume: pd.Series) -> str:

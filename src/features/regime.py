@@ -11,15 +11,7 @@ import numpy as np
 import pandas as pd
 
 from src.features.engine import _slope_direction
-
-
-def _compute_rsi(close: pd.Series, period: int = 14) -> float:
-    """Compute RSI for the most recent value."""
-    delta = close.diff()
-    gain = delta.where(delta > 0, 0).rolling(period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(period).mean()
-    rs = gain.iloc[-1] / loss.iloc[-1] if loss.iloc[-1] != 0 else 100
-    return round(100 - (100 / (1 + rs)), 1)
+from src.features.indicators import compute_rsi as _compute_rsi
 
 
 def _classify_volatility(realized_vol: float) -> str:

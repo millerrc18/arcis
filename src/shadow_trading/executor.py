@@ -326,6 +326,15 @@ def open_shadow_trade(
     # Source tagging: paper trades always tagged as "paper"
     trade_data["source"] = "paper"
 
+    # Strategy type tagging
+    strategy_type = features.get("strategy_type", "pullback")
+    trade_data["strategy_type"] = strategy_type
+
+    # paper_only enforcement: override source for paper_only strategies
+    strategy_cfg = config.get("strategies", {}).get(strategy_type, {})
+    if strategy_cfg.get("paper_only", False):
+        trade_data["source"] = "paper"
+
     # Slippage tracking: signal price vs fill price
     actual_fill = trade_data.get("actual_entry_price", entry_price)
     trade_data["signal_entry_price"] = entry_price
@@ -538,6 +547,53 @@ def check_and_manage_open_trades(
             },
             db_path,
         )
+
+        # ═══ Strategy-aware exit: Mean Reversion RSI exit ═══
+        if trade.get("strategy_type") == "mean_reversion":
+            try:
+                from src.features.mean_reversion import compute_mr_exit_signal
+                _mr_ohlcv = _get_recent_ohlcv_safe(ticker, days=10)
+                if _mr_ohlcv is not None:
+                    mr_exit = compute_mr_exit_signal(
+                        ticker, _mr_ohlcv, entry_price, config)
+                    if mr_exit:
+                        pnl = (current_price - entry_price) * shares
+                        close_shadow_trade(
+                            trade["trade_id"],
+                            exit_price=mr_exit["exit_price"],
+                            exit_reason=mr_exit["exit_reason"],
+                            pnl_dollars=pnl,
+                            db_path=db_path,
+                        )
+                        actions.append({
+                            "ticker": ticker,
+                            "type": "closed",
+                            "action": mr_exit["exit_reason"],
+                            "pnl_dollars": pnl,
+                        })
+                        continue  # Skip bracket logic
+            except Exception as e:
+                logger.debug("[EXECUTOR] MR exit check failed for %s: %s", ticker, e)
+
+            # MR timeout exit
+            mr_cfg = config.get("strategies", {}).get("mean_reversion", {})
+            mr_timeout = mr_cfg.get("holding_period", 5)
+            if days_open >= mr_timeout:
+                pnl = (current_price - entry_price) * shares
+                close_shadow_trade(
+                    trade["trade_id"],
+                    exit_price=current_price,
+                    exit_reason="mr_timeout",
+                    pnl_dollars=pnl,
+                    db_path=db_path,
+                )
+                actions.append({
+                    "ticker": ticker,
+                    "type": "closed",
+                    "action": "mr_timeout",
+                    "pnl_dollars": pnl,
+                })
+                continue
 
         # For bracket orders, check Alpaca for exit fills
         bracket_exit = False
@@ -1294,6 +1350,18 @@ def _check_sector_exposure(db_path: str = DB_PATH) -> None:
                 )
     except Exception as e:
         logger.debug("[EXPOSURE] Sector exposure check failed: %s", e)
+
+
+def _get_recent_ohlcv_safe(ticker: str, days: int = 10):
+    """Fetch recent OHLCV for a ticker (for MR exit checks). Returns DataFrame or None."""
+    try:
+        import yfinance as yf
+        data = yf.download(ticker, period=f"{days}d", progress=False)
+        if data is not None and not data.empty:
+            return data
+    except Exception as e:
+        logger.debug("[OHLCV] yfinance fetch failed for %s: %s", ticker, e)
+    return None
 
 
 def _get_current_price_safe(ticker: str) -> float | None:
