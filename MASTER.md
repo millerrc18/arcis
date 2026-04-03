@@ -242,16 +242,32 @@ short selling, high-frequency / intraday trading, live trading with real money.
 **MCP Servers (4):** alpaca (trading API), context7 (live docs), github
 (issues/PRs), sqlite (direct DB queries)
 
-**Hooks (4):** auto-lint Python (ruff on edit), auto-lint JSX (eslint on edit),
-block .env edits, block lock file edits
+**Hooks (6):** auto-lint Python (ruff on edit), auto-lint JSX (eslint on edit),
+schema DDL warning, block .env edits, block lock file edits,
+post-merge validation (schema + docs drift on `git merge`/`git pull`)
 
-**Skills (4):** `/gen-test` (generate pytest files), `/post-close-check`
-(reconciliation), `/config-check` (config drift), `/market-monitor` (recurring
-reconciliation)
+**Skills (7):**
 
-**Subagents (3):** security-reviewer (credential/injection/risk checks),
-test-runner (full suite + failure grouping), migration-checker (schema
-idempotency + backwards compatibility)
+| Skill | Invoke | Purpose |
+|---|---|---|
+| gen-test | `/gen-test src/module.py` | Generate pytest files matching project conventions |
+| post-close-check | `/post-close-check` | Alpaca vs local ledger reconciliation |
+| config-check | `/config-check [--fix]` | Detect config drift between example and local |
+| market-monitor | `/market-monitor 5m` | Recurring reconciliation on interval |
+| arcis-status | `/arcis-status` | Compact system status snapshot (phase, positions, equity, training, audit) |
+| retrain-check | `/retrain-check` | 8-point preflight gate before GPU training |
+| visual-check | `/visual-check` | Screenshot all 18 dashboard pages via Playwright |
+
+**Agents (6):**
+
+| Agent | Purpose | When to Use |
+|---|---|---|
+| security-reviewer | Credential exposure, SQL injection, risk governor bypass | Before merging PRs touching risk/api/.env code |
+| test-runner | Full pytest suite, failure grouping, CI guardian check (1105 min) | After code changes, before commits |
+| migration-checker | Schema change idempotency, cross-script sync, backwards compat | When columns or tables are added/modified |
+| drift-detector | Schema drift, config drift, doc staleness, data staleness, orphaned positions | Start of every coding session |
+| data-integrity-checker | FK integrity, orphaned records, data quality across 49 tables | After recovery, before releases |
+| api-documenter | Route inventory, frontend-backend consistency, auth gaps | After adding/changing API endpoints |
 
 **Plugins (11 relevant):** commit-commands, code-simplifier, ralph-loop,
 telegram, claude-md-management, claude-code-setup, skill-creator,
