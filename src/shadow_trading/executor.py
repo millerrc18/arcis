@@ -383,9 +383,38 @@ def open_shadow_trade(
     return trade_id
 
 
+_MAX_EXIT_RETRIES = 3
+
+
 def _retry_exit(trade: dict, db_path: str = DB_PATH) -> None:
-    """Retry exit for trades stuck in exit_pending or exit_failed."""
+    """Retry exit for trades stuck in exit_pending or exit_failed.
+
+    Cancels any pending exit order before resubmitting. Gives up after
+    _MAX_EXIT_RETRIES attempts and marks the trade as exit_abandoned
+    for reconciliation to handle.
+    """
+    from src.shadow_trading.alpaca_adapter import cancel_paper_order
+
     ticker = trade["ticker"]
+    retry_count = trade.get("exit_retry_count", 0) or 0
+
+    # Enforce max retry limit
+    if retry_count >= _MAX_EXIT_RETRIES:
+        logger.error("[RETRY] Max retries (%d) reached for %s — abandoning exit",
+                     _MAX_EXIT_RETRIES, ticker)
+        update_shadow_trade(trade["trade_id"], {"status": "exit_abandoned"}, db_path)
+        return
+
+    # Cancel any existing pending exit order before resubmitting
+    pending_order_id = trade.get("exit_order_id") or trade.get("alpaca_order_id")
+    if pending_order_id:
+        cancel_paper_order(pending_order_id)
+        time.sleep(1)  # Brief pause for broker to process cancellation
+
+    # Increment retry counter
+    update_shadow_trade(trade["trade_id"],
+                        {"exit_retry_count": retry_count + 1}, db_path)
+
     shares = trade.get("shares", trade.get("planned_shares", 0))
     try:
         exit_result = _submit_exit_order(trade, shares)
@@ -406,7 +435,8 @@ def _retry_exit(trade: dict, db_path: str = DB_PATH) -> None:
             )
             logger.info("[RETRY] Successfully closed %s on retry", ticker)
         elif _is_pending_status(exit_status):
-            logger.info("[RETRY] Exit still pending for %s", ticker)
+            logger.info("[RETRY] Exit still pending for %s (retry %d/%d)",
+                        ticker, retry_count + 1, _MAX_EXIT_RETRIES)
         else:
             update_shadow_trade(trade["trade_id"], {"status": "exit_failed"}, db_path)
             logger.warning("[RETRY] Exit retry failed for %s (status=%s)", ticker, exit_status)
