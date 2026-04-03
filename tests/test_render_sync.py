@@ -493,3 +493,69 @@ class TestSyncTablesConfig:
         assert "options_metrics" in latest_only
         assert "vix_term_structure" in latest_only
         assert "macro_snapshots" in latest_only
+
+
+# ── Per-table reconnection tests (#199) ──────────────────────────────
+
+class TestPerTableReconnection:
+    """Verify sync cycle recovers from mid-cycle connection failures (#199)."""
+
+    def test_healthy_connection_reused_without_reconnect(self, test_db):
+        """When connection stays alive, no reconnection should happen."""
+        _init_sync_state(test_db)
+        mock_psycopg2 = MagicMock()
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value.__enter__ = MagicMock(return_value=mock_cursor)
+        mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+        mock_psycopg2.connect.return_value = mock_conn
+
+        with patch.dict("sys.modules", {"psycopg2": mock_psycopg2}), \
+             patch("src.sync.render_sync.sync_table", return_value=0), \
+             patch("src.sync.render_sync.pull_commands", return_value=[]):
+            summary = run_sync_cycle("postgresql://test@localhost/db", test_db)
+
+        # connect called exactly once (initial + ensure checks, no reconnects)
+        assert mock_psycopg2.connect.call_count == 1
+
+    def test_dead_connection_triggers_reconnect(self, test_db):
+        """When connection dies mid-cycle, should reconnect for remaining tables."""
+        _init_sync_state(test_db)
+        mock_psycopg2 = MagicMock()
+
+        # First connection dies on cursor use, second works
+        dead_conn = MagicMock()
+        dead_cursor_ctx = MagicMock()
+        dead_cursor = MagicMock()
+        dead_cursor.execute.side_effect = Exception("connection already closed")
+        dead_cursor_ctx.__enter__ = MagicMock(return_value=dead_cursor)
+        dead_cursor_ctx.__exit__ = MagicMock(return_value=False)
+        dead_conn.cursor.return_value = dead_cursor_ctx
+
+        live_conn = MagicMock()
+        live_cursor_ctx = MagicMock()
+        live_cursor = MagicMock()
+        live_cursor_ctx.__enter__ = MagicMock(return_value=live_cursor)
+        live_cursor_ctx.__exit__ = MagicMock(return_value=False)
+        live_conn.cursor.return_value = live_cursor_ctx
+
+        mock_psycopg2.connect.side_effect = [dead_conn, live_conn]
+
+        with patch.dict("sys.modules", {"psycopg2": mock_psycopg2}):
+            summary = run_sync_cycle("postgresql://test@localhost/db", test_db)
+
+        # Should have reconnected at least once
+        assert mock_psycopg2.connect.call_count >= 2
+
+    def test_fully_unreachable_postgres_fails_gracefully(self, test_db):
+        """When Postgres is completely down, each table fails independently."""
+        _init_sync_state(test_db)
+        mock_psycopg2 = MagicMock()
+        mock_psycopg2.connect.side_effect = Exception("Connection refused")
+
+        with patch.dict("sys.modules", {"psycopg2": mock_psycopg2}):
+            summary = run_sync_cycle("postgresql://test@localhost/db", test_db)
+
+        # Should have errors but not crash
+        assert len(summary["errors"]) > 0
+        assert "timestamp" in summary

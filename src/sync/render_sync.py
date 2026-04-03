@@ -481,6 +481,21 @@ def _connect_pg_with_retry(database_url: str):
     raise last_exc
 
 
+def _ensure_pg_connection(conn, database_url: str):
+    """Return existing connection if alive, otherwise create a new one."""
+    if conn is not None:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+            return conn
+        except Exception:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    return _connect_pg_with_retry(database_url)
+
+
 def run_sync_cycle(database_url: str, db_path: str = LOCAL_DB) -> dict:
     """Run one full sync cycle across all tables. Returns summary dict."""
     try:
@@ -505,6 +520,7 @@ def run_sync_cycle(database_url: str, db_path: str = LOCAL_DB) -> dict:
     try:
         for table_name, table_config in SYNC_TABLES.items():
             try:
+                pg_conn = _ensure_pg_connection(pg_conn, database_url)
                 count = sync_table(pg_conn, table_name, table_config, db_path)
                 if count > 0:
                     summary["synced"][table_name] = count
@@ -512,11 +528,13 @@ def run_sync_cycle(database_url: str, db_path: str = LOCAL_DB) -> dict:
             except Exception as exc:
                 logger.error("Sync failed for %s: %s", table_name, exc)
                 summary["errors"].append(f"{table_name}: {exc}")
+                pg_conn = None  # Force reconnect on next table
     finally:
-        try:
-            pg_conn.close()
-        except Exception:
-            pass
+        if pg_conn:
+            try:
+                pg_conn.close()
+            except Exception:
+                pass
 
     # Pull commands from cloud (bidirectional)
     try:
