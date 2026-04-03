@@ -363,19 +363,20 @@ def system_validation(fresh: bool = False):
 
 
 _TABLE_WHITELIST = [
-    "shadow_trades", "recommendations", "trade_exits", "bracket_orders",
-    "trade_postmortems", "position_snapshots", "live_trades",
-    "training_examples", "training_runs", "model_versions", "holdout_results",
-    "preference_pairs", "contrastive_pairs", "quality_scores",
+    "shadow_trades", "recommendations", "training_examples", "model_versions",
+    "preference_pairs", "model_evaluations", "quality_drift_metrics",
     "options_chains", "options_metrics", "vix_term_structure", "cboe_ratios",
     "macro_snapshots", "google_trends", "earnings_calendar", "edgar_filings",
     "insider_transactions", "short_interest", "fed_communications", "analyst_estimates",
-    "activity_log", "log_entries", "command_queue", "command_results",
-    "config_overrides", "scan_metrics", "metric_snapshots",
+    "activity_log", "log_entries", "pending_commands", "command_results",
+    "config_overrides", "scan_metrics", "metric_snapshots", "schedule_metrics",
     "council_sessions", "council_votes", "audit_reports", "build_score_history",
-    "hshs_snapshots", "validation_checks",
-    "feature_cache", "enrichment_cache", "news_cache", "regime_history",
-    "sector_snapshots", "fundamental_snapshots",
+    "canary_evaluations", "validation_results", "api_costs",
+    "bracket_health", "council_calibrations", "council_debug_log",
+    "council_parameter_log", "council_parameter_state",
+    "research_digests", "research_docs", "research_papers",
+    "setup_signals", "sync_state", "traffic_light_state",
+    "user_notes",
 ]
 
 

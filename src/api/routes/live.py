@@ -63,7 +63,7 @@ def live_summary():
                 (dict(t).get("pnl_dollars", 0) or 0) for t in closed
             )
             wins = [t for t in closed if (dict(t).get("pnl_dollars", 0) or 0) > 0]
-            starting = 100
+            starting = 100_000
             return {
                 "starting_capital": starting,
                 "current_equity": round(starting + closed_pnl, 2),
@@ -77,4 +77,4 @@ def live_summary():
             conn.close()
     except Exception as exc:
         logger.error("Live summary error: %s", exc)
-        return {"starting_capital": 100, "current_equity": 100, "error": str(exc)}
+        return {"starting_capital": 100_000, "current_equity": 100_000, "error": str(exc)}

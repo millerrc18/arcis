@@ -13,7 +13,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from src.config import DB_PATH
 
@@ -67,7 +67,7 @@ def council_latest():
 
 
 @router.get("/council/history")
-def council_history(days: int = 30):
+def council_history(days: int = Query(default=30, ge=1, le=365)):
     """Return council sessions within date range."""
     try:
         cutoff = (datetime.now(ET) - timedelta(days=days)).isoformat()

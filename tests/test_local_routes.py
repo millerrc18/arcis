@@ -78,7 +78,7 @@ def health_db(tmp_path):
     conn = sqlite3.connect(db_path)
     conn.execute(
         "CREATE TABLE build_score_history ("
-        "score_id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "score_id TEXT PRIMARY KEY, "
         "score_date TEXT, build_score REAL, "
         "gate_velocity REAL, system_health REAL, "
         "data_asset_value REAL, model_quality REAL, "
@@ -88,11 +88,11 @@ def health_db(tmp_path):
     )
     conn.execute(
         "INSERT INTO build_score_history "
-        "(score_date, build_score, gate_velocity, system_health, "
+        "(score_id, score_date, build_score, gate_velocity, system_health, "
         "data_asset_value, model_quality, research_velocity, reliability, "
         "decay_applied, created_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        ("2026-04-02", 72.4, 82.0, 91.0, 58.0, 74.0, 68.0, 85.0, 0,
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ("bs-1", "2026-04-02", 72.4, 82.0, 91.0, 58.0, 74.0, 68.0, 85.0, 0,
          "2026-04-02T16:45:00"),
     )
     conn.execute(
@@ -434,17 +434,17 @@ def logs_db(tmp_path):
     conn = sqlite3.connect(db_path)
     conn.execute(
         "CREATE TABLE log_entries ("
-        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "log_id TEXT PRIMARY KEY, "
         "log_level TEXT, source TEXT, message TEXT, "
         "details_json TEXT, created_at TEXT NOT NULL)"
     )
     conn.execute(
-        "INSERT INTO log_entries (log_level, source, message, created_at) "
-        "VALUES ('INFO', 'scanner', 'Scan started', '2026-04-02T14:00:00')"
+        "INSERT INTO log_entries (log_id, log_level, source, message, created_at) "
+        "VALUES ('log-1', 'INFO', 'scanner', 'Scan started', '2026-04-02T14:00:00')"
     )
     conn.execute(
-        "INSERT INTO log_entries (log_level, source, message, created_at) "
-        "VALUES ('ERROR', 'llm', 'Timeout', '2026-04-02T14:01:00')"
+        "INSERT INTO log_entries (log_id, log_level, source, message, created_at) "
+        "VALUES ('log-2', 'ERROR', 'llm', 'Timeout', '2026-04-02T14:01:00')"
     )
     conn.execute(
         "CREATE TABLE pending_commands ("
