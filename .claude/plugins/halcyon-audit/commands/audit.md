@@ -20,7 +20,8 @@ Run a full audit of the Halcyon Lab (Arcis) repository using 8 specialized domai
 - `/audit --quick` — Skip code-quality and comment-doc (noisiest domains)
 - `/audit --baseline-only` — Only check regressions against baseline
 - `/audit --schedule daily` — Schedule recurring audit at 8 AM ET weekdays
-- `/audit --schedule weekly` — Schedule recurring audit Monday 8 AM ET
+- `/audit --schedule daily 8pm` — Schedule recurring audit at 8 PM ET weekdays
+- `/audit --schedule weekly 6am` — Schedule recurring audit Monday 6 AM ET
 - `/audit --schedule off` — Remove scheduled audit
 
 ## What This Does
@@ -34,8 +35,8 @@ Run a full audit of the Halcyon Lab (Arcis) repository using 8 specialized domai
 ## Scheduling
 
 When `--schedule` is provided, this command sets up a recurring audit instead of running one immediately:
-- `daily`: Creates a scheduled remote agent that runs `/audit --quick` at 8 AM ET on weekdays (Mon-Fri)
-- `weekly`: Creates a scheduled remote agent that runs `/audit` (full) at 8 AM ET on Mondays
+- `daily`: Creates a scheduled remote agent that runs a full audit on weekdays (Mon-Fri). Defaults to 8 AM ET; add a time like `8pm` to change.
+- `weekly`: Creates a scheduled remote agent that runs a full audit on Mondays. Defaults to 8 AM ET; add a time like `6am` to change.
 - `off`: Removes any existing scheduled audit
 
 Scheduled audits run as remote agents and will file GitHub issues and write reports automatically.

@@ -14,27 +14,37 @@ The `/audit` command passes arguments as a string. Parse them:
 - Comma-separated domain names (e.g., `trading,security`): run only those domains
 - `--quick`: skip `code-quality` and `comment-doc` domains
 - `--baseline-only`: only check regressions against baseline (skip new issue filing)
-- `--schedule daily|weekly|off`: manage recurring audit schedule (see Scheduling section)
+- `--schedule daily|weekly|off [TIME]`: manage recurring audit schedule (see Scheduling section)
 
 ## Scheduling Mode
 
-If `--schedule` is present, handle scheduling instead of running an audit:
+If `--schedule` is present, handle scheduling instead of running an audit.
 
-### `--schedule daily`
+An optional time can be specified after the schedule type (e.g., `--schedule daily 8pm`, `--schedule weekly 6am`). If no time is given, default to 8 AM ET.
+
+**Time parsing:** Convert the given time to a UTC cron hour. ET is UTC-4 (EDT) or UTC-5 (EST). Use UTC-4 (EDT) as the default since that covers most of the year. Examples:
+- `8am` ET = `12` UTC
+- `8pm` ET = `0` UTC (next day)
+- `6am` ET = `10` UTC
+- `10pm` ET = `2` UTC (next day)
+- `noon` ET = `16` UTC
+- `midnight` ET = `4` UTC
+
+### `--schedule daily [TIME]`
 Use the CronCreate tool to create a scheduled remote agent:
 - **Name:** `halcyon-audit-daily`
-- **Schedule:** `0 12 * * 1-5` (noon UTC = 8 AM ET, weekdays)
-- **Prompt:** `Use the audit-orchestrator skill to run a quick audit. Arguments: --quick`
-
-Tell the user: "Scheduled daily audit (weekdays 8 AM ET). Use `/audit --schedule off` to cancel."
-
-### `--schedule weekly`
-Use the CronCreate tool to create a scheduled remote agent:
-- **Name:** `halcyon-audit-weekly`
-- **Schedule:** `0 12 * * 1` (noon UTC = 8 AM ET, Mondays)
+- **Schedule:** `0 {UTC_HOUR} * * 1-5` (weekdays at the specified time)
 - **Prompt:** `Use the audit-orchestrator skill to run a full audit.`
 
-Tell the user: "Scheduled weekly audit (Mondays 8 AM ET). Use `/audit --schedule off` to cancel."
+Tell the user: "Scheduled daily audit (weekdays {TIME} ET). Use `/audit --schedule off` to cancel."
+
+### `--schedule weekly [TIME]`
+Use the CronCreate tool to create a scheduled remote agent:
+- **Name:** `halcyon-audit-weekly`
+- **Schedule:** `0 {UTC_HOUR} * * 1` (Mondays at the specified time)
+- **Prompt:** `Use the audit-orchestrator skill to run a full audit.`
+
+Tell the user: "Scheduled weekly audit (Mondays {TIME} ET). Use `/audit --schedule off` to cancel."
 
 ### `--schedule off`
 Use CronList to find any crons with "halcyon-audit" in the name, then CronDelete to remove them. Tell the user which schedules were removed.
