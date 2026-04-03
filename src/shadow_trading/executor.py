@@ -335,6 +335,24 @@ def open_shadow_trade(
     if strategy_cfg.get("paper_only", False):
         trade_data["source"] = "paper"
 
+    # Outcome metadata (Sprint 6, Strategy Decision #24)
+    trade_data["regime_at_entry"] = features.get("traffic_light", {}).get("regime_label", "")
+    trade_data["ranking_at_entry"] = features.get("_rank", 0)
+    try:
+        open_count = len(get_open_shadow_trades(db_path))
+        trade_data["concurrent_positions"] = open_count
+    except Exception:
+        trade_data["concurrent_positions"] = 0
+    try:
+        import sqlite3 as _sq3
+        with _sq3.connect(db_path) as _vc:
+            _vr = _vc.execute(
+                "SELECT vix FROM vix_term_structure ORDER BY collected_date DESC LIMIT 1"
+            ).fetchone()
+            trade_data["vix_at_entry"] = float(_vr[0]) if _vr else None
+    except Exception:
+        trade_data["vix_at_entry"] = None
+
     # Slippage tracking: signal price vs fill price
     actual_fill = trade_data.get("actual_entry_price", entry_price)
     trade_data["signal_entry_price"] = entry_price

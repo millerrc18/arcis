@@ -203,6 +203,31 @@ def collect_training_examples_from_closed_trades(
         logger.info("  [TRAINING] Generated blinded example for %s (%s)", trade.get('ticker'), source)
         count += 1
 
+        # ═══ OUTCOME-CONDITIONED EXAMPLES (Sprint 6: 3-5x data yield) ═══
+        try:
+            from src.training.outcome_prompts import generate_training_examples
+            oc_examples = generate_training_examples(trade, {}, feature_input)
+            for oc_ex in oc_examples:
+                oc_id = str(uuid.uuid4())
+                oc_source = f"outcome_{oc_ex['type']}"
+                with sqlite3.connect(db_path) as conn:
+                    conn.execute(
+                        """INSERT INTO training_examples
+                           (example_id, created_at, source, ticker, recommendation_id,
+                            feature_snapshot, trade_outcome, instruction, input_text, output_text)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (oc_id, created_at, oc_source, trade.get("ticker"),
+                         trade.get("recommendation_id"), feature_input, outcome_text,
+                         oc_ex["system"], feature_input, ""),
+                    )
+                    conn.commit()
+                count += 1
+            logger.info("  [TRAINING] Generated %d outcome-conditioned examples for %s",
+                        len(oc_examples), trade.get("ticker"))
+        except Exception as e:
+            logger.warning("[TRAINING] Outcome-conditioned generation failed for %s: %s",
+                           trade.get("ticker"), e)
+
         halt, compliance, top_reason = should_halt_batch(attempted, rejected, rejection_reasons)
         if halt:
             alert_training_halt(compliance, rejected, attempted, top_reason)

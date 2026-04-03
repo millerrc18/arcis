@@ -191,6 +191,15 @@ _register(TableDef(
         ColumnDef("strategy_type", "TEXT", default="pullback"),
         ColumnDef("actual_shares", "INTEGER"),
         ColumnDef("exit_retry_count", "INTEGER", default="0"),
+        # Outcome metadata (Sprint 6, Strategy Decision #24)
+        ColumnDef("regime_at_entry", "TEXT", description="Market regime at trade entry"),
+        ColumnDef("regime_at_exit", "TEXT", description="Market regime at trade exit"),
+        ColumnDef("vix_at_entry", "REAL", description="VIX level at trade entry"),
+        ColumnDef("vix_at_exit", "REAL", description="VIX level at trade exit"),
+        ColumnDef("time_to_target_days", "INTEGER", description="Days to reach target (NULL if not reached)"),
+        ColumnDef("drawdown_from_mfe", "REAL", description="Drawdown from MFE at exit (bps)"),
+        ColumnDef("concurrent_positions", "INTEGER", description="Number of open positions at entry"),
+        ColumnDef("ranking_at_entry", "INTEGER", description="Ranker rank (1=best) at entry"),
     ],
     primary_key="trade_id",
     indexes=[
