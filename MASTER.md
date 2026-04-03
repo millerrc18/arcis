@@ -697,12 +697,13 @@ VIX >40, system offline.
 |---|---|---|
 | 1 | Schema Registry | DONE -- 46 tables, all DDL removed, guardrails |
 | 2 | React Flow interactive diagrams | DONE -- Architecture + DB Schema pages |
+| A | Dashboard polish + documentation consolidation | DONE -- PR #203 |
 | 3 | Fix critical bugs (#182, #183, #184) | QUEUED |
-| 4 | Alpha attribution experiment | QUEUED -- parallel ranker-only shadow portfolio |
-| 5 | Mean reversion paper-trading | QUEUED -- Strategy #2 config + second watch loop |
-| 6 | Multi-cadence scanning (4-tier) | QUEUED -- split position monitoring from scanning |
-| 7 | Outcome metadata + conditioned training | QUEUED -- 8 columns + 3-5x data yield |
-| 8 | Historical stress testing | QUEUED -- 2008, 2020, 2022 scenarios |
+| 4 | Alpha attribution experiment | DONE -- PR #203, attribution_trades table + dashboard |
+| 5 | Mean reversion paper-trading | DONE -- PR #203, RSI(2) scanner + strategy exits |
+| 6 | Multi-cadence scanning (4-tier) | DONE -- PR #203, 4 extracted modules + staleness |
+| 7 | Outcome metadata + conditioned training | DONE -- PR #203, 3-5x data yield |
+| 8 | Historical stress testing | DONE -- PR #203, 2008/2020/2022 scenarios |
 | 9 | Repo reorganization | Backlog |
 | 10 | architecture.md refresh | Backlog |
 
