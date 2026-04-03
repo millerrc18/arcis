@@ -420,3 +420,118 @@ def activity_feed(
     except Exception as e:
         logger.error("[API] activity/feed failed: %s", e)
         return []
+
+
+@router.get("/settings")
+def get_settings():
+    """Return current settings including dashboard overrides."""
+    import sqlite3 as _sqlite3
+    config = load_config()
+    overrides = {}
+    try:
+        with _sqlite3.connect(DB_PATH) as conn:
+            conn.row_factory = _sqlite3.Row
+            rows = conn.execute(
+                "SELECT setting_key, setting_value, updated_at FROM config_overrides"
+            ).fetchall()
+            for row in rows:
+                import json as _json
+                try:
+                    overrides[row["setting_key"]] = {
+                        "value": _json.loads(row["setting_value"]),
+                        "updated_at": row["updated_at"],
+                    }
+                except (ValueError, TypeError):
+                    overrides[row["setting_key"]] = {
+                        "value": row["setting_value"],
+                        "updated_at": row["updated_at"],
+                    }
+    except Exception:
+        pass
+
+    risk = config.get("risk", {})
+    return {
+        "overrides": overrides,
+        "risk": {
+            "max_position_pct": risk.get("max_position_pct", 0.25),
+            "max_open_positions": risk.get("max_open_positions", 50),
+            "max_sector_pct": risk.get("max_sector_pct", 0.22),
+            "planned_risk_pct_min": risk.get("planned_risk_pct_min", 0.005),
+            "planned_risk_pct_max": risk.get("planned_risk_pct_max", 0.01),
+        },
+        "shadow_trading": config.get("shadow_trading", {}),
+        "llm": config.get("llm", {}),
+        "scheduler": config.get("automation", {}),
+    }
+
+
+@router.post("/settings")
+def update_settings(body: dict):
+    """Save a config override to config_overrides table."""
+    import sqlite3 as _sqlite3
+    import json as _json
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    key = body.get("key")
+    value = body.get("value")
+    if not key:
+        return {"error": "key is required"}
+
+    now = datetime.now(ZoneInfo("America/New_York")).isoformat()
+    try:
+        with _sqlite3.connect(DB_PATH) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO config_overrides "
+                "(setting_key, setting_value, updated_at) VALUES (?, ?, ?)",
+                (key, _json.dumps(value), now),
+            )
+        return {"status": "saved", "key": key}
+    except Exception as exc:
+        logger.error("[API] settings update failed: %s", exc)
+        return {"error": str(exc)}
+
+
+@router.delete("/settings/overrides")
+def clear_overrides():
+    """Clear all dashboard overrides."""
+    import sqlite3 as _sqlite3
+    try:
+        with _sqlite3.connect(DB_PATH) as conn:
+            conn.execute("DELETE FROM config_overrides")
+        return {"message": "All overrides cleared"}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+@router.get("/scan/metrics")
+def scan_metrics(limit: int = Query(default=20, ge=1, le=200)):
+    """Return scan metrics history."""
+    import sqlite3 as _sqlite3
+    try:
+        with _sqlite3.connect(DB_PATH) as conn:
+            conn.row_factory = _sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM scan_metrics ORDER BY created_at DESC LIMIT ?",
+                (min(limit, 100),),
+            ).fetchall()
+            return [dict(r) for r in rows]
+    except Exception as exc:
+        logger.error("[API] scan/metrics failed: %s", exc)
+        return []
+
+
+@router.get("/training/history")
+def training_history():
+    """Alias for training/versions (cloud parity)."""
+    import sqlite3 as _sqlite3
+    try:
+        with _sqlite3.connect(DB_PATH) as conn:
+            conn.row_factory = _sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM model_versions ORDER BY created_at DESC"
+            ).fetchall()
+            return {"versions": [dict(r) for r in rows]}
+    except Exception as exc:
+        logger.error("[API] training/history failed: %s", exc)
+        return {"versions": []}

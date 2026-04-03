@@ -519,3 +519,80 @@ class TestCommands:
         assert resp.status_code == 200
         data = resp.json()
         assert data["count"] >= 1
+
+
+@pytest.fixture
+def settings_db(tmp_path):
+    """Create a DB with config_overrides, scan_metrics, model_versions."""
+    db_path = str(tmp_path / "settings.sqlite3")
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "CREATE TABLE config_overrides ("
+        "setting_key TEXT PRIMARY KEY, setting_value TEXT, updated_at TEXT)"
+    )
+    conn.execute(
+        "CREATE TABLE scan_metrics ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "llm_success INTEGER, llm_total INTEGER, "
+        "packet_worthy INTEGER, tickers_scanned INTEGER, "
+        "created_at TEXT, scan_date TEXT)"
+    )
+    conn.execute(
+        "INSERT INTO scan_metrics (llm_success, llm_total, created_at) "
+        "VALUES (90, 100, '2026-04-02T14:00:00')"
+    )
+    conn.execute(
+        "CREATE TABLE model_versions ("
+        "id INTEGER PRIMARY KEY, version_name TEXT, status TEXT, "
+        "created_at TEXT, example_count INTEGER, holdout_score REAL)"
+    )
+    conn.commit()
+    conn.close()
+    return db_path
+
+
+@pytest.fixture
+def settings_client(settings_db):
+    with patch("src.api.routes.system.DB_PATH", settings_db), \
+         patch("src.config.DB_PATH", settings_db):
+        import importlib
+        import src.api.routes.system as sys_mod
+        importlib.reload(sys_mod)
+        import src.api.app as app_mod
+        importlib.reload(app_mod)
+        yield TestClient(app_mod.app)
+
+
+class TestSettings:
+    def test_get_settings(self, settings_client):
+        resp = settings_client.get("/api/settings")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "overrides" in data
+        assert isinstance(data["overrides"], dict)
+
+    def test_post_settings(self, settings_client):
+        resp = settings_client.post("/api/settings", json={
+            "key": "risk.max_open_positions",
+            "value": 25,
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "saved"
+
+
+class TestScanMetrics:
+    def test_scan_metrics(self, settings_client):
+        resp = settings_client.get("/api/scan/metrics?limit=10")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, list)
+        assert len(data) == 1
+
+
+class TestTrainingHistory:
+    def test_training_history(self, settings_client):
+        resp = settings_client.get("/api/training/history")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "versions" in data
