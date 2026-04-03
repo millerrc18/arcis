@@ -177,10 +177,10 @@ def backtest_model(model_name: str, months: int = 6,
 
     # Max drawdown duration
     max_dd_duration_days = 0
-    peak_idx = 0
     current_dd_start = 0
-    peak_eq = equity_curve[0] if equity_curve else 0
-    for i, eq in enumerate(equity_curve):
+    peak_eq = equity_curve[0]["equity"] if equity_curve else 0
+    for i, point in enumerate(equity_curve):
+        eq = point["equity"]
         if eq >= peak_eq:
             peak_eq = eq
             current_dd_start = i
