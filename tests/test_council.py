@@ -58,88 +58,11 @@ def _make_agent_response(
 def council_db(tmp_path):
     """Create a temp DB with the tables council v2 touches."""
     db_path = str(tmp_path / "test_council.sqlite3")
+    from tests.conftest import init_test_db
+    init_test_db(db_path)  # create all tables from registry
     init_council_tables(db_path)
 
     with sqlite3.connect(db_path) as conn:
-        conn.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS recommendations (
-                recommendation_id TEXT PRIMARY KEY,
-                created_at TEXT NOT NULL,
-                ticker TEXT NOT NULL,
-                priority_score REAL,
-                confidence_score REAL,
-                market_regime TEXT,
-                sector_context TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS shadow_trades (
-                trade_id TEXT PRIMARY KEY,
-                recommendation_id TEXT,
-                ticker TEXT NOT NULL,
-                direction TEXT DEFAULT 'long',
-                status TEXT NOT NULL,
-                planned_allocation REAL,
-                actual_entry_time TEXT,
-                actual_exit_time TEXT,
-                pnl_dollars REAL,
-                pnl_pct REAL,
-                exit_reason TEXT,
-                max_adverse_excursion REAL,
-                created_at TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS vix_term_structure (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                collected_date TEXT,
-                vix REAL,
-                vix9d REAL,
-                vix3m REAL,
-                vix1y REAL
-            );
-
-            CREATE TABLE IF NOT EXISTS macro_snapshots (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                series_id TEXT,
-                collected_date TEXT,
-                value REAL
-            );
-
-            CREATE TABLE IF NOT EXISTS training_examples (
-                example_id TEXT PRIMARY KEY,
-                created_at TEXT NOT NULL,
-                quality_score REAL,
-                quality_score_auto REAL,
-                source TEXT,
-                difficulty TEXT,
-                curriculum_stage TEXT
-            );
-
-            CREATE TABLE IF NOT EXISTS model_versions (
-                version_id TEXT PRIMARY KEY,
-                version_name TEXT,
-                status TEXT,
-                created_at TEXT,
-                training_examples_count INTEGER
-            );
-
-            CREATE TABLE IF NOT EXISTS traffic_light_state (
-                id INTEGER PRIMARY KEY,
-                current_regime TEXT,
-                last_total_score INTEGER
-            );
-
-            CREATE TABLE IF NOT EXISTS scan_metrics (
-                metric_id TEXT PRIMARY KEY,
-                scan_time TEXT,
-                packet_worthy INTEGER,
-                llm_success INTEGER,
-                llm_total INTEGER,
-                avg_conviction REAL,
-                created_at TEXT
-            );
-            """
-        )
 
         now = datetime.now(ET)
         now_iso = now.isoformat()
@@ -156,34 +79,35 @@ def council_db(tmp_path):
         )
         conn.execute(
             "INSERT INTO shadow_trades "
-            "(trade_id, recommendation_id, ticker, direction, status, planned_allocation, actual_entry_time, created_at) "
-            "VALUES (?, ?, 'AAPL', 'long', 'open', 10000, ?, ?)",
-            (str(uuid.uuid4()), rec_id, yesterday, yesterday),
+            "(trade_id, recommendation_id, ticker, direction, status, planned_allocation, actual_entry_time, created_at, updated_at) "
+            "VALUES (?, ?, 'AAPL', 'long', 'open', 10000, ?, ?, ?)",
+            (str(uuid.uuid4()), rec_id, yesterday, yesterday, yesterday),
         )
         conn.execute(
             "INSERT INTO shadow_trades "
-            "(trade_id, recommendation_id, ticker, direction, status, planned_allocation, actual_entry_time, actual_exit_time, pnl_dollars, pnl_pct, exit_reason, max_adverse_excursion, created_at) "
-            "VALUES (?, ?, 'MSFT', 'long', 'closed', 9000, ?, ?, 220.0, 2.4, 'target_hit', -1.8, ?)",
-            (str(uuid.uuid4()), rec_id, two_days_ago, yesterday, two_days_ago),
+            "(trade_id, recommendation_id, ticker, direction, status, planned_allocation, actual_entry_time, actual_exit_time, pnl_dollars, pnl_pct, exit_reason, max_adverse_excursion, created_at, updated_at) "
+            "VALUES (?, ?, 'MSFT', 'long', 'closed', 9000, ?, ?, 220.0, 2.4, 'target_hit', -1.8, ?, ?)",
+            (str(uuid.uuid4()), rec_id, two_days_ago, yesterday, two_days_ago, yesterday),
         )
         conn.execute(
-            "INSERT INTO vix_term_structure (collected_date, vix, vix9d, vix3m, vix1y) "
-            "VALUES (?, 15.2, 14.0, 16.5, 18.0)",
-            (today,),
+            "INSERT INTO vix_term_structure (collected_at, collected_date, vix, vix9d, vix3m, vix1y) "
+            "VALUES (?, ?, 15.2, 14.0, 16.5, 18.0)",
+            (now_iso, today),
         )
         conn.executemany(
-            "INSERT INTO macro_snapshots (series_id, collected_date, value) VALUES (?, ?, ?)",
+            "INSERT INTO macro_snapshots (series_id, series_name, collected_date, collected_at, value) VALUES (?, ?, ?, ?, ?)",
             [
-                ("NFCI", today, -0.5),
-                ("BAMLH0A0HYM2", today, 3.5),
-                ("T10Y2Y", today, 0.45),
-                ("UNRATE", today, 4.0),
+                ("NFCI", "NFCI", today, now_iso, -0.5),
+                ("BAMLH0A0HYM2", "HY Spread", today, now_iso, 3.5),
+                ("T10Y2Y", "10Y-2Y Spread", today, now_iso, 0.45),
+                ("UNRATE", "Unemployment", today, now_iso, 4.0),
             ],
         )
         conn.execute(
             "INSERT INTO training_examples "
-            "(example_id, created_at, quality_score, quality_score_auto, source, difficulty, curriculum_stage) "
-            "VALUES ('ex1', ?, 0.84, 0.84, 'blinded_win', 'medium', 'stage_1')",
+            "(example_id, created_at, quality_score, quality_score_auto, source, difficulty, "
+            "curriculum_stage, instruction, input_text, output_text) "
+            "VALUES ('ex1', ?, 0.84, 0.84, 'blinded_win', 'medium', 'stage_1', 'evaluate', 'input', 'output')",
             (now_iso,),
         )
         conn.execute(
@@ -198,8 +122,8 @@ def council_db(tmp_path):
         )
         conn.execute(
             "INSERT INTO scan_metrics "
-            "(metric_id, scan_time, packet_worthy, llm_success, llm_total, avg_conviction, created_at) "
-            "VALUES ('m1', '09:30', 3, 2, 3, 7.2, ?)",
+            "(scan_time, packet_worthy, llm_success, llm_total, avg_conviction, created_at) "
+            "VALUES ('09:30', 3, 2, 3, 7.2, ?)",
             (now_iso,),
         )
     return db_path
