@@ -1,6 +1,50 @@
 # Changelog
 
-## [Unreleased] - 2026-03-31
+## [Unreleased] - 2026-04-03
+
+### Sprints A through 7: Dashboard, Attribution, MR, Multi-Cadence, Training, Stress Testing
+
+**Sprint A — Dashboard Polish + Documentation Consolidation:**
+- Redesigned audit banner as compact expandable chip (green/yellow/red/stale states)
+- Fixed build score empty state (shows "not yet computed" instead of 0.0)
+- Added `cto-report` command handler; fixed action endpoint mappings
+- Fixed activity feed "task: ?" entries for overnight_task and default cases
+- Created MASTER.md (822 lines, 13 sections) consolidating 5 governance docs
+- Archived 11 docs to docs/archive/governance/ and docs/archive/reference/
+- Enriched watch loop: startup banner with portfolio stats, 60-min heartbeat, scan summary line
+
+**Sprint 3 — Alpha Attribution Experiment:**
+- Added `attribution_trades` table (49 tables total in registry)
+- Two-phase attribution logging in watch.py (before/after LLM)
+- Mechanical outcome simulator for post-close evaluation
+- Historical backtest script (`scripts/alpha_attribution_backtest.py`)
+- Dashboard Attribution page with win rate comparison and statistical power
+
+**Sprint 4 — Mean Reversion Paper Trading:**
+- Mean reversion feature engine (RSI(2), 200 EMA, Bollinger, volume spike)
+- Shared `compute_rsi()` utility in `src/features/indicators.py`
+- Strategy config with `paper_only` enforcement
+- Strategy-aware exit dispatcher (RSI(2) > 70 exit, ATR stop, MR timeout)
+
+**Sprint 5 — Multi-Cadence Scanning:**
+- Extracted 4 modules: position_monitor (15 min), universe_scanner (30 min), sentiment_scanner (60 min), fundamentals_refresh (daily)
+- 4-tier timing orchestrator wired into watch.py main loop
+- Staleness detection with per-ticker per-source tracking (`data_freshness` table)
+
+**Sprint 6 — Outcome-Conditioned Training Pipeline:**
+- Outcome classifier (WIN/LOSS/TIMEOUT from exit_reason + P&L)
+- 4 outcome-conditioned + 2 contrastive prompt templates (all self-blinding)
+- Data collector now generates 3-5 examples per closed trade (up from 1)
+- 8 outcome metadata columns added to shadow_trades
+
+**Sprint 7 — Historical Stress Testing:**
+- Stress test script for 2008, 2020, 2022 crisis periods
+- Survivorship bias mitigation (filter + note limitation)
+- Extended backtester metrics (calmar, monthly returns, drawdown duration)
+- Dashboard StressTest page with equity curves
+- Results stored in `stress_test_results` table
+
+## [Previous] - 2026-03-31
 
 ### Sprint 8: Comprehensive Cleanup — All Remaining Issues
 

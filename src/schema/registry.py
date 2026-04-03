@@ -191,6 +191,15 @@ _register(TableDef(
         ColumnDef("strategy_type", "TEXT", default="pullback"),
         ColumnDef("actual_shares", "INTEGER"),
         ColumnDef("exit_retry_count", "INTEGER", default="0"),
+        # Outcome metadata (Sprint 6, Strategy Decision #24)
+        ColumnDef("regime_at_entry", "TEXT", description="Market regime at trade entry"),
+        ColumnDef("regime_at_exit", "TEXT", description="Market regime at trade exit"),
+        ColumnDef("vix_at_entry", "REAL", description="VIX level at trade entry"),
+        ColumnDef("vix_at_exit", "REAL", description="VIX level at trade exit"),
+        ColumnDef("time_to_target_days", "INTEGER", description="Days to reach target (NULL if not reached)"),
+        ColumnDef("drawdown_from_mfe", "REAL", description="Drawdown from MFE at exit (bps)"),
+        ColumnDef("concurrent_positions", "INTEGER", description="Number of open positions at entry"),
+        ColumnDef("ranking_at_entry", "INTEGER", description="Ranker rank (1=best) at entry"),
     ],
     primary_key="trade_id",
     indexes=[
@@ -1273,4 +1282,99 @@ _register(TableDef(
     ],
     primary_key="check_id",
     sync_to_postgres=False,
+))
+
+# ---------------------------------------------------------------------------
+# Alpha Attribution (Sprint 3)
+# ---------------------------------------------------------------------------
+
+_register(TableDef(
+    name="attribution_trades",
+    description="Paired LLM vs ranker-only trade attribution for alpha measurement",
+    columns=[
+        ColumnDef("attribution_id", "TEXT", nullable=False),
+        ColumnDef("recommendation_id", "TEXT"),
+        ColumnDef("ticker", "TEXT", nullable=False),
+        ColumnDef("scan_timestamp", "TEXT"),
+        ColumnDef("ranker_score", "REAL"),
+        ColumnDef("llm_conviction", "INTEGER"),
+        ColumnDef("llm_action", "TEXT"),
+        ColumnDef("ranker_only_entry", "REAL"),
+        ColumnDef("ranker_only_stop", "REAL"),
+        ColumnDef("ranker_only_target", "REAL"),
+        ColumnDef("ranker_only_outcome", "TEXT"),
+        ColumnDef("ranker_only_pnl_pct", "REAL"),
+        ColumnDef("llm_portfolio_outcome", "TEXT"),
+        ColumnDef("llm_portfolio_pnl_pct", "REAL"),
+        ColumnDef("pair_type", "TEXT"),
+        ColumnDef("created_at", "TEXT", nullable=False),
+    ],
+    primary_key="attribution_id",
+    indexes=[
+        IndexDef("idx_attribution_ticker", ["ticker"]),
+        IndexDef("idx_attribution_created", ["created_at"]),
+        IndexDef("idx_attribution_pair_type", ["pair_type"]),
+    ],
+    foreign_keys=[
+        ForeignKeyDef("recommendation_id", "recommendations", "recommendation_id"),
+    ],
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_time_column="created_at",
+))
+
+# ---------------------------------------------------------------------------
+# Data Freshness (Sprint 5)
+# ---------------------------------------------------------------------------
+
+_register(TableDef(
+    name="data_freshness",
+    description="Per-ticker per-source staleness tracking for multi-cadence scanning",
+    columns=[
+        ColumnDef("source", "TEXT", nullable=False),
+        ColumnDef("ticker", "TEXT", nullable=False),
+        ColumnDef("last_fetched_at", "TEXT", nullable=False),
+        ColumnDef("status", "TEXT", default="acceptable"),
+        ColumnDef("created_at", "TEXT", nullable=False),
+    ],
+    primary_key=["source", "ticker"],
+    indexes=[
+        IndexDef("idx_freshness_source", ["source"]),
+        IndexDef("idx_freshness_ticker", ["ticker"]),
+    ],
+    sync_to_postgres=False,
+))
+
+# ---------------------------------------------------------------------------
+# Stress Testing (Sprint 7)
+# ---------------------------------------------------------------------------
+
+_register(TableDef(
+    name="stress_test_results",
+    description="Historical stress test results for crisis period backtesting",
+    columns=[
+        ColumnDef("result_id", "TEXT", nullable=False),
+        ColumnDef("scenario", "TEXT", nullable=False),
+        ColumnDef("start_date", "TEXT"),
+        ColumnDef("end_date", "TEXT"),
+        ColumnDef("total_trades", "INTEGER"),
+        ColumnDef("win_rate", "REAL"),
+        ColumnDef("total_pnl_pct", "REAL"),
+        ColumnDef("max_drawdown_pct", "REAL"),
+        ColumnDef("max_drawdown_duration_days", "INTEGER"),
+        ColumnDef("calmar_ratio", "REAL"),
+        ColumnDef("monthly_returns_json", "TEXT"),
+        ColumnDef("regime_breakdown_json", "TEXT"),
+        ColumnDef("equity_curve_json", "TEXT"),
+        ColumnDef("model_version", "TEXT"),
+        ColumnDef("created_at", "TEXT", nullable=False),
+    ],
+    primary_key="result_id",
+    indexes=[
+        IndexDef("idx_stress_scenario", ["scenario"]),
+        IndexDef("idx_stress_created", ["created_at"]),
+    ],
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_time_column="created_at",
 ))

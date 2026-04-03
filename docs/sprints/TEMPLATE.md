@@ -3,7 +3,7 @@
 > **Executor:** [Claude Code / Codex]
 > **Scope:** [N] tasks
 > **Prerequisite:** [what must be merged first]
-> **Read first:** AGENTS.md, docs/conventions.md
+> **Read first:** MASTER.md (especially Section 9: Conventions & Rules)
 
 ---
 
@@ -54,8 +54,8 @@ Do NOT fix file size / function length violations (those are grandfathered). Foc
 
 ## Documentation Update (MANDATORY — always last task)
 
-1. Run all verification commands from `docs/sprint-checklist.md`
-2. Update AGENTS.md Quick Stats counts
+1. Run `python scripts/verify_docs.py` to check documentation drift
+2. Update MASTER.md Section 2 counts
 3. Add sprint entry to CHANGELOG.md
 4. Regenerate `config/known_violations.json` if docstrings or structure changed
 5. Verify `test_repo_structure.py` passes with warnings only for grandfathered items

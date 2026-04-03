@@ -16,7 +16,7 @@ Systematic equity research platform built on fine-tuned LLMs and a 5-agent AI co
 - **Phase 1 Bootcamp** — paper trading $100K, 13 closed trades (12W/1L, 92% WR)
 - **Model**: `halcyon-v1.0.0` (Qwen3 8B, QLoRA fine-tuned on 972 scored examples)
 - **Dashboard**: [halcyonlab.app](https://halcyonlab.app) (16 pages, Palette H dark/light)
-- **Current counts**: See [SYSTEM_STATE.md](SYSTEM_STATE.md) for live metrics (tests, files, tables, etc.)
+- **Current counts**: See [MASTER.md](MASTER.md) Section 2 for live metrics (tests, files, tables, etc.)
 
 ## Architecture
 
@@ -24,7 +24,7 @@ Systematic equity research platform built on fine-tuned LLMs and a 5-agent AI co
   <img src="docs/architecture.svg" alt="Arcis System Architecture" width="100%"/>
 </p>
 
-See [Database Schema (40 tables)](docs/database-schema.md) for the full ERD and table index.
+See [MASTER.md](MASTER.md) Section 4 for the schema summary (46 tables). Full DDL in `src/schema/registry.py`.
 
 See [Interactive Architecture (5W detail)](https://halcyonlab.app/architecture.html) for the full system diagram with expandable component details.
 
@@ -74,7 +74,7 @@ All code changes go through Claude Code (CC) sprints with strict guardrails:
 
 **Sprint Rules:**
 - ≤10 tasks per sprint; never refactor and add features in the same sprint
-- Every sprint ends with a mandatory documentation update (see `docs/sprint-checklist.md`)
+- Every sprint ends with a mandatory documentation update (see MASTER.md Section 9)
 - No `src/` file exceeds 400 lines; no function exceeds 60 lines
 - Refactor by extraction, not rewrite
 
@@ -84,16 +84,16 @@ All code changes go through Claude Code (CC) sprints with strict guardrails:
 - Do not merge until every file is verified
 
 **CC Mandatory Steps (every sprint):**
-1. Read `AGENTS.md` and `SYSTEM_STATE.md` before writing any code
+1. Read `MASTER.md` before writing any code
 2. Run `python -m pytest tests/ -x -q` before and after all changes
 3. Run `npm run build` in `frontend/` to verify no build regressions
-4. Run the verification commands in `docs/sprint-checklist.md` to update all counts
-5. Update Tier 1 docs: `AGENTS.md`, `CHANGELOG.md`, `docs/architecture.md`, `README.md`
+4. Run `python scripts/verify_docs.py` to check documentation drift
+5. Update `MASTER.md` Section 2 and `CHANGELOG.md`
 6. Update `scripts/render_migrate.py` if any new tables or columns were added
 7. Update `config/settings.example.yaml` if any new config keys were added
 8. Commit with descriptive messages referencing issue numbers
 
-**Governance hierarchy:** `SYSTEM_STATE.md` → `AGENTS.md` → Charter → Blueprint → Code
+**Governance hierarchy:** `MASTER.md` → Charter → Blueprint → Code
 
 ## Research
 

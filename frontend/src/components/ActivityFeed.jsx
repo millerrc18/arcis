@@ -58,8 +58,15 @@ function formatEvent(evt) {
       return `Training complete: ${d.model || 'new model'}${d.loss ? ` (loss: ${d.loss.toFixed(4)})` : ''}`
     case 'training_collection':
       return `Collected ${d.examples_collected || 0} training examples`
-    case 'overnight_task':
-      return `${(d.task || 'task').replace(/_/g, ' ')}: ${d.status || '?'}${d.articles_cached ? ` (${d.articles_cached} articles)` : ''}${d.tickers_enriched ? ` (${d.tickers_enriched} tickers)` : ''}`
+    case 'overnight_task': {
+      if (d.task) {
+        const parts = [`${d.task.replace(/_/g, ' ')}: ${d.status || 'complete'}`]
+        if (d.articles_cached) parts.push(`(${d.articles_cached} articles)`)
+        if (d.tickers_enriched) parts.push(`(${d.tickers_enriched} tickers)`)
+        return parts.join(' ')
+      }
+      return evt.detail ? String(evt.detail).slice(0, 120) : 'Overnight task completed'
+    }
     case 'action_started':
       return `Action started: ${d.action || '?'}`
     case 'action_complete':
@@ -71,10 +78,11 @@ function formatEvent(evt) {
     case 'order_filled':
       return `Order filled: ${d.ticker || '?'}${d.price ? ` @ $${d.price}` : ''}`
     default: {
-      // For cloud mode activity_log entries
       const detail = evt.detail || d.detail || ''
-      if (detail) return detail.slice(0, 120)
-      return `${evt.type || evt.event || 'event'}: ${JSON.stringify(d).slice(0, 80)}`
+      if (detail && !detail.startsWith('{')) return detail.slice(0, 120)
+      const eventName = (evt.type || evt.event || 'system').replace(/_/g, ' ')
+      const summary = d.detail || d.message || d.status || ''
+      return summary ? `${eventName}: ${String(summary).slice(0, 80)}` : eventName
     }
   }
 }

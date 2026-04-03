@@ -23,6 +23,8 @@ import Validation from './pages/Validation'
 import Logs from './pages/Logs'
 import Architecture from './pages/Architecture'
 import DBSchema from './pages/DBSchema'
+import Attribution from './pages/Attribution'
+import StressTest from './pages/StressTest'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -88,6 +90,8 @@ export default function App() {
                 <Route path="/logs" element={<ErrorBoundary><Logs /></ErrorBoundary>} />
                 <Route path="/architecture" element={<ErrorBoundary><Architecture /></ErrorBoundary>} />
                 <Route path="/schema" element={<ErrorBoundary><DBSchema /></ErrorBoundary>} />
+                <Route path="/attribution" element={<ErrorBoundary><Attribution /></ErrorBoundary>} />
+                <Route path="/stress-test" element={<ErrorBoundary><StressTest /></ErrorBoundary>} />
               </Route>
             </Routes>
           </BrowserRouter>

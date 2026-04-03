@@ -421,3 +421,22 @@ execution:
                                #   Better fills but may not execute if price moves away.
   limit_timeout_seconds: 300   # Cancel unfilled limit orders after 5 minutes.
                                # Only applies when order_type is "limit".
+
+# ════════════════════════════════════════════════════════════════════════════
+# STRATEGIES — Multi-strategy configuration
+# ════════════════════════════════════════════════════════════════════════════
+
+strategies:
+  pullback:
+    enabled: true              # Strategy #1 — pullback-in-uptrend (default, always on)
+
+  mean_reversion:
+    enabled: true              # Strategy #2 — Connors RSI(2) mean reversion
+    paper_only: true           # NEVER live until Phase 2 gate — enforced in executor
+    rsi_period: 2              # Connors RSI lookback
+    rsi_entry_threshold: 10    # RSI(2) < 10 = extreme oversold entry
+    rsi_exit_threshold: 70     # RSI(2) > 70 = mean reversion target exit
+    require_above_200ema: true # Quality filter — only trade above 200-day EMA
+    max_positions: 5           # Max simultaneous MR positions
+    holding_period: 5          # Max days to hold (timeout exit)
+    stop_atr_multiple: 2.5    # Stop loss at entry - 2.5x ATR

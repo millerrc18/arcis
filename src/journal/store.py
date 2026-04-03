@@ -231,19 +231,58 @@ def close_shadow_trade(
     pnl_pct: float,
     db_path: str = DB_PATH,
 ) -> None:
-    """Close a shadow trade with exit details."""
-    update_shadow_trade(
-        trade_id,
-        {
-            "status": "closed",
-            "actual_exit_price": exit_price,
-            "actual_exit_time": exit_time,
-            "exit_reason": exit_reason,
-            "pnl_dollars": pnl_dollars,
-            "pnl_pct": pnl_pct,
-        },
-        db_path,
-    )
+    """Close a shadow trade with exit details and outcome metadata."""
+    fields = {
+        "status": "closed",
+        "actual_exit_price": exit_price,
+        "actual_exit_time": exit_time,
+        "exit_reason": exit_reason,
+        "pnl_dollars": pnl_dollars,
+        "pnl_pct": pnl_pct,
+    }
+
+    # Populate exit metadata (Sprint 6, Strategy Decision #24)
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            trade = conn.execute(
+                "SELECT entry_price, actual_entry_time, max_favorable_excursion "
+                "FROM shadow_trades WHERE trade_id = ?", (trade_id,)
+            ).fetchone()
+            if trade:
+                entry_price = trade["entry_price"] or 0
+                # VIX at exit
+                vix_row = conn.execute(
+                    "SELECT vix FROM vix_term_structure ORDER BY collected_date DESC LIMIT 1"
+                ).fetchone()
+                if vix_row:
+                    fields["vix_at_exit"] = float(vix_row[0])
+                # Regime at exit
+                from src.features.regime import compute_market_regime
+                from src.data_ingestion.market_data import fetch_spy_benchmark
+                spy = fetch_spy_benchmark()
+                if not spy.empty:
+                    regime = compute_market_regime(spy, {})
+                    fields["regime_at_exit"] = regime.get("regime_label", "")
+                # Time to target (days from entry to exit)
+                if trade["actual_entry_time"] and exit_time:
+                    from datetime import datetime as _dt
+                    try:
+                        entry_dt = _dt.fromisoformat(trade["actual_entry_time"][:19])
+                        exit_dt = _dt.fromisoformat(exit_time[:19])
+                        fields["time_to_target_days"] = (exit_dt - entry_dt).days
+                    except (ValueError, TypeError):
+                        pass
+                # Drawdown from MFE (bps)
+                mfe = trade["max_favorable_excursion"] or 0
+                if entry_price > 0 and mfe > 0:
+                    fields["drawdown_from_mfe"] = round(
+                        (mfe - (exit_price - entry_price)) / entry_price * 10000, 1
+                    )
+    except Exception:
+        pass  # Exit metadata is best-effort — never block trade close
+
+    update_shadow_trade(trade_id, fields, db_path)
 
 
 def get_open_shadow_trade_for_ticker(

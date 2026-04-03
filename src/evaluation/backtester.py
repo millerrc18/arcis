@@ -172,6 +172,47 @@ def backtest_model(model_name: str, months: int = 6,
             "pnl": round(data["pnl_sum"], 1),
         }
 
+    # Extended metrics (Sprint 7)
+    max_dd_pct = round(-max_dd * 100, 1)
+
+    # Max drawdown duration
+    max_dd_duration_days = 0
+    current_dd_start = 0
+    peak_eq = equity_curve[0]["equity"] if equity_curve else 0
+    for i, point in enumerate(equity_curve):
+        eq = point["equity"]
+        if eq >= peak_eq:
+            peak_eq = eq
+            current_dd_start = i
+        else:
+            dd_dur = i - current_dd_start
+            if dd_dur > max_dd_duration_days:
+                max_dd_duration_days = dd_dur
+
+    # Calmar ratio (annualized return / max drawdown)
+    test_days = max((end_date - start_date).days, 1)
+    ann_return = (total_pnl_pct / 100) * (365 / test_days) * 100
+    calmar = round(ann_return / abs(max_dd_pct), 2) if max_dd_pct != 0 else 0
+
+    # Monthly returns
+    monthly_returns = {}
+    for t in trades:
+        month = t.get("date", "")[:7]
+        if month:
+            monthly_returns[month] = monthly_returns.get(month, 0) + t["pnl_pct"]
+
+    # Trade gap days (average days between trades)
+    trade_gaps = []
+    sorted_trades = sorted(trades, key=lambda x: x.get("date", ""))
+    for i in range(1, len(sorted_trades)):
+        try:
+            d1 = datetime.strptime(sorted_trades[i - 1]["date"][:10], "%Y-%m-%d")
+            d2 = datetime.strptime(sorted_trades[i]["date"][:10], "%Y-%m-%d")
+            trade_gaps.append((d2 - d1).days)
+        except (ValueError, KeyError):
+            pass
+    avg_trade_gap = round(sum(trade_gaps) / len(trade_gaps), 1) if trade_gaps else 0
+
     return {
         "model": model_name,
         "test_period": {"start": start_date.strftime("%Y-%m-%d"), "end": end_date.strftime("%Y-%m-%d")},
@@ -179,9 +220,13 @@ def backtest_model(model_name: str, months: int = 6,
         "win_rate": round(win_rate, 3),
         "total_pnl_pct": round(total_pnl_pct, 1),
         "sharpe_ratio": round(sharpe, 2),
-        "max_drawdown_pct": round(-max_dd * 100, 1),
+        "max_drawdown_pct": max_dd_pct,
+        "max_drawdown_duration_days": max_dd_duration_days,
+        "calmar_ratio": calmar,
+        "monthly_returns": monthly_returns,
+        "trade_gap_days": avg_trade_gap,
         "by_regime": regime_summary,
-        "equity_curve": equity_curve[:50],  # Limit for display
+        "equity_curve": equity_curve[:50],
     }
 
 

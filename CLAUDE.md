@@ -2,7 +2,7 @@
 
 ## Governance
 
-All project rules, architecture, data sources, and constraints are in **AGENTS.md** — read it before making changes.
+All project rules, architecture, data sources, and constraints are in **MASTER.md** — read it before making changes.
 
 ## Key Rules
 

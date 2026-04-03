@@ -217,6 +217,18 @@ def _handle_validate_system(payload: dict, config: dict) -> dict:
     }
 
 
+def _handle_cto_report(payload: dict, config: dict) -> dict:
+    """Generate CTO report and compute build score."""
+    from src.evaluation.build_score import persist_build_score
+
+    result = persist_build_score()
+    return {
+        "build_score": result.get("build_score", 0),
+        "components": result.get("components", {}),
+        "status": "completed",
+    }
+
+
 COMMAND_HANDLERS = {
     "scan": _handle_scan,
     "council": _handle_council,
@@ -229,6 +241,7 @@ COMMAND_HANDLERS = {
     "update_setting": _handle_update_setting,
     "get_logs": _handle_get_logs,
     "validate-system": _handle_validate_system,
+    "cto-report": _handle_cto_report,
 }
 
 
