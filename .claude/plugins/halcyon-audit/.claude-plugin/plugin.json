@@ -1,0 +1,8 @@
+{
+  "name": "halcyon-audit",
+  "version": "1.0.0",
+  "description": "Comprehensive repo audit with 8 parallel domain agents, synthesis, and GitHub issue filing",
+  "author": {
+    "name": "millerrc18"
+  }
+}
