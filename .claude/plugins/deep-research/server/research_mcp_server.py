@@ -176,7 +176,13 @@ async def search_academic(
 
     yr = None
     if year_range:
-        yr = year_range
+        parts = year_range.replace(" ", "").split("-")
+        try:
+            start = int(parts[0])
+            end = int(parts[1]) if len(parts) > 1 and parts[1] else start
+            yr = (start, end)
+        except (ValueError, IndexError):
+            pass  # invalid format — skip year filter
 
     fos = None
     if fields_of_study:
