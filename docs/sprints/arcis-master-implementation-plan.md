@@ -1,9 +1,10 @@
 # Arcis Master Implementation Plan — Sprints A through 7
 
-> **Date:** April 2, 2026
+> **Date:** April 3, 2026 (verified against PR history — all tasks still pending)
 > **Scope:** 7 sprints covering dashboard polish, documentation consolidation, and all 5 strategic priorities from deep research synthesis
 > **How to use:** Each sprint section is a self-contained CC prompt. Fire them in order. Copy the sprint section + its acceptance criteria into CC.
 > **Dependencies:** Sprint 2 (Bug Bash: #182, #183, #184) must complete first.
+> **New files:** Sprints 4-7 reference `src/` files that don't exist yet — they are TO BE CREATED by the sprint (e.g., `src/features/mean_reversion.py`, `src/scheduler/position_monitor.py`, `src/training/outcome_prompts.py`). This is intentional.
 
 ---
 
@@ -303,6 +304,8 @@ Name, palette, typography, voice.
 
 ## Task A5: Archive Original Documents
 
+**Note:** `docs/archive/` already exists with 49 files from PR #179 (old sprints, audits, quality docs). We're adding `governance/` and `reference/` subdirectories for the main docs being absorbed into MASTER.md.
+
 ```bash
 mkdir -p docs/archive/governance docs/archive/reference
 
@@ -332,8 +335,8 @@ Create `docs/archive/README.md` explaining what was moved and why.
 - **src/api/routes/docs.py:** Serve MASTER.md instead of archived files
 - **README.md:** Point documentation section to MASTER.md
 - **docs/sprints/TEMPLATE.md:** Reference MASTER.md Section 9 for sprint checklist
-- **scripts/verify_docs.py:** Update if it references old file paths
-- Check: `grep -rn "SYSTEM_STATE.md\|AGENTS.md\|architecture.md\|sprint-checklist" scripts/ .github/ .husky/ 2>/dev/null`
+- **scripts/verify_docs.py:** Currently reads `SYSTEM_STATE.md` for count validation — **MUST update** to read `MASTER.md` Section 2 instead, or it will crash after the archive. The script defines `STATE_FILE = ROOT / "SYSTEM_STATE.md"` — change to `ROOT / "MASTER.md"` and update the regex patterns to match the new format.
+- Check for any other stale references: `grep -rn "SYSTEM_STATE.md\|AGENTS.md\|architecture.md\|sprint-checklist" scripts/ .github/ .husky/ 2>/dev/null`
 
 ---
 
