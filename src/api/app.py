@@ -11,7 +11,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routes import system, scan, shadow, training, review, packets, docs, actions, health, council, notes
+from src.api.routes import system, scan, shadow, training, review, packets, docs, actions, health, council, notes, live
 from src.api.websocket import manager
 
 app = FastAPI(title="Arcis", version="1.0.0")
@@ -35,6 +35,7 @@ app.include_router(actions.router, prefix="/api")
 app.include_router(health.router, prefix="/api")
 app.include_router(council.router, prefix="/api")
 app.include_router(notes.router, prefix="/api")
+app.include_router(live.router, prefix="/api")
 
 
 @app.on_event("startup")

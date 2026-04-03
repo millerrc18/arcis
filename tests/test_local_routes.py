@@ -365,3 +365,63 @@ class TestNotes:
     def test_delete_nonexistent(self, notes_client):
         resp = notes_client.delete("/api/notes/nonexistent")
         assert resp.status_code == 404
+
+
+@pytest.fixture
+def live_db(tmp_path):
+    """Create a DB with shadow_trades including live-source trades."""
+    db_path = str(tmp_path / "live.sqlite3")
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "CREATE TABLE shadow_trades ("
+        "trade_id TEXT PRIMARY KEY, ticker TEXT, status TEXT, "
+        "pnl_dollars REAL, pnl_pct REAL, "
+        "actual_exit_time TEXT, created_at TEXT, "
+        "entry_price REAL, planned_shares INTEGER, source TEXT)"
+    )
+    conn.execute(
+        "INSERT INTO shadow_trades VALUES "
+        "('t1','AAPL','open',NULL,NULL,NULL,'2026-04-01',150.0,10,'live')"
+    )
+    conn.execute(
+        "INSERT INTO shadow_trades VALUES "
+        "('t2','MSFT','closed',50.0,0.5,'2026-04-02','2026-03-28',300.0,5,'live')"
+    )
+    conn.execute(
+        "INSERT INTO shadow_trades VALUES "
+        "('t3','NVDA','open',NULL,NULL,NULL,'2026-04-01',800.0,2,'shadow')"
+    )
+    conn.commit()
+    conn.close()
+    return db_path
+
+
+@pytest.fixture
+def live_client(live_db):
+    with patch("src.api.routes.live.DB_PATH", live_db), \
+         patch("src.config.DB_PATH", live_db):
+        import importlib
+        import src.api.routes.live as live_mod
+        importlib.reload(live_mod)
+        import src.api.app as app_mod
+        importlib.reload(app_mod)
+        yield TestClient(app_mod.app)
+
+
+class TestLiveLedger:
+    def test_live_trades_filters_by_source(self, live_client):
+        resp = live_client.get("/api/live/trades")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["open"]) == 1
+        assert data["open"][0]["ticker"] == "AAPL"
+        assert len(data["closed"]) == 1
+        assert data["closed"][0]["ticker"] == "MSFT"
+
+    def test_live_summary(self, live_client):
+        resp = live_client.get("/api/live/summary")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["open_positions"] == 1
+        assert data["closed_trades"] == 1
+        assert data["total_pnl"] == 50.0
