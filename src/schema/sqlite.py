@@ -1,4 +1,11 @@
-"""SQLite schema operations driven by the registry."""
+"""SQLite schema operations driven by the registry.
+
+Called by: src.schema.validator
+Calls: src.schema.registry
+Owns tables: none (generates DDL for SQLite)
+Config keys: none
+Tests: tests/test_schema.py
+"""
 
 import logging
 import sqlite3

@@ -52,13 +52,10 @@ def compute_mr_features(ticker: str, ohlcv: pd.DataFrame,
     atr_14 = compute_atr(high, low, close, period=14)
     bb_position = compute_bollinger_position(close, period=20)
 
-    # 3-day cumulative return
-    if len(close) >= 4:
-        cum_return_3d = round(
-            (float(close.iloc[-1]) / float(close.iloc[-4]) - 1) * 100, 2
-        )
-    else:
-        cum_return_3d = 0.0
+    cum_return_3d = (
+        round((float(close.iloc[-1]) / float(close.iloc[-4]) - 1) * 100, 2)
+        if len(close) >= 4 else 0.0
+    )
 
     # Volume spike detection
     if len(ohlcv) >= 20:

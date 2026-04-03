@@ -1,4 +1,11 @@
-"""Postgres schema operations driven by the registry."""
+"""Postgres schema operations driven by the registry.
+
+Called by: scripts/render_migrate.py
+Calls: src.schema.registry
+Owns tables: none (generates DDL for Postgres mirrors)
+Config keys: none
+Tests: tests/test_repo_structure.py
+"""
 
 import logging
 

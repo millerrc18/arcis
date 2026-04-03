@@ -1,6 +1,10 @@
 {
   "oversized_files": [
     {
+      "file": "src/schema/registry.py",
+      "lines": 1380
+    },
+    {
       "file": "src/evaluation/build_score.py",
       "lines": 402
     },
@@ -75,6 +79,10 @@
     {
       "file": "src/api/cloud_routes/analytics.py",
       "lines": 593
+    },
+    {
+      "file": "src/api/routes/system.py",
+      "lines": 577
     }
   ],
   "oversized_functions": [
@@ -762,6 +770,26 @@
       "file": "src/api/cloud_routes/training.py",
       "function": "training_status",
       "lines": 106
+    },
+    {
+      "file": "src/scheduler/universe_scanner.py",
+      "function": "run_universe_scan",
+      "lines": 262
+    },
+    {
+      "file": "src/scheduler/watch.py",
+      "function": "_get_live_stats",
+      "lines": 61
+    },
+    {
+      "file": "src/services/shadow_service.py",
+      "function": "get_shadow_status",
+      "lines": 61
+    },
+    {
+      "file": "src/sync/render_sync.py",
+      "function": "_upsert_to_postgres",
+      "lines": 70
     }
   ],
   "missing_docstring_headers": [],

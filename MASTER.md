@@ -83,9 +83,10 @@ with an unbeatable technological moat.
 | 12 overnight collectors | RUNNING |
 | Telegram | LIVE -- 32 functions, gated behind trade_id |
 | Intra-day reconciliation | LIVE -- every 15 min during market hours |
-| Dashboard (Arcis) | LIVE -- 16 pages, dark/light toggle |
-| Schema registry | LIVE -- 46 tables, single source of truth |
-| Render sync | LIVE -- 40/46 tables synced to Postgres |
+| Dashboard (Arcis) | LIVE -- 18 pages, dark/light toggle |
+| Schema registry | LIVE -- 49 tables, single source of truth |
+| Render sync | LIVE -- 40/49 tables synced to Postgres |
+| Halcyon-audit plugin | LIVE -- 8 domain agents, /audit command |
 | Automated guardrails | LIVE -- test_repo_structure.py |
 | CI on PRs | LIVE -- tests + guardrails + frontend build |
 | PEAD enrichment (5 signals) | DEPLOYED |
@@ -130,6 +131,11 @@ with an unbeatable technological moat.
 | Data integrity | #177 | Reconciliation actual_exit_time fix, paper auto-close |
 | Schema registry | #189 | 46 tables in registry, all DDL removed, CI guardrails |
 | Mega Sprint | #178 | Intra-day recon, exit_failed recovery, React Flow, sidebar sections |
+| pnl_dollars fix | #200 | Cast pnl_dollars to float before comparison |
+| Reliability | #201 | Exit cancel race, VRAM handoff hardening, sync reconnection |
+| Local API parity | #202 | 22 missing routes added to local FastAPI |
+| Sprints A-7 | #203 | Dashboard, attribution, MR, multi-cadence, training, stress testing |
+| Sprint gaps + RCCA | #204 | 6 sprint gaps closed, 8 RCCA bugs fixed, audit plugin |
 
 ---
 
@@ -289,7 +295,7 @@ frontend-design, feature-dev, pr-review-toolkit, security-guidance,
 
 ## 4. Schema Summary
 
-All 46 tables are defined in `src/schema/registry.py` -- the single source of
+All 49 tables are defined in `src/schema/registry.py` -- the single source of
 truth for both SQLite and Postgres. The registry was created after ~12 hours
 were lost to bugs caused by 6+ files independently defining the same tables
 with subtly different column names. Now a single `TableDef` dataclass defines
@@ -606,7 +612,7 @@ Use `none` for empty fields. Entry points: `Called by: none (entry point)`.
 
 ### Schema Rules (MANDATORY)
 
-- All 46 tables defined in `src/schema/registry.py` -- THE single source of truth
+- All 49 tables defined in `src/schema/registry.py` -- THE single source of truth
 - NEVER write `CREATE TABLE` or `ALTER TABLE` outside `src/schema/registry.py`
 - CI guardrails: `test_no_create_table_in_source`, `test_no_alter_table_in_source`
 - To add a table: add `TableDef` to registry -> `validate-schema --fix` -> `render_migrate.py`
@@ -820,11 +826,11 @@ python -m ruff check src/ tests/ --fix
 python -m ruff format src/ tests/
 ```
 
-### Dashboard Pages (16)
+### Dashboard Pages (18)
 
 Dashboard, Packets, Shadow Ledger, Live Ledger, Training, Council, Health,
 Validation, CTO Report, Settings, Roadmap, Docs, Notes, Logs, Architecture,
-DB Schema.
+DB Schema, Attribution, Stress Test.
 
 ### CLI Commands (52)
 
