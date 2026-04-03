@@ -124,4 +124,8 @@ export const api = {
   runValidation: () => fetchApi('/system/validation?fresh=true'),
   // DB Schema
   getTableCounts: () => fetchApi('/system/table-counts'),
+  // Attribution
+  getAttributionStats: () => fetchApi('/attribution/stats'),
+  // Stress Testing
+  getStressTestResults: () => fetchApi('/stress-test/results'),
 }

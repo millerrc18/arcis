@@ -536,3 +536,42 @@ def training_history():
     except Exception as exc:
         logger.error("[API] training/history failed: %s", exc)
         return {"versions": []}
+
+
+@router.get("/attribution/stats")
+def attribution_stats():
+    """Get alpha attribution statistics."""
+    try:
+        from src.attribution.logger import get_attribution_stats
+        return get_attribution_stats()
+    except Exception as exc:
+        logger.error("[API] attribution/stats failed: %s", exc)
+        return {"total_pairs": 0, "error": str(exc)}
+
+
+@router.get("/stress-test/results")
+def stress_test_results():
+    """Get historical stress test results."""
+    import sqlite3 as _sqlite3
+    import json
+    try:
+        with _sqlite3.connect(DB_PATH) as conn:
+            conn.row_factory = _sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM stress_test_results ORDER BY created_at DESC"
+            ).fetchall()
+            results = []
+            for r in rows:
+                d = dict(r)
+                for jf in ("monthly_returns_json", "regime_breakdown_json",
+                           "equity_curve_json"):
+                    if d.get(jf):
+                        try:
+                            d[jf] = json.loads(d[jf])
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+                results.append(d)
+            return {"results": results}
+    except Exception as exc:
+        logger.error("[API] stress-test/results failed: %s", exc)
+        return {"results": [], "error": str(exc)}

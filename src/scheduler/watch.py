@@ -663,6 +663,20 @@ class WatchLoop:
             feat["_score"] = candidate["score"]
 
             packet = build_packet_from_features(ticker, feat, self.config)
+
+            # ═══ ATTRIBUTION Phase 1: Log BEFORE LLM ═══
+            attr_id = None
+            try:
+                from src.attribution.logger import log_attribution_before_llm
+                from src.shadow_trading.executor import _parse_price
+                _entry = _parse_price(packet.entry_zone)
+                _stop = _parse_price(packet.stop_invalidation)
+                _tgt = _parse_price(packet.targets.split("/")[0]) if packet.targets else 0
+                attr_id = log_attribution_before_llm(
+                    ticker, candidate["score"], _entry, _stop, _tgt)
+            except Exception as e:
+                logger.debug("[WATCH] Attribution Phase 1 failed for %s: %s", ticker, e)
+
             packet = enhance_packet_with_llm(packet, feat, self.config)
             enriched_prompt = _build_feature_prompt(packet, feat)
             rendered = render_packet(packet)
@@ -674,6 +688,19 @@ class WatchLoop:
                 enriched_prompt=enriched_prompt,
                 llm_conviction=getattr(packet, 'llm_conviction', None),
             )
+
+            # ═══ ATTRIBUTION Phase 2: Log AFTER LLM ═══
+            if attr_id:
+                try:
+                    from src.attribution.logger import log_attribution_after_llm
+                    conviction = getattr(packet, 'llm_conviction', None)
+                    action = "taken"  # If we got here, LLM processed it
+                    if conviction is None:
+                        action = "conviction_none"
+                    log_attribution_after_llm(
+                        attr_id, action, conviction, rec_id)
+                except Exception as e:
+                    logger.debug("[WATCH] Attribution Phase 2 failed: %s", e)
             print(f"  -> Logged {ticker}: {rec_id}")
             self._trades_managed_today += 1
 
