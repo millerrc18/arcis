@@ -29,21 +29,24 @@ def run_position_monitor(config: dict | None = None, db_path: str = DB_PATH) -> 
     config = config or load_config()
     summary = {"actions": [], "reconciled": 0, "errors": 0}
 
-    # 1. Check and manage open trades (stop/target/timeout/MR exits)
+    # 1. Check and manage paper trades (stop/target/timeout/MR exits)
     try:
         from src.shadow_trading.executor import check_and_manage_open_trades
-        actions = check_and_manage_open_trades(db_path=db_path)
+        actions = check_and_manage_open_trades(
+            db_path=db_path, source_filter="paper")
         summary["actions"] = actions
         if actions:
-            logger.info("[POSITION] %d trade actions taken", len(actions))
+            logger.info("[POSITION] %d paper trade actions taken", len(actions))
     except Exception as e:
-        logger.warning("[POSITION] Trade management failed: %s", e)
+        logger.warning("[POSITION] Paper trade management failed: %s", e)
         summary["errors"] += 1
 
-    # 2. Independent live trade check
+    # 2. Check and manage live trades (separate error handling)
     try:
-        from src.shadow_trading.executor import check_and_manage_open_trades as _check_live
-        live_actions = _check_live(source_filter="live", db_path=db_path)
+        from src.shadow_trading.executor import check_and_manage_open_trades
+        live_actions = check_and_manage_open_trades(
+            db_path=db_path, source_filter="live")
+        summary["actions"].extend(live_actions)
         live_closed = len([a for a in live_actions if a.get("type") == "closed"])
         if live_closed:
             logger.info("[POSITION] Live trade check: %d trades closed", live_closed)

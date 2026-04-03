@@ -413,7 +413,7 @@ class WatchLoop:
             logger.debug("[WATCH] _get_live_stats DB error: %s", e)
         # Alpaca account
         try:
-            from src.trading.alpaca_adapter import get_account_info
+            from src.shadow_trading.alpaca_adapter import get_account_info
             acct = get_account_info()
             if acct:
                 stats["equity"] = f"${float(acct.get('equity', 0)):,.0f}"
@@ -720,6 +720,14 @@ class WatchLoop:
                     print(f"  -> Shadow trade skipped (risk governor or position limit)")
             except Exception as e:
                 logger.warning("[WATCH] Shadow trade failed for %s: %s", ticker, e)
+
+            # ═══ ATTRIBUTION: Log rejected trades (risk governor, validator, etc.) ═══
+            if attr_id and not trade_id:
+                try:
+                    from src.attribution.logger import log_attribution_after_llm
+                    log_attribution_after_llm(attr_id, "rejected")
+                except Exception:
+                    pass
 
             if trade_id:
                 # ═══ LIVE TRADE EXECUTION (dual execution if enabled) ═══
