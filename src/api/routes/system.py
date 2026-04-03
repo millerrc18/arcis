@@ -393,3 +393,30 @@ def table_counts():
             counts[table] = -1
     conn.close()
     return counts
+
+
+@router.get("/activity/feed")
+def activity_feed(
+    limit: int = Query(default=50, ge=1, le=200),
+    event_type: str | None = Query(default=None),
+):
+    """Activity feed matching cloud /api/activity/feed response shape."""
+    import sqlite3 as _sqlite3
+    try:
+        with _sqlite3.connect(DB_PATH) as conn:
+            conn.row_factory = _sqlite3.Row
+            if event_type:
+                rows = conn.execute(
+                    "SELECT * FROM activity_log WHERE event_type = ? "
+                    "ORDER BY created_at DESC LIMIT ?",
+                    (event_type, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM activity_log ORDER BY created_at DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+            return [dict(row) for row in rows]
+    except Exception as e:
+        logger.error("[API] activity/feed failed: %s", e)
+        return []
