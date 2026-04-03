@@ -200,3 +200,91 @@ class TestHealthScore:
         assert "score" in data
         assert "overall" in data["score"]
         assert "dimensions" in data["score"]
+
+
+@pytest.fixture
+def council_db(tmp_path):
+    """Create a DB with council tables."""
+    db_path = str(tmp_path / "council.sqlite3")
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "CREATE TABLE council_sessions ("
+        "session_id TEXT PRIMARY KEY, ticker TEXT, "
+        "result_json TEXT, created_at TEXT NOT NULL)"
+    )
+    conn.execute(
+        "CREATE TABLE council_votes ("
+        "vote_id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "session_id TEXT, agent_name TEXT, round INTEGER, "
+        "vote TEXT, reasoning TEXT, "
+        "key_data_points TEXT, risk_flags TEXT, "
+        "created_at TEXT)"
+    )
+    conn.execute(
+        "INSERT INTO council_sessions VALUES (?, ?, ?, ?)",
+        ("sess-1", "AAPL", '{"summary": "bullish"}', "2026-04-02T14:00:00"),
+    )
+    conn.execute(
+        "INSERT INTO council_votes (session_id, agent_name, round, vote, reasoning, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ("sess-1", "fundamentals", 1, "BUY", "Strong earnings", "2026-04-02T14:00:01"),
+    )
+    conn.commit()
+    conn.close()
+    return db_path
+
+
+@pytest.fixture
+def council_client(council_db):
+    with patch("src.api.routes.council.DB_PATH", council_db), \
+         patch("src.config.DB_PATH", council_db):
+        import importlib
+        import src.api.routes.council as council_mod
+        importlib.reload(council_mod)
+        import src.api.app as app_mod
+        importlib.reload(app_mod)
+        yield TestClient(app_mod.app)
+
+
+class TestCouncil:
+    def test_council_latest_returns_session(self, council_client):
+        resp = council_client.get("/api/council/latest")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["session_id"] == "sess-1"
+        assert "votes" in data
+
+    def test_council_latest_empty(self, council_db):
+        conn = sqlite3.connect(council_db)
+        conn.execute("DELETE FROM council_sessions")
+        conn.commit()
+        conn.close()
+        with patch("src.api.routes.council.DB_PATH", council_db), \
+             patch("src.config.DB_PATH", council_db):
+            import importlib
+            import src.api.routes.council as council_mod
+            importlib.reload(council_mod)
+            import src.api.app as app_mod
+            importlib.reload(app_mod)
+            client = TestClient(app_mod.app)
+            resp = client.get("/api/council/latest")
+            assert resp.status_code == 200
+            assert resp.json() == {"session": None}
+
+    def test_council_history(self, council_client):
+        resp = council_client.get("/api/council/history?days=30")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert isinstance(data, list)
+        assert len(data) >= 1
+
+    def test_council_session_detail(self, council_client):
+        resp = council_client.get("/api/council/session/sess-1")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["session"]["session_id"] == "sess-1"
+        assert len(data["votes"]) == 1
+
+    def test_council_session_not_found(self, council_client):
+        resp = council_client.get("/api/council/session/nonexistent")
+        assert resp.status_code == 404
