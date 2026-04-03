@@ -190,6 +190,7 @@ _register(TableDef(
         ColumnDef("implementation_shortfall_bps", "REAL"),
         ColumnDef("strategy_type", "TEXT", default="pullback"),
         ColumnDef("actual_shares", "INTEGER"),
+        ColumnDef("exit_retry_count", "INTEGER", default="0"),
     ],
     primary_key="trade_id",
     indexes=[
