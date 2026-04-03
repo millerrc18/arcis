@@ -194,6 +194,11 @@ class WatchLoop:
         self._last_status_print: datetime | None = None
         self._reprint_banner_on_next_cycle = False
 
+        # Multi-cadence timing
+        self._last_position_monitor_time: datetime | None = None
+        self._last_sentiment_refresh_time: datetime | None = None
+        self._fundamentals_done = False
+
     def _reset_daily_state(self):
         """Reset daily flags at midnight ET."""
         self._morning_done = False
@@ -1243,13 +1248,37 @@ class WatchLoop:
                     self._safe_run("daily council", self._run_daily_council)
                     self._council_done = True
 
+                # 0.7. Tier 4: Fundamentals refresh (daily at 7:30 AM)
+                if (hour == 7 and now.minute >= 30 and not self._fundamentals_done
+                        and now.weekday() < 5):
+                    try:
+                        from src.scheduler.fundamentals_refresh import run_fundamentals_refresh
+                        self._safe_run("fundamentals refresh",
+                                       lambda: run_fundamentals_refresh(self.config))
+                        self._fundamentals_done = True
+                    except Exception as e:
+                        logger.warning("[WATCH] Fundamentals refresh failed: %s", e)
+
                 # 1. Morning watchlist
                 if hour == self.morning_hour and not self._morning_done:
                     self._safe_run("morning watchlist", self._run_morning_watchlist)
                     self._morning_done = True
 
-                # 2. Market hours scan
-                elif self._should_scan(now):
+                # 1.5. Tier 1: Position monitor (every 15 min during market hours)
+                if (self.market_open_hour <= hour < self.market_close_hour
+                    and now.weekday() < 5
+                    and (not self._last_position_monitor_time
+                         or (now - self._last_position_monitor_time).total_seconds() > 900)):
+                    try:
+                        from src.scheduler.position_monitor import run_position_monitor
+                        self._safe_run("position monitor",
+                                       lambda: run_position_monitor(self.config))
+                        self._last_position_monitor_time = now
+                    except Exception as e:
+                        logger.warning("[WATCH] Position monitor failed: %s", e)
+
+                # 2. Market hours scan (Tier 2: every 30 min)
+                if self._should_scan(now):
                     if self._scan_in_progress:
                         logger.warning("[WATCH] Previous scan still running — skipping this cycle")
                     else:
@@ -1262,6 +1291,19 @@ class WatchLoop:
                         self._last_scan_time = now
                     # 1E. Check VIX regime alert after each scan
                     self._safe_run("VIX regime check", self._check_vix_regime_alert)
+
+                # 2.5. Tier 3: Sentiment refresh (every 60 min during market hours)
+                if (self.market_open_hour <= hour < self.market_close_hour
+                    and now.weekday() < 5
+                    and (not self._last_sentiment_refresh_time
+                         or (now - self._last_sentiment_refresh_time).total_seconds() > 3600)):
+                    try:
+                        from src.scheduler.sentiment_scanner import run_sentiment_refresh
+                        self._safe_run("sentiment refresh",
+                                       lambda: run_sentiment_refresh(self.config))
+                        self._last_sentiment_refresh_time = now
+                    except Exception as e:
+                        logger.warning("[WATCH] Sentiment refresh failed: %s", e)
 
                 # 3. EOD recap
                 elif hour == self.eod_hour and not self._eod_done:
