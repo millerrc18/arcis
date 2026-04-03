@@ -222,6 +222,8 @@ Self-blinding solves this by never showing the AI the outcome. The first AI call
 
 **Validation:** Leakage detection classifier (balanced accuracy) verifies pipeline integrity. Any training example where a classifier can predict outcome from the commentary at above-chance rates indicates leakage.
 
+**Why "just tell the LLM to pretend" fails:** Research shows instructional blinding is unreliable due to hypothetical inconsistency. Gao, Jiang & Yan (2025) demonstrated LLMs' predictive power increases ~37% for headlines the model likely memorized — temporal leakage is systematic and measurable. Lopez-Lira et al. (2025) showed GPT-4o recalls S&P 500 closing prices with <1% error within its training window. Leakage manifests as: sentence structure differences, adverb selection ("clearly" for winners, "potentially" for losers), risk factor count variation, and analysis length asymmetry — all detectable by a simple TF-IDF classifier. Li et al. (2025) found that the **structure** of reasoning traces matters dramatically more than content details — corrupting step content caused only 3-4% accuracy loss, but corrupting structural skeleton caused collapse.
+
 **External validation gap:** No external academic citation validates self-blinding for financial training data specifically. The concept draws from clinical trial blinding methodology and adversarial debiasing frameworks (Beutel et al. 2019). This remains a practitioner innovation without peer-reviewed validation — but the logic is sound and the leakage detector provides empirical verification.
 
 ### 3.2 Training Data Format
@@ -278,6 +280,8 @@ Six-dimension scoring framework, blind to trade outcome:
 If you score analyses based on whether the trade was profitable, you are rewarding luck, not skill. A brilliant analysis of a stock that happened to drop due to an unforeseeable event would score poorly. A sloppy analysis of a stock that happened to rise would score well. By scoring the quality of reasoning independently of the outcome, the training pipeline selects for genuine analytical skill — the only thing that compounds over time.
 </details>
 
+**Rubric calibration:** König-Kersting proved evaluators rate identical reasoning higher when the outcome is favorable — confirming the need for outcome-blinding. Use Annie Duke's 2×2 matrix (good/bad process × good/bad outcome) with deliberate upweighting of "good process / bad outcome" quadrant. CheckEval's binary decomposition achieves +0.45 agreement improvement over Likert scales (FinReasoning benchmark: 83.7% human-LLM agreement). Automated pre-filters: Loughran-McDonald sentiment dictionary (uncertainty word density, strong-to-weak modal ratio). Temperature must be 0; use a different model family as judge; calibrate against 50 expert-labeled examples targeting Cohen's κ ≥ 0.6.
+
 **Rubric evolution (post-200 trades):** Run regression of rubric dimensions against trade outcomes. Adjust weights based on which dimensions best predict performance. The rubric itself learns — a novel capability no institutional system implements.
 
 ### 3.4 Outcome-Conditioned Generation
@@ -302,12 +306,15 @@ Different prompts for different trade outcomes — 3-5× data yield per closed t
 When a model is retrained on its own outputs, it gradually loses diversity and quality — like making a photocopy of a photocopy. Each generation is slightly worse. The "golden ratio" of 62% human-curated to 38% model-generated data prevents this. The curated data acts as an anchor, ensuring each retraining cycle has a foundation of genuine quality. Without this, after 3-4 retraining cycles, the model's outputs become bland, repetitive, and unreliable.
 </details>
 
+**Model collapse evidence:** Shumailov et al. (2023, *Nature* 2024) showed errors compound multiplicatively — retaining just 10% original real data reduced degradation to "minor." Dohmatob et al. (2025, *ICLR Spotlight*) proved even 1 in 1,000 synthetic data points can cause collapse asymptotically; larger models amplify the effect. He et al. (2025) derived the golden ratio optimum mathematically — naive unweighted mixing is "arbitrarily inefficient."
+
 **Prevention protocol:**
 1. Accumulate real data — never replace real examples with synthetic
-2. Retrain from clean base each cycle (not iterative fine-tuning)
+2. Retrain from clean base each cycle (not iterative fine-tuning on previous adapter)
 3. Champion-challenger evaluation — new model must beat current on holdout
 4. Catastrophic forgetting detection via Fisher Information Matrix diagonal (Kirkpatrick et al. 2017)
 5. Canary evaluations — fixed test set run after every retrain to detect drift
+6. Anchor examples: 40% quality-based (top scored), 40% diversity-based (k-means), 20% difficulty-based (high-loss boundary cases), oversampled to ~62% effective training weight
 
 ---
 
@@ -614,8 +621,10 @@ Alpha attribution answers the question: "Which part of the system is actually ma
 
 GRPO (Group Relative Policy Optimization) is now the dominant RL optimizer for open LLMs, popularized by DeepSeek-R1. Directly applicable to financial LLMs:
 
+- **Fin-o1** (Qwen3 8B + 1,500 examples + GRPO) surpassed GPT-o1 (54.05%) and DeepSeek-R1 (60.87%) on FinReason at **61.07% accuracy**. Only GRPO yielded consistent gains; PPO degraded long-context reasoning; DPO was inconsistent
 - **DAPO-Trading** (Zha et al. 2025) achieved 230.49% cumulative return with improved GRPO, reducing training time from 8hr to 2.5hr
-- **Feasible on consumer hardware** via Unsloth optimizations — but likely requires RunPod A100 ($14/session) for initial training
+- **Feasible on consumer hardware** via Unsloth weight-sharing (80% VRAM reduction vs vanilla TRL). VRAM for 8B LoRA GRPO: ~10-14GB (tight on 12GB without Unsloth). RunPod A100 ($14/session) recommended for initial training
+- **Composite reward function** (validated by Risk-Aware RL Reward, arXiv:2506.04358): 0.5 × outcome + 0.35 × quality + 0.15 × format, volatility-normalized across 3/5/10-day horizons
 - **Reward design challenge:** Trading rewards are delayed (outcome known only after trade closes) and noisy. Verifiable rewards (the standard for math/code GRPO) do not directly apply
 - **Arcis timeline:** Gated at 100+ closed trades to ensure sufficient reward signal
 
