@@ -38,9 +38,14 @@ def compute_mr_features(ticker: str, ohlcv: pd.DataFrame,
     rsi_period = cfg.get("rsi_period", 2)
     rsi_entry = cfg.get("rsi_entry_threshold", 10)
 
-    close = ohlcv["Close"]
-    high = ohlcv["High"]
-    low = ohlcv["Low"]
+    # Flatten MultiIndex columns from yfinance single-ticker downloads
+    def _col(name):
+        col = ohlcv[name]
+        return col.iloc[:, 0] if hasattr(col, 'columns') else col
+
+    close = _col("Close")
+    high = _col("High")
+    low = _col("Low")
 
     rsi_2 = compute_rsi(close, period=rsi_period)
     ema_200 = compute_ema(close, period=200)
@@ -50,21 +55,21 @@ def compute_mr_features(ticker: str, ohlcv: pd.DataFrame,
     # 3-day cumulative return
     if len(close) >= 4:
         cum_return_3d = round(
-            (close.iloc[-1] / close.iloc[-4] - 1) * 100, 2
+            (float(close.iloc[-1]) / float(close.iloc[-4]) - 1) * 100, 2
         )
     else:
         cum_return_3d = 0.0
 
     # Volume spike detection
     if len(ohlcv) >= 20:
-        vol = ohlcv["Volume"]
-        avg_vol_20 = vol.iloc[-20:].mean()
-        volume_ratio = round(vol.iloc[-1] / avg_vol_20, 2) if avg_vol_20 > 0 else 1.0
+        vol = _col("Volume")
+        avg_vol_20 = float(vol.iloc[-20:].mean())
+        volume_ratio = round(float(vol.iloc[-1]) / avg_vol_20, 2) if avg_vol_20 > 0 else 1.0
     else:
         volume_ratio = 1.0
 
     # Distance from 200 EMA
-    last_close = close.iloc[-1]
+    last_close = float(close.iloc[-1])
     distance_from_200ema = round(
         (last_close - ema_200) / ema_200 * 100, 2
     ) if ema_200 > 0 else 0.0
@@ -156,11 +161,15 @@ def compute_mr_exit_signal(
     rsi_exit = cfg.get("rsi_exit_threshold", 70)
     stop_multiple = cfg.get("stop_atr_multiple", 2.5)
 
-    close = ohlcv["Close"]
-    rsi_2 = compute_rsi(close, period=2)
-    atr_14 = compute_atr(ohlcv["High"], ohlcv["Low"], close, period=14)
+    def _col(name):
+        col = ohlcv[name]
+        return col.iloc[:, 0] if hasattr(col, 'columns') else col
 
-    last_close = close.iloc[-1]
+    close = _col("Close")
+    rsi_2 = compute_rsi(close, period=2)
+    atr_14 = compute_atr(_col("High"), _col("Low"), close, period=14)
+
+    last_close = float(close.iloc[-1])
 
     # RSI exit
     if rsi_2 > rsi_exit:

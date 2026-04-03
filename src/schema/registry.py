@@ -1334,7 +1334,7 @@ _register(TableDef(
         ColumnDef("source", "TEXT", nullable=False),
         ColumnDef("ticker", "TEXT", nullable=False),
         ColumnDef("last_fetched_at", "TEXT", nullable=False),
-        ColumnDef("status", "TEXT", default="'acceptable'"),
+        ColumnDef("status", "TEXT", default="acceptable"),
         ColumnDef("created_at", "TEXT", nullable=False),
     ],
     primary_key=["source", "ticker"],

@@ -89,7 +89,7 @@ def run_scenario(name: str, start: str, end: str) -> dict:
 
     print(f"\n{'='*50}")
     print(f"  SCENARIO: {name}")
-    print(f"  Period: {start} → {end}")
+    print(f"  Period: {start} -> {end}")
     print(f"{'='*50}\n")
 
     # Get trading days
