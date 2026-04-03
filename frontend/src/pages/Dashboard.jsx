@@ -10,7 +10,7 @@ import StatusBadge from '../components/StatusBadge'
 import ActivityFeed from '../components/ActivityFeed'
 import Tooltip from '../components/Tooltip'
 import { XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, Area, AreaChart, Line, LineChart } from 'recharts'
-import { TrendingUp, TrendingDown, Minus, AlertTriangle, Zap } from 'lucide-react'
+import { TrendingUp, TrendingDown, Minus, AlertTriangle, Zap, ChevronDown, ChevronUp } from 'lucide-react'
 
 function parseAuditSummary(raw) {
   if (!raw) return null
@@ -29,6 +29,58 @@ function parseAuditSummary(raw) {
   }
 }
 
+function getAuditChipState(assessment, auditData) {
+  const createdAt = auditData?.created_at || auditData?.audit_date
+  const isStale = createdAt && (Date.now() - new Date(createdAt).getTime()) > 24 * 60 * 60 * 1000
+  if (isStale) return { label: 'Stale (>24h)', dot: '\u26AA', bg: 'rgba(148,163,184,0.15)', border: 'rgba(148,163,184,0.3)', color: 'var(--arcis-text-muted)' }
+  if (!assessment) return { label: 'No audit', dot: '\u26AA', bg: 'rgba(148,163,184,0.15)', border: 'rgba(148,163,184,0.3)', color: 'var(--arcis-text-muted)' }
+  if (assessment === 'green' || assessment === 'healthy') return { label: 'System OK', dot: '\uD83D\uDFE2', bg: 'rgba(34,197,94,0.12)', border: 'rgba(34,197,94,0.3)', color: 'var(--arcis-success)' }
+  if (assessment === 'yellow' || assessment === 'warning') return { label: 'Warnings', dot: '\uD83D\uDFE1', bg: 'rgba(245,158,11,0.12)', border: 'rgba(245,158,11,0.3)', color: 'var(--amber-300)' }
+  if (assessment === 'red' || assessment === 'critical') return { label: 'Issues found', dot: '\uD83D\uDD34', bg: 'rgba(239,68,68,0.12)', border: 'rgba(239,68,68,0.3)', color: '#fca5a5' }
+  return { label: 'No audit', dot: '\u26AA', bg: 'rgba(148,163,184,0.15)', border: 'rgba(148,163,184,0.3)', color: 'var(--arcis-text-muted)' }
+}
+
+function relativeTime(dateStr) {
+  if (!dateStr) return ''
+  const diff = Date.now() - new Date(dateStr).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.floor(hours / 24)}d ago`
+}
+
+function AuditChip({ auditData, auditAssessment, auditSummary }) {
+  const [expanded, setExpanded] = useState(false)
+  const chip = getAuditChipState(auditAssessment, auditData)
+  const createdAt = auditData?.created_at || auditData?.audit_date
+
+  return (
+    <div>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium cursor-pointer transition-colors"
+        style={{ background: chip.bg, border: `1px solid ${chip.border}`, color: chip.color }}
+      >
+        <span>{chip.dot}</span>
+        <span>{chip.label}</span>
+        {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+      </button>
+      {expanded && (
+        <div className="rounded-lg p-4 mt-2" style={{ border: `1px solid ${chip.border}`, background: 'var(--arcis-bg-surface)' }}>
+          <div className="flex items-center gap-2 mb-2">
+            <span>{chip.dot}</span>
+            <span className="text-sm font-medium" style={{ color: chip.color }}>{chip.label}</span>
+          </div>
+          {auditSummary && <p className="text-sm mb-2" style={{ color: 'var(--arcis-text-secondary)' }}>{auditSummary.slice(0, 300)}</p>}
+          {createdAt && <p className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>Last audit: {relativeTime(createdAt)}</p>}
+          <button onClick={() => setExpanded(false)} className="text-xs mt-2" style={{ color: 'var(--arcis-text-secondary)' }}>Collapse</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function scoreColor(score) {
   if (score >= 70) return 'var(--teal-400)'
   if (score >= 40) return 'var(--amber-400)'
@@ -38,6 +90,14 @@ function scoreColor(score) {
 function BuildScoreHero({ data }) {
   if (!data) return null
   const score = data.build_score ?? 0
+  if (score === 0 && (!data.components || Object.values(data.components).every(v => v === 0))) {
+    return (
+      <div className="arcis-card" style={{ padding: '20px', textAlign: 'center' }}>
+        <span className="text-sm font-medium" style={{ color: 'var(--arcis-text-muted)' }}>Build Score not yet computed</span>
+        <p className="text-xs mt-1" style={{ color: 'var(--arcis-text-secondary)' }}>Click "Generate CTO Report" or wait for 4:30 PM ET</p>
+      </div>
+    )
+  }
   const delta = data.delta_7d
   const decay = data.decay_today
   const components = data.components || {}
@@ -199,19 +259,22 @@ export default function Dashboard() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text)' }}>Dashboard</h2>
-        <Tooltip content="EMERGENCY: Immediately stops all new trade entries. Open positions are NOT closed.">
-          <button
-            onClick={() => {
-              if (isHalted || confirm('Are you sure? This stops all new trades.')) {
-                haltMutation.mutate()
-              }
-            }}
-            className="px-4 py-2 rounded-lg font-medium text-sm text-white transition-colors"
-            style={{ background: isHalted ? 'var(--success)' : 'var(--danger)' }}
-          >
-            {isHalted ? 'RESUME TRADING' : 'HALT TRADING'}
-          </button>
-        </Tooltip>
+        <div className="flex items-center gap-3">
+          <AuditChip auditData={auditData} auditAssessment={auditAssessment} auditSummary={auditSummary} />
+          <Tooltip content="EMERGENCY: Immediately stops all new trade entries. Open positions are NOT closed.">
+            <button
+              onClick={() => {
+                if (isHalted || confirm('Are you sure? This stops all new trades.')) {
+                  haltMutation.mutate()
+                }
+              }}
+              className="px-4 py-2 rounded-lg font-medium text-sm text-white transition-colors"
+              style={{ background: isHalted ? 'var(--success)' : 'var(--danger)' }}
+            >
+              {isHalted ? 'RESUME TRADING' : 'HALT TRADING'}
+            </button>
+          </Tooltip>
+        </div>
       </div>
 
       {/* Halt warning banner */}
@@ -221,17 +284,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Audit warning banner */}
-      {auditAssessment && auditAssessment !== 'green' && (
-        <div className="rounded-lg p-3 text-sm" style={{
-          background: auditAssessment === 'red' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(245, 158, 11, 0.15)',
-          border: `1px solid ${auditAssessment === 'red' ? 'rgba(239, 68, 68, 0.4)' : 'rgba(245, 158, 11, 0.4)'}`,
-          color: auditAssessment === 'red' ? '#fca5a5' : 'var(--amber-300)',
-        }}>
-          <span className="font-medium uppercase">Audit: {auditAssessment}</span>
-          {auditSummary && <span className="ml-2">{'\u2014'} {auditSummary.slice(0, 300)}</span>}
-        </div>
-      )}
+      {/* Audit chip is now in header bar */}
 
       {/* Toast notification */}
       {toast && (

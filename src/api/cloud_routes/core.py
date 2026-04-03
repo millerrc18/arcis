@@ -389,11 +389,11 @@ def create_router(runtime, verify_auth):
 
     @router.post("/api/actions/cto-report", dependencies=[Depends(verify_auth)])
     def action_cto_report():
-        return _submit_command("scan")  # CTO report is part of scan output
+        return _submit_command("cto-report")
 
     @router.post("/api/actions/score", dependencies=[Depends(verify_auth)])
     def action_score():
-        return _submit_command("scan")
+        return _submit_command("cto-report")
 
     @router.post("/api/training/train", dependencies=[Depends(verify_auth)])
     def training_train():

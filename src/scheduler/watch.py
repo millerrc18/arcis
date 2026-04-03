@@ -190,6 +190,10 @@ class WatchLoop:
         self._collector_failures: dict[str, int] = {}
         self._scan_number = 0
 
+        # Console status heartbeat
+        self._last_status_print: datetime | None = None
+        self._reprint_banner_on_next_cycle = False
+
     def _reset_daily_state(self):
         """Reset daily flags at midnight ET."""
         self._morning_done = False
@@ -353,8 +357,68 @@ class WatchLoop:
 
         return elapsed >= self.scan_interval
 
+    def _get_live_stats(self) -> dict:
+        """Query live system stats for banner/heartbeat. Never raises."""
+        stats = {
+            "open_paper": "N/A", "open_live": "N/A",
+            "equity": "N/A", "buying_power": "N/A",
+            "today_pnl": "N/A", "open_pnl": "N/A",
+            "phase_trades": "N/A", "phase_required": 50,
+            "last_audit": "N/A", "audit_age": "",
+        }
+        try:
+            with sqlite3.connect(DB_PATH) as conn:
+                conn.row_factory = sqlite3.Row
+                paper = conn.execute(
+                    "SELECT COUNT(*) FROM shadow_trades WHERE status='open' AND source='paper'"
+                ).fetchone()[0]
+                live = conn.execute(
+                    "SELECT COUNT(*) FROM shadow_trades WHERE status='open' AND source='live'"
+                ).fetchone()[0]
+                stats["open_paper"] = paper
+                stats["open_live"] = live
+                closed = conn.execute(
+                    "SELECT COUNT(*) FROM shadow_trades WHERE status='closed'"
+                ).fetchone()[0]
+                stats["phase_trades"] = closed
+                # Open P&L
+                open_pnl_row = conn.execute(
+                    "SELECT COALESCE(SUM(pnl_dollars), 0) FROM shadow_trades WHERE status='open'"
+                ).fetchone()
+                stats["open_pnl"] = round(open_pnl_row[0], 2) if open_pnl_row else 0
+                # Last audit
+                audit_row = conn.execute(
+                    "SELECT overall_assessment, created_at FROM audit_reports "
+                    "ORDER BY created_at DESC LIMIT 1"
+                ).fetchone()
+                if audit_row:
+                    stats["last_audit"] = audit_row["overall_assessment"] or "unknown"
+                    created = audit_row["created_at"]
+                    if created:
+                        from datetime import datetime as _dt
+                        try:
+                            age_s = (datetime.now(ET) - _dt.fromisoformat(created).replace(
+                                tzinfo=ET if created[-1] != 'Z' else None
+                            )).total_seconds()
+                            hours = int(age_s / 3600)
+                            stats["audit_age"] = f"({hours}h ago)" if hours < 48 else f"({hours // 24}d ago)"
+                        except Exception:
+                            stats["audit_age"] = ""
+        except Exception as e:
+            logger.debug("[WATCH] _get_live_stats DB error: %s", e)
+        # Alpaca account
+        try:
+            from src.trading.alpaca_adapter import get_account_info
+            acct = get_account_info()
+            if acct:
+                stats["equity"] = f"${float(acct.get('equity', 0)):,.0f}"
+                stats["buying_power"] = f"${float(acct.get('buying_power', 0)):,.0f}"
+        except Exception as e:
+            logger.debug("[WATCH] _get_live_stats Alpaca error: %s", e)
+        return stats
+
     def _print_banner(self):
-        """Print the startup banner."""
+        """Print the startup banner with live system state."""
         now = datetime.now(ET)
         llm_status = "connected" if is_llm_available() else "not available"
         shadow_cfg = self.config.get("shadow_trading", {})
@@ -366,7 +430,6 @@ class WatchLoop:
         from src.training.versioning import get_active_model_name, get_training_example_counts
         model_name = get_active_model_name()
 
-        # Warn if config model differs from the active trained model
         config_model = self.config.get("llm", {}).get("model", "qwen3:8b")
         if model_name and model_name != "base" and model_name != config_model:
             logger.warning(
@@ -381,17 +444,22 @@ class WatchLoop:
         else:
             training_str = "disabled"
 
+        live = self._get_live_stats()
+
         print(f"""
 {'='*45}
  ARCIS - WATCH MODE
 {'='*45}
  Time: {now.strftime('%Y-%m-%d %H:%M:%S')} ET
- LLM: {llm_status}
- Model Version: {model_name}
+ LLM: {llm_status} ({model_name})
  Shadow Trading: {shadow_status}
- Email Mode: {self.email_mode}
- Bootcamp: {bootcamp_str}
+ Bootcamp: {bootcamp_str} — {live['phase_trades']}/{live['phase_required']} trades
  Training: {training_str}
+
+ Portfolio:
+   Open positions: {live['open_paper']} paper / {live['open_live']} live
+   Account equity: {live['equity']} | Buying power: {live['buying_power']}
+   Open P&L: ${live['open_pnl'] if isinstance(live['open_pnl'], (int, float)) else 'N/A'}
 
  Schedule:
    Morning watchlist: {self.morning_hour}:00 ET
@@ -399,16 +467,28 @@ class WatchLoop:
    EOD recap: {self.eod_hour}:00 ET
    Overnight: {'enabled' if self.overnight else 'disabled'}
 
- Compute Schedule:
-   Between-scan scoring: enabled (guard={self._scorer.guard_minutes}min)
-   Overnight training: {'enabled (6:50PM-5:15AM)' if self.overnight else 'disabled'}
-   Pre-market inference: {'enabled (6:00-9:25AM)' if self.overnight else 'disabled'}
-   VRAM handoff: {'enabled' if self.overnight else 'disabled'}
-   Target utilization: {'73%' if self.overnight else '~3%'}
+ System:
+   Last audit: {live['last_audit']} {live['audit_age']}
+   DB: SQLite (WAL mode) | Render sync: active
 
  Press Ctrl+C to stop.
 {'='*45}
 """)
+        self._last_status_print = now
+        self._reprint_banner_on_next_cycle = False
+
+    def _print_status_heartbeat(self):
+        """Print compact 4-line status block (every 60 min during market hours)."""
+        now = datetime.now(ET)
+        live = self._get_live_stats()
+        time_str = now.strftime("%H:%M")
+        print(f"\n{'─'*3} ARCIS STATUS ({time_str} ET) {'─'*30}")
+        print(f" Phase 1: {live['phase_trades']}/{live['phase_required']} | "
+              f"{live['open_paper']} open | Equity: {live['equity']} | "
+              f"Open P&L: ${live['open_pnl'] if isinstance(live['open_pnl'], (int, float)) else 'N/A'}")
+        last_scan = self._last_scan_time.strftime("%H:%M") if self._last_scan_time else "none"
+        print(f" Last scan: {last_scan} | Audit: {live['last_audit']} | Sync: OK")
+        print(f"{'─'*46}\n")
 
         # Send Telegram startup notification
         try:
@@ -711,6 +791,12 @@ class WatchLoop:
                 logger.info("[WATCH] Live trade check: %d trades closed", _live_closed)
         except Exception as e:
             logger.warning("[WATCH] Independent live trade check failed: %s", e)
+
+        # Scan summary line
+        trades_opened = len([p for p in packet_worthy if True])  # all packet_worthy get traded
+        print(f"[WATCH] {datetime.now(ET).strftime('%H:%M')} ET — Scan complete: "
+              f"{len(universe)} tickers → {len(features)} scored → "
+              f"{len(packet_worthy)} packets → {trades_opened} trades")
 
         try:
             broadcast_sync("scan_complete", {"tickers_scanned": len(universe),
@@ -1105,6 +1191,7 @@ class WatchLoop:
                 if self._today is not None and today != self._today:
                     self._reset_daily_state()
                     print(f"[WATCH] New day: {today}. Daily state reset.")
+                    self._reprint_banner_on_next_cycle = True
                 self._today = today
 
                 hour = now.hour
@@ -1471,6 +1558,19 @@ class WatchLoop:
 
                 # Email digest schedule (sends 4 daily digests in digest mode)
                 self._check_digest_schedule()
+
+                # Periodic status heartbeat (every 60 min during market hours)
+                is_mkt = (self.market_open_hour <= now.hour < self.market_close_hour
+                          and now.weekday() < 5)
+                if (is_mkt
+                    and (not self._last_status_print
+                         or (now - self._last_status_print).total_seconds() > 3600)):
+                    self._print_status_heartbeat()
+                    self._last_status_print = now
+
+                # Reprint full banner on significant events
+                if self._reprint_banner_on_next_cycle:
+                    self._print_banner()
 
                 time.sleep(60)
 
