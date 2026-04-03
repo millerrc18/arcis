@@ -440,3 +440,202 @@ class TestRenderSyncNewTables:
             assert SYNC_TABLES[table]["mode"] == "incremental"
             assert SYNC_TABLES[table]["time_col"] == "collected_at"
             assert SYNC_TABLES[table]["pk"] == "id"
+
+
+# ── Training Data Collector: pnl type safety (#195) ───────────────
+
+class TestTrainingDataCollectorPnlTypeSafety:
+    """Verify numeric fields from SQLite are cast before comparison (#195)."""
+
+    def test_pnl_dollars_as_string_does_not_raise(self, tmp_db):
+        """SQLite may return pnl_dollars as a string — must not TypeError."""
+        from src.training.data_collector import collect_training_examples_from_closed_trades
+
+        conn = sqlite3.connect(tmp_db)
+        conn.execute("""
+            CREATE TABLE shadow_trades (
+                trade_id TEXT PRIMARY KEY, recommendation_id TEXT,
+                ticker TEXT, status TEXT, pnl_dollars TEXT,
+                pnl_pct TEXT, exit_reason TEXT, duration_days TEXT,
+                max_favorable_excursion TEXT, max_adverse_excursion TEXT,
+                actual_exit_time TEXT, created_at TEXT, updated_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE recommendations (
+                recommendation_id TEXT PRIMARY KEY, ticker TEXT,
+                enriched_prompt TEXT, created_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE training_examples (
+                example_id TEXT PRIMARY KEY, created_at TEXT,
+                source TEXT, ticker TEXT, recommendation_id TEXT,
+                feature_snapshot TEXT, trade_outcome TEXT,
+                instruction TEXT, input_text TEXT, output_text TEXT
+            )
+        """)
+        conn.execute(
+            "INSERT INTO shadow_trades VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            ("t1", "r1", "AAPL", "closed", "50.25", "3.2",
+             "target_1_hit", "5", "60.0", "10.0",
+             "2026-01-05T16:00:00", "2026-01-01", "2026-01-05"),
+        )
+        conn.execute(
+            "INSERT INTO recommendations VALUES (?,?,?,?)",
+            ("r1", "AAPL", "Test prompt content", "2026-01-01"),
+        )
+        conn.commit()
+        conn.close()
+
+        with patch("src.training.data_collector.load_config",
+                   return_value={"training": {"enabled": True}}), \
+             patch("src.training.data_collector.init_training_tables"), \
+             patch("src.training.data_collector.generate_training_example",
+                   return_value="Mock analysis output"), \
+             patch("src.training.data_collector.validate_training_example",
+                   return_value=(True, None)), \
+             patch("src.training.data_collector.DB_PATH", tmp_db):
+            count = collect_training_examples_from_closed_trades(db_path=tmp_db)
+
+        assert isinstance(count, int)
+        assert count >= 1  # String pnl_dollars="50.25" should produce a training example
+
+    def test_negative_string_pnl_does_not_raise(self, tmp_db):
+        """Negative string pnl like '-150.50' must not crash or mis-classify."""
+        from src.training.data_collector import collect_training_examples_from_closed_trades
+
+        conn = sqlite3.connect(tmp_db)
+        conn.execute("""
+            CREATE TABLE shadow_trades (
+                trade_id TEXT PRIMARY KEY, recommendation_id TEXT,
+                ticker TEXT, status TEXT, pnl_dollars TEXT,
+                pnl_pct TEXT, exit_reason TEXT, duration_days TEXT,
+                max_favorable_excursion TEXT, max_adverse_excursion TEXT,
+                actual_exit_time TEXT, created_at TEXT, updated_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE recommendations (
+                recommendation_id TEXT PRIMARY KEY, ticker TEXT,
+                enriched_prompt TEXT, created_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE training_examples (
+                example_id TEXT PRIMARY KEY, created_at TEXT,
+                source TEXT, ticker TEXT, recommendation_id TEXT,
+                feature_snapshot TEXT, trade_outcome TEXT,
+                instruction TEXT, input_text TEXT, output_text TEXT
+            )
+        """)
+        conn.execute(
+            "INSERT INTO shadow_trades VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            ("t2", "r2", "PFE", "closed", "-150.50", "-8.1",
+             "stop_hit", "12", "5.0", "160.0",
+             "2026-01-15T16:00:00", "2026-01-03", "2026-01-15"),
+        )
+        conn.execute(
+            "INSERT INTO recommendations VALUES (?,?,?,?)",
+            ("r2", "PFE", "Test prompt content", "2026-01-03"),
+        )
+        conn.commit()
+        conn.close()
+
+        with patch("src.training.data_collector.load_config",
+                   return_value={"training": {"enabled": True}}), \
+             patch("src.training.data_collector.init_training_tables"), \
+             patch("src.training.data_collector.generate_training_example",
+                   return_value="Mock loss analysis") as mock_gen, \
+             patch("src.training.data_collector.validate_training_example",
+                   return_value=(True, None)), \
+             patch("src.training.data_collector.DB_PATH", tmp_db):
+            count = collect_training_examples_from_closed_trades(db_path=tmp_db)
+
+        assert count >= 1
+
+    def test_none_pnl_defaults_to_zero(self, tmp_db):
+        """None pnl_dollars must default to 0 without crashing."""
+        from src.training.data_collector import collect_training_examples_from_closed_trades
+
+        conn = sqlite3.connect(tmp_db)
+        conn.execute("""
+            CREATE TABLE shadow_trades (
+                trade_id TEXT PRIMARY KEY, recommendation_id TEXT,
+                ticker TEXT, status TEXT, pnl_dollars TEXT,
+                pnl_pct TEXT, exit_reason TEXT, duration_days TEXT,
+                max_favorable_excursion TEXT, max_adverse_excursion TEXT,
+                actual_exit_time TEXT, created_at TEXT, updated_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE recommendations (
+                recommendation_id TEXT PRIMARY KEY, ticker TEXT,
+                enriched_prompt TEXT, created_at TEXT
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE training_examples (
+                example_id TEXT PRIMARY KEY, created_at TEXT,
+                source TEXT, ticker TEXT, recommendation_id TEXT,
+                feature_snapshot TEXT, trade_outcome TEXT,
+                instruction TEXT, input_text TEXT, output_text TEXT
+            )
+        """)
+        conn.execute(
+            "INSERT INTO shadow_trades VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            ("t3", "r3", "MSFT", "closed", None, None,
+             "timeout", None, None, None,
+             "2026-02-01T16:00:00", "2026-01-20", "2026-02-01"),
+        )
+        conn.execute(
+            "INSERT INTO recommendations VALUES (?,?,?,?)",
+            ("r3", "MSFT", "Test prompt content", "2026-01-20"),
+        )
+        conn.commit()
+        conn.close()
+
+        with patch("src.training.data_collector.load_config",
+                   return_value={"training": {"enabled": True}}), \
+             patch("src.training.data_collector.init_training_tables"), \
+             patch("src.training.data_collector.generate_training_example",
+                   return_value="Mock timeout analysis"), \
+             patch("src.training.data_collector.validate_training_example",
+                   return_value=(True, None)), \
+             patch("src.training.data_collector.DB_PATH", tmp_db):
+            count = collect_training_examples_from_closed_trades(db_path=tmp_db)
+
+        assert isinstance(count, int)
+
+    def test_build_outcome_text_with_string_values(self):
+        """_build_outcome_text must handle all-string numeric fields."""
+        from src.training.data_collector import _build_outcome_text
+
+        trade = {
+            "exit_reason": "target_1_hit",
+            "pnl_dollars": "125.50",
+            "pnl_pct": "4.2",
+            "duration_days": "7",
+            "max_favorable_excursion": "150.00",
+            "max_adverse_excursion": "30.00",
+        }
+        result = _build_outcome_text(trade)
+        assert "$125.50" in result
+        assert "4.2%" in result
+        assert "7 days" in result
+
+    def test_build_outcome_text_with_none_values(self):
+        """_build_outcome_text must handle None values without crashing."""
+        from src.training.data_collector import _build_outcome_text
+
+        trade = {
+            "exit_reason": "timeout",
+            "pnl_dollars": None,
+            "pnl_pct": None,
+            "duration_days": None,
+            "max_favorable_excursion": None,
+            "max_adverse_excursion": None,
+        }
+        result = _build_outcome_text(trade)
+        assert "$0.00" in result
+        assert "0 days" in result

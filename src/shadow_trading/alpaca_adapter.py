@@ -335,6 +335,20 @@ def get_order_status(order_id: str) -> dict:
     return _serialize_order(order)
 
 
+def cancel_paper_order(order_id: str) -> bool:
+    """Cancel a pending paper order by ID.
+
+    Returns True if canceled successfully, False if already filled/canceled or on error.
+    """
+    try:
+        client = _get_trading_client()
+        client.cancel_order_by_id(order_id)
+        return True
+    except Exception as e:
+        logger.warning("[CANCEL] Could not cancel order %s: %s", order_id, e)
+        return False
+
+
 # ── Live Trading Adapter ──────────────────────────────────────────────
 #
 # Separate client creation for live (real-money) Alpaca account.

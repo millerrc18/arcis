@@ -75,9 +75,9 @@ def _build_outcome_text(trade: dict) -> str:
     """
     return f"""=== ACTUAL OUTCOME ===
 Exit Reason: {trade.get('exit_reason', 'n/a')}
-P&L: ${trade.get('pnl_dollars', 0):.2f} ({trade.get('pnl_pct', 0):.1f}%)
-Duration: {trade.get('duration_days', 0)} days
-MFE: ${trade.get('max_favorable_excursion', 0):.2f} | MAE: ${trade.get('max_adverse_excursion', 0):.2f}"""
+P&L: ${float(trade.get('pnl_dollars') or 0):.2f} ({float(trade.get('pnl_pct') or 0):.1f}%)
+Duration: {int(trade.get('duration_days') or 0)} days
+MFE: ${float(trade.get('max_favorable_excursion') or 0):.2f} | MAE: ${float(trade.get('max_adverse_excursion') or 0):.2f}"""
 
 
 def collect_training_examples_from_closed_trades(
@@ -165,7 +165,7 @@ def collect_training_examples_from_closed_trades(
             continue
 
         # ═══ STORE THE EXAMPLE ═══
-        pnl = trade.get("pnl_dollars", 0) or 0
+        pnl = float(trade.get("pnl_dollars") or 0)
         exit_reason = trade.get("exit_reason", "") or ""
 
         # #116 — Detect partial closes (both target and stop hit)
