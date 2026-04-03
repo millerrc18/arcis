@@ -350,6 +350,103 @@ After all changes, update Section 2 with current numbers. Run:
 
 ---
 
+## Task A8: Watch Loop Console Output Improvements
+
+**File:** `src/scheduler/watch.py` — `_print_banner()` (line 356) and main loop (line ~1475)
+
+The startup banner is the operator's primary window into system health. It prints once at startup and then never again — even during 6+ hour market sessions. Three improvements:
+
+### A8a: Enrich the startup banner
+
+Current banner shows basic config. Add live system state below it:
+
+```
+=============================================
+ ARCIS - WATCH MODE
+=============================================
+ Time: 2026-04-03 09:25:00 ET
+ LLM: connected (halcyon-v1.0.0)
+ Shadow Trading: enabled | Live: enabled (1% risk)
+ Bootcamp: Phase 1 — 13/50 trades (26%)
+ Training: 972 examples (last retrain: Mar 29)
+
+ Portfolio:
+   Open positions: 25 paper / 4 live
+   Account equity: $102,340 | Buying power: $5,253
+   Today P&L: +$127.50 (+0.12%)
+   Open P&L: -$340.20 (-0.33%)
+
+ Schedule:
+   Morning watchlist: 8:00 ET
+   Market scans: every 30 min (9:30-16:00 ET)
+   EOD recap: 16:00 ET
+   Overnight: enabled
+
+ System:
+   Open issues: 7 (2 critical: #182, #183)
+   Last audit: green (2h ago)
+   DB: SQLite (WAL mode) | Render sync: active
+   GPU: ~4.4% utilization (target: 30-40%)
+
+ Press Ctrl+C to stop.
+=============================================
+```
+
+Implementation: After the existing banner print, query:
+- `get_open_shadow_trades()` → count paper vs live
+- `get_account_info()` from alpaca_adapter → equity, buying power
+- Open P&L from shadow_trades where status='open' → sum pnl
+- Phase progress from `_compute_phase_progress()`
+- Open issues count from a simple SELECT on known bug tables (or hardcode for now)
+- Last audit assessment + age from `audit_reports`
+
+Wrap in a helper `_get_live_stats()` that returns a dict. If any query fails, show "N/A" — never crash the banner.
+
+### A8b: Periodic status heartbeat
+
+Add a `_last_status_print` timestamp and reprint a condensed status block every **60 minutes** during market hours. Not the full banner — a compact 4-line summary:
+
+```
+─── ARCIS STATUS (10:30 ET) ──────────────────
+ Phase 1: 13/50 | 25 open | Equity: $102,340 | Today: +$127.50
+ Last scan: 10:00 (3 packets, 1 trade) | Next: 10:30
+ GPU: 4.4% | Audit: green | Sync: OK
+──────────────────────────────────────────────
+```
+
+Implementation in main loop (near `time.sleep(60)`):
+```python
+# Periodic status heartbeat (every 60 min during market hours)
+if (self._is_market_hours(now) 
+    and (not self._last_status_print 
+         or (now - self._last_status_print).total_seconds() > 3600)):
+    self._print_status_heartbeat()
+    self._last_status_print = now
+```
+
+### A8c: Improve scan cycle output
+
+Current: `[WATCH] 10:05 ET -- market open, scanning...` then individual trade lines.
+
+Add a scan summary line AFTER the scan completes:
+```
+[WATCH] 10:05 ET — Scan complete: 100 tickers → 8 qualified → 3 packets → 1 trade (CAT $731.86)
+```
+
+This is a one-line change after the existing `broadcast_sync("scan_complete", ...)` call. Use the metrics already computed in `_record_scan_metrics()`.
+
+### A8d: Banner reprint on significant events
+
+Reprint the full banner (not just heartbeat) on:
+- New day (midnight reset) — already prints `[WATCH] New day: ...` 
+- First scan of the day (9:30 AM)
+- After training completes
+- After model version changes
+
+Add `self._reprint_banner_on_next_cycle = False` flag. Set it to `True` on these events. Check in main loop before the sleep.
+
+---
+
 ## Acceptance Criteria (Sprint A)
 
 ### Dashboard
@@ -365,6 +462,16 @@ After all changes, update Section 2 with current numbers. Run:
 - [ ] `CLAUDE.md` → MASTER.md reference. `docs.py` serves MASTER.md. `README.md` updated.
 - [ ] `docs/archive/README.md` exists
 - [ ] No broken references in src/ or frontend/
+
+### Watch Loop Console
+- [ ] Startup banner shows portfolio stats (open positions, equity, buying power, today P&L)
+- [ ] Startup banner shows phase progress (13/50) and open issues count
+- [ ] Status heartbeat prints every 60 min during market hours (compact 4-line block)
+- [ ] Scan complete line shows full pipeline summary (tickers → qualified → packets → trades)
+- [ ] Full banner reprints on new day, first scan, and post-training
+- [ ] All queries wrapped in try/except — banner never crashes on data fetch failure
+
+### Zero Regressions
 - [ ] All tests pass, `npm run build` succeeds, all 16 dashboard pages load
 
 ---
