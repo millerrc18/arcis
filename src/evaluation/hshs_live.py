@@ -54,13 +54,15 @@ def _score_performance(conn: sqlite3.Connection) -> float:
             "SELECT COALESCE(SUM(pnl_dollars), 0) FROM shadow_trades "
             "WHERE status = 'closed' AND pnl_dollars > 0"
         )
-        gross_profit = cur.fetchone()[0] or 0
+        gross_profit = float(cur.fetchone()[0] or 0)
 
         cur = conn.execute(
             "SELECT COALESCE(ABS(SUM(pnl_dollars)), 0) FROM shadow_trades "
             "WHERE status = 'closed' AND pnl_dollars < 0"
         )
-        gross_loss = cur.fetchone()[0] or 0.01  # avoid division by zero
+        gross_loss = float(cur.fetchone()[0] or 0.01)
+        if gross_loss == 0:
+            gross_loss = 0.01
         profit_factor = gross_profit / gross_loss
 
         # Max drawdown from pnl_pct (worst single trade loss as proxy)
@@ -68,7 +70,7 @@ def _score_performance(conn: sqlite3.Connection) -> float:
             "SELECT COALESCE(MIN(pnl_pct), 0) FROM shadow_trades "
             "WHERE status = 'closed'"
         )
-        max_dd = abs(cur.fetchone()[0] or 0)
+        max_dd = abs(float(cur.fetchone()[0] or 0))
 
         # Scoring components (each 0-25, summed to 0-100)
         wr_score = min(25.0, win_rate * 50)  # 50% WR = 25 pts
