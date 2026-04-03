@@ -750,6 +750,8 @@ recurrence.
 - Domain: arcis.app or arciscapital.com
 - Wyoming LLC formation (July 2026 target)
 - Logo SVG cleanup (Fiverr $50-100)
+- `start.ps1` — one-command startup script (activate venv, git pull, validate-schema, watch)
+- Dedicated server: `systemd` service for watch loop (replaces PowerShell startup on Ubuntu headless)
 
 ---
 
