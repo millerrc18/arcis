@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.attribution.logger import simulate_mechanical_outcome
 from src.config import DB_PATH
+from src.features.indicators import compute_atr
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -40,10 +41,32 @@ SCENARIOS = {
     "2022_bear_market": {"start": "2022-01-01", "end": "2022-10-31"},
 }
 
-# Bracket parameters (mechanical — same as production Phase 1)
-TARGET_PCT = 0.03  # 3% target
-STOP_PCT = 0.05    # 5% stop
+# Regime-aware bracket parameters (from full-strategy-RESULTS.md Deliverable 3)
+REGIME_BRACKETS = {
+    "low":      {"stop_atr_mult": 2.0, "target_atr_mult": 2.0, "timeout_days": 8},
+    "normal":   {"stop_atr_mult": 2.0, "target_atr_mult": 2.0, "timeout_days": 8},
+    "elevated": {"stop_atr_mult": 2.5, "target_atr_mult": 2.5, "timeout_days": 7},
+    "extreme":  {"stop_atr_mult": 3.0, "target_atr_mult": 3.0, "timeout_days": 5},
+}
+
+# Fallback fixed brackets (used when ATR unavailable)
+TARGET_PCT = 0.03
+STOP_PCT = 0.05
 TIMEOUT_DAYS = 7
+
+
+def classify_vix_regime(vix_value: float | None) -> str:
+    """Classify VIX into regime bucket for bracket sizing."""
+    if vix_value is None:
+        return "normal"
+    if vix_value < 12:
+        return "low"
+    elif vix_value <= 20:
+        return "normal"
+    elif vix_value <= 30:
+        return "elevated"
+    else:
+        return "extreme"
 
 
 def get_stress_test_universe(scenario_start: str) -> list[str]:
@@ -100,6 +123,17 @@ def run_scenario(name: str, start: str, end: str) -> dict:
     trading_days = [d.strftime("%Y-%m-%d") for d in spy_data.index]
     print(f"  Trading days: {len(trading_days)}")
 
+    # Fetch VIX data for regime-aware brackets
+    vix_data = None
+    try:
+        vix_raw = yf.download("^VIX", start=start, end=end, progress=False)
+        if vix_raw is not None and not vix_raw.empty:
+            vix_data = {d.strftime("%Y-%m-%d"): float(v)
+                        for d, v in zip(vix_raw.index, vix_raw["Close"])}
+            print(f"  VIX data: {len(vix_data)} days loaded")
+    except Exception as e:
+        logger.warning("[STRESS] VIX fetch failed, using fixed brackets: %s", e)
+
     # Get universe (with survivorship bias caveat)
     universe = get_stress_test_universe(start)
     print(f"  Universe: {len(universe)} tickers")
@@ -108,7 +142,7 @@ def run_scenario(name: str, start: str, end: str) -> dict:
     trades = []
     equity_curve = [100000.0]  # Start with $100K
     monthly_returns = {}
-    regime_results = {}
+    regime_stats = {}  # {regime: {"trades": 0, "wins": 0, "stops": 0}}
 
     current_equity = 100000.0
     position_size = 2000  # Fixed $2K per position
@@ -119,15 +153,28 @@ def run_scenario(name: str, start: str, end: str) -> dict:
         if day_idx % 20 == 0:
             print(f"  Processing: {day} ({day_idx}/{len(trading_days)} days)")
 
+        # Determine VIX regime for this day
+        vix_value = vix_data.get(day) if vix_data else None
+        regime = classify_vix_regime(vix_value)
+        brackets = REGIME_BRACKETS[regime]
+
         # Pick top 3 tickers by simple momentum (lowest 5-day return = oversold)
         candidates = []
         for ticker in universe[:30]:  # Limit for speed
             try:
-                hist_start = (datetime.strptime(day, "%Y-%m-%d") - timedelta(days=10)).strftime("%Y-%m-%d")
+                hist_start = (datetime.strptime(day, "%Y-%m-%d") - timedelta(days=30)).strftime("%Y-%m-%d")
                 hist = yf.download(ticker, start=hist_start, end=day, progress=False)
-                if hist is not None and len(hist) >= 5:
+                if hist is not None and len(hist) >= 15:
                     ret_5d = (hist["Close"].iloc[-1] / hist["Close"].iloc[-5] - 1)
-                    candidates.append((ticker, float(ret_5d), float(hist["Close"].iloc[-1])))
+                    # Compute ATR for regime-aware stop sizing
+                    import pandas as pd
+                    atr = compute_atr(
+                        pd.Series(hist["High"].values.flatten()),
+                        pd.Series(hist["Low"].values.flatten()),
+                        pd.Series(hist["Close"].values.flatten()),
+                        period=14,
+                    )
+                    candidates.append((ticker, float(ret_5d), float(hist["Close"].iloc[-1]), atr))
             except Exception:
                 continue
 
@@ -137,13 +184,21 @@ def run_scenario(name: str, start: str, end: str) -> dict:
         # Sort by 5d return ascending (most oversold first)
         candidates.sort(key=lambda x: x[1])
 
-        for ticker, ret_5d, entry_price in candidates[:3]:
-            target_price = entry_price * (1 + TARGET_PCT)
-            stop_price = entry_price * (1 - STOP_PCT)
+        for ticker, ret_5d, entry_price, atr in candidates[:3]:
+            # Regime-aware bracket sizing (ATR-based if available)
+            if atr > 0:
+                stop_price = entry_price - (atr * brackets["stop_atr_mult"])
+                target_price = entry_price + (atr * brackets["target_atr_mult"])
+                timeout = brackets["timeout_days"]
+            else:
+                # Fallback to fixed percentages
+                target_price = entry_price * (1 + TARGET_PCT)
+                stop_price = entry_price * (1 - STOP_PCT)
+                timeout = TIMEOUT_DAYS
 
             # Fetch forward data for outcome simulation
             fwd_start = (datetime.strptime(day, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
-            fwd_end = (datetime.strptime(day, "%Y-%m-%d") + timedelta(days=TIMEOUT_DAYS + 2)).strftime("%Y-%m-%d")
+            fwd_end = (datetime.strptime(day, "%Y-%m-%d") + timedelta(days=timeout + 2)).strftime("%Y-%m-%d")
             try:
                 fwd_data = yf.download(ticker, start=fwd_start, end=fwd_end, progress=False)
                 if fwd_data is None or fwd_data.empty:
@@ -153,7 +208,7 @@ def run_scenario(name: str, start: str, end: str) -> dict:
                 continue
 
             outcome, exit_price, days_held = simulate_mechanical_outcome(
-                entry_price, stop_price, target_price, TIMEOUT_DAYS, ohlcv,
+                entry_price, stop_price, target_price, timeout, ohlcv,
             )
 
             pnl_pct = (exit_price - entry_price) / entry_price * 100
@@ -168,7 +223,20 @@ def run_scenario(name: str, start: str, end: str) -> dict:
                 "outcome": outcome,
                 "pnl_pct": round(pnl_pct, 2),
                 "days_held": days_held,
+                "regime": regime,
+                "vix": vix_value,
+                "atr_mult": brackets["stop_atr_mult"] if atr > 0 else None,
             })
+
+            # Track regime stats
+            if regime not in regime_stats:
+                regime_stats[regime] = {"trades": 0, "wins": 0, "losses": 0, "stops": 0}
+            regime_stats[regime]["trades"] += 1
+            if outcome == "win":
+                regime_stats[regime]["wins"] += 1
+            elif outcome == "loss":
+                regime_stats[regime]["losses"] += 1
+                regime_stats[regime]["stops"] += 1
 
             # Track monthly returns
             month_key = day[:7]  # YYYY-MM
@@ -206,6 +274,16 @@ def run_scenario(name: str, start: str, end: str) -> dict:
     annualized_return = (total_pnl_pct / 100) * (365 / max(days_in_test, 1)) * 100
     calmar = annualized_return / max_dd if max_dd > 0 else 0
 
+    # Build regime breakdown with stop analysis
+    regime_breakdown = {}
+    for r, stats in regime_stats.items():
+        regime_breakdown[r] = {
+            "trades": stats["trades"],
+            "win_rate": round(stats["wins"] / stats["trades"], 3) if stats["trades"] > 0 else 0,
+            "stop_trigger_pct": round(stats["stops"] / stats["trades"] * 100, 1) if stats["trades"] > 0 else 0,
+            "atr_mult": REGIME_BRACKETS[r]["stop_atr_mult"],
+        }
+
     result = {
         "scenario": name,
         "start_date": start,
@@ -221,12 +299,18 @@ def run_scenario(name: str, start: str, end: str) -> dict:
         "calmar_ratio": round(calmar, 3),
         "monthly_returns": monthly_returns,
         "equity_curve": equity_curve,
+        "regime_breakdown": regime_breakdown,
         "universe_size": len(universe),
         "survivorship_bias": True,
     }
 
     print(f"\n  Results: {total_trades} trades | WR: {win_rate:.1%} | "
           f"DD: {max_dd:.1f}% | Calmar: {calmar:.2f}")
+    if regime_breakdown:
+        print(f"  Regime breakdown:")
+        for r, s in sorted(regime_breakdown.items()):
+            print(f"    {r}: {s['trades']} trades, WR={s['win_rate']:.0%}, "
+                  f"stop trigger={s['stop_trigger_pct']:.0f}% (ATR×{s['atr_mult']})")
 
     return result
 
@@ -256,7 +340,7 @@ def store_result(result: dict, db_path: str = DB_PATH) -> None:
                     json.dumps(result.get("monthly_returns", {})),
                     json.dumps(result.get("regime_breakdown", {})),
                     json.dumps(result.get("equity_curve", [])),
-                    "mechanical_brackets",
+                    result.get("model_version", "mechanical_brackets"),
                     datetime.now(ET).isoformat(),
                 ),
             )
@@ -276,7 +360,11 @@ def main():
     print("  ARCIS HISTORICAL STRESS TEST")
     print("=" * 50)
     print(f"  Scenarios: {list(SCENARIOS.keys())}")
-    print(f"  Bracket: {TARGET_PCT:.0%} target / {STOP_PCT:.0%} stop / {TIMEOUT_DAYS}d timeout")
+    print(f"  Fallback: {TARGET_PCT:.0%} target / {STOP_PCT:.0%} stop / {TIMEOUT_DAYS}d timeout")
+    print(f"  Regime brackets (ATR-based):")
+    for regime, params in REGIME_BRACKETS.items():
+        print(f"    {regime:>10}: {params['stop_atr_mult']}x ATR stop / "
+              f"{params['target_atr_mult']}x ATR target / {params['timeout_days']}d")
     print(f"  SURVIVORSHIP BIAS: Results use current S&P 100 universe")
     print()
 

@@ -86,6 +86,9 @@ def test_every_new_table_in_render_migrate():
     migrate = Path("scripts/render_migrate.py").read_text(encoding="utf-8").lower()
     for p in Path("src").rglob("*.py"):
         for line in p.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#") or stripped.startswith('"""') or stripped.startswith("'''"):
+                continue
             m = re.search(
                 r"CREATE TABLE IF NOT EXISTS (\w+)", line, re.IGNORECASE
             )

@@ -1,4 +1,11 @@
-"""Schema validator — compares live databases against the registry."""
+"""Schema validator — compares live databases against the registry.
+
+Called by: validate-schema CLI command (src.main)
+Calls: src.schema.registry
+Owns tables: none
+Config keys: none
+Tests: tests/test_schema.py
+"""
 
 import json
 import logging

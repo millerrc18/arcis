@@ -2,6 +2,33 @@
 
 ## [Unreleased] - 2026-04-03
 
+### Bug Fixes (PRs #200, #201, #204)
+
+- Cast `pnl_dollars` to float before comparison in shadow trade close logic (#195, PR #200)
+- Fix exit order cancel race condition — cancel completes before status update (#196, PR #201)
+- Harden VRAM handoff escalation — retry with exponential backoff (#198, PR #201)
+- Add Postgres sync reconnection on transient connection drops (#199, PR #201)
+- Fix 8 RCCA bugs from 4/3 log audit: SQLite TEXT→numeric casts (4 bugs), VIX `.item()`, regime missing arg, Telegram undefined var, Postgres duplicate keys (PR #204)
+
+### Sprint Gap Closures (PR #204)
+
+- Wire `resolve_pending_outcomes()` into 4:30 PM post-close job (S3)
+- Add `tests/test_attribution.py` — 12 tests covering all 5 attribution functions (S3)
+- Add `strategy_type` dropdown filter on Shadow Ledger + API response (S4)
+- Extract universe scanner from `watch.py` into stateless `universe_scanner.py` (S5)
+- VIX-regime ATR-based brackets in stress test (2.0x/2.5x/3.0x by regime) (S7)
+- Schedule stress test Sunday 9 PM + re-run on model version change (S7)
+
+### Halcyon-Audit Plugin (PR #204)
+
+- 8 domain agents + 1 synthesis agent for automated codebase auditing
+- `/audit` skill with scheduling, quality gate, baseline management
+- Idempotent GitHub issue filing with severity/domain labels
+
+### Local API Parity (PR #202)
+
+- 22 missing routes added to local FastAPI server to match cloud endpoints
+
 ### Sprints A through 7: Dashboard, Attribution, MR, Multi-Cadence, Training, Stress Testing
 
 **Sprint A — Dashboard Polish + Documentation Consolidation:**

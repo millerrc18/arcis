@@ -17,6 +17,12 @@ To add a column to an existing table:
 
 NEVER create tables via raw SQL in any other file.
 NEVER add columns via ALTER TABLE in any other file.
+
+Called by: src.schema.validator, src.schema.sqlite, src.schema.postgres, scripts/render_migrate.py
+Calls: none (data definitions only)
+Owns tables: all 46 tables
+Config keys: none
+Tests: tests/test_schema.py, tests/test_repo_structure.py
 """
 
 from dataclasses import dataclass, field

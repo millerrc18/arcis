@@ -227,6 +227,31 @@ def _upsert_to_postgres(
         return 0
 
     conflict_target = conflict_col or pk
+
+    # For tables with SERIAL 'id' pk and no natural conflict_col,
+    # exclude 'id' and use ON CONFLICT DO NOTHING to avoid pkey collisions
+    if pk == "id" and not conflict_col:
+        insert_cols = [c for c in columns if c != "id"]
+        col_list = ", ".join(insert_cols)
+        placeholders = ", ".join(["%s"] * len(insert_cols))
+        sql = f"INSERT INTO {table_name} ({col_list}) VALUES ({placeholders}) ON CONFLICT DO NOTHING"
+
+        count = 0
+        cursor = pg_conn.cursor()
+        try:
+            for row in rows:
+                values = [row.get(col) for col in insert_cols]
+                cursor.execute(sql, values)
+                count += 1
+            pg_conn.commit()
+        except Exception as exc:
+            pg_conn.rollback()
+            logger.error("Postgres upsert failed for %s: %s", table_name, exc)
+            raise
+        finally:
+            cursor.close()
+        return count
+
     col_list = ", ".join(columns)
     placeholders = ", ".join(["%s"] * len(columns))
     update_set = ", ".join(
@@ -263,13 +288,20 @@ def _replace_latest_in_postgres(
     columns: list[str],
     rows: list[dict],
 ) -> int:
-    """For latest-only tables: delete old data for the date, insert fresh."""
+    """For latest-only tables: delete old data for the date, insert fresh.
+
+    Excludes 'id' column from INSERT to let Postgres SERIAL generate new ids,
+    avoiding pkey collisions between SQLite rowids and Postgres SERIAL values.
+    """
     if not rows or not columns:
         return 0
 
     latest_date = rows[0].get(time_col)
     if not latest_date:
         return 0
+
+    # Exclude SQLite 'id' — let Postgres SERIAL auto-generate
+    insert_cols = [c for c in columns if c != "id"]
 
     cursor = pg_conn.cursor()
     try:
@@ -278,12 +310,12 @@ def _replace_latest_in_postgres(
             (latest_date,),
         )
 
-        col_list = ", ".join(columns)
-        placeholders = ", ".join(["%s"] * len(columns))
+        col_list = ", ".join(insert_cols)
+        placeholders = ", ".join(["%s"] * len(insert_cols))
         sql = f"INSERT INTO {table_name} ({col_list}) VALUES ({placeholders})"
 
         for row in rows:
-            values = [row.get(col) for col in columns]
+            values = [row.get(col) for col in insert_cols]
             cursor.execute(sql, values)
 
         pg_conn.commit()

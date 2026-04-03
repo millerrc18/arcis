@@ -199,6 +199,12 @@ class WatchLoop:
         self._last_sentiment_refresh_time: datetime | None = None
         self._fundamentals_done = False
 
+        # Attribution outcome resolution
+        self._attribution_resolution_done = False
+
+        # Stress test scheduling
+        self._stress_test_done = False
+
     def _reset_daily_state(self):
         """Reset daily flags at midnight ET."""
         self._morning_done = False
@@ -238,6 +244,8 @@ class WatchLoop:
         self._premarket_bracket_check_done = False
         self._postclose_bracket_check_done = False
         self._postclose_reconcile_done = False
+        self._attribution_resolution_done = False
+        self._stress_test_done = False
         self._last_bracket_check_time = None
         self._last_reconcile_time = None
         # Research + metrics
@@ -502,9 +510,16 @@ class WatchLoop:
         try:
             from src.notifications.telegram import notify_system_event, is_telegram_enabled
             if is_telegram_enabled():
+                from src.training.versioning import get_active_model_name, get_training_example_counts
+                _tg_model = get_active_model_name()
+                if self.training_enabled:
+                    _tg_counts = get_training_example_counts()
+                    _tg_training = f"enabled ({_tg_counts.get('total', 0)} examples)"
+                else:
+                    _tg_training = "disabled"
                 notify_system_event(
                     "ARCIS STARTED",
-                    f"Model: {model_name}\nMode: {'Overnight' if self.overnight else 'Standard'}\nTraining: {training_str}"
+                    f"Model: {_tg_model}\nMode: {'Overnight' if self.overnight else 'Standard'}\nTraining: {_tg_training}"
                 )
                 print(" Telegram: connected (ok)")
             else:
@@ -575,249 +590,55 @@ class WatchLoop:
             logger.warning("[WATCH] notify_watchlist failed: %s", e)
 
     def _run_scan(self):
-        """Execute a market-hours scan cycle."""
-        from src.api.websocket import broadcast_sync
-        from src.data_ingestion.market_data import fetch_ohlcv, fetch_spy_benchmark
-        from src.features.engine import compute_all_features
-        from src.journal.store import log_recommendation
-        from src.llm.packet_writer import enhance_packet_with_llm, _build_feature_prompt
-        from src.packets.template import build_packet_from_features, render_packet
-        from src.training.versioning import get_active_model_name
-        from src.ranking.ranker import rank_universe, get_top_candidates
-        from src.universe.sp100 import get_sp100_universe
+        """Execute a market-hours scan cycle.
+
+        Delegates to universe_scanner.run_universe_scan() for the core
+        pipeline, then handles state mutations (email, Telegram, metrics).
+        """
+        from src.scheduler.universe_scanner import run_universe_scan, ScanContext
         from src.email.notifier import send_email
 
-        print("[WATCH] Running market scan...")
-        try:
-            broadcast_sync("scan_started", {"time": datetime.now(ET).isoformat()})
-        except Exception as e:
-            logger.warning("[WATCH] broadcast scan_started failed: %s", e)
-        universe = get_sp100_universe()
-        ohlcv = fetch_ohlcv(universe)
-        spy = fetch_spy_benchmark()
+        now = datetime.now(ET)
+        ctx = ScanContext(config=self.config)
+        result = run_universe_scan(ctx)
 
-        if spy.empty:
-            print("[WATCH] ERROR: Could not fetch SPY benchmark. Skipping scan.")
-            self._record_scan_metrics(universe_count=len(universe),
-                                      features_count=0, packet_worthy=0,
-                                      llm_success=0, llm_total=0)
-            return
-
-        features = compute_all_features(ohlcv, spy)
-
-        # Enrich features with fundamental, insider, and macro data
-        try:
-            from src.data_enrichment.enricher import enrich_features
-            features = enrich_features(features, self.config)
-        except Exception as e:
-            logger.warning("[WATCH] Data enrichment failed: %s", e)
-
-        # ═══ TRAFFIC LIGHT (must run before trade decisions) ═══
-        try:
-            from src.features.traffic_light import compute_traffic_light
-            import sqlite3 as _sq
-            _vix_val = None
-            try:
-                with _sq.connect(DB_PATH) as _vc:
-                    _vr = _vc.execute(
-                        "SELECT vix FROM vix_term_structure ORDER BY collected_date DESC LIMIT 1"
-                    ).fetchone()
-                    if _vr:
-                        _vix_val = float(_vr[0])
-            except Exception:
-                pass
-            tl = compute_traffic_light(spy, vix=_vix_val)
-            for _t in features:
-                features[_t]["traffic_light"] = tl
-                features[_t]["traffic_light_multiplier"] = tl.get("sizing_multiplier", 1.0)
-            logger.info("[WATCH] Traffic Light: score=%d mult=%.1f regime=%s vix=%.1f",
-                        tl.get("total_score", -1), tl.get("sizing_multiplier", 1.0),
-                        tl.get("regime_label", "unknown"), _vix_val or 0.0)
-        except Exception as e:
-            logger.warning("[WATCH] Traffic Light failed: %s — using default", e)
-            for _t in features:
-                features[_t]["traffic_light_multiplier"] = 1.0
-
-        ranked = rank_universe(features)
-        candidates = get_top_candidates(ranked)
-        packet_worthy = candidates["packet_worthy"]
-
-        # Cap packets per scan to avoid bleeding into next scan window
-        bootcamp_cfg = self.config.get("bootcamp", {})
-        max_packets = bootcamp_cfg.get("max_packets_per_scan", 8)
-        if len(packet_worthy) > max_packets:
-            overflow = packet_worthy[max_packets:]
-            packet_worthy = packet_worthy[:max_packets]
-            print(f"[WATCH] Capped at {max_packets} packets "
-                  f"({len(overflow)} deferred to next scan)")
-
-        if not packet_worthy:
-            print(f"[WATCH] No packet-worthy setups. {len(candidates['watchlist'])} on watchlist.")
+        # Aborted scan (e.g., no SPY data) — just record metrics
+        if result.aborted:
             self._record_scan_metrics(
-                universe_count=len(universe), features_count=len(features),
+                universe_count=result.universe_count, features_count=0,
                 packet_worthy=0, llm_success=0, llm_total=0)
-            try:
-                broadcast_sync("scan_complete", {"tickers_scanned": len(universe),
-                                                 "packets": 0})
-            except Exception as e:
-                logger.warning("[WATCH] broadcast scan_complete (empty) failed: %s", e)
             return
 
-        print(f"[WATCH] Found {len(packet_worthy)} packet-worthy names.")
+        # Empty scan (no packet-worthy) — record and return
+        if result.packet_worthy_count == 0:
+            self._record_scan_metrics(
+                universe_count=result.universe_count,
+                features_count=result.features_count,
+                packet_worthy=0, llm_success=0, llm_total=0)
+            return
 
-        for candidate in packet_worthy:
-            ticker = candidate["ticker"]
-            feat = candidate["features"]
-            feat["_score"] = candidate["score"]
+        self._trades_managed_today += result.packet_worthy_count
 
-            packet = build_packet_from_features(ticker, feat, self.config)
+        # ── Email dispatch (uses self.email_mode, self._daily_packets) ──
+        for pkt in result.packets_rendered:
+            if self.email_mode == "full_stream":
+                subject = f"[TRADE DESK] Action Packet - {pkt['ticker']}"
+                send_email(subject, pkt["rendered"])
+                print(f"  -> Email sent for {pkt['ticker']}")
+            elif self.email_mode == "daily_summary":
+                self._daily_packets.append(pkt["rendered"])
+                if len(self._daily_packets) > 200:
+                    self._daily_packets = self._daily_packets[-100:]
+            elif self.email_mode == "digest":
+                pass  # Handled by scheduled midday/EOD digest
 
-            # ═══ ATTRIBUTION Phase 1: Log BEFORE LLM ═══
-            attr_id = None
-            try:
-                from src.attribution.logger import log_attribution_before_llm
-                from src.shadow_trading.executor import _parse_price
-                _entry = _parse_price(packet.entry_zone)
-                _stop = _parse_price(packet.stop_invalidation)
-                _tgt = _parse_price(packet.targets.split("/")[0]) if packet.targets else 0
-                attr_id = log_attribution_before_llm(
-                    ticker, candidate["score"], _entry, _stop, _tgt)
-            except Exception as e:
-                logger.debug("[WATCH] Attribution Phase 1 failed for %s: %s", ticker, e)
-
-            packet = enhance_packet_with_llm(packet, feat, self.config)
-            enriched_prompt = _build_feature_prompt(packet, feat)
-            rendered = render_packet(packet)
-
-            model_ver = get_active_model_name()
-            rec_id = log_recommendation(
-                packet, feat, candidate["score"], candidate["qualification"],
-                model_version=model_ver,
-                enriched_prompt=enriched_prompt,
-                llm_conviction=getattr(packet, 'llm_conviction', None),
-            )
-
-            # ═══ ATTRIBUTION Phase 2: Log AFTER LLM ═══
-            if attr_id:
-                try:
-                    from src.attribution.logger import log_attribution_after_llm
-                    conviction = getattr(packet, 'llm_conviction', None)
-                    action = "taken"  # If we got here, LLM processed it
-                    if conviction is None:
-                        action = "conviction_none"
-                    log_attribution_after_llm(
-                        attr_id, action, conviction, rec_id)
-                except Exception as e:
-                    logger.debug("[WATCH] Attribution Phase 2 failed: %s", e)
-            print(f"  -> Logged {ticker}: {rec_id}")
-            self._trades_managed_today += 1
-
-            # ═══ SHADOW TRADE EXECUTION (enables the training flywheel) ═══
-            trade_id = None
-            try:
-                from src.shadow_trading.executor import open_shadow_trade
-                trade_id = open_shadow_trade(rec_id, packet, feat)
-                if trade_id:
-                    print(f"  -> Shadow trade opened: {trade_id}")
-                else:
-                    print(f"  -> Shadow trade skipped (risk governor or position limit)")
-            except Exception as e:
-                logger.warning("[WATCH] Shadow trade failed for %s: %s", ticker, e)
-
-            # ═══ ATTRIBUTION: Log rejected trades (risk governor, validator, etc.) ═══
-            if attr_id and not trade_id:
-                try:
-                    from src.attribution.logger import log_attribution_after_llm
-                    log_attribution_after_llm(attr_id, "rejected")
-                except Exception:
-                    pass
-
-            if trade_id:
-                # ═══ LIVE TRADE EXECUTION (dual execution if enabled) ═══
-                live_cfg = self.config.get("live_trading", {})
-                now_live = datetime.now(ET)
-                hour_live = now_live.hour
-                if (live_cfg.get("enabled", False)
-                        and getattr(packet, 'llm_conviction', None) is not None
-                        and not (hour_live == 9 and now_live.minute < 31)):  # Skip first scan
-                    try:
-                        from src.shadow_trading.executor import open_live_trade
-                        live_id = open_live_trade(rec_id, packet, feat)
-                        if live_id:
-                            print(f"  -> LIVE trade opened: {live_id}")
-                    except Exception as e:
-                        logger.warning("[WATCH] Live trade failed for %s: %s", ticker, e)
-
-                try:
-                    broadcast_sync("trade_opened", {"ticker": ticker, "side": "BUY",
-                                                    "score": candidate["score"]})
-                except Exception as e:
-                    logger.warning("[WATCH] broadcast trade_opened failed: %s", e)
-
-                # Telegram notification
-                try:
-                    from src.notifications.telegram import notify_trade_opened, is_telegram_enabled
-                    if is_telegram_enabled():
-                        from src.notifications.telegram import send_telegram
-                        from src.shadow_trading.executor import _parse_price
-
-                        entry_price = _parse_price(packet.entry_zone)
-                        stop_price = _parse_price(packet.stop_invalidation)
-                        target_price = _parse_price(packet.targets.split("/")[0])
-                        shares = (
-                            max(1, int(packet.position_sizing.allocation_dollars / entry_price))
-                            if entry_price > 0
-                            else 1
-                        )
-                        try:
-                            notify_trade_opened(
-                                ticker,
-                                entry_price,
-                                stop_price,
-                                target_price,
-                                int(candidate["score"]),
-                                shares,
-                                setup_type=feat.get("setup_type"),
-                                setup_confidence=feat.get("setup_confidence"),
-                            )
-                        except Exception:
-                            send_telegram(
-                                f"🟢 <b>TRADE OPENED: {ticker}</b>\n"
-                                f"Score: {int(candidate['score'])}/100 | Shares: {shares}"
-                            )
-                except Exception as e:
-                    logger.warning("[WATCH] notify_trade_opened failed: %s", e)
-
-                if self.email_mode == "full_stream":
-                    subject = f"[TRADE DESK] Action Packet - {ticker}"
-                    send_email(subject, rendered)
-                    print(f"  -> Email sent for {ticker}")
-                elif self.email_mode == "daily_summary":
-                    self._daily_packets.append(rendered)
-                    # #164: cap list to prevent unbounded memory growth
-                    if len(self._daily_packets) > 200:
-                        self._daily_packets = self._daily_packets[-100:]
-                elif self.email_mode == "digest":
-                    pass  # Handled by scheduled midday/EOD digest
-
-        # Manage existing open trades (stop/target/timeout exits)
-        try:
-            from src.shadow_trading.executor import check_and_manage_open_trades
-            actions = check_and_manage_open_trades()
-            for action in actions:
-                action_type = action.get("type", action.get("action", "unknown"))
-                print(f"  -> Trade action: {action.get('ticker', '?')} — {action_type} "
-                      f"(P&L: ${action.get('pnl_dollars', 0):+.2f})")
-        except Exception as e:
-            logger.warning("[WATCH] Trade management failed: %s", e)
-
-        # Intra-day reconciliation every 15 minutes during market hours
+        # ── Intra-day reconciliation (uses self._last_reconcile_time) ──
         if (self._last_reconcile_time is None or
                 (now - self._last_reconcile_time).total_seconds() > 900):
             try:
                 from src.shadow_trading.reconcile import reconcile_paper_trades
-                result = reconcile_paper_trades(dry_run=False)
-                closed = result.get("marked_closed", [])
+                recon = reconcile_paper_trades(dry_run=False)
+                closed = recon.get("marked_closed", [])
                 if closed:
                     logger.info("[WATCH] Intra-day reconciliation closed %d stale trades: %s",
                                 len(closed), closed)
@@ -825,91 +646,71 @@ class WatchLoop:
             except Exception as e:
                 logger.warning("[WATCH] Intra-day reconciliation failed: %s", e)
 
-        # Independent live trade check (fires even if paper trading disabled)
-        try:
-            from src.shadow_trading.executor import check_and_manage_open_trades as _check_live
-            _live_actions = _check_live(source_filter="live")
-            _live_closed = len([a for a in _live_actions if a.get("type") == "closed"])
-            if _live_closed:
-                logger.info("[WATCH] Live trade check: %d trades closed", _live_closed)
-        except Exception as e:
-            logger.warning("[WATCH] Independent live trade check failed: %s", e)
+        # ── Telegram: scan-level notifications (uses self._scan_number) ──
+        self._post_scan_notifications(result)
 
-        # Scan summary line
-        trades_opened = len([p for p in packet_worthy if True])  # all packet_worthy get traded
-        print(f"[WATCH] {datetime.now(ET).strftime('%H:%M')} ET — Scan complete: "
-              f"{len(universe)} tickers → {len(features)} scored → "
-              f"{len(packet_worthy)} packets → {trades_opened} trades")
+        # ── Scan metrics ──
+        self._record_scan_metrics(
+            universe_count=result.universe_count,
+            features_count=result.features_count,
+            packet_worthy=result.packet_worthy_count,
+            llm_success=result.packet_worthy_count,
+            llm_total=result.packet_worthy_count)
 
-        try:
-            broadcast_sync("scan_complete", {"tickers_scanned": len(universe),
-                                             "packets": len(packet_worthy)})
-        except Exception as e:
-            logger.warning("[WATCH] broadcast scan_complete failed: %s", e)
-
-        # ── Telegram: notify_scan_complete ──
+    def _post_scan_notifications(self, result):
+        """Send Telegram notifications after a scan cycle."""
         try:
             from src.notifications.telegram import notify_scan_complete, is_telegram_enabled
             if is_telegram_enabled():
-                trades_closed = len(actions) if 'actions' in dir() else 0
                 notify_scan_complete(
-                    packets_count=len(packet_worthy),
-                    trades_opened=len(packet_worthy),
-                    trades_closed=trades_closed,
+                    packets_count=result.packet_worthy_count,
+                    trades_opened=result.trades_opened,
+                    trades_closed=result.trades_closed,
                 )
         except Exception as e:
             logger.warning("[WATCH] notify_scan_complete failed: %s", e)
 
-        # ── Telegram: notify_scan_result (every scan) ──
         try:
             from src.notifications.telegram import notify_scan_result, is_telegram_enabled
             if is_telegram_enabled():
-                # Increment a scan counter for the day
                 if not hasattr(self, '_scan_number'):
                     self._scan_number = 0
                 self._scan_number += 1
                 notify_scan_result(
                     scan_number=self._scan_number,
-                    total_scanned=len(universe),
-                    packet_worthy=len(packet_worthy),
-                    watchlist=len(candidates.get("watchlist", [])),
+                    total_scanned=result.universe_count,
+                    packet_worthy=result.packet_worthy_count,
+                    watchlist=result.watchlist_count,
                 )
         except Exception as e:
             logger.warning("[WATCH] notify_scan_result failed: %s", e)
 
-        # ── Telegram: notify_first_scan_summary (first scan of the day only) ──
         if not self._first_scan_done:
             self._first_scan_done = True
             try:
                 from src.notifications.telegram import notify_first_scan_summary, is_telegram_enabled
                 if is_telegram_enabled():
                     top_setups = [
-                        (c["ticker"], c["score"]) for c in packet_worthy[:3]
+                        (c["ticker"], c["score"]) for c in result.packet_worthy[:3]
                     ]
                     setup_type_counts: dict[str, int] = {}
-                    for c in packet_worthy:
+                    for c in result.packet_worthy:
                         st = c.get("features", {}).get("setup_type", "unknown")
                         setup_type_counts[st] = setup_type_counts.get(st, 0) + 1
                     notify_first_scan_summary(
-                        total_scanned=len(universe),
-                        packet_worthy=len(packet_worthy),
-                        watchlist=len(candidates.get("watchlist", [])),
-                        trades_opened_paper=len(packet_worthy),
+                        total_scanned=result.universe_count,
+                        packet_worthy=result.packet_worthy_count,
+                        watchlist=result.watchlist_count,
+                        trades_opened_paper=result.trades_opened,
                         trades_opened_live=0,
                         top_setups=top_setups,
                         setup_type_counts=setup_type_counts,
-                        llm_success=len(packet_worthy),
-                        llm_total=len(packet_worthy),
+                        llm_success=result.packet_worthy_count,
+                        llm_total=result.packet_worthy_count,
                         llm_fallback=0,
                     )
             except Exception as e:
                 logger.warning("[WATCH] notify_first_scan_summary failed: %s", e)
-
-        # ═══ SCAN METRICS (record every scan cycle) ═══
-        self._record_scan_metrics(
-            universe_count=len(universe), features_count=len(features),
-            packet_worthy=len(packet_worthy),
-            llm_success=len(packet_worthy), llm_total=len(packet_worthy))
 
     def _record_scan_metrics(self, *, universe_count: int = 0,
                              features_count: int = 0, packet_worthy: int = 0,
@@ -1431,6 +1232,16 @@ class WatchLoop:
                     )
                     self._postclose_reconcile_done = True
 
+                # 4c. Attribution outcome resolution (4:30-4:35 PM ET)
+                if (hour == 16 and now.minute >= 30 and now.minute < 35
+                        and not self._attribution_resolution_done):
+                    from src.attribution.logger import resolve_pending_outcomes
+                    self._safe_run(
+                        "attribution outcome resolution",
+                        lambda: resolve_pending_outcomes(),
+                    )
+                    self._attribution_resolution_done = True
+
                 # 5. Training data collection (4:30 PM ET)
                 elif (self.training_enabled and hour == 16 and now.minute >= 30
                       and not self._training_collection_done):
@@ -1464,6 +1275,12 @@ class WatchLoop:
                       and not self._weekly_digest_done):
                     self._safe_run("weekly digest", self._send_weekly_digest)
                     self._weekly_digest_done = True
+
+                # Weekly stress test (Sunday 9 PM ET)
+                elif (now.weekday() == 6 and hour == 21
+                      and not self._stress_test_done):
+                    self._safe_run("weekly stress test", self._run_stress_test)
+                    self._stress_test_done = True
 
                 # Action reminders (8 PM daily via Telegram)
                 if hour == 20 and not self._action_reminders_done:
@@ -1512,6 +1329,14 @@ class WatchLoop:
                         self._safe_run("evening VRAM handoff",
                                        self._run_evening_handoff)
                         self._vram_handoff_done = True
+                        ran = True
+
+                    # Re-run stress test if model version changed (7 PM)
+                    elif (hour == 19 and not self._stress_test_done
+                          and self._model_version_changed()):
+                        self._safe_run("stress test (model change)",
+                                       self._run_stress_test)
+                        self._stress_test_done = True
                         ran = True
 
                     # NOTE: 9:30 PM data collection, 10 PM news, 11 PM enrichment
@@ -2534,12 +2359,12 @@ class WatchLoop:
                 vix_row = conn.execute(
                     "SELECT vix FROM vix_term_structure ORDER BY collected_at DESC LIMIT 1"
                 ).fetchone()
-                vix = vix_row["vix"] if vix_row else 0.0
+                vix = float(vix_row["vix"]) if vix_row else 0.0
 
                 vix_prev_row = conn.execute(
                     "SELECT vix FROM vix_term_structure ORDER BY collected_at DESC LIMIT 1 OFFSET 1"
                 ).fetchone()
-                vix_prev = vix_prev_row["vix"] if vix_prev_row else vix
+                vix_prev = float(vix_prev_row["vix"]) if vix_prev_row else vix
                 vix_change = vix - vix_prev
 
                 # Regime from latest features
@@ -3104,6 +2929,37 @@ class WatchLoop:
         pipeline = PreMarketPipeline()
         result = pipeline.run_candidate_analysis()
         print(f"[WATCH] Pre-analyzed {result['count']} candidates")
+
+    def _run_stress_test(self):
+        """Run historical stress test across all 3 crisis scenarios."""
+        from scripts.stress_test import run_scenario, store_result, SCENARIOS
+        print("[WATCH] Running stress test (3 scenarios)...")
+        for name, dates in SCENARIOS.items():
+            try:
+                result = run_scenario(name, dates["start"], dates["end"])
+                if "error" not in result:
+                    store_result(result)
+                    print(f"  -> {name}: {result.get('total_trades', 0)} trades, "
+                          f"WR={result.get('win_rate', 0):.0%}, "
+                          f"DD={result.get('max_drawdown_pct', 0):.1f}%")
+            except Exception as e:
+                logger.warning("[WATCH] Stress test %s failed: %s", name, e)
+        print("[WATCH] Stress test complete")
+
+    def _model_version_changed(self) -> bool:
+        """Check if model version changed since last stress test."""
+        import sqlite3
+        try:
+            from src.training.versioning import get_active_model_name
+            current = get_active_model_name()
+            with sqlite3.connect(DB_PATH) as conn:
+                row = conn.execute(
+                    "SELECT model_version FROM stress_test_results "
+                    "ORDER BY created_at DESC LIMIT 1"
+                ).fetchone()
+            return row is None or row[0] != current
+        except Exception:
+            return False
 
     def _run_research_synthesis(self):
         """Sunday 6 PM ET — Run weekly research synthesis."""
