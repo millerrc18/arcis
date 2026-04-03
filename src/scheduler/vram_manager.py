@@ -18,7 +18,6 @@ VRAM release -- the OS reclaims all CUDA memory when the process exits.
 
 import logging
 import os
-import signal
 import subprocess
 import sys
 import time
@@ -157,6 +156,22 @@ class VRAMManager:
                        timeout_seconds, used)
         return False
 
+    def _kill_ollama_processes(self) -> None:
+        """Force-kill all Ollama processes to reclaim VRAM."""
+        try:
+            import platform
+            if platform.system() == "Windows":
+                subprocess.run(["taskkill", "/f", "/im", "ollama.exe"],
+                               capture_output=True, timeout=10)
+                subprocess.run(["taskkill", "/f", "/im", "ollama_llama_server.exe"],
+                               capture_output=True, timeout=10)
+            else:
+                subprocess.run(["pkill", "-f", "ollama"],
+                               capture_output=True, timeout=10)
+            time.sleep(5)
+        except Exception as kill_err:
+            logger.warning("[VRAM] Failed to kill Ollama: %s", kill_err)
+
     def handoff_to_training(self) -> bool:
         """Unload Ollama model, verify VRAM clear, prepare for training.
 
@@ -184,20 +199,7 @@ class VRAMManager:
             if not self._wait_for_vram_clear(threshold_mb=1500, timeout_seconds=30):
                 # Kill Ollama process entirely to free VRAM
                 logger.warning("[VRAM] Killing Ollama process to reclaim VRAM...")
-                try:
-                    import platform
-                    if platform.system() == "Windows":
-                        subprocess.run(["taskkill", "/f", "/im", "ollama.exe"],
-                                       capture_output=True, timeout=10)
-                        # Also kill the inference subprocess directly
-                        subprocess.run(["taskkill", "/f", "/im", "ollama_llama_server.exe"],
-                                       capture_output=True, timeout=10)
-                    else:
-                        subprocess.run(["pkill", "-f", "ollama"],
-                                       capture_output=True, timeout=10)
-                    time.sleep(5)
-                except Exception as kill_err:
-                    logger.warning("[VRAM] Failed to kill Ollama: %s", kill_err)
+                self._kill_ollama_processes()
 
                 # Clear GPU memory fragments after killing processes
                 try:
@@ -249,6 +251,11 @@ class VRAMManager:
                 self._training_process.kill()
                 self._training_process.wait(timeout=10)
 
+        # Close training log file if open
+        log_file = getattr(self, '_training_log_file', None)
+        if log_file and not log_file.closed:
+            log_file.close()
+
         time.sleep(3)
 
         # Clear GPU memory fragments after killing training
@@ -260,10 +267,25 @@ class VRAMManager:
         except ImportError:
             pass
 
-        # Step 2: Verify VRAM clear
+        # Step 2: Verify VRAM clear — escalate if needed
         if not self._wait_for_vram_clear(threshold_mb=1500, timeout_seconds=30):
-            logger.warning("[VRAM] VRAM not clear after killing training process")
-            # Continue anyway — Ollama may still be able to load
+            logger.warning("[VRAM] VRAM not clear after 30s — escalating cleanup")
+
+            # Kill Ollama processes to free VRAM (same as training handoff)
+            self._kill_ollama_processes()
+
+            # Clear GPU cache again after kills
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    logger.info("[VRAM] torch.cuda.empty_cache() called after Ollama kill")
+            except ImportError:
+                pass
+
+            if not self._wait_for_vram_clear(threshold_mb=1500, timeout_seconds=45):
+                logger.error("[VRAM] Handoff to inference FAILED — VRAM not clear after aggressive cleanup")
+                return False
 
         # Step 3: Ensure Ollama process is running, then reload model
         try:
@@ -299,14 +321,19 @@ class VRAMManager:
         """Launch a training task as a subprocess for clean VRAM isolation.
 
         When the subprocess exits, ALL CUDA memory is freed by the OS.
+        Output is redirected to a log file to avoid pipe buffer deadlocks.
         """
         logger.info("[VRAM] Launching training subprocess: %s", task_name)
+        log_path = os.path.join("logs", f"training_{task_name}.log")
+        os.makedirs("logs", exist_ok=True)
+        log_file = open(log_path, "a")
         proc = subprocess.Popen(
             [sys.executable] + script_args,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
         )
         self._training_process = proc
+        self._training_log_file = log_file
         return proc
 
     @property
