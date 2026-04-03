@@ -246,7 +246,7 @@ short selling, high-frequency / intraday trading, live trading with real money.
 schema DDL warning, block .env edits, block lock file edits,
 post-merge validation (schema + docs drift on `git merge`/`git pull`)
 
-**Skills (7):**
+**Skills (8):**
 
 | Skill | Invoke | Purpose |
 |---|---|---|
@@ -257,8 +257,9 @@ post-merge validation (schema + docs drift on `git merge`/`git pull`)
 | arcis-status | `/arcis-status` | Compact system status snapshot (phase, positions, equity, training, audit) |
 | retrain-check | `/retrain-check` | 8-point preflight gate before GPU training |
 | visual-check | `/visual-check` | Screenshot all 18 dashboard pages via Playwright |
+| audit | `/audit [domains] [--quick] [--schedule]` | Comprehensive 8-domain repo audit with GH issue filing |
 
-**Agents (6):**
+**Agents (15):**
 
 | Agent | Purpose | When to Use |
 |---|---|---|
@@ -268,10 +269,21 @@ post-merge validation (schema + docs drift on `git merge`/`git pull`)
 | drift-detector | Schema drift, config drift, doc staleness, data staleness, orphaned positions | Start of every coding session |
 | data-integrity-checker | FK integrity, orphaned records, data quality across 49 tables | After recovery, before releases |
 | api-documenter | Route inventory, frontend-backend consistency, auth gaps | After adding/changing API endpoints |
+| trading-safety-auditor | Silent failures, risk governor bypass, broker/journal truth | Part of `/audit` — trading domain |
+| code-quality-auditor | Oversized functions/files, god objects, dead code, duplication | Part of `/audit` — quality domain |
+| schema-integrity-auditor | Schema drift, DDL violations, FK integrity, orphans | Part of `/audit` — schema domain |
+| test-coverage-auditor | Test count, coverage gaps, slow tests, mock quality | Part of `/audit` — test domain |
+| compliance-auditor | CLAUDE.md rules, MASTER.md architecture, naming conventions | Part of `/audit` — compliance domain |
+| comment-doc-auditor | MASTER.md drift, stale comments, README accuracy | Part of `/audit` — docs domain |
+| security-auditor | Credentials, SQL injection, API auth, CORS, dependencies | Part of `/audit` — security domain |
+| architecture-auditor | Layer violations, circular imports, module coupling | Part of `/audit` — architecture domain |
+| audit-synthesizer | Dedup, root cause clustering, verification, quality gate | Part of `/audit` — synthesis phase |
 
-**Plugins (11 relevant):** commit-commands, code-simplifier, ralph-loop,
+**Plugins (12 relevant):** commit-commands, code-simplifier, ralph-loop,
 telegram, claude-md-management, claude-code-setup, skill-creator,
-frontend-design, feature-dev, pr-review-toolkit, security-guidance
+frontend-design, feature-dev, pr-review-toolkit, security-guidance,
+**halcyon-audit** (8-domain repo audit with GH issue filing, see
+`docs/guides/audit-plugin.md`)
 
 ---
 
