@@ -288,3 +288,80 @@ class TestCouncil:
     def test_council_session_not_found(self, council_client):
         resp = council_client.get("/api/council/session/nonexistent")
         assert resp.status_code == 404
+
+
+@pytest.fixture
+def notes_db(tmp_path):
+    """Create a DB with user_notes table."""
+    db_path = str(tmp_path / "notes.sqlite3")
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        "CREATE TABLE user_notes ("
+        "note_id TEXT PRIMARY KEY, "
+        "title TEXT NOT NULL DEFAULT 'Untitled Note', "
+        "content TEXT DEFAULT '', "
+        "tags TEXT DEFAULT '[]', "
+        "pinned INTEGER DEFAULT 0, "
+        "created_at TEXT NOT NULL, "
+        "updated_at TEXT NOT NULL)"
+    )
+    conn.commit()
+    conn.close()
+    return db_path
+
+
+@pytest.fixture
+def notes_client(notes_db):
+    with patch("src.api.routes.notes.DB_PATH", notes_db), \
+         patch("src.config.DB_PATH", notes_db):
+        import importlib
+        import src.api.routes.notes as notes_mod
+        importlib.reload(notes_mod)
+        import src.api.app as app_mod
+        importlib.reload(app_mod)
+        yield TestClient(app_mod.app)
+
+
+class TestNotes:
+    def test_list_notes_empty(self, notes_client):
+        resp = notes_client.get("/api/notes")
+        assert resp.status_code == 200
+        assert resp.json() == {"notes": []}
+
+    def test_create_note(self, notes_client):
+        resp = notes_client.post("/api/notes", json={
+            "title": "Test Note",
+            "content": "Hello world",
+            "tags": ["test"],
+            "pinned": False,
+        })
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["title"] == "Test Note"
+        assert data["note_id"]
+        assert data["tags"] == ["test"]
+
+    def test_create_then_list(self, notes_client):
+        notes_client.post("/api/notes", json={"title": "Note 1"})
+        notes_client.post("/api/notes", json={"title": "Note 2"})
+        resp = notes_client.get("/api/notes")
+        assert len(resp.json()["notes"]) == 2
+
+    def test_update_note(self, notes_client):
+        create_resp = notes_client.post("/api/notes", json={"title": "Original"})
+        note_id = create_resp.json()["note_id"]
+        resp = notes_client.put(f"/api/notes/{note_id}", json={"title": "Updated"})
+        assert resp.status_code == 200
+        assert resp.json()["title"] == "Updated"
+
+    def test_delete_note(self, notes_client):
+        create_resp = notes_client.post("/api/notes", json={"title": "To Delete"})
+        note_id = create_resp.json()["note_id"]
+        resp = notes_client.delete(f"/api/notes/{note_id}")
+        assert resp.status_code == 204
+        list_resp = notes_client.get("/api/notes")
+        assert len(list_resp.json()["notes"]) == 0
+
+    def test_delete_nonexistent(self, notes_client):
+        resp = notes_client.delete("/api/notes/nonexistent")
+        assert resp.status_code == 404
