@@ -34,7 +34,10 @@ def _extract_number(text, pattern):
 
 def check_python_files(state_text):
     """Count .py files in src/ and compare to documented count."""
+    # Supports both old (**Python files:** N) and new (| Python files | N |) formats
     documented = _extract_number(state_text, r"\*\*Python files:\*\*\s*([\d,]+)")
+    if documented is None:
+        documented = _extract_number(state_text, r"\|\s*Python files\s*\|\s*([\d,]+)")
     actual = len(list((ROOT / "src").rglob("*.py")))
     return "Python files", documented, actual
 
@@ -42,7 +45,8 @@ def check_python_files(state_text):
 def check_test_count(state_text):
     """Count test functions and compare to documented count."""
     documented = _extract_number(state_text, r"\*\*Tests:\*\*\s*([\d,]+)")
-    # Count def test_ in test files
+    if documented is None:
+        documented = _extract_number(state_text, r"\|\s*Tests\s*\|\s*([\d,]+)")
     actual = 0
     for f in (ROOT / "tests").rglob("*.py"):
         try:
@@ -56,6 +60,8 @@ def check_test_count(state_text):
 def check_dashboard_pages(state_text):
     """Count .jsx pages and compare to documented count."""
     documented = _extract_number(state_text, r"\*\*Dashboard pages:\*\*\s*([\d,]+)")
+    if documented is None:
+        documented = _extract_number(state_text, r"\|\s*Dashboard pages\s*\|\s*([\d,]+)")
     pages_dir = ROOT / "frontend" / "src" / "pages"
     actual = len(list(pages_dir.glob("*.jsx"))) if pages_dir.exists() else 0
     return "Dashboard pages", documented, actual
@@ -64,6 +70,8 @@ def check_dashboard_pages(state_text):
 def check_research_docs(state_text):
     """Count research docs and compare to documented count."""
     documented = _extract_number(state_text, r"\*\*Research docs:\*\*\s*([\d,]+)")
+    if documented is None:
+        documented = _extract_number(state_text, r"\|\s*Research docs\s*\|\s*([\d,]+)")
     research_dir = ROOT / "docs" / "research"
     actual = len(list(research_dir.glob("*.md"))) if research_dir.exists() else 0
     return "Research docs", documented, actual
