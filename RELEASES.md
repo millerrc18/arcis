@@ -69,6 +69,26 @@
 
 ---
 
+### v0.10.1 — 2026-04-03 (pending PR #204)
+**Sprint gap closures, RCCA bug fixes, audit plugin**
+
+34 files changed, +3,699 -364. PR #204.
+
+**Bug fixes (8 RCCA issues from 4/3 log audit):**
+- P0: Position monitor broken — SQLite TEXT in numeric comparisons (float/int casts)
+- P0: VIX refresh — `.iloc[-1]` returns Series, not scalar (`.item()` fix)
+- P0: Regime refresh — missing required `ohlcv_data` argument
+- P1: Pre-market brief, digest emails, Telegram heartbeat, HSHS scoring — TEXT→numeric casts
+- P2: Postgres duplicate keys — exclude SERIAL id from INSERT
+
+**Sprint gaps closed (6):**
+- Pending outcomes wired into post-close (S3), attribution tests (S3), strategy_type filter (S4)
+- Universe scanner extracted (S5), VIX-regime brackets (S7), stress test scheduling (S7)
+
+**New: halcyon-audit plugin** — 8 domain agents, /audit skill, scheduling, quality gate
+
+---
+
 ### v0.9.0 — 2026-04-03 (baseline tag)
 **Pre-Sprint-A baseline — last stable before v0.10.0**
 
@@ -77,6 +97,9 @@ Tagged retroactively as rollback point.
 - 175 Python files, 16 dashboard pages, 46 schema tables
 - PRs #176-#178, #189-#190, #200-#202 merged
 - Schema registry complete
+- PR #200: Cast pnl_dollars to float before comparison (#195)
+- PR #201: Exit cancel race fix, VRAM handoff hardening, sync reconnection (#196, #198, #199)
+- PR #202: 22 missing local API routes for dashboard parity
 
 ---
 

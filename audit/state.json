@@ -1,7 +1,7 @@
 {
-  "run_count": 8,
+  "run_count": 9,
   "current_focus_index": 0,
-  "file_index": 105,
+  "file_index": 120,
   "file_list": [
     "src/__init__.py",
     "src/api/__init__.py",
@@ -180,7 +180,7 @@
     "frontend/src/pages/Training.jsx",
     "frontend/src/pages/Validation.jsx"
   ],
-  "last_run": "2026-04-03T12:00:00Z",
+  "last_run": "2026-04-03T13:00:00Z",
   "findings": {
     "run_4": {
       "focus_area": "code_quality",
@@ -508,6 +508,83 @@
         }
       ],
       "github_issues_status": "BLOCKED — no gh CLI, no GitHub MCP tools, no GITHUB_TOKEN. 1 high and 7 medium issues need to be created when GitHub access is available."
+    },
+    "run_9": {
+      "focus_area": "code_quality",
+      "files_audited": [
+        "src/services/recap_service.py",
+        "src/services/review_service.py",
+        "src/services/scan_service.py",
+        "src/services/shadow_service.py",
+        "src/services/system_service.py",
+        "src/services/training_service.py",
+        "src/services/watchlist_service.py",
+        "src/shadow_trading/__init__.py",
+        "src/shadow_trading/alpaca_adapter.py",
+        "src/shadow_trading/executor.py",
+        "src/shadow_trading/ledger.py",
+        "src/shadow_trading/metrics.py",
+        "src/shadow_trading/models.py",
+        "src/shadow_trading/reconcile.py",
+        "src/strategy/__init__.py"
+      ],
+      "high": [
+        {
+          "file": "src/shadow_trading/executor.py",
+          "lines": "entire file (1405 lines)",
+          "description": "File is 1405 lines — 3.5x over the 400-line guideline. Contains god functions: open_shadow_trade (343 lines, lines 68-411), check_and_manage_open_trades (384 lines, lines 476-860), open_live_trade (247 lines, lines 863-1110), and _check_close_milestones (115 lines, lines 1139-1254). This is the second-largest maintainability risk after scheduler/watch.py.",
+          "suggested_fix": "Split into: shadow_trading/entry.py (open_shadow_trade, open_live_trade), shadow_trading/exit_manager.py (check_and_manage_open_trades, _retry_exit, exit helpers), shadow_trading/milestones.py (_check_open_milestones, _check_close_milestones, _check_loss_streak, _check_sector_exposure), shadow_trading/price_utils.py (_get_current_price_safe, _get_recent_ohlcv_safe, _parse_price). Extract drawdown calculation from open_shadow_trade into risk/drawdown.py."
+        }
+      ],
+      "medium": [
+        {
+          "file": "src/services/scan_service.py",
+          "lines": "17-259",
+          "description": "run_scan is 243 lines — a single function mixing data fetching, feature enrichment, traffic light overlay, event risk scoring, data integrity validation, ranking, packet generation, LLM enhancement, trade execution, email sending, and result formatting.",
+          "suggested_fix": "Extract into: _fetch_and_enrich_features(config), _apply_overlays(features, spy, config), _validate_features(features), _generate_packets(candidates, config, dry_run), _execute_shadow_trades(packets, config). run_scan becomes a ~40-line orchestrator."
+        },
+        {
+          "file": "src/services/system_service.py",
+          "lines": "18-144",
+          "description": "get_system_status is 127 lines checking 10+ subsystems (config, email, Alpaca, shadow trading, Telegram, kill switch, LLM, journal, training, bootcamp) sequentially in one function. Each check follows the same pattern but is inlined.",
+          "suggested_fix": "Extract each check into a helper: _check_email_config(config), _check_alpaca_connection(config), _check_telegram(config), _check_llm(config), _check_journal(), _check_training(config). get_system_status assembles results."
+        },
+        {
+          "file": "src/shadow_trading/reconcile.py",
+          "lines": "entire file (448 lines)",
+          "description": "File exceeds 400 lines. reconcile_paper_trades is 280 lines (lines 167-447). ~60% code overlap between reconcile_live_trades and reconcile_paper_trades — both share identical logic for orphaned position backfill and stale record closure.",
+          "suggested_fix": "Extract shared logic into _backfill_orphaned(orphaned, db_path, source, now) and _close_stale(stale, tracked_map, db_path, now). Both reconcile functions delegate to these helpers."
+        },
+        {
+          "file": "src/shadow_trading/alpaca_adapter.py",
+          "lines": "entire file (549 lines)",
+          "description": "File exceeds 400 lines. Paper trading adapter and live trading adapter are co-located with significant structural duplication (place_paper_entry/place_live_entry, place_paper_exit/place_live_exit, get_all_positions/get_live_positions share ~80% identical code). Also duplicate log at lines 225-228 (bracket order logged twice).",
+          "suggested_fix": "Split into alpaca_adapter.py (paper trading, shared helpers) and live_adapter.py (live trading). Or extract a shared _place_order() helper. Remove duplicate log at line 228."
+        }
+      ],
+      "low": [
+        {
+          "file": "src/services/recap_service.py",
+          "description": "generate_eod_recap is 61 lines (borderline over 50-line guideline)."
+        },
+        {
+          "file": "src/services/shadow_service.py",
+          "description": "get_shadow_status is 61 lines (borderline)."
+        },
+        {
+          "file": "src/services/watchlist_service.py",
+          "description": "generate_morning_watchlist is 83 lines. pw_results and wl_results loops (lines 63-89) share identical dict structure — could use a shared _format_candidate() helper."
+        },
+        {
+          "file": "src/shadow_trading/metrics.py",
+          "description": "compute_shadow_metrics is 83 lines. Sequential metric computation — long but straightforward."
+        },
+        {
+          "file": "src/shadow_trading/alpaca_adapter.py",
+          "description": "Duplicate logger.info at lines 225-228: bracket order placement logged twice with overlapping messages."
+        }
+      ],
+      "github_issues_status": "BLOCKED — no gh CLI, no GitHub MCP tools available. 1 high and 4 medium issues need to be created when GitHub access is available."
     }
   }
 }

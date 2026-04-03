@@ -22,9 +22,18 @@ def _patch_db(monkeypatch):
     monkeypatch.setattr(mod, "DB_PATH", _temp_db_path)
     monkeypatch.setattr(mod, "_table_created", False)
 
-    # Clear the table between tests
+    # Recreate the table from the schema registry (table creation is
+    # handled at startup by validate-schema --fix, not by the module)
     with sqlite3.connect(_temp_db_path) as conn:
         conn.execute("DROP TABLE IF EXISTS activity_log")
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS activity_log ("
+            "id INTEGER PRIMARY KEY, "
+            "event_type TEXT NOT NULL, "
+            "detail TEXT, "
+            "level TEXT, "
+            "created_at TEXT NOT NULL)"
+        )
 
     yield
 
@@ -42,17 +51,15 @@ def _cleanup_temp_db():
         pass
 
 
-def test_log_activity_creates_table():
-    """log_activity should auto-create the activity_log table."""
+def test_log_activity_writes_to_table():
+    """log_activity should insert a row into the activity_log table."""
     from src.logging.activity import log_activity
 
     log_activity("system", "test event")
 
     with sqlite3.connect(_temp_db_path) as conn:
-        tables = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='activity_log'"
-        ).fetchall()
-    assert len(tables) == 1
+        rows = conn.execute("SELECT * FROM activity_log").fetchall()
+    assert len(rows) == 1
 
 
 def test_entries_stored_and_retrieved():

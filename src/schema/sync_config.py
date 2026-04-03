@@ -1,4 +1,11 @@
-"""Generate SYNC_TABLES config from the schema registry."""
+"""Generate SYNC_TABLES config from the schema registry.
+
+Called by: src.sync.render_sync
+Calls: src.schema.registry
+Owns tables: none
+Config keys: none
+Tests: tests/test_schema.py
+"""
 
 from src.schema.registry import TABLES
 

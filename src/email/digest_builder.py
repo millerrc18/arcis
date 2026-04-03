@@ -92,7 +92,7 @@ def build_premarket_digest(db_path: str = DB_PATH) -> tuple[str, str]:
     ]
 
     if closed_yesterday:
-        total_pnl = sum(t["pnl_dollars"] or 0 for t in closed_yesterday)
+        total_pnl = sum(float(t["pnl_dollars"] or 0) for t in closed_yesterday)
         wins = sum(1 for t in closed_yesterday if (t["pnl_dollars"] or 0) > 0)
         lines.extend([
             "",
@@ -150,12 +150,12 @@ def build_midday_digest(db_path: str = DB_PATH) -> tuple[str, str]:
             (today,),
         )
 
-    total_packets = sum(s["packet_worthy"] or 0 for s in scans)
-    total_traded = sum(s["paper_traded"] or 0 for s in scans)
-    llm_success = sum(s["llm_success"] or 0 for s in scans)
-    llm_total = sum(s["llm_total"] or 0 for s in scans)
+    total_packets = sum(int(s["packet_worthy"] or 0) for s in scans)
+    total_traded = sum(int(s["paper_traded"] or 0) for s in scans)
+    llm_success = sum(int(s["llm_success"] or 0) for s in scans)
+    llm_total = sum(int(s["llm_total"] or 0) for s in scans)
     llm_rate = f"{llm_success}/{llm_total} ({llm_success / llm_total * 100:.0f}%)" if llm_total > 0 else "n/a"
-    closed_pnl = sum(t["pnl_dollars"] or 0 for t in closed_today)
+    closed_pnl = sum(float(t["pnl_dollars"] or 0) for t in closed_today)
 
     subject = f"Arcis Midday — {len(opened_today)} opened, {len(closed_today)} closed, P&L: ${closed_pnl:+.2f}"
 
@@ -202,9 +202,9 @@ def build_eod_digest(db_path: str = DB_PATH) -> tuple[str, str]:
         all_closed = _safe_fetchall(conn, "SELECT pnl_dollars, pnl_pct FROM shadow_trades WHERE status = 'closed'")
         scans = _safe_fetchone(conn, "SELECT COUNT(*) as cnt FROM scan_metrics WHERE date(created_at) = ?", (today,))
 
-    closed_pnl = sum(t["pnl_dollars"] or 0 for t in closed)
+    closed_pnl = sum(float(t["pnl_dollars"] or 0) for t in closed)
     total_trades = len(all_closed)
-    total_pnl = sum(t["pnl_dollars"] or 0 for t in all_closed)
+    total_pnl = sum(float(t["pnl_dollars"] or 0) for t in all_closed)
     win_rate = sum(1 for t in all_closed if (t["pnl_dollars"] or 0) > 0) / total_trades if total_trades else 0
 
     subject = f"Arcis EOD — {now.strftime('%b %d')} | {len(closed)} closed, P&L: ${closed_pnl:+.2f} | Total: ${total_pnl:+.2f}"

@@ -83,9 +83,10 @@ with an unbeatable technological moat.
 | 12 overnight collectors | RUNNING |
 | Telegram | LIVE -- 32 functions, gated behind trade_id |
 | Intra-day reconciliation | LIVE -- every 15 min during market hours |
-| Dashboard (Arcis) | LIVE -- 16 pages, dark/light toggle |
-| Schema registry | LIVE -- 46 tables, single source of truth |
-| Render sync | LIVE -- 40/46 tables synced to Postgres |
+| Dashboard (Arcis) | LIVE -- 18 pages, dark/light toggle |
+| Schema registry | LIVE -- 49 tables, single source of truth |
+| Render sync | LIVE -- 40/49 tables synced to Postgres |
+| Halcyon-audit plugin | LIVE -- 8 domain agents, /audit command |
 | Automated guardrails | LIVE -- test_repo_structure.py |
 | CI on PRs | LIVE -- tests + guardrails + frontend build |
 | PEAD enrichment (5 signals) | DEPLOYED |
@@ -130,6 +131,11 @@ with an unbeatable technological moat.
 | Data integrity | #177 | Reconciliation actual_exit_time fix, paper auto-close |
 | Schema registry | #189 | 46 tables in registry, all DDL removed, CI guardrails |
 | Mega Sprint | #178 | Intra-day recon, exit_failed recovery, React Flow, sidebar sections |
+| pnl_dollars fix | #200 | Cast pnl_dollars to float before comparison |
+| Reliability | #201 | Exit cancel race, VRAM handoff hardening, sync reconnection |
+| Local API parity | #202 | 22 missing routes added to local FastAPI |
+| Sprints A-7 | #203 | Dashboard, attribution, MR, multi-cadence, training, stress testing |
+| Sprint gaps + RCCA | #204 | 6 sprint gaps closed, 8 RCCA bugs fixed, audit plugin |
 
 ---
 
@@ -246,7 +252,7 @@ short selling, high-frequency / intraday trading, live trading with real money.
 schema DDL warning, block .env edits, block lock file edits,
 post-merge validation (schema + docs drift on `git merge`/`git pull`)
 
-**Skills (7):**
+**Skills (8):**
 
 | Skill | Invoke | Purpose |
 |---|---|---|
@@ -257,8 +263,9 @@ post-merge validation (schema + docs drift on `git merge`/`git pull`)
 | arcis-status | `/arcis-status` | Compact system status snapshot (phase, positions, equity, training, audit) |
 | retrain-check | `/retrain-check` | 8-point preflight gate before GPU training |
 | visual-check | `/visual-check` | Screenshot all 18 dashboard pages via Playwright |
+| audit | `/audit [domains] [--quick] [--schedule]` | Comprehensive 8-domain repo audit with GH issue filing |
 
-**Agents (6):**
+**Agents (15):**
 
 | Agent | Purpose | When to Use |
 |---|---|---|
@@ -268,16 +275,27 @@ post-merge validation (schema + docs drift on `git merge`/`git pull`)
 | drift-detector | Schema drift, config drift, doc staleness, data staleness, orphaned positions | Start of every coding session |
 | data-integrity-checker | FK integrity, orphaned records, data quality across 49 tables | After recovery, before releases |
 | api-documenter | Route inventory, frontend-backend consistency, auth gaps | After adding/changing API endpoints |
+| trading-safety-auditor | Silent failures, risk governor bypass, broker/journal truth | Part of `/audit` — trading domain |
+| code-quality-auditor | Oversized functions/files, god objects, dead code, duplication | Part of `/audit` — quality domain |
+| schema-integrity-auditor | Schema drift, DDL violations, FK integrity, orphans | Part of `/audit` — schema domain |
+| test-coverage-auditor | Test count, coverage gaps, slow tests, mock quality | Part of `/audit` — test domain |
+| compliance-auditor | CLAUDE.md rules, MASTER.md architecture, naming conventions | Part of `/audit` — compliance domain |
+| comment-doc-auditor | MASTER.md drift, stale comments, README accuracy | Part of `/audit` — docs domain |
+| security-auditor | Credentials, SQL injection, API auth, CORS, dependencies | Part of `/audit` — security domain |
+| architecture-auditor | Layer violations, circular imports, module coupling | Part of `/audit` — architecture domain |
+| audit-synthesizer | Dedup, root cause clustering, verification, quality gate | Part of `/audit` — synthesis phase |
 
-**Plugins (11 relevant):** commit-commands, code-simplifier, ralph-loop,
+**Plugins (12 relevant):** commit-commands, code-simplifier, ralph-loop,
 telegram, claude-md-management, claude-code-setup, skill-creator,
-frontend-design, feature-dev, pr-review-toolkit, security-guidance
+frontend-design, feature-dev, pr-review-toolkit, security-guidance,
+**halcyon-audit** (8-domain repo audit with GH issue filing, see
+`docs/guides/audit-plugin.md`)
 
 ---
 
 ## 4. Schema Summary
 
-All 46 tables are defined in `src/schema/registry.py` -- the single source of
+All 49 tables are defined in `src/schema/registry.py` -- the single source of
 truth for both SQLite and Postgres. The registry was created after ~12 hours
 were lost to bugs caused by 6+ files independently defining the same tables
 with subtly different column names. Now a single `TableDef` dataclass defines
@@ -594,7 +612,7 @@ Use `none` for empty fields. Entry points: `Called by: none (entry point)`.
 
 ### Schema Rules (MANDATORY)
 
-- All 46 tables defined in `src/schema/registry.py` -- THE single source of truth
+- All 49 tables defined in `src/schema/registry.py` -- THE single source of truth
 - NEVER write `CREATE TABLE` or `ALTER TABLE` outside `src/schema/registry.py`
 - CI guardrails: `test_no_create_table_in_source`, `test_no_alter_table_in_source`
 - To add a table: add `TableDef` to registry -> `validate-schema --fix` -> `render_migrate.py`
@@ -808,11 +826,11 @@ python -m ruff check src/ tests/ --fix
 python -m ruff format src/ tests/
 ```
 
-### Dashboard Pages (16)
+### Dashboard Pages (18)
 
 Dashboard, Packets, Shadow Ledger, Live Ledger, Training, Council, Health,
 Validation, CTO Report, Settings, Roadmap, Docs, Notes, Logs, Architecture,
-DB Schema.
+DB Schema, Attribution, Stress Test.
 
 ### CLI Commands (52)
 

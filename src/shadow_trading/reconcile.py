@@ -22,6 +22,36 @@ from src.utils.db import connect_db
 logger = logging.getLogger(__name__)
 
 
+def _backfill_trade_data(ticker, entry_price, qty, allocation, source, now):
+    """Build a trade_data dict for backfilling an orphaned position."""
+    return {
+        "trade_id": str(uuid4()), "ticker": ticker,
+        "direction": "long", "status": "open", "source": source,
+        "entry_price": entry_price, "actual_entry_price": entry_price,
+        "planned_shares": qty, "planned_allocation": allocation,
+        "actual_entry_time": now.isoformat(),
+        "created_at": now.isoformat(), "updated_at": now.isoformat(),
+        "order_type": "reconciled", "recommendation_id": None,
+        "stop_price": 0, "target_1": 0, "target_2": 0,
+        "max_favorable_excursion": 0, "max_adverse_excursion": 0,
+    }
+
+
+def _estimate_exit_pnl(ticker, entry_px, shares):
+    """Estimate exit P&L via last known market price."""
+    try:
+        from src.data_ingestion.market_data import fetch_ohlcv
+        data = fetch_ohlcv([ticker], period="5d")
+        if ticker in data and not data[ticker].empty:
+            exit_price = float(data[ticker]["Close"].iloc[-1])
+            pnl = round((exit_price - entry_px) * shares, 2)
+            pct = round((exit_price - entry_px) / entry_px * 100, 2)
+            return exit_price, pnl, pct
+    except Exception:
+        pass
+    return 0.0, 0.0, 0.0
+
+
 def reconcile_live_trades(
     db_path: str = DB_PATH, dry_run: bool = False
 ) -> dict:
@@ -68,75 +98,43 @@ def reconcile_live_trades(
     if not dry_run:
         from src.journal.store import insert_shadow_trade, close_shadow_trade
 
-        # Backfill orphaned positions
         for ticker in orphaned:
             pos = alpaca_tickers[ticker]
-            trade_data = {
-                "trade_id": str(uuid4()),
-                "ticker": ticker,
-                "direction": "long",
-                "status": "open",
-                "source": "live",
-                "entry_price": float(pos.get("avg_entry_price", 0)),
-                "actual_entry_price": float(pos.get("avg_entry_price", 0)),
-                "planned_shares": float(pos.get("qty", 0)),
-                "planned_allocation": float(pos.get("market_value", 0)),
-                "actual_entry_time": now.isoformat(),
-                "created_at": now.isoformat(),
-                "updated_at": now.isoformat(),
-                "order_type": "reconciled",
-                "recommendation_id": None,
-                "stop_price": 0,
-                "target_1": 0,
-                "target_2": 0,
-                "max_favorable_excursion": 0,
-                "max_adverse_excursion": 0,
-            }
+            entry_px = float(pos.get("avg_entry_price", 0))
+            qty = float(pos.get("qty", 0))
+            trade_data = _backfill_trade_data(
+                ticker, entry_px, qty,
+                float(pos.get("market_value", 0)), "live", now,
+            )
             insert_shadow_trade(trade_data, db_path)
             backfilled.append(ticker)
             logger.info(
                 "[RECONCILE] Backfilled orphaned position: %s (%.4f shares @ $%.2f)",
-                ticker,
-                float(pos.get("qty", 0)),
-                float(pos.get("avg_entry_price", 0)),
+                ticker, qty, entry_px,
             )
-            # #107: Explicit warning — backfilled positions have no protection
             logger.warning(
                 "[RECONCILE] Backfilled %s with stop_price=0, target_1=0 — "
                 "MANUAL INTERVENTION NEEDED: set stop-loss and targets",
                 ticker,
             )
 
-        # Mark stale records as closed — attempt P&L via yfinance (#108)
         for ticker in stale:
             trade_id = tracked_tickers[ticker]
-            pnl_dollars = 0.0
-            pnl_pct = 0.0
-            exit_price = 0.0
-
-            # Try to fetch last known price for P&L calculation
+            exit_price, pnl_dollars, pnl_pct = 0.0, 0.0, 0.0
             try:
                 with connect_db(db_path) as conn:
-                    entry_row = conn.execute(
+                    row = conn.execute(
                         "SELECT actual_entry_price, entry_price, planned_shares "
                         "FROM shadow_trades WHERE trade_id = ?",
                         (trade_id,),
                     ).fetchone()
-                if entry_row:
-                    entry_px = float(entry_row["actual_entry_price"] or entry_row["entry_price"] or 0)
-                    shares = float(entry_row["planned_shares"] or 1)
-                    if entry_px > 0:
-                        try:
-                            from src.data_ingestion.market_data import fetch_ohlcv
-                            data = fetch_ohlcv([ticker], period="5d")
-                            if ticker in data and not data[ticker].empty:
-                                exit_price = float(data[ticker]["Close"].iloc[-1])
-                                pnl_dollars = round((exit_price - entry_px) * shares, 2)
-                                pnl_pct = round((exit_price - entry_px) / entry_px * 100, 2)
-                        except Exception as _yf_err:
-                            logger.debug("[RECONCILE] yfinance lookup failed for stale %s: %s", ticker, _yf_err)
-            except Exception as _db_err:
-                logger.debug("[RECONCILE] Entry price lookup failed for stale %s: %s", ticker, _db_err)
+                if row:
+                    ep = float(row["actual_entry_price"] or row["entry_price"] or 0)
+                    sh = float(row["planned_shares"] or 1)
+                    if ep > 0:
+                        exit_price, pnl_dollars, pnl_pct = _estimate_exit_pnl(ticker, ep, sh)
+            except Exception:
+                pass
 
             close_shadow_trade(
                 trade_id=trade_id,
@@ -260,27 +258,10 @@ def reconcile_paper_trades(
         from src.journal.store import insert_shadow_trade, close_shadow_trade
 
         for orph in orphaned:
-            trade_data = {
-                "trade_id": str(uuid4()),
-                "ticker": orph["ticker"],
-                "direction": "long",
-                "status": "open",
-                "source": "paper",
-                "entry_price": orph["avg_price"],
-                "actual_entry_price": orph["avg_price"],
-                "planned_shares": orph["qty"],
-                "planned_allocation": orph["qty"] * orph["avg_price"],
-                "actual_entry_time": now.isoformat(),
-                "created_at": now.isoformat(),
-                "updated_at": now.isoformat(),
-                "order_type": "reconciled",
-                "recommendation_id": None,
-                "stop_price": 0,
-                "target_1": 0,
-                "target_2": 0,
-                "max_favorable_excursion": 0,
-                "max_adverse_excursion": 0,
-            }
+            trade_data = _backfill_trade_data(
+                orph["ticker"], orph["avg_price"], orph["qty"],
+                orph["qty"] * orph["avg_price"], "paper", now,
+            )
             insert_shadow_trade(trade_data, db_path)
             backfilled.append(orph["ticker"])
             logger.info(
@@ -317,27 +298,12 @@ def reconcile_paper_trades(
                 except (ValueError, TypeError):
                     pass
 
-            pnl_dollars = 0.0
-            pnl_pct = 0.0
-            exit_price = 0.0
-
-            # Try to fetch last known price for P&L calculation
+            exit_price, pnl_dollars, pnl_pct = 0.0, 0.0, 0.0
             if trade_row:
-                entry_px = float(trade_row["actual_entry_price"] or trade_row["entry_price"] or 0)
-                shares = float(trade_row["planned_shares"] or 1)
-                if entry_px > 0:
-                    try:
-                        from src.data_ingestion.market_data import fetch_ohlcv
-                        data = fetch_ohlcv([ticker], period="5d")
-                        if ticker in data and not data[ticker].empty:
-                            exit_price = float(data[ticker]["Close"].iloc[-1])
-                            pnl_dollars = round((exit_price - entry_px) * shares, 2)
-                            pnl_pct = round((exit_price - entry_px) / entry_px * 100, 2)
-                    except Exception as _yf_err:
-                        logger.debug(
-                            "[RECONCILE-PAPER] yfinance lookup failed for stale %s: %s",
-                            ticker, _yf_err,
-                        )
+                ep = float(trade_row["actual_entry_price"] or trade_row["entry_price"] or 0)
+                sh = float(trade_row["planned_shares"] or 1)
+                if ep > 0:
+                    exit_price, pnl_dollars, pnl_pct = _estimate_exit_pnl(ticker, ep, sh)
 
             close_shadow_trade(
                 trade_id=trade_id,
@@ -362,11 +328,7 @@ def reconcile_paper_trades(
             [s["ticker"] for s in stale],
         )
 
-    # ── Resolve stuck exit_failed / exit_pending trades ──────────────
-    # These trades detected an exit condition but failed to submit the
-    # exit order.  If the position is gone from Alpaca, the bracket
-    # filled — close with estimated P&L.  If still on Alpaca, revert to
-    # open so the normal exit logic can retry.
+    # Resolve stuck exit_failed / exit_pending trades
     resolved_closed = []
     resolved_reopened = []
     with sqlite3.connect(db_path) as conn:
@@ -383,19 +345,14 @@ def reconcile_paper_trades(
             ticker = row["ticker"]
             trade_id = row["trade_id"]
             if ticker in alpaca_tickers:
-                # Position still live — exit detection was premature, revert
                 with sqlite3.connect(db_path) as conn:
                     conn.execute(
                         "UPDATE shadow_trades SET status = 'open', exit_reason = NULL "
-                        "WHERE trade_id = ?",
-                        (trade_id,),
+                        "WHERE trade_id = ?", (trade_id,),
                     )
                 resolved_reopened.append(ticker)
-                logger.info(
-                    "[RECONCILE-PAPER] Reverted premature exit to open: %s", ticker,
-                )
+                logger.info("[RECONCILE-PAPER] Reverted premature exit to open: %s", ticker)
             else:
-                # Position gone — bracket filled, close with estimated P&L
                 entry_px = float(row["actual_entry_price"] or row["entry_price"] or 0)
                 shares = float(row["planned_shares"] or 1)
                 reason = row["exit_reason"] or "reconciled_stale"
@@ -413,13 +370,9 @@ def reconcile_paper_trades(
                 pnl_pct = round((exit_px - entry_px) / entry_px * 100, 2) if entry_px > 0 else 0.0
 
                 close_shadow_trade(
-                    trade_id=trade_id,
-                    exit_price=exit_px,
-                    exit_time=now.isoformat(),
-                    exit_reason=reason,
-                    pnl_dollars=pnl_dollars,
-                    pnl_pct=pnl_pct,
-                    db_path=db_path,
+                    trade_id=trade_id, exit_price=exit_px,
+                    exit_time=now.isoformat(), exit_reason=reason,
+                    pnl_dollars=pnl_dollars, pnl_pct=pnl_pct, db_path=db_path,
                 )
                 resolved_closed.append(ticker)
                 logger.info(

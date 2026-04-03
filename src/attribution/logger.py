@@ -195,65 +195,48 @@ def resolve_pending_outcomes(db_path: str = DB_PATH) -> int:
     return resolved
 
 
+def _win_rate(wins: int, resolved: int) -> float | None:
+    return round(wins / resolved, 3) if resolved else None
+
+
 def get_attribution_stats(db_path: str = DB_PATH) -> dict:
     """Get attribution statistics for the dashboard."""
     try:
         with sqlite3.connect(db_path) as conn:
             conn.row_factory = sqlite3.Row
-            total = conn.execute(
-                "SELECT COUNT(*) FROM attribution_trades"
-            ).fetchone()[0]
+            total = conn.execute("SELECT COUNT(*) FROM attribution_trades").fetchone()[0]
 
-            by_action = {}
-            for row in conn.execute(
-                "SELECT llm_action, COUNT(*) as cnt FROM attribution_trades "
-                "GROUP BY llm_action"
-            ).fetchall():
-                by_action[row["llm_action"]] = row["cnt"]
-
-            by_pair = {}
-            for row in conn.execute(
-                "SELECT pair_type, COUNT(*) as cnt FROM attribution_trades "
-                "GROUP BY pair_type"
-            ).fetchall():
-                by_pair[row["pair_type"]] = row["cnt"]
+            by_action = {r["llm_action"]: r["cnt"] for r in conn.execute(
+                "SELECT llm_action, COUNT(*) as cnt FROM attribution_trades GROUP BY llm_action"
+            ).fetchall()}
+            by_pair = {r["pair_type"]: r["cnt"] for r in conn.execute(
+                "SELECT pair_type, COUNT(*) as cnt FROM attribution_trades GROUP BY pair_type"
+            ).fetchall()}
 
             # Win rates by portfolio
             ranker_resolved = conn.execute(
-                "SELECT COUNT(*) FROM attribution_trades "
-                "WHERE ranker_only_outcome != 'pending'"
+                "SELECT COUNT(*) FROM attribution_trades WHERE ranker_only_outcome != 'pending'"
             ).fetchone()[0]
             ranker_wins = conn.execute(
-                "SELECT COUNT(*) FROM attribution_trades "
-                "WHERE ranker_only_outcome = 'win'"
+                "SELECT COUNT(*) FROM attribution_trades WHERE ranker_only_outcome = 'win'"
             ).fetchone()[0]
-
             llm_resolved = conn.execute(
-                "SELECT COUNT(*) FROM attribution_trades "
-                "WHERE llm_portfolio_outcome IS NOT NULL"
+                "SELECT COUNT(*) FROM attribution_trades WHERE llm_portfolio_outcome IS NOT NULL"
             ).fetchone()[0]
             llm_wins = conn.execute(
-                "SELECT COUNT(*) FROM attribution_trades "
-                "WHERE llm_portfolio_outcome = 'win'"
+                "SELECT COUNT(*) FROM attribution_trades WHERE llm_portfolio_outcome = 'win'"
             ).fetchone()[0]
 
             return {
                 "total_pairs": total,
                 "by_action": by_action,
                 "by_pair_type": by_pair,
-                "ranker_only": {
-                    "resolved": ranker_resolved,
-                    "wins": ranker_wins,
-                    "win_rate": round(ranker_wins / ranker_resolved, 3) if ranker_resolved else None,
-                },
-                "llm_portfolio": {
-                    "resolved": llm_resolved,
-                    "wins": llm_wins,
-                    "win_rate": round(llm_wins / llm_resolved, 3) if llm_resolved else None,
-                },
+                "ranker_only": {"resolved": ranker_resolved, "wins": ranker_wins,
+                                "win_rate": _win_rate(ranker_wins, ranker_resolved)},
+                "llm_portfolio": {"resolved": llm_resolved, "wins": llm_wins,
+                                  "win_rate": _win_rate(llm_wins, llm_resolved)},
                 "statistical_power": "insufficient" if total < 50 else (
-                    "low" if total < 200 else "adequate"
-                ),
+                    "low" if total < 200 else "adequate"),
             }
     except Exception as e:
         logger.warning("[ATTRIBUTION] get_attribution_stats failed: %s", e)
