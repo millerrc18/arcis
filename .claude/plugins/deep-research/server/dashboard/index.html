@@ -1,0 +1,1825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Deep Research — Live Dashboard</title>
+<style>
+/* ================================================================
+   CSS Custom Properties
+   ================================================================ */
+:root {
+  --bg-primary: #0d1117;
+  --bg-secondary: #161b22;
+  --bg-tertiary: #1c2129;
+  --bg-card: #21262d;
+  --bg-hover: #30363d;
+  --border-primary: #30363d;
+  --border-secondary: #21262d;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+  --text-muted: #6e7681;
+  --accent-blue: #58a6ff;
+  --accent-green: #3fb950;
+  --accent-red: #f85149;
+  --accent-orange: #d29922;
+  --accent-purple: #bc8cff;
+  --accent-pink: #f778ba;
+  --accent-cyan: #39d2c0;
+  --phase-pending: #484f58;
+  --phase-active: #58a6ff;
+  --phase-complete: #3fb950;
+  --quality-low: #f85149;
+  --quality-mid: #d29922;
+  --quality-high: #3fb950;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
+  --shadow-glow: 0 0 12px rgba(88,166,255,0.15);
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+}
+
+/* ================================================================
+   Reset & Base
+   ================================================================ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 14px; }
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.5;
+  overflow-x: hidden;
+  min-height: 100vh;
+}
+
+a { color: var(--accent-blue); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ================================================================
+   Scrollbar
+   ================================================================ */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border-primary);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ================================================================
+   Animations
+   ================================================================ */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(24px); opacity: 0; }
+  to   { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slideInUp {
+  from { transform: translateY(12px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulseRing {
+  0% { box-shadow: 0 0 0 0 rgba(88,166,255,0.4); }
+  70% { box-shadow: 0 0 0 8px rgba(88,166,255,0); }
+  100% { box-shadow: 0 0 0 0 rgba(88,166,255,0); }
+}
+
+.animate-slide-in { animation: slideInRight 0.35s ease forwards; }
+.animate-slide-up { animation: slideInUp 0.3s ease forwards; }
+.animate-fade-in  { animation: fadeIn 0.3s ease forwards; }
+
+/* ================================================================
+   Layout Grid
+   ================================================================ */
+#app {
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  min-height: 100vh;
+  gap: 1px;
+  background: var(--border-secondary);
+}
+
+/* ================================================================
+   1. Header
+   ================================================================ */
+#header {
+  background: var(--bg-secondary);
+  padding: 16px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border-primary);
+}
+
+#header .logo {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+#topic {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1;
+  min-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.badge-depth-shallow    { background: var(--phase-pending); color: var(--text-secondary); }
+.badge-depth-moderate   { background: rgba(88,166,255,0.15); color: var(--accent-blue); border: 1px solid rgba(88,166,255,0.3); }
+.badge-depth-deep       { background: rgba(188,140,255,0.15); color: var(--accent-purple); border: 1px solid rgba(188,140,255,0.3); }
+.badge-depth-exhaustive { background: rgba(248,81,73,0.15); color: var(--accent-red); border: 1px solid rgba(248,81,73,0.3); }
+
+.badge-domain {
+  background: rgba(57,210,192,0.12);
+  color: var(--accent-cyan);
+  border: 1px solid rgba(57,210,192,0.25);
+}
+
+#elapsed {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  min-width: 70px;
+  text-align: right;
+}
+
+#status-text {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+#connection-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-red);
+  transition: background var(--transition-normal);
+  flex-shrink: 0;
+}
+
+#connection-indicator.connected { background: var(--accent-green); }
+
+/* ================================================================
+   2. Phase Stepper
+   ================================================================ */
+#phase-stepper {
+  background: var(--bg-secondary);
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border-primary);
+  overflow-x: auto;
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  min-width: max-content;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.step-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+}
+
+.step-circle {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  border: 2px solid var(--phase-pending);
+  background: var(--bg-primary);
+  color: var(--text-muted);
+  transition: all var(--transition-normal);
+  position: relative;
+}
+
+.step-circle .checkmark { display: none; }
+.step-circle .step-num  { display: inline; }
+
+.step-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  transition: color var(--transition-normal);
+  white-space: nowrap;
+}
+
+.step-line {
+  width: 40px;
+  height: 2px;
+  background: var(--phase-pending);
+  transition: background var(--transition-normal);
+  flex-shrink: 0;
+  margin: 0 2px;
+  margin-bottom: 22px;
+}
+
+/* Phase states */
+.step.active .step-circle {
+  border-color: var(--phase-active);
+  color: var(--phase-active);
+  animation: pulseRing 2s ease infinite;
+  box-shadow: 0 0 8px rgba(88,166,255,0.3);
+}
+.step.active .step-label { color: var(--phase-active); }
+
+.step.complete .step-circle {
+  border-color: var(--phase-complete);
+  background: var(--phase-complete);
+  color: #fff;
+}
+.step.complete .step-circle .checkmark { display: inline; }
+.step.complete .step-circle .step-num  { display: none; }
+.step.complete .step-label { color: var(--phase-complete); }
+.step.complete + .step .step-line,
+.step-line.done { background: var(--phase-complete); }
+
+.step.skipped .step-circle { opacity: 0.35; }
+.step.skipped .step-label  { opacity: 0.35; }
+
+/* ================================================================
+   3-5. Main Content Area
+   ================================================================ */
+#main-content {
+  display: grid;
+  grid-template-columns: 2fr 3fr;
+  grid-template-rows: 1fr auto;
+  gap: 1px;
+  background: var(--border-secondary);
+  overflow: hidden;
+}
+
+/* ================================================================
+   3. Sub-Questions Panel
+   ================================================================ */
+#sub-questions-panel {
+  background: var(--bg-primary);
+  padding: 16px;
+  overflow-y: auto;
+  max-height: calc(100vh - 280px);
+}
+
+.panel-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-primary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.panel-title .count {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  background: var(--bg-card);
+  padding: 1px 7px;
+  border-radius: 10px;
+}
+
+.sq-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  margin-bottom: 8px;
+  transition: border-color var(--transition-normal), background var(--transition-normal);
+}
+
+.sq-card:hover {
+  border-color: var(--bg-hover);
+  background: var(--bg-tertiary);
+}
+
+.sq-card.searching {
+  border-color: var(--accent-orange);
+  animation: pulse 2s ease infinite;
+}
+
+.sq-card.complete {
+  border-left: 3px solid var(--accent-green);
+}
+
+.sq-card .sq-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.sq-card .sq-text {
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  flex: 1;
+  line-height: 1.4;
+}
+
+.badge-sq-type {
+  font-size: 0.6rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.badge-direct     { background: rgba(88,166,255,0.15); color: var(--accent-blue); }
+.badge-lateral    { background: rgba(63,185,80,0.15); color: var(--accent-green); }
+.badge-contrarian { background: rgba(248,81,73,0.15); color: var(--accent-red); }
+
+.sq-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.sq-meta .agent-tag {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  background: var(--bg-hover);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.sq-meta .temporal-tag {
+  font-style: italic;
+}
+
+/* ================================================================
+   4. Source Feed
+   ================================================================ */
+#source-feed-panel {
+  background: var(--bg-primary);
+  padding: 16px;
+  overflow-y: auto;
+  max-height: calc(100vh - 280px);
+}
+
+.source-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  margin-bottom: 8px;
+  animation: slideInRight 0.35s ease forwards;
+  transition: border-color var(--transition-fast);
+}
+
+.source-card:hover { border-color: var(--bg-hover); }
+
+.source-card .source-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.source-card .source-title {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  flex: 1;
+  line-height: 1.3;
+}
+
+.source-card .source-title a {
+  color: var(--text-primary);
+  transition: color var(--transition-fast);
+}
+.source-card .source-title a:hover { color: var(--accent-blue); }
+
+.badge-source-type {
+  font-size: 0.55rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+.badge-type-academic   { background: rgba(188,140,255,0.15); color: var(--accent-purple); }
+.badge-type-web        { background: rgba(88,166,255,0.15); color: var(--accent-blue); }
+.badge-type-news       { background: rgba(210,153,34,0.15); color: var(--accent-orange); }
+.badge-type-report     { background: rgba(57,210,192,0.15); color: var(--accent-cyan); }
+.badge-type-spec       { background: rgba(247,120,186,0.15); color: var(--accent-pink); }
+.badge-type-lateral    { background: rgba(63,185,80,0.15); color: var(--accent-green); }
+.badge-type-contrarian { background: rgba(248,81,73,0.15); color: var(--accent-red); }
+
+.quality-bar-wrap {
+  width: 100%;
+  height: 4px;
+  background: var(--bg-hover);
+  border-radius: 2px;
+  margin: 6px 0 4px;
+  overflow: hidden;
+}
+
+.quality-bar {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.5s ease, background 0.5s ease;
+}
+
+.source-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+
+.source-meta .quality-label {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.source-meta .citation-count { color: var(--accent-orange); }
+
+.source-meta .source-url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+  color: var(--text-muted);
+}
+
+.source-meta .source-agent {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+}
+
+/* ================================================================
+   5. Findings Stream
+   ================================================================ */
+#findings-panel {
+  background: var(--bg-primary);
+  grid-column: 1 / -1;
+  padding: 16px;
+  overflow-y: auto;
+  max-height: 250px;
+  border-top: 1px solid var(--border-primary);
+}
+
+.finding-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  margin-bottom: 6px;
+  animation: slideInUp 0.3s ease forwards;
+}
+
+.finding-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.finding-text {
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  flex: 1;
+  line-height: 1.4;
+}
+
+.badge-confidence {
+  font-size: 0.55rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+/* ICD 203 analytic confidence levels */
+.conf-high     { background: rgba(63,185,80,0.2); color: var(--accent-green); }
+.conf-moderate { background: rgba(88,166,255,0.2); color: var(--accent-blue); }
+.conf-low      { background: rgba(210,153,34,0.2); color: var(--accent-orange); }
+
+.finding-evidence {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border-primary);
+  display: none;
+  line-height: 1.5;
+}
+
+.finding-card.expanded .finding-evidence { display: block; }
+
+.finding-toggle {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.65rem;
+  padding: 2px 4px;
+  font-family: var(--font-mono);
+  transition: color var(--transition-fast);
+}
+
+.finding-toggle:hover { color: var(--text-secondary); }
+
+.finding-sq-tag {
+  font-size: 0.6rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  background: var(--bg-hover);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+}
+
+/* ================================================================
+   6. Stats Bar
+   ================================================================ */
+#stats-bar {
+  background: var(--bg-secondary);
+  padding: 10px 24px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--border-primary);
+  font-size: 0.75rem;
+}
+
+.stat-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+}
+
+.stat-item .stat-value {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.stat-item .stat-label {
+  color: var(--text-muted);
+}
+
+.api-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--text-secondary);
+  margin-right: 4px;
+}
+
+.api-badge .api-count {
+  color: var(--accent-blue);
+  font-weight: 600;
+}
+
+#graph-toggle-btn {
+  margin-left: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  color: var(--text-secondary);
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 0.7rem;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  transition: all var(--transition-fast);
+}
+
+#graph-toggle-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* ================================================================
+   7. Citation Graph Overlay
+   ================================================================ */
+#citation-graph-overlay {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(13,17,23,0.88);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+
+#citation-graph-overlay.visible { display: flex; }
+
+#graph-container {
+  width: 85vw;
+  height: 80vh;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-lg);
+  position: relative;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+}
+
+#graph-canvas {
+  width: 100%;
+  height: 100%;
+  border-radius: var(--radius-lg);
+  cursor: grab;
+}
+
+#graph-canvas:active { cursor: grabbing; }
+
+#graph-close-btn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-primary);
+  color: var(--text-secondary);
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 1rem;
+  transition: all var(--transition-fast);
+  z-index: 10;
+}
+
+#graph-close-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+#graph-legend {
+  position: absolute;
+  bottom: 16px;
+  left: 16px;
+  background: rgba(22,27,34,0.9);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  font-size: 0.65rem;
+  color: var(--text-secondary);
+  z-index: 10;
+}
+
+#graph-legend .legend-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 3px;
+}
+
+#graph-legend .legend-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ================================================================
+   Empty state
+   ================================================================ */
+.empty-state {
+  text-align: center;
+  padding: 32px 16px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.empty-state .empty-icon {
+  font-size: 1.5rem;
+  margin-bottom: 8px;
+  opacity: 0.4;
+}
+
+/* ================================================================
+   Responsive
+   ================================================================ */
+@media (max-width: 900px) {
+  #main-content {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto;
+  }
+  #sub-questions-panel,
+  #source-feed-panel {
+    max-height: 300px;
+  }
+  #findings-panel {
+    grid-column: 1;
+  }
+}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <!-- 1. Header -->
+  <header id="header">
+    <span class="logo">Deep Research</span>
+    <div id="connection-indicator" title="Disconnected"></div>
+    <span id="topic">Waiting for research session...</span>
+    <span id="depth-badge" class="badge badge-depth-moderate" style="display:none;"></span>
+    <span id="domain-badge" class="badge badge-domain" style="display:none;"></span>
+    <span id="elapsed">00:00</span>
+    <span id="status-text">connecting</span>
+  </header>
+
+  <!-- 2. Phase Stepper -->
+  <nav id="phase-stepper">
+    <div class="stepper" id="stepper"></div>
+  </nav>
+
+  <!-- 3-5. Main Content -->
+  <div id="main-content">
+    <!-- 3. Sub-Questions -->
+    <section id="sub-questions-panel">
+      <div class="panel-title">
+        Sub-Questions <span class="count" id="sq-count">0</span>
+      </div>
+      <div id="sq-list">
+        <div class="empty-state">
+          <div class="empty-icon">&#x2726;</div>
+          Waiting for planner to generate sub-questions...
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. Source Feed -->
+    <section id="source-feed-panel">
+      <div class="panel-title">
+        Sources <span class="count" id="source-count">0</span>
+      </div>
+      <div id="source-list">
+        <div class="empty-state">
+          <div class="empty-icon">&#x2B50;</div>
+          Sources will appear as agents discover them...
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. Findings Stream -->
+    <section id="findings-panel">
+      <div class="panel-title">
+        Findings <span class="count" id="finding-count">0</span>
+      </div>
+      <div id="findings-list">
+        <div class="empty-state">
+          <div class="empty-icon">&#x26A1;</div>
+          Key findings will stream here as research progresses...
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- 6. Stats Bar -->
+  <footer id="stats-bar">
+    <div class="stat-item">
+      <span class="stat-label">API Calls</span>
+      <span id="api-badges"></span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-value" id="stat-sources">0</span>
+      <span class="stat-label">sources</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-value" id="stat-domains">0</span>
+      <span class="stat-label">domains</span>
+    </div>
+    <div class="stat-item">
+      <span class="stat-value" id="stat-searches">0</span>
+      <span class="stat-label">searches</span>
+    </div>
+    <div class="stat-item" id="stat-tokens-wrap" style="display:none;">
+      <span class="stat-value" id="stat-tokens">0</span>
+      <span class="stat-label">tokens</span>
+    </div>
+    <button id="graph-toggle-btn" title="Toggle citation graph">Citation Graph</button>
+  </footer>
+</div>
+
+<!-- 7. Citation Graph Overlay -->
+<div id="citation-graph-overlay">
+  <div id="graph-container">
+    <canvas id="graph-canvas"></canvas>
+    <button id="graph-close-btn" title="Close">&times;</button>
+    <div id="graph-legend">
+      <div class="legend-row"><span class="legend-dot" style="background:var(--accent-purple)"></span> Academic</div>
+      <div class="legend-row"><span class="legend-dot" style="background:var(--accent-blue)"></span> Web</div>
+      <div class="legend-row"><span class="legend-dot" style="background:var(--accent-orange)"></span> News</div>
+      <div class="legend-row"><span class="legend-dot" style="background:var(--accent-cyan)"></span> Report</div>
+      <div class="legend-row"><span class="legend-dot" style="background:var(--accent-pink)"></span> Spec</div>
+      <div class="legend-row"><span class="legend-dot" style="background:var(--accent-green)"></span> Lateral</div>
+      <div class="legend-row"><span class="legend-dot" style="background:var(--accent-red)"></span> Contrarian</div>
+      <div style="margin-top:6px; font-style:italic;">Node size = citation count. Scroll to zoom. Drag to pan.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* =================================================================
+   Deep Research Dashboard — Client-side application
+   ================================================================= */
+(function() {
+  "use strict";
+
+  /* ---------------------------------------------------------------
+     Constants & Phase definitions
+     --------------------------------------------------------------- */
+  var PHASES = [
+    { id: "CLASSIFY",    label: "Classify" },
+    { id: "PLAN",        label: "Plan" },
+    { id: "GATHER",      label: "Gather" },
+    { id: "TRACE",       label: "Trace" },
+    { id: "SYNTHESIZE",  label: "Synthesize" },
+    { id: "REFINE",      label: "Refine" },
+    { id: "DELIBERATE",  label: "Deliberate" },
+    { id: "OUTPUT",      label: "Output" }
+  ];
+
+  var TYPE_COLORS = {
+    academic:   "var(--accent-purple)",
+    web:        "var(--accent-blue)",
+    news:       "var(--accent-orange)",
+    report:     "var(--accent-cyan)",
+    spec:       "var(--accent-pink)",
+    lateral:    "var(--accent-green)",
+    contrarian: "var(--accent-red)"
+  };
+
+  /* ---------------------------------------------------------------
+     Application State
+     --------------------------------------------------------------- */
+  var state = {
+    topic: "",
+    depth: "moderate",
+    domain: "general",
+    status: "running",
+    phase: "CLASSIFY",
+    completedPhases: [],
+    skippedPhases: [],
+    startTime: null,
+    subQuestions: [],
+    sources: [],
+    findings: [],
+    agents: [],
+    searches: [],
+    apiUsage: {},
+    citationGraph: {},
+    qualityScores: {},
+    uniqueDomains: 0,
+    searchCount: 0,
+    sourceCount: 0,
+    tokens: 0
+  };
+
+  var evtSource = null;
+  var reconnectDelay = 1000;
+  var elapsedRAF = null;
+
+  /* ---------------------------------------------------------------
+     DOM References
+     --------------------------------------------------------------- */
+  var $topic = document.getElementById("topic");
+  var $depthBadge = document.getElementById("depth-badge");
+  var $domainBadge = document.getElementById("domain-badge");
+  var $elapsed = document.getElementById("elapsed");
+  var $statusText = document.getElementById("status-text");
+  var $connIndicator = document.getElementById("connection-indicator");
+  var $stepper = document.getElementById("stepper");
+  var $sqCount = document.getElementById("sq-count");
+  var $sqList = document.getElementById("sq-list");
+  var $sourceCount = document.getElementById("source-count");
+  var $sourceList = document.getElementById("source-list");
+  var $findingCount = document.getElementById("finding-count");
+  var $findingsList = document.getElementById("findings-list");
+  var $apiBadges = document.getElementById("api-badges");
+  var $statSources = document.getElementById("stat-sources");
+  var $statDomains = document.getElementById("stat-domains");
+  var $statSearches = document.getElementById("stat-searches");
+  var $statTokens = document.getElementById("stat-tokens");
+  var $statTokensWrap = document.getElementById("stat-tokens-wrap");
+  var $graphToggle = document.getElementById("graph-toggle-btn");
+  var $graphOverlay = document.getElementById("citation-graph-overlay");
+  var $graphClose = document.getElementById("graph-close-btn");
+  var $graphCanvas = document.getElementById("graph-canvas");
+
+  /* ---------------------------------------------------------------
+     Utility Helpers
+     --------------------------------------------------------------- */
+  function esc(text) {
+    var d = document.createElement("div");
+    d.textContent = text || "";
+    return d.innerHTML;
+  }
+
+  function formatElapsed(ms) {
+    var totalSec = Math.floor(ms / 1000);
+    var m = Math.floor(totalSec / 60);
+    var s = totalSec % 60;
+    var h = Math.floor(m / 60);
+    m = m % 60;
+    if (h > 0) return h + ":" + String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+    return String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+  }
+
+  function qualityColor(score) {
+    // Gradient: red (0.0) -> yellow (0.5) -> green (1.0)
+    if (score <= 0.5) {
+      var r = 248, g = Math.round(81 + (153 - 81) * (score / 0.5)), b = Math.round(73 + (34 - 73) * (score / 0.5));
+      return "rgb(" + r + "," + g + "," + b + ")";
+    } else {
+      var t = (score - 0.5) / 0.5;
+      var r2 = Math.round(210 - (210 - 63) * t), g2 = Math.round(153 + (185 - 153) * t), b2 = Math.round(34 + (80 - 34) * t);
+      return "rgb(" + r2 + "," + g2 + "," + b2 + ")";
+    }
+  }
+
+  function truncateUrl(url, max) {
+    max = max || 60;
+    try {
+      var u = new URL(url);
+      var short = u.hostname + u.pathname;
+      if (short.length > max) return short.substring(0, max) + "...";
+      return short;
+    } catch(e) {
+      return url.length > max ? url.substring(0, max) + "..." : url;
+    }
+  }
+
+  function extractDomain(url) {
+    try { return new URL(url).hostname; } catch(e) { return url; }
+  }
+
+  /* ---------------------------------------------------------------
+     Build Phase Stepper
+     --------------------------------------------------------------- */
+  function buildStepper() {
+    $stepper.innerHTML = "";
+    PHASES.forEach(function(phase, i) {
+      var stepEl = document.createElement("div");
+      stepEl.className = "step";
+      stepEl.id = "step-" + phase.id;
+
+      var nodeEl = document.createElement("div");
+      nodeEl.className = "step-node";
+
+      var circleEl = document.createElement("div");
+      circleEl.className = "step-circle";
+      circleEl.innerHTML = '<span class="step-num">' + (i + 1) + '</span><span class="checkmark">&#10003;</span>';
+
+      var labelEl = document.createElement("div");
+      labelEl.className = "step-label";
+      labelEl.textContent = phase.label;
+
+      nodeEl.appendChild(circleEl);
+      nodeEl.appendChild(labelEl);
+      stepEl.appendChild(nodeEl);
+
+      if (i < PHASES.length - 1) {
+        var lineEl = document.createElement("div");
+        lineEl.className = "step-line";
+        lineEl.id = "line-" + phase.id;
+        stepEl.appendChild(lineEl);
+      }
+
+      $stepper.appendChild(stepEl);
+    });
+  }
+
+  function updateStepper() {
+    var activeIdx = PHASES.findIndex(function(p) { return p.id === state.phase; });
+
+    PHASES.forEach(function(phase, i) {
+      var stepEl = document.getElementById("step-" + phase.id);
+      if (!stepEl) return;
+
+      stepEl.className = "step";
+      if (state.skippedPhases.indexOf(phase.id) !== -1) {
+        stepEl.classList.add("skipped");
+      } else if (state.completedPhases.indexOf(phase.id) !== -1) {
+        stepEl.classList.add("complete");
+      } else if (phase.id === state.phase) {
+        stepEl.classList.add("active");
+      }
+
+      // Update connecting lines
+      var lineEl = document.getElementById("line-" + phase.id);
+      if (lineEl) {
+        lineEl.className = "step-line";
+        if (state.completedPhases.indexOf(phase.id) !== -1) {
+          lineEl.classList.add("done");
+        }
+      }
+    });
+  }
+
+  /* ---------------------------------------------------------------
+     Render Sub-Questions
+     --------------------------------------------------------------- */
+  function renderSubQuestions() {
+    $sqCount.textContent = state.subQuestions.length;
+
+    if (state.subQuestions.length === 0) {
+      $sqList.innerHTML = '<div class="empty-state"><div class="empty-icon">&#x2726;</div>Waiting for planner to generate sub-questions...</div>';
+      return;
+    }
+
+    // Build a document fragment
+    var frag = document.createDocumentFragment();
+    state.subQuestions.forEach(function(sq, idx) {
+      var card = document.createElement("div");
+      card.className = "sq-card animate-slide-up";
+      if (sq.status === "searching") card.classList.add("searching");
+      if (sq.status === "complete") card.classList.add("complete");
+
+      var typeClass = "badge-direct";
+      if (sq.type === "lateral") typeClass = "badge-lateral";
+      else if (sq.type === "contrarian") typeClass = "badge-contrarian";
+
+      var html = '<div class="sq-header">';
+      html += '<span class="sq-text">' + esc(sq.question || sq.text || "Sub-question " + (idx + 1)) + '</span>';
+      html += '<span class="badge-sq-type ' + typeClass + '">' + esc(sq.type || "direct") + '</span>';
+      html += '</div>';
+      html += '<div class="sq-meta">';
+      if (sq.agent) html += '<span class="agent-tag">' + esc(sq.agent) + '</span>';
+      if (sq.temporal) html += '<span class="temporal-tag">' + esc(sq.temporal) + '</span>';
+      var statusLabel = sq.status || "pending";
+      html += '<span>' + esc(statusLabel) + '</span>';
+      html += '</div>';
+
+      card.innerHTML = html;
+      frag.appendChild(card);
+    });
+
+    $sqList.innerHTML = "";
+    $sqList.appendChild(frag);
+  }
+
+  /* ---------------------------------------------------------------
+     Render Source Feed
+     --------------------------------------------------------------- */
+  function renderSources() {
+    $sourceCount.textContent = state.sources.length;
+    $statSources.textContent = state.sources.length;
+
+    if (state.sources.length === 0) {
+      $sourceList.innerHTML = '<div class="empty-state"><div class="empty-icon">&#x2B50;</div>Sources will appear as agents discover them...</div>';
+      return;
+    }
+
+    var frag = document.createDocumentFragment();
+    // Show newest first
+    var reversed = state.sources.slice().reverse();
+    reversed.forEach(function(src) {
+      var card = document.createElement("div");
+      card.className = "source-card";
+
+      var typeKey = (src.source_type || "web").toLowerCase();
+      var typeBadgeClass = "badge-type-" + typeKey;
+      if (!TYPE_COLORS[typeKey]) typeBadgeClass = "badge-type-web";
+
+      var score = src.quality_score || 0;
+      var scorePercent = Math.round(score * 100);
+      var barColor = qualityColor(score);
+
+      var html = '<div class="source-header">';
+      html += '<div class="source-title"><a href="' + esc(src.url) + '" target="_blank" rel="noopener">' + esc(src.title) + '</a></div>';
+      html += '<span class="badge-source-type ' + typeBadgeClass + '">' + esc(src.source_type || "web") + '</span>';
+      html += '</div>';
+      html += '<div class="quality-bar-wrap"><div class="quality-bar" style="width:' + scorePercent + '%;background:' + barColor + ';"></div></div>';
+      html += '<div class="source-meta">';
+      html += '<span class="quality-label" style="color:' + barColor + '">' + score.toFixed(2) + '</span>';
+      if (src.citation_count > 0) html += '<span class="citation-count">' + src.citation_count + ' citations</span>';
+      html += '<span class="source-url" title="' + esc(src.url) + '">' + esc(truncateUrl(src.url)) + '</span>';
+      if (src.found_by_agent) html += '<span class="source-agent">' + esc(src.found_by_agent) + '</span>';
+      html += '</div>';
+
+      card.innerHTML = html;
+      frag.appendChild(card);
+    });
+
+    $sourceList.innerHTML = "";
+    $sourceList.appendChild(frag);
+  }
+
+  /* Add a single source to the top of the feed (efficient for real-time) */
+  function prependSource(src) {
+    state.sources.push(src);
+    $sourceCount.textContent = state.sources.length;
+    $statSources.textContent = state.sources.length;
+
+    // Remove empty state if present
+    var empty = $sourceList.querySelector(".empty-state");
+    if (empty) empty.remove();
+
+    var card = document.createElement("div");
+    card.className = "source-card animate-slide-in";
+
+    var typeKey = (src.source_type || "web").toLowerCase();
+    var typeBadgeClass = "badge-type-" + typeKey;
+    if (!TYPE_COLORS[typeKey]) typeBadgeClass = "badge-type-web";
+
+    var score = src.quality_score || 0;
+    var scorePercent = Math.round(score * 100);
+    var barColor = qualityColor(score);
+
+    var html = '<div class="source-header">';
+    html += '<div class="source-title"><a href="' + esc(src.url) + '" target="_blank" rel="noopener">' + esc(src.title) + '</a></div>';
+    html += '<span class="badge-source-type ' + typeBadgeClass + '">' + esc(src.source_type || "web") + '</span>';
+    html += '</div>';
+    html += '<div class="quality-bar-wrap"><div class="quality-bar" style="width:' + scorePercent + '%;background:' + barColor + ';"></div></div>';
+    html += '<div class="source-meta">';
+    html += '<span class="quality-label" style="color:' + barColor + '">' + score.toFixed(2) + '</span>';
+    if (src.citation_count > 0) html += '<span class="citation-count">' + src.citation_count + ' citations</span>';
+    html += '<span class="source-url" title="' + esc(src.url) + '">' + esc(truncateUrl(src.url)) + '</span>';
+    if (src.found_by_agent) html += '<span class="source-agent">' + esc(src.found_by_agent) + '</span>';
+    html += '</div>';
+
+    card.innerHTML = html;
+    $sourceList.insertBefore(card, $sourceList.firstChild);
+  }
+
+  /* ---------------------------------------------------------------
+     Render Findings
+     --------------------------------------------------------------- */
+  function renderFindings() {
+    $findingCount.textContent = state.findings.length;
+
+    if (state.findings.length === 0) {
+      $findingsList.innerHTML = '<div class="empty-state"><div class="empty-icon">&#x26A1;</div>Key findings will stream here as research progresses...</div>';
+      return;
+    }
+
+    var frag = document.createDocumentFragment();
+    state.findings.forEach(function(f) {
+      frag.appendChild(createFindingCard(f));
+    });
+    $findingsList.innerHTML = "";
+    $findingsList.appendChild(frag);
+  }
+
+  function createFindingCard(f) {
+    var card = document.createElement("div");
+    card.className = "finding-card animate-slide-up";
+
+    var confClass = "conf-moderate";
+    var confLevel = (f.confidence || "moderate").toLowerCase();
+    if (confLevel === "high") confClass = "conf-high";
+    else if (confLevel === "low") confClass = "conf-low";
+
+    var html = '<div class="finding-header">';
+    html += '<span class="finding-text">' + esc(f.text || f.finding || "") + '</span>';
+    html += '<span class="badge-confidence ' + confClass + '">' + esc(confLevel) + '</span>';
+    if (f.sub_question) html += '<span class="finding-sq-tag">' + esc(f.sub_question) + '</span>';
+    if (f.evidence) html += '<button class="finding-toggle" onclick="this.closest(\'.finding-card\').classList.toggle(\'expanded\')">[+]</button>';
+    html += '</div>';
+    if (f.evidence) {
+      html += '<div class="finding-evidence">' + esc(f.evidence) + '</div>';
+    }
+
+    card.innerHTML = html;
+    return card;
+  }
+
+  function prependFinding(f) {
+    state.findings.push(f);
+    $findingCount.textContent = state.findings.length;
+
+    var empty = $findingsList.querySelector(".empty-state");
+    if (empty) empty.remove();
+
+    var card = createFindingCard(f);
+    $findingsList.appendChild(card);
+    $findingsList.scrollTop = $findingsList.scrollHeight;
+  }
+
+  /* ---------------------------------------------------------------
+     Render Stats Bar
+     --------------------------------------------------------------- */
+  function renderStats() {
+    // API badges
+    var badgesHtml = "";
+    var engines = Object.keys(state.apiUsage);
+    if (engines.length === 0) {
+      badgesHtml = '<span style="color:var(--text-muted)">none</span>';
+    } else {
+      engines.forEach(function(engine) {
+        badgesHtml += '<span class="api-badge">' + esc(engine) + ' <span class="api-count">' + state.apiUsage[engine] + '</span></span>';
+      });
+    }
+    $apiBadges.innerHTML = badgesHtml;
+
+    // Unique domains
+    var domainSet = {};
+    state.sources.forEach(function(s) {
+      domainSet[extractDomain(s.url)] = true;
+    });
+    state.uniqueDomains = Object.keys(domainSet).length;
+    $statDomains.textContent = state.uniqueDomains;
+
+    // Search count
+    $statSearches.textContent = state.searchCount || (state.searches ? state.searches.length : 0);
+
+    // Tokens
+    if (state.tokens > 0) {
+      $statTokensWrap.style.display = "";
+      $statTokens.textContent = state.tokens.toLocaleString();
+    }
+  }
+
+  /* ---------------------------------------------------------------
+     Render Header
+     --------------------------------------------------------------- */
+  function renderHeader() {
+    $topic.textContent = state.topic || "Waiting for research session...";
+
+    if (state.depth) {
+      $depthBadge.style.display = "";
+      $depthBadge.className = "badge badge-depth-" + state.depth;
+      $depthBadge.textContent = state.depth;
+    }
+
+    if (state.domain && state.domain !== "general") {
+      $domainBadge.style.display = "";
+      $domainBadge.textContent = state.domain;
+    }
+
+    $statusText.textContent = state.status || "running";
+  }
+
+  /* ---------------------------------------------------------------
+     Elapsed Timer
+     --------------------------------------------------------------- */
+  function tickElapsed() {
+    if (state.startTime) {
+      var now = Date.now();
+      var start = typeof state.startTime === "string" ? new Date(state.startTime).getTime() : state.startTime;
+      var diff = now - start;
+      if (diff < 0) diff = 0;
+      $elapsed.textContent = formatElapsed(diff);
+    }
+    elapsedRAF = requestAnimationFrame(tickElapsed);
+  }
+
+  /* ---------------------------------------------------------------
+     Full State Render
+     --------------------------------------------------------------- */
+  function renderAll() {
+    renderHeader();
+    updateStepper();
+    renderSubQuestions();
+    renderSources();
+    renderFindings();
+    renderStats();
+  }
+
+  /* ---------------------------------------------------------------
+     Load Initial State
+     --------------------------------------------------------------- */
+  function loadInitialState() {
+    fetch("/api/state")
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        applyFullState(data);
+        renderAll();
+      })
+      .catch(function(err) {
+        console.warn("Failed to load initial state:", err);
+      });
+  }
+
+  function applyFullState(data) {
+    state.topic = data.topic || "";
+    state.depth = data.depth || "moderate";
+    state.domain = data.domain || "general";
+    state.status = data.status || "running";
+    state.phase = data.phase || "CLASSIFY";
+    state.startTime = data.start_time || null;
+    state.subQuestions = data.sub_questions || [];
+    state.sources = data.sources || [];
+    state.findings = data.findings || [];
+    state.agents = data.agents || [];
+    state.searches = data.searches || [];
+    state.apiUsage = data.api_usage || {};
+    state.citationGraph = data.citation_graph || {};
+    state.qualityScores = data.quality_scores || {};
+    state.searchCount = data.search_count || 0;
+    state.sourceCount = data.source_count || 0;
+    state.completedPhases = data.completed_phases || [];
+    state.skippedPhases = data.skipped_phases || [];
+
+    if (!state.startTime) {
+      state.startTime = Date.now();
+    }
+  }
+
+  /* ---------------------------------------------------------------
+     SSE Event Handlers
+     --------------------------------------------------------------- */
+  var eventHandlers = {
+    phase_transition: function(d) {
+      if (d.from && state.completedPhases.indexOf(d.from) === -1) {
+        state.completedPhases.push(d.from);
+      }
+      state.phase = d.to || d.phase || state.phase;
+      state.status = d.status || "running";
+      updateStepper();
+      renderHeader();
+    },
+
+    source_registered: function(d) {
+      if (d.duplicate) return;
+      prependSource(d);
+      renderStats();
+    },
+
+    finding_added: function(d) {
+      prependFinding(d);
+    },
+
+    search_executed: function(d) {
+      state.searchCount = (state.searchCount || 0) + 1;
+      if (d.engine) {
+        state.apiUsage[d.engine] = (state.apiUsage[d.engine] || 0) + 1;
+      }
+      if (d.search) {
+        state.searches.push(d.search);
+      }
+      renderStats();
+    },
+
+    agent_spawned: function(d) {
+      state.agents.push(d);
+      // Update sub-question if matched
+      if (d.sub_question_index !== undefined) {
+        var sq = state.subQuestions[d.sub_question_index];
+        if (sq) {
+          sq.agent = d.agent_id || d.name || "";
+          sq.status = "searching";
+          renderSubQuestions();
+        }
+      }
+    },
+
+    agent_completed: function(d) {
+      if (d.sub_question_index !== undefined) {
+        var sq = state.subQuestions[d.sub_question_index];
+        if (sq) {
+          sq.status = "complete";
+          renderSubQuestions();
+        }
+      }
+    },
+
+    sub_questions_generated: function(d) {
+      state.subQuestions = d.questions || d.sub_questions || [];
+      renderSubQuestions();
+    },
+
+    council_round: function(d) {
+      state.status = "Council round " + (d.round || "");
+      renderHeader();
+    },
+
+    quality_score_update: function(d) {
+      if (d.url && d.score !== undefined) {
+        state.qualityScores[d.url] = d.score;
+        // Update source in list
+        state.sources.forEach(function(s) {
+          if (s.url === d.url) s.quality_score = d.score;
+        });
+        renderSources();
+      }
+    },
+
+    topic_set: function(d) {
+      state.topic = d.topic || "";
+      state.depth = d.depth || state.depth;
+      state.domain = d.domain || state.domain;
+      state.startTime = d.start_time || Date.now();
+      renderHeader();
+      updateStepper();
+    },
+
+    tokens_update: function(d) {
+      state.tokens = d.total || 0;
+      renderStats();
+    },
+
+    status_update: function(d) {
+      state.status = d.status || state.status;
+      renderHeader();
+    }
+  };
+
+  function handleSSEEvent(evt) {
+    try {
+      var payload = JSON.parse(evt.data);
+      var type = payload.type;
+      var data = payload.data || {};
+
+      if (eventHandlers[type]) {
+        eventHandlers[type](data);
+      } else {
+        console.log("Unhandled event type:", type, data);
+      }
+    } catch(e) {
+      console.warn("Failed to parse SSE event:", e, evt.data);
+    }
+  }
+
+  /* ---------------------------------------------------------------
+     SSE Connection
+     --------------------------------------------------------------- */
+  function connectSSE() {
+    if (evtSource) {
+      evtSource.close();
+    }
+
+    evtSource = new EventSource("/api/events");
+
+    evtSource.onopen = function() {
+      $connIndicator.classList.add("connected");
+      $connIndicator.title = "Connected";
+      reconnectDelay = 1000;
+      loadInitialState();
+    };
+
+    evtSource.onmessage = function(evt) {
+      handleSSEEvent(evt);
+    };
+
+    evtSource.onerror = function() {
+      $connIndicator.classList.remove("connected");
+      $connIndicator.title = "Disconnected — reconnecting...";
+      $statusText.textContent = "reconnecting...";
+      evtSource.close();
+      evtSource = null;
+
+      // Exponential backoff reconnect
+      setTimeout(function() {
+        reconnectDelay = Math.min(reconnectDelay * 1.5, 15000);
+        connectSSE();
+      }, reconnectDelay);
+    };
+  }
+
+  /* ---------------------------------------------------------------
+     Citation Graph — Canvas Force-Directed Layout
+     --------------------------------------------------------------- */
+  var graphState = {
+    nodes: [],
+    edges: [],
+    panX: 0,
+    panY: 0,
+    zoom: 1,
+    dragging: false,
+    lastMouse: { x: 0, y: 0 },
+    animFrame: null,
+    visible: false
+  };
+
+  function buildGraphData() {
+    var nodeMap = {};
+    var nodes = [];
+    var edges = [];
+
+    // Create nodes from sources
+    state.sources.forEach(function(src, i) {
+      var node = {
+        id: src.url,
+        label: src.title || truncateUrl(src.url, 30),
+        type: (src.source_type || "web").toLowerCase(),
+        citations: src.citation_count || 0,
+        x: 400 + (Math.random() - 0.5) * 300,
+        y: 300 + (Math.random() - 0.5) * 200,
+        vx: 0,
+        vy: 0,
+        radius: Math.max(5, Math.min(20, 5 + Math.sqrt(src.citation_count || 0) * 2))
+      };
+      nodes.push(node);
+      nodeMap[src.url] = nodes.length - 1;
+    });
+
+    // Create edges from citation graph
+    var graph = state.citationGraph || {};
+    Object.keys(graph).forEach(function(url) {
+      var entry = graph[url];
+      var cites = entry.cites || entry.cited_by || [];
+      if (Array.isArray(cites)) {
+        cites.forEach(function(target) {
+          if (nodeMap[url] !== undefined && nodeMap[target] !== undefined) {
+            edges.push({ source: nodeMap[url], target: nodeMap[target] });
+          }
+        });
+      }
+    });
+
+    graphState.nodes = nodes;
+    graphState.edges = edges;
+  }
+
+  function tickGraph() {
+    if (!graphState.visible) return;
+
+    var nodes = graphState.nodes;
+    var edges = graphState.edges;
+    var damping = 0.92;
+    var repulsion = 800;
+    var attraction = 0.005;
+    var centerPull = 0.001;
+    var canvas = $graphCanvas;
+    var cx = canvas.width / 2;
+    var cy = canvas.height / 2;
+
+    // Apply forces
+    for (var i = 0; i < nodes.length; i++) {
+      var node = nodes[i];
+
+      // Center gravity
+      node.vx += (cx - node.x) * centerPull;
+      node.vy += (cy - node.y) * centerPull;
+
+      // Repulsion from all other nodes
+      for (var j = i + 1; j < nodes.length; j++) {
+        var other = nodes[j];
+        var dx = node.x - other.x;
+        var dy = node.y - other.y;
+        var dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        var force = repulsion / (dist * dist);
+        var fx = (dx / dist) * force;
+        var fy = (dy / dist) * force;
+        node.vx += fx;
+        node.vy += fy;
+        other.vx -= fx;
+        other.vy -= fy;
+      }
+    }
+
+    // Attraction along edges
+    edges.forEach(function(e) {
+      var src = nodes[e.source];
+      var tgt = nodes[e.target];
+      if (!src || !tgt) return;
+      var dx = tgt.x - src.x;
+      var dy = tgt.y - src.y;
+      var dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      var force = dist * attraction;
+      src.vx += (dx / dist) * force;
+      src.vy += (dy / dist) * force;
+      tgt.vx -= (dx / dist) * force;
+      tgt.vy -= (dy / dist) * force;
+    });
+
+    // Apply velocity with damping
+    nodes.forEach(function(n) {
+      n.vx *= damping;
+      n.vy *= damping;
+      n.x += n.vx;
+      n.y += n.vy;
+    });
+
+    drawGraph();
+    graphState.animFrame = requestAnimationFrame(tickGraph);
+  }
+
+  function drawGraph() {
+    var canvas = $graphCanvas;
+    var ctx = canvas.getContext("2d");
+    var w = canvas.width;
+    var h = canvas.height;
+
+    ctx.clearRect(0, 0, w, h);
+    ctx.save();
+    ctx.translate(graphState.panX, graphState.panY);
+    ctx.scale(graphState.zoom, graphState.zoom);
+
+    var nodes = graphState.nodes;
+    var edges = graphState.edges;
+
+    // Draw edges
+    ctx.strokeStyle = "rgba(48,54,61,0.7)";
+    ctx.lineWidth = 1;
+    edges.forEach(function(e) {
+      var src = nodes[e.source];
+      var tgt = nodes[e.target];
+      if (!src || !tgt) return;
+      ctx.beginPath();
+      ctx.moveTo(src.x, src.y);
+      ctx.lineTo(tgt.x, tgt.y);
+      ctx.stroke();
+    });
+
+    // Draw nodes
+    nodes.forEach(function(n) {
+      var color = TYPE_COLORS[n.type] || "var(--accent-blue)";
+      // Resolve CSS variable to actual color for canvas
+      var colorMap = {
+        "var(--accent-purple)": "#bc8cff",
+        "var(--accent-blue)": "#58a6ff",
+        "var(--accent-orange)": "#d29922",
+        "var(--accent-cyan)": "#39d2c0",
+        "var(--accent-pink)": "#f778ba",
+        "var(--accent-green)": "#3fb950",
+        "var(--accent-red)": "#f85149"
+      };
+      var fillColor = colorMap[color] || "#58a6ff";
+
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, n.radius, 0, Math.PI * 2);
+      ctx.fillStyle = fillColor;
+      ctx.globalAlpha = 0.8;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = fillColor;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Label
+      if (n.radius >= 8 && graphState.zoom >= 0.5) {
+        ctx.fillStyle = "#e6edf3";
+        ctx.font = "10px -apple-system, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(
+          n.label.length > 25 ? n.label.substring(0, 25) + "..." : n.label,
+          n.x,
+          n.y + n.radius + 12
+        );
+      }
+    });
+
+    ctx.restore();
+  }
+
+  function resizeCanvas() {
+    var container = document.getElementById("graph-container");
+    $graphCanvas.width = container.clientWidth;
+    $graphCanvas.height = container.clientHeight;
+  }
+
+  function setupGraphInteraction() {
+    $graphCanvas.addEventListener("mousedown", function(e) {
+      graphState.dragging = true;
+      graphState.lastMouse = { x: e.clientX, y: e.clientY };
+    });
+
+    window.addEventListener("mousemove", function(e) {
+      if (!graphState.dragging) return;
+      var dx = e.clientX - graphState.lastMouse.x;
+      var dy = e.clientY - graphState.lastMouse.y;
+      graphState.panX += dx;
+      graphState.panY += dy;
+      graphState.lastMouse = { x: e.clientX, y: e.clientY };
+    });
+
+    window.addEventListener("mouseup", function() {
+      graphState.dragging = false;
+    });
+
+    $graphCanvas.addEventListener("wheel", function(e) {
+      e.preventDefault();
+      var delta = e.deltaY > 0 ? 0.9 : 1.1;
+      var newZoom = graphState.zoom * delta;
+      if (newZoom < 0.1) newZoom = 0.1;
+      if (newZoom > 5) newZoom = 5;
+
+      // Zoom toward mouse position
+      var rect = $graphCanvas.getBoundingClientRect();
+      var mx = e.clientX - rect.left;
+      var my = e.clientY - rect.top;
+      graphState.panX = mx - (mx - graphState.panX) * (newZoom / graphState.zoom);
+      graphState.panY = my - (my - graphState.panY) * (newZoom / graphState.zoom);
+      graphState.zoom = newZoom;
+    }, { passive: false });
+  }
+
+  function openGraph() {
+    $graphOverlay.classList.add("visible");
+    graphState.visible = true;
+    resizeCanvas();
+    buildGraphData();
+    graphState.panX = 0;
+    graphState.panY = 0;
+    graphState.zoom = 1;
+    tickGraph();
+  }
+
+  function closeGraph() {
+    $graphOverlay.classList.remove("visible");
+    graphState.visible = false;
+    if (graphState.animFrame) {
+      cancelAnimationFrame(graphState.animFrame);
+      graphState.animFrame = null;
+    }
+  }
+
+  /* ---------------------------------------------------------------
+     Event Bindings
+     --------------------------------------------------------------- */
+  $graphToggle.addEventListener("click", function() {
+    if (graphState.visible) closeGraph();
+    else openGraph();
+  });
+
+  $graphClose.addEventListener("click", closeGraph);
+
+  $graphOverlay.addEventListener("click", function(e) {
+    if (e.target === $graphOverlay) closeGraph();
+  });
+
+  document.addEventListener("keydown", function(e) {
+    if (e.key === "Escape" && graphState.visible) closeGraph();
+  });
+
+  window.addEventListener("resize", function() {
+    if (graphState.visible) resizeCanvas();
+  });
+
+  /* ---------------------------------------------------------------
+     Initialize
+     --------------------------------------------------------------- */
+  buildStepper();
+  setupGraphInteraction();
+  connectSSE();
+  tickElapsed();
+
+})();
+</script>
+</body>
+</html>

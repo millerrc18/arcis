@@ -1,0 +1,139 @@
+"""Claude Code status line for Halcyon Lab.
+
+Outputs a single line with system health indicators:
+  Watch loop | Heartbeat | Halt status | Shadow positions | Live positions | DB size | Last log
+"""
+
+import os
+import sqlite3
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+DB = ROOT / "ai_research_desk.sqlite3"
+WATCH_LOCK = ROOT / "data" / "watch.lock"
+WATCHDOG = ROOT / "data" / "watchdog.txt"
+HALT_FILE = ROOT / "data" / "trading_halted"
+LOG_FILE = ROOT / "logs" / "halcyon.log"
+
+
+def watch_status():
+    if not WATCH_LOCK.exists():
+        return "Watch:OFF"
+    try:
+        pid = int(WATCH_LOCK.read_text().strip())
+        # Check if process is alive (works on Windows and Unix)
+        if sys.platform == "win32":
+            import ctypes
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.OpenProcess(0x100000, False, pid)  # SYNCHRONIZE
+            if handle:
+                kernel32.CloseHandle(handle)
+                return "Watch:ON"
+            return "Watch:STALE-LOCK"
+        else:
+            os.kill(pid, 0)
+            return "Watch:ON"
+    except (ValueError, OSError, PermissionError):
+        return "Watch:STALE-LOCK"
+
+
+def heartbeat():
+    if not WATCHDOG.exists():
+        return "Beat:none"
+    try:
+        text = WATCHDOG.read_text().strip()
+        last = datetime.fromisoformat(text)
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        ago_min = int((now - last).total_seconds() / 60)
+        if ago_min > 60:
+            return f"Beat:{ago_min}m STALE"
+        elif ago_min > 5:
+            return f"Beat:{ago_min}m?"
+        else:
+            return f"Beat:{ago_min}m"
+    except Exception:
+        return "Beat:err"
+
+
+def halt_status():
+    return "HALTED" if HALT_FILE.exists() else "Trading:active"
+
+
+def position_counts():
+    if not DB.exists():
+        return "Shadow:? | Live:?"
+    try:
+        conn = sqlite3.connect(str(DB), timeout=2)
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT source, status, COUNT(*) FROM shadow_trades "
+            "WHERE status IN ('open','closed') GROUP BY source, status"
+        )
+        d = {}
+        for src, st, cnt in cur.fetchall():
+            d[(src, st)] = cnt
+        conn.close()
+        so = d.get(("paper", "open"), 0)
+        sc = d.get(("paper", "closed"), 0)
+        lo = d.get(("live", "open"), 0)
+        lc = d.get(("live", "closed"), 0)
+        return f"Shadow:{so}o/{sc}c | Live:{lo}o/{lc}c"
+    except Exception:
+        return "Shadow:? | Live:?"
+
+
+def db_size():
+    if not DB.exists():
+        return "DB:?"
+    size = DB.stat().st_size
+    if size >= 1_073_741_824:
+        return f"DB:{size / 1_073_741_824:.1f}G"
+    elif size >= 1_048_576:
+        return f"DB:{size / 1_048_576:.0f}M"
+    else:
+        return f"DB:{size / 1024:.0f}K"
+
+
+def last_log():
+    if not LOG_FILE.exists():
+        return None
+    try:
+        # Read last line efficiently
+        with open(LOG_FILE, "rb") as f:
+            f.seek(0, 2)
+            end = f.tell()
+            if end == 0:
+                return None
+            pos = max(0, end - 512)
+            f.seek(pos)
+            lines = f.read().decode("utf-8", errors="replace").splitlines()
+            if lines:
+                last = lines[-1]
+                # Extract timestamp: "2026-04-01 08:31:04,429 ..."
+                if len(last) >= 16 and last[4] == "-":
+                    return f"Log:{last[:16]}"
+    except Exception:
+        pass
+    return None
+
+
+def main():
+    parts = [
+        watch_status(),
+        heartbeat(),
+        halt_status(),
+        position_counts(),
+        db_size(),
+    ]
+    log = last_log()
+    if log:
+        parts.append(log)
+    print(" | ".join(parts))
+
+
+if __name__ == "__main__":
+    main()
