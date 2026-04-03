@@ -197,7 +197,9 @@ Scheduled audits:
 - Run as remote agents on Anthropic's infrastructure
 - File GitHub issues and write reports automatically
 - Work even when your machine is off
-- Daily uses `--quick` (6 domains) to save cost; weekly runs all 8
+- Both daily and weekly run full audits (all 8 domains)
+
+**DST caveat:** Schedule times use a fixed EDT (UTC-4) offset. During EST (Nov-Mar), audits run 1 hour earlier than specified. For example, `/audit --schedule daily 8pm` runs at 8 PM ET in summer but 7 PM ET in winter. This is a cron limitation — cron doesn't support timezone-aware scheduling.
 
 ## Trend Tracking
 
