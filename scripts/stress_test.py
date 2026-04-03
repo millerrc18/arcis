@@ -75,7 +75,7 @@ def get_stress_test_universe(scenario_start: str) -> list[str]:
     Filters to tickers that actually have OHLCV data in the test range.
     Survivorship bias is noted but not eliminated.
     """
-    from src.universe.sp100 import get_sp100_universe
+    from src.universe.sp100 import get_sp100_universe, to_yfinance_ticker
     import yfinance as yf
 
     all_tickers = get_sp100_universe()
@@ -85,9 +85,9 @@ def get_stress_test_universe(scenario_start: str) -> list[str]:
     for ticker in all_tickers:
         try:
             data = yf.download(
-                ticker, start=scenario_start,
+                to_yfinance_ticker(ticker), start=scenario_start,
                 end=(datetime.strptime(scenario_start, "%Y-%m-%d") + timedelta(days=5)).strftime("%Y-%m-%d"),
-                progress=False,
+                progress=False, auto_adjust=True,
             )
             if data is not None and len(data) >= 1:
                 valid.append(ticker)
@@ -109,6 +109,7 @@ def run_scenario(name: str, start: str, end: str) -> dict:
     mechanical brackets and track outcomes.
     """
     import yfinance as yf
+    from src.universe.sp100 import to_yfinance_ticker
 
     print(f"\n{'='*50}")
     print(f"  SCENARIO: {name}")
@@ -116,7 +117,7 @@ def run_scenario(name: str, start: str, end: str) -> dict:
     print(f"{'='*50}\n")
 
     # Get trading days
-    spy_data = yf.download("SPY", start=start, end=end, progress=False)
+    spy_data = yf.download("SPY", start=start, end=end, progress=False, auto_adjust=True)
     if spy_data is None or spy_data.empty:
         return {"error": "No SPY data for period", "scenario": name}
 
@@ -126,7 +127,7 @@ def run_scenario(name: str, start: str, end: str) -> dict:
     # Fetch VIX data for regime-aware brackets
     vix_data = None
     try:
-        vix_raw = yf.download("^VIX", start=start, end=end, progress=False)
+        vix_raw = yf.download("^VIX", start=start, end=end, progress=False, auto_adjust=True)
         if vix_raw is not None and not vix_raw.empty:
             vix_data = {d.strftime("%Y-%m-%d"): float(v)
                         for d, v in zip(vix_raw.index, vix_raw["Close"])}
@@ -163,7 +164,7 @@ def run_scenario(name: str, start: str, end: str) -> dict:
         for ticker in universe[:30]:  # Limit for speed
             try:
                 hist_start = (datetime.strptime(day, "%Y-%m-%d") - timedelta(days=30)).strftime("%Y-%m-%d")
-                hist = yf.download(ticker, start=hist_start, end=day, progress=False)
+                hist = yf.download(to_yfinance_ticker(ticker), start=hist_start, end=day, progress=False, auto_adjust=True)
                 if hist is not None and len(hist) >= 15:
                     ret_5d = (hist["Close"].iloc[-1] / hist["Close"].iloc[-5] - 1)
                     # Compute ATR for regime-aware stop sizing
@@ -200,7 +201,7 @@ def run_scenario(name: str, start: str, end: str) -> dict:
             fwd_start = (datetime.strptime(day, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
             fwd_end = (datetime.strptime(day, "%Y-%m-%d") + timedelta(days=timeout + 2)).strftime("%Y-%m-%d")
             try:
-                fwd_data = yf.download(ticker, start=fwd_start, end=fwd_end, progress=False)
+                fwd_data = yf.download(to_yfinance_ticker(ticker), start=fwd_start, end=fwd_end, progress=False, auto_adjust=True)
                 if fwd_data is None or fwd_data.empty:
                     continue
                 ohlcv = fwd_data.reset_index().to_dict("records")
