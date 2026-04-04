@@ -1,0 +1,408 @@
+{
+  "run_count": 7,
+  "current_focus_index": 0,
+  "file_index": 90,
+  "file_list": [
+    "src/__init__.py",
+    "src/api/__init__.py",
+    "src/api/app.py",
+    "src/api/cloud_app.py",
+    "src/api/routes/__init__.py",
+    "src/api/routes/actions.py",
+    "src/api/routes/docs.py",
+    "src/api/routes/packets.py",
+    "src/api/routes/review.py",
+    "src/api/routes/scan.py",
+    "src/api/routes/shadow.py",
+    "src/api/routes/system.py",
+    "src/api/routes/training.py",
+    "src/api/websocket.py",
+    "src/config.py",
+    "src/council/__init__.py",
+    "src/council/agents.py",
+    "src/council/agents_v1_backup.py",
+    "src/council/engine.py",
+    "src/council/engine_v1_backup.py",
+    "src/council/protocol.py",
+    "src/council/protocol_v1_backup.py",
+    "src/council/value_tracker.py",
+    "src/data_collection/__init__.py",
+    "src/data_collection/analyst_collector.py",
+    "src/data_collection/cboe_collector.py",
+    "src/data_collection/docs_collector.py",
+    "src/data_collection/edgar_collector.py",
+    "src/data_collection/fed_collector.py",
+    "src/data_collection/insider_collector.py",
+    "src/data_collection/macro_collector.py",
+    "src/data_collection/options_collector.py",
+    "src/data_collection/options_metrics.py",
+    "src/data_collection/research_collector.py",
+    "src/data_collection/research_synthesizer.py",
+    "src/data_collection/short_interest_collector.py",
+    "src/data_collection/trends_collector.py",
+    "src/data_collection/vix_collector.py",
+    "src/data_enrichment/__init__.py",
+    "src/data_enrichment/earnings_signals.py",
+    "src/data_enrichment/enricher.py",
+    "src/data_enrichment/fundamentals.py",
+    "src/data_enrichment/insiders.py",
+    "src/data_enrichment/macro.py",
+    "src/data_enrichment/news.py",
+    "src/data_ingestion/__init__.py",
+    "src/data_ingestion/market_data.py",
+    "src/data_integrity.py",
+    "src/email/__init__.py",
+    "src/email/digest_builder.py",
+    "src/email/notifier.py",
+    "src/evaluation/__init__.py",
+    "src/evaluation/auditor.py",
+    "src/evaluation/backtester.py",
+    "src/evaluation/change_detector.py",
+    "src/evaluation/cto_report.py",
+    "src/evaluation/feature_importance.py",
+    "src/evaluation/gate_evaluator.py",
+    "src/evaluation/hshs.py",
+    "src/evaluation/hshs_live.py",
+    "src/evaluation/metrics.py",
+    "src/evaluation/postmortem.py",
+    "src/evaluation/scorecard.py",
+    "src/evaluation/statistics.py",
+    "src/evaluation/system_validator.py",
+    "src/features/__init__.py",
+    "src/features/earnings.py",
+    "src/features/engine.py",
+    "src/features/event_proximity.py",
+    "src/features/filing_nlp.py",
+    "src/features/regime.py",
+    "src/features/setup_classifier.py",
+    "src/features/traffic_light.py",
+    "src/journal/__init__.py",
+    "src/journal/store.py",
+    "src/llm/__init__.py",
+    "src/llm/client.py",
+    "src/llm/packet_writer.py",
+    "src/llm/postmortem_writer.py",
+    "src/llm/prompts.py",
+    "src/llm/validator.py",
+    "src/llm/watchlist_writer.py",
+    "src/log_config.py",
+    "src/logging/__init__.py",
+    "src/logging/activity.py",
+    "src/main.py",
+    "src/models.py",
+    "src/notifications/__init__.py",
+    "src/notifications/telegram.py",
+    "src/packets/__init__.py",
+    "src/packets/eod_recap.py",
+    "src/packets/template.py",
+    "src/packets/watchlist.py",
+    "src/ranking/__init__.py",
+    "src/ranking/ranker.py",
+    "src/risk/__init__.py",
+    "src/risk/governor.py",
+    "src/scheduler/__init__.py",
+    "src/scheduler/metrics.py",
+    "src/scheduler/premarket.py",
+    "src/scheduler/scorer.py",
+    "src/scheduler/vram_manager.py",
+    "src/scheduler/watch.py",
+    "src/schemas.py",
+    "src/services/__init__.py",
+    "src/services/recap_service.py",
+    "src/services/review_service.py",
+    "src/services/scan_service.py",
+    "src/services/shadow_service.py",
+    "src/services/system_service.py",
+    "src/services/training_service.py",
+    "src/services/watchlist_service.py",
+    "src/shadow_trading/__init__.py",
+    "src/shadow_trading/alpaca_adapter.py",
+    "src/shadow_trading/executor.py",
+    "src/shadow_trading/ledger.py",
+    "src/shadow_trading/metrics.py",
+    "src/shadow_trading/models.py",
+    "src/shadow_trading/reconcile.py",
+    "src/strategy/__init__.py",
+    "src/strategy/canary.py",
+    "src/sync/__init__.py",
+    "src/sync/render_sync.py",
+    "src/training/__init__.py",
+    "src/training/ab_evaluation.py",
+    "src/training/backfill.py",
+    "src/training/bootstrap.py",
+    "src/training/canary.py",
+    "src/training/claude_client.py",
+    "src/training/curriculum.py",
+    "src/training/data_collector.py",
+    "src/training/dpo_pipeline.py",
+    "src/training/historical_data.py",
+    "src/training/historical_scanner.py",
+    "src/training/leakage_detector.py",
+    "src/training/quality_drift.py",
+    "src/training/quality_filter.py",
+    "src/training/report.py",
+    "src/training/trainer.py",
+    "src/training/validation.py",
+    "src/training/versioning.py",
+    "src/universe/__init__.py",
+    "src/universe/company_names.py",
+    "src/universe/sectors.py",
+    "src/universe/sp100.py",
+    "src/utils/__init__.py",
+    "src/utils/activity_logger.py",
+    "frontend/src/App.jsx",
+    "frontend/src/components/ActivityFeed.jsx",
+    "frontend/src/components/AuthGate.jsx",
+    "frontend/src/components/DataTable.jsx",
+    "frontend/src/components/EmptyState.jsx",
+    "frontend/src/components/ErrorBoundary.jsx",
+    "frontend/src/components/Layout.jsx",
+    "frontend/src/components/LoadingSpinner.jsx",
+    "frontend/src/components/MetricCard.jsx",
+    "frontend/src/components/MetricTrend.jsx",
+    "frontend/src/components/PnlText.jsx",
+    "frontend/src/components/RevenueProjection.jsx",
+    "frontend/src/components/StatusBadge.jsx",
+    "frontend/src/components/Toast.jsx",
+    "frontend/src/components/Tooltip.jsx",
+    "frontend/src/contexts/WebSocketContext.jsx",
+    "frontend/src/main.jsx",
+    "frontend/src/pages/CTOReport.jsx",
+    "frontend/src/pages/Council.jsx",
+    "frontend/src/pages/Dashboard.jsx",
+    "frontend/src/pages/Docs.jsx",
+    "frontend/src/pages/Health.jsx",
+    "frontend/src/pages/LiveLedger.jsx",
+    "frontend/src/pages/Packets.jsx",
+    "frontend/src/pages/Roadmap.jsx",
+    "frontend/src/pages/Settings.jsx",
+    "frontend/src/pages/ShadowLedger.jsx",
+    "frontend/src/pages/Training.jsx",
+    "frontend/src/pages/Validation.jsx"
+  ],
+  "last_run": "2026-04-04T00:00:00Z",
+  "findings": {
+    "run_4": {
+      "focus_area": "code_quality",
+      "files_audited": [
+        "src/data_enrichment/earnings_signals.py",
+        "src/data_enrichment/enricher.py",
+        "src/data_enrichment/fundamentals.py",
+        "src/data_enrichment/insiders.py",
+        "src/data_enrichment/macro.py",
+        "src/data_enrichment/news.py",
+        "src/data_ingestion/__init__.py",
+        "src/data_ingestion/market_data.py",
+        "src/data_integrity.py",
+        "src/email/__init__.py",
+        "src/email/digest_builder.py",
+        "src/email/notifier.py",
+        "src/evaluation/__init__.py",
+        "src/evaluation/auditor.py",
+        "src/evaluation/backtester.py"
+      ],
+      "medium": [
+        {
+          "file": "src/data_enrichment/fundamentals.py",
+          "lines": "7, 9",
+          "description": "Unused imports: `json` (line 7) and `os` (line 9) are imported but never referenced in the file.",
+          "suggested_fix": "Remove `import json` and `import os` from the import block."
+        },
+        {
+          "file": "src/evaluation/backtester.py",
+          "lines": "7, 12",
+          "description": "Unused imports: `json` (line 7) and `Path` (line 12) are imported but never referenced in the file.",
+          "suggested_fix": "Remove `import json` and `from pathlib import Path` from the import block."
+        },
+        {
+          "file": "src/evaluation/backtester.py",
+          "lines": "19-179",
+          "description": "backtest_model() is 160 lines — mixes data fetching, day-by-day simulation, trade execution, and metric computation in a single function. Hard to test and maintain.",
+          "suggested_fix": "Extract into helpers: _fetch_backtest_data(), _simulate_trading_day(), _compute_backtest_metrics(), _compute_regime_summary()."
+        },
+        {
+          "file": "src/data_enrichment/news.py",
+          "lines": "85-272",
+          "description": "fetch_recent_news (95 lines) and fetch_historical_news (89 lines) share ~70% identical logic for caching, API calls, headline parsing, and sentiment classification.",
+          "suggested_fix": "Extract shared logic into a private _fetch_and_parse_news() helper; have both public functions delegate to it with date parameters."
+        },
+        {
+          "file": "src/evaluation/auditor.py",
+          "lines": "118-128, 198-208, 249",
+          "description": "Duplicated JSON-from-LLM parsing logic in run_daily_audit and run_weekly_audit (identical try/except blocks). Also redundant `import sqlite3` at line 249 shadows module-level import.",
+          "suggested_fix": "Extract a _parse_audit_json(response) helper. Remove the inner `import sqlite3` at line 249."
+        }
+      ],
+      "low": [
+        {
+          "file": "src/data_enrichment/earnings_signals.py",
+          "description": "compute_earnings_signals is 132 lines; sequential but long."
+        },
+        {
+          "file": "src/data_enrichment/enricher.py",
+          "description": "enrich_features is 116 lines with repeated try/except blocks and imports inside the for-loop body."
+        },
+        {
+          "file": "src/data_enrichment/insiders.py",
+          "description": "_fetch_from_finnhub is 93 lines; straightforward but long."
+        },
+        {
+          "file": "src/email/digest_builder.py",
+          "description": "_safe_fetchall and _safe_fetchone missing type hints; 4 digest functions all >50 lines with duplicated query patterns."
+        },
+        {
+          "file": "src/data_enrichment/macro.py",
+          "description": "fetch_macro_context is 71 lines, borderline."
+        },
+        {
+          "file": "src/evaluation/auditor.py",
+          "description": "check_escalation is 86 lines."
+        }
+      ],
+      "high": [],
+      "github_issues_status": "BLOCKED — no GitHub token or gh CLI available in this environment. 5 medium issues need to be created manually."
+    },
+    "run_5": {
+      "focus": "code_quality",
+      "files_audited": [
+        "src/evaluation/metrics.py",
+        "src/evaluation/postmortem.py",
+        "src/evaluation/scorecard.py",
+        "src/evaluation/statistics.py",
+        "src/evaluation/system_validator.py",
+        "src/features/__init__.py",
+        "src/features/earnings.py",
+        "src/features/engine.py",
+        "src/features/event_proximity.py",
+        "src/features/filing_nlp.py",
+        "src/features/regime.py",
+        "src/features/setup_classifier.py",
+        "src/features/traffic_light.py",
+        "src/journal/__init__.py",
+        "src/journal/store.py"
+      ],
+      "medium": [
+        {
+          "file": "src/evaluation/system_validator.py",
+          "finding": "File is 949 lines (exceeds 400). Contains 6 functions over 50 lines. Should be refactored into per-category modules.",
+          "lines": "entire file"
+        },
+        {
+          "file": "src/journal/store.py",
+          "finding": "File is 533 lines (exceeds 400). initialize_database (76 lines) and log_recommendation (81 lines) exceed 50-line guideline. Migration logic should be extracted.",
+          "lines": "126-202, 204-285"
+        },
+        {
+          "file": "src/evaluation/postmortem.py",
+          "finding": "generate_postmortem is 144 lines (exceeds 50). Parameter features_at_entry is accepted but never used (dead parameter).",
+          "lines": "11-155"
+        },
+        {
+          "file": "src/evaluation/scorecard.py",
+          "finding": "generate_weekly_scorecard is 148 lines (exceeds 50). Should split data gathering from formatting.",
+          "lines": "22-170"
+        },
+        {
+          "file": "src/features/engine.py",
+          "finding": "compute_features (95 lines) and compute_all_features (73 lines) both exceed 50-line guideline.",
+          "lines": "68-163, 166-239"
+        },
+        {
+          "file": "src/features/regime.py",
+          "finding": "compute_market_regime is 96 lines (exceeds 50).",
+          "lines": "53-149"
+        },
+        {
+          "file": "src/features/setup_classifier.py",
+          "finding": "classify_setup is 110 lines (exceeds 50).",
+          "lines": "87-197"
+        },
+        {
+          "file": "src/features/traffic_light.py",
+          "finding": "compute_traffic_light is 110 lines (exceeds 50).",
+          "lines": "150-260"
+        }
+      ],
+      "low": [
+        {
+          "file": "src/features/earnings.py",
+          "finding": "datetime imported but unused (only date is needed)"
+        },
+        {
+          "file": "src/features/event_proximity.py",
+          "finding": "datetime imported but unused"
+        },
+        {
+          "file": "src/features/filing_nlp.py",
+          "finding": "logging/logger defined but never called in the file"
+        }
+      ],
+      "high": [],
+      "github_issues_blocked": "gh CLI and GITHUB_TOKEN not available — 8 medium findings need manual issue creation"
+    },
+    "run_7": {
+      "focus_area": "code_quality",
+      "files_audited": [
+        "src/llm/__init__.py",
+        "src/llm/client.py",
+        "src/llm/packet_writer.py",
+        "src/llm/postmortem_writer.py",
+        "src/llm/prompts.py",
+        "src/llm/validator.py",
+        "src/llm/watchlist_writer.py",
+        "src/log_config.py",
+        "src/logging/__init__.py",
+        "src/logging/activity.py",
+        "src/main.py",
+        "src/models.py",
+        "src/notifications/__init__.py",
+        "src/notifications/telegram.py",
+        "src/packets/__init__.py"
+      ],
+      "medium": [
+        {
+          "file": "src/notifications/telegram.py",
+          "lines": "1-1461",
+          "finding": "File is 1461 lines (3.6x the 400-line threshold). Contains 25+ notification formatters, a Telegram command handler with 15 commands, and a 132-line action reminder checker. Should be split into submodules: formatters, command_handler, action_reminders.",
+          "suggested_fix": "Split into src/notifications/telegram_formatters.py (notify_* functions), src/notifications/telegram_commands.py (_cmd_* and handle_command), and src/notifications/telegram_reminders.py (check_action_reminders). Keep send_telegram and config in telegram.py as the core."
+        },
+        {
+          "file": "src/llm/packet_writer.py",
+          "lines": "51-178, 206-285, 288-382",
+          "finding": "Three functions exceed 50 lines: _build_feature_prompt (127 lines, builds multi-section prompt), _parse_llm_response (79 lines, handles XML + legacy parsing), enhance_packet_with_llm (95 lines, orchestrates grammar/standard/condensed retries).",
+          "suggested_fix": "Extract _build_feature_prompt sections into per-section helpers (e.g., _technical_section, _regime_section, _earnings_section). Extract legacy parsing from _parse_llm_response into _parse_legacy_format. Split enhance_packet_with_llm retry logic into _try_grammar_path and _try_standard_path."
+        },
+        {
+          "file": "src/notifications/telegram.py",
+          "lines": "676-808",
+          "finding": "check_action_reminders is 132 lines with 5 deeply nested DB checks (milestones, Sunday review, API rotation, unscored examples, retrain overdue). Each check has its own query + notification + activity_log insert pattern.",
+          "suggested_fix": "Extract each check into a named helper (_check_gate_milestones, _check_sunday_review, _check_api_rotation, _check_unscored, _check_retrain_overdue) and call them from check_action_reminders."
+        }
+      ],
+      "low": [
+        {
+          "file": "src/llm/packet_writer.py",
+          "finding": "Duplicate 'import re' at line 218 inside _parse_llm_response — already imported at module level (line 11)."
+        },
+        {
+          "file": "src/llm/postmortem_writer.py",
+          "finding": "Duplicate log line at line 55 ('  [LLM] Enhanced postmortem...') immediately after identical log at line 54."
+        },
+        {
+          "file": "src/llm/watchlist_writer.py",
+          "finding": "Duplicate log line at line 68 ('  [LLM] Generated watchlist narrative') immediately after identical log at line 67."
+        },
+        {
+          "file": "src/main.py",
+          "finding": "build_parser is 174 lines (argparse wiring — declarative/boilerplate, not complex logic)."
+        },
+        {
+          "file": "src/notifications/telegram.py",
+          "finding": "handle_command (L811-884) uses 17-branch if/elif chain. A dispatch dict would be cleaner."
+        }
+      ],
+      "high": [],
+      "github_issues_blocked": "No GitHub MCP tools or gh CLI available — 3 medium findings need manual issue creation"
+    }
+  }
+}
