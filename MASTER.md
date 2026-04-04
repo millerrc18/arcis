@@ -63,7 +63,7 @@ with an unbeatable technological moat.
 | Dashboard pages | 18 |
 | Research docs | 60 |
 | Schema tables | 49 (registry) |
-| GitHub issues | 11 open |
+| GitHub issues | 0 open |
 | Monthly cost | ~$64 (Render $7 + Ollama free + Claude API ~$50 + domain $7) |
 | Hardware | RTX 3060 12GB, Windows 11, Z690, 24/7 operation |
 | HSHS health score | 85.33 |
@@ -94,19 +94,7 @@ with an unbeatable technological moat.
 
 ### Open GitHub Issues
 
-| # | Priority | Title |
-|---|---|---|
-| #188 | P2 | PFE backfilled with -14 shares -- short position in long-only |
-| #187 | P2 | 44 failed shadow trades -- insufficient buying power, retries |
-| #147 | P2 | No exponential backoff on network failures in enrichment |
-| #132 | P2 | Fallback to settings.example.yaml with placeholder keys |
-| #112 | P2 | VRAM not freed after training -- GPU memory leak |
-| #106 | P2 | Kill switch not atomic, no staleness check |
-| #194 | P3 | test_watch_bootstrap checks hardcoded table names |
-| #193 | P3 | False positive: 'sql' table detected in schema/postgres.py |
-| #192 | P3 | schema/validator.py missing standard docstring header |
-| #191 | P3 | reconcile.py exceeds 400-line guardrail (447 lines) |
-| #82 | P3 | Silent exception swallowing in council/context.py |
+None — all issues resolved as of 2026-04-04.
 
 ### Known Blockers
 
