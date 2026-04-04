@@ -48,8 +48,8 @@ ollama pull qwen3:8b
 # Test scan
 python -m src.main scan --verbose --dry-run
 
-# Start autonomous scheduler
-python -m src.main watch --email-mode digest --overnight
+# Start autonomous scheduler (validates config, schema, env, connectivity first)
+python -m src.main startup
 ```
 
 ## Dashboard

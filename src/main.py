@@ -68,6 +68,7 @@ from src.cli.commands import (
     cmd_training_history,
     cmd_training_report,
     cmd_training_status,
+    cmd_startup,
     cmd_validate_schema,
     cmd_validate_system,
     cmd_validate_training,
@@ -231,6 +232,18 @@ def build_parser() -> argparse.ArgumentParser:
     watch.add_argument("--email-mode", choices=["full_stream", "daily_summary", "digest", "silent"])
     watch.add_argument("--overnight", action="store_true", help="Enable overnight schedule (post-close, news, enrichment, pre-market)")
     watch.set_defaults(func=cmd_watch)
+
+    startup = subparsers.add_parser("startup", help="Validate system and launch watch loop")
+    startup.add_argument("--email-mode", default="digest",
+                         choices=["full_stream", "daily_summary", "digest", "silent"])
+    startup.add_argument("--no-overnight", action="store_true",
+                         help="Disable overnight schedule (data collection, news, enrichment)")
+    startup.add_argument("--force", action="store_true",
+                         help="Launch despite critical failures")
+    startup.add_argument("--check-only", action="store_true",
+                         help="Run validation only, don't launch watch loop")
+    startup.set_defaults(func=cmd_startup)
+
     dashboard = subparsers.add_parser("dashboard")
     dashboard.add_argument("--port", type=int, default=8000)
     dashboard.set_defaults(func=cmd_dashboard)

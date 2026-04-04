@@ -92,8 +92,9 @@ All commands are invoked via `python -m src.main <command> [options]`.
 | `halt-trading` | Emergency halt -- blocks all new positions immediately | |
 | `resume-trading` | Resume trading after a halt | |
 | `preflight` | Run system preflight check (config, APIs, LLM, DB) | |
+| `startup` | **Validate system and launch watch loop** — runs tiered checks (config, schema, env, connectivity, services), auto-fixes schema, sends Telegram notification, then launches watch loop | `--email-mode` (default: digest), `--no-overnight`, `--force`, `--check-only` |
 | `council` | Run an AI Council deliberation session | `--type` (daily, strategic, on_demand) |
-| `watch` | Start the automated scan/monitor loop | `--email-mode` (full_stream, daily_summary, silent), `--overnight` |
+| `watch` | Start the automated scan/monitor loop (prefer `startup` instead) | `--email-mode` (full_stream, daily_summary, silent), `--overnight` |
 | `dashboard` | Start the FastAPI + React dashboard server | `--port` (default: 8000) |
 
 ## Command Count Summary

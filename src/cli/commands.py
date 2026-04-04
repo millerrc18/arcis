@@ -1017,6 +1017,134 @@ def cmd_council(args):
         print(f"  {emoji} {assessment.get('agent', '?')}: {direction} ({confidence:.0%}) — {assessment.get('key_reasoning', '')[:80]}")
 
 
+def cmd_startup(args):
+    """Validate system and launch watch loop — single startup command."""
+    import sys
+    import time as _time
+    from src.config import load_config
+    from src.startup import (
+        is_watch_loop_running, run_startup_checks, persist_startup_result,
+        STARTUP_CATEGORIES,
+    )
+
+    config = load_config()
+
+    # Step 0: PID lockfile check
+    check_only = getattr(args, "check_only", False)
+    if not check_only:
+        existing_pid = is_watch_loop_running()
+        if existing_pid:
+            print(f"Another watch loop is already running (PID {existing_pid}).")
+            print(f"Kill it first:  taskkill /PID {existing_pid} /F")
+            sys.exit(1)
+
+    # Banner
+    print("=" * 44)
+    print("         ARCIS — STARTUP SEQUENCE")
+    print("=" * 44)
+
+    # Progressive validation
+    all_checks = []
+    start = _time.time()
+    total = len(STARTUP_CATEGORIES)
+
+    for i, (label, check_fn) in enumerate(STARTUP_CATEGORIES, 1):
+        print(f"\n[{i}/{total}] {label}")
+        results = check_fn(config, DB_PATH)
+        all_checks.extend(results)
+        for c in results:
+            _print_startup_check(c)
+
+    elapsed = int((_time.time() - start) * 1000)
+
+    from src.startup import StartupResult
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    result = StartupResult(
+        checks=all_checks,
+        schema_fixes_applied=0,
+        duration_ms=elapsed,
+        timestamp=datetime.now(ZoneInfo("America/New_York")).isoformat(),
+    )
+
+    # Count schema fixes
+    for c in all_checks:
+        if c.category == "schema" and "auto-fixed" in c.detail:
+            import re
+            m = re.search(r"(\d+) auto-fixed", c.detail)
+            if m:
+                result.schema_fixes_applied = int(m.group(1))
+
+    # Persist to DB
+    try:
+        persist_startup_result(result, DB_PATH)
+    except Exception as e:
+        print(f"\n  (Could not persist startup result: {e})")
+
+    # Summary line
+    p, w, c = len(result.passed), len(result.warnings), len(result.criticals)
+    crit_label = f"{c} CRITICAL" if c else f"{c} critical"
+    print(f"\n--- {p} passed | {w} warnings | {crit_label} " + "-" * 8)
+
+    # Telegram notification
+    try:
+        from src.notifications.telegram import notify_startup_complete, is_telegram_enabled
+        force = getattr(args, "force", False)
+        overnight = not getattr(args, "no_overnight", False)
+        email_mode = getattr(args, "email_mode", "digest")
+        launching = (c == 0 or force) and not check_only
+
+        if is_telegram_enabled():
+            notify_startup_complete(
+                overall_status=result.overall_status,
+                passed=p, warnings=w, criticals=c,
+                warning_details=[ch.detail for ch in result.warnings[:5]],
+                critical_details=[ch.detail for ch in result.criticals[:5]],
+                launching=launching,
+                email_mode=email_mode,
+                overnight=overnight,
+            )
+    except Exception:
+        pass  # Telegram itself may be a warning — don't crash on it
+
+    # Decision: block, check-only, or launch
+    force = getattr(args, "force", False)
+    if result.criticals and not force:
+        print("\nStartup blocked — resolve critical issues above.")
+        print("Use --force to override at your own risk.")
+        sys.exit(1)
+
+    if check_only:
+        sys.exit(2 if result.warnings else 0)
+
+    overnight = not getattr(args, "no_overnight", False)
+    email_mode = getattr(args, "email_mode", "digest")
+    print(f"\nLaunching watch loop (overnight={'yes' if overnight else 'no'}"
+          f" + {email_mode})...")
+
+    from src.scheduler.watch import WatchLoop
+    WatchLoop(config, email_mode=email_mode, overnight=overnight).run()
+
+
+def _print_startup_check(check):
+    """Print a single check result with color if supported."""
+    import os
+    use_color = os.isatty(1) and not os.environ.get("NO_COLOR")
+
+    status_map = {
+        "ok": ("OK  ", "\033[32m" if use_color else ""),
+        "warn": ("WARN", "\033[33m" if use_color else ""),
+        "critical": ("FAIL", "\033[31m" if use_color else ""),
+    }
+    label, color = status_map.get(check.status, ("??  ", ""))
+    reset = "\033[0m" if use_color else ""
+
+    print(f"       {color}{label}{reset} {check.detail}")
+    if check.status != "ok" and check.fix_hint:
+        print(f"            -> {check.fix_hint}")
+
+
 def cmd_watch(args):
     from src.config import load_config
     from src.scheduler.watch import WatchLoop

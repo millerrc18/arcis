@@ -14,7 +14,7 @@
 4. Merge to `main` with `--no-ff`
 5. Tag: `git tag -a vX.Y.Z -m "description"`
 6. Push: `git push origin main && git push origin vX.Y.Z`
-7. Restart watch loop (`git pull && python -m src.main watch ...`)
+7. Restart system (`git pull && python -m src.main startup`)
 8. Monitor logs 30 minutes
 9. If broken: `git checkout vX.Y.Z-1 && restart` (instant rollback)
 

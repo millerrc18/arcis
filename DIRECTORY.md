@@ -581,6 +581,7 @@ arcis/
 | `CLAUDE.md` | Agent instructions — mandatory rules for CC sprints. |
 | `RELEASES.md` | Version history, release process, path to v1.0.0. |
 | `src/schema/registry.py` | Single source of truth for all 49 database tables. |
+| `src/startup.py` | Startup validation checks — tiered config/schema/env/connectivity/services checks. |
 | `src/scheduler/watch.py` | The main loop — scans, monitors, collects, trains. |
 | `config/settings.example.yaml` | All configuration keys with descriptions. |
 | `docs/sprints/` | Sprint prompts ready to fire in CC. |

@@ -75,13 +75,15 @@ render:
 
 The watch loop starts the Render sync thread automatically when `render.enabled` is true and a `database_url` is configured.
 
-## Step 5: Start the Local Watch Loop
+## Step 5: Start the Local System
 
 ```bash
-python -m src.main watch --email-mode digest --overnight
+python -m src.main startup
 ```
 
-The watch loop uses a **PID lockfile** (`data/watch.lock`) to prevent duplicate instances. If a second `watch` command is started while one is already running, it will exit with an error message. If the lockfile is stale (the process died without cleanup), it is automatically removed.
+The `startup` command validates config, schema, environment, connectivity, and services before launching the watch loop. It auto-fixes schema drift, sends a Telegram notification with the validation summary, and defaults to `--overnight` mode with `--email-mode digest`. Use `--check-only` to validate without launching, or `--force` to bypass critical failures.
+
+The watch loop uses a **PID lockfile** (`data/watch.lock`) to prevent duplicate instances. The `startup` command checks for this before running validation. If a watch loop is already running, it exits with a clear message. If the lockfile is stale (the process died without cleanup), it is automatically removed.
 
 During the watch loop, `src/sync/render_sync.py` pushes incremental, latest-only, and full-sync tables into Render Postgres on the configured interval.
 
