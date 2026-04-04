@@ -94,6 +94,15 @@ python -m ruff check src/ tests/ --fix
 python -m ruff format src/ tests/
 ```
 
+## Data Collection Rules
+
+- **Collectors must raise on missing config** — use `CollectorConfigError` from `src/data_collection/errors.py` when a required API key is absent. Never return a success dict with an `error` field silently.
+- **Surface mass failures** — if >50% of items in a batch fail, raise `CollectorPartialFailureError`. Individual item glitches are expected; mass failures must be visible.
+- **Stats queries must reference real columns** — `test_stats_queries_reference_valid_columns` in `test_schema.py` validates all `/data-collection-stats` queries against the schema registry. It will fail if you reference a column that doesn't exist.
+- **Overnight schedule runs 7 days/week** — data collection, news ingestion, and enrichment run daily (including weekends). Only VRAM handoff and pre-market tasks are weekday-gated.
+- **`_safe_run` returns bool** — done-flags must be conditional: `if self._safe_run(...): self._done = True`. Never set a done-flag unconditionally after `_safe_run`.
+- **Backoff is per-task** — the `_backoff` dict in `WatchLoop` keys by task name. A failure in one task never delays an unrelated task.
+
 ## Architecture Quick Ref
 
 - **Backend**: Python 3.12, FastAPI, SQLite (raw sqlite3, no ORM)
