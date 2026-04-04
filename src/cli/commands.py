@@ -770,14 +770,14 @@ def cmd_check_leakage(args):
 def cmd_halt_trading(args):
     from src.risk.governor import _global_halt
 
-    _global_halt(True)
+    _global_halt(True, source="cli", reason="manual halt via halt-trading command")
     print("[RISK] All trading halted. Use 'resume-trading' to resume.")
 
 
 def cmd_resume_trading(args):
     from src.risk.governor import _global_halt
 
-    _global_halt(False)
+    _global_halt(False, source="cli", reason="manual resume via resume-trading command")
     print("[RISK] Trading resumed.")
 
 

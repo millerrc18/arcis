@@ -276,7 +276,7 @@ def check_escalation(audit: dict, db_path: str = DB_PATH) -> list[dict]:
             else:
                 # Production mode — halt trading
                 from src.risk.governor import _global_halt
-                _global_halt(True)
+                _global_halt(True, source="auditor", reason=flag.get("description", "critical audit flag"))
                 logger.critical("[AUDIT] CRITICAL flag — trading halted: %s", flag.get("description"))
 
                 actions.append({

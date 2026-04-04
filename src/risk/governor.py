@@ -11,10 +11,16 @@ It cannot be overridden by the trading logic. If any limit is
 breached, the trade is rejected with an explanation.
 """
 
+import json
 import logging
+import os
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH, load_config
+
+_ET = ZoneInfo("America/New_York")
 
 logger = logging.getLogger(__name__)
 
@@ -37,19 +43,73 @@ def _get_halt_path() -> Path:
     return Path(configured or _DEFAULT_HALT_FILE)
 
 
-def _global_halt(halt: bool):
-    """Set or clear the global trading halt. Uses a file flag so it persists across restarts."""
+def _global_halt(halt: bool, source: str = "unknown", reason: str = ""):
+    """Set or clear the global trading halt atomically.
+
+    Uses atomic file rename (os.replace) so the halt file is never
+    partially written. Writes JSON with timestamp for staleness checks.
+    """
     halt_path = _get_halt_path()
     if halt:
         halt_path.parent.mkdir(parents=True, exist_ok=True)
-        halt_path.touch()
+        data = {
+            "halted_at": datetime.now(_ET).isoformat(),
+            "source": source,
+            "reason": reason,
+        }
+        tmp_path = str(halt_path) + ".tmp"
+        with open(tmp_path, "w") as f:
+            json.dump(data, f)
+        os.replace(tmp_path, str(halt_path))
+        logger.warning("[RISK] Trading HALTED by %s: %s", source, reason)
+        _log_halt_event("halt", source, reason)
     else:
-        halt_path.unlink(missing_ok=True)
+        if halt_path.exists():
+            halt_path.unlink(missing_ok=True)
+        logger.warning("[RISK] Trading RESUMED")
+        _log_halt_event("resume", source, reason)
 
 
 def _is_halted() -> bool:
-    """Check if trading is globally halted."""
-    return _get_halt_path().exists()
+    """Check if trading is globally halted. Warns if halt file is stale (>48h)."""
+    halt_path = _get_halt_path()
+    if not halt_path.exists():
+        return False
+    try:
+        data = json.loads(halt_path.read_text())
+        halted_at = datetime.fromisoformat(data["halted_at"])
+        age_hours = (datetime.now(_ET) - halted_at).total_seconds() / 3600
+        if age_hours > 48:
+            logger.warning(
+                "[RISK] Stale halt file detected (%.0fh old) — still honoring halt. "
+                "Resume trading explicitly if this is unintended.", age_hours
+            )
+    except (json.JSONDecodeError, KeyError, ValueError):
+        logger.warning("[RISK] Halt file exists but unreadable — honoring halt")
+    return True
+
+
+def _halt_info() -> dict | None:
+    """Return halt metadata (timestamp, source, reason) or None if not halted."""
+    halt_path = _get_halt_path()
+    if not halt_path.exists():
+        return None
+    try:
+        return json.loads(halt_path.read_text())
+    except (json.JSONDecodeError, ValueError):
+        return {"halted_at": "unknown", "source": "unknown", "reason": ""}
+
+
+def _log_halt_event(event_type: str, source: str, reason: str):
+    """Log halt/resume to activity_log for audit trail."""
+    try:
+        from src.utils.activity_logger import log_activity
+        log_activity(
+            f"kill_switch_{event_type}",
+            f"source={source}, reason={reason}",
+        )
+    except Exception as exc:
+        logger.warning("[RISK] Failed to log halt event: %s", exc)
 
 
 def drawdown_adjusted_risk(base_risk_pct: float, current_dd_pct: float,
