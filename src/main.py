@@ -8,6 +8,10 @@ Tests: tests/test_live_trading.py, tests/test_main_refactor.py
 """
 
 import argparse
+import warnings
+
+warnings.filterwarnings("ignore", message=".*utcnow.*deprecated.*")
+warnings.filterwarnings("ignore", message=".*Timestamp.utcnow.*")
 
 from dotenv import load_dotenv
 
