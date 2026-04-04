@@ -5,6 +5,18 @@
 > **Prerequisites:** IB account approved (paper + live), IB Gateway installed on Windows
 > **Tag as part of the next minor release after bug bash.**
 
+> ⚠️ **IMPORTANT: Wire to IB PAPER first (port 4002), NOT live.** Set `live_trading.ib.port: 4002` in the config. We're validating the integration before touching real money. Do NOT use port 4001 until explicitly told to switch.
+
+> 💡 **Why this sprint exists:** IBKR's PortfolioAnalyst provides GIPS-verified returns — the gold standard for institutional track record credibility. Alpaca has no equivalent. Every month of verified IB track record is a month closer to being fundable. This is explicitly called out in our fund formation research as one of the "5 things to do right now."
+
+> 💡 **Why a broker abstraction (not just adding IB calls):** The executor currently has 15+ direct imports from `alpaca_adapter.py`. If we just add IB calls next to them, every trade path becomes an if/else nightmare. The abstraction means:
+> - Adding a third broker later (e.g., Tradier, Schwab API) is one new file, not 15 edits
+> - The executor doesn't know or care which broker is active — it calls `broker.place_bracket_order()` 
+> - Paper trading stays completely untouched (no abstraction needed — Alpaca direct is fine for paper)
+> - Config-driven switching: change one YAML field, restart, done
+
+> 💡 **Why paper trading doesn't change:** The Alpaca paper account ($100K) is accumulating trades toward the Phase 1 gate (50 trades). It works perfectly. Adding an abstraction layer there is unnecessary risk for zero benefit. Only the LIVE trading path (currently $100 on Alpaca live) routes through the broker factory.
+
 ---
 
 ## Context
@@ -35,6 +47,21 @@ The Alpaca paper account continues accumulating trades toward the Phase 1 gate. 
 
 ## Task 1: Install IB Gateway and ib_async
 
+<!-- 
+WHY IB Gateway (not TWS): Gateway is headless, uses ~200MB RAM vs TWS's 1.5GB.
+Designed for automated systems that don't need the GUI. We're running this
+alongside Ollama, Render sync, and 12 overnight collectors — RAM matters.
+
+WHY ib_async (not ib_insync): The original library creator Ewald de Wit passed 
+away in early 2024. The community forked it as ib_async under a new GitHub org.
+Same API, actively maintained. ib_insync is frozen at v0.9.86 with no security 
+patches. DO NOT use ib_insync — it's abandoned.
+
+WHY NOT the native ibapi package: IB's official Python API uses callbacks and 
+threading — it's notoriously difficult to work with. ib_async wraps it in clean 
+sync/async patterns that match our existing code style.
+-->
+
 **IB Gateway** is the headless version of TWS — no GUI, lower memory, designed for always-on automated systems. Ryan needs to install this on his Windows machine.
 
 **Manual step (Ryan does this, not CC):**
@@ -55,6 +82,27 @@ pip install ib_async --break-system-packages
 ---
 
 ## Task 2: Create the Broker Interface
+
+<!--
+WHY an abstract base class: This is the Strategy Pattern. The executor talks
+to a BrokerAdapter interface, not a specific broker. Swapping brokers is a
+config change, not a code change. This matters because:
+1. We'll test on IB paper (4002) before going live (4001) — same code, different port
+2. If IB Gateway crashes mid-day, we can fall back to Alpaca live with one config edit
+3. Future brokers (Tradier, Schwab) are one new file implementing the same 10 methods
+4. The executor's 1,400 lines of trade logic don't need to know which broker is active
+
+WHY these specific 10 methods: They're the exact operations the executor already
+performs via alpaca_adapter.py. I audited every import from alpaca_adapter in
+executor.py, risk/governor.py, services/shadow_service.py, etc. These 10 cover
+100% of live trading interactions.
+
+WHY normalized dataclasses (BrokerOrder, BrokerAccount, BrokerPosition): 
+Alpaca returns alpaca-trade-api objects with Alpaca-specific field names.
+IB returns ib_async objects with completely different field names. The 
+normalized dataclasses mean the executor never deals with broker-specific 
+types — it always gets the same fields regardless of broker.
+-->
 
 **File:** `src/trading/__init__.py` (new directory)
 **File:** `src/trading/broker_interface.py` (new file)
@@ -184,6 +232,20 @@ class BrokerAdapter(ABC):
 
 ## Task 3: Wrap Existing Alpaca Adapter
 
+<!--
+WHY a wrapper instead of rewriting: alpaca_adapter.py is 548 lines of battle-tested
+code that handles edge cases (fractional shares, GTC expiry, order rejection, 
+notional orders). Rewriting it would introduce bugs. The AlpacaLiveBroker wrapper
+is a thin translation layer — each method is 5-10 lines that call the existing
+function and normalize the return type. Zero behavior change.
+
+WHY keep the original alpaca_adapter.py: Paper trading continues calling it 
+directly. The wrapper only exists for the live trading path through the broker 
+factory. Two call paths:
+  Paper: executor → alpaca_adapter.place_bracket_order() (direct, unchanged)
+  Live:  executor → broker_factory → AlpacaLiveBroker → alpaca_adapter.place_live_entry()
+-->
+
 **File:** `src/trading/alpaca_broker.py` (new file)
 
 Wrap the existing `alpaca_adapter.py` functions into the `BrokerAdapter` interface. This is a thin wrapper — don't rewrite alpaca_adapter.py, just delegate to it:
@@ -223,6 +285,42 @@ class AlpacaLiveBroker(BrokerAdapter):
 ---
 
 ## Task 4: Create the IB Adapter
+
+<!--
+WHY lazy connection: The IB Gateway might not be running when the watch loop
+starts (e.g., on weekends when IB servers are down, or during daily reset at
+11:45 PM ET). Lazy connection means we only connect when the first live trade
+fires — not at startup. If Gateway isn't available, paper trading continues
+normally. Live trades log a warning and are skipped.
+
+WHY self._ib.sleep() instead of time.sleep(): This is the #1 IB API gotcha.
+ib_async runs its own asyncio event loop. time.sleep() blocks that loop,
+meaning order fills never arrive — the connection hangs. self._ib.sleep()
+keeps the IB event loop spinning while waiting, allowing fills, heartbeats,
+and disconnection events to be processed. NEVER use time.sleep() in any
+method that touches self._ib.
+
+WHY GTC on all orders: Our trades hold for 1-15 days. DAY orders expire at
+market close, which would leave us with unprotected positions overnight.
+GTC (Good Till Cancel) keeps stops and targets active across sessions.
+This matches our Alpaca behavior exactly.
+
+WHY bracketOrder() returns 3 orders: IB doesn't have a single "bracket order"
+concept like Alpaca. Instead, you submit 3 linked orders:
+  1. Parent: the entry order (market or limit buy)
+  2. Take-profit: a limit sell at target price (child of parent)
+  3. Stop-loss: a stop sell at stop price (child of parent)
+All 3 are in an OCA (One Cancels All) group — when one child fills, the
+other is automatically cancelled. This is functionally identical to Alpaca's
+bracket orders but requires placing 3 orders instead of 1.
+
+WHY pacing matters: IB disconnects clients that send >50 messages/second or
+>10 identical requests in 1 second. Our scan cycle evaluates 100 tickers but
+only trades 1-3 — so we're well under the limit. But if the position monitor
+checks prices for 37 open positions every 15 minutes, each requiring a market
+data request, we could hit pacing on the check_all_positions path. Use batch
+requests or limit concurrent price checks to 5-10 per cycle.
+-->
 
 **File:** `src/trading/ib_broker.py` (new file)
 
@@ -481,6 +579,21 @@ class IBBroker(BrokerAdapter):
 
 ## Task 5: Broker Factory
 
+<!--
+WHY singleton pattern: IB Gateway supports a limited number of concurrent 
+connections (typically 8). Each IBBroker() that connects consumes one slot.
+If we create a new IBBroker for every trade, we'd exhaust connections during
+a busy scan cycle. The singleton ensures one connection is reused across all
+calls. If the connection drops, the factory detects it and reconnects.
+
+WHY config-driven: The executor never knows which broker is active.
+  config: live_trading.broker = "ib"    → IBBroker
+  config: live_trading.broker = "alpaca" → AlpacaLiveBroker
+  config: live_trading.broker omitted   → AlpacaLiveBroker (backward compatible)
+Switching from IB paper to IB live is just changing the port: 4002 → 4001.
+Falling back to Alpaca live is changing "ib" → "alpaca". Both are YAML edits.
+-->
+
 **File:** `src/trading/broker_factory.py` (new file)
 
 Simple factory that returns the right broker based on config:
@@ -541,6 +654,23 @@ def get_live_broker(config: dict) -> BrokerAdapter:
 ---
 
 ## Task 6: Wire Into Executor
+
+<!--
+WHY only 3 touch points in executor.py: The live trading path has exactly 3
+places that call alpaca_adapter directly:
+  1. Live entry (line ~1060): place_live_entry()
+  2. Live exit (line ~59): place_live_exit()
+  3. Live account info (line ~913): get_live_account_info()
+
+Everything else (paper entry, paper exit, paper positions, bracket orders for 
+paper) stays on alpaca_adapter.py direct calls. This is a surgical change —
+we're replacing 3 import lines, not rewriting the executor.
+
+WHY trade_data["broker"] = order.broker: We need to know which broker executed
+each trade for reconciliation. A trade executed on IB needs to be reconciled
+against IB positions, not Alpaca positions. The broker column also appears
+in the dashboard so you can see "this trade ran on IB" vs "this trade ran on Alpaca."
+-->
 
 **File:** `src/shadow_trading/executor.py`
 
@@ -637,6 +767,23 @@ live_trading:
 
 ## Task 8: IB Connection Health Check
 
+<!--
+WHY Telegram alert on disconnect: IB Gateway disconnects daily at ~11:45 PM ET
+for server reset and reconnects at ~12:15 AM. That's expected. But a disconnect
+at 10:30 AM during market hours means live trades can't execute — that's an
+emergency. The alert fires ONLY during market hours (9:30 AM - 4:00 PM ET Mon-Fri).
+
+WHY auto-reconnect: The _ensure_connected() method is called before every
+operation. If the connection dropped (Gateway restart, network blip), it
+transparently reconnects. The caller never knows — they just see a slightly
+slower response on the first call after reconnect.
+
+WHY this matters: Without health monitoring, a disconnected IB Gateway means
+the system silently stops executing live trades while paper trades continue.
+You'd only notice when checking the dashboard hours later. The Telegram alert
+catches it within 5 minutes.
+-->
+
 **File:** `src/trading/ib_broker.py` — add to IBBroker class
 **File:** `src/scheduler/watch.py` — add to startup and heartbeat
 
@@ -675,6 +822,17 @@ if live_broker == "ib" and not broker.is_connected():
 ---
 
 ## Task 9: Add broker Column to shadow_trades
+
+<!--
+WHY a column, not just logging: The reconciler needs to know which broker holds
+each position. When reconciling, an IB trade checks IB positions, an Alpaca
+trade checks Alpaca positions. Without the column, reconciliation would need
+to check BOTH brokers for EVERY trade — slow and error-prone.
+
+WHY default "alpaca": All 18+ existing trades were executed on Alpaca. The
+default ensures they don't need a backfill migration. New IB trades get
+"ib" set explicitly in the executor. Backward compatible by construction.
+-->
 
 **File:** `src/schema/registry.py`
 
@@ -722,6 +880,27 @@ or
 
 ## Task 11: Tests
 
+<!--
+WHY mock-only tests: IB Gateway is a desktop application running on Ryan's
+Windows machine. CI runs on GitHub Actions (Ubuntu). There's no way to connect
+to a real Gateway from CI. All IB-specific behavior must be verified through
+mocked calls.
+
+WHAT to test without a real connection:
+- Dataclass construction (BrokerOrder, BrokerAccount, BrokerPosition)
+- Interface compliance (both adapters implement all 10 abstract methods)
+- Factory routing (config "ib" → IBBroker, config "alpaca" → AlpacaLiveBroker)
+- Connection failure handling (_ensure_connected raises on no gateway)
+- Contract construction (_make_contract returns correct Stock("AAPL", "SMART", "USD"))
+
+WHAT to test manually (Ryan, after deploy):
+- Real Gateway connection on port 4002 (paper)
+- Account summary retrieval
+- Place + cancel a bracket order on a cheap stock
+- Fill detection (does status update after fill?)
+- Position listing
+-->
+
 **File:** `tests/test_broker_interface.py` (new)
 **File:** `tests/test_ib_broker.py` (new)
 
@@ -746,6 +925,20 @@ Write tests that DON'T require a live IB Gateway connection:
 ---
 
 ## Task 12: Reconciliation Awareness
+
+<!--
+WHY reconciliation must be broker-aware: The reconciler compares our SQLite
+shadow_trades records against the broker's actual positions. If a trade was
+executed on IB but we check Alpaca positions, the reconciler thinks the
+position is missing and marks it "reconciled_stale" — closing a perfectly
+good live trade. The broker column prevents this by routing each trade's
+reconciliation to the correct broker.
+
+EDGE CASE: If IB Gateway is disconnected during reconciliation, IB trades
+should be SKIPPED (not marked stale). The reconciler should log a warning
+and retry next cycle. Only mark a trade stale after the broker confirms
+the position is gone.
+-->
 
 **File:** `src/shadow_trading/reconcile.py`
 
