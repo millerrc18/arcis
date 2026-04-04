@@ -36,6 +36,13 @@ DIAGNOSTIC_TABLES = tuple(SYNC_TABLES.keys())
 
 API_SECRET = os.environ.get("API_SECRET", "")
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
+CORS_ORIGINS = [
+    o.strip()
+    for o in os.environ.get(
+        "CORS_ORIGINS", "https://halcyonlab.onrender.com"
+    ).split(",")
+    if o.strip()
+]
 security = HTTPBearer(auto_error=False)
 
 # user_notes table DDL is driven by the schema registry (see src/schema/registry.py)
@@ -54,7 +61,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],

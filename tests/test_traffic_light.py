@@ -9,6 +9,7 @@ from src.features.traffic_light import (
     _classify_vix, _classify_trend, _classify_credit,
     _score_to_regime, compute_traffic_light,
 )
+from src.journal.store import initialize_database
 
 
 class TestVIXClassifier:
@@ -84,6 +85,7 @@ class TestComputeTrafficLight:
 
     def test_persistence_filter(self, tmp_path):
         db = str(tmp_path / "tl.sqlite3")
+        initialize_database(db)
         # Create a bearish SPY (below 200-DMA) to push trend score to 2
         dates = pd.date_range("2025-01-01", periods=250)
         prices = pd.Series(

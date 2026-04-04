@@ -283,7 +283,8 @@ def get_position(ticker: str) -> dict | None:
             "unrealized_pl": float(pos.unrealized_pl),
             "unrealized_plpc": float(pos.unrealized_plpc),
         }
-    except Exception:
+    except Exception as exc:
+        logger.warning("[ALPACA] Failed to get position for %s: %s", ticker, exc)
         return None
 
 

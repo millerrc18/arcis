@@ -341,7 +341,8 @@ def open_shadow_trade(
     try:
         open_count = len(get_open_shadow_trades(db_path))
         trade_data["concurrent_positions"] = open_count
-    except Exception:
+    except Exception as exc:
+        logger.warning("[ENTRY] Failed to count open positions: %s", exc)
         trade_data["concurrent_positions"] = 0
     try:
         import sqlite3 as _sq3
@@ -350,7 +351,8 @@ def open_shadow_trade(
                 "SELECT vix FROM vix_term_structure ORDER BY collected_date DESC LIMIT 1"
             ).fetchone()
             trade_data["vix_at_entry"] = float(_vr[0]) if _vr else None
-    except Exception:
+    except Exception as exc:
+        logger.warning("[ENTRY] Failed to fetch VIX at entry: %s", exc)
         trade_data["vix_at_entry"] = None
 
     # Slippage tracking: signal price vs fill price
@@ -732,8 +734,8 @@ def check_and_manage_open_trades(
                         send_telegram(
                             f"⚠️ Exit order FAILED for {ticker} — will retry next cycle"
                         )
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.warning("[EXIT] Telegram notification failed for %s: %s", ticker, exc)
                     continue
 
             pnl_dollars = (current_price - entry_price) * shares
