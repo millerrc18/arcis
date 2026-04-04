@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from src.config import DB_PATH
+from src.utils.retry import retry_with_backoff
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -89,24 +90,38 @@ def collect_analyst_estimates(
             try:
                 # Fetch recommendations
                 finnhub_headers = {"X-Finnhub-Token": api_key}
-                rec_resp = requests.get(
-                    f"{FINNHUB_BASE}/stock/recommendation",
-                    params={"symbol": ticker},
-                    headers=finnhub_headers,
-                    timeout=15,
+                rec_resp = retry_with_backoff(
+                    lambda: requests.get(
+                        f"{FINNHUB_BASE}/stock/recommendation",
+                        params={"symbol": ticker},
+                        headers=finnhub_headers,
+                        timeout=15,
+                    ),
+                    max_retries=3, base_delay=2.0,
+                    exceptions=(requests.RequestException, ConnectionError, OSError),
                 )
+                if rec_resp is None:
+                    logger.warning("[ANALYST] Failed to fetch recommendations for %s after retries", ticker)
+                    continue
                 rec_resp.raise_for_status()
                 recs = rec_resp.json()
 
                 time.sleep(0.5)  # Rate limit between calls
 
                 # Fetch price targets
-                pt_resp = requests.get(
-                    f"{FINNHUB_BASE}/stock/price-target",
-                    params={"symbol": ticker},
-                    headers=finnhub_headers,
-                    timeout=15,
+                pt_resp = retry_with_backoff(
+                    lambda: requests.get(
+                        f"{FINNHUB_BASE}/stock/price-target",
+                        params={"symbol": ticker},
+                        headers=finnhub_headers,
+                        timeout=15,
+                    ),
+                    max_retries=3, base_delay=2.0,
+                    exceptions=(requests.RequestException, ConnectionError, OSError),
                 )
+                if pt_resp is None:
+                    logger.warning("[ANALYST] Failed to fetch price targets for %s after retries", ticker)
+                    continue
                 pt_resp.raise_for_status()
                 pt = pt_resp.json()
 

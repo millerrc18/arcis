@@ -20,6 +20,8 @@ from pathlib import Path
 
 import requests
 
+from src.utils.retry import retry_with_backoff
+
 logger = logging.getLogger(__name__)
 
 CACHE_DIR = Path(".cache/fundamentals")
@@ -68,12 +70,15 @@ def _get_cik(ticker: str) -> str | None:
         return _cik_cache[ticker]
 
     # Load the full ticker -> CIK map from SEC
+    resp = retry_with_backoff(
+        lambda: requests.get(SEC_TICKERS_URL, headers={"User-Agent": SEC_USER_AGENT}, timeout=10),
+        max_retries=3, base_delay=2.0,
+        exceptions=(requests.RequestException, ConnectionError, OSError),
+    )
+    if resp is None:
+        logger.warning("Failed to fetch SEC ticker map after retries")
+        return None
     try:
-        resp = requests.get(
-            SEC_TICKERS_URL,
-            headers={"User-Agent": SEC_USER_AGENT},
-            timeout=10,
-        )
         resp.raise_for_status()
         data = resp.json()
         for entry in data.values():
@@ -90,12 +95,15 @@ def _get_cik(ticker: str) -> str | None:
 def _fetch_concept(cik: str, concept: str) -> dict | None:
     """Fetch a single XBRL concept from SEC EDGAR."""
     url = f"{SEC_BASE}/CIK{cik}/us-gaap/{concept}.json"
+    resp = retry_with_backoff(
+        lambda: requests.get(url, headers={"User-Agent": SEC_USER_AGENT}, timeout=15),
+        max_retries=3, base_delay=2.0,
+        exceptions=(requests.RequestException, ConnectionError, OSError),
+    )
+    if resp is None:
+        logger.debug("Failed to fetch %s for CIK %s after retries", concept, cik)
+        return None
     try:
-        resp = requests.get(
-            url,
-            headers={"User-Agent": SEC_USER_AGENT},
-            timeout=15,
-        )
         if resp.status_code == 404:
             return None
         resp.raise_for_status()

@@ -19,6 +19,8 @@ from pathlib import Path
 
 import requests
 
+from src.utils.retry import retry_with_backoff
+
 logger = logging.getLogger(__name__)
 
 CACHE_DIR = Path(".cache/news")
@@ -129,15 +131,22 @@ def fetch_recent_news(ticker: str, lookback_days: int = 7,
     }
     headers = {"X-Finnhub-Token": finnhub_api_key}
 
+    resp = retry_with_backoff(
+        lambda: requests.get(url, params=params, headers=headers, timeout=15),
+        max_retries=3, base_delay=2.0,
+        exceptions=(requests.RequestException, ConnectionError, OSError),
+    )
+    if resp is None:
+        logger.debug("Finnhub news request failed for %s after retries", ticker)
+        return None
     try:
-        resp = requests.get(url, params=params, headers=headers, timeout=15)
         resp.raise_for_status()
         articles = resp.json()
     except Exception as e:
         logger.debug("Finnhub news request failed for %s: %s", ticker, e)
         return None
 
-    # Rate limit â€” shared with insider fetcher (Finnhub 60/min)
+    # Rate limit — shared with insider fetcher (Finnhub 60/min)
     time.sleep(1.0)
 
     if not articles:
@@ -220,8 +229,16 @@ def fetch_historical_news(ticker: str, as_of_date: str, lookback_days: int = 7,
     }
     headers = {"X-Finnhub-Token": finnhub_api_key}
 
+    resp = retry_with_backoff(
+        lambda: requests.get(url, params=params, headers=headers, timeout=15),
+        max_retries=3, base_delay=2.0,
+        exceptions=(requests.RequestException, ConnectionError, OSError),
+    )
+    if resp is None:
+        logger.debug("Finnhub historical news request failed for %s on %s after retries",
+                     ticker, as_of_date)
+        return None
     try:
-        resp = requests.get(url, params=params, headers=headers, timeout=15)
         resp.raise_for_status()
         articles = resp.json()
     except Exception as e:

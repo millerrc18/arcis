@@ -90,9 +90,10 @@ def test_historical_news_date_bounds():
 
 @patch("src.data_enrichment.news.requests.get")
 def test_fetch_recent_news_api_failure(mock_get):
+    import requests as req_lib
     from src.data_enrichment.news import fetch_recent_news
 
-    mock_get.side_effect = Exception("Connection error")
+    mock_get.side_effect = req_lib.RequestException("Connection error")
     result = fetch_recent_news("AAPL", finnhub_api_key="test_key", cache_hours=0)
     assert result is None
 
