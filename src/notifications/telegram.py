@@ -1144,20 +1144,8 @@ def _cmd_council(question: str = "") -> str:
     runs a strategic session. Otherwise runs a daily tactical session.
     """
     try:
-        from src.council.engine import CouncilEngine
-        engine = CouncilEngine()
-
-        if question.strip():
-            result = engine.run_session(
-                session_type="strategic",
-                trigger_reason=question.strip(),
-                custom_question=question.strip(),
-            )
-        else:
-            result = engine.run_session(
-                session_type="daily",
-                trigger_reason="Telegram /council command",
-            )
+        from src.council.engine import run_council_command
+        result = run_council_command(question)
     except Exception as e:
         return f"❌ Council session failed: {str(e)[:200]}"
 

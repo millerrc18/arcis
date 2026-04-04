@@ -47,8 +47,8 @@ def _estimate_exit_pnl(ticker, entry_px, shares):
             pnl = round((exit_price - entry_px) * shares, 2)
             pct = round((exit_price - entry_px) / entry_px * 100, 2)
             return exit_price, pnl, pct
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("[RECONCILE] Failed to estimate exit PnL for %s: %s", ticker, exc)
     return 0.0, 0.0, 0.0
 
 
@@ -133,8 +133,8 @@ def reconcile_live_trades(
                     sh = float(row["planned_shares"] or 1)
                     if ep > 0:
                         exit_price, pnl_dollars, pnl_pct = _estimate_exit_pnl(ticker, ep, sh)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("[RECONCILE] Failed to compute PnL for stale trade %s: %s", trade_id, exc)
 
             close_shadow_trade(
                 trade_id=trade_id,
