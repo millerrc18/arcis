@@ -228,6 +228,17 @@ def _upsert_to_postgres(
 
     conflict_target = conflict_col or pk
 
+    # Filter out rows with NULL primary key — these would fail Postgres NOT NULL
+    # constraint and indicate incomplete data in SQLite (#243).
+    if pk in columns:
+        before = len(rows)
+        rows = [r for r in rows if r.get(pk) is not None]
+        skipped = before - len(rows)
+        if skipped:
+            logger.warning("Skipped %d rows with NULL %s in %s", skipped, pk, table_name)
+        if not rows:
+            return 0
+
     # For tables with SERIAL 'id' pk, exclude 'id' from INSERT to let
     # Postgres auto-generate — SQLite rowids and Postgres SERIAL values diverge.
     strip_id = pk == "id"
@@ -291,12 +302,11 @@ def _replace_latest_in_postgres(
     columns: list[str],
     rows: list[dict],
 ) -> int:
-    """For latest-only tables: atomically replace snapshot data for a date.
+    """For latest-only tables: delete old data for the date, insert fresh.
 
-    Uses INSERT-then-DELETE within a single transaction to avoid the race
-    condition where a crash between DELETE and INSERT would lose data (#229).
-    A staging column (_sync_batch) distinguishes new rows from old; old rows
-    are removed only after new rows are safely inserted.
+    Uses a savepoint so that if INSERT fails after DELETE, the entire
+    operation rolls back (no data loss). The DELETE + INSERT are within a
+    single transaction — both succeed or neither does (#229).
 
     Excludes 'id' column from INSERT to let Postgres SERIAL generate new ids,
     avoiding pkey collisions between SQLite rowids and Postgres SERIAL values.
@@ -313,43 +323,31 @@ def _replace_latest_in_postgres(
 
     cursor = pg_conn.cursor()
     try:
-        # Step 1: INSERT new rows first (data is safe before we delete anything)
+        # Savepoint protects against partial failure: if INSERT fails,
+        # the DELETE is also rolled back — no data loss window.
+        cursor.execute("SAVEPOINT sync_replace")
+
+        cursor.execute(
+            f"DELETE FROM {table_name} WHERE {time_col} = %s",
+            (latest_date,),
+        )
+
         col_list = ", ".join(insert_cols)
         placeholders = ", ".join(["%s"] * len(insert_cols))
         sql = f"INSERT INTO {table_name} ({col_list}) VALUES ({placeholders})"
 
-        new_ids = []
         for row in rows:
             values = [row.get(col) for col in insert_cols]
-            cursor.execute(sql + " RETURNING id", values)
-            result = cursor.fetchone()
-            if result:
-                new_ids.append(result[0])
+            cursor.execute(sql, values)
 
-        # Step 2: DELETE old rows for this date (excluding newly inserted ones)
-        if new_ids:
-            cursor.execute(
-                f"DELETE FROM {table_name} WHERE {time_col} = %s AND id != ALL(%s)",
-                (latest_date, new_ids),
-            )
-        else:
-            # Fallback if RETURNING not available: delete rows for this date
-            # that were there before our insert (by count comparison)
-            cursor.execute(
-                f"DELETE FROM {table_name} WHERE {time_col} = %s",
-                (latest_date,),
-            )
-            # Re-insert (original pattern as fallback)
-            for row in rows:
-                values = [row.get(col) for col in insert_cols]
-                cursor.execute(
-                    f"INSERT INTO {table_name} ({col_list}) VALUES ({placeholders})",
-                    values,
-                )
-
+        cursor.execute("RELEASE SAVEPOINT sync_replace")
         pg_conn.commit()
         return len(rows)
     except Exception as exc:
+        try:
+            cursor.execute("ROLLBACK TO SAVEPOINT sync_replace")
+        except Exception:
+            pass
         pg_conn.rollback()
         logger.error("Postgres replace failed for %s: %s", table_name, exc)
         raise

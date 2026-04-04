@@ -70,9 +70,9 @@ def generate_training_report(db_path: str = DB_PATH) -> str:
     for v in history:
         name = v["version_name"]
         trained = v["created_at"][:10]
-        examples = v.get("training_examples_count") or 0
+        examples = int(v.get("training_examples_count") or 0)
         p = perf_map.get(name, {})
-        trades = p.get("trade_count", 0)
+        trades = int(p.get("trade_count", 0) or 0)
         wr = f"{p['win_rate']:.1f}%" if trades > 0 else "n/a"
         exp = f"${p['expectancy']:+.2f}" if trades > 0 and p.get("expectancy") is not None else "n/a"
         lines.append(f"  {name:<14s} {trained:<12s} {examples:>8d}  {trades:>6d}  {wr:>8s}  {exp:>10s}")
