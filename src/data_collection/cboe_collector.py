@@ -11,6 +11,7 @@ Uses yfinance for CBOE P/C ratio proxy data.
 """
 
 import logging
+import os
 import sqlite3
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -45,7 +46,7 @@ def _fetch_cboe_pc_ratio() -> dict:
             if parsed is not None:
                 return parsed
     except Exception as e:
-        logger.debug("[CBOE] Website fetch failed: %s", e)
+        logger.warning("[CBOE] Website fetch failed: %s", e)
 
     # Approach 2: Use yfinance SPY options as proxy
     try:
@@ -54,16 +55,49 @@ def _fetch_cboe_pc_ratio() -> dict:
         exps = spy.options
         if exps:
             chain = spy.option_chain(exps[0])
-            call_vol = int(chain.calls["volume"].sum()) if not chain.calls.empty else 0
-            put_vol = int(chain.puts["volume"].sum()) if not chain.puts.empty else 0
+            call_vol = chain.calls["volume"].dropna().sum()
+            put_vol = chain.puts["volume"].dropna().sum()
+            call_vol = int(call_vol) if call_vol > 0 else 0
+            put_vol = int(put_vol) if put_vol > 0 else 0
             if call_vol > 0:
+                ratio = round(put_vol / call_vol, 4)
+                logger.info("[CBOE] SPY proxy P/C ratio: %.4f (put_vol=%d, call_vol=%d)", ratio, put_vol, call_vol)
                 return {
-                    "equity_pc_ratio": round(put_vol / call_vol, 4),
+                    "equity_pc_ratio": ratio,
                     "index_pc_ratio": None,
-                    "total_pc_ratio": round(put_vol / call_vol, 4),
+                    "total_pc_ratio": ratio,
                 }
+            else:
+                logger.warning("[CBOE] SPY call volume is 0 — cannot compute ratio")
     except Exception as e:
-        logger.debug("[CBOE] SPY proxy failed: %s", e)
+        logger.warning("[CBOE] SPY proxy failed: %s", e)
+
+    # Approach 3: FRED CBOE P/C ratio (series EQUITYPCRATIO)
+    try:
+        import requests as _req
+        fred_key = os.environ.get("FRED_API_KEY")
+        if fred_key:
+            url = "https://api.stlouisfed.org/fred/series/observations"
+            params = {
+                "series_id": "EQUITYPCRATIO",
+                "api_key": fred_key,
+                "file_type": "json",
+                "sort_order": "desc",
+                "limit": 1,
+            }
+            resp = _req.get(url, params=params, timeout=10)
+            if resp.status_code == 200:
+                obs = resp.json().get("observations", [])
+                if obs and obs[0].get("value") != ".":
+                    ratio = float(obs[0]["value"])
+                    logger.info("[CBOE] FRED P/C ratio: %.4f (date=%s)", ratio, obs[0].get("date"))
+                    return {
+                        "equity_pc_ratio": ratio,
+                        "index_pc_ratio": None,
+                        "total_pc_ratio": None,
+                    }
+    except Exception as e:
+        logger.warning("[CBOE] FRED fallback failed: %s", e)
 
     return {"equity_pc_ratio": None, "index_pc_ratio": None, "total_pc_ratio": None}
 
