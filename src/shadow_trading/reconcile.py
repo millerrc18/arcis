@@ -24,6 +24,12 @@ logger = logging.getLogger(__name__)
 
 def _backfill_trade_data(ticker, entry_price, qty, allocation, source, now):
     """Build a trade_data dict for backfilling an orphaned position."""
+    if qty <= 0:
+        logger.warning(
+            "[RECONCILE] Rejecting backfill for %s: qty=%s (long-only system)",
+            ticker, qty,
+        )
+        return None
     return {
         "trade_id": str(uuid4()), "ticker": ticker,
         "direction": "long", "status": "open", "source": source,
@@ -106,6 +112,8 @@ def reconcile_live_trades(
                 ticker, entry_px, qty,
                 float(pos.get("market_value", 0)), "live", now,
             )
+            if trade_data is None:
+                continue
             insert_shadow_trade(trade_data, db_path)
             backfilled.append(ticker)
             logger.info(
@@ -262,6 +270,8 @@ def reconcile_paper_trades(
                 orph["ticker"], orph["avg_price"], orph["qty"],
                 orph["qty"] * orph["avg_price"], "paper", now,
             )
+            if trade_data is None:
+                continue
             insert_shadow_trade(trade_data, db_path)
             backfilled.append(orph["ticker"])
             logger.info(

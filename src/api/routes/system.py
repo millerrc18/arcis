@@ -119,7 +119,7 @@ def api_costs(days: int = 30):
 def halt_trading():
     """Emergency halt — stops all new trade entry immediately."""
     from src.risk.governor import _global_halt
-    _global_halt(True)
+    _global_halt(True, source="api", reason="manual halt via /halt-trading")
     return {"status": "halted", "message": "All trading halted. No new positions will be opened."}
 
 
@@ -127,7 +127,7 @@ def halt_trading():
 def resume_trading():
     """Resume trading after a halt."""
     from src.risk.governor import _global_halt
-    _global_halt(False)
+    _global_halt(False, source="api", reason="manual resume via /resume-trading")
     return {"status": "resumed", "message": "Trading resumed."}
 
 

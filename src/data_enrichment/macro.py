@@ -18,6 +18,8 @@ from pathlib import Path
 
 import requests
 
+from src.utils.retry import retry_with_backoff
+
 logger = logging.getLogger(__name__)
 
 CACHE_DIR = Path(".cache/macro")
@@ -71,8 +73,15 @@ def _fetch_series(series_id: str, api_key: str, limit: int = 1) -> float | None:
         "limit": limit,
         "file_type": "json",
     }
+    resp = retry_with_backoff(
+        lambda: requests.get(FRED_BASE, params=params, timeout=15),
+        max_retries=3, base_delay=2.0,
+        exceptions=(requests.RequestException, ConnectionError, OSError),
+    )
+    if resp is None:
+        logger.debug("Failed to fetch FRED series %s after retries", series_id)
+        return None
     try:
-        resp = requests.get(FRED_BASE, params=params, timeout=15)
         resp.raise_for_status()
         data = resp.json()
         observations = data.get("observations", [])
@@ -94,8 +103,15 @@ def _fetch_cpi_yoy(api_key: str) -> float | None:
         "limit": 13,
         "file_type": "json",
     }
+    resp = retry_with_backoff(
+        lambda: requests.get(FRED_BASE, params=params, timeout=15),
+        max_retries=3, base_delay=2.0,
+        exceptions=(requests.RequestException, ConnectionError, OSError),
+    )
+    if resp is None:
+        logger.debug("Failed to compute CPI YoY after retries")
+        return None
     try:
-        resp = requests.get(FRED_BASE, params=params, timeout=15)
         resp.raise_for_status()
         data = resp.json()
         observations = data.get("observations", [])

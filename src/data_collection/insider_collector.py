@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from src.config import DB_PATH
+from src.utils.retry import retry_with_backoff
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -72,12 +73,19 @@ def collect_insider_transactions(
     with sqlite3.connect(db_path) as conn:
         for ticker in tickers:
             try:
-                resp = requests.get(
-                    f"{FINNHUB_BASE}/stock/insider-transactions",
-                    params={"symbol": ticker},
-                    headers={"X-Finnhub-Token": api_key},
-                    timeout=15,
+                resp = retry_with_backoff(
+                    lambda: requests.get(
+                        f"{FINNHUB_BASE}/stock/insider-transactions",
+                        params={"symbol": ticker},
+                        headers={"X-Finnhub-Token": api_key},
+                        timeout=15,
+                    ),
+                    max_retries=3, base_delay=2.0,
+                    exceptions=(requests.RequestException, ConnectionError, OSError),
                 )
+                if resp is None:
+                    logger.warning("[INSIDER] Failed to fetch %s after retries", ticker)
+                    continue
                 resp.raise_for_status()
                 data = resp.json().get("data", [])
 

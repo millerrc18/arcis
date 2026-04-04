@@ -19,6 +19,8 @@ from pathlib import Path
 
 import requests
 
+from src.utils.retry import retry_with_backoff
+
 logger = logging.getLogger(__name__)
 
 CACHE_DIR = Path(".cache/insiders")
@@ -59,8 +61,15 @@ def _fetch_from_finnhub(ticker: str, api_key: str, lookback_days: int = 90) -> d
     params = {"symbol": ticker}
     headers = {"X-Finnhub-Token": api_key}
 
+    resp = retry_with_backoff(
+        lambda: requests.get(url, params=params, headers=headers, timeout=15),
+        max_retries=3, base_delay=2.0,
+        exceptions=(requests.RequestException, ConnectionError, OSError),
+    )
+    if resp is None:
+        logger.debug("Finnhub request failed for %s after retries", ticker)
+        return None
     try:
-        resp = requests.get(url, params=params, headers=headers, timeout=15)
         resp.raise_for_status()
         data = resp.json()
     except Exception as e:

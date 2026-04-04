@@ -11,7 +11,9 @@ config/settings.example.yaml if the local file does not exist.
 Caches the config after first load.
 """
 
+import logging
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -21,6 +23,37 @@ import yaml
 DB_PATH = os.environ.get("ARCIS_DB_PATH", "ai_research_desk.sqlite3")
 
 _config_cache: dict | None = None
+
+_logger = logging.getLogger(__name__)
+
+_PLACEHOLDER_RE = re.compile(r"^your[-_]|placeholder|example|YOUR_|^$", re.IGNORECASE)
+
+_CRITICAL_KEYS = [
+    ("alpaca", "api_key"),
+    ("alpaca", "secret_key"),
+    ("finnhub", "api_key"),
+    ("fred", "api_key"),
+    ("anthropic", "api_key"),
+    ("telegram", "bot_token"),
+]
+
+
+def validate_config(config: dict) -> list[str]:
+    """Check critical config keys for placeholder values.
+
+    Returns list of warning strings (key paths with placeholder values).
+    Does not crash — returns empty list if config is missing sections.
+    """
+    warnings = []
+    for section, key in _CRITICAL_KEYS:
+        value = config.get(section, {}).get(key, None)
+        if value is None:
+            continue
+        if not isinstance(value, str):
+            continue
+        if _PLACEHOLDER_RE.search(value) or value.strip() == "":
+            warnings.append(f"{section}.{key} appears to be a placeholder")
+    return warnings
 
 
 def load_config() -> dict:
@@ -49,6 +82,13 @@ def load_config() -> dict:
 
     with open(config_path, "r", encoding="utf-8") as f:
         _config_cache = yaml.safe_load(f) or {}
+
+    # Validate config for placeholder keys
+    config_warnings = validate_config(_config_cache)
+    for w in config_warnings:
+        _logger.warning("[CONFIG] %s", w)
+    if config_path == example_path:
+        _logger.warning("[CONFIG] Using example config — API keys are placeholders")
 
     return _config_cache
 
