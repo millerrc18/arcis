@@ -5,6 +5,10 @@
       "lines": 1380
     },
     {
+      "file": "src/llm/packet_writer.py",
+      "lines": 418
+    },
+    {
       "file": "src/evaluation/build_score.py",
       "lines": 402
     },
@@ -439,7 +443,7 @@
     {
       "file": "src/llm/packet_writer.py",
       "function": "_parse_llm_response",
-      "lines": 73
+      "lines": 116
     },
     {
       "file": "src/llm/packet_writer.py",

@@ -88,9 +88,11 @@ def collect_analyst_estimates(
         for ticker in to_collect:
             try:
                 # Fetch recommendations
+                finnhub_headers = {"X-Finnhub-Token": api_key}
                 rec_resp = requests.get(
                     f"{FINNHUB_BASE}/stock/recommendation",
-                    params={"symbol": ticker, "token": api_key},
+                    params={"symbol": ticker},
+                    headers=finnhub_headers,
                     timeout=15,
                 )
                 rec_resp.raise_for_status()
@@ -101,7 +103,8 @@ def collect_analyst_estimates(
                 # Fetch price targets
                 pt_resp = requests.get(
                     f"{FINNHUB_BASE}/stock/price-target",
-                    params={"symbol": ticker, "token": api_key},
+                    params={"symbol": ticker},
+                    headers=finnhub_headers,
                     timeout=15,
                 )
                 pt_resp.raise_for_status()

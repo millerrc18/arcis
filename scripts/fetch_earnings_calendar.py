@@ -25,32 +25,10 @@ import yfinance as yf
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.config import DB_PATH
+from src.journal.store import initialize_database
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
-
-_INIT_SQL = """
-CREATE TABLE IF NOT EXISTS earnings_calendar (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    ticker TEXT NOT NULL,
-    earnings_date TEXT NOT NULL,
-    earnings_time TEXT,
-    confirmed INTEGER DEFAULT 0,
-    collected_at TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_earnings_ticker
-    ON earnings_calendar(ticker);
-CREATE INDEX IF NOT EXISTS idx_earnings_date
-    ON earnings_calendar(earnings_date);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_earnings_ticker_date
-    ON earnings_calendar(ticker, earnings_date);
-"""
-
-
-def _init_table(db_path: str) -> None:
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(_INIT_SQL)
 
 
 def fetch_earnings_dates(
@@ -61,7 +39,7 @@ def fetch_earnings_dates(
 
     Returns: {"tickers_with_dates": int, "errors": int, "upcoming_7d": list}
     """
-    _init_table(db_path)
+    initialize_database(db_path)
     now = datetime.now(ET)
     collected_at = now.isoformat()
 
@@ -194,7 +172,7 @@ def get_earnings_within_days(
     Returns dict with earnings info if within window, None otherwise.
     Used by the risk governor and scan pipeline.
     """
-    _init_table(db_path)
+    initialize_database(db_path)
     now = datetime.now(ET)
     cutoff = (now + timedelta(days=days)).strftime("%Y-%m-%d")
     today = now.strftime("%Y-%m-%d")
@@ -228,7 +206,7 @@ def get_all_upcoming_earnings(
 
     Returns list of dicts sorted by date.
     """
-    _init_table(db_path)
+    initialize_database(db_path)
     now = datetime.now(ET)
     cutoff = (now + timedelta(days=days)).strftime("%Y-%m-%d")
     today = now.strftime("%Y-%m-%d")

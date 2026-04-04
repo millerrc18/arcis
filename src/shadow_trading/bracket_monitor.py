@@ -176,8 +176,9 @@ def check_bracket_health(
                     )
                     if action_taken is None:
                         action_taken = "alerted_partial_fill"
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning("[BRACKET] Partial fill check failed for %s: %s",
+                               trade["ticker"], exc)
 
         if intact:
             protected += 1

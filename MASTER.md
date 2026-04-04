@@ -63,7 +63,7 @@ with an unbeatable technological moat.
 | Dashboard pages | 18 |
 | Research docs | 60 |
 | Schema tables | 49 (registry) |
-| GitHub issues | 17 open |
+| GitHub issues | 11 open |
 | Monthly cost | ~$64 (Render $7 + Ollama free + Claude API ~$50 + domain $7) |
 | Hardware | RTX 3060 12GB, Windows 11, Z690, 24/7 operation |
 | HSHS health score | 85.33 |
@@ -96,10 +96,16 @@ with an unbeatable technological moat.
 
 | # | Priority | Title |
 |---|---|---|
+| #188 | P2 | PFE backfilled with -14 shares -- short position in long-only |
+| #187 | P2 | 44 failed shadow trades -- insufficient buying power, retries |
 | #147 | P2 | No exponential backoff on network failures in enrichment |
 | #132 | P2 | Fallback to settings.example.yaml with placeholder keys |
 | #112 | P2 | VRAM not freed after training -- GPU memory leak |
 | #106 | P2 | Kill switch not atomic, no staleness check |
+| #194 | P3 | test_watch_bootstrap checks hardcoded table names |
+| #193 | P3 | False positive: 'sql' table detected in schema/postgres.py |
+| #192 | P3 | schema/validator.py missing standard docstring header |
+| #191 | P3 | reconcile.py exceeds 400-line guardrail (447 lines) |
 | #82 | P3 | Silent exception swallowing in council/context.py |
 
 ### Known Blockers
@@ -107,8 +113,6 @@ with an unbeatable technological moat.
 - Database on OneDrive path risks WAL corruption (incident #181); move to
   local path or exclude `*.sqlite3*` from sync
 - UPS not yet purchased (CyberPower CP1500PFCLCD, ~$220)
-- LLM conviction parsing broken: 143/145 return None, all trades use default=5
-  (#183)
 
 ### Sprint History
 
@@ -129,7 +133,7 @@ with an unbeatable technological moat.
 | Dashboard redesign | #175 | Shadow/Live Ledger redesign, CTO period selector |
 | Log audit | #176 | Double logging fix, idempotent ALTER TABLEs, DNS retry |
 | Data integrity | #177 | Reconciliation actual_exit_time fix, paper auto-close |
-| Schema registry | #189 | 46 tables in registry, all DDL removed, CI guardrails |
+| Schema registry | #189 | 49 tables in registry, all DDL removed, CI guardrails |
 | Mega Sprint | #178 | Intra-day recon, exit_failed recovery, React Flow, sidebar sections |
 | pnl_dollars fix | #200 | Cast pnl_dollars to float before comparison |
 | Reliability | #201 | Exit cancel race, VRAM handoff hardening, sync reconnection |

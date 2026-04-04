@@ -96,6 +96,24 @@ def _estimate_session_cost(rounds_completed: int, agents_per_round: int = 5) -> 
     return round(input_cost + output_cost, 4)
 
 
+def run_council_command(question: str = "", db_path: str = DB_PATH) -> dict:
+    """Run a council session from a command interface (Telegram, CLI).
+
+    Convenience wrapper so callers don't need to instantiate CouncilEngine.
+    """
+    engine = CouncilEngine(db_path=db_path)
+    if question.strip():
+        return engine.run_session(
+            session_type="strategic",
+            trigger_reason=question.strip(),
+            custom_question=question.strip(),
+        )
+    return engine.run_session(
+        session_type="daily",
+        trigger_reason="command",
+    )
+
+
 class CouncilEngine:
     """Orchestrate vote-first Modified Delphi council sessions."""
 

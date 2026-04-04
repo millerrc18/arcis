@@ -110,7 +110,7 @@ The CTO report also joins `recommendations` to break down performance by
 
 | KPI | Frontend call | API endpoint | Tables | Key columns |
 |-----|---------------|--------------|--------|-------------|
-| Row counts | `api.getTableCounts()` | `/api/system/table-counts` | All whitelisted (46 tables) | `COUNT(*)` |
+| Row counts | `api.getTableCounts()` | `/api/system/table-counts` | All whitelisted (49 tables) | `COUNT(*)` |
 
 ---
 

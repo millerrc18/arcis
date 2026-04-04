@@ -24,7 +24,7 @@ Systematic equity research platform built on fine-tuned LLMs and a 5-agent AI co
   <img src="docs/architecture.svg" alt="Arcis System Architecture" width="100%"/>
 </p>
 
-See [MASTER.md](MASTER.md) Section 4 for the schema summary (46 tables). Full DDL in `src/schema/registry.py`.
+See [MASTER.md](MASTER.md) Section 4 for the schema summary (49 tables). Full DDL in `src/schema/registry.py`.
 
 See [Interactive Architecture (5W detail)](https://halcyonlab.app/architecture.html) for the full system diagram with expandable component details.
 
