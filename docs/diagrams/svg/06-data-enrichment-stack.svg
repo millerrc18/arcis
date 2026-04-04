@@ -1,0 +1,20 @@
+<svg width="100%" viewBox="0 0 680 340" xmlns="http://www.w3.org/2000/svg">
+<style>
+.th{font-family:system-ui,sans-serif;font-size:14px;font-weight:500;fill:#2C2C2A}.ts{font-family:system-ui,sans-serif;font-size:12px;fill:#5F5E5A}
+.c-blue rect{fill:#E6F1FB;stroke:#185FA5;stroke-width:0.5}.c-blue .th{fill:#0C447C}.c-blue .ts{fill:#185FA5}
+.c-teal rect{fill:#E1F5EE;stroke:#0F6E56;stroke-width:0.5}.c-teal .th{fill:#085041}.c-teal .ts{fill:#0F6E56}
+.c-gray rect{fill:#F1EFE8;stroke:#5F5E5A;stroke-width:0.5}.c-gray .th{fill:#444441}.c-gray .ts{fill:#5F5E5A}
+@media(prefers-color-scheme:dark){.th{fill:#D3D1C7}.ts{fill:#888780}.c-blue rect{fill:#0C447C;stroke:#85B7EB}.c-blue .th{fill:#B5D4F4}.c-blue .ts{fill:#85B7EB}.c-teal rect{fill:#085041;stroke:#5DCAA5}.c-teal .th{fill:#9FE1CB}.c-teal .ts{fill:#5DCAA5}.c-gray rect{fill:#444441;stroke:#B4B2A9}.c-gray .th{fill:#D3D1C7}.c-gray .ts{fill:#B4B2A9}}
+</style>
+<text class="th" x="340" y="28" text-anchor="middle">7 orthogonal signal dimensions</text>
+<g class="c-blue"><rect x="40" y="50" width="185" height="56" rx="8"/><text class="th" x="132" y="70" text-anchor="middle" dominant-baseline="central">Technical</text><text class="ts" x="132" y="88" text-anchor="middle" dominant-baseline="central">RSI, ATR, volume, trend</text></g>
+<g class="c-blue"><rect x="245" y="50" width="185" height="56" rx="8"/><text class="th" x="337" y="70" text-anchor="middle" dominant-baseline="central">Regime</text><text class="ts" x="337" y="88" text-anchor="middle" dominant-baseline="central">VIX, breadth, SPY trend</text></g>
+<g class="c-blue"><rect x="450" y="50" width="185" height="56" rx="8"/><text class="th" x="542" y="70" text-anchor="middle" dominant-baseline="central">Fundamentals</text><text class="ts" x="542" y="88" text-anchor="middle" dominant-baseline="central">Earnings, SEC filings</text></g>
+<g class="c-teal"><rect x="40" y="120" width="185" height="56" rx="8"/><text class="th" x="132" y="140" text-anchor="middle" dominant-baseline="central">Insider activity</text><text class="ts" x="132" y="158" text-anchor="middle" dominant-baseline="central">Finnhub transactions</text></g>
+<g class="c-teal"><rect x="245" y="120" width="185" height="56" rx="8"/><text class="th" x="337" y="140" text-anchor="middle" dominant-baseline="central">News sentiment</text><text class="ts" x="337" y="158" text-anchor="middle" dominant-baseline="central">Finnhub company news</text></g>
+<g class="c-teal"><rect x="450" y="120" width="185" height="56" rx="8"/><text class="th" x="542" y="140" text-anchor="middle" dominant-baseline="central">Options flow</text><text class="ts" x="542" y="158" text-anchor="middle" dominant-baseline="central">Chain data, put/call ratios</text></g>
+<g class="c-teal"><rect x="245" y="190" width="185" height="56" rx="8"/><text class="th" x="337" y="210" text-anchor="middle" dominant-baseline="central">Calendar / events</text><text class="ts" x="337" y="228" text-anchor="middle" dominant-baseline="central">Earnings dates, ex-div, FOMC</text></g>
+<text class="ts" x="340" y="276" text-anchor="middle">Each dimension is independently sourced — no single API failure blinds the system</text>
+<g class="c-gray"><rect x="120" y="290" width="200" height="36" rx="6"/><text class="ts" x="220" y="310" text-anchor="middle" dominant-baseline="central">Works: 6 of 7 (low cost)</text></g>
+<g class="c-gray"><rect x="360" y="290" width="200" height="36" rx="6"/><text class="ts" x="460" y="310" text-anchor="middle" dominant-baseline="central">Doesn't work: Reddit, Trends</text></g>
+</svg>

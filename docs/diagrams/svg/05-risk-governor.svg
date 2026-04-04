@@ -1,0 +1,29 @@
+<svg width="100%" viewBox="0 0 680 440" xmlns="http://www.w3.org/2000/svg">
+<style>
+.th{font-family:system-ui,sans-serif;font-size:14px;font-weight:500;fill:#2C2C2A}.ts{font-family:system-ui,sans-serif;font-size:12px;fill:#5F5E5A}.arr{stroke:#5F5E5A;stroke-width:1.5}
+.c-teal rect{fill:#E1F5EE;stroke:#0F6E56;stroke-width:0.5}.c-teal .th{fill:#085041}.c-teal .ts{fill:#0F6E56}
+.c-coral rect{fill:#FAECE7;stroke:#993C1D;stroke-width:0.5}.c-coral .th{fill:#712B13}.c-coral .ts{fill:#993C1D}
+.c-red rect{fill:#FCEBEB;stroke:#A32D2D;stroke-width:0.5}.c-red .th{fill:#791F1F}.c-red .ts{fill:#A32D2D}
+.c-green rect{fill:#EAF3DE;stroke:#3B6D11;stroke-width:0.5}.c-green .th{fill:#27500A}.c-green .ts{fill:#3B6D11}
+.c-gray rect{fill:#F1EFE8;stroke:#5F5E5A;stroke-width:0.5}.c-gray .th{fill:#444441}.c-gray .ts{fill:#5F5E5A}
+@media(prefers-color-scheme:dark){.th{fill:#D3D1C7}.ts{fill:#888780}.arr{stroke:#888780}.c-teal rect{fill:#085041;stroke:#5DCAA5}.c-teal .th{fill:#9FE1CB}.c-teal .ts{fill:#5DCAA5}.c-coral rect{fill:#712B13;stroke:#F0997B}.c-coral .th{fill:#F5C4B3}.c-coral .ts{fill:#F0997B}.c-red rect{fill:#791F1F;stroke:#F09595}.c-red .th{fill:#F7C1C1}.c-red .ts{fill:#F09595}.c-green rect{fill:#27500A;stroke:#97C459}.c-green .th{fill:#C0DD97}.c-green .ts{fill:#97C459}.c-gray rect{fill:#444441;stroke:#B4B2A9}.c-gray .th{fill:#D3D1C7}.c-gray .ts{fill:#B4B2A9}}
+</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+<text class="th" x="340" y="28" text-anchor="middle">Risk governor — 8 hard checks before every trade</text>
+<g class="c-teal"><rect x="240" y="48" width="200" height="44" rx="8"/><text class="th" x="340" y="70" text-anchor="middle" dominant-baseline="central">Trade candidate</text></g>
+<line x1="340" y1="92" x2="340" y2="118" class="arr" marker-end="url(#arrow)"/>
+<g class="c-coral"><rect x="100" y="118" width="240" height="44" rx="6"/><text class="ts" x="220" y="140" text-anchor="middle" dominant-baseline="central">1. Max position size ≤5% equity</text></g>
+<g class="c-coral"><rect x="350" y="118" width="240" height="44" rx="6"/><text class="ts" x="470" y="140" text-anchor="middle" dominant-baseline="central">2. Max open positions ≤50</text></g>
+<g class="c-coral"><rect x="100" y="172" width="240" height="44" rx="6"/><text class="ts" x="220" y="194" text-anchor="middle" dominant-baseline="central">3. Sector exposure ≤30%</text></g>
+<g class="c-coral"><rect x="350" y="172" width="240" height="44" rx="6"/><text class="ts" x="470" y="194" text-anchor="middle" dominant-baseline="central">4. Max correlated ≤3</text></g>
+<g class="c-coral"><rect x="100" y="226" width="240" height="44" rx="6"/><text class="ts" x="220" y="248" text-anchor="middle" dominant-baseline="central">5. Daily loss ≤3% equity</text></g>
+<g class="c-coral"><rect x="350" y="226" width="240" height="44" rx="6"/><text class="ts" x="470" y="248" text-anchor="middle" dominant-baseline="central">6. VIX halt threshold ≤35</text></g>
+<g class="c-coral"><rect x="100" y="280" width="240" height="44" rx="6"/><text class="ts" x="220" y="302" text-anchor="middle" dominant-baseline="central">7. Kill switch file check</text></g>
+<g class="c-coral"><rect x="350" y="280" width="240" height="44" rx="6"/><text class="ts" x="470" y="302" text-anchor="middle" dominant-baseline="central">8. LLM output validation</text></g>
+<line x1="220" y1="324" x2="220" y2="370" class="arr" marker-end="url(#arrow)"/>
+<line x1="470" y1="324" x2="470" y2="370" class="arr" marker-end="url(#arrow)"/>
+<g class="c-red"><rect x="120" y="370" width="200" height="44" rx="8"/><text class="th" x="220" y="392" text-anchor="middle" dominant-baseline="central">Any fail → BLOCKED</text></g>
+<g class="c-green"><rect x="370" y="370" width="200" height="44" rx="8"/><text class="th" x="470" y="392" text-anchor="middle" dominant-baseline="central">All pass → EXECUTE</text></g>
+<text class="ts" x="220" y="360" text-anchor="middle">Any check fails</text>
+<text class="ts" x="470" y="360" text-anchor="middle">All 8 pass</text>
+</svg>
