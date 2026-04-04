@@ -729,17 +729,18 @@ VIX >40, system offline.
 
 | Priority | Sprint | Status |
 |---|---|---|
-| 1 | Schema Registry | DONE -- 46 tables, all DDL removed, guardrails |
+| 1 | Schema Registry | DONE -- 49 tables, all DDL removed, guardrails |
 | 2 | React Flow interactive diagrams | DONE -- Architecture + DB Schema pages |
 | A | Dashboard polish + documentation consolidation | DONE -- PR #203 |
-| 3 | Fix critical bugs (#182, #183, #184) | QUEUED |
-| 4 | Alpha attribution experiment | DONE -- PR #203, attribution_trades table + dashboard |
-| 5 | Mean reversion paper-trading | DONE -- PR #203, RSI(2) scanner + strategy exits |
-| 6 | Multi-cadence scanning (4-tier) | DONE -- PR #203, 4 extracted modules + staleness |
-| 7 | Outcome metadata + conditioned training | DONE -- PR #203, 3-5x data yield |
-| 8 | Historical stress testing | DONE -- PR #203, 2008/2020/2022 scenarios |
-| 9 | Repo reorganization | Backlog |
-| 10 | architecture.md refresh | Backlog |
+| 3 | Alpha attribution experiment | DONE -- PR #203, accumulating paired trades |
+| 4 | Mean reversion paper-trading | DONE -- PR #203, accumulating paper trades |
+| 5 | Multi-cadence scanning (4-tier) | DONE -- PR #203, 4 extracted modules + staleness |
+| 6 | Outcome metadata + conditioned training | DONE -- PR #203, 3-5x data yield |
+| 7 | Historical stress testing | DONE -- PR #203, 2008/2020/2022 scenarios |
+| 8 | Bug bash + conviction parsing (#183) | QUEUED -- v0.11.0, blocks v1.0.0 |
+| 9 | iOS app (Capacitor) | QUEUED -- v0.12.0, native wrapper for dashboard |
+| 10 | Repo reorganization | Backlog |
+| 11 | architecture.md refresh | Backlog |
 
 ### Phase 2 Hardware (~$1,300)
 

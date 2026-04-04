@@ -21,7 +21,7 @@ const CAT = {
 }
 
 const ROADMAP_DATA = {
-  lastUpdated: '2026-04-02',
+  lastUpdated: '2026-04-03',
   phases: [
     { id: 'p1', name: 'Phase 1 — Bootcamp', status: 'active', capital: '$100K paper + $100 live', cost: '$64/mo', timeline: 'Apr–Jun 2026',
       desc: 'Prove the system has an edge. Accumulate 50+ closed trades. Build foundational infrastructure.',
@@ -54,7 +54,7 @@ const ROADMAP_DATA = {
           { l: 'Backfill cleanup (969 examples)', s: 'done', c: 'ai', d: '704 backfill + 194 blinded_win + 77 blinded_loss. All cleaned to XML. 100% parse rate.', r: 'Training data audit' },
         ]},
         { label: 'Weeks 5–8: Infrastructure', items: [
-          { l: 'Cloud dashboard (halcyonlab.app)', s: 'done', c: 'ops', d: '13 pages, 105 API routes, Render deployment, PWA support.', r: 'Arcis brand system' },
+          { l: 'Cloud dashboard (halcyonlab.app)', s: 'done', c: 'ops', d: '18 pages, 120+ API routes, Render deployment, PWA support.', r: 'Arcis brand system' },
           { l: '24/7 overnight schedule (27 events)', s: 'done', c: 'ops', d: 'Pre-market brief 6AM, scans every 30min, EOD 4PM, 12 collectors, Saturday retrain.', r: 'Arcis Framework: 73% GPU target' },
           { l: 'AI Council (5 agents)', s: 'done', c: 'ai', d: 'Bull, Bear, Quant, Macro, Risk agents via Claude Sonnet. Modified Delphi. ~$0.50/session.', r: 'AI Council research' },
           { l: 'Research collector (#13)', s: 'done', c: 'data', d: '7 sources: arXiv, SSRN, HuggingFace, Reddit, GitHub, AI blogs, SEC/FINRA. Weekly synthesis.', r: 'Research flywheel' },
@@ -68,15 +68,17 @@ const ROADMAP_DATA = {
           { l: 'LLM output validation', s: 'done', c: 'risk', d: 'Hard bounds: ticker in universe, price ±10%, stop below entry, allocation ≤5%.', r: 'Risk Management: "LLM hallucination ~4% rate"' },
           { l: 'SQLite WAL + backups', s: 'done', c: 'ops', d: 'WAL mode, busy_timeout 5000ms, daily backup. Prevents data loss.', r: 'Risk Management' },
           { l: 'Revenue projection model', s: 'done', c: 'ops', d: '3 scenarios + live mode. Locks to actual Sharpe at 20+ trades.', r: 'Research synthesis' },
-          { l: 'Score + retrain halcyon-v1', s: 'in-progress', c: 'ai', d: 'Quality score 969 examples, prune bottom 15%, retrain with curriculum. First Saturday retrain.', r: 'Training data audit' },
-          { l: 'Alpha attribution experiment', s: 'pending', c: 'validation', d: 'Parallel ranker-only shadow portfolio to measure model value-add vs. systematic scoring alone. Requires ≥50 paired trades.', r: 'Deep Research Synthesis: "single most informative test"' },
-          { l: 'Paper-trade mean reversion (Strategy #2)', s: 'pending', c: 'strategy', d: 'Connors RSI(2) mean reversion on S&P 100. Moved from Phase 2 to NOW. ≥100 paper trades needed for gate.', r: 'Deep Research: moved from Phase 2 to Phase 1' },
+          { l: 'Score + retrain halcyon-v1', s: 'done', c: 'ai', d: 'halcyon-v1.0.0 deployed. 972 scored examples. Qwen3 8B Q8_0 GGUF via Ollama.', r: 'Training data audit' },
+          { l: 'Alpha attribution experiment', s: 'in-progress', c: 'validation', d: 'Deployed v0.10.0 — two-phase logging, mechanical simulator, dashboard page. Accumulating paired trades (target: 50).', r: 'Deep Research Synthesis: "single most informative test"' },
+          { l: 'Paper-trade mean reversion (Strategy #2)', s: 'in-progress', c: 'strategy', d: 'Deployed v0.10.0 — RSI(2) scanner, strategy-aware exits, paper_only enforcement. Accumulating trades (target: 100).', r: 'Deep Research: moved from Phase 2 to Phase 1' },
           { l: 'Open Collective2 account', s: 'pending', c: 'ops', d: 'Verified track record platform (~$99/mo). Track record clock starts immediately. Required for external credibility.', r: 'Revenue Sequencing: Month 3 milestone' },
-          { l: '8 outcome metadata columns', s: 'pending', c: 'data', d: 'Add to shadow_trades: hold_period_return, benchmark_return, alpha_vs_spy, max_drawdown_during_trade, exit_efficiency, entry_timing_score, thesis_accuracy, sector_at_exit.', r: 'Deep Research: flywheel optimization' },
-          { l: 'Stress test suite (2008/2020/2022)', s: 'pending', c: 'validation', d: 'Walk-forward backtest through GFC, COVID crash, and 2022 bear market. Must complete before Phase 2 gate.', r: 'Deep Research: Phase 1→2 gate addition' },
-          { l: '4-tier multi-cadence scanning', s: 'pending', c: 'strategy', d: '15min position monitoring, 30min price alerts, 60min sentiment updates, daily fundamental refresh.', r: 'Deep Research: scanning intervals study' },
-          { l: 'Outcome-conditioned training prompts', s: 'pending', c: 'ai', d: 'Generate 3-5 training examples per trade instead of 1. Prompt variations: "given it went up 5%..." and "given it hit stop...".', r: 'Deep Research: 3-5x data yield per trade' },
+          { l: '8 outcome metadata columns', s: 'done', c: 'data', d: 'Deployed v0.10.0 — regime_at_entry/exit, vix_at_entry/exit, time_to_target_days, drawdown_from_mfe, concurrent_positions, ranking_at_entry.', r: 'Deep Research: flywheel optimization' },
+          { l: 'Stress test suite (2008/2020/2022)', s: 'done', c: 'validation', d: 'Deployed v0.10.0 — scripts/stress_test.py, scheduled Sunday 9PM + on model change. Dashboard StressTest page.', r: 'Deep Research: Phase 1→2 gate addition' },
+          { l: '4-tier multi-cadence scanning', s: 'done', c: 'strategy', d: 'Deployed v0.10.0 — position_monitor (15min), universe_scanner (30min), sentiment_scanner (60min), fundamentals_refresh (daily).', r: 'Deep Research: scanning intervals study' },
+          { l: 'Outcome-conditioned training prompts', s: 'done', c: 'ai', d: 'Deployed v0.10.0 — 4 outcome + 2 contrastive templates per trade. 3-5x data yield. Self-blinding maintained.', r: 'Deep Research: 3-5x data yield per trade' },
           { l: 'Expand training XML 7→11 sections', s: 'pending', c: 'ai', d: 'Add 4 sections: options flow, sector relative, event calendar proximity, cross-asset correlation. Random source subsetting for robustness.', r: 'Deep Research: horizontal training data study' },
+          { l: 'Bug bash + conviction parsing (#183)', s: 'pending', c: 'ops', d: 'Fix conviction parsing (99% broken — blocks v1.0.0), Finnhub API key exposure (#197), 5 tech debt items. Tag v0.11.0.', r: 'Log audit: 13 open issues' },
+          { l: 'iOS app (Capacitor)', s: 'pending', c: 'ops', d: 'Native iOS wrapper for dashboard via Capacitor. Haptics, status bar, safe areas, pull-to-refresh. Sideload to iPhone.', r: 'Mobile access for trading monitoring' },
         ]},
       ],
     },
