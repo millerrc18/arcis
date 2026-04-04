@@ -31,6 +31,7 @@ Thumbs.db
 *.sqlite3-wal
 *.sqlite3-shm
 *.sqlite3-journal
+*.sqlite3.corrupted
 logs/
 data/
 !data/reference/
@@ -41,6 +42,7 @@ training_data/
 *.pkl
 *.gguf
 *.safetensors
+unsloth_compiled_cache/
 
 # Model outputs
 models/

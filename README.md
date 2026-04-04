@@ -1,8 +1,8 @@
 # Arcis
 
-![version](https://img.shields.io/badge/version-v0.1.0-blue?style=flat-square)
+![version](https://img.shields.io/badge/version-v0.11.0-blue?style=flat-square)
 ![phase](https://img.shields.io/badge/phase-1%20bootcamp-orange?style=flat-square)
-![tests](https://img.shields.io/badge/tests-1%2C245%20passing-brightgreen?style=flat-square)
+![tests](https://img.shields.io/badge/tests-1%2C344%20passing-brightgreen?style=flat-square)
 ![python](https://img.shields.io/badge/python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)
 ![model](https://img.shields.io/badge/model-Qwen3%208B-purple?style=flat-square)
 ![license](https://img.shields.io/badge/license-BSL%201.1-yellow?style=flat-square)
@@ -13,9 +13,9 @@ Systematic equity research platform built on fine-tuned LLMs and a 5-agent AI co
 
 ## Current Status
 
-- **Phase 1 Bootcamp** — paper trading $100K, 13 closed trades (12W/1L, 92% WR)
-- **Model**: `halcyon-v1.0.0` (Qwen3 8B, QLoRA fine-tuned on 972 scored examples)
-- **Dashboard**: [halcyonlab.app](https://halcyonlab.app) (16 pages, Palette H dark/light)
+- **Phase 1 Bootcamp** — paper trading $100K, 18 closed trades
+- **Model**: `halcyon-v1.0.0` (Qwen3 8B, QLoRA fine-tuned on 979 scored examples)
+- **Dashboard**: [halcyonlab.app](https://halcyonlab.app) (18 pages, Palette H dark/light)
 - **Current counts**: See [MASTER.md](MASTER.md) Section 2 for live metrics (tests, files, tables, etc.)
 
 ## Architecture
@@ -28,8 +28,6 @@ See [MASTER.md](MASTER.md) Section 4 for the schema summary (49 tables). Full DD
 
 See [Interactive Architecture (5W detail)](https://halcyonlab.app/architecture.html) for the full system diagram with expandable component details.
 
-See the [Interactive Architecture Diagram](https://halcyonlab.app/architecture.html) for clickable component details (Who/What/When/Where/Why) — also available as an [8.5×11 printable version](https://halcyonlab.app/architecture-letter.html).
-
 The scheduler runs 24/7: pre-market watchlist, intraday scans every 15 min, EOD recaps, overnight data collection (12 collectors), daily council sessions, and weekly training cycles.
 
 ## Quick Start
@@ -41,7 +39,7 @@ pip install -r requirements.txt
 
 # Configure secrets (.env) and settings (YAML)
 cp .env.example .env           # Fill in API keys, tokens
-cp config/settings.example.yaml config/settings.yaml  # Adjust thresholds
+cp config/settings.example.yaml config/settings.local.yaml  # Adjust thresholds
 
 # Initialize DB + pull model
 python -m src.main init-db
@@ -62,7 +60,7 @@ Cloud: [halcyonlab.app](https://halcyonlab.app) (Render + Postgres sync)
 ## Tech Stack
 
 - **Backend**: Python 3.12, FastAPI, SQLite (local), Postgres (cloud sync)
-- **Frontend**: React 18, Vite, Tailwind CSS, Recharts
+- **Frontend**: React 19, Vite 8, Tailwind 4, Recharts
 - **Inference**: Ollama (Qwen3 8B), Anthropic Claude (council + quality scoring)
 - **Broker**: Alpaca (paper + live, bracket orders)
 - **Data**: Finnhub, FRED, SEC EDGAR, Yahoo Finance, 12 overnight collectors

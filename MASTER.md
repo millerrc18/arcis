@@ -54,14 +54,14 @@ with an unbeatable technological moat.
 | Metric | Value |
 |---|---|
 | Phase | 1 (Bootcamp) -- paper $100K + $100 live via Alpaca |
-| Closed trades | 13 (12W / 1L, 92% WR, $860 total P&L) |
-| Open positions | 25 |
+| Closed trades | 18 (Phase 1: 36% through 50-trade gate) |
+| Open positions | ~37 (33 paper + 4 live) |
 | Model | halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF) |
-| Training data | 976 examples, scored, 20 unique tickers |
-| Tests | 1,301 functions across 101+ test files |
-| Python files | 194 |
+| Training data | 979 examples, scored, 20+ unique tickers |
+| Tests | 1,344 functions across 111 test files |
+| Python files | 195 |
 | Dashboard pages | 18 |
-| Research docs | 60 |
+| Research docs | 70 |
 | Schema tables | 49 (registry) |
 | GitHub issues | 0 open |
 | Monthly cost | ~$64 (Render $7 + Ollama free + Claude API ~$50 + domain $7) |
@@ -446,7 +446,7 @@ src/schema/registry.py          <- THE source of truth (46 TableDefs)
 
 | Gate | Requirements | Current | Status |
 |---|---|---|---|
-| Phase 1 -> 2 | 50 closed, WR>=45%, Sharpe>=0.15, PF>=1.3, DD<=12%, alpha attribution running (>=50 paired trades), stress test (2008/2020/2022), >=100 MR paper trades | 13 closed, 92% WR, 0 paired, 0 MR paper | 26% |
+| Phase 1 -> 2 | 50 closed, WR>=45%, Sharpe>=0.15, PF>=1.3, DD<=12%, alpha attribution running (>=50 paired trades), stress test (2008/2020/2022), >=100 MR paper trades | 18 closed, attribution + MR accumulating | 36% |
 | Phase 2 -> 3 | 100 closed + Strategy #2 live + RTX 3090 + options paper at $15-25K | 0 | Not started |
 | GRPO | 100+ closed trades | 0 | Blocked on data |
 | Fund formation | Track record + $2M AUM + Collective2 24-month verified | N/A | Year 3+ |
@@ -749,7 +749,7 @@ VIX >40, system offline.
 | 5 | Multi-cadence scanning (4-tier) | DONE -- PR #203, 4 extracted modules + staleness |
 | 6 | Outcome metadata + conditioned training | DONE -- PR #203, 3-5x data yield |
 | 7 | Historical stress testing | DONE -- PR #203, 2008/2020/2022 scenarios |
-| 8 | Bug bash + conviction parsing (#183) | QUEUED -- v0.11.0, blocks v1.0.0 |
+| 8 | Bug bash + conviction parsing (#183) | DONE -- v0.11.0, 0 open issues |
 | 9 | iOS app (Capacitor) | QUEUED -- v0.12.0, native wrapper for dashboard |
 | 10 | Repo reorganization | Backlog |
 | 11 | architecture.md refresh | Backlog |

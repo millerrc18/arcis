@@ -103,7 +103,7 @@ PRs #205-#212. 0 open issues (was 17). 1,344 tests (was 1,105). 13 architecture 
 
 ---
 
-### v0.10.1 — 2026-04-03 (pending PR #204)
+### v0.10.1 — 2026-04-03
 **Sprint gap closures, RCCA bug fixes, audit plugin**
 
 34 files changed, +3,699 -364. PR #204.
