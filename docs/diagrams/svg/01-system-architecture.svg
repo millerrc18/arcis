@@ -1,0 +1,116 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 520">
+<style>
+.th{font-family:system-ui,sans-serif;font-size:14px;font-weight:500;fill:#2C2C2A}.ts{font-family:system-ui,sans-serif;font-size:12px;fill:#5F5E5A}.arr{stroke:#5F5E5A;stroke-width:1.5}
+.c-blue rect{fill:#E3F0FA;stroke:#1565A6;stroke-width:0.5}.c-blue .th{fill:#0D4A7A}.c-blue .ts{fill:#1565A6}
+.c-teal rect{fill:#E1F5EE;stroke:#0F6E56;stroke-width:0.5}.c-teal .th{fill:#085041}.c-teal .ts{fill:#0F6E56}
+.c-purple rect{fill:#EDE7F5;stroke:#5E35A8;stroke-width:0.5}.c-purple .th{fill:#3E1F78}.c-purple .ts{fill:#5E35A8}
+.c-coral rect{fill:#FAECE7;stroke:#993C1D;stroke-width:0.5}.c-coral .th{fill:#712B13}.c-coral .ts{fill:#993C1D}
+.c-amber rect{fill:#FDF4E0;stroke:#A67A0B;stroke-width:0.5}.c-amber .th{fill:#7A5908}.c-amber .ts{fill:#A67A0B}
+.c-pink rect{fill:#FCE4EC;stroke:#AD1457;stroke-width:0.5}.c-pink .th{fill:#880E4F}.c-pink .ts{fill:#AD1457}
+.c-red rect{fill:#FCEBEB;stroke:#A32D2D;stroke-width:0.5}.c-red .th{fill:#791F1F}.c-red .ts{fill:#A32D2D}
+.c-green rect{fill:#EAF3DE;stroke:#3B6D11;stroke-width:0.5}.c-green .th{fill:#27500A}.c-green .ts{fill:#3B6D11}
+.c-gray rect{fill:#F1EFE8;stroke:#5F5E5A;stroke-width:0.5}.c-gray .th{fill:#444441}.c-gray .ts{fill:#5F5E5A}
+@media(prefers-color-scheme:dark){.th{fill:#D3D1C7}.ts{fill:#888780}.arr{stroke:#888780}.c-blue rect{fill:#0D4A7A;stroke:#5BA3D9}.c-blue .th{fill:#A3D1F0}.c-blue .ts{fill:#5BA3D9}.c-teal rect{fill:#085041;stroke:#5DCAA5}.c-teal .th{fill:#9FE1CB}.c-teal .ts{fill:#5DCAA5}.c-purple rect{fill:#3E1F78;stroke:#A07FD4}.c-purple .th{fill:#C9B5E8}.c-purple .ts{fill:#A07FD4}.c-coral rect{fill:#712B13;stroke:#F0997B}.c-coral .th{fill:#F5C4B3}.c-coral .ts{fill:#F0997B}.c-amber rect{fill:#7A5908;stroke:#D4A843}.c-amber .th{fill:#F0D68A}.c-amber .ts{fill:#D4A843}.c-pink rect{fill:#880E4F;stroke:#F48FB1}.c-pink .th{fill:#F8BBD0}.c-pink .ts{fill:#F48FB1}.c-red rect{fill:#791F1F;stroke:#F09595}.c-red .th{fill:#F7C1C1}.c-red .ts{fill:#F09595}.c-green rect{fill:#27500A;stroke:#97C459}.c-green .th{fill:#C0DD97}.c-green .ts{fill:#97C459}.c-gray rect{fill:#444441;stroke:#B4B2A9}.c-gray .th{fill:#D3D1C7}.c-gray .ts{fill:#B4B2A9}}
+</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+
+<!-- Title -->
+<text x="340" y="22" class="th" text-anchor="middle" font-size="15" font-weight="600">Arcis System Architecture — Full Pipeline</text>
+
+<!-- Row 1: Data Sources (y=48) -->
+<!-- yfinance OHLCV -->
+<g class="c-blue" transform="translate(60,48)">
+  <rect width="120" height="44" rx="5"/>
+  <text x="60" y="20" class="th" text-anchor="middle">yfinance</text>
+  <text x="60" y="36" class="ts" text-anchor="middle">OHLCV</text>
+</g>
+<!-- SEC EDGAR -->
+<g class="c-blue" transform="translate(192,48)">
+  <rect width="120" height="44" rx="5"/>
+  <text x="60" y="20" class="th" text-anchor="middle">SEC EDGAR</text>
+  <text x="60" y="36" class="ts" text-anchor="middle">Filings</text>
+</g>
+<!-- Finnhub -->
+<g class="c-blue" transform="translate(324,48)">
+  <rect width="120" height="44" rx="5"/>
+  <text x="60" y="20" class="th" text-anchor="middle">Finnhub</text>
+  <text x="60" y="36" class="ts" text-anchor="middle">News &amp; Sentiment</text>
+</g>
+<!-- FRED / VIX -->
+<g class="c-blue" transform="translate(456,48)">
+  <rect width="120" height="44" rx="5"/>
+  <text x="60" y="20" class="th" text-anchor="middle">FRED / VIX</text>
+  <text x="60" y="36" class="ts" text-anchor="middle">Macro Data</text>
+</g>
+<!-- +4 more -->
+<g class="c-gray" transform="translate(588,48)">
+  <rect width="52" height="44" rx="5"/>
+  <text x="26" y="20" class="ts" text-anchor="middle" font-size="11">+4</text>
+  <text x="26" y="36" class="ts" text-anchor="middle" font-size="11">more</text>
+</g>
+
+<!-- Arrow Row1 -> Row2 -->
+<line x1="340" y1="92" x2="340" y2="106" class="arr" marker-end="url(#arrow)" stroke="#5F5E5A"/>
+
+<!-- Row 2: Feature Engine (y=112) -->
+<g class="c-teal" transform="translate(60,112)">
+  <rect width="560" height="44" rx="5"/>
+  <text x="280" y="27" class="th" text-anchor="middle">Feature Engine — 7 signal dimensions</text>
+  <text x="280" y="43" class="ts" text-anchor="middle">momentum · valuation · macro · sentiment · earnings · technicals · volatility</text>
+</g>
+
+<!-- Arrow Row2 -> Row3 -->
+<line x1="340" y1="156" x2="340" y2="180" class="arr" marker-end="url(#arrow)" stroke="#5F5E5A"/>
+
+<!-- Row 3: Ranker + LLM (y=186) -->
+<g class="c-teal" transform="translate(60,186)">
+  <rect width="260" height="44" rx="5"/>
+  <text x="130" y="24" class="th" text-anchor="middle">Deterministic Ranker</text>
+  <text x="130" y="40" class="ts" text-anchor="middle">score 0–100</text>
+</g>
+<g class="c-purple" transform="translate(360,186)">
+  <rect width="260" height="44" rx="5"/>
+  <text x="130" y="24" class="th" text-anchor="middle">LLM halcyon-v1.0.0</text>
+  <text x="130" y="40" class="ts" text-anchor="middle">Qwen3 8B fine-tuned · Ollama local</text>
+</g>
+
+<!-- Arrow Row3 -> Row4 -->
+<line x1="340" y1="230" x2="340" y2="254" class="arr" marker-end="url(#arrow)" stroke="#5F5E5A"/>
+
+<!-- Row 4: Risk Governor (y=260) -->
+<g class="c-coral" transform="translate(60,260)">
+  <rect width="560" height="44" rx="5"/>
+  <text x="280" y="27" class="th" text-anchor="middle">Risk Governor — 8 hard checks</text>
+  <text x="280" y="43" class="ts" text-anchor="middle">position size · drawdown · sector exposure · volatility · liquidity · correlation · VIX · portfolio heat</text>
+</g>
+
+<!-- Arrow Row4 -> Row5 -->
+<line x1="340" y1="304" x2="340" y2="328" class="arr" marker-end="url(#arrow)" stroke="#5F5E5A"/>
+
+<!-- Row 5: Execution (y=334) -->
+<g class="c-amber" transform="translate(60,334)">
+  <rect width="260" height="44" rx="5"/>
+  <text x="130" y="24" class="th" text-anchor="middle">Alpaca Paper</text>
+  <text x="130" y="40" class="ts" text-anchor="middle">Bracket orders · GTC</text>
+</g>
+<g class="c-amber" transform="translate(360,334)">
+  <rect width="260" height="44" rx="5" stroke-dasharray="6 3"/>
+  <text x="130" y="24" class="th" text-anchor="middle">Alpaca Live</text>
+  <text x="130" y="40" class="ts" text-anchor="middle">Planned · shadow-validated</text>
+</g>
+
+<!-- Arrow Row5 -> Row6 -->
+<line x1="340" y1="378" x2="340" y2="414" class="arr" marker-end="url(#arrow)" stroke="#5F5E5A"/>
+
+<!-- Row 6: Training Pipeline (y=420) -->
+<g class="c-pink" transform="translate(60,420)">
+  <rect width="560" height="44" rx="5"/>
+  <text x="280" y="27" class="th" text-anchor="middle">Training Pipeline — self-blinding feedback loop</text>
+  <text x="280" y="43" class="ts" text-anchor="middle">outcome labeling · fine-tune dataset · Ollama model swap · eval harness</text>
+</g>
+
+<!-- Flywheel: dashed curved arrow from right side of row6 up to row2 -->
+<path d="M 640 442 C 670 420 672 130 622 134" fill="none" stroke="#5F5E5A" stroke-width="1.5" stroke-dasharray="6 3" marker-end="url(#arrow)" class="arr"/>
+<text x="658" y="300" class="ts" text-anchor="middle" font-size="11" transform="rotate(-90,658,300)">Flywheel</text>
+
+</svg>

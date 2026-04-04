@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 520">
+<style>
+.th{font-family:system-ui,sans-serif;font-size:14px;font-weight:500;fill:#2C2C2A}.ts{font-family:system-ui,sans-serif;font-size:12px;fill:#5F5E5A}.arr{stroke:#5F5E5A;stroke-width:1.5}
+.c-blue rect{fill:#E3F0FA;stroke:#1565A6;stroke-width:0.5}.c-blue .th{fill:#0D4A7A}.c-blue .ts{fill:#1565A6}
+.c-teal rect{fill:#E1F5EE;stroke:#0F6E56;stroke-width:0.5}.c-teal .th{fill:#085041}.c-teal .ts{fill:#0F6E56}
+.c-purple rect{fill:#EDE7F5;stroke:#5E35A8;stroke-width:0.5}.c-purple .th{fill:#3E1F78}.c-purple .ts{fill:#5E35A8}
+.c-coral rect{fill:#FAECE7;stroke:#993C1D;stroke-width:0.5}.c-coral .th{fill:#712B13}.c-coral .ts{fill:#993C1D}
+.c-amber rect{fill:#FDF4E0;stroke:#A67A0B;stroke-width:0.5}.c-amber .th{fill:#7A5908}.c-amber .ts{fill:#A67A0B}
+.c-pink rect{fill:#FCE4EC;stroke:#AD1457;stroke-width:0.5}.c-pink .th{fill:#880E4F}.c-pink .ts{fill:#AD1457}
+.c-red rect{fill:#FCEBEB;stroke:#A32D2D;stroke-width:0.5}.c-red .th{fill:#791F1F}.c-red .ts{fill:#A32D2D}
+.c-green rect{fill:#EAF3DE;stroke:#3B6D11;stroke-width:0.5}.c-green .th{fill:#27500A}.c-green .ts{fill:#3B6D11}
+.c-gray rect{fill:#F1EFE8;stroke:#5F5E5A;stroke-width:0.5}.c-gray .th{fill:#444441}.c-gray .ts{fill:#5F5E5A}
+@media(prefers-color-scheme:dark){.th{fill:#D3D1C7}.ts{fill:#888780}.arr{stroke:#888780}.c-blue rect{fill:#0D4A7A;stroke:#5BA3D9}.c-blue .th{fill:#A3D1F0}.c-blue .ts{fill:#5BA3D9}.c-teal rect{fill:#085041;stroke:#5DCAA5}.c-teal .th{fill:#9FE1CB}.c-teal .ts{fill:#5DCAA5}.c-purple rect{fill:#3E1F78;stroke:#A07FD4}.c-purple .th{fill:#C9B5E8}.c-purple .ts{fill:#A07FD4}.c-coral rect{fill:#712B13;stroke:#F0997B}.c-coral .th{fill:#F5C4B3}.c-coral .ts{fill:#F0997B}.c-amber rect{fill:#7A5908;stroke:#D4A843}.c-amber .th{fill:#F0D68A}.c-amber .ts{fill:#D4A843}.c-pink rect{fill:#880E4F;stroke:#F48FB1}.c-pink .th{fill:#F8BBD0}.c-pink .ts{fill:#F48FB1}.c-red rect{fill:#791F1F;stroke:#F09595}.c-red .th{fill:#F7C1C1}.c-red .ts{fill:#F09595}.c-green rect{fill:#27500A;stroke:#97C459}.c-green .th{fill:#C0DD97}.c-green .ts{fill:#97C459}.c-gray rect{fill:#444441;stroke:#B4B2A9}.c-gray .th{fill:#D3D1C7}.c-gray .ts{fill:#B4B2A9}}
+</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+
+<!-- Title -->
+<text x="340" y="24" class="th" font-size="16" font-weight="600" text-anchor="middle">Training Pipeline — Self-Blinding Architecture</text>
+
+<!-- Top: Closed Trade + Features (c-gray) centered x=200, y=48, w=280, h=44 -->
+<g class="c-gray" transform="translate(200,40)">
+  <rect width="280" height="44" rx="6"/>
+  <text x="140" y="20" class="th" text-anchor="middle">Closed Trade + Features</text>
+  <text x="140" y="36" class="ts" text-anchor="middle">Entry, exit, P&amp;L, indicators, hold time</text>
+</g>
+
+<!-- Arrow down to firewall -->
+<line x1="340" y1="84" x2="340" y2="104" class="arr" stroke="#5F5E5A" marker-end="url(#arrow)"/>
+
+<!-- Temporal Firewall dashed red line -->
+<line x1="20" y1="112" x2="660" y2="112" stroke="#A32D2D" stroke-width="1.5" stroke-dasharray="6,3"/>
+<text x="340" y="108" class="ts" text-anchor="middle" fill="#A32D2D" font-size="11">TEMPORAL FIREWALL — outcome NEVER crosses</text>
+
+<!-- Left branch label -->
+<text x="180" y="138" class="ts" text-anchor="middle" fill="#5E35A8">Left: Generation</text>
+<!-- Right branch label -->
+<text x="500" y="138" class="ts" text-anchor="middle" fill="#A67A0B">Right: Templates</text>
+
+<!-- Left branch: Stage 1 Blinded Generation (c-purple) x=60, y=148, w=240, h=44 -->
+<g class="c-purple" transform="translate(60,148)">
+  <rect width="240" height="44" rx="6"/>
+  <text x="120" y="20" class="th" text-anchor="middle">Stage 1: Blinded Generation</text>
+  <text x="120" y="36" class="ts" text-anchor="middle">LLM sees features, not outcome</text>
+</g>
+
+<!-- Arrow down left branch -->
+<line x1="180" y1="192" x2="180" y2="224" class="arr" stroke="#5F5E5A" marker-end="url(#arrow)"/>
+
+<!-- Stage 2: Quality Scoring (c-teal) x=60, y=224, w=240, h=44 -->
+<g class="c-teal" transform="translate(60,224)">
+  <rect width="240" height="44" rx="6"/>
+  <text x="120" y="20" class="th" text-anchor="middle">Stage 2: Quality Scoring</text>
+  <text x="120" y="36" class="ts" text-anchor="middle">Coherence + specificity filter</text>
+</g>
+
+<!-- Right branch: Outcome Templates (c-amber) x=380, y=148, w=240, h=44 -->
+<g class="c-amber" transform="translate(380,148)">
+  <rect width="240" height="44" rx="6"/>
+  <text x="120" y="20" class="th" text-anchor="middle">Outcome Templates (3–5×)</text>
+  <text x="120" y="36" class="ts" text-anchor="middle">Positive / negative / neutral</text>
+</g>
+
+<!-- Arrow down right branch -->
+<line x1="500" y1="192" x2="500" y2="224" class="arr" stroke="#5F5E5A" marker-end="url(#arrow)"/>
+
+<!-- Batch Generation (c-gray) x=380, y=224, w=240, h=44 -->
+<g class="c-gray" transform="translate(380,224)">
+  <rect width="240" height="44" rx="6"/>
+  <text x="120" y="20" class="th" text-anchor="middle">Batch Generation</text>
+  <text x="120" y="36" class="ts" text-anchor="middle">Templated rationale pairs</text>
+</g>
+
+<!-- 3-stage curriculum note between columns -->
+<text x="340" y="248" class="ts" text-anchor="middle" fill="#5F5E5A">3-stage curriculum</text>
+
+<!-- Both branches converge to Training Set -->
+<!-- Left branch arrow down-right to convergence point -->
+<polyline points="180,268 180,302 340,302" fill="none" class="arr" stroke="#5F5E5A" marker-end="url(#arrow)"/>
+<!-- Right branch arrow down-left to convergence point -->
+<polyline points="500,268 500,302 340,302" fill="none" class="arr" stroke="#5F5E5A" marker-end="url(#arrow)"/>
+
+<!-- Training Set (c-purple) centered x=190, y=302, w=300, h=44 -->
+<g class="c-purple" transform="translate(190,302)">
+  <rect width="300" height="44" rx="6"/>
+  <text x="150" y="20" class="th" text-anchor="middle">Training Set — 62/38 ratio</text>
+  <text x="150" y="36" class="ts" text-anchor="middle">Win / loss sample balance</text>
+</g>
+
+<!-- Side branch from training set to Leakage Test -->
+<polyline points="490,324 540,324 540,338" fill="none" class="arr" stroke="#A32D2D" marker-end="url(#arrow)"/>
+<g class="c-red" transform="translate(460,338)">
+  <rect width="200" height="40" rx="6"/>
+  <text x="100" y="17" class="th" text-anchor="middle">Leakage Test</text>
+  <text x="100" y="31" class="ts" text-anchor="middle">TF-IDF similarity &lt;55%</text>
+</g>
+
+<!-- Arrow down from training set to QLoRA -->
+<line x1="340" y1="346" x2="340" y2="386" class="arr" stroke="#5F5E5A" marker-end="url(#arrow)"/>
+
+<!-- QLoRA Fine-Tune (c-coral) x=210, y=386, w=260, h=44 -->
+<g class="c-coral" transform="translate(210,386)">
+  <rect width="260" height="44" rx="6"/>
+  <text x="130" y="20" class="th" text-anchor="middle">QLoRA Fine-Tune</text>
+  <text x="130" y="36" class="ts" text-anchor="middle">Qwen3 8B, 4-bit, rank-16</text>
+</g>
+
+<!-- Arrow down to Champion-Challenger Gate -->
+<line x1="340" y1="430" x2="340" y2="462" class="arr" stroke="#5F5E5A" marker-end="url(#arrow)"/>
+
+<!-- Champion-Challenger Gate (c-green) x=210, y=462, w=260, h=44 -->
+<g class="c-green" transform="translate(210,462)">
+  <rect width="260" height="44" rx="6"/>
+  <text x="130" y="20" class="th" text-anchor="middle">Champion-Challenger Gate</text>
+  <text x="130" y="36" class="ts" text-anchor="middle">New model must beat incumbent</text>
+</g>
+
+</svg>

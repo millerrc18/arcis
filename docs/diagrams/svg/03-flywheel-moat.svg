@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 480">
+<style>
+.th{font-family:system-ui,sans-serif;font-size:14px;font-weight:500;fill:#2C2C2A}.ts{font-family:system-ui,sans-serif;font-size:12px;fill:#5F5E5A}.arr{stroke:#5F5E5A;stroke-width:1.5}
+.c-blue rect{fill:#E3F0FA;stroke:#1565A6;stroke-width:0.5}.c-blue .th{fill:#0D4A7A}.c-blue .ts{fill:#1565A6}
+.c-teal rect{fill:#E1F5EE;stroke:#0F6E56;stroke-width:0.5}.c-teal .th{fill:#085041}.c-teal .ts{fill:#0F6E56}
+.c-purple rect{fill:#EDE7F5;stroke:#5E35A8;stroke-width:0.5}.c-purple .th{fill:#3E1F78}.c-purple .ts{fill:#5E35A8}
+.c-coral rect{fill:#FAECE7;stroke:#993C1D;stroke-width:0.5}.c-coral .th{fill:#712B13}.c-coral .ts{fill:#993C1D}
+.c-amber rect{fill:#FDF4E0;stroke:#A67A0B;stroke-width:0.5}.c-amber .th{fill:#7A5908}.c-amber .ts{fill:#A67A0B}
+.c-pink rect{fill:#FCE4EC;stroke:#AD1457;stroke-width:0.5}.c-pink .th{fill:#880E4F}.c-pink .ts{fill:#AD1457}
+.c-red rect{fill:#FCEBEB;stroke:#A32D2D;stroke-width:0.5}.c-red .th{fill:#791F1F}.c-red .ts{fill:#A32D2D}
+.c-green rect{fill:#EAF3DE;stroke:#3B6D11;stroke-width:0.5}.c-green .th{fill:#27500A}.c-green .ts{fill:#3B6D11}
+.c-gray rect{fill:#F1EFE8;stroke:#5F5E5A;stroke-width:0.5}.c-gray .th{fill:#444441}.c-gray .ts{fill:#5F5E5A}
+@media(prefers-color-scheme:dark){.th{fill:#D3D1C7}.ts{fill:#888780}.arr{stroke:#888780}.c-blue rect{fill:#0D4A7A;stroke:#5BA3D9}.c-blue .th{fill:#A3D1F0}.c-blue .ts{fill:#5BA3D9}.c-teal rect{fill:#085041;stroke:#5DCAA5}.c-teal .th{fill:#9FE1CB}.c-teal .ts{fill:#5DCAA5}.c-purple rect{fill:#3E1F78;stroke:#A07FD4}.c-purple .th{fill:#C9B5E8}.c-purple .ts{fill:#A07FD4}.c-coral rect{fill:#712B13;stroke:#F0997B}.c-coral .th{fill:#F5C4B3}.c-coral .ts{fill:#F0997B}.c-amber rect{fill:#7A5908;stroke:#D4A843}.c-amber .th{fill:#F0D68A}.c-amber .ts{fill:#D4A843}.c-pink rect{fill:#880E4F;stroke:#F48FB1}.c-pink .th{fill:#F8BBD0}.c-pink .ts{fill:#F48FB1}.c-red rect{fill:#791F1F;stroke:#F09595}.c-red .th{fill:#F7C1C1}.c-red .ts{fill:#F09595}.c-green rect{fill:#27500A;stroke:#97C459}.c-green .th{fill:#C0DD97}.c-green .ts{fill:#97C459}.c-gray rect{fill:#444441;stroke:#B4B2A9}.c-gray .th{fill:#D3D1C7}.c-gray .ts{fill:#B4B2A9}}
+</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+
+<!-- Title -->
+<text x="340" y="22" class="th" text-anchor="middle" font-size="15" font-weight="600">Compounding Flywheel — Technological Moat</text>
+
+<!-- Diamond nodes:
+     Top:    Execute Trades   cx=340, cy=102  (box 180x44 → x=250, y=80)
+     Right:  Observe Outcomes cx=510, cy=202  (box 180x44 → x=420, y=180)
+     Bottom: Generate Training cx=340, cy=302  (box 200x44 → x=240, y=280)
+     Left:   Retrain Model    cx=170, cy=202  (box 180x44 → x=80,  y=180)
+-->
+
+<!-- Top: Execute Trades -->
+<g class="c-teal" transform="translate(250,80)">
+  <rect width="180" height="44" rx="5"/>
+  <text x="90" y="24" class="th" text-anchor="middle">Execute Trades</text>
+  <text x="90" y="40" class="ts" text-anchor="middle">Alpaca · bracket orders</text>
+</g>
+
+<!-- Right: Observe Outcomes -->
+<g class="c-amber" transform="translate(420,180)">
+  <rect width="180" height="44" rx="5"/>
+  <text x="90" y="24" class="th" text-anchor="middle">Observe Outcomes</text>
+  <text x="90" y="40" class="ts" text-anchor="middle">P&amp;L · fills · slippage</text>
+</g>
+
+<!-- Bottom: Generate Training Data -->
+<g class="c-purple" transform="translate(240,280)">
+  <rect width="200" height="44" rx="5"/>
+  <text x="100" y="24" class="th" text-anchor="middle">Generate Training Data</text>
+  <text x="100" y="40" class="ts" text-anchor="middle">self-blinding labels</text>
+</g>
+
+<!-- Left: Retrain Model -->
+<g class="c-coral" transform="translate(80,180)">
+  <rect width="180" height="44" rx="5"/>
+  <text x="90" y="24" class="th" text-anchor="middle">Retrain Model</text>
+  <text x="90" y="40" class="ts" text-anchor="middle">halcyon-v1 → v1.N</text>
+</g>
+
+<!-- Clockwise curved arrows connecting diamond nodes -->
+<!-- Top -> Right (Execute -> Observe) -->
+<path d="M 430 102 C 490 102 510 140 510 180" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+<!-- Right -> Bottom (Observe -> Generate) -->
+<path d="M 510 224 C 510 270 460 280 440 280" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+<!-- Bottom -> Left (Generate -> Retrain) -->
+<path d="M 240 302 C 200 302 170 270 170 224" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+<!-- Left -> Top (Retrain -> Execute) -->
+<path d="M 170 180 C 170 140 220 102 250 102" fill="none" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+<!-- Center label -->
+<text x="340" y="196" class="ts" text-anchor="middle" font-style="italic">Each cycle improves</text>
+<text x="340" y="212" class="ts" text-anchor="middle" font-style="italic">the next</text>
+
+<!-- Dashed separator line -->
+<line x1="60" y1="356" x2="620" y2="356" stroke="#5F5E5A" stroke-width="1" stroke-dasharray="6 3"/>
+
+<!-- Row of 3 small gray boxes below separator -->
+<g class="c-gray" transform="translate(40,370)">
+  <rect width="180" height="44" rx="5"/>
+  <text x="90" y="20" class="th" text-anchor="middle" font-size="12">More trades</text>
+  <text x="90" y="36" class="ts" text-anchor="middle">→ more data</text>
+</g>
+
+<g class="c-gray" transform="translate(250,370)">
+  <rect width="180" height="44" rx="5"/>
+  <text x="90" y="20" class="th" text-anchor="middle" font-size="12">More data</text>
+  <text x="90" y="36" class="ts" text-anchor="middle">→ better model</text>
+</g>
+
+<g class="c-gray" transform="translate(460,370)">
+  <rect width="180" height="44" rx="5"/>
+  <text x="90" y="20" class="th" text-anchor="middle" font-size="12">Better model</text>
+  <text x="90" y="36" class="ts" text-anchor="middle">→ better trades</text>
+</g>
+
+<!-- Moat label -->
+<text x="340" y="438" class="ts" text-anchor="middle" font-size="11">Compounding advantage grows with every trading cycle — the moat deepens automatically</text>
+
+</svg>

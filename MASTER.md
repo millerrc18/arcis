@@ -133,6 +133,12 @@ None — all issues resolved as of 2026-04-04.
 
 ## 3. Architecture Overview
 
+![System architecture](docs/diagrams/svg/01-system-architecture.svg)
+
+![Multi-cadence scanning](docs/diagrams/svg/04-multi-cadence-scanning.svg)
+
+> See also: [Broker abstraction](docs/diagrams/svg/02-broker-abstraction.svg), [Data enrichment](docs/diagrams/svg/06-data-enrichment-stack.svg), [Watch loop 24hr](docs/diagrams/svg/09-watch-loop-24hr.svg), [Trade lifecycle](docs/diagrams/svg/11-trade-lifecycle.svg)
+
 ### System Flow
 
 ```
@@ -434,6 +440,10 @@ src/schema/registry.py          <- THE source of truth (46 TableDefs)
 
 ## 6. Phase Gates
 
+![Phase gates](docs/diagrams/svg/13-phase-gates.svg)
+
+![Hardware scaling](docs/diagrams/svg/10-hardware-scaling.svg)
+
 | Gate | Requirements | Current | Status |
 |---|---|---|---|
 | Phase 1 -> 2 | 50 closed, WR>=45%, Sharpe>=0.15, PF>=1.3, DD<=12%, alpha attribution running (>=50 paired trades), stress test (2008/2020/2022), >=100 MR paper trades | 13 closed, 92% WR, 0 paired, 0 MR paper | 26% |
@@ -455,6 +465,12 @@ GRPO training: RunPod A100 cloud ($14/mo), not local hardware.
 ---
 
 ## 7. Frameworks
+
+![Risk governor](docs/diagrams/svg/05-risk-governor.svg)
+
+![AI council](docs/diagrams/svg/08-ai-council.svg)
+
+> See also: [Training pipeline](docs/diagrams/svg/12-training-pipeline.svg)
 
 ### GPU Utilization Framework
 
@@ -533,6 +549,10 @@ GRPO training: RunPod A100 cloud ($14/mo), not local hardware.
 ---
 
 ## 8. Revenue & Business
+
+![Flywheel moat](docs/diagrams/svg/03-flywheel-moat.svg)
+
+![Revenue path](docs/diagrams/svg/07-revenue-path.svg)
 
 | Month | Stream | Milestone |
 |---|---|---|

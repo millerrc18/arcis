@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 560">
+<style>
+.th{font-family:system-ui,sans-serif;font-size:14px;font-weight:500;fill:#2C2C2A}.ts{font-family:system-ui,sans-serif;font-size:12px;fill:#5F5E5A}.arr{stroke:#5F5E5A;stroke-width:1.5}
+.c-blue rect{fill:#E3F0FA;stroke:#1565A6;stroke-width:0.5}.c-blue .th{fill:#0D4A7A}.c-blue .ts{fill:#1565A6}
+.c-teal rect{fill:#E1F5EE;stroke:#0F6E56;stroke-width:0.5}.c-teal .th{fill:#085041}.c-teal .ts{fill:#0F6E56}
+.c-purple rect{fill:#EDE7F5;stroke:#5E35A8;stroke-width:0.5}.c-purple .th{fill:#3E1F78}.c-purple .ts{fill:#5E35A8}
+.c-coral rect{fill:#FAECE7;stroke:#993C1D;stroke-width:0.5}.c-coral .th{fill:#712B13}.c-coral .ts{fill:#993C1D}
+.c-amber rect{fill:#FDF4E0;stroke:#A67A0B;stroke-width:0.5}.c-amber .th{fill:#7A5908}.c-amber .ts{fill:#A67A0B}
+.c-pink rect{fill:#FCE4EC;stroke:#AD1457;stroke-width:0.5}.c-pink .th{fill:#880E4F}.c-pink .ts{fill:#AD1457}
+.c-red rect{fill:#FCEBEB;stroke:#A32D2D;stroke-width:0.5}.c-red .th{fill:#791F1F}.c-red .ts{fill:#A32D2D}
+.c-green rect{fill:#EAF3DE;stroke:#3B6D11;stroke-width:0.5}.c-green .th{fill:#27500A}.c-green .ts{fill:#3B6D11}
+.c-gray rect{fill:#F1EFE8;stroke:#5F5E5A;stroke-width:0.5}.c-gray .th{fill:#444441}.c-gray .ts{fill:#5F5E5A}
+@media(prefers-color-scheme:dark){.th{fill:#D3D1C7}.ts{fill:#888780}.arr{stroke:#888780}.c-blue rect{fill:#0D4A7A;stroke:#5BA3D9}.c-blue .th{fill:#A3D1F0}.c-blue .ts{fill:#5BA3D9}.c-teal rect{fill:#085041;stroke:#5DCAA5}.c-teal .th{fill:#9FE1CB}.c-teal .ts{fill:#5DCAA5}.c-purple rect{fill:#3E1F78;stroke:#A07FD4}.c-purple .th{fill:#C9B5E8}.c-purple .ts{fill:#A07FD4}.c-coral rect{fill:#712B13;stroke:#F0997B}.c-coral .th{fill:#F5C4B3}.c-coral .ts{fill:#F0997B}.c-amber rect{fill:#7A5908;stroke:#D4A843}.c-amber .th{fill:#F0D68A}.c-amber .ts{fill:#D4A843}.c-pink rect{fill:#880E4F;stroke:#F48FB1}.c-pink .th{fill:#F8BBD0}.c-pink .ts{fill:#F48FB1}.c-red rect{fill:#791F1F;stroke:#F09595}.c-red .th{fill:#F7C1C1}.c-red .ts{fill:#F09595}.c-green rect{fill:#27500A;stroke:#97C459}.c-green .th{fill:#C0DD97}.c-green .ts{fill:#97C459}.c-gray rect{fill:#444441;stroke:#B4B2A9}.c-gray .th{fill:#D3D1C7}.c-gray .ts{fill:#B4B2A9}}
+</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+
+<!-- Title -->
+<text x="340" y="24" class="th" font-size="16" font-weight="600" text-anchor="middle">Trade Lifecycle — Signal to Close</text>
+
+<!-- Timestamp labels (left margin) -->
+<text x="22" y="74" class="ts" text-anchor="start">9:30 ET</text>
+<text x="22" y="188" class="ts" text-anchor="start">~10s</text>
+<text x="22" y="262" class="ts" text-anchor="start">Immediate</text>
+<text x="22" y="420" class="ts" text-anchor="start">1–15 days</text>
+
+<!-- Row 1: 4 boxes connected by arrows -->
+<!-- Market Scan (c-blue) x=76, y=48, w=130, h=44 -->
+<g class="c-blue" transform="translate(76,48)">
+  <rect width="130" height="44" rx="6"/>
+  <text x="65" y="20" class="th" text-anchor="middle">Market Scan</text>
+  <text x="65" y="36" class="ts" text-anchor="middle">Multi-cadence screen</text>
+</g>
+<!-- Arrow 1→2 -->
+<line x1="206" y1="70" x2="226" y2="70" class="arr" stroke="#5F5E5A" marker-end="url(#arrow)"/>
+<!-- Feature Engine (c-teal) x=226, y=48 -->
+<g class="c-teal" transform="translate(226,48)">
+  <rect width="130" height="44" rx="6"/>
+  <text x="65" y="20" class="th" text-anchor="middle">Feature Engine</text>
+  <text x="65" y="36" class="ts" text-anchor="middle">TA + macro features</text>
+</g>
+<!-- Arrow 2→3 -->
+<line x1="356" y1="70" x2="376" y2="70" class="arr" stroke="#5F5E5A" marker-end="url(#arrow)"/>
+<!-- Ranker ≥40 (c-purple) x=376, y=48 -->
+<g class="c-purple" transform="translate(376,48)">
+  <rect width="130" height="44" rx="6"/>
+  <text x="65" y="20" class="th" text-anchor="middle">Ranker ≥40</text>
+  <text x="65" y="36" class="ts" text-anchor="middle">Score threshold</text>
+</g>
+<!-- Arrow 3→4 -->
+<line x1="506" y1="70" x2="526" y2="70" class="arr" stroke="#5F5E5A" marker-end="url(#arrow)"/>
+<!-- LLM Enhance (c-purple) x=526, y=48 -->
+<g class="c-purple" transform="translate(526,48)">
+  <rect width="130" height="44" rx="6"/>
+  <text x="65" y="20" class="th" text-anchor="middle">LLM Enhance</text>
+  <text x="65" y="36" class="ts" text-anchor="middle">Qwen3 8B rationale</text>
+</g>
+
+<!-- Arrow down from row 1 center (x=341, y=92) to Attribution Logging -->
+<line x1="341" y1="92" x2="341" y2="148" class="arr" stroke="#5F5E5A" marker-end="url(#arrow)"/>
+<!-- Elbow from LLM Enhance (591, 70) down to center -->
+<polyline points="591,92 591,122 341,122 341,148" fill="none" class="arr" stroke="#5F5E5A" marker-end="url(#arrow)"/>
+<!-- Elbow from Market Scan center (141, 92) to center line -->
+<polyline points="141,92 141,122 341,122" fill="none" class="arr" stroke="#5F5E5A"/>
+
+<!-- Attribution Logging (c-amber) centered x=240, y=148, w=200, h=36 -->
+<g class="c-amber" transform="translate(240,148)">
+  <rect width="200" height="36" rx="6"/>
+  <text x="100" y="16" class="th" text-anchor="middle">Attribution Logging</text>
+  <text x="100" y="30" class="ts" text-anchor="middle">Signal + features recorded</text>
+</g>
+
+<!-- Arrow down from attribution to risk governor -->
+<line x1="340" y1="184" x2="340" y2="216" class="arr" stroke="#5F5E5A" marker-end="url(#arrow)"/>
+
+<!-- Risk Governor (c-coral) x=240, y=216, w=200, h=44 -->
+<g class="c-coral" transform="translate(240,216)">
+  <rect width="200" height="44" rx="6"/>
+  <text x="100" y="20" class="th" text-anchor="middle">Risk Governor</text>
+  <text x="100" y="36" class="ts" text-anchor="middle">Position / portfolio limits</text>
+</g>
+
+<!-- Branch left to Rejected box from risk governor -->
+<polyline points="240,238 160,238" fill="none" class="arr" stroke="#A32D2D" marker-end="url(#arrow)"/>
+<g class="c-red" transform="translate(60,216)">
+  <rect width="100" height="36" rx="6"/>
+  <text x="50" y="16" class="th" text-anchor="middle">Rejected</text>
+  <text x="50" y="30" class="ts" text-anchor="middle">Logged + skipped</text>
+</g>
+
+<!-- Arrow down from risk governor to execution row -->
+<line x1="340" y1="260" x2="340" y2="300" class="arr" stroke="#5F5E5A" marker-end="url(#arrow)"/>
+
+<!-- Execution row: Alpaca Paper + Alpaca Live, side by side centered -->
+<!-- Alpaca Paper x=130, y=300, w=200, h=44 -->
+<g class="c-amber" transform="translate(130,300)">
+  <rect width="200" height="44" rx="6"/>
+  <text x="100" y="20" class="th" text-anchor="middle">Alpaca Paper</text>
+  <text x="100" y="36" class="ts" text-anchor="middle">Shadow trading active</text>
+</g>
+<!-- Alpaca Live x=350, y=300, w=200, h=44 -->
+<g class="c-amber" transform="translate(350,300)">
+  <rect width="200" height="44" rx="6"/>
+  <text x="100" y="20" class="th" text-anchor="middle">Alpaca Live</text>
+  <text x="100" y="36" class="ts" text-anchor="middle">Phase 2+ only</text>
+</g>
+<!-- Lines from risk governor arrow splits -->
+<polyline points="340,300 230,300" fill="none" class="arr" stroke="#5F5E5A"/>
+<polyline points="340,300 450,300" fill="none" class="arr" stroke="#5F5E5A"/>
+
+<!-- Telegram alert note -->
+<g class="c-gray" transform="translate(568,312)">
+  <rect width="92" height="20" rx="4"/>
+  <text x="46" y="14" class="ts" text-anchor="middle">Telegram alert</text>
+</g>
+<line x1="550" y1="322" x2="568" y2="322" class="arr" stroke="#5F5E5A" stroke-dasharray="3,2"/>
+
+<!-- Arrow down to Position Monitor -->
+<line x1="340" y1="344" x2="340" y2="388" class="arr" stroke="#5F5E5A" marker-end="url(#arrow)"/>
+
+<!-- Position Monitor (c-teal) x=220, y=388, w=240, h=36 -->
+<g class="c-teal" transform="translate(220,388)">
+  <rect width="240" height="36" rx="6"/>
+  <text x="120" y="16" class="th" text-anchor="middle">Position Monitor</text>
+  <text x="120" y="30" class="ts" text-anchor="middle">15-min poll, SL/TP checks</text>
+</g>
+
+<!-- Arrow down to exit row -->
+<line x1="340" y1="424" x2="340" y2="464" class="arr" stroke="#5F5E5A" marker-end="url(#arrow)"/>
+
+<!-- Exit boxes: Stop Hit, Target Hit, Timeout -->
+<!-- Stop Hit (c-red) x=60, y=464, w=140, h=40 -->
+<g class="c-red" transform="translate(60,464)">
+  <rect width="140" height="40" rx="6"/>
+  <text x="70" y="18" class="th" text-anchor="middle">Stop Hit</text>
+  <text x="70" y="33" class="ts" text-anchor="middle">Bracket stop triggered</text>
+</g>
+<!-- Target Hit (c-green) x=270, y=464, w=140, h=40 -->
+<g class="c-green" transform="translate(270,464)">
+  <rect width="140" height="40" rx="6"/>
+  <text x="70" y="18" class="th" text-anchor="middle">Target Hit</text>
+  <text x="70" y="33" class="ts" text-anchor="middle">Take-profit reached</text>
+</g>
+<!-- Timeout (c-amber) x=480, y=464, w=140, h=40 -->
+<g class="c-amber" transform="translate(480,464)">
+  <rect width="140" height="40" rx="6"/>
+  <text x="70" y="18" class="th" text-anchor="middle">Timeout</text>
+  <text x="70" y="33" class="ts" text-anchor="middle">Max hold period</text>
+</g>
+<!-- Horizontal line connecting exit boxes to the drop arrow -->
+<polyline points="130,464 130,444 340,444" fill="none" class="arr" stroke="#5F5E5A"/>
+<polyline points="340,464 340,444" fill="none" class="arr" stroke="#5F5E5A"/>
+<polyline points="550,464 550,444 340,444" fill="none" class="arr" stroke="#5F5E5A"/>
+
+</svg>

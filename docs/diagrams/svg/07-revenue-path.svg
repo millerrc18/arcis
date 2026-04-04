@@ -24,6 +24,6 @@
 <g class="c-purple"><rect x="40" y="184" width="185" height="56" rx="8"/><text class="th" x="132" y="204" text-anchor="middle" dominant-baseline="central">1.5% management fee</text><text class="ts" x="132" y="222" text-anchor="middle" dominant-baseline="central">Covers $100-150K ops</text></g>
 <g class="c-purple"><rect x="245" y="184" width="185" height="56" rx="8"/><text class="th" x="337" y="204" text-anchor="middle" dominant-baseline="central">17.5% performance fee</text><text class="ts" x="337" y="222" text-anchor="middle" dominant-baseline="central">Above HWM + SOFR hurdle</text></g>
 <g class="c-purple"><rect x="450" y="184" width="185" height="56" rx="8"/><text class="th" x="542" y="204" text-anchor="middle" dominant-baseline="central">Break-even ~$7-10M AUM</text><text class="ts" x="542" y="222" text-anchor="middle" dominant-baseline="central">Scalable to $500M+</text></g>
-<text class="ts" x="340" y="270" text-anchor="middle">S&P 100 universe: $500M-$24B daily volume per name = zero capacity constraint through $500M AUM</text>
-<text class="ts" x="340" y="290" text-anchor="middle">Alpha leakage from signal publication: effectively zero for mega-cap equities</text>
+<text class="ts" x="340" y="270" text-anchor="middle">S&amp;P 100: $500M-$24B daily volume — zero capacity constraint to $500M AUM</text>
+<text class="ts" x="340" y="290" text-anchor="middle">Signal publication alpha leakage: effectively zero for mega-caps</text>
 </svg>
