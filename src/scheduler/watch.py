@@ -125,7 +125,7 @@ class WatchLoop:
         self._saturday_reports_done = False
         self._daily_audit_done = False
         self._consecutive_errors = 0
-        self._backoff_seconds = 0
+        self._backoff: dict[str, int] = {}  # per-task backoff seconds
         self._shutdown_requested = False
         self._scan_in_progress = False
         self._error_timestamps: deque = deque(maxlen=20)
@@ -260,6 +260,9 @@ class WatchLoop:
         self._daily_validation_done = False
         self._daily_build_score_done = False
         self._scan_number = 0
+        # Reset per-task backoff and collector failure tracking
+        self._backoff.clear()
+        self._collector_failures.clear()
 
     def _is_market_open(self, now: datetime) -> bool:
         """Check if market is currently open (weekday, not holiday, between open and close)."""
@@ -1300,93 +1303,96 @@ class WatchLoop:
                     self._safe_run("earnings proximity", self._check_earnings_proximity)
                     self._earnings_warning_done = True
 
-                # ── Overnight schedule (weekdays only, --overnight flag, NOT during market hours) ──
-                elif self.overnight and now.weekday() < 5 and not self._is_market_open(now):
+                # ── Overnight schedule (--overnight flag, NOT during market hours) ──
+                # Runs 7 days/week so weekend data collection is not skipped (#225).
+                # Tasks that require weekdays gate themselves individually.
+                elif self.overnight and not self._is_market_open(now):
                     ran = False
+                    is_weekday = now.weekday() < 5
 
-                    # Morning VRAM handoff (5:15 AM) — kill training, reload Ollama
-                    if (hour == 5 and now.minute >= 15
+                    # Morning VRAM handoff (5:15 AM, weekdays only)
+                    if (is_weekday and hour == 5 and now.minute >= 15
                             and not self._morning_handoff_done):
-                        self._safe_run("morning VRAM handoff",
-                                       self._run_morning_handoff)
-                        self._morning_handoff_done = True
+                        if self._safe_run("morning VRAM handoff",
+                                          self._run_morning_handoff):
+                            self._morning_handoff_done = True
                         ran = True
 
-                    elif hour == 17 and now.minute >= 30 and not self._post_close_done:
-                        self._safe_run("post-close capture", self._run_post_close_capture)
-                        self._post_close_done = True
+                    elif is_weekday and hour == 17 and now.minute >= 30 and not self._post_close_done:
+                        if self._safe_run("post-close capture", self._run_post_close_capture):
+                            self._post_close_done = True
                         ran = True
-                    elif (hour == 18 and self.training_enabled
+                    elif (is_weekday and hour == 18 and self.training_enabled
                           and not self._overnight_training_collection_done):
-                        self._safe_run("overnight training collection",
-                                       self._run_overnight_training_collection)
-                        self._overnight_training_collection_done = True
+                        if self._safe_run("overnight training collection",
+                                          self._run_overnight_training_collection):
+                            self._overnight_training_collection_done = True
                         ran = True
 
-                    # Evening VRAM handoff (6:50 PM) — unload Ollama, launch training
-                    elif (hour == 18 and now.minute >= 50
+                    # Evening VRAM handoff (6:50 PM, weekdays only)
+                    elif (is_weekday and hour == 18 and now.minute >= 50
                           and not self._vram_handoff_done):
-                        self._safe_run("evening VRAM handoff",
-                                       self._run_evening_handoff)
-                        self._vram_handoff_done = True
+                        if self._safe_run("evening VRAM handoff",
+                                          self._run_evening_handoff):
+                            self._vram_handoff_done = True
                         ran = True
 
-                    # Re-run stress test if model version changed (7 PM)
-                    elif (hour == 19 and not self._stress_test_done
+                    # Re-run stress test if model version changed (7 PM, weekdays only)
+                    elif (is_weekday and hour == 19 and not self._stress_test_done
                           and self._model_version_changed()):
-                        self._safe_run("stress test (model change)",
-                                       self._run_stress_test)
-                        self._stress_test_done = True
+                        if self._safe_run("stress test (model change)",
+                                          self._run_stress_test):
+                            self._stress_test_done = True
                         ran = True
 
                     # NOTE: 9:30 PM data collection, 10 PM news, 11 PM enrichment
-                    # are CPU/network only — they run concurrently with GPU training
+                    # are CPU/network only — run daily (including weekends)
                     elif (hour == 21 and now.minute >= 30
                           and not self._data_collection_done):
-                        self._safe_run("data collection", self._run_data_collection)
-                        self._data_collection_done = True
+                        if self._safe_run("data collection", self._run_data_collection):
+                            self._data_collection_done = True
                         ran = True
                     elif hour == 22 and not self._news_ingestion_done:
-                        self._safe_run("news ingestion", self._run_news_ingestion)
-                        self._news_ingestion_done = True
+                        if self._safe_run("news ingestion", self._run_news_ingestion):
+                            self._news_ingestion_done = True
                         ran = True
                     elif hour == 23 and not self._enrichment_precache_done:
-                        self._safe_run("enrichment precache", self._run_enrichment_precache)
-                        self._enrichment_precache_done = True
+                        if self._safe_run("enrichment precache", self._run_enrichment_precache):
+                            self._enrichment_precache_done = True
                         ran = True
-                    elif hour == 6 and not self._pre_market_done:
-                        self._safe_run("pre-market refresh", self._run_pre_market_refresh)
-                        self._pre_market_done = True
+                    elif is_weekday and hour == 6 and not self._pre_market_done:
+                        if self._safe_run("pre-market refresh", self._run_pre_market_refresh):
+                            self._pre_market_done = True
+
+                            # 1A. Pre-market brief (right after pre-market refresh at 6:00 AM)
+                            if not self._premarket_brief_done:
+                                if self._safe_run("pre-market brief", self._send_premarket_brief):
+                                    self._premarket_brief_done = True
                         ran = True
 
-                        # 1A. Pre-market brief (right after pre-market refresh at 6:00 AM)
-                        if not self._premarket_brief_done:
-                            self._safe_run("pre-market brief", self._send_premarket_brief)
-                            self._premarket_brief_done = True
-
-                    # ── Pre-market inference tasks (6-9:25 AM) ──
-                    elif (hour == 6 and now.minute >= 2
+                    # ── Pre-market inference tasks (6-9:25 AM, weekdays only) ──
+                    elif (is_weekday and hour == 6 and now.minute >= 2
                           and not self._premarket_features_done):
-                        self._safe_run("rolling features",
-                                       self._run_premarket_rolling_features)
-                        self._premarket_features_done = True
+                        if self._safe_run("rolling features",
+                                          self._run_premarket_rolling_features):
+                            self._premarket_features_done = True
                         ran = True
-                    elif hour == 7 and not self._premarket_training_done:
-                        self._safe_run("premarket training gen",
-                                       self._run_premarket_training)
-                        self._premarket_training_done = True
+                    elif is_weekday and hour == 7 and not self._premarket_training_done:
+                        if self._safe_run("premarket training gen",
+                                          self._run_premarket_training):
+                            self._premarket_training_done = True
                         ran = True
-                    elif (hour == 8 and now.minute >= 2
+                    elif (is_weekday and hour == 8 and now.minute >= 2
                           and not self._premarket_news_done):
-                        self._safe_run("premarket news scoring",
-                                       self._run_premarket_news_scoring)
-                        self._premarket_news_done = True
+                        if self._safe_run("premarket news scoring",
+                                          self._run_premarket_news_scoring):
+                            self._premarket_news_done = True
                         ran = True
-                    elif (hour == 9 and now.minute < 25
+                    elif (is_weekday and hour == 9 and now.minute < 25
                           and not self._premarket_candidates_done):
-                        self._safe_run("premarket candidates",
-                                       self._run_premarket_candidates)
-                        self._premarket_candidates_done = True
+                        if self._safe_run("premarket candidates",
+                                          self._run_premarket_candidates):
+                            self._premarket_candidates_done = True
                         ran = True
 
                         # ── Telegram: notify_premarket_complete (all premarket tasks done) ──
@@ -1499,28 +1505,34 @@ class WatchLoop:
         finally:
             self._release_lock()
 
-    def _safe_run(self, name: str, func):
-        """Run a function with exponential backoff error recovery."""
+    def _safe_run(self, name: str, func) -> bool:
+        """Run a function with per-task exponential backoff error recovery.
+
+        Returns True on success, False on exception.
+        """
         import traceback
         try:
-            if self._backoff_seconds > 0:
-                print(f"[WATCH] Backoff: waiting {self._backoff_seconds}s before {name}...")
-                time.sleep(self._backoff_seconds)
+            task_backoff = self._backoff.get(name, 0)
+            if task_backoff > 0:
+                print(f"[WATCH] Backoff: waiting {task_backoff}s before {name}...")
+                time.sleep(task_backoff)
             func()
-            # Success — reset backoff
+            # Success — reset backoff for this task only
             self._consecutive_errors = 0
-            self._backoff_seconds = 0
+            self._backoff.pop(name, None)
+            return True
         except Exception as e:
             self._consecutive_errors += 1
             self._error_timestamps.append(time.time())
-            # Exponential backoff: 10s, 30s, 60s, cap 60s
-            if self._backoff_seconds == 0:
-                self._backoff_seconds = 10
-            elif self._backoff_seconds < 60:
-                self._backoff_seconds = min(self._backoff_seconds * 3, 60)
+            # Exponential backoff: 10s, 30s, 60s, cap 60s — per task
+            current = self._backoff.get(name, 0)
+            if current == 0:
+                self._backoff[name] = 10
+            elif current < 60:
+                self._backoff[name] = min(current * 3, 60)
             logger.error("[WATCH] Error in %s: %s", name, e)
             logger.error(traceback.format_exc())
-            print(f"[WATCH] ERROR in {name}: {e} (error {self._consecutive_errors}, backoff {self._backoff_seconds}s)")
+            print(f"[WATCH] ERROR in {name}: {e} (error {self._consecutive_errors}, backoff {self._backoff.get(name, 0)}s)")
             # Instability alert: >5 errors in last hour
             cutoff = time.time() - 3600
             recent = sum(1 for t in self._error_timestamps if t > cutoff)
@@ -1533,6 +1545,7 @@ class WatchLoop:
                     pass
             elif recent <= 5:
                 self._hourly_alert_sent = False
+            return False
 
     def _run_bracket_health_check(self, context: str) -> None:
         """Run bracket health monitoring for the requested scheduler context."""

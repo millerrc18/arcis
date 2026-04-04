@@ -48,33 +48,50 @@ class TestSafeRunBackoff:
         """After a failure + backoff, a successful call resets backoff to 0."""
         # Simulate previous failures
         watch_loop._consecutive_errors = 2
-        watch_loop._backoff_seconds = 30
+        watch_loop._backoff["test_task"] = 30
 
         success_fn = MagicMock()
         with patch("time.sleep"):
-            watch_loop._safe_run("test_task", success_fn)
+            result = watch_loop._safe_run("test_task", success_fn)
 
         success_fn.assert_called_once()
+        assert result is True
         assert watch_loop._consecutive_errors == 0
-        assert watch_loop._backoff_seconds == 0
+        assert watch_loop._backoff.get("test_task", 0) == 0
 
     def test_backoff_escalates_on_failure(self, watch_loop):
-        """Each failure increases backoff: 0 -> 10 -> 30 -> 60 -> 60 (cap)."""
+        """Each failure increases backoff per-task: 0 -> 10 -> 30 -> 60 -> 60 (cap)."""
         failing_fn = MagicMock(side_effect=ValueError("boom"))
+        task_name = "failing_task"
 
         with patch("time.sleep"):
-            watch_loop._safe_run("t1", failing_fn)
-            assert watch_loop._backoff_seconds == 10
+            result = watch_loop._safe_run(task_name, failing_fn)
+            assert result is False
+            assert watch_loop._backoff[task_name] == 10
 
-            watch_loop._safe_run("t2", failing_fn)
-            assert watch_loop._backoff_seconds == 30
+            watch_loop._safe_run(task_name, failing_fn)
+            assert watch_loop._backoff[task_name] == 30
 
-            watch_loop._safe_run("t3", failing_fn)
-            assert watch_loop._backoff_seconds == 60
+            watch_loop._safe_run(task_name, failing_fn)
+            assert watch_loop._backoff[task_name] == 60
 
             # Cap at 60
-            watch_loop._safe_run("t4", failing_fn)
-            assert watch_loop._backoff_seconds == 60
+            watch_loop._safe_run(task_name, failing_fn)
+            assert watch_loop._backoff[task_name] == 60
+
+    def test_backoff_is_per_task(self, watch_loop):
+        """Backoff for one task does not affect another."""
+        failing_fn = MagicMock(side_effect=ValueError("boom"))
+        success_fn = MagicMock()
+
+        with patch("time.sleep"):
+            watch_loop._safe_run("bad_task", failing_fn)
+            assert watch_loop._backoff.get("bad_task") == 10
+            assert watch_loop._backoff.get("good_task", 0) == 0
+
+            watch_loop._safe_run("good_task", success_fn)
+            assert watch_loop._backoff.get("good_task", 0) == 0
+            assert watch_loop._backoff.get("bad_task") == 10
 
     def test_consecutive_error_count_increments(self, watch_loop):
         """Each failure increments _consecutive_errors."""
