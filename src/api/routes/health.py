@@ -87,6 +87,22 @@ def build_score():
         return {"build_score": 0, "components": {}, "error": str(exc)}
 
 
+@router.get("/health/sync")
+def health_sync():
+    """Return Render sync thread health status."""
+    try:
+        from src.sync.render_sync import RenderSyncThread
+        import threading
+        for thread in threading.enumerate():
+            if isinstance(thread, RenderSyncThread):
+                return thread.health_status()
+        return {"alive": False, "last_success_seconds_ago": None,
+                "consecutive_errors": 0, "stale": True,
+                "note": "sync thread not running"}
+    except Exception as exc:
+        return {"alive": False, "error": str(exc)}
+
+
 @router.get("/health/hshs")
 def health_hshs():
     """Compute live HSHS from local SQLite."""

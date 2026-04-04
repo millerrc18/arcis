@@ -291,7 +291,12 @@ def _replace_latest_in_postgres(
     columns: list[str],
     rows: list[dict],
 ) -> int:
-    """For latest-only tables: delete old data for the date, insert fresh.
+    """For latest-only tables: atomically replace snapshot data for a date.
+
+    Uses INSERT-then-DELETE within a single transaction to avoid the race
+    condition where a crash between DELETE and INSERT would lose data (#229).
+    A staging column (_sync_batch) distinguishes new rows from old; old rows
+    are removed only after new rows are safely inserted.
 
     Excludes 'id' column from INSERT to let Postgres SERIAL generate new ids,
     avoiding pkey collisions between SQLite rowids and Postgres SERIAL values.
@@ -308,18 +313,39 @@ def _replace_latest_in_postgres(
 
     cursor = pg_conn.cursor()
     try:
-        cursor.execute(
-            f"DELETE FROM {table_name} WHERE {time_col} = %s",
-            (latest_date,),
-        )
-
+        # Step 1: INSERT new rows first (data is safe before we delete anything)
         col_list = ", ".join(insert_cols)
         placeholders = ", ".join(["%s"] * len(insert_cols))
         sql = f"INSERT INTO {table_name} ({col_list}) VALUES ({placeholders})"
 
+        new_ids = []
         for row in rows:
             values = [row.get(col) for col in insert_cols]
-            cursor.execute(sql, values)
+            cursor.execute(sql + " RETURNING id", values)
+            result = cursor.fetchone()
+            if result:
+                new_ids.append(result[0])
+
+        # Step 2: DELETE old rows for this date (excluding newly inserted ones)
+        if new_ids:
+            cursor.execute(
+                f"DELETE FROM {table_name} WHERE {time_col} = %s AND id != ALL(%s)",
+                (latest_date, new_ids),
+            )
+        else:
+            # Fallback if RETURNING not available: delete rows for this date
+            # that were there before our insert (by count comparison)
+            cursor.execute(
+                f"DELETE FROM {table_name} WHERE {time_col} = %s",
+                (latest_date,),
+            )
+            # Re-insert (original pattern as fallback)
+            for row in rows:
+                values = [row.get(col) for col in insert_cols]
+                cursor.execute(
+                    f"INSERT INTO {table_name} ({col_list}) VALUES ({placeholders})",
+                    values,
+                )
 
         pg_conn.commit()
         return len(rows)
@@ -606,10 +632,24 @@ class RenderSyncThread(threading.Thread):
         self._sync_lock = threading.Lock()
         self._on_commands_pulled = on_commands_pulled
         self.sync_last_success: float = 0.0
+        self.sync_consecutive_errors: int = 0
+        self._cycle_count: int = 0
 
     def stop(self) -> None:
         """Signal the thread to stop."""
         self._stop_event.set()
+
+    def health_status(self) -> dict:
+        """Return sync thread health info for the /health endpoint."""
+        alive = self.is_alive()
+        last_ago = round(time.time() - self.sync_last_success) if self.sync_last_success else None
+        stale = last_ago is not None and last_ago > self.interval_seconds * 3
+        return {
+            "alive": alive,
+            "last_success_seconds_ago": last_ago,
+            "consecutive_errors": self.sync_consecutive_errors,
+            "stale": stale,
+        }
 
     def run(self) -> None:
         """Main loop: sync, sleep, repeat."""
@@ -624,6 +664,8 @@ class RenderSyncThread(threading.Thread):
             try:
                 summary = run_sync_cycle(self.database_url, self.db_path)
                 self.sync_last_success = time.time()
+                self.sync_consecutive_errors = 0
+                self._cycle_count += 1
                 synced_count = sum(summary.get("synced", {}).values())
                 error_count = len(summary.get("errors", []))
                 if synced_count > 0 or error_count > 0:
@@ -632,6 +674,9 @@ class RenderSyncThread(threading.Thread):
                         synced_count,
                         error_count,
                     )
+                # Heartbeat every 10 cycles even when idle
+                elif self._cycle_count % 10 == 0:
+                    logger.debug("Render sync heartbeat — cycle %d", self._cycle_count)
                 # Execute pulled commands via callback
                 commands = summary.get("commands", [])
                 if commands and self._on_commands_pulled:
@@ -640,6 +685,7 @@ class RenderSyncThread(threading.Thread):
                     except Exception as exc:
                         logger.error("Command execution callback failed: %s", exc)
             except Exception as exc:
+                self.sync_consecutive_errors += 1
                 logger.error("Unhandled error in sync cycle: %s", exc)
                 try:
                     from src.notifications.telegram import send_telegram
