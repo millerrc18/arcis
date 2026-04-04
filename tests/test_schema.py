@@ -199,3 +199,32 @@ def test_no_alter_table_in_source():
         f"ALTER TABLE found outside schema/: {violations}\n"
         f"Add columns to src/schema/registry.py instead."
     )
+
+
+# ── Stats query validation ─────────────────────────────────��────
+
+def test_stats_queries_reference_valid_columns():
+    """Ensure data-collection-stats queries only reference columns that exist in the schema."""
+    import re
+    from src.api.routes.system import _DATA_COLLECTION_QUERIES
+
+    col_pattern = re.compile(
+        r"(?:COUNT\s*\(\s*DISTINCT\s+|MAX\s*\(\s*|MIN\s*\(\s*|AVG\s*\(\s*)"
+        r"(\w+)\s*\)",
+        re.IGNORECASE,
+    )
+
+    errors = []
+    for table_name, sql in _DATA_COLLECTION_QUERIES.items():
+        if table_name not in TABLES:
+            errors.append(f"{table_name}: not in schema registry")
+            continue
+        schema_cols = {c.name for c in TABLES[table_name].columns}
+        referenced = col_pattern.findall(sql)
+        for col in referenced:
+            if col == "*":
+                continue
+            if col not in schema_cols:
+                errors.append(f"{table_name}: query references '{col}' but schema has {sorted(schema_cols)}")
+
+    assert errors == [], "Stats queries reference non-existent columns:\n" + "\n".join(errors)
