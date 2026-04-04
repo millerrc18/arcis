@@ -32,7 +32,7 @@ _DATA_COLLECTION_QUERIES = {
         "SELECT COUNT(*), MAX(collected_date), COUNT(DISTINCT ticker) FROM google_trends"
     ),
     "cboe_ratios": (
-        "SELECT COUNT(*), MAX(collected_date), COUNT(DISTINCT ratio_type) FROM cboe_ratios"
+        "SELECT COUNT(*), MAX(collected_date), COUNT(DISTINCT collected_date) FROM cboe_ratios"
     ),
     "earnings_calendar": (
         "SELECT COUNT(*), MAX(collected_at), COUNT(DISTINCT ticker) FROM earnings_calendar"
@@ -259,14 +259,15 @@ def data_collection_stats():
     db_path = DB_PATH
     stats = {}
 
-    try:
-        with sqlite3.connect(db_path) as conn:
-            for table_name, sql in _DATA_COLLECTION_QUERIES.items():
+    with sqlite3.connect(db_path) as conn:
+        for table_name, sql in _DATA_COLLECTION_QUERIES.items():
+            try:
                 row = conn.execute(sql).fetchone()
                 stats[table_name] = _build_table_stats(row)
-
-    except Exception as e:
-        logger.warning("data_collection_stats error: %s", e)
+            except Exception as e:
+                logger.warning("Stats query failed for %s: %s", table_name, e)
+                stats[table_name] = {"error": str(e), "total_records": 0,
+                                     "latest_collection": None, "coverage_count": 0}
 
     return stats
 
