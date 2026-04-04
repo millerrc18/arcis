@@ -126,11 +126,11 @@ def fetch_recent_news(ticker: str, lookback_days: int = 7,
         "symbol": ticker,
         "from": start_date.strftime("%Y-%m-%d"),
         "to": end_date.strftime("%Y-%m-%d"),
-        "token": finnhub_api_key,
     }
+    headers = {"X-Finnhub-Token": finnhub_api_key}
 
     try:
-        resp = requests.get(url, params=params, timeout=15)
+        resp = requests.get(url, params=params, headers=headers, timeout=15)
         resp.raise_for_status()
         articles = resp.json()
     except Exception as e:
@@ -217,11 +217,11 @@ def fetch_historical_news(ticker: str, as_of_date: str, lookback_days: int = 7,
         "symbol": ticker,
         "from": start_dt.strftime("%Y-%m-%d"),
         "to": end_dt.strftime("%Y-%m-%d"),
-        "token": finnhub_api_key,
     }
+    headers = {"X-Finnhub-Token": finnhub_api_key}
 
     try:
-        resp = requests.get(url, params=params, timeout=15)
+        resp = requests.get(url, params=params, headers=headers, timeout=15)
         resp.raise_for_status()
         articles = resp.json()
     except Exception as e:

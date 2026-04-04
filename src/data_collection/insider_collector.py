@@ -74,7 +74,8 @@ def collect_insider_transactions(
             try:
                 resp = requests.get(
                     f"{FINNHUB_BASE}/stock/insider-transactions",
-                    params={"symbol": ticker, "token": api_key},
+                    params={"symbol": ticker},
+                    headers={"X-Finnhub-Token": api_key},
                     timeout=15,
                 )
                 resp.raise_for_status()

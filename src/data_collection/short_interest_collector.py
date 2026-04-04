@@ -65,7 +65,8 @@ def collect_short_interest(
             try:
                 resp = requests.get(
                     f"{FINNHUB_BASE}/stock/short-interest",
-                    params={"symbol": ticker, "token": api_key},
+                    params={"symbol": ticker},
+                    headers={"X-Finnhub-Token": api_key},
                     timeout=15,
                 )
                 resp.raise_for_status()

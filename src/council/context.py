@@ -7,10 +7,13 @@ Config keys: none
 Tests: none
 """
 
+import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+
+logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
 
@@ -33,8 +36,8 @@ def build_shared_context(db_path: str = DB_PATH) -> str:
                 f"Today's scan: {summary.get('count', 0)} candidates, "
                 f"avg score {summary.get('avg_score', 0):.1f}"
             )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("context: recommendations query failed: %s", e)
 
     try:
         open_positions = _query_db(
@@ -43,8 +46,8 @@ def build_shared_context(db_path: str = DB_PATH) -> str:
         )
         if open_positions:
             parts.append(f"Open positions: {open_positions[0]['n']}")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("context: open positions query failed: %s", e)
 
     try:
         from src.evaluation.hshs_live import compute_hshs
@@ -59,8 +62,8 @@ def build_shared_context(db_path: str = DB_PATH) -> str:
             f"F={dimensions.get('flywheel_velocity', 0):.0f} "
             f"C={dimensions.get('defensibility', 0):.0f})"
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("context: HSHS computation failed: %s", e)
 
     try:
         import sqlite3 as sqlite
@@ -71,8 +74,8 @@ def build_shared_context(db_path: str = DB_PATH) -> str:
             ).fetchone()
             if row:
                 parts.append(f"Traffic Light: {row[0]} (score {row[1]}/6)")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("context: traffic light query failed: %s", e)
 
     try:
         vix = _query_db(
@@ -81,7 +84,7 @@ def build_shared_context(db_path: str = DB_PATH) -> str:
         )
         if vix:
             parts.append(f"VIX: {vix[0]['vix']:.1f}")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("context: VIX query failed: %s", e)
 
     return "\n".join(parts) if parts else "No shared context available."

@@ -63,7 +63,7 @@ with an unbeatable technological moat.
 | Dashboard pages | 18 |
 | Research docs | 60 |
 | Schema tables | 49 (registry) |
-| GitHub issues | 13 open |
+| GitHub issues | 11 open |
 | Monthly cost | ~$64 (Render $7 + Ollama free + Claude API ~$50 + domain $7) |
 | Hardware | RTX 3060 12GB, Windows 11, Z690, 24/7 operation |
 | HSHS health score | 85.33 |
@@ -96,10 +96,8 @@ with an unbeatable technological moat.
 
 | # | Priority | Title |
 |---|---|---|
-| #197 | P1 | Finnhub API key exposed in URL query parameters and logged |
 | #188 | P2 | PFE backfilled with -14 shares -- short position in long-only |
 | #187 | P2 | 44 failed shadow trades -- insufficient buying power, retries |
-| #183 | P2 | LLM conviction parsing 99% broken -- 143/145 return None |
 | #147 | P2 | No exponential backoff on network failures in enrichment |
 | #132 | P2 | Fallback to settings.example.yaml with placeholder keys |
 | #112 | P2 | VRAM not freed after training -- GPU memory leak |
@@ -115,8 +113,6 @@ with an unbeatable technological moat.
 - Database on OneDrive path risks WAL corruption (incident #181); move to
   local path or exclude `*.sqlite3*` from sync
 - UPS not yet purchased (CyberPower CP1500PFCLCD, ~$220)
-- LLM conviction parsing broken: 143/145 return None, all trades use default=5
-  (#183)
 
 ### Sprint History
 
