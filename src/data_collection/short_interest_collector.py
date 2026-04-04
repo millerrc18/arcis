@@ -52,14 +52,15 @@ def collect_short_interest(
     """
     api_key = _get_finnhub_key()
     if not api_key:
-        logger.warning("[SHORT] No Finnhub API key configured")
-        return {"tickers_processed": 0, "records_stored": 0, "error": "no_api_key"}
+        from src.data_collection.errors import CollectorConfigError
+        raise CollectorConfigError("FINNHUB_API_KEY not configured — set in .env or config/settings.local.yaml")
 
     now = datetime.now(ET)
     collected_at = now.isoformat()
 
     tickers_processed = 0
     records_stored = 0
+    errors = 0
 
     with sqlite3.connect(db_path) as conn:
         for ticker in tickers:
@@ -117,13 +118,23 @@ def collect_short_interest(
 
             except Exception as e:
                 logger.warning("[SHORT] Failed for %s: %s", ticker, e)
+                errors += 1
 
             # Rate limit
             time.sleep(1.0)
 
+    total = len(tickers)
+    if total > 0 and errors > total * 0.5:
+        from src.data_collection.errors import CollectorPartialFailureError
+        raise CollectorPartialFailureError(
+            f"[SHORT] {errors}/{total} tickers failed (>{50}% threshold)",
+            errors=errors, total=total,
+        )
+
     result = {
         "tickers_processed": tickers_processed,
         "records_stored": records_stored,
+        "errors": errors,
     }
     logger.info("[SHORT] Collection complete: %s", result)
     return result

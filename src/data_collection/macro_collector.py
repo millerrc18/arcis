@@ -141,8 +141,8 @@ def collect_macro_snapshots(db_path: str = DB_PATH) -> dict:
     """
     api_key = _get_fred_api_key()
     if not api_key:
-        logger.warning("[MACRO] No FRED API key configured")
-        return {"series_collected": 0, "notable_changes": [], "error": "no_api_key"}
+        from src.data_collection.errors import CollectorConfigError
+        raise CollectorConfigError("FRED_API_KEY not configured — set in .env or config/settings.local.yaml")
 
     now = datetime.now(ET)
     today_str = now.strftime("%Y-%m-%d")
