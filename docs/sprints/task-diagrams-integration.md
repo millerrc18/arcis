@@ -30,21 +30,21 @@ Read `docs/diagrams/svg/05-risk-governor.svg` for the full style block reference
 
 ### 01-system-architecture.svg (Section 3)
 Full pipeline diagram. 6 rows:
-- Row 1: 4 data source boxes (Market data, SEC EDGAR, Finnhub, FRED/VIX) — c-blue
+- Row 1: 5 data source boxes (yfinance, SEC EDGAR, Finnhub, FRED/VIX, Earnings) — c-blue. Add a 6th small box "+4 more" (Options, Google Trends, Insider, CBOE)
 - Row 2: Feature engine bar (7 dimensions) — c-teal, full width
 - Row 3: Deterministic ranker → LLM (halcyon-v1.0.0) — c-purple
 - Row 4: Risk governor (8 checks) — c-coral, full width
-- Row 5: Alpaca paper (c-amber) + IB live (c-green) side by side
+- Row 5: Alpaca paper (c-amber) + Alpaca live (c-amber, dashed border) side by side. NOTE: IB integration is planned but not deployed — show current state
 - Row 6: Training pipeline feedback bar (c-pink)
 - Dashed curved arrow from bottom-right back up to feature engine labeled "Flywheel"
 - viewBox height ~520
 
 ### 02-broker-abstraction.svg (Section 3)
-Multi-broker architecture. Shows:
+Multi-broker architecture (PLANNED — IB not yet deployed). Shows:
 - Top: Executor box (c-purple)
-- Left branch: "Paper trades" → Alpaca adapter (direct, c-amber) → Alpaca paper API
-- Right branch: "Live trades" → Broker factory (c-teal) → dashed ABC interface box
-- Factory branches to: AlpacaLiveBroker (c-amber) + IBBroker (c-green)
+- Left branch: "Paper trades (unchanged)" → Alpaca adapter (direct, c-amber) → Alpaca paper API. Add note: "No abstraction needed — direct call"
+- Right branch: "Live trades" → Broker factory (c-teal) → dashed ABC interface box (BrokerAdapter)
+- Factory branches to: AlpacaLiveBroker (c-amber) + IBBroker (c-green, dashed border — planned)
 - Bottom: Alpaca live API + IB Gateway :4001
 - viewBox height ~440
 
@@ -64,8 +64,9 @@ Signal to close flow:
 - Row 1: Market scan → Feature engine → Ranker ≥40 → LLM enhance (left to right, c-blue/c-teal/c-purple)
 - Arrow down to: Attribution logging (c-amber)
 - Arrow down to: Risk governor with "Rejected" branch left (c-red) and "Approved" down
-- Dual execution: Alpaca paper (c-amber) + IB live (c-green) side by side
+- Dual execution: Alpaca paper (c-amber) + Alpaca live (c-amber) side by side. NOTE: Show current state (both Alpaca), not future IB state
 - Arrow down to: Position monitor every 15 min (c-teal)
+- Small Telegram notification icon/note after execution
 - Bottom: 3 exit boxes: Stop hit (c-gray) / Target hit (c-green) / Timeout (c-amber)
 - Left margin timestamps: 9:30 ET, ~10s later, Immediate, 1-15 days
 - viewBox height ~520
@@ -75,8 +76,9 @@ Self-blinding architecture:
 - Top: Closed trade + features (c-gray)
 - Red dashed firewall line: "Temporal firewall — outcome NEVER crosses this line"
 - Two branches below firewall:
-  - Left: Stage 1 Blinded generation (c-purple) → Quality scoring (c-teal)
+  - Left: Stage 1 Blinded generation (c-purple) → Stage 2 Quality scoring (c-teal)
   - Right: Outcome templates 3-5x (c-amber) → Batch generation (c-gray)
+- Small note between stages: "3-stage curriculum: structure → evidence → decision"
 - Converge to: Training set 62/38 ratio (c-purple)
 - Bottom: QLoRA fine-tune → champion-challenger gate (c-coral)
 - Side: Leakage test TF-IDF <55% (c-red) with arrow from training set
@@ -86,7 +88,7 @@ Self-blinding architecture:
 Growth roadmap:
 - Phase 1 box (c-teal) → Amber gate box (50 trades, WR≥45%) → Phase 2 (c-teal) → Amber gate (100 trades, Sharpe≥1) → arrow down
 - Phase 3-4 (c-teal, multi-strategy + options) → Amber gate (3-month track) → Fund formation (c-green, Wyoming LLC → LP)
-- Timeline bar below showing progress: green fill to "You are here" (18/50 trades)
+- Timeline bar below showing progress: green fill proportional to closed trades / 50. Read current count from MASTER.md Section 2 at build time. If unsure, use placeholder "N/50"
 - Timeline labels: Apr 2026, Jul 2026, Dec 2026, 2027+
 - Bottom: 3 lines of Phase 1 gate criteria text
 - viewBox height ~400

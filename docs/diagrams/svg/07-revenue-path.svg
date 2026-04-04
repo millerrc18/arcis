@@ -13,7 +13,7 @@
 <line x1="180" y1="80" x2="215" y2="80" class="arr" marker-end="url(#arrow)"/>
 <g class="c-teal"><rect x="215" y="52" width="140" height="56" rx="8"/><text class="th" x="285" y="72" text-anchor="middle" dominant-baseline="central">Collective2</text><text class="ts" x="285" y="90" text-anchor="middle" dominant-baseline="central">Verified track record</text></g>
 <line x1="355" y1="80" x2="390" y2="80" class="arr" marker-end="url(#arrow)"/>
-<g class="c-amber"><rect x="390" y="52" width="140" height="56" rx="8"/><text class="th" x="460" y="72" text-anchor="middle" dominant-baseline="central">Signal marketplace</text><text class="ts" x="460" y="90" text-anchor="middle" dominant-baseline="central">C2 + Darwinex</text></g>
+<g class="c-amber"><rect x="390" y="52" width="140" height="56" rx="8"/><text class="th" x="460" y="72" text-anchor="middle" dominant-baseline="central">Signals (C2/Darwinex)</text><text class="ts" x="460" y="90" text-anchor="middle" dominant-baseline="central">Parallel revenue stream</text></g>
 <line x1="530" y1="80" x2="560" y2="80" class="arr" marker-end="url(#arrow)"/>
 <g class="c-green"><rect x="560" y="52" width="90" height="56" rx="8"/><text class="th" x="605" y="72" text-anchor="middle" dominant-baseline="central">Fund</text><text class="ts" x="605" y="90" text-anchor="middle" dominant-baseline="central">LP structure</text></g>
 <text class="ts" x="110" y="130" text-anchor="middle">Year 1</text>
@@ -23,7 +23,7 @@
 <text class="th" x="340" y="168" text-anchor="middle">Fund economics</text>
 <g class="c-purple"><rect x="40" y="184" width="185" height="56" rx="8"/><text class="th" x="132" y="204" text-anchor="middle" dominant-baseline="central">1.5% management fee</text><text class="ts" x="132" y="222" text-anchor="middle" dominant-baseline="central">Covers $100-150K ops</text></g>
 <g class="c-purple"><rect x="245" y="184" width="185" height="56" rx="8"/><text class="th" x="337" y="204" text-anchor="middle" dominant-baseline="central">17.5% performance fee</text><text class="ts" x="337" y="222" text-anchor="middle" dominant-baseline="central">Above HWM + SOFR hurdle</text></g>
-<g class="c-purple"><rect x="450" y="184" width="185" height="56" rx="8"/><text class="th" x="542" y="204" text-anchor="middle" dominant-baseline="central">Break-even ~$2M AUM</text><text class="ts" x="542" y="222" text-anchor="middle" dominant-baseline="central">Scalable to $500M+</text></g>
+<g class="c-purple"><rect x="450" y="184" width="185" height="56" rx="8"/><text class="th" x="542" y="204" text-anchor="middle" dominant-baseline="central">Break-even ~$7-10M AUM</text><text class="ts" x="542" y="222" text-anchor="middle" dominant-baseline="central">Scalable to $500M+</text></g>
 <text class="ts" x="340" y="270" text-anchor="middle">S&P 100 universe: $500M-$24B daily volume per name = zero capacity constraint through $500M AUM</text>
 <text class="ts" x="340" y="290" text-anchor="middle">Alpha leakage from signal publication: effectively zero for mega-cap equities</text>
 </svg>

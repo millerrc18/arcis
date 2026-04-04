@@ -13,7 +13,7 @@
 <g class="c-teal"><rect x="240" y="48" width="200" height="44" rx="8"/><text class="th" x="340" y="70" text-anchor="middle" dominant-baseline="central">Trade candidate</text></g>
 <line x1="340" y1="92" x2="340" y2="118" class="arr" marker-end="url(#arrow)"/>
 <g class="c-coral"><rect x="100" y="118" width="240" height="44" rx="6"/><text class="ts" x="220" y="140" text-anchor="middle" dominant-baseline="central">1. Max position size ≤5% equity</text></g>
-<g class="c-coral"><rect x="350" y="118" width="240" height="44" rx="6"/><text class="ts" x="470" y="140" text-anchor="middle" dominant-baseline="central">2. Max open positions ≤50</text></g>
+<g class="c-coral"><rect x="350" y="118" width="240" height="44" rx="6"/><text class="ts" x="470" y="140" text-anchor="middle" dominant-baseline="central">2. Max positions ≤5 (50 bootcamp)</text></g>
 <g class="c-coral"><rect x="100" y="172" width="240" height="44" rx="6"/><text class="ts" x="220" y="194" text-anchor="middle" dominant-baseline="central">3. Sector exposure ≤30%</text></g>
 <g class="c-coral"><rect x="350" y="172" width="240" height="44" rx="6"/><text class="ts" x="470" y="194" text-anchor="middle" dominant-baseline="central">4. Max correlated ≤3</text></g>
 <g class="c-coral"><rect x="100" y="226" width="240" height="44" rx="6"/><text class="ts" x="220" y="248" text-anchor="middle" dominant-baseline="central">5. Daily loss ≤3% equity</text></g>
