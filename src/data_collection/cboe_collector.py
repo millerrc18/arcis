@@ -157,6 +157,16 @@ def collect_cboe_ratios(db_path: str = DB_PATH) -> dict:
 
     data = _fetch_cboe_pc_ratio()
 
+    # If all three tiers failed, surface the failure instead of inserting NULLs
+    if (data.get("equity_pc_ratio") is None
+            and data.get("index_pc_ratio") is None
+            and data.get("total_pc_ratio") is None):
+        from src.data_collection.errors import CollectorPartialFailureError
+        raise CollectorPartialFailureError(
+            "All CBOE fallback tiers failed — no ratios collected",
+            errors=3, total=3,
+        )
+
     with sqlite3.connect(db_path) as conn:
         avg_20d = _get_20d_avg(conn, today_str)
         vs_avg = None
