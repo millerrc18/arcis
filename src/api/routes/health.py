@@ -87,6 +87,40 @@ def build_score():
         return {"build_score": 0, "components": {}, "error": str(exc)}
 
 
+@router.get("/health/startup")
+def health_startup():
+    """Return the latest startup validation result for dashboard display."""
+    import json as _json
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        try:
+            row = conn.execute(
+                "SELECT results_json, overall_status, created_at "
+                "FROM validation_results "
+                "WHERE results_json LIKE '%\"trigger\": \"startup\"%' "
+                "ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+            if not row:
+                return {"overall_status": None, "message": "No startup validation recorded"}
+
+            result = _json.loads(row["results_json"])
+
+            # Get previous status for transition display
+            prev = conn.execute(
+                "SELECT overall_status FROM validation_results "
+                "WHERE results_json LIKE '%\"trigger\": \"startup\"%' "
+                "ORDER BY created_at DESC LIMIT 1 OFFSET 1"
+            ).fetchone()
+            result["previous_status"] = prev["overall_status"] if prev else None
+            return result
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.error("[API] health/startup failed: %s", exc)
+        return {"overall_status": None, "error": str(exc)}
+
+
 @router.get("/health/sync")
 def health_sync():
     """Return Render sync thread health status."""

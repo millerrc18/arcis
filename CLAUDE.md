@@ -37,13 +37,20 @@ python scripts/render_migrate.py            # Sync Postgres schema from registry
 
 ```bash
 git pull origin main
-python -m src.main validate-schema --fix    # Ensure local DB matches registry
-python -m src.main watch                    # Standard watch loop
-# OR with overnight + digest email:
-python -m src.main watch --email-mode digest --overnight
+python -m src.main startup                    # Validates everything, then launches watch loop
 ```
 
-The watch loop uses a **PID lockfile** (`data/watch.lock`) to prevent duplicate instances. If you see `ERROR: Another watch loop is already running (PID ...)`, either kill the existing process or remove a stale lockfile:
+The `startup` command runs tiered validation (config, schema, environment, connectivity, services), auto-fixes schema drift, sends a Telegram notification with the results, and launches the watch loop with `--overnight` and `--email-mode digest` defaults.
+
+**Flags:**
+- `--check-only` — validate without launching the watch loop
+- `--force` — bypass critical failures and launch anyway
+- `--no-overnight` — disable overnight schedule
+- `--email-mode silent|full_stream|daily_summary|digest` — override default digest mode
+
+**Exit codes:** 0 = clean, 1 = critical blocked, 2 = check-only with warnings.
+
+The watch loop uses a **PID lockfile** (`data/watch.lock`) to prevent duplicate instances. The `startup` command checks for this before running validation. If you see `Another watch loop is already running (PID ...)`, kill the existing process:
 
 ```bash
 # Check what's running
