@@ -56,10 +56,11 @@ def _save_cache(ticker: str, data: dict) -> None:
 def _fetch_from_finnhub(ticker: str, api_key: str, lookback_days: int = 90) -> dict | None:
     """Fetch insider transactions from Finnhub API."""
     url = "https://finnhub.io/api/v1/stock/insider-transactions"
-    params = {"symbol": ticker, "token": api_key}
+    params = {"symbol": ticker}
+    headers = {"X-Finnhub-Token": api_key}
 
     try:
-        resp = requests.get(url, params=params, timeout=15)
+        resp = requests.get(url, params=params, headers=headers, timeout=15)
         resp.raise_for_status()
         data = resp.json()
     except Exception as e:

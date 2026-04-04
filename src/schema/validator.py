@@ -1,7 +1,7 @@
-"""Schema validator — compares live databases against the registry.
+"""Schema validator — validates database schema against registry.
 
-Called by: validate-schema CLI command (src.main)
-Calls: src.schema.registry
+Called by: cli.commands, scheduler.watch
+Calls: schema.registry
 Owns tables: none
 Config keys: none
 Tests: tests/test_schema.py

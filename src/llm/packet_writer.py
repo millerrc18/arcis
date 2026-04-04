@@ -221,6 +221,13 @@ def _parse_llm_response(response: str) -> tuple[int | None, str | None, str | No
     why_now = None
     deeper_analysis = None
 
+    # Diagnostic logging — raw response structure (#183)
+    logger.info("[LLM] Raw response length: %d chars", len(response))
+    logger.info("[LLM] First 200 chars: %s", response[:200].replace('\n', '\\n'))
+    logger.info("[LLM] Last 200 chars: %s", response[-200:].replace('\n', '\\n'))
+    tags_found = re.findall(r'<(\w+)[^>]*>', response)
+    logger.info("[LLM] XML tags found: %s", list(set(tags_found)))
+
     # Strip markdown code fences if present (```xml ... ```)
     cleaned = re.sub(r'^```(?:xml)?\s*\n?', '', response.strip(), flags=re.MULTILINE)
     cleaned = re.sub(r'\n?```\s*$', '', cleaned.strip(), flags=re.MULTILINE)
@@ -266,6 +273,35 @@ def _parse_llm_response(response: str) -> tuple[int | None, str | None, str | No
         if conv_match:
             raw_conv = int(conv_match.group(1))
             # #169: flag hallucinated conviction before clamping
+            if raw_conv < 1 or raw_conv > 10:
+                logger.warning("[LLM] Conviction %d outside 1-10 range — clamping", raw_conv)
+            conviction = max(1, min(10, raw_conv))
+
+    # Fallback: <conviction>N</conviction> tag (#183)
+    if conviction is None:
+        conv_tag = re.search(r'<conviction[^>]*>\s*(\d+)', response, re.IGNORECASE)
+        if conv_tag:
+            raw_conv = int(conv_tag.group(1))
+            if raw_conv < 1 or raw_conv > 10:
+                logger.warning("[LLM] Conviction %d outside 1-10 range — clamping", raw_conv)
+            conviction = max(1, min(10, raw_conv))
+
+    # Fallback: "Conviction: 7/10" or "Conviction Score: 7" (#183)
+    if conviction is None:
+        conv_score = re.search(
+            r'conviction\s*(?:score)?[:\s]+(\d+)(?:/10)?', response, re.IGNORECASE
+        )
+        if conv_score:
+            raw_conv = int(conv_score.group(1))
+            if raw_conv < 1 or raw_conv > 10:
+                logger.warning("[LLM] Conviction %d outside 1-10 range — clamping", raw_conv)
+            conviction = max(1, min(10, raw_conv))
+
+    # Fallback: **Conviction:** 7 (markdown bold) (#183)
+    if conviction is None:
+        conv_md = re.search(r'\*\*conviction\*\*[:\s]+(\d+)', response, re.IGNORECASE)
+        if conv_md:
+            raw_conv = int(conv_md.group(1))
             if raw_conv < 1 or raw_conv > 10:
                 logger.warning("[LLM] Conviction %d outside 1-10 range — clamping", raw_conv)
             conviction = max(1, min(10, raw_conv))

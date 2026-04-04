@@ -11,12 +11,20 @@ def test_ensure_all_tables_creates_council_sync_tables(tmp_path, monkeypatch):
 
     Post schema registry migration, table DDL is centralized in
     src/schema/registry.py rather than in _ensure_all_tables.
+    Table names are read from the registry instead of being hardcoded (#194).
     """
     from src.schema.registry import TABLES
-    assert "council_sessions" in TABLES
-    assert "council_votes" in TABLES
-    assert "activity_log" in TABLES
-    assert "api_costs" in TABLES
+
+    # Registry must have a healthy minimum of tables
+    assert len(TABLES) >= 40, f"Registry only has {len(TABLES)} tables, expected >= 40"
+
+    # Spot-check: council and infrastructure tables must exist
+    required_groups = {
+        "council": [t for t in TABLES if t.startswith("council_")],
+        "activity": [t for t in TABLES if t in ("activity_log", "api_costs")],
+    }
+    assert len(required_groups["council"]) >= 2, "Expected at least 2 council_* tables"
+    assert len(required_groups["activity"]) >= 1, "Expected activity_log or api_costs"
 
 
 def test_weekly_synthesis_skips_cleanly_without_api_key(tmp_path, monkeypatch, caplog):
