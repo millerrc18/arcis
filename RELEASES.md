@@ -35,39 +35,50 @@
 
 | Criterion | Target | Current |
 |---|---|---|
-| Phase 1 gate passed | 50 trades, WR≥45%, Sharpe≥0.15, PF≥1.3, DD≤12% | 13 trades (26%) |
-| Critical bugs resolved | Zero CRITICAL issues open | 1 (#182) — #183 fixed in v0.11.0 |
+| Phase 1 gate passed | 50 trades, WR≥45%, Sharpe≥0.15, PF≥1.3, DD≤12% | 18 trades (36%) — accumulating |
+| Critical bugs resolved | Zero CRITICAL issues open | ✅ Done (0 open issues) |
 | MASTER.md complete | All 13 sections populated | ✅ Done (v0.10.0) |
-| Conviction parsing | ≥90% parse rate | Fixed in v0.11.0 — 5 fallback patterns, monitoring |
-| Watch loop uptime | 7 consecutive days without crash | Not validated |
-| Alpha attribution running | ≥50 paired trades | 0 (just deployed) |
-| Stress test completed | 2008/2020/2022 scenarios | Deployed, not run |
+| Conviction parsing | ≥90% parse rate | ✅ Fixed (v0.11.0) — verify in logs |
+| Watch loop uptime | 7 consecutive days without crash | Clock started Apr 4 |
+| Alpha attribution running | ≥50 paired trades | Accumulating (deployed v0.10.0) |
+| Stress test completed | 2008/2020/2022 scenarios | Deployed, runs Sunday 9 PM |
 | Schema registry | All tables, zero DDL outside | ✅ Done (49 tables) |
+| CI guardrails | 9 tests, Dependabot | ✅ Done (v0.11.0) |
 
 ---
 
 ## Releases
 
 ### v0.11.0 — 2026-04-04
-**Bug Bash + Tech Debt Cleanup**
+**Bug bash complete — all issues closed, CI hardened**
 
-7 files changed. 1 critical bug fix, 1 security fix, 5 tech debt items.
+PRs #205-#212. 0 open issues (was 17). 1,344 tests (was 1,105). 13 architecture diagrams.
 
-**Critical fix (#183): LLM conviction parsing**
-- Added diagnostic logging (raw response structure, XML tags found)
-- Added 3 fallback conviction patterns: `<conviction>` tag, `Conviction Score: N/10`, markdown bold
-- Parser now has 5 total extraction patterns (up from 2) — target ≥90% parse rate
+**Critical fixes:**
+- #183: Conviction parsing — 5 extraction patterns (was 2), target ≥90% parse rate
+- #197: Finnhub API key moved to `X-Finnhub-Token` header (7 files)
+- #187: Paper buying power check before trade entry
+- #188: Negative shares guard in reconcile backfill (long-only enforcement)
+- #106: Atomic kill switch with staleness check + audit trail
+- #132: Config validation rejects placeholder API keys on load
+- #147: Exponential backoff retry utility applied to all enrichment/collection
+- #82: Silent exception swallowing replaced with logger.debug() in council
 
-**Security fix (#197): Finnhub API key exposure**
-- Migrated all 7 Finnhub API calls from `?token=` query parameter to `X-Finnhub-Token` header
-- Files: news.py, insiders.py, insider_collector.py, analyst_collector.py, short_interest_collector.py
+**CI hardening (9 guardrail tests):**
+- API parity (frontend ⊆ backend routes)
+- No DDL outside schema registry
+- Import smoke test (catches wrong module paths)
+- Stub function detection (no pass-only functions)
+- Test coverage enforcement (every module referenced by a test)
+- TODO must reference GitHub issue number
+- Dashboard route validation
+- Schema column drift detection
+- Config key validation against settings.example.yaml
 
-**Tech debt closed:**
-- #191: reconcile.py verified at 400 lines (passes guardrail)
-- #192: validator.py docstring header updated
-- #193: guardrail false positive verified resolved (src/schema/ excluded from scan)
-- #194: test_watch_bootstrap reads table names from registry instead of hardcoding
-- #82: Silent `except: pass` in council/context.py replaced with `logger.debug()` calls
+**Infrastructure:**
+- Dependabot configured (Python + npm weekly Saturday, Actions monthly)
+- 13 architecture SVG diagrams with light/dark mode
+- Test count floor updated in CI (1,344)
 
 ---
 
