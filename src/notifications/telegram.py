@@ -185,6 +185,51 @@ def notify_system_event(event: str, detail: str = "") -> bool:
     return send_telegram(msg)
 
 
+def notify_startup_complete(
+    overall_status: str,
+    passed: int,
+    warnings: int,
+    criticals: int,
+    warning_details: list[str] | None = None,
+    critical_details: list[str] | None = None,
+    launching: bool = True,
+    email_mode: str = "digest",
+    overnight: bool = True,
+) -> bool:
+    """Alert: startup validation complete."""
+    if criticals > 0:
+        emoji = "\u274c"
+        title = "ARCIS STARTUP BLOCKED"
+    elif warnings > 0:
+        emoji = "\U0001f680"
+        title = "ARCIS STARTUP"
+    else:
+        emoji = "\U0001f680"
+        title = "ARCIS STARTUP"
+
+    msg = f"{emoji} <b>{title}</b>\n\n"
+    msg += f"{passed} passed | {warnings} warnings | {criticals} critical\n"
+    msg += f"Status: <b>{overall_status.upper()}</b>\n"
+
+    if critical_details:
+        msg += "\n"
+        for d in critical_details[:5]:
+            msg += f"\u274c {d}\n"
+
+    if warning_details:
+        msg += "\n"
+        for d in warning_details[:5]:
+            msg += f"\u26a0\ufe0f {d}\n"
+
+    if launching:
+        overnight_str = "overnight" if overnight else "daytime"
+        msg += f"\nWatch loop launching ({overnight_str} + {email_mode})"
+    elif criticals > 0:
+        msg += "\nUse --force to override."
+
+    return send_telegram(msg)
+
+
 def notify_daily_summary(total_pnl: float, open_trades: int,
                          closed_today: int, win_rate: float | None = None) -> bool:
     """Alert: end-of-day summary."""

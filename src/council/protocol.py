@@ -187,7 +187,7 @@ def run_round_2(
         if parsed.get("direction") != original_directions.get(agent_name):
             sycophancy_flags.append(agent_name)
             logger.info(
-                "[COUNCIL] SYCOPHANCY FLAG: %s flipped %s → %s",
+                "[COUNCIL] SYCOPHANCY FLAG: %s flipped %s -> %s",
                 agent_name,
                 original_directions[agent_name],
                 parsed["direction"],

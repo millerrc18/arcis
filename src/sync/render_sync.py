@@ -228,6 +228,17 @@ def _upsert_to_postgres(
 
     conflict_target = conflict_col or pk
 
+    # Filter out rows with NULL primary key — these would fail Postgres NOT NULL
+    # constraint and indicate incomplete data in SQLite (#243).
+    if pk in columns:
+        before = len(rows)
+        rows = [r for r in rows if r.get(pk) is not None]
+        skipped = before - len(rows)
+        if skipped:
+            logger.warning("Skipped %d rows with NULL %s in %s", skipped, pk, table_name)
+        if not rows:
+            return 0
+
     # For tables with SERIAL 'id' pk, exclude 'id' from INSERT to let
     # Postgres auto-generate — SQLite rowids and Postgres SERIAL values diverge.
     strip_id = pk == "id"
@@ -293,6 +304,10 @@ def _replace_latest_in_postgres(
 ) -> int:
     """For latest-only tables: delete old data for the date, insert fresh.
 
+    Uses a savepoint so that if INSERT fails after DELETE, the entire
+    operation rolls back (no data loss). The DELETE + INSERT are within a
+    single transaction — both succeed or neither does (#229).
+
     Excludes 'id' column from INSERT to let Postgres SERIAL generate new ids,
     avoiding pkey collisions between SQLite rowids and Postgres SERIAL values.
     """
@@ -308,6 +323,10 @@ def _replace_latest_in_postgres(
 
     cursor = pg_conn.cursor()
     try:
+        # Savepoint protects against partial failure: if INSERT fails,
+        # the DELETE is also rolled back — no data loss window.
+        cursor.execute("SAVEPOINT sync_replace")
+
         cursor.execute(
             f"DELETE FROM {table_name} WHERE {time_col} = %s",
             (latest_date,),
@@ -321,9 +340,14 @@ def _replace_latest_in_postgres(
             values = [row.get(col) for col in insert_cols]
             cursor.execute(sql, values)
 
+        cursor.execute("RELEASE SAVEPOINT sync_replace")
         pg_conn.commit()
         return len(rows)
     except Exception as exc:
+        try:
+            cursor.execute("ROLLBACK TO SAVEPOINT sync_replace")
+        except Exception:
+            pass
         pg_conn.rollback()
         logger.error("Postgres replace failed for %s: %s", table_name, exc)
         raise
@@ -606,10 +630,24 @@ class RenderSyncThread(threading.Thread):
         self._sync_lock = threading.Lock()
         self._on_commands_pulled = on_commands_pulled
         self.sync_last_success: float = 0.0
+        self.sync_consecutive_errors: int = 0
+        self._cycle_count: int = 0
 
     def stop(self) -> None:
         """Signal the thread to stop."""
         self._stop_event.set()
+
+    def health_status(self) -> dict:
+        """Return sync thread health info for the /health endpoint."""
+        alive = self.is_alive()
+        last_ago = round(time.time() - self.sync_last_success) if self.sync_last_success else None
+        stale = last_ago is not None and last_ago > self.interval_seconds * 3
+        return {
+            "alive": alive,
+            "last_success_seconds_ago": last_ago,
+            "consecutive_errors": self.sync_consecutive_errors,
+            "stale": stale,
+        }
 
     def run(self) -> None:
         """Main loop: sync, sleep, repeat."""
@@ -624,6 +662,8 @@ class RenderSyncThread(threading.Thread):
             try:
                 summary = run_sync_cycle(self.database_url, self.db_path)
                 self.sync_last_success = time.time()
+                self.sync_consecutive_errors = 0
+                self._cycle_count += 1
                 synced_count = sum(summary.get("synced", {}).values())
                 error_count = len(summary.get("errors", []))
                 if synced_count > 0 or error_count > 0:
@@ -632,6 +672,9 @@ class RenderSyncThread(threading.Thread):
                         synced_count,
                         error_count,
                     )
+                # Heartbeat every 10 cycles even when idle
+                elif self._cycle_count % 10 == 0:
+                    logger.debug("Render sync heartbeat — cycle %d", self._cycle_count)
                 # Execute pulled commands via callback
                 commands = summary.get("commands", [])
                 if commands and self._on_commands_pulled:
@@ -640,6 +683,7 @@ class RenderSyncThread(threading.Thread):
                     except Exception as exc:
                         logger.error("Command execution callback failed: %s", exc)
             except Exception as exc:
+                self.sync_consecutive_errors += 1
                 logger.error("Unhandled error in sync cycle: %s", exc)
                 try:
                     from src.notifications.telegram import send_telegram

@@ -811,9 +811,9 @@ recurrence.
 ```bash
 # Startup / restart
 git pull origin main
-python -m src.main validate-schema --fix
-python -m src.main watch                    # Standard watch loop
-python -m src.main watch --email-mode digest --overnight
+python -m src.main startup                    # Validates + launches (recommended)
+python -m src.main startup --check-only       # Validate only, don't launch
+python -m src.main watch --email-mode digest --overnight  # Direct watch (skips validation)
 
 # Testing
 python -m pytest tests/ -v
@@ -855,7 +855,7 @@ DB Schema, Attribution, Stress Test.
 - **Training Quality (5):** classify-training-data, score-training-data, validate-training-data, generate-contrastive, generate-preferences
 - **Training Exec (2):** train, train-pipeline
 - **Evaluation (10):** cto-report, evaluate-holdout, model-evaluation-status, promote-model, feature-importance, backtest, compare-models, check-leakage, performance-report, evaluate-gate
-- **Operations (8):** collect-data, fetch-earnings, halt-trading, resume-trading, preflight, council, watch, dashboard
+- **Operations (9):** startup, collect-data, fetch-earnings, halt-trading, resume-trading, preflight, council, watch, dashboard
 
 ---
 

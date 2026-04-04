@@ -61,14 +61,15 @@ def collect_insider_transactions(
     """
     api_key = _get_finnhub_key()
     if not api_key:
-        logger.warning("[INSIDER] No Finnhub API key configured")
-        return {"tickers_processed": 0, "transactions_stored": 0, "error": "no_api_key"}
+        from src.data_collection.errors import CollectorConfigError
+        raise CollectorConfigError("FINNHUB_API_KEY not configured — set in .env or config/settings.local.yaml")
 
     now = datetime.now(ET)
     collected_at = now.isoformat()
 
     tickers_processed = 0
     transactions_stored = 0
+    errors = 0
 
     with sqlite3.connect(db_path) as conn:
         for ticker in tickers:
@@ -93,8 +94,9 @@ def collect_insider_transactions(
 
                 for txn in data:
                     filing_date = txn.get("filingDate", "")
-                    # Skip if we already have this or older
-                    if last_date and filing_date <= last_date:
+                    # Skip strictly older dates; re-process boundary date
+                    # (INSERT handles duplicates via unique constraint)
+                    if last_date and filing_date < last_date:
                         continue
 
                     shares = txn.get("change", 0) or 0
@@ -127,13 +129,23 @@ def collect_insider_transactions(
 
             except Exception as e:
                 logger.warning("[INSIDER] Failed for %s: %s", ticker, e)
+                errors += 1
 
             # Rate limit: ~60 req/min for free Finnhub
             time.sleep(1.0)
 
+    total = len(tickers)
+    if total > 0 and errors > total * 0.5:
+        from src.data_collection.errors import CollectorPartialFailureError
+        raise CollectorPartialFailureError(
+            f"[INSIDER] {errors}/{total} tickers failed (>{50}% threshold)",
+            errors=errors, total=total,
+        )
+
     result = {
         "tickers_processed": tickers_processed,
         "transactions_stored": transactions_stored,
+        "errors": errors,
     }
     logger.info("[INSIDER] Collection complete: %s", result)
     return result

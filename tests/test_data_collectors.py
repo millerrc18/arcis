@@ -127,12 +127,11 @@ class TestInsiderTransactions:
 
     def test_collect_no_api_key(self, tmp_db):
         from src.data_collection.insider_collector import collect_insider_transactions
+        from src.data_collection.errors import CollectorConfigError
 
         with patch("src.data_collection.insider_collector._get_finnhub_key", return_value=None):
-            result = collect_insider_transactions(["AAPL"], db_path=tmp_db)
-
-        assert result["tickers_processed"] == 0
-        assert "error" in result
+            with pytest.raises(CollectorConfigError, match="FINNHUB_API_KEY"):
+                collect_insider_transactions(["AAPL"], db_path=tmp_db)
 
     def test_collect_stores_transactions(self, tmp_db):
         from src.data_collection.insider_collector import collect_insider_transactions
@@ -170,14 +169,14 @@ class TestInsiderTransactions:
 
     def test_collect_handles_api_failure(self, tmp_db):
         from src.data_collection.insider_collector import collect_insider_transactions
+        from src.data_collection.errors import CollectorPartialFailureError
 
         with patch("src.data_collection.insider_collector._get_finnhub_key", return_value="test-key"), \
              patch("src.data_collection.insider_collector.requests.get", side_effect=Exception("API down")), \
              patch("src.data_collection.insider_collector.time.sleep"):
-            result = collect_insider_transactions(["AAPL"], db_path=tmp_db)
-
-        # Should not crash — graceful failure
-        assert result["tickers_processed"] == 0
+            # 1/1 tickers failing = 100% > 50% threshold → raises
+            with pytest.raises(CollectorPartialFailureError):
+                collect_insider_transactions(["AAPL"], db_path=tmp_db)
 
 
 # ── Short Interest Deduplication ────────────────────────────────────
@@ -220,11 +219,11 @@ class TestShortInterest:
 
     def test_no_api_key(self, tmp_db):
         from src.data_collection.short_interest_collector import collect_short_interest
+        from src.data_collection.errors import CollectorConfigError
 
         with patch("src.data_collection.short_interest_collector._get_finnhub_key", return_value=None):
-            result = collect_short_interest(["AAPL"], db_path=tmp_db)
-
-        assert "error" in result
+            with pytest.raises(CollectorConfigError, match="FINNHUB_API_KEY"):
+                collect_short_interest(["AAPL"], db_path=tmp_db)
 
 
 # ── Analyst Estimates ───────────────────────────────────────────────
@@ -266,11 +265,11 @@ class TestAnalystEstimates:
 
     def test_no_api_key(self, tmp_db):
         from src.data_collection.analyst_collector import collect_analyst_estimates
+        from src.data_collection.errors import CollectorConfigError
 
         with patch("src.data_collection.analyst_collector._get_finnhub_key", return_value=None):
-            result = collect_analyst_estimates(["AAPL"], db_path=tmp_db)
-
-        assert "error" in result
+            with pytest.raises(CollectorConfigError, match="FINNHUB_API_KEY"):
+                collect_analyst_estimates(["AAPL"], db_path=tmp_db)
 
 
 # ── Fed Communications ──────────────────────────────────────────────
@@ -321,12 +320,11 @@ class TestFredExpanded:
 
     def test_collect_no_api_key(self, tmp_db):
         from src.data_collection.macro_collector import collect_macro_snapshots
+        from src.data_collection.errors import CollectorConfigError
 
         with patch("src.data_collection.macro_collector._get_fred_api_key", return_value=None):
-            result = collect_macro_snapshots(db_path=tmp_db)
-
-        assert result["series_collected"] == 0
-        assert "error" in result
+            with pytest.raises(CollectorConfigError, match="FRED_API_KEY"):
+                collect_macro_snapshots(db_path=tmp_db)
 
 
 # ── Google Trends Market-Wide Mode ──────────────────────────────────
@@ -382,36 +380,37 @@ class TestCollectorFailureHandling:
 
     def test_insider_network_failure(self, tmp_db):
         from src.data_collection.insider_collector import collect_insider_transactions
+        from src.data_collection.errors import CollectorPartialFailureError
 
         with patch("src.data_collection.insider_collector._get_finnhub_key", return_value="key"), \
              patch("src.data_collection.insider_collector.requests.get",
                    side_effect=Exception("Network down")), \
              patch("src.data_collection.insider_collector.time.sleep"):
-            result = collect_insider_transactions(["AAPL"], db_path=tmp_db)
-
-        assert isinstance(result, dict)
+            # 1/1 tickers failing = 100% error rate → raises
+            with pytest.raises(CollectorPartialFailureError):
+                collect_insider_transactions(["AAPL"], db_path=tmp_db)
 
     def test_short_interest_network_failure(self, tmp_db):
         from src.data_collection.short_interest_collector import collect_short_interest
+        from src.data_collection.errors import CollectorPartialFailureError
 
         with patch("src.data_collection.short_interest_collector._get_finnhub_key", return_value="key"), \
              patch("src.data_collection.short_interest_collector.requests.get",
                    side_effect=Exception("Network down")), \
              patch("src.data_collection.short_interest_collector.time.sleep"):
-            result = collect_short_interest(["AAPL"], db_path=tmp_db)
-
-        assert isinstance(result, dict)
+            with pytest.raises(CollectorPartialFailureError):
+                collect_short_interest(["AAPL"], db_path=tmp_db)
 
     def test_analyst_network_failure(self, tmp_db):
         from src.data_collection.analyst_collector import collect_analyst_estimates
+        from src.data_collection.errors import CollectorPartialFailureError
 
         with patch("src.data_collection.analyst_collector._get_finnhub_key", return_value="key"), \
              patch("src.data_collection.analyst_collector.requests.get",
                    side_effect=Exception("Network down")), \
              patch("src.data_collection.analyst_collector.time.sleep"):
-            result = collect_analyst_estimates(["AAPL"], batch_size=5, db_path=tmp_db)
-
-        assert isinstance(result, dict)
+            with pytest.raises(CollectorPartialFailureError):
+                collect_analyst_estimates(["AAPL"], batch_size=5, db_path=tmp_db)
 
     def test_fed_network_failure(self, tmp_db):
         from src.data_collection.fed_collector import collect_fed_communications

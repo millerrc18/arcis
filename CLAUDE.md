@@ -37,13 +37,20 @@ python scripts/render_migrate.py            # Sync Postgres schema from registry
 
 ```bash
 git pull origin main
-python -m src.main validate-schema --fix    # Ensure local DB matches registry
-python -m src.main watch                    # Standard watch loop
-# OR with overnight + digest email:
-python -m src.main watch --email-mode digest --overnight
+python -m src.main startup                    # Validates everything, then launches watch loop
 ```
 
-The watch loop uses a **PID lockfile** (`data/watch.lock`) to prevent duplicate instances. If you see `ERROR: Another watch loop is already running (PID ...)`, either kill the existing process or remove a stale lockfile:
+The `startup` command runs tiered validation (config, schema, environment, connectivity, services), auto-fixes schema drift, sends a Telegram notification with the results, and launches the watch loop with `--overnight` and `--email-mode digest` defaults.
+
+**Flags:**
+- `--check-only` — validate without launching the watch loop
+- `--force` — bypass critical failures and launch anyway
+- `--no-overnight` — disable overnight schedule
+- `--email-mode silent|full_stream|daily_summary|digest` — override default digest mode
+
+**Exit codes:** 0 = clean, 1 = critical blocked, 2 = check-only with warnings.
+
+The watch loop uses a **PID lockfile** (`data/watch.lock`) to prevent duplicate instances. The `startup` command checks for this before running validation. If you see `Another watch loop is already running (PID ...)`, kill the existing process:
 
 ```bash
 # Check what's running
@@ -93,6 +100,15 @@ cd frontend && npm run dev
 python -m ruff check src/ tests/ --fix
 python -m ruff format src/ tests/
 ```
+
+## Data Collection Rules
+
+- **Collectors must raise on missing config** — use `CollectorConfigError` from `src/data_collection/errors.py` when a required API key is absent. Never return a success dict with an `error` field silently.
+- **Surface mass failures** — if >50% of items in a batch fail, raise `CollectorPartialFailureError`. Individual item glitches are expected; mass failures must be visible.
+- **Stats queries must reference real columns** — `test_stats_queries_reference_valid_columns` in `test_schema.py` validates all `/data-collection-stats` queries against the schema registry. It will fail if you reference a column that doesn't exist.
+- **Overnight schedule runs 7 days/week** — data collection, news ingestion, and enrichment run daily (including weekends). Only VRAM handoff and pre-market tasks are weekday-gated.
+- **`_safe_run` returns bool** — done-flags must be conditional: `if self._safe_run(...): self._done = True`. Never set a done-flag unconditionally after `_safe_run`.
+- **Backoff is per-task** — the `_backoff` dict in `WatchLoop` keys by task name. A failure in one task never delays an unrelated task.
 
 ## Architecture Quick Ref
 

@@ -87,6 +87,56 @@ def build_score():
         return {"build_score": 0, "components": {}, "error": str(exc)}
 
 
+@router.get("/health/startup")
+def health_startup():
+    """Return the latest startup validation result for dashboard display."""
+    import json as _json
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        try:
+            row = conn.execute(
+                "SELECT results_json, overall_status, created_at "
+                "FROM validation_results "
+                "WHERE results_json LIKE '%\"trigger\": \"startup\"%' "
+                "ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+            if not row:
+                return {"overall_status": None, "message": "No startup validation recorded"}
+
+            result = _json.loads(row["results_json"])
+
+            # Get previous status for transition display
+            prev = conn.execute(
+                "SELECT overall_status FROM validation_results "
+                "WHERE results_json LIKE '%\"trigger\": \"startup\"%' "
+                "ORDER BY created_at DESC LIMIT 1 OFFSET 1"
+            ).fetchone()
+            result["previous_status"] = prev["overall_status"] if prev else None
+            return result
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.error("[API] health/startup failed: %s", exc)
+        return {"overall_status": None, "error": str(exc)}
+
+
+@router.get("/health/sync")
+def health_sync():
+    """Return Render sync thread health status."""
+    try:
+        from src.sync.render_sync import RenderSyncThread
+        import threading
+        for thread in threading.enumerate():
+            if isinstance(thread, RenderSyncThread):
+                return thread.health_status()
+        return {"alive": False, "last_success_seconds_ago": None,
+                "consecutive_errors": 0, "stale": True,
+                "note": "sync thread not running"}
+    except Exception as exc:
+        return {"alive": False, "error": str(exc)}
+
+
 @router.get("/health/hshs")
 def health_hshs():
     """Compute live HSHS from local SQLite."""
