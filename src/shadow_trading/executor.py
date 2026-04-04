@@ -30,6 +30,25 @@ FILLED_ORDER_STATUSES = {"filled", "partially_filled", "closed"}
 PENDING_ORDER_STATUSES = {"new", "accepted", "pending_new", "accepted_for_bidding", "held"}
 
 
+def _check_paper_buying_power(entry_price: float, shares: int) -> bool:
+    """Check if paper account has sufficient buying power for the trade."""
+    try:
+        from src.shadow_trading.alpaca_adapter import get_account_info
+        acct = get_account_info()
+        buying_power = acct.get("buying_power", 0)
+        required = entry_price * shares
+        if required > buying_power:
+            logger.warning(
+                "[SHADOW] Insufficient buying power: need $%.2f, have $%.2f",
+                required, buying_power,
+            )
+            return False
+        return True
+    except Exception as exc:
+        logger.warning("[SHADOW] Buying power check failed: %s — allowing trade", exc)
+        return True  # Fail open to avoid blocking on API errors
+
+
 def _parse_price(value) -> float:
     """Parse a price value that may be a string like '$78.82 area' or a float."""
     if isinstance(value, (int, float)):
@@ -271,6 +290,17 @@ def open_shadow_trade(
     )
 
     trade_data = trade.to_dict()
+
+    # Buying power check before paper entry
+    if not _check_paper_buying_power(entry_price, planned_shares):
+        trade_data["status"] = "failed"
+        trade_data["order_type"] = "rejected_buying_power"
+        trade_data["actual_entry_price"] = entry_price
+        trade_data["actual_entry_time"] = now.isoformat()
+        trade_data["max_favorable_excursion"] = 0.0
+        trade_data["max_adverse_excursion"] = 0.0
+        insert_shadow_trade(trade_data, db_path)
+        return trade_data
 
     # Try bracket order first, fall back to simple market order
     try:
