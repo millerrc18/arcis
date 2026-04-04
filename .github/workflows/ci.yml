@@ -41,8 +41,8 @@ jobs:
         run: |
           COUNT=$(find tests -name "test_*.py" -exec grep -c "def test_" {} + | awk -F: '{s+=$2}END{print s}')
           echo "Test count: $COUNT"
-          if [ "$COUNT" -lt 1105 ]; then
-            echo "::error::Test count dropped! Expected ≥1105, got $COUNT"
+          if [ "$COUNT" -lt 1339 ]; then
+            echo "::error::Test count dropped! Expected ≥1339, got $COUNT"
             exit 1
           fi
 

@@ -228,10 +228,13 @@ def _upsert_to_postgres(
 
     conflict_target = conflict_col or pk
 
-    # For tables with SERIAL 'id' pk and no natural conflict_col,
-    # exclude 'id' and use ON CONFLICT DO NOTHING to avoid pkey collisions
-    if pk == "id" and not conflict_col:
-        insert_cols = [c for c in columns if c != "id"]
+    # For tables with SERIAL 'id' pk, exclude 'id' from INSERT to let
+    # Postgres auto-generate — SQLite rowids and Postgres SERIAL values diverge.
+    strip_id = pk == "id"
+    insert_cols = [c for c in columns if c != "id"] if strip_id else columns
+
+    if not conflict_col and strip_id:
+        # No natural key — best-effort insert, skip duplicates
         col_list = ", ".join(insert_cols)
         placeholders = ", ".join(["%s"] * len(insert_cols))
         sql = f"INSERT INTO {table_name} ({col_list}) VALUES ({placeholders}) ON CONFLICT DO NOTHING"
@@ -252,10 +255,10 @@ def _upsert_to_postgres(
             cursor.close()
         return count
 
-    col_list = ", ".join(columns)
-    placeholders = ", ".join(["%s"] * len(columns))
+    col_list = ", ".join(insert_cols)
+    placeholders = ", ".join(["%s"] * len(insert_cols))
     update_set = ", ".join(
-        f"{col} = EXCLUDED.{col}" for col in columns if col != conflict_target
+        f"{col} = EXCLUDED.{col}" for col in insert_cols if col != conflict_target
     )
 
     sql = (
@@ -267,7 +270,7 @@ def _upsert_to_postgres(
     cursor = pg_conn.cursor()
     try:
         for row in rows:
-            values = [row.get(col) for col in columns]
+            values = [row.get(col) for col in insert_cols]
             cursor.execute(sql, values)
             count += 1
         pg_conn.commit()
