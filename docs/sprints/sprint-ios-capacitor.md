@@ -1,0 +1,605 @@
+# Sprint: Arcis iOS App — Capacitor Wrapper
+
+> **Priority:** MEDIUM — quality-of-life improvement, not blocking Phase 1
+> **Estimated time:** 4-6 hours CC time + 30 min Ryan time in Xcode
+> **Prerequisites:** macOS with Xcode 15+ (see Task 0)
+> **Tag as `v0.12.0` after merge.**
+
+---
+
+## Context
+
+The Arcis dashboard is a React 19 app (Vite 8, Tailwind 4, TanStack Query, React Router 7, Recharts) with 18 pages, deployed at halcyonlab.app. It already has PWA infrastructure (manifest.json, service worker, icons). This sprint wraps it in Capacitor to produce a native iOS app for sideloading to Ryan's iPhone.
+
+**Existing frontend stack:**
+- `frontend/` directory, builds to `frontend/dist/`
+- API via `fetchApi()` which hits `API_BASE` (default `/api`, configurable via `VITE_API_URL` env var)
+- Auth: Bearer token from localStorage or static API_SECRET
+- BrowserRouter for client-side routing
+- Dark/light theme toggle already implemented
+- Service worker for PWA caching
+- viewport-fit=cover and apple-mobile-web-app meta tags already present
+
+---
+
+## Task 0: Build Environment — CRITICAL PREREQUISITE
+
+**Capacitor iOS builds require macOS + Xcode.** Ryan's dev machine is Windows 11. Options:
+
+1. **Mac Mini M2 (~$500 used)** — best long-term option. Doubles as a CI/CD build machine later.
+2. **GitHub Actions macOS runner** — free for public repos, 3000 min/mo for private. Can build the .ipa in CI.
+3. **MacinCloud / MacStadium ($20-50/mo)** — remote Mac access, viable for occasional builds.
+4. **Borrow a Mac** — one-time Xcode project setup + build takes ~30 minutes.
+
+**For this sprint:** CC does ALL configuration, code changes, and project generation on the current machine. The only step requiring macOS is opening the generated `ios/` project in Xcode, setting the signing team, and building to a physical device. That can be done in 30 minutes on any Mac.
+
+**If no Mac is available:** Skip Tasks 8-9 (Xcode build). Everything else works. The Xcode project will be ready in the repo for when a Mac is available.
+
+---
+
+## Task 1: Install Capacitor
+
+```bash
+cd frontend
+npm install @capacitor/core @capacitor/cli
+npx cap init "Arcis" "com.arcis.trading" --web-dir dist
+```
+
+This creates `capacitor.config.ts` in `frontend/`. Edit it:
+
+```typescript
+import type { CapacitorConfig } from '@capacitor/cli';
+
+const config: CapacitorConfig = {
+  appId: 'com.arcis.trading',
+  appName: 'Arcis',
+  webDir: 'dist',
+  
+  // Use the Render API in production (no Vite proxy on device)
+  server: {
+    // For development: point to your local machine's IP
+    // url: 'http://192.168.x.x:5173',
+    // For production: use the built files + remote API
+    androidScheme: 'https',
+    iosScheme: 'https',
+  },
+  
+  plugins: {
+    SplashScreen: {
+      launchAutoHide: true,
+      launchShowDuration: 1500,
+      backgroundColor: '#050507',
+      showSpinner: false,
+    },
+    StatusBar: {
+      style: 'DARK',
+      backgroundColor: '#050507',
+    },
+    Keyboard: {
+      resize: 'body',
+      resizeOnFullScreen: true,
+    },
+  },
+};
+
+export default config;
+```
+
+---
+
+## Task 2: Handle API URL for Native Builds
+
+**The Vite dev proxy (`/api` → `localhost:8000`) does NOT work on a physical device.** The Capacitor app loads the built static files — there's no Vite dev server.
+
+**File:** `frontend/src/config.js`
+
+The app needs to hit the Render API directly when running as a native app:
+
+```javascript
+// Detect Capacitor native environment
+const isNative = typeof window !== 'undefined' && 
+  window.Capacitor !== undefined && 
+  window.Capacitor.isNativePlatform();
+
+export const API_BASE = isNative
+  ? 'https://halcyonlab.app/api'          // Native app → Render API directly
+  : (import.meta.env.VITE_API_URL || '/api');  // Web → proxy or env var
+
+export const IS_CLOUD = isNative || 
+  import.meta.env.VITE_IS_CLOUD === 'true' ||
+  API_BASE.includes('render.com') || 
+  API_BASE.includes('onrender.com') ||
+  API_BASE.includes('halcyonlab.app');
+
+export const API_SECRET = import.meta.env.VITE_API_SECRET || '';
+```
+
+**IMPORTANT:** When `isNative` is true, `IS_CLOUD` must also be true so the auth flow (Bearer token) activates correctly. The native app is a remote client just like the web dashboard.
+
+---
+
+## Task 3: Disable Service Worker in Capacitor
+
+The PWA service worker conflicts with Capacitor's native WebView caching. Capacitor handles its own caching layer.
+
+**File:** `frontend/index.html`
+
+Wrap the service worker registration in a native check:
+
+```html
+<script>
+  if ('serviceWorker' in navigator && !window.Capacitor?.isNativePlatform()) {
+    navigator.serviceWorker.register('/sw.js')
+      .catch(() => {});
+  }
+</script>
+```
+
+---
+
+## Task 4: Add iOS Platform
+
+```bash
+cd frontend
+npm install @capacitor/ios
+npx cap add ios
+```
+
+This generates `frontend/ios/` with the full Xcode project. Add to `.gitignore`:
+
+```gitignore
+# Capacitor iOS build artifacts (regenerated by `npx cap sync`)
+ios/App/Pods/
+ios/App/DerivedData/
+ios/App/build/
+```
+
+But DO commit the `ios/` directory itself — it contains the Xcode project and native config.
+
+---
+
+## Task 5: Install Native Plugins
+
+```bash
+cd frontend
+npm install @capacitor/status-bar @capacitor/splash-screen @capacitor/haptics @capacitor/app @capacitor/keyboard @capacitor/preferences
+```
+
+**Plugin purposes:**
+- `@capacitor/status-bar` — Dark status bar matching Arcis theme
+- `@capacitor/splash-screen` — Branded launch screen
+- `@capacitor/haptics` — Tactile feedback on trade execution, button presses
+- `@capacitor/app` — App lifecycle (foreground/background), deep links
+- `@capacitor/keyboard` — Keyboard handling for input fields
+- `@capacitor/preferences` — Persistent key-value storage (more reliable than localStorage for auth tokens)
+
+**Optional (install if time allows):**
+```bash
+npm install @capacitor/push-notifications @capacitor/browser @capacitor/share
+```
+
+---
+
+## Task 6: Create Native Bridge Utility
+
+**File:** `frontend/src/native.js` (new file)
+
+Centralized native feature access so components don't import Capacitor directly:
+
+```javascript
+/**
+ * Native bridge utility — wraps Capacitor plugins with web fallbacks.
+ * Every function is safe to call on web (returns no-op or graceful fallback).
+ */
+
+export function isNative() {
+  return typeof window !== 'undefined' && 
+    window.Capacitor?.isNativePlatform() === true;
+}
+
+// ─── Haptics ───
+export async function hapticTap() {
+  if (!isNative()) return;
+  try {
+    const { Haptics, ImpactStyle } = await import('@capacitor/haptics');
+    await Haptics.impact({ style: ImpactStyle.Light });
+  } catch {}
+}
+
+export async function hapticSuccess() {
+  if (!isNative()) return;
+  try {
+    const { Haptics, NotificationType } = await import('@capacitor/haptics');
+    await Haptics.notification({ type: NotificationType.Success });
+  } catch {}
+}
+
+export async function hapticWarning() {
+  if (!isNative()) return;
+  try {
+    const { Haptics, NotificationType } = await import('@capacitor/haptics');
+    await Haptics.notification({ type: NotificationType.Warning });
+  } catch {}
+}
+
+export async function hapticError() {
+  if (!isNative()) return;
+  try {
+    const { Haptics, NotificationType } = await import('@capacitor/haptics');
+    await Haptics.notification({ type: NotificationType.Error });
+  } catch {}
+}
+
+// ─── Status Bar ───
+export async function configureStatusBar() {
+  if (!isNative()) return;
+  try {
+    const { StatusBar, Style } = await import('@capacitor/status-bar');
+    await StatusBar.setStyle({ style: Style.Dark });
+    await StatusBar.setBackgroundColor({ color: '#050507' });
+  } catch {}
+}
+
+// ─── Auth Token Persistence ───
+export async function getStoredToken() {
+  if (!isNative()) return localStorage.getItem('hl_token');
+  try {
+    const { Preferences } = await import('@capacitor/preferences');
+    const { value } = await Preferences.get({ key: 'hl_token' });
+    return value;
+  } catch {
+    return localStorage.getItem('hl_token');
+  }
+}
+
+export async function setStoredToken(token) {
+  if (!isNative()) {
+    localStorage.setItem('hl_token', token);
+    localStorage.setItem('hl_token_ts', Date.now().toString());
+    return;
+  }
+  try {
+    const { Preferences } = await import('@capacitor/preferences');
+    await Preferences.set({ key: 'hl_token', value: token });
+    await Preferences.set({ key: 'hl_token_ts', value: Date.now().toString() });
+  } catch {
+    localStorage.setItem('hl_token', token);
+  }
+}
+
+// ─── App Lifecycle ───
+export function onAppStateChange(callback) {
+  if (!isNative()) return () => {};
+  import('@capacitor/app').then(({ App }) => {
+    App.addListener('appStateChange', callback);
+  });
+  return () => {
+    import('@capacitor/app').then(({ App }) => {
+      App.removeAllListeners();
+    });
+  };
+}
+```
+
+---
+
+## Task 7: Wire Haptics into Key UI Actions
+
+Add haptic feedback to trading actions (not every button — just actions that have consequences):
+
+**`frontend/src/pages/Dashboard.jsx`:**
+- HALT/RESUME TRADING button → `hapticWarning()` on halt, `hapticSuccess()` on resume
+- Any action button (scan, council, CTO report) → `hapticTap()`
+
+**`frontend/src/components/ActivityFeed.jsx`:**
+- No changes (read-only)
+
+**`frontend/src/pages/ShadowLedger.jsx`** (or wherever close-position lives):
+- Close position button → `hapticWarning()` before confirmation
+
+**`frontend/src/App.jsx`:**
+- On mount, call `configureStatusBar()` once
+
+```javascript
+import { useEffect } from 'react';
+import { configureStatusBar } from './native';
+
+export default function App() {
+  useEffect(() => { configureStatusBar(); }, []);
+  // ... rest of App
+}
+```
+
+---
+
+## Task 8: iOS Safe Area Handling
+
+The app already has `viewport-fit=cover` in index.html. Verify Tailwind handles safe areas:
+
+**File:** `frontend/src/index.css` (or wherever global styles live)
+
+Add safe area padding for the bottom navigation/content:
+
+```css
+/* iOS safe area support (notch, Dynamic Island, home indicator) */
+:root {
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-left: env(safe-area-inset-left, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+}
+
+/* Apply to the main layout container */
+#root {
+  padding-top: var(--safe-area-top);
+  padding-bottom: var(--safe-area-bottom);
+}
+```
+
+**Check `frontend/src/components/Layout.jsx`:**
+The sidebar and main content area may need safe area adjustments. On iPhone, the sidebar slides in from the left — make sure it respects `safe-area-inset-left`. The bottom of scrollable content needs `safe-area-inset-bottom` so the last item isn't hidden behind the home indicator.
+
+---
+
+## Task 9: App Icon and Splash Screen
+
+**App Icon:** Capacitor iOS needs a 1024×1024 PNG (no transparency, no alpha channel) at `frontend/ios/App/App/Assets.xcassets/AppIcon.appiconset/`.
+
+**Option A (quick):** Use the existing `icon-512.png`, upscale to 1024×1024:
+```bash
+# If ImageMagick is available:
+convert frontend/public/icon-512.png -resize 1024x1024 frontend/ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png
+```
+
+**Option B (proper):** Generate all required sizes. Create a script:
+```bash
+# Sizes needed: 20, 29, 40, 58, 60, 76, 80, 87, 120, 152, 167, 180, 1024
+for size in 20 29 40 58 60 76 80 87 120 152 167 180 1024; do
+  convert frontend/public/icon-512.png -resize ${size}x${size} \
+    frontend/ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-${size}.png
+done
+```
+
+Update `Contents.json` in the AppIcon.appiconset to reference the generated files.
+
+**Splash Screen:** The simplest approach is a solid `#050507` background (already configured in capacitor.config.ts) with no image. This matches the app's dark theme and loads instantly. A fancier splash screen with the Arcis logo can be added later.
+
+---
+
+## Task 10: Build and Sync
+
+```bash
+cd frontend
+
+# Build the React app
+npm run build
+
+# Sync web assets + plugins to the iOS project
+npx cap sync ios
+```
+
+After sync, the `ios/` directory contains a complete Xcode project. The final build step requires macOS:
+
+```bash
+# On a Mac:
+npx cap open ios
+# → Xcode opens
+# → Select your iPhone as build target
+# → Set Team to your Apple ID (free or paid)
+# → Click Run (⌘R)
+```
+
+**Free Apple ID sideloading:** Apps expire after 7 days and need to be re-installed. With a paid Apple Developer account ($99/year), apps persist indefinitely.
+
+---
+
+## Task 11: Add Build Scripts to package.json
+
+**File:** `frontend/package.json` — add these scripts:
+
+```json
+{
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "ios:sync": "vite build && npx cap sync ios",
+    "ios:open": "npx cap open ios",
+    "ios:dev": "vite build && npx cap sync ios && npx cap open ios",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  }
+}
+```
+
+---
+
+## Task 12: Pull-to-Refresh on Key Pages
+
+TanStack Query already handles refetching. Add native pull-to-refresh behavior on the Dashboard page:
+
+**File:** `frontend/src/pages/Dashboard.jsx`
+
+```javascript
+import { useQueryClient } from '@tanstack/react-query';
+
+// Inside Dashboard component:
+const queryClient = useQueryClient();
+
+const handleRefresh = async () => {
+  await queryClient.invalidateQueries();
+};
+
+// Wrap the main content div with an overscroll handler:
+// (For Capacitor, the WebView supports native pull-to-refresh out of the box 
+//  if configured in capacitor.config.ts)
+```
+
+In `capacitor.config.ts`, enable pull-to-refresh for the WebView:
+
+```typescript
+server: {
+  iosScheme: 'https',
+  allowNavigation: ['halcyonlab.app'],
+},
+ios: {
+  allowsLinkPreview: false,
+  scrollEnabled: true,
+},
+```
+
+---
+
+## Task 13: Background App Refresh (Optional — if time allows)
+
+When the app is backgrounded, periodically fetch portfolio status and update the app badge with the number of open positions or alerts.
+
+**File:** `frontend/src/native.js` — add:
+
+```javascript
+// ─── Background Fetch ───
+export async function registerBackgroundFetch() {
+  if (!isNative()) return;
+  try {
+    const { App } = await import('@capacitor/app');
+    // Re-fetch portfolio data when app returns to foreground
+    App.addListener('appStateChange', async ({ isActive }) => {
+      if (isActive) {
+        // Trigger TanStack Query refetch — handled by the React tree
+        window.dispatchEvent(new CustomEvent('arcis:foreground'));
+      }
+    });
+  } catch {}
+}
+```
+
+Then in `App.jsx`, listen for the foreground event:
+
+```javascript
+import { useQueryClient } from '@tanstack/react-query';
+
+// Inside App:
+const queryClient = useQueryClient();
+useEffect(() => {
+  const handler = () => queryClient.invalidateQueries();
+  window.addEventListener('arcis:foreground', handler);
+  return () => window.removeEventListener('arcis:foreground', handler);
+}, [queryClient]);
+```
+
+This ensures the dashboard always shows fresh data when you switch back to the app.
+
+---
+
+## Task 14: Documentation
+
+Update `frontend/README.md` with:
+
+```markdown
+## iOS App (Capacitor)
+
+### Prerequisites
+- macOS with Xcode 15+
+- CocoaPods (`sudo gem install cocoapods`)
+- Apple ID (free for 7-day sideloading, $99/year for persistent)
+
+### Build
+\`\`\`bash
+cd frontend
+npm run ios:sync    # Build React + sync to iOS project
+npm run ios:open    # Open Xcode
+# In Xcode: select your iPhone → Run (⌘R)
+\`\`\`
+
+### Development
+For live reload during development, uncomment the `server.url` line
+in `capacitor.config.ts` and set it to your Mac's local IP:
+\`\`\`typescript
+server: {
+  url: 'http://192.168.1.xxx:5173',
+}
+\`\`\`
+Then run `npm run dev` on the Mac and the iOS app will hot-reload.
+
+### Architecture
+The iOS app is a thin native wrapper around the same React dashboard.
+- Native features accessed via `src/native.js` bridge
+- API calls go directly to halcyonlab.app/api (not through Vite proxy)
+- Auth tokens stored via Capacitor Preferences (not localStorage)
+- Haptic feedback on trading actions
+- Safe area handling for notch/Dynamic Island
+```
+
+---
+
+## Task 15: Commit + Release
+
+```bash
+cd frontend
+git add -A
+cd ..
+git add frontend/ .gitignore
+git commit -m "feat: iOS app via Capacitor — native wrapper for Arcis dashboard
+
+Capacitor 6 wrapping existing React 19 dashboard for iOS sideloading.
+
+New:
+- capacitor.config.ts with plugin config (splash, status bar, keyboard)
+- src/native.js — centralized native bridge (haptics, status bar, auth, lifecycle)
+- iOS project in frontend/ios/ (requires macOS + Xcode to build)
+- Pull-to-refresh and foreground refetch
+- Safe area CSS for notch/Dynamic Island
+- Haptic feedback on trading actions (halt, resume, close position)
+- Service worker disabled in native builds (Capacitor handles caching)
+- API URL auto-switches to Render when running as native app
+
+Plugins: status-bar, splash-screen, haptics, app, keyboard, preferences
+
+Build: cd frontend && npm run ios:sync && npm run ios:open"
+```
+
+Tag and push:
+```bash
+git tag -a v0.12.0 -m "feat: Arcis iOS app via Capacitor"
+git push origin main && git push origin v0.12.0
+```
+
+---
+
+## Acceptance Criteria
+
+### Core
+- [ ] `cd frontend && npm run build` succeeds (zero regressions to web dashboard)
+- [ ] `cd frontend && npx cap sync ios` completes without errors
+- [ ] `frontend/ios/` directory exists with valid Xcode project
+- [ ] `frontend/capacitor.config.ts` has correct appId, webDir, and plugin config
+- [ ] Web dashboard still works at halcyonlab.app (no breaking changes)
+
+### API + Auth
+- [ ] `config.js` detects native environment and uses Render API URL
+- [ ] Auth token flow works (Bearer token from Preferences in native, localStorage on web)
+- [ ] `IS_CLOUD` is true when running as native app
+
+### Native Features
+- [ ] `native.js` exists with: haptics, status bar, auth persistence, lifecycle hooks
+- [ ] Service worker disabled in Capacitor builds
+- [ ] Haptic feedback wired to halt/resume, close position, and action buttons
+- [ ] `configureStatusBar()` called on app mount
+- [ ] Safe area CSS variables applied to root layout
+
+### Build + Docs
+- [ ] `ios:sync`, `ios:open`, `ios:dev` scripts in package.json
+- [ ] `frontend/README.md` updated with iOS build instructions
+- [ ] `.gitignore` excludes Pods/ and build/ but includes ios/ project files
+
+### Zero Regressions
+- [ ] All Python tests pass (backend unchanged)
+- [ ] `npm run build` produces same dist/ output
+- [ ] `npm run lint` passes
+- [ ] Web dashboard loads all 18 pages correctly
+- [ ] Dark/light theme toggle still works
+
+### Deferred (not in this sprint)
+- [ ] Push notifications (requires APNS certificate + server-side integration)
+- [ ] Biometric lock (Face ID — needs entitlement + UI flow design)
+- [ ] App Store submission (requires paid Apple Developer account + review)
+- [ ] Android build (Capacitor supports it, but Ryan didn't ask for it)
