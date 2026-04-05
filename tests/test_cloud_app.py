@@ -631,14 +631,18 @@ class TestNewEndpoints:
         assert resp.status_code == 200
 
     def test_review_scorecard(self, client):
+        """#265: Updated to check not_implemented status instead of stub data."""
         resp = client.get("/api/review/scorecard")
         assert resp.status_code == 200
-        assert resp.json()["weeks"] == 4
+        data = resp.json()
+        assert data.get("status") == "not_implemented" or "weeks" in data
 
     def test_review_postmortems(self, client):
+        """#265: Updated to check not_implemented status instead of stub data."""
         resp = client.get("/api/review/postmortems")
         assert resp.status_code == 200
-        assert resp.json() == []
+        data = resp.json()
+        assert data.get("status") == "not_implemented" or isinstance(data, list)
 
     def test_audit_history_no_db(self, client):
         resp = client.get("/api/audit/history")

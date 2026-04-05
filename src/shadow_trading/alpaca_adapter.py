@@ -268,10 +268,10 @@ def place_bracket_order(
     """
     _check_enabled()
 
+    # Fix for #263: removed duplicate log line
     logger.info("[SHADOW] Placing BRACKET order: %d shares of %s "
                 "(TP=$%.2f, SL=$%.2f)", shares, ticker,
                 take_profit_price, stop_loss_price)
-    logger.info("[SHADOW] Placing BRACKET order: %d shares of %s", shares, ticker)
 
     client = _get_trading_client()
 

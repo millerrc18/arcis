@@ -313,19 +313,20 @@ def _load_options_metrics() -> dict[str, dict]:
     try:
         with sqlite3.connect(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
+            # Fix for #256: use correct column names from schema registry
             rows = conn.execute(
-                """SELECT ticker, iv_rank, pc_vol_ratio, pc_oi_ratio,
-                          iv_skew, unusual_flag
+                """SELECT ticker, iv_rank, put_call_volume_ratio, put_call_oi_ratio,
+                          iv_skew, unusual_volume_flag
                    FROM options_metrics
                    WHERE collected_at = (SELECT MAX(collected_at) FROM options_metrics)"""
             ).fetchall()
             for row in rows:
                 result[row["ticker"]] = {
                     "iv_rank": row["iv_rank"],
-                    "put_call_vol_ratio": row["pc_vol_ratio"],
-                    "put_call_oi_ratio": row["pc_oi_ratio"],
+                    "put_call_vol_ratio": row["put_call_volume_ratio"],
+                    "put_call_oi_ratio": row["put_call_oi_ratio"],
                     "iv_skew": row["iv_skew"],
-                    "unusual_options_activity": bool(row["unusual_flag"]),
+                    "unusual_options_activity": bool(row["unusual_volume_flag"]),
                 }
     except Exception as e:
         logger.debug("Options metrics not available: %s", e)

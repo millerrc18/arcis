@@ -498,12 +498,12 @@ def enhance_packet_with_llm(packet: TradePacket, features: dict,
     # Over time, comparing the two reveals whether the LLM adds alpha or
     # just noise. This is the data that will eventually justify moving past
     # #6's equal-weight constraint once we have 200+ trades.
+    # Fix for #268: corrected import path (function is canary_score, not compute_canary_score)
     try:
-        from src.strategy.canary import compute_canary_score
-        canary = compute_canary_score(features)
-        canary_score = canary.get("score") if isinstance(canary, dict) else canary
-        logger.info("[CANARY] %s: rules-based score=%.1f, LLM conviction=%s",
-                    packet.ticker, canary_score or 0, conviction or "n/a")
+        from src.strategy.canary import canary_score
+        score = canary_score(features)
+        logger.info("[CANARY] %s: rules-based score=%d, LLM conviction=%s",
+                    packet.ticker, score, conviction or "n/a")
     except Exception as e:
         logger.debug("[CANARY] Scoring failed for %s: %s", packet.ticker, e)
 

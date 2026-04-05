@@ -41,6 +41,7 @@ RETENTION_RULES: dict[str, int] = {
     "council_debug_log": 60,
     "setup_signals": 180,
     "options_metrics": 90,
+    "options_chains": 30,  # Fix for #260: options chains retention
 }
 
 # Time column used for age comparison per table
@@ -52,6 +53,7 @@ _TIME_COLUMNS: dict[str, str] = {
     "council_debug_log": "created_at",
     "setup_signals": "created_at",
     "options_metrics": "collected_date",
+    "options_chains": "collected_at",  # Fix for #260: options chains retention
 }
 
 

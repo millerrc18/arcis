@@ -228,15 +228,18 @@ def create_router(runtime, verify_auth):
     @router.get("/api/shadow/account", dependencies=[Depends(verify_auth)])
     def shadow_account():
         try:
+            # Fix for #266: select same columns as shadow_open for consistent P&L computation
             open_trades = runtime.query(
-                "SELECT entry_price, planned_shares, pnl_dollars FROM shadow_trades WHERE status = 'open'"
+                "SELECT ticker, actual_entry_price, entry_price, actual_shares, planned_shares, pnl_dollars FROM shadow_trades WHERE status = 'open'"
             )
             closed_trades = runtime.query(
                 "SELECT pnl_dollars, pnl_pct FROM shadow_trades WHERE status = 'closed'"
             )
             closed_pnl = sum(trade.get("pnl_dollars", 0) or 0 for trade in closed_trades)
+            # Fix for #266: use actual values with fallback, matching shadow_open
             open_alloc = sum(
-                (trade.get("entry_price", 0) or 0) * (trade.get("planned_shares", 0) or 0)
+                float(trade.get("actual_entry_price") or trade.get("entry_price") or 0)
+                * float(trade.get("actual_shares") or trade.get("planned_shares") or 0)
                 for trade in open_trades
             )
             wins = [trade for trade in closed_trades if (trade.get("pnl_dollars", 0) or 0) > 0]
@@ -297,11 +300,13 @@ def create_router(runtime, verify_auth):
 
     @router.get("/api/review/scorecard", dependencies=[Depends(verify_auth)])
     def review_scorecard(weeks: int = 4):
-        return {"weeks": weeks, "scorecard": []}
+        # Fix for #265: return proper not-implemented response
+        return {"status": "not_implemented", "message": "Available in Phase 2"}
 
     @router.get("/api/review/postmortems", dependencies=[Depends(verify_auth)])
     def review_postmortems():
-        return []
+        # Fix for #265: return proper not-implemented response
+        return {"status": "not_implemented", "message": "Available in Phase 2"}
 
     @router.get("/api/journal", dependencies=[Depends(verify_auth)])
     def trade_journal(days: int = 90):

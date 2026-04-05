@@ -17,6 +17,7 @@ NYSE_HOLIDAYS_2026 = {
     date(2026, 2, 16),  # Presidents' Day
     date(2026, 4, 3),   # Good Friday
     date(2026, 5, 25),  # Memorial Day
+    date(2026, 6, 19),  # Juneteenth — Fix for #270
     date(2026, 7, 3),   # Independence Day (observed)
     date(2026, 9, 7),   # Labor Day
     date(2026, 11, 26), # Thanksgiving Day

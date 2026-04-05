@@ -67,8 +67,8 @@ def compute_earnings_signals(
                 if row and row["next_date"]:
                     next_dt = datetime.fromisoformat(row["next_date"])
                     result["earnings_proximity_days"] = (next_dt.date() - now.date()).days
-            except Exception:
-                pass
+            except Exception as e:  # Fix for #262: log instead of swallow
+                logger.warning("[EARNINGS] %s signal failed for %s: %s", "earnings_proximity", ticker, e)
 
             # 2. Last surprise
             try:
@@ -87,8 +87,8 @@ def compute_earnings_signals(
                         result["last_surprise_direction"] = "miss"
                     else:
                         result["last_surprise_direction"] = "inline"
-            except Exception:
-                pass
+            except Exception as e:  # Fix for #262: log instead of swallow
+                logger.warning("[EARNINGS] %s signal failed for %s: %s", "last_surprise", ticker, e)
 
             # 3. Revenue-EPS concordance
             try:
@@ -102,8 +102,8 @@ def compute_earnings_signals(
                     rev_beat = (row["revenue_actual"] or 0) > (row["revenue_estimate"] or 0)
                     eps_beat = (row["eps_actual"] or 0) > (row["eps_estimate"] or 0)
                     result["last_revenue_eps_concordant"] = (rev_beat == eps_beat)
-            except Exception:
-                pass
+            except Exception as e:  # Fix for #262: log instead of swallow
+                logger.warning("[EARNINGS] %s signal failed for %s: %s", "revenue_eps_concordance", ticker, e)
 
             # 4. Analyst revision velocity (30-day)
             try:
@@ -119,8 +119,8 @@ def compute_earnings_signals(
                     if oldest and oldest != 0:
                         velocity = ((latest - oldest) / abs(oldest)) * 100
                         result["analyst_revision_velocity_30d"] = round(velocity, 1)
-            except Exception:
-                pass
+            except Exception as e:  # Fix for #262: log instead of swallow
+                logger.warning("[EARNINGS] %s signal failed for %s: %s", "analyst_revision_velocity", ticker, e)
 
             # 5. Recommendation inconsistency
             if result["last_surprise_direction"] == "beat" and result.get("analyst_revision_velocity_30d") is not None:
