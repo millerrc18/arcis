@@ -2,8 +2,9 @@
 
 import sqlite3
 from collections import Counter
+from unittest.mock import patch
 
-from src.training.ingestion_gate import should_halt_batch, validate_training_example
+from src.training.ingestion_gate import alert_training_halt, should_halt_batch, validate_training_example
 
 
 VALID_EXAMPLE = """<why_now>
@@ -74,6 +75,48 @@ def test_markdown_contamination_rejected(tmp_path):
     assert reason == "markdown_heading"
 
 
+def test_inline_bold_emphasis_does_not_trigger_markdown_bold_rejection(tmp_path):
+    db_path = str(tmp_path / "training.db")
+    _make_db(db_path)
+
+    candidate = VALID_EXAMPLE.replace(
+        "which often creates a high-quality entry for institutional trend followers.",
+        "which often creates a **high-quality** entry for institutional trend followers.",
+    )
+
+    ok, reason = validate_training_example(candidate, db_path)
+
+    assert ok is True
+    assert reason == ""
+
+
+def test_markdown_bold_heading_rejected(tmp_path):
+    db_path = str(tmp_path / "training.db")
+    _make_db(db_path)
+
+    invalid = VALID_EXAMPLE.replace("The stock remains", "**Market context:** The stock remains")
+
+    ok, reason = validate_training_example(invalid, db_path)
+
+    assert ok is False
+    assert reason == "markdown_bold"
+
+
+def test_inline_bold_with_punctuation_stays_valid(tmp_path):
+    db_path = str(tmp_path / "training.db")
+    _make_db(db_path)
+
+    candidate = VALID_EXAMPLE.replace(
+        "which often creates a high-quality entry for institutional trend followers.",
+        "which often creates a (**high-quality**) entry for institutional trend followers.",
+    )
+
+    ok, reason = validate_training_example(candidate, db_path)
+
+    assert ok is True
+    assert reason == ""
+
+
 def test_duplicate_detected(tmp_path):
     db_path = str(tmp_path / "training.db")
     _make_db(db_path)
@@ -103,3 +146,11 @@ def test_should_halt_batch_when_compliance_below_threshold():
     assert halt is True
     assert compliance == 80.0
     assert top_reason == "duplicate_similarity"
+
+
+def test_alert_training_halt_includes_reason_hint():
+    with patch("src.notifications.telegram.send_telegram", return_value=True) as mock_send:
+        alert_training_halt(60.0, 4, 10, "markdown_bold")
+
+    message = mock_send.call_args.args[0]
+    assert "Top reason: markdown_bold (line-leading **bold** markdown heading)" in message

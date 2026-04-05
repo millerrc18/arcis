@@ -24,9 +24,20 @@ CONVICTION_PATTERN = re.compile(r"Conviction:\s*(\d+)", re.IGNORECASE)
 DIRECTION_PATTERN = re.compile(r"Direction:\s*(LONG|SHORT|NEUTRAL)", re.IGNORECASE)
 MARKDOWN_PATTERNS = [
     (re.compile(r"^\s*```", re.MULTILINE), "code_fence"),
-    (re.compile(r"\*\*.+?\*\*"), "markdown_bold"),
+    (
+        re.compile(
+            r"^\s*(?:[-*+]\s+|\d+\.\s+)?\*\*[^*\n]{1,80}\*\*(?::|\s|$)",
+            re.MULTILINE,
+        ),
+        "markdown_bold",
+    ),
     (re.compile(r"^\s*#{1,6}\s", re.MULTILINE), "markdown_heading"),
 ]
+REASON_HINTS = {
+    "markdown_bold": "line-leading **bold** markdown heading",
+    "markdown_heading": "line-leading # markdown heading",
+    "code_fence": "markdown code fence",
+}
 
 
 def _extract_sections(text: str) -> tuple[str, str, str] | None:
@@ -142,10 +153,12 @@ def alert_training_halt(compliance: float, rejected: int, total: int, top_reason
     try:
         from src.notifications.telegram import send_telegram
 
+        reason_hint = REASON_HINTS.get(top_reason)
+        reason_text = f"{top_reason} ({reason_hint})" if reason_hint else top_reason
         send_telegram(
             "🛑 TRAINING HALT: "
             f"{compliance:.1f}% format compliance ({rejected}/{total} rejected). "
-            f"Top reason: {top_reason}"
+            f"Top reason: {reason_text}"
         )
     except Exception as exc:
         logger.warning("[INGESTION] Training halt alert failed: %s", exc)
