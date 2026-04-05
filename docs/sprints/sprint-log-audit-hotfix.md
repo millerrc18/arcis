@@ -1,11 +1,16 @@
 # Sprint: Log Audit Hotfix — Production Issues from arcis.log
 
 > **Priority:** CRITICAL — positions may be unprotected, earnings signals completely dead
-> **Estimated time:** 3-4 hours CC time
-> **Access:** Remote OK — all fixes are code + schema changes
+> **Estimated time:** 4-6 hours CC time
+> **Access:** LOCAL — CC has full access to logs, database, and runtime
 > **Tag as v0.14.1 after merge.**
 
-> ⚠️ **Read the attached log file first.** Ryan will paste key sections below. The log is 15,031 lines from March 30 – April 4, 2026. There are 1,644 ERROR lines.
+> ⚠️ **Log files are in the local repo.** Read these before starting:
+> - `logs/arcis.log` — main production log (15K+ lines, March 30 – April 4)
+> - `logs/training_overnight.log` — overnight training failure
+> - `logs/training_test_task.log` — empty (training task never ran)
+> 
+> CC has local access to the SQLite database, the running system, and all log files. Use this access to verify fixes work on the actual data, not just in tests.
 
 ---
 
@@ -132,19 +137,63 @@ Postgres upsert failed for traffic_light_state: null value in column "id" — Fa
 
 ---
 
-## Issue 7: Full log audit — CC reads the entire log
+## Issue 7: Full log audit — CC reads the entire log, files issues, fixes them, closes them
 
-**After fixing Issues 1-6, scan the full 15K-line log for any additional issues CC identifies. Look for:**
+**After fixing Issues 1-6, read the ENTIRE `logs/arcis.log` file. This is 15K+ lines. Do not skim — read it systematically.**
 
-- Any ERROR or WARNING patterns not covered above
+**Step 1: Categorize every unique ERROR and WARNING pattern.**
+
+```bash
+# Get unique error patterns
+grep "ERROR" logs/arcis.log | sed 's/^.*\] //' | sort -u
+# Get unique warning patterns (deduped by ticker)
+grep "WARNING" logs/arcis.log | sed 's/for [A-Z]*:/for TICKER:/' | sort -u
+```
+
+**Step 2: For each pattern, determine if it's:**
+- Already fixed by Issues 1-6 above → skip
+- A new bug → file a GitHub issue with label `log-audit`
+- A known limitation → note but don't file
+- Noise (expected behavior) → skip
+
+**Step 3: Look specifically for:**
+- Any ERROR or WARNING patterns not covered by Issues 1-6
 - Silent failures (functions that return without doing anything)
-- Timing anomalies (gaps in the scan schedule — did the computer sleep?)
-- Trade actions: how many trades opened/closed during this period?
-- Scan metrics: how many scans ran, how many found packet-worthy setups?
-- Data collection: which collectors are succeeding vs failing?
-- Council sessions: are they running? What's the traffic light state?
+- Timing anomalies (gaps in the scan schedule — computer sleep killed scans before)
+- Trade actions: how many trades opened/closed during this period? Do the numbers match the dashboard?
+- Scan metrics: how many scans ran? How many found packet-worthy setups? Are there gaps?
+- Data collection: which of the 15 collectors are succeeding vs failing?
+- Council sessions: are they running daily at 8:30 AM? What's the traffic light state?
+- Buying power: is the account fully invested? Should we reduce max_positions?
+- Duplicate operations: are any tasks running twice?
+- Schema drift: are there "no such column" or "no such table" errors beyond the ones in Issues 1-6?
 
-**File GitHub issues for anything new with the label `log-audit`.**
+**Step 4: File GitHub issues for every new problem.**
+
+```bash
+# Example
+gh issue create \
+  --title "[log-audit] Council session not running — no 8:30 AM entries in log" \
+  --body "Log analysis shows zero council session entries between March 30 - April 4. Expected: daily at 8:30 AM ET. The AI Council traffic light is not being set, which means the regime sizing multiplier defaults to 1.0 (no protection)." \
+  --label "bug,log-audit"
+```
+
+**Step 5: FIX every issue you just filed.** Do not leave issues open. This sprint resolves everything — file → fix → close in one pass.
+
+```bash
+# After fixing each issue
+gh issue close <number> --comment "Fixed in v0.14.1 log audit sprint. [description of fix]"
+```
+
+**Step 6: Write a log audit summary.** Create `docs/audits/log-audit-2026-04-04.md` with:
+- Total errors: N (by category)
+- Total warnings: N (by category)
+- Issues filed: N (list with numbers)
+- Issues fixed: N (all of them)
+- Scan schedule gaps: any detected?
+- Trade activity summary: opens/closes during the period
+- Collector health: which succeeded, which failed, which never ran
+- Recommendations for monitoring improvements
 
 ---
 
@@ -157,18 +206,28 @@ cd frontend && npm run build   # Succeeds
 # Issue 1: Bracket check should show N/N (not 0/N) on next run
 # Issue 2: No "no such column" errors in enrichment
 # Issue 3: python -c "from scripts.overnight_train import *" succeeds
+
+# All log-audit issues closed
+gh issue list --state open --label "log-audit" --limit 20
+# Expected: 0 open
+
+# Audit report exists
+cat docs/audits/log-audit-2026-04-04.md | head -5
 ```
 
 ---
 
 ## Commit
 
+3 commits for clean history:
+
 ```bash
+# Commit 1: Known issues (1-6)
 git add -A
-git commit -m "fix: 6 production issues from log audit
+git commit -m "fix: 6 production issues from log analysis
 
 CRITICAL:
-- Bracket monitor now correctly identifies protected positions (#248 follow-up)
+- Bracket monitor correctly identifies protected positions (#248 follow-up)
 - Earnings signals column names fixed — eps_actual, revenue_actual, eps_estimate
 
 HIGH:
@@ -178,12 +237,29 @@ HIGH:
 MEDIUM:
 - Postgres sync: ON CONFLICT DO UPDATE for options_metrics/macro_snapshots
 - Postgres sync: NULL id guard for research_docs/traffic_light_state
-- Stress test VIX symbol handling
+- Stress test VIX symbol handling"
 
-Log audit: N additional issues filed with log-audit label."
+# Commit 2: Log audit discoveries — all filed AND fixed
+git add -A
+git commit -m "fix: N log-audit issues discovered and resolved from full 15K-line audit
 
-git tag -a v0.14.1 -m "v0.14.1 — log audit hotfix: bracket protection, earnings signals, overnight training"
+Issues filed, fixed, and closed:
+- #NNN: [description]
+- #NNN: [description]
+...
+
+Full audit report: docs/audits/log-audit-2026-04-04.md
+Closes #NNN, #NNN, ..."
+
+# Commit 3: Audit report + doc updates
+git add -A
+git commit -m "docs: log audit report + MASTER.md + RELEASES.md for v0.14.1"
+```
+
+Tag and push:
+```bash
+git tag -a v0.14.1 -m "v0.14.1 — log audit: bracket protection, earnings signals, overnight training, N audit fixes"
 git push origin main && git push origin v0.14.1
 ```
 
-Update MASTER.md and RELEASES.md.
+Update MASTER.md Section 2 (issues count, test count) and add v0.14.1 to RELEASES.md.
