@@ -221,3 +221,67 @@ Closes gap identified in 15-Algorithm Gap Assessment."
 ```
 
 Do NOT merge to main. Push to `feat/model-performance` only.
+## ADDENDUM: 3× Ralph Loop Protocol for Model Performance Sprint
+
+Apply this protocol to EVERY task and page in this sprint. This is mandatory, not optional.
+
+### Ralph Loop Protocol
+
+For each task (API endpoint, dashboard page, regression alert, etc.):
+
+**Pass 1 — Implement:** Build the feature. Get it working. All data connections live, all metrics rendering.
+
+**Pass 2 — Review for gaps and opportunities.** Re-read your code and ask:
+- Is there API data available that I'm not displaying? (Check all fields returned by the CTO report, model_versions table, shadow_trades columns)
+- Are all numbers in monospace with tabular-nums? Are P&L values green/red?
+- Could I add a sparkline, trend indicator, or delta arrow that improves the page?
+- Does the equity curve per model version actually work with real data, or did I use mock data?
+- Is the LLM vs Canary section wired to real data, or is it a placeholder?
+- Did I handle edge cases: only 1 model version (no comparison possible), zero trades for a version, null holdout scores?
+- Is the regression alert actually wired into the watch loop, or did I just write the function?
+- Does the render sync config actually include model_versions with correct sync_to_postgres flag?
+- Are there any TODO comments, placeholder returns, empty error handlers, or stub functions?
+
+**Pass 3 — Fix everything from Pass 2, then polish:**
+- Fix every gap identified
+- Add any UI improvements discovered (trend arrows, conditional formatting, summary stats)
+- Verify all data connections render REAL data from the database
+- Run the test suite — no regressions
+- Frontend builds clean: `cd frontend && npm run build`
+
+### Specific Ralph Loop Targets
+
+**Task 1 (API endpoint) — 3 passes:**
+- Pass 1: Basic endpoint returning per-model metrics
+- Pass 2: Check — does it compute Sharpe correctly from pnl_pct series? Does it handle models with 0 trades? Does the equity curve have correct cumulative P&L? Is the canary comparison wired to actual canary_score data?
+- Pass 3: Add any missing metrics the CTO report computes but this endpoint doesn't (sortino, calmar, profit factor breakdown by win/loss average)
+
+**Task 2 (Dashboard page) — 3 passes:**
+- Pass 1: Basic layout with all 5 sections rendering
+- Pass 2: Check — is every section getting real data? Are the charts labeled correctly? Does the comparison table sort? Does the equity curve handle multiple model versions with different date ranges? Is the page responsive? Does it match the Bloomberg aesthetic (if the UI sprint has landed) or at least look professional?
+- Pass 3: Add delta arrows (↑↓) showing improvement/regression vs previous model. Add conditional row highlighting in the comparison table. Ensure monospace on all numbers. Add loading states for slow API calls.
+
+**Task 3 (Route + nav) — 1 pass only (trivial)**
+
+**Task 4 (Regression alert) — 3 passes:**
+- Pass 1: Basic check function comparing current vs previous model
+- Pass 2: Check — is it wired into the watch loop? Does it handle the case where there's only 1 model version? Is the 10% threshold reasonable? Does the Telegram alert actually fire (if Telegram is configured)?
+- Pass 3: Add logging of every comparison result (even when no regression detected). Store comparison results in a table for historical tracking. Add the CRITICAL alert path for negative Sharpe.
+
+**Task 5 (Render sync) — 1 pass (verify flag is set)**
+
+### Acceptance Criteria (ALL must pass)
+
+- [ ] API endpoint returns real data for all model versions in the database
+- [ ] Dashboard page renders all 5 sections with live data connections
+- [ ] Equity curve chart shows per-model-version P&L trajectories
+- [ ] Comparison table is sortable and highlights the active model
+- [ ] LLM vs Canary section shows real data OR clearly states "insufficient data (N paired trades)"
+- [ ] Regression alert function exists, is tested, and is wired into the watch loop
+- [ ] Route and sidebar nav entry work (page accessible at /model-performance)
+- [ ] Render sync includes model_versions if not already synced
+- [ ] Zero TODO/FIXME/placeholder comments in new code
+- [ ] Zero empty error handlers or stub functions
+- [ ] All new code has tests
+- [ ] `python -m pytest tests/ -x -q` passes (count >= baseline)
+- [ ] `cd frontend && npm run build` succeeds
