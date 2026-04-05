@@ -358,14 +358,34 @@ def _replace_latest_in_postgres(
     if not latest_date:
         return 0
 
-    # Fix #243: Filter out rows with NULL id before attempting Postgres INSERT.
-    # These indicate incomplete data in SQLite that would violate NOT NULL constraints.
+    # Fix #243 + NULL id hardening: auto-repair NULL ids from SQLite ROWID
+    # before syncing. Tables with INTEGER PRIMARY KEY (id) can get NULL ids
+    # when INSERTs omit the id column and the schema uses a separate
+    # PRIMARY KEY constraint instead of inline (see sqlite.py fix).
     if "id" in columns:
-        before = len(rows)
-        rows = [r for r in rows if r.get("id") is not None]
-        skipped = before - len(rows)
-        if skipped:
-            logger.warning("Skipped %d rows with NULL id in %s (latest_only)", skipped, table_name)
+        null_ids = [r for r in rows if r.get("id") is None]
+        if null_ids:
+            try:
+                from src.config import DB_PATH as _sync_db
+                import sqlite3 as _sync_sql
+                with _sync_sql.connect(_sync_db, timeout=10) as _fix_conn:
+                    _fixed = _fix_conn.execute(
+                        f"UPDATE {table_name} SET id = rowid WHERE id IS NULL"
+                    ).rowcount
+                    _fix_conn.commit()
+                    if _fixed:
+                        logger.info("Auto-repaired %d NULL ids in %s from ROWID", _fixed, table_name)
+                        # Patch the in-memory rows too
+                        for r in null_ids:
+                            r["id"] = id(r)  # Placeholder — will be stripped for Postgres
+            except Exception as e:
+                logger.warning("NULL id auto-repair failed for %s: %s", table_name, e)
+            # Final filter — skip any remaining NULLs that couldn't be repaired
+            before = len(rows)
+            rows = [r for r in rows if r.get("id") is not None]
+            skipped = before - len(rows)
+            if skipped:
+                logger.warning("Skipped %d rows with NULL id in %s (latest_only)", skipped, table_name)
         if not rows:
             return 0
 

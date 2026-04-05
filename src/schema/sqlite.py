@@ -16,20 +16,43 @@ logger = logging.getLogger(__name__)
 
 
 def generate_create_sql(table: TableDef) -> str:
-    """Generate CREATE TABLE IF NOT EXISTS SQL for one table."""
+    """Generate CREATE TABLE IF NOT EXISTS SQL for one table.
+
+    IMPORTANT: When the primary key is a single INTEGER column named 'id',
+    it MUST be declared inline as 'id INTEGER NOT NULL PRIMARY KEY' —
+    NOT as a separate 'PRIMARY KEY (id)' constraint. In SQLite, only the
+    inline form makes the column a ROWID alias with auto-increment.
+    The separate constraint form creates a regular column where INSERTs
+    without an explicit id get NULL — which breaks Postgres sync.
+    """
+    pk = table.primary_key
+    if isinstance(pk, str):
+        pk = [pk]
+
+    # Detect if we should use inline PRIMARY KEY (single INTEGER id column)
+    inline_pk_col = None
+    if len(pk) == 1:
+        pk_name = pk[0]
+        for c in table.columns:
+            if c.name == pk_name and c.type.upper() == "INTEGER":
+                inline_pk_col = pk_name
+                break
+
     cols = []
     for c in table.columns:
         parts = [c.name, c.type]
         if not c.nullable:
             parts.append("NOT NULL")
+        # Add inline PRIMARY KEY for the single INTEGER pk column
+        if c.name == inline_pk_col:
+            parts.append("PRIMARY KEY")
         if c.default is not None:
             parts.append(f"DEFAULT '{c.default}'")
         cols.append(" ".join(parts))
 
-    pk = table.primary_key
-    if isinstance(pk, str):
-        pk = [pk]
-    cols.append(f"PRIMARY KEY ({', '.join(pk)})")
+    # Only add separate PRIMARY KEY constraint for composite or non-inline keys
+    if inline_pk_col is None:
+        cols.append(f"PRIMARY KEY ({', '.join(pk)})")
 
     for fk in table.foreign_keys:
         cols.append(
