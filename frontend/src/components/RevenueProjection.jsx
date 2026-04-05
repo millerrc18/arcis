@@ -209,7 +209,8 @@ export default function RevenueProjection() {
             <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'var(--arcis-text-secondary)' }} />
             <YAxis yAxisId="pnl" tick={{ fontSize: 10, fill: 'var(--arcis-text-secondary)' }} tickFormatter={v => `$${(v/1000).toFixed(0)}K`} />
             <YAxis yAxisId="cap" orientation="right" tick={{ fontSize: 10, fill: 'var(--arcis-text-secondary)' }} tickFormatter={v => v >= 1000000 ? `$${(v/1000000).toFixed(1)}M` : `$${(v/1000).toFixed(0)}K`} />
-            <Tooltip contentStyle={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 8, fontSize: 12 }}
+            {/* Fix for #250: add tooltip text color for dark mode readability */}
+            <Tooltip contentStyle={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 8, fontSize: 12, color: 'var(--tooltip-text)' }}
               formatter={(v, name) => [`$${v.toLocaleString()}`, name]} />
             <Bar yAxisId="pnl" dataKey="cumPnl" name="Cumulative P&L" fill="var(--arcis-accent)" radius={[2,2,0,0]} fillOpacity={0.7} />
             <Line yAxisId="cap" dataKey="capital" name="Capital" stroke="var(--arcis-warning)" strokeWidth={2} dot={{ r: 3 }} />
@@ -229,7 +230,8 @@ export default function RevenueProjection() {
           </thead>
           <tbody>
             {projections.map((p, i) => (
-              <tr key={i} style={{ borderBottom: '1px solid rgba(51,65,85,0.5)' }}>
+              /* Fix for #250: use theme-aware border color */
+              <tr key={i} style={{ borderBottom: '1px solid var(--arcis-border)' }}>
                 <td className="p-2" style={{ color: 'var(--arcis-text-primary)' }}>{p.name}</td>
                 <td className="p-2 text-right" style={{ fontFamily: 'var(--font-mono)' }}>${p.capital.toLocaleString()}</td>
                 <td className="p-2 text-right" style={{ fontFamily: 'var(--font-mono)' }}>{p.sharpe}</td>

@@ -370,9 +370,11 @@ export default function LiveLedger() {
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--arcis-border)" />
                 <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--arcis-text-secondary)' }} />
                 <YAxis tick={{ fontSize: 11, fill: 'var(--arcis-text-secondary)' }} />
-                <RTooltip contentStyle={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 8, fontSize: 12 }} />
+                {/* Fix for #250: add tooltip text color for dark mode readability */}
+                <RTooltip contentStyle={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 8, fontSize: 12, color: 'var(--tooltip-text)' }} />
                 <ReferenceLine y={startingCapital} stroke="var(--arcis-text-muted)" strokeDasharray="3 3" />
-                <Area type="monotone" dataKey="equity" stroke="var(--arcis-accent)" fill="var(--arcis-accent)" fillOpacity={0.25} strokeWidth={2} />
+                {/* Fix for #250: increase fill opacity from 0.25 to 0.3 for dark mode readability */}
+                <Area type="monotone" dataKey="equity" stroke="var(--arcis-accent)" fill="var(--arcis-accent)" fillOpacity={0.3} strokeWidth={2} />
               </AreaChart>
             </ResponsiveContainer>
           )}
@@ -381,7 +383,8 @@ export default function LiveLedger() {
               <BarChart data={distBins}>
                 <XAxis dataKey="range" tick={{ fontSize: 10, fill: 'var(--arcis-text-secondary)' }} />
                 <YAxis tick={{ fontSize: 11, fill: 'var(--arcis-text-secondary)' }} allowDecimals={false} />
-                <RTooltip contentStyle={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 8, fontSize: 12 }} />
+                {/* Fix for #250: add tooltip text color for dark mode readability */}
+                <RTooltip contentStyle={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 8, fontSize: 12, color: 'var(--tooltip-text)' }} />
                 <Bar dataKey="count" radius={[4, 4, 0, 0]}>
                   {distBins.map((entry, i) => (
                     <Cell key={i} fill={entry.isPositive ? 'var(--arcis-success)' : 'var(--arcis-danger)'} />

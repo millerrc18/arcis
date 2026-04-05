@@ -232,13 +232,16 @@ export default function Health() {
                   <PolarGrid stroke="var(--arcis-border)" />
                   <PolarAngleAxis dataKey="dimension" tick={{ fontSize: 11, fill: 'var(--arcis-text-secondary)' }} />
                   <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fontSize: 10, fill: 'var(--arcis-text-muted)' }} />
-                  <Radar dataKey="score" stroke="var(--arcis-accent)" fill="var(--arcis-accent)" fillOpacity={0.2} />
+                  {/* Fix for #250: increase radar fill opacity from 0.2 to 0.35 for dark mode */}
+                  <Radar dataKey="score" stroke="var(--arcis-accent)" fill="var(--arcis-accent)" fillOpacity={0.35} />
+                  {/* Fix for #250: add tooltip text color for dark mode readability */}
                   <Tooltip
                     contentStyle={{
                       background: 'var(--arcis-bg-surface)',
                       border: '1px solid var(--arcis-border)',
                       borderRadius: 8,
                       fontSize: 12,
+                      color: 'var(--tooltip-text)',
                     }}
                   />
                 </RadarChart>

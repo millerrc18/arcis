@@ -1,13 +1,27 @@
 """Alpaca paper trading adapter with safety guardrails.
 
+This module is the ONLY code that talks to the Alpaca API. All broker
+interactions (paper and live) go through functions defined here.
+
+Two separate client paths:
+  - Paper: _get_trading_client() — always paper=True, verified against base_url.
+  - Live: _get_live_trading_client() — paper=False, separate config section.
+    The live path intentionally has NO paper-safety check since it must
+    connect to the real-money endpoint.
+
+Key design decisions:
+  - Every function creates a fresh client (no module-level singleton) to avoid
+    stale connections after network drops.
+  - All order responses are normalized to plain dicts via _serialize_order()
+    so downstream code never depends on alpaca-py SDK objects.
+  - Fix for #248: _strip_enum() handles Alpaca SDK enums that stringify as
+    "OrderStatus.held" — downstream code compares against plain "held".
+
 Called by: cli.commands, evaluation.system_validator, risk.governor, services.shadow_service, shadow_trading.bracket_monitor, shadow_trading.executor (cancel_paper_order), shadow_trading.reconcile
 Calls: config
 Owns tables: none
 Config keys: alpaca, api_key, api_secret, base_url, default_order_type, enabled, live_trading, max_open_positions, max_positions, secret_key, shadow_trading, starting_capital, timeout_days
 Tests: tests/test_bracket_orders.py, tests/test_executor_import.py, tests/test_live_trading.py
-
-Uses the alpaca-py SDK for paper trading operations.
-SAFETY: Will refuse to operate if not pointed at a paper trading endpoint.
 """
 
 import logging
@@ -20,15 +34,37 @@ from src.config import load_config
 logger = logging.getLogger(__name__)
 
 
+def _strip_enum(val) -> str | None:
+    """Strip Python enum class prefix from str(enum).
+
+    Fix for #248: Alpaca SDK enums like OrderStatus.held stringify as
+    "OrderStatus.held", but downstream code (bracket monitor) compares
+    against plain "held". Split on "." and take the last segment.
+    """
+    if val is None:
+        return None
+    s = str(val)
+    return s.split(".")[-1] if "." in s else s
+
+
 def _serialize_order(order, fallback_qty: int | float = 0) -> dict:
-    """Normalize Alpaca order objects into plain dicts, including bracket legs."""
+    """Normalize Alpaca order objects into plain dicts, including bracket legs.
+
+    WHY: Downstream code (bracket_monitor, executor, reconcile) needs stable
+    string-keyed dicts, not alpaca-py SDK objects that change between versions.
+    This is the single normalization point — every order goes through here.
+
+    GOTCHA: order.qty can be None for notional orders (live fractional shares).
+    The fallback_qty parameter handles this so callers don't need to check.
+    """
     return {
         "order_id": str(order.id),
         "symbol": str(order.symbol),
         "qty": float(order.qty) if getattr(order, "qty", None) else fallback_qty,
-        "side": str(order.side) if getattr(order, "side", None) else None,
-        "type": str(order.type) if getattr(order, "type", None) else None,
-        "status": str(order.status) if getattr(order, "status", None) else None,
+        # Fix for #248: strip enum prefix so "OrderSide.buy" → "buy"
+        "side": _strip_enum(order.side) if getattr(order, "side", None) else None,
+        "type": _strip_enum(order.type) if getattr(order, "type", None) else None,
+        "status": _strip_enum(order.status) if getattr(order, "status", None) else None,
         "filled_qty": str(order.filled_qty) if getattr(order, "filled_qty", None) else "0",
         "filled_avg_price": (
             float(order.filled_avg_price)
@@ -69,7 +105,9 @@ def _get_alpaca_config() -> dict:
     api_secret = os.environ.get("ALPACA_API_SECRET", alpaca_cfg.get("api_secret", ""))
     base_url = os.environ.get("ALPACA_BASE_URL", alpaca_cfg.get("base_url", "https://paper-api.alpaca.markets"))
 
-    # SAFETY: Verify paper mode
+    # SAFETY: Verify paper mode — this is the critical guardrail that prevents
+    # the paper trading path from accidentally connecting to a live account.
+    # Two independent checks: URL must contain "paper" OR env var must be "true".
     paper_env = os.environ.get("ALPACA_PAPER_TRADE", "true").lower()
     if "paper" not in base_url.lower() and paper_env != "true":
         raise PaperTradingError(
@@ -215,10 +253,18 @@ def place_bracket_order(
 ) -> dict:
     """Place a bracket order: entry + take-profit + stop-loss as one atomic order.
 
+    Strategy Decision #18: Mechanical bracket exits with 2.0 ATR multiplier.
     When the entry fills, Alpaca automatically places:
-    - A limit sell at take_profit_price
-    - A stop sell at stop_loss_price
-    When one exit triggers, the other auto-cancels.
+    - A limit sell at take_profit_price (target_1 from the packet)
+    - A stop sell at stop_loss_price (from packet stop_invalidation)
+    When one exit triggers, the other auto-cancels (OCO semantics).
+
+    WHY GTC (Good Till Cancel): Bracket exits must persist across trading
+    sessions. DAY orders would expire at close, leaving positions unprotected
+    overnight. GTC keeps the stop-loss active until it fills or is canceled.
+
+    WHY limit_price option: For less-liquid names, a limit entry prevents
+    paying an unreasonable spread on market open.
     """
     _check_enabled()
 
@@ -307,7 +353,16 @@ def get_all_positions() -> list[dict]:
 
 
 def get_current_price(ticker: str) -> float | None:
-    """Get the latest trade price for a ticker. Retries on network/DNS errors."""
+    """Get the latest trade price for a ticker. Retries on network/DNS errors.
+
+    WHY 3 retries with exponential backoff (0s, 1s, 2s): Alpaca's data API
+    occasionally returns DNS errors or 503s during high-volume periods.
+    The executor calls this for every open position every scan cycle, so
+    transient failures are common and worth retrying.
+
+    GOTCHA: Only retries ConnectionError/OSError (network issues). Other
+    exceptions (e.g., invalid ticker) fail immediately to avoid wasting time.
+    """
     for attempt in range(3):
         try:
             client = _get_data_client()
@@ -320,7 +375,7 @@ def get_current_price(ticker: str) -> float | None:
         except (ConnectionError, OSError) as e:
             if attempt < 2:
                 import time as _time
-                _time.sleep(2 ** attempt)
+                _time.sleep(2 ** attempt)  # 0s, 1s, 2s backoff
                 continue
             logger.warning("Failed to get current price for %s after 3 retries: %s", ticker, e)
             return None
@@ -355,6 +410,10 @@ def cancel_paper_order(order_id: str) -> bool:
 # Separate client creation for live (real-money) Alpaca account.
 # Uses live_trading config section, NOT the paper alpaca section.
 # No paper-safety checks — this deliberately connects to a live account.
+#
+# WHY separate from paper: Different API keys, different risk parameters,
+# different ordering modes (notional vs qty). Keeping them separate prevents
+# accidentally using paper credentials for live or vice versa.
 # ──────────────────────────────────────────────────────────────────────
 
 
@@ -419,6 +478,11 @@ def place_live_entry(ticker: str, shares: int, notional: float | None = None) ->
         shares: Number of whole shares (used if notional is None)
         notional: Dollar amount to invest (enables fractional shares).
                   If provided, overrides shares parameter.
+
+    WHY notional ordering: Live account starts with small capital ($100).
+    Whole-share ordering can't buy stocks above $100/share. Notional lets
+    us invest exact dollar amounts and get fractional shares automatically.
+    Strategy Decision #6: Equal weight (1/N) until 200+ trades.
     """
     cfg = _get_live_config()
     if not cfg["enabled"]:
@@ -466,6 +530,11 @@ def place_live_exit(ticker: str, shares: int | float = 0) -> dict:
 
     If shares is 0 or not provided, closes the entire position via
     Alpaca's close_position API (handles fractional shares automatically).
+
+    WHY close_position instead of market sell: With fractional shares from
+    notional ordering, we may hold e.g., 0.847 shares. A qty-based sell
+    can't express fractional amounts, but close_position liquidates the
+    exact position regardless of share count.
     """
     cfg = _get_live_config()
     if not cfg["enabled"]:

@@ -679,12 +679,18 @@ class TestLiveAdapter:
             },
         }
 
-        with patch("alpaca.trading.client.TradingClient") as mock_tc:
-            from src.shadow_trading.alpaca_adapter import _get_live_trading_client
-            _get_live_trading_client()
+        # Fix for #239: remove env vars so they don't override mocked config values.
+        # _get_live_config checks os.environ first, which has real keys in dev.
+        import os as _os
+        env_clean = {k: v for k, v in _os.environ.items()
+                     if k not in ("ALPACA_LIVE_API_KEY", "ALPACA_LIVE_SECRET_KEY")}
+        with patch.dict("os.environ", env_clean, clear=True):
+            with patch("alpaca.trading.client.TradingClient") as mock_tc:
+                from src.shadow_trading.alpaca_adapter import _get_live_trading_client
+                _get_live_trading_client()
 
-            mock_tc.assert_called_once_with(
-                api_key="test-key",
-                secret_key="test-secret",
-                paper=False,
-            )
+                mock_tc.assert_called_once_with(
+                    api_key="test-key",
+                    secret_key="test-secret",
+                    paper=False,
+                )

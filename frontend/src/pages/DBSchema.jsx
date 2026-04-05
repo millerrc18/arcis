@@ -55,18 +55,41 @@ const FK_EDGES = [
   ['live_trades', 'recommendations'],
 ]
 
+/* Fix for #255 — cluster header nodes + larger, more readable table nodes */
 function buildNodes(counts) {
   const nodes = []
   const clusterEntries = Object.entries(CLUSTERS)
-  const clusterWidth = 200
+  const clusterWidth = 220
   const cols = 3
-  const rowSpacing = 50
+  const rowSpacing = 54
+  const headerHeight = 30
 
   clusterEntries.forEach(([clusterId, cluster], ci) => {
     const col = ci % cols
     const row = Math.floor(ci / cols)
-    const baseX = col * 420
-    const baseY = row * (cluster.tables.length * rowSpacing + 120)
+    const baseX = col * 440
+    const baseY = row * (cluster.tables.length * rowSpacing + 160)
+
+    // Cluster header node
+    nodes.push({
+      id: `hdr-${clusterId}`,
+      position: { x: baseX, y: baseY - headerHeight - 6 },
+      data: { label: cluster.label },
+      style: {
+        background: 'transparent',
+        border: 'none',
+        padding: '4px 8px',
+        fontSize: 12,
+        fontWeight: 700,
+        color: cluster.color,
+        fontFamily: 'Inter, sans-serif',
+        textTransform: 'uppercase',
+        letterSpacing: '0.08em',
+        pointerEvents: 'none',
+      },
+      selectable: false,
+      draggable: false,
+    })
 
     cluster.tables.forEach((table, ti) => {
       const count = counts?.[table]
@@ -77,14 +100,15 @@ function buildNodes(counts) {
         data: { label: `${table}${countLabel}` },
         style: {
           background: '#0C0C10',
-          border: `1px solid ${cluster.color}`,
+          border: `2px solid ${cluster.color}`,
           borderRadius: 6,
-          padding: '6px 12px',
-          fontSize: 11,
+          padding: '12px 16px',
+          fontSize: 13,
           color: '#E4E4E7',
           fontFamily: "'JetBrains Mono', monospace",
           minWidth: clusterWidth,
           textAlign: 'left',
+          lineHeight: 1.4,
         },
       })
     })
@@ -93,6 +117,7 @@ function buildNodes(counts) {
   return nodes
 }
 
+/* Fix for #255 — thicker FK edges for readability */
 function buildEdges() {
   return FK_EDGES.map(([source, target], i) => ({
     id: `fk-${i}`,
@@ -100,7 +125,9 @@ function buildEdges() {
     target,
     type: 'smoothstep',
     animated: false,
-    style: { stroke: '#475569', strokeWidth: 1, strokeDasharray: '4 4' },
+    style: { stroke: '#64748B', strokeWidth: 1.5, strokeDasharray: '5 5' },
+    labelStyle: { fill: '#94A3B8', fontSize: 11, fontFamily: 'Inter, sans-serif' },
+    labelBgStyle: { fill: '#0F172A', fillOpacity: 0.85 },
   }))
 }
 

@@ -99,6 +99,7 @@ export default function Training() {
       </div>
 
       {/* Hero metrics */}
+      {/* Fix for #247 */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="arcis-card text-center" style={{ padding: '20px' }}>
           <div className="text-3xl font-bold financial-data" style={{ color: 'var(--arcis-text-primary)' }}>{total.toLocaleString()}</div>

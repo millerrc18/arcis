@@ -5,6 +5,26 @@ Calls: none
 Owns tables: none
 Config keys: none
 Tests: none
+
+Endpoints:
+    GET /api/shadow/open            - Open trades with unrealized P&L (#253)
+    GET /api/shadow/closed?days=30  - Closed trades with metrics
+    GET /api/shadow/metrics?days=30 - Performance metrics
+    GET /api/shadow/account         - Virtual account summary
+    GET /api/packets?days=7         - Recent recommendations
+    GET /api/live/trades            - Live (Alpaca) trades
+    GET /api/live/summary           - Live account summary
+    GET /api/scan/latest            - Latest 10 recommendations
+    GET /api/review/pending         - Recently closed trades for review
+    GET /api/review/scorecard       - Stub (cloud has no local review data)
+    GET /api/review/postmortems     - Stub
+    GET /api/journal?days=90        - Trade journal with thesis text
+    GET /api/signal-zoo?days=7      - Setup signal history
+    GET /api/projections/live       - Live projection metrics (Sharpe, win rate)
+
+Unrealized P&L (#253): The cloud API estimates current prices from
+setup_signals.theoretical_entry since it has no live market data feed.
+This is an approximation — the local API uses actual Alpaca prices.
 """
 
 import statistics
@@ -19,6 +39,13 @@ def create_router(runtime, verify_auth):
 
     @router.get("/api/shadow/open", dependencies=[Depends(verify_auth)])
     def shadow_open():
+        """Return open shadow trades with per-trade unrealized P&L.
+
+        Fix for #253: total_unrealized_pnl was hardcoded to 0. Now computes P&L
+        for each open trade using the latest signal price for that ticker.
+        We query setup_signals (most recent theoretical_entry per ticker) as a
+        proxy for current price — no live API call needed.
+        """
         try:
             rows = runtime.query(
                 "SELECT st.*, r.setup_type, r.market_regime, r.priority_score "
@@ -31,13 +58,41 @@ def create_router(runtime, verify_auth):
             )
             closed_pnl = closed_pnl_row["total"] if closed_pnl_row else 0
             equity = 100000 + (closed_pnl or 0)
+
+            # Fix for #253: compute unrealized P&L per open trade.
+            # Use latest setup_signals.theoretical_entry as price proxy.
+            total_unrealized = 0.0
+            for trade in rows:
+                ticker = trade.get("ticker")
+                entry = float(trade.get("actual_entry_price") or trade.get("entry_price") or 0)
+                shares = float(trade.get("actual_shares") or trade.get("planned_shares") or 0)
+                if not ticker or not entry or not shares:
+                    trade["unrealized_pnl"] = None
+                    trade["current_price_est"] = None
+                    continue
+                # Get most recent signal price for this ticker
+                price_row = runtime.query_one(
+                    "SELECT theoretical_entry FROM setup_signals "
+                    "WHERE ticker = %s ORDER BY created_at DESC LIMIT 1",
+                    (ticker,),
+                )
+                if price_row and price_row.get("theoretical_entry"):
+                    current = float(price_row["theoretical_entry"])
+                    pnl = round((current - entry) * shares, 2)
+                    trade["unrealized_pnl"] = pnl
+                    trade["current_price_est"] = round(current, 2)
+                    total_unrealized += pnl
+                else:
+                    trade["unrealized_pnl"] = None
+                    trade["current_price_est"] = None
+
             return {
                 "trades": rows,
                 "open_trades": rows,
                 "count": len(rows),
                 "open_count": len(rows),
                 "account_equity": round(equity, 2),
-                "total_unrealized_pnl": 0,
+                "total_unrealized_pnl": round(total_unrealized, 2),
             }
         except HTTPException:
             raise
@@ -186,13 +241,29 @@ def create_router(runtime, verify_auth):
             )
             wins = [trade for trade in closed_trades if (trade.get("pnl_dollars", 0) or 0) > 0]
             losses = [trade for trade in closed_trades if (trade.get("pnl_dollars", 0) or 0) <= 0]
+
+            # Fix for #253: compute unrealized P&L for open trades
+            unrealized = 0.0
+            for trade in open_trades:
+                ticker = trade.get("ticker")
+                entry = float(trade.get("actual_entry_price") or trade.get("entry_price") or 0)
+                shares = float(trade.get("actual_shares") or trade.get("planned_shares") or 0)
+                if ticker and entry and shares:
+                    price_row = runtime.query_one(
+                        "SELECT theoretical_entry FROM setup_signals "
+                        "WHERE ticker = %s ORDER BY created_at DESC LIMIT 1",
+                        (ticker,),
+                    )
+                    if price_row and price_row.get("theoretical_entry"):
+                        unrealized += (float(price_row["theoretical_entry"]) - entry) * shares
+
             return {
                 "starting_capital": 100000,
                 "equity": 100000 + closed_pnl,
                 "cash": 100000 + closed_pnl - open_alloc,
                 "open_positions": len(open_trades),
                 "closed_pnl": round(closed_pnl, 2),
-                "unrealized_pnl": 0,
+                "unrealized_pnl": round(unrealized, 2),
                 "win_rate": round(len(wins) / len(closed_trades), 3) if closed_trades else None,
                 "total_closed": len(closed_trades),
                 "wins": len(wins),

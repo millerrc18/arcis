@@ -24,6 +24,29 @@
   --arcis-teal-light: #14B8A6;
   --arcis-info: #3B82F6;
 
+  /* Fix for #250: define all color aliases used by charts and pages in dark mode */
+  --teal-400: #2DD4BF;
+  --teal-500: #14B8A6;
+  --amber-300: #FCD34D;
+  --amber-400: #FBBF24;
+  --success: #22C55E;
+  --danger: #EF4444;
+  --slate-100: #F1F5F9;
+  --slate-300: #CBD5E1;
+  --slate-400: #94A3B8;
+  --slate-600: #475569;
+  --slate-700: #334155;
+  --arcis-text: #E4E4E7;
+
+  /* Fix for #250: chart area fill opacity for dark/light modes */
+  --chart-fill-opacity: 0.3;
+
+  /* Fix for #250: tooltip text color */
+  --tooltip-text: #E4E4E7;
+
+  /* Fix for #250: table alternating row background */
+  --table-row-alt: rgba(255, 255, 255, 0.03);
+
   /* Chart series */
   --chart-1: #3B82F6;
   --chart-2: #14B8A6;
@@ -58,6 +81,29 @@
   --arcis-text-muted: #64748B;
   --arcis-border: #E2E8F0;
   --arcis-border-hover: #CBD5E1;
+
+  /* Fix for #250: light mode color aliases */
+  --teal-400: #0D9488;
+  --teal-500: #0F766E;
+  --amber-300: #D97706;
+  --amber-400: #B45309;
+  --success: #16A34A;
+  --danger: #DC2626;
+  --slate-100: #F1F5F9;
+  --slate-300: #CBD5E1;
+  --slate-400: #94A3B8;
+  --slate-600: #475569;
+  --slate-700: #334155;
+  --arcis-text: #0F172A;
+
+  /* Fix for #250: chart fill opacity — slightly lower for light backgrounds */
+  --chart-fill-opacity: 0.2;
+
+  /* Fix for #250: tooltip text color for light mode */
+  --tooltip-text: #0F172A;
+
+  /* Fix for #250: table alternating row background for light mode */
+  --table-row-alt: rgba(0, 0, 0, 0.03);
 }
 
 body {

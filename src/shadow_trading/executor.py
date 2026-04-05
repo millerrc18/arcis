@@ -1,5 +1,19 @@
 """Shadow trade execution flow: entry and exit monitoring.
 
+This is the core trade lifecycle manager. Two main entry points:
+  - open_shadow_trade(): Decision chain for paper trade entry (validation ->
+    risk governor -> position limits -> duplicate check -> bracket order).
+  - check_and_manage_open_trades(): Exit monitoring loop that checks all open
+    positions against stops, targets, timeouts, and bracket fills.
+
+Also includes open_live_trade() for real-money execution with additional
+safety guards (capital guard, daily loss limit, LLM conviction required).
+
+Key issue cross-references:
+  - #99: Race condition duplicate check (BEGIN IMMEDIATE)
+  - #187: Failed shadow trades buying power check
+  - #196: Duplicate exit orders (exit_retry_count + _MAX_EXIT_RETRIES)
+
 Called by: api.routes.shadow, cli.commands, evaluation.backtester, packets.eod_recap, risk.governor, scheduler.watch, services.scan_service, services.shadow_service, shadow_trading.ledger
 Calls: config, data_ingestion.market_data, evaluation.postmortem, journal.store, llm.postmortem_writer, llm.validator, models, notifications.telegram, risk.governor, shadow_trading.alpaca_adapter (cancel_paper_order), shadow_trading.models, utils.activity_logger
 Owns tables: none (reads/writes shadow_trades.exit_retry_count)
@@ -26,12 +40,25 @@ from src.models import TradePacket
 from src.shadow_trading.models import ShadowTrade
 
 logger = logging.getLogger(__name__)
+# Alpaca order status sets — used by exit monitoring to decide whether to
+# close the trade record (filled) or wait for broker (pending).
+# GOTCHA: Alpaca SDK enums stringify as "OrderStatus.filled" — the adapter's
+# _strip_enum() (Fix for #248) normalizes these before they reach here.
 FILLED_ORDER_STATUSES = {"filled", "partially_filled", "closed"}
 PENDING_ORDER_STATUSES = {"new", "accepted", "pending_new", "accepted_for_bidding", "held"}
 
 
 def _check_paper_buying_power(entry_price: float, shares: int) -> bool:
-    """Check if paper account has sufficient buying power for the trade."""
+    """Check if paper account has sufficient buying power for the trade.
+
+    Fix for #187: Trades were failing silently at Alpaca when the paper account
+    ran out of buying power. Now we pre-check and record the trade as
+    'rejected_buying_power' so the dashboard shows why it was skipped.
+
+    WHY fail-open on API error: Alpaca paper API has intermittent 503s.
+    Blocking all trades because the buying power check timed out is worse
+    than letting a trade through that might get rejected by Alpaca anyway.
+    """
     try:
         from src.shadow_trading.alpaca_adapter import get_account_info
         acct = get_account_info()
@@ -46,11 +73,20 @@ def _check_paper_buying_power(entry_price: float, shares: int) -> bool:
         return True
     except Exception as exc:
         logger.warning("[SHADOW] Buying power check failed: %s — allowing trade", exc)
-        return True  # Fail open to avoid blocking on API errors
+        return True  # Fail open — Alpaca will reject if truly insufficient
 
 
 def _parse_price(value) -> float:
-    """Parse a price value that may be a string like '$78.82 area' or a float."""
+    """Parse a price value that may be a string like '$78.82 area' or a float.
+
+    WHY this exists: LLM output for entry_zone/stop_invalidation/targets is
+    freeform text (e.g., "$78.82 area", "~195.00", "$42.50-43.00"). We need
+    a reliable numeric extraction. The .split()[0] takes the first token
+    after stripping $ and commas, which handles most LLM output formats.
+
+    Fix for #181: Returns 0.0 on unparseable input instead of crashing.
+    Callers check for entry_price <= 0 before proceeding.
+    """
     if isinstance(value, (int, float)):
         return float(value)
     if isinstance(value, str):
@@ -102,6 +138,8 @@ def open_shadow_trade(
         return None
 
     # LLM output validation (catches hallucinated tickers, nonsensical prices, etc.)
+    # WHY reject on ImportError: If the validator module can't load, we have no
+    # guardrails against LLM hallucinations. Safer to skip the trade entirely.
     try:
         from src.llm.validator import validate_llm_output
         is_valid, reason = validate_llm_output(packet, features, config)
@@ -164,7 +202,11 @@ def open_shadow_trade(
 
     ticker = packet.ticker
 
-    # Atomic duplicate check: BEGIN IMMEDIATE to prevent race condition (#99)
+    # Fix for #99: Race condition duplicate check. Two scan cycles could both
+    # see "no open trade for AAPL" and both try to open one. BEGIN IMMEDIATE
+    # acquires an exclusive lock on the database before the SELECT, preventing
+    # concurrent reads from seeing the same state. Falls back to non-atomic
+    # check if the lock fails (e.g., another process holds the DB).
     import sqlite3 as _sqlite3
     try:
         _dup_conn = _sqlite3.connect(db_path)
@@ -195,7 +237,10 @@ def open_shadow_trade(
     target_1 = _parse_price(targets_parts[0]) if len(targets_parts) >= 1 else 0.0
     target_2 = _parse_price(targets_parts[1]) if len(targets_parts) >= 2 else 0.0
 
-    # Thorp-style graduated drawdown reduction
+    # Thorp-style graduated drawdown reduction — as drawdown increases,
+    # position sizes decrease proportionally. At 20%+ DD, trading halts entirely.
+    # Based on Kelly criterion / Thorp's risk management: the deeper the hole,
+    # the harder it is to climb out, so reduce bet size to survive.
     try:
         from src.risk.governor import drawdown_adjusted_risk
         starting_capital = config.get("risk", {}).get("starting_capital", 100000)
@@ -300,9 +345,15 @@ def open_shadow_trade(
         trade_data["max_favorable_excursion"] = 0.0
         trade_data["max_adverse_excursion"] = 0.0
         insert_shadow_trade(trade_data, db_path)
-        return trade_data
+        # Fix for #239: was returning trade_data (dict) — callers expect str | None.
+        # Return the trade_id string for consistency with all other code paths.
+        return trade_data.get("trade_id")
 
-    # Try bracket order first, fall back to simple market order
+    # Strategy Decision #18: Mechanical bracket exits with 2.0 ATR multiplier.
+    # Try bracket order first (entry + stop-loss + take-profit as one atomic
+    # Alpaca order). If bracket fails (e.g., Alpaca rejects the price levels),
+    # fall back to simple market order — the trade still opens but exits will
+    # be managed by the polling loop in check_and_manage_open_trades().
     try:
         from src.shadow_trading.alpaca_adapter import place_bracket_order
         order = place_bracket_order(
@@ -365,7 +416,10 @@ def open_shadow_trade(
     if strategy_cfg.get("paper_only", False):
         trade_data["source"] = "paper"
 
-    # Outcome metadata (Sprint 6, Strategy Decision #24)
+    # Strategy Decision #24: Outcome metadata for regime-conditional analysis.
+    # Captures market context at entry so we can later slice performance by
+    # regime (bull/bear), VIX level, and portfolio concentration. This data
+    # feeds the CTO report and attribution system.
     trade_data["regime_at_entry"] = features.get("traffic_light", {}).get("regime_label", "")
     trade_data["ranking_at_entry"] = features.get("_rank", 0)
     try:
@@ -443,6 +497,8 @@ def open_shadow_trade(
     return trade_id
 
 
+# Fix for #196: Cap exit retries to prevent infinite exit order spam.
+# After 3 failures, mark as exit_abandoned for reconciliation to handle.
 _MAX_EXIT_RETRIES = 3
 
 
@@ -452,6 +508,9 @@ def _retry_exit(trade: dict, db_path: str = DB_PATH) -> None:
     Cancels any pending exit order before resubmitting. Gives up after
     _MAX_EXIT_RETRIES attempts and marks the trade as exit_abandoned
     for reconciliation to handle.
+
+    Fix for #196: Without this, duplicate exit orders were being placed
+    every scan cycle for stuck trades, sometimes causing Alpaca rejections.
     """
     from src.shadow_trading.alpaca_adapter import cancel_paper_order
 
@@ -599,6 +658,10 @@ def check_and_manage_open_trades(
         )
 
         # ═══ Strategy-aware exit: Mean Reversion RSI exit ═══
+        # MR trades have different exit logic than pullback trades: they exit
+        # when RSI reverts to neutral (not via bracket stops/targets). MR trades
+        # also have shorter holding periods (default 5 days) with a hard timeout.
+        # The `continue` after MR exit skips the bracket check below.
         if trade.get("strategy_type") == "mean_reversion":
             try:
                 from src.features.mean_reversion import compute_mr_exit_signal
@@ -645,7 +708,11 @@ def check_and_manage_open_trades(
                 })
                 continue
 
-        # For bracket orders, check Alpaca for exit fills
+        # For bracket orders, check Alpaca for exit fills.
+        # Strategy Decision #18: Bracket orders have server-side stop-loss and
+        # take-profit legs that fire automatically. We check Alpaca's order status
+        # to detect if a leg filled, rather than relying solely on price polling.
+        # This handles overnight gaps and fast moves that price polling would miss.
         bracket_exit = False
         exit_reason = None
         if trade.get("order_type") == "bracket" and trade.get("alpaca_order_id"):
@@ -874,7 +941,10 @@ def check_and_manage_open_trades(
             # 1G. Check for loss streak
             _check_loss_streak(db_path)
 
-    # Alert if >50% of price checks failed in this cycle (#102)
+    # Alert if >50% of price checks failed in this cycle (#102).
+    # WHY 50% threshold: individual failures happen (ticker delisted, API blip).
+    # Mass failures indicate an Alpaca outage, which needs immediate attention
+    # because it means all exit monitoring is blind.
     if _price_total > 0 and _price_failures / _price_total > 0.5:
         logger.warning(
             "[EXECUTOR] Price fetch failure rate %.0f%% (%d/%d) — possible Alpaca outage",
@@ -906,6 +976,11 @@ def open_live_trade(
     - Daily loss limit: halt if daily P&L < -5% of capital
     - LLM commentary required (no template fallback)
     - First scan of day (9:30 AM) is skipped (handled by caller)
+
+    WHY separate from open_shadow_trade: Live trades use notional ordering
+    (dollar amounts for fractional shares), different risk parameters,
+    and stricter safety guards. The code paths diverge enough that
+    combining them would create a fragile if/else maze.
 
     Returns trade_id on success, None on failure.
     """

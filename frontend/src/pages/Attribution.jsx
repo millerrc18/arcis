@@ -59,26 +59,27 @@ export default function Attribution() {
       </div>
 
       {/* Key metrics */}
+      {/* Fix for #247 */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="arcis-card" style={{ padding: '12px' }}>
+        <div className="arcis-card text-center" style={{ padding: '12px' }}>
           <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Total Pairs</div>
           <div className="text-2xl font-bold" style={{ fontFamily: 'var(--font-mono)' }}>{total}</div>
         </div>
-        <div className="arcis-card" style={{ padding: '12px' }}>
+        <div className="arcis-card text-center" style={{ padding: '12px' }}>
           <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Ranker Win Rate</div>
           <div className="text-2xl font-bold" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-secondary)' }}>
             {ranker.win_rate != null ? `${(ranker.win_rate * 100).toFixed(1)}%` : '--'}
           </div>
           <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>{ranker.resolved || 0} resolved</div>
         </div>
-        <div className="arcis-card" style={{ padding: '12px' }}>
+        <div className="arcis-card text-center" style={{ padding: '12px' }}>
           <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>LLM Win Rate</div>
           <div className="text-2xl font-bold" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-accent)' }}>
             {llm.win_rate != null ? `${(llm.win_rate * 100).toFixed(1)}%` : '--'}
           </div>
           <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>{llm.resolved || 0} resolved</div>
         </div>
-        <div className="arcis-card" style={{ padding: '12px' }}>
+        <div className="arcis-card text-center" style={{ padding: '12px' }}>
           <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Statistical Power</div>
           <div className="text-lg font-bold" style={{ fontFamily: 'var(--font-mono)', color: powerColor }}>
             {power === 'adequate' ? 'Adequate' : power === 'low' ? 'Low' : 'Insufficient'}
@@ -95,7 +96,8 @@ export default function Attribution() {
             <BarChart data={comparisonData} layout="vertical">
               <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11, fill: 'var(--arcis-text-muted)' }} />
               <YAxis type="category" dataKey="name" tick={{ fontSize: 12, fill: 'var(--arcis-text-secondary)' }} width={100} />
-              <Tooltip contentStyle={{ background: 'var(--arcis-bg-elevated)', border: '1px solid var(--arcis-border)', borderRadius: 8, fontSize: 12 }} />
+              {/* Fix for #250: add tooltip text color for dark mode readability */}
+              <Tooltip contentStyle={{ background: 'var(--arcis-bg-elevated)', border: '1px solid var(--arcis-border)', borderRadius: 8, fontSize: 12, color: 'var(--tooltip-text)' }} />
               <Bar dataKey="winRate" name="Win Rate %">
                 {comparisonData.map((entry, i) => (
                   <Cell key={i} fill={entry.fill} />
@@ -130,7 +132,8 @@ export default function Attribution() {
               <BarChart data={pairData}>
                 <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'var(--arcis-text-muted)' }} />
                 <YAxis tick={{ fontSize: 10, fill: 'var(--arcis-text-muted)' }} />
-                <Tooltip contentStyle={{ background: 'var(--arcis-bg-elevated)', border: '1px solid var(--arcis-border)', borderRadius: 8, fontSize: 12 }} />
+                {/* Fix for #250: add tooltip text color for dark mode readability */}
+                <Tooltip contentStyle={{ background: 'var(--arcis-bg-elevated)', border: '1px solid var(--arcis-border)', borderRadius: 8, fontSize: 12, color: 'var(--tooltip-text)' }} />
                 <Bar dataKey="count" fill="var(--arcis-accent)" />
               </BarChart>
             </ResponsiveContainer>

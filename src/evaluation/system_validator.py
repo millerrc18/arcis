@@ -8,6 +8,28 @@ Tests: tests/test_system_validator.py
 
 Runs 50+ checks across 8 categories (database, trading, training, api,
 collectors, notifications, scheduler, llm) and returns structured results.
+
+Design rationale
+~~~~~~~~~~~~~~~~
+The system validator is the "preflight checklist" for Arcis.  It runs
+on every startup (via the `startup` command) and on-demand via the
+`validate` CLI command and /validate Telegram command.
+
+8 categories, each independent so a failure in one doesn't block others:
+  1. database:      file exists, WAL mode, expected tables, data freshness
+  2. trading:       Alpaca credentials, zombie trades, risk config, kill switch
+  3. training:      example count, quality scores, curriculum, model versions
+  4. api:           frontend build, Render postgres, local/cloud API health
+  5. collectors:    per-table freshness for all 12 data collector tables
+  6. notifications: Telegram bot token validity, email SMTP config
+  7. scheduler:     last scan time, schedule metrics, overnight collectors
+  8. llm:           Ollama running, model loaded, inference test
+
+Credential checking (#249): The validator must check credentials in the
+same locations the actual adapters use.  Before #249, it only checked
+YAML config, but secrets live in os.environ (via .env).  This mismatch
+caused false CRITICAL failures on every startup.  Now each credential
+check mirrors the lookup order in the corresponding adapter.
 """
 
 import json
@@ -24,7 +46,9 @@ from src.config import DB_PATH, load_config
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
-# Expected tables in the system
+# Expected tables — a subset of the full 49-table schema registry.
+# Only tables that should exist in a healthy running system are listed
+# here.  Internal/migration tables are excluded to avoid false warnings.
 EXPECTED_TABLES = [
     "recommendations", "shadow_trades", "training_examples",
     "model_versions", "audit_reports", "schedule_metrics",
@@ -37,12 +61,17 @@ EXPECTED_TABLES = [
     "earnings_calendar", "research_docs",
 ]
 
-# Tables that should have data if the system has been running
+# Tables that should have data if the system has been running.
+# An empty core table (recommendations, shadow_trades, training_examples)
+# usually means the system has never completed a scan cycle — worth a warn.
 TABLES_SHOULD_HAVE_DATA = [
     "recommendations", "shadow_trades", "training_examples",
 ]
 
-# Collector tables and their expected time columns
+# Collector tables and their expected time columns.
+# Used for freshness checks: if a collector table's most recent row is
+# older than 7 days, it's flagged as stale because overnight collection
+# should populate every table nightly.
 COLLECTOR_TABLES = {
     "options_chains": "collected_at",
     "options_metrics": "collected_date",
@@ -70,7 +99,11 @@ def _check(name: str, status: str, detail: str) -> dict:
 
 
 def _safe_query(conn, sql, params=()) -> list | None:
-    """Execute query safely, return rows or None on error."""
+    """Execute query safely, return rows or None on error.
+
+    Validation checks must never crash the validator itself — a failed
+    query means "check inconclusive", not "system broken".
+    """
     try:
         return conn.execute(sql, params).fetchall()
     except Exception as e:
@@ -82,6 +115,13 @@ def _safe_query(conn, sql, params=()) -> list | None:
 
 
 def _check_database(db_path: str) -> list[dict]:
+    """Validate database file, schema, data presence, and referential integrity.
+
+    Checks (in order): file exists, file size sane, connection works,
+    WAL mode enabled, all expected tables exist, core tables have data,
+    training example count >= 100, no orphaned FK references, and
+    per-table write freshness.
+    """
     checks = []
 
     # Check DB file exists and is readable
@@ -208,12 +248,22 @@ def _check_database(db_path: str) -> list[dict]:
 
 
 def _check_trading(db_path: str, config: dict) -> list[dict]:
+    """Validate trading infrastructure: credentials, positions, risk config.
+
+    Fix for #249: credential lookups now mirror the actual adapter code.
+    The adapter (alpaca_adapter._get_alpaca_config) reads os.environ
+    first and falls back to YAML.  The validator must do the same,
+    otherwise it reports false CRITICALs when secrets are only in .env.
+    """
     checks = []
 
-    # Alpaca paper credentials
+    # Fix for #249: Check os.environ FIRST for credentials, then fall back to YAML.
+    # Secrets live in .env / os.environ, not in YAML config. The adapter itself
+    # uses os.environ (see alpaca_adapter._get_alpaca_config), so the validator
+    # must match to avoid false CRITICALs.
     alpaca_cfg = config.get("alpaca", {})
-    paper_key = alpaca_cfg.get("api_key", "")
-    paper_secret = alpaca_cfg.get("api_secret", "")
+    paper_key = os.environ.get("ALPACA_API_KEY", alpaca_cfg.get("api_key", ""))
+    paper_secret = os.environ.get("ALPACA_API_SECRET", alpaca_cfg.get("api_secret", ""))
 
     if paper_key and paper_secret:
         try:
@@ -232,11 +282,11 @@ def _check_trading(db_path: str, config: dict) -> list[dict]:
         checks.append(_check("trading_paper_creds", "warn",
                               "Paper API credentials not configured"))
 
-    # Alpaca live credentials (only if enabled)
+    # Fix for #249: live credentials also in env vars, matching alpaca_adapter._get_live_config
     live_cfg = config.get("live_trading", {})
     if live_cfg.get("enabled", False):
-        live_key = live_cfg.get("api_key", "")
-        live_secret = live_cfg.get("secret_key", "")
+        live_key = os.environ.get("ALPACA_LIVE_API_KEY", live_cfg.get("api_key", ""))
+        live_secret = os.environ.get("ALPACA_LIVE_SECRET_KEY", live_cfg.get("secret_key", ""))
         if live_key and live_secret:
             try:
                 from src.shadow_trading.alpaca_adapter import get_live_account_info
@@ -257,7 +307,10 @@ def _check_trading(db_path: str, config: dict) -> list[dict]:
         checks.append(_check("trading_live_creds", "pass",
                               "Live trading not enabled (OK for current phase)"))
 
-    # Check for zombie trades (open beyond timeout)
+    # Check for zombie trades (open beyond timeout).
+    # A zombie trade is one that was never closed by the bracket monitor
+    # or reconciler — it sits in 'open' status indefinitely, consuming
+    # a position slot and skewing portfolio state.
     shadow_cfg = config.get("shadow_trading", {})
     timeout_days = shadow_cfg.get("timeout_days", 10)
     try:
@@ -279,7 +332,8 @@ def _check_trading(db_path: str, config: dict) -> list[dict]:
         checks.append(_check("trading_zombie_trades", "warn",
                               f"Could not check: {e}"))
 
-    # Risk governor config sanity
+    # Risk governor config sanity — a disabled governor is a FAIL
+    # because the system should never trade without risk limits.
     risk_cfg = config.get("risk_governor", {})
     if risk_cfg.get("enabled", True):
         issues = []
@@ -337,6 +391,12 @@ def _check_trading(db_path: str, config: dict) -> list[dict]:
 
 
 def _check_training(db_path: str, config: dict) -> list[dict]:
+    """Validate training pipeline: example count, quality, curriculum, model versions.
+
+    The training pipeline is the system's learning loop — if it degrades,
+    the model stops improving.  Canary evaluations and quality drift
+    metrics are early-warning signals for model regression.
+    """
     checks = []
     training_cfg = config.get("training", {})
 
@@ -548,6 +608,15 @@ def _check_api(config: dict) -> list[dict]:
 
 
 def _check_collectors(db_path: str, config: dict) -> list[dict]:
+    """Validate data collectors: per-table row counts, freshness, API keys.
+
+    Checks each of the 12 collector tables for row count and last-write
+    timestamp.  Tables stale beyond 7 days get a warning because the
+    overnight schedule should refresh them nightly.
+
+    API key checks (#249): like trading credentials, collector API keys
+    live in os.environ and fall back to YAML config.
+    """
     checks = []
 
     try:
@@ -593,10 +662,10 @@ def _check_collectors(db_path: str, config: dict) -> list[dict]:
         checks.append(_check("collectors_db", "fail",
                               f"Cannot access database: {e}"))
 
-    # API key checks
+    # Fix for #249: check env vars first for API keys, matching collector implementations
     enrichment_cfg = config.get("data_enrichment", {})
-    finnhub_key = enrichment_cfg.get("finnhub_api_key", "")
-    fred_key = enrichment_cfg.get("fred_api_key", "")
+    finnhub_key = os.environ.get("FINNHUB_API_KEY", enrichment_cfg.get("finnhub_api_key", ""))
+    fred_key = os.environ.get("FRED_API_KEY", enrichment_cfg.get("fred_api_key", ""))
 
     checks.append(_check("collector_finnhub_key",
                           "pass" if finnhub_key else "warn",
@@ -612,13 +681,19 @@ def _check_collectors(db_path: str, config: dict) -> list[dict]:
 
 
 def _check_notifications(config: dict) -> list[dict]:
+    """Validate notification channels: Telegram bot token, email SMTP.
+
+    Telegram validation calls the getMe API (read-only, no messages sent)
+    to confirm the bot token is valid.  This catches expired or revoked
+    tokens before they cause silent notification failures during trading.
+    """
     checks = []
 
-    # Telegram
+    # Fix for #249: Telegram secrets live in os.environ, not YAML config.
     tg_cfg = config.get("telegram", {})
     tg_enabled = tg_cfg.get("enabled", False)
-    tg_token = tg_cfg.get("bot_token", "")
-    tg_chat = str(tg_cfg.get("chat_id", ""))
+    tg_token = os.environ.get("TELEGRAM_BOT_TOKEN", tg_cfg.get("bot_token", ""))
+    tg_chat = os.environ.get("TELEGRAM_CHAT_ID", str(tg_cfg.get("chat_id", "")))
 
     if tg_enabled and tg_token and tg_chat:
         checks.append(_check("notif_telegram_config", "pass",
@@ -664,6 +739,13 @@ def _check_notifications(config: dict) -> list[dict]:
 
 
 def _check_scheduler(db_path: str, config: dict) -> list[dict]:
+    """Validate scheduler health: last scan, schedule metrics, overnight collectors.
+
+    The scheduler is the heartbeat of the system.  If scans stop running,
+    no new recommendations are generated, no trades open, and the data
+    pipeline stalls.  Staleness thresholds: >24h for scans (warn),
+    >3 days for collectors (stale count).
+    """
     checks = []
 
     try:
@@ -778,6 +860,14 @@ def _check_scheduler(db_path: str, config: dict) -> list[dict]:
 
 
 def _check_llm(config: dict) -> list[dict]:
+    """Validate LLM availability: Ollama running, model loaded, inference test.
+
+    The inference test sends a trivial prompt ("Reply with exactly: ARCIS_OK")
+    and checks for a valid response.  This catches: Ollama not running,
+    model not pulled, GPU out of VRAM (will timeout), and corrupt model
+    weights (will produce garbage).  The 180-second timeout threshold
+    accounts for cold-start model loading on the first inference.
+    """
     checks = []
 
     llm_cfg = config.get("llm", {})
@@ -864,6 +954,15 @@ def run_full_validation(db_path: str = DB_PATH) -> dict:
     """Run all system validation checks.
 
     Returns structured dict with overall status and per-category results.
+
+    Overall status thresholds:
+      - "critical":  any check failed (at least one hard requirement broken)
+      - "degraded":  >30% of checks are warnings (system works but fragile)
+      - "healthy":   everything else
+
+    The 30% degraded threshold is deliberately generous because many
+    warning-level checks (e.g. "Telegram not configured") are acceptable
+    during development but would be critical in production.
     """
     config = load_config()
     now = datetime.now(ET)
@@ -908,7 +1007,10 @@ def run_full_validation(db_path: str = DB_PATH) -> dict:
 def save_validation_result(result: dict, db_path: str = DB_PATH) -> str:
     """Persist validation result to the validation_results table.
 
-    Returns the result_id.
+    Returns the result_id.  Results older than 90 days are pruned to
+    prevent unbounded growth (at ~1 validation/day = ~90 rows max).
+    The full result JSON is stored for historical analysis of which
+    checks degraded over time.
     """
     from src.schema.sqlite import create_all_tables as _create_all
 

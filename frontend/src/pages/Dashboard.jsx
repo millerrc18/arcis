@@ -323,27 +323,28 @@ export default function Dashboard() {
       </div>
 
       {/* Headline KPIs */}
+      {/* Fix for #247 */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <div className="arcis-card" style={{ padding: '12px' }}>
+        <div className="arcis-card text-center" style={{ padding: '12px' }}>
           <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Sharpe ratio</div>
           <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: hasTrades ? ((kpis.sharpe_ratio || 0) > 0.5 ? 'var(--teal-400)' : (kpis.sharpe_ratio || 0) < 0 ? 'var(--danger)' : 'var(--arcis-text)') : 'var(--arcis-text)' }}>
             {hasTrades ? (kpis.sharpe_ratio || 0).toFixed(2) : '--'}
           </div>
         </div>
-        <div className="arcis-card" style={{ padding: '12px' }}>
+        <div className="arcis-card text-center" style={{ padding: '12px' }}>
           <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Win rate</div>
           <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: hasTrades ? ((kpis.win_rate || 0) > 0.45 ? 'var(--teal-400)' : 'var(--danger)') : 'var(--arcis-text)' }}>
             {hasTrades ? `${((kpis.win_rate || 0) * 100).toFixed(1)}%` : '--'}
           </div>
         </div>
-        <div className="arcis-card" style={{ padding: '12px' }}>
+        <div className="arcis-card text-center" style={{ padding: '12px' }}>
           <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Max drawdown</div>
           <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: hasTrades ? ((kpis.max_drawdown_pct || 0) < 15 ? 'var(--teal-400)' : 'var(--danger)') : 'var(--arcis-text)' }}>
             {hasTrades ? `${(kpis.max_drawdown_pct || 0).toFixed(1)}%` : '--'}
           </div>
         </div>
         <Tooltip content="Measures how well the model's confidence predictions match actual outcomes. Requires 50+ closed trades.">
-          <div className="arcis-card" style={{ padding: '12px' }}>
+          <div className="arcis-card text-center" style={{ padding: '12px' }}>
             <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Confidence cal.</div>
             <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text)' }}>
               {closedCount >= 50 ? (kpis.confidence_calibration || 0).toFixed(3) : `< ${closedCount}/50 trades`}
@@ -351,7 +352,7 @@ export default function Dashboard() {
           </div>
         </Tooltip>
         <Tooltip content="Average quality score from Claude-graded rubric evaluation of trade reasoning.">
-          <div className="arcis-card" style={{ padding: '12px' }}>
+          <div className="arcis-card text-center" style={{ padding: '12px' }}>
             <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Rubric score</div>
             <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text)' }}>
               {kpis.avg_rubric_score != null ? `${kpis.avg_rubric_score.toFixed(1)}/5` : 'Not scored yet'}
@@ -377,8 +378,10 @@ export default function Dashboard() {
               <AreaChart data={chartData}>
                 <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--arcis-text-muted)' }} />
                 <YAxis tick={{ fontSize: 11, fill: 'var(--arcis-text-muted)' }} />
-                <RechartsTooltip contentStyle={{ background: 'var(--arcis-bg-elevated)', border: '1px solid var(--arcis-text-secondary)', borderRadius: 8, fontSize: 12 }} />
-                <Area type="monotone" dataKey="cumPnl" stroke="var(--teal-400)" fill="var(--teal-400)" fillOpacity={0.25} strokeWidth={2} />
+                {/* Fix for #250: add tooltip text color for dark mode readability */}
+                <RechartsTooltip contentStyle={{ background: 'var(--arcis-bg-elevated)', border: '1px solid var(--arcis-text-secondary)', borderRadius: 8, fontSize: 12, color: 'var(--tooltip-text)' }} />
+                {/* Fix for #250: increase fill opacity from 0.25 to 0.3 for dark mode readability */}
+                <Area type="monotone" dataKey="cumPnl" stroke="var(--teal-400)" fill="var(--teal-400)" fillOpacity={0.3} strokeWidth={2} />
               </AreaChart>
             </ResponsiveContainer>
           ) : (

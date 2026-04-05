@@ -5,6 +5,25 @@ Calls: llm.client, llm.grammar_client, llm.prompts, models, strategy.canary, uni
 Owns tables: none
 Config keys: enabled, llm, max_tokens, temperature, use_grammar_enforcement
 Tests: tests/test_confidence.py, tests/test_grammar_client.py, tests/test_xml_format.py
+
+WHY this module exists:
+    Deterministic scoring (features/engine.py) decides WHAT to trade and at
+    what size. The LLM adds WHY-NOW prose and a conviction score that serves
+    two purposes: (1) human-readable trade packets for the journal, and
+    (2) a second opinion that feeds the champion-challenger canary framework.
+
+    The LLM NEVER overwrites deterministic fields (entry, stop, targets, sizing,
+    confidence, event_risk). This separation is sacred -- #6 established that
+    mechanical parameters must remain rules-based until 200+ live trades provide
+    enough data for the LLM to earn trust.
+
+WHY so many conviction-parsing fallbacks (#183):
+    Qwen3 8B produces conviction scores in wildly different formats across runs:
+    XML tags, markdown bold, "Conviction: 7/10", bare numbers, etc. Each fallback
+    was added in response to a production failure where conviction parsed as None,
+    causing trades to silently default to conviction=5 (#168). The cascade order
+    matters -- XML (most structured) is tried first, then progressively looser
+    patterns, with prose fallback as the last resort.
 """
 
 import logging
@@ -17,16 +36,29 @@ from src.universe.company_names import get_company_name
 
 logger = logging.getLogger(__name__)
 
-# #154: context window overflow protection — max tokens before truncation
+# #154: context window overflow protection -- max tokens before truncation.
+# WHY 7000: Qwen3 8B has an 8192-token context window. The system prompt
+# consumes ~800 tokens and we need ~400 for the response. 7000 leaves
+# comfortable headroom while maximizing the context the model can use.
+# When exceeded, we fall back to _build_condensed_prompt() which strips
+# enrichment sections (fundamentals, news, insider, macro).
 _MAX_PROMPT_TOKENS = 7000
 
-# #156: patterns to strip from enrichment text to block prompt injection
+# #156: patterns to strip from enrichment text to block prompt injection.
+# WHY this matters: enrichment text (news, fundamentals, insider) is fetched
+# from external APIs (Finnhub, SEC filings) and could contain adversarial
+# content. A crafted news headline like "<system>ignore previous instructions"
+# could hijack the model. We strip XML-like tags and common instruction
+# patterns before they enter the prompt.
 _INJECTION_TAG_RE = re.compile(r"<[^>]+>", re.DOTALL)
 _INJECTION_INSTRUCTION_RE = re.compile(
     r"\b(?:you are|ignore previous)\b|"
     r"\b(?:system|assistant|human)\s*:",
     re.IGNORECASE,
 )
+# WHY 500 chars: enrichment beyond this length adds noise without improving
+# analysis quality. Finnhub news summaries in particular can include full
+# article bodies that bloat the prompt past the context window limit (#154).
 _ENRICHMENT_CHAR_CAP = 500
 
 
@@ -49,7 +81,16 @@ def _sanitize_enrichment_text(text: str) -> str:
 
 
 def _build_feature_prompt(packet: TradePacket, features: dict) -> str:
-    """Build a multi-source prompt from all available data."""
+    """Build a multi-source prompt from all available data.
+
+    WHY 8 sections in this specific order: the model performs best when
+    technical data (most structured) comes first, followed by contextual
+    overlays (regime, sector, fundamentals), and trade parameters last.
+    This mirrors how an analyst reads a setup: price action first, then
+    context, then what we plan to do about it. The order also matches
+    the training data format from data_collector.py, so the model sees
+    prompts at inference time that match its training distribution.
+    """
     ticker = packet.ticker
     company_name = packet.company_name
 
@@ -142,6 +183,11 @@ IV Skew: {features.get('iv_skew', 0):.2f} | Unusual Activity: {'YES' if features
 Events within 3 days: {features.get('events_within_3d', 0)}"""
 
     # SECTION 7.7: Earnings Context (PEAD)
+    # WHY earnings get their own section: Martineau (2022) showed PEAD is dead
+    # for large-cap, but our universe includes mid-cap stocks where post-earnings
+    # drift persists. The earnings_signal_strength field lets the model weigh
+    # this appropriately -- "strong" signals in mid-cap are actionable, while
+    # the model should learn to discount them for mega-cap names.
     earnings = features.get("earnings_signals", {})
     if earnings.get("include_in_prompt", False):
         earnings_lines = ["\n=== EARNINGS CONTEXT ==="]
@@ -209,11 +255,22 @@ def _parse_llm_response(response: str) -> tuple[int | None, str | None, str | No
     Expected format:
         <why_now>...</why_now>
         <analysis>...</analysis>
-        <metadata>Conviction: N\nDirection: ...\nTime Horizon: ...\nKey Risk: ...</metadata>
+        <metadata>Conviction: N\\nDirection: ...\\nTime Horizon: ...\\nKey Risk: ...</metadata>
 
     Falls back to plain-text parsing if XML tags are not found (backward compat).
 
     Returns (conviction, why_now, deeper_analysis) or (None, None, None) on failure.
+
+    #183 — This function has 5 conviction extraction strategies because Qwen3 8B
+    is inconsistent about output format across temperature=0.7 runs. Each fallback
+    was added after a production incident where conviction parsed as None:
+      1. XML <metadata>Conviction: N</metadata> -- preferred, most structured
+      2. Plain text "CONVICTION: N" -- legacy format from pre-XML prompt era
+      3. <conviction>N</conviction> tag -- Qwen sometimes invents this tag
+      4. "Conviction: 7/10" or "Conviction Score: 7" -- markdown-style
+      5. **Conviction:** 7 -- markdown bold format
+    If all 5 fail, #168 sets conviction=5 in the caller (neutral default for
+    paper trading where a missing conviction should not block the trade).
     """
     import re
 
@@ -228,9 +285,20 @@ def _parse_llm_response(response: str) -> tuple[int | None, str | None, str | No
     tags_found = re.findall(r'<(\w+)[^>]*>', response)
     logger.info("[LLM] XML tags found: %s", list(set(tags_found)))
 
-    # Strip markdown code fences if present (```xml ... ```)
+    # WHY strip markdown code fences: Qwen3 frequently wraps XML output in
+    # ```xml ... ``` blocks, which breaks the regex tag extraction below.
     cleaned = re.sub(r'^```(?:xml)?\s*\n?', '', response.strip(), flags=re.MULTILINE)
     cleaned = re.sub(r'\n?```\s*$', '', cleaned.strip(), flags=re.MULTILINE)
+
+    # #251: Strip raw template headers the LLM regurgitates from the prompt.
+    # WHY this happens: the input prompt uses "=== TECHNICAL DATA ===" section
+    # headers, and Qwen3 sometimes echoes these back verbatim as part of its
+    # response. This pollutes the stored why_now/deeper_analysis with formatting
+    # artifacts that confuse the frontend display and degrade training data quality.
+    cleaned = re.sub(r'^={2,}\s*[A-Z][A-Z /&]+\s*={2,}\s*$', '', cleaned, flags=re.MULTILINE)
+    # Collapse resulting blank lines from header removal
+    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned).strip()
+
     response = cleaned
 
     # Try XML parsing first (case-insensitive)
@@ -306,7 +374,12 @@ def _parse_llm_response(response: str) -> tuple[int | None, str | None, str | No
                 logger.warning("[LLM] Conviction %d outside 1-10 range — clamping", raw_conv)
             conviction = max(1, min(10, raw_conv))
 
-    # Fallback: if response has substantial prose but no tags, use first paragraph as why_now
+    # Prose fallback: if the response has substantial text but no XML tags or
+    # section markers, split on paragraph boundaries. First paragraph becomes
+    # why_now (the "hook"), remainder becomes deeper_analysis.
+    # WHY 200-char minimum: short responses are usually error messages or
+    # partial generations, not usable prose. Below 200 chars we'd rather
+    # return None and let the caller fall back to template text.
     if not why_now and not deeper_analysis and len(response) > 200:
         paragraphs = [p.strip() for p in response.split('\n\n') if p.strip()]
         if len(paragraphs) >= 2:
@@ -326,7 +399,18 @@ def enhance_packet_with_llm(packet: TradePacket, features: dict,
     """Enhance a trade packet with LLM-written prose.
 
     If LLM is disabled or unavailable, returns the packet unchanged.
-    Never modifies deterministic fields (entry, stop, targets, sizing, confidence, event_risk).
+    Never modifies deterministic fields (entry, stop, targets, sizing,
+    confidence, event_risk). This separation is critical -- see #6: equal
+    weight between rules-based and LLM systems is maintained until 200+
+    trades validate the LLM's conviction calibration. The LLM writes prose
+    and provides a conviction score, but the mechanical system controls
+    all trade parameters and sizing. #18: bracket exits are always mechanical.
+
+    The retry cascade is:
+    1. Grammar-constrained generation (if enabled) -- most structured output
+    2. Full prompt via Ollama -- all 8 context sections
+    3. Condensed prompt via Ollama -- technical data + trade params only
+    4. Template fallback -- returns packet unchanged with default prose
 
     Args:
         packet: The trade packet built from features.
@@ -393,7 +477,11 @@ def enhance_packet_with_llm(packet: TradePacket, features: dict,
         logger.warning("[LLM] Failed to parse response — fallback to template for %s", packet.ticker)
         return packet
 
-    # #168: if conviction is None after parsing, default to 5 for paper trades
+    # #168: if conviction is None after all 5 parsing strategies, default to 5.
+    # WHY 5 and not reject: during paper trading, a missing conviction should
+    # not block the trade -- we need live trade data to improve the model.
+    # 5 is the midpoint of the 1-10 scale, expressing no directional opinion.
+    # In live trading this default should be reconsidered (likely reject).
     if conviction is None:
         conviction = 5
         logger.warning("[LLM] Conviction is None for %s — defaulting to %d", packet.ticker, conviction)
@@ -405,7 +493,11 @@ def enhance_packet_with_llm(packet: TradePacket, features: dict,
     logger.info("[LLM] Enhanced packet for %s (conviction: %s)", packet.ticker,
                 conviction if conviction else "n/a")
 
-    # Run canary rules-based scorer alongside LLM for comparison
+    # WHY canary scoring runs here: the champion-challenger framework logs
+    # both the LLM conviction and a pure rules-based score for every trade.
+    # Over time, comparing the two reveals whether the LLM adds alpha or
+    # just noise. This is the data that will eventually justify moving past
+    # #6's equal-weight constraint once we have 200+ trades.
     try:
         from src.strategy.canary import compute_canary_score
         canary = compute_canary_score(features)

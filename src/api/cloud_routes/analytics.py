@@ -5,6 +5,19 @@ Calls: evaluation.hshs_live
 Owns tables: none
 Config keys: none
 Tests: none
+
+Endpoints:
+    GET /api/traffic-light/current  - Current regime and VIX
+    GET /api/health/hshs            - Halcyon System Health Score
+    GET /api/health/score           - Detailed health score with dimensions
+    GET /api/cto-report?days=7      - Full CTO performance report
+    GET /api/build-score            - Build Score from synced history (#80)
+
+The HSHS dimension weights reflect our current priorities: data_asset (35%)
+is highest because we're in the data accumulation phase. As we move past
+the 50-trade gate into Phase 2, performance weight will increase. The
+dimension computation functions are defined at module level (not inside
+create_router) so they can be unit-tested independently.
 """
 
 import statistics
@@ -128,6 +141,30 @@ def _compute_defensibility_score(
     return score, metrics
 
 
+def _compute_max_consecutive(closed_trades: list[dict], direction: str = "loss") -> int:
+    """Count max consecutive wins or losses in trade history.
+
+    Fix for #254: This was hardcoded to 0. The real calculation exists in
+    cto_report.py (lines 218-225) — replicated here to avoid import coupling
+    with the heavyweight CTO report module.
+
+    Args:
+        closed_trades: list of trade dicts with pnl_dollars
+        direction: "loss" counts consecutive losses, "win" counts consecutive wins
+    """
+    max_streak = 0
+    current_streak = 0
+    for trade in closed_trades:
+        pnl = trade.get("pnl_dollars", 0) or 0
+        is_match = pnl <= 0 if direction == "loss" else pnl > 0
+        if is_match:
+            current_streak += 1
+            max_streak = max(max_streak, current_streak)
+        else:
+            current_streak = 0
+    return max_streak
+
+
 def _compute_trade_summary(closed_recent: list[dict], open_count: int) -> dict:
     """Compute CTO trade-summary KPIs."""
     pnls = [trade.get("pnl_pct", 0) or 0 for trade in closed_recent]
@@ -172,7 +209,8 @@ def _compute_trade_summary(closed_recent: list[dict], open_count: int) -> dict:
             "total_pnl": round(total_pnl, 2),
             "avg_winner_pct": round(sum(wins) / len(wins), 1) if wins else None,
             "avg_loser_pct": round(sum(losses) / len(losses), 1) if losses else None,
-            "max_consecutive_losses": 0,
+            # Fix for #254: was hardcoded to 0 — now computed from actual trade history
+            "max_consecutive_losses": _compute_max_consecutive(closed_recent, "loss"),
         },
     }
 

@@ -6,10 +6,11 @@ import EmptyState from '../components/EmptyState'
 import MetricCard from '../components/MetricCard'
 import MetricTrend from '../components/MetricTrend'
 
+{/* Fix for #247 */}
 function KpiCard({ label, value, target, good, minTrades, actualTrades }) {
   const needsMore = minTrades && actualTrades < minTrades
   return (
-    <div className="arcis-card">
+    <div className="arcis-card text-center">
       <div className="text-xs uppercase tracking-wide" style={{ color: 'var(--arcis-text-secondary)' }}>{label}</div>
       {needsMore ? (
         <>

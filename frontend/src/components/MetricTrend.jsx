@@ -86,19 +86,22 @@ export default function MetricTrend() {
         <LineChart data={data}>
           <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--arcis-text-secondary)' }} />
           <YAxis tick={{ fontSize: 11, fill: 'var(--arcis-text-secondary)' }} />
+          {/* Fix for #250: add tooltip text color for dark mode readability */}
           <Tooltip
             contentStyle={{
               background: 'var(--arcis-bg-surface)',
               border: '1px solid var(--arcis-border)',
               borderRadius: 8,
               fontSize: 12,
+              color: 'var(--tooltip-text)',
             }}
             formatter={(value, name) => {
               const metric = METRIC_OPTIONS.find(m => m.key === name)
               return [metric ? metric.format(value) : value, metric?.label || name]
             }}
           />
-          <Legend />
+          {/* Fix for #250: set legend text color for dark mode readability */}
+          <Legend wrapperStyle={{ color: 'var(--arcis-text-secondary)' }} />
           {activeMetrics.map(m => (
             <Line
               key={m.key}

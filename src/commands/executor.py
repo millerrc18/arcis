@@ -229,6 +229,34 @@ def _handle_cto_report(payload: dict, config: dict) -> dict:
     }
 
 
+def _handle_stress_test(payload: dict, config: dict) -> dict:
+    """Run stress test across historical crisis scenarios.
+
+    Fix for #252: Added stress-test command so the frontend StressTest page
+    can trigger it via the command queue.
+    """
+    from scripts.stress_test import run_scenario, store_result, SCENARIOS
+
+    results = []
+    for name, dates in SCENARIOS.items():
+        try:
+            result = run_scenario(name, dates["start"], dates["end"])
+            if "error" not in result:
+                store_result(result)
+                results.append({
+                    "scenario": name,
+                    "total_trades": result.get("total_trades", 0),
+                    "win_rate": result.get("win_rate", 0),
+                    "max_drawdown_pct": result.get("max_drawdown_pct", 0),
+                })
+            else:
+                results.append({"scenario": name, "error": result["error"]})
+        except Exception as e:
+            results.append({"scenario": name, "error": str(e)})
+
+    return {"status": "completed", "scenarios": results}
+
+
 COMMAND_HANDLERS = {
     "scan": _handle_scan,
     "council": _handle_council,
@@ -242,6 +270,8 @@ COMMAND_HANDLERS = {
     "get_logs": _handle_get_logs,
     "validate-system": _handle_validate_system,
     "cto-report": _handle_cto_report,
+    # Fix for #252: stress test command for frontend Run button
+    "stress-test": _handle_stress_test,
 }
 
 

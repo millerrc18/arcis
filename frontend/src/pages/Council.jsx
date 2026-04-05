@@ -138,12 +138,14 @@ function DirectionDistribution({ agents }) {
         <BarChart data={data}>
           <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--arcis-text-secondary)' }} />
           <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: 'var(--arcis-text-secondary)' }} />
+          {/* Fix for #250: add tooltip text color for dark mode readability */}
           <Tooltip
             contentStyle={{
               background: 'var(--arcis-bg-surface)',
               border: '1px solid var(--arcis-border)',
               borderRadius: 8,
               fontSize: 12,
+              color: 'var(--tooltip-text)',
             }}
           />
           <Bar dataKey="count" radius={[4, 4, 0, 0]}>

@@ -312,8 +312,9 @@ export default function Settings() {
                 <BarChart data={costs.daily}>
                   <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--arcis-text-secondary)' }} tickFormatter={d => d.slice(5)} />
                   <YAxis tick={{ fontSize: 10, fill: 'var(--arcis-text-secondary)' }} tickFormatter={v => `$${v}`} />
+                  {/* Fix for #250: add tooltip text color for dark mode readability */}
                   <Tooltip
-                    contentStyle={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 8, fontSize: 12 }}
+                    contentStyle={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 8, fontSize: 12, color: 'var(--tooltip-text)' }}
                     formatter={v => [`$${v.toFixed(4)}`, 'Cost']}
                   />
                   <Bar dataKey="cost" fill="var(--arcis-accent)" radius={[2, 2, 0, 0]} />

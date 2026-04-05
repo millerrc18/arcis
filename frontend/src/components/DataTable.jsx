@@ -49,12 +49,13 @@ export default function DataTable({ columns, data, onRowClick }) {
           {sorted.map((row, i) => (
             <tr key={i}
                 className={`transition-colors ${onRowClick ? 'cursor-pointer' : ''}`}
+                /* Fix for #250: use theme-aware alternating row background */
                 style={{
                   borderBottom: '1px solid var(--arcis-border)',
-                  background: i % 2 === 0 ? 'transparent' : 'rgba(30, 41, 59, 0.5)',
+                  background: i % 2 === 0 ? 'transparent' : 'var(--table-row-alt)',
                 }}
                 onMouseEnter={(e) => e.currentTarget.style.background = 'var(--arcis-bg-surface)'}
-                onMouseLeave={(e) => e.currentTarget.style.background = i % 2 === 0 ? 'transparent' : 'rgba(30, 41, 59, 0.5)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = i % 2 === 0 ? 'transparent' : 'var(--table-row-alt)'}
                 onClick={() => onRowClick?.(row)}>
               {columns.map(col => {
                 const val = row[col.key]
