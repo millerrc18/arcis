@@ -1,14 +1,79 @@
-# Sprint: Codebase Documentation — Inline Comments for AI Agent Context
+# Sprint: Codebase Documentation + Issue Resolution — Comments, Cross-References, and Bug Fixes
 
-> **Priority:** MEDIUM — quality-of-life for all future CC sprints
-> **Estimated time:** 4-6 hours CC time
-> **Why this matters:** AI agents (CC, Codex) are the sole developers. They lose context between sessions. Comments in the code ARE the context. A well-commented file means CC can understand WHY a decision was made without reading 60 research docs. Every comment is an investment that pays off on every future sprint.
+> **Priority:** HIGH — resolves all open issues + builds context for future CC sessions
+> **Estimated time:** 8-12 hours CC time
+> **Why this matters:** AI agents (CC, Codex) are the sole developers. They lose context between sessions. Comments in the code ARE the context. Additionally, 11 open GitHub issues need resolution — this sprint combines both to produce a clean, well-documented, zero-issue codebase.
 
 > ⚠️ **Rules:**
-> - Do NOT change any logic, behavior, or formatting. Comments ONLY.
-> - Do NOT refactor, rename, or reorganize anything.
-> - Run `python -m pytest tests/ -x -q` before AND after. Pass count must not change.
+> - For **commenting tasks** (Phases 1-5): Do NOT change any logic, behavior, or formatting. Comments ONLY.
+> - For **issue resolution** (Phase 0): Fix the bugs. Verify each fix with tests.
+> - Run `python -m pytest tests/ -x -q` before AND after. Pass count must not decrease.
 > - If a file is over 400 lines, do NOT add so many comments that it exceeds the guardrail.
+> - Close each GitHub issue after fixing with a comment referencing the commit.
+
+---
+
+## Phase 0: Resolve All 11 Open GitHub Issues
+
+**Fix these FIRST, before commenting. Each fix gets a comment explaining what was wrong and why.**
+
+### #248 — Bracket monitor false alarms (TRADING BUG)
+**File:** `src/shadow_trading/alpaca_adapter.py` — `_serialize_order()`
+**Problem:** `str(order.status)` returns `"orderstatus.held"` instead of `"held"`. The bracket monitor compares against `"held"` and never matches → false alerts.
+**Fix:** Strip the enum prefix: `status = str(order.status).split(".")[-1]` or use `.value` if the Alpaca enum supports it. Add comment explaining the fix referencing #248.
+
+### #249 — System validator reads YAML for secrets instead of env vars (BUG)
+**File:** `src/evaluation/system_validator.py`
+**Problem:** Validator checks `config.get("telegram", {}).get("bot_token")` which reads YAML. But secrets are in `.env` / `os.environ`, not YAML. Shows false CRITICAL.
+**Fix:** Check `os.environ.get("TELEGRAM_BOT_TOKEN")` instead of config YAML for credential checks. Same for `ALPACA_LIVE_API_KEY`. Add comment explaining #249.
+
+### #250 — Charts invisible in dark mode (FRONTEND BUG)
+**File:** Multiple frontend pages — Dashboard, Health, Council, ShadowLedger
+**Problem:** CSS variables undefined or chart fill opacity too low against dark backgrounds.
+**Fix:** Define missing CSS variables in the root theme. Increase chart fill opacity from ~0.1 to ~0.3 for dark mode. Check every Recharts `<Area>` and `<Line>` component for hardcoded colors that don't respect theme.
+
+### #251 — Packet commentary wildly inconsistent (LLM BUG)
+**File:** `src/llm/packet_writer.py`
+**Problem:** Some packets show raw template headers (`=== TECHNICAL RECOMMENDATION ===`) instead of prose. The LLM is regurgitating the prompt structure.
+**Fix:** Add post-processing to strip template headers from LLM output. If output contains `===` section markers, clean them before storing. Add comment explaining this is a known model behavior and the cleaning is intentional, referencing #251.
+
+### #253 — Open positions show no P&L (FRONTEND/BACKEND BUG)
+**File:** `src/api/cloud_routes/trades.py`
+**Problem:** `total_unrealized_pnl` is hardcoded to 0 (line 40, 52). Open trades have no current price to compute P&L against.
+**Fix:** For each open trade, fetch current price (from the last scan's feature snapshot, NOT a live API call — too expensive). Compute `(current_price - entry_price) * shares`. Also add columns to the ledger tables: entry price, current price, shares, P&L %, days held.
+
+### #254 — Max consecutive losses hardcoded to 0 (BUG)
+**File:** `src/api/cloud_routes/analytics.py` line 175
+**Problem:** `"max_consecutive_losses": 0` is hardcoded. The real calculation exists in `cto_report.py` (lines 218-223) but isn't wired in.
+**Fix:** Import the real calculation and use it. Wire `_compute_max_consecutive("loss")` from cto_report into the analytics endpoint. Also fix "System Health grid all Off" — likely missing data source connections.
+
+### #247 — Metric cards not centered (FRONTEND)
+**File:** Multiple dashboard pages — Dashboard.jsx, Training.jsx
+**Fix:** Add `text-center` class consistently to all metric card containers. Audit every `arcis-card` usage for alignment.
+
+### #252 — Stress Test needs Run button (ENHANCEMENT)
+**File:** `frontend/src/pages/StressTest.jsx`, `src/commands/executor.py`
+**Fix:** Add a `stress-test` command to COMMAND_HANDLERS. Add a "Run Stress Test" button on the StressTest page that calls `api.submitCommand("stress-test")`. Show progress via polling or SSE.
+
+### #255 — DB Schema and Architecture diagrams need polish (FRONTEND)
+**File:** `frontend/src/pages/Architecture.jsx`, `frontend/src/pages/DBSchema.jsx`
+**Fix:** Improve React Flow node styling: larger padding, readable font size, group header nodes, better dark mode colors. This is visual polish, not functional.
+
+### #239 — Daily repo audit regression (CI)
+**File:** Check `scripts/daily_repo_audit.py` and the baseline
+**Fix:** Investigate what "unexpected regression" means — likely a baseline that needs updating after v0.11.0 changes. Update `config/daily_repo_audit_baseline.json` if the regression is expected (new files, changed test counts).
+
+### #222 — Telegram Claude Code pairing (MANUAL)
+**Problem:** Telegram pairing command not working from CC.
+**Fix:** This may be a configuration issue. Check if the bot token is correct in `.env`, verify the chat_id is right. If it's a CC plugin issue, document the workaround. If it can't be fixed programmatically, close with a note explaining the manual workaround.
+
+**After fixing all 11 issues:**
+```bash
+# Verify all issues are resolved
+python -m pytest tests/ -x -q
+cd frontend && npm run build
+# Close each issue on GitHub with a commit reference
+```
 
 ---
 
@@ -278,18 +343,25 @@ The feature pipeline determines what the model sees.
 
 ## Verification
 
-After ALL commenting is complete:
-- `python -m pytest tests/ -x -q` — pass count UNCHANGED
-- `cd frontend && npm run build` — still succeeds
+After ALL commenting and issue resolution is complete:
+- `python -m pytest tests/ -x -q` — pass count ≥ baseline
+- `cd frontend && npm run build` — succeeds
 - `python -m src.main watch --help` — still works
 - `wc -l src/scheduler/watch.py` — should not exceed ~3,300 (was 3,080, comments add ~7%)
 - Spot check: open 5 random files and verify comments explain WHY, not WHAT
 
+**Issue resolution check:**
+```bash
+# All 11 issues should be closed
+gh issue list --state open --limit 20
+# Expected: 0 open issues
+```
+
 **Issue rectification check:**
 ```bash
 # Every closed issue should be referenced at least once in the codebase
-for issue in 106 112 132 147 181 182 183 184 185 186 187 188 191 195 196 197 198 199; do
-  count=$(grep -rn "#$issue" src/ scripts/ --include="*.py" | grep -v __pycache__ | wc -l)
+for issue in 82 106 112 132 147 181 182 183 184 185 186 187 188 191 195 196 197 198 199 222 239 247 248 249 250 251 252 253 254 255; do
+  count=$(grep -rn "#$issue" src/ scripts/ frontend/src/ --include="*.py" --include="*.jsx" --include="*.js" | grep -v __pycache__ | wc -l)
   echo "#$issue: $count references"
 done
 ```
@@ -299,8 +371,32 @@ Target: every issue has ≥1 reference in the file where its fix lives. Issues w
 
 ## Commit
 
+Split into 2 commits for clean history:
+
 ```bash
-git add src/ scripts/
+# Commit 1: Issue resolution
+git add -A
+git commit -m "fix: resolve all 11 open GitHub issues
+
+Bugs fixed:
+- #248: Bracket monitor false alarms — strip Alpaca enum prefix from order status
+- #249: System validator reads YAML for secrets — check os.environ instead
+- #250: Charts invisible in dark mode — define missing CSS vars, increase fill opacity
+- #251: Packet commentary inconsistent — strip raw template headers from LLM output
+- #253: Open positions show no P&L — compute unrealized P&L from last scan prices
+- #254: Max consecutive losses hardcoded to 0 — wire real calculation from cto_report
+
+Enhancements:
+- #247: Metric cards centered consistently across all pages
+- #252: Stress test Run button via command queue
+- #255: DB Schema + Architecture diagram styling polish
+- #239: Daily repo audit baseline updated for v0.11.0
+- #222: Telegram pairing documented/resolved
+
+Closes #222, #239, #247, #248, #249, #250, #251, #252, #253, #254, #255"
+
+# Commit 2: Codebase documentation
+git add -A
 git commit -m "docs: comprehensive inline comments + GitHub issue rectification
 
 Added WHY-focused comments to every Python module in src/ and scripts/.
@@ -309,24 +405,22 @@ GitHub issue number for full traceability.
 
 Comment categories:
 - Business logic rationale with strategy decision references (#1-#24)
-- Bug fix provenance with GitHub issue cross-references (#82-#199)
+- Bug fix provenance with GitHub issue cross-references (#82-#255)
 - Research citations with paper references (McLean & Pontiff, etc.)
 - Gotchas and failure modes for future AI agents
 - Magic number explanations with decision traceability
-- Data flow documentation
 
-Key files commented:
-- watch.py: 27 event blocks, timing rationale, recovery logic
-- executor.py: trade lifecycle, risk params, dual execution, attribution
-- alpaca_adapter.py: API quirks, retry behavior, order types
-- registry.py: 49 table purposes, column rationale, sync config
-- governor.py: 8 check thresholds with strategy decision references
-- council/engine.py: Modified Delphi protocol, anti-sycophancy
-- trainer.py: curriculum stages, VRAM handoff, champion-challenger
-- render_sync.py: ON CONFLICT (#185), per-table reconnect (#199)
-- packet_writer.py: conviction parsing patterns (#183)
-- data_collector.py: float() casts (#195), self-blinding architecture
-
-Zero logic changes. Zero behavior changes. Test count unchanged.
-18 closed issues cross-referenced across the codebase."
+30 closed issues cross-referenced across the codebase.
+Zero additional logic changes in commit 2. Test count unchanged."
 ```
+
+After both commits, tag and push:
+```bash
+git tag -a v0.12.0 -m "v0.12.0 — 11 issues resolved, comprehensive codebase documentation
+
+0 open issues. 30 closed issues cross-referenced in code.
+Inline comments on all 200+ Python files."
+git push origin main && git push origin v0.12.0
+```
+
+Update MASTER.md Section 2 (GitHub issues: 0 open) and RELEASES.md with v0.12.0 entry.
