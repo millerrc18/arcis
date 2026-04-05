@@ -60,3 +60,10 @@ def rollback():
     if result:
         return result
     return {"error": "No previous version to rollback to"}
+
+
+@router.get("/model-performance")
+def model_performance():
+    """Per-model-version live performance metrics with equity curves and comparisons."""
+    from src.evaluation.model_monitor import get_model_performance
+    return get_model_performance()
