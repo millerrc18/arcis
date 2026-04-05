@@ -616,28 +616,34 @@ class TestDualExecution:
             conn.commit()
 
         with patch("src.shadow_trading.executor.load_config", return_value=live_config):
-            with patch("src.shadow_trading.alpaca_adapter.get_live_account_info",
-                        return_value={"equity": 100.0, "cash": 100.0, "buying_power": 100.0}):
-                with patch("src.shadow_trading.executor.get_open_shadow_trades") as mock_open:
-                    # Return the paper trade only — no live duplicate
-                    mock_open.return_value = [
-                        {"ticker": "AAPL", "source": "paper"},
-                    ]
-                    with patch("src.shadow_trading.executor._get_current_price_safe", return_value=50.0):
-                        with patch("src.shadow_trading.alpaca_adapter.place_live_entry") as mock_place:
-                            mock_place.return_value = {
-                                "order_id": "live-dup-test",
-                                "symbol": "AAPL", "qty": 1, "side": "buy",
-                                "type": "market", "status": "accepted",
-                                "filled_avg_price": 50.0,
-                                "filled_at": None, "created_at": None,
-                            }
-                            with patch("src.notifications.telegram.is_telegram_enabled",
-                                        return_value=False):
-                                from src.shadow_trading.executor import open_live_trade
-                                result = open_live_trade(
-                                    "rec-1", mock_packet, mock_features, tmp_db
-                                )
+            # Fix for #272: mock validator and governor since live trades now enforce them
+            with patch("src.llm.validator.validate_llm_output", return_value=(True, "")):
+                mock_gov = MagicMock()
+                mock_gov.check_trade.return_value = {"approved": True, "effective_allocation_dollars": 50.0}
+                with patch("src.risk.governor.RiskGovernor", return_value=mock_gov):
+                    with patch("src.risk.governor.get_portfolio_state", return_value={}):
+                        with patch("src.shadow_trading.alpaca_adapter.get_live_account_info",
+                                    return_value={"equity": 100.0, "cash": 100.0, "buying_power": 100.0}):
+                            with patch("src.shadow_trading.executor.get_open_shadow_trades") as mock_open:
+                                # Return the paper trade only — no live duplicate
+                                mock_open.return_value = [
+                                    {"ticker": "AAPL", "source": "paper"},
+                                ]
+                                with patch("src.shadow_trading.executor._get_current_price_safe", return_value=50.0):
+                                    with patch("src.shadow_trading.alpaca_adapter.place_live_entry") as mock_place:
+                                        mock_place.return_value = {
+                                            "order_id": "live-dup-test",
+                                            "symbol": "AAPL", "qty": 1, "side": "buy",
+                                            "type": "market", "status": "accepted",
+                                            "filled_avg_price": 50.0,
+                                            "filled_at": None, "created_at": None,
+                                        }
+                                        with patch("src.notifications.telegram.is_telegram_enabled",
+                                                    return_value=False):
+                                            from src.shadow_trading.executor import open_live_trade
+                                            result = open_live_trade(
+                                                "rec-1", mock_packet, mock_features, tmp_db
+                                            )
 
         # Should succeed — paper AAPL doesn't block live AAPL
         assert result is not None

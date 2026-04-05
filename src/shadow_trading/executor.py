@@ -44,7 +44,11 @@ logger = logging.getLogger(__name__)
 # close the trade record (filled) or wait for broker (pending).
 # GOTCHA: Alpaca SDK enums stringify as "OrderStatus.filled" — the adapter's
 # _strip_enum() (Fix for #248) normalizes these before they reach here.
-FILLED_ORDER_STATUSES = {"filled", "partially_filled", "closed"}
+# Fix for #278: Removed "partially_filled" — partial exits must NOT be treated as
+# fully closed. A 50/100 share exit recorded as fully closed orphans the remaining
+# shares on Alpaca with no tracking, and the P&L is calculated on full shares
+# (wrong). Partial fills are now handled explicitly in check_and_manage_open_trades.
+FILLED_ORDER_STATUSES = {"filled", "closed"}
 PENDING_ORDER_STATUSES = {"new", "accepted", "pending_new", "accepted_for_bidding", "held"}
 
 
@@ -158,8 +162,17 @@ def open_shadow_trade(
         from src.risk.governor import RiskGovernor, get_portfolio_state
         governor = RiskGovernor(config)
         portfolio = get_portfolio_state(db_path)
-        tl_mult = features.get("traffic_light_multiplier", 1.0)
-        event_mult = features.get("event_risk_multiplier", 1.0)
+        # Fix for #267: Default to 0.5 (fail-conservative) when multiplier
+        # features are missing, not 1.0 (no penalty). A missing feature means
+        # the upstream enrichment failed — we should reduce size, not ignore it.
+        tl_mult = features.get("traffic_light_multiplier")
+        if tl_mult is None:
+            tl_mult = 0.5
+            logger.warning("[RISK] traffic_light_multiplier missing for %s — defaulting to 0.5 (conservative)", packet.ticker)
+        event_mult = features.get("event_risk_multiplier")
+        if event_mult is None:
+            event_mult = 0.5
+            logger.warning("[RISK] event_risk_multiplier missing for %s — defaulting to 0.5 (conservative)", packet.ticker)
         check = governor.check_trade(
             packet.ticker,
             packet.position_sizing.allocation_dollars,
@@ -207,6 +220,14 @@ def open_shadow_trade(
     # acquires an exclusive lock on the database before the SELECT, preventing
     # concurrent reads from seeing the same state. Falls back to non-atomic
     # check if the lock fails (e.g., another process holds the DB).
+    #
+    # Known limitation (#276): The BEGIN IMMEDIATE lock is released (ROLLBACK)
+    # before the actual INSERT happens ~100 lines later, leaving a race window.
+    # A second scan cycle could sneak in between the check and the insert.
+    # Acceptable because the watch loop is single-threaded — concurrent scans
+    # don't happen in practice. A true fix would keep the transaction open or
+    # use INSERT ... WHERE NOT EXISTS, but that requires restructuring the
+    # entire trade-creation flow.
     import sqlite3 as _sqlite3
     try:
         _dup_conn = _sqlite3.connect(db_path)
@@ -220,7 +241,7 @@ def open_shadow_trade(
             _dup_conn.close()
             logger.info("[SHADOW] Already have open trade for %s, skipping (atomic check)", ticker)
             return None
-        _dup_conn.rollback()
+        _dup_conn.rollback()  # #276: lock released before insert — see comment above
         _dup_conn.close()
     except Exception as _dup_err:
         logger.warning("[SHADOW] Atomic duplicate check failed for %s: %s — falling back", ticker, _dup_err)
@@ -377,12 +398,14 @@ def open_shadow_trade(
 
     except Exception as e:
         logger.warning(f"[SHADOW] Bracket order failed for {ticker}: {e}, falling back to market")
-        # Fall back to simple market order
+        # Fix for #274: Bracket fallback — place market entry then IMMEDIATELY
+        # submit a standalone stop-loss order. A naked entry without a broker-side
+        # stop is unacceptable: if the system sleeps or crashes, unlimited downside.
         try:
             from src.shadow_trading.alpaca_adapter import place_paper_entry
             order = place_paper_entry(ticker, planned_shares)
             trade_data["alpaca_order_id"] = order.get("order_id")
-            trade_data["order_type"] = "simple"
+            trade_data["order_type"] = "simple_with_stop"
 
             fill_price = order.get("filled_avg_price")
             if fill_price:
@@ -393,6 +416,49 @@ def open_shadow_trade(
             trade_data["status"] = "open"
             trade_data["max_favorable_excursion"] = 0.0
             trade_data["max_adverse_excursion"] = 0.0
+
+            # Fix for #274: Immediately place standalone stop-loss protection.
+            # If stop submission fails, CLOSE the position — an unprotected
+            # position is worse than no position.
+            try:
+                from src.shadow_trading.alpaca_adapter import place_paper_exit
+                from alpaca.trading.requests import StopOrderRequest
+                from alpaca.trading.enums import OrderSide, TimeInForce
+                client = None
+                try:
+                    from src.shadow_trading.alpaca_adapter import _get_trading_client
+                    client = _get_trading_client()
+                    stop_req = StopOrderRequest(
+                        symbol=ticker,
+                        qty=planned_shares,
+                        side=OrderSide.SELL,
+                        time_in_force=TimeInForce.GTC,
+                        stop_price=round(stop_price, 2),
+                    )
+                    client.submit_order(stop_req)
+                    logger.info("[SHADOW] Standalone stop placed for %s at $%.2f", ticker, stop_price)
+                except Exception as stop_err:
+                    logger.error(
+                        "[SHADOW] CRITICAL: Entry filled but stop-loss failed for %s: %s — CLOSING position",
+                        ticker, stop_err,
+                    )
+                    try:
+                        place_paper_exit(ticker, planned_shares)
+                        trade_data["status"] = "failed"
+                        trade_data["order_type"] = "failed_no_stop"
+                    except Exception as close_err:
+                        logger.error("[SHADOW] EMERGENCY: Cannot close unprotected position %s: %s", ticker, close_err)
+                    try:
+                        from src.notifications.telegram import send_telegram
+                        send_telegram(
+                            f"🚨 UNPROTECTED POSITION: {ticker}\n"
+                            f"Entry filled but stop-loss submission failed.\n"
+                            f"Attempted emergency close: {'success' if trade_data.get('status') == 'failed' else 'FAILED'}"
+                        )
+                    except Exception:
+                        pass
+            except ImportError:
+                logger.warning("[SHADOW] Stop order imports unavailable for %s — position unprotected", ticker)
 
         except Exception as e2:
             logger.warning(f"[SHADOW] Alpaca order failed for {ticker}: {e2}")
@@ -670,12 +736,18 @@ def check_and_manage_open_trades(
                     mr_exit = compute_mr_exit_signal(
                         ticker, _mr_ohlcv, entry_price, config)
                     if mr_exit:
-                        pnl = (current_price - entry_price) * shares
+                        mr_exit_price = mr_exit["exit_price"]
+                        pnl = (mr_exit_price - entry_price) * shares
+                        pnl_pct = ((mr_exit_price - entry_price) / entry_price * 100) if entry_price else 0
+                        # Fix for #271: was missing exit_time and pnl_pct — caused TypeError
+                        # silently swallowed by the except block at line 688.
                         close_shadow_trade(
                             trade["trade_id"],
-                            exit_price=mr_exit["exit_price"],
+                            exit_price=mr_exit_price,
+                            exit_time=datetime.now(ZoneInfo("America/New_York")).isoformat(),
                             exit_reason=mr_exit["exit_reason"],
-                            pnl_dollars=pnl,
+                            pnl_dollars=round(pnl, 2),
+                            pnl_pct=round(pnl_pct, 2),
                             db_path=db_path,
                         )
                         actions.append({
@@ -693,11 +765,15 @@ def check_and_manage_open_trades(
             mr_timeout = mr_cfg.get("holding_period", 5)
             if days_open >= mr_timeout:
                 pnl = (current_price - entry_price) * shares
+                pnl_pct = ((current_price - entry_price) / entry_price * 100) if entry_price else 0
+                # Fix for #271: was missing exit_time and pnl_pct
                 close_shadow_trade(
                     trade["trade_id"],
                     exit_price=current_price,
+                    exit_time=datetime.now(ZoneInfo("America/New_York")).isoformat(),
                     exit_reason="mr_timeout",
-                    pnl_dollars=pnl,
+                    pnl_dollars=round(pnl, 2),
+                    pnl_pct=round(pnl_pct, 2),
                     db_path=db_path,
                 )
                 actions.append({
@@ -795,6 +871,42 @@ def check_and_manage_open_trades(
                             current_price,
                             exit_slippage_bps,
                         )
+                elif str(exit_status or "").lower() == "partially_filled":
+                    # Fix for #278: Handle partial fills explicitly.
+                    # Record the partial fill but keep the trade open. The next
+                    # cycle will see remaining shares and try to exit again.
+                    filled_qty = int(float(exit_result.get("filled_qty", 0) or 0))
+                    total_qty = shares
+                    remaining = max(0, total_qty - filled_qty)
+                    logger.warning(
+                        "[EXIT] Partial fill for %s: %d/%d shares filled. %d remaining.",
+                        ticker, filled_qty, total_qty, remaining,
+                    )
+                    if remaining > 0:
+                        update_shadow_trade(
+                            trade["trade_id"],
+                            {
+                                "status": "open",
+                                "exit_reason": f"partial_{exit_reason}",
+                                "actual_shares": remaining,
+                            },
+                            db_path,
+                        )
+                    else:
+                        # All shares filled despite "partially_filled" status
+                        fill_exit = exit_result.get("filled_avg_price")
+                        if fill_exit is not None:
+                            current_price = float(fill_exit)
+                    actions.append({
+                        "type": "partial_exit",
+                        "ticker": ticker,
+                        "filled": filled_qty,
+                        "remaining": remaining,
+                        "trade_id": trade["trade_id"],
+                    })
+                    if remaining > 0:
+                        continue
+                    # If remaining == 0, fall through to close the trade
                 elif _is_pending_status(exit_status):
                     update_shadow_trade(
                         trade["trade_id"],
@@ -991,6 +1103,59 @@ def open_live_trade(
         logger.info("[LIVE] Live trading disabled, skipping")
         return None
 
+    # Fix for #272: LLM output validation — same as paper path (lines 140-154).
+    # Live trades MUST pass the same hallucination checks as paper trades.
+    # Without this, a hallucinated ticker or nonsensical price from the LLM
+    # could be submitted as a real-money order.
+    try:
+        from src.llm.validator import validate_llm_output
+        is_valid, reason = validate_llm_output(packet, features, config)
+        if not is_valid:
+            logger.warning("[LIVE][VALIDATE] Trade rejected for %s: %s", packet.ticker, reason)
+            return None
+    except ImportError:
+        logger.error("[LIVE][VALIDATE] Validator import failed for %s — REJECTING live trade", packet.ticker)
+        return None
+    except Exception as e:
+        logger.error("[LIVE][VALIDATE] Validation failed for %s: %s — REJECTING live trade", packet.ticker, e)
+        return None
+
+    # Fix for #272: Risk governor check — same as paper path (lines 156-188).
+    # Live trades MUST pass all 8 risk governor checks including the kill switch,
+    # sector concentration, VIX circuit breaker, and drawdown-adjusted sizing.
+    try:
+        from src.risk.governor import RiskGovernor, get_portfolio_state
+        governor = RiskGovernor(config)
+        portfolio = get_portfolio_state(db_path)
+        # Fix for #267: Default to 0.5 (fail-conservative) when multiplier
+        # features are missing, not 1.0 (no penalty). Same logic as shadow path.
+        tl_mult = features.get("traffic_light_multiplier")
+        if tl_mult is None:
+            tl_mult = 0.5
+            logger.warning("[LIVE][RISK] traffic_light_multiplier missing for %s — defaulting to 0.5 (conservative)", packet.ticker)
+        event_mult = features.get("event_risk_multiplier")
+        if event_mult is None:
+            event_mult = 0.5
+            logger.warning("[LIVE][RISK] event_risk_multiplier missing for %s — defaulting to 0.5 (conservative)", packet.ticker)
+        check = governor.check_trade(
+            packet.ticker,
+            packet.position_sizing.allocation_dollars,
+            features,
+            portfolio,
+            traffic_light_multiplier=tl_mult,
+            event_risk_multiplier=event_mult,
+        )
+        if not check["approved"]:
+            reason = check.get("rejection_reason", "Risk check failed")
+            logger.warning("[LIVE][RISK] Trade rejected for %s: %s", packet.ticker, reason)
+            return None
+    except ImportError:
+        logger.error("[LIVE][RISK] Governor import failed for %s — REJECTING live trade", packet.ticker)
+        return None
+    except Exception as e:
+        logger.error("[LIVE][RISK] Governor check failed for %s: %s — REJECTING live trade", packet.ticker, e)
+        return None
+
     # Safety guard: Must have LLM commentary (not template fallback)
     llm_conviction = getattr(packet, 'llm_conviction', None)
     if llm_conviction is None:
@@ -1039,33 +1204,54 @@ def open_live_trade(
         logger.warning("[LIVE] Could not check live account: %s — skipping", e)
         return None
 
-    # Safety guard: Daily loss limit — halt if daily P&L < -5% of capital
+    # Fix for #275: Daily loss guard — uses today's REALIZED losses from closed trades
+    # plus unrealized P&L on today's open trades. The old version used all-time
+    # unrealized P&L from all open trades (including positions opened weeks ago),
+    # which meant a single old losing position could permanently block new entries,
+    # while today's realized losses from closed trades were invisible.
     try:
-        from src.journal.store import get_open_shadow_trades
-        live_trades_today = [
-            t for t in get_open_shadow_trades(db_path)
-            if t.get("source") == "live"
-        ]
-        daily_live_pnl = 0.0
-        for t in live_trades_today:
-            t_entry = t.get("actual_entry_price") or t.get("entry_price", 0)
+        import sqlite3 as _sql275
+        today_str = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
+        with _sql275.connect(db_path, timeout=10) as _conn275:
+            _conn275.row_factory = _sql275.Row
+            # Today's realized losses from closed live trades
+            _realized_row = _conn275.execute(
+                "SELECT COALESCE(SUM(pnl_dollars), 0) as total FROM shadow_trades "
+                "WHERE status='closed' AND source='live' AND actual_exit_time LIKE ?",
+                (f"{today_str}%",),
+            ).fetchone()
+            today_realized = float(_realized_row["total"]) if _realized_row else 0.0
+
+            # Today's unrealized P&L on live trades opened today
+            _open_today = _conn275.execute(
+                "SELECT ticker, actual_entry_price, entry_price, planned_shares "
+                "FROM shadow_trades WHERE status='open' AND source='live' AND created_at LIKE ?",
+                (f"{today_str}%",),
+            ).fetchall()
+
+        today_unrealized = 0.0
+        for t in _open_today:
+            t_entry = float(t["actual_entry_price"] or t["entry_price"] or 0)
             if t_entry > 0:
                 current = _get_current_price_safe(t["ticker"])
                 if current:
-                    shares = t.get("planned_shares", 1)
-                    daily_live_pnl += (current - t_entry) * shares
+                    today_unrealized += (current - t_entry) * int(t["planned_shares"] or 1)
+
+        daily_live_pnl = today_realized + today_unrealized
 
         if starting_capital > 0 and daily_live_pnl < -(starting_capital * 0.05):
             logger.warning(
-                "[LIVE] DAILY LOSS GUARD: Live P&L $%.2f exceeds -5%% of $%.2f — HALTING for day",
-                daily_live_pnl, starting_capital,
+                "[LIVE] DAILY LOSS GUARD: Today's live P&L $%.2f (realized $%.2f + unrealized $%.2f) "
+                "exceeds -5%% of $%.2f — HALTING for day",
+                daily_live_pnl, today_realized, today_unrealized, starting_capital,
             )
             try:
                 from src.notifications.telegram import notify_risk_alert, is_telegram_enabled
                 if is_telegram_enabled():
                     notify_risk_alert(
                         "LIVE DAILY LOSS LIMIT",
-                        f"Live daily P&L ${daily_live_pnl:.2f} exceeds -5% of ${starting_capital:.2f}. "
+                        f"Live daily P&L ${daily_live_pnl:.2f} (realized ${today_realized:.2f} "
+                        f"+ unrealized ${today_unrealized:.2f}) exceeds -5% of ${starting_capital:.2f}. "
                         f"No more live trades today.",
                     )
             except Exception as e:

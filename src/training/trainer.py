@@ -428,6 +428,27 @@ def export_training_data(
     # #116 — Exclude partial-close examples from training (stored for review only)
     examples = [e for e in examples if "partial" not in (e.get("source") or "")]
 
+    # Fix for #273: Exclude examples with empty output_text.
+    # Outcome-conditioned templates are stored with output_text="" as placeholders
+    # for deferred batch generation. If batch generation hasn't run, these empty
+    # examples would teach the model to produce empty responses, severely
+    # corrupting the fine-tuning signal.
+    before_empty_filter = len(examples)
+    examples = [e for e in examples if (e.get("output_text") or "").strip()]
+    empty_filtered = before_empty_filter - len(examples)
+    if empty_filtered:
+        logger.warning("[TRAINING] Filtered %d examples with empty output_text", empty_filtered)
+
+    if not examples:
+        for fname in ("dataset.jsonl", "holdout.jsonl", "stage1_structure.jsonl",
+                       "stage2_evidence.jsonl", "stage3_decision.jsonl"):
+            open(str(Path(output_dir) / fname), "w").close()
+        split_info = {"total_examples": total, "training_examples": 0, "holdout_examples": 0,
+                      "filtered_empty": empty_filtered}
+        with open(str(Path(output_dir) / "split_info.json"), "w") as f:
+            json.dump(split_info, f, indent=2)
+        return {"training": 0, "holdout": 0}, 0
+
     # #114 -- Apply temporal split FIRST, then quality filter within each split.
     # WHY this order matters: if we quality-filter first, we might remove recent
     # examples that would have been in the holdout set, causing the temporal

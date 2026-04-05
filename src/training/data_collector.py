@@ -168,8 +168,17 @@ def collect_training_examples_from_closed_trades(
         # Get the scan/recommendation date for the blinded prompt
         rec_date = (trade.get("created_at") or "")[:10]  # YYYY-MM-DD
 
+        # Fix for #277: Sanitize BEFORE LLM generation, not after.
+        # The old code called _sanitize_feature_snapshot after the LLM had already
+        # seen the unsanitized features. If the enriched_prompt from the
+        # recommendation table contained stale outcome fields (pnl_dollars,
+        # exit_reason, etc.), the LLM would see them during generation, producing
+        # subtly outcome-conditioned output. The stored snapshot looked clean but
+        # the commentary was already contaminated.
+        feature_input = _sanitize_feature_snapshot(feature_input)
+
         # ═══ STAGE 1: BLINDED GENERATION ═══
-        # Claude sees ONLY the setup data — ZERO outcome information
+        # Claude sees ONLY the sanitized setup data — ZERO outcome information
         blinded_prompt = BLINDED_ANALYSIS_PROMPT.format(date=rec_date)
         stage1_response = generate_training_example(blinded_prompt, feature_input, purpose="backfill_blinded")
         if stage1_response is None:
@@ -221,8 +230,9 @@ def collect_training_examples_from_closed_trades(
         # Store the outcome for metadata (NOT in the training example itself)
         outcome_text = _build_outcome_text(trade)
 
-        # #110 — Sanitize feature snapshot: remove outcome-correlated fields
-        feature_input = _sanitize_feature_snapshot(feature_input)
+        # #110 / #277 — Sanitization now happens BEFORE LLM generation (above).
+        # This line was the original location (after LLM saw the data), kept as
+        # a no-op safety net — calling sanitize twice is harmless.
 
         example_id = str(uuid.uuid4())
         created_at = datetime.now(ET).isoformat()
