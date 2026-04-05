@@ -1,7 +1,7 @@
 {
-  "run_count": 7,
+  "run_count": 8,
   "current_focus_index": 0,
-  "file_index": 90,
+  "file_index": 105,
   "file_list": [
     "src/__init__.py",
     "src/api/__init__.py",
@@ -180,7 +180,7 @@
     "frontend/src/pages/Training.jsx",
     "frontend/src/pages/Validation.jsx"
   ],
-  "last_run": "2026-04-04T00:00:00Z",
+  "last_run": "2026-04-05T00:00:00Z",
   "findings": {
     "run_4": {
       "focus_area": "code_quality",
@@ -403,6 +403,94 @@
       ],
       "high": [],
       "github_issues_blocked": "No GitHub MCP tools or gh CLI available — 3 medium findings need manual issue creation"
+    },
+    "run_8": {
+      "focus_area": "code_quality",
+      "files_audited": [
+        "src/packets/eod_recap.py",
+        "src/packets/template.py",
+        "src/packets/watchlist.py",
+        "src/ranking/__init__.py",
+        "src/ranking/ranker.py",
+        "src/risk/__init__.py",
+        "src/risk/governor.py",
+        "src/scheduler/__init__.py",
+        "src/scheduler/metrics.py",
+        "src/scheduler/premarket.py",
+        "src/scheduler/scorer.py",
+        "src/scheduler/vram_manager.py",
+        "src/scheduler/watch.py",
+        "src/schemas.py",
+        "src/services/__init__.py"
+      ],
+      "high": [],
+      "medium": [
+        {
+          "file": "src/scheduler/watch.py",
+          "lines": "1-3295",
+          "finding": "File is 3295 lines (8.2x the 400-line threshold). Contains 40+ in-memory state flags, a ~580-line run() method, a ~200-line _run_data_collection(), and a ~235-line __init__. Critical maintenance and testability risk.",
+          "suggested_fix": "Split into submodules: watch_overnight.py, watch_notifications.py, watch_data_collection.py. Keep core loop and state management in watch.py."
+        },
+        {
+          "file": "src/scheduler/watch.py",
+          "lines": "1024-1702",
+          "finding": "run() method is ~580 lines. Mixes signal handling, DB setup, overnight scheduling, market-hours scanning, Telegram polling, IB health checks, and digest scheduling in one method.",
+          "suggested_fix": "Extract dispatch logic into _dispatch_market_hours(now), _dispatch_overnight(now), _dispatch_post_market(now). Keep run() as a thin loop."
+        },
+        {
+          "file": "src/scheduler/watch.py",
+          "lines": "2194-2397",
+          "finding": "_run_data_collection() is ~200 lines with 13 sequential collector calls each wrapped in identical try/except/log boilerplate.",
+          "suggested_fix": "Create a collector registry list and iterate with a single try/except pattern. Reduces ~200 lines to ~40."
+        },
+        {
+          "file": "src/risk/governor.py",
+          "lines": "1-569",
+          "finding": "File is 569 lines (exceeds 400). check_trade() is 205 lines with 8 sequential checks following identical pattern. get_portfolio_state() is 95 lines.",
+          "suggested_fix": "Extract each risk check into a named method and call them in sequence from check_trade(). Extract get_portfolio_state() into a separate module."
+        },
+        {
+          "file": "src/risk/governor.py",
+          "lines": "374",
+          "finding": "Redundant import: 'from src.config import load_config' already imported at module level (line 46) but re-imported inside check_trade() at line 374.",
+          "suggested_fix": "Remove the inner import at line 374 and use the module-level import."
+        },
+        {
+          "file": "src/packets/eod_recap.py",
+          "lines": "167, 211",
+          "finding": "get_shadow_data_for_recap() calls get_open_shadow_trades(db_path) twice (lines 167 and 211). Both return the same data — redundant DB query.",
+          "suggested_fix": "Remove the second call at line 211 and reuse the open_trades variable."
+        },
+        {
+          "file": "src/scheduler/vram_manager.py",
+          "lines": "334",
+          "finding": "launch_training_subprocess() opens a file handle with open(log_path, 'a') stored as _training_log_file but only closed during handoff_to_inference(). File handle leaks if manager crashes.",
+          "suggested_fix": "Close the file handle after Popen starts (subprocess inherits the fd) or add cleanup in __del__."
+        }
+      ],
+      "low": [
+        {
+          "file": "src/packets/template.py",
+          "finding": "build_packet_from_features is 122 lines (L14-136). Mostly template construction."
+        },
+        {
+          "file": "src/packets/eod_recap.py",
+          "finding": "build_eod_recap is 116 lines (L14-146). Mostly string formatting."
+        },
+        {
+          "file": "src/scheduler/watch.py",
+          "finding": "Unnecessary hasattr(self, '_scan_number') checks at lines 750 and 795."
+        },
+        {
+          "file": "src/scheduler/watch.py",
+          "finding": "'from datetime import datetime as _dt' at line 473 shadows module-level import."
+        },
+        {
+          "file": "src/ranking/ranker.py",
+          "finding": "rank_universe is 65 lines — slightly over 50-line guideline but well-structured."
+        }
+      ],
+      "github_issues_blocked": "No gh CLI or GITHUB_TOKEN available — 7 medium findings need manual issue creation"
     }
   }
 }
