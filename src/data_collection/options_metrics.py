@@ -77,11 +77,11 @@ def compute_options_metrics(
                 calls = [r for r in rows if r["option_type"] == "call"]
                 puts = [r for r in rows if r["option_type"] == "put"]
 
-                # Total volumes and OI
-                total_call_vol = sum(r["volume"] or 0 for r in calls)
-                total_put_vol = sum(r["volume"] or 0 for r in puts)
-                total_call_oi = sum(r["open_interest"] or 0 for r in calls)
-                total_put_oi = sum(r["open_interest"] or 0 for r in puts)
+                # Total volumes and OI — int() cast because SQLite may return TEXT
+                total_call_vol = sum(int(r["volume"] or 0) for r in calls)
+                total_put_vol = sum(int(r["volume"] or 0) for r in puts)
+                total_call_oi = sum(int(r["open_interest"] or 0) for r in calls)
+                total_put_oi = sum(int(r["open_interest"] or 0) for r in puts)
 
                 # Put/call ratios
                 pc_vol_ratio = None
@@ -114,8 +114,8 @@ def compute_options_metrics(
                 unusual_flag = 0
                 max_vol_oi_ratio = 0.0
                 for r in rows:
-                    vol = r["volume"] or 0
-                    oi = r["open_interest"] or 0
+                    vol = int(r["volume"] or 0)
+                    oi = int(r["open_interest"] or 0)
                     if oi > 0 and vol > 3 * oi:
                         unusual_flag = 1
                         ratio = vol / oi
