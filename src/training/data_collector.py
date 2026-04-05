@@ -79,15 +79,20 @@ def _sanitize_feature_snapshot(snapshot: str) -> str:
 
 
 def _build_feature_input(rec: dict) -> str:
-    """Build structured feature text from a recommendation record."""
+    """Build structured feature text from a recommendation record.
+
+    float() casts: SQLite returns TEXT for REAL columns when type affinity
+    is not enforced.  Without casts, format codes like :.2f raise
+    "Unknown format code 'f' for object of type 'str'".
+    """
     return f"""Ticker: {rec.get('ticker', 'N/A')} ({rec.get('company_name', 'N/A')})
-Current Price: ${rec.get('price_at_recommendation', 0):.2f}
+Current Price: ${float(rec.get('price_at_recommendation') or 0):.2f}
 Trend State: {rec.get('trend_state', 'n/a')}
 Relative Strength: {rec.get('relative_strength_state', 'n/a')}
-Pullback Depth: {rec.get('pullback_depth_pct', 0):.1f}% from 50-day high
-ATR(14): ${rec.get('atr', 0):.2f}
+Pullback Depth: {float(rec.get('pullback_depth_pct') or 0):.1f}% from 50-day high
+ATR(14): ${float(rec.get('atr') or 0):.2f}
 Volume State: {rec.get('volume_state', 'n/a')}
-Score: {rec.get('priority_score', 0):.0f}/100 | Confidence: {rec.get('confidence_score', 0):.0f}/10
+Score: {float(rec.get('priority_score') or 0):.0f}/100 | Confidence: {float(rec.get('confidence_score') or 0):.0f}/10
 Entry Zone: {rec.get('entry_zone', 'n/a')} | Stop: {rec.get('stop_level', 'n/a')} | Targets: {rec.get('target_1', 'n/a')} / {rec.get('target_2', 'n/a')}
 Event Risk: {rec.get('event_risk_flag', 'none')}"""
 

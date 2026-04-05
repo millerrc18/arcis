@@ -119,8 +119,13 @@ def _score_performance(conn: sqlite3.Connection) -> float:
             "WHERE status = 'closed'"
         )
         raw = cur.fetchone()[0]
-        # float() cast (#181): raw can be None or Decimal from SQLite
-        max_dd = abs(float(raw)) if raw is not None else 0.0
+        # float() cast (#181/#195): raw can be None, empty string, Decimal,
+        # or a TEXT-typed number from SQLite.  Without float(), abs(raw)
+        # raises "bad operand type for abs(): 'str'".
+        try:
+            max_dd = abs(float(raw)) if raw is not None and raw != "" else 0.0
+        except (TypeError, ValueError):
+            max_dd = 0.0
 
         # Scoring components (each 0-25, summed to 0-100).
         # float() casts (#181) prevent TypeError from mixed DB types.
