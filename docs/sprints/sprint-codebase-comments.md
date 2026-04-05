@@ -7,9 +7,12 @@
 > ⚠️ **Rules:**
 > - For **commenting tasks** (Phases 1-5): Do NOT change any logic, behavior, or formatting. Comments ONLY.
 > - For **issue resolution** (Phase 0): Fix the bugs. Verify each fix with tests.
+> - For **gap analysis** (Phase 6): Document and file as GitHub issues. Do NOT fix — just identify and file.
 > - Run `python -m pytest tests/ -x -q` before AND after. Pass count must not decrease.
 > - If a file is over 400 lines, do NOT add so many comments that it exceeds the guardrail.
 > - Close each GitHub issue after fixing with a comment referencing the commit.
+
+> 💡 **This sprint is an exceptional opportunity.** You are going to read every single file in the codebase. While commenting, think critically about what you're reading. Identify gaps, risks, dead code, logic errors, missing edge cases, and opportunities. File each finding as a GitHub issue. This is the deepest code review the system will ever get — don't waste it by only adding comments mechanically.
 
 ---
 
@@ -341,6 +344,83 @@ The feature pipeline determines what the model sees.
 
 ---
 
+## Phase 6: Critical Gap Analysis — File GitHub Issues
+
+**While reading every file in Phases 1-5, actively look for problems and file each one as a GitHub issue.** Use `gh issue create --title "..." --body "..." --label "..."` or the GitHub API. This is NOT about nitpicking style — it's about finding things that will cause bugs, data loss, or incorrect trades.
+
+### What to look for:
+
+**🔴 LLM Logic (highest priority — wrong LLM behavior = bad trades + bad training data):**
+- Does the prompt sent to the LLM actually match what we expect? Read the prompt construction in `packet_writer.py` and `outcome_prompts.py`. Are there missing XML tags, wrong field names, or prompt sections that reference data that isn't passed in?
+- Is the conviction parsing robust? After #183 fix, are there STILL model output formats the parser would miss?
+- Is the self-blinding architecture intact? Trace the data flow — does any outcome information leak into the blinded generation path? Even indirectly (e.g., a feature that correlates with outcome)?
+- Are the training examples actually valid? Read `data_collector.py` — what goes into `input_text` and `output_text`? Are there examples being stored with empty outputs, malformed XML, or truncated content?
+- Is the quality scoring rubric being applied correctly? Check `quality_scorer.py` or wherever scoring happens — are scores being stored, is the prune threshold working?
+- Does the model version check actually prevent running inference with the wrong model? What happens if Ollama has a different model loaded?
+
+**🟡 Trading Logic (money at risk):**
+- Are there race conditions in the executor? Two scans close together could both try to open a trade on the same ticker.
+- Does the risk governor actually fire BEFORE every trade? Trace the call path — is there any code path that bypasses it?
+- Are bracket orders (stop + target) always placed atomically? What happens if the entry fills but the stop/target submission fails?
+- Is the timeout exit correct? Does it use calendar days or trading days? Does it account for weekends?
+- Are the ATR calculations consistent across paper and live? Different ATR multipliers = different stop widths = different outcomes.
+- Does reconciliation handle partial fills correctly? What about fills at different prices than expected?
+
+**🟡 Data Integrity:**
+- Are there any tables being written to without going through the schema registry?
+- Are there SQL queries using string formatting instead of parameterized queries (SQL injection risk)?
+- Are there any places where data could be lost between SQLite write and Render sync?
+- Is the WAL mode actually enabled everywhere, or only on some connections?
+- Are there any int/float/str type assumptions that would break on edge cases (zero shares, negative prices, None values)?
+
+**🟢 Architecture & Maintenance:**
+- Dead code: functions defined but never called, imports that aren't used
+- Circular dependencies: module A imports B which imports A
+- Hardcoded values that should be in config (IP addresses, port numbers, thresholds, timeouts)
+- Error handlers that swallow exceptions silently (`except: pass` or `except Exception: pass` with no logging)
+- Functions doing too many things (should be split for testability)
+- Missing error handling on critical paths (what happens if Ollama is down? What if Alpaca API is rate-limited? What if the DB is locked?)
+- Test coverage gaps: critical functions with no test
+
+**🔵 Opportunities:**
+- Performance: queries that could be batched, loops that could be parallelized, caches that should exist
+- Features: data that's collected but never used, signals that are computed but not fed to the model
+- Reliability: single points of failure, missing health checks, recovery paths that don't exist
+
+### How to file:
+
+```bash
+# Bug or risk
+gh issue create \
+  --title "[gap-analysis] Bracket order not atomic — stop can fail after entry fills" \
+  --body "Found in src/shadow_trading/executor.py line 280. The entry order and stop/target are placed in separate API calls. If the entry fills but the stop submission fails (network error, rate limit), the position is open with no protection. Suggest: retry loop on stop/target placement, or alert if bracket is incomplete." \
+  --label "bug,trading,gap-analysis"
+
+# LLM concern
+gh issue create \
+  --title "[gap-analysis] Training examples stored with empty output_text" \
+  --body "Found in src/training/data_collector.py line 215. Outcome-conditioned examples have output_text='' — they're templates stored for batch generation. But there's no batch generation step implemented. These rows will never be usable for training. Either implement batch generation or don't store them." \
+  --label "llm,gap-analysis"
+
+# Opportunity
+gh issue create \
+  --title "[gap-analysis] Options flow data collected but not fed to feature engine" \
+  --body "50,202 options chain rows collected (data collectors page) but src/features/engine.py doesn't use any options data. This is one of the 7 signal dimensions but it's collect-only — no features are computed from it." \
+  --label "enhancement,data,gap-analysis"
+```
+
+**Use the label `gap-analysis` on every issue so we can filter them later.**
+
+**Target: file 10-30 issues.** If you find fewer than 10, you're not looking hard enough. If you find more than 30, you're nitpicking. Focus on things that affect trading correctness, data integrity, and LLM quality.
+
+**For each issue, include:**
+1. Exact file and line number
+2. What you found
+3. Why it matters (what breaks, what's at risk, what's wasted)
+4. Suggested fix (one sentence — the detail goes in the future sprint)
+
+---
+
 ## Verification
 
 After ALL commenting and issue resolution is complete:
@@ -352,9 +432,17 @@ After ALL commenting and issue resolution is complete:
 
 **Issue resolution check:**
 ```bash
-# All 11 issues should be closed
-gh issue list --state open --limit 20
-# Expected: 0 open issues
+# All 11 pre-existing issues should be closed
+gh issue list --state open --label "bug" --limit 20
+# Expected: 0 pre-existing bugs open
+```
+
+**Gap analysis check:**
+```bash
+# New gap-analysis issues should be filed
+gh issue list --state open --label "gap-analysis" --limit 50
+# Expected: 10-30 new issues filed with gap-analysis label
+# Review: do they have file/line, impact description, and suggested fix?
 ```
 
 **Issue rectification check:**
@@ -371,7 +459,7 @@ Target: every issue has ≥1 reference in the file where its fix lives. Issues w
 
 ## Commit
 
-Split into 2 commits for clean history:
+Split into 3 commits for clean history:
 
 ```bash
 # Commit 1: Issue resolution
@@ -395,7 +483,7 @@ Enhancements:
 
 Closes #222, #239, #247, #248, #249, #250, #251, #252, #253, #254, #255"
 
-# Commit 2: Codebase documentation
+# Commit 2: Codebase documentation + issue rectification
 git add -A
 git commit -m "docs: comprehensive inline comments + GitHub issue rectification
 
@@ -412,14 +500,29 @@ Comment categories:
 
 30 closed issues cross-referenced across the codebase.
 Zero additional logic changes in commit 2. Test count unchanged."
+
+# Commit 3: Gap analysis summary (just a log of what was filed)
+git add -A
+git commit -m "docs: gap analysis complete — N new issues filed from full codebase review
+
+Critical review of every file in src/, scripts/, frontend/src/.
+N issues filed with gap-analysis label covering:
+- LLM logic gaps (prompt construction, parsing, self-blinding integrity)
+- Trading logic risks (race conditions, bracket atomicity, reconciliation)
+- Data integrity concerns (type safety, sync gaps, SQL patterns)
+- Architecture debt (dead code, missing error handling, hardcoded values)
+- Opportunities (unused data, performance, missing features)
+
+See: gh issue list --label gap-analysis"
 ```
 
-After both commits, tag and push:
+After all 3 commits, tag and push:
 ```bash
-git tag -a v0.12.0 -m "v0.12.0 — 11 issues resolved, comprehensive codebase documentation
+git tag -a v0.12.0 -m "v0.12.0 — 11 issues resolved, codebase documented, gap analysis complete
 
-0 open issues. 30 closed issues cross-referenced in code.
-Inline comments on all 200+ Python files."
+0 pre-existing issues. 30 closed issues cross-referenced in code.
+Inline comments on all 200+ Python files.
+N new gap-analysis issues filed from full codebase review."
 git push origin main && git push origin v0.12.0
 ```
 
