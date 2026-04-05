@@ -161,10 +161,11 @@ def determine_lesson_tag(trade: dict) -> str:
     Returns a tag string like 'thesis_validated', 'thesis_invalidated', etc.
     """
     exit_reason = trade.get("exit_reason", "unknown")
-    pnl = trade.get("pnl_dollars") or trade.get("shadow_pnl_dollars", 0) or 0
-    mfe = trade.get("max_favorable_excursion", 0) or 0
-    entry_price = trade.get("actual_entry_price") or trade.get("entry_price", 0)
-    target_1 = trade.get("target_1", 0)
+    # float() casts: same #195 SQLite TEXT-for-REAL pattern as generate_postmortem
+    pnl = float(trade.get("pnl_dollars") or trade.get("shadow_pnl_dollars") or 0)
+    mfe = float(trade.get("max_favorable_excursion") or 0)
+    entry_price = float(trade.get("actual_entry_price") or trade.get("entry_price") or 0)
+    target_1 = float(trade.get("target_1") or 0)
 
     if exit_reason in ("target_1_hit", "target_2_hit"):
         # Check if MFE was much larger than realized gain (left money on table)
@@ -173,8 +174,8 @@ def determine_lesson_tag(trade: dict) -> str:
         return "thesis_validated"
 
     if exit_reason == "stop_hit":
-        mae = trade.get("max_adverse_excursion", 0) or 0
-        stop_price = trade.get("stop_price", 0) or 0
+        mae = float(trade.get("max_adverse_excursion") or 0)
+        stop_price = float(trade.get("stop_price") or 0)
         stop_distance = entry_price - stop_price if entry_price and stop_price else 0
         # If MAE was much larger than stop distance but trade survived
         if mfe > 0 and abs(mae) > stop_distance * 0.8:

@@ -50,15 +50,21 @@ def run_sentiment_refresh(config: dict, db_path: str = DB_PATH) -> dict:
         logger.warning("[SENTIMENT] VIX refresh failed: %s", e)
         summary["errors"] += 1
 
-    # Regime refresh
+    # Regime refresh — fetch universe OHLCV so compute_market_regime gets
+    # real breadth data.  Previously passed {} for ohlcv_data which made
+    # market_breadth_pct always default to 50%.
     try:
-        from src.data_ingestion.market_data import fetch_spy_benchmark
+        from src.data_ingestion.market_data import fetch_spy_benchmark, fetch_ohlcv
         from src.features.regime import compute_market_regime
+        from src.universe.sp100 import get_sp100_universe
         spy = fetch_spy_benchmark()
         if not spy.empty:
-            regime = compute_market_regime(spy, {})
+            ohlcv_data = fetch_ohlcv(get_sp100_universe())
+            regime = compute_market_regime(spy, ohlcv_data)
             summary["refreshed"].append(f"regime={regime.get('regime_label', '?')}")
-            logger.info("[SENTIMENT] Regime refreshed: %s", regime.get("regime_label"))
+            logger.info("[SENTIMENT] Regime refreshed: %s (breadth=%.0f%%)",
+                        regime.get("regime_label"),
+                        regime.get("market_breadth_pct", 0))
             _record_staleness("regime", "SPY", db_path)
     except Exception as e:
         logger.warning("[SENTIMENT] Regime refresh failed: %s", e)

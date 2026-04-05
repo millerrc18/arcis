@@ -14,15 +14,15 @@
 
 **Name:** Arcis (Adaptive Regime Classification & Intelligence Systems)
 **License:** BSL 1.1 (source-visible, no commercial use until 2030)
-**Release:** v0.1.0
+**Release:** v0.14.1
 **Repository:** github.com/millerrc18/halcyon-lab
 **Dashboard:** halcyonlab.app (Render static + Python API)
 
 **Purpose:** Autonomous AI trading system that scans, analyzes, and executes
 equity trades. Combines systematic technical scoring with LLM-generated
-institutional-quality commentary, multi-source data enrichment, Alpaca bracket
-orders, an 8-check risk governor with kill switch, and a self-improving
-training pipeline with quality gates.
+institutional-quality commentary, multi-source data enrichment, broker-abstracted
+order execution (Alpaca + Interactive Brokers), an 8-check risk governor with
+kill switch, and a self-improving training pipeline with quality gates.
 
 **Core Principle:** Training data quality is the #1 competitive advantage.
 Never sacrifice quality for speed.
@@ -38,7 +38,8 @@ with an unbeatable technological moat.
 - Frontend: React 19, Tailwind 4, Vite 8, TanStack Query
 - LLM: Ollama local (halcyon-v1.0.0, Qwen3 8B fine-tuned, Q8_0 GGUF 8.7GB)
 - Training: PEFT + TRL 0.24 + BitsAndBytes on RTX 3060 12GB
-- Trading: Alpaca paper + live API (bracket orders, GTC)
+- Trading: Alpaca paper + live API (bracket orders, GTC); IB Gateway via
+  ib_async (broker abstraction, config-driven: `live_trading.broker`)
 - Deployment: Render (static frontend + Python API + Postgres read-replica)
 - Config: YAML (`config/settings.*.yaml`) + `.env` for secrets
 
@@ -58,10 +59,10 @@ with an unbeatable technological moat.
 | Open positions | ~37 (33 paper + 4 live) |
 | Model | halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF) |
 | Training data | 979 examples, scored, 20+ unique tickers |
-| Tests | 1,386 functions across 112 test files |
-| Python files | 197 |
+| Tests | 1,425 functions across 112 test files |
+| Python files | 202 |
 | Dashboard pages | 18 |
-| Research docs | 71 |
+| Research docs | 189 |
 | Schema tables | 49 (registry) |
 | GitHub issues | 0 open |
 | Monthly cost | ~$64 (Render $7 + Ollama free + Claude API ~$50 + domain $7) |
@@ -81,11 +82,12 @@ with an unbeatable technological moat.
 | Between-scan quality scoring | LIVE -- GuardedScorer Ollama, 972/972 scored |
 | Command queue + config overrides | LIVE -- pull-based, 10 command types |
 | 12 overnight collectors | RUNNING |
-| Telegram | LIVE -- 32 functions, gated behind trade_id |
+| Broker abstraction (IB + Alpaca) | READY -- config-driven, IB activation gated on validation |
+| Telegram | LIVE -- 55 functions, gated behind trade_id |
 | Intra-day reconciliation | LIVE -- every 15 min during market hours |
 | Dashboard (Arcis) | LIVE -- 18 pages, dark/light toggle |
 | Schema registry | LIVE -- 49 tables, single source of truth |
-| Render sync | LIVE -- 40/49 tables synced to Postgres |
+| Render sync | LIVE -- 42/49 tables synced to Postgres |
 | Halcyon-audit plugin | LIVE -- 8 domain agents, /audit command |
 | Automated guardrails | LIVE -- test_repo_structure.py |
 | CI on PRs | LIVE -- tests + guardrails + frontend build |
@@ -128,6 +130,19 @@ None — all issues resolved as of 2026-04-04.
 | Local API parity | #202 | 22 missing routes added to local FastAPI |
 | Sprints A-7 | #203 | Dashboard, attribution, MR, multi-cadence, training, stress testing |
 | Sprint gaps + RCCA | #204 | 6 sprint gaps closed, 8 RCCA bugs fixed, audit plugin |
+| Stress test fix | #205 | yfinance warnings, BRK.B failure |
+| Bug bash v0.11.0 | #206 | Conviction parsing, Finnhub security, tech debt |
+| Audit rectification | #210 | CORS, DDL, test mocking, error handling |
+| Hardening | #211 | 5 remaining issues (#188, #187, #147, #132, #106) |
+| Postgres sync + CI | #212 | Pkey collision fix, 9 CI guardrails, dependabot |
+| Stats + column fix | #236 | Stats endpoint cascading failure, invalid column |
+| Watch loop scheduling | #237 | elif chain, safe_run, backoff, failures |
+| Collector reliability | #238 | Config errors, partial failures, data bugs |
+| Render sync safety | #240 | Health monitoring, atomic latest_only |
+| Startup command | #241 | Single-command system validation + launch |
+| Production sync | #246 | 4 production sync/logging bugs |
+| IB integration | v0.14.0 | Broker abstraction + IB adapter (ib_async) |
+| Log audit + HSHS fix | v0.14.1 | 14 production issues, IB validation-first strategy |
 
 ---
 
@@ -162,7 +177,7 @@ Universe (S&P 100)
 | 4 Orchestration | watch.py, main.py |
 | 3 Services | scan_service.py, council/engine.py, *_service.py |
 | 2 Domain | executor.py, governor.py, traffic_light.py, features/*, ranker.py |
-| 1 Infrastructure | alpaca_adapter.py, telegram.py, render_sync.py, llm/client.py |
+| 1 Infrastructure | alpaca_adapter.py, trading/* (broker_interface, ib_broker, alpaca_broker, broker_factory), telegram.py, render_sync.py, llm/client.py |
 
 **Rule:** Imports only go DOWN. Never import from a higher layer.
 
@@ -185,7 +200,9 @@ self-improving training pipeline, risk management with safety rails, passive
 options/volatility data collection.
 
 **Out of scope (current phase):** Options trading (passive collection only),
-short selling, high-frequency / intraday trading, live trading with real money.
+short selling, high-frequency / intraday trading. Live trading infrastructure
+is ready (broker abstraction supports Alpaca + IB), but IB activation is gated
+on validation milestones (see Strategy Decision #25).
 
 ### Data Sources
 
@@ -216,7 +233,8 @@ short selling, high-frequency / intraday trading, live trading with real money.
 
 | Service | Purpose |
 |---|---|
-| Alpaca Markets API | Paper + live trading execution |
+| Alpaca Markets API | Paper + live trading execution (default broker) |
+| IB Gateway (ib_async) | Live trading via Interactive Brokers (config-driven alternative) |
 | Ollama | Local LLM inference (halcyon-v1) |
 | Anthropic Claude (Haiku 4.5) | Training data generation, quality scoring |
 | Finnhub API | Insider, news, short interest, analyst estimates |
@@ -233,8 +251,9 @@ short selling, high-frequency / intraday trading, live trading with real money.
   intervals, feature flags, model names.
 - `.env` -- ALL secrets (gitignored). API keys, tokens, passwords.
 
-**Key YAML sections:** `bootcamp.*`, `shadow_trading.*`, `risk.*`, `llm.*`,
-`scheduler.*`, `automation.*`, `training.*`, `data_enrichment.*`, `council.*`
+**Key YAML sections:** `bootcamp.*`, `shadow_trading.*`, `live_trading.*`,
+`risk.*`, `llm.*`, `scheduler.*`, `automation.*`, `training.*`,
+`data_enrichment.*`, `council.*`
 
 **Secrets in .env:** `ALPACA_API_KEY`, `ALPACA_API_SECRET`,
 `ALPACA_LIVE_API_KEY`, `ALPACA_LIVE_SECRET_KEY`, `ANTHROPIC_API_KEY`,
@@ -246,9 +265,9 @@ short selling, high-frequency / intraday trading, live trading with real money.
 **MCP Servers (4):** alpaca (trading API), context7 (live docs), github
 (issues/PRs), sqlite (direct DB queries)
 
-**Hooks (6):** auto-lint Python (ruff on edit), auto-lint JSX (eslint on edit),
+**Hooks (7):** auto-lint Python (ruff on edit), auto-lint JSX (eslint on edit),
 schema DDL warning, block .env edits, block lock file edits,
-post-merge validation (schema + docs drift on `git merge`/`git pull`)
+post-merge validation on `git merge`, post-merge validation on `git pull`
 
 **Skills (8):**
 
@@ -263,25 +282,37 @@ post-merge validation (schema + docs drift on `git merge`/`git pull`)
 | visual-check | `/visual-check` | Screenshot all 18 dashboard pages via Playwright |
 | audit | `/audit [domains] [--quick] [--schedule]` | Comprehensive 8-domain repo audit with GH issue filing |
 
-**Agents (15):**
+**Agents (27):**
 
 | Agent | Purpose | When to Use |
 |---|---|---|
 | security-reviewer | Credential exposure, SQL injection, risk governor bypass | Before merging PRs touching risk/api/.env code |
-| test-runner | Full pytest suite, failure grouping, CI guardian check (1105 min) | After code changes, before commits |
+| test-runner | Full pytest suite, failure grouping, CI guardian check (1344 min) | After code changes, before commits |
 | migration-checker | Schema change idempotency, cross-script sync, backwards compat | When columns or tables are added/modified |
 | drift-detector | Schema drift, config drift, doc staleness, data staleness, orphaned positions | Start of every coding session |
 | data-integrity-checker | FK integrity, orphaned records, data quality across 49 tables | After recovery, before releases |
 | api-documenter | Route inventory, frontend-backend consistency, auth gaps | After adding/changing API endpoints |
-| trading-safety-auditor | Silent failures, risk governor bypass, broker/journal truth | Part of `/audit` — trading domain |
-| code-quality-auditor | Oversized functions/files, god objects, dead code, duplication | Part of `/audit` — quality domain |
-| schema-integrity-auditor | Schema drift, DDL violations, FK integrity, orphans | Part of `/audit` — schema domain |
-| test-coverage-auditor | Test count, coverage gaps, slow tests, mock quality | Part of `/audit` — test domain |
-| compliance-auditor | CLAUDE.md rules, MASTER.md architecture, naming conventions | Part of `/audit` — compliance domain |
-| comment-doc-auditor | MASTER.md drift, stale comments, README accuracy | Part of `/audit` — docs domain |
-| security-auditor | Credentials, SQL injection, API auth, CORS, dependencies | Part of `/audit` — security domain |
-| architecture-auditor | Layer violations, circular imports, module coupling | Part of `/audit` — architecture domain |
-| audit-synthesizer | Dedup, root cause clustering, verification, quality gate | Part of `/audit` — synthesis phase |
+| trading-safety-auditor | Silent failures, risk governor bypass, broker/journal truth | Part of `/audit` -- trading domain |
+| code-quality-auditor | Oversized functions/files, god objects, dead code, duplication | Part of `/audit` -- quality domain |
+| schema-integrity-auditor | Schema drift, DDL violations, FK integrity, orphans | Part of `/audit` -- schema domain |
+| test-coverage-auditor | Test count, coverage gaps, slow tests, mock quality | Part of `/audit` -- test domain |
+| compliance-auditor | CLAUDE.md rules, MASTER.md architecture, naming conventions | Part of `/audit` -- compliance domain |
+| comment-doc-auditor | MASTER.md drift, stale comments, README accuracy | Part of `/audit` -- docs domain |
+| security-auditor | Credentials, SQL injection, API auth, CORS, dependencies | Part of `/audit` -- security domain |
+| architecture-auditor | Layer violations, circular imports, module coupling | Part of `/audit` -- architecture domain |
+| audit-synthesizer | Dedup, root cause clustering, verification, quality gate | Part of `/audit` -- synthesis phase |
+| council-arbiter | Final decision authority in multi-agent council deliberation | Council v2 sessions |
+| council-contrarian | Devil's advocate position in council deliberation | Council v2 sessions |
+| council-practitioner | Practical trading experience perspective | Council v2 sessions |
+| council-skeptic | Risk-focused skeptical analysis in council | Council v2 sessions |
+| council-synthesizer | Synthesize council agent votes into final recommendation | Council v2 sessions |
+| research-planner | Plan multi-step research strategy | Deep research sessions |
+| research-searcher | Execute web/academic searches for research | Deep research sessions |
+| research-contrarian | Challenge research findings and assumptions | Deep research sessions |
+| research-lateral | Cross-domain lateral thinking for research | Deep research sessions |
+| research-refiner | Refine and improve research outputs | Deep research sessions |
+| research-synthesizer | Synthesize research findings into actionable conclusions | Deep research sessions |
+| research-tracer | Trace citations and verify research sources | Deep research sessions |
 
 **Plugins (12 relevant):** commit-commands, code-simplifier, ralph-loop,
 telegram, claude-md-management, claude-code-setup, skill-creator,
@@ -301,7 +332,7 @@ each table and generates DDL for both SQLite and Postgres.
 
 **Architecture:**
 ```
-src/schema/registry.py          <- THE source of truth (46 TableDefs)
+src/schema/registry.py          <- THE source of truth (49 TableDefs)
     +-- src/schema/sqlite.py     <- Generates CREATE TABLE for SQLite
     +-- src/schema/postgres.py   <- Generates CREATE TABLE for Postgres
     +-- src/schema/validator.py  <- Compares live DB against registry
@@ -311,13 +342,14 @@ src/schema/registry.py          <- THE source of truth (46 TableDefs)
     +-- src/sync/render_sync.py  <- SYNC_TABLES generated from registry
 ```
 
-### Trading Core (3)
+### Trading Core (4)
 
 | Table | Purpose |
 |---|---|
 | `recommendations` | LLM-generated trade recommendations with full context and outcomes |
-| `shadow_trades` | Paper trades tracked from entry to exit with execution quality |
+| `shadow_trades` | Paper trades tracked from entry to exit with execution quality (`broker` column: alpaca/ib) |
 | `validation_results` | Preflight validation check results |
+| `attribution_trades` | Paired LLM vs ranker-only trade attribution for alpha measurement |
 
 ### Training Pipeline (8)
 
@@ -375,7 +407,7 @@ src/schema/registry.py          <- THE source of truth (46 TableDefs)
 | `setup_signals` | Technical setup signal detections with forward returns |
 | `traffic_light_state` | Market regime traffic light state machine |
 
-### Evaluation & Metrics (4)
+### Evaluation & Metrics (5)
 
 | Table | Purpose |
 |---|---|
@@ -383,8 +415,9 @@ src/schema/registry.py          <- THE source of truth (46 TableDefs)
 | `schedule_metrics` | Daily schedule execution metrics |
 | `quality_drift_metrics` | Training quality drift detection metrics per cycle |
 | `build_score_history` | Daily composite build score with component breakdowns |
+| `stress_test_results` | Historical stress test results for crisis period backtesting |
 
-### Infrastructure (6)
+### Infrastructure (7)
 
 | Table | Purpose |
 |---|---|
@@ -394,6 +427,7 @@ src/schema/registry.py          <- THE source of truth (46 TableDefs)
 | `command_results` | Results of remotely-issued commands |
 | `config_overrides` | Dashboard-pushed configuration overrides |
 | `pending_commands` | Remote commands queued for local execution |
+| `data_freshness` | Per-ticker per-source staleness tracking for multi-cadence scanning |
 
 ### User Data (1)
 
@@ -644,7 +678,7 @@ Use `none` for empty fields. Entry points: `Called by: none (entry point)`.
 - Minimum 5 tests per module for new modules
 - Use `tmp_path` fixtures for file/DB operations -- never write to repo paths
 - Use real SQLite over mocks -- our tests are integration tests
-- CI enforces minimum of 1,105 tests (guardian)
+- CI enforces minimum of 1,344 tests (guardian)
 - Mock all external APIs in tests (Alpaca, Finnhub, yfinance, FRED, Ollama)
 - Test file naming: `tests/test_{module_name}.py`
 
@@ -696,7 +730,7 @@ to YAML.
 
 1. **Training data quality is sacred** -- never sacrifice for speed
 2. **Risk governor is sacred** -- never bypass or weaken without explicit approval
-3. **Test count must not drop** -- CI minimum 1,105; currently 1,228+
+3. **Test count must not drop** -- CI minimum 1,344; currently 1,425
 4. **Mock all external APIs** -- no network calls from pytest
 5. **Schema registry is the single source of truth** -- no DDL outside `src/schema/`
 6. **Test baseline before changes** -- run pytest at session start, count must
@@ -752,9 +786,12 @@ VIX >40, system offline.
 | 7 | Historical stress testing | DONE -- PR #203, 2008/2020/2022 scenarios |
 | 8 | Bug bash + conviction parsing (#183) | DONE -- v0.11.0, all issues closed |
 | 9 | IB integration (broker abstraction) | DONE -- v0.14.0, code ready. IB activation gated on 60+ trades + 30-day Gateway stability test (deep research) |
-| 10 | iOS app (Capacitor) | QUEUED -- v0.12.0, native wrapper for dashboard |
-| 10 | Repo reorganization | Backlog |
-| 11 | architecture.md refresh | Backlog |
+| 10 | Codebase documentation (inline comments) | DONE -- WHY-focused comments across 200+ files |
+| 11 | Gap analysis rectification | DONE -- 23 issues in 3 tiers (critical/high/medium) |
+| 12 | Log audit | DONE -- v0.14.1, 14 production issues fixed from arcis.log analysis |
+| 13 | iOS app (Capacitor) | QUEUED -- native wrapper for dashboard |
+| 13 | Repo reorganization | Backlog |
+| 14 | architecture.md refresh | Backlog |
 
 ### Phase 2 Hardware (~$1,300)
 
@@ -783,7 +820,6 @@ recurrence.
 - Domain: arcis.app or arciscapital.com
 - Wyoming LLC formation (July 2026 target)
 - Logo SVG cleanup (Fiverr $50-100)
-- `start.ps1` — one-command startup script (activate venv, git pull, validate-schema, watch)
 - Dedicated server: `systemd` service for watch loop (replaces PowerShell startup on Ubuntu headless)
 
 ---
@@ -847,7 +883,7 @@ Dashboard, Packets, Shadow Ledger, Live Ledger, Training, Council, Health,
 Validation, CTO Report, Settings, Roadmap, Docs, Notes, Logs, Architecture,
 DB Schema, Attribution, Stress Test.
 
-### CLI Commands (52)
+### CLI Commands (55)
 
 - **Core (8):** init-db, demo-packet, send-test-email, send-test-telegram, ingest, scan, morning-watchlist, eod-recap
 - **Shadow (4):** shadow-status, shadow-history, shadow-close, shadow-account
@@ -857,7 +893,7 @@ DB Schema, Attribution, Stress Test.
 - **Training Quality (5):** classify-training-data, score-training-data, validate-training-data, generate-contrastive, generate-preferences
 - **Training Exec (2):** train, train-pipeline
 - **Evaluation (10):** cto-report, evaluate-holdout, model-evaluation-status, promote-model, feature-importance, backtest, compare-models, check-leakage, performance-report, evaluate-gate
-- **Operations (9):** startup, collect-data, fetch-earnings, halt-trading, resume-trading, preflight, council, watch, dashboard
+- **Operations (11):** startup, collect-data, fetch-earnings, halt-trading, resume-trading, preflight, council, watch, dashboard, validate-system, validate-schema
 
 ---
 

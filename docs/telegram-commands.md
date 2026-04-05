@@ -114,9 +114,9 @@ Scored: 890
 Backlog: 86
 ```
 
-### /council
+### /council [question]
 
-Triggers an on-demand AI Council session (Delphi protocol). Five specialized agents (Risk Officer, Alpha Strategist, Data Scientist, Regime Analyst, Devil's Advocate) deliberate across 3 rounds to reach consensus on current market positioning.
+Triggers an on-demand AI Council session (Delphi protocol). Five specialized agents (Risk Officer, Alpha Strategist, Data Scientist, Regime Analyst, Devil's Advocate) deliberate across 3 rounds to reach consensus on current market positioning. Optionally pass a strategic question as an argument (e.g., `/council Should we reduce tech exposure?`).
 
 **Example response:**
 ```
@@ -174,6 +174,17 @@ LAST 20 LOG LINES
 
 Lists all available commands with short descriptions. Also triggered by `/start` when first interacting with the bot.
 
+### /heartbeat
+
+Watchdog heartbeat age. Reports how long ago the last watchdog heartbeat was recorded, useful for detecting if the watch loop has stalled.
+
+**Example response:**
+```
+HEARTBEAT
+Last heartbeat: 42s ago
+Status: OK
+```
+
 ### Additional utility commands
 
 - `/health` — GPU and system health check
@@ -181,6 +192,7 @@ Lists all available commands with short descriptions. Also triggered by `/start`
 - `/gpu` — GPU details via `nvidia-smi`
 - `/disk` — Disk usage snapshot
 - `/uptime` — Watch loop uptime
+- `/heartbeat` — Watchdog heartbeat age
 
 ## Notification Types
 
@@ -196,3 +208,8 @@ In addition to commands, the bot sends automatic push notifications for:
 | Training | Model training events (start, complete, rollback) |
 | Risk alerts | Kill switch, daily loss limit, or other governor triggers |
 | System errors | Critical failures requiring attention |
+| Startup validation | Tiered validation summary after `startup` command |
+| Regime alerts | VIX spikes, market regime transitions |
+| Milestones | System progress milestones (trade count, data asset size) |
+| Weekly digest | Weekly summary of trading, training, and system health |
+| Action reminders | Pending actions that require manual attention |

@@ -14,9 +14,11 @@ Training data quality is our #1 competitive advantage. Every example in the data
 
 The most important design choice in the training pipeline: Claude NEVER sees whether a trade won or lost when generating training commentary.
 
-**Stage 1 (Blinded):** Claude receives only the features (technical, fundamental, news, macro) and generates analysis. No outcome, no P&L, no exit information.
+**Sanitization (Pre-LLM):** Before any LLM call, the feature snapshot is sanitized to strip outcome-leaking fields (P&L, exit reason, MFE/MAE, etc.). As of #277, sanitization happens BEFORE LLM generation, not after. The old code called `_sanitize_feature_snapshot` after the LLM had already seen unsanitized features, which defeated the purpose. A second sanitize call remains as a no-op safety net.
 
-**Stage 2 (Enhancement):** Claude receives Stage 1's output plus the original features and improves the quality. Still no outcome.
+**Stage 1 (Blinded):** Claude receives only the sanitized features (technical, fundamental, news, macro) and generates analysis. No outcome, no P&L, no exit information.
+
+**Stage 2 (Enhancement):** Claude receives Stage 1's output plus the original sanitized features and improves the quality. Still no outcome.
 
 **Why:** If the model sees outcomes during training data generation, it learns to reverse-engineer language that predicts wins/losses rather than learning genuine analytical reasoning. The self-blinding pipeline forces the training data to contain process-quality reasoning, not outcome-contaminated language.
 
@@ -83,7 +85,7 @@ Each example is scored on 6 dimensions (1-5 each):
 5. **Calibration** — Does confidence match setup quality and outcome?
 6. **Actionability** — Are entry, exit, and sizing addressed?
 
-Examples scoring below 3.0 overall are excluded from training.
+Examples scoring below 3.0 overall are excluded from training. Additionally, examples with empty `output_text` are filtered out at export time (added in v0.13.0, #273) -- these are template rows that were never populated by the LLM.
 
 ## Contrastive Pairs
 

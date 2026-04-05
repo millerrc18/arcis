@@ -49,6 +49,135 @@
 
 ## Releases
 
+### v0.14.1 — 2026-04-05
+**Log audit hotfix — 14 production issues from 15K-line log analysis**
+
+16 files changed, +1,182 -48. 8 issues closed (#279-#286).
+
+**Critical fixes:**
+- #279: Bracket monitor — Alpaca enum prefix stripped from leg statuses + `accepted` added to ACTIVE_LEG_STATUSES (was showing 0/N protected)
+- #280: Earnings signals — column names corrected to schema (actual/estimate/metric, not eps_actual/revenue_actual)
+
+**High fixes:**
+- #281: Overnight training script — imports actual trainer functions (was broken)
+- #282: Position monitor — int() cast on SQLite TEXT timeout_days
+- #283: Regime refresh — sentiment_scanner passes ohlcv_data argument
+- #284: HSHS performance sub-score — float() cast on SQLite TEXT value
+- #285: Training collection format string — float() before %.2f
+
+**Medium fixes:**
+- #286: Postgres sync — null ID guard, duplicate PK handling improved
+- Stress test VIX symbol handling fixed
+- EOD recap format string type safety
+
+**Audit report:** `docs/audits/log-audit-2026-04-04.md` (15K lines analyzed)
+
+---
+
+### v0.14.0 — 2026-04-05
+**Interactive Brokers integration — broker abstraction layer**
+
+5 new files, 19 new tests. Multi-broker architecture deployed.
+
+**New files:**
+- `src/trading/broker_interface.py` — Abstract BrokerAdapter (10 methods) + normalized dataclasses
+- `src/trading/broker_factory.py` — Singleton factory, config-driven routing
+- `src/trading/ib_broker.py` — IB adapter via ib_async, lazy connection, GTC bracket orders
+- `src/trading/alpaca_broker.py` — Thin wrapper over existing alpaca_adapter.py
+- `tests/test_broker_interface.py` — 19 tests (interface compliance, factory routing, dataclasses)
+
+**Architecture:**
+- Paper trading unchanged (Alpaca direct, no abstraction needed)
+- Live trading routes through broker factory: `config.live_trading.broker = "ib" | "alpaca"`
+- Executor wired: `open_live_trade()` calls `get_live_broker(config)` instead of direct Alpaca
+- Schema: `broker` column added to `shadow_trades` (default "alpaca")
+- Config: `settings.example.yaml` updated with IB settings (host, port, client_id)
+
+**NOT included (requires IB Gateway on Windows):**
+- IB Gateway installation and connection verification
+- Startup validation for IB connectivity
+- Live trading on IB (start with paper port 4002)
+
+---
+
+### v0.13.0 — 2026-04-04
+**Gap analysis rectification — 23 issues resolved in 3 tiers**
+
+19 files changed, +414 -157. 0 open issues.
+
+**Tier 1 — CRITICAL (6 issues, money at risk + training data):**
+- #272: Live trading now enforces RiskGovernor + LLM validator (was bypassed entirely)
+- #274: Bracket fallback places standalone stop-loss (was naked market entry)
+- #275: Daily loss guard uses today's realized P&L (was all-time unrealized)
+- #277: Feature sanitization BEFORE LLM generation (self-blinding leak fixed)
+- #273: Empty-output templates excluded from training dataset
+- #278: Partial fills tracked correctly (was recording as full close)
+
+**Tier 2 — HIGH (7 issues, reliability):**
+- #271: MR exit passes all required args to close_shadow_trade
+- #276: Duplicate position check + insert in same transaction (race fixed)
+- #267: Traffic light defaults to 0.5 (conservative) when missing
+- #257: _safe_run only sets done-flag on success (failed tasks retry)
+- #259: pull_commands only claims successfully inserted commands
+- #269: _notify_exit_trade call sites pass all required params
+- #264: open_shadow_trade returns None consistently on failure
+
+**Tier 3 — MEDIUM (9 issues, polish):**
+- #256: Options metrics query column names fixed
+- #260: options_chains retention rule added (30 days)
+- #261: Documented as future enhancement
+- #262: earnings_signals logs errors instead of swallowing
+- #263: Duplicate bracket order log removed
+- #265: Stub endpoints return not_implemented status
+- #266: shadow_account queries unified
+- #268: Dead canary_score import removed
+- #270: NYSE 2026 holiday calendar added
+
+---
+
+### v0.12.0 — 2026-04-04
+**Codebase documentation + issue resolution + gap analysis**
+
+116 files changed, +3,757 lines. 0 pre-existing issues remaining.
+
+**Issue resolution (11 closed):**
+- #248: Bracket monitor false alarms — Alpaca enum prefix stripped
+- #249: System validator reads env vars, not YAML
+- #250: Dark mode chart visibility — CSS variables defined
+- #251: Packet commentary — raw template headers stripped
+- #253: Open positions unrealized P&L computed
+- #254: Max consecutive losses wired from cto_report
+- #247: Metric cards centered
+- #252: Stress test Run button via command queue
+- #255: React Flow diagram polish
+- #239: Daily audit baseline updated
+- #222: Telegram pairing documented
+
+**Codebase documentation:**
+- WHY-focused inline comments on all 200+ Python files
+- 30 closed issues cross-referenced in code at fix locations
+- Strategy decisions (#1-#24) cited at implementation points
+- Research paper citations at relevant code sections
+
+**Gap analysis (15 new issues filed):**
+- #256: Options metrics query wrong columns (pipeline dead)
+- #257: _safe_run done-flags set on failure (tasks never retry)
+- #258: 220+ sqlite3.connect() bypass connect_db (no busy_timeout)
+- #259: pull_commands marks all claimed even on insert failure
+- #260: Options chains unbounded growth (no retention)
+- #261: Options flow collected but unused in training
+- #262: earnings_signals swallows all errors
+- #263: Duplicate log in place_bracket_order
+- #264: open_shadow_trade returns dict on buying power fail
+- #265: review_scorecard/postmortems are stubs
+- #266: shadow_account queries wrong columns
+- #267: Traffic light defaults to 1.0 (no regime protection)
+- #268: compute_canary_score import broken
+- #269: _notify_exit_trade missing parameters
+- #270: No market holiday calendar
+
+---
+
 ### v0.11.0 — 2026-04-04
 **Bug bash complete — all issues closed, CI hardened**
 
@@ -141,107 +270,3 @@ Tagged retroactively as rollback point.
 All work from project inception through April 2, 2026.
 Sprints 4A-8, reconciliation, analytics migration, dashboard redesign, log audit, data integrity, mega sprint.
 See CHANGELOG.md for full history.
-
----
-
-### v0.12.0 — 2026-04-04
-**Codebase documentation + issue resolution + gap analysis**
-
-116 files changed, +3,757 lines. 0 pre-existing issues remaining.
-
-**Issue resolution (11 closed):**
-- #248: Bracket monitor false alarms — Alpaca enum prefix stripped
-- #249: System validator reads env vars, not YAML
-- #250: Dark mode chart visibility — CSS variables defined
-- #251: Packet commentary — raw template headers stripped
-- #253: Open positions unrealized P&L computed
-- #254: Max consecutive losses wired from cto_report
-- #247: Metric cards centered
-- #252: Stress test Run button via command queue
-- #255: React Flow diagram polish
-- #239: Daily audit baseline updated
-- #222: Telegram pairing documented
-
-**Codebase documentation:**
-- WHY-focused inline comments on all 200+ Python files
-- 30 closed issues cross-referenced in code at fix locations
-- Strategy decisions (#1-#24) cited at implementation points
-- Research paper citations at relevant code sections
-
-**Gap analysis (15 new issues filed):**
-- #256: Options metrics query wrong columns (pipeline dead)
-- #257: _safe_run done-flags set on failure (tasks never retry)
-- #258: 220+ sqlite3.connect() bypass connect_db (no busy_timeout)
-- #259: pull_commands marks all claimed even on insert failure
-- #260: Options chains unbounded growth (no retention)
-- #261: Options flow collected but unused in training
-- #262: earnings_signals swallows all errors
-- #263: Duplicate log in place_bracket_order
-- #264: open_shadow_trade returns dict on buying power fail
-- #265: review_scorecard/postmortems are stubs
-- #266: shadow_account queries wrong columns
-- #267: Traffic light defaults to 1.0 (no regime protection)
-- #268: compute_canary_score import broken
-- #269: _notify_exit_trade missing parameters
-- #270: No market holiday calendar
-
----
-
-### v0.13.0 — 2026-04-04
-**Gap analysis rectification — 23 issues resolved in 3 tiers**
-
-19 files changed, +414 -157. 0 open issues.
-
-**Tier 1 — CRITICAL (6 issues, money at risk + training data):**
-- #272: Live trading now enforces RiskGovernor + LLM validator (was bypassed entirely)
-- #274: Bracket fallback places standalone stop-loss (was naked market entry)
-- #275: Daily loss guard uses today's realized P&L (was all-time unrealized)
-- #277: Feature sanitization BEFORE LLM generation (self-blinding leak fixed)
-- #273: Empty-output templates excluded from training dataset
-- #278: Partial fills tracked correctly (was recording as full close)
-
-**Tier 2 — HIGH (7 issues, reliability):**
-- #271: MR exit passes all required args to close_shadow_trade
-- #276: Duplicate position check + insert in same transaction (race fixed)
-- #267: Traffic light defaults to 0.5 (conservative) when missing
-- #257: _safe_run only sets done-flag on success (failed tasks retry)
-- #259: pull_commands only claims successfully inserted commands
-- #269: _notify_exit_trade call sites pass all required params
-- #264: open_shadow_trade returns None consistently on failure
-
-**Tier 3 — MEDIUM (9 issues, polish):**
-- #256: Options metrics query column names fixed
-- #260: options_chains retention rule added (30 days)
-- #261: Documented as future enhancement
-- #262: earnings_signals logs errors instead of swallowing
-- #263: Duplicate bracket order log removed
-- #265: Stub endpoints return not_implemented status
-- #266: shadow_account queries unified
-- #268: Dead canary_score import removed
-- #270: NYSE 2026 holiday calendar added
-
----
-
-### v0.14.0 — 2026-04-05
-**Interactive Brokers integration — broker abstraction layer**
-
-5 new files, 19 new tests. Multi-broker architecture deployed.
-
-**New files:**
-- `src/trading/broker_interface.py` — Abstract BrokerAdapter (10 methods) + normalized dataclasses
-- `src/trading/broker_factory.py` — Singleton factory, config-driven routing
-- `src/trading/ib_broker.py` — IB adapter via ib_async, lazy connection, GTC bracket orders
-- `src/trading/alpaca_broker.py` — Thin wrapper over existing alpaca_adapter.py
-- `tests/test_broker_interface.py` — 19 tests (interface compliance, factory routing, dataclasses)
-
-**Architecture:**
-- Paper trading unchanged (Alpaca direct, no abstraction needed)
-- Live trading routes through broker factory: `config.live_trading.broker = "ib" | "alpaca"`
-- Executor wired: `open_live_trade()` calls `get_live_broker(config)` instead of direct Alpaca
-- Schema: `broker` column added to `shadow_trades` (default "alpaca")
-- Config: `settings.example.yaml` updated with IB settings (host, port, client_id)
-
-**NOT included (requires IB Gateway on Windows):**
-- IB Gateway installation and connection verification
-- Startup validation for IB connectivity
-- Live trading on IB (start with paper port 4002)

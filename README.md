@@ -1,15 +1,15 @@
 # Arcis
 
-![version](https://img.shields.io/badge/version-v0.11.0-blue?style=flat-square)
+![version](https://img.shields.io/badge/version-v0.14.1-blue?style=flat-square)
 ![phase](https://img.shields.io/badge/phase-1%20bootcamp-orange?style=flat-square)
-![tests](https://img.shields.io/badge/tests-1%2C344%20passing-brightgreen?style=flat-square)
+![tests](https://img.shields.io/badge/tests-1%2C425%20passing-brightgreen?style=flat-square)
 ![python](https://img.shields.io/badge/python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)
 ![model](https://img.shields.io/badge/model-Qwen3%208B-purple?style=flat-square)
 ![license](https://img.shields.io/badge/license-BSL%201.1-yellow?style=flat-square)
 ![issues](https://img.shields.io/github/issues/millerrc18/halcyon-lab?style=flat-square)
 ![dashboard](https://img.shields.io/badge/dashboard-halcyonlab.app-00C7B7?style=flat-square&logo=render&logoColor=white)
 
-Systematic equity research platform built on fine-tuned LLMs and a 5-agent AI council. Arcis scans the S&P 100 universe for high-conviction pullback setups, generates trade packets with local inference, and executes bracket orders through Alpaca — all governed by a hard risk stack and regime-aware sizing.
+Systematic equity research platform built on fine-tuned LLMs and a 5-agent AI council. Arcis scans the S&P 100 universe for high-conviction pullback setups, generates trade packets with local inference, and executes bracket orders through Alpaca or Interactive Brokers — all governed by a hard risk stack and regime-aware sizing.
 
 ## Current Status
 
@@ -62,7 +62,7 @@ Cloud: [halcyonlab.app](https://halcyonlab.app) (Render + Postgres sync)
 - **Backend**: Python 3.12, FastAPI, SQLite (local), Postgres (cloud sync)
 - **Frontend**: React 19, Vite 8, Tailwind 4, Recharts
 - **Inference**: Ollama (Qwen3 8B), Anthropic Claude (council + quality scoring)
-- **Broker**: Alpaca (paper + live, bracket orders)
+- **Broker**: Alpaca (paper + live) / Interactive Brokers (live) via broker abstraction (`src/trading/`)
 - **Data**: Finnhub, FRED, SEC EDGAR, Yahoo Finance, 12 overnight collectors
 - **Ops**: Telegram alerts, Render sync, CI on PRs, command queue from dashboard
 
@@ -95,7 +95,7 @@ All code changes go through Claude Code (CC) sprints with strict guardrails:
 
 ## Research
 
-77 documents in `docs/research/` covering regime detection, position sizing, risk management, training methodology, market microstructure, model degradation prevention, and hardware deployment strategy.
+79 documents in `docs/research/` covering regime detection, position sizing, risk management, training methodology, market microstructure, model degradation prevention, hardware deployment strategy, and broker integration best practices.
 
 ## SEC Compliance
 

@@ -130,6 +130,22 @@ The CTO report also joins `recommendations` to break down performance by
 
 ---
 
+## Attribution (`/attribution`)
+
+| KPI | Frontend call | API endpoint | Tables | Key columns |
+|-----|---------------|--------------|--------|-------------|
+| Attribution stats | `api.getAttributionStats()` | `/api/attribution/stats` | `attribution_pairs` | `total_pairs`, `ranker_only`, `llm_portfolio`, `by_action`, `by_pair_type`, `statistical_power` |
+
+---
+
+## Stress Test (`/stress-test`)
+
+| KPI | Frontend call | API endpoint | Tables | Key columns |
+|-----|---------------|--------------|--------|-------------|
+| Stress test results | `api.getStressTestResults()` | `/api/stress-test/results` | `stress_test_results` | `monthly_returns_json`, `regime_breakdown_json`, `equity_curve_json`, `created_at` |
+
+---
+
 ## Pages with no direct DB dependency
 
 | Page | Route | Data source | Table |
@@ -158,6 +174,8 @@ during schema changes:
 | `model_versions` | Training, CTO Report, Health Score |
 | `activity_log` | Dashboard (Activity Feed) |
 | `build_score_history` | Health Score |
+| `attribution_pairs` | Attribution |
+| `stress_test_results` | Stress Test |
 
 ---
 

@@ -24,13 +24,14 @@ All commands are invoked via `python -m src.main <command> [options]`.
 | `shadow-close` | Manually close a paper position | `<ticker>` (required), `--reason` (default: manual) |
 | `shadow-account` | Show Alpaca paper account balance and positions | |
 
-## Live Trading (3 commands)
+## Live Trading (4 commands)
 
 | Command | Description | Options |
 |---------|-------------|---------|
 | `live-status` | Show live account balance and open positions | |
 | `live-history` | Show live trade history (open and closed) | `--days` (default: 30) |
 | `live-close` | Manually close a live position | `<ticker>` (required), `--reason` (default: manual) |
+| `reconcile-live` | Reconcile Alpaca live positions with shadow_trades DB | `--dry-run` |
 
 ## Review & Analysis (6 commands)
 
@@ -67,10 +68,10 @@ All commands are invoked via `python -m src.main <command> [options]`.
 
 | Command | Description | Options |
 |---------|-------------|---------|
-| `train` | Run QLoRA fine-tuning (or export/rollback) | `--force`, `--rollback`, `--export` |
+| `train` | Run QLoRA fine-tuning (or export/rollback/register) | `--force`, `--rollback`, `--export`, `--register` |
 | `train-pipeline` | Run full pipeline: score, leakage check, classify, train | `--force` (continue despite leakage) |
 
-## Evaluation (7 commands)
+## Evaluation (9 commands)
 
 | Command | Description | Options |
 |---------|-------------|---------|
@@ -81,8 +82,10 @@ All commands are invoked via `python -m src.main <command> [options]`.
 | `feature-importance` | Compute feature importance from closed trades | `--days` (default: 30) |
 | `backtest` | Walk-forward backtest a model | `--model` (default: halcyon-latest), `--months` (default: 6) |
 | `compare-models` | Compare two models head-to-head | `--model-a` (required), `--model-b` (required), `--months` (default: 3) |
+| `evaluate-gate` | Run 50-trade gate evaluation (Phase 1 to Phase 2) | |
+| `performance-report` | Generate performance report | `--days` (default: 30) |
 
-## Operations (9 commands)
+## Operations (12 commands)
 
 | Command | Description | Options |
 |---------|-------------|---------|
@@ -93,9 +96,11 @@ All commands are invoked via `python -m src.main <command> [options]`.
 | `resume-trading` | Resume trading after a halt | |
 | `preflight` | Run system preflight check (config, APIs, LLM, DB) | |
 | `startup` | **Validate system and launch watch loop** — runs tiered checks (config, schema, env, connectivity, services), auto-fixes schema, sends Telegram notification, then launches watch loop | `--email-mode` (default: digest), `--no-overnight`, `--force`, `--check-only` |
-| `council` | Run an AI Council deliberation session | `--type` (daily, strategic, on_demand) |
-| `watch` | Start the automated scan/monitor loop (prefer `startup` instead) | `--email-mode` (full_stream, daily_summary, silent), `--overnight` |
+| `council` | Run an AI Council deliberation session | `--type` (daily, weekly, monthly, strategic), `--question`/`-q` |
+| `watch` | Start the automated scan/monitor loop (prefer `startup` instead) | `--email-mode` (full_stream, daily_summary, digest, silent), `--overnight` |
 | `dashboard` | Start the FastAPI + React dashboard server | `--port` (default: 8000) |
+| `validate-system` | Run system validation checks across all subsystems | `--json`, `--fix` |
+| `validate-schema` | Validate database schema against registry | `--fix`, `--postgres` |
 
 ## Command Count Summary
 
@@ -103,11 +108,11 @@ All commands are invoked via `python -m src.main <command> [options]`.
 |----------|-------|
 | Core Pipeline | 8 |
 | Shadow Trading | 4 |
-| Live Trading | 3 |
+| Live Trading | 4 |
 | Review & Analysis | 6 |
 | Training Data | 5 |
 | Training Quality | 5 |
 | Training Execution | 2 |
-| Evaluation | 7 |
-| Operations | 9 |
-| **Total** | **49** |
+| Evaluation | 9 |
+| Operations | 12 |
+| **Total** | **55** |

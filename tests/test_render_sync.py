@@ -267,8 +267,8 @@ class TestPostgresUpsert:
         )
 
         assert count == 1
-        # Should have DELETE + INSERT calls
-        assert mock_cursor.execute.call_count == 2
+        # SAVEPOINT + DELETE + INSERT + RELEASE SAVEPOINT = 4 execute calls
+        assert mock_cursor.execute.call_count == 4
         mock_conn.commit.assert_called_once()
 
 

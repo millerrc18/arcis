@@ -35,11 +35,28 @@ except ImportError:
     sys.exit(1)
 
 
+# Keys that should live in .env / os.environ, NOT in YAML config.
+# check_config.py skips these when diffing — their absence in YAML is correct.
+ENV_VAR_KEYS = {
+    "alpaca.api_key", "alpaca.api_secret",
+    "live_trading.api_key", "live_trading.secret_key",
+    "training.anthropic_api_key",
+    "data_enrichment.finnhub_api_key", "data_enrichment.fred_api_key",
+    "telegram.bot_token", "telegram.chat_id",
+}
+
+
 def deep_diff(example: dict, local: dict, path: str = "") -> list[dict]:
-    """Find keys in example that are missing from local."""
+    """Find keys in example that are missing from local.
+
+    Excludes keys in ENV_VAR_KEYS — those secrets belong in .env, not YAML.
+    """
     diffs = []
     for key, value in example.items():
         full_path = f"{path}.{key}" if path else key
+        # Skip secrets that should be in .env
+        if full_path in ENV_VAR_KEYS:
+            continue
         if key not in local:
             diffs.append({
                 "path": full_path,
@@ -70,10 +87,12 @@ def main():
         print(f"   Copy the example: cp {example_path} {local_path}")
         return
 
-    with open(example_path) as f:
+    # Fix: explicit UTF-8 encoding — Windows defaults to cp1252 which
+    # fails on non-ASCII characters (emojis in YAML comments).
+    with open(example_path, encoding="utf-8") as f:
         example = yaml.safe_load(f) or {}
 
-    with open(local_path) as f:
+    with open(local_path, encoding="utf-8") as f:
         local = yaml.safe_load(f) or {}
 
     diffs = deep_diff(example, local)

@@ -246,7 +246,8 @@ def _compute_trade_summary(closed: list, open_trades: list, all_trades: list) ->
     peak = 0
     max_dd = 0
     for t in closed:
-        cumulative += t.get("pnl_dollars", 0) or 0
+        # float() cast: pnl_dollars can be TEXT from SQLite (#195 pattern)
+        cumulative += float(t.get("pnl_dollars") or 0)
         if cumulative > peak:
             peak = cumulative
         dd = peak - cumulative
@@ -255,8 +256,9 @@ def _compute_trade_summary(closed: list, open_trades: list, all_trades: list) ->
     max_dd_pct = (max_dd / peak * 100) if peak > 0 else 0
 
     # Profit factor (gross wins / gross losses)
-    gross_wins = sum(t.get("pnl_dollars", 0) or 0 for t in winners)
-    gross_losses = abs(sum(t.get("pnl_dollars", 0) or 0 for t in losers))
+    # float() casts prevent abs(str) TypeError when pnl_dollars is TEXT
+    gross_wins = sum(float(t.get("pnl_dollars") or 0) for t in winners)
+    gross_losses = abs(sum(float(t.get("pnl_dollars") or 0) for t in losers))
     profit_factor = gross_wins / gross_losses if gross_losses > 0 else (float('inf') if gross_wins > 0 else 0)
 
     # Max consecutive losses (#254) — a key behavioral risk metric.
