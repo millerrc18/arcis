@@ -141,3 +141,46 @@ Tagged retroactively as rollback point.
 All work from project inception through April 2, 2026.
 Sprints 4A-8, reconciliation, analytics migration, dashboard redesign, log audit, data integrity, mega sprint.
 See CHANGELOG.md for full history.
+
+---
+
+### v0.12.0 — 2026-04-04
+**Codebase documentation + issue resolution + gap analysis**
+
+116 files changed, +3,757 lines. 0 pre-existing issues remaining.
+
+**Issue resolution (11 closed):**
+- #248: Bracket monitor false alarms — Alpaca enum prefix stripped
+- #249: System validator reads env vars, not YAML
+- #250: Dark mode chart visibility — CSS variables defined
+- #251: Packet commentary — raw template headers stripped
+- #253: Open positions unrealized P&L computed
+- #254: Max consecutive losses wired from cto_report
+- #247: Metric cards centered
+- #252: Stress test Run button via command queue
+- #255: React Flow diagram polish
+- #239: Daily audit baseline updated
+- #222: Telegram pairing documented
+
+**Codebase documentation:**
+- WHY-focused inline comments on all 200+ Python files
+- 30 closed issues cross-referenced in code at fix locations
+- Strategy decisions (#1-#24) cited at implementation points
+- Research paper citations at relevant code sections
+
+**Gap analysis (15 new issues filed):**
+- #256: Options metrics query wrong columns (pipeline dead)
+- #257: _safe_run done-flags set on failure (tasks never retry)
+- #258: 220+ sqlite3.connect() bypass connect_db (no busy_timeout)
+- #259: pull_commands marks all claimed even on insert failure
+- #260: Options chains unbounded growth (no retention)
+- #261: Options flow collected but unused in training
+- #262: earnings_signals swallows all errors
+- #263: Duplicate log in place_bracket_order
+- #264: open_shadow_trade returns dict on buying power fail
+- #265: review_scorecard/postmortems are stubs
+- #266: shadow_account queries wrong columns
+- #267: Traffic light defaults to 1.0 (no regime protection)
+- #268: compute_canary_score import broken
+- #269: _notify_exit_trade missing parameters
+- #270: No market holiday calendar
