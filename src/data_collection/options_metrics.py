@@ -72,6 +72,7 @@ def compute_options_metrics(
                 underlying_price = rows[0]["underlying_price"]
                 if not underlying_price:
                     continue
+                underlying_price = float(underlying_price)
 
                 # Split calls and puts
                 calls = [r for r in rows if r["option_type"] == "call"]
@@ -172,8 +173,11 @@ def _find_atm_iv(calls: list, underlying_price: float) -> float | None:
     if not calls:
         return None
     # Find the call closest to spot price
-    best = min(calls, key=lambda r: abs(r["strike"] - underlying_price))
-    return best["implied_volatility"]
+    best = min(calls, key=lambda r: abs(float(r["strike"] or 0) - underlying_price))
+    iv = best["implied_volatility"]
+    if iv is None or iv == "":
+        return None
+    return float(iv)
 
 
 def _compute_iv_skew(
@@ -191,15 +195,16 @@ def _compute_iv_skew(
     # 25-delta call is roughly 5% OTM (above spot)
     call_target = underlying_price * 1.05
 
-    best_put = min(puts, key=lambda r: abs(r["strike"] - put_target))
-    best_call = min(calls, key=lambda r: abs(r["strike"] - call_target))
+    best_put = min(puts, key=lambda r: abs(float(r["strike"] or 0) - put_target))
+    best_call = min(calls, key=lambda r: abs(float(r["strike"] or 0) - call_target))
 
+    # Fix for #292: all values from SQLite may be TEXT strings
     put_iv = best_put["implied_volatility"]
     call_iv = best_call["implied_volatility"]
 
-    if put_iv is not None and call_iv is not None:
-        return round(put_iv - call_iv, 4)
-    return None
+    if put_iv is None or put_iv == "" or call_iv is None or call_iv == "":
+        return None
+    return round(float(put_iv) - float(call_iv), 4)
 
 
 def _compute_iv_rank(
@@ -226,7 +231,7 @@ def _compute_iv_rank(
         (ticker, today_str),
     ).fetchall()
 
-    historical_ivs = [r[0] for r in rows if r[0] is not None]
+    historical_ivs = [float(r[0]) for r in rows if r[0] is not None]
 
     if len(historical_ivs) < 20:
         return None, None

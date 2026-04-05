@@ -365,19 +365,31 @@ def _replace_latest_in_postgres(
     if "id" in columns:
         null_ids = [r for r in rows if r.get("id") is None]
         if null_ids:
+            # Fix for #293: Use longer timeout (30s) and retry once.
+            # The collector may be doing a bulk INSERT of 42K+ rows
+            # concurrently, causing "database is locked" at 10s.
             try:
                 from src.config import DB_PATH as _sync_db
                 import sqlite3 as _sync_sql
-                with _sync_sql.connect(_sync_db, timeout=10) as _fix_conn:
-                    _fixed = _fix_conn.execute(
-                        f"UPDATE {table_name} SET id = rowid WHERE id IS NULL"
-                    ).rowcount
-                    _fix_conn.commit()
-                    if _fixed:
-                        logger.info("Auto-repaired %d NULL ids in %s from ROWID", _fixed, table_name)
-                        # Patch the in-memory rows too
-                        for r in null_ids:
-                            r["id"] = id(r)  # Placeholder — will be stripped for Postgres
+                import time as _sync_time
+                _repaired = False
+                for _attempt in range(2):
+                    try:
+                        with _sync_sql.connect(_sync_db, timeout=30) as _fix_conn:
+                            _fixed = _fix_conn.execute(
+                                f"UPDATE {table_name} SET id = rowid WHERE id IS NULL"
+                            ).rowcount
+                            _fix_conn.commit()
+                            if _fixed:
+                                logger.info("Auto-repaired %d NULL ids in %s from ROWID", _fixed, table_name)
+                            _repaired = True
+                            break
+                    except _sync_sql.OperationalError:
+                        if _attempt == 0:
+                            _sync_time.sleep(2)  # Brief wait before retry
+                if _repaired:
+                    for r in null_ids:
+                        r["id"] = id(r)  # Placeholder — will be stripped for Postgres
             except Exception as e:
                 logger.warning("NULL id auto-repair failed for %s: %s", table_name, e)
             # Final filter — skip any remaining NULLs that couldn't be repaired
