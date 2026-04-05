@@ -43,6 +43,114 @@ if vix > 35:
 
 ---
 
+## GitHub Issue Rectification — MANDATORY
+
+**Every bug fix, workaround, type cast, or defensive pattern in the codebase must reference the GitHub issue that caused it.** This is critical because AI agents are the sole developers — without issue references, the context for WHY a `float()` cast or a `try/except` exists is lost forever.
+
+**Step 1: Get the full closed issue list.** Run:
+```bash
+# Get all closed issues with titles
+gh issue list --state closed --limit 200 --json number,title | python3 -c "
+import json, sys
+for i in json.load(sys.stdin):
+    print(f'#{i[\"number\"]}: {i[\"title\"]}')
+"
+```
+
+Or if `gh` CLI isn't available, read this reference list of key issues and their fixes:
+
+| Issue | Root Cause | Where the fix lives |
+|---|---|---|
+| #181 | SQLite database corruption from OneDrive sync | Schema registry (`src/schema/registry.py`), recovery script |
+| #182 | Reconciliation crash: `name 'now' not defined` | `watch.py` — restructured in PR #203 |
+| #183 | Conviction parsing 99% broken (143/145 None) | `llm/packet_writer.py` — 5 extraction patterns added |
+| #184 | Recovery DB missing 11 time columns | Schema registry auto-creates on startup |
+| #185 | Postgres duplicate key violations | `render_sync.py` — `ON CONFLICT DO NOTHING` |
+| #186 | Postgres missing `last_transition_at` | Added to schema registry |
+| #187 | 44 failed shadow trades — buying power | Paper buying power check in executor |
+| #188 | PFE -14 shares — short in long-only | Negative shares guard in reconcile backfill |
+| #191 | reconcile.py exceeds 400-line guardrail | Extracted helper functions |
+| #195 | TypeError: pnl_dollars returned as string | `float()` cast in data_collector |
+| #196 | Duplicate exit orders without cancel | `cancel_paper_order()` before retry |
+| #197 | Finnhub API key in URL query params | `X-Finnhub-Token` header |
+| #198 | VRAM handoff lacks aggressive cleanup | Escalation in `vram_manager.py` |
+| #199 | Render sync single connection, no recovery | Per-table reconnection |
+| #106 | Kill switch not atomic, no staleness | Atomic write + staleness check |
+| #112 | VRAM not freed after training | `torch.cuda.empty_cache()` |
+| #132 | Fallback to placeholder API keys | Config validation on load |
+| #147 | No exponential backoff on network failures | Retry utility applied everywhere |
+
+**Step 2: For every fix in the codebase, add the issue reference.**
+
+Examples of what to add:
+
+```python
+# Fix for #195: SQLite returns TEXT for numeric columns after DB recovery.
+# pnl_dollars was "5.25" (string), not 5.25 (float). abs("5.25") throws TypeError.
+pnl = float(trade.get("pnl_dollars", 0) or 0)
+
+# Fix for #185: Postgres duplicate key violations during sync after DB recovery.
+# Use ON CONFLICT DO NOTHING instead of failing the entire sync batch.
+sql = f"INSERT INTO {table} ({cols}) VALUES ({placeholders}) ON CONFLICT DO NOTHING"
+
+# Fix for #197: Finnhub API key was exposed in URL query params and logged in plaintext.
+# Moved to X-Finnhub-Token header per Finnhub API docs.
+headers = {"X-Finnhub-Token": api_key}
+
+# Fix for #183: LLM conviction parsing was 99% broken. The model outputs conviction
+# in 5+ different formats. These fallback patterns cover all observed formats:
+# 1. <metadata>Conviction: 7</metadata> (XML, original format)
+# 2. <conviction>7</conviction> (model-preferred tag)
+# 3. Conviction: 7/10 (plain text with denominator)
+# 4. **Conviction:** 7 (markdown bold)
+# 5. CONVICTION: 7 (uppercase plain text)
+
+# Fix for #196: Shadow trading exit retry submitted duplicate orders without
+# canceling pending ones. Now cancel first, then resubmit.
+cancel_paper_order(existing_order_id)
+
+# Guard for #188: PFE was backfilled with -14 shares (short position in long-only system).
+# Negative shares should never exist — reject at backfill time.
+if shares < 0:
+    logger.warning("[RECONCILE] Rejecting negative shares for %s: %d", ticker, shares)
+    continue
+```
+
+**Step 3: For strategy decisions, reference the decision number.**
+
+```python
+# Strategy Decision #18: Mechanical bracket exits are optimal through 200 trades.
+# Don't over-engineer exit management until we have statistical significance.
+stop_price = entry_price - (atr * 2.0)  # 2.0 ATR per Decision #18
+
+# Strategy Decision #22: 4-tier multi-cadence scanning.
+# 15min positions / 30min universe / 60min sentiment / daily fundamentals
+POSITION_MONITOR_INTERVAL = 900  # 15 min — Tier 1 (Decision #22)
+
+# Strategy Decision #6: Equal weight (1/N) beats all optimization methods until 200+ trades.
+# Don't try Kelly criterion, risk parity, or HRP until we have enough data.
+weight = 1.0 / max_positions
+```
+
+**Step 4: For research-backed decisions, cite the paper.**
+
+```python
+# McLean & Pontiff (2015): 58% post-publication anomaly decay for academic factors.
+# This is why we DON'T use published factors like momentum/value at face value —
+# the edge has been arbitraged away for S&P 100 stocks.
+
+# Martineau (2022), Subrahmanyam (2025): PEAD is dead for large-cap stocks.
+# Eliminated as Strategy #2 candidate in favor of mean reversion.
+
+# Golden ratio: He et al. (2025) — 62/38 curated-to-synthetic data ratio
+# prevents model collapse while maximizing training data volume.
+GOLDEN_RATIO = 0.62
+```
+
+**DO NOT SKIP THIS SECTION.** Every `float()` cast, every `try/except`, every `ON CONFLICT`, every magic number, every `if` guard that looks defensive — find the issue or decision that caused it and add the reference. If you can't find the issue, add `# Defensive guard — issue number unknown` so a future agent knows to investigate.
+
+---
+
 ## Phase 1: Critical Path Files (do these first)
 
 These are the files CC modifies most often and where context loss causes the most bugs.
@@ -177,17 +285,35 @@ After ALL commenting is complete:
 - `wc -l src/scheduler/watch.py` — should not exceed ~3,300 (was 3,080, comments add ~7%)
 - Spot check: open 5 random files and verify comments explain WHY, not WHAT
 
+**Issue rectification check:**
+```bash
+# Every closed issue should be referenced at least once in the codebase
+for issue in 106 112 132 147 181 182 183 184 185 186 187 188 191 195 196 197 198 199; do
+  count=$(grep -rn "#$issue" src/ scripts/ --include="*.py" | grep -v __pycache__ | wc -l)
+  echo "#$issue: $count references"
+done
+```
+Target: every issue has ≥1 reference in the file where its fix lives. Issues with 0 references need a comment added.
+
 ---
 
 ## Commit
 
 ```bash
 git add src/ scripts/
-git commit -m "docs: comprehensive inline comments across 200+ Python files
+git commit -m "docs: comprehensive inline comments + GitHub issue rectification
 
 Added WHY-focused comments to every Python module in src/ and scripts/.
-Priority: business logic rationale, strategy decision references, gotchas,
-magic number explanations, data flow documentation.
+Every bug fix, workaround, and defensive pattern now references its
+GitHub issue number for full traceability.
+
+Comment categories:
+- Business logic rationale with strategy decision references (#1-#24)
+- Bug fix provenance with GitHub issue cross-references (#82-#199)
+- Research citations with paper references (McLean & Pontiff, etc.)
+- Gotchas and failure modes for future AI agents
+- Magic number explanations with decision traceability
+- Data flow documentation
 
 Key files commented:
 - watch.py: 27 event blocks, timing rationale, recovery logic
@@ -197,6 +323,10 @@ Key files commented:
 - governor.py: 8 check thresholds with strategy decision references
 - council/engine.py: Modified Delphi protocol, anti-sycophancy
 - trainer.py: curriculum stages, VRAM handoff, champion-challenger
+- render_sync.py: ON CONFLICT (#185), per-table reconnect (#199)
+- packet_writer.py: conviction parsing patterns (#183)
+- data_collector.py: float() casts (#195), self-blinding architecture
 
-Zero logic changes. Zero behavior changes. Test count unchanged."
+Zero logic changes. Zero behavior changes. Test count unchanged.
+18 closed issues cross-referenced across the codebase."
 ```
