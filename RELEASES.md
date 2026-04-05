@@ -219,3 +219,29 @@ See CHANGELOG.md for full history.
 - #266: shadow_account queries unified
 - #268: Dead canary_score import removed
 - #270: NYSE 2026 holiday calendar added
+
+---
+
+### v0.14.0 — 2026-04-05
+**Interactive Brokers integration — broker abstraction layer**
+
+5 new files, 19 new tests. Multi-broker architecture deployed.
+
+**New files:**
+- `src/trading/broker_interface.py` — Abstract BrokerAdapter (10 methods) + normalized dataclasses
+- `src/trading/broker_factory.py` — Singleton factory, config-driven routing
+- `src/trading/ib_broker.py` — IB adapter via ib_async, lazy connection, GTC bracket orders
+- `src/trading/alpaca_broker.py` — Thin wrapper over existing alpaca_adapter.py
+- `tests/test_broker_interface.py` — 19 tests (interface compliance, factory routing, dataclasses)
+
+**Architecture:**
+- Paper trading unchanged (Alpaca direct, no abstraction needed)
+- Live trading routes through broker factory: `config.live_trading.broker = "ib" | "alpaca"`
+- Executor wired: `open_live_trade()` calls `get_live_broker(config)` instead of direct Alpaca
+- Schema: `broker` column added to `shadow_trades` (default "alpaca")
+- Config: `settings.example.yaml` updated with IB settings (host, port, client_id)
+
+**NOT included (requires IB Gateway on Windows):**
+- IB Gateway installation and connection verification
+- Startup validation for IB connectivity
+- Live trading on IB (start with paper port 4002)

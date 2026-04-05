@@ -58,7 +58,7 @@ with an unbeatable technological moat.
 | Open positions | ~37 (33 paper + 4 live) |
 | Model | halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF) |
 | Training data | 979 examples, scored, 20+ unique tickers |
-| Tests | 1,367 functions across 111 test files |
+| Tests | 1,386 functions across 112 test files |
 | Python files | 197 |
 | Dashboard pages | 18 |
 | Research docs | 70 |
@@ -750,7 +750,8 @@ VIX >40, system offline.
 | 6 | Outcome metadata + conditioned training | DONE -- PR #203, 3-5x data yield |
 | 7 | Historical stress testing | DONE -- PR #203, 2008/2020/2022 scenarios |
 | 8 | Bug bash + conviction parsing (#183) | DONE -- v0.11.0, all issues closed |
-| 9 | iOS app (Capacitor) | QUEUED -- v0.12.0, native wrapper for dashboard |
+| 9 | IB integration (broker abstraction) | DONE -- v0.14.0, 5 new files, 19 tests |
+| 10 | iOS app (Capacitor) | QUEUED -- v0.12.0, native wrapper for dashboard |
 | 10 | Repo reorganization | Backlog |
 | 11 | architecture.md refresh | Backlog |
 
