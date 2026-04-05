@@ -102,6 +102,51 @@ def _regime_adjustment(features: dict) -> float:
     return max(-10, min(10, adj))
 
 
+def _compute_sector_rs(ticker_features: dict, sector_ohlcv: dict | None) -> float | None:
+    """Compute relative strength vs sector ETF over 1m/3m/6m periods.
+
+    Returns combined RS score (0-25) or None if sector data unavailable.
+    Uses same methodology as existing SPY RS but against sector ETF.
+    """
+    if not sector_ohlcv:
+        return None
+
+    # sector_ohlcv expected to have return fields like sector_return_1m, etc.
+    ticker_returns = {
+        "1m": ticker_features.get("return_1m", 0),
+        "3m": ticker_features.get("return_3m", 0),
+        "6m": ticker_features.get("return_6m", 0),
+    }
+    sector_returns = {
+        "1m": sector_ohlcv.get("return_1m", 0),
+        "3m": sector_ohlcv.get("return_3m", 0),
+        "6m": sector_ohlcv.get("return_6m", 0),
+    }
+
+    # Compute excess returns over sector (weighted: 50% 3m, 30% 6m, 20% 1m)
+    excess = {}
+    for period in ("1m", "3m", "6m"):
+        t_ret = ticker_returns[period] or 0
+        s_ret = sector_returns[period] or 0
+        excess[period] = t_ret - s_ret
+
+    weighted_excess = (
+        0.20 * excess["1m"] +
+        0.50 * excess["3m"] +
+        0.30 * excess["6m"]
+    )
+
+    # Classify and score (0-25 scale, matching market RS range)
+    if weighted_excess > 5.0:
+        return 25  # strong_outperformer vs sector
+    elif weighted_excess > 2.0:
+        return 15  # outperformer vs sector
+    elif weighted_excess > -2.0:
+        return 5   # neutral vs sector
+    else:
+        return 0   # underperformer vs sector
+
+
 def _score_ticker(features: dict) -> float:
     """Score a single ticker on a 0-100 scale. Deterministic, no randomness."""
     score = 0.0
@@ -115,18 +160,22 @@ def _score_ticker(features: dict) -> float:
     elif trend == "neutral":
         score += 5
 
-    # Relative strength
-    rs = features.get("relative_strength_state", "")
-    if rs == "strong_outperformer":
-        score += 25
-    elif rs == "outperformer":
-        score += 15
+    # Two-tier relative strength: 60% vs SPY + 40% vs sector ETF
+    market_rs = features.get("relative_strength_state", "")
+    market_rs_score = 25 if market_rs == "strong_outperformer" else 15 if market_rs == "outperformer" else 0
 
-    # Pullback depth (sweet spot: -3% to -10%)
+    sector_rs_score = features.get("_sector_rs_score")
+    if sector_rs_score is not None:
+        combined_rs = 0.6 * market_rs_score + 0.4 * sector_rs_score
+    else:
+        combined_rs = market_rs_score  # Fallback to market-only
+    score += combined_rs
+
+    # Pullback depth: narrowed for S&P 100 large-caps
     pullback = features.get("pullback_depth_pct", 0.0)
-    if -10 <= pullback <= -3:
+    if -8 <= pullback <= -3:
         score += 25
-    elif -15 <= pullback < -10:
+    elif -12 <= pullback < -8:
         score += 10
 
     # Distance to SMA20 (pulling back toward support: -1% to -5%)
@@ -134,10 +183,10 @@ def _score_ticker(features: dict) -> float:
     if -5 <= dist_sma20 <= -1:
         score += 10
 
-    # Volume contraction on pullback
+    # Volume contraction on pullback (increased weight from research)
     vol_ratio = features.get("volume_ratio_20d", 1.0)
     if vol_ratio < 0.8:
-        score += 10
+        score += 15
 
     # Options sentiment (9A) — IV rank and put/call as signals
     iv_rank = features.get("iv_rank")
@@ -156,17 +205,21 @@ def _score_ticker(features: dict) -> float:
     return max(0, min(100, score))
 
 
-def rank_universe(features: dict[str, dict]) -> list[dict]:
+def rank_universe(features: dict[str, dict],
+                  sector_etf_features: dict[str, dict] | None = None) -> list[dict]:
     """Rank all tickers and classify each as packet_worthy, watchlist, or not_interesting.
 
     Args:
         features: Output of compute_all_features — dict mapping ticker -> feature dict.
+        sector_etf_features: Optional dict mapping sector ETF ticker -> feature dict
+            with return_1m/3m/6m for two-tier RS. If None, falls back to market-only RS.
 
     Returns:
         List of dicts with keys: ticker, score, qualification, features.
         Sorted by score descending.
     """
     from src.features.regime import compute_sector_context, classify_regime
+    from src.universe.sectors import get_sector_etf
 
     # Detect current regime for adaptive thresholds
     regime_type = None
@@ -180,6 +233,15 @@ def rank_universe(features: dict[str, dict]) -> list[dict]:
     thresholds = _load_thresholds(regime_type=regime_type)
     packet_threshold = thresholds["packet_worthy"]
     watchlist_threshold = thresholds["watchlist"]
+
+    # Pre-compute sector RS for each ticker (if sector ETF data available)
+    if sector_etf_features:
+        for ticker, feat in features.items():
+            etf = get_sector_etf(ticker)
+            if etf and etf in sector_etf_features:
+                sector_score = _compute_sector_rs(feat, sector_etf_features[etf])
+                if sector_score is not None:
+                    feat["_sector_rs_score"] = sector_score
 
     # First pass: score all tickers and store scores in features
     scored = {}
