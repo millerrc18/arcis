@@ -118,22 +118,30 @@ def collect_analyst_estimates(
 
                 time.sleep(0.5)  # Rate limit between calls
 
-                # Fetch price targets
-                pt_resp = retry_with_backoff(
-                    lambda: requests.get(
-                        f"{FINNHUB_BASE}/stock/price-target",
-                        params={"symbol": ticker},
-                        headers=finnhub_headers,
-                        timeout=15,
-                    ),
-                    max_retries=3, base_delay=2.0,
-                    exceptions=(requests.RequestException, ConnectionError, OSError),
-                )
-                if pt_resp is None:
-                    logger.warning("[ANALYST] Failed to fetch price targets for %s after retries", ticker)
-                    continue
-                pt_resp.raise_for_status()
-                pt = pt_resp.json()
+                # Fetch price targets — BAND-AID for #291: /stock/price-target
+                # requires Finnhub premium ($49/mo). Skip gracefully on 403 so
+                # recommendations (free endpoint) still get stored. Price target
+                # fields will be NULL until we either upgrade or switch to yfinance.
+                pt = {}
+                try:
+                    pt_resp = retry_with_backoff(
+                        lambda: requests.get(
+                            f"{FINNHUB_BASE}/stock/price-target",
+                            params={"symbol": ticker},
+                            headers=finnhub_headers,
+                            timeout=15,
+                        ),
+                        max_retries=1, base_delay=1.0,
+                        exceptions=(requests.RequestException, ConnectionError, OSError),
+                    )
+                    if pt_resp is not None and pt_resp.status_code == 200:
+                        pt = pt_resp.json()
+                    elif pt_resp is not None and pt_resp.status_code == 403:
+                        if ticker == to_collect[0]:  # Log once, not 102 times
+                            logger.warning("[ANALYST] price-target endpoint returned 403 "
+                                           "(premium required, #291) — storing recommendations only")
+                except Exception:
+                    pass  # Price targets are nice-to-have, not critical
 
                 # Use latest recommendation entry
                 latest_rec = recs[0] if recs else {}
