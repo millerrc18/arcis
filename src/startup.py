@@ -116,29 +116,37 @@ def check_config(config: dict, db_path: str = DB_PATH) -> list[CheckResult]:
         ))
         return results  # No point checking placeholders if no local config
 
-    # Check for placeholder values in critical keys
+    # Check for placeholder values in critical keys.
+    # Fix: Check os.environ FIRST — secrets live in .env, not YAML (#249).
+    # Only flag as placeholder if BOTH env var AND yaml value are missing/placeholder.
+    import os as _os
     placeholder_re = re.compile(r"^your[-_]|placeholder|example|YOUR_|^$", re.IGNORECASE)
     critical_keys = [
-        ("alpaca", "api_key", "alpaca.api_key"),
-        ("alpaca", "api_secret", "alpaca.api_secret"),
+        ("alpaca", "api_key", "alpaca.api_key", "ALPACA_API_KEY"),
+        ("alpaca", "api_secret", "alpaca.api_secret", "ALPACA_API_SECRET"),
     ]
     found_placeholders = []
-    for section, key, path in critical_keys:
-        value = config.get(section, {}).get(key, "")
-        if isinstance(value, str) and placeholder_re.search(value):
-            found_placeholders.append(path)
+    for section, key, path, env_var in critical_keys:
+        # Check env var first — if set, YAML value doesn't matter
+        env_value = _os.environ.get(env_var, "")
+        if env_value and not placeholder_re.search(env_value):
+            continue  # Real value in env — skip
+        # Fall back to YAML
+        yaml_value = config.get(section, {}).get(key, "")
+        if isinstance(yaml_value, str) and placeholder_re.search(yaml_value):
+            found_placeholders.append(f"{path} (or env {env_var})")
 
     if found_placeholders:
         results.append(CheckResult(
             name="config_placeholders", category="config", status="critical",
             detail=f"Placeholder values: {', '.join(found_placeholders)}",
-            fix_hint="Replace YOUR_* values in settings.local.yaml with real credentials",
+            fix_hint="Set env vars (ALPACA_API_KEY, etc.) in .env or replace placeholders in YAML",
         ))
     else:
         results.append(CheckResult(
             name="config_placeholders", category="config", status="ok",
             detail="No placeholder values detected",
-            fix_hint="Replace YOUR_* values in settings.local.yaml with real credentials",
+            fix_hint="",
         ))
 
     return results
@@ -232,14 +240,16 @@ def check_connectivity(config: dict, db_path: str = DB_PATH) -> list[CheckResult
     """Check Alpaca, Ollama, and Render Postgres connectivity."""
     results = []
 
-    # Alpaca
+    # Alpaca — check os.environ first, then YAML fallback (#249 pattern)
     try:
+        import os as _os2
         import requests
         alpaca_cfg = config.get("alpaca", {})
-        api_key = alpaca_cfg.get("api_key", "")
-        api_secret = alpaca_cfg.get("api_secret", "")
-        base_url = alpaca_cfg.get("base_url", "https://paper-api.alpaca.markets")
-        if api_key and api_key != "YOUR_PAPER_API_KEY":
+        api_key = _os2.environ.get("ALPACA_API_KEY", alpaca_cfg.get("api_key", ""))
+        api_secret = _os2.environ.get("ALPACA_API_SECRET", alpaca_cfg.get("api_secret", ""))
+        base_url = _os2.environ.get("ALPACA_BASE_URL", alpaca_cfg.get("base_url", "https://paper-api.alpaca.markets"))
+        _is_placeholder = any(p in (api_key or "").lower() for p in ("your", "placeholder", "example"))
+        if api_key and not _is_placeholder:
             resp = requests.get(
                 f"{base_url}/v2/account",
                 headers={
@@ -255,25 +265,25 @@ def check_connectivity(config: dict, db_path: str = DB_PATH) -> list[CheckResult
                 results.append(CheckResult(
                     name="alpaca", category="connectivity", status="ok",
                     detail=f"Alpaca {mode} ${equity:,.0f}",
-                    fix_hint="Check alpaca.api_key and api_secret in settings.local.yaml",
+                    fix_hint="",
                 ))
             else:
                 results.append(CheckResult(
                     name="alpaca", category="connectivity", status="critical",
                     detail=f"Alpaca API returned {resp.status_code}",
-                    fix_hint="Check alpaca.api_key and api_secret in settings.local.yaml",
+                    fix_hint="Check ALPACA_API_KEY in .env or alpaca.api_key in YAML",
                 ))
         else:
             results.append(CheckResult(
                 name="alpaca", category="connectivity", status="critical",
                 detail="Alpaca API key not configured",
-                fix_hint="Set alpaca.api_key and api_secret in settings.local.yaml",
+                fix_hint="Set ALPACA_API_KEY and ALPACA_API_SECRET in .env",
             ))
     except Exception as e:
         results.append(CheckResult(
             name="alpaca", category="connectivity", status="critical",
             detail=f"Alpaca unreachable: {str(e)[:60]}",
-            fix_hint="Check alpaca.api_key and api_secret in settings.local.yaml",
+            fix_hint="Check ALPACA_API_KEY in .env or alpaca.api_key in YAML",
         ))
 
     # Ollama
