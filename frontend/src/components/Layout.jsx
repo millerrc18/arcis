@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Outlet, NavLink } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api'
@@ -36,24 +36,72 @@ const navSections = [
   ]},
 ]
 
+function StatusBar({ status }) {
+  const [time, setTime] = useState('')
+
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date()
+      setTime(now.toLocaleTimeString('en-US', { hour12: false, timeZone: 'America/New_York' }) + ' ET')
+    }
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  const llmStatus = IS_CLOUD ? 'CLOUD' : (status?.ollama_available ? 'ONLINE' : 'OFFLINE')
+  const mktStatus = status?.market_open ? 'OPEN' : 'CLOSED'
+  const tlState = status?.traffic_light || '--'
+  const positions = status?.open_positions ?? '--'
+  const version = 'v0.15.0'
+
+  return (
+    <div
+      className="flex items-center gap-4 px-3 shrink-0 overflow-x-auto"
+      style={{
+        height: 28,
+        background: 'var(--arcis-bg-primary)',
+        borderBottom: '1px solid var(--arcis-border)',
+        fontFamily: 'var(--font-mono)',
+        fontSize: 11,
+        color: 'var(--arcis-text-muted)',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      <span>ARCIS {version}</span>
+      <span style={{ color: 'var(--arcis-border)' }}>|</span>
+      <span>LLM <span style={{ color: llmStatus === 'ONLINE' || llmStatus === 'CLOUD' ? 'var(--arcis-success)' : 'var(--arcis-danger)' }}>{llmStatus}</span></span>
+      <span style={{ color: 'var(--arcis-border)' }}>|</span>
+      <span>MKT <span style={{ color: mktStatus === 'OPEN' ? 'var(--arcis-success)' : 'var(--arcis-text-secondary)' }}>{mktStatus}</span></span>
+      <span style={{ color: 'var(--arcis-border)' }}>|</span>
+      <span>TL: <span style={{ color: tlState === 'GREEN' ? 'var(--arcis-success)' : tlState === 'RED' ? 'var(--arcis-danger)' : tlState === 'AMBER' ? 'var(--arcis-warning)' : 'var(--arcis-text-secondary)' }}>{tlState.toUpperCase()}</span></span>
+      <span style={{ color: 'var(--arcis-border)' }}>|</span>
+      <span>{positions} POSITIONS</span>
+      <span style={{ color: 'var(--arcis-border)' }}>|</span>
+      <span>{time}</span>
+    </div>
+  )
+}
+
 export default function Layout() {
-  const { data: status } = useQuery({ queryKey: ['status'], queryFn: api.getStatus })
+  const { data: status } = useQuery({ queryKey: ['status'], queryFn: api.getStatus, refetchInterval: 30000 })
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   return (
     <div className="flex h-screen overflow-hidden">
-      {/* Mobile overlay */}
       {sidebarOpen && (
         <div className="fixed inset-0 bg-black/50 z-30 md:hidden" onClick={() => setSidebarOpen(false)} />
       )}
 
-      {/* Sidebar */}
-      <aside className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 fixed md:static z-40 w-56 h-full flex flex-col shrink-0 transition-transform duration-200`} style={{ background: 'var(--arcis-bg-primary)', borderRight: '1px solid var(--arcis-border)' }}>
-        <div className="p-4" style={{ borderBottom: '1px solid var(--arcis-border)' }}>
-          <div className="flex items-start justify-between gap-3">
+      <aside
+        className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 fixed md:static z-40 h-full flex flex-col shrink-0 transition-transform duration-200`}
+        style={{ width: 200, background: 'var(--arcis-bg-primary)', borderRight: '1px solid var(--arcis-border)' }}
+      >
+        <div className="px-3 py-3" style={{ borderBottom: '1px solid var(--arcis-border)' }}>
+          <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-extrabold" style={{ color: 'var(--arcis-accent)', letterSpacing: '-0.03em' }}>ARCIS</h1>
-              <div className="text-xs mt-1 uppercase tracking-[0.04em]" style={{ color: 'var(--arcis-text-secondary)' }}>Systematic Equity Research</div>
+              <h1 className="text-lg font-bold tracking-tight" style={{ color: 'var(--arcis-accent)' }}>ARCIS</h1>
+              <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--arcis-text-muted)' }}>Systematic Equity Research</div>
             </div>
             <ThemeToggle />
           </div>
@@ -61,30 +109,27 @@ export default function Layout() {
         <nav className="flex-1 py-1 overflow-y-auto">
           {navSections.map(section => (
             <div key={section.label}>
-              <div className="px-4 pt-4 pb-1 text-[10px] uppercase tracking-[0.08em] font-medium"
-                style={{ color: 'var(--arcis-text-muted)' }}>
+              <div style={{ padding: '12px 12px 4px', fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 500, color: 'var(--arcis-text-muted)' }}>
                 {section.label}
               </div>
               {section.items.map(({ to, icon: Icon, label }) => (
                 <NavLink key={to} to={to} end={to === '/'}
                   onClick={() => setSidebarOpen(false)}
                   className={({ isActive }) =>
-                    `flex items-center gap-3 px-4 py-2 text-sm transition-colors relative ${
+                    `flex items-center gap-2.5 relative ${
                       isActive
-                        ? 'text-[var(--arcis-text-primary)]'
+                        ? 'text-[var(--arcis-text-primary)] font-medium'
                         : 'text-[var(--arcis-text-secondary)] hover:text-[var(--arcis-text-primary)]'
                     }`
-                  }>
+                  }
+                  style={{ padding: '6px 12px', fontSize: 13 }}>
                   {({ isActive }) => (
                     <>
                       {isActive && (
-                        <>
-                          <span className="absolute inset-x-2 inset-y-0 rounded-lg" style={{ background: 'var(--arcis-accent-muted)' }} />
-                          <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded-r" style={{ background: 'var(--arcis-accent)' }} />
-                        </>
+                        <span className="absolute left-0 top-0.5 bottom-0.5" style={{ width: 2, background: 'var(--arcis-accent)' }} />
                       )}
-                      <Icon size={18} className="relative z-10" style={{ color: isActive ? 'var(--arcis-accent)' : 'var(--arcis-text-secondary)' }} />
-                      <span>{label}</span>
+                      <Icon size={15} className="shrink-0" style={{ color: isActive ? 'var(--arcis-accent)' : 'var(--arcis-text-secondary)' }} />
+                      <span className="truncate">{label}</span>
                     </>
                   )}
                 </NavLink>
@@ -93,17 +138,13 @@ export default function Layout() {
           ))}
         </nav>
         {status && (
-          <div className="p-4 text-xs space-y-1" style={{ borderTop: '1px solid var(--arcis-border)' }}>
-            <div className="flex justify-between">
+          <div style={{ padding: '8px 12px', fontSize: 11, borderTop: '1px solid var(--arcis-border)' }}>
+            <div className="flex justify-between" style={{ marginBottom: 4 }}>
               <span style={{ color: 'var(--arcis-text-secondary)' }}>LLM</span>
               {IS_CLOUD
                 ? <StatusBadge text="Cloud" variant="info" />
                 : <StatusBadge text={status.ollama_available ? 'Online' : 'Offline'} variant={status.ollama_available ? 'success' : 'danger'} />
               }
-            </div>
-            <div className="flex justify-between">
-              <span style={{ color: 'var(--arcis-text-secondary)' }}>Model</span>
-              <span style={{ color: 'var(--arcis-text-secondary)' }}>{status.model_version || (IS_CLOUD ? 'cloud' : '--')}</span>
             </div>
             <div className="flex justify-between">
               <span style={{ color: 'var(--arcis-text-secondary)' }}>Shadow</span>
@@ -116,19 +157,18 @@ export default function Layout() {
         )}
       </aside>
 
-      {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Header bar */}
-        <header className="flex items-center h-14 px-4 border-b shrink-0 md:hidden justify-between" style={{ background: 'var(--arcis-bg-primary)', borderColor: 'var(--arcis-border)' }}>
+        <header className="flex items-center px-3 shrink-0 md:hidden justify-between" style={{ height: 40, background: 'var(--arcis-bg-primary)', borderBottom: '1px solid var(--arcis-border)' }}>
           <div className="flex items-center">
-            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1 rounded" style={{ color: 'var(--arcis-text-secondary)' }}>
-              {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
+            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-1" style={{ color: 'var(--arcis-text-secondary)' }}>
+              {sidebarOpen ? <X size={18} /> : <Menu size={18} />}
             </button>
-            <span className="ml-3 text-base font-extrabold" style={{ color: 'var(--arcis-accent)', letterSpacing: '-0.03em' }}>ARCIS</span>
+            <span className="ml-2 text-sm font-bold" style={{ color: 'var(--arcis-accent)' }}>ARCIS</span>
           </div>
           <ThemeToggle />
         </header>
-        <main className="flex-1 overflow-y-auto p-6">
+        <StatusBar status={status} />
+        <main className="flex-1 overflow-y-auto p-4">
           <Outlet />
         </main>
       </div>

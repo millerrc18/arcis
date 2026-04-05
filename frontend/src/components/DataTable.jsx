@@ -32,13 +32,13 @@ export default function DataTable({ columns, data, onRowClick }) {
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+      <table className="w-full" style={{ fontSize: 12 }}>
         <thead>
           <tr style={{ borderBottom: '1px solid var(--arcis-border)' }}>
             {columns.map(col => (
               <th key={col.key}
-                  className={`py-2 px-3 text-xs uppercase tracking-wide cursor-pointer ${numTypes.includes(col.type) ? 'text-right' : 'text-left'}`}
-                  style={{ color: 'var(--arcis-text-secondary)' }}
+                  className={`cursor-pointer select-none ${numTypes.includes(col.type) ? 'text-right' : 'text-left'}`}
+                  style={{ padding: '6px 8px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 500, color: 'var(--arcis-text-secondary)' }}
                   onClick={() => handleSort(col.key)}>
                 {col.label} {sortKey === col.key ? (sortAsc ? '\u2191' : '\u2193') : ''}
               </th>
@@ -48,26 +48,25 @@ export default function DataTable({ columns, data, onRowClick }) {
         <tbody>
           {sorted.map((row, i) => (
             <tr key={i}
-                className={`transition-colors ${onRowClick ? 'cursor-pointer' : ''}`}
-                /* Fix for #250: use theme-aware alternating row background */
-                style={{
-                  borderBottom: '1px solid var(--arcis-border)',
-                  background: i % 2 === 0 ? 'transparent' : 'var(--table-row-alt)',
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--arcis-bg-surface)'}
-                onMouseLeave={(e) => e.currentTarget.style.background = i % 2 === 0 ? 'transparent' : 'var(--table-row-alt)'}
+                className={onRowClick ? 'cursor-pointer' : ''}
+                style={{ height: 28, borderBottom: '1px solid var(--arcis-border)' }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'var(--arcis-bg-elevated)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                 onClick={() => onRowClick?.(row)}>
               {columns.map(col => {
                 const val = row[col.key]
                 const isNum = numTypes.includes(col.type)
-                let style = {}
+                let style = { padding: '4px 8px' }
+                if (isNum) {
+                  style.fontFamily = 'var(--font-mono)'
+                  style.fontVariantNumeric = 'tabular-nums'
+                  style.textAlign = 'right'
+                }
                 if (col.type === 'currency' && val != null) {
                   style.color = val > 0 ? 'var(--arcis-success)' : val < 0 ? 'var(--arcis-danger)' : undefined
                 }
                 return (
-                  <td key={col.key}
-                      className={`py-2 px-3 ${isNum ? 'text-right' : ''}`}
-                      style={{ fontFamily: isNum ? 'var(--font-mono)' : undefined, ...style }}>
+                  <td key={col.key} style={style}>
                     {fmt(val, col.type)}
                   </td>
                 )
@@ -77,7 +76,7 @@ export default function DataTable({ columns, data, onRowClick }) {
         </tbody>
       </table>
       {(!data || data.length === 0) && (
-        <div className="text-center py-8" style={{ color: 'var(--arcis-text-secondary)' }}>No data available</div>
+        <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--arcis-text-secondary)', fontFamily: 'var(--font-mono)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em' }}>NO DATA</div>
       )}
     </div>
   )
