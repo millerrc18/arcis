@@ -1,5 +1,22 @@
 """Build a comprehensive market event calendar from machine-readable sources.
 
+When to run:
+    One-time or annually to regenerate the static reference calendar.
+    The event_risk_score feature engine reads this CSV to compute daily
+    event risk for scan candidates (e.g., avoiding entries around FOMC).
+
+What it reads:
+    - Hardcoded FOMC meeting dates (from federalreserve.gov)
+    - Hardcoded major market events (curated from press releases)
+    - Calendar math for options expirations and index rebalances
+
+What it writes:
+    - data/reference/market_event_calendar.csv
+
+Prerequisites:
+    - No network access or running services required (all data is hardcoded)
+    - data/reference/ directory is created automatically
+
 Sources:
   - FOMC meetings: Federal Reserve website (static schedule)
   - Economic releases: BLS, BEA schedules
@@ -188,7 +205,9 @@ def generate_economic_releases(start_year: int, end_year: int) -> list[dict]:
 
     for year in range(start_year, end_year + 1):
         for month in range(1, 13):
-            # NFP — first Friday
+            # NFP — first Friday of each month per BLS convention.
+            # The actual BLS release schedule may differ by a day in rare cases
+            # (e.g., federal holidays), but first-Friday is accurate for ~95% of months.
             cal = monthcalendar(year, month)
             fridays = [week[FRIDAY] for week in cal if week[FRIDAY] != 0]
             if fridays:
@@ -203,8 +222,10 @@ def generate_economic_releases(start_year: int, end_year: int) -> list[dict]:
                     "market_impact_notes": "Major market mover — typically ±0.5-1.5% S&P impact on surprise",
                 })
 
-            # CPI — approximate 12th-14th
-            cpi_day = min(13, 28)  # Approximate
+            # CPI — approximate 12th-14th of each month.
+            # BLS publishes exact dates annually; this approximation is close enough
+            # for event risk scoring (which uses a +/- 1 day buffer anyway).
+            cpi_day = min(13, 28)
             cpi_date = date(year, month, cpi_day)
             # Adjust to weekday
             while cpi_date.weekday() >= 5:

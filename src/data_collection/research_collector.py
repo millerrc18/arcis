@@ -2,15 +2,25 @@
 
 Called by: scheduler/watch.py
 Calls: data_collection/research_sources.py, llm/client.py
-Owns tables: none
+Owns tables: none (writes to research_papers)
 Config keys: none
 Tests: none
 
-Sources: arXiv, SSRN, HuggingFace daily papers, Reddit, GitHub trending,
-         Anthropic/OpenAI blogs, SEC/FINRA regulatory.
+Table: research_papers
+Schedule: Nightly in overnight pipeline (collector #13)
 
-Relevance scoring via Ollama (zero API cost).
-Runs as collector #13 in the overnight pipeline.
+Sources: arXiv, SSRN, HuggingFace daily papers, Reddit, GitHub trending,
+         Anthropic/OpenAI blogs.
+
+Relevance scoring: First attempts Ollama (zero API cost), falls back to
+keyword-based scoring if Ollama is unavailable (e.g., during training when
+VRAM is handed off to PyTorch). Papers scoring >= 0.4 are stored; lower
+scores are discarded as irrelevant. Stored papers are reviewed in the
+weekly synthesis digest (research_synthesizer.py, Sundays 6 PM).
+
+Deduplication is by external_id (e.g., "arxiv:2401.12345"). The 0.5s
+sleep between Ollama calls prevents saturating inference during overnight
+data collection when other collectors are also running.
 """
 
 import json

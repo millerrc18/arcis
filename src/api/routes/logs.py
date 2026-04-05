@@ -5,6 +5,18 @@ Calls: none
 Owns tables: none (reads log_entries, pending_commands, command_results)
 Config keys: none
 Tests: tests/test_local_routes.py
+
+Endpoints:
+    GET  /logs/recent                 - Query log_entries with level filtering
+    POST /commands/submit             - Submit command to local queue
+    GET  /commands/{command_id}/status - Check command + result status
+    GET  /commands/recent             - Last N commands with results
+
+The command queue enables the cloud dashboard to trigger actions on the local
+machine. The flow: cloud dashboard -> Render Postgres -> sync thread pulls
+to local SQLite -> watch loop executes -> result written back. Commands
+expire after 5 minutes to prevent stale actions from executing after a
+system restart.
 """
 
 import json

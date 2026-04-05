@@ -3,10 +3,22 @@
 Called by: api/routes/actions.py, cli/commands.py, scheduler/watch.py
 Calls: none
 Owns tables: vix_term_structure
-Config keys: none
+Config keys: none (yfinance is free, no key required)
 Tests: none
 
+API: yfinance (free, no key)
+Table: vix_term_structure
+Schedule: Daily in overnight pipeline
+
 Captures VIX, VIX9D, VIX3M, VIX1Y and computes term structure ratios.
+The term_structure_slope (VIX/VIX3M) is a key regime signal:
+  - < 1.0 = contango (normal): short-term vol is below long-term,
+    indicating calm markets. Favorable for the pullback strategy.
+  - > 1.0 = backwardation (fear): short-term vol exceeds long-term,
+    indicating crisis/stress. Position sizing should be reduced.
+
+The near_term_ratio (VIX9D/VIX) captures intraweek fear spikes — a
+ratio > 1.0 means near-term fear is elevated even relative to 30-day VIX.
 """
 
 import logging

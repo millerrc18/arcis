@@ -1,5 +1,19 @@
 """Batch-clean all training examples to standardized XML-only format.
 
+When to run:
+    One-time migration, or after importing a new batch of training examples
+    from ChatGPT or other external sources. The inference parser expects
+    clean XML, so training data must match that format exactly.
+
+What it reads:
+    - training_examples.output_text column from SQLite
+
+What it writes:
+    - Updates training_examples.output_text in-place (destructive — back up first)
+
+Prerequisites:
+    - Database at src/config.DB_PATH with populated training_examples table
+
 Fixes 4 problems:
 1. Markdown headers before XML tags
 2. Bold markers inside analysis/metadata
@@ -24,7 +38,8 @@ def clean_output(text: str) -> str:
     if not text:
         return text
 
-    # 1. Remove any text before first <why_now> tag
+    # 1. Remove any text before first <why_now> tag.
+    # ChatGPT often prepends "Here is the analysis:" or similar preamble.
     wn_match = re.search(r'<why_now>', text, re.IGNORECASE)
     if wn_match:
         text = text[wn_match.start():]
@@ -37,7 +52,8 @@ def clean_output(text: str) -> str:
     # 3. Strip ALL bold markers everywhere
     text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
 
-    # 4. Fix conviction: extract number, round to int, strip /10
+    # 4. Fix conviction: extract number, round to int, strip /10.
+    # ChatGPT outputs "7.5/10" or "**8**" but our parser expects bare "Conviction: 7".
     meta_match = re.search(r'<metadata>(.*?)</metadata>', text, re.DOTALL | re.IGNORECASE)
     if meta_match:
         meta = meta_match.group(1)

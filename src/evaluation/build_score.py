@@ -4,13 +4,32 @@ Six components combined via geometric mean with daily idle-day decay.
 See docs/research/Build_Score_Specification__Composite_KPI.md for the
 full specification.
 
-Components:
+Components (6 dimensions):
     gate_velocity     -- weekly closed trade rate vs 1.92/week target
-    system_health     -- HSHS composite score
+    system_health     -- HSHS composite score (passthrough)
     data_asset_value  -- quality (40%) + diversity (35%) + freshness (25%)
     model_quality     -- 7-day rolling LLM success rate
     research_velocity -- HSHS flywheel_velocity proxy
     reliability       -- scan success rate (60%) + uptime proxy (40%)
+
+Why geometric mean?
+~~~~~~~~~~~~~~~~~~~
+Unlike arithmetic mean, geometric mean *punishes* any single dimension
+being near zero.  A system that scores 95 on five dimensions but 2 on
+reliability is NOT an 80/100 system — it is fragile.  The geometric mean
+naturally produces a low composite when any leg is weak, which forces
+balanced improvement across all dimensions rather than gaming one metric.
+
+Each component is floored at 1.0 (not 0.0) before the geometric mean so
+that a truly-zero dimension doesn't collapse the entire score to zero,
+but it still penalizes heavily (log(1) = 0 drags the product down).
+
+Why idle-day decay?
+~~~~~~~~~~~~~~~~~~~
+A 1-point/day penalty for days with zero activity (no trades, no
+training examples, no scans) ensures the score reflects *ongoing*
+operational health, not a one-time high-water mark.  If the system
+stops running, the score gradually degrades to signal staleness.
 
 Called by: api.cloud_routes.analytics, evaluation.hshs_live
 Calls: evaluation.hshs
@@ -32,26 +51,44 @@ logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
 
-# Gate target: 50 trades in 26 weeks = ~1.92 trades/week
+# Gate target: 50 trades in 26 weeks = ~1.92 trades/week.
+# This is the Phase 1 (paper trading) graduation gate — the system must
+# demonstrate it can sustain a minimum trade cadence before moving to
+# live capital.  The target is deliberately modest to prioritize quality
+# over volume.
 GATE_TARGET_WEEKLY = 1.92
 GATE_TOTAL_TARGET = 50
 
-# Data asset scoring weights
+# Data asset scoring weights — quality dominates because the training
+# data is the system's moat.  High-quality examples (rubric score >= 3.5)
+# are worth more than a large volume of low-quality examples.
 DATA_QUALITY_WEIGHT = 0.40
 DATA_DIVERSITY_WEIGHT = 0.35
 DATA_FRESHNESS_WEIGHT = 0.25
 
-# Reliability weights
+# Reliability weights — scan success rate matters more than raw uptime
+# because a system that is "up" but producing failed scans is worse
+# than one that was briefly down but produced clean scans.
 RELIABILITY_SCAN_WEIGHT = 0.60
 RELIABILITY_UPTIME_WEIGHT = 0.40
-EXPECTED_WEEKLY_SCANS = 65  # 13/day x 5 days
+EXPECTED_WEEKLY_SCANS = 65  # 13/day x 5 weekdays
 
-DECAY_POINTS = 1  # daily idle-day penalty
+# 1-point daily penalty for idle days (no trades, no examples, no scans).
+# Keeps the score from "coasting" on past performance when the system
+# stops running.  Calibrated to be noticeable over a week but not so
+# aggressive that a single weekend tanks the score.
+DECAY_POINTS = 1
 
 DEFAULT_DB = DB_PATH
 
 def _score_gate_velocity(conn: sqlite3.Connection) -> float:
-    """Weekly closed-trade count vs target rate."""
+    """Weekly closed-trade count vs target rate.
+
+    Caps at 100 to avoid over-rewarding high-volume trading at the
+    expense of quality.  The 50x multiplier means hitting 1.92 trades/week
+    (the target) scores 50/100 — you need to exceed the target to score
+    higher, which rewards consistency above the minimum.
+    """
     try:
         cutoff = (datetime.now(ET) - timedelta(days=7)).isoformat()
         cur = conn.execute(
@@ -66,7 +103,12 @@ def _score_gate_velocity(conn: sqlite3.Connection) -> float:
         return 0.0
 
 def _score_system_health(conn: sqlite3.Connection) -> float:
-    """Direct passthrough from HSHS composite score."""
+    """Direct passthrough from HSHS composite score.
+
+    Delegates to the HSHS engine to avoid duplicating health logic.
+    This makes system_health a "meta-dimension" that rolls up the 5
+    HSHS dimensions into the Build Score's 6-component framework.
+    """
     try:
         from src.evaluation.hshs_live import compute_hshs
 
@@ -77,7 +119,14 @@ def _score_system_health(conn: sqlite3.Connection) -> float:
         return 0.0
 
 def _query_diversity(conn: sqlite3.Connection) -> float:
-    """Compute diversity sub-score from regime, outcome balance, ticker breadth."""
+    """Compute diversity sub-score from regime, outcome balance, ticker breadth.
+
+    Diversity matters for training data because a model trained only on
+    bull-market winners will fail in drawdowns.  Three axes:
+      - Regime coverage: all 4 regime labels represented?
+      - Outcome balance: at least 15% losses (avoids survivorship bias)
+      - Ticker breadth: 100 distinct tickers = full score
+    """
     cur = conn.execute(
         "SELECT COUNT(DISTINCT regime_label) FROM training_examples WHERE regime_label IS NOT NULL"
     )
@@ -121,7 +170,14 @@ def _score_data_asset_value(conn: sqlite3.Connection) -> float:
         return 0.0
 
 def _score_model_quality(conn: sqlite3.Connection) -> float:
-    """7-day rolling fallback rate from scan_metrics."""
+    """7-day rolling fallback rate from scan_metrics.
+
+    Measures how often the LLM produces a usable analysis vs falling
+    back to a template.  A high fallback rate means the model is failing
+    to generate valid JSON or meaningful reasoning, which degrades
+    signal quality even if the system keeps running.  Returns 50.0
+    when no scan data exists (neutral assumption during bootstrapping).
+    """
     try:
         cutoff = (datetime.now(ET) - timedelta(days=7)).isoformat()
         cur = conn.execute(
@@ -139,7 +195,13 @@ def _score_model_quality(conn: sqlite3.Connection) -> float:
         return 0.0
 
 def _score_research_velocity(conn: sqlite3.Connection) -> float:
-    """Proxy via HSHS flywheel_velocity dimension."""
+    """Proxy via HSHS flywheel_velocity dimension.
+
+    Rather than computing a separate research metric, this delegates to
+    HSHS's flywheel_velocity which already tracks model version count
+    and training data growth rate — the best available proxies for
+    research momentum.
+    """
     try:
         from src.evaluation.hshs_live import compute_hshs
 
@@ -174,10 +236,17 @@ def _score_reliability(conn: sqlite3.Connection) -> float:
         return 0.0
 
 def _geometric_mean(values: list[float]) -> float:
-    """Weighted geometric mean of component scores.
+    """Geometric mean of component scores (equal weight).
 
     Floors each component at 1.0 to avoid zero-collapse while still
-    penalising very low dimensions heavily.
+    penalising very low dimensions heavily.  The floor is 1.0 (not 0.0)
+    because log(0) is undefined and would crash, but log(1) = 0 still
+    drags the geometric mean down significantly — a dimension scoring
+    1.0 out of 100 effectively halves the composite.
+
+    Equal weighting is intentional: the Build Score is meant to be a
+    balanced health indicator, not a weighted priority like HSHS.  If
+    any single dimension is weak, the whole score should reflect that.
     """
     if not values:
         return 0.0
@@ -189,6 +258,9 @@ def _check_idle_day(conn: sqlite3.Connection) -> bool:
     """Return True if today qualifies as an idle day.
 
     Idle = zero closed trades AND zero new training examples AND zero scans.
+    All three must be zero because the system can legitimately have no
+    trades on a given day (e.g. no setups passed the score threshold)
+    while still collecting data and running scans — that is not "idle".
     """
     today = datetime.now(ET).strftime("%Y-%m-%d")
     try:
@@ -368,7 +440,10 @@ def _build_data_detail(conn: sqlite3.Connection) -> dict:
 def persist_build_score(db_path: str = DEFAULT_DB) -> dict:
     """Compute build score and save to build_score_history table.
 
-    Called daily at 4:30 PM ET by the scheduler.
+    Called daily at 4:30 PM ET by the scheduler (after market close).
+    Uses INSERT OR REPLACE keyed on score_date so re-runs on the same
+    day overwrite rather than duplicate.  The history table powers the
+    7-day trend chart and delta_7d computation on the dashboard.
     """
     result = compute_build_score(db_path)
 

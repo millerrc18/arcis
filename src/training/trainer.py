@@ -5,6 +5,26 @@ Calls: config, llm.client, training.canary, training.claude_client, training.cur
 Owns tables: none
 Config keys: auto_rollback_expectancy_drop, auto_rollback_winrate_drop, auto_train_min_examples, auto_train_threshold, auto_train_time_days, enabled, training
 Tests: tests/test_holdout.py, tests/test_leakage_detector.py, tests/test_trainer.py, tests/test_training_data.py
+
+WHY this architecture:
+    Fine-tuning runs as a subprocess (not in-process) because the training
+    script needs exclusive VRAM access. The watch loop's Ollama instance must
+    be unloaded first (#112: VRAM not freed). Running as a subprocess also
+    provides process isolation -- if training OOMs or segfaults, the main
+    process survives and can report the failure.
+
+    The pipeline has a champion-challenger model with auto-rollback:
+    1. Export data with temporal holdout split (#114)
+    2. Train via 3-stage curriculum (structure -> evidence -> decision)
+    3. Canary evaluation on fixed reference examples
+    4. Holdout evaluation comparing new model vs. previous champion
+    5. Auto-rollback if expectancy or win-rate drops below threshold
+    6. Optional DPO refinement if 100+ preference pairs exist
+
+    #112 — VRAM handoff is coordinated by the watch loop (scheduler.watch),
+    not by this module. The watch loop unloads Ollama before calling
+    run_fine_tune() and reloads it after. This module assumes VRAM is
+    available when called.
 """
 
 import json
@@ -33,7 +53,14 @@ logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
 
-TRAIN_SCRIPT = '''# training_data/train.py — DEPRECATED: legacy single-stage trainer
+# WHY inline script strings instead of separate .py files: the training scripts
+# are written to disk at runtime because they execute in a subprocess with a
+# potentially different Python environment (CUDA-enabled). Keeping them inline
+# ensures the exact script version matches the orchestrator version, avoiding
+# drift between the two. The subprocess pattern also means these scripts cannot
+# import from src/ -- they must be self-contained.
+
+TRAIN_SCRIPT = '''# training_data/train.py -- DEPRECATED: legacy single-stage trainer
 # Uses old Unsloth API. The curriculum script (CURRICULUM_TRAIN_SCRIPT) is the
 # primary training path and uses standard PEFT/TRL 0.24 API instead.
 import json, sys, os
@@ -83,6 +110,22 @@ if __name__ == "__main__":
     main()
 '''
 
+# WHY 3-stage curriculum (structure -> evidence -> decision):
+# Stage 1 (STRUCTURE, lr=3e-4): Simple, clean examples where thesis and
+#   evidence align clearly. Teaches the model output format and basic
+#   analytical reasoning. Highest learning rate because early examples
+#   are furthest from the model's prior.
+# Stage 2 (EVIDENCE, lr=2e-4): Multi-source examples with conflicting
+#   signals (e.g., strong technicals but weak fundamentals). Teaches
+#   evidence weighing and nuanced judgment. Lower LR to avoid
+#   overwriting Stage 1's structural learning.
+# Stage 3 (DECISION, lr=1e-4): Hard cases -- regime transitions, sector
+#   rotations, earnings proximity. Teaches the model to make and justify
+#   difficult calls. Lowest LR for fine-grained refinement.
+# The decreasing LR schedule follows the "curriculum learning" principle:
+# easy examples first with aggressive updates, hard examples last with
+# conservative updates. This prevents catastrophic forgetting of basic
+# structure when learning complex decision-making.
 CURRICULUM_TRAIN_SCRIPT = '''
 import json, sys, os, torch
 
@@ -113,6 +156,16 @@ def main():
         tokenizer.pad_token = tokenizer.eos_token
 
     model = prepare_model_for_kbit_training(model)
+    # WHY r=16, alpha=32 (alpha/r=2): higher rank than the legacy script's r=8
+    # because curriculum training has more diverse examples across 3 stages.
+    # alpha/r=2 keeps the effective learning rate reasonable.
+    # WHY all 7 projection modules: Qwen3's architecture uses gated MLP
+    # (gate_proj + up_proj + down_proj) alongside attention projections.
+    # Training all 7 gives maximum expressiveness on our small dataset
+    # while still being parameter-efficient (~2% of full model params).
+    # WHY dropout=0: with <1000 training examples and strong quality
+    # filtering, regularization via dropout hurts more than it helps.
+    # The holdout evaluation provides the overfitting check instead.
     lora_config = LoraConfig(
         r=16, lora_alpha=32, lora_dropout=0,
         target_modules=["q_proj","k_proj","v_proj","o_proj","gate_proj","up_proj","down_proj"],
@@ -152,7 +205,10 @@ def main():
         if len(ds) < 5:
             print(f"  Dataset too small for {name} ({len(ds)} examples) — skipping")
             continue
-        # #115 — Dynamic gradient accumulation to prevent crash on small datasets
+        # #115 -- Dynamic gradient accumulation to prevent crash on small datasets.
+        # WHY: with batch_size=1, gradient_accumulation_steps must not exceed
+        # dataset size or the trainer throws a division-by-zero. Cap at 16 to
+        # keep effective batch size manageable on 12GB VRAM (RTX 3060).
         effective_gas = min(16, max(1, len(ds)))
         sft_config = SFTConfig(
             per_device_train_batch_size=1,
@@ -196,6 +252,15 @@ if __name__ == "__main__":
     main()
 '''
 
+# WHY DPO after SFT, not standalone: DPO (Direct Preference Optimization)
+# refines an already-capable model by teaching it to prefer better analyses
+# over worse ones. Without SFT first, the model would not know the output
+# format or analytical framework. DPO is gated on 100+ preference pairs
+# because smaller datasets cause the model to overfit to specific phrasings
+# rather than learning genuine quality preferences.
+# WHY beta=0.1: controls how much the model can diverge from the SFT
+# reference policy. 0.1 is conservative -- we want subtle quality
+# improvements, not dramatic behavioral changes.
 DPO_TRAIN_SCRIPT = '''
 import json, sys, os
 os.environ["UNSLOTH_DISABLE_FUSED_CROSS_ENTROPY"] = "1"
@@ -239,6 +304,13 @@ if __name__ == "__main__":
 def should_train(db_path: str = DB_PATH) -> tuple[bool, str]:
     """Check if fine-tuning should be triggered.
 
+    WHY two trigger conditions (threshold OR time+minimum):
+    - Threshold (default 50 examples): when enough new data accumulates,
+      train immediately to capture recent market regime shifts.
+    - Time-based (default 7 days + 20 examples): even if example flow is
+      slow, periodic retraining prevents the model from going stale. The
+      minimum of 20 examples prevents wasteful training on tiny batches.
+
     Returns (should_train, reason_string).
     """
     config = load_config()
@@ -281,12 +353,27 @@ def export_training_data(
     """Export training data with curriculum split and chronological holdout.
 
     Creates:
-        training_data/dataset.jsonl            (combined training — backward compat)
+        training_data/dataset.jsonl            (combined training -- backward compat)
         training_data/stage1_structure.jsonl    (easy/clean examples)
         training_data/stage2_evidence.jsonl     (multi-source examples)
         training_data/stage3_decision.jsonl     (hard/conflicting examples)
-        training_data/holdout.jsonl             (validation split — never trained on)
+        training_data/holdout.jsonl             (validation split -- never trained on)
         training_data/split_info.json           (metadata about the split)
+
+    #114 — WHY chronological (temporal) holdout instead of random split:
+    Financial data is time-series with regime changes. A random 85/15 split
+    would leak future information into training (e.g., training on a March
+    example, validating on a February example from the same regime). The
+    temporal split ensures ALL holdout examples are chronologically AFTER
+    all training examples, with a 5-day gap to prevent information bleeding
+    across the boundary (e.g., a trade opened in training period but closed
+    in holdout period).
+
+    #111 — Canary examples are excluded from both training and holdout to
+    maintain their integrity as a fixed reference set for model evaluation.
+
+    #116 — Partial-close examples are excluded from training (ambiguous P&L
+    labeling) but remain in the database for future analysis.
 
     Returns:
         ({"training": N, "holdout": N}, total_count)
@@ -341,8 +428,12 @@ def export_training_data(
     # #116 — Exclude partial-close examples from training (stored for review only)
     examples = [e for e in examples if "partial" not in (e.get("source") or "")]
 
-    # #114 — Apply temporal split FIRST, then quality filter within each split.
-    # This prevents future leakage when quality filtering removes recent examples.
+    # #114 -- Apply temporal split FIRST, then quality filter within each split.
+    # WHY this order matters: if we quality-filter first, we might remove recent
+    # examples that would have been in the holdout set, causing the temporal
+    # boundary to shift backward and leak more-recent training data. By splitting
+    # first and then filtering independently within each split, the temporal
+    # boundary remains fixed regardless of which examples pass quality checks.
     from datetime import datetime as _dt, timedelta as _td
 
     split_idx = int(len(examples) * (1 - holdout_pct))
@@ -351,6 +442,12 @@ def export_training_data(
 
     split_date = examples[split_idx]["created_at"][:10] if split_idx < len(examples) else ""
 
+    # WHY 5-day gap between training and holdout: trades that span the split
+    # boundary (opened during training window, closed during holdout window)
+    # would leak information in both directions. A 5-day gap exceeds the
+    # median holding period (~3 days for pullback setups), ensuring clean
+    # separation. Examples falling within the gap are discarded -- they belong
+    # to neither split.
     holdout_start_idx = split_idx
     if split_date:
         try:
@@ -369,7 +466,11 @@ def export_training_data(
     train_examples_raw = examples[:split_idx]
     holdout_examples_raw = examples[holdout_start_idx:]
 
-    # Quality filter applied AFTER temporal split — independently per split
+    # Quality filter applied AFTER temporal split -- independently per split.
+    # WHY >= 3.0 threshold: the quality scorer rates 1-5, where 3 is "adequate
+    # analytical structure with minor issues." Below 3 indicates missing thesis,
+    # factual errors, or format non-compliance. None means unscored (new examples
+    # awaiting the between-scan scoring window in scheduler/scorer.py).
     def _quality_ok(e):
         return e.get("quality_score_auto") is None or e["quality_score_auto"] >= 3.0
 
@@ -444,6 +545,18 @@ def export_training_data(
 def evaluate_on_holdout(model_name: str = "halcyon-latest",
                         db_path: str = DB_PATH) -> dict:
     """Run the trained model on holdout examples and measure quality.
+
+    WHY LLM-as-judge (Claude) instead of automated metrics: BLEU/ROUGE are
+    useless for trade analysis because there are many valid ways to express
+    the same thesis. Claude evaluates semantic quality -- thesis clarity,
+    evidence quality, risk assessment, technical accuracy, actionability --
+    which are the actual dimensions that matter for training data quality.
+
+    WHY compare against gold standard: the quality_gap metric (gold - model)
+    reveals whether the model is approaching human-quality analysis. A
+    persistent gap > 0.5 suggests the training data or curriculum needs
+    adjustment; a gap < 0.3 suggests the model is ready for more weight
+    in the champion-challenger framework.
 
     For each holdout example:
     1. Feed the input to the trained model (via Ollama)
@@ -614,7 +727,12 @@ def run_fine_tune(db_path: str = DB_PATH) -> dict | None:
         print(f"[TRAINING] ERROR: Failed to register model in Ollama: {e}")
         return None
 
-    # Step 4b: Run canary evaluation before model promotion
+    # Step 4b: Run canary evaluation before model promotion.
+    # WHY canary before holdout: canary examples are a fixed, curated reference
+    # set that never changes between training runs. If the model degrades on
+    # these, it has a fundamental capability regression (not just data-dependent
+    # quality variation). This is a fast, cheap gate before the expensive
+    # holdout evaluation that requires Claude API calls for LLM-as-judge scoring.
     try:
         from src.training.canary import CanaryMonitor
         canary = CanaryMonitor(db_path=db_path)
@@ -650,6 +768,11 @@ def run_fine_tune(db_path: str = DB_PATH) -> dict | None:
 
             # Check for regression against previous version
             active = get_active_model_version(db_path)
+            # WHY 0.3 regression threshold: on the 1-5 quality scale, 0.3 is
+            # ~1 standard deviation of typical run-to-run variation from the
+            # LLM-as-judge. A drop larger than 0.3 indicates genuine regression
+            # rather than noise. The model is registered as "evaluation" (not
+            # "active") so it can be inspected without affecting production.
             if active and active.get("holdout_score"):
                 prev_score = active["holdout_score"]
                 if holdout_score and holdout_score < prev_score - 0.3:
@@ -694,7 +817,13 @@ def run_fine_tune(db_path: str = DB_PATH) -> dict | None:
     # Update local config to point to new version
     update_config_model(version_name)
 
-    # Step 7: DPO refinement (if enough preference pairs exist)
+    # Step 7: DPO refinement (if enough preference pairs exist).
+    # WHY gated on 100+ pairs: DPO with fewer examples causes the model to
+    # memorize specific phrasing preferences rather than learning general
+    # quality signals. 100 was determined empirically -- below this threshold,
+    # DPO-trained models showed worse holdout scores than SFT-only models.
+    # The DPO step is non-critical: if it fails, the SFT model is already
+    # registered and active. DPO is an incremental refinement, not a gate.
     try:
         from src.training.dpo_pipeline import export_preference_pairs
         dpo_count = export_preference_pairs(output_dir="training_data", db_path=db_path)
@@ -738,6 +867,13 @@ def _find_gguf(directory: str) -> str | None:
 
 def check_model_performance(db_path: str = DB_PATH) -> dict:
     """Check if the active model is performing well vs previous version.
+
+    WHY auto-rollback: a fine-tuned model that degrades live trading
+    performance must be reverted immediately -- even a few days of degraded
+    conviction scoring can produce losing trades that take weeks to close.
+    The 10-trade minimum before comparison prevents premature rollback from
+    small-sample noise (e.g., 2 losses in 3 trades is not statistically
+    meaningful, but 3 wins in 10 with worse expectancy is).
 
     Returns action dict with 'action' key: 'rolled_back', 'waiting', or 'none'.
     """

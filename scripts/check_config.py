@@ -1,7 +1,20 @@
 """Config sync checker — compares settings.local.yaml against settings.example.yaml.
 
-Shows missing sections, missing keys, and changed defaults. Run after any sprint
-that adds new config sections to ensure your local config is up to date.
+When to run:
+    After any sprint that adds new config sections, or when setting up a fresh
+    development environment. Also useful after pulling changes from main.
+
+What it reads:
+    - config/settings.example.yaml (committed template with all keys)
+    - config/settings.local.yaml (local override with secrets — gitignored)
+
+What it writes:
+    - With --fix: updates config/settings.local.yaml with missing defaults
+    - Without --fix: stdout-only diff report
+
+Prerequisites:
+    - PyYAML installed
+    - Both config files must exist (local.yaml is NOT committed; copy from example first)
 
 Usage:
     python scripts/check_config.py              # Show diff only

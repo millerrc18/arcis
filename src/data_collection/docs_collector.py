@@ -5,6 +5,15 @@ Calls: none
 Owns tables: research_docs
 Config keys: none
 Tests: tests/test_docs_collector.py
+
+Table: research_docs
+Schedule: Nightly in overnight pipeline
+
+Scans docs/ and docs/research/ for .md files, extracts titles and categories,
+and stores the full content in SQLite. This enables the cloud dashboard to
+serve docs from Postgres (via sync) without needing filesystem access to the
+repo. Categories are determined by filename keyword matching rather than
+directory structure because research docs are all in a flat directory.
 """
 
 import hashlib

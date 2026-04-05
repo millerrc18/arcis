@@ -3,14 +3,25 @@
 Called by: api/routes/actions.py, cli/commands.py, scheduler/watch.py
 Calls: none
 Owns tables: google_trends
-Config keys: none
+Config keys: none (pytrends is free, no key required)
 Tests: tests/test_data_collectors.py
 
-Collects search interest for market sentiment terms (not per-ticker).
-Per research: "Google Trends alpha is inverted for large caps."
-Market-wide sentiment terms are more useful as regime/sentiment indicators.
+API: Google Trends via pytrends library (free, no key)
+Table: google_trends
+Schedule: Daily in overnight pipeline
 
-Rate-limited: batches of 5 terms, 10s sleep between batches.
+Collects search interest for market sentiment terms (not per-ticker).
+Per research: "Google Trends alpha is inverted for large caps" — meaning
+high search interest for individual stock tickers is a contrarian sell signal.
+Market-wide sentiment terms ("recession", "market crash") are more useful
+as regime/sentiment indicators.
+
+The "ticker" column in google_trends stores the search term (not a stock
+ticker) for schema compatibility. The tickers and batch_size params in the
+function signature exist for backwards compatibility but are ignored.
+
+Rate-limited: batches of 5 terms (Google's per-request limit), 10s sleep
+between batches. Spike detection uses 2-sigma above 30-day mean.
 """
 
 import logging

@@ -1,6 +1,23 @@
 #!/usr/bin/env python3
 """Historical stress test — replay through crisis periods.
 
+When to run:
+    Ad-hoc or weekly (Sunday evening via watch loop). Run manually before
+    any allocator due-diligence meeting or after changing bracket parameters.
+
+What it reads:
+    - S&P 100 universe (src/universe/sp100.py)
+    - yfinance OHLCV data for SPY, VIX, and each universe ticker
+    - ATR indicator computation (src/features/indicators.py)
+    - Mechanical bracket simulation (src/attribution/logger.py)
+
+What it writes:
+    - stress_test_results table in SQLite (one row per scenario)
+
+Prerequisites:
+    - yfinance installed and network access to Yahoo Finance
+    - Database exists at the path configured in src/config.DB_PATH
+
 Runs pure ranker + mechanical brackets (no LLM) through 3 crisis scenarios
 to answer the allocator's #1 due diligence question: "How would this
 strategy have performed in a crash?"
@@ -41,7 +58,9 @@ SCENARIOS = {
     "2022_bear_market": {"start": "2022-01-01", "end": "2022-10-31"},
 }
 
-# Regime-aware bracket parameters (from full-strategy-RESULTS.md Deliverable 3)
+# Regime-aware bracket parameters (from full-strategy-RESULTS.md Deliverable 3).
+# In extreme VIX regimes, wider stops avoid whipsaw exits but the shorter
+# timeout limits drawdown duration — a deliberate tradeoff from backtesting.
 REGIME_BRACKETS = {
     "low":      {"stop_atr_mult": 2.0, "target_atr_mult": 2.0, "timeout_days": 8},
     "normal":   {"stop_atr_mult": 2.0, "target_atr_mult": 2.0, "timeout_days": 8},
@@ -49,7 +68,10 @@ REGIME_BRACKETS = {
     "extreme":  {"stop_atr_mult": 3.0, "target_atr_mult": 3.0, "timeout_days": 5},
 }
 
-# Fallback fixed brackets (used when ATR unavailable)
+# Fallback fixed brackets (used when ATR unavailable).
+# These are intentionally conservative — the asymmetric 3% target / 5% stop
+# reflects that without ATR we cannot size to volatility, so we widen stops
+# to avoid premature exit from normal noise.
 TARGET_PCT = 0.03
 STOP_PCT = 0.05
 TIMEOUT_DAYS = 7
@@ -141,14 +163,17 @@ def run_scenario(name: str, start: str, end: str) -> dict:
 
     # Track results
     trades = []
-    equity_curve = [100000.0]  # Start with $100K
+    equity_curve = [100000.0]  # Start with $100K (matches live starting capital)
     monthly_returns = {}
     regime_stats = {}  # {regime: {"trades": 0, "wins": 0, "stops": 0}}
 
     current_equity = 100000.0
-    position_size = 2000  # Fixed $2K per position
+    # Fixed $2K per position (2% of capital). This matches the live risk
+    # governor's planned_risk_pct_max = 2%, keeping simulation comparable.
+    position_size = 2000
 
-    # Simple simulation: scan every 5 trading days
+    # Scan every 5 trading days (not daily) to simulate realistic entry frequency.
+    # Weekly-ish cadence also keeps the yfinance API call count manageable.
     for day_idx in range(0, len(trading_days), 5):
         day = trading_days[day_idx]
         if day_idx % 20 == 0:
@@ -159,9 +184,10 @@ def run_scenario(name: str, start: str, end: str) -> dict:
         regime = classify_vix_regime(vix_value)
         brackets = REGIME_BRACKETS[regime]
 
-        # Pick top 3 tickers by simple momentum (lowest 5-day return = oversold)
+        # Pick top 3 tickers by simple momentum (lowest 5-day return = oversold).
+        # This is a mean-reversion heuristic that matches the live scan strategy.
         candidates = []
-        for ticker in universe[:30]:  # Limit for speed
+        for ticker in universe[:30]:  # Limit to 30 for speed (full universe takes hours)
             try:
                 hist_start = (datetime.strptime(day, "%Y-%m-%d") - timedelta(days=30)).strftime("%Y-%m-%d")
                 hist = yf.download(to_yfinance_ticker(ticker), start=hist_start, end=day, progress=False, auto_adjust=True)
@@ -256,7 +282,8 @@ def run_scenario(name: str, start: str, end: str) -> dict:
     win_rate = wins / total_trades if total_trades > 0 else 0
     total_pnl_pct = sum(t["pnl_pct"] for t in trades)
 
-    # Max drawdown
+    # Max drawdown — the single most important crisis metric.
+    # Allocators compare this to benchmark drawdowns during the same period.
     peak = equity_curve[0]
     max_dd = 0
     max_dd_duration = 0
@@ -270,7 +297,8 @@ def run_scenario(name: str, start: str, end: str) -> dict:
             max_dd = dd
             max_dd_duration = i - dd_start
 
-    # Calmar ratio (annualized return / max drawdown)
+    # Calmar ratio: annualized return / max drawdown.
+    # Industry rule of thumb: Calmar > 1.0 is acceptable, > 2.0 is strong.
     days_in_test = (datetime.strptime(end, "%Y-%m-%d") - datetime.strptime(start, "%Y-%m-%d")).days
     annualized_return = (total_pnl_pct / 100) * (365 / max(days_in_test, 1)) * 100
     calmar = annualized_return / max_dd if max_dd > 0 else 0
@@ -302,6 +330,9 @@ def run_scenario(name: str, start: str, end: str) -> dict:
         "equity_curve": equity_curve,
         "regime_breakdown": regime_breakdown,
         "universe_size": len(universe),
+        # Explicitly flagged so downstream consumers (dashboard, reports) can
+        # display a caveat. True survivorship-bias removal requires historical
+        # index membership data from scrape_sp_changes.py.
         "survivorship_bias": True,
     }
 

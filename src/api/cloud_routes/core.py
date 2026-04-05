@@ -5,6 +5,33 @@ Calls: sync.render_sync
 Owns tables: none (reads Postgres)
 Config keys: none
 Tests: tests/test_cloud_app.py
+
+Endpoints:
+    GET  /healthz                          - Render health check (no auth)
+    GET  /api/diagnostics                  - Postgres table health check
+    GET  /api/auth                         - Auth token validation
+    GET  /api/status                       - System status summary
+    GET  /api/config                       - Static config (cloud has no YAML)
+    GET  /api/halt-status                  - Always false in cloud mode
+    GET  /api/costs?days=30                - API cost breakdown
+    POST /api/commands/submit              - Submit command to queue
+    GET  /api/commands/{id}/status         - Check command status
+    GET  /api/commands/recent              - Recent command list
+    GET  /api/logs/recent                  - Log entries from Postgres
+    GET  /api/settings                     - Settings with overrides
+    POST /api/settings                     - Submit config change via queue
+    DELETE /api/settings/overrides         - Clear all overrides
+    POST /api/actions/{action}             - All action endpoints (submit to queue)
+    POST /api/shadow/close/{ticker}        - Close position via queue
+    POST /api/training/{action}            - Training actions via queue
+    POST /api/live/reconcile               - Cloud-blocked (local only)
+    GET  /api/system/validation            - Latest validation result
+    GET  /api/system/table-counts          - Row counts for DB Schema page
+
+Action endpoints in cloud mode don't execute directly — they submit commands
+to the pending_commands queue in Postgres. The local machine's sync thread
+pulls these commands and executes them. This is why actions return a
+command_id and status="pending" rather than actual results.
 """
 
 import uuid
@@ -38,7 +65,13 @@ def create_router(runtime, verify_auth):
         payload: dict | None = None,
         priority: int = 0,
     ) -> dict:
-        """Write a command to pending_commands in Render Postgres."""
+        """Write a command to pending_commands in Render Postgres.
+
+        Commands expire after 5 minutes to prevent stale actions from
+        executing after the local machine reconnects from a long outage.
+        The local sync thread picks these up via pull_commands() and
+        executes them, writing results back to command_results.
+        """
         command_id = str(uuid.uuid4())
         now = datetime.now(runtime.et)
         expires_at = (now + timedelta(minutes=5)).isoformat()

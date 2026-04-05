@@ -1,5 +1,19 @@
 """One-time migration: mark existing failed trades as failed_permanent.
 
+When to run:
+    One-time, after introducing the failed_permanent status to distinguish
+    retryable failures from permanently failed broker submissions.
+    Once run, the executor will stop retrying these trades every cycle.
+
+What it reads:
+    - shadow_trades table (status='failed' rows)
+
+What it writes:
+    - Updates shadow_trades.status from 'failed' to 'failed_permanent'
+
+Prerequisites:
+    - Database at src/config.DB_PATH
+
 Usage: python scripts/mark_failed_trades.py [--dry-run]
 """
 

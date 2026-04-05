@@ -1,5 +1,22 @@
 """Claude Code status line for Halcyon Lab.
 
+When to run:
+    Automatically by Claude Code as a status bar indicator, or manually
+    to get a quick system health snapshot in one line.
+
+What it reads:
+    - data/watch.lock (PID lockfile for watch loop)
+    - data/watchdog.txt (heartbeat timestamp from watch loop)
+    - data/trading_halted (halt flag file)
+    - ai_research_desk.sqlite3 (shadow_trades counts)
+    - logs/halcyon.log (last log timestamp)
+
+What it writes:
+    - Nothing — stdout single-line health summary
+
+Prerequisites:
+    - No external dependencies; degrades gracefully if files are missing
+
 Outputs a single line with system health indicators:
   Watch loop | Heartbeat | Halt status | Shadow positions | Live positions | DB size | Last log
 """
@@ -19,11 +36,13 @@ LOG_FILE = ROOT / "logs" / "halcyon.log"
 
 
 def watch_status():
+    """Check if the watch loop is running via its PID lockfile."""
     if not WATCH_LOCK.exists():
         return "Watch:OFF"
     try:
         pid = int(WATCH_LOCK.read_text().strip())
-        # Check if process is alive (works on Windows and Unix)
+        # Cross-platform process liveness check.
+        # On Windows we use the Win32 API because os.kill(pid, 0) doesn't work.
         if sys.platform == "win32":
             import ctypes
             kernel32 = ctypes.windll.kernel32
@@ -99,10 +118,12 @@ def db_size():
 
 
 def last_log():
+    """Get timestamp of the last log entry for staleness detection."""
     if not LOG_FILE.exists():
         return None
     try:
-        # Read last line efficiently
+        # Seek to last 512 bytes instead of reading the entire log file.
+        # This avoids loading multi-MB log files into memory.
         with open(LOG_FILE, "rb") as f:
             f.seek(0, 2)
             end = f.tell()

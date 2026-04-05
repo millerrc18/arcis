@@ -8,6 +8,32 @@ Tests: tests/test_hshs_live.py
 
 Queries the actual database to compute each HSHS dimension score (0-100),
 then delegates to compute_hshs_score() for the weighted geometric mean.
+
+HSHS: Halcyon System Health Score
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Five dimensions, each 0-100, combined via weighted geometric mean:
+
+  1. performance      — win rate, profit factor, max drawdown, trade count
+  2. model_quality    — template fallback rate, quality scores, volume
+  3. data_asset       — training data count, freshness, source diversity
+  4. flywheel_velocity — model version count, data growth rate
+  5. defensibility    — proprietary data volume, system complexity, time
+
+Phase-dependent weighting (from hshs.py PHASE_WEIGHTS):
+  - Early (months 1-6):  data_asset 35%, model_quality 25% — build the moat
+  - Growth (months 7-18): even 20% each — balanced investment
+  - Mature (18+):         performance 30%, defensibility 25% — prove returns
+
+The geometric mean means a zero in ANY dimension collapses the overall
+score to zero.  This is intentional: a system with great performance
+but zero data asset is not healthy — it is one model failure away from
+having nothing to retrain on.
+
+float() casts throughout (#181): database values can arrive as Decimal,
+None, or string types depending on SQLite driver behavior and NULL
+coalescing.  Every DB value is explicitly cast to float() to prevent
+TypeError in arithmetic.  This was a hard-won lesson from production
+database corruption events.
 """
 
 import logging
@@ -21,6 +47,9 @@ from src.evaluation.hshs import DIMENSION_KEYS, compute_hshs_score
 logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
+# System start date determines the phase (early/growth/mature) which
+# controls dimension weights.  Changing this date shifts all phase
+# transitions, so it should only be set once at project inception.
 SYSTEM_START = datetime(2026, 3, 25, tzinfo=ET)
 
 DEFAULT_DB_PATH = DB_PATH
@@ -32,7 +61,20 @@ DEFAULT_DB_PATH = DB_PATH
 
 
 def _score_performance(conn: sqlite3.Connection) -> float:
-    """Score based on win rate, profit factor, max drawdown, trade count."""
+    """Score based on win rate, profit factor, max drawdown, trade count.
+
+    Four sub-components, each worth 0-25 points (sum to 0-100):
+      - Win rate:       50% WR = 25 pts (target is modest for swing trading)
+      - Profit factor:  2.0 PF = 25 pts (gross wins / gross losses)
+      - Max drawdown:   <10% DD = 25 pts (penalizes tail risk)
+      - Trade count:    10 trades = 25 pts (minimum sample for significance)
+
+    Returns 5.0 when no trades exist — a minimal "system exists" baseline
+    so the geometric mean doesn't collapse during bootstrapping.
+
+    All DB values are explicitly cast to float() (#181) to prevent
+    TypeError from Decimal/None values.
+    """
     try:
         cur = conn.execute(
             "SELECT COUNT(*) as total FROM shadow_trades WHERE status = 'closed'"
@@ -49,7 +91,9 @@ def _score_performance(conn: sqlite3.Connection) -> float:
         winners = int(cur.fetchone()[0] or 0)
         win_rate = winners / total if total else 0
 
-        # Profit factor: gross profit / gross loss
+        # Profit factor: gross profit / gross loss.
+        # Floor gross_loss at 0.01 to avoid division by zero when all
+        # trades are winners (which would give infinite PF).
         cur = conn.execute(
             "SELECT COALESCE(SUM(pnl_dollars), 0) FROM shadow_trades "
             "WHERE status = 'closed' AND pnl_dollars > 0"
@@ -65,15 +109,21 @@ def _score_performance(conn: sqlite3.Connection) -> float:
             gross_loss = 0.01
         profit_factor = gross_profit / gross_loss
 
-        # Max drawdown from pnl_pct (worst single trade loss as proxy)
+        # Max drawdown proxy: worst single trade loss.
+        # This is a proxy because true portfolio drawdown requires a
+        # cumulative equity curve, which is computed elsewhere (CTO report).
+        # Using the single worst trade is conservative — it overstates
+        # drawdown in a diversified portfolio.
         cur = conn.execute(
             "SELECT COALESCE(MIN(pnl_pct), 0) FROM shadow_trades "
             "WHERE status = 'closed'"
         )
         raw = cur.fetchone()[0]
+        # float() cast (#181): raw can be None or Decimal from SQLite
         max_dd = abs(float(raw)) if raw is not None else 0.0
 
-        # Scoring components (each 0-25, summed to 0-100)
+        # Scoring components (each 0-25, summed to 0-100).
+        # float() casts (#181) prevent TypeError from mixed DB types.
         wr_score = min(25.0, float(win_rate) * 50)  # 50% WR = 25 pts
         pf_score = min(25.0, float(profit_factor) * 12.5)  # 2.0 PF = 25 pts
         dd_score = max(0.0, 25.0 - float(max_dd) * 2.5)  # <10% DD = 25 pts
@@ -87,7 +137,17 @@ def _score_performance(conn: sqlite3.Connection) -> float:
 
 
 def _score_model_quality(conn: sqlite3.Connection) -> float:
-    """Score based on template fallback rate, quality scores, training volume."""
+    """Score based on template fallback rate, quality scores, training volume.
+
+    Three sub-components:
+      - Fallback rate (35 pts): lower is better — 0% fallback = full score
+      - Quality score (35 pts): average quality_score from rubric grading
+      - Volume (30 pts): raw example count, 100 examples = full score
+
+    The fallback rate is the most important signal: a model that produces
+    valid structured output consistently is far more useful than one that
+    occasionally produces brilliant output but frequently fails to parse.
+    """
     try:
         cur = conn.execute("SELECT COUNT(*) FROM training_examples")
         total_examples = cur.fetchone()[0] or 0
@@ -124,7 +184,15 @@ def _score_model_quality(conn: sqlite3.Connection) -> float:
 
 
 def _score_data_asset(conn: sqlite3.Connection) -> float:
-    """Score based on training data count, freshness, source diversity."""
+    """Score based on training data count, freshness, source diversity.
+
+    The data asset is the system's primary moat — it is the one thing
+    that cannot be replicated by a competitor just running the same code.
+    Three sub-components:
+      - Volume (40 pts):    100 examples = full score
+      - Freshness (30 pts): recent-to-total ratio (stale data loses value)
+      - Diversity (30 pts): distinct sources (live, backfill, manual, etc.)
+    """
     try:
         cur = conn.execute("SELECT COUNT(*) FROM training_examples")
         total = cur.fetchone()[0] or 0
@@ -159,7 +227,17 @@ def _score_data_asset(conn: sqlite3.Connection) -> float:
 
 
 def _score_flywheel_velocity(conn: sqlite3.Connection) -> float:
-    """Score based on model version count, training data growth rate."""
+    """Score based on model version count, training data growth rate.
+
+    Measures the speed of the improve-train-deploy cycle:
+      - Version count (40 pts): each new model version = 20 pts
+      - Growth rate (30 pts): week-over-week data growth ratio
+      - Recent volume (30 pts): raw examples in the last 7 days
+
+    A system with 0 growth is stagnating — it is not learning from its
+    own trades.  This dimension incentivizes continuous iteration rather
+    than "set and forget" deployment.
+    """
     try:
         # Model version count
         cur = conn.execute("SELECT COUNT(*) FROM model_versions")
@@ -200,7 +278,17 @@ def _score_flywheel_velocity(conn: sqlite3.Connection) -> float:
 
 
 def _score_defensibility(conn: sqlite3.Connection) -> float:
-    """Score based on proprietary data volume, system complexity, time invested."""
+    """Score based on proprietary data volume, system complexity, time invested.
+
+    Defensibility answers "how hard would it be for someone else to
+    replicate this system?"  Three axes:
+      - Data volume (35 pts):    proprietary training examples
+      - Complexity (35 pts):     tables with data (proxy for system breadth)
+      - Time invested (30 pts):  months since SYSTEM_START
+
+    Time is an inherent moat: even with identical code, a competitor
+    would need months of operation to accumulate equivalent data.
+    """
     try:
         # Proprietary data volume (training examples)
         cur = conn.execute("SELECT COUNT(*) FROM training_examples")
@@ -254,6 +342,12 @@ SCORERS = {
 
 def compute_hshs(db_path: str = DEFAULT_DB_PATH) -> dict:
     """Compute the live Arcis System Health Score from database state.
+
+    Each dimension scorer is called independently and wrapped in a
+    try/except so that a failure in one dimension (e.g. missing table)
+    doesn't block the others — it just scores 0.0 for that dimension.
+    This resilience is important because HSHS is called from multiple
+    contexts (dashboard, council, CTO report) and must never crash.
 
     Returns:
         Dict with keys: hshs, dimensions, weights, phase, months_active, computed_at.

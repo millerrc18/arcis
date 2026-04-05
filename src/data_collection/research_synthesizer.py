@@ -2,13 +2,24 @@
 
 Called by: scheduler/watch.py
 Calls: notifications/telegram.py
-Owns tables: none
-Config keys: none
+Owns tables: none (writes to research_digests)
+Config keys: training.anthropic_api_key, api.models.training_generation
 Tests: none
 
-Runs Sunday 6 PM ET. Reads high-relevance papers from the past week,
-sends to Claude Sonnet for structured analysis, stores digest.
-Cost: ~$0.50/week.
+Table: research_digests
+Schedule: Sunday 6 PM ET (weekly)
+Cost: ~$0.50/week (Claude Sonnet, ~2000 output tokens)
+
+Reads high-relevance papers (score >= 0.6) from the past week, sends to
+Claude for structured analysis across 4 categories (actionable, threats,
+techniques, regulatory), stores the digest, and sends a Telegram summary.
+
+The prompt includes detailed system context so Claude can assess relevance
+to our specific stack (Qwen3 8B, QLoRA, pullback strategy, S&P 100).
+Papers are capped at 30 per synthesis to control token cost.
+
+If the Anthropic API key is missing or invalid, the synthesis is skipped
+gracefully (returns skipped=True) rather than crashing the overnight pipeline.
 """
 
 import json

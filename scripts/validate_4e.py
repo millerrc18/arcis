@@ -1,5 +1,20 @@
 """Sprint 4E validation script -- checks DB schema and data health.
 
+When to run:
+    One-time after completing Sprint 4E, or ad-hoc to verify that
+    all expected tables and columns exist. Superseded by `validate-schema`
+    for general use, but kept for backwards compatibility.
+
+What it reads:
+    - Target SQLite database (PRAGMA table_info for each expected table)
+    - Data counts from training_examples, shadow_trades, traffic_light_state
+
+What it writes:
+    - Nothing — stdout-only validation report
+
+Prerequisites:
+    - Database at the specified path (default: ai_research_desk.sqlite3)
+
 Usage: python scripts/validate_4e.py [path/to/db]
 """
 

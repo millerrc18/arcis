@@ -1,10 +1,38 @@
-"""System API routes.
+"""System API routes — the largest route file, serving the system dashboard.
 
 Called by: api.app
 Calls: config, evaluation.cto_report, evaluation.system_validator, journal.store, logging.activity, risk.governor, scheduler.metrics, services.system_service, training.versioning
 Owns tables: none
 Config keys: none
 Tests: none
+
+Endpoints:
+    GET  /status                    - System status (preflight-equivalent)
+    GET  /preflight                 - Alias for /status
+    GET  /config                    - Current config (secrets masked)
+    PUT  /config                    - Update config YAML directly
+    GET  /cto-report?days=7         - CTO performance report
+    GET  /costs?days=30             - API cost breakdown
+    POST /halt-trading              - Emergency halt all trading
+    POST /resume-trading            - Resume after halt
+    GET  /halt-status               - Check halt state
+    GET  /audit/latest              - Most recent daily audit
+    GET  /audit/history?days=7      - Audit history
+    GET  /metric-history?days=90    - Rolling trade metrics (Sharpe, drawdown)
+    GET  /data-collection-stats     - Per-table collection stats (#224)
+    GET  /earnings?days=14          - Upcoming earnings calendar
+    GET  /activity-log              - Recent activity entries
+    GET  /schedule-metrics?days=30  - Compute schedule utilization
+    GET  /system/validation         - Run/cached system validation
+    GET  /system/table-counts       - Row counts for DB Schema page
+    GET  /activity/feed             - Activity feed (matches cloud shape)
+    GET  /settings                  - Settings with dashboard overrides
+    POST /settings                  - Save a config override
+    DELETE /settings/overrides      - Clear all overrides
+    GET  /scan/metrics              - Scan metrics history
+    GET  /training/history          - Model version list (cloud parity alias)
+    GET  /attribution/stats         - Alpha attribution statistics
+    GET  /stress-test/results       - Historical stress test results
 """
 import logging
 
@@ -15,6 +43,9 @@ from src.services.system_service import get_system_status
 router = APIRouter(tags=["system"])
 logger = logging.getLogger(__name__)
 
+# These queries are validated by test_stats_queries_reference_valid_columns
+# in test_schema.py to ensure column names match the schema registry.
+# If a query references a non-existent column, the test will catch it (#224).
 _DATA_COLLECTION_QUERIES = {
     "options_chains": (
         "SELECT COUNT(*), MAX(collected_at), COUNT(DISTINCT ticker) FROM options_chains"
@@ -82,6 +113,12 @@ def preflight():
 
 @router.get("/config")
 def get_config():
+    """Return current config with sensitive values masked.
+
+    The dashboard needs config values to display settings, but we must never
+    expose API keys or passwords. Each sensitive field is explicitly masked
+    rather than using a generic approach so we don't accidentally miss one.
+    """
     config = load_config()
     # Mask sensitive values
     safe = dict(config)
@@ -117,7 +154,12 @@ def api_costs(days: int = 30):
 
 @router.post("/halt-trading")
 def halt_trading():
-    """Emergency halt — stops all new trade entry immediately."""
+    """Emergency halt — stops all new trade entry immediately.
+
+    The risk governor's _global_halt flag is checked before every trade entry.
+    This is the "big red button" — use when something goes wrong and you need
+    to stop immediately without killing the watch loop.
+    """
     from src.risk.governor import _global_halt
     _global_halt(True, source="api", reason="manual halt via /halt-trading")
     return {"status": "halted", "message": "All trading halted. No new positions will be opened."}
@@ -341,6 +383,8 @@ def update_config(updates: dict):
 
 # ── System Validation ────────────────────────────────────────────────
 
+# System validation is expensive (checks Ollama, Alpaca, DB, disk, etc.)
+# so we cache for 5 minutes. Pass ?fresh=true to bypass the cache.
 _validation_cache: dict | None = None
 _validation_cache_ts: float = 0
 
@@ -363,6 +407,8 @@ def system_validation(fresh: bool = False):
     return result
 
 
+# Whitelist prevents arbitrary table reads via the API. Only tables
+# listed here can be queried for row counts on the DB Schema page.
 _TABLE_WHITELIST = [
     "shadow_trades", "recommendations", "training_examples", "model_versions",
     "preference_pairs", "model_evaluations", "quality_drift_metrics",

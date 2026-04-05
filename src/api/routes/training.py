@@ -5,6 +5,17 @@ Calls: services.training_service
 Owns tables: none
 Config keys: none
 Tests: tests/test_local_api_routes.py
+
+Endpoints:
+    GET  /training/status    - Active model, dataset counts, training readiness
+    GET  /training/versions  - All model version history
+    GET  /training/report    - Training quality report
+    POST /training/bootstrap - Generate synthetic training examples
+    POST /training/train     - Trigger fine-tuning (QLoRA on RTX 3060)
+    POST /training/rollback  - Revert to previous model version
+
+Training runs locally on the RTX 3060 via the VRAM handoff system
+(Ollama unloads -> PyTorch fine-tunes -> Ollama reloads).
 """
 from fastapi import APIRouter
 from src.services.training_service import (

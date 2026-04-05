@@ -3,6 +3,12 @@
 Every table, column, index, and foreign key is defined here.
 No other file in the codebase should contain CREATE TABLE statements.
 
+WHY a single registry: Before this existed, CREATE TABLE statements were
+scattered across 15+ files, leading to schema drift between SQLite and
+Postgres (#181), missing columns, and inconsistent sync configs. CI tests
+(test_no_create_table_in_source, test_no_alter_table_in_source) enforce
+that DDL only appears in this file and src/schema/.
+
 To add a new table:
     1. Add the TableDef to TABLES below
     2. Run: python -m src.main validate-schema --fix
@@ -59,11 +65,15 @@ class TableDef:
     primary_key: str | list[str]
     indexes: list[IndexDef] = field(default_factory=list)
     foreign_keys: list[ForeignKeyDef] = field(default_factory=list)
-    sync_to_postgres: bool = True
-    sync_mode: str = "incremental"  # incremental, full, latest_only
-    sync_time_column: str | None = "created_at"
+    # Sync configuration for render_sync.py (SQLite -> Render Postgres)
+    sync_to_postgres: bool = True  # Whether this table syncs to the cloud dashboard
+    sync_mode: str = "incremental"  # incremental: new rows only | full: replace all | latest_only: most recent per group
+    sync_time_column: str | None = "created_at"  # Column used for incremental cursor
     sync_pk: str | None = None  # Defaults to primary_key if None
-    sync_conflict_col: str | None = None  # Override ON CONFLICT target (e.g., UNIQUE columns)
+    # Fix for #185: sync_conflict_col overrides ON CONFLICT target for tables
+    # where the PK is an autoincrement INTEGER but uniqueness is on another column
+    # (e.g., edgar_filings uses accession_number for dedup, not the integer id).
+    sync_conflict_col: str | None = None
 
 
 TABLES: dict[str, TableDef] = {}
@@ -78,6 +88,10 @@ def _register(table: TableDef) -> None:
 # Trading Core (3 tables)
 # ---------------------------------------------------------------------------
 
+# recommendations: The primary record of every LLM-generated trade idea.
+# Written by: packet_writer, scan_service. Read by: executor, eod_recap, dashboard.
+# Contains both the original recommendation AND the shadow trade outcome
+# (shadow_entry_price through lesson_tag) for end-to-end tracking.
 _register(TableDef(
     name="recommendations",
     description="LLM-generated trade recommendations with full context and outcomes",
@@ -151,6 +165,10 @@ _register(TableDef(
     sync_pk="recommendation_id",
 ))
 
+# shadow_trades: Every paper and live trade from entry to exit.
+# Written by: executor.open_shadow_trade, executor.open_live_trade.
+# Updated by: executor.check_and_manage_open_trades, reconcile.
+# The "source" column distinguishes paper vs live trades.
 _register(TableDef(
     name="shadow_trades",
     description="Paper/shadow trades tracked from entry to exit with execution quality",
@@ -197,12 +215,16 @@ _register(TableDef(
         ColumnDef("strategy_type", "TEXT", default="pullback"),
         ColumnDef("actual_shares", "INTEGER"),
         ColumnDef("exit_retry_count", "INTEGER", default="0"),
-        # Outcome metadata (Sprint 6, Strategy Decision #24)
+        # Strategy Decision #24: Outcome metadata for regime-conditional analysis.
+        # These columns capture market context at entry/exit so we can answer
+        # "does the system perform better in low-vol regimes?" and similar questions.
         ColumnDef("regime_at_entry", "TEXT", description="Market regime at trade entry"),
         ColumnDef("regime_at_exit", "TEXT", description="Market regime at trade exit"),
         ColumnDef("vix_at_entry", "REAL", description="VIX level at trade entry"),
         ColumnDef("vix_at_exit", "REAL", description="VIX level at trade exit"),
         ColumnDef("time_to_target_days", "INTEGER", description="Days to reach target (NULL if not reached)"),
+        # drawdown_from_mfe: How much the trade gave back from its best point.
+        # Measured in basis points. High values suggest exits are too late.
         ColumnDef("drawdown_from_mfe", "REAL", description="Drawdown from MFE at exit (bps)"),
         ColumnDef("concurrent_positions", "INTEGER", description="Number of open positions at entry"),
         ColumnDef("ranking_at_entry", "INTEGER", description="Ranker rank (1=best) at entry"),
@@ -224,6 +246,8 @@ _register(TableDef(
     sync_pk="trade_id",
 ))
 
+# validation_results: Output from `preflight` and daily validation (4:30 PM).
+# Written by: system_validator. Read by: dashboard, startup command.
 _register(TableDef(
     name="validation_results",
     description="Preflight validation check results",
@@ -245,8 +269,12 @@ _register(TableDef(
 
 # ---------------------------------------------------------------------------
 # Training Pipeline (8 tables)
+# These tables track the full fine-tuning lifecycle: training data curation,
+# model versioning, A/B evaluation, and quality drift detection.
 # ---------------------------------------------------------------------------
 
+# model_versions: Each fine-tuned model checkpoint (halcyon-v1, v2, etc.).
+# Written by: trainer.run_fine_tune. Read by: versioning, dashboard.
 _register(TableDef(
     name="model_versions",
     description="Tracked model versions with training stats and holdout scores",
@@ -270,6 +298,10 @@ _register(TableDef(
     sync_pk="version_id",
 ))
 
+# training_examples: The core training dataset. Each row is one instruction/output
+# pair for Qwen3 fine-tuning. Sources: real trades (outcome_win/loss), synthetic
+# generation, manual curation. Quality scored by GuardedScorer during market hours.
+# Written by: data_collector, synthetic_generator. Read by: trainer, scorer.
 _register(TableDef(
     name="training_examples",
     description="Curated instruction/output pairs for LLM fine-tuning",
@@ -298,6 +330,8 @@ _register(TableDef(
     sync_pk="example_id",
 ))
 
+# model_evaluations: Champion-challenger A/B test results.
+# Written by: evaluator. Read by: trainer (to decide promotion). Not synced to Postgres.
 _register(TableDef(
     name="model_evaluations",
     description="A/B comparisons between current and candidate models",
@@ -320,6 +354,8 @@ _register(TableDef(
     sync_to_postgres=False,
 ))
 
+# audit_reports: Daily (4:15 PM) and weekly (Saturday) audit results.
+# Written by: auditor.run_daily_audit. Read by: dashboard, watch loop banner.
 _register(TableDef(
     name="audit_reports",
     description="Periodic audit reports on model and system health",
@@ -357,6 +393,8 @@ _register(TableDef(
     sync_pk="snapshot_id",
 ))
 
+# api_costs: Token-level cost tracking for Ollama/external LLM calls.
+# Written by: llm.client. Read by: dashboard cost analysis.
 _register(TableDef(
     name="api_costs",
     description="LLM API usage and cost tracking",
@@ -377,6 +415,8 @@ _register(TableDef(
     sync_pk="cost_id",
 ))
 
+# preference_pairs: DPO (Direct Preference Optimization) training data.
+# Written by: preference generator. Not synced — local training only.
 _register(TableDef(
     name="preference_pairs",
     description="DPO preference pairs for RLHF-style training",
@@ -397,6 +437,9 @@ _register(TableDef(
     sync_to_postgres=False,
 ))
 
+# canary_evaluations: Runs after each training cycle to detect quality degradation.
+# If distinct_1/distinct_2 drop or self_bleu rises, the model may be mode-collapsing.
+# Written by: canary_eval. Read by: auditor, dashboard.
 _register(TableDef(
     name="canary_evaluations",
     description="Canary eval runs to detect model quality degradation",
@@ -422,8 +465,13 @@ _register(TableDef(
 
 # ---------------------------------------------------------------------------
 # Council (6 tables)
+# Multi-agent deliberation system where specialized LLM agents (momentum,
+# macro, risk, contrarian) vote on market regime and trade qualification.
+# Runs daily at 8:30 AM before the first scan.
 # ---------------------------------------------------------------------------
 
+# council_sessions: One row per daily council session with consensus and cost.
+# Written by: council.engine. Read by: dashboard, pre-market brief.
 _register(TableDef(
     name="council_sessions",
     description="Multi-agent council deliberation sessions",
@@ -534,6 +582,9 @@ _register(TableDef(
     sync_pk="debug_id",
 ))
 
+# council_parameter_log: Tracks when the council adjusts risk parameters
+# (e.g., position size multiplier) with before/after values and an attribution
+# window to measure whether the adjustment helped or hurt performance.
 _register(TableDef(
     name="council_parameter_log",
     description="Council-adjusted parameter changes with attribution windows",
@@ -584,8 +635,16 @@ _register(TableDef(
 
 # ---------------------------------------------------------------------------
 # Data Collection (12 tables)
+# Written by overnight collectors (9:30 PM daily). Each table has its own
+# collector module in src/data_collection/. Sync modes vary:
+#   - "incremental": new rows sync to Postgres on each cycle
+#   - "latest_only": only most recent data syncs (saves Postgres storage)
 # ---------------------------------------------------------------------------
 
+# edgar_filings: 10-K, 10-Q, 8-K filings from SEC EDGAR with NLP sentiment.
+# sync_conflict_col: accession_number is the natural unique key, not the integer PK.
+# Fix for #185: Without this, Postgres UPSERT used the autoincrement id,
+# causing duplicate key errors on re-sync.
 _register(TableDef(
     name="edgar_filings",
     description="SEC EDGAR filings with full text and sentiment analysis",
@@ -854,6 +913,9 @@ _register(TableDef(
     sync_pk="id",
 ))
 
+# vix_term_structure: VIX spot + 9d/3m/1y tenors for regime classification.
+# term_structure_slope and near_term_ratio drive the traffic light state machine.
+# Written by: vix_collector. Read by: regime classifier, pre-market brief.
 _register(TableDef(
     name="vix_term_structure",
     description="VIX term structure snapshots across tenors",
@@ -995,6 +1057,9 @@ _register(TableDef(
 # Signals (2 tables)
 # ---------------------------------------------------------------------------
 
+# setup_signals: Every technical setup detected by the signal zoo, whether
+# traded or not. Forward returns (1d/5d/10d/20d) are backfilled for
+# signal-level performance analysis. This is the "signal zoo" asset.
 _register(TableDef(
     name="setup_signals",
     description="Technical setup signal detections with forward returns",
@@ -1026,6 +1091,9 @@ _register(TableDef(
     sync_pk="signal_id",
 ))
 
+# traffic_light_state: Singleton row (id=1) holding the current market regime.
+# Uses a state machine with confirmation counts to prevent whipsawing between
+# GREEN/YELLOW/RED. Written by: regime classifier. Read by: risk governor.
 _register(TableDef(
     name="traffic_light_state",
     description="Market regime traffic light state machine",
@@ -1052,6 +1120,9 @@ _register(TableDef(
 # Evaluation & Metrics (4 tables)
 # ---------------------------------------------------------------------------
 
+# scan_metrics: One row per scan cycle. Tracks the full pipeline funnel:
+# universe_count -> features_count -> scored_count -> packet_worthy -> risk_passed -> traded.
+# Written by: watch._record_scan_metrics. Read by: dashboard, EOD report.
 _register(TableDef(
     name="scan_metrics",
     description="Per-scan pipeline metrics and throughput counters",
@@ -1120,6 +1191,9 @@ _register(TableDef(
     sync_pk="metric_id",
 ))
 
+# build_score_history: Daily composite score (0-100) measuring overall system
+# maturity across 6 dimensions: gate velocity, health, data assets, model quality,
+# research velocity, reliability. Persisted at 4:45 PM daily.
 _register(TableDef(
     name="build_score_history",
     description="Daily composite build score with component breakdowns",
@@ -1148,6 +1222,8 @@ _register(TableDef(
 # Infrastructure (6 tables)
 # ---------------------------------------------------------------------------
 
+# activity_log: High-level event log (not debug-level). Events like "trade_opened",
+# "overnight_task", "dd_alert_5". Written by: activity_logger throughout codebase.
 _register(TableDef(
     name="activity_log",
     description="System-wide event log for all notable actions",
@@ -1165,6 +1241,8 @@ _register(TableDef(
     sync_pk="id",
 ))
 
+# log_entries: WARNING+ log messages from DBLogHandler in watch.py.
+# Powers the dashboard's live log viewer. Pruned to 500 entries max.
 _register(TableDef(
     name="log_entries",
     description="Structured log entries with source and severity",
@@ -1183,6 +1261,8 @@ _register(TableDef(
     sync_pk="log_id",
 ))
 
+# sync_state: Cursor tracking for render_sync. One row per table with the
+# last_synced_at timestamp. NOT synced to Postgres (that would be circular).
 _register(TableDef(
     name="sync_state",
     description="Tracks last sync timestamp per table for incremental sync",
@@ -1227,6 +1307,9 @@ _register(TableDef(
     sync_to_postgres=False,
 ))
 
+# pending_commands: Remote command queue. Dashboard pushes commands to Postgres,
+# render_sync pulls them to SQLite, watch loop's command executor runs them.
+# NOT synced to Postgres (commands flow Postgres -> SQLite, not the reverse).
 _register(TableDef(
     name="pending_commands",
     description="Remote commands queued for local execution (pulled from cloud)",
@@ -1273,6 +1356,10 @@ _register(TableDef(
 # Trading Internals (1 table)
 # ---------------------------------------------------------------------------
 
+# bracket_health: Audit trail for bracket order integrity checks.
+# Runs pre-market, intraday (every 5 min), and post-close to verify
+# that stop-loss and take-profit legs are still active on Alpaca.
+# NOT synced to Postgres — local diagnostics only.
 _register(TableDef(
     name="bracket_health",
     description="Bracket order health checks for open positions",
@@ -1292,8 +1379,13 @@ _register(TableDef(
 
 # ---------------------------------------------------------------------------
 # Alpha Attribution (Sprint 3)
+# Measures whether the LLM adds value beyond the quantitative ranker.
+# For each trade, we track both the actual (LLM-influenced) outcome and a
+# counterfactual (ranker-only) outcome to compute the LLM's alpha.
 # ---------------------------------------------------------------------------
 
+# attribution_trades: Paired comparison of LLM-influenced vs ranker-only outcomes.
+# Written by: attribution.logger. Resolved at 4:30 PM daily.
 _register(TableDef(
     name="attribution_trades",
     description="Paired LLM vs ranker-only trade attribution for alpha measurement",
@@ -1331,8 +1423,12 @@ _register(TableDef(
 
 # ---------------------------------------------------------------------------
 # Data Freshness (Sprint 5)
+# Strategy Decision #22: 4-tier multi-cadence scanning requires knowing when
+# each data source was last fetched for each ticker, so stale data can be
+# re-fetched at the appropriate cadence without redundant API calls.
 # ---------------------------------------------------------------------------
 
+# data_freshness: Composite PK (source, ticker). NOT synced — local optimization only.
 _register(TableDef(
     name="data_freshness",
     description="Per-ticker per-source staleness tracking for multi-cadence scanning",
@@ -1353,8 +1449,12 @@ _register(TableDef(
 
 # ---------------------------------------------------------------------------
 # Stress Testing (Sprint 7)
+# Backtests the current model against 3 crisis periods (COVID crash, 2022 bear,
+# 2023 banking crisis). Runs weekly on Sunday 9 PM and after model version changes.
 # ---------------------------------------------------------------------------
 
+# stress_test_results: One row per scenario per run. model_version links to
+# the model that was tested, so regressions are detectable across versions.
 _register(TableDef(
     name="stress_test_results",
     description="Historical stress test results for crisis period backtesting",

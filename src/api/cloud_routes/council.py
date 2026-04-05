@@ -5,6 +5,13 @@ Calls: none
 Owns tables: none
 Config keys: none
 Tests: none
+
+Endpoints:
+    GET  /api/council/latest              - Most recent council session
+    GET  /api/council/history?days=30     - Session list
+    GET  /api/council/session/{id}        - Session detail with votes
+    GET  /api/activity/feed               - Activity log entries
+    POST /api/council/strategic           - Cloud-blocked (needs Ollama)
 """
 
 from datetime import datetime, timedelta

@@ -1,5 +1,19 @@
 """Dump settings.local.yaml with sensitive values redacted.
 
+When to run:
+    Ad-hoc for debugging configuration issues. Safe to paste the default
+    (redacted) output into issues or chat. Use --raw only in a secure terminal.
+
+What it reads:
+    - config/settings.local.yaml (gitignored — contains secrets)
+
+What it writes:
+    - Nothing — stdout only (redacted by default)
+
+Prerequisites:
+    - PyYAML installed
+    - config/settings.local.yaml must exist
+
 Usage:
     python scripts/dump_config.py
     python scripts/dump_config.py --raw  # Show raw values (CAREFUL — contains secrets)

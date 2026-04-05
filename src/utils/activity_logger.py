@@ -12,6 +12,12 @@ Writes to the activity_log SQLite table. Each event has:
 - metadata: optional JSON dict with structured data
 
 This feeds the Notification Center, Activity Feed, and cloud dashboard.
+The activity_log table is synced to Render Postgres so cloud users see
+the same feed. Retention: 30 days (see retention.py).
+
+Failures are swallowed (logger.debug, not raise) because activity logging
+is observability infrastructure — it should never crash the operation it's
+observing.
 """
 
 import json

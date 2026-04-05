@@ -5,6 +5,15 @@ Calls: none
 Owns tables: none (reads shadow_trades WHERE source='live')
 Config keys: none
 Tests: tests/test_local_routes.py
+
+Endpoints:
+    GET /live/trades  - Open + closed live (Alpaca) trades
+    GET /live/summary - Account summary (equity, P&L, win rate)
+
+Live trades are a subset of shadow_trades with source='live'. They represent
+actual Alpaca broker orders, as opposed to source='paper' which are simulated.
+The same shadow_trades table holds both to enable unified reporting while the
+source filter separates real money from paper.
 """
 
 import logging

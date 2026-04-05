@@ -6,11 +6,20 @@ Owns tables: fed_communications
 Config keys: none
 Tests: tests/test_data_collectors.py
 
+API: Federal Reserve website (federalreserve.gov), free, public
+Table: fed_communications
+Schedule: Nightly in overnight pipeline
+
 Scrapes Federal Reserve website for FOMC statements, minutes,
 Beige Book summaries, and Fed speeches. Stores full text for
-future NLP analysis.
+future NLP analysis (sentiment scoring, hawkish/dovish classification).
 
-All sources are free and public (federalreserve.gov).
+All sources are free and public. Rate limiting is via time.sleep(0.5)
+between page fetches to be respectful to the Fed's servers.
+
+The collector uses _already_collected() to deduplicate by (comm_type, date)
+for statements/minutes/beige_book, and by (comm_type, date, title) for
+speeches (multiple speeches can occur on the same day).
 """
 
 import logging

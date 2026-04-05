@@ -1,9 +1,25 @@
 #!/usr/bin/env python3
 """Alpha attribution historical backtest.
 
+When to run:
+    Ad-hoc, after model changes or strategy parameter tweaks. Typically run
+    quarterly to measure whether the LLM adds alpha over the mechanical ranker.
+
+What it reads:
+    - SPY OHLCV (yfinance) for trading calendar
+    - S&P 100 universe tickers (src/universe/sp100.py)
+    - Mechanical bracket simulation (src/attribution/logger.py)
+
+What it writes:
+    - Stdout results only (no DB writes). Pipe to a file to save.
+
+Prerequisites:
+    - yfinance installed, network access to Yahoo Finance
+    - Long date ranges (>90 days) may take several hours
+
 Replays historical dates through the ranker to build attribution data.
-For each trading day: fetch OHLCV → compute features → run ranker →
-simulate mechanical brackets → compare to LLM decisions.
+For each trading day: fetch OHLCV -> compute features -> run ranker ->
+simulate mechanical brackets -> compare to LLM decisions.
 
 Usage:
     python scripts/alpha_attribution_backtest.py --start 2025-10-01 --end 2026-03-31
@@ -78,14 +94,18 @@ def run_backtest(start_date: str, end_date: str, db_path: str = DB_PATH) -> dict
             end_sim = (datetime.strptime(day, "%Y-%m-%d") + timedelta(days=10)).strftime("%Y-%m-%d")
 
             # For each ticker, simulate as if we entered at close on `day`
-            for ticker in universe[:20]:  # Limit for performance
+            # Limit to 20 tickers per day to keep yfinance API calls tractable.
+            # Full universe (100 tickers x 200 days) = 20K API calls.
+            for ticker in universe[:20]:
                 try:
                     hist = yf.download(ticker, start=day, end=day, progress=False)
                     if hist.empty:
                         continue
 
                     close = float(hist["Close"].iloc[-1])
-                    # Simple mechanical bracket: 2% target, 3% stop
+                    # Simple mechanical bracket: 2% target, 3% stop.
+                    # Intentionally simpler than live brackets to isolate
+                    # the value added by the LLM and ranker together.
                     target = close * 1.02
                     stop = close * 0.97
 

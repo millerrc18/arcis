@@ -1,5 +1,25 @@
 """Verify AGENTS.md headline counts against the live repo.
 
+When to run:
+    After every sprint or when adding/removing source files, tests,
+    CLI commands, API routes, or research documents. CI can run this
+    to block PRs that forget to update AGENTS.md.
+
+What it reads:
+    - AGENTS.md (regex-extracts documented counts from the header)
+    - src/**/*.py file counts, tests/ file counts
+    - AST-parsed CLI commands from src/main.py
+    - Route decorator counts from src/api/
+    - SQLite table count from the database
+    - Research doc count from docs/research/
+
+What it writes:
+    - Nothing — stdout comparison report. Exit 1 on mismatch.
+
+Prerequisites:
+    - pytest installed (for --collect-only count)
+    - AGENTS.md must have the expected "Counts verified" header format
+
 Checks source/test counts, collected tests, CLI commands, API routes, DB tables,
 and research document totals so governance docs stay synchronized with code.
 """

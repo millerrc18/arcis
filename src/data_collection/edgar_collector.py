@@ -6,11 +6,27 @@ Owns tables: edgar_filings
 Config keys: none
 Tests: tests/test_data_collectors.py
 
-Collects 10-K, 10-Q, and 8-K filings for the S&P 100 universe.
-Stores filing metadata + parsed section text.
+API: SEC EDGAR (https://data.sec.gov), free, no key required
+Table: edgar_filings
+Schedule: Nightly in overnight pipeline
+Rate limit: 10 req/sec (SEC fair access policy), we use 5 req/sec conservatively
 
-API: https://data.sec.gov (no key required, 10 req/sec limit)
-User-Agent: Arcis halcyonlabai@gmail.com
+Collects 10-K, 10-Q, and 8-K filings for the S&P 100 universe.
+Stores filing metadata + parsed section text. NLP sentiment scoring
+runs on stored filings to extract cautionary phrases and sentiment polarity.
+
+First run: collects last 2 years of filings. Subsequent runs: incremental
+from the last filing_date stored.
+
+Known issues:
+  - #126: Accession numbers come in two formats (dashed and undashed).
+    _normalize_accession() canonicalizes to dashed format to prevent
+    duplicate entries.
+  - #127: NLP sentiment columns (sentiment_polarity, etc.) were added
+    after the initial schema. _ensure_nlp_columns() checks they exist
+    before attempting the UPDATE to avoid OperationalError.
+
+User-Agent: SEC requires a descriptive User-Agent with contact email.
 """
 
 import json

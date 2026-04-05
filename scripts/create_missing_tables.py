@@ -1,5 +1,20 @@
 """Create all missing tables from the schema registry.
 
+When to run:
+    After adding new TableDefs to src/schema/registry.py, or when setting
+    up a fresh database. Equivalent to `validate-schema --fix` but faster
+    because it skips the drift check. See #207 for DDL centralization.
+
+What it reads:
+    - src/schema/registry.py (all 49 table definitions)
+
+What it writes:
+    - Creates missing tables and adds missing columns in the local SQLite DB
+    - Idempotent — safe to run multiple times
+
+Prerequisites:
+    - Database path configured in src/config.DB_PATH
+
 Usage:
     python scripts/create_missing_tables.py
 """

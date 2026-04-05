@@ -1,5 +1,21 @@
 """Fetch upcoming earnings dates for the S&P 100 universe.
 
+When to run:
+    Automated nightly via the watch loop overnight schedule (9:30 PM ET).
+    Can also be run manually to refresh the earnings calendar on demand.
+
+What it reads:
+    - yfinance ticker.calendar and ticker.earnings_dates for each S&P 100 stock
+    - S&P 100 universe from src/universe/sp100.py
+
+What it writes:
+    - earnings_calendar table in SQLite (upsert on ticker + earnings_date)
+
+Prerequisites:
+    - yfinance installed, network access to Yahoo Finance
+    - Database initialized (initialize_database is called automatically)
+    - Rate-limited at 0.3s/ticker to avoid Yahoo throttling
+
 Stores earnings dates in SQLite for use by the scan pipeline to flag
 earnings-adjacent trades. The risk governor and LLM prompt can check
 whether a ticker reports earnings within N days.
@@ -62,7 +78,8 @@ def fetch_earnings_dates(
             earnings_time = None
 
             if isinstance(cal, dict):
-                # Newer yfinance versions return dict
+                # yfinance >= 0.2.28 returns dict; older versions return DataFrame.
+                # We handle both because requirements.txt pins a range.
                 ed = cal.get("Earnings Date")
                 if ed:
                     if isinstance(ed, list) and len(ed) > 0:
@@ -101,7 +118,9 @@ def fetch_earnings_dates(
             else:
                 date_str = str(earnings_date)[:10]
 
-            # Determine earnings_time if available
+            # Earnings time (BMO = before market open, AMC = after market close)
+            # matters for position management: BMO earnings mean overnight gap risk
+            # for existing positions, AMC means intraday risk on the earnings day.
             time_str = None
             if earnings_time:
                 time_str = str(earnings_time).lower()

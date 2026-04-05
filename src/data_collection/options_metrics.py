@@ -6,7 +6,24 @@ Owns tables: options_metrics
 Config keys: none
 Tests: none
 
-Must run AFTER collect_options_chains().
+Table: options_metrics
+Schedule: Daily, immediately after collect_options_chains()
+Depends on: options_chains table having today's data
+
+Computes per-ticker metrics from raw chain data:
+  - Put/call volume ratio (sentiment indicator)
+  - Put/call open interest ratio
+  - ATM implied volatility at ~30 DTE
+  - IV skew (25-delta put IV - 25-delta call IV)
+  - IV rank and IV percentile (vs 1-year historical, needs 20+ days)
+  - Unusual volume flag (any strike where volume > 3x open interest)
+
+These metrics are features used by the scan ranking model. IV rank and
+skew are particularly valuable for the pullback strategy — high IV rank
+with negative skew suggests institutional hedging, which can signal
+a pullback opportunity.
+
+Must run AFTER collect_options_chains() — reads today's chain data from SQLite.
 """
 
 import logging

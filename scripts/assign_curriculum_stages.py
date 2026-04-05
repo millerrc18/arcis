@@ -1,5 +1,19 @@
 """Assign curriculum stages to training examples based on enrichment data.
 
+When to run:
+    One-time migration or after bulk-importing new training examples.
+    The fine-tuning pipeline uses curriculum_stage to order examples
+    from simple (structure-only) to complex (full-context) during training.
+
+What it reads:
+    - training_examples table (input_text column for enrichment detection)
+
+What it writes:
+    - Updates training_examples.curriculum_stage column in-place
+
+Prerequisites:
+    - Database at src/config.DB_PATH with training_examples table populated
+
 Stages:
 - structure: Technical-only data (no enrichment)
 - evidence: 1-2 enrichment sources (fundamentals, insider, macro, news)
@@ -20,6 +34,9 @@ def detect_enrichment(text: str) -> dict:
         return {"fund": False, "insider": False, "macro": False, "news": False}
 
     def has_data(section_marker: str) -> bool:
+        """Check if a section marker is present AND has real data after it.
+        The 60-char lookahead catches 'Not available' / 'N/A' placeholders
+        that enrichment inserts when an API returned no data."""
         if section_marker not in text:
             return False
         idx = text.index(section_marker)

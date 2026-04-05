@@ -1,4 +1,22 @@
-"""Render docs/architecture.md from the live Arcis codebase."""
+"""Render docs/architecture.md from the live Arcis codebase.
+
+When to run:
+    After every sprint, or when modules are added/removed/renamed.
+    The generated doc provides the canonical module inventory and API
+    endpoint listing for the project.
+
+What it reads:
+    - All .py files under src/ (AST-parsed for docstrings and route decorators)
+    - ai_research_desk.sqlite3 for the live schema report
+    - scripts/schema_report.py (imported as a library for schema rendering)
+
+What it writes:
+    - docs/architecture.md (overwritten entirely on each run)
+
+Prerequisites:
+    - SQLite database must exist for schema report generation
+    - No network access required
+"""
 
 from __future__ import annotations
 
@@ -9,6 +27,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
 DOC_PATH = ROOT / "docs" / "architecture.md"
+# Overrides for modules whose docstrings are missing or misleading.
+# These take priority over AST-extracted docstrings.
 OVERRIDES = {
     "src/models.py": "Backward-compatible schema re-exports for packet construction and older imports.",
     "src/evaluation/metrics.py": "Lightweight evaluation metrics helpers used by reporting and tests.",

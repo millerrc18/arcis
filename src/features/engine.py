@@ -5,6 +5,43 @@ Calls: features.earnings, features.event_proximity, features.regime, features.se
 Owns tables: none
 Config keys: none
 Tests: tests/test_features.py
+
+WHY these specific features:
+    The feature set is designed around the 7 signal dimensions of a pullback-
+    in-trend setup. Each feature maps to a specific trading question:
+
+    1. TREND (sma50_slope, sma200_slope, trend_state):
+       Is the stock in a sustained uptrend? Both slope AND ordering matter --
+       price above MAs with negative slopes is a distribution top, not a trend.
+
+    2. RELATIVE STRENGTH (rs_vs_spy_1m/3m/6m, relative_strength_state):
+       Is this stock outperforming the market? Three timeframes catch both
+       recent momentum (1m) and structural leadership (6m). A stock strong
+       on all three is in a different category than one with only recent momentum.
+
+    3. PULLBACK DEPTH (pullback_depth_pct, dist_to_sma20_pct):
+       Has the stock pulled back enough to offer entry? Too shallow = chasing,
+       too deep = broken trend. The -3% to -8% sweet spot is where pullback
+       setups have historically highest win rates.
+
+    4. VOLATILITY (atr_14, atr_pct):
+       How much does this stock move? ATR sets stop distance and position size.
+       ATR as % of price normalizes across $20 and $200 stocks.
+
+    5. VOLUME (volume_ratio_20d):
+       Is the pullback on declining volume (healthy) or expanding volume
+       (distribution)? This is one of the most discriminative features for
+       pullback quality -- see setup_classifier.py.
+
+    6. EVENT RISK (earnings_date, hold_overlaps_earnings, event_risk_level):
+       Will an earnings report or macro event hit during the expected hold?
+       Martineau (2022) showed PEAD is dead for large-cap, but binary event
+       risk (gap risk) remains a real position-sizing concern.
+
+    7. REGIME (market_trend, volatility_regime, breadth, regime_label):
+       What is the broad market doing? Pullback setups in bear markets have
+       <40% win rates regardless of individual stock quality. Regime features
+       come from features/regime.py and are merged into every ticker's dict.
 """
 
 import logging
@@ -17,7 +54,12 @@ logger = logging.getLogger(__name__)
 
 
 def _slope_direction(series: pd.Series, window: int = 10) -> str:
-    """Classify the slope of a series over the last `window` periods."""
+    """Classify the slope of a series over the last `window` periods.
+
+    WHY 10-period window: short enough to detect recent trend changes (2 weeks
+    of trading), long enough to filter out 1-2 day noise. The 0.1% threshold
+    (relative to start value) prevents classifying sideways drift as directional.
+    """
     if len(series) < window:
         return "flat"
     recent = series.iloc[-window:]
@@ -52,7 +94,15 @@ def _pct_return(series: pd.Series, periods: int) -> float:
 
 
 def _classify_relative_strength(rs_1m: float, rs_3m: float, rs_6m: float) -> str:
-    """Classify relative strength state."""
+    """Classify relative strength state.
+
+    WHY 3 timeframes voted equally: a stock outperforming on all three
+    (1m, 3m, 6m) has structural leadership -- it is outperforming both
+    recently and historically. A stock outperforming on 1m but underperforming
+    on 6m is a recent reversal (less reliable). Equal voting across timeframes
+    is deliberate -- #6 mandates equal weight until 200+ trades validate
+    whether any timeframe is more predictive than others.
+    """
     positive_count = sum(1 for rs in [rs_1m, rs_3m, rs_6m] if rs > 0)
     negative_count = sum(1 for rs in [rs_1m, rs_3m, rs_6m] if rs < 0)
 
@@ -121,7 +171,11 @@ def compute_features(ticker: str, ohlcv: pd.DataFrame, spy: pd.DataFrame) -> dic
 
     relative_strength_state = _classify_relative_strength(rs_vs_spy_1m, rs_vs_spy_3m, rs_vs_spy_6m)
 
-    # Pullback depth: decline from 50-day high
+    # Pullback depth: decline from 50-day high.
+    # WHY 50-day window (not 52-week or 20-day): 50 days matches the SMA50
+    # used for trend classification. A pullback is defined relative to the
+    # trend's own timeframe -- using a 52-week high would make almost every
+    # stock look like a pullback during a correction, which is not useful.
     high_50d = float(close.iloc[-50:].max())
     pullback_depth_pct = (current_price / high_50d - 1) * 100
 
@@ -169,8 +223,15 @@ def compute_all_features(ohlcv_data: dict[str, pd.DataFrame],
                           spy: pd.DataFrame) -> dict[str, dict]:
     """Compute features for all tickers in the OHLCV data dict.
 
-    Skips tickers with fewer than 200 rows of data.
-    Adds earnings date, event-risk classification, and market regime for each ticker.
+    WHY 200-row minimum: SMA200 requires 200 data points. Stocks with less
+    history (recent IPOs, newly added to universe) cannot be reliably assessed
+    for trend and are skipped. This is a hard requirement, not configurable.
+
+    WHY regime/options/events/sectors are loaded ONCE before the loop:
+    These are shared resources -- market regime is the same for all tickers,
+    options metrics come from a single DB query, event proximity is calendar-
+    based. Computing them once avoids N redundant DB queries and API calls
+    where N is the universe size (~200 tickers).
     """
     from src.features.earnings import get_next_earnings_date, check_earnings_overlap
     from src.features.regime import compute_market_regime
@@ -220,7 +281,11 @@ def compute_all_features(ohlcv_data: dict[str, pd.DataFrame],
             # Sector conditioning (9C)
             _add_sector_features(feat, ticker, sector_profiles)
 
-            # Setup classification (Workstream 5)
+            # Setup classification (Workstream 5) -- categorizes each stock
+            # into one of 6 setup types for the LLM prompt and signal zoo.
+            # WHY deferred import: setup_classifier has a dependency on
+            # features.indicators that would create a circular import if
+            # loaded at module level (engine -> setup_classifier -> indicators -> engine).
             try:
                 from src.features.setup_classifier import classify_setup, log_setup_signal
                 classification = classify_setup(feat, df)

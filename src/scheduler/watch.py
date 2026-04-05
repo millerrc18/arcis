@@ -3,6 +3,18 @@
 Simple Python loop — no APScheduler or cron dependencies.
 Uses a PID lockfile (data/watch.lock) to prevent duplicate instances.
 
+WHY a simple loop instead of APScheduler/cron:
+  - Single-process architecture avoids coordination overhead for the
+    many stateful daily tasks (40+ done-flags, VRAM handoff sequencing).
+  - APScheduler's thread pool + SQLite WAL = busy_timeout headaches (#160).
+  - Cron can't manage the 4-tier multi-cadence schedule (Strategy Decision #22:
+    15m position monitor / 30m scans / 60m sentiment / daily enrichment).
+  - Sleep recovery (#152) needs gap detection within the same process.
+
+The loop runs every 60 seconds, checks ET time, and dispatches tasks based on
+hour/minute windows with daily reset at midnight. All task execution goes through
+_safe_run() which provides per-task exponential backoff (#147, #231).
+
 Called by: cli.commands, main
 Calls: services.scan_service, services.shadow_service, services.watchlist_service, data_collection.*, sync.render_sync
 Owns tables: scan_metrics, log_entries
@@ -42,6 +54,8 @@ class DBLogHandler(logging.Handler):
     """Log handler that writes structured entries to log_entries SQLite table.
 
     Captures WARNING+ by default. Keeps last 500 entries (prunes on write).
+    WHY: Powers the frontend dashboard's live log viewer. Only WARNING+ to
+    avoid flooding the table with debug noise during 30-minute scan cycles.
     """
 
     def __init__(self, db_path: str = DB_PATH, max_entries: int = 500):
@@ -53,8 +67,9 @@ class DBLogHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         try:
             log_id = str(uuid.uuid4())
+            # Extract short module name for dashboard filtering (e.g., "executor" from "src.shadow_trading.executor")
             source = record.name.split(".")[-1] if "." in record.name else record.name
-            message = record.getMessage()[:2000]
+            message = record.getMessage()[:2000]  # Truncate to prevent SQLite bloat
             details = None
             if record.exc_info and record.exc_info[1]:
                 details = str(record.exc_info[1])[:5000]
@@ -68,7 +83,7 @@ class DBLogHandler(logging.Handler):
                      datetime.now(ET).isoformat()),
                 )
                 self._write_count += 1
-                # Prune old entries every 50 writes
+                # Prune every 50 writes, not every write, to amortize the DELETE cost
                 if self._write_count % 50 == 0:
                     conn.execute(
                         "DELETE FROM log_entries WHERE log_id NOT IN "
@@ -77,7 +92,7 @@ class DBLogHandler(logging.Handler):
                     )
                 conn.commit()
         except Exception:
-            pass  # Never let logging crash the system
+            pass  # GOTCHA: Never let logging crash the system — silent failure is correct here
 
 
 class WatchLoop:
@@ -113,7 +128,10 @@ class WatchLoop:
         training_cfg = config.get("training", {})
         self.training_enabled = training_cfg.get("enabled", False)
 
-        # Daily state (in-memory, resets on restart)
+        # Daily state (in-memory, resets on restart and at midnight ET).
+        # WHY in-memory instead of DB: avoids SQLite contention (#160) and
+        # simplifies the daily reset. A restart mid-day re-runs tasks which
+        # is the safe default (idempotent tasks, no duplicate trades thanks to #99).
         self._morning_done = False
         self._eod_done = False
         self._last_scan_time: datetime | None = None
@@ -125,13 +143,18 @@ class WatchLoop:
         self._saturday_reports_done = False
         self._daily_audit_done = False
         self._consecutive_errors = 0
-        self._backoff: dict[str, int] = {}  # per-task backoff seconds
+        # Fix for #231: backoff is per-task, not global. A failing collector
+        # must not delay unrelated tasks like scans or reconciliation.
+        self._backoff: dict[str, int] = {}
         self._shutdown_requested = False
         self._scan_in_progress = False
+        # Rolling window for instability detection: alert if >5 errors in last hour
         self._error_timestamps: deque = deque(maxlen=20)
         self._hourly_alert_sent = False
 
-        # Overnight schedule flags
+        # Overnight schedule flags — these run 7 days/week (Fix for #225: elif
+        # was blocking weekend data collection). Only VRAM handoff and pre-market
+        # tasks gate on is_weekday individually.
         self._post_close_done = False
         self._overnight_training_collection_done = False
         self._data_collection_done = False
@@ -145,7 +168,8 @@ class WatchLoop:
         self._daily_scored = 0
         self._tg_last_update_id = 0
 
-        # VRAM handoff flags
+        # VRAM handoff flags — RTX 3060 12GB shared between Ollama (inference)
+        # and PyTorch (training). Evening handoff unloads Ollama, morning reloads it.
         self._vram_handoff_done = False
         self._morning_handoff_done = False
 
@@ -206,7 +230,17 @@ class WatchLoop:
         self._stress_test_done = False
 
     def _reset_daily_state(self):
-        """Reset daily flags at midnight ET."""
+        """Reset daily flags at midnight ET.
+
+        WHY reset everything: the system runs 24/7 and tasks are time-gated
+        (e.g., morning watchlist at 8 AM, EOD at 4 PM). Flags prevent
+        re-execution within the same day. At midnight they must reset so
+        tomorrow's tasks fire on schedule.
+
+        GOTCHA: Per-task backoff and collector failure counts also reset
+        daily — a transient Finnhub outage yesterday should not delay
+        tonight's collection.
+        """
         self._morning_done = False
         self._eod_done = False
         self._last_scan_time = None
@@ -265,16 +299,20 @@ class WatchLoop:
         self._collector_failures.clear()
 
     def _is_market_open(self, now: datetime) -> bool:
-        """Check if market is currently open (weekday, not holiday, between open and close)."""
+        """Check if market is currently open (weekday, not holiday, between open and close).
+
+        WHY this matters: scans, position monitoring, and bracket checks only
+        run during market hours. Overnight tasks run outside this window.
+        """
         if now.weekday() >= 5:  # Saturday=5, Sunday=6
             return False
-        # Holiday check (#149)
+        # Holiday check (#149) — fail-open so we don't miss a trading day
         try:
             from src.scheduler.holidays import is_market_holiday
             if is_market_holiday(check_date=now.date()):
                 return False
         except Exception:
-            pass  # If holiday module fails, assume market open
+            pass  # If holiday module fails, assume market open — safer to scan unnecessarily
         market_open = now.replace(hour=self.market_open_hour,
                                   minute=self.market_open_minute, second=0)
         market_close = now.replace(hour=self.market_close_hour,
@@ -348,15 +386,21 @@ class WatchLoop:
                 logger.error("[DIGEST] Evening digest failed: %s", e)
 
     def _should_scan(self, now: datetime) -> bool:
-        """Check if enough time has passed since last scan."""
+        """Check if enough time has passed since last scan.
+
+        Strategy Decision #22: Tier 2 scans run every 30 minutes during
+        market hours. The scan_interval is configurable (default 30min,
+        bootcamp may override).
+        """
         if not self._is_market_open(now):
             return False
         if self._last_scan_time is None:
             return True
         elapsed = (now - self._last_scan_time).total_seconds() / 60
 
-        # Sleep recovery detection (#152): if gap > 30 min during market hours,
-        # the computer likely slept. Log warning and send Telegram alert.
+        # Fix for #152: Sleep recovery detection. Windows 11 sleep/hibernate
+        # can cause 30+ minute gaps during market hours. When detected, log
+        # and alert so the operator knows scans were missed.
         if elapsed > 30 and self._is_market_open(now):
             logger.warning(
                 "[WATCH] Possible sleep recovery detected: %.0f min since last scan "
@@ -374,7 +418,12 @@ class WatchLoop:
         return elapsed >= self.scan_interval
 
     def _get_live_stats(self) -> dict:
-        """Query live system stats for banner/heartbeat. Never raises."""
+        """Query live system stats for banner/heartbeat. Never raises.
+
+        GOTCHA: This is called in the main loop's display path. Any exception
+        here would crash the status heartbeat, so everything is wrapped in
+        try/except with N/A fallbacks. Alpaca API call adds ~200ms latency.
+        """
         stats = {
             "open_paper": "N/A", "open_live": "N/A",
             "equity": "N/A", "buying_power": "N/A",
@@ -635,7 +684,9 @@ class WatchLoop:
             elif self.email_mode == "digest":
                 pass  # Handled by scheduled midday/EOD digest
 
-        # ── Intra-day reconciliation (uses self._last_reconcile_time) ──
+        # ── Intra-day reconciliation (uses self._last_reconcile_time) ─��
+        # Fix for #182: Reconciliation crash was taking down scans. Now throttled
+        # to every 15 min (900s) and isolated in try/except.
         if (self._last_reconcile_time is None or
                 (now - self._last_reconcile_time).total_seconds() > 900):
             try:
@@ -836,6 +887,9 @@ class WatchLoop:
                 import sys
                 sys.exit(1)
 
+            # Fix for #160: WAL mode + busy_timeout=5000ms prevents "database is locked"
+            # errors when the API server and watch loop access SQLite concurrently.
+            # NORMAL sync is safe with WAL (data survives process crash, not power loss).
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=NORMAL")
             conn.execute("PRAGMA busy_timeout=5000")
@@ -948,7 +1002,37 @@ class WatchLoop:
             pass
 
     def run(self):
-        """Main watch loop. Checks every 60 seconds."""
+        """Main watch loop. Checks every 60 seconds.
+
+        Architecture: A single while-loop that sleeps 60s between iterations.
+        Each iteration checks the current ET time and dispatches tasks based on
+        hour/minute windows. The numbered sections below correspond to the
+        daily cadence timeline:
+
+          0. Ollama warm-up (9:25 AM) — warm CUDA kernels before first scan
+          0.5. AI Council (8:30 AM) — regime assessment before market open
+          1. Morning watchlist (8:00 AM) — rank universe, email top picks
+          1.5. Position monitor (every 15m) — Tier 1, Strategy Decision #22
+          2. Market scans (every 30m) — Tier 2, the core pipeline
+          2.5. Sentiment refresh (every 60m) — Tier 3
+          3. EOD recap (4:00 PM) — daily summary
+          4. Audit + validation + build score (4:15-4:45 PM)
+          5. Training collection + trigger (4:30-5:00 PM)
+          6. Saturday reports (Saturday 9 AM)
+          7. Between-scan scoring (market hours, gaps between scans)
+          8. Status logging
+          9. Telegram command polling
+
+          Overnight (--overnight flag, outside market hours):
+            5:15 AM — Morning VRAM handoff (Ollama reload)
+            5:30 PM — Post-close capture
+            6:00 PM — Training collection
+            6:50 PM — Evening VRAM handoff (training subprocess)
+            9:30 PM — Data collection (12+ collectors)
+            10:00 PM — News ingestion
+            11:00 PM — Enrichment pre-cache
+            6:00 AM — Pre-market refresh
+        """
         self._acquire_lock()
 
         # Logging is already configured by main.py → setup_logging() which sets up
@@ -1080,6 +1164,11 @@ class WatchLoop:
                     self._morning_done = True
 
                 # 1.5. Tier 1: Position monitor (every 15 min during market hours)
+                # Strategy Decision #22: 4-tier multi-cadence scanning.
+                # Tier 1 (15m): position monitoring, bracket health
+                # Tier 2 (30m): full universe scan
+                # Tier 3 (60m): sentiment refresh
+                # Tier 4 (daily): fundamentals, data collection
                 if (self.market_open_hour <= hour < self.market_close_hour
                     and now.weekday() < 5
                     and (not self._last_position_monitor_time
@@ -1304,8 +1393,10 @@ class WatchLoop:
                     self._earnings_warning_done = True
 
                 # ── Overnight schedule (--overnight flag, NOT during market hours) ──
-                # Runs 7 days/week so weekend data collection is not skipped (#225).
-                # Tasks that require weekdays gate themselves individually.
+                # Fix for #225: Changed from `elif` chain to allow weekend execution.
+                # Previously the elif after market-hours checks blocked all overnight
+                # tasks on weekends. Now runs 7 days/week; individual tasks gate on
+                # is_weekday where needed (VRAM handoff, pre-market).
                 elif self.overnight and not self._is_market_open(now):
                     ran = False
                     is_weekday = now.weekday() < 5
@@ -1346,7 +1437,9 @@ class WatchLoop:
                         ran = True
 
                     # NOTE: 9:30 PM data collection, 10 PM news, 11 PM enrichment
-                    # are CPU/network only — run daily (including weekends)
+                    # are CPU/network only (no GPU) — run daily including weekends.
+                    # Weekend data (options flow, news, macro) feeds Monday morning's
+                    # pre-market brief and council session.
                     elif (hour == 21 and now.minute >= 30
                           and not self._data_collection_done):
                         if self._safe_run("data collection", self._run_data_collection):
@@ -1509,22 +1602,29 @@ class WatchLoop:
         """Run a function with per-task exponential backoff error recovery.
 
         Returns True on success, False on exception.
+
+        Fix for #147: Exponential backoff (10s -> 30s -> 60s cap).
+        Fix for #231: Backoff is keyed per task name. A failing EDGAR collector
+        only delays the next EDGAR attempt, not scans or reconciliation.
+        Fix for #226: Callers must check return value before setting done-flags.
+        Pattern: `if self._safe_run(...): self._done = True`
         """
         import traceback
         try:
+            # Per-task backoff: wait before retrying a previously-failed task
             task_backoff = self._backoff.get(name, 0)
             if task_backoff > 0:
                 print(f"[WATCH] Backoff: waiting {task_backoff}s before {name}...")
                 time.sleep(task_backoff)
             func()
-            # Success — reset backoff for this task only
+            # Success — reset backoff for this task only (not all tasks)
             self._consecutive_errors = 0
             self._backoff.pop(name, None)
             return True
         except Exception as e:
             self._consecutive_errors += 1
             self._error_timestamps.append(time.time())
-            # Exponential backoff: 10s, 30s, 60s, cap 60s — per task
+            # Exponential backoff: 10s, 30s, 60s, cap 60s — per task (#147)
             current = self._backoff.get(name, 0)
             if current == 0:
                 self._backoff[name] = 10
@@ -2074,6 +2174,8 @@ class WatchLoop:
             results["insider"] = {"error": str(e)}
 
         # 10. FINRA short interest (biweekly — around settlement dates)
+        # WHY only days 1,2,15,16: FINRA publishes short interest data twice
+        # monthly on settlement dates. Collecting on other days wastes API calls.
         if now.day in (1, 2, 15, 16):
             print("[WATCH]   [10/12] Short interest...")
             try:
@@ -2125,7 +2227,8 @@ class WatchLoop:
         except Exception as e:
             logger.warning("[WATCH] log_activity failed: %s", e)
 
-        # Run retention policy to prune old rows (#123)
+        # Run retention policy to prune old rows (#123) — prevents SQLite bloat
+        # from unbounded data collection. Each table has a configurable max age.
         try:
             from src.data_collection.retention import run_retention
             retention_result = run_retention()
@@ -2205,7 +2308,12 @@ class WatchLoop:
     # ── VRAM Handoff Methods ─────────────────────────────────────────
 
     def _run_evening_handoff(self):
-        """6:50 PM ET — Unload Ollama, launch overnight training subprocess."""
+        """6:50 PM ET — Unload Ollama, launch overnight training subprocess.
+
+        WHY VRAM handoff: RTX 3060 12GB cannot run Ollama (inference) and
+        PyTorch (training) simultaneously. The evening handoff frees VRAM
+        for overnight fine-tuning, morning handoff reloads Ollama for scans.
+        """
         from pathlib import Path
         from src.scheduler.vram_manager import VRAMManager
 
@@ -2320,6 +2428,10 @@ class WatchLoop:
 
         Not just a health check — runs a real prompt of similar length to
         what the scan will generate, warming up the KV cache and CUDA kernels.
+
+        WHY: First Ollama inference after reload takes 3-5x longer (CUDA kernel
+        compilation, KV cache allocation). Running a warm-up prompt 5 minutes
+        before market open ensures the first real scan gets normal latency.
         """
         from pathlib import Path
         from src.llm.client import generate, is_llm_available

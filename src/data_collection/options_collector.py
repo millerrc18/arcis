@@ -3,11 +3,27 @@
 Called by: api/routes/actions.py, cli/commands.py, scheduler/watch.py
 Calls: universe/sp100.py
 Owns tables: options_chains
-Config keys: none
+Config keys: none (yfinance is free, no API key)
 Tests: none
+
+API: yfinance (Yahoo Finance, free, no key required)
+Table: options_chains
+Schedule: Daily after market close in overnight pipeline
 
 Captures full options chains for the universe, filtered to
 expirations <=6 months out and strikes within +/-30% of spot.
+This data feeds options_metrics (IV rank, put/call ratios, skew)
+which are features for the scan scoring model.
+
+Known issue #125: yfinance sometimes returns NaN for underlying_price
+when a ticker is delisted or data is stale. The NaN guard on line 69
+skips the ticker entirely rather than storing corrupt metrics that would
+propagate NaN through all derived calculations.
+
+The _safe_float/_safe_int helpers exist because yfinance DataFrames
+contain numpy NaN values that SQLite would store as the string "nan"
+rather than NULL. Every numeric value from yfinance must pass through
+these sanitizers.
 """
 
 import logging

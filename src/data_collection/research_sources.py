@@ -5,6 +5,20 @@ Calls: none
 Owns tables: none
 Config keys: none
 Tests: none
+
+Each crawler returns a list of paper dicts with a standard shape:
+  {source, external_id, title, authors, abstract, url, published_date}
+
+Crawlers pre-filter by RELEVANCE_KEYWORDS before returning, so only
+potentially relevant papers are passed to the LLM scorer. This reduces
+Ollama calls from hundreds to tens per night.
+
+Rate limiting varies per source:
+  - arXiv: single request, no delay needed
+  - Reddit: 2s between subreddit requests (rate limited)
+  - GitHub: single request with star filter
+  - AI blogs: single request per feed
+  - SSRN: single RSS request
 """
 
 import logging

@@ -5,6 +5,20 @@ Calls: services.review_service
 Owns tables: none
 Config keys: none
 Tests: tests/test_local_api_routes.py
+
+Endpoints:
+    GET  /review/pending                   - Trades awaiting human review
+    GET  /review/scorecard?weeks=1         - Win/loss scorecard
+    GET  /review/postmortems               - List of trade postmortems
+    GET  /review/postmortem/{id}           - Single postmortem detail
+    GET  /review/{recommendation_id}       - Single review detail
+    POST /review/{recommendation_id}       - Submit human review (approve/grade/notes)
+    POST /review/mark-executed/{ticker}    - Mark a ticker as manually executed
+
+The review system is how the operator grades the system's recommendations.
+ryan_approved, user_grade, and repeatable_setup fields feed back into the
+training pipeline -- high-quality reviews become training examples that
+teach the model what good setups look like.
 """
 from fastapi import APIRouter
 from src.services.review_service import (

@@ -8,6 +8,21 @@ Tests: tests/test_cloud_app.py, tests/test_cloud_auth.py
 
 Reads exclusively from Postgres (no SQLite, no Ollama dependency).
 Auth: optional bearer token via API_SECRET env var.
+
+Architecture: The cloud app mirrors the local API's endpoint shapes but reads
+from Render Postgres instead of local SQLite. This lets the same React frontend
+work against either backend — it detects local vs cloud from the /api/status
+response. Mutating actions (scan, train, close positions) go through the
+command queue rather than executing directly, since there's no GPU or Ollama
+on Render.
+
+Auth: Accepts both SHA-256 hashed tokens (from the frontend AuthGate component)
+and raw plaintext (for curl/script usage). If API_SECRET env var is empty,
+auth is disabled entirely with a warning log (#208: wildcard CORS is
+acceptable only because auth gates all data endpoints).
+
+Known issue #80: The /api/build-score route was duplicated between analytics.py
+and this file during a refactor. Now consolidated in analytics.py.
 """
 
 import json
@@ -36,6 +51,9 @@ DIAGNOSTIC_TABLES = tuple(SYNC_TABLES.keys())
 
 API_SECRET = os.environ.get("API_SECRET", "")
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
+# CORS origins are configured via env var on Render. The default restricts
+# to our Render domain. In dev, set CORS_ORIGINS=http://localhost:5173 to
+# allow Vite dev server access. See #208 for wildcard CORS discussion.
 CORS_ORIGINS = [
     o.strip()
     for o in os.environ.get(
@@ -45,8 +63,11 @@ CORS_ORIGINS = [
 ]
 security = HTTPBearer(auto_error=False)
 
-# user_notes table DDL is driven by the schema registry (see src/schema/registry.py)
+# user_notes is the only table created directly in Postgres by the cloud app
+# (not synced from SQLite). DDL comes from the schema registry to stay consistent.
 
+# Returned for endpoints that cannot run in cloud mode (no GPU, no Ollama).
+# The frontend checks for error=="cloud_mode" to show a "run locally" message.
 CLOUD_ACTION_MSG = {
     "error": "cloud_mode",
     "message": "This action is only available on the local dashboard.",
@@ -185,7 +206,13 @@ def _parse_note_row(row: dict) -> dict:
 
 
 def _build_runtime() -> SimpleNamespace:
-    """Build route helpers while preserving cloud_app patch points for tests."""
+    """Build route helpers while preserving cloud_app patch points for tests.
+
+    The SimpleNamespace acts as a dependency injection container so that
+    route modules receive DB helpers without importing cloud_app directly.
+    Tests can monkey-patch _query/_query_one on the runtime to inject mock
+    data without needing a real Postgres connection.
+    """
 
     def query(sql: str, params: tuple = ()) -> list[dict]:
         return _query(sql, params)

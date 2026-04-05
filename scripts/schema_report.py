@@ -1,5 +1,18 @@
 """SQLite schema reporter for Arcis.
 
+When to run:
+    Ad-hoc or as a library import. render_architecture_doc.py imports
+    render_schema() to embed the live schema in docs/architecture.md.
+
+What it reads:
+    - sqlite_master and PRAGMA table_info/index_list from the target DB
+
+What it writes:
+    - Markdown to stdout (default) or --output file
+
+Prerequisites:
+    - Target SQLite database must exist
+
 Emits every table, column, and index from the configured SQLite database.
 Used by docs/architecture.md and sprint verification gates.
 """

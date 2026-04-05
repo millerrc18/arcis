@@ -1,4 +1,27 @@
-"""Arcis weekly review -- run from repo root: python scripts/weekly_review.py"""
+"""Arcis weekly review — comprehensive system health and trading report.
+
+When to run:
+    Weekly (typically Sunday). Can also be launched via weekly_review.bat
+    on Windows for a double-click experience.
+
+What it reads:
+    - SQLite database (all major tables: shadow_trades, training_examples,
+      scan_metrics, traffic_light_state, vix_term_structure, council_sessions,
+      model_versions, bracket_health, activity_log, build_score_history,
+      and 10+ data inventory tables)
+    - src/evaluation/cto_report.py for the CTO report section
+
+What it writes:
+    - Stdout — the full report (paste to Claude for analysis)
+    - data/weekly_snapshots.jsonl — appends one JSON line per run for
+      week-over-week delta tracking
+
+Prerequisites:
+    - Database at one of the candidate paths (auto-detected)
+    - No network access required
+
+Usage: python scripts/weekly_review.py
+"""
 
 import json
 import os
@@ -358,7 +381,10 @@ try:
         except Exception:
             pass
 
-    # Save snapshot for next week's delta comparison
+    # Save snapshot for next week's delta comparison.
+    # Each run appends a JSON line to weekly_snapshots.jsonl; deltas are
+    # computed by comparing the last two lines. This makes data growth
+    # (or unexpected shrinkage) visible across weeks.
     snapshot_path = REPO_ROOT / "data" / "weekly_snapshots.jsonl"
     try:
         import json

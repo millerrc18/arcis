@@ -5,6 +5,18 @@ Calls: config, journal.store, services.shadow_service, shadow_trading.executor
 Owns tables: none
 Config keys: none
 Tests: none
+
+Endpoints:
+    GET  /shadow/open            - Open shadow (paper + live) trades
+    GET  /shadow/closed?days=30  - Closed trades with metrics
+    GET  /shadow/account         - Virtual account summary
+    GET  /shadow/metrics?days=30 - Trade performance metrics
+    POST /shadow/close/{ticker}  - Manually close a position
+
+"Shadow" trading means paper trading that shadows what real trading would do.
+The close endpoint handles both paper (instant close) and live (Alpaca broker
+exit order) trades. For live trades, it submits the exit order and either
+records the fill or marks the trade as exit_pending if not immediately filled.
 """
 from fastapi import APIRouter
 from src.config import load_config
@@ -73,6 +85,8 @@ def close_trade(ticker: str, reason: str = "manual"):
         days_held = 0
 
     shares = trade.get("planned_shares", 1)
+    # Live trades require broker interaction; paper trades are closed
+    # locally by writing the exit directly to SQLite.
     if trade.get("source") == "live" or trade.get("alpaca_order_id"):
         try:
             broker_result = _submit_exit_order(trade, shares)

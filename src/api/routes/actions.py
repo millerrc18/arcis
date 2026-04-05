@@ -5,6 +5,21 @@ Calls: services.scan_service, services.training_service, training.data_collector
 Owns tables: none
 Config keys: none
 Tests: tests/test_local_api_routes.py
+
+Endpoints (all POST /actions/*):
+    POST /actions/collect-data      - Run full data collection pipeline
+    POST /actions/scan              - Run market scan
+    POST /actions/cto-report        - Generate CTO report
+    POST /actions/collect-training  - Collect training data from closed trades
+    POST /actions/train-pipeline    - Full pipeline: score -> leakage -> classify -> train
+    POST /actions/score             - Score unscored training examples
+
+All actions run in BackgroundTasks (non-blocking). The _action_lock prevents
+concurrent actions because many share the same GPU (Ollama inference vs PyTorch
+training) and running two at once would OOM the RTX 3060's 12GB VRAM.
+
+Each action broadcasts WebSocket events so the React dashboard can show
+real-time progress without polling.
 """
 
 import logging
@@ -17,7 +32,9 @@ from src.api.websocket import broadcast_sync
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/actions", tags=["actions"])
 
-# Simple in-memory lock to prevent concurrent actions
+# Simple in-memory lock to prevent concurrent actions. We use a global lock
+# rather than per-action locks because actions compete for the same GPU VRAM
+# and running scan + training concurrently would OOM the system.
 _action_lock = threading.Lock()
 _running_action: str | None = None
 
@@ -176,6 +193,8 @@ def _run_collect_data():
         logger.warning("[ACTIONS] broadcast collect-data action_started failed: %s", e)
 
     def _execute_collector(results: dict, key: str, fn, *args, **kwargs):
+        """Run a single collector, capturing exceptions as error dicts rather
+        than letting one failed collector abort the entire pipeline."""
         try:
             results[key] = fn(*args, **kwargs)
         except Exception as exc:
@@ -220,6 +239,8 @@ def _run_collect_data():
         _execute_collector(results, "edgar", collect_new_filings, universe)
         _execute_collector(results, "insider", collect_insider_transactions, universe)
 
+        # Short interest is only published biweekly by FINRA at settlement dates.
+        # Collecting on other days would return stale data and waste API quota.
         if now.day in (1, 2, 15, 16):
             _execute_collector(results, "short_interest", collect_short_interest, universe)
         else:

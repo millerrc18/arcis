@@ -6,8 +6,24 @@ Owns tables: macro_snapshots
 Config keys: data_enrichment, fred, fred_api_key
 Tests: tests/test_data_collectors.py
 
-Supplements the existing macro enrichment with additional series:
-supply chain, credit stress, oil, dollar index, etc.
+API: Federal Reserve Economic Data (FRED), requires free API key
+Table: macro_snapshots
+Schedule: Daily in overnight pipeline (runs 7 days/week including weekends)
+
+Collects 30+ economic series spanning rates, credit, employment, housing,
+consumer, trade, and financial conditions. These feed the traffic light
+regime classifier and provide context for the AI Council's macro agent.
+
+Notable changes >5% are flagged and available via the /data-collection-stats
+endpoint. The change_pct is computed against the previous collection's value
+for the same series, not the previous day's value (FRED series update at
+different frequencies — weekly, monthly, quarterly).
+
+API key resolution checks 4 locations for backwards compatibility:
+  1. FRED_API_KEY env var (primary, from .env)
+  2. data_enrichment.fred_api_key (matches settings.example.yaml)
+  3. fred.api_key
+  4. fred_api_key (top-level)
 """
 
 import logging

@@ -5,6 +5,21 @@ Calls: config, llm.prompts, training.claude_client, training.ingestion_gate, tra
 Owns tables: none
 Config keys: enabled, training
 Tests: tests/test_leakage_detector.py, tests/test_self_blinding.py
+
+WHY self-blinding matters:
+    The fundamental challenge of training a trade-analysis LLM on historical data is
+    outcome leakage — if the model learns to associate P&L-correlated features with
+    "good" analysis, it overfits to hindsight rather than learning genuine reasoning.
+
+    The architecture enforces blinding structurally, not via instructions:
+    - Stage 1 physically receives zero outcome fields (not "please ignore" — absent)
+    - Stage 2 receives only Stage 1 output (still zero outcome data)
+    - Outcome text is stored as metadata for evaluation but never enters any prompt
+
+    This two-stage pipeline was adopted after #110 revealed that instruction-level
+    blinding ("do not use the P&L") failed silently — Claude's analysis correlated
+    with outcomes at r=0.4 when outcome fields were present in context, even with
+    explicit instructions to ignore them.
 """
 
 import json
@@ -31,6 +46,11 @@ ET = ZoneInfo("America/New_York")
 
 # #110 — Fields that correlate with trade outcome and MUST NOT appear in
 # the feature_snapshot stored alongside training examples.
+# WHY this is a deny-list, not an allow-list: new feature columns are added
+# frequently, and an allow-list would silently exclude them. A deny-list is
+# smaller and changes only when new outcome-correlated fields are introduced.
+# The leakage detector test (test_self_blinding.py) validates this set against
+# the schema registry to catch any new outcome columns that should be added.
 OUTCOME_FIELDS = {
     "pnl_dollars", "pnl_pct", "exit_reason", "max_favorable_excursion",
     "max_adverse_excursion", "actual_exit_price", "actual_exit_time",
@@ -43,6 +63,11 @@ def _sanitize_feature_snapshot(snapshot: str) -> str:
 
     Works on the text-based feature_snapshot stored with training examples.
     Strips any line whose key (before the colon) matches an OUTCOME_FIELD.
+
+    #110 — This is the last line of defense against outcome leakage. Even
+    though the blinded prompt construction never includes outcome data, the
+    enriched_prompt from the recommendation table might contain stale outcome
+    fields from a previous pipeline version. Belt-and-suspenders.
     """
     lines = snapshot.split("\n")
     clean = []
@@ -70,8 +95,11 @@ Event Risk: {rec.get('event_risk_flag', 'none')}"""
 def _build_outcome_text(trade: dict) -> str:
     """Build outcome text from a closed shadow trade.
 
-    NOTE: This is stored for metadata/evaluation only — it is NEVER included
+    NOTE: This is stored for metadata/evaluation only -- it is NEVER included
     in prompts sent to Claude during the self-blinding pipeline.
+    #195 — pnl_dollars can arrive as a string from SQLite due to REAL column
+    affinity not being enforced. The float() casts with `or 0` fallback
+    prevent TypeError on None and handle string-typed values.
     """
     return f"""=== ACTUAL OUTCOME ===
 Exit Reason: {trade.get('exit_reason', 'n/a')}
@@ -104,6 +132,8 @@ def collect_training_examples_from_closed_trades(
 
     init_training_tables(db_path)
 
+    # WHY DESC order: process most recent closed trades first so that if the
+    # batch halts early (quality gate), we still get the freshest data.
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute("""
@@ -125,7 +155,10 @@ def collect_training_examples_from_closed_trades(
     for row in rows:
         trade = dict(row)
 
-        # Use the full enriched prompt if available, fall back to basic rebuild
+        # WHY prefer the enriched prompt: it contains the full multi-source context
+        # (fundamentals, news, sector) that was available at scan time, giving the
+        # LLM the same information a human analyst had. The basic rebuild is a
+        # degraded fallback for older recommendations that pre-date enrichment.
         enriched = trade.get("enriched_prompt")
         if enriched:
             feature_input = enriched
@@ -168,7 +201,13 @@ def collect_training_examples_from_closed_trades(
         pnl = float(trade.get("pnl_dollars") or 0)
         exit_reason = trade.get("exit_reason", "") or ""
 
-        # #116 — Detect partial closes (both target and stop hit)
+        # #116 — Detect partial closes (both target and stop hit).
+        # WHY stored but excluded: partial closes have ambiguous P&L labeling
+        # (e.g., hit T1 then stopped out on remainder = net positive but
+        # triggered stop). Training on these teaches the model to conflate
+        # "winning" with "incomplete" and degrades conviction calibration.
+        # They are stored for future analysis but the "partial" source prefix
+        # causes export_training_data() to filter them out.
         if "partial" in exit_reason.lower():
             source = "blinded_partial"
             logger.info("[TRAINING] Partial close detected for %s — stored but excluded from training", trade.get("ticker"))
@@ -204,11 +243,13 @@ def collect_training_examples_from_closed_trades(
         count += 1
 
         # ═══ OUTCOME-CONDITIONED TEMPLATES (Sprint 6: 3-5x data yield) ═══
-        # These store prompt templates (system + user) with empty output_text.
-        # Actual LLM generation is done in a separate batch step to avoid
-        # inline API costs (~$0.01/call) and latency during collection.
-        # Source prefix "outcome_template_" marks them as unpopulated —
-        # exclude from training until output_text is filled by batch generation.
+        # WHY deferred generation: each outcome-conditioned example costs ~$0.01
+        # in Claude API fees and ~5s of latency. Generating inline would make the
+        # collection loop 15-25s per trade (3-5 templates each). Instead, we store
+        # templates with empty output_text and populate them in a separate batch
+        # during off-peak hours. Source prefix "outcome_template_" marks them as
+        # unpopulated -- export_training_data() excludes rows with empty output_text.
+        # He et al. (2025) golden ratio: 62/38 curated-to-synthetic target.
         try:
             from src.training.outcome_prompts import generate_training_examples
             oc_examples = generate_training_examples(trade, {}, feature_input)

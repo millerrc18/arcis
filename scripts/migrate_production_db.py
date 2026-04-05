@@ -1,10 +1,25 @@
 """Safe production DB migration — adds missing columns and tables.
 
+When to run:
+    After pulling changes that add new columns or tables to the schema
+    registry. Also used during initial setup of a production database.
+    Prefer `validate-schema --fix` for new setups; this script handles
+    both registry-based and legacy hardcoded column migrations.
+
+What it reads:
+    - src/schema/registry.py (for table creation)
+    - COLUMN_MIGRATIONS list in this file (for legacy column additions)
+
+What it writes:
+    - Creates missing tables and adds missing columns in the target SQLite DB
+    - Idempotent: safe to run multiple times. Never drops or modifies existing data.
+
+Prerequisites:
+    - Target database must already exist (will not create a new file)
+
 Usage:
     python scripts/migrate_production_db.py                    # default DB
     python scripts/migrate_production_db.py path/to/other.db   # custom path
-
-Idempotent: safe to run multiple times. Never drops or modifies existing data.
 """
 
 import os
@@ -98,7 +113,8 @@ def main():
 
     conn = sqlite3.connect(db_path)
 
-    # 1. Create missing tables first (so ALTER TABLE has targets)
+    # 1. Create missing tables first so ALTER TABLE has targets.
+    # Order matters: column migrations reference tables that may not exist yet.
     print("=== Creating missing tables ===")
     table_actions = migrate_tables(conn)
     for a in table_actions:

@@ -5,6 +5,27 @@ Calls: notifications.telegram, shadow_trading.alpaca_adapter
 Owns tables: bracket_health
 Config keys: none
 Tests: tests/test_bracket_monitor.py
+
+Why bracket health monitoring?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Alpaca bracket orders consist of 3 legs: the entry order, a stop-loss
+leg, and a take-profit leg.  If any leg silently fails (e.g. Alpaca
+rejects the stop due to price rules), the position is unprotected — it
+can gap down without a stop-loss.
+
+This monitor runs on three schedules:
+  - "intraday": during market hours, checks all open bracket orders
+  - "premarket": before market open, sends a summary Telegram alert
+  - "postclose": after market close, logs unprotected overnight positions
+
+A broken bracket (missing or cancelled stop/target leg) triggers an
+immediate Telegram alert so the operator can manually intervene.  This
+is a safety-critical module: an unprotected position during a gap-down
+event can lose far more than the intended stop distance.
+
+Partial fill detection (#104): if a bracket leg is only partially
+filled, the position may not be fully hedged.  The monitor alerts on
+this condition because partial fills are silent in the Alpaca dashboard.
 """
 
 import logging
@@ -20,6 +41,10 @@ logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
 DEFAULT_DB_PATH = DB_PATH
+# A bracket leg is considered "active" (protecting the position) if its
+# status is "new" (queued but not yet triggered) or "held" (held at the
+# exchange awaiting fill).  Any other status (filled, cancelled, expired,
+# rejected) means the leg is no longer protecting the position.
 ACTIVE_LEG_STATUSES = {"new", "held"}
 
 # Table creation handled by src/schema/registry.py
@@ -31,7 +56,13 @@ def ensure_bracket_health_table(db_path: str = DEFAULT_DB_PATH) -> None:
 
 
 def _classify_legs(order_status: dict) -> tuple[str | None, str | None]:
-    """Extract the stop and target leg statuses from an Alpaca bracket payload."""
+    """Extract the stop and target leg statuses from an Alpaca bracket payload.
+
+    Alpaca returns bracket legs in an unordered list without explicit
+    labels.  We distinguish stop vs target by checking for stop_price
+    (stop-loss leg) vs limit_price (take-profit leg).  Falls back to
+    order_type string matching ("stop" or "limit") as a secondary signal.
+    """
     stop_status = None
     target_status = None
 
@@ -51,6 +82,11 @@ def _classify_legs(order_status: dict) -> tuple[str | None, str | None]:
 
 def _check_partial_fills(order_status: dict, expected_qty: float) -> list[str]:
     """Detect partial fills on bracket legs (#104).
+
+    A partial fill means only some shares are protected by the bracket
+    leg.  For example, if you bought 100 shares but only 60 have a
+    stop-loss, 40 shares are naked.  This is particularly dangerous
+    for overnight holds where gap risk is highest.
 
     Returns list of warning messages for any partially filled legs.
     """
@@ -78,7 +114,12 @@ def _record_check(
     action_taken: str | None,
     db_path: str,
 ) -> None:
-    """Persist one health-check record."""
+    """Persist one health-check record.
+
+    Every check (pass or fail) is written to bracket_health for audit
+    trail.  This enables post-hoc analysis: "How often are brackets
+    breaking?  Is it correlated with specific order types or times?"
+    """
     ensure_bracket_health_table(db_path)
     with connect_db(db_path) as conn:
         conn.execute(
@@ -101,7 +142,12 @@ def _record_check(
 
 
 def _alert(message: str) -> None:
-    """Best-effort Telegram alert for bracket health failures."""
+    """Best-effort Telegram alert for bracket health failures.
+
+    Best-effort: if Telegram is down, the alert is logged but the
+    monitor continues.  A failed alert must never prevent the health
+    check from completing and recording its findings.
+    """
     try:
         from src.notifications.telegram import send_telegram
         send_telegram(message)
@@ -113,7 +159,17 @@ def check_bracket_health(
     db_path: str = DEFAULT_DB_PATH,
     context: str = "intraday",
 ) -> dict:
-    """Verify that every open bracket trade still has active stop and target legs."""
+    """Verify that every open bracket trade still has active stop and target legs.
+
+    Iterates all open trades with an alpaca_order_id and order_type='bracket',
+    fetches their current status from Alpaca, and classifies each bracket
+    as intact (both legs active) or broken (any leg missing/cancelled).
+
+    Context-dependent behavior:
+      - "intraday": alerts immediately on broken brackets
+      - "premarket": sends a summary "X/Y positions protected" message
+      - "postclose": logs unprotected overnight positions (higher risk)
+    """
     from src.shadow_trading.alpaca_adapter import get_order_status
 
     ensure_bracket_health_table(db_path)
@@ -156,6 +212,11 @@ def check_bracket_health(
                 exc,
             )
 
+        # A bracket is intact only if BOTH legs are active.  A missing
+        # target leg is less dangerous (you just miss profit-taking) but
+        # a missing stop leg is critical (unlimited downside exposure).
+        # Both are alerted because an incomplete bracket indicates
+        # something went wrong with order submission.
         intact = (
             stop_status in ACTIVE_LEG_STATUSES
             and target_status in ACTIVE_LEG_STATUSES

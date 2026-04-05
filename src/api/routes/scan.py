@@ -5,6 +5,17 @@ Calls: config, services.recap_service, services.scan_service, services.watchlist
 Owns tables: none
 Config keys: none
 Tests: tests/test_local_api_routes.py
+
+Endpoints:
+    POST /scan                         - Trigger a market scan (blocking)
+    GET  /scan/latest                  - Last scan result (in-memory cache)
+    POST /morning-watchlist            - Generate morning watchlist email
+    POST /eod-recap                    - Generate end-of-day recap email
+
+Note: POST /scan is the local synchronous scan (returns when done).
+The async version is POST /actions/scan (in actions.py) which runs in
+background. _latest_scan is in-memory only -- lost on restart. The
+persistent scan history is in scan_metrics table (see system.py routes).
 """
 from fastapi import APIRouter
 from src.config import load_config

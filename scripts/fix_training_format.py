@@ -1,8 +1,22 @@
 """Convert all training examples to standardized XML format.
 
+When to run:
+    One-time migration after importing training examples from ChatGPT or
+    other sources that use inconsistent formats. Run validate_training_format.py
+    afterward to confirm 100% parse rate.
+
+What it reads:
+    - training_examples.output_text column from SQLite
+
+What it writes:
+    - Updates training_examples.output_text in-place (destructive — back up first)
+
+Prerequisites:
+    - Database at src/config.DB_PATH with populated training_examples table
+
 Handles two source formats:
   Format A (XML): <why_now>...</why_now><analysis>...</analysis><metadata>...</metadata>
-  Format B (plain text): WHY NOW:\n...\nDEEPER ANALYSIS:\n...\nCONVICTION: N
+  Format B (plain text): WHY NOW:\\n...\\nDEEPER ANALYSIS:\\n...\\nCONVICTION: N
 
 Both get normalized to clean XML output matching what the inference parser expects.
 

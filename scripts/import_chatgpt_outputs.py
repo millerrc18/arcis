@@ -1,3 +1,27 @@
+"""Import ChatGPT-generated XML training outputs matched to recommendation IDs.
+
+When to run:
+    After pasting batches from export_chatgpt_inputs.py into ChatGPT and
+    saving the XML responses. This is the second half of the manual
+    training data pipeline (export -> ChatGPT -> import).
+
+What it reads:
+    - inputs_file: the same chatgpt_batch.txt from export_chatgpt_inputs.py
+      (used to extract recommendation_id ordering)
+    - outputs_file: ChatGPT's XML responses, split by EXAMPLE headers
+    - shadow_trades table (to determine win/loss for source tagging)
+
+What it writes:
+    - Inserts new rows into training_examples table
+
+Prerequisites:
+    - Both input and output files must have examples in the same order
+    - Output XML must contain <why_now>, <analysis>, <metadata> tags
+
+Usage:
+    python scripts/import_chatgpt_outputs.py --inputs chatgpt_batch.txt --outputs chatgpt_responses.txt
+"""
+
 import os
 import re
 import sqlite3
@@ -32,7 +56,9 @@ def import_outputs(inputs_file, outputs_file, db_path="ai_research_desk.sqlite3"
             print(f"SKIP {rec_id}: missing XML tags")
             continue
 
-        # Get the original trade outcome for metadata (NOT included in training)
+        # Get the original trade outcome for SOURCE TAGGING only (NOT included
+        # in the training input/output). This lets us stratify the dataset by
+        # win/loss without leaking outcomes into the model's training signal.
         trade = conn.execute(
             "SELECT ticker, pnl_dollars FROM shadow_trades WHERE recommendation_id = ?",
             (rec_id,)

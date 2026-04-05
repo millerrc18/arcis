@@ -5,6 +5,16 @@ Calls: none
 Owns tables: none
 Config keys: none
 Tests: tests/test_db_util.py
+
+The busy_timeout is critical because multiple threads (watch loop, sync thread,
+FastAPI workers) all access the same SQLite database file. Without it, a thread
+that tries to write while another is in a transaction gets an immediate
+"database is locked" error. With busy_timeout=5000ms, SQLite retries for up to
+5 seconds before giving up.
+
+Row factory is set to sqlite3.Row globally so that results are accessible by
+column name (dict-like) rather than tuple index. This prevents bugs when columns
+are reordered in the schema registry.
 """
 
 import sqlite3

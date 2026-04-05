@@ -1,7 +1,20 @@
 #!/usr/bin/env python3
 """Verify MASTER.md counts match actual code/DB state.
 
-Run after every sprint or as part of CI to catch documentation drift.
+When to run:
+    After every sprint, or as part of CI. Catches drift between the
+    documented counts in MASTER.md and the actual codebase.
+
+What it reads:
+    - MASTER.md (regex-extracts Python files, Tests, Dashboard pages,
+      Research docs counts from both bold-format and table-format)
+    - Filesystem counts under src/, tests/, frontend/src/pages/, docs/research/
+
+What it writes:
+    - Nothing — stdout drift report. Exit 1 if any count mismatches.
+
+Prerequisites:
+    - MASTER.md must exist in repo root
 
 Usage:
     python scripts/verify_docs.py

@@ -19,6 +19,52 @@ Setup:
      enabled: true
      bot_token: "your-bot-token"
      chat_id: "your-chat-id"
+
+Function groups (32+ functions organized by category):
+
+  Core transport:
+    send_telegram, is_telegram_enabled, _get_telegram_config
+
+  Trade lifecycle (gated by trade_id/ticker):
+    notify_trade_opened, notify_trade_closed
+
+  Scan & pipeline notifications:
+    notify_scan_complete, notify_scan_result, notify_first_scan_summary,
+    notify_watchlist, notify_premarket_complete, notify_premarket_brief
+
+  System & risk alerts:
+    notify_risk_alert, notify_system_event, notify_startup_complete,
+    notify_validation_summary, notify_collection_failure,
+    notify_exposure_alert, notify_regime_alert
+
+  Overnight & scheduling:
+    notify_overnight_complete, notify_overnight_training_complete,
+    notify_vram_handoff, notify_scoring_summary, notify_schedule_health
+
+  Periodic reports:
+    notify_daily_summary, notify_eod_report, notify_data_asset_report,
+    notify_weekly_digest, notify_retrain_report, notify_research_papers,
+    notify_research_digest
+
+  Milestones & alerts:
+    notify_milestone, notify_streak_alert, notify_earnings_warning,
+    notify_position_earnings_warning, notify_model_event
+
+  Action reminders:
+    notify_action_required, check_action_reminders
+
+  Command handler (Telegram bot commands):
+    poll_commands, handle_command, _cmd_status, _cmd_trades, _cmd_pnl,
+    _cmd_last_scan, _cmd_earnings, _cmd_schedule, _cmd_scoring,
+    _cmd_council, _cmd_health, _cmd_log, _cmd_pull, _cmd_logs,
+    _cmd_gpu, _cmd_disk, _cmd_uptime, _cmd_heartbeat
+
+Rate limiting: No explicit rate limiter; Telegram's Bot API allows ~30 msg/sec.
+The overnight pipeline naturally spaces messages out. If batch notifications
+become an issue, a queue with per-second throttling should be added.
+
+All messages use parse_mode="HTML" by default because Markdown requires
+escaping special chars that appear frequently in financial data (., -, +).
 """
 
 import logging
@@ -37,7 +83,11 @@ TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
 
 
 def _get_telegram_config() -> dict:
-    """Load Telegram config from settings. .env takes precedence over YAML."""
+    """Load Telegram config from settings. .env takes precedence over YAML.
+
+    Environment variables override YAML so that Render can set tokens via
+    env vars without touching the config file.
+    """
     config = load_config()
     tg = config.get("telegram", {})
     return {
@@ -140,7 +190,11 @@ def notify_trade_closed(ticker: str, pnl_dollars: float, pnl_pct: float,
 
 def notify_scan_complete(packets_count: int, trades_opened: int,
                          trades_closed: int) -> bool:
-    """Alert: scan cycle complete (only if something happened)."""
+    """Alert: scan cycle complete (only if something happened).
+
+    Gated: skips sending if nothing happened to avoid spamming during
+    market hours when scans run every 30 minutes.
+    """
     if packets_count == 0 and trades_opened == 0 and trades_closed == 0:
         return True  # Skip silent scans
     msg = (
@@ -661,6 +715,10 @@ def poll_commands(last_update_id: int = 0) -> tuple[list[dict], int]:
 
     Returns (commands, new_last_update_id).
     Each command is {"command": "/status", "args": "", "chat_id": "123"}.
+
+    Security: Only processes commands from the authorized chat_id configured
+    in settings. Commands from other chats are silently ignored. The @botname
+    suffix is stripped so /status@ArcisBot and /status both work.
     """
     cfg = _get_telegram_config()
     if not cfg["enabled"] or not cfg["bot_token"]:
@@ -721,13 +779,17 @@ def notify_action_required(action: str, detail: str, urgency: str = "normal") ->
 def check_action_reminders(db_path: str = DB_PATH) -> list[str]:
     """Check all conditions that require manual action. Returns list of actions sent.
 
-    Called daily at 8 PM from the watch loop. Checks:
+    Called daily at 8 PM from the watch loop. The system is designed to be
+    autonomous, but some actions genuinely require the operator (phase gate
+    review, API key rotation). This function checks each condition and sends
+    a Telegram notification with specific CLI commands to run.
+
+    Checks (in order):
     1. Phase gate milestone reached (50/100/200 closed trades)
     2. Sunday review ritual reminder (Sundays at 5 PM)
     3. API key rotation (every 90 days)
-    4. Unscored training examples accumulating
-    5. Reconcile needed (Alpaca vs DB divergence)
-    6. Saturday retrain didn't fire
+    4. Unscored training examples accumulating (>100 backlog)
+    5. Saturday retrain overdue (>14 days since last model)
     """
     import sqlite3
     sent = []
@@ -1382,7 +1444,10 @@ def _cmd_disk() -> str:
 def notify_validation_summary(result: dict) -> bool:
     """Send system validation summary via Telegram.
 
-    Silent if all checks pass. Warns on warnings, details on failures.
+    Silent if all checks pass — only sends when there are warnings or failures.
+    This prevents noise during normal operation while ensuring problems
+    surface immediately. Failed checks show full detail; warnings show
+    only category counts to keep the message concise.
     """
     if not is_telegram_enabled():
         return False

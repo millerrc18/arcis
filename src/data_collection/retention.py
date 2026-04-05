@@ -6,9 +6,19 @@ Owns tables: none (operates on existing tables)
 Config keys: none
 Tests: tests/test_data_pipeline_robustness.py
 
-Applies per-table retention windows (days). Tables not listed here
-are NEVER pruned (shadow_trades, training_examples, recommendations,
-council_sessions, etc.).
+Addresses #123 (unbounded table growth). Without retention, tables like
+log_entries and scan_metrics grow indefinitely, slowing queries and
+inflating the SQLite file size. The DB file is the single most important
+data artifact — if it grows past ~10GB, backup and sync become painful.
+
+Applies per-table retention windows (days). Tables not listed in
+RETENTION_RULES are NEVER pruned — this includes all trade data
+(shadow_trades, recommendations), training data (training_examples,
+preference_pairs), and council sessions. Those are the irreplaceable
+data assets that make the system valuable.
+
+Safety: _column_exists() check prevents crashes if a table's time column
+was renamed in the registry but retention.py wasn't updated.
 """
 
 import logging

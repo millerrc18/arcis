@@ -5,6 +5,14 @@ Calls: journal.store
 Owns tables: none
 Config keys: none
 Tests: tests/test_local_api_routes.py
+
+Endpoints:
+    GET /packets                     - List packets (filterable by days/ticker/score)
+    GET /packets/{recommendation_id} - Single packet detail
+
+A "packet" is a recommendation object -- the system's buy thesis for a ticker.
+The name comes from the original design where each recommendation was a
+self-contained research packet with thesis, price targets, and risk analysis.
 """
 from fastapi import APIRouter
 from src.journal.store import get_recommendations_in_period, get_recommendation_by_id

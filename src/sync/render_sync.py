@@ -6,11 +6,32 @@ Owns tables: sync_state
 Config keys: database_url, enabled, mode, pk, render, sync_interval_seconds, time_col
 Tests: tests/test_data_collectors.py, tests/test_render_sync.py
 
-Runs every sync_interval_seconds (default 120s) as a daemon thread.
-Tracks last_synced_at per table in a local sync_state SQLite table.
-Handles failures gracefully -- log and retry next cycle, never crash.
-Per-table Postgres reconnection: if the connection dies mid-cycle,
-each table attempts reconnect (3 retries with 2/5/10s backoff) independently.
+Architecture: Pull-based sync, SQLite -> Postgres. The local machine is the
+source of truth for all data except user_notes (bidirectional) and
+pending_commands/config_overrides (pulled FROM cloud). Every 120s the
+daemon thread pushes new/changed rows to Render Postgres so the cloud
+dashboard has fresh data.
+
+Sync modes:
+  - "incremental": rows where time_col > last_synced_at (most tables)
+  - "latest_only": delete+reinsert latest snapshot date (#229, #242)
+  - "full": upsert entire table (small state tables like traffic_light_state)
+
+Key fixes referenced:
+  - #185: ON CONFLICT DO NOTHING for tables with SERIAL pks to avoid
+          duplicate key errors when SQLite rowids collide with Postgres serials
+  - #199: Per-table Postgres reconnection — if the connection dies mid-cycle,
+          each table gets its own reconnect attempt rather than failing all
+  - #228: Sync thread silent death — health_status() exposes staleness so
+          the dashboard can warn when sync stops
+  - #229: latest_only race — savepoint-protected DELETE+INSERT to prevent
+          data loss if INSERT fails after DELETE
+  - #242: latest_only serial clash — strip SQLite 'id' column from INSERT
+          to let Postgres SERIAL auto-generate, avoiding pkey collisions
+  - #243: NULL id sync failure — filter out rows with NULL primary keys
+          before attempting Postgres INSERT (incomplete SQLite data)
+  - #130: Overlapping sync cycles — _sync_lock prevents concurrent runs
+  - #131: Sync timezone — all timestamps are ET (America/New_York)
 """
 
 import json
@@ -23,6 +44,9 @@ from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
 
+# Per-table reconnection (#199): if a Postgres connection dies mid-cycle,
+# each table gets 3 retry attempts with escalating backoff. This prevents
+# a single transient DNS failure from skipping all remaining tables.
 _PG_CONNECT_RETRIES = 3
 _PG_CONNECT_BACKOFF = [2, 5, 10]  # seconds between retries
 
@@ -37,8 +61,10 @@ LOCAL_DB = DB_PATH
 # Generated from schema registry — see src/schema/sync_config.py
 from src.schema.sync_config import generate_sync_tables
 SYNC_TABLES: dict[str, dict] = generate_sync_tables()
-# NOTE: pending_commands and config_overrides are PULLED from cloud, not pushed
-# (handled by pull_commands() in the sync cycle)
+# NOTE: pending_commands and config_overrides flow in the OPPOSITE direction
+# (cloud -> local). They are pulled by pull_commands() at the end of each
+# sync cycle. This bidirectional flow lets the cloud dashboard submit
+# commands that the local machine executes.
 
 
 class TableFetchError(RuntimeError):
@@ -222,6 +248,14 @@ def _upsert_to_postgres(
         conflict_col: Override the ON CONFLICT target (e.g., for tables with
             UNIQUE constraints that differ from the PK, like edgar_filings
             which has a UNIQUE accession_number).
+
+    Two code paths:
+    1. Tables with SERIAL 'id' pk and no conflict_col: uses ON CONFLICT DO
+       NOTHING (#185) because SQLite rowids and Postgres SERIAL values diverge.
+    2. Tables with a natural key: uses ON CONFLICT ... DO UPDATE SET to upsert.
+
+    Rows with NULL primary keys are filtered out (#243) because they indicate
+    incomplete data in SQLite that would violate Postgres NOT NULL constraints.
     """
     if not rows or not columns:
         return 0
@@ -309,7 +343,10 @@ def _replace_latest_in_postgres(
     single transaction — both succeed or neither does (#229).
 
     Excludes 'id' column from INSERT to let Postgres SERIAL generate new ids,
-    avoiding pkey collisions between SQLite rowids and Postgres SERIAL values.
+    avoiding pkey collisions between SQLite rowids and Postgres SERIAL values (#242).
+
+    This mode is for snapshot tables (vix_term_structure, cboe_ratios, etc.)
+    where we only care about the latest date's data and want to fully replace it.
     """
     if not rows or not columns:
         return 0
@@ -411,11 +448,17 @@ def sync_table(
 def pull_commands(database_url: str, db_path: str = LOCAL_DB) -> list[dict]:
     """Pull pending commands from Render Postgres into local SQLite.
 
+    This is the "cloud -> local" half of the bidirectional sync. When a user
+    clicks an action on the cloud dashboard, it writes to pending_commands
+    in Postgres. This function picks those up and inserts them locally for
+    the watch loop to execute.
+
+    Flow:
     1. Read pending_commands WHERE status='pending' AND expires_at > NOW()
-    2. Insert into local SQLite
+    2. Insert into local SQLite with status='claimed'
     3. Update Postgres status to 'claimed' with claimed_at
-    4. Also pull config_overrides (full table replace)
-    5. Return list of pulled commands for immediate execution
+    4. Also pull config_overrides (full table replace — dashboard settings)
+    5. Return list of pulled commands for immediate execution via callback
     """
     try:
         import psycopg2
@@ -613,7 +656,13 @@ def run_sync_cycle(database_url: str, db_path: str = LOCAL_DB) -> dict:
 # ── Background thread ────────────────────────────────────────────────
 
 class RenderSyncThread(threading.Thread):
-    """Daemon thread that syncs SQLite -> Render Postgres on a schedule."""
+    """Daemon thread that syncs SQLite -> Render Postgres on a schedule.
+
+    As a daemon thread, it dies when the main process exits — no cleanup needed.
+    The _sync_lock prevents overlapping cycles (#130) if a cycle takes longer
+    than the interval. The health_status() method is called by /health/sync
+    to surface thread liveness and staleness (#228).
+    """
 
     def __init__(
         self,

@@ -5,6 +5,18 @@ Calls: none
 Owns tables: none
 Config keys: none
 Tests: none
+
+Endpoints:
+    GET    /api/notes           - List all notes (pinned first)
+    POST   /api/notes           - Create note
+    PUT    /api/notes/{id}      - Update note
+    DELETE /api/notes/{id}      - Delete note
+
+Notes are the only entity that supports full CRUD directly in Postgres
+(not via command queue). This is because notes are user content, not system
+actions — there's no GPU or local-only dependency. The ensure_user_notes_table()
+call on every request is defensive: the sync thread creates the table, but
+if someone accesses notes before the first sync, the table might not exist yet.
 """
 
 import json

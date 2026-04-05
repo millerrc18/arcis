@@ -1,5 +1,18 @@
 """Generate docs/database-schema.md from the schema registry.
 
+When to run:
+    After adding or modifying tables/columns in src/schema/registry.py.
+    The generated doc is committed so the schema is browsable on GitHub.
+
+What it reads:
+    - src/schema/registry.py (TABLES dict — the single source of truth, #207)
+
+What it writes:
+    - docs/database-schema.md (overwritten entirely on each run)
+
+Prerequisites:
+    - No database or network access required
+
 Usage: python scripts/generate_schema_docs.py
 """
 
@@ -16,7 +29,9 @@ def main():
     lines.append(f"> Auto-generated from `src/schema/registry.py` — {len(TABLES)} tables\n")
     lines.append(f"> Run `python scripts/generate_schema_docs.py` to regenerate\n")
 
-    # Group tables by domain using description keywords
+    # Group tables by domain using description keywords.
+    # This heuristic classification keeps the doc organized without
+    # requiring explicit domain tags in the registry.
     domains = {
         "Trading Core": [],
         "Training Pipeline": [],

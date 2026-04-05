@@ -9,6 +9,35 @@ Tests: tests/test_council.py
 Orchestrates council sessions with conditional rounds, parameter
 auto-application, value tracking, calibration, and debug logging.
 
+Modified Delphi Protocol
+~~~~~~~~~~~~~~~~~~~~~~~~
+The traditional Delphi method uses multiple anonymous rounds to converge
+on expert consensus.  Our "Modified Delphi" adapts this for LLM agents:
+
+1. **Vote-first** — agents vote *before* seeing others' opinions to
+   avoid anchoring bias and sycophancy (LLMs are especially prone to
+   agreement with the first opinion they see).
+
+2. **Conditional rounds** — Round 2 only fires when Round 1 fails to
+   reach consensus (<3 of 5 agents agree).  This saves API cost when
+   the council already agrees, and avoids the "artificial convergence"
+   problem where extra rounds manufacture false consensus.
+
+3. **Anti-sycophancy detection** — Round 2 checks for agents that flip
+   their vote to match the majority.  Flagged flips are reported in the
+   session result so humans can calibrate trust in the consensus.
+
+5 Agent Roles (from constants.DOMAIN_WEIGHTS):
+  - tactical_operator: short-term technical signals (1.2x weight daily)
+  - strategic_architect: long-term thesis (1.3x weight weekly)
+  - red_team: adversarial challenge (always 1.0x — untainted)
+  - innovation_engine: novel patterns and alpha ideas
+  - macro_navigator: macro regime and cross-asset context
+
+The consensus threshold is tuned for 5 agents (#119): >=3/5 agreement.
+If the agent count changes, the threshold logic in protocol.py must be
+updated or consensus math will break.
+
 Changes from v1:
 - Import from protocol and agents (v2 implementations)
 - Run Round 1, aggregate, conditionally run Round 2 (not always 3 rounds)
@@ -57,6 +86,17 @@ def _store_votes(
 
     FIX #2: Maps new direction/confidence to old position/confidence_int/vote
     for backward compatibility with existing dashboard and queries.
+
+    The dual-schema write (old fields + new v2 fields) exists because the
+    frontend dashboard and several SQL queries still reference the v1
+    column names (position, confidence as int, vote).  The v2 fields
+    (direction, confidence_float, assessment_json) carry richer data.
+    Once the dashboard is migrated, the old columns can be dropped.
+
+    confidence_int is derived by multiplying the 0.0-1.0 float by 10,
+    giving a 0-10 integer scale.  This conversion is lossy but acceptable
+    for the backward-compat columns (#121: confidence type not validated
+    — the v2 float field is the source of truth).
     """
     for assessment in assessments:
         vote_id = str(uuid.uuid4())
@@ -89,7 +129,12 @@ def _store_votes(
 
 
 def _estimate_session_cost(rounds_completed: int, agents_per_round: int = 5) -> float:
-    """Estimate API cost. Uses Anthropic Sonnet pricing."""
+    """Estimate API cost. Uses Anthropic Sonnet pricing.
+
+    This is a rough estimate (not metered) to enforce cost caps and
+    surface spend in the session result.  The 2000-token input / 500-token
+    output assumptions are conservative averages; actual usage varies.
+    """
     calls = rounds_completed * agents_per_round
     input_cost = calls * 2000 * (3.0 / 1_000_000)
     output_cost = calls * 500 * (15.0 / 1_000_000)
@@ -115,7 +160,20 @@ def run_council_command(question: str = "", db_path: str = DB_PATH) -> dict:
 
 
 class CouncilEngine:
-    """Orchestrate vote-first Modified Delphi council sessions."""
+    """Orchestrate vote-first Modified Delphi council sessions.
+
+    Session lifecycle:
+      1. Create session shell row (so we can recover from crashes)
+      2. Build shared context (market data, portfolio state)
+      3. Run Round 1 → persist votes → aggregate
+      4. If no consensus: check cost cap → Run Round 2 → re-aggregate
+      5. Apply parameter recommendations (with rate limits)
+      6. Extract falsifiable predictions for calibration tracking
+      7. Build structured result JSON and persist final session state
+
+    The session shell row is written *before* any LLM calls so that a
+    mid-session crash leaves a recoverable record rather than a ghost.
+    """
 
     def __init__(self, db_path: str = DB_PATH):
         self.db_path = db_path
@@ -129,8 +187,15 @@ class CouncilEngine:
     ) -> dict:
         """Run a vote-first council session.
 
-        Round 1 always runs. Round 2 only if <3/5 consensus.
+        Round 1 always runs. Round 2 only if <3/5 consensus (#119:
+        the 3/5 threshold is hardcoded for 5 agents — changing the
+        agent count requires updating the consensus logic).
         Daily sessions never run Round 3.
+
+        Session types carry different agent domain weights (see
+        constants.DOMAIN_WEIGHTS): daily sessions amplify the tactical
+        operator, weekly/monthly sessions amplify the strategic architect.
+        This prevents short-term noise from dominating long-term planning.
 
         Args:
             session_type: "daily", "weekly", "monthly", "strategic"
@@ -238,7 +303,13 @@ class CouncilEngine:
         shared_context: str,
         custom_question: str | None,
     ) -> dict:
-        """Run Round 1 and the optional Round 2, persisting votes as they land."""
+        """Run Round 1 and the optional Round 2, persisting votes as they land.
+
+        Votes are persisted *immediately* after each round (not batched
+        at session end) so that a crash between rounds doesn't lose
+        Round 1 data.  The rounds_completed counter on the session row
+        is updated atomically with the vote inserts.
+        """
         round1 = run_round_1(
             shared_context,
             session_id=session_id,
@@ -259,7 +330,10 @@ class CouncilEngine:
         sycophancy_flags = []
 
         if aggregation["round2_needed"]:
-            # #120 — Cost cap: check cumulative cost before Round 2
+            # #120 — Cost cap: check cumulative cost before Round 2.
+            # Without this guard, a pathological session (e.g. all agents
+            # timing out and retrying) could run up unbounded API spend.
+            # The cap is configurable via council.max_session_cost in YAML.
             from src.config import load_config as _load_config
             _cfg = _load_config()
             max_cost = _cfg.get("council", {}).get("max_session_cost", 2.0)
@@ -277,6 +351,10 @@ class CouncilEngine:
                     "sycophancy_flags": [],
                 }
 
+            # Round 2: agents see the anonymized Round 1 vote distribution
+            # and are asked to reconsider.  sycophancy_flags tracks any
+            # agent that flipped its vote to match the majority — a sign
+            # of artificial convergence rather than genuine reassessment.
             logger.info("Round 2 triggered — no consensus in Round 1")
             try:
                 round2, sycophancy_flags = run_round_2(
@@ -315,7 +393,19 @@ class CouncilEngine:
         session_id: str,
         aggregation: dict,
     ) -> tuple[dict, dict, dict, bool]:
-        """Apply council parameter recommendations with rate limits and value logging."""
+        """Apply council parameter recommendations with rate limits and value logging.
+
+        Rate limits (constants.RATE_LIMITS) prevent the council from
+        making drastic parameter swings in a single session:
+          - max 25% daily change, 50% weekly change
+          - minimum 0.40 confidence to apply any changes at all
+          - 3 consecutive low-confidence sessions → emergency reset to defaults
+
+        The value_tracker logs every parameter change with the council's
+        recommended value vs the rate-limited applied value, enabling
+        counterfactual analysis: "what would have happened if we applied
+        the council's recommendation without rate limiting?"
+        """
         from src.council.value_tracker import get_current_parameters, log_parameter_change
 
         current_params = get_current_parameters(self.db_path)
@@ -351,7 +441,14 @@ class CouncilEngine:
         return current_params, recommended, applied, rate_limited
 
     def _store_calibrations(self, session_id: str, assessments: list[dict]) -> None:
-        """Persist falsifiable predictions emitted by the final council assessments."""
+        """Persist falsifiable predictions emitted by the final council assessments.
+
+        Each agent can emit a prediction like "SPY will be above 520 by
+        April 15".  These are stored in council_calibrations and verified
+        later to build a calibration curve — are agents that say 80%
+        confidence actually right 80% of the time?  This is the only way
+        to tell if the council is well-calibrated or overconfident.
+        """
         for assessment in assessments:
             prediction = assessment.get("falsifiable_prediction")
             if not (prediction and isinstance(prediction, dict) and prediction.get("claim")):
@@ -390,7 +487,13 @@ class CouncilEngine:
         rate_limited: bool,
         cost: float,
     ) -> tuple[dict, list[dict]]:
-        """Construct the structured v2 session payload and dissent summary."""
+        """Construct the structured v2 session payload and dissent summary.
+
+        The dissent list explicitly captures minority-opinion agents.
+        This is critical for the Modified Delphi protocol: dissent is
+        signal, not noise.  A 4-1 vote where the lone dissenter is
+        red_team may carry more information than a 5-0 rubber stamp.
+        """
         aggregation = round_data["aggregation"]
         final_assessments = round_data["final_assessments"]
         dissent = [
@@ -448,7 +551,13 @@ class CouncilEngine:
         cost: float,
         result_json: dict,
     ) -> None:
-        """Write the final council outcome back onto the session row."""
+        """Write the final council outcome back onto the session row.
+
+        Uses tally_votes() to compute the old-schema consensus string
+        for backward compatibility with dashboard queries that filter
+        by consensus = 'bullish'/'bearish'.  The v2 aggregation data
+        is stored as JSON in result_json for richer programmatic access.
+        """
         old_tally = tally_votes(final_assessments)
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
@@ -482,7 +591,13 @@ class CouncilEngine:
         assessments: list[dict],
         session_type: str,
     ) -> dict:
-        """Finalize a session that ended early due to errors."""
+        """Finalize a session that ended early due to errors.
+
+        Even crashed sessions get a database record with is_contested=1
+        and direction='incomplete'.  This prevents silent data gaps in
+        the council session history and makes failures visible in the
+        dashboard timeline.
+        """
         cost = _estimate_session_cost(rounds_completed)
 
         aggregation = None

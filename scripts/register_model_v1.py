@@ -1,8 +1,23 @@
 #!/usr/bin/env python3
 """Register the current halcyonlatest model as halcyon-v1.0.0 and update config.
 
-Run once to establish versioning. After this, the Saturday retrain pipeline
-auto-increments (v1.1.0, v1.2.0, etc.) and updates config automatically.
+When to run:
+    One-time, to bootstrap semver model versioning. After this initial
+    registration, the Saturday retrain pipeline auto-increments
+    (v1.1.0, v1.2.0, etc.) and updates config automatically.
+
+What it reads:
+    - model_versions table (checks if already registered)
+    - config/settings.local.yaml (to update the active model name)
+
+What it writes:
+    - Updates model_versions table (rename or insert)
+    - Creates an Ollama tag via `ollama cp`
+    - Updates config/settings.local.yaml model field
+
+Prerequisites:
+    - Ollama running with the halcyonlatest model loaded
+    - Database at src/config.DB_PATH with model_versions table
 
 Usage:
     python scripts/register_model_v1.py

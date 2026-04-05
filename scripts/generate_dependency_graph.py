@@ -1,4 +1,18 @@
-"""Generate a markdown import dependency graph for src/ modules."""
+"""Generate a markdown import dependency graph for src/ modules.
+
+When to run:
+    After major refactors or adding new modules. Circular dependencies
+    indicate architectural problems that should be resolved before merging.
+
+What it reads:
+    - All .py files under src/ (AST-parsed for import statements)
+
+What it writes:
+    - docs/dependency-graph.md
+
+Prerequisites:
+    - No external dependencies — uses only stdlib ast module
+"""
 
 from __future__ import annotations
 

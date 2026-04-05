@@ -1,5 +1,19 @@
 """Validate that all training examples can be parsed by the inference parser.
 
+When to run:
+    After running fix_training_format.py or clean_training_data.py, or
+    after importing new training examples. Target: 100% parse rate.
+    Any failure means the fine-tuned model may produce unparseable output.
+
+What it reads:
+    - training_examples.output_text from SQLite
+
+What it writes:
+    - Nothing — stdout-only validation report
+
+Prerequisites:
+    - Database at src/config.DB_PATH with training_examples populated
+
 Usage: python scripts/validate_training_format.py
 """
 
@@ -14,7 +28,8 @@ from src.config import DB_PATH
 
 
 def test_parse(text: str) -> tuple:
-    """Test if text can be parsed by _parse_llm_response logic."""
+    """Test if text can be parsed by _parse_llm_response logic.
+    Mirrors the regex patterns in src/llm/packet_writer.py's parser."""
     if not text:
         return None, False, False
     wn = re.search(r'<why_now>(.*?)</why_now>', text, re.DOTALL | re.IGNORECASE)

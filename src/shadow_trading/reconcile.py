@@ -8,6 +8,30 @@ Tests: tests/test_reconcile.py
 
 Detects orphaned positions (on Alpaca but not in DB) and stale records
 (in DB but not on Alpaca). Backfills missing records and marks stale ones.
+
+Why reconciliation?
+~~~~~~~~~~~~~~~~~~~
+The local shadow_trades database and Alpaca's actual positions can
+drift apart for several reasons:
+  1. Manual trades placed directly through the Alpaca dashboard
+  2. Orders filled while the system was offline (e.g. BSOD, restart)
+  3. Bracket legs filling without the monitor catching them
+  4. Race conditions during order placement (#99)
+
+Two discrepancy types:
+  - Orphaned: Alpaca has a position, local DB doesn't know about it.
+    Action: backfill a shadow_trade record so it's tracked.
+  - Stale: local DB says a trade is open, but Alpaca has no position.
+    Action: mark the trade as closed (the position was likely sold).
+
+Negative shares guard (#188): the system is long-only.  If Alpaca
+reports negative qty (short position), the backfill is rejected to
+prevent database corruption from unexpected short positions.
+
+Both live and paper reconciliation follow the same logic, but paper
+trades include a 1-hour safety guard to avoid false closures from
+transient Alpaca API blips (Alpaca's paper API occasionally returns
+incomplete position lists).
 """
 
 import logging
@@ -23,7 +47,19 @@ logger = logging.getLogger(__name__)
 
 
 def _backfill_trade_data(ticker, entry_price, qty, allocation, source, now):
-    """Build a trade_data dict for backfilling an orphaned position."""
+    """Build a trade_data dict for backfilling an orphaned position.
+
+    Creates a minimal shadow_trade record with safe defaults.  The trade
+    is tagged with order_type='reconciled' so it's distinguishable from
+    normal entries in analytics.
+
+    WARNING: backfilled trades have stop_price=0 and target_1=0 because
+    we don't know the original intent.  The operator must manually set
+    stop-loss and targets — the warning log makes this visible.
+    """
+    # Negative shares guard (#188): reject short positions to prevent
+    # corruption in a long-only system.  Alpaca can report negative qty
+    # if a short position was opened manually or via a margin event.
     if qty <= 0:
         logger.warning(
             "[RECONCILE] Rejecting backfill for %s: qty=%s (long-only system)",
@@ -44,7 +80,13 @@ def _backfill_trade_data(ticker, entry_price, qty, allocation, source, now):
 
 
 def _estimate_exit_pnl(ticker, entry_px, shares):
-    """Estimate exit P&L via last known market price."""
+    """Estimate exit P&L via last known market price.
+
+    Used when closing stale trades — we don't know the actual exit price
+    (the position may have been closed on Alpaca during an outage), so
+    we use the last available close price as a best-effort estimate.
+    This P&L is approximate and may not match the actual fill price.
+    """
     try:
         from src.data_ingestion.market_data import fetch_ohlcv
         data = fetch_ohlcv([ticker], period="5d")
@@ -62,6 +104,10 @@ def reconcile_live_trades(
     db_path: str = DB_PATH, dry_run: bool = False
 ) -> dict:
     """Reconcile Alpaca live positions with local shadow_trades.
+
+    Live reconciliation runs with source='live' and has NO safety guard
+    (unlike paper trades) because live position discrepancies are more
+    urgent and the live API is more reliable than paper.
 
     Args:
         db_path: Path to SQLite database
@@ -179,6 +225,17 @@ def reconcile_paper_trades(
     exit_reason='reconciled_stale' after a 1-hour safety guard to avoid
     false closures from transient Alpaca API blips.
 
+    The 1-hour guard exists because the Alpaca paper API occasionally
+    returns incomplete position lists during high-load periods.  Without
+    it, the reconciler would close a trade that Alpaca still knows about,
+    then the next cycle would re-detect it as an orphan and backfill it.
+    This creates ghost duplicate records and corrupts P&L tracking.
+
+    Also resolves stuck exit_failed/exit_pending trades: if Alpaca still
+    has the position, revert to 'open'; if Alpaca doesn't, close it with
+    estimated P&L based on the exit reason (stop_hit uses stop_price,
+    target_1_hit uses target_1, etc.).
+
     Args:
         db_path: Path to SQLite database
         dry_run: If True, report discrepancies but don't modify DB
@@ -234,7 +291,9 @@ def reconcile_paper_trades(
     backfilled = []
     marked_closed = []
 
-    # Alpaca has it, local doesn't → orphaned
+    # Alpaca has it, local doesn't -> orphaned.
+    # Also checks for qty mismatches between Alpaca and local records,
+    # which can happen from partial fills or manual position adjustments.
     for ticker, pos in alpaca_tickers.items():
         if ticker not in tracked_map:
             orphaned.append({
@@ -281,7 +340,9 @@ def reconcile_paper_trades(
                 orph["avg_price"],
             )
 
-        # Auto-close stale paper trades with 1-hour safety guard
+        # Auto-close stale paper trades with 1-hour safety guard.
+        # The guard prevents false closures from transient Alpaca API
+        # inconsistencies — see docstring above for full rationale.
         for stale_entry in stale:
             ticker = stale_entry["ticker"]
             trade_id = stale_entry["trade_id"]
@@ -338,7 +399,12 @@ def reconcile_paper_trades(
             [s["ticker"] for s in stale],
         )
 
-    # Resolve stuck exit_failed / exit_pending trades
+    # Resolve stuck exit_failed / exit_pending trades.
+    # These are trades where the exit order was submitted but something
+    # went wrong (Alpaca rejection, timeout, network error).  We check
+    # if Alpaca still has the position:
+    #   - Yes: revert to 'open' (the exit didn't actually happen)
+    #   - No:  close with estimated P&L based on exit_reason
     resolved_closed = []
     resolved_reopened = []
     with sqlite3.connect(db_path) as conn:

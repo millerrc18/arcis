@@ -1,8 +1,20 @@
 #!/usr/bin/env python3
 """Generate DIRECTORY.md — annotated repo tree with file counts and descriptions.
 
-Run after every sprint to keep the directory map current.
-Output: DIRECTORY.md in repo root.
+When to run:
+    After every sprint, or when the module structure changes significantly.
+    The output helps new contributors orient in the codebase.
+
+What it reads:
+    - Filesystem tree under the repo root (skipping .git, __pycache__, etc.)
+    - src/schema/registry.py for table count
+    - ANNOTATIONS dict in this file for directory/file descriptions
+
+What it writes:
+    - DIRECTORY.md in the repo root
+
+Prerequisites:
+    - No external dependencies — pure filesystem introspection
 
 Usage:
     python scripts/generate_directory.py

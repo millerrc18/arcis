@@ -5,6 +5,33 @@ Calls: none
 Owns tables: none
 Config keys: none
 Tests: none
+
+Endpoints:
+    GET /api/training/status         - Active model + dataset stats
+    GET /api/training/versions       - Model version history
+    GET /api/training/history        - Alias for /training/versions
+    GET /api/training/report         - Quality scoring report
+    GET /api/training/quality        - Detailed dataset breakdown
+    GET /api/metrics/history?days=90 - Metric snapshots over time
+    GET /api/metric-history?days=90  - Alias for /metrics/history
+    GET /api/schedule-metrics?days=30- Compute schedule metrics
+    GET /api/earnings?days=14        - Upcoming earnings calendar
+    GET /api/data-collection-stats   - Per-table collection freshness
+    GET /api/audit/latest            - Most recent audit report
+    GET /api/audit/history?days=30   - Audit report history
+    GET /api/docs                    - Research doc list (from research_docs table)
+    GET /api/docs/{id}               - Single research doc content
+    GET /api/market/overview         - Latest VIX + macro snapshot
+    GET /api/data-asset/growth       - Training example growth over time
+    GET /api/macro/dashboard         - Latest value per macro series
+    GET /api/research/papers         - Recent high-relevance papers
+    GET /api/research/digest         - Latest weekly research digest
+    GET /api/scan/metrics            - Scan metrics history
+
+The _DATA_COLLECTION_QUERIES dict mirrors the one in local system.py routes.
+Both must stay in sync — if a column is renamed in the registry, both
+query dicts need updating. test_stats_queries_reference_valid_columns
+validates both.
 """
 
 from datetime import datetime, timedelta

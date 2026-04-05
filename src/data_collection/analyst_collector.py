@@ -6,9 +6,18 @@ Owns tables: analyst_estimates
 Config keys: data_enrichment
 Tests: tests/test_data_collectors.py
 
+API: Finnhub /stock/recommendation + /stock/price-target
+Table: analyst_estimates
+Schedule: Nightly in overnight pipeline
+
 Collects consensus recommendations and price targets nightly.
-Batches 20 tickers per night to stay within Finnhub free-tier limits.
-Rotates through the full S&P 100 universe over multiple nights.
+Batches 20 tickers per night to stay within Finnhub free-tier limits
+(60 calls/min). Rotates through the full S&P 100 universe over multiple
+nights — tickers collected in the past 5 days are skipped.
+
+Known issue #234: num_analysts is computed as the sum of all recommendation
+categories (buy+hold+sell+strongBuy+strongSell). This is the number of
+analysts who submitted the most recent consensus, not the total coverage.
 """
 
 import logging

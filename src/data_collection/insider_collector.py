@@ -6,8 +6,18 @@ Owns tables: insider_transactions
 Config keys: data_enrichment
 Tests: tests/test_data_collectors.py
 
+API: Finnhub /stock/insider-transactions (proxies SEC Form 4 data)
+Table: insider_transactions
+Schedule: Nightly in overnight pipeline
+
 Collects Form 4 insider buy/sell data for S&P 100 universe nightly.
 Stores metadata: insider name, title, transaction type, shares, price, value.
+
+Known issue #233: The date filter uses < (strictly older) rather than <=
+(older or equal) when skipping already-collected dates. This means the
+boundary date is re-processed, but INSERT OR IGNORE handles the duplicates.
+This is intentional — using <= would miss filings added to the same date
+after our last collection.
 """
 
 import logging

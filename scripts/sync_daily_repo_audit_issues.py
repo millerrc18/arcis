@@ -1,5 +1,27 @@
 #!/usr/bin/env python3
-"""Create, reopen, comment on, and close GitHub issues for daily audit regressions."""
+"""Create, reopen, comment on, and close GitHub issues for daily audit regressions.
+
+When to run:
+    Automated by the GitHub Actions daily-audit workflow, after
+    daily_repo_audit.py completes. Reads the audit summary and syncs
+    regression state to GitHub issues.
+
+What it reads:
+    - audit-output/summary.json (from daily_repo_audit.py)
+    - GITHUB_REPOSITORY and GITHUB_TOKEN env vars
+    - Existing GitHub issues (to find managed audit issues by title prefix)
+
+What it writes:
+    - Creates new GitHub issues for unexpected regressions
+    - Reopens closed issues if a regression recurs
+    - Closes issues when regressions are resolved
+    - Adds timestamped comments on each audit run
+
+Prerequisites:
+    - GITHUB_TOKEN with issues:write scope
+    - GITHUB_REPOSITORY set (e.g., "owner/repo")
+    - summary.json from a completed audit run
+"""
 
 from __future__ import annotations
 
@@ -172,6 +194,9 @@ def main() -> int:
             _comment(repo, token, issue_number, _build_regression_comment(summary, task))
             print(f"CREATED #{issue_number} {title}")
 
+    # Close any managed audit issues whose regressions are no longer present.
+    # Only issues with this specific prefix are managed by this script;
+    # manually created issues are never touched.
     managed_prefix = "[Daily Repo Audit] Unexpected regression in "
     for issue in issues:
         title = issue["title"]

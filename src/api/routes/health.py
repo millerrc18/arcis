@@ -5,6 +5,18 @@ Calls: evaluation.build_score, evaluation.hshs_live
 Owns tables: none
 Config keys: none
 Tests: tests/test_local_routes.py
+
+Endpoints:
+    GET /build-score     - Build Score (persisted first, fallback to live compute)
+    GET /health/startup  - Latest startup validation result
+    GET /health/sync     - Render sync thread liveness check
+    GET /health/hshs     - Halcyon System Health Score (live compute)
+    GET /health/score    - Detailed health score with model/canary info
+
+Build Score and HSHS are different metrics: Build Score measures project
+progress toward production readiness (gates, data asset size, research
+velocity); HSHS measures live system health (performance, model quality,
+data defensibility). Both are displayed on separate dashboard cards.
 """
 
 import json
@@ -25,7 +37,12 @@ _COMPONENT_KEYS = [
 
 
 def _read_persisted_score(conn):
-    """Read latest build score and 7-day history from DB. Returns None if empty."""
+    """Read latest build score and 7-day history from DB. Returns None if empty.
+
+    We persist build scores rather than computing on every request because the
+    computation is expensive (queries many tables) and the score only changes
+    once per day when the overnight pipeline runs.
+    """
     latest = conn.execute(
         "SELECT build_score, gate_velocity, system_health, "
         "data_asset_value, model_quality, research_velocity, "
@@ -123,7 +140,12 @@ def health_startup():
 
 @router.get("/health/sync")
 def health_sync():
-    """Return Render sync thread health status."""
+    """Return Render sync thread health status.
+
+    Walks all live threads to find the RenderSyncThread instance.
+    If the thread died silently (#228), this endpoint surfaces the gap
+    so the dashboard can show a warning.
+    """
     try:
         from src.sync.render_sync import RenderSyncThread
         import threading

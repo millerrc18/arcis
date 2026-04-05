@@ -5,6 +5,16 @@ Calls: none
 Owns tables: none
 Config keys: none
 Tests: none
+
+Endpoints:
+    GET /docs          - List available docs with availability flags
+    GET /docs/{doc_id} - Fetch a single document's content
+
+Serves markdown documents from disk for the dashboard's built-in doc reader.
+The DOCS list is hardcoded because we want explicit control over display order
+and titles — auto-discovery would lose the curated categorization. The
+_find_project_root() walk is necessary because this file lives deep in the
+package tree and we need to resolve paths relative to the repo root.
 """
 from pathlib import Path
 from fastapi import APIRouter, HTTPException

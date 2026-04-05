@@ -5,6 +5,17 @@ Calls: none
 Owns tables: none (reads/writes user_notes)
 Config keys: none
 Tests: tests/test_local_routes.py
+
+Endpoints:
+    GET    /notes           - List all notes (pinned first)
+    POST   /notes           - Create a new note
+    PUT    /notes/{note_id} - Update an existing note
+    DELETE /notes/{note_id} - Delete a note
+
+Notes are the only user-generated content that gets synced bidirectionally
+between local SQLite and Render Postgres. Tags are stored as JSON arrays
+in SQLite but the API accepts both comma-separated strings and arrays
+for frontend flexibility.
 """
 
 import json

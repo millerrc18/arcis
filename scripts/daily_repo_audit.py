@@ -1,9 +1,28 @@
 #!/usr/bin/env python3
 """Run a daily repo audit with baseline-aware classification.
 
-This script is designed for GitHub Actions, but it also runs locally.
-It focuses on repo-level correctness and contract checks rather than
-machine-specific runtime services such as Ollama or Alpaca availability.
+When to run:
+    Automated daily via GitHub Actions CI (.github/workflows/daily-audit.yml).
+    Can also be run locally for pre-PR validation. See #239 for baseline setup.
+
+What it reads:
+    - Source code under src/ and tests/ (import probes, schema checks)
+    - config/daily_repo_audit_baseline.json for known-failure classification
+    - Git-tracked files for secret scanning
+
+What it writes:
+    - audit-output/summary.json — machine-readable results for issue sync
+    - audit-output/latest-summary.md — GitHub Actions step summary
+    - audit-output/daily-repo-audit-{date}.md — full markdown report
+    - Temporary SQLite databases for probe isolation (cleaned up after)
+
+Prerequisites:
+    - Python environment with all src/ dependencies installed
+    - No network access required (all probes use mocked externals)
+    - For issue sync: GITHUB_TOKEN and GITHUB_REPOSITORY env vars
+
+This script focuses on repo-level correctness and contract checks rather
+than machine-specific runtime services such as Ollama or Alpaca availability.
 """
 
 from __future__ import annotations
@@ -45,6 +64,7 @@ def _utc_now() -> datetime:
 
 
 def _tail(text: str, lines: int = 40, chars: int = 6000) -> str:
+    """Truncate output to fit in GitHub issue bodies (64KB limit)."""
     text = (text or "").strip()
     if not text:
         return ""
@@ -70,6 +90,7 @@ def _run_subprocess(command: list[str]) -> tuple[bool, str]:
 
 
 def _cleanup_temp_path(path: Path) -> None:
+    """Remove temp DB used by a probe. Windows sqlite handle retention is expected."""
     try:
         path.unlink(missing_ok=True)
     except PermissionError:
@@ -103,6 +124,8 @@ def _build_trade_packet():
 
 
 def _validator_real_packet_probe() -> tuple[bool, str]:
+    """Verify the validator accepts a well-formed TradePacket.
+    Catches regressions where validator tightening accidentally rejects valid packets."""
     from src.llm.validator import validate_llm_output
 
     packet = _build_trade_packet()
@@ -122,6 +145,9 @@ def _validator_real_packet_probe() -> tuple[bool, str]:
 
 
 def _live_guard_fail_closed_probe() -> tuple[bool, str]:
+    """Verify live trading fails closed when safety-state queries raise.
+    This is the most critical safety invariant: if we cannot check portfolio
+    state, we must NOT submit orders to the broker."""
     from src.shadow_trading.executor import open_live_trade
 
     packet = _build_trade_packet()
@@ -169,6 +195,9 @@ def _live_guard_fail_closed_probe() -> tuple[bool, str]:
 
 
 def _live_close_broker_truth_probe() -> tuple[bool, str]:
+    """Verify broker is the source of truth for live exit confirmation.
+    If the broker rejects an exit, the local DB must NOT mark the trade closed,
+    otherwise we'd have a phantom open position with real money at risk."""
     from src.journal.store import initialize_database
     from src.shadow_trading.executor import check_and_manage_open_trades
 
@@ -244,6 +273,9 @@ def _live_close_broker_truth_probe() -> tuple[bool, str]:
 
 
 def _local_shadow_close_live_guard_probe() -> tuple[bool, str]:
+    """Verify the local API close route refuses to close live trades.
+    Live trades must go through the broker flow; closing them locally would
+    leave the broker position open while the DB says closed."""
     from src.api.routes.shadow import close_trade
 
     now = _utc_now().isoformat()
@@ -280,6 +312,9 @@ def _local_shadow_close_live_guard_probe() -> tuple[bool, str]:
 
 
 def _paper_entry_requires_broker_probe() -> tuple[bool, str]:
+    """Verify paper trades are not recorded unless the broker confirms.
+    Even paper trades go through Alpaca — local-only records would diverge
+    from the broker's view and corrupt reconciliation."""
     from src.journal.store import initialize_database
     from src.shadow_trading.executor import open_shadow_trade
 
@@ -349,6 +384,9 @@ def _paper_entry_requires_broker_probe() -> tuple[bool, str]:
 
 
 def _council_schema_probe() -> tuple[bool, str]:
+    """Verify council data gatherers can read the current DB schema.
+    Schema changes in the registry can silently break council queries
+    if column names change. This probe catches that drift."""
     from src.council.agents import gather_macro_data, gather_tactical_data
     from src.council.protocol import build_shared_context
     from src.journal.store import initialize_database
@@ -388,6 +426,10 @@ def _council_schema_probe() -> tuple[bool, str]:
                     1.05,
                 ),
             )
+            # These specific FRED series IDs are the ones that
+            # gather_macro_data() queries. Using realistic values
+            # ensures the probe tests the actual SQL queries, not
+            # just table existence.
             macro_rows = [
                 ("DFF", "Fed Funds Rate", 4.5),
                 ("T10Y2Y", "10Y-2Y Spread", -0.3),
@@ -431,6 +473,9 @@ def _council_schema_probe() -> tuple[bool, str]:
 
 
 def _watch_notification_contract_probe() -> tuple[bool, str]:
+    """Verify watch loop does not reference removed PositionSizing fields.
+    These fields were removed in a schema refactor; references would cause
+    AttributeError at runtime when sending trade-open Telegram notifications."""
     source = (ROOT / "src" / "scheduler" / "watch.py").read_text(encoding="utf-8")
     bad_refs = [
         ref
@@ -451,6 +496,9 @@ def _pytest_task(*args: str) -> Callable[[], tuple[bool, str]]:
 
 
 def _secret_scan_probe() -> tuple[bool, str]:
+    """Scan all git-tracked files for committed credential prefixes.
+    Checks for GitHub PATs (ghp_, github_pat_), OpenAI keys (sk-),
+    and AWS access keys (AKIA...). Fast regex scan, not a full entropy check."""
     patterns = [
         re.compile(r"\bghp_[A-Za-z0-9]{20,}\b"),
         re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b"),
@@ -592,6 +640,10 @@ TASKS: list[TaskSpec] = [
 
 
 def _load_baseline(path: Path) -> dict:
+    """Load the known-failure baseline (#239).
+    Tasks listed in expected_failures are classified as 'baseline_fail'
+    instead of 'unexpected_fail', preventing noisy issue creation for
+    known issues that have linked tracking issues."""
     if not path.exists():
         return {}
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -602,6 +654,10 @@ def _load_baseline(path: Path) -> dict:
 
 
 def _classify(task_id: str, passed: bool, expected: dict) -> str:
+    """Four-way classification drives the audit's traffic-light status.
+    'improvement' means a previously-broken task now passes (good news).
+    'baseline_fail' is a known issue that has a tracking GH issue.
+    'unexpected_fail' triggers automatic issue creation via sync script."""
     if passed and task_id in expected:
         return "improvement"
     if not passed and task_id in expected:
@@ -790,6 +846,9 @@ def main() -> int:
         ),
     }
 
+    # Traffic-light status drives the GitHub Actions badge and Telegram alerts.
+    # "yellow" for baseline failures is intentional: they have tracking issues
+    # but still represent known debt that should not be forgotten.
     if counts["unexpected_fail"] > 0:
         overall_status = "red"
     elif counts["baseline_fail"] > 0 or counts["improvement"] > 0:

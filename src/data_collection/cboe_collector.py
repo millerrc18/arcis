@@ -6,8 +6,19 @@ Owns tables: cboe_ratios
 Config keys: none
 Tests: none
 
-Fetches daily aggregate put/call ratios.
-Uses yfinance for CBOE P/C ratio proxy data.
+API: CBOE website (primary), yfinance SPY options (fallback), FRED (last resort)
+Table: cboe_ratios
+Schedule: Daily in overnight pipeline
+
+3-tier fallback strategy (#128, #235):
+  1. CBOE website scraping — free, published daily, but page format changes
+     can break the regex parser (the regex is fragile by nature, #128)
+  2. SPY options via yfinance — computes put/call ratio from volume as a
+     market-wide proxy. Less accurate but more reliable.
+  3. FRED EQUITYPCRATIO series — official data but often delayed 1-2 days.
+
+If all three tiers fail, raises CollectorPartialFailureError rather than
+inserting a row with all-NULL ratios (which would pollute the 20-day average).
 """
 
 import logging

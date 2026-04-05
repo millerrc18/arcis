@@ -1,10 +1,24 @@
 """Initialize Render Postgres tables from the schema registry.
 
+When to run:
+    Once when provisioning a new Render Postgres instance, or after
+    a destructive database reset. After initial setup, use render_migrate.py
+    for incremental schema updates.
+
+What it reads:
+    - DATABASE_URL environment variable (Render external Postgres URL)
+    - src/schema/registry.py via src/schema/postgres module
+
+What it writes:
+    - Creates all tables in Postgres using IF NOT EXISTS (idempotent)
+    - Adds any missing columns to existing tables
+
+Prerequisites:
+    - psycopg2-binary installed
+    - DATABASE_URL set to the Render external connection string
+
 Usage:
     DATABASE_URL=postgresql://... python scripts/render_init_db.py
-
-Creates all tables that the sync thread pushes to. Uses IF NOT EXISTS
-so it's safe to run multiple times.
 """
 
 import os

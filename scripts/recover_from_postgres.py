@@ -1,10 +1,26 @@
 """Rebuild local SQLite database from Render Postgres.
 
+When to run:
+    Emergency recovery when the local SQLite database is corrupted or lost
+    (e.g., after a BSOD or disk failure). Postgres is the cloud backup
+    maintained by the sync thread; this script reverses that flow.
+
+What it reads:
+    - DATABASE_URL from .env (Render Postgres external URL)
+    - All public tables in Postgres
+
+What it writes:
+    - Fresh local SQLite database at src/config.DB_PATH
+    - Backs up the existing (corrupted) DB as .pre_recovery
+    - Removes WAL/SHM files to avoid journal corruption
+
+Prerequisites:
+    - psycopg2-binary and python-dotenv installed
+    - DATABASE_URL in .env pointing to Render Postgres
+    - Postgres must have data (populated by the sync thread)
+
 Usage:
     python scripts/recover_from_postgres.py
-
-Reads DATABASE_URL from .env, pulls all synced tables from Postgres,
-and writes them into a fresh local SQLite database.
 """
 
 import os
@@ -44,7 +60,8 @@ def main():
             os.remove(LOCAL_DB)
             print(f"Removed existing {LOCAL_DB} (backup already exists)")
 
-    # Remove WAL/SHM files
+    # Remove WAL/SHM files. These are SQLite journal files that can cause
+    # "database is locked" or corruption if they reference the old DB state.
     for ext in ["-wal", "-shm"]:
         f = LOCAL_DB + ext
         if os.path.exists(f):
@@ -77,6 +94,8 @@ def main():
         print("Will create tables from Postgres schema instead")
 
     sq = sqlite3.connect(LOCAL_DB)
+    # WAL mode for concurrent reads during recovery; busy_timeout prevents
+    # "database is locked" if another process touches the DB during import.
     sq.execute("PRAGMA journal_mode=WAL")
     sq.execute("PRAGMA busy_timeout=5000")
 
@@ -86,15 +105,16 @@ def main():
 
     for table in pg_tables:
         if table in ("sync_state",):
-            continue  # Skip sync metadata
+            continue  # sync_state is Postgres-only bookkeeping; not needed locally
 
         try:
             # Get column info from Postgres
             pg_cur.execute(f"SELECT * FROM {table} LIMIT 0")
             columns = [desc[0] for desc in pg_cur.description]
 
-            # Skip 'id' column if it's a Postgres SERIAL (auto-increment)
-            # SQLite has its own ROWID
+            # Skip 'id' column if it's a Postgres SERIAL (auto-increment).
+            # SQLite uses ROWID for auto-increment; importing Postgres sequence
+            # values would conflict with SQLite's own numbering.
             skip_id = False
             if "id" in columns:
                 pg_cur.execute(f"""
@@ -139,7 +159,8 @@ def main():
                 tables_failed += 1
                 continue
 
-            # Clear existing data
+            # Clear existing data before bulk import to avoid duplicates.
+            # This is safe because we're rebuilding the entire DB from Postgres.
             sq.execute(f"DELETE FROM {table}")
 
             # Insert rows

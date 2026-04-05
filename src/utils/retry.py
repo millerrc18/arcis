@@ -6,6 +6,11 @@ Calls: none
 Owns tables: none
 Config keys: none
 Tests: tests/test_retry.py
+
+Used by all data collectors to handle transient API failures (rate limits,
+DNS blips, connection resets). Returns None on exhaustion rather than raising
+so callers can skip individual items without aborting the batch. Jitter
+(+/- 20%) prevents thundering herd when multiple collectors retry simultaneously.
 """
 
 import logging

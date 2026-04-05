@@ -6,9 +6,26 @@ Owns tables: none
 Config keys: none
 Tests: tests/test_config_tech_debt.py
 
-Loads settings from config/settings.local.yaml, falling back to
-config/settings.example.yaml if the local file does not exist.
-Caches the config after first load.
+Config loading precedence:
+1. config/settings.local.yaml (gitignored, contains real API keys)
+2. config/settings.example.yaml (checked in, placeholder values)
+
+The config is cached after first load for performance — most modules import
+load_config() at module level. Use reload_config() after writing to the
+YAML file (e.g., from the /config PUT endpoint).
+
+DB_PATH is a module-level constant (not in the YAML) because it's needed
+before YAML loads (e.g., for schema validation at import time). Override
+via ARCIS_DB_PATH env var for testing or multi-instance setups.
+
+Env var precedence: Individual modules (telegram, collectors) check
+os.environ FIRST, then fall back to YAML values. This lets Render set
+tokens via env vars without duplicating them in the YAML file.
+
+Known issue #132: If settings.local.yaml is missing, the system falls back to
+settings.example.yaml which has placeholder API keys. The validate_config()
+function detects common placeholder patterns and logs warnings, but doesn't
+crash — this allows tests to run without real API keys.
 """
 
 import logging
@@ -20,12 +37,16 @@ from pathlib import Path
 import yaml
 
 # Central database path constant — override via ARCIS_DB_PATH env var.
+# This is the single source of truth for the SQLite path. Every module
+# imports DB_PATH from here rather than hardcoding the filename.
 DB_PATH = os.environ.get("ARCIS_DB_PATH", "ai_research_desk.sqlite3")
 
 _config_cache: dict | None = None
 
 _logger = logging.getLogger(__name__)
 
+# Detects common placeholder patterns from settings.example.yaml (#132).
+# Matches: "your-api-key", "YOUR_KEY_HERE", "placeholder", "example", ""
 _PLACEHOLDER_RE = re.compile(r"^your[-_]|placeholder|example|YOUR_|^$", re.IGNORECASE)
 
 _CRITICAL_KEYS = [

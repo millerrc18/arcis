@@ -6,8 +6,21 @@ Owns tables: short_interest
 Config keys: data_enrichment
 Tests: tests/test_data_collectors.py
 
-Collects short interest snapshots biweekly (1st and 15th of each month).
-FINRA publishes short interest data twice monthly at settlement dates.
+API: Finnhub /stock/short-interest (proxies FINRA data)
+Table: short_interest
+Schedule: Biweekly (1st, 2nd, 15th, 16th of each month)
+
+Collects short interest snapshots biweekly. FINRA publishes short interest
+data twice monthly at settlement dates (mid-month and end-of-month).
+We collect on the 1st/2nd and 15th/16th to catch both publication windows.
+
+days_to_cover is computed as short_interest / avg_daily_volume. High DTC
+(>5 days) indicates potential short squeeze setups.
+
+Known issue #129: cursor.rowcount is used to count actual inserts
+(excluding duplicates from INSERT OR IGNORE). This is correct for SQLite
+but note that conn.total_changes() would give cumulative counts including
+prior operations on the same connection — do not substitute.
 """
 
 import logging

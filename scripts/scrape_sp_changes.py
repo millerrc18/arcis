@@ -1,7 +1,23 @@
 """Scrape S&P 500 and S&P 100 index composition changes.
 
+When to run:
+    Quarterly or annually to update the survivorship-bias reference data.
+    The stress test and attribution backtest use this data to understand
+    which tickers were in the index during historical test periods.
+
+What it reads:
+    - Wikipedia API for S&P 500 composition changes
+    - Hardcoded S&P 100 changes (curated from S&P Dow Jones press releases)
+
+What it writes:
+    - data/reference/sp_composition_changes.csv
+
+Prerequisites:
+    - Network access (for Wikipedia API)
+    - requests and beautifulsoup4 installed
+
 S&P 500: Scraped from Wikipedia's structured change table.
-S&P 100: Partial — uses known changes from press releases.
+S&P 100: Partial -- uses known changes from press releases.
 
 Usage:
     python scripts/scrape_sp_changes.py
@@ -107,7 +123,7 @@ def scrape_sp500_changes() -> list[dict]:
         removed_name = re.sub(r'\[.*?\]', '', cols[4].get_text(strip=True))
         reason = re.sub(r'\[.*?\]', '', cols[5].get_text(strip=True))
 
-        # Clean tickers (Wikipedia sometimes uses periods for class shares)
+        # Clean tickers: Wikipedia uses "BRK.B" but yfinance and Alpaca use "BRK-B".
         added_ticker = added_ticker.replace(".", "-") if added_ticker else ""
         removed_ticker = removed_ticker.replace(".", "-") if removed_ticker else ""
 

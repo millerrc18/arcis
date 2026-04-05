@@ -8,6 +8,30 @@ Tests: tests/test_confidence.py, tests/test_cto_report.py
 
 Produces a comprehensive structured report for CTO analysis,
 designed to be consumed by Claude for strategic recommendations.
+
+Report structure
+~~~~~~~~~~~~~~~~
+The CTO report is the system's primary self-assessment artifact.  It
+consolidates trade statistics, model performance, and training pipeline
+health into a single JSON payload that the council and Telegram
+notifications consume.
+
+Key sections:
+  - headline_kpis:           5 numbers that matter most (Sharpe, WR, DD,
+                             confidence calibration, rubric score)
+  - trade_summary:           aggregate P&L, win rate, expectancy, profit
+                             factor, max consecutive losses (#254)
+  - by_exit_reason:          which exits (stop, target, timeout) produce
+                             the best/worst outcomes
+  - by_score_band:           do high-priority-score picks actually win more?
+  - by_sector / by_regime:   performance segmented by market context
+  - execution_analysis:      MFE/MAE, hold period, target hit rate
+  - confidence_calibration:  are high-conviction LLM picks actually better?
+  - fund_metrics:            Sortino, Calmar, VaR, return skewness
+
+The report uses defensive `or 0` patterns throughout because trade data
+can have NULL P&L values (e.g. open trades, reconciled entries), and
+None + float raises TypeError.
 """
 
 import logging
@@ -35,6 +59,11 @@ def generate_cto_report(days: int = 7, db_path: str = DB_PATH) -> dict:
     """Generate a comprehensive structured performance report for CTO analysis.
 
     Returns a dict (JSON-serializable) with all performance data.
+
+    The report is intentionally wide rather than deep — it surfaces many
+    dimensions of performance so that Claude (or a human) can spot which
+    area needs attention.  Individual metrics are kept simple (win rate,
+    not Bayesian posterior) because the audience is strategic, not quant.
     """
     now = datetime.now(ET)
     start_date = now - timedelta(days=days)
@@ -108,7 +137,11 @@ def generate_cto_report(days: int = 7, db_path: str = DB_PATH) -> dict:
     # Fund-level metrics
     fund_metrics = _compute_fund_metrics(closed, trade_summary)
 
-    # Build headline KPIs — the 5 numbers that matter most
+    # Build headline KPIs — the 5 numbers that matter most.
+    # These are the metrics surfaced at the top of every Telegram digest
+    # and the dashboard summary card.  Chosen because they each capture
+    # a distinct axis: risk-adjusted return (Sharpe), raw accuracy (WR),
+    # tail risk (DD), model judgment (calibration), and data quality (rubric).
     headline_kpis = {
         "sharpe_ratio": trade_summary.get("sharpe_ratio", 0),
         "win_rate": trade_summary.get("win_rate", 0),
@@ -117,7 +150,10 @@ def generate_cto_report(days: int = 7, db_path: str = DB_PATH) -> dict:
         "avg_rubric_score": training_status.get("training_data_quality", {}).get("average_process_score"),
     }
 
-    # Save a metric snapshot for historical trending
+    # Save a metric snapshot for historical trending.
+    # This persists headline KPIs to model_versions so we can plot
+    # performance evolution across model releases.  Best-effort —
+    # snapshot failure must never block the report from returning.
     try:
         from src.training.versioning import save_metric_snapshot
         snapshot = {
@@ -167,7 +203,16 @@ def generate_cto_report(days: int = 7, db_path: str = DB_PATH) -> dict:
 
 
 def _compute_trade_summary(closed: list, open_trades: list, all_trades: list) -> dict:
-    """Compute overall trade performance summary."""
+    """Compute overall trade performance summary.
+
+    Core metrics: win rate, Sharpe ratio (annualized from per-trade
+    returns assuming ~150 trades/year), profit factor, expectancy,
+    max drawdown (cumulative P&L peak-to-trough), and max consecutive
+    losses (#254).
+
+    The `or 0` guards on every pnl_dollars / pnl_pct access are
+    defensive against NULL values from open or reconciled trades.
+    """
     winners = [t for t in closed if (t.get("pnl_dollars") or 0) > 0]
     losers = [t for t in closed if (t.get("pnl_dollars") or 0) <= 0]
 
@@ -214,7 +259,10 @@ def _compute_trade_summary(closed: list, open_trades: list, all_trades: list) ->
     gross_losses = abs(sum(t.get("pnl_dollars", 0) or 0 for t in losers))
     profit_factor = gross_wins / gross_losses if gross_losses > 0 else (float('inf') if gross_wins > 0 else 0)
 
-    # Max consecutive losses
+    # Max consecutive losses (#254) — a key behavioral risk metric.
+    # A long losing streak can trigger emotional overrides even in an
+    # automated system (e.g. the operator manually halting or tweaking
+    # parameters).  Tracking this helps calibrate expectations.
     max_consec_losses = 0
     current_streak = 0
     for t in closed:
@@ -266,6 +314,9 @@ def _compute_by_exit_reason(closed: list) -> dict:
 
 
 def _compute_by_score_band(closed: list, recommendations: list) -> dict:
+    # Segment trades by priority score band to answer the question:
+    # "Do higher-scored trades actually perform better?"  If not, the
+    # scoring model needs recalibration.  Bands: 90-100, 80-89, 70-79, <70.
     # Map recommendation_id -> priority_score
     score_map = {r.get("recommendation_id"): r.get("priority_score", 0) or 0 for r in recommendations}
 
@@ -391,6 +442,9 @@ def _compute_execution_analysis(closed: list) -> dict:
 
 
 def _compute_signal_quality(closed: list, recommendations: list) -> dict:
+    # Surfaces "high score losers" — trades where the model was confident
+    # (score >= 80) but the trade lost money.  These are the most
+    # informative training signals: the model's blind spots.
     score_map = {r.get("recommendation_id"): r.get("priority_score", 0) or 0 for r in recommendations}
 
     high_score_losers = []
@@ -475,6 +529,11 @@ def _compute_feature_correlations(closed: list, recommendations: list) -> dict:
 
 
 def _compute_training_status(days: int, db_path: str) -> dict:
+    # Training pipeline health: example counts, quality scores, leakage
+    # detection, and Annie Duke quadrant distribution.  The quadrant
+    # analysis (good process + good outcome, etc.) is from *Thinking in
+    # Bets* — it separates decision quality from outcome quality to avoid
+    # "resulting" (judging decisions only by their outcomes).
     try:
         from src.training.versioning import get_training_example_counts
         counts = get_training_example_counts(db_path)
@@ -541,7 +600,17 @@ def _compute_training_status(days: int, db_path: str) -> dict:
 
 
 def _compute_confidence_calibration(closed: list, recommendations: list) -> dict:
-    """Compute confidence calibration from LLM conviction scores."""
+    """Compute confidence calibration from LLM conviction scores.
+
+    Answers the critical question: "When the model says 9/10 conviction,
+    does it actually win more than when it says 3/10?"  If yes, the
+    model has genuine judgment.  If not, conviction is noise.
+
+    Three conviction bands (8-10, 5-7, 1-4) are compared on win rate
+    and average P&L.  Overconfidence rate = % of high-conviction (8-10)
+    trades that lost money.  Pearson correlation between conviction and
+    P&L pct gives a single calibration metric.
+    """
     conv_map = {r.get("recommendation_id"): r.get("llm_conviction") for r in recommendations}
 
     bands = {"8-10": [], "5-7": [], "1-4": []}
@@ -600,7 +669,19 @@ def _compute_confidence_calibration(closed: list, recommendations: list) -> dict
 
 
 def _compute_fund_metrics(closed: list, trade_summary: dict) -> dict:
-    """Compute fund-level performance metrics (Sortino, Calmar, VaR, etc.)."""
+    """Compute fund-level performance metrics (Sortino, Calmar, VaR, etc.).
+
+    These are institutional-grade metrics that would appear in a fund's
+    factsheet.  Included even during paper trading so we can benchmark
+    against them before committing real capital.
+
+    Key metrics:
+      - Sortino:  like Sharpe but only penalizes downside volatility
+      - Calmar:   annualized return / max drawdown (risk/reward efficiency)
+      - VaR 95%:  5th percentile of returns ("worst expected day")
+      - Monthly batting avg: % of months with positive P&L
+      - Skewness: positive = more big winners than losers (desirable)
+    """
     import math
 
     pnl_pcts = [t.get("pnl_pct", 0) or 0 for t in closed]
@@ -624,7 +705,9 @@ def _compute_fund_metrics(closed: list, trade_summary: dict) -> dict:
 
     mean_r = sum(pnl_pcts) / len(pnl_pcts)
 
-    # Sortino ratio — only penalizes downside volatility
+    # Sortino ratio — only penalizes downside volatility.
+    # Better than Sharpe for asymmetric return distributions because
+    # we WANT upside volatility (big winners) — only downside hurts.
     downside = [r for r in pnl_pcts if r < 0]
     if downside:
         downside_dev = (sum(r ** 2 for r in downside) / len(downside)) ** 0.5

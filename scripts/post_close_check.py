@@ -1,5 +1,23 @@
 """Post-close health check — run after market close to verify the day went well.
 
+When to run:
+    Daily after 4:00 PM ET, either manually or via the watch loop's
+    post-close phase. See CLAUDE.md "Common Commands" section.
+
+What it reads:
+    - SQLite database (searches multiple candidate paths for compatibility
+      with legacy and current DB naming conventions)
+    - Tables: scan_metrics, traffic_light_state, vix_term_structure,
+      shadow_trades, council_sessions, training_examples, log_entries,
+      command_results
+
+What it writes:
+    - Nothing — read-only diagnostic. Output is stdout for human review.
+
+Prerequisites:
+    - Database must exist at one of the candidate paths
+    - No network access or running services required
+
 Usage: python scripts/post_close_check.py
 """
 
@@ -13,6 +31,8 @@ from zoneinfo import ZoneInfo
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ET = ZoneInfo("America/New_York")
 
+# Multiple candidate paths because the DB name changed during early development.
+# The size check (>1000 bytes) avoids picking up an empty placeholder file.
 DB_CANDIDATES = ["ai_research_desk.sqlite3", "data/halcyon.db", "data/arcis.db"]
 DB_PATH = None
 for candidate in DB_CANDIDATES:
@@ -80,7 +100,8 @@ try:
     if tl and vix:
         regime = tl['current_regime']
         vix_val = vix['vix']
-        # Sanity: VIX > 30 should not be GREEN
+        # Sanity check: VIX > 30 = extreme fear; GREEN regime at that level
+        # indicates the traffic light formula has a bug or stale data.
         if vix_val > 30 and regime == 'GREEN':
             check("Traffic Light", False, f"VIX={vix_val:.1f} but regime={regime} — should be YELLOW/RED")
         else:
@@ -112,9 +133,13 @@ try:
     check("Open positions", open_count > 0, f"{open_count} open")
     check("Trades opened today", opened_today >= 0 or "warn", f"{opened_today} new")
     check("Trades closed today", True, f"{closed_today} closed")
+    # 50 closed trades is the phase gate threshold to move from shadow
+    # trading to live trading. Track progress toward that milestone.
     check("Total closed (gate progress)", True, f"{total_closed}/50 ({total_closed/50*100:.0f}%)")
 
-    # Any positions nearing timeout?
+    # Positions open >7 days are nearing the default timeout window.
+    # These need manual review: either the bracket is too wide or
+    # market conditions have changed since entry.
     nearing_timeout = conn.execute(
         "SELECT ticker, julianday('now') - julianday(actual_entry_time) as days "
         "FROM shadow_trades WHERE status='open' "
@@ -185,6 +210,8 @@ print()
 # === 6. Is data collecting? ===
 print("[6] DATA COLLECTION")
 try:
+    # These tables are populated by the overnight collection pipeline.
+    # Data older than 2 days indicates the collector failed or was skipped.
     tables_to_check = [
         ("vix_term_structure", "collected_date"),
         ("macro_snapshots", "collected_date"),
@@ -195,6 +222,7 @@ try:
             latest = conn.execute(f"SELECT {date_col} FROM {table} ORDER BY {date_col} DESC LIMIT 1").fetchone()
             if latest:
                 latest_date = str(latest[0])[:10]
+                # 2-day tolerance because weekends have no new data
                 is_fresh = latest_date >= (datetime.now(ET) - timedelta(days=2)).strftime("%Y-%m-%d")
                 check(f"{table}", is_fresh, f"latest: {latest_date}")
             else:
@@ -209,6 +237,8 @@ print()
 # === 7. Any errors in logs? ===
 print("[7] ERRORS")
 try:
+    # The log_entries table has had column name changes over time
+    # (log_level vs level), so we check which variant exists.
     cols = [r[1] for r in conn.execute("PRAGMA table_info(log_entries)").fetchall()]
     if "log_level" in cols:
         errors_today = conn.execute(

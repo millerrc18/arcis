@@ -1,5 +1,21 @@
 """Leakage diagnostic — investigates TF-IDF accuracy above 0.55 threshold.
 
+When to run:
+    Ad-hoc when training quality metrics look suspicious, or after importing
+    new training examples. A TF-IDF classifier that can predict outcomes
+    from input text above 55% accuracy means outcomes are leaking into inputs.
+
+What it reads:
+    - training_examples table (input_text, output_text, outcome_type, ticker, source)
+    - src/training/leakage_detector.py if available
+
+What it writes:
+    - Nothing — stdout-only diagnostic report. Paste output to Claude for analysis.
+
+Prerequisites:
+    - Database at one of the candidate paths
+    - scikit-learn installed for the TF-IDF test (optional — degrades gracefully)
+
 Run from repo root: python scripts/diagnose_leakage.py
 """
 
@@ -66,6 +82,9 @@ print()
 # === 3. Check for outcome/result words in training text ===
 print("[3/7] OUTCOME LEAKAGE — searching for forbidden words in training text")
 print("-" * 60)
+# Words that should NEVER appear in training inputs because they reveal
+# the trade outcome. If the model can "cheat" by seeing these, the fine-tuned
+# model learns to parrot outcomes instead of analyzing setups.
 FORBIDDEN_WORDS = [
     "profit", "loss", "gained", "lost", "winner", "loser",
     "hit target", "stopped out", "target_hit", "stop_hit",

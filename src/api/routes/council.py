@@ -5,6 +5,17 @@ Calls: none
 Owns tables: none (reads council_sessions, council_votes)
 Config keys: none
 Tests: tests/test_local_routes.py
+
+Endpoints:
+    GET /council/latest              - Most recent session with votes
+    GET /council/history?days=30     - Session list within date range
+    GET /council/session/{id}        - Single session detail with votes
+
+The AI Council is a multi-agent deliberation system where 5 specialized
+agents (tactical, strategic, red team, innovation, macro) vote on market
+direction. Sessions and votes are stored separately because votes link
+to sessions via session_id, and a single session may span multiple rounds
+if consensus is contested.
 """
 
 import json
