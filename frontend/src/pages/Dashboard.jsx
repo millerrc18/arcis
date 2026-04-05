@@ -261,6 +261,12 @@ export default function Dashboard() {
         <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text)' }}>Dashboard</h2>
         <div className="flex items-center gap-3">
           <AuditChip auditData={auditData} auditAssessment={auditAssessment} auditSummary={auditSummary} />
+          {/* IB integration: show live broker connection status */}
+          {status?.live_broker && (
+            <span className="text-xs" style={{ color: status.ib_connected ? 'var(--arcis-success)' : 'var(--arcis-text-muted)' }}>
+              {status.live_broker.toUpperCase()} {status.ib_connected ? 'Connected' : ''}
+            </span>
+          )}
           <Tooltip content="EMERGENCY: Immediately stops all new trade entries. Open positions are NOT closed.">
             <button
               onClick={() => {

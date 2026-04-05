@@ -218,6 +218,10 @@ class WatchLoop:
         self._last_status_print: datetime | None = None
         self._reprint_banner_on_next_cycle = False
 
+        # IB integration sprint: connection health monitoring
+        self._ib_disconnect_alerted = False
+        self._last_ib_health_check: datetime | None = None
+
         # Multi-cadence timing
         self._last_position_monitor_time: datetime | None = None
         self._last_sentiment_refresh_time: datetime | None = None
@@ -294,6 +298,9 @@ class WatchLoop:
         self._daily_validation_done = False
         self._daily_build_score_done = False
         self._scan_number = 0
+        # IB integration sprint: reset disconnect alert daily
+        self._ib_disconnect_alerted = False
+        self._last_ib_health_check = None
         # Reset per-task backoff and collector failure tracking
         self._backoff.clear()
         self._collector_failures.clear()
@@ -483,6 +490,15 @@ class WatchLoop:
                 stats["buying_power"] = f"${float(acct.get('buying_power', 0)):,.0f}"
         except Exception as e:
             logger.debug("[WATCH] _get_live_stats Alpaca error: %s", e)
+        # IB integration sprint: live broker connection status
+        try:
+            from src.trading.broker_factory import get_live_broker
+            broker = get_live_broker(self.config)
+            stats["ib_connected"] = broker.is_connected()
+            stats["live_broker"] = self.config.get("live_trading", {}).get("broker", "alpaca")
+        except Exception:
+            stats["ib_connected"] = False
+            stats["live_broker"] = "unknown"
         return stats
 
     def _print_banner(self):
@@ -514,6 +530,9 @@ class WatchLoop:
 
         live = self._get_live_stats()
 
+        # IB integration sprint: show live broker in banner
+        live_broker_name = self.config.get("live_trading", {}).get("broker", "alpaca").upper()
+
         print(f"""
 {'='*45}
  ARCIS - WATCH MODE
@@ -536,6 +555,7 @@ class WatchLoop:
    Overnight: {'enabled' if self.overnight else 'disabled'}
 
  System:
+   Live broker: {live_broker_name}
    Last audit: {live['last_audit']} {live['audit_age']}
    DB: SQLite (WAL mode) | Render sync: active
 
@@ -1592,6 +1612,72 @@ class WatchLoop:
                 # Reprint full banner on significant events
                 if self._reprint_banner_on_next_cycle:
                     self._print_banner()
+
+                # IB integration sprint: check IB connection health every ~5 min
+                # during market hours. Only runs when live_trading.broker == "ib"
+                # and live_trading.enabled == True. Avoids alert spam via
+                # _ib_disconnect_alerted flag.
+                live_cfg = self.config.get("live_trading", {})
+                if (live_cfg.get("broker") == "ib"
+                        and live_cfg.get("enabled", False)
+                        and self._is_market_open(now)):
+                    ib_check_due = (
+                        self._last_ib_health_check is None
+                        or (now - self._last_ib_health_check).total_seconds() >= 300
+                    )
+                    if ib_check_due:
+                        self._last_ib_health_check = now
+                        try:
+                            from src.trading.broker_factory import get_live_broker
+                            broker = get_live_broker(self.config)
+                            if not broker.is_connected():
+                                logger.error(
+                                    "[WATCH] IB broker disconnected during market hours"
+                                )
+                                if not self._ib_disconnect_alerted:
+                                    self._ib_disconnect_alerted = True
+                                    try:
+                                        from src.notifications.telegram import (
+                                            send_telegram, is_telegram_enabled,
+                                        )
+                                        if is_telegram_enabled():
+                                            send_telegram(
+                                                "\U0001f534 IB DISCONNECTED during market hours "
+                                                "— attempting reconnect..."
+                                            )
+                                    except Exception:
+                                        pass
+                                # Attempt reconnect via broker internals
+                                try:
+                                    broker._ensure_connected()
+                                    if broker.is_connected():
+                                        logger.info(
+                                            "[WATCH] IB broker reconnected successfully"
+                                        )
+                                        self._ib_disconnect_alerted = False
+                                        try:
+                                            from src.notifications.telegram import (
+                                                send_telegram, is_telegram_enabled,
+                                            )
+                                            if is_telegram_enabled():
+                                                send_telegram(
+                                                    "\u2705 IB reconnected successfully"
+                                                )
+                                        except Exception:
+                                            pass
+                                except Exception as reconn_exc:
+                                    logger.error(
+                                        "[WATCH] IB reconnect failed: %s", reconn_exc
+                                    )
+                            else:
+                                # Connection is healthy — clear alert flag so a
+                                # future disconnect triggers a fresh alert
+                                if self._ib_disconnect_alerted:
+                                    self._ib_disconnect_alerted = False
+                        except Exception as ib_exc:
+                            logger.debug(
+                                "[WATCH] IB health check error: %s", ib_exc
+                            )
 
                 time.sleep(60)
 

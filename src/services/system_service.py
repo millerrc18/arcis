@@ -120,6 +120,16 @@ def get_system_status(config: dict) -> dict:
     bootcamp_enabled = bootcamp_cfg.get("enabled", False)
     bootcamp_phase = bootcamp_cfg.get("phase", 1) if bootcamp_enabled else None
 
+    # IB / live broker connection status
+    ib_connected = False
+    live_broker = config.get("live_trading", {}).get("broker", "alpaca")
+    try:
+        from src.trading.broker_factory import get_live_broker
+        _broker = get_live_broker(config)
+        ib_connected = _broker.is_connected()
+    except Exception:
+        ib_connected = False
+
     return {
         "config_loaded": config_loaded,
         "config_source": config_source,
@@ -141,4 +151,6 @@ def get_system_status(config: dict) -> dict:
         "training_examples": training_examples,
         "bootcamp_enabled": bootcamp_enabled,
         "bootcamp_phase": bootcamp_phase,
+        "ib_connected": ib_connected,
+        "live_broker": live_broker,
     }

@@ -141,19 +141,26 @@ shadow_trading:
 
 live_trading:
   enabled: false                           # true = real money. Be very sure.
-  api_key: "your-live-alpaca-api-key"      # → .env: ALPACA_LIVE_API_KEY
-  secret_key: "your-live-alpaca-secret-key"  # → .env: ALPACA_LIVE_SECRET_KEY
+  broker: "alpaca"                         # "alpaca" or "ib". IB requires Gateway running.
   starting_capital: 100                    # USD. Keep small while validating.
-  max_open_positions: 2                    # Very conservative for live trading.
+  max_open_positions: 5
   risk:
     planned_risk_pct_max: 0.02             # 2% max risk per live trade.
-    stop_atr_multiplier: 1.0               # Tighter stops than paper (paper uses 2.0).
+    stop_atr_multiplier: 2.0              # ATR multiplier for stop distance.
     target_atr_multiplier: 2.0             # Target at 2x ATR from entry.
     timeout_days: 7                        # Auto-close live trades after 7 days.
   min_score: null                          # Optional: minimum ranker score (0-100) for live.
-                                           # null = use same threshold as paper.
   max_price: null                          # Optional: skip stocks above this price.
-                                           # null = no price limit.
+  # Interactive Brokers settings (only used when broker: "ib")
+  ib:
+    host: "127.0.0.1"
+    port: 4002                             # 4002=paper, 4001=live. START WITH 4002.
+    client_id: 1
+    timeout: 10
+    # IB Gateway must be running on this machine
+  # Alpaca live settings (only used when broker: "alpaca")
+  api_key: "your-live-alpaca-api-key"      # → .env: ALPACA_LIVE_API_KEY
+  secret_key: "your-live-alpaca-secret-key"  # → .env: ALPACA_LIVE_SECRET_KEY
 
 
 # ─── AUTOMATION ─────────────────────────────────────────────────────────

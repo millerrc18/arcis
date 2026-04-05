@@ -113,11 +113,19 @@ def _is_pending_status(status: str | None) -> bool:
 
 
 def _submit_exit_order(trade: dict, shares: int) -> dict:
-    """Submit the appropriate broker exit order for a paper or live trade."""
-    if trade.get("source") == "live":
-        from src.shadow_trading.alpaca_adapter import place_live_exit
+    """Submit the appropriate broker exit order for a paper or live trade.
 
-        return place_live_exit(trade["ticker"], 0)
+    Live trades route through the broker factory (IB or Alpaca, config-driven).
+    Paper trades continue calling alpaca_adapter directly (unchanged).
+    """
+    if trade.get("source") == "live":
+        # Route through broker abstraction for live trades
+        from src.trading.broker_factory import get_live_broker
+        broker = get_live_broker(load_config())
+        result = broker.place_exit(trade["ticker"], 0)
+        return {"order_id": result.order_id, "status": result.status,
+                "filled_avg_price": result.filled_avg_price,
+                "filled_qty": result.filled_qty}
 
     from src.shadow_trading.alpaca_adapter import place_paper_exit
 
@@ -1180,8 +1188,16 @@ def open_live_trade(
     # Safety guard: Capital check — halt if equity < 50% of starting capital
     starting_capital = live_cfg.get("starting_capital", 100)
     try:
-        from src.shadow_trading.alpaca_adapter import get_live_account_info
-        live_acct = get_live_account_info()
+        # Route through broker factory — works for both IB and Alpaca
+        from src.trading.broker_factory import get_live_broker
+        _broker = get_live_broker(config)
+        _acct = _broker.get_account()
+        live_acct = {
+            "equity": _acct.equity,
+            "cash": _acct.cash,
+            "buying_power": _acct.buying_power,
+            "portfolio_value": _acct.portfolio_value,
+        }
         live_equity = live_acct.get("equity", 0)
 
         if live_equity < starting_capital * 0.50:
@@ -1350,16 +1366,23 @@ def open_live_trade(
     trade_data = trade.to_dict()
     trade_data["source"] = "live"
 
-    # Place live order
+    # Place live order via broker factory (IB or Alpaca, config-driven).
+    # Uses bracket order so the broker manages stop-loss and take-profit exits.
     try:
-        from src.shadow_trading.alpaca_adapter import place_live_entry
-        order = place_live_entry(ticker, planned_shares, notional=planned_allocation)
-        trade_data["alpaca_order_id"] = order.get("order_id")
-        trade_data["order_type"] = "simple"
+        from src.trading.broker_factory import get_live_broker
+        broker = get_live_broker(config)
+        order = broker.place_bracket_order(
+            ticker=ticker,
+            quantity=planned_shares,
+            take_profit_price=target_price,
+            stop_loss_price=stop_price,
+        )
+        trade_data["alpaca_order_id"] = order.order_id  # Works for both IB and Alpaca
+        trade_data["order_type"] = order.order_type
+        trade_data["broker"] = order.broker  # Track which broker executed
 
-        fill_price = order.get("filled_avg_price")
-        if fill_price:
-            trade_data["actual_entry_price"] = fill_price
+        if order.filled_avg_price:
+            trade_data["actual_entry_price"] = order.filled_avg_price
         else:
             trade_data["actual_entry_price"] = entry_price
         trade_data["actual_entry_time"] = now.isoformat()

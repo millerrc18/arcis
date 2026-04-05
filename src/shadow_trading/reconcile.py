@@ -123,13 +123,27 @@ def reconcile_live_trades(
             "marked_closed": [str],
         }
     """
-    from src.shadow_trading.alpaca_adapter import get_live_positions
-
     et = ZoneInfo("America/New_York")
     now = datetime.now(et)
 
-    # Get Alpaca positions
-    alpaca_positions = get_live_positions()
+    # Broker-aware position lookup: IB trades check IB positions, Alpaca checks Alpaca.
+    # If IB Gateway is disconnected, skip IB trades (don't mark them stale).
+    try:
+        from src.trading.broker_factory import get_live_broker
+        from src.config import load_config
+        broker = get_live_broker(load_config())
+        broker_positions = broker.get_all_positions()
+        alpaca_positions = [
+            {"symbol": p.ticker, "qty": p.quantity, "avg_entry_price": p.avg_cost,
+             "current_price": p.current_price, "unrealized_pl": p.unrealized_pnl,
+             "market_value": p.market_value}
+            for p in broker_positions
+        ]
+    except Exception as e:
+        logger.warning("[RECONCILE-LIVE] Broker unreachable, falling back to Alpaca direct: %s", e)
+        from src.shadow_trading.alpaca_adapter import get_live_positions
+        alpaca_positions = get_live_positions()
+
     alpaca_tickers = {p["symbol"]: p for p in alpaca_positions}
 
     # Get tracked live trades

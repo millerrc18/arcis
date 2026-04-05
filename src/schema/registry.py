@@ -201,6 +201,9 @@ _register(TableDef(
         ColumnDef("order_type", "TEXT"),
         ColumnDef("timeout_days", "INTEGER", default="15"),
         ColumnDef("source", "TEXT", default="paper"),
+        ColumnDef("broker", "TEXT", default="alpaca",
+                  description="Broker that executed the trade (alpaca or ib). "
+                  "Used by reconciler to check the correct broker's positions."),
         ColumnDef("setup_type", "TEXT"),
         ColumnDef("setup_confidence", "REAL"),
         ColumnDef("signal_entry_price", "REAL"),

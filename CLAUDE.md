@@ -115,6 +115,7 @@ python -m ruff format src/ tests/
 - **Backend**: Python 3.12, FastAPI, SQLite (raw sqlite3, no ORM)
 - **Frontend**: React 19, Tailwind 4, Vite 8, TanStack Query
 - **Deployment**: Render (static frontend + Python API)
-- **Trading**: Alpaca paper trading (bracket orders, GTC)
+- **Trading**: Alpaca paper + IB/Alpaca live via broker abstraction (`src/trading/`)
+  - IB Gateway required for live IB trades (port 4002=paper, 4001=live)
 - **LLM**: Ollama local (halcyon-v1, Qwen3 8B fine-tuned)
 - **Config**: YAML (`config/settings.*.yaml`) + `.env` for secrets
