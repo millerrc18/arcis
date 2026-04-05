@@ -154,7 +154,8 @@ def _get_20d_avg(conn: sqlite3.Connection, today_str: str) -> float | None:
     ).fetchall()
     if not rows:
         return None
-    values = [r[0] for r in rows]
+    # float() cast — SQLite may return TEXT for REAL columns (#195 pattern)
+    values = [float(r[0]) for r in rows]
     return round(sum(values) / len(values), 4)
 
 
