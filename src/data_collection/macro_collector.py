@@ -147,7 +147,8 @@ def _get_previous_value(
         ORDER BY collected_date DESC LIMIT 1""",
         (series_id, today_str),
     ).fetchone()
-    return row[0] if row else None
+    # float() cast — SQLite may return TEXT for REAL columns after DB recovery (#195)
+    return float(row[0]) if row and row[0] is not None else None
 
 
 def collect_macro_snapshots(db_path: str = DB_PATH) -> dict:
