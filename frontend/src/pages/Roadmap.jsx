@@ -119,6 +119,10 @@ const ROADMAP_DATA = {
           { l: 'Research Analyst desk (Account #3)', s: 'pending', c: 'ai', d: 'Relaxed thresholds, 3-5x more training data, tagged "research_desk".', r: 'Multi-desk architecture' },
           { l: 'Parametric VaR (Ledoit-Wolf)', s: 'pending', c: 'risk', d: 'Daily portfolio risk. Shrinkage covariance for 50-asset estimation.', r: 'Risk Management: Ledoit & Wolf (2004)' },
           { l: 'Correlation-adjusted sizing', s: 'pending', c: 'risk', d: 'Sliding scale: <0.3=100%, 0.3-0.5=75%, 0.5-0.7=50%, >0.7=25%.', r: 'Risk Management' },
+          { l: 'Execution infrastructure (slippage model + TCA)', s: 'pending', c: 'ops', d: 'Transaction cost model (9 bps RT for S&P 100), slippage estimation, TWAP/VWAP for IB. Track execution quality vs arrival price. Gap Assessment: missing standard component.', r: 'Gap Assessment: execution infrastructure' },
+          { l: 'Performance attribution system', s: 'pending', c: 'validation', d: 'Track which of the 15 algorithms contributed to each trade outcome. Decompose alpha: strategy selection vs pipeline vs LLM. Gap Assessment: missing standard component.', r: 'Gap Assessment: performance attribution' },
+          { l: 'Portfolio-level VaR + correlation monitoring', s: 'pending', c: 'risk', d: 'Daily portfolio VaR, cross-position correlation matrix, sector concentration limits beyond risk governor. Gap Assessment: missing standard component.', r: 'Gap Assessment: portfolio-level risk' },
+          { l: 'Stop-loss methodology documentation + audit', s: 'pending', c: 'risk', d: 'Formalize ATR-based bracket methodology. Document exit decision tree. Audit that all exit paths are tested. Gap Assessment: missing standard component.', r: 'Gap Assessment: stop-loss methodology' },
           { l: '7-scenario stress testing', s: 'pending', c: 'risk', d: 'GFC, China, Q4 2018, COVID, 2022 bear, yen unwind, Liberation Day. Nightly.', r: 'Risk Management' },
         ]},
         { label: 'Month 3: Validation + hardware', items: [
