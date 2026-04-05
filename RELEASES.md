@@ -184,3 +184,38 @@ See CHANGELOG.md for full history.
 - #268: compute_canary_score import broken
 - #269: _notify_exit_trade missing parameters
 - #270: No market holiday calendar
+
+---
+
+### v0.13.0 — 2026-04-04
+**Gap analysis rectification — 23 issues resolved in 3 tiers**
+
+19 files changed, +414 -157. 0 open issues.
+
+**Tier 1 — CRITICAL (6 issues, money at risk + training data):**
+- #272: Live trading now enforces RiskGovernor + LLM validator (was bypassed entirely)
+- #274: Bracket fallback places standalone stop-loss (was naked market entry)
+- #275: Daily loss guard uses today's realized P&L (was all-time unrealized)
+- #277: Feature sanitization BEFORE LLM generation (self-blinding leak fixed)
+- #273: Empty-output templates excluded from training dataset
+- #278: Partial fills tracked correctly (was recording as full close)
+
+**Tier 2 — HIGH (7 issues, reliability):**
+- #271: MR exit passes all required args to close_shadow_trade
+- #276: Duplicate position check + insert in same transaction (race fixed)
+- #267: Traffic light defaults to 0.5 (conservative) when missing
+- #257: _safe_run only sets done-flag on success (failed tasks retry)
+- #259: pull_commands only claims successfully inserted commands
+- #269: _notify_exit_trade call sites pass all required params
+- #264: open_shadow_trade returns None consistently on failure
+
+**Tier 3 — MEDIUM (9 issues, polish):**
+- #256: Options metrics query column names fixed
+- #260: options_chains retention rule added (30 days)
+- #261: Documented as future enhancement
+- #262: earnings_signals logs errors instead of swallowing
+- #263: Duplicate bracket order log removed
+- #265: Stub endpoints return not_implemented status
+- #266: shadow_account queries unified
+- #268: Dead canary_score import removed
+- #270: NYSE 2026 holiday calendar added
