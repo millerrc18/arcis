@@ -84,7 +84,7 @@ const ROADMAP_DATA = {
           { l: '13 architecture SVG diagrams', s: 'done', c: 'ops', d: 'System architecture, broker abstraction, flywheel, trade lifecycle, training pipeline, phase gates, risk governor, AI council, watch loop, hardware scaling, and more.', r: 'MASTER.md visual documentation' },
           { l: 'Research framework (725 lines)', s: 'done', c: 'ai', d: 'ARCIS_RESEARCH_FRAMEWORK.md — collapsible explainers for all research decisions, citations, and methodology.', r: 'Investor-ready documentation' },
           { l: 'CI hardening (9 tests + Dependabot)', s: 'done', c: 'ops', d: 'API parity, DDL guardrail, import smoke test, stub detection, test coverage, TODO tracking, route validation, schema drift, config validation.', r: 'AI agent drift prevention' },
-          { l: 'IB integration sprint (ready)', s: 'pending', c: 'ops', d: 'Broker abstraction layer + IB adapter. 1,060-line sprint prompt with extensive inline comments. Requires IB Gateway installed.', r: 'Fund formation: GIPS track record' },
+          { l: 'IB broker abstraction (code complete)', s: 'done', c: 'ops', d: 'v0.14.0: Broker factory + IB adapter + Alpaca wrapper. Code ready. Deep research recommends: stability test first (30-day Gateway), trade routing AFTER Phase 1 gate (60+ trades).', r: 'IB Best Practices research: validation-first' },
         ]},
       ],
     },
@@ -158,7 +158,7 @@ const ROADMAP_DATA = {
         { label: 'Multi-strategy + options', items: [
           { l: 'Breakout strategy live', s: 'pending', c: 'strategy', d: 'Combined portfolio: pullback + breakout. Correlation monitoring between strategies.', r: 'Breakout research' },
           { l: 'Options desk research', s: 'pending', c: 'strategy', d: 'Credit spreads, Greeks, IV analysis. Backtest with Unusual Whales data.', r: 'Options research' },
-          { l: 'Interactive Brokers migration', s: 'pending', c: 'ops', d: 'Better execution, TWAP/VWAP, broader products. Broker abstraction layer.', r: 'Risk Management' },
+          { l: 'IB live trading activation', s: 'pending', c: 'ops', d: 'Code ready (v0.14.0). Activate after: 60+ trades with Sharpe >1.0, 30-day Gateway stability test passed, GIPS verifier consulted, market data classification confirmed.', r: 'IB Best Practices: validation-first approach' },
           { l: 'Process separation (Signal/Risk/Exec/Watch)', s: 'pending', c: 'risk', d: 'Four independent processes. Knight Capital lesson.', r: 'Risk Management' },
           { l: 'Pass Series 65', s: 'pending', c: 'legal', d: 'Regulatory gate for accepting outside capital.', r: 'Risk Management' },
           { l: 'Scale live $5K → $25K', s: 'pending', c: 'strategy', d: '500-trade DSR validation.', r: 'Walk-Forward Validation' },

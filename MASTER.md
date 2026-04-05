@@ -61,7 +61,7 @@ with an unbeatable technological moat.
 | Tests | 1,386 functions across 112 test files |
 | Python files | 197 |
 | Dashboard pages | 18 |
-| Research docs | 70 |
+| Research docs | 71 |
 | Schema tables | 49 (registry) |
 | GitHub issues | 0 open |
 | Monthly cost | ~$64 (Render $7 + Ollama free + Claude API ~$50 + domain $7) |
@@ -409,7 +409,7 @@ src/schema/registry.py          <- THE source of truth (46 TableDefs)
 
 ---
 
-## 5. Strategy Decisions (24 confirmed)
+## 5. Strategy Decisions (25 confirmed)
 
 1. Strategy #1 = Pullback-in-uptrend (LIVE)
 2. Strategy #2 = Mean Reversion / Connors RSI(2) -- PAPER-TRADING NOW
@@ -435,6 +435,7 @@ src/schema/registry.py          <- THE source of truth (46 TableDefs)
 22. Scanning: 4-tier multi-cadence (15min position / 30min price / 60min sentiment / daily fundamentals)
 23. Outcome-conditioned training prompts: 3-5x data yield per closed trade
 24. 8 new outcome metadata columns in shadow_trades via schema registry
+25. IB activation gated on validation: broker abstraction ready (v0.14.0), but live IB trading delayed until 60+ trades with rolling Sharpe >1.0, 30-day Gateway stability test, GIPS verifier consultation, and market data classification confirmed. Deep research finding: sub-scale accounts ($5-10K) create GIPS composite construction traps. Validation-first, not infrastructure-first.
 
 ---
 
@@ -750,7 +751,7 @@ VIX >40, system offline.
 | 6 | Outcome metadata + conditioned training | DONE -- PR #203, 3-5x data yield |
 | 7 | Historical stress testing | DONE -- PR #203, 2008/2020/2022 scenarios |
 | 8 | Bug bash + conviction parsing (#183) | DONE -- v0.11.0, all issues closed |
-| 9 | IB integration (broker abstraction) | DONE -- v0.14.0, 5 new files, 19 tests |
+| 9 | IB integration (broker abstraction) | DONE -- v0.14.0, code ready. IB activation gated on 60+ trades + 30-day Gateway stability test (deep research) |
 | 10 | iOS app (Capacitor) | QUEUED -- v0.12.0, native wrapper for dashboard |
 | 10 | Repo reorganization | Backlog |
 | 11 | architecture.md refresh | Backlog |
