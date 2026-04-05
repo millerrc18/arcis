@@ -91,6 +91,7 @@ const ROADMAP_DATA = {
           { l: 'Stress test survivorship bias fix', s: 'pending', c: 'validation', d: 'Use historical S&P 100 membership (not current). Stocks that went bankrupt (Lehman, Bear Stearns) are missing. Results currently overstate performance.', r: 'Stress test accuracy' },
           { l: 'Stress test: 4 additional scenarios', s: 'pending', c: 'validation', d: 'Add: 2018 Q4 selloff, 2011 debt ceiling, 2015 China deval, 2024 yen unwind. 7 total for comprehensive crisis coverage.', r: 'Risk Management research' },
           { l: 'Stress test: use Alpaca historical API', s: 'pending', c: 'data', d: 'Replace yfinance with Alpaca bars API for stress test data. Faster, no rate limiting, same data source as execution (eliminates data/execution mismatch).', r: 'IB Best Practices: data consistency' },
+          { l: 'Full-regime simulation engine', s: 'pending', c: 'validation', d: 'Configurable backtester across ALL market conditions: bull runs, bear markets, high/low volatility, sideways chop, sector rotations, rate cycles, V-recoveries. Default suite covers one of each. Answers: where does the strategy make money vs bleed?', r: 'Comprehensive strategy validation' },
         ]},
       ],
     },
