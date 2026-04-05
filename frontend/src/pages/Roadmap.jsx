@@ -85,6 +85,8 @@ const ROADMAP_DATA = {
           { l: 'Research framework (725 lines)', s: 'done', c: 'ai', d: 'ARCIS_RESEARCH_FRAMEWORK.md — collapsible explainers for all research decisions, citations, and methodology.', r: 'Investor-ready documentation' },
           { l: 'CI hardening (9 tests + Dependabot)', s: 'done', c: 'ops', d: 'API parity, DDL guardrail, import smoke test, stub detection, test coverage, TODO tracking, route validation, schema drift, config validation.', r: 'AI agent drift prevention' },
           { l: 'IB broker abstraction (code complete)', s: 'done', c: 'ops', d: 'v0.14.0: Broker factory + IB adapter + Alpaca wrapper. Code ready. Deep research recommends: stability test first (30-day Gateway), trade routing AFTER Phase 1 gate (60+ trades).', r: 'IB Best Practices research: validation-first' },
+          { l: 'PRODUCTION_MODEL config key', s: 'pending', c: 'ai', d: 'Decouple production model version from whatever Ollama has loaded. Config key specifies exact model name; startup validates it matches. Prevents accidental inference with wrong model.', r: 'Production vs prototype best practices' },
+          { l: 'IB shadow mode', s: 'pending', c: 'ops', d: 'IB logs what it WOULD trade without executing. Compare against Alpaca actuals for fill quality, timing, and divergence analysis before going live.', r: 'IB Best Practices: validation-first' },
         ]},
       ],
     },
