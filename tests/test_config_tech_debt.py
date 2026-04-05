@@ -117,8 +117,9 @@ def test_config_overrides_shim_import():
 
 
 def test_holidays_module_complete():
-    """NYSE_HOLIDAYS_2026 has all 9 expected holidays."""
+    """NYSE_HOLIDAYS_2026 has all 10 expected holidays (including Juneteenth, #270)."""
     from src.scheduler.holidays import NYSE_HOLIDAYS_2026
 
-    assert len(NYSE_HOLIDAYS_2026) == 9
+    assert len(NYSE_HOLIDAYS_2026) == 10
+    assert date(2026, 6, 19) in NYSE_HOLIDAYS_2026   # Juneteenth (#270)
     assert date(2026, 11, 26) in NYSE_HOLIDAYS_2026  # Thanksgiving

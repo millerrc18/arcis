@@ -354,7 +354,7 @@ def compute_build_score(db_path: str = DEFAULT_DB) -> dict:
 
     Returns dict matching GET /api/build-score spec.
     """
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=10)  # #258: busy timeout
     conn.row_factory = sqlite3.Row
     try:
         components: dict[str, float] = {}
@@ -447,7 +447,7 @@ def persist_build_score(db_path: str = DEFAULT_DB) -> dict:
     """
     result = compute_build_score(db_path)
 
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=10)  # #258: busy timeout
     try:
         conn.execute(
             "INSERT OR REPLACE INTO build_score_history "

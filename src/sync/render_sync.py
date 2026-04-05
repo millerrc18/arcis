@@ -139,7 +139,7 @@ def _fetch_incremental_rows(
 ) -> tuple[list[dict], list[str]]:
     """Fetch rows from SQLite where time_col > since. Returns (rows, columns)."""
     try:
-        with sqlite3.connect(db_path) as conn:
+        with sqlite3.connect(db_path, timeout=10) as conn:  # #258: busy timeout
             conn.row_factory = sqlite3.Row
             if since:
                 cursor = conn.execute(
@@ -164,7 +164,7 @@ def _fetch_latest_rows(
 ) -> tuple[list[dict], list[str]]:
     """Fetch only the latest date's rows for snapshot tables."""
     try:
-        with sqlite3.connect(db_path) as conn:
+        with sqlite3.connect(db_path, timeout=10) as conn:  # #258: busy timeout
             conn.row_factory = sqlite3.Row
             # Get the max date
             max_date_row = conn.execute(
@@ -192,7 +192,7 @@ def _fetch_full_rows(
 ) -> tuple[list[dict], list[str]]:
     """Fetch every row for small state tables configured for full sync."""
     try:
-        with sqlite3.connect(db_path) as conn:
+        with sqlite3.connect(db_path, timeout=10) as conn:  # #258: busy timeout
             conn.row_factory = sqlite3.Row
             cursor = conn.execute(f"SELECT * FROM {table_name}")
             rows = cursor.fetchall()
@@ -210,7 +210,7 @@ def _fetch_council_votes_for_new_sessions(
 ) -> tuple[list[dict], list[str]]:
     """Fetch council_votes linked to sessions created after 'since'."""
     try:
-        with sqlite3.connect(db_path) as conn:
+        with sqlite3.connect(db_path, timeout=10) as conn:  # #258: busy timeout
             conn.row_factory = sqlite3.Row
             if since:
                 cursor = conn.execute(
@@ -491,7 +491,7 @@ def pull_commands(database_url: str, db_path: str = LOCAL_DB) -> list[dict]:
 
         if rows:
             # Insert into local SQLite
-            local_conn = sqlite3.connect(db_path)
+            local_conn = sqlite3.connect(db_path, timeout=10)  # #258: busy timeout
             local_cur = local_conn.cursor()
             for row in rows:
                 try:
@@ -513,15 +513,18 @@ def pull_commands(database_url: str, db_path: str = LOCAL_DB) -> list[dict]:
             local_conn.commit()
             local_conn.close()
 
-            # Update Postgres status to 'claimed'
-            command_ids = [r["command_id"] for r in rows]
-            placeholders = ", ".join(["%s"] * len(command_ids))
-            cursor.execute(
-                f"UPDATE pending_commands SET status = 'claimed', claimed_at = %s "
-                f"WHERE command_id IN ({placeholders})",
-                [now] + command_ids,
-            )
-            pg_conn.commit()
+            # Update Postgres status to 'claimed' — only for successfully inserted commands (#259).
+            # Previously used `rows` which marked ALL commands as claimed even if
+            # local SQLite insert failed. Now uses `pulled` (successfully inserted only).
+            command_ids = [r["command_id"] for r in pulled]
+            if command_ids:
+                placeholders = ", ".join(["%s"] * len(command_ids))
+                cursor.execute(
+                    f"UPDATE pending_commands SET status = 'claimed', claimed_at = %s "
+                    f"WHERE command_id IN ({placeholders})",
+                    [now] + command_ids,
+                )
+                pg_conn.commit()
             logger.info("Pulled %d commands from cloud", len(pulled))
 
         cursor.close()
@@ -537,7 +540,7 @@ def pull_commands(database_url: str, db_path: str = LOCAL_DB) -> list[dict]:
         cursor.close()
 
         if override_rows:
-            local_conn = sqlite3.connect(db_path)
+            local_conn = sqlite3.connect(db_path, timeout=10)  # #258: busy timeout
             local_cur = local_conn.cursor()
             local_cur.execute("DELETE FROM config_overrides")
             for row in override_rows:

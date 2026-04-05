@@ -1131,37 +1131,42 @@ class WatchLoop:
                 # 0. Ollama warm-up (9:25 AM — before first scan)
                 if (hour == 9 and now.minute >= 25 and now.minute < 30
                         and not self._ollama_warmup_done):
-                    self._safe_run("Ollama warm-up", self._run_ollama_warmup)
-                    self._ollama_warmup_done = True
+                    # Fix for #257: only set done-flag on success
+                    if self._safe_run("Ollama warm-up", self._run_ollama_warmup):
+                        self._ollama_warmup_done = True
 
                 if (hour == 9 and now.minute < 5 and now.weekday() < 5
                         and not self._premarket_bracket_check_done):
-                    self._safe_run(
+                    # Fix for #257: only set done-flag on success
+                    if self._safe_run(
                         "pre-market bracket check",
                         lambda: self._run_bracket_health_check("premarket"),
-                    )
-                    self._premarket_bracket_check_done = True
+                    ):
+                        self._premarket_bracket_check_done = True
 
                 # 0.5. Daily AI Council (8:30 AM — after watchlist, before first scan)
                 if (hour == 8 and now.minute >= 30 and not self._council_done):
-                    self._safe_run("daily council", self._run_daily_council)
-                    self._council_done = True
+                    # Fix for #257: only set done-flag on success
+                    if self._safe_run("daily council", self._run_daily_council):
+                        self._council_done = True
 
                 # 0.7. Tier 4: Fundamentals refresh (daily at 7:30 AM)
                 if (hour == 7 and now.minute >= 30 and not self._fundamentals_done
                         and now.weekday() < 5):
                     try:
                         from src.scheduler.fundamentals_refresh import run_fundamentals_refresh
-                        self._safe_run("fundamentals refresh",
-                                       lambda: run_fundamentals_refresh(self.config))
-                        self._fundamentals_done = True
+                        # Fix for #257: only set done-flag on success
+                        if self._safe_run("fundamentals refresh",
+                                          lambda: run_fundamentals_refresh(self.config)):
+                            self._fundamentals_done = True
                     except Exception as e:
                         logger.warning("[WATCH] Fundamentals refresh failed: %s", e)
 
                 # 1. Morning watchlist
                 if hour == self.morning_hour and not self._morning_done:
-                    self._safe_run("morning watchlist", self._run_morning_watchlist)
-                    self._morning_done = True
+                    # Fix for #257: only set done-flag on success
+                    if self._safe_run("morning watchlist", self._run_morning_watchlist):
+                        self._morning_done = True
 
                 # 1.5. Tier 1: Position monitor (every 15 min during market hours)
                 # Strategy Decision #22: 4-tier multi-cadence scanning.
@@ -1211,16 +1216,17 @@ class WatchLoop:
 
                 # 3. EOD recap
                 elif hour == self.eod_hour and not self._eod_done:
-                    self._safe_run("EOD recap", self._run_eod_recap)
-                    self._eod_done = True
+                    # Fix for #257: only set done-flags on success
+                    if self._safe_run("EOD recap", self._run_eod_recap):
+                        self._eod_done = True
                     # H2. Daily metric snapshot (every trading day, not just Saturday)
                     if not self._daily_metric_snapshot_done:
-                        self._safe_run("daily metric snapshot", self._save_daily_metric_snapshot)
-                        self._daily_metric_snapshot_done = True
+                        if self._safe_run("daily metric snapshot", self._save_daily_metric_snapshot):
+                            self._daily_metric_snapshot_done = True
                     # 1C. EOD P&L report via Telegram
                     if not self._eod_report_done:
-                        self._safe_run("EOD Telegram report", self._send_eod_report)
-                        self._eod_report_done = True
+                        if self._safe_run("EOD Telegram report", self._send_eod_report):
+                            self._eod_report_done = True
                         # ── Telegram: notify_daily_summary (after eod report) ──
                         try:
                             from src.notifications.telegram import notify_daily_summary, is_telegram_enabled
@@ -1253,8 +1259,9 @@ class WatchLoop:
                 # 4. Daily audit (4:15 PM ET)
                 elif (hour == 16 and now.minute >= 15 and now.minute < 30
                       and not self._daily_audit_done):
-                    self._safe_run("daily audit", self._run_daily_audit)
-                    self._daily_audit_done = True
+                    # Fix for #257: only set done-flag on success
+                    if self._safe_run("daily audit", self._run_daily_audit):
+                        self._daily_audit_done = True
                     # Send daily scoring summary via Telegram
                     try:
                         from src.notifications.telegram import notify_scoring_summary, is_telegram_enabled
@@ -1309,70 +1316,79 @@ class WatchLoop:
 
                 if (hour == 16 and now.minute >= 30 and now.minute < 35
                         and not self._postclose_bracket_check_done):
-                    self._safe_run(
+                    # Fix for #257: only set done-flag on success
+                    if self._safe_run(
                         "post-close bracket check",
                         lambda: self._run_bracket_health_check("postclose"),
-                    )
-                    self._postclose_bracket_check_done = True
+                    ):
+                        self._postclose_bracket_check_done = True
 
                 # 4b. Post-close paper reconciliation (4:30–4:35 PM ET)
                 if (hour == 16 and now.minute >= 30 and now.minute < 35
                         and not self._postclose_reconcile_done):
-                    self._safe_run(
+                    # Fix for #257: only set done-flag on success
+                    if self._safe_run(
                         "post-close reconciliation",
                         self._run_postclose_reconciliation,
-                    )
-                    self._postclose_reconcile_done = True
+                    ):
+                        self._postclose_reconcile_done = True
 
                 # 4c. Attribution outcome resolution (4:30-4:35 PM ET)
                 if (hour == 16 and now.minute >= 30 and now.minute < 35
                         and not self._attribution_resolution_done):
                     from src.attribution.logger import resolve_pending_outcomes
-                    self._safe_run(
+                    # Fix for #257: only set done-flag on success
+                    if self._safe_run(
                         "attribution outcome resolution",
                         lambda: resolve_pending_outcomes(),
-                    )
-                    self._attribution_resolution_done = True
+                    ):
+                        self._attribution_resolution_done = True
 
                 # 5. Training data collection (4:30 PM ET)
                 elif (self.training_enabled and hour == 16 and now.minute >= 30
                       and not self._training_collection_done):
-                    self._safe_run("training collection", self._run_training_collection)
-                    self._training_collection_done = True
+                    # Fix for #257: only set done-flags on success
+                    if self._safe_run("training collection", self._run_training_collection):
+                        self._training_collection_done = True
                     # 1D. Data asset report after training collection
                     if not self._data_asset_report_done:
-                        self._safe_run("data asset report", self._send_data_asset_report)
-                        self._data_asset_report_done = True
+                        if self._safe_run("data asset report", self._send_data_asset_report):
+                            self._data_asset_report_done = True
 
                 # 5. Overnight training trigger (5:00 PM ET)
                 elif (self.training_enabled and hour == 17
                       and not self._training_run_done):
-                    self._safe_run("training check", self._run_training_check)
-                    self._training_run_done = True
+                    # Fix for #257: only set done-flag on success
+                    if self._safe_run("training check", self._run_training_check):
+                        self._training_run_done = True
 
                 # 6. Saturday training report (9 AM ET)
                 elif (self.training_enabled and now.weekday() == 5
                       and hour == 9 and not self._saturday_reports_done):
-                    self._safe_run("Saturday reports", self._run_saturday_reports)
-                    self._saturday_reports_done = True
+                    # Fix for #257: only set done-flag on success
+                    if self._safe_run("Saturday reports", self._run_saturday_reports):
+                        self._saturday_reports_done = True
 
                 # H1. Research synthesis (Sunday 6 PM ET)
                 elif (now.weekday() == 6 and hour == 18
                       and not self._research_synthesis_done):
-                    self._safe_run("research synthesis", self._run_research_synthesis)
-                    self._research_synthesis_done = True
+                    # Fix for #257: only set done-flag on success
+                    if self._safe_run("research synthesis", self._run_research_synthesis):
+                        self._research_synthesis_done = True
 
                 # 1H. Weekly digest (Sunday 8 PM ET)
                 elif (now.weekday() == 6 and hour == 20
                       and not self._weekly_digest_done):
-                    self._safe_run("weekly digest", self._send_weekly_digest)
-                    self._weekly_digest_done = True
+                    # Fix for #257: only set done-flag on success
+                    if self._safe_run("weekly digest", self._send_weekly_digest):
+                        self._weekly_digest_done = True
 
                 # Weekly stress test (Sunday 9 PM ET)
                 elif (now.weekday() == 6 and hour == 21
                       and not self._stress_test_done):
-                    self._safe_run("weekly stress test", self._run_stress_test)
-                    self._stress_test_done = True
+                    # Fix for #257: only set done-flag on success
+                    if self._safe_run("weekly stress test", self._run_stress_test):
+                        self._stress_test_done = True
 
                 # Action reminders (8 PM daily via Telegram)
                 if hour == 20 and not self._action_reminders_done:
@@ -1389,8 +1405,9 @@ class WatchLoop:
                 # 1L. Earnings proximity warning (8:00 AM weekdays)
                 if (hour == 8 and now.minute < 5 and now.weekday() < 5
                         and not self._earnings_warning_done):
-                    self._safe_run("earnings proximity", self._check_earnings_proximity)
-                    self._earnings_warning_done = True
+                    # Fix for #257: only set done-flag on success
+                    if self._safe_run("earnings proximity", self._check_earnings_proximity):
+                        self._earnings_warning_done = True
 
                 # ── Overnight schedule (--overnight flag, NOT during market hours) ──
                 # Fix for #225: Changed from `elif` chain to allow weekend execution.

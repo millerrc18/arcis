@@ -146,7 +146,7 @@ def _check_database(db_path: str) -> list[dict]:
                               f"Database size: {size_mb:.1f} MB"))
 
     try:
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, timeout=10)  # #258: busy timeout
         conn.row_factory = sqlite3.Row
     except Exception as e:
         checks.append(_check("db_connection", "fail", f"Cannot connect: {e}"))
@@ -314,7 +314,7 @@ def _check_trading(db_path: str, config: dict) -> list[dict]:
     shadow_cfg = config.get("shadow_trading", {})
     timeout_days = shadow_cfg.get("timeout_days", 10)
     try:
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, timeout=10)  # #258: busy timeout
         conn.row_factory = sqlite3.Row
         cutoff = (datetime.now(ET) - timedelta(days=timeout_days)).isoformat()
         zombies = conn.execute(
@@ -368,7 +368,7 @@ def _check_trading(db_path: str, config: dict) -> list[dict]:
 
     # Open position count
     try:
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, timeout=10)  # #258: busy timeout
         open_count = conn.execute(
             "SELECT COUNT(*) FROM shadow_trades WHERE status='open'"
         ).fetchone()[0]
@@ -401,7 +401,7 @@ def _check_training(db_path: str, config: dict) -> list[dict]:
     training_cfg = config.get("training", {})
 
     try:
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, timeout=10)  # #258: busy timeout
         conn.row_factory = sqlite3.Row
 
         # Training examples count + format
@@ -620,7 +620,7 @@ def _check_collectors(db_path: str, config: dict) -> list[dict]:
     checks = []
 
     try:
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, timeout=10)  # #258: busy timeout
         conn.row_factory = sqlite3.Row
 
         for table, time_col in COLLECTOR_TABLES.items():
@@ -749,7 +749,7 @@ def _check_scheduler(db_path: str, config: dict) -> list[dict]:
     checks = []
 
     try:
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, timeout=10)  # #258: busy timeout
         conn.row_factory = sqlite3.Row
 
         # Last scan timestamp
@@ -1017,7 +1017,7 @@ def save_validation_result(result: dict, db_path: str = DB_PATH) -> str:
     result_id = str(uuid.uuid4())
     # Ensure schema exists via registry (idempotent)
     _create_all(db_path)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=10)  # #258: busy timeout
     try:
         conn.execute(
             "INSERT INTO validation_results VALUES (?, ?, ?, ?, ?, ?, ?)",
