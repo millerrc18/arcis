@@ -155,7 +155,12 @@ def get_shadow_data_for_recap(db_path: str = DB_PATH) -> dict:
     from src.shadow_trading.executor import _get_current_price_safe
 
     config = load_config()
-    timeout = config.get("shadow_trading", {}).get("timeout_days", 15)
+    # Fix: timeout_days can be a string or dict from config/dashboard —
+    # resolve to int to prevent str vs int comparison errors downstream.
+    _raw_timeout = config.get("shadow_trading", {}).get("timeout_days", 15)
+    if isinstance(_raw_timeout, dict):
+        _raw_timeout = _raw_timeout.get("default", 15)
+    timeout = int(_raw_timeout)
     et = ZoneInfo("America/New_York")
     today_str = datetime.now(et).strftime("%Y-%m-%d")
 

@@ -151,8 +151,14 @@ def run_scenario(name: str, start: str, end: str) -> dict:
     try:
         vix_raw = yf.download("^VIX", start=start, end=end, progress=False, auto_adjust=True)
         if vix_raw is not None and not vix_raw.empty:
+            # Fix #246: yfinance >= 0.2.31 returns MultiIndex columns ("Close", "^VIX")
+            # for single-ticker downloads. Calling .squeeze() on the "Close" column
+            # collapses the inner ticker level, giving a plain Series of floats.
+            # Without this, iterating the column yields the ticker string "^VIX"
+            # instead of price values, causing `float("^VIX")` to raise ValueError.
+            close_series = vix_raw["Close"].squeeze()
             vix_data = {d.strftime("%Y-%m-%d"): float(v)
-                        for d, v in zip(vix_raw.index, vix_raw["Close"])}
+                        for d, v in zip(close_series.index, close_series)}
             print(f"  VIX data: {len(vix_data)} days loaded")
     except Exception as e:
         logger.warning("[STRESS] VIX fetch failed, using fixed brackets: %s", e)

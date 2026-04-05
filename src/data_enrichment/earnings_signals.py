@@ -70,56 +70,69 @@ def compute_earnings_signals(
             except Exception as e:  # Fix for #262: log instead of swallow
                 logger.warning("[EARNINGS] %s signal failed for %s: %s", "earnings_proximity", ticker, e)
 
-            # 2. Last surprise
+            # 2. Last surprise — uses schema columns: actual, estimate, surprise, metric
+            # Fix: was querying non-existent eps_actual/eps_estimate columns.
+            # Schema uses generic actual/estimate with metric='EPS' or 'Revenue'.
             try:
                 row = conn.execute(
-                    "SELECT eps_actual, eps_estimate FROM analyst_estimates "
-                    "WHERE ticker = ? AND eps_actual IS NOT NULL "
-                    "ORDER BY quarter DESC LIMIT 1",
+                    "SELECT actual, estimate, surprise FROM analyst_estimates "
+                    "WHERE ticker = ? AND metric = 'EPS' AND actual IS NOT NULL "
+                    "ORDER BY date DESC LIMIT 1",
                     (ticker,),
                 ).fetchone()
-                if row and row["eps_estimate"] and row["eps_estimate"] != 0:
-                    surprise = ((row["eps_actual"] - row["eps_estimate"]) / abs(row["eps_estimate"])) * 100
-                    result["last_surprise_pct"] = round(surprise, 1)
+                if row and row["estimate"] and row["estimate"] != 0:
+                    surprise = row["surprise"] if row["surprise"] is not None else (
+                        ((row["actual"] - row["estimate"]) / abs(row["estimate"])) * 100
+                    )
+                    result["last_surprise_pct"] = round(float(surprise), 1)
                     if surprise > 2:
                         result["last_surprise_direction"] = "beat"
                     elif surprise < -2:
                         result["last_surprise_direction"] = "miss"
                     else:
                         result["last_surprise_direction"] = "inline"
-            except Exception as e:  # Fix for #262: log instead of swallow
+            except Exception as e:
                 logger.warning("[EARNINGS] %s signal failed for %s: %s", "last_surprise", ticker, e)
 
             # 3. Revenue-EPS concordance
+            # Fix: was querying non-existent revenue_actual/eps_actual columns.
+            # Schema stores EPS and Revenue as separate rows with metric field.
             try:
-                row = conn.execute(
-                    "SELECT revenue_actual, revenue_estimate, eps_actual, eps_estimate "
-                    "FROM analyst_estimates WHERE ticker = ? AND eps_actual IS NOT NULL "
-                    "AND revenue_actual IS NOT NULL ORDER BY quarter DESC LIMIT 1",
+                eps_row = conn.execute(
+                    "SELECT actual, estimate FROM analyst_estimates "
+                    "WHERE ticker = ? AND metric = 'EPS' AND actual IS NOT NULL "
+                    "ORDER BY date DESC LIMIT 1",
                     (ticker,),
                 ).fetchone()
-                if row and row["revenue_estimate"] and row["eps_estimate"]:
-                    rev_beat = (row["revenue_actual"] or 0) > (row["revenue_estimate"] or 0)
-                    eps_beat = (row["eps_actual"] or 0) > (row["eps_estimate"] or 0)
+                rev_row = conn.execute(
+                    "SELECT actual, estimate FROM analyst_estimates "
+                    "WHERE ticker = ? AND metric = 'Revenue' AND actual IS NOT NULL "
+                    "ORDER BY date DESC LIMIT 1",
+                    (ticker,),
+                ).fetchone()
+                if eps_row and rev_row and eps_row["estimate"] and rev_row["estimate"]:
+                    rev_beat = float(rev_row["actual"] or 0) > float(rev_row["estimate"] or 0)
+                    eps_beat = float(eps_row["actual"] or 0) > float(eps_row["estimate"] or 0)
                     result["last_revenue_eps_concordant"] = (rev_beat == eps_beat)
-            except Exception as e:  # Fix for #262: log instead of swallow
+            except Exception as e:
                 logger.warning("[EARNINGS] %s signal failed for %s: %s", "revenue_eps_concordance", ticker, e)
 
             # 4. Analyst revision velocity (30-day)
+            # Fix: was querying non-existent eps_estimate column.
             try:
                 rows = conn.execute(
-                    "SELECT eps_estimate, collected_at FROM analyst_estimates "
-                    "WHERE ticker = ? AND eps_estimate IS NOT NULL "
+                    "SELECT estimate, collected_at FROM analyst_estimates "
+                    "WHERE ticker = ? AND metric = 'EPS' AND estimate IS NOT NULL "
                     "ORDER BY collected_at DESC LIMIT 10",
                     (ticker,),
                 ).fetchall()
                 if rows and len(rows) >= 2:
-                    latest = rows[0]["eps_estimate"]
-                    oldest = rows[-1]["eps_estimate"]
+                    latest = float(rows[0]["estimate"])
+                    oldest = float(rows[-1]["estimate"])
                     if oldest and oldest != 0:
                         velocity = ((latest - oldest) / abs(oldest)) * 100
                         result["analyst_revision_velocity_30d"] = round(velocity, 1)
-            except Exception as e:  # Fix for #262: log instead of swallow
+            except Exception as e:
                 logger.warning("[EARNINGS] %s signal failed for %s: %s", "analyst_revision_velocity", ticker, e)
 
             # 5. Recommendation inconsistency

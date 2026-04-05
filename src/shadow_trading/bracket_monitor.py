@@ -45,7 +45,9 @@ DEFAULT_DB_PATH = DB_PATH
 # status is "new" (queued but not yet triggered) or "held" (held at the
 # exchange awaiting fill).  Any other status (filled, cancelled, expired,
 # rejected) means the leg is no longer protecting the position.
-ACTIVE_LEG_STATUSES = {"new", "held"}
+# Fix: added "accepted" — Alpaca uses this for queued bracket legs in addition
+# to "new" and "held". Without it, legs in "accepted" state show as broken.
+ACTIVE_LEG_STATUSES = {"new", "held", "accepted"}
 
 # Table creation handled by src/schema/registry.py
 
@@ -67,8 +69,14 @@ def _classify_legs(order_status: dict) -> tuple[str | None, str | None]:
     target_status = None
 
     for leg in order_status.get("legs", []) or []:
-        leg_status = str(leg.get("status") or "").lower() or None
+        # Fix for #248 follow-up: defensively strip Alpaca enum prefix from leg
+        # status. _serialize_order should handle this, but belt-and-suspenders
+        # since 0/N protected persisted for 5+ days in production logs.
+        raw_status = str(leg.get("status") or "").lower()
+        leg_status = raw_status.split(".")[-1] if "." in raw_status else raw_status
+        leg_status = leg_status or None
         leg_type = str(leg.get("type") or leg.get("order_type") or "").lower()
+        leg_type = leg_type.split(".")[-1] if "." in leg_type else leg_type
         has_stop = leg.get("stop_price") is not None or "stop" in leg_type
         has_limit = leg.get("limit_price") is not None or "limit" in leg_type
 

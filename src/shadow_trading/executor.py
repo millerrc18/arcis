@@ -651,7 +651,15 @@ def check_and_manage_open_trades(
     """
     config = load_config()
     shadow_cfg = config.get("shadow_trading", {})
-    timeout_days = shadow_cfg.get("timeout_days", 15)
+    # Fix #245: timeout_days can be an int, a string (from YAML quoting or
+    # SQLite TEXT affinity), or a dict {"default": 15, "pullback": 7} when
+    # edited via the dashboard override API.  Resolve to int to prevent
+    # "'<=' not supported between instances of 'str' and 'int'" at the
+    # `days_open >= timeout_days` comparison below.
+    _raw_timeout = shadow_cfg.get("timeout_days", 15)
+    if isinstance(_raw_timeout, dict):
+        _raw_timeout = _raw_timeout.get("default", 15)
+    timeout_days = int(_raw_timeout)
 
     open_trades = get_open_shadow_trades(db_path)
     if source_filter:
@@ -770,7 +778,8 @@ def check_and_manage_open_trades(
 
             # MR timeout exit
             mr_cfg = config.get("strategies", {}).get("mean_reversion", {})
-            mr_timeout = mr_cfg.get("holding_period", 5)
+            # Fix #245: Cast to int — config values may arrive as strings.
+            mr_timeout = int(mr_cfg.get("holding_period", 5))
             if days_open >= mr_timeout:
                 pnl = (current_price - entry_price) * shares
                 pnl_pct = ((current_price - entry_price) / entry_price * 100) if entry_price else 0
@@ -1310,7 +1319,8 @@ def open_live_trade(
     risk_pct_max = live_risk.get("planned_risk_pct_max", 0.02)
     stop_atr_mult = live_risk.get("stop_atr_multiplier", 1.0)
     target_atr_mult = live_risk.get("target_atr_multiplier", 2.0)
-    timeout_days = live_risk.get("timeout_days", 7)
+    # Fix #245: Cast to int — config values may arrive as strings.
+    timeout_days = int(live_risk.get("timeout_days", 7))
 
     # Calculate live position sizing based on live risk parameters
     stop_price = _parse_price(packet.stop_invalidation)

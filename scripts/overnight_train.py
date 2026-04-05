@@ -32,13 +32,39 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
-from src.scheduler.overnight import OvernightPipeline
+# Fix: src.scheduler.overnight doesn't exist. The actual training entry points are:
+#   - src.training.data_collector.collect_training_examples_from_closed_trades
+#   - src.training.trainer.run_fine_tune
+from src.training.data_collector import collect_training_examples_from_closed_trades
+from src.training.trainer import run_fine_tune
+
+logger = logging.getLogger(__name__)
 
 if __name__ == "__main__":
-    pipeline = OvernightPipeline()
-    results = pipeline.run()
-    # Exit 0 if at least one training step completed; exit 1 otherwise.
-    # The watch loop checks the exit code to decide whether to send
-    # a success or failure Telegram notification.
+    results = []
+
+    # Step 1: Collect training examples from today's closed trades
+    try:
+        count = collect_training_examples_from_closed_trades()
+        results.append({"step": "collect", "status": "completed", "examples": count})
+        logger.info("[OVERNIGHT] Collected %d training examples", count)
+    except Exception as e:
+        results.append({"step": "collect", "status": "failed", "error": str(e)})
+        logger.error("[OVERNIGHT] Training collection failed: %s", e)
+
+    # Step 2: Run fine-tuning if we have enough examples
+    try:
+        result = run_fine_tune()
+        if result:
+            results.append({"step": "fine_tune", "status": "completed", "model": result})
+            logger.info("[OVERNIGHT] Fine-tuning completed: %s", result)
+        else:
+            results.append({"step": "fine_tune", "status": "skipped", "reason": "insufficient data"})
+            logger.info("[OVERNIGHT] Fine-tuning skipped — insufficient data")
+    except Exception as e:
+        results.append({"step": "fine_tune", "status": "failed", "error": str(e)})
+        logger.error("[OVERNIGHT] Fine-tuning failed: %s", e)
+
+    # Exit 0 if at least one step completed; exit 1 otherwise.
     completed = sum(1 for r in results if r["status"] == "completed")
     sys.exit(0 if completed > 0 else 1)

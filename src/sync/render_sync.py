@@ -275,7 +275,10 @@ def _upsert_to_postgres(
 
     # For tables with SERIAL 'id' pk, exclude 'id' from INSERT to let
     # Postgres auto-generate — SQLite rowids and Postgres SERIAL values diverge.
-    strip_id = pk == "id"
+    # Fix #244: Only strip 'id' for INTEGER/SERIAL pks. Tables with TEXT ids
+    # (e.g. research_docs with UUID ids) must keep their id column — Postgres
+    # cannot auto-generate a TEXT primary key.
+    strip_id = pk == "id" and rows and not isinstance(rows[0].get("id"), str)
     insert_cols = [c for c in columns if c != "id"] if strip_id else columns
 
     if not conflict_col and strip_id:
@@ -355,6 +358,17 @@ def _replace_latest_in_postgres(
     if not latest_date:
         return 0
 
+    # Fix #243: Filter out rows with NULL id before attempting Postgres INSERT.
+    # These indicate incomplete data in SQLite that would violate NOT NULL constraints.
+    if "id" in columns:
+        before = len(rows)
+        rows = [r for r in rows if r.get("id") is not None]
+        skipped = before - len(rows)
+        if skipped:
+            logger.warning("Skipped %d rows with NULL id in %s (latest_only)", skipped, table_name)
+        if not rows:
+            return 0
+
     # Exclude SQLite 'id' — let Postgres SERIAL auto-generate
     insert_cols = [c for c in columns if c != "id"]
 
@@ -371,7 +385,9 @@ def _replace_latest_in_postgres(
 
         col_list = ", ".join(insert_cols)
         placeholders = ", ".join(["%s"] * len(insert_cols))
-        sql = f"INSERT INTO {table_name} ({col_list}) VALUES ({placeholders})"
+        # Fix #242: ON CONFLICT DO NOTHING prevents duplicate key violations
+        # from race conditions where two sync cycles overlap on the same date.
+        sql = f"INSERT INTO {table_name} ({col_list}) VALUES ({placeholders}) ON CONFLICT DO NOTHING"
 
         for row in rows:
             values = [row.get(col) for col in insert_cols]
