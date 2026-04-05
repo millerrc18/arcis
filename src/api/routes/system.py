@@ -33,6 +33,7 @@ Endpoints:
     GET  /training/history          - Model version list (cloud parity alias)
     GET  /attribution/stats         - Alpha attribution statistics
     GET  /stress-test/results       - Historical stress test results
+    GET  /simulation/results        - Simulation engine results (heatmap data)
 """
 import logging
 
@@ -422,7 +423,7 @@ _TABLE_WHITELIST = [
     "bracket_health", "council_calibrations", "council_debug_log",
     "council_parameter_log", "council_parameter_state",
     "research_digests", "research_docs", "research_papers",
-    "setup_signals", "sync_state", "traffic_light_state",
+    "setup_signals", "simulation_results", "sync_state", "traffic_light_state",
     "user_notes",
 ]
 
@@ -621,4 +622,32 @@ def stress_test_results():
             return {"results": results}
     except Exception as exc:
         logger.error("[API] stress-test/results failed: %s", exc)
+        return {"results": [], "error": str(exc)}
+
+
+@router.get("/simulation/results")
+def simulation_results():
+    """Get simulation results for dashboard display."""
+    import sqlite3 as _sqlite3
+    import json
+    try:
+        with _sqlite3.connect(DB_PATH, timeout=10) as conn:
+            conn.row_factory = _sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM simulation_results ORDER BY created_at DESC"
+            ).fetchall()
+            results = []
+            for r in rows:
+                d = dict(r)
+                for jf in ("monthly_returns_json", "equity_curve_json",
+                           "regime_breakdown_json", "config_json"):
+                    if d.get(jf):
+                        try:
+                            d[jf] = json.loads(d[jf])
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+                results.append(d)
+            return {"results": results}
+    except Exception as exc:
+        logger.error("[API] simulation/results failed: %s", exc)
         return {"results": [], "error": str(exc)}

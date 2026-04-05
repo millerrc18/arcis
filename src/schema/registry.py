@@ -1487,3 +1487,67 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="created_at",
 ))
+
+# ---------------------------------------------------------------------------
+# Simulation Engine (1 table)
+# ---------------------------------------------------------------------------
+
+# simulation_results: Full-regime simulation engine results per scenario.
+# Written by: scripts/simulation_engine.py. Read by: API /simulation/results, dashboard.
+# Each row = one scenario from one simulation run. run_id groups a full run.
+_register(TableDef(
+    name="simulation_results",
+    description="Full-regime simulation results with Monte Carlo and traffic light validation",
+    columns=[
+        ColumnDef("result_id", "TEXT", nullable=False),
+        ColumnDef("run_id", "TEXT", nullable=False, description="Groups all scenarios from one run"),
+        ColumnDef("scenario", "TEXT", nullable=False),
+        ColumnDef("regime_label", "TEXT", nullable=False),
+        ColumnDef("start_date", "TEXT", nullable=False),
+        ColumnDef("end_date", "TEXT", nullable=False),
+        ColumnDef("total_trades", "INTEGER"),
+        ColumnDef("wins", "INTEGER"),
+        ColumnDef("losses", "INTEGER"),
+        ColumnDef("timeouts", "INTEGER"),
+        ColumnDef("win_rate", "REAL"),
+        ColumnDef("profit_factor", "REAL"),
+        ColumnDef("total_pnl_pct", "REAL"),
+        ColumnDef("gross_pnl_pct", "REAL"),
+        ColumnDef("net_pnl_pct", "REAL"),
+        ColumnDef("max_drawdown_pct", "REAL"),
+        ColumnDef("sharpe_ratio", "REAL"),
+        ColumnDef("calmar_ratio", "REAL"),
+        ColumnDef("benchmark_pnl_pct", "REAL"),
+        ColumnDef("excess_return_pct", "REAL"),
+        ColumnDef("transaction_cost_bps", "REAL"),
+        ColumnDef("mc_median_dd", "REAL"),
+        ColumnDef("mc_p95_dd", "REAL"),
+        ColumnDef("mc_p5_equity", "REAL"),
+        ColumnDef("mc_p95_equity", "REAL"),
+        ColumnDef("mc_probability_of_ruin", "REAL"),
+        ColumnDef("mc_n_simulations", "INTEGER"),
+        ColumnDef("tl_expected", "TEXT"),
+        ColumnDef("tl_actual_majority", "TEXT"),
+        ColumnDef("tl_correct", "INTEGER"),
+        ColumnDef("monthly_returns_json", "TEXT"),
+        ColumnDef("equity_curve_json", "TEXT"),
+        ColumnDef("regime_breakdown_json", "TEXT"),
+        ColumnDef("model_version", "TEXT"),
+        ColumnDef("config_json", "TEXT"),
+        ColumnDef("verdict", "TEXT"),
+        ColumnDef("statistical_confidence", "TEXT"),
+        ColumnDef("survivorship_bias", "INTEGER", default="1"),
+        ColumnDef("random_seed", "INTEGER"),
+        ColumnDef("git_commit", "TEXT"),
+        ColumnDef("created_at", "TEXT", nullable=False),
+    ],
+    primary_key="result_id",
+    indexes=[
+        IndexDef("idx_sim_run_id", ["run_id"]),
+        IndexDef("idx_sim_scenario", ["scenario"]),
+        IndexDef("idx_sim_created", ["created_at"]),
+    ],
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_time_column="created_at",
+))
