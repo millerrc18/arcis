@@ -21,7 +21,7 @@ const CAT = {
 }
 
 const ROADMAP_DATA = {
-  lastUpdated: '2026-04-03',
+  lastUpdated: '2026-04-04',
   phases: [
     { id: 'p1', name: 'Phase 1 — Bootcamp', status: 'active', capital: '$100K paper + $100 live', cost: '$64/mo', timeline: 'Apr–Jun 2026',
       desc: 'Prove the system has an edge. Accumulate 50+ closed trades. Build foundational infrastructure.',
@@ -77,8 +77,14 @@ const ROADMAP_DATA = {
           { l: '4-tier multi-cadence scanning', s: 'done', c: 'strategy', d: 'Deployed v0.10.0 — position_monitor (15min), universe_scanner (30min), sentiment_scanner (60min), fundamentals_refresh (daily).', r: 'Deep Research: scanning intervals study' },
           { l: 'Outcome-conditioned training prompts', s: 'done', c: 'ai', d: 'Deployed v0.10.0 — 4 outcome + 2 contrastive templates per trade. 3-5x data yield. Self-blinding maintained.', r: 'Deep Research: 3-5x data yield per trade' },
           { l: 'Expand training XML 7→11 sections', s: 'pending', c: 'ai', d: 'Add 4 sections: options flow, sector relative, event calendar proximity, cross-asset correlation. Random source subsetting for robustness.', r: 'Deep Research: horizontal training data study' },
-          { l: 'Bug bash + conviction parsing (#183)', s: 'pending', c: 'ops', d: 'Fix conviction parsing (99% broken — blocks v1.0.0), Finnhub API key exposure (#197), 5 tech debt items. Tag v0.11.0.', r: 'Log audit: 13 open issues' },
+          { l: 'Bug bash + conviction parsing (#183)', s: 'done', c: 'ops', d: 'v0.11.0: Fixed conviction parsing (5 extraction patterns), Finnhub API key security, 13 issues closed to zero. 9 CI guardrail tests + Dependabot.', r: 'v0.11.0 release' },
           { l: 'iOS app (Capacitor)', s: 'pending', c: 'ops', d: 'Native iOS wrapper for dashboard via Capacitor. Haptics, status bar, safe areas, pull-to-refresh. Sideload to iPhone.', r: 'Mobile access for trading monitoring' },
+          { l: 'Codebase documentation (200+ files)', s: 'done', c: 'ops', d: 'v0.12.0: WHY-focused inline comments on every Python module. 30 closed issues cross-referenced. Strategy decisions cited at implementation points.', r: 'AI agent context preservation' },
+          { l: 'Gap analysis + rectification (23 issues)', s: 'done', c: 'ops', d: 'v0.13.0: CC found 23 issues during full code review. 6 critical (live governor bypass, bracket fallback, self-blinding leak), 8 high, 9 medium. All fixed.', r: 'v0.13.0 release' },
+          { l: '13 architecture SVG diagrams', s: 'done', c: 'ops', d: 'System architecture, broker abstraction, flywheel, trade lifecycle, training pipeline, phase gates, risk governor, AI council, watch loop, hardware scaling, and more.', r: 'MASTER.md visual documentation' },
+          { l: 'Research framework (725 lines)', s: 'done', c: 'ai', d: 'ARCIS_RESEARCH_FRAMEWORK.md — collapsible explainers for all research decisions, citations, and methodology.', r: 'Investor-ready documentation' },
+          { l: 'CI hardening (9 tests + Dependabot)', s: 'done', c: 'ops', d: 'API parity, DDL guardrail, import smoke test, stub detection, test coverage, TODO tracking, route validation, schema drift, config validation.', r: 'AI agent drift prevention' },
+          { l: 'IB integration sprint (ready)', s: 'pending', c: 'ops', d: 'Broker abstraction layer + IB adapter. 1,060-line sprint prompt with extensive inline comments. Requires IB Gateway installed.', r: 'Fund formation: GIPS track record' },
         ]},
       ],
     },
@@ -210,7 +216,7 @@ const REVENUE_MILESTONES = [
 ]
 
 const EXIT_FRAMEWORK = [
-  { phase: '1', trades: '13 → 50', strategy: 'Pure mechanical brackets', detail: 'Fix live stop to 2.0x ATR. Log MFE/MAE for every trade. No discretion.', pct: 25, color: 'var(--arcis-teal-light)' },
+  { phase: '1', trades: '18 → 50', strategy: 'Pure mechanical brackets', detail: 'Fix live stop to 2.0x ATR. Log MFE/MAE for every trade. No discretion.', pct: 25, color: 'var(--arcis-teal-light)' },
   { phase: '2', trades: '50 → 200', strategy: 'Mechanical + rule-based', detail: 'Time-based stop tightening (2.0x → 1.5x by day 5). Signal exit: close > 5-day SMA.', pct: 50, color: 'var(--chart-4)' },
   { phase: '3', trades: '200 → 500', strategy: 'Evaluate LLM pilot', detail: 'Thesis invalidation detection on days 5-7 only. A/B test vs mechanical exits.', pct: 75, color: 'var(--chart-1)' },
   { phase: '4', trades: '500+', strategy: 'Full active (if validated)', detail: 'Separate exit-specialist LoRA. Daily conviction updates. Full LLM exit management.', pct: 100, color: 'var(--chart-7)' },
