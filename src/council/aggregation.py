@@ -8,20 +8,117 @@ Tests: tests/test_council_aggregation.py
 """
 
 import logging
+import sqlite3
+from contextlib import closing
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
+from src.config import DB_PATH
 from src.council.constants import (
     DECISION_THRESHOLDS,
     DIRECTION_MAP,
     DOMAIN_WEIGHTS,
+    DYNAMIC_WEIGHT_ENABLED,
+    INITIAL_AGENT_ALPHA,
+    INITIAL_AGENT_BETA,
+    MIN_AGENT_WEIGHT,
+    MIN_VOTES_FOR_DYNAMIC,
     PARAMETER_DEFAULTS,
+    VALUE_TRACKER_WINDOW_WEEKS,
 )
 
 logger = logging.getLogger(__name__)
+
+ET = ZoneInfo("America/New_York")
+
+
+def compute_dynamic_weights(db_path: str = DB_PATH,
+                             session_type: str = "daily") -> dict[str, float] | None:
+    """Compute Bayesian agent weights from vote accuracy history.
+
+    WHY: Static weights can't adapt. Yue (2025, ICAID) showed dynamic weighting
+    improves Sharpe by 38.5%. Beta distribution provides uncertainty-aware estimates
+    that naturally revert to equal weights when data is sparse.
+
+    Returns None if insufficient data (falls back to static DOMAIN_WEIGHTS).
+    """
+    if not DYNAMIC_WEIGHT_ENABLED:
+        return None
+
+    static_weights = DOMAIN_WEIGHTS.get(session_type, DOMAIN_WEIGHTS["daily"])
+    agents = list(static_weights.keys())
+    cutoff = (datetime.now(ET) - timedelta(weeks=VALUE_TRACKER_WINDOW_WEEKS)).isoformat()
+
+    try:
+        with closing(sqlite3.connect(db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            # Join council_votes with shadow_trades to evaluate directional accuracy
+            # A vote is "correct" if the agent's direction matches the trade outcome
+            rows = conn.execute(
+                """
+                SELECT cv.agent_name,
+                       cv.direction,
+                       st.pnl_dollars
+                FROM council_votes cv
+                JOIN council_sessions cs ON cv.session_id = cs.session_id
+                JOIN shadow_trades st ON cs.session_id = st.session_id
+                WHERE cs.created_at >= ?
+                  AND st.status = 'closed'
+                  AND cv.direction IN ('bullish', 'bearish')
+                  AND st.pnl_dollars IS NOT NULL
+                """,
+                (cutoff,),
+            ).fetchall()
+    except Exception as exc:
+        logger.warning("[COUNCIL] Dynamic weights DB query failed: %s", exc)
+        return None
+
+    # Tally correct/incorrect per agent
+    records: dict[str, dict] = {a: {"correct": 0, "incorrect": 0} for a in agents}
+    for row in rows:
+        agent = row["agent_name"]
+        if agent not in records:
+            continue
+        direction = row["direction"]
+        pnl = row["pnl_dollars"]
+        # Bullish + positive PnL = correct; Bearish + negative PnL = correct
+        if (direction == "bullish" and pnl > 0) or (direction == "bearish" and pnl < 0):
+            records[agent]["correct"] += 1
+        else:
+            records[agent]["incorrect"] += 1
+
+    # Check minimum vote threshold — ANY agent below threshold → fall back to static
+    for agent in agents:
+        total = records[agent]["correct"] + records[agent]["incorrect"]
+        if total < MIN_VOTES_FOR_DYNAMIC:
+            logger.info("[COUNCIL] Agent %s has %d votes (< %d) — using static weights",
+                        agent, total, MIN_VOTES_FOR_DYNAMIC)
+            return None
+
+    # Compute Beta posterior expected accuracy per agent
+    raw_weights = {}
+    for agent in agents:
+        alpha = INITIAL_AGENT_ALPHA + records[agent]["correct"]
+        beta = INITIAL_AGENT_BETA + records[agent]["incorrect"]
+        expected_accuracy = alpha / (alpha + beta)
+        raw_weights[agent] = expected_accuracy
+
+    # Apply floor
+    for agent in raw_weights:
+        raw_weights[agent] = max(raw_weights[agent], MIN_AGENT_WEIGHT)
+
+    # Normalize to sum to 1.0
+    total = sum(raw_weights.values())
+    weights = {a: round(w / total, 4) for a, w in raw_weights.items()}
+
+    logger.info("[COUNCIL] Dynamic weights: %s", weights)
+    return weights
 
 
 def aggregate_votes(
     assessments: list[dict],
     session_type: str = "daily",
+    db_path: str = DB_PATH,
 ) -> dict:
     """Aggregate council assessments into a consensus direction and parameters."""
     # #118 — Filter out votes where parsing failed (no valid direction/assessment)
@@ -35,7 +132,9 @@ def aggregate_votes(
     if not valid_assessments:
         valid_assessments = assessments  # Fallback to all if everything failed
 
-    weights = DOMAIN_WEIGHTS.get(session_type, DOMAIN_WEIGHTS["daily"])
+    # Try dynamic weights first, fall back to static
+    dynamic = compute_dynamic_weights(db_path, session_type)
+    weights = dynamic if dynamic else DOMAIN_WEIGHTS.get(session_type, DOMAIN_WEIGHTS["daily"])
     numerator = 0.0
     denominator = 0.0
     vote_dist = {"bullish": 0, "neutral": 0, "bearish": 0}

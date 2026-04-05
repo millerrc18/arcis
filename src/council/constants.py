@@ -64,3 +64,12 @@ PARAMETER_DEFAULTS = {
 }
 
 DIRECTION_MAP = {"bullish": 1.0, "neutral": 0.0, "bearish": -1.0}
+
+# Dynamic weight parameters (Ralph Loop 1: added for Bayesian agent weighting)
+DYNAMIC_WEIGHT_ENABLED = True          # Feature flag — can disable without code change
+INITIAL_AGENT_ALPHA = 1.0              # Beta distribution prior: successes
+INITIAL_AGENT_BETA = 1.0               # Beta distribution prior: failures
+WEIGHT_EMA_DECAY = 0.9                 # EMA decay for weight smoothing
+MIN_AGENT_WEIGHT = 0.05                # Floor: no agent below 5% of total weight
+VALUE_TRACKER_WINDOW_WEEKS = 12        # Extended from 8 (was too short)
+MIN_VOTES_FOR_DYNAMIC = 10            # Fall back to static weights if < 10 votes per agent
