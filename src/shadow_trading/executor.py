@@ -865,10 +865,25 @@ def check_and_manage_open_trades(
             exit_slippage_bps = 0.0
 
             if not bracket_exit:
+                # Cancel any stale pending order before initial exit attempt (#310)
+                _pending_oid = trade.get("exit_order_id") or trade.get("alpaca_order_id")
+                if _pending_oid:
+                    try:
+                        from src.shadow_trading.alpaca_adapter import cancel_paper_order
+                        cancel_paper_order(_pending_oid)
+                        time.sleep(0.5)
+                    except Exception:
+                        pass
+
                 try:
                     exit_result = _submit_exit_order(trade, shares)
                 except Exception as e:
-                    logger.error("[EXIT] Broker exit failed for %s — trade remains open: %s", ticker, e)
+                    logger.error("[EXIT] Broker exit failed for %s — marking exit_failed: %s", ticker, e)
+                    update_shadow_trade(
+                        trade["trade_id"],
+                        {"status": "exit_failed", "exit_reason": f"broker_exception:{type(e).__name__}"},
+                        db_path,
+                    )
                     continue
 
                 exit_status = exit_result.get("status") if isinstance(exit_result, dict) else None
