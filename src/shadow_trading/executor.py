@@ -665,6 +665,8 @@ def check_and_manage_open_trades(
     if source_filter:
         open_trades = [t for t in open_trades if t.get("source") == source_filter]
     actions = []
+    _exit_attempts = 0
+    _exit_failures = 0
 
     et = ZoneInfo("America/New_York")
     now = datetime.now(et)
@@ -884,6 +886,22 @@ def check_and_manage_open_trades(
                         {"status": "exit_failed", "exit_reason": f"broker_exception:{type(e).__name__}"},
                         db_path,
                     )
+                    _exit_attempts += 1
+                    _exit_failures += 1
+                    # Circuit breaker: halt exits if majority failing (#310)
+                    if _exit_failures > 3 and _exit_failures > _exit_attempts * 0.5:
+                        logger.critical(
+                            "[EXIT] Circuit breaker: %d/%d exits failed — halting remaining exits",
+                            _exit_failures, _exit_attempts)
+                        try:
+                            from src.notifications.telegram import send_telegram
+                            send_telegram(
+                                f"\U0001f6a8 EXIT CIRCUIT BREAKER: {_exit_failures}/{_exit_attempts} "
+                                f"exits failed this cycle. Remaining exits paused."
+                            )
+                        except Exception:
+                            pass
+                        break
                     continue
 
                 exit_status = exit_result.get("status") if isinstance(exit_result, dict) else None
@@ -977,8 +995,11 @@ def check_and_manage_open_trades(
                         )
                     except Exception as exc:
                         logger.warning("[EXIT] Telegram notification failed for %s: %s", ticker, exc)
+                    _exit_attempts += 1
+                    _exit_failures += 1
                     continue
 
+            _exit_attempts += 1  # Successful exit attempt
             pnl_dollars = (current_price - entry_price) * shares
             pnl_pct = ((current_price - entry_price) / entry_price * 100) if entry_price > 0 else 0
 
