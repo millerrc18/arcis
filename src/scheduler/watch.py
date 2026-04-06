@@ -675,7 +675,8 @@ class WatchLoop:
         from src.email.notifier import send_email
 
         now = datetime.now(ET)
-        ctx = ScanContext(config=self.config)
+        _scan_num = getattr(self, "_scan_number", 0) + 1
+        ctx = ScanContext(config=self.config, scan_id=f"s-{_scan_num:04d}")
         result = run_universe_scan(ctx)
 
         # Aborted scan (e.g., no SPY data) — just record metrics
