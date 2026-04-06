@@ -25,6 +25,7 @@ All database tables are defined in `src/schema/registry.py` — the single sourc
 5. **To rename a column:** Add the new column to registry, add a migration note in the column description, run `validate-schema --fix`. NEVER rename in-place.
 6. **Before any PR that touches database tables:** Run `python -m src.main validate-schema` and include the output in the PR description
 7. **CI enforcement:** `test_no_create_table_in_source` and `test_no_alter_table_in_source` run on every PR — they fail if DDL appears outside `src/schema/`
+8. **After local schema changes:** Run `render_migrate.py` to sync Postgres. Include the output in the PR description alongside `validate-schema` output
 
 ### Schema commands
 ```bash

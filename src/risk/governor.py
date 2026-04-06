@@ -267,6 +267,15 @@ class RiskGovernor:
         """
         checks = []
 
+        # Coerce inputs — upstream can produce strings, tuples, or numpy scalars
+        from src.utils.type_safety import safe_numeric
+        allocation_dollars = safe_numeric(allocation_dollars, default=0)
+        traffic_light_multiplier = safe_numeric(traffic_light_multiplier, default=1.0)
+        event_risk_multiplier = safe_numeric(event_risk_multiplier, default=1.0)
+
+        if allocation_dollars <= 0:
+            return self._reject(checks, "Zero or negative allocation")
+
         if not self.enabled:
             return {
                 "approved": True,
