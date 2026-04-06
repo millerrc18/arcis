@@ -68,6 +68,19 @@ class TestPremarketDigest:
         assert "1 paper" in subject
         assert "Paper positions: 1" in body
 
+    def test_council_confidence_string_coerces_without_crash(self, db_path):
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "INSERT INTO council_sessions (session_id, created_at, consensus, confidence_weighted_score, is_contested) "
+                "VALUES (?, ?, ?, ?, ?)",
+                ("sess-1", "2026-04-06T07:20:00", "defensive", "0.73", 0),
+            )
+            conn.commit()
+
+        _, body = build_premarket_digest(db_path=db_path)
+        assert "Latest assessment: defensive" in body
+        assert "Confidence: 73%" in body
+
 
 class TestMiddayDigest:
     def test_returns_subject_and_body(self, db_path):
