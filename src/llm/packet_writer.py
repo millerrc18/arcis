@@ -483,7 +483,8 @@ def enhance_packet_with_llm(packet: TradePacket, features: dict,
     conviction, why_now, deeper_analysis = _parse_llm_response(response)
 
     if why_now is None or deeper_analysis is None:
-        logger.warning("[LLM] Failed to parse response — fallback to template for %s", packet.ticker)
+        logger.warning("[LLM] Failed to parse response — fallback to template for %s", packet.ticker,
+                       extra={"ctx": {"event": "parse_failure", "ticker": packet.ticker}})
         return packet
 
     # #168: if conviction is None after all 5 parsing strategies, default to 5.
@@ -498,6 +499,7 @@ def enhance_packet_with_llm(packet: TradePacket, features: dict,
             "[LLM] Conviction is None for %s — defaulting to %d. "
             "Response preview: %s",
             packet.ticker, conviction, _raw_preview,
+            extra={"ctx": {"event": "conviction_default", "ticker": packet.ticker, "default": conviction}},
         )
         # Write full response to debug file for offline analysis (#312)
         try:
