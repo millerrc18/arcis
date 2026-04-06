@@ -58,3 +58,28 @@ class TestStructuredFormatter:
         parsed = json.loads(result.split("|ctx:")[1])
         assert parsed["scan_id"] == "s-042"
         assert parsed["duration_s"] == 180
+
+
+class TestDBLogHandlerCtx:
+    def test_ctx_stored_in_details_json(self, tmp_path):
+        """DBLogHandler should store ctx dict in details_json column."""
+        import sqlite3
+        from src.journal.store import initialize_database
+
+        db = str(tmp_path / "test.db")
+        initialize_database(db)
+
+        from src.scheduler.watch import DBLogHandler
+        handler = DBLogHandler(db_path=db)
+
+        record = logging.LogRecord(
+            "src.test", logging.WARNING, "", 0, "test warning", (), None)
+        record.ctx = {"event": "test_event", "ticker": "AAPL"}
+        handler.emit(record)
+
+        with sqlite3.connect(db) as conn:
+            row = conn.execute("SELECT details_json FROM log_entries LIMIT 1").fetchone()
+        assert row is not None
+        parsed = json.loads(row[0])
+        assert parsed["event"] == "test_event"
+        assert parsed["ticker"] == "AAPL"

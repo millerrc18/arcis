@@ -71,7 +71,11 @@ class DBLogHandler(logging.Handler):
             source = record.name.split(".")[-1] if "." in record.name else record.name
             message = record.getMessage()[:2000]  # Truncate to prevent SQLite bloat
             details = None
-            if record.exc_info and record.exc_info[1]:
+            ctx = getattr(record, "ctx", None)
+            if ctx:
+                import json
+                details = json.dumps(ctx, separators=(",", ":"), default=str)[:5000]
+            elif record.exc_info and record.exc_info[1]:
                 details = str(record.exc_info[1])[:5000]
 
             with sqlite3.connect(self.db_path) as conn:
