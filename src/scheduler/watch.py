@@ -2645,8 +2645,8 @@ class WatchLoop:
                     "ORDER BY created_at DESC LIMIT 1"
                 ).fetchone()
                 council_consensus = council_row["consensus"] if council_row else "N/A"
-                council_conf_raw = council_row["confidence_weighted_score"] if council_row else 0
-                council_confidence = int(council_conf_raw * 100) if council_conf_raw and council_conf_raw <= 1 else int(council_conf_raw or 0)
+                council_conf_raw = float(council_row["confidence_weighted_score"]) if council_row and council_row["confidence_weighted_score"] else 0.0
+                council_confidence = int(council_conf_raw * 100) if council_conf_raw <= 1 else int(council_conf_raw)
 
                 # Open positions
                 open_paper = conn.execute(
@@ -2754,11 +2754,11 @@ class WatchLoop:
                 vix_row = conn.execute(
                     "SELECT vix FROM vix_term_structure ORDER BY collected_at DESC LIMIT 1"
                 ).fetchone()
-                vix = vix_row["vix"] if vix_row else 0.0
+                vix = float(vix_row["vix"]) if vix_row else 0.0
                 vix_prev_row = conn.execute(
                     "SELECT vix FROM vix_term_structure ORDER BY collected_at DESC LIMIT 1 OFFSET 1"
                 ).fetchone()
-                vix_prev = vix_prev_row["vix"] if vix_prev_row else vix
+                vix_prev = float(vix_prev_row["vix"]) if vix_prev_row else vix
 
                 from src.features.regime import classify_regime
                 regime = classify_regime({"vix_proxy": vix})
@@ -2770,8 +2770,8 @@ class WatchLoop:
                     "FROM scan_metrics WHERE scan_time LIKE ?",
                     (f"{today_str}%",),
                 ).fetchone()
-                risk_worthy = risk_row["worthy"] if risk_row else 0
-                risk_passed = risk_row["passed"] if risk_row else 0
+                risk_worthy = int(risk_row["worthy"]) if risk_row else 0
+                risk_passed = int(risk_row["passed"]) if risk_row else 0
                 risk_rejected = risk_worthy - risk_passed
 
                 # Log rejection summary to activity_log
@@ -2870,7 +2870,7 @@ class WatchLoop:
                 ).fetchone()
                 if not row:
                     return
-                vix_now = row[0]
+                vix_now = float(row[0]) if row[0] is not None else 0.0
 
             thresholds = [20, 25, 30, 35, 40, 60]
 
