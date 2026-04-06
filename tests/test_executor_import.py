@@ -134,6 +134,26 @@ class TestRetryExitWithCancel:
 # ── Exit exception handling (#310) ─────────────────────────────────
 
 
+class TestCancelAllOrders:
+    """Test cancel_all_orders adapter function (#310)."""
+
+    def test_cancel_all_returns_count(self):
+        from src.shadow_trading.alpaca_adapter import cancel_all_orders
+        mock_client = MagicMock()
+        mock_client.cancel_orders.return_value = [MagicMock(), MagicMock()]
+        with patch("src.shadow_trading.alpaca_adapter._get_trading_client",
+                   return_value=mock_client):
+            result = cancel_all_orders()
+        assert result["cancelled"] == 2
+
+    def test_cancel_all_handles_error(self):
+        from src.shadow_trading.alpaca_adapter import cancel_all_orders
+        with patch("src.shadow_trading.alpaca_adapter._get_trading_client",
+                   side_effect=Exception("no key")):
+            result = cancel_all_orders()
+        assert result["cancelled"] == 0
+
+
 class TestExitExceptionMarksFailure:
     """Regression #310: exception in _submit_exit_order must mark exit_failed."""
 
