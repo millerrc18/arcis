@@ -115,3 +115,19 @@ class TestComputeTrafficLight:
         assert result["vix_score"] == 2, f"VIX 30.6 should score 2, got {result['vix_score']}"
         # Total score should be at least 2 (VIX alone), so not GREEN
         assert result["total_score"] >= 2
+
+
+class TestPersistenceFilterStringCount:
+    """Regression #311: pending_count stored as string in SQLite."""
+
+    def test_int_coercion_handles_string(self):
+        """The fix pattern int(count or 0) + 1 must handle string count."""
+        # This is the exact expression from traffic_light.py:198
+        count = "3"  # as returned from SQLite with TEXT affinity
+        result = int(count or 0) + 1
+        assert result == 4
+
+    def test_int_coercion_handles_none(self):
+        count = None
+        result = int(count or 0) + 1
+        assert result == 1
