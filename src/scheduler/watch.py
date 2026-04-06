@@ -815,6 +815,23 @@ class WatchLoop:
                      0, 0.0, 0.0, now.isoformat()),
                 )
                 conn.commit()
+            # Structured cycle summary for AI agent review (#314)
+            logger.info(
+                "[WATCH] Scan cycle #%d complete",
+                self._scan_number,
+                extra={"ctx": {
+                    "event": "scan_summary",
+                    "scan_id": f"s-{self._scan_number:04d}",
+                    "scan_number": self._scan_number,
+                    "universe": universe_count,
+                    "features": features_count,
+                    "qualified": packet_worthy,
+                    "llm_success": llm_success,
+                    "llm_total": llm_total,
+                    "conviction_none_rate": round(
+                        1 - (llm_success / llm_total), 2) if llm_total > 0 else 0.0,
+                }},
+            )
             logger.info("[WATCH] Recorded scan_metrics #%d (packets=%d)",
                         self._scan_number, packet_worthy)
         except Exception as e:
