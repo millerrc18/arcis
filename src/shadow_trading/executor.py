@@ -880,7 +880,7 @@ def check_and_manage_open_trades(
                 try:
                     exit_result = _submit_exit_order(trade, shares)
                 except Exception as e:
-                    logger.error("[EXIT] Broker exit failed for %s — marking exit_failed: %s", ticker, e)
+                    logger.error("[EXIT] Broker exit failed for %s — marking exit_failed: %s", ticker, e, extra={"ctx": {"event": "exit_failed", "ticker": ticker, "trade_id": trade["trade_id"], "error": type(e).__name__}})
                     update_shadow_trade(
                         trade["trade_id"],
                         {"status": "exit_failed", "exit_reason": f"broker_exception:{type(e).__name__}"},
@@ -982,6 +982,7 @@ def check_and_manage_open_trades(
                         "[EXIT] Broker exit failed for %s — marking exit_failed (status=%s)",
                         ticker,
                         exit_status,
+                        extra={"ctx": {"event": "exit_failed", "ticker": ticker, "trade_id": trade["trade_id"], "status": str(exit_status)}},
                     )
                     update_shadow_trade(
                         trade["trade_id"],
@@ -1011,6 +1012,14 @@ def check_and_manage_open_trades(
                 pnl_dollars=round(pnl_dollars, 2),
                 pnl_pct=round(pnl_pct, 2),
                 db_path=db_path,
+            )
+            logger.info(
+                "[EXIT] Closed %s — P&L $%.2f (%.1f%%)", ticker, pnl_dollars, pnl_pct,
+                extra={"ctx": {"event": "exit_success", "ticker": ticker,
+                               "trade_id": trade["trade_id"],
+                               "pnl_dollars": round(pnl_dollars, 2),
+                               "pnl_pct": round(pnl_pct, 2),
+                               "exit_reason": exit_reason}},
             )
 
             # Also update final MFE/MAE and duration on the closed trade
