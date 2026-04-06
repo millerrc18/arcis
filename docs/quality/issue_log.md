@@ -17,3 +17,9 @@
 - **Impact:** Operators had to inspect code to interpret reasons during an active ingestion halt.
 - **Fix:** Added reason hints to alert payloads and covered the message contract with a unit test.
 - **Evidence:** `PYTHONPATH=. pytest -q tests/test_ingestion_gate.py`.
+
+## 2026-04-06 — Overnight watch run showed type/import runtime failures
+- **Issue:** Logs show unresolved runtime faults in three paths: `notify_research_papers` formatting error when `top_score` is a string, pre-market brief confidence math failing on string DB values, and Tier-4 fundamentals refresh importing non-existent collector symbols/modules.
+- **Impact:** Telegram paper notifications and pre-market brief/digest reliability were degraded, and scheduled fundamentals refresh skipped intended data updates.
+- **Fix:** Added numeric coercion guards for research and digest/brief confidence formatting, and switched fundamentals refresh imports to current collectors (`collect_macro_snapshots`, `fetch_earnings_dates`) with test coverage.
+- **Evidence:** `PYTHONPATH=. pytest -q tests/test_expanded_notifications.py tests/test_digest_builder.py tests/test_fundamentals_refresh.py`.

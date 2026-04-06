@@ -14,3 +14,8 @@
 - **Improvement:** Added reason hints in `alert_training_halt` so Telegram alerts now include contextual detail for markdown-related reasons (for example, `markdown_bold (line-leading **bold** markdown heading)`).
 - **Why it matters:** Reduces operator ambiguity during incidents and shortens root-cause investigation time when batch compliance halts occur.
 - **Evidence:** `PYTHONPATH=. pytest -q tests/test_ingestion_gate.py` with `test_alert_training_halt_includes_reason_hint`.
+
+## 2026-04-06 — Hardened overnight watch reliability from log-derived failures
+- **Improvement:** Implemented type-safe coercion in research notifications and pre-market digest/brief confidence handling, and corrected fundamentals refresh to use active macro/earnings collectors.
+- **Why it matters:** Prevents repeated overnight scheduler errors (`Unknown format code`, `<= not supported`, missing import targets) and restores expected scheduled data refresh/notification behavior.
+- **Evidence:** `PYTHONPATH=. pytest -q tests/test_expanded_notifications.py tests/test_digest_builder.py tests/test_fundamentals_refresh.py`.

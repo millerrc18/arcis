@@ -2646,7 +2646,15 @@ class WatchLoop:
                 ).fetchone()
                 council_consensus = council_row["consensus"] if council_row else "N/A"
                 council_conf_raw = council_row["confidence_weighted_score"] if council_row else 0
-                council_confidence = int(council_conf_raw * 100) if council_conf_raw and council_conf_raw <= 1 else int(council_conf_raw or 0)
+                try:
+                    council_conf_value = float(council_conf_raw or 0)
+                except (TypeError, ValueError):
+                    council_conf_value = 0.0
+                council_confidence = (
+                    int(council_conf_value * 100)
+                    if 0 <= council_conf_value <= 1
+                    else int(council_conf_value)
+                )
 
                 # Open positions
                 open_paper = conn.execute(
