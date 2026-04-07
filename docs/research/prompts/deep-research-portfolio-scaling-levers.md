@@ -96,22 +96,14 @@ The goal: scale from $5K → $3M AUM over 5 years. That's 600× growth, or rough
 - Dollar-cost-averaging into the strategy account from salary (external capital injection)
 - Tax-efficient reinvestment: Section 475 MTM, tax-loss harvesting, retirement account trading
 
-### Lever 8: External Capital / Fund Formation
-
-- At what track record length and Sharpe does it become viable to raise outside capital?
-- Friends & Family round ($100K-$500K) — when and how?
-- Incubator programs (Emerging Manager Alliance, etc.)
-- AUM growth from external capital vs organic compounding — which dominates?
-- What's the minimum viable fund size? ($2M break-even per our research)
-
-### Lever 9: Alternative Instruments
+### Lever 8: Alternative Instruments
 
 - Futures (ES, NQ) on the S&P 500 — higher leverage, tax advantages (60/40 split)
 - ETF leveraged products (TQQQ, UPRO) as position substitutes
 - Sector ETF options instead of individual stock options
 - International markets — does our edge exist on non-US large-caps?
 
-### Lever 10: Risk Management as a Growth Lever
+### Lever 9: Risk Management as a Growth Lever
 
 - Counterintuitive: better risk management enables MORE aggressive sizing
 - If max drawdown drops from 15% to 8%, you can safely double leverage
