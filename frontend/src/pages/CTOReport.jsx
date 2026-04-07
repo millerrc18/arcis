@@ -178,7 +178,7 @@ export default function CTOReport() {
 
       {/* Win rate callout for small sample */}
       {winRate === 1 && tradesClosed < 10 && tradesClosed > 0 && (
-        <div className="rounded-lg p-3 text-sm" style={{ background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.25)', color: 'var(--arcis-text-secondary)' }}>
+        <div className="p-3 text-sm" style={{ borderRadius: 'var(--radius-sm)', background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.25)', color: 'var(--arcis-text-secondary)' }}>
           100% win rate on {tradesClosed} trade{tradesClosed !== 1 ? 's' : ''} \u2014 early results, need 50+ trades for statistical significance
         </div>
       )}

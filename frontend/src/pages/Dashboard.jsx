@@ -59,15 +59,15 @@ function AuditChip({ auditData, auditAssessment, auditSummary }) {
     <div>
       <button
         onClick={() => setExpanded(!expanded)}
-        className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium cursor-pointer transition-colors"
-        style={{ background: chip.bg, border: `1px solid ${chip.border}`, color: chip.color }}
+        className="inline-flex items-center gap-1 px-3 py-1 text-xs font-medium cursor-pointer"
+        style={{ borderRadius: 'var(--radius-sm)', background: chip.bg, border: `1px solid ${chip.border}`, color: chip.color }}
       >
         <span>{chip.dot}</span>
         <span>{chip.label}</span>
         {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
       </button>
       {expanded && (
-        <div className="rounded-lg p-4 mt-2" style={{ border: `1px solid ${chip.border}`, background: 'var(--arcis-bg-surface)' }}>
+        <div className="p-4 mt-2" style={{ borderRadius: 'var(--radius-sm)', border: `1px solid ${chip.border}`, background: 'var(--arcis-bg-surface)' }}>
           <div className="flex items-center gap-2 mb-2">
             <span>{chip.dot}</span>
             <span className="text-sm font-medium" style={{ color: chip.color }}>{chip.label}</span>
@@ -82,7 +82,7 @@ function AuditChip({ auditData, auditAssessment, auditSummary }) {
 }
 
 function scoreColor(score) {
-  if (score >= 70) return 'var(--teal-400)'
+  if (score >= 70) return 'var(--arcis-success)'
   if (score >= 40) return 'var(--amber-400)'
   return 'var(--danger)'
 }
@@ -131,7 +131,7 @@ function BuildScoreHero({ data }) {
             )}
             {decay && (
               <Tooltip content="Idle day: no closed trades, new examples, or scans today. -1 decay applied.">
-                <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(239,68,68,0.15)', color: '#fca5a5' }}>
+                <span className="flex items-center gap-1 text-xs px-2 py-0.5" style={{ borderRadius: 'var(--radius-sm)', background: 'rgba(239,68,68,0.15)', color: '#fca5a5' }}>
                   <AlertTriangle size={10} /> Decay
                 </span>
               </Tooltip>
@@ -149,8 +149,8 @@ function BuildScoreHero({ data }) {
                   <span style={{ color: 'var(--arcis-text-muted)' }}>{label}</span>
                   <span style={{ fontFamily: 'var(--font-mono)', color: scoreColor(val) }}>{val.toFixed(0)}</span>
                 </div>
-                <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--arcis-text-secondary)' }}>
-                  <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, val)}%`, background: scoreColor(val) }} />
+                <div className="h-1.5 overflow-hidden" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-text-secondary)' }}>
+                  <div className="h-full" style={{ borderRadius: 'var(--radius-sm)', width: `${Math.min(100, val)}%`, background: scoreColor(val) }} />
                 </div>
               </div>
             )
@@ -162,15 +162,15 @@ function BuildScoreHero({ data }) {
           {history.length > 1 && (
             <ResponsiveContainer width={120} height={48}>
               <LineChart data={history}>
-                <Line type="monotone" dataKey="score" stroke="var(--teal-400)" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="score" stroke="var(--arcis-accent)" strokeWidth={2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           )}
           <div className="text-xs text-center" style={{ color: 'var(--arcis-text-muted)' }}>
             Phase {phase.current_phase || 1}: {phase.trades_closed || 0}/{phase.trades_required || 50} trades
           </div>
-          <div className="h-1.5 w-full max-w-[100px] rounded-full overflow-hidden" style={{ background: 'var(--arcis-text-secondary)' }}>
-            <div className="h-full rounded-full" style={{ width: `${phase.pct_complete || 0}%`, background: 'var(--teal-500)' }} />
+          <div className="h-1.5 w-full max-w-[100px] overflow-hidden" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-text-secondary)' }}>
+            <div className="h-full" style={{ borderRadius: 'var(--radius-sm)', width: `${phase.pct_complete || 0}%`, background: 'var(--arcis-accent)' }} />
           </div>
         </div>
       </div>
@@ -274,8 +274,8 @@ export default function Dashboard() {
                   haltMutation.mutate()
                 }
               }}
-              className="px-4 py-2 rounded-lg font-medium text-sm text-white transition-colors"
-              style={{ background: isHalted ? 'var(--success)' : 'var(--danger)' }}
+              className="px-4 py-2 font-medium text-sm text-white transition-colors"
+              style={{ borderRadius: 'var(--radius-sm)', background: isHalted ? 'var(--success)' : 'var(--danger)' }}
             >
               {isHalted ? 'RESUME TRADING' : 'HALT TRADING'}
             </button>
@@ -285,7 +285,7 @@ export default function Dashboard() {
 
       {/* Halt warning banner */}
       {isHalted && (
-        <div className="rounded-lg p-3 text-sm" style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)', color: '#fca5a5' }}>
+        <div className="p-3 text-sm" style={{ borderRadius: 'var(--radius-sm)', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)', color: '#fca5a5' }}>
           Trading is HALTED. No new positions will be opened. Click "Resume Trading" to resume.
         </div>
       )}
@@ -294,7 +294,7 @@ export default function Dashboard() {
 
       {/* Toast notification */}
       {toast && (
-        <div className="fixed top-4 right-4 z-50 rounded-lg px-4 py-2 text-sm shadow-lg" style={{ background: 'var(--arcis-bg-elevated)', border: '1px solid var(--arcis-border)' }}>
+        <div className="fixed top-4 right-4 z-50 px-4 py-2 text-sm" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-elevated)', border: '1px solid var(--arcis-border)' }}>
           {toast}
         </div>
       )}
@@ -333,19 +333,19 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <div className="arcis-card text-center" style={{ padding: '12px' }}>
           <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Sharpe ratio</div>
-          <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: hasTrades ? ((kpis.sharpe_ratio || 0) > 0.5 ? 'var(--teal-400)' : (kpis.sharpe_ratio || 0) < 0 ? 'var(--danger)' : 'var(--arcis-text)') : 'var(--arcis-text)' }}>
+          <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: hasTrades ? ((kpis.sharpe_ratio || 0) > 0.5 ? 'var(--arcis-success)' : (kpis.sharpe_ratio || 0) < 0 ? 'var(--danger)' : 'var(--arcis-text)') : 'var(--arcis-text)' }}>
             {hasTrades ? (kpis.sharpe_ratio || 0).toFixed(2) : '--'}
           </div>
         </div>
         <div className="arcis-card text-center" style={{ padding: '12px' }}>
           <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Win rate</div>
-          <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: hasTrades ? ((kpis.win_rate || 0) > 0.45 ? 'var(--teal-400)' : 'var(--danger)') : 'var(--arcis-text)' }}>
+          <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: hasTrades ? ((kpis.win_rate || 0) > 0.45 ? 'var(--arcis-success)' : 'var(--danger)') : 'var(--arcis-text)' }}>
             {hasTrades ? `${((kpis.win_rate || 0) * 100).toFixed(1)}%` : '--'}
           </div>
         </div>
         <div className="arcis-card text-center" style={{ padding: '12px' }}>
           <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Max drawdown</div>
-          <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: hasTrades ? ((kpis.max_drawdown_pct || 0) < 15 ? 'var(--teal-400)' : 'var(--danger)') : 'var(--arcis-text)' }}>
+          <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: hasTrades ? ((kpis.max_drawdown_pct || 0) < 15 ? 'var(--arcis-success)' : 'var(--danger)') : 'var(--arcis-text)' }}>
             {hasTrades ? `${(kpis.max_drawdown_pct || 0).toFixed(1)}%` : '--'}
           </div>
         </div>
@@ -385,9 +385,9 @@ export default function Dashboard() {
                 <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--arcis-text-muted)' }} />
                 <YAxis tick={{ fontSize: 11, fill: 'var(--arcis-text-muted)' }} />
                 {/* Fix for #250: add tooltip text color for dark mode readability */}
-                <RechartsTooltip contentStyle={{ background: 'var(--arcis-bg-elevated)', border: '1px solid var(--arcis-text-secondary)', borderRadius: 8, fontSize: 12, color: 'var(--tooltip-text)' }} />
+                <RechartsTooltip contentStyle={{ background: 'var(--arcis-bg-elevated)', border: '1px solid var(--arcis-text-secondary)', borderRadius: 3, fontSize: 12, color: 'var(--tooltip-text)' }} />
                 {/* Fix for #250: increase fill opacity from 0.25 to 0.3 for dark mode readability */}
-                <Area type="monotone" dataKey="cumPnl" stroke="var(--teal-400)" fill="var(--teal-400)" fillOpacity={0.3} strokeWidth={2} />
+                <Area type="monotone" dataKey="cumPnl" stroke="var(--arcis-accent)" fill="var(--arcis-accent)" fillOpacity={0.3} strokeWidth={2} />
               </AreaChart>
             </ResponsiveContainer>
           ) : (
@@ -406,7 +406,7 @@ export default function Dashboard() {
               </div>
               <div className="mt-2">
                 <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--arcis-text-secondary)' }}>
-                  <div className="h-full rounded-full" style={{ background: 'var(--teal-500)', width: `${Math.min(100, (training.new_since_last_train / 50) * 100)}%` }} />
+                  <div className="h-full" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-accent)', width: `${Math.min(100, (training.new_since_last_train / 50) * 100)}%` }} />
                 </div>
                 <div className="text-xs mt-1" style={{ color: 'var(--arcis-text-muted)' }}>{training.new_since_last_train}/50 to next training</div>
               </div>
