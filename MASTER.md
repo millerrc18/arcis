@@ -14,7 +14,7 @@
 
 **Name:** Arcis (Adaptive Regime Classification & Intelligence Systems)
 **License:** BSL 1.1 (source-visible, no commercial use until 2030)
-**Release:** v0.14.2
+**Release:** v0.14.2 (gap-assessment merged, 3 more features pending → v0.15.0)
 **Repository:** github.com/millerrc18/halcyon-lab
 **Dashboard:** halcyonlab.app (Render static + Python API)
 
@@ -59,12 +59,12 @@ with an unbeatable technological moat.
 | Open positions | ~37 (33 paper + 4 live) |
 | Model | halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF) |
 | Training data | 979 examples, scored, 20+ unique tickers |
-| Tests | 1,460 functions across 118 test files |
+| Tests | 1,467 functions across 119 test files |
 | Python files | 203 |
 | Dashboard pages | 18 |
 | Research docs | 74 |
 | Schema tables | 49 (registry) |
-| GitHub issues | 6 open (#295-297 gap-assessment, #302-304 deferred) |
+| GitHub issues | 4 open (#302-304 deferred, #317 dotenv) |
 | Monthly cost | ~$64 (Render $7 + Ollama free + Claude API ~$50 + domain $7) |
 | Hardware | RTX 3060 12GB, Windows 11, Z690, 24/7 operation |
 | HSHS health score | 85.33 |

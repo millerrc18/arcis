@@ -49,6 +49,28 @@
 
 ## Releases
 
+### v0.15.0 — (pending: 3 more feature branches to merge)
+**4 feature sprints: gap assessment + simulation engine + model performance + Bloomberg UI**
+
+*Merged to main so far:*
+
+**Gap assessment (merged 2026-04-07):**
+- #295: Embedding-based semantic leakage detection (Ollama + LogisticRegression, 55% threshold)
+- #296: Dynamic Bayesian agent weighting for AI Council (Beta posterior, feature flag, 12-week window)
+- #297: Two-tier relative strength (60% vs SPY + 40% vs sector ETF, 11 sector ETFs mapped)
+- 26 new tests (leakage: 12, council: 6, ranker: 7, ranking: 7 shared)
+- Backward compatible: falls back to static weights and market-only RS when data unavailable
+- Closes #295, #296, #297
+
+*Pending merge:*
+- feat/simulation-engine: 13-scenario engine, Monte Carlo, TL validation, dashboard page
+- feat/model-performance: per-model metrics, regression alerts, dashboard page
+- feat/ui-bloomberg: Bloomberg Terminal aesthetic on all 18 pages
+
+Tag v0.15.0 after all 4 features are merged and tested.
+
+---
+
 ### v0.14.2 — 2026-04-06
 **Hotfix merge sprint — 6 critical production bugs + codex fixes + dependency updates**
 
