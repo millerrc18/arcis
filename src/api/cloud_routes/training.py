@@ -44,23 +44,23 @@ _DATA_COLLECTION_QUERIES = {
         "COUNT(DISTINCT ticker) AS coverage_count FROM options_chains"
     ),
     "options_metrics": (
-        "SELECT COUNT(*) AS total_records, MAX(collected_date) AS latest_collection, "
+        "SELECT COUNT(*) AS total_records, MAX(collected_at) AS latest_collection, "
         "COUNT(DISTINCT ticker) AS coverage_count FROM options_metrics"
     ),
     "vix_term_structure": (
-        "SELECT COUNT(*) AS total_records, MAX(collected_date) AS latest_collection, "
+        "SELECT COUNT(*) AS total_records, MAX(collected_at) AS latest_collection, "
         "COUNT(DISTINCT collected_date) AS coverage_count FROM vix_term_structure"
     ),
     "macro_snapshots": (
-        "SELECT COUNT(*) AS total_records, MAX(collected_date) AS latest_collection, "
+        "SELECT COUNT(*) AS total_records, MAX(collected_at) AS latest_collection, "
         "COUNT(DISTINCT series_id) AS coverage_count FROM macro_snapshots"
     ),
     "google_trends": (
-        "SELECT COUNT(*) AS total_records, MAX(collected_date) AS latest_collection, "
+        "SELECT COUNT(*) AS total_records, MAX(collected_at) AS latest_collection, "
         "COUNT(DISTINCT ticker) AS coverage_count FROM google_trends"
     ),
     "cboe_ratios": (
-        "SELECT COUNT(*) AS total_records, MAX(collected_date) AS latest_collection, "
+        "SELECT COUNT(*) AS total_records, MAX(collected_at) AS latest_collection, "
         "COUNT(DISTINCT ratio_type) AS coverage_count FROM cboe_ratios"
     ),
     "earnings_calendar": (
@@ -502,5 +502,68 @@ def create_router(runtime, verify_auth):
     @router.get("/api/training/history", dependencies=[Depends(verify_auth)])
     def training_history():
         return training_versions()
+
+    @router.get("/api/model-performance", dependencies=[Depends(verify_auth)])
+    def model_performance():
+        """Per-model-version live performance metrics."""
+        try:
+            from src.evaluation.model_monitor import _compute_metrics, _build_equity_curve
+
+            # Model versions metadata
+            model_rows = runtime.query(
+                "SELECT version_id, version_name, created_at, "
+                "training_examples_count, holdout_score, status "
+                "FROM model_versions ORDER BY created_at DESC"
+            ) or []
+            versions_meta = {}
+            for mv in model_rows:
+                versions_meta[mv["version_name"]] = {
+                    "version_id": mv["version_id"],
+                    "created_at": (mv["created_at"] or "")[:10],
+                    "training_examples": mv.get("training_examples_count") or 0,
+                    "holdout_score": mv.get("holdout_score"),
+                    "status": mv.get("status") or "unknown",
+                }
+
+            # Closed trades with model version
+            trades = runtime.query(
+                "SELECT st.trade_id, st.ticker, st.pnl_dollars, st.pnl_pct, "
+                "st.exit_reason, st.duration_days, st.actual_exit_time, "
+                "st.created_at, r.model_version "
+                "FROM shadow_trades st "
+                "LEFT JOIN recommendations r ON st.recommendation_id = r.recommendation_id "
+                "WHERE st.status = 'closed' AND st.pnl_dollars IS NOT NULL "
+                "ORDER BY st.actual_exit_time ASC"
+            ) or []
+
+            # Group by model version
+            by_version = {}
+            for t in trades:
+                ver = t.get("model_version") or "unknown"
+                by_version.setdefault(ver, []).append(t)
+
+            models = []
+            for ver, ver_trades in by_version.items():
+                metrics = _compute_metrics(ver_trades)
+                curve = _build_equity_curve(ver_trades)
+                meta = versions_meta.get(ver, {})
+                models.append({
+                    "version": ver,
+                    "meta": meta,
+                    "metrics": metrics,
+                    "equity_curve": curve,
+                })
+
+            # Overall metrics
+            overall = _compute_metrics(trades) if trades else {}
+
+            return {
+                "models": models,
+                "overall": overall,
+                "total_closed_trades": len(trades),
+            }
+        except Exception as exc:
+            runtime.logger.error("[API] model-performance failed: %s", exc, exc_info=True)
+            return {"models": [], "overall": {}, "total_closed_trades": 0, "error": str(exc)}
 
     return router
