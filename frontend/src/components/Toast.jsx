@@ -39,7 +39,7 @@ export default function ToastContainer() {
         const c = colorMap[t.type] || colorMap.info
         return (
           <div key={t.id}
-            className="px-4 py-3 rounded text-sm shadow-lg"
+            className="px-4 py-3 text-sm"
             style={{ background: c.bg, border: `1px solid ${c.border}`, color: c.text }}
           >
             {t.message}
