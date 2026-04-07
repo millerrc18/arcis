@@ -1,0 +1,119 @@
+"""Mean reversion scan service — dedicated MR candidate scanning and trade opening.
+
+Called by: scheduler.watch (via _run_mr_scan)
+Calls: features.mean_reversion, llm.packet_writer, shadow_trading.executor,
+       journal.recommendation_logger
+Owns tables: none (delegates to executor and recommendation logger)
+
+Runs after the main pullback scan. Uses Connors-style RSI(2) mean reversion
+criteria (separate from the setup_classifier's MR tagging).
+"""
+
+import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from src.config import load_config
+
+logger = logging.getLogger(__name__)
+
+
+def run_mr_scan(config: dict | None = None, dry_run: bool = False) -> dict:
+    """Scan universe for mean reversion candidates and open shadow trades.
+
+    Returns a summary dict with scan results.
+    """
+    config = config or load_config()
+    mr_cfg = config.get("strategies", {}).get("mean_reversion", {})
+
+    if not mr_cfg.get("enabled", False):
+        logger.debug("[MR] Mean reversion strategy disabled in config")
+        return {"status": "disabled", "candidates": 0, "trades_opened": 0}
+
+    shadow_cfg = config.get("shadow_trading", {})
+    shadow_enabled = shadow_cfg.get("enabled", False)
+    paper_only = mr_cfg.get("paper_only", True)
+
+    et = ZoneInfo("America/New_York")
+    timestamp = datetime.now(et).isoformat()
+
+    # Fetch OHLCV for universe
+    from src.data_ingestion.market_data import fetch_ohlcv
+    from src.universe.sp100 import get_sp100_universe
+
+    universe = get_sp100_universe()
+    ohlcv_dict = fetch_ohlcv(universe, period="1y")
+
+    # Scan for MR candidates
+    from src.features.mean_reversion import scan_for_mr_candidates
+
+    candidates = scan_for_mr_candidates(ohlcv_dict, config)
+
+    if not candidates:
+        logger.info("[MR] No mean reversion candidates found")
+        return {"status": "no_candidates", "candidates": 0, "trades_opened": 0,
+                "timestamp": timestamp}
+
+    logger.info("[MR] Found %d mean reversion candidates", len(candidates))
+
+    trades_opened = 0
+    results = []
+
+    for candidate in candidates:
+        ticker = candidate["ticker"]
+        feat = candidate.get("features", candidate)
+
+        # Tag as MR strategy for executor routing
+        feat["strategy_type"] = "mean_reversion"
+        feat["_score"] = candidate.get("score", feat.get("rsi_2", 50))
+        feat["signal_price"] = float(feat.get("current_price", 0))
+
+        if dry_run:
+            results.append({"ticker": ticker, "rsi_2": feat.get("rsi_2"),
+                            "action": "dry_run"})
+            continue
+
+        # Build packet and enhance with MR-specific LLM prompt
+        from src.llm.prompts import get_system_prompt
+        from src.packets.template import build_packet_from_features
+        from src.llm.packet_writer import enhance_packet_with_llm
+
+        packet = build_packet_from_features(ticker, feat, config)
+        packet = enhance_packet_with_llm(packet, feat, config)
+
+        # Log recommendation
+        from src.journal.recommendation_logger import log_recommendation
+        from src.training.versioning import get_active_model_name
+
+        model_ver = get_active_model_name()
+        rec_id = log_recommendation(
+            packet, feat, candidate.get("score", 0), "mr_oversold",
+            model_version=model_ver,
+            llm_conviction=getattr(packet, "llm_conviction", None),
+        )
+
+        # Open shadow trade
+        if shadow_enabled and rec_id:
+            from src.shadow_trading.executor import open_shadow_trade
+            trade_id = open_shadow_trade(rec_id, packet, feat)
+            if trade_id:
+                trades_opened += 1
+                results.append({"ticker": ticker, "rsi_2": feat.get("rsi_2"),
+                                "trade_id": trade_id, "action": "opened"})
+            else:
+                results.append({"ticker": ticker, "rsi_2": feat.get("rsi_2"),
+                                "action": "rejected"})
+        else:
+            results.append({"ticker": ticker, "rsi_2": feat.get("rsi_2"),
+                            "action": "no_shadow"})
+
+    logger.info("[MR] Scan complete: %d candidates, %d trades opened",
+                len(candidates), trades_opened)
+
+    return {
+        "status": "complete",
+        "candidates": len(candidates),
+        "trades_opened": trades_opened,
+        "results": results,
+        "timestamp": timestamp,
+    }

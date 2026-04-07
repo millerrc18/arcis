@@ -173,6 +173,24 @@ def run_scan(config: dict, dry_run: bool = False, send_email_flag: bool = False,
         # Capture signal price for IS tracking
         feat["signal_price"] = float(feat.get("current_price", 0))
 
+        # Attribution Phase 1: log ranker-only snapshot before LLM
+        attribution_id = None
+        try:
+            from src.attribution.logger import log_attribution_before_llm
+            entry_price = float(feat.get("current_price", 0))
+            atr = float(feat.get("atr_14", 0))
+            stop_price = entry_price - 2 * atr if atr > 0 else entry_price * 0.97
+            target_price = entry_price + 1.5 * atr if atr > 0 else entry_price * 1.02
+            attribution_id = log_attribution_before_llm(
+                ticker=ticker,
+                ranker_score=candidate["score"],
+                entry_price=entry_price,
+                stop_price=stop_price,
+                target_price=target_price,
+            )
+        except Exception as e:
+            logger.debug("[ATTRIBUTION] Phase 1 failed for %s: %s", ticker, e)
+
         packet = build_packet_from_features(ticker, feat, config)
         packet = enhance_packet_with_llm(packet, feat, config)
         enriched_prompt = _build_feature_prompt(packet, feat)
@@ -187,6 +205,20 @@ def run_scan(config: dict, dry_run: bool = False, send_email_flag: bool = False,
                 enriched_prompt=enriched_prompt,
                 llm_conviction=getattr(packet, 'llm_conviction', None),
             )
+
+        # Attribution Phase 2: log LLM decision after recommendation
+        if attribution_id:
+            try:
+                from src.attribution.logger import log_attribution_after_llm
+                llm_action = "buy" if rec_id else "skip"
+                log_attribution_after_llm(
+                    attribution_id=attribution_id,
+                    llm_action=llm_action,
+                    llm_conviction=getattr(packet, 'llm_conviction', None),
+                    recommendation_id=rec_id,
+                )
+            except Exception as e:
+                logger.debug("[ATTRIBUTION] Phase 2 failed for %s: %s", ticker, e)
 
         if send_email_flag and not dry_run:
             from src.email.notifier import send_email

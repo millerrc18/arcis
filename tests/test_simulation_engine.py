@@ -86,7 +86,7 @@ class TestCache:
 class TestTransactionCosts:
     def test_transaction_cost_application(self):
         """Verify costs reduce P&L correctly (9 bps RT)."""
-        from scripts.simulation_engine import apply_costs, TRANSACTION_COSTS
+        from src.simulation.engine import apply_costs, TRANSACTION_COSTS
 
         entry = 100.0
         exit = 105.0
@@ -103,7 +103,7 @@ class TestTransactionCosts:
 
     def test_benchmark_computation(self):
         """Verify SPY buy-and-hold calculation."""
-        from scripts.simulation_engine import compute_benchmark
+        from src.simulation.engine import compute_benchmark
 
         dates = pd.date_range("2023-01-01", periods=50, freq="B")
         spy_data = pd.DataFrame({
@@ -157,7 +157,7 @@ class TestMonteCarlo:
 class TestVerdictLogic:
     def test_verdict_logic_all_cases(self):
         """Test edge/neutral/marginal/bleeds/insufficient."""
-        from scripts.simulation_engine import compute_verdict
+        from src.simulation.engine import compute_verdict
 
         # Edge: excess > 0, sharpe >= 0.5, pf >= 1.3
         assert compute_verdict({
@@ -185,7 +185,7 @@ class TestVerdictLogic:
 
     def test_verdict_insufficient_trades(self):
         """Verify <20 trades = 'insufficient'."""
-        from scripts.simulation_engine import compute_verdict
+        from src.simulation.engine import compute_verdict
 
         assert compute_verdict({
             "total_trades": 10, "sharpe_ratio": 2.0,
@@ -198,7 +198,7 @@ class TestVerdictLogic:
 class TestTrafficLightValidation:
     def test_traffic_light_pure_regime(self):
         """Verify pure regime detection."""
-        from scripts.simulation_engine import validate_traffic_light
+        from src.simulation.engine import validate_traffic_light
 
         result = validate_traffic_light("strong_bull",
                                          ["GREEN", "GREEN", "GREEN", "GREEN"])
@@ -207,7 +207,7 @@ class TestTrafficLightValidation:
 
     def test_traffic_light_transition(self):
         """Verify transition detection for arrow scenarios."""
-        from scripts.simulation_engine import validate_traffic_light
+        from src.simulation.engine import validate_traffic_light
 
         # Bull to bear: should have both GREEN and RED
         result = validate_traffic_light("bull_to_bear",
@@ -217,7 +217,7 @@ class TestTrafficLightValidation:
 
     def test_traffic_light_incorrect(self):
         """Verify incorrect detection returns correct=False."""
-        from scripts.simulation_engine import validate_traffic_light
+        from src.simulation.engine import validate_traffic_light
 
         result = validate_traffic_light("high_volatility",
                                          ["GREEN", "GREEN", "GREEN"])
@@ -229,7 +229,7 @@ class TestTrafficLightValidation:
 class TestHeatmap:
     def test_heatmap_output_format(self, capsys):
         """Verify print_heatmap produces correct table."""
-        from scripts.simulation_engine import print_heatmap
+        from src.simulation.engine import print_heatmap
 
         results = {
             "strong_bull": {
@@ -251,7 +251,7 @@ class TestHeatmap:
 class TestReproducibility:
     def test_reproducibility_info(self):
         """Verify git hash and config captured."""
-        from scripts.simulation_engine import get_reproducibility_info
+        from src.simulation.engine import get_reproducibility_info
 
         info = get_reproducibility_info(42, {"test": True})
         assert info["random_seed"] == 42
@@ -357,7 +357,7 @@ class TestAPIEndpoint:
 class TestRunScenario:
     def test_run_scenario_minimal(self, tmp_path):
         """Run 1 scenario with mocked data, verify output structure."""
-        from scripts.simulation_engine import run_scenario
+        from src.simulation.engine import run_scenario
 
         # Create realistic mock data
         dates = pd.date_range("2023-01-01", periods=60, freq="B")
@@ -369,9 +369,9 @@ class TestRunScenario:
             "Volume": np.random.randint(1000000, 5000000, 60),
         }, index=dates)
 
-        with patch("scripts.simulation_engine.fetch_cached_ohlcv") as mock_fetch:
+        with patch("src.simulation.engine.fetch_cached_ohlcv") as mock_fetch:
             mock_fetch.return_value = mock_df
-            with patch("scripts.simulation_engine.get_sp100_universe") as mock_uni:
+            with patch("src.simulation.engine.get_sp100_universe") as mock_uni:
                 mock_uni.return_value = ["AAPL", "MSFT", "GOOGL", "AMZN", "META"]
 
                 result = run_scenario("test", "2023-01-01", "2023-03-31")

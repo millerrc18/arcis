@@ -272,3 +272,48 @@ class TestGetAttributionStats:
         assert stats["ranker_only"]["resolved"] == 5
         assert stats["ranker_only"]["wins"] == 2
         assert stats["statistical_power"] == "insufficient"
+
+
+# ── link_trade_outcome ──────────────────────────────────────────────
+
+
+class TestLinkTradeOutcome:
+    def test_links_outcome_to_attribution(self, db_path):
+        from src.attribution.logger import log_attribution_before_llm, log_attribution_after_llm, link_trade_outcome
+        attr_id = log_attribution_before_llm("AAPL", 85.0, 150.0, 147.0, 154.0, db_path=db_path)
+        log_attribution_after_llm(attr_id, "buy", llm_conviction=7, recommendation_id="rec-123", db_path=db_path)
+        result = link_trade_outcome("rec-123", "win", 3.5, db_path=db_path)
+        assert result is True
+        row = _get_row(db_path, attr_id)
+        assert row["llm_portfolio_outcome"] == "win"
+        assert row["llm_portfolio_pnl_pct"] == 3.5
+
+    def test_returns_false_for_missing_rec(self, db_path):
+        from src.attribution.logger import link_trade_outcome
+        result = link_trade_outcome("nonexistent-rec", "loss", -2.0, db_path=db_path)
+        assert result is False
+
+    def test_handles_loss_outcome(self, db_path):
+        from src.attribution.logger import log_attribution_before_llm, log_attribution_after_llm, link_trade_outcome
+        attr_id = log_attribution_before_llm("MSFT", 70.0, 300.0, 294.0, 309.0, db_path=db_path)
+        log_attribution_after_llm(attr_id, "buy", llm_conviction=5, recommendation_id="rec-456", db_path=db_path)
+        result = link_trade_outcome("rec-456", "loss", -4.2, db_path=db_path)
+        assert result is True
+        row = _get_row(db_path, attr_id)
+        assert row["llm_portfolio_outcome"] == "loss"
+        assert row["llm_portfolio_pnl_pct"] == -4.2
+
+
+class TestAttributionFailureIsolation:
+    """Attribution calls must never crash the scan or executor."""
+
+    def test_phase1_failure_does_not_crash(self, db_path):
+        from src.attribution.logger import log_attribution_before_llm
+        # Should not raise — returns UUID even if DB insert fails (error logged)
+        result = log_attribution_before_llm("AAPL", 85.0, 150.0, 147.0, 154.0, db_path="/nonexistent/path.db")
+        assert isinstance(result, str)  # UUID returned, insert silently failed
+
+    def test_link_outcome_failure_does_not_crash(self, db_path):
+        from src.attribution.logger import link_trade_outcome
+        result = link_trade_outcome("any-rec", "win", 5.0, db_path="/nonexistent/path.db")
+        assert result is False

@@ -28,6 +28,7 @@ WHY so many conviction-parsing fallbacks (#183):
 
 import logging
 import re
+from datetime import datetime
 
 from src.llm.client import is_llm_available, generate
 from src.llm.prompts import PACKET_SYSTEM_PROMPT
@@ -485,6 +486,8 @@ def enhance_packet_with_llm(packet: TradePacket, features: dict,
     if why_now is None or deeper_analysis is None:
         logger.warning("[LLM] Failed to parse response — fallback to template for %s", packet.ticker,
                        extra={"ctx": {"event": "parse_failure", "ticker": packet.ticker}})
+        # #318: set conviction before returning so it never leaks as None
+        packet.llm_conviction = conviction if conviction is not None else 5
         return packet
 
     # #168: if conviction is None after all 5 parsing strategies, default to 5.
