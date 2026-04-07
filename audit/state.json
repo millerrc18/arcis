@@ -1,7 +1,7 @@
 {
-  "run_count": 8,
+  "run_count": 9,
   "current_focus_index": 0,
-  "file_index": 105,
+  "file_index": 120,
   "file_list": [
     "src/__init__.py",
     "src/api/__init__.py",
@@ -180,7 +180,7 @@
     "frontend/src/pages/Training.jsx",
     "frontend/src/pages/Validation.jsx"
   ],
-  "last_run": "2026-04-05T00:00:00Z",
+  "last_run": "2026-04-07T00:00:00Z",
   "findings": {
     "run_4": {
       "focus_area": "code_quality",
@@ -491,6 +491,104 @@
         }
       ],
       "github_issues_blocked": "No gh CLI or GITHUB_TOKEN available — 7 medium findings need manual issue creation"
+    },
+    "run_9": {
+      "focus_area": "code_quality",
+      "files_audited": [
+        "src/services/recap_service.py",
+        "src/services/review_service.py",
+        "src/services/scan_service.py",
+        "src/services/shadow_service.py",
+        "src/services/system_service.py",
+        "src/services/training_service.py",
+        "src/services/watchlist_service.py",
+        "src/shadow_trading/__init__.py",
+        "src/shadow_trading/alpaca_adapter.py",
+        "src/shadow_trading/executor.py",
+        "src/shadow_trading/ledger.py",
+        "src/shadow_trading/metrics.py",
+        "src/shadow_trading/models.py",
+        "src/shadow_trading/reconcile.py",
+        "src/strategy/__init__.py"
+      ],
+      "high": [],
+      "medium": [
+        {
+          "file": "src/shadow_trading/executor.py",
+          "lines": "1-1776",
+          "finding": "File is 1776 lines (4.4x the 400-line threshold). Contains open_shadow_trade (437 lines), check_and_manage_open_trades (496 lines), and open_live_trade (343 lines). Critical maintainability risk.",
+          "suggested_fix": "Split into executor_entry.py (open_shadow_trade, open_live_trade), executor_monitor.py (check_and_manage_open_trades, _retry_exit), and executor_notifications.py (_check_*_milestones, _check_loss_streak, _check_sector_exposure). Keep shared helpers in executor.py."
+        },
+        {
+          "file": "src/shadow_trading/executor.py",
+          "lines": "135-571, 1139-1481",
+          "finding": "open_shadow_trade (437 lines) and open_live_trade (343 lines) share ~60% identical logic: LLM validation (lines 152-166 vs 1172-1183), risk governor (169-209 vs 1188-1219), position limit checks, duplicate checks. Violates DRY.",
+          "suggested_fix": "Extract shared pre-trade validation into _validate_trade_entry(packet, features, config) returning (approved, reason). Both functions call it before diverging on broker-specific logic."
+        },
+        {
+          "file": "src/shadow_trading/executor.py",
+          "lines": "641-1136",
+          "finding": "check_and_manage_open_trades is 496 lines — mixes bracket order monitoring, mean-reversion exit logic, price-based exit checks, exit order submission with retry/partial-fill handling, slippage tracking, postmortem generation, and milestone notifications.",
+          "suggested_fix": "Extract _handle_mr_exit(), _handle_bracket_exit(), _submit_and_process_exit(), _generate_trade_postmortem() helpers. Keep the main loop as a thin dispatcher."
+        },
+        {
+          "file": "src/services/scan_service.py",
+          "lines": "17-259",
+          "finding": "run_scan is 243 lines — single function mixing data fetch, enrichment, traffic light overlay, event risk scoring, data integrity validation, ranking, packet generation, shadow trade execution, and watchlist assembly.",
+          "suggested_fix": "Extract into pipeline stages: _fetch_and_enrich(config), _apply_risk_overlays(features, spy, config), _validate_integrity(features), _generate_packets(candidates, config, dry_run), _execute_shadow_trades(packets, config). Keep run_scan as orchestrator."
+        },
+        {
+          "file": "src/shadow_trading/alpaca_adapter.py",
+          "lines": "1-632",
+          "finding": "File is 632 lines (exceeds 400). place_paper_entry (L175-210), place_paper_exit (L213-244), place_live_entry (L486-538), place_live_exit (L541-599) each manually construct response dicts instead of using the existing _serialize_order() helper, creating inconsistent serialization (e.g., paper funcs include 'created_at', live funcs don't).",
+          "suggested_fix": "Use _serialize_order() in all four functions to normalize the response. Split live adapter functions into a separate alpaca_live_adapter.py."
+        },
+        {
+          "file": "src/shadow_trading/alpaca_adapter.py",
+          "lines": "29-30",
+          "finding": "Unused imports: `datetime` (line 29) and `ZoneInfo` (line 30) are imported but never referenced in the file.",
+          "suggested_fix": "Remove `from datetime import datetime` and `from zoneinfo import ZoneInfo`."
+        },
+        {
+          "file": "src/services/system_service.py",
+          "lines": "18-156",
+          "finding": "get_system_status is 139 lines with 10 sequential service checks each following identical try/except/log/assign pattern. Hard to extend and test individual checks.",
+          "suggested_fix": "Extract each check into a named helper (_check_email, _check_alpaca, _check_telegram, etc.) and call them from get_system_status. Or use a registry pattern."
+        },
+        {
+          "file": "src/shadow_trading/reconcile.py",
+          "lines": "233-490",
+          "finding": "reconcile_paper_trades is 258 lines. File is 491 lines (exceeds 400). Mixes orphan detection, stale trade closure with 1-hour safety guard, and stuck exit_failed/exit_pending resolution in one function.",
+          "suggested_fix": "Extract _resolve_orphaned_paper_trades(), _close_stale_paper_trades(), _resolve_stuck_exits() helpers. Keep reconcile_paper_trades as orchestrator."
+        }
+      ],
+      "low": [
+        {
+          "file": "src/services/recap_service.py",
+          "finding": "generate_eod_recap is 61 lines (slightly over 50-line guideline)."
+        },
+        {
+          "file": "src/services/shadow_service.py",
+          "finding": "get_shadow_status is 62 lines (slightly over 50-line guideline)."
+        },
+        {
+          "file": "src/services/watchlist_service.py",
+          "finding": "generate_morning_watchlist is 83 lines (mostly data transformation, not complex)."
+        },
+        {
+          "file": "src/shadow_trading/executor.py",
+          "finding": "f-strings used in logger calls at lines 215, 408, 472 instead of %-formatting (lazy evaluation bypassed)."
+        },
+        {
+          "file": "src/shadow_trading/metrics.py",
+          "finding": "compute_shadow_metrics is 91 lines — linear metric computation, not complex but could split earnings-adjacent breakdown."
+        },
+        {
+          "file": "src/shadow_trading/executor.py",
+          "finding": "_check_close_milestones is 116 lines with many sequential milestone checks."
+        }
+      ],
+      "github_issues_blocked": "No gh CLI or GitHub MCP tools available — 8 medium findings need manual issue creation"
     }
   }
 }
