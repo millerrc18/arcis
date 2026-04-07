@@ -94,6 +94,13 @@ python -m src.main training-status
 # Post-close reconciliation
 python scripts/post_close_check.py
 
+# Simulation engine
+python scripts/simulation_engine.py --dry-run                  # Print config only
+python scripts/simulation_engine.py --regime strong_bull        # Single regime
+python scripts/simulation_engine.py --monte-carlo 1000          # All 13 with MC
+python scripts/simulation_engine.py --validate-traffic-light    # Check TL accuracy
+python scripts/simulation_engine.py --clear-cache               # Delete cached data
+
 # Frontend dev
 cd frontend && npm run dev
 

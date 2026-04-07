@@ -80,14 +80,15 @@ with an unbeatable technological moat.
 | Council v2 (5 agents) | LIVE -- failure sends Telegram alert |
 | Build Score KPI | LIVE -- 6-component geometric mean |
 | Between-scan quality scoring | LIVE -- GuardedScorer Ollama, 972/972 scored |
-| Command queue + config overrides | LIVE -- pull-based, 10 command types |
+| Command queue + config overrides | LIVE -- pull-based, 11 command types |
 | 12 overnight collectors | RUNNING |
 | Broker abstraction (IB + Alpaca) | READY -- config-driven, IB activation gated on validation |
 | Telegram | LIVE -- 55 functions, gated behind trade_id |
 | Intra-day reconciliation | LIVE -- every 15 min during market hours |
-| Dashboard (Arcis) | LIVE -- 18 pages, dark/light toggle |
-| Schema registry | LIVE -- 49 tables, single source of truth |
-| Render sync | LIVE -- 42/49 tables synced to Postgres |
+| Dashboard (Arcis) | LIVE -- 19 pages, dark/light toggle |
+| Simulation engine | LIVE -- 13 regimes, Monte Carlo, traffic light validation |
+| Schema registry | LIVE -- 50 tables, single source of truth |
+| Render sync | LIVE -- 42/50 tables synced to Postgres |
 | Halcyon-audit plugin | LIVE -- 8 domain agents, /audit command |
 | Automated guardrails | LIVE -- test_repo_structure.py |
 | CI on PRs | LIVE -- tests + guardrails + frontend build |
@@ -128,7 +129,7 @@ with an unbeatable technological moat.
 | Dashboard redesign | #175 | Shadow/Live Ledger redesign, CTO period selector |
 | Log audit | #176 | Double logging fix, idempotent ALTER TABLEs, DNS retry |
 | Data integrity | #177 | Reconciliation actual_exit_time fix, paper auto-close |
-| Schema registry | #189 | 49 tables in registry, all DDL removed, CI guardrails |
+| Schema registry | #189 | 50 tables in registry, all DDL removed, CI guardrails |
 | Mega Sprint | #178 | Intra-day recon, exit_failed recovery, React Flow, sidebar sections |
 | pnl_dollars fix | #200 | Cast pnl_dollars to float before comparison |
 | Reliability | #201 | Exit cancel race, VRAM handoff hardening, sync reconnection |
@@ -296,7 +297,7 @@ post-merge validation on `git merge`, post-merge validation on `git pull`
 | test-runner | Full pytest suite, failure grouping, CI guardian check (1344 min) | After code changes, before commits |
 | migration-checker | Schema change idempotency, cross-script sync, backwards compat | When columns or tables are added/modified |
 | drift-detector | Schema drift, config drift, doc staleness, data staleness, orphaned positions | Start of every coding session |
-| data-integrity-checker | FK integrity, orphaned records, data quality across 49 tables | After recovery, before releases |
+| data-integrity-checker | FK integrity, orphaned records, data quality across 50 tables | After recovery, before releases |
 | api-documenter | Route inventory, frontend-backend consistency, auth gaps | After adding/changing API endpoints |
 | trading-safety-auditor | Silent failures, risk governor bypass, broker/journal truth | Part of `/audit` -- trading domain |
 | code-quality-auditor | Oversized functions/files, god objects, dead code, duplication | Part of `/audit` -- quality domain |
@@ -330,7 +331,7 @@ frontend-design, feature-dev, pr-review-toolkit, security-guidance,
 
 ## 4. Schema Summary
 
-All 49 tables are defined in `src/schema/registry.py` -- the single source of
+All 50 tables are defined in `src/schema/registry.py` -- the single source of
 truth for both SQLite and Postgres. The registry was created after ~12 hours
 were lost to bugs caused by 6+ files independently defining the same tables
 with subtly different column names. Now a single `TableDef` dataclass defines
@@ -413,7 +414,7 @@ src/schema/registry.py          <- THE source of truth (49 TableDefs)
 | `setup_signals` | Technical setup signal detections with forward returns |
 | `traffic_light_state` | Market regime traffic light state machine |
 
-### Evaluation & Metrics (5)
+### Evaluation & Metrics (6)
 
 | Table | Purpose |
 |---|---|
@@ -422,6 +423,7 @@ src/schema/registry.py          <- THE source of truth (49 TableDefs)
 | `quality_drift_metrics` | Training quality drift detection metrics per cycle |
 | `build_score_history` | Daily composite build score with component breakdowns |
 | `stress_test_results` | Historical stress test results for crisis period backtesting |
+| `simulation_results` | Full-regime simulation engine results — 13 scenarios with MC and TL validation |
 
 ### Infrastructure (7)
 
@@ -665,7 +667,7 @@ Use `none` for empty fields. Entry points: `Called by: none (entry point)`.
 
 ### Schema Rules (MANDATORY)
 
-- All 49 tables defined in `src/schema/registry.py` -- THE single source of truth
+- All 50 tables defined in `src/schema/registry.py` -- THE single source of truth
 - NEVER write `CREATE TABLE` or `ALTER TABLE` outside `src/schema/registry.py`
 - CI guardrails: `test_no_create_table_in_source`, `test_no_alter_table_in_source`
 - To add a table: add `TableDef` to registry -> `validate-schema --fix` -> `render_migrate.py`
@@ -763,6 +765,7 @@ to YAML.
 | Daily (Mon-Fri) | System trades autonomously. Don't touch it. |
 | After close (optional) | `python scripts/post_close_check.py` -- 8-point confidence check |
 | Saturday | Weekly retrain IF >=10 new closed trades |
+| Sunday 9:00 PM | Stress test (3 crisis scenarios) + Simulation engine (13 regimes + MC) |
 | Sunday | `python scripts/weekly_review.py` -> paste to Claude -> audit |
 
 **Only intervene for:** Telegram CRITICAL (bracket failure, kill switch),
@@ -782,7 +785,7 @@ VIX >40, system offline.
 
 | Priority | Sprint | Status |
 |---|---|---|
-| 1 | Schema Registry | DONE -- 49 tables, all DDL removed, guardrails |
+| 1 | Schema Registry | DONE -- 50 tables, all DDL removed, guardrails |
 | 2 | React Flow interactive diagrams | DONE -- Architecture + DB Schema pages |
 | A | Dashboard polish + documentation consolidation | DONE -- PR #203 |
 | 3 | Alpha attribution experiment | DONE -- PR #203, accumulating paired trades |

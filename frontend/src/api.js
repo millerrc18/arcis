@@ -128,4 +128,6 @@ export const api = {
   getAttributionStats: () => fetchApi('/attribution/stats'),
   // Stress Testing
   getStressTestResults: () => fetchApi('/stress-test/results'),
+  // Simulation
+  getSimulationResults: () => fetchApi('/simulation/results'),
 }
