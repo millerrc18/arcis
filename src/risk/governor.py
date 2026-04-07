@@ -514,8 +514,8 @@ def get_portfolio_state(db_path: str = DB_PATH) -> dict:
     for t in open_trades:
         ticker = t.get("ticker", "")
         sector = SECTOR_MAP.get(ticker, "Unknown")
-        entry_price = t.get("actual_entry_price") or t.get("entry_price", 0)
-        shares = t.get("planned_shares", 1)
+        entry_price = float(t.get("actual_entry_price") or t.get("entry_price") or 0)
+        shares = float(t.get("planned_shares") or 1)
 
         # Use current price for sector exposure if available (#145)
         current_price = entry_price

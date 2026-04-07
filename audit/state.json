@@ -1,7 +1,7 @@
 {
-  "run_count": 9,
+  "run_count": 10,
   "current_focus_index": 0,
-  "file_index": 120,
+  "file_index": 135,
   "file_list": [
     "src/__init__.py",
     "src/api/__init__.py",
@@ -180,7 +180,7 @@
     "frontend/src/pages/Training.jsx",
     "frontend/src/pages/Validation.jsx"
   ],
-  "last_run": "2026-04-07T00:00:00Z",
+  "last_run": "2026-04-07T12:00:00Z",
   "findings": {
     "run_4": {
       "focus_area": "code_quality",
@@ -586,6 +586,100 @@
         {
           "file": "src/shadow_trading/executor.py",
           "finding": "_check_close_milestones is 116 lines with many sequential milestone checks."
+        }
+      ],
+      "github_issues_blocked": "No gh CLI or GitHub MCP tools available — 8 medium findings need manual issue creation"
+    },
+    "run_10": {
+      "focus_area": "code_quality",
+      "files_audited": [
+        "src/strategy/canary.py",
+        "src/sync/__init__.py",
+        "src/sync/render_sync.py",
+        "src/training/__init__.py",
+        "src/training/ab_evaluation.py",
+        "src/training/backfill.py",
+        "src/training/bootstrap.py",
+        "src/training/canary.py",
+        "src/training/claude_client.py",
+        "src/training/curriculum.py",
+        "src/training/data_collector.py",
+        "src/training/dpo_pipeline.py",
+        "src/training/historical_data.py",
+        "src/training/historical_scanner.py",
+        "src/training/leakage_detector.py"
+      ],
+      "high": [],
+      "medium": [
+        {
+          "file": "src/sync/render_sync.py",
+          "lines": "1-838",
+          "finding": "File is 838 lines (2x the 400-line threshold). Contains pull_commands (121 lines, L496-617), _replace_latest_in_postgres (105 lines, L335-440), and _upsert_to_postgres (95 lines, L237-332). Three functions exceed 50 lines.",
+          "suggested_fix": "Extract pull_commands into a separate sync_commands.py module. Split _upsert_to_postgres into _upsert_serial_pk() and _upsert_natural_key() for the two code paths."
+        },
+        {
+          "file": "src/training/backfill.py",
+          "lines": "197-445",
+          "finding": "run_historical_backfill is 248 lines — mixes 10 pipeline steps (data download, scan date generation, scanning, outcome computation, quality filtering, balancing, deduplication, capping, commentary generation, reporting) in a single function.",
+          "suggested_fix": "Extract pipeline stages into named helpers: _scan_and_collect_candidates(), _filter_and_balance(), _generate_commentary_batch(). Keep run_historical_backfill as a thin orchestrator."
+        },
+        {
+          "file": "src/training/data_collector.py",
+          "lines": "116-297",
+          "finding": "collect_training_examples_from_closed_trades is 181 lines. Mixes trade fetching, feature sanitization, two-stage LLM pipeline, validation, storage, and outcome-conditioned template generation in one function.",
+          "suggested_fix": "Extract _run_blinding_pipeline(feature_input, rec_date) -> str, _store_training_example(trade, feature_input, output, source), and _store_outcome_templates(trade, feature_input). Keep the main function as a loop orchestrator."
+        },
+        {
+          "file": "src/training/leakage_detector.py",
+          "lines": "33-236",
+          "finding": "check_outcome_leakage is 203 lines. Mixes data loading, ticker/company name masking, TF-IDF vectorization, multi-seed cross-validation, status classification, and feature importance extraction.",
+          "suggested_fix": "Extract _load_and_mask_texts(db_path) -> (texts, labels), _run_cross_validation(X, labels) -> (balanced_acc, raw_acc), _extract_feature_importance(X, labels, vectorizer) -> dict. Keep check_outcome_leakage as orchestrator."
+        },
+        {
+          "file": "src/training/canary.py",
+          "lines": "124-266",
+          "finding": "CanaryMonitor.evaluate is 142 lines. Mixes canary output generation, scoring, quality drift metric computation, score delta calculation, regime-level analysis, and degradation alerting.",
+          "suggested_fix": "Extract _generate_canary_outputs(canaries, generate_fn) -> (outputs, scores, per_canary), _check_canary_degradation(scores, metrics, previous) -> (issues, details). Keep evaluate() as orchestrator."
+        },
+        {
+          "file": "src/training/bootstrap.py",
+          "lines": "43-174",
+          "finding": "generate_synthetic_training_data is 131 lines. Mixes data fetching, feature computation, random outcome generation, prompt building, API calling, validation, and database storage in one function.",
+          "suggested_fix": "Extract _generate_random_outcome(features) -> (outcome_text, exit_reason), _build_synthetic_prompt(ticker, features, outcome_text) -> str. Keep the main function focused on the loop and storage."
+        },
+        {
+          "file": "src/training/curriculum.py",
+          "lines": "1-456",
+          "finding": "File is 456 lines (exceeds 400). Five helper functions (_extract_score, _extract_field, _extract_number, _extract_sector, _extract_regime) each contain their own 'import re' statement instead of using a module-level import.",
+          "suggested_fix": "Move 'import re' to module level (line ~10). Consider grouping the _extract_* helpers into a shared text parsing utility if reused elsewhere."
+        },
+        {
+          "file": "src/training/historical_data.py",
+          "lines": "47-48, 115-117",
+          "finding": "Duplicate log lines from copy-paste: L47 and L48 both log about loading cached data. L115-116 and L116-117 both log about downloaded tickers with identical format strings.",
+          "suggested_fix": "Remove the duplicate log lines at L48 and L116-117. Keep the more informative version of each pair."
+        }
+      ],
+      "low": [
+        {
+          "file": "src/sync/render_sync.py",
+          "finding": "Unused import: 'import json' at line 37 — json is never referenced in the file."
+        },
+        {
+          "file": "src/training/ab_evaluation.py",
+          "finding": "run_shadow_evaluation is 94 lines (L23-117). Straightforward but long."
+        },
+        {
+          "file": "src/training/dpo_pipeline.py",
+          "finding": "generate_preference_pairs is 90 lines (L29-119). Straightforward loop logic."
+        },
+        {
+          "file": "src/training/historical_scanner.py",
+          "finding": "scan_historical_date (96 lines) and compute_outcome (111 lines) both exceed 50 lines but are well-structured linear flows."
+        },
+        {
+          "file": "src/training/curriculum.py",
+          "finding": "generate_contrastive_training_data is 85 lines (L276-361)."
         }
       ],
       "github_issues_blocked": "No gh CLI or GitHub MCP tools available — 8 medium findings need manual issue creation"
