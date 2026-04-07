@@ -76,7 +76,7 @@ export default function Training() {
   return (
     <div className="space-y-6">
       {toast && (
-        <div className="fixed top-4 right-4 z-50 rounded-lg px-4 py-2 text-sm shadow-lg" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)' }}>
+        <div className="fixed top-4 right-4 z-50 px-4 py-2 text-sm" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)' }}>
           {toast}
         </div>
       )}
@@ -85,14 +85,14 @@ export default function Training() {
         <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text-primary)' }}>Training Pipeline</h2>
         <div className="flex items-center gap-2">
           <button onClick={() => scoreMutation.mutate()} disabled={scoreMutation.isPending}
-            className="px-3 py-1.5 text-xs rounded-md disabled:opacity-50 transition-colors"
-            style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)' }}>
+            className="px-3 py-1.5 text-xs disabled:opacity-50"
+            style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)' }}>
             {scoreMutation.isPending ? 'Scoring...' : 'Score Unscored'}
           </button>
           <button onClick={() => { if (confirm('This will run the full training pipeline and may take a long time. Continue?')) trainMutation.mutate() }}
             disabled={trainMutation.isPending}
-            className="px-3 py-1.5 text-xs rounded-md text-white disabled:opacity-50 transition-colors"
-            style={{ background: 'var(--arcis-accent)' }}>
+            className="px-3 py-1.5 text-xs text-white disabled:opacity-50"
+            style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-accent)' }}>
             {trainMutation.isPending ? 'Training...' : 'Run Training Pipeline'}
           </button>
         </div>
@@ -120,7 +120,7 @@ export default function Training() {
       {outcomes ? (
         <div className="arcis-card">
           <h3 className="text-sm uppercase tracking-wide mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>Outcome Distribution</h3>
-          <div className="flex gap-0.5 h-6 rounded-full overflow-hidden mb-3" style={{ background: 'var(--arcis-border)' }}>
+          <div className="flex gap-0.5 h-6 overflow-hidden mb-3" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-border)' }}>
             {outcomes.filter(o => o.pct > 0).map(o => (
               <div key={o.type} style={{ width: `${o.pct}%`, background: OUTCOME_COLORS[o.type], minWidth: o.pct > 0 ? 4 : 0 }}
                 title={`${o.type}: ${o.count} (${o.pct.toFixed(1)}%)`} />

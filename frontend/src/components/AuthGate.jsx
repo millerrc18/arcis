@@ -70,7 +70,7 @@ export default function AuthGate({ children }) {
     <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--arcis-bg-primary)' }}>
       <form
         onSubmit={handleSubmit}
-        className="rounded-xl p-8 w-full max-w-sm shadow-lg"
+        className="p-8 w-full max-w-sm"
         style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}
       >
         <h1
@@ -84,11 +84,12 @@ export default function AuthGate({ children }) {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder="Dashboard password"
-          className="w-full px-4 py-2 rounded-lg mb-4 text-sm outline-none transition-shadow"
+          className="w-full px-4 py-2 mb-4 text-sm outline-none"
           style={{
             background: 'var(--arcis-bg-elevated)',
             border: '1px solid var(--arcis-border)',
             color: 'var(--arcis-text-primary)',
+            borderRadius: 'var(--radius-sm)',
           }}
           onFocus={(e) => e.target.style.boxShadow = '0 0 0 2px var(--arcis-accent)'}
           onBlur={(e) => e.target.style.boxShadow = 'none'}
@@ -98,8 +99,8 @@ export default function AuthGate({ children }) {
         <button
           type="submit"
           disabled={loading || !password}
-          className="w-full py-2 font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ background: 'var(--arcis-accent)', color: 'white' }}
+          className="w-full py-2 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{ background: 'var(--arcis-accent)', color: 'white', borderRadius: 'var(--radius-sm)' }}
           onMouseEnter={(e) => { if (!e.target.disabled) e.target.style.background = 'var(--arcis-accent-hover)' }}
           onMouseLeave={(e) => e.target.style.background = 'var(--arcis-accent)'}
         >

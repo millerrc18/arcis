@@ -128,7 +128,7 @@ export default function ActivityFeed() {
   }, [events.length])
 
   return (
-    <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+    <div className="p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 'var(--radius-sm)' }}>
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm uppercase tracking-wide" style={{ color: 'var(--arcis-text-secondary)' }}>Live Activity</h3>
         <div className="flex items-center gap-3">

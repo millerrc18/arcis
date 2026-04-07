@@ -13,10 +13,10 @@ import '@xyflow/react/dist/style.css'
 const nodeStyle = (bg, border) => ({
   background: bg,
   border: `2px solid ${border}`,
-  borderRadius: 8,
+  borderRadius: 2,
   padding: '14px 20px',
   fontSize: 13,
-  color: '#E4E4E7',
+  color: 'var(--arcis-text-primary)',
   fontFamily: 'Inter, sans-serif',
   minWidth: 150,
   textAlign: 'center',
@@ -39,7 +39,7 @@ const groupHeaderStyle = (color) => ({
 })
 
 const BLUE = '#3B82F6'
-const TEAL = '#0D9488'
+const PROCESSING = '#6366F1'
 const GREEN = '#22C55E'
 const AMBER = '#F59E0B'
 const RED = '#EF4444'
@@ -50,7 +50,7 @@ const SLATE = '#1E293B'
 const initialNodes = [
   // Group headers
   { id: 'hdr-data', position: { x: 50, y: -28 }, data: { label: 'Data Sources' }, style: groupHeaderStyle(BLUE), selectable: false, draggable: false },
-  { id: 'hdr-proc', position: { x: 150, y: 95 }, data: { label: 'Processing' }, style: groupHeaderStyle(TEAL), selectable: false, draggable: false },
+  { id: 'hdr-proc', position: { x: 150, y: 95 }, data: { label: 'Processing' }, style: groupHeaderStyle(PROCESSING), selectable: false, draggable: false },
   { id: 'hdr-decision', position: { x: 100, y: 230 }, data: { label: 'Decision & Risk' }, style: groupHeaderStyle(AMBER), selectable: false, draggable: false },
   { id: 'hdr-exec', position: { x: 200, y: 370 }, data: { label: 'Execution' }, style: groupHeaderStyle(GREEN), selectable: false, draggable: false },
   { id: 'hdr-train', position: { x: 50, y: 500 }, data: { label: 'Training Flywheel' }, style: groupHeaderStyle(PURPLE), selectable: false, draggable: false },
@@ -64,9 +64,9 @@ const initialNodes = [
   { id: 'fred', position: { x: 850, y: 0 }, data: { label: 'FRED\n34+ Macro Series' }, style: nodeStyle(SLATE, BLUE) },
 
   // Row 2: Processing
-  { id: 'features', position: { x: 150, y: 130 }, data: { label: 'Feature Engine\nTechnicals + Regime + Sector' }, style: nodeStyle(SLATE, TEAL) },
-  { id: 'enrichment', position: { x: 450, y: 130 }, data: { label: 'Data Enrichment\n7 Sources + PEAD' }, style: nodeStyle(SLATE, TEAL) },
-  { id: 'collectors', position: { x: 750, y: 130 }, data: { label: '12 Overnight\nCollectors' }, style: nodeStyle(SLATE, TEAL) },
+  { id: 'features', position: { x: 150, y: 130 }, data: { label: 'Feature Engine\nTechnicals + Regime + Sector' }, style: nodeStyle(SLATE, PROCESSING) },
+  { id: 'enrichment', position: { x: 450, y: 130 }, data: { label: 'Data Enrichment\n7 Sources + PEAD' }, style: nodeStyle(SLATE, PROCESSING) },
+  { id: 'collectors', position: { x: 750, y: 130 }, data: { label: '12 Overnight\nCollectors' }, style: nodeStyle(SLATE, PROCESSING) },
 
   // Row 3: Decision & Risk
   { id: 'scoring', position: { x: 100, y: 265 }, data: { label: 'Ranking\nScore 0-100' }, style: nodeStyle(SLATE, AMBER) },
@@ -133,7 +133,7 @@ const initialEdges = [
 
 const legendItems = [
   { color: BLUE, label: 'Data Sources' },
-  { color: TEAL, label: 'Processing' },
+  { color: PROCESSING, label: 'Processing' },
   { color: AMBER, label: 'Decision' },
   { color: RED, label: 'Risk' },
   { color: GREEN, label: 'Execution' },
@@ -153,7 +153,7 @@ export default function Architecture() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--arcis-text-primary)' }}>System Architecture</h1>
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--arcis-text-primary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>System Architecture</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--arcis-text-secondary)' }}>
             Interactive pipeline diagram — drag nodes, scroll to zoom
           </p>
@@ -181,10 +181,10 @@ export default function Architecture() {
         >
           <Background color="#1E293B" gap={20} />
           <Controls
-            style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 8 }}
+            style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 2 }}
           />
           <MiniMap
-            style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 8 }}
+            style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 2 }}
             nodeColor="#3B82F6"
             maskColor="rgba(5, 5, 7, 0.7)"
           />

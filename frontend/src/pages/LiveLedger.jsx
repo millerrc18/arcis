@@ -84,7 +84,7 @@ function TradeDetail({ trade }) {
   ].filter(f => f.value != null)
 
   return (
-    <div className="grid grid-cols-3 md:grid-cols-5 gap-x-4 gap-y-2 text-xs p-3 rounded-lg" style={{ background: 'var(--arcis-bg-primary)' }}>
+    <div className="grid grid-cols-3 md:grid-cols-5 gap-x-4 gap-y-2 text-xs p-3" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-primary)' }}>
       {fields.map(f => (
         <div key={f.label}>
           <span style={{ color: 'var(--arcis-text-muted)' }}>{f.label}: </span>
@@ -292,27 +292,27 @@ export default function LiveLedger() {
           <div className="relative">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2" style={{ color: 'var(--arcis-text-muted)' }} />
             <input type="text" value={filter} onChange={e => setFilter(e.target.value)}
-              placeholder="Filter ticker..." className="pl-8 pr-3 py-1.5 text-xs rounded-lg"
-              style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)', outline: 'none', width: 180 }} />
+              placeholder="Filter ticker..." className="pl-8 pr-3 py-1.5 text-xs"
+              style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)', outline: 'none', width: 180 }} />
           </div>
           <div className="relative">
             <select value={sortKey} onChange={e => setSortKey(e.target.value)}
-              className="pl-2 pr-7 py-1.5 text-xs rounded-lg appearance-none"
-              style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)', outline: 'none' }}>
+              className="pl-2 pr-7 py-1.5 text-xs appearance-none"
+              style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)', outline: 'none' }}>
               {SORT_OPTIONS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
             </select>
             <ArrowUpDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--arcis-text-muted)' }} />
           </div>
           <button onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
-            className="px-2 py-1.5 text-xs rounded-lg"
-            style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-secondary)' }}>
+            className="px-2 py-1.5 text-xs"
+            style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-secondary)' }}>
             {sortDir === 'asc' ? '\u2191' : '\u2193'}
           </button>
         </div>
       </div>
 
       {/* Trade table */}
-      <div className="rounded-lg overflow-hidden" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+      <div className="overflow-hidden" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
         {isLoading ? <div className="p-8"><LoadingSpinner /></div> :
          !currentTrades.length ? <div className="p-8"><EmptyState message={`No ${tab} live trades${filter ? ' matching filter' : ''}`} icon={TrendingUp} /></div> :
          <>
@@ -348,7 +348,7 @@ export default function LiveLedger() {
 
       {/* Visualizations for closed trades */}
       {tab === 'closed' && closedTrades.length > 0 && (
-        <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+        <div className="p-4" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
           <div className="flex gap-2 mb-4" style={{ borderBottom: '1px solid var(--arcis-border)' }}>
             {[
               { key: 'equity', label: 'Equity Curve' },

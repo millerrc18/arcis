@@ -10,11 +10,11 @@ import RevenueProjection from '../components/RevenueProjection'
 import { api } from '../api'
 
 const CAT = {
-  strategy:   { label: 'Strategy',      color: 'var(--arcis-teal-light)' },
+  strategy:   { label: 'Strategy',      color: 'var(--arcis-accent)' },
   ai:         { label: 'AI & training', color: 'var(--chart-4)' },
   data:       { label: 'Data',          color: 'var(--chart-1)' },
   risk:       { label: 'Risk',          color: 'var(--arcis-warning)' },
-  ops:        { label: 'Operations',    color: 'var(--arcis-teal)' },
+  ops:        { label: 'Operations',    color: 'var(--arcis-text-secondary)' },
   validation: { label: 'Validation',    color: '#EF9F27' },
   legal:      { label: 'Legal & tax',   color: 'var(--chart-5)' },
   hardware:   { label: 'Hardware',      color: 'var(--arcis-text-muted)' },
@@ -217,8 +217,8 @@ const ROADMAP_DATA = {
 }
 
 const REVENUE_MILESTONES = [
-  { month: 0, label: 'Now', stream: 'Personal trading + $1K/mo capital injections', color: 'var(--arcis-teal-light)' },
-  { month: 3, label: 'Mo 3', stream: 'Open Collective2 (~$99/mo) — track record clock starts', color: 'var(--arcis-teal-light)' },
+  { month: 0, label: 'Now', stream: 'Personal trading + $1K/mo capital injections', color: 'var(--arcis-accent)' },
+  { month: 3, label: 'Mo 3', stream: 'Open Collective2 (~$99/mo) — track record clock starts', color: 'var(--arcis-accent)' },
   { month: 6, label: 'Mo 6', stream: 'Phase 1 gate → go live ($5-10K) — verifiable live returns', color: 'var(--chart-4)' },
   { month: 12, label: 'Mo 12', stream: 'Signal marketplace + RIA outreach — first external revenue', color: 'var(--chart-4)' },
   { month: 18, label: 'Mo 18', stream: 'Wyoming LLC + Section 475(f) — legal entity', color: 'var(--chart-1)' },
@@ -227,14 +227,14 @@ const REVENUE_MILESTONES = [
 ]
 
 const EXIT_FRAMEWORK = [
-  { phase: '1', trades: '18 → 50', strategy: 'Pure mechanical brackets', detail: 'Fix live stop to 2.0x ATR. Log MFE/MAE for every trade. No discretion.', pct: 25, color: 'var(--arcis-teal-light)' },
+  { phase: '1', trades: '18 → 50', strategy: 'Pure mechanical brackets', detail: 'Fix live stop to 2.0x ATR. Log MFE/MAE for every trade. No discretion.', pct: 25, color: 'var(--arcis-accent)' },
   { phase: '2', trades: '50 → 200', strategy: 'Mechanical + rule-based', detail: 'Time-based stop tightening (2.0x → 1.5x by day 5). Signal exit: close > 5-day SMA.', pct: 50, color: 'var(--chart-4)' },
   { phase: '3', trades: '200 → 500', strategy: 'Evaluate LLM pilot', detail: 'Thesis invalidation detection on days 5-7 only. A/B test vs mechanical exits.', pct: 75, color: 'var(--chart-1)' },
   { phase: '4', trades: '500+', strategy: 'Full active (if validated)', detail: 'Separate exit-specialist LoRA. Daily conviction updates. Full LLM exit management.', pct: 100, color: 'var(--chart-7)' },
 ]
 
 const GPU_TARGETS = [
-  { block: 'Market hours', time: '9:30-4:00 ET', current: 4.4, target: 35, activities: 'Inference + alpha backtest + eval warmup', color: 'var(--arcis-teal-light)' },
+  { block: 'Market hours', time: '9:30-4:00 ET', current: 4.4, target: 35, activities: 'Inference + alpha backtest + eval warmup', color: 'var(--arcis-accent)' },
   { block: 'Post-close', time: '4:00-7:00 ET', current: 5, target: 50, activities: 'Stress testing + Monte Carlo + outcome training gen', color: 'var(--chart-4)' },
   { block: 'Overnight', time: '7:00-5:15 ET', current: 10, target: 60, activities: 'Continuous eval + parameter backtesting + scenario gen', color: 'var(--chart-1)' },
   { block: 'Weekend', time: 'Sat-Sun', current: 15, target: 75, activities: 'Full retrain + exhaustive backtest + stress suite', color: 'var(--chart-7)' },
@@ -244,7 +244,7 @@ const GPU_TARGETS = [
 // Components
 // ═══════════════════════════════════════════════════════════════
 function StatusIcon({ s }) {
-  if (s === 'done') return <CheckCircle2 size={14} className="shrink-0" style={{ color: 'var(--arcis-teal-light)' }} />
+  if (s === 'done') return <CheckCircle2 size={14} className="shrink-0" style={{ color: 'var(--arcis-success)' }} />
   if (s === 'in-progress') return <Loader2 size={14} className="animate-spin shrink-0" style={{ color: 'var(--chart-7)' }} />
   return <Circle size={14} className="shrink-0" style={{ color: 'var(--arcis-text-muted)' }} />
 }
@@ -270,7 +270,7 @@ function Item({ item }) {
       {open && item.d && (
         <div className="px-7 pb-3 text-xs" style={{ color: 'var(--arcis-text-secondary)', lineHeight: 1.6 }}>
           <p>{item.d}</p>
-          {item.r && <p style={{ color: 'var(--arcis-teal-light)', fontSize: 10, marginTop: 4 }}>Source: {item.r}</p>}
+          {item.r && <p style={{ color: 'var(--arcis-text-secondary)', fontSize: 10, marginTop: 4 }}>Source: {item.r}</p>}
         </div>
       )}
     </div>
@@ -283,7 +283,7 @@ function SubPhaseBlock({ sp }) {
     <div style={{ marginBottom: 16 }}>
       <div className="flex items-center gap-2" style={{ marginBottom: 6 }}>
         <Calendar size={12} style={{ color: 'var(--chart-7)' }} />
-        <span style={{ color: 'var(--chart-7)', fontSize: 12, fontWeight: 500 }}>{sp.label}</span>
+        <span style={{ color: 'var(--chart-7)', fontSize: 11, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{sp.label}</span>
         <span style={{ color: 'var(--arcis-text-muted)', fontSize: 11 }}>({done}/{sp.items.length})</span>
       </div>
       <div style={{ borderTop: '1px solid var(--arcis-bg-surface)' }}>
@@ -302,9 +302,9 @@ function GateMetric({ m, val }) {
   const tv = m.fmt === 'pct' ? `${(m.target*100).toFixed(0)}%` : m.fmt === 'pctVal' ? `${m.target}%` : m.fmt === 'dollar' ? `$${m.target}` : m.target
   return (
     <div className="flex items-center gap-2 text-xs">
-      <div className="w-2 h-2 rounded-full shrink-0" style={{ background: has ? (pass ? 'var(--arcis-teal-light)' : 'var(--arcis-danger)') : 'var(--arcis-text-muted)' }} />
+      <div className="w-2 h-2 rounded-full shrink-0" style={{ background: has ? (pass ? 'var(--arcis-success)' : 'var(--arcis-danger)') : 'var(--arcis-text-muted)' }} />
       <span style={{ width: 110, color: 'var(--arcis-text-secondary)' }}>{m.label}</span>
-      <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 500, color: has ? (pass ? 'var(--arcis-teal-light)' : 'var(--arcis-danger)') : 'var(--arcis-text-secondary)' }}>{dv}</span>
+      <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 500, color: has ? (pass ? 'var(--arcis-success)' : 'var(--arcis-danger)') : 'var(--arcis-text-secondary)' }}>{dv}</span>
       <span style={{ color: 'var(--arcis-text-muted)' }}>{op} {tv}</span>
     </div>
   )
@@ -318,7 +318,7 @@ function PhaseCard({ phase, kpis }) {
   const pct = items.length > 0 ? Math.round((done / items.length) * 100) : 0
 
   return (
-    <div className="rounded-lg overflow-hidden" style={{ border: '1px solid var(--arcis-border)', borderLeftWidth: 4, borderLeftColor: locked ? 'var(--arcis-border)' : 'var(--arcis-teal-light)' }}>
+    <div className="overflow-hidden" style={{ borderRadius: 'var(--radius-sm)', border: '1px solid var(--arcis-border)', borderLeftWidth: 4, borderLeftColor: locked ? 'var(--arcis-border)' : 'var(--arcis-accent)' }}>
       <button onClick={() => setExp(!exp)} className="w-full flex items-center justify-between p-4 text-left"
         onMouseEnter={e => { e.currentTarget.style.background = 'rgba(30,41,59,0.5)' }}
         onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
@@ -326,15 +326,15 @@ function PhaseCard({ phase, kpis }) {
           <div className="flex items-center gap-2 flex-wrap">
             {locked && <Lock size={14} style={{ color: 'var(--arcis-text-secondary)' }} />}
             <span className="font-medium" style={{ color: 'var(--arcis-text-primary)' }}>{phase.name}</span>
-            <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--arcis-border)', color: 'var(--arcis-text-secondary)' }}>{phase.capital}</span>
+            <span className="text-xs px-2 py-0.5" style={{ background: 'var(--arcis-border)', color: 'var(--arcis-text-secondary)', borderRadius: 'var(--radius-sm)' }}>{phase.capital}</span>
             <span className="text-xs" style={{ color: 'var(--chart-7)' }}>{phase.cost}</span>
             <span className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>{phase.timeline}</span>
           </div>
           <p className="text-sm mt-1" style={{ color: 'var(--arcis-text-secondary)' }}>{phase.desc}</p>
           {!locked && items.length > 0 && (
             <div className="flex items-center gap-3 mt-2 text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>
-              <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--arcis-border)' }}>
-                <div className="h-full rounded-full" style={{ width: `${pct}%`, background: 'var(--arcis-teal-light)' }} />
+              <div className="flex-1 h-1.5 overflow-hidden" style={{ background: 'var(--arcis-border)', borderRadius: 'var(--radius-sm)' }}>
+                <div className="h-full" style={{ width: `${pct}%`, background: 'var(--arcis-accent)', borderRadius: 'var(--radius-sm)' }} />
               </div>
               <span>{done}/{items.length} complete</span>
             </div>
@@ -391,8 +391,8 @@ export default function Roadmap() {
         <h1 className="text-xl font-medium" style={{ color: 'var(--arcis-text-primary)' }}>Roadmap</h1>
         <p className="text-sm mt-1" style={{ color: 'var(--arcis-text-secondary)' }}>Every gate is performance-based, not time-based. Updated {ROADMAP_DATA.lastUpdated}.</p>
         <div className="mt-3 flex items-center gap-3">
-          <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: 'var(--arcis-border)' }}>
-            <div className="h-full rounded-full" style={{ width: `${Math.round((doneCount/allItems.length)*100)}%`, background: 'var(--arcis-teal-light)' }} />
+          <div className="flex-1 h-2 overflow-hidden" style={{ background: 'var(--arcis-border)', borderRadius: 'var(--radius-sm)' }}>
+            <div className="h-full" style={{ width: `${Math.round((doneCount/allItems.length)*100)}%`, background: 'var(--arcis-accent)', borderRadius: 'var(--radius-sm)' }} />
           </div>
           <span className="text-sm" style={{ color: 'var(--arcis-text-secondary)' }}>{doneCount}/{allItems.length} items ({Math.round((doneCount/allItems.length)*100)}%)</span>
         </div>
@@ -411,14 +411,14 @@ export default function Roadmap() {
         {ROADMAP_DATA.phases.map(p => <PhaseCard key={p.id} phase={p} kpis={kpis} />)}
       </div>
 
-      <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-border)' }}>
+      <div className="p-4" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-border)' }}>
         <RevenueProjection />
       </div>
 
       {/* Revenue Milestones Timeline */}
-      <div className="rounded-lg p-5" style={{ background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-border)' }}>
+      <div className="p-5" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-border)' }}>
         <div className="flex items-center gap-2 mb-4">
-          <DollarSign size={16} style={{ color: 'var(--arcis-teal-light)' }} />
+          <DollarSign size={16} style={{ color: 'var(--arcis-accent)' }} />
           <h2 className="text-sm font-medium" style={{ color: 'var(--arcis-text-primary)' }}>Revenue milestones</h2>
           <span className="text-xs" style={{ color: 'var(--arcis-text-muted)', fontFamily: 'var(--font-mono)' }}>0 → 36 months</span>
         </div>
@@ -430,7 +430,7 @@ export default function Roadmap() {
               <div key={i} className="relative flex items-start gap-4 pl-5">
                 {/* Timeline dot */}
                 <div className="absolute left-0 top-1.5 w-2 h-2 rounded-full -translate-x-[3.5px]"
-                     style={{ background: m.color, boxShadow: `0 0 6px ${m.color}40` }} />
+                     style={{ background: m.color }} />
                 <div className="shrink-0 w-10 text-right" style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: m.color, fontWeight: 600 }}>
                   {m.label}
                 </div>
@@ -446,14 +446,14 @@ export default function Roadmap() {
       {/* Exit Management + GPU Utilization */}
       <div className="grid grid-cols-2 gap-4">
         {/* Exit Management Framework */}
-        <div className="rounded-lg p-5" style={{ border: '1px solid var(--arcis-border)' }}>
+        <div className="p-5" style={{ borderRadius: 'var(--radius-sm)', border: '1px solid var(--arcis-border)' }}>
           <h2 className="text-sm font-medium mb-4" style={{ color: 'var(--arcis-text-primary)' }}>Exit management framework</h2>
           <div className="space-y-2">
             {EXIT_FRAMEWORK.map((e, i) => {
               const active = i === 0
               return (
-                <div key={i} className="rounded-lg p-3 relative overflow-hidden"
-                     style={{ background: 'var(--arcis-bg-primary)', border: `1px solid ${active ? e.color + '40' : 'var(--arcis-bg-surface)'}`, borderLeft: `3px solid ${e.color}` }}>
+                <div key={i} className="p-3 relative overflow-hidden"
+                     style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-primary)', border: `1px solid ${active ? e.color + '40' : 'var(--arcis-bg-surface)'}`, borderLeft: `3px solid ${e.color}` }}>
                   <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-2">
                       <span style={{ color: e.color, fontSize: 11, fontWeight: 600, fontFamily: 'var(--font-mono)' }}>Phase {e.phase}</span>
@@ -470,14 +470,14 @@ export default function Roadmap() {
         </div>
 
         {/* GPU Utilization Targets */}
-        <div className="rounded-lg p-5" style={{ border: '1px solid var(--arcis-border)' }}>
+        <div className="p-5" style={{ borderRadius: 'var(--radius-sm)', border: '1px solid var(--arcis-border)' }}>
           <div className="flex items-center gap-2 mb-4">
             <Cpu size={16} style={{ color: 'var(--arcis-text-secondary)' }} />
             <h2 className="text-sm font-medium" style={{ color: 'var(--arcis-text-primary)' }}>GPU utilization targets</h2>
           </div>
           <div className="space-y-3">
             {GPU_TARGETS.map((g, i) => (
-              <div key={i} className="rounded-lg p-3" style={{ background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-bg-surface)' }}>
+              <div key={i} className="p-3" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-bg-surface)' }}>
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-medium" style={{ color: 'var(--arcis-text-primary)' }}>{g.block}</span>
                   <span style={{ fontSize: 10, color: 'var(--arcis-text-muted)', fontFamily: 'var(--font-mono)' }}>{g.time}</span>
@@ -505,15 +505,15 @@ export default function Roadmap() {
       </div>
 
       <div className="grid grid-cols-2 gap-4">
-        <div className="rounded-lg p-4" style={{ border: '1px solid var(--arcis-border)' }}>
+        <div className="p-4" style={{ borderRadius: 'var(--radius-sm)', border: '1px solid var(--arcis-border)' }}>
           <div className="flex items-center gap-2 mb-3">
             <Cpu size={16} style={{ color: 'var(--arcis-text-secondary)' }} />
             <h2 className="text-sm font-medium" style={{ color: 'var(--arcis-text-primary)' }}>Hardware roadmap</h2>
           </div>
           {ROADMAP_DATA.hardware.map((h, i) => (
-            <div key={i} className="rounded-lg p-3 mb-2" style={{ background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-bg-surface)' }}>
+            <div key={i} className="p-3 mb-2" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-bg-surface)' }}>
               <div className="flex items-center justify-between mb-1">
-                <span style={{ color: 'var(--arcis-teal-light)', fontSize: 11, fontWeight: 500 }}>{h.phase}</span>
+                <span style={{ color: 'var(--arcis-accent)', fontSize: 11, fontWeight: 500 }}>{h.phase}</span>
                 <span style={{ color: 'var(--chart-7)', fontSize: 12, fontFamily: 'var(--font-mono)' }}>{h.cost}</span>
               </div>
               <div className="text-sm font-medium" style={{ color: 'var(--arcis-text-primary)' }}>{h.name}</div>
@@ -523,7 +523,7 @@ export default function Roadmap() {
           ))}
         </div>
 
-        <div className="rounded-lg p-4" style={{ border: '1px solid var(--arcis-border)' }}>
+        <div className="p-4" style={{ borderRadius: 'var(--radius-sm)', border: '1px solid var(--arcis-border)' }}>
           <div className="flex items-center gap-2 mb-3">
             <DollarSign size={16} style={{ color: 'var(--arcis-text-secondary)' }} />
             <h2 className="text-sm font-medium" style={{ color: 'var(--arcis-text-primary)' }}>Monthly cost trajectory</h2>

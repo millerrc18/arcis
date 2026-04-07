@@ -189,11 +189,11 @@ export default function Notes() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text-primary)' }}>Notes</h2>
+        <h2 className="text-xl font-medium uppercase" style={{ color: 'var(--arcis-text-primary)', letterSpacing: '0.06em' }}>Notes</h2>
         <button
           onClick={handleCreateNote}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium"
-          style={{ background: 'var(--arcis-accent)', color: 'white' }}
+          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium uppercase"
+          style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-accent)', color: 'white', letterSpacing: '0.06em' }}
         >
           <Plus size={16} />
           New Note
@@ -232,7 +232,7 @@ export default function Notes() {
       )}
 
       <div className="grid grid-cols-1 xl:grid-cols-[320px,1fr] gap-4">
-        <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+        <div className="p-4" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
           <div className="relative mb-4">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--arcis-text-secondary)' }} />
             <input
@@ -240,8 +240,8 @@ export default function Notes() {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search notes..."
-              className="w-full pl-9 pr-3 py-2 rounded-lg text-sm"
-              style={{ background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)' }}
+              className="w-full pl-9 pr-3 py-2 text-sm"
+              style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)' }}
             />
           </div>
 
@@ -260,8 +260,9 @@ export default function Notes() {
                   <button
                     key={note.note_id}
                     onClick={() => setSelectedId(note.note_id)}
-                    className="w-full text-left rounded-lg p-3 transition-colors"
+                    className="w-full text-left p-3 transition-colors"
                     style={{
+                      borderRadius: 'var(--radius-sm)',
                       background: active ? 'rgba(20, 184, 166, 0.12)' : 'var(--arcis-bg-primary)',
                       border: `1px solid ${active ? 'rgba(20, 184, 166, 0.45)' : 'var(--arcis-border)'}`,
                     }}
@@ -302,7 +303,7 @@ export default function Notes() {
           </div>
         </div>
 
-        <div className="rounded-lg p-4 md:p-5" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+        <div className="p-4 md:p-5" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
           {!selectedNote || !draft ? (
             <div className="h-full min-h-[360px] flex items-center justify-center">
               <div className="text-center">
@@ -326,16 +327,16 @@ export default function Notes() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setDraft((current) => ({ ...current, pinned: !current.pinned }))}
-                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm"
-                    style={{ background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)' }}
+                    className="inline-flex items-center gap-2 px-3 py-2 text-sm"
+                    style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)' }}
                   >
                     {draft.pinned ? <PinOff size={14} /> : <Pin size={14} />}
                     {draft.pinned ? 'Unpin' : 'Pin'}
                   </button>
                   <button
                     onClick={() => handleDeleteNote(selectedNote.note_id)}
-                    className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm"
-                    style={{ background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.35)', color: 'var(--arcis-danger)' }}
+                    className="inline-flex items-center gap-2 px-3 py-2 text-sm"
+                    style={{ borderRadius: 'var(--radius-sm)', background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.35)', color: 'var(--arcis-danger)' }}
                   >
                     <Trash2 size={14} />
                     Delete
@@ -350,10 +351,10 @@ export default function Notes() {
                   onChange={(event) => setDraft((current) => ({ ...current, tagsText: event.target.value }))}
                   onBlur={flushSave}
                   placeholder="tags, comma, separated"
-                  className="w-full px-3 py-2 rounded-lg text-sm"
-                  style={{ background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)' }}
+                  className="w-full px-3 py-2 text-sm"
+                  style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)' }}
                 />
-                <div className="px-3 py-2 rounded-lg text-sm flex items-center justify-center" style={{ background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-secondary)' }}>
+                <div className="px-3 py-2 text-sm flex items-center justify-center" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-secondary)' }}>
                   {saveState === 'saving' && 'Saving...'}
                   {saveState === 'pending' && 'Autosave in 2s'}
                   {saveState === 'saved' && 'Saved \u2713'}
@@ -367,8 +368,9 @@ export default function Notes() {
                 onChange={(event) => setDraft((current) => ({ ...current, content: event.target.value }))}
                 onBlur={flushSave}
                 placeholder="Add a note..."
-                className="w-full min-h-[420px] px-4 py-3 rounded-lg text-sm leading-relaxed resize-y"
+                className="w-full min-h-[420px] px-4 py-3 text-sm leading-relaxed resize-y"
                 style={{
+                  borderRadius: 'var(--radius-sm)',
                   background: 'var(--arcis-bg-primary)',
                   border: '1px solid var(--arcis-border)',
                   color: 'var(--arcis-text-primary)',

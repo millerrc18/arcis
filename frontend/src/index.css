@@ -3,30 +3,29 @@
 @import "tailwindcss";
 
 :root, [data-theme="dark"] {
-  /* Arcis Palette H: Electric Focus — Dark Mode (default) */
-  --arcis-bg-primary: #050507;
-  --arcis-bg-surface: #0C0C10;
-  --arcis-bg-elevated: #12121A;
+  /* Bloomberg Terminal Dark — near-black, data-dense, institutional */
+  --arcis-bg-primary: #030305;
+  --arcis-bg-surface: #0A0A0F;
+  --arcis-bg-elevated: #101018;
   --arcis-accent: #3B82F6;
   --arcis-accent-hover: #2563EB;
-  --arcis-accent-muted: rgba(37, 99, 235, 0.08);
-  --arcis-text-primary: #E4E4E7;
-  --arcis-text-secondary: #A1A1AA;
-  --arcis-text-muted: #52525B;
-  --arcis-border: rgba(37, 99, 235, 0.08);
-  --arcis-border-hover: rgba(37, 99, 235, 0.15);
+  --arcis-accent-muted: rgba(37, 99, 235, 0.06);
+  --arcis-text-primary: #D4D4D8;
+  --arcis-text-secondary: #71717A;
+  --arcis-text-muted: #3F3F46;
+  --arcis-border: rgba(255, 255, 255, 0.06);
+  --arcis-border-hover: rgba(255, 255, 255, 0.12);
 
-  /* Semantic (shared) */
+  /* Semantic — color is earned */
   --arcis-success: #22C55E;
   --arcis-danger: #EF4444;
   --arcis-warning: #F59E0B;
-  --arcis-teal: #0D9488;
-  --arcis-teal-light: #14B8A6;
   --arcis-info: #3B82F6;
+  --arcis-positive: #22C55E;
+  --arcis-negative: #EF4444;
+  --arcis-neutral: #71717A;
 
-  /* Fix for #250: define all color aliases used by charts and pages in dark mode */
-  --teal-400: #2DD4BF;
-  --teal-500: #14B8A6;
+  /* Color aliases for charts and pages */
   --amber-300: #FCD34D;
   --amber-400: #FBBF24;
   --success: #22C55E;
@@ -36,24 +35,19 @@
   --slate-400: #94A3B8;
   --slate-600: #475569;
   --slate-700: #334155;
-  --arcis-text: #E4E4E7;
+  --arcis-text: #D4D4D8;
 
-  /* Fix for #250: chart area fill opacity for dark/light modes */
   --chart-fill-opacity: 0.3;
+  --tooltip-text: #D4D4D8;
+  --table-row-alt: rgba(255, 255, 255, 0.02);
 
-  /* Fix for #250: tooltip text color */
-  --tooltip-text: #E4E4E7;
-
-  /* Fix for #250: table alternating row background */
-  --table-row-alt: rgba(255, 255, 255, 0.03);
-
-  /* Chart series */
+  /* Chart series — no teal */
   --chart-1: #3B82F6;
-  --chart-2: #14B8A6;
+  --chart-2: #22C55E;
   --chart-3: #F59E0B;
   --chart-4: #A78BFA;
   --chart-5: #FB7185;
-  --chart-6: #22D3EE;
+  --chart-6: #60A5FA;
   --chart-7: #FBBF24;
   --chart-8: #E879F9;
 
@@ -62,11 +56,11 @@
   --font-body: 'Inter', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
 
-  /* Layout */
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 12px;
+  /* Layout — squared corners, institutional */
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --radius-xl: 6px;
 }
 
 [data-theme="light"] {
@@ -82,9 +76,6 @@
   --arcis-border: #E2E8F0;
   --arcis-border-hover: #CBD5E1;
 
-  /* Fix for #250: light mode color aliases */
-  --teal-400: #0D9488;
-  --teal-500: #0F766E;
   --amber-300: #D97706;
   --amber-400: #B45309;
   --success: #16A34A;
@@ -96,13 +87,8 @@
   --slate-700: #334155;
   --arcis-text: #0F172A;
 
-  /* Fix for #250: chart fill opacity — slightly lower for light backgrounds */
   --chart-fill-opacity: 0.2;
-
-  /* Fix for #250: tooltip text color for light mode */
   --tooltip-text: #0F172A;
-
-  /* Fix for #250: table alternating row background for light mode */
   --table-row-alt: rgba(0, 0, 0, 0.03);
 }
 
@@ -124,16 +110,17 @@ body {
 }
 
 .arcis-card {
-  background: var(--arcis-bg-elevated);
+  background: var(--arcis-bg-surface);
   border: 1px solid var(--arcis-border);
-  border-radius: 8px;
-  padding: 16px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
-  transition: border-color 0.15s ease;
+  border-radius: var(--radius-md);
+  padding: 12px;
+  box-shadow: none;
 }
 .arcis-card:hover {
   border-color: var(--arcis-border-hover);
 }
-[data-theme="light"] .arcis-card {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
-}
+
+/* Bloomberg scrollbars — thin, dark */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--arcis-bg-primary); }
+::-webkit-scrollbar-thumb { background: var(--arcis-border-hover); border-radius: 2px; }

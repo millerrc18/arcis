@@ -145,7 +145,7 @@ export default function RevenueProjection() {
       {metrics && (
         <div className="grid grid-cols-6 gap-2">
           {metrics.map((m, i) => (
-            <div key={i} className="rounded-lg p-2 text-center" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+            <div key={i} className="p-2 text-center" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 'var(--radius-sm)' }}>
               <div className="text-[10px] uppercase" style={{ color: 'var(--arcis-text-secondary)' }}>{m.label}</div>
               <div className="text-sm font-medium mt-0.5" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-primary)' }}>
                 {m.value != null ? m.fmt(m.value) : '--'}
@@ -203,7 +203,7 @@ export default function RevenueProjection() {
       </div>
 
       {/* Chart */}
-      <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+      <div className="p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 'var(--radius-sm)' }}>
         <ResponsiveContainer width="100%" height={220}>
           <ComposedChart data={projections}>
             <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'var(--arcis-text-secondary)' }} />
@@ -219,7 +219,7 @@ export default function RevenueProjection() {
       </div>
 
       {/* Projection table */}
-      <div className="rounded-lg overflow-hidden" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+      <div className="overflow-hidden" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 'var(--radius-sm)' }}>
         <table className="w-full text-xs">
           <thead>
             <tr style={{ borderBottom: '1px solid var(--arcis-border)' }}>

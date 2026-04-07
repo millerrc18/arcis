@@ -93,7 +93,7 @@ function DirectionBadge({ direction }) {
 
 function AgentCard({ agent }) {
   return (
-    <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+    <div className="p-4" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
       <div className="flex items-center justify-between gap-3">
         <div className="font-medium text-sm" style={{ color: 'var(--arcis-text-primary)' }}>{agent.displayName}</div>
         <DirectionBadge direction={agent.direction} />
@@ -130,7 +130,7 @@ function DirectionDistribution({ agents }) {
   }))
 
   return (
-    <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+    <div className="p-4" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
       <h4 className="text-xs uppercase tracking-wide mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>
         Direction Split
       </h4>
@@ -164,7 +164,7 @@ function AdjustmentTable({ adjustments }) {
   if (!rows.length) return null
 
   return (
-    <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+    <div className="p-4" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
       <h4 className="text-xs uppercase tracking-wide mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>
         Parameter Adjustments
       </h4>
@@ -209,7 +209,7 @@ function ExpandableSessionRow({ session, isLatest }) {
   const timestamp = formatTimestamp(session.created_at)
 
   return (
-    <div className="rounded-lg" style={{ border: '1px solid var(--arcis-border)' }}>
+    <div style={{ borderRadius: 'var(--radius-sm)', border: '1px solid var(--arcis-border)' }}>
       <button
         onClick={() => setExpanded((value) => !value)}
         className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left"
@@ -237,15 +237,15 @@ function ExpandableSessionRow({ session, isLatest }) {
           ) : (
             <>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div className="rounded-lg p-3" style={{ background: 'var(--arcis-bg-primary)' }}>
+                <div className="p-3" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-primary)' }}>
                   <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Consensus</div>
                   <div className="text-sm mt-1" style={{ color: 'var(--arcis-text-primary)' }}>{consensusLabel}</div>
                 </div>
-                <div className="rounded-lg p-3" style={{ background: 'var(--arcis-bg-primary)' }}>
+                <div className="p-3" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-primary)' }}>
                   <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Rounds</div>
                   <div className="text-sm mt-1" style={{ color: 'var(--arcis-text-primary)' }}>{detailSession.rounds_completed ?? detailSession.result_json?.session_meta?.rounds_completed ?? '--'}</div>
                 </div>
-                <div className="rounded-lg p-3" style={{ background: 'var(--arcis-bg-primary)' }}>
+                <div className="p-3" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-primary)' }}>
                   <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Confidence</div>
                   <div className="text-sm mt-1" style={{ color: 'var(--arcis-text-primary)' }}>
                     {detailSession.result_json?.votes?.confidence_avg != null
@@ -253,7 +253,7 @@ function ExpandableSessionRow({ session, isLatest }) {
                       : '--'}
                   </div>
                 </div>
-                <div className="rounded-lg p-3" style={{ background: 'var(--arcis-bg-primary)' }}>
+                <div className="p-3" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-primary)' }}>
                   <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Cost</div>
                   <div className="text-sm mt-1" style={{ color: 'var(--arcis-text-primary)' }}>
                     {detailSession.total_cost != null ? `$${Number(detailSession.total_cost).toFixed(4)}` : '--'}
@@ -332,14 +332,14 @@ export default function Council() {
         <button
           onClick={() => runCouncil.mutate()}
           disabled={runCouncil.isPending}
-          className="px-4 py-2 rounded-lg font-medium text-sm text-white disabled:opacity-50"
-          style={{ background: 'var(--arcis-accent)' }}
+          className="px-4 py-2 font-medium text-sm text-white disabled:opacity-50"
+          style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-accent)' }}
         >
           {runCouncil.isPending ? 'Running...' : 'Run Council Now'}
         </button>
       </div>
 
-      <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+      <div className="p-4" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="text-sm font-medium" style={{ color: 'var(--arcis-text-primary)' }}>Ask A Strategic Question</div>
           <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>
@@ -352,20 +352,20 @@ export default function Council() {
             value={strategicQuestion}
             onChange={(event) => setStrategicQuestion(event.target.value)}
             placeholder="What should the council evaluate next?"
-            className="flex-1 px-3 py-2 rounded-lg text-sm"
-            style={{ background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)' }}
+            className="flex-1 px-3 py-2 text-sm"
+            style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)' }}
           />
           <button
             onClick={() => askStrategic.mutate(strategicQuestion)}
             disabled={askStrategic.isPending || !strategicQuestion.trim()}
-            className="px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
-            style={{ background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)' }}
+            className="px-4 py-2 text-sm font-medium disabled:opacity-50"
+            style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)' }}
           >
             {askStrategic.isPending ? 'Sending...' : 'Ask Council'}
           </button>
         </div>
         {askStrategic.data && (
-          <div className="mt-3 text-sm rounded-lg px-3 py-2" style={{ background: 'rgba(148, 163, 184, 0.12)', color: 'var(--arcis-text-secondary)' }}>
+          <div className="mt-3 text-sm px-3 py-2" style={{ borderRadius: 'var(--radius-sm)', background: 'rgba(148, 163, 184, 0.12)', color: 'var(--arcis-text-secondary)' }}>
             {askStrategic.data.message || askStrategic.data.error || 'Request sent.'}
           </div>
         )}
@@ -373,7 +373,7 @@ export default function Council() {
 
       {latestAgents.length > 0 ? (
         <>
-          <div className="rounded-lg p-6" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+          <div className="p-6" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
             <div className="flex items-center justify-between gap-4 flex-wrap">
               <div>
                 <div className="text-xs uppercase tracking-wide" style={{ color: 'var(--arcis-text-secondary)' }}>Latest Consensus</div>
@@ -412,8 +412,8 @@ export default function Council() {
 
             {/* Council Summary */}
             {session.result_json?.summary && (
-              <div className="mt-4 rounded-lg p-4" style={{ background: 'rgba(20, 184, 166, 0.06)', border: '1px solid rgba(20, 184, 166, 0.15)' }}>
-                <div className="text-xs uppercase tracking-wide mb-2" style={{ color: 'var(--teal-400)' }}>Council Summary</div>
+              <div className="mt-4 p-4" style={{ borderRadius: 'var(--radius-sm)', background: 'rgba(20, 184, 166, 0.06)', border: '1px solid rgba(20, 184, 166, 0.15)' }}>
+                <div className="text-xs uppercase tracking-wide mb-2" style={{ color: 'var(--arcis-accent)' }}>Council Summary</div>
                 <p className="text-sm leading-relaxed" style={{ color: 'var(--arcis-text-muted)' }}>
                   {session.result_json.summary}
                 </p>
@@ -436,14 +436,14 @@ export default function Council() {
           </div>
         </>
       ) : (
-        <div className="rounded-lg p-12 text-center" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+        <div className="p-12 text-center" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
           <div className="text-sm" style={{ color: 'var(--arcis-text-secondary)' }}>
             No council session yet. Run the council to populate the dashboard.
           </div>
         </div>
       )}
 
-      <div className="rounded-lg p-4" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+      <div className="p-4" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
         <h3 className="text-sm uppercase tracking-wide mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>
           Session History
         </h3>

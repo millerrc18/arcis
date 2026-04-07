@@ -31,13 +31,13 @@ export default function Attribution() {
     count,
   }))
 
-  const powerColor = power === 'adequate' ? 'var(--arcis-success)' : power === 'low' ? 'var(--amber-400)' : 'var(--arcis-danger)'
+  const powerColor = power === 'adequate' ? 'var(--arcis-success)' : power === 'low' ? 'var(--arcis-warning)' : 'var(--arcis-danger)'
   const powerLabel = power === 'adequate' ? 'Adequate (200+)' : power === 'low' ? 'Low (50-200)' : `Insufficient (${total}/200)`
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text)' }}>Alpha Attribution</h2>
+        <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text-primary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Alpha Attribution</h2>
         <StatusBadge
           text={powerLabel}
           variant={power === 'adequate' ? 'success' : power === 'low' ? 'warning' : 'danger'}
@@ -63,25 +63,25 @@ export default function Attribution() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="arcis-card text-center" style={{ padding: '12px' }}>
           <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Total Pairs</div>
-          <div className="text-2xl font-bold" style={{ fontFamily: 'var(--font-mono)' }}>{total}</div>
+          <div className="text-2xl font-bold" style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums' }}>{total}</div>
         </div>
         <div className="arcis-card text-center" style={{ padding: '12px' }}>
           <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Ranker Win Rate</div>
-          <div className="text-2xl font-bold" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-secondary)' }}>
+          <div className="text-2xl font-bold" style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', color: 'var(--arcis-text-secondary)' }}>
             {ranker.win_rate != null ? `${(ranker.win_rate * 100).toFixed(1)}%` : '--'}
           </div>
           <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>{ranker.resolved || 0} resolved</div>
         </div>
         <div className="arcis-card text-center" style={{ padding: '12px' }}>
           <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>LLM Win Rate</div>
-          <div className="text-2xl font-bold" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-accent)' }}>
+          <div className="text-2xl font-bold" style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', color: 'var(--arcis-text-primary)' }}>
             {llm.win_rate != null ? `${(llm.win_rate * 100).toFixed(1)}%` : '--'}
           </div>
           <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>{llm.resolved || 0} resolved</div>
         </div>
         <div className="arcis-card text-center" style={{ padding: '12px' }}>
           <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Statistical Power</div>
-          <div className="text-lg font-bold" style={{ fontFamily: 'var(--font-mono)', color: powerColor }}>
+          <div className="text-lg font-bold" style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', color: powerColor }}>
             {power === 'adequate' ? 'Adequate' : power === 'low' ? 'Low' : 'Insufficient'}
           </div>
           <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>Target: 200 pairs</div>
@@ -97,8 +97,8 @@ export default function Attribution() {
               <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11, fill: 'var(--arcis-text-muted)' }} />
               <YAxis type="category" dataKey="name" tick={{ fontSize: 12, fill: 'var(--arcis-text-secondary)' }} width={100} />
               {/* Fix for #250: add tooltip text color for dark mode readability */}
-              <Tooltip contentStyle={{ background: 'var(--arcis-bg-elevated)', border: '1px solid var(--arcis-border)', borderRadius: 8, fontSize: 12, color: 'var(--tooltip-text)' }} />
-              <Bar dataKey="winRate" name="Win Rate %">
+              <Tooltip contentStyle={{ background: 'var(--arcis-bg-elevated)', border: '1px solid var(--arcis-border)', borderRadius: 3, fontSize: 12, color: 'var(--tooltip-text)' }} isAnimationActive={false} />
+              <Bar dataKey="winRate" name="Win Rate %" isAnimationActive={false} radius={[2, 2, 0, 0]}>
                 {comparisonData.map((entry, i) => (
                   <Cell key={i} fill={entry.fill} />
                 ))}
@@ -116,7 +116,7 @@ export default function Attribution() {
             {Object.entries(byAction).map(([action, count]) => (
               <div key={action} className="flex justify-between text-sm">
                 <span style={{ color: 'var(--arcis-text-secondary)' }}>{action.replace(/_/g, ' ')}</span>
-                <span style={{ fontFamily: 'var(--font-mono)' }}>{count}</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums' }}>{count}</span>
               </div>
             ))}
             {Object.keys(byAction).length === 0 && (
@@ -133,7 +133,7 @@ export default function Attribution() {
                 <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'var(--arcis-text-muted)' }} />
                 <YAxis tick={{ fontSize: 10, fill: 'var(--arcis-text-muted)' }} />
                 {/* Fix for #250: add tooltip text color for dark mode readability */}
-                <Tooltip contentStyle={{ background: 'var(--arcis-bg-elevated)', border: '1px solid var(--arcis-border)', borderRadius: 8, fontSize: 12, color: 'var(--tooltip-text)' }} />
+                <Tooltip contentStyle={{ background: 'var(--arcis-bg-elevated)', border: '1px solid var(--arcis-border)', borderRadius: 3, fontSize: 12, color: 'var(--tooltip-text)' }} />
                 <Bar dataKey="count" fill="var(--arcis-accent)" />
               </BarChart>
             </ResponsiveContainer>

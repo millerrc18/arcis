@@ -97,8 +97,9 @@ function SettingInput({ settingKey, meta, currentValue, overrideInfo, onUpdate, 
           max={meta.max}
           step={meta.step || 1}
           disabled={pending}
-          className="w-28 text-right text-sm rounded-lg px-3 py-1.5"
+          className="w-28 text-right text-sm px-3 py-1.5"
           style={{
+            borderRadius: 'var(--radius-sm)',
             background: 'var(--arcis-bg-elevated)',
             border: '1px solid var(--arcis-border)',
             color: 'var(--arcis-text-primary)',
@@ -166,7 +167,7 @@ export default function Settings() {
       </div>
 
       {!IS_CLOUD && (
-        <div className="rounded-lg p-3 text-sm" style={{ background: 'rgba(245, 158, 11, 0.12)', border: '1px solid rgba(245, 158, 11, 0.3)', color: 'var(--arcis-warning)' }}>
+        <div className="p-3 text-sm" style={{ borderRadius: 'var(--radius-sm)', background: 'rgba(245, 158, 11, 0.12)', border: '1px solid rgba(245, 158, 11, 0.3)', color: 'var(--arcis-warning)' }}>
           Local mode \u2014 edits here take effect on the next sync cycle (up to 60s).
         </div>
       )}
@@ -207,13 +208,13 @@ export default function Settings() {
               </span>
               <div className="flex gap-2">
                 <button onClick={() => setShowResetConfirm(false)}
-                  className="px-3 py-1.5 text-xs rounded-lg"
-                  style={{ background: 'var(--arcis-bg-elevated)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)' }}>
+                  className="px-3 py-1.5 text-xs"
+                  style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-elevated)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)' }}>
                   Cancel
                 </button>
                 <button onClick={() => clearMutation.mutate()} disabled={clearMutation.isPending}
-                  className="px-3 py-1.5 text-xs rounded-lg disabled:opacity-50"
-                  style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)', color: 'var(--arcis-danger)' }}>
+                  className="px-3 py-1.5 text-xs disabled:opacity-50"
+                  style={{ borderRadius: 'var(--radius-sm)', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)', color: 'var(--arcis-danger)' }}>
                   {clearMutation.isPending ? 'Resetting...' : 'Confirm Reset'}
                 </button>
               </div>
