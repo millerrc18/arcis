@@ -1,6 +1,8 @@
-"""Tests for shadow trading executor and adapter (#196)."""
+"""Tests for shadow trading executor and adapter (#196, #310)."""
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, call
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -127,3 +129,78 @@ class TestRetryExitWithCancel:
         mock_update.assert_called_once()
         update_args = mock_update.call_args
         assert update_args[0][1].get("status") == "exit_abandoned"
+
+
+# ── Exit exception handling (#310) ─────────────────────────────────
+
+
+class TestCancelAllOrders:
+    """Test cancel_all_orders adapter function (#310)."""
+
+    def test_cancel_all_returns_count(self):
+        from src.shadow_trading.alpaca_adapter import cancel_all_orders
+        mock_client = MagicMock()
+        mock_client.cancel_orders.return_value = [MagicMock(), MagicMock()]
+        with patch("src.shadow_trading.alpaca_adapter._get_trading_client",
+                   return_value=mock_client):
+            result = cancel_all_orders()
+        assert result["cancelled"] == 2
+
+    def test_cancel_all_handles_error(self):
+        from src.shadow_trading.alpaca_adapter import cancel_all_orders
+        with patch("src.shadow_trading.alpaca_adapter._get_trading_client",
+                   side_effect=Exception("no key")):
+            result = cancel_all_orders()
+        assert result["cancelled"] == 0
+
+
+class TestExitExceptionMarksFailure:
+    """Regression #310: exception in _submit_exit_order must mark exit_failed."""
+
+    def test_exception_marks_exit_failed_not_open(self):
+        """Trade must NOT remain 'open' after broker exception."""
+        from src.shadow_trading.executor import check_and_manage_open_trades
+
+        et = ZoneInfo("America/New_York")
+        entry_time = (datetime.now(et) - timedelta(days=20)).isoformat()
+
+        mock_trade = {
+            "trade_id": "t-stuck",
+            "ticker": "TGT",
+            "status": "open",
+            "actual_entry_price": "125.0",
+            "entry_price": "125.0",
+            "stop_price": "120.0",
+            "target_1": "130.0",
+            "target_2": "135.0",
+            "planned_shares": "166",
+            "created_at": entry_time,
+            "actual_entry_time": entry_time,
+            "max_favorable_excursion": "0",
+            "max_adverse_excursion": "0",
+            "source": "paper",
+        }
+
+        with patch("src.shadow_trading.executor.get_open_shadow_trades",
+                   return_value=[mock_trade]), \
+             patch("src.shadow_trading.executor._get_current_price_safe",
+                   return_value=115.0), \
+             patch("src.shadow_trading.alpaca_adapter.get_all_positions",
+                   return_value=[]), \
+             patch("src.shadow_trading.executor._submit_exit_order",
+                   side_effect=Exception("insufficient qty")), \
+             patch("src.shadow_trading.executor.update_shadow_trade") as mock_update, \
+             patch("src.shadow_trading.executor.load_config",
+                   return_value={"shadow_trading": {"timeout_days": 15}}), \
+             patch("time.sleep"):
+            check_and_manage_open_trades()
+
+        # Verify update_shadow_trade was called with exit_failed status
+        exit_failed_calls = [
+            c for c in mock_update.call_args_list
+            if len(c[0]) >= 2 and isinstance(c[0][1], dict)
+            and c[0][1].get("status") == "exit_failed"
+        ]
+        assert len(exit_failed_calls) > 0, (
+            "Trade should be marked exit_failed on exception, not left as open"
+        )

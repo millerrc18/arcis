@@ -374,6 +374,15 @@ def _parse_llm_response(response: str) -> tuple[int | None, str | None, str | No
                 logger.warning("[LLM] Conviction %d outside 1-10 range — clamping", raw_conv)
             conviction = max(1, min(10, raw_conv))
 
+    # Stage 6: Catch-all — any digit within 20 chars of "conviction" (#309)
+    if conviction is None:
+        conv_catchall = re.search(r'(?i)conviction\D{0,20}(\d{1,2})', response)
+        if conv_catchall:
+            raw_conv = int(conv_catchall.group(1))
+            if 1 <= raw_conv <= 10:
+                conviction = raw_conv
+                logger.debug("[LLM] Stage 6 catch-all matched conviction=%d", conviction)
+
     # Prose fallback: if the response has substantial text but no XML tags or
     # section markers, split on paragraph boundaries. First paragraph becomes
     # why_now (the "hook"), remainder becomes deeper_analysis.
@@ -474,7 +483,8 @@ def enhance_packet_with_llm(packet: TradePacket, features: dict,
     conviction, why_now, deeper_analysis = _parse_llm_response(response)
 
     if why_now is None or deeper_analysis is None:
-        logger.warning("[LLM] Failed to parse response — fallback to template for %s", packet.ticker)
+        logger.warning("[LLM] Failed to parse response — fallback to template for %s", packet.ticker,
+                       extra={"ctx": {"event": "parse_failure", "ticker": packet.ticker}})
         return packet
 
     # #168: if conviction is None after all 5 parsing strategies, default to 5.
@@ -484,7 +494,22 @@ def enhance_packet_with_llm(packet: TradePacket, features: dict,
     # In live trading this default should be reconsidered (likely reject).
     if conviction is None:
         conviction = 5
-        logger.warning("[LLM] Conviction is None for %s — defaulting to %d", packet.ticker, conviction)
+        _raw_preview = repr(response[:500]) if response else "EMPTY"
+        logger.warning(
+            "[LLM] Conviction is None for %s — defaulting to %d. "
+            "Response preview: %s",
+            packet.ticker, conviction, _raw_preview,
+            extra={"ctx": {"event": "conviction_default", "ticker": packet.ticker, "default": conviction}},
+        )
+        # Write full response to debug file for offline analysis (#312)
+        try:
+            from pathlib import Path
+            debug_dir = Path("logs/llm_debug")
+            debug_dir.mkdir(exist_ok=True)
+            (debug_dir / f"{packet.ticker}_{datetime.now().strftime('%H%M%S')}.txt").write_text(
+                response or "EMPTY", encoding="utf-8")
+        except Exception:
+            pass
 
     # Only update prose fields — never touch deterministic fields
     packet.why_now = why_now

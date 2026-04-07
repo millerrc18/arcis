@@ -36,6 +36,7 @@ from src.cli.commands import (
     cmd_fetch_earnings,
     cmd_generate_contrastive,
     cmd_generate_preferences,
+    cmd_cancel_all_pending,
     cmd_halt_trading,
     cmd_ingest,
     cmd_init_db,
@@ -223,6 +224,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("fetch-earnings", help="Fetch upcoming earnings dates for S&P 100").set_defaults(func=cmd_fetch_earnings)
     subparsers.add_parser("halt-trading").set_defaults(func=cmd_halt_trading)
     subparsers.add_parser("resume-trading").set_defaults(func=cmd_resume_trading)
+    subparsers.add_parser("cancel-all-pending", help="Cancel all pending Alpaca orders").set_defaults(func=cmd_cancel_all_pending)
     subparsers.add_parser("preflight").set_defaults(func=cmd_preflight)
     council = subparsers.add_parser("council", help="Run an AI Council session")
     council.add_argument("--type", default="daily", choices=["daily", "weekly", "monthly", "strategic"])
