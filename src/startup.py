@@ -325,6 +325,34 @@ def check_connectivity(config: dict, db_path: str = DB_PATH) -> list[CheckResult
                 detail="Render DB URL configured",
                 fix_hint="Set render.database_url in settings.local.yaml",
             ))
+            # Check Postgres schema drift against registry (#307)
+            try:
+                import psycopg2
+                from src.schema.registry import TABLES
+                from src.sync.render_sync import SYNC_TABLES
+                synced_names = {t["name"] for t in SYNC_TABLES}
+                with psycopg2.connect(db_url) as pg_conn:
+                    with pg_conn.cursor() as cur:
+                        for table in TABLES:
+                            if table.name not in synced_names:
+                                continue
+                            cur.execute(
+                                "SELECT column_name FROM information_schema.columns "
+                                "WHERE table_name = %s", (table.name,))
+                            pg_cols = {r[0] for r in cur.fetchall()}
+                            if not pg_cols:
+                                continue
+                            registry_cols = {c.name for c in table.columns}
+                            missing = registry_cols - pg_cols
+                            if missing:
+                                results.append(CheckResult(
+                                    name="render_schema_drift", category="connectivity",
+                                    status="warn",
+                                    detail=f"Postgres drift: {table.name} missing columns: {', '.join(sorted(missing))}",
+                                    fix_hint="Run: DATABASE_URL=... python scripts/render_migrate.py",
+                                ))
+            except Exception as e:
+                logger.debug("Postgres drift check skipped: %s", e)
 
     return results
 

@@ -195,7 +195,7 @@ def compute_traffic_light(
                     )
                 elif raw_regime == pending:
                     # Same as pending — increment count
-                    new_count = (count or 0) + 1
+                    new_count = int(count or 0) + 1
                     if new_count >= 5:
                         # Persistence threshold met (5 consecutive readings ≈ 2.5 hours)
                         final_regime = raw_regime

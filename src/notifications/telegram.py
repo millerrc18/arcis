@@ -635,9 +635,13 @@ def notify_research_papers(total_new: int, top_paper: str, top_score: float) -> 
     """Notify about new research papers discovered."""
     if total_new == 0:
         return True
+    try:
+        score_value = float(top_score)
+    except (TypeError, ValueError):
+        score_value = 0.0
     msg = (
         f"📄 {total_new} new research papers\n"
-        f"Top: {top_paper[:60]} (relevance: {top_score:.1f})"
+        f"Top: {top_paper[:60]} (relevance: {score_value:.1f})"
     )
     return send_telegram(msg)
 

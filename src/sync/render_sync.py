@@ -89,7 +89,7 @@ def _init_sync_state(db_path: str = LOCAL_DB) -> None:
         with _sqlite_conn(db_path) as conn:
             conn.executescript(_generate_create_sql(_REGISTRY_TABLES["sync_state"]))
     except Exception as exc:
-        logger.error("Failed to init sync_state table: %s", exc)
+        logger.error("Failed to init sync_state table: %s", exc, extra={"ctx": {"event": "sync_error", "table": "sync_state", "error": str(exc)}})
 
 
 def get_last_synced_at(table_name: str, db_path: str = LOCAL_DB) -> str | None:
@@ -102,7 +102,7 @@ def get_last_synced_at(table_name: str, db_path: str = LOCAL_DB) -> str | None:
             ).fetchone()
             return row[0] if row else None
     except Exception as exc:
-        logger.error("Failed to read sync_state for %s: %s", table_name, exc)
+        logger.error("Failed to read sync_state for %s: %s", table_name, exc, extra={"ctx": {"event": "sync_error", "table": table_name, "error": str(exc)}})
         return None
 
 
@@ -123,9 +123,9 @@ def set_last_synced_at(table_name: str, ts: str, db_path: str = LOCAL_DB) -> Non
             if "locked" in str(exc) and attempt < 2:
                 time.sleep(1 + attempt)
                 continue
-            logger.error("Failed to update sync_state for %s: %s", table_name, exc)
+            logger.error("Failed to update sync_state for %s: %s", table_name, exc, extra={"ctx": {"event": "sync_error", "table": table_name, "error": str(exc)}})
         except Exception as exc:
-            logger.error("Failed to update sync_state for %s: %s", table_name, exc)
+            logger.error("Failed to update sync_state for %s: %s", table_name, exc, extra={"ctx": {"event": "sync_error", "table": table_name, "error": str(exc)}})
             return
 
 
@@ -297,7 +297,7 @@ def _upsert_to_postgres(
             pg_conn.commit()
         except Exception as exc:
             pg_conn.rollback()
-            logger.error("Postgres upsert failed for %s: %s", table_name, exc)
+            logger.error("Postgres upsert failed for %s: %s", table_name, exc, extra={"ctx": {"event": "sync_error", "table": table_name, "error": str(exc)}})
             raise
         finally:
             cursor.close()
@@ -324,7 +324,7 @@ def _upsert_to_postgres(
         pg_conn.commit()
     except Exception as exc:
         pg_conn.rollback()
-        logger.error("Postgres upsert failed for %s: %s", table_name, exc)
+        logger.error("Postgres upsert failed for %s: %s", table_name, exc, extra={"ctx": {"event": "sync_error", "table": table_name, "error": str(exc)}})
         raise
     finally:
         cursor.close()
@@ -434,7 +434,7 @@ def _replace_latest_in_postgres(
         except Exception:
             pass
         pg_conn.rollback()
-        logger.error("Postgres replace failed for %s: %s", table_name, exc)
+        logger.error("Postgres replace failed for %s: %s", table_name, exc, extra={"ctx": {"event": "sync_error", "table": table_name, "error": str(exc)}})
         raise
     finally:
         cursor.close()
@@ -520,7 +520,7 @@ def pull_commands(database_url: str, db_path: str = LOCAL_DB) -> list[dict]:
     try:
         pg_conn = psycopg2.connect(database_url)
     except Exception as exc:
-        logger.error("pull_commands: cannot connect to Postgres: %s", exc)
+        logger.error("pull_commands: cannot connect to Postgres: %s", exc, extra={"ctx": {"event": "sync_error", "table": None, "error": str(exc)}})
         return []
 
     try:
@@ -557,7 +557,7 @@ def pull_commands(database_url: str, db_path: str = LOCAL_DB) -> list[dict]:
                     )
                     pulled.append(row)
                 except Exception as exc:
-                    logger.error("pull_commands: local insert failed: %s", exc)
+                    logger.error("pull_commands: local insert failed: %s", exc, extra={"ctx": {"event": "sync_error", "table": "pending_commands", "error": str(exc)}})
             local_conn.commit()
             local_conn.close()
 
@@ -607,7 +607,7 @@ def pull_commands(database_url: str, db_path: str = LOCAL_DB) -> list[dict]:
             logger.info("Pulled %d config overrides from cloud", len(override_rows))
 
     except Exception as exc:
-        logger.error("pull_commands failed: %s", exc)
+        logger.error("pull_commands failed: %s", exc, extra={"ctx": {"event": "sync_error", "table": None, "error": str(exc)}})
     finally:
         try:
             pg_conn.close()
@@ -656,7 +656,7 @@ def run_sync_cycle(database_url: str, db_path: str = LOCAL_DB) -> dict:
     try:
         import psycopg2  # noqa: F401
     except ImportError:
-        logger.error("psycopg2 not installed — cannot sync to Render")
+        logger.error("psycopg2 not installed — cannot sync to Render", extra={"ctx": {"event": "sync_error", "table": None, "error": "psycopg2 not installed"}})
         return {"synced": {}, "errors": ["psycopg2 not installed"],
                 "timestamp": datetime.now(ET).isoformat()}
 
@@ -668,7 +668,7 @@ def run_sync_cycle(database_url: str, db_path: str = LOCAL_DB) -> dict:
         pg_conn = _connect_pg_with_retry(database_url)
     except Exception as exc:
         logger.error("Cannot connect to Render Postgres after %d retries: %s",
-                      _PG_CONNECT_RETRIES, exc)
+                      _PG_CONNECT_RETRIES, exc, extra={"ctx": {"event": "sync_error", "table": None, "error": str(exc)}})
         summary["errors"].append(f"connection_failed: {exc}")
         return summary
 
@@ -681,7 +681,7 @@ def run_sync_cycle(database_url: str, db_path: str = LOCAL_DB) -> dict:
                     summary["synced"][table_name] = count
                     logger.info("Synced %d rows to %s", count, table_name)
             except Exception as exc:
-                logger.error("Sync failed for %s: %s", table_name, exc)
+                logger.error("Sync failed for %s: %s", table_name, exc, extra={"ctx": {"event": "sync_error", "table": table_name, "error": str(exc)}})
                 summary["errors"].append(f"{table_name}: {exc}")
                 pg_conn = None  # Force reconnect on next table
     finally:
@@ -698,7 +698,7 @@ def run_sync_cycle(database_url: str, db_path: str = LOCAL_DB) -> dict:
             summary["pulled_commands"] = len(pulled)
             summary["commands"] = pulled
     except Exception as exc:
-        logger.error("Command pull failed: %s", exc)
+        logger.error("Command pull failed: %s", exc, extra={"ctx": {"event": "sync_error", "table": None, "error": str(exc)}})
         summary["errors"].append(f"pull_commands: {exc}")
 
     return summary
@@ -781,10 +781,10 @@ class RenderSyncThread(threading.Thread):
                     try:
                         self._on_commands_pulled(commands)
                     except Exception as exc:
-                        logger.error("Command execution callback failed: %s", exc)
+                        logger.error("Command execution callback failed: %s", exc, extra={"ctx": {"event": "sync_error", "table": None, "error": str(exc)}})
             except Exception as exc:
                 self.sync_consecutive_errors += 1
-                logger.error("Unhandled error in sync cycle: %s", exc)
+                logger.error("Unhandled error in sync cycle: %s", exc, extra={"ctx": {"event": "sync_error", "table": None, "error": str(exc)}})
                 try:
                     from src.notifications.telegram import send_telegram
                     send_telegram(f"🚨 Render sync error: <code>{exc}</code>")

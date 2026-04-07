@@ -7,10 +7,30 @@ Config keys: none
 Tests: none
 """
 
+import json
 import logging
 import sys
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
+
+
+class StructuredFormatter(logging.Formatter):
+    """Log formatter that appends structured context as |ctx:{JSON}.
+
+    When a LogRecord has a non-empty ``ctx`` attribute (set via
+    ``extra={"ctx": {...}}``), the JSON is appended after the message.
+    Plain messages are unchanged — backwards-compatible.
+
+    Example output:
+        2026-04-06 09:01:00 [executor] ERROR: Exit failed for TGT |ctx:{"event":"exit_failed","ticker":"TGT"}
+    """
+
+    def format(self, record: logging.LogRecord) -> str:
+        base = super().format(record)
+        ctx = getattr(record, "ctx", None)
+        if ctx:
+            return f"{base} |ctx:{json.dumps(ctx, separators=(',', ':'), default=str)}"
+        return base
 
 
 def setup_logging(level: str = "INFO", log_file: str | None = None):
@@ -26,7 +46,7 @@ def setup_logging(level: str = "INFO", log_file: str | None = None):
     # Clear existing handlers
     root.handlers.clear()
 
-    fmt = logging.Formatter("%(asctime)s [%(name)s] %(levelname)s: %(message)s")
+    fmt = StructuredFormatter("%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 
     # Console handler
     console = logging.StreamHandler(sys.stdout)

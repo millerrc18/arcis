@@ -166,6 +166,26 @@ class TestRegimeAlert:
         assert "Tighter" in msg
 
 
+class TestResearchPapers:
+    """Test notify_research_papers formatting and type safety."""
+
+    @patch("src.notifications.telegram.send_telegram")
+    def test_string_score_is_coerced(self, mock_send):
+        mock_send.return_value = True
+        from src.notifications.telegram import notify_research_papers
+
+        result = notify_research_papers(
+            total_new=3,
+            top_paper="A useful paper title",
+            top_score="0.83",
+        )
+
+        assert result is True
+        msg = mock_send.call_args[0][0]
+        assert "3 new research papers" in msg
+        assert "relevance: 0.8" in msg
+
+
 class TestVixThresholdCrossing:
     """Test the VIX threshold crossing logic in watch loop."""
 
