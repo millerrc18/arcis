@@ -33,6 +33,7 @@ Endpoints:
     GET  /training/history          - Model version list (cloud parity alias)
     GET  /attribution/stats         - Alpha attribution statistics
     GET  /stress-test/results       - Historical stress test results
+    GET  /simulation/results        - Simulation engine results (heatmap data)
 """
 import logging
 
@@ -422,7 +423,7 @@ _TABLE_WHITELIST = [
     "bracket_health", "council_calibrations", "council_debug_log",
     "council_parameter_log", "council_parameter_state",
     "research_digests", "research_docs", "research_papers",
-    "setup_signals", "sync_state", "traffic_light_state",
+    "setup_signals", "simulation_results", "sync_state", "traffic_light_state",
     "user_notes",
 ]
 
@@ -638,8 +639,8 @@ def simulation_results():
             results = []
             for r in rows:
                 d = dict(r)
-                for jf in ("monthly_returns_json", "regime_breakdown_json",
-                           "equity_curve_json"):
+                for jf in ("monthly_returns_json", "equity_curve_json",
+                           "regime_breakdown_json", "config_json"):
                     if d.get(jf):
                         try:
                             d[jf] = json.loads(d[jf])

@@ -234,6 +234,9 @@ class WatchLoop:
         # Attribution outcome resolution
         self._attribution_resolution_done = False
 
+        # Model regression check
+        self._model_regression_done = False
+
         # Stress test scheduling
         self._stress_test_done = False
 
@@ -290,6 +293,7 @@ class WatchLoop:
         self._postclose_bracket_check_done = False
         self._postclose_reconcile_done = False
         self._attribution_resolution_done = False
+        self._model_regression_done = False
         self._stress_test_done = False
         self._simulation_done = False
         self._last_bracket_check_time = None
@@ -1408,6 +1412,13 @@ class WatchLoop:
                     if self._safe_run("training check", self._run_training_check):
                         self._training_run_done = True
 
+                # 5b. Model regression check (5:05 PM ET, after market close)
+                if (hour == 17 and now.minute >= 5 and now.minute < 15
+                        and not self._model_regression_done):
+                    if self._safe_run("model regression check",
+                                      self._run_model_regression_check):
+                        self._model_regression_done = True
+
                 # 6. Saturday training report (9 AM ET)
                 elif (self.training_enabled and now.weekday() == 5
                       and hour == 9 and not self._saturday_reports_done):
@@ -2024,6 +2035,29 @@ class WatchLoop:
             log_activity("overnight_task", detail)
         except Exception as e:
             logger.debug("[WATCH] Failed to log overnight task: %s", e)
+
+    def _run_model_regression_check(self):
+        """5:05 PM ET — Check if current model underperforms previous on live trades."""
+        from src.evaluation.model_monitor import check_model_regression
+
+        result = check_model_regression()
+        logger.info("[MODEL_MONITOR] Regression check: %s — %s",
+                    result["status"], result["message"])
+
+        if result["status"] == "critical":
+            try:
+                from src.notifications.telegram import send_telegram_message
+                send_telegram_message(
+                    f"🚨 MODEL REGRESSION CRITICAL\n{result['message']}")
+            except Exception as e:
+                logger.warning("[MODEL_MONITOR] Telegram alert failed: %s", e)
+        elif result["status"] == "warning":
+            try:
+                from src.notifications.telegram import send_telegram_message
+                send_telegram_message(
+                    f"⚠️ Model regression warning\n{result['message']}")
+            except Exception as e:
+                logger.warning("[MODEL_MONITOR] Telegram alert failed: %s", e)
 
     def _run_post_close_capture(self):
         """5:30 PM ET — Capture final closing prices, update MFE/MAE on open positions."""

@@ -13,6 +13,7 @@ Endpoints (all POST /actions/*):
     POST /actions/collect-training  - Collect training data from closed trades
     POST /actions/train-pipeline    - Full pipeline: score -> leakage -> classify -> train
     POST /actions/score             - Score unscored training examples
+    POST /actions/simulation        - Run full-regime simulation engine
 
 All actions run in BackgroundTasks (non-blocking). The _action_lock prevents
 concurrent actions because many share the same GPU (Ollama inference vs PyTorch
@@ -323,3 +324,41 @@ def trigger_score(background_tasks: BackgroundTasks):
         raise HTTPException(status_code=409, detail=f"Action '{_running_action}' already running")
     background_tasks.add_task(_run_score)
     return {"status": "started", "action": "score"}
+
+
+def _run_simulation():
+    try:
+        broadcast_sync("action_started", {"action": "simulation"})
+    except Exception as e:
+        logger.warning("[ACTIONS] broadcast simulation action_started failed: %s", e)
+    try:
+        import subprocess
+        import sys
+        result = subprocess.run(
+            [sys.executable, "scripts/simulation_engine.py", "--monte-carlo", "1000"],
+            capture_output=True, text=True, timeout=3600,
+        )
+        try:
+            broadcast_sync("action_complete", {
+                "action": "simulation",
+                "returncode": result.returncode,
+            })
+        except Exception as e:
+            logger.warning("[ACTIONS] broadcast simulation action_complete failed: %s", e)
+    except Exception as e:
+        logger.error("Action simulation failed: %s", e)
+        try:
+            broadcast_sync("action_error", {"action": "simulation", "error": str(e)})
+        except Exception as e2:
+            logger.warning("[ACTIONS] broadcast simulation action_error failed: %s", e2)
+    finally:
+        _clear_running()
+
+
+@router.post("/simulation")
+def trigger_simulation(background_tasks: BackgroundTasks):
+    """Run the full-regime simulation engine in the background."""
+    if not _set_running("simulation"):
+        raise HTTPException(status_code=409, detail=f"Action '{_running_action}' already running")
+    background_tasks.add_task(_run_simulation)
+    return {"status": "started", "action": "simulation"}
