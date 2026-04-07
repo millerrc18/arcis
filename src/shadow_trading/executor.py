@@ -781,6 +781,14 @@ def check_and_manage_open_trades(
                             "action": mr_exit["exit_reason"],
                             "pnl_dollars": pnl,
                         })
+                        # Attribution: link MR exit outcome
+                        _mr_rec_id = trade.get("recommendation_id")
+                        if _mr_rec_id:
+                            try:
+                                from src.attribution.logger import link_trade_outcome
+                                link_trade_outcome(_mr_rec_id, "win" if pnl_pct > 0 else "loss", round(pnl_pct, 2))
+                            except Exception:
+                                pass
                         continue  # Skip bracket logic
             except Exception as e:
                 logger.debug("[EXECUTOR] MR exit check failed for %s: %s", ticker, e)
@@ -808,6 +816,14 @@ def check_and_manage_open_trades(
                     "action": "mr_timeout",
                     "pnl_dollars": pnl,
                 })
+                # Attribution: link MR timeout outcome
+                _mr_rec_id = trade.get("recommendation_id")
+                if _mr_rec_id:
+                    try:
+                        from src.attribution.logger import link_trade_outcome
+                        link_trade_outcome(_mr_rec_id, "win" if pnl_pct > 0 else "loss", round(pnl_pct, 2))
+                    except Exception:
+                        pass
                 continue
 
         # For bracket orders, check Alpaca for exit fills.
@@ -1096,6 +1112,15 @@ def check_and_manage_open_trades(
                 "recommendation_id": rec_id,
             }
             actions.append(action)
+
+            # Attribution: link trade outcome to attribution record
+            if rec_id:
+                try:
+                    from src.attribution.logger import link_trade_outcome
+                    outcome = "win" if pnl_pct > 0 else "loss"
+                    link_trade_outcome(rec_id, outcome, round(pnl_pct, 2))
+                except Exception as e:
+                    logger.debug("[ATTRIBUTION] link_trade_outcome failed for %s: %s", ticker, e)
 
             logger.info(
                 "[SHADOW] Closed %s: %s | P&L=$%+.2f (%+.1f%%) | held %d days",

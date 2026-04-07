@@ -103,6 +103,36 @@ def log_attribution_after_llm(
         logger.warning("[ATTRIBUTION] Phase 2 failed: %s", e)
 
 
+def link_trade_outcome(
+    recommendation_id: str,
+    outcome: str,
+    pnl_pct: float,
+    db_path: str = DB_PATH,
+) -> bool:
+    """Link actual trade outcome to attribution record via recommendation_id.
+
+    Called when a shadow/live trade closes. Updates llm_portfolio_outcome
+    and llm_portfolio_pnl_pct on the matching attribution_trades row.
+    Returns True if a row was updated.
+    """
+    try:
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.execute(
+                "UPDATE attribution_trades SET llm_portfolio_outcome = ?, "
+                "llm_portfolio_pnl_pct = ? WHERE recommendation_id = ?",
+                (outcome, pnl_pct, recommendation_id),
+            )
+            conn.commit()
+            if cursor.rowcount > 0:
+                logger.info("[ATTRIBUTION] Linked outcome %s (%.2f%%) to rec %s",
+                            outcome, pnl_pct, recommendation_id[:8])
+                return True
+            return False
+    except Exception as e:
+        logger.warning("[ATTRIBUTION] link_trade_outcome failed: %s", e)
+        return False
+
+
 def simulate_mechanical_outcome(
     entry_price: float,
     stop_price: float,
