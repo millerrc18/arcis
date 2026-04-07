@@ -744,6 +744,14 @@ class WatchLoop:
             llm_success=result.packet_worthy_count,
             llm_total=result.packet_worthy_count)
 
+    def _run_mr_scan(self):
+        """Run mean reversion scan after main scan."""
+        from src.services.mr_scan_service import run_mr_scan
+        result = run_mr_scan(self.config)
+        if result.get("trades_opened", 0) > 0:
+            logger.info("[WATCH] MR scan opened %d trades", result["trades_opened"])
+        return result.get("status") != "error"
+
     def _post_scan_notifications(self, result):
         """Send Telegram notifications after a scan cycle."""
         try:
@@ -1250,6 +1258,9 @@ class WatchLoop:
                         self._last_scan_time = now
                     # 1E. Check VIX regime alert after each scan
                     self._safe_run("VIX regime check", self._check_vix_regime_alert)
+
+                    # 1F. Mean reversion scan (after main scan)
+                    self._safe_run("MR scan", self._run_mr_scan)
 
                 # 2.5. Tier 3: Sentiment refresh (every 60 min during market hours)
                 if (self.market_open_hour <= hour < self.market_close_hour
