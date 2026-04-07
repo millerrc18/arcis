@@ -64,7 +64,7 @@ with an unbeatable technological moat.
 | Dashboard pages | 18 |
 | Research docs | 74 |
 | Schema tables | 49 (registry) |
-| GitHub issues | 4 open (#302-304 deferred, #317 dotenv) |
+| GitHub issues | 7 open (#302-304 deferred, #318-321 production) |
 | Monthly cost | ~$64 (Render $7 + Ollama free + Claude API ~$50 + domain $7) |
 | Hardware | RTX 3060 12GB, Windows 11, Z690, 24/7 operation |
 | HSHS health score | 85.33 |
@@ -96,11 +96,12 @@ with an unbeatable technological moat.
 
 ### Open GitHub Issues
 
-8 open as of 2026-04-06:
-- #295-297: Gap assessment features (on feat/gap-assessment-top3 branch)
+7 open as of 2026-04-07:
 - #302-304: Deferred fixes (VRAM handoff, research source resilience, NULL PKs)
-- #314: Logging improvement initiative (structured output for AI review)
-- #315: Dependabot security vulnerabilities (2 high, 1 moderate)
+- #318: LLM conviction parsing regression (conviction=None, allocation cap)
+- #319: Paper account positions flipped to short
+- #320: Executor cross-broker mismatch (live vs paper positions)
+- #321: UnicodeEncodeError in reconcile-live CLI (cp1252 emoji)
 
 ### Known Blockers
 
