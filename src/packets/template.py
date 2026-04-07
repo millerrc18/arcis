@@ -35,7 +35,7 @@ def build_packet_from_features(ticker: str, features: dict, config: dict) -> Tra
         max_risk_dollars *= 0.5  # Reduce position size by 50% for earnings risk
     stop_distance = 2 * atr if atr > 0 else price * 0.03
     shares = max(1, int(max_risk_dollars / stop_distance)) if stop_distance > 0 else 1
-    allocation = shares * price
+    allocation = float(int(shares) * float(price))
     allocation_pct = (allocation / capital * 100) if capital > 0 else 0
 
     # Confidence from score

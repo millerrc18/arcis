@@ -11,6 +11,20 @@
 > - `docs/sprints/design-simulation-engine.md` — full design spec with Ralph Loop iterations
 > - `scripts/stress_test.py` (434 lines) — existing stress test to learn from and reuse
 
+> ⚠️ **PARALLEL SPRINT AWARENESS:** Two other sprints are running simultaneously:
+> - `feat/gap-assessment-top3` — modifies `src/training/`, `src/council/`, `src/ranking/`
+> - `feat/ui-bloomberg` — modifies `frontend/src/` (styling all existing pages)
+>
+> **Your branch (`feat/simulation-engine`) has 2 shared files:**
+> - `frontend/src/components/Layout.jsx` — UI sprint is restyling it. You ADD one nav entry only.
+> - `frontend/src/App.jsx` — UI sprint may touch imports. You ADD one route only.
+>
+> **Rules to minimize merge conflicts:**
+> 1. In Layout.jsx: add the nav entry as a NEW LINE at the END of the Intelligence section
+> 2. In App.jsx: add the route as a NEW LINE at the END of the Route list
+> 3. Do NOT restyle, reformat, or change any existing lines in these two files
+> 4. The new Simulation.jsx page will inherit Bloomberg styling after merge — keep styling minimal
+
 ---
 
 ## Pre-Flight
@@ -463,6 +477,184 @@ elif command_name == "simulation":
 
 ---
 
+## Task 10: Render Sync for Dashboard Visibility
+
+> ⚠️ **Without this, the dashboard at halcyonlab.app can't see simulation results.**
+> The dashboard queries Render Postgres, not local SQLite.
+
+**Add `simulation_results` to `src/sync/render_sync.py`:**
+
+Find the table sync list (look for where tables like `stress_test_results`, `shadow_trades`,
+etc. are listed) and add `simulation_results` with the same sync pattern. Use the
+`_sync_table_upsert()` or `_sync_table_replace()` pattern that other tables use.
+
+Key columns to sync: `result_id`, `run_id`, `scenario`, `verdict`, `total_trades`, `win_rate`,
+`profit_factor`, `sharpe_ratio`, `max_drawdown_pct`, `benchmark_pnl_pct`, `excess_return_pct`,
+`mc_p95_dd`, `tl_correct`, `equity_curve_json`, `model_version`, `created_at`.
+
+Skip the very large JSON blobs if they exceed Postgres row size limits — `config_json` can
+be truncated to 10KB.
+
+---
+
+## Task 11: Simulation Dashboard Page
+
+**Create `frontend/src/pages/Simulation.jsx`:**
+
+This is the regime heatmap page — the single most valuable visualization in the system.
+
+**Layout:**
+1. **Top: Run controls** — "Run Simulation" button (via command queue), last run timestamp
+2. **Middle: Regime heatmap table** — the core output
+   ```
+   Regime           | Trades | WR    | PF   | DD    | Sharpe | SPY   | Excess | TL OK | Verdict
+   Strong bull      |   45   | 58%   | 1.8  | 4.2%  |  1.2   | +30%  | +2.1%  |  ✓    | ✅ EDGE
+   Sideways chop    |    8   | 38%   | 0.7  | 6.2%  | -0.2   | +1.0% | -1.2%  |  ✗    | ❌ BLEEDS
+   ```
+   - Color-code verdict column: green=edge, gray=neutral, amber=marginal, red=bleeds, dim=insufficient
+   - Color-code TL OK column: green check = traffic light correctly identified regime, red X = missed
+   - All numbers monospace, P&L values green/red
+3. **Bottom left: Equity curve overlay** — all scenarios on one chart, each a different shade
+4. **Bottom right: Monte Carlo summary** — if MC was run, show p5/p95 equity, p95 DD, ruin probability
+
+**Data source:**
+```javascript
+const { data } = useQuery({
+  queryKey: ['simulation-results'],
+  queryFn: api.getSimulationResults,
+  refetchInterval: 60000,
+})
+```
+
+**Add to `frontend/src/api.js`:**
+```javascript
+getSimulationResults: () => fetchJson('/simulation/results'),
+```
+
+> **PARALLEL SPRINT NOTE:** The UI bloomberg sprint is running on a separate branch
+> and will restyle all EXISTING pages. This new page will NOT have Bloomberg styling
+> applied by that sprint. Keep styling minimal/functional — it will be Bloomberg-styled
+> in a quick follow-up after merge. Use existing CSS variables (`var(--arcis-bg-surface)`,
+> `var(--font-mono)`, etc.) and it will inherit whatever the UI sprint sets them to.
+
+---
+
+## Task 12: Route + Sidebar Nav Entry
+
+> ⚠️ **PARALLEL SPRINT AWARENESS:** `Layout.jsx` and `App.jsx` are also being modified by
+> the `feat/ui-bloomberg` branch (styling only, not structure). Keep changes here MINIMAL
+> — add only the nav entry and route. Do NOT restyle anything. This minimizes merge conflicts.
+
+**Add to `frontend/src/App.jsx`:**
+```jsx
+import Simulation from './pages/Simulation'
+
+// Add this route alongside the existing stress-test route:
+<Route path="/simulation" element={<ErrorBoundary><Simulation /></ErrorBoundary>} />
+```
+
+**Add to `frontend/src/components/Layout.jsx`:**
+
+Find the "Intelligence" nav section (where stress-test lives) and add ONE line:
+```jsx
+{ to: '/simulation', icon: BarChart2, label: 'Simulation' },
+```
+
+Add the import: `import { BarChart2 } from 'lucide-react'` (or reuse an existing icon).
+
+**IMPORTANT:** Make these additions on NEW LINES at the END of their respective lists.
+This makes git merge trivially resolvable even if the UI sprint modified surrounding lines.
+
+---
+
+## Task 13: Watch Loop — Weekly Schedule + Command Queue
+
+**Add to `src/scheduler/watch.py`:**
+
+Find the weekly stress test scheduling section (around line 1406) and add simulation
+scheduling immediately after:
+
+```python
+# Weekly simulation engine (Sunday 9:30 PM ET, after stress test)
+if (hour == 21 and minute >= 30
+        and not self._simulation_done):
+    if self._safe_run("weekly simulation", self._run_simulation_engine):
+        self._simulation_done = True
+```
+
+Add the method:
+```python
+def _run_simulation_engine(self):
+    """Run full 13-scenario simulation with Monte Carlo."""
+    import subprocess
+    result = subprocess.run(
+        [sys.executable, "scripts/simulation_engine.py", "--monte-carlo", "1000"],
+        capture_output=True, text=True, timeout=7200,  # 2-hour timeout
+    )
+    if result.returncode != 0:
+        logger.error("[WATCH] Simulation engine failed: %s", result.stderr[:500])
+    else:
+        logger.info("[WATCH] Simulation engine completed")
+    return result.returncode == 0
+```
+
+Add reset flags:
+```python
+# In the daily reset section:
+self._simulation_done = False
+```
+
+Also add simulation to the **command queue dispatch** so the dashboard button works:
+Find where `stress-test` is handled in the command dispatch and add:
+```python
+elif command_name == "simulation":
+    self._safe_run("simulation (command)", self._run_simulation_engine)
+```
+
+---
+
+## Task 14: Post-Retrain Auto-Trigger
+
+**Add to `src/training/trainer.py`:**
+
+Find the function that completes a retrain (look for where the new model is registered
+in `model_versions` table or where Ollama is reloaded). After the retrain completes
+successfully, add:
+
+```python
+def _trigger_simulation_regression_check(self, new_model: str, old_model: str):
+    """Auto-run simulation suite after retrain to check for regime regression.
+
+    If any regime flips from 'edge' to 'bleeds', log a CRITICAL warning.
+    Does NOT block deployment automatically — that's a future enhancement.
+    For now, it logs the regression so the weekly review catches it.
+    """
+    import subprocess
+    logger.info("[TRAINER] Running post-retrain simulation regression check")
+    result = subprocess.run(
+        [sys.executable, "scripts/simulation_engine.py",
+         "--monte-carlo", "500", "--model", new_model],
+        capture_output=True, text=True, timeout=7200,
+    )
+    if result.returncode == 0:
+        logger.info("[TRAINER] Simulation regression check completed for %s", new_model)
+    else:
+        logger.warning("[TRAINER] Simulation regression check failed: %s", result.stderr[:300])
+```
+
+Call this after a successful retrain:
+```python
+# After model registration succeeds:
+self._trigger_simulation_regression_check(new_model_name, old_model_name)
+```
+
+> **NOTE:** This is a non-blocking check for now. It logs results but doesn't auto-block
+> deployment. The blocking logic (comparing verdicts between old and new model) requires
+> querying simulation_results for both run_ids — add that in a future sprint when we have
+> enough model versions to make the comparison meaningful.
+
+---
+
 ## Tests
 
 **Create `tests/test_simulation_engine.py`:**
@@ -479,6 +671,8 @@ elif command_name == "simulation":
 - `test_heatmap_output_format()` — verify print_heatmap produces correct table
 - `test_reproducibility_info()` — verify git hash and config captured
 - `test_schema_registered()` — verify simulation_results in registry
+- `test_render_sync_includes_simulation()` — verify table is in sync list
+- `test_api_endpoint_returns_results()` — verify /simulation/results returns JSON
 
 ---
 
@@ -496,6 +690,10 @@ python scripts/simulation_engine.py --regime low_volatility
 # Verify cache works (second run should be fast)
 time python scripts/simulation_engine.py --regime low_volatility
 # Expected: <30 seconds on second run
+
+# Verify dashboard page exists
+grep "Simulation" frontend/src/App.jsx    # Route exists
+grep "simulation" frontend/src/components/Layout.jsx  # Nav entry exists
 
 # Full run (if time allows)
 python scripts/simulation_engine.py --monte-carlo 500
@@ -523,17 +721,210 @@ git commit -m "feat: Monte Carlo resampling + traffic light validation
 probability of ruin). Traffic light validation checks regime detection
 accuracy per scenario, including transition detection for →scenarios."
 
-# Commit 3: Schema + tests + reproducibility
-git add src/schema/registry.py tests/test_simulation_engine.py src/api/
-git commit -m "feat: simulation schema, API endpoint, tests, reproducibility
+# Commit 3: Schema + API + render sync + tests
+git add src/schema/registry.py src/sync/render_sync.py src/api/ tests/
+git commit -m "feat: simulation schema, API endpoint, render sync, tests
 
 simulation_results table with MC fields, TL validation, benchmark.
-Reproducibility: fixed seed, git hash, config snapshot.
-API endpoint for dashboard. 13 test cases."
+Render sync added for dashboard visibility on halcyonlab.app.
+API endpoint /simulation/results. 15 test cases."
 
-# Tag + push
-git tag -a v0.16.0 -m "v0.16.0 — Full-regime simulation engine: 13 scenarios, Monte Carlo, traffic light validation"
-git push origin main && git push origin v0.16.0
+# Commit 4: Dashboard page + route + nav (MINIMAL frontend changes)
+git add frontend/src/pages/Simulation.jsx frontend/src/App.jsx frontend/src/components/Layout.jsx frontend/src/api.js
+git commit -m "feat: Simulation dashboard page + route + nav entry
+
+Regime heatmap table, equity curve overlay, Monte Carlo summary.
+Minimal styling (uses CSS variables) — Bloomberg styling applied after
+merge with feat/ui-bloomberg branch."
+
+# Commit 5: Watch loop schedule + post-retrain trigger
+git add src/scheduler/watch.py src/training/trainer.py
+git commit -m "feat: weekly simulation schedule + post-retrain regression check
+
+Sunday 9:30 PM ET auto-run. Command queue support for dashboard button.
+Post-retrain trigger logs regression check (non-blocking).
+2-hour timeout for full suite."
+
+# Do NOT tag or merge — push to feature branch only
+git push origin feat/simulation-engine
 ```
 
-Update MASTER.md and RELEASES.md.
+---
+
+## Tasks 10-14: Backend Integration (Ralph Loop ×3 additions)
+
+> These tasks were identified during sprint execution as gaps between the
+> simulation engine and the rest of the system. Without them, the engine
+> runs from CLI but is invisible on the dashboard and disconnected from
+> the deployment pipeline.
+
+### Task 10: Render Sync for `simulation_results` (Ralph Loop 1)
+
+The dashboard at halcyonlab.app queries Render Postgres, not local SQLite.
+Without adding `simulation_results` to the sync pipeline, the dashboard
+page shows empty.
+
+**In `src/schema/registry.py`**, when registering the `simulation_results` table,
+set sync properties:
+```python
+sync_to_postgres=True,
+sync_mode="replace",         # Full replace each run (not incremental)
+sync_pk="result_id",
+sync_time_column="created_at",
+```
+
+**Verify** by running `python -c "from src.schema.sync_config import generate_sync_tables; print([t for t in generate_sync_tables() if 'simulation' in t])"` — should return `['simulation_results']`.
+
+### Task 11: Dashboard Page (`frontend/src/pages/Simulation.jsx`) (Ralph Loop 1)
+
+Create a new dashboard page with:
+
+1. **Regime heatmap table** — the primary output. Color-coded by verdict:
+   - edge = green row accent
+   - neutral = no accent
+   - marginal = amber row accent  
+   - bleeds = red row accent
+   - insufficient = gray, italic
+   Columns: Regime, Trades, WR, PF, DD, Sharpe, SPY, Excess, MC p95 DD, TL Correct, Verdict
+
+2. **Equity curve overlay chart** — all 13 scenarios on one Recharts LineChart.
+   Each scenario gets a unique color from the chart palette. Toggle individual
+   scenarios on/off via legend clicks.
+
+3. **Monte Carlo confidence band** (if MC data exists) — shaded area between
+   p5 and p95 equity for the selected scenario.
+
+4. **Traffic light validation scorecard** — simple table showing:
+   Scenario | Expected TL | Actual TL | Correct?
+   Color rows red where TL was wrong.
+
+5. **"Run Simulation" button** — submits via command queue (same pattern as
+   stress test run button in StressTest.jsx). Shows progress/status.
+
+6. **Run comparison dropdown** — select between different run_ids to compare
+   model versions side by side.
+
+**Data source:** `api.getSimulationResults()` → `GET /simulation/results`
+(created in Task 9).
+
+### Task 12: Route + Sidebar Nav (Ralph Loop 1)
+
+**In `frontend/src/App.jsx`:**
+```jsx
+import Simulation from './pages/Simulation'
+// In Routes:
+<Route path="/simulation" element={<ErrorBoundary><Simulation /></ErrorBoundary>} />
+```
+
+**In `frontend/src/components/Layout.jsx`:**
+Add to the "Intelligence" section (after Stress Test):
+```jsx
+{ to: '/simulation', icon: FlaskConical, label: 'Simulation' },
+```
+Import `FlaskConical` from lucide-react (or use `Beaker`, `TestTube2`, `Gauge`).
+
+### Task 13: Watch Loop Scheduling (Ralph Loop 2)
+
+**In `src/scheduler/watch.py`:**
+
+Add to `__init__`:
+```python
+self._simulation_done = False
+```
+
+Add to `_reset_weekly_state` (or `_reset_daily_state` depending on pattern):
+```python
+self._simulation_done = False
+```
+
+Add to the Sunday scheduling block (after stress test, ~10 PM ET):
+```python
+# Weekly simulation suite (Sunday 10 PM ET, after stress test)
+elif (now.weekday() == 6 and hour == 22
+      and not self._simulation_done):
+    if self._safe_run("weekly simulation", self._run_simulation_suite):
+        self._simulation_done = True
+```
+
+Add the handler method:
+```python
+def _run_simulation_suite(self):
+    """Run full 13-scenario simulation engine."""
+    import subprocess
+    result = subprocess.run(
+        [sys.executable, "scripts/simulation_engine.py", "--monte-carlo", "500"],
+        capture_output=True, text=True, timeout=7200,  # 2 hour timeout
+    )
+    if result.returncode != 0:
+        logger.error("[WATCH] Simulation failed: %s", result.stderr[:500])
+        raise RuntimeError(f"Simulation failed: {result.returncode}")
+    logger.info("[WATCH] Simulation suite complete")
+```
+
+### Task 14: Post-Retrain Auto-Trigger (Ralph Loop 2)
+
+**In `src/training/trainer.py`**, after a successful retrain completes
+(after champion-challenger evaluation and model promotion):
+
+```python
+# After model promoted to production
+def _trigger_simulation_regression_check(new_model_version: str):
+    """Auto-run simulation suite with new model for regression detection."""
+    import subprocess
+    logger.info("[TRAINER] Triggering post-retrain simulation regression check")
+    # Run in background — don't block the training pipeline
+    subprocess.Popen(
+        [sys.executable, "scripts/simulation_engine.py",
+         "--monte-carlo", "500", "--model-version", new_model_version],
+    )
+```
+
+Add `--model-version` flag to `simulation_engine.py` CLI:
+```python
+parser.add_argument("--model-version", type=str, default="current",
+                    help="Model version label for results tracking")
+```
+
+The regression check logic compares the new run's verdicts against the most
+recent previous run. If any regime flips from edge/neutral to bleeds,
+log a CRITICAL warning and (optionally) send a Telegram alert.
+
+### Task 14b: Command Queue Handler (Ralph Loop 3)
+
+**In the watch loop's command dispatch** (where dashboard buttons get processed),
+add handling for the "simulation" command:
+
+```python
+elif cmd["command_name"] == "simulation":
+    self._safe_run("simulation (command)", self._run_simulation_suite)
+```
+
+This lets the dashboard "Run Simulation" button actually work via the
+command queue → watch loop → subprocess pattern.
+
+---
+
+## Ralph Loop 3 Verification: Full Integration Check
+
+After Tasks 10-14, verify the full loop works:
+
+```bash
+# 1. Schema includes simulation_results with sync enabled
+python -c "from src.schema.sync_config import generate_sync_tables; assert 'simulation_results' in generate_sync_tables()"
+
+# 2. Frontend builds with new page
+cd frontend && npm run build && cd ..
+
+# 3. Simulation page accessible at /simulation
+# (verify in browser after npm run dev)
+
+# 4. Sidebar shows Simulation under Intelligence
+# (visual check)
+
+# 5. Command queue accepts simulation command
+# (test via dashboard button or direct API call)
+
+# 6. Run a single scenario and verify results appear on dashboard
+python scripts/simulation_engine.py --regime strong_bull
+# Then check /simulation page shows results
+```

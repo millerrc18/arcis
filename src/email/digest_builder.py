@@ -44,6 +44,14 @@ def _safe_fetchone(conn, sql, params=()):
         raise
 
 
+def _coerce_float(value, default: float = 0.0) -> float:
+    """Best-effort float coercion for mixed-type SQLite values."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def build_premarket_digest(db_path: str = DB_PATH) -> tuple[str, str]:
     """Pre-market brief: portfolio status, overnight events, today's plan."""
     now = datetime.now(ET)
@@ -102,10 +110,10 @@ def build_premarket_digest(db_path: str = DB_PATH) -> tuple[str, str]:
 
     if council:
         consensus = council["consensus"] or "unknown"
-        confidence = council["confidence_weighted_score"]
+        confidence = _coerce_float(council["confidence_weighted_score"], 0.0)
         contested = " (contested)" if council["is_contested"] else ""
         lines.extend(["", "━━━ COUNCIL ━━━", f"Latest assessment: {consensus}{contested}"])
-        if confidence:
+        if confidence > 0:
             lines.append(f"Confidence: {confidence:.0%}")
 
     lines.extend([

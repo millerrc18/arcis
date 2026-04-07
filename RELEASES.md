@@ -49,6 +49,35 @@
 
 ## Releases
 
+### v0.14.2 — 2026-04-06
+**Hotfix merge sprint — 6 critical production bugs + codex fixes + dependency updates**
+
+17 files changed, +387 -22 (hotfix). 11 PRs merged. 9 issues closed (#299-301, #307-312).
+5 stale remote branches deleted. 29 new tests added (1,410 → 1,439).
+
+**Critical fixes (PR #313):**
+- #310: Shadow trade exit cascade — `exit_failed` on broker exception + circuit breaker + `cancel-all-pending` CLI
+- #311: Type-safety gaps — `safe_numeric` utility, fixes in traffic_light, watch.py (VIX/EOD/brief)
+- #309/#312: LLM conviction parsing — Stage 6 catch-all regex + debug file logging
+- #308: Risk governor TypeError — `safe_numeric` coercion at `check_trade` entry
+- #307: Postgres schema drift — startup drift check + CLAUDE.md rule #8
+
+**Codex fixes (PR #305):**
+- #299: Ingestion gate markdown detection narrowed to line-leading headings
+- #300: Type-safety in notifications/digests
+- #301: Fundamentals refresh import drift fixed
+
+**Dependencies (9 Dependabot PRs):**
+- CI: actions/checkout 4→6, setup-node 4→6, setup-python 5→6
+- Frontend: react-router-dom 7.14, react-query 5.96, vite 8.0.5, lucide-react 1.7, eslint 10.2
+- Backend: yfinance version range widened to <2.0
+
+**Cleanup:**
+- 5 stale branches deleted (audit-run-1, codex/*, master)
+- PR #298 closed (superseded by #305), PR #218 closed (superseded by #306)
+
+---
+
 ### v0.14.1 — 2026-04-05
 **Log audit hotfix — 14 production issues from 15K-line log analysis**
 

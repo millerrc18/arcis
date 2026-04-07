@@ -35,9 +35,10 @@ def run_fundamentals_refresh(config: dict, db_path: str = DB_PATH) -> dict:
 
     # FRED macro refresh
     try:
-        from src.data_collection.macro_collector import collect_macro_data
-        result = collect_macro_data()
-        summary["refreshed"].append(f"FRED ({result.get('series_count', 0)} series)")
+        from src.data_collection.macro_collector import collect_macro_snapshots
+
+        result = collect_macro_snapshots(db_path=db_path)
+        summary["refreshed"].append(f"FRED ({result.get('series_collected', 0)} series)")
         logger.info("[FUNDAMENTALS] FRED macro refreshed")
     except Exception as e:
         logger.warning("[FUNDAMENTALS] FRED refresh failed: %s", e)
@@ -45,8 +46,9 @@ def run_fundamentals_refresh(config: dict, db_path: str = DB_PATH) -> dict:
 
     # Earnings calendar refresh
     try:
-        from src.data_collection.earnings_collector import collect_earnings_calendar
-        result = collect_earnings_calendar()
+        from scripts.fetch_earnings_calendar import fetch_earnings_dates
+
+        result = fetch_earnings_dates(db_path=db_path)
         summary["refreshed"].append("earnings")
         logger.info("[FUNDAMENTALS] Earnings calendar refreshed")
     except Exception as e:

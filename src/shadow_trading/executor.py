@@ -665,6 +665,8 @@ def check_and_manage_open_trades(
     if source_filter:
         open_trades = [t for t in open_trades if t.get("source") == source_filter]
     actions = []
+    _exit_attempts = 0
+    _exit_failures = 0
 
     et = ZoneInfo("America/New_York")
     now = datetime.now(et)
@@ -865,10 +867,41 @@ def check_and_manage_open_trades(
             exit_slippage_bps = 0.0
 
             if not bracket_exit:
+                # Cancel any stale pending order before initial exit attempt (#310)
+                _pending_oid = trade.get("exit_order_id") or trade.get("alpaca_order_id")
+                if _pending_oid:
+                    try:
+                        from src.shadow_trading.alpaca_adapter import cancel_paper_order
+                        cancel_paper_order(_pending_oid)
+                        time.sleep(0.5)
+                    except Exception:
+                        pass
+
                 try:
                     exit_result = _submit_exit_order(trade, shares)
                 except Exception as e:
-                    logger.error("[EXIT] Broker exit failed for %s — trade remains open: %s", ticker, e)
+                    logger.error("[EXIT] Broker exit failed for %s — marking exit_failed: %s", ticker, e, extra={"ctx": {"event": "exit_failed", "ticker": ticker, "trade_id": trade["trade_id"], "error": type(e).__name__}})
+                    update_shadow_trade(
+                        trade["trade_id"],
+                        {"status": "exit_failed", "exit_reason": f"broker_exception:{type(e).__name__}"},
+                        db_path,
+                    )
+                    _exit_attempts += 1
+                    _exit_failures += 1
+                    # Circuit breaker: halt exits if majority failing (#310)
+                    if _exit_failures > 3 and _exit_failures > _exit_attempts * 0.5:
+                        logger.critical(
+                            "[EXIT] Circuit breaker: %d/%d exits failed — halting remaining exits",
+                            _exit_failures, _exit_attempts)
+                        try:
+                            from src.notifications.telegram import send_telegram
+                            send_telegram(
+                                f"\U0001f6a8 EXIT CIRCUIT BREAKER: {_exit_failures}/{_exit_attempts} "
+                                f"exits failed this cycle. Remaining exits paused."
+                            )
+                        except Exception:
+                            pass
+                        break
                     continue
 
                 exit_status = exit_result.get("status") if isinstance(exit_result, dict) else None
@@ -949,6 +982,7 @@ def check_and_manage_open_trades(
                         "[EXIT] Broker exit failed for %s — marking exit_failed (status=%s)",
                         ticker,
                         exit_status,
+                        extra={"ctx": {"event": "exit_failed", "ticker": ticker, "trade_id": trade["trade_id"], "status": str(exit_status)}},
                     )
                     update_shadow_trade(
                         trade["trade_id"],
@@ -962,8 +996,11 @@ def check_and_manage_open_trades(
                         )
                     except Exception as exc:
                         logger.warning("[EXIT] Telegram notification failed for %s: %s", ticker, exc)
+                    _exit_attempts += 1
+                    _exit_failures += 1
                     continue
 
+            _exit_attempts += 1  # Successful exit attempt
             pnl_dollars = (current_price - entry_price) * shares
             pnl_pct = ((current_price - entry_price) / entry_price * 100) if entry_price > 0 else 0
 
@@ -975,6 +1012,14 @@ def check_and_manage_open_trades(
                 pnl_dollars=round(pnl_dollars, 2),
                 pnl_pct=round(pnl_pct, 2),
                 db_path=db_path,
+            )
+            logger.info(
+                "[EXIT] Closed %s — P&L $%.2f (%.1f%%)", ticker, pnl_dollars, pnl_pct,
+                extra={"ctx": {"event": "exit_success", "ticker": ticker,
+                               "trade_id": trade["trade_id"],
+                               "pnl_dollars": round(pnl_dollars, 2),
+                               "pnl_pct": round(pnl_pct, 2),
+                               "exit_reason": exit_reason}},
             )
 
             # Also update final MFE/MAE and duration on the closed trade
