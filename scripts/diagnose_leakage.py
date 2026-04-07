@@ -259,6 +259,28 @@ except Exception as e:
     traceback.print_exc()
 
 print()
+
+# === 8. Embedding-based semantic leakage detection ===
+print("=" * 60)
+print("  Section 8: Embedding-Based Semantic Leakage Detection")
+print("=" * 60)
+try:
+    from src.training.leakage_detector import check_embedding_leakage
+    result = check_embedding_leakage(DB_PATH)
+    if "error" in result:
+        print(f"  Skipped: {result['error']}")
+    else:
+        print(f"  Balanced accuracy: {result['balanced_accuracy']:.4f}")
+        print(f"  Semantic leaking: {'YES — INVESTIGATE' if result['leaking'] else 'No'}")
+        print(f"  Examples analyzed: {result['n_examples']}")
+        print(f"  CV scores: {result.get('cv_scores', [])}")
+        print(f"  Processing time: {result.get('processing_time_seconds', 0):.1f}s")
+except Exception as e:
+    print(f"  Error: {e}")
+    import traceback
+    traceback.print_exc()
+print()
+
 conn.close()
 print("=" * 60)
 print("  DIAGNOSTIC COMPLETE — paste to Claude for analysis")

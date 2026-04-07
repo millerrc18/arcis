@@ -124,3 +124,26 @@ SECTOR_MAP: dict[str, str] = {
     "AMT": "Real Estate",
     "SPG": "Real Estate",
 }
+
+# Sector ETF map — for two-tier relative strength computation
+SECTOR_ETF_MAP: dict[str, str] = {
+    "Technology": "XLK",
+    "Communication Services": "XLC",
+    "Consumer Discretionary": "XLY",
+    "Consumer Staples": "XLP",
+    "Energy": "XLE",
+    "Financials": "XLF",
+    "Health Care": "XLV",
+    "Industrials": "XLI",
+    "Materials": "XLB",
+    "Real Estate": "XLRE",
+    "Utilities": "XLU",
+}
+
+
+def get_sector_etf(ticker: str) -> str | None:
+    """Get the sector ETF ticker for a given stock."""
+    sector = SECTOR_MAP.get(ticker)
+    if sector:
+        return SECTOR_ETF_MAP.get(sector)
+    return None

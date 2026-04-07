@@ -324,7 +324,7 @@ class CouncilEngine:
             )
             conn.commit()
 
-        aggregation = aggregate_votes(round1, session_type)
+        aggregation = aggregate_votes(round1, session_type, db_path=self.db_path)
         final_assessments = round1
         rounds_completed = 1
         sycophancy_flags = []
@@ -371,7 +371,7 @@ class CouncilEngine:
                     )
                     conn.commit()
                 final_assessments = round2
-                aggregation = aggregate_votes(round2, session_type)
+                aggregation = aggregate_votes(round2, session_type, db_path=self.db_path)
                 rounds_completed = 2
             except Exception as exc:
                 logger.error("Round 2 failed: %s", exc)
@@ -602,7 +602,7 @@ class CouncilEngine:
 
         aggregation = None
         if assessments:
-            aggregation = aggregate_votes(assessments, session_type)
+            aggregation = aggregate_votes(assessments, session_type, db_path=self.db_path)
 
         direction = aggregation["direction"] if aggregation else "incomplete"
         score = aggregation["aggregated_score"] if aggregation else 0.0

@@ -9,6 +9,10 @@ Tests: tests/test_leakage_detector.py
 Tests whether generated commentary inadvertently reveals trade outcomes
 by training a classifier to predict win/loss from text alone.
 
+Two detection tiers:
+  1. TF-IDF (token-level) — catches literal outcome keywords
+  2. Embedding (semantic-level) — catches paraphrased outcome information
+
 Uses balanced accuracy (average of per-class recall) to handle class
 imbalance correctly. A majority-class classifier always scores 50%
 balanced accuracy regardless of the win/loss ratio in the data.
@@ -16,7 +20,10 @@ balanced accuracy regardless of the win/loss ratio in the data.
 
 import logging
 import sqlite3
+import time
 from contextlib import closing
+
+import requests
 
 from src.config import DB_PATH
 
@@ -226,4 +233,151 @@ def check_outcome_leakage(db_path: str = DB_PATH) -> dict:
             "win_predictors": list(reversed(top_win)),
             "loss_predictors": list(top_loss),
         },
+    }
+
+
+# --- Outcome classification for embedding detector ---
+_WIN_OUTCOMES = {"target_1_hit", "target_2_hit", "WIN"}
+_LOSS_OUTCOMES = {"stop_hit", "timeout", "LOSS"}
+
+
+def check_embedding_leakage(db_path: str = DB_PATH,
+                             model: str = "halcyon-v1.0.0",
+                             timeout: int = 10,
+                             max_examples: int = 500) -> dict:
+    """Embedding-based leakage detection — catches semantic leakage TF-IDF misses.
+
+    WHY: TF-IDF treats words independently. "The trade was profitable" and
+    "the position yielded positive returns" share few tokens but both leak
+    outcomes. Kapoor & Narayanan (2023, 369 citations) showed this blind spot
+    exists across 294 published papers.
+
+    HOW: Generate embeddings via Ollama /api/embeddings endpoint, then train
+    a logistic regression classifier to predict outcome from embeddings.
+    If balanced accuracy > 55%, the training data contains semantic leakage.
+
+    Args:
+        db_path: Path to SQLite database with training_examples table
+        model: Ollama model name for embedding generation
+        timeout: Seconds per Ollama embedding request
+        max_examples: Cap to prevent OOM on large datasets (random sample)
+
+    Returns:
+        dict with balanced_accuracy, leaking (bool), n_examples, cv_scores,
+        class_distribution, embedding_dim, processing_time_seconds
+    """
+    try:
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.model_selection import cross_val_score, StratifiedKFold
+        import numpy as np
+    except ImportError:
+        return {"error": "scikit-learn not installed", "leaking": None}
+
+    start = time.time()
+
+    # Load examples — use source column (blinded_win/loss) and trade_outcome column
+    with closing(sqlite3.connect(db_path)) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT output_text, source, trade_outcome FROM training_examples "
+            "WHERE output_text IS NOT NULL AND output_text != ''"
+        ).fetchall()
+
+    # Classify as WIN/LOSS
+    texts, labels = [], []
+    for row in rows:
+        source = row["source"] or ""
+        trade_outcome = row["trade_outcome"] or ""
+
+        # Determine label from source column (existing pattern) or trade_outcome
+        if "win" in source.lower() or trade_outcome in _WIN_OUTCOMES:
+            label = 1
+        elif "loss" in source.lower() or trade_outcome in _LOSS_OUTCOMES:
+            label = 0
+        else:
+            continue  # Skip ambiguous/NULL outcomes
+
+        texts.append(row["output_text"])
+        labels.append(label)
+
+    if len(texts) < 20:
+        return {"error": "Insufficient data", "n_examples": len(texts), "leaking": None}
+
+    # Random sample if over max_examples
+    if len(texts) > max_examples:
+        rng = np.random.RandomState(42)
+        indices = rng.choice(len(texts), max_examples, replace=False)
+        texts = [texts[i] for i in indices]
+        labels = [labels[i] for i in indices]
+
+    # Generate embeddings via Ollama
+    embeddings = []
+    for i, text in enumerate(texts):
+        if (i + 1) % 50 == 0:
+            logger.info("Embedding %d/%d...", i + 1, len(texts))
+        try:
+            resp = requests.post(
+                "http://localhost:11434/api/embeddings",
+                json={"model": model, "prompt": text[:2000]},
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            embeddings.append(resp.json()["embedding"])
+        except (requests.ConnectionError, requests.Timeout):
+            return {"error": "Ollama unavailable", "leaking": None}
+        except Exception as exc:
+            logger.warning("Embedding failed for example %d: %s", i, exc)
+            return {"error": f"Embedding failed: {exc}", "leaking": None}
+
+    X = np.array(embeddings)
+    y = np.array(labels)
+
+    n_wins = int(y.sum())
+    n_losses = len(y) - n_wins
+    n_minority = min(n_wins, n_losses)
+    n_splits = min(5, n_minority)
+    if n_splits < 2:
+        return {
+            "error": "Insufficient class diversity for CV",
+            "n_examples": len(y),
+            "class_distribution": {"wins": n_wins, "losses": n_losses},
+            "leaking": None,
+        }
+
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+    clf = LogisticRegression(max_iter=1000, class_weight="balanced", random_state=42)
+    cv_scores = cross_val_score(clf, X, y, cv=skf, scoring="balanced_accuracy")
+    balanced_accuracy = float(np.mean(cv_scores))
+
+    elapsed = time.time() - start
+
+    return {
+        "balanced_accuracy": round(balanced_accuracy, 4),
+        "leaking": balanced_accuracy > 0.55,
+        "n_examples": len(y),
+        "cv_scores": [round(s, 4) for s in cv_scores],
+        "class_distribution": {"wins": n_wins, "losses": n_losses},
+        "embedding_dim": X.shape[1],
+        "processing_time_seconds": round(elapsed, 1),
+    }
+
+
+def _recommend(tfidf: dict, embedding: dict) -> str:
+    """Generate a human-readable recommendation from both detectors."""
+    if embedding.get("leaking"):
+        return "CRITICAL: Semantic leakage detected. Audit training templates immediately."
+    if tfidf.get("is_leaking"):
+        return "WARNING: Token-level leakage detected. Check for outcome keywords."
+    return "CLEAN: No leakage detected at token or semantic level."
+
+
+def check_all_leakage(db_path: str = DB_PATH) -> dict:
+    """Run both TF-IDF and embedding leakage checks. Returns combined results."""
+    tfidf = check_outcome_leakage(db_path)
+    embedding = check_embedding_leakage(db_path)
+    return {
+        "tfidf": tfidf,
+        "embedding": embedding,
+        "overall_leaking": tfidf.get("is_leaking", False) or embedding.get("leaking", False),
+        "recommendation": _recommend(tfidf, embedding),
     }

@@ -218,6 +218,53 @@ def _determine_authority_status(weeks_negative: int) -> str:
     return "full"
 
 
+def get_agent_track_records(db_path: str = DB_PATH,
+                             window_weeks: int = 12) -> dict:
+    """Get per-agent directional accuracy over the evaluation window.
+
+    Returns: {agent_name: {"correct": int, "incorrect": int, "total": int}}
+    """
+    cutoff = (datetime.now(ET) - timedelta(weeks=window_weeks)).isoformat()
+    records: dict[str, dict] = {}
+
+    try:
+        init_value_tables(db_path)
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                """
+                SELECT cv.agent_name,
+                       cv.direction,
+                       st.pnl_dollars
+                FROM council_votes cv
+                JOIN council_sessions cs ON cv.session_id = cs.session_id
+                JOIN shadow_trades st ON cs.session_id = st.session_id
+                WHERE cs.created_at >= ?
+                  AND st.status = 'closed'
+                  AND cv.direction IN ('bullish', 'bearish')
+                  AND st.pnl_dollars IS NOT NULL
+                """,
+                (cutoff,),
+            ).fetchall()
+
+        for row in rows:
+            agent = row["agent_name"]
+            if agent not in records:
+                records[agent] = {"correct": 0, "incorrect": 0, "total": 0}
+            direction = row["direction"]
+            pnl = row["pnl_dollars"]
+            if (direction == "bullish" and pnl > 0) or (direction == "bearish" and pnl < 0):
+                records[agent]["correct"] += 1
+            else:
+                records[agent]["incorrect"] += 1
+            records[agent]["total"] += 1
+
+    except Exception as e:
+        logger.error("[VALUE] Agent track records query failed: %s", e)
+
+    return records
+
+
 def compute_attribution(db_path: str = DB_PATH) -> dict:
     """Compute value attribution for closed attribution windows.
 
