@@ -781,6 +781,18 @@ def cmd_resume_trading(args):
     print("[RISK] Trading resumed.")
 
 
+def cmd_cancel_all_pending(args):
+    """Cancel all pending Alpaca orders for emergency recovery (#310)."""
+    from src.shadow_trading.alpaca_adapter import cancel_all_orders
+
+    result = cancel_all_orders()
+    count = result.get("cancelled", 0)
+    error = result.get("error")
+    print(f"[CANCEL] Cancelled {count} pending orders")
+    if error:
+        print(f"[CANCEL] Warning: {error}")
+
+
 def cmd_preflight(args):
     from src.config import load_config
     from src.services.system_service import get_system_status

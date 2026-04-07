@@ -405,6 +405,19 @@ def cancel_paper_order(order_id: str) -> bool:
         return False
 
 
+def cancel_all_orders() -> dict:
+    """Cancel all pending Alpaca orders.  Returns ``{'cancelled': N}``."""
+    try:
+        client = _get_trading_client()
+        cancelled = client.cancel_orders()
+        count = len(cancelled) if cancelled else 0
+        logger.info("[CANCEL] Cancelled %d pending orders", count)
+        return {"cancelled": count}
+    except Exception as e:
+        logger.warning("[CANCEL] Could not cancel all orders: %s", e)
+        return {"cancelled": 0, "error": str(e)}
+
+
 # ── Live Trading Adapter ──────────────────────────────────────────────
 #
 # Separate client creation for live (real-money) Alpaca account.
