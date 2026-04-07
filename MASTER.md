@@ -14,7 +14,7 @@
 
 **Name:** Arcis (Adaptive Regime Classification & Intelligence Systems)
 **License:** BSL 1.1 (source-visible, no commercial use until 2030)
-**Release:** v0.14.1
+**Release:** v0.14.2
 **Repository:** github.com/millerrc18/halcyon-lab
 **Dashboard:** halcyonlab.app (Render static + Python API)
 
@@ -59,12 +59,12 @@ with an unbeatable technological moat.
 | Open positions | ~37 (33 paper + 4 live) |
 | Model | halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF) |
 | Training data | 979 examples, scored, 20+ unique tickers |
-| Tests | 1,425 functions across 112 test files |
+| Tests | 1,439 functions across 114 test files |
 | Python files | 202 |
 | Dashboard pages | 18 |
 | Research docs | 189 |
 | Schema tables | 49 (registry) |
-| GitHub issues | 0 open |
+| GitHub issues | 8 open (#295-297 gap-assessment, #302-304 deferred, #314 logging, #315 security) |
 | Monthly cost | ~$64 (Render $7 + Ollama free + Claude API ~$50 + domain $7) |
 | Hardware | RTX 3060 12GB, Windows 11, Z690, 24/7 operation |
 | HSHS health score | 85.33 |
@@ -96,7 +96,11 @@ with an unbeatable technological moat.
 
 ### Open GitHub Issues
 
-None — all issues resolved as of 2026-04-04.
+8 open as of 2026-04-06:
+- #295-297: Gap assessment features (on feat/gap-assessment-top3 branch)
+- #302-304: Deferred fixes (VRAM handoff, research source resilience, NULL PKs)
+- #314: Logging improvement initiative (structured output for AI review)
+- #315: Dependabot security vulnerabilities (2 high, 1 moderate)
 
 ### Known Blockers
 
@@ -143,6 +147,7 @@ None — all issues resolved as of 2026-04-04.
 | Production sync | #246 | 4 production sync/logging bugs |
 | IB integration | v0.14.0 | Broker abstraction + IB adapter (ib_async) |
 | Log audit + HSHS fix | v0.14.1 | 14 production issues, IB validation-first strategy |
+| Hotfix merge sprint | v0.14.2 | 6 critical bugs (#307-312), codex telegram fix (#299-301), 9 Dependabot PRs, 5 branch cleanup |
 
 ---
 

@@ -176,3 +176,27 @@ class TestDisabledGovernor:
         gov = RiskGovernor({"risk_governor": {"enabled": False}})
         result = gov.check_trade("AAPL", 10000, {"vix_proxy": 99}, base_portfolio)
         assert result["approved"] is True
+
+
+class TestTypeCoercion:
+    """Regression #308: governor must handle non-float allocation inputs."""
+
+    def test_string_allocation(self, governor, base_portfolio):
+        result = governor.check_trade("BKNG", "4800.0", {}, base_portfolio,
+                                      traffic_light_multiplier=0.5)
+        assert isinstance(result, dict)
+        assert "approved" in result
+
+    def test_tuple_allocation(self, governor, base_portfolio):
+        result = governor.check_trade("BKNG", (4800.0,), {}, base_portfolio)
+        assert isinstance(result, dict)
+        assert "approved" in result
+
+    def test_string_traffic_light_multiplier(self, governor, base_portfolio):
+        result = governor.check_trade("AAPL", 400.0, {}, base_portfolio,
+                                      traffic_light_multiplier="0.5")
+        assert isinstance(result, dict)
+
+    def test_zero_allocation_rejected(self, governor, base_portfolio):
+        result = governor.check_trade("AAPL", 0, {}, base_portfolio)
+        assert result["approved"] is False

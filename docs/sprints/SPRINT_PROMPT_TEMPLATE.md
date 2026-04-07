@@ -2,6 +2,10 @@
 
 Copy and customize this template for each new CC sprint.
 
+> **Standard practice:** ALL sprint prompts and design specs must be Ralph Looped 3×
+> before being given to CC. ALL CC sprint prompts must include the 3× Ralph Loop
+> protocol as a mandatory requirement for CC to follow during execution.
+
 ---
 
 ## Template
@@ -91,4 +95,40 @@ Rules:
 - Every page must pass the independent agent auditor at 9.0/10 or higher.
 - Frontend must build: cd frontend && npm run build
 - Push to feature branch when complete.
+```
+
+---
+
+## Standard: 3× Ralph Loop Protocol
+
+**This is MANDATORY on all sprint prompts and design specs.**
+
+### For the author (Claude/human) writing the sprint prompt:
+Before giving any prompt to CC, iterate 3 times:
+- **Pass 1:** Draft the prompt
+- **Pass 2:** Review for gaps — missing files, wrong assumptions about existing code,
+  missing pre-flight checks, missing edge cases, untested paths, file conflicts with
+  other active sprints
+- **Pass 3:** Fix everything from Pass 2, verify all file paths exist, verify all
+  function signatures match actual code, add rollback instructions
+
+### For CC executing the sprint:
+For each major task or deliverable:
+- **Pass 1:** Implement the feature/fix
+- **Pass 2:** Review for gaps — check for stubs, TODOs, placeholder data, missing
+  error handling, untested paths, data connections using mock instead of real data
+- **Pass 3:** Fix everything from Pass 2, polish, verify tests pass, verify build succeeds
+
+### Ralph Loop verification section (include at bottom of every prompt):
+Document what each iteration found and fixed, so the reader can see the prompt has been
+properly reviewed. Format:
+```
+### Iteration 1 gaps found and fixed:
+- [specific gap] — [how it was fixed]
+
+### Iteration 2 gaps found and fixed:
+- [specific gap] — [how it was fixed]
+
+### Iteration 3 gaps found and fixed:
+- [specific gap] — [how it was fixed]
 ```

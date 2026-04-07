@@ -71,7 +71,11 @@ class DBLogHandler(logging.Handler):
             source = record.name.split(".")[-1] if "." in record.name else record.name
             message = record.getMessage()[:2000]  # Truncate to prevent SQLite bloat
             details = None
-            if record.exc_info and record.exc_info[1]:
+            ctx = getattr(record, "ctx", None)
+            if ctx:
+                import json
+                details = json.dumps(ctx, separators=(",", ":"), default=str)[:5000]
+            elif record.exc_info and record.exc_info[1]:
                 details = str(record.exc_info[1])[:5000]
 
             with sqlite3.connect(self.db_path) as conn:
@@ -675,7 +679,8 @@ class WatchLoop:
         from src.email.notifier import send_email
 
         now = datetime.now(ET)
-        ctx = ScanContext(config=self.config)
+        _scan_num = getattr(self, "_scan_number", 0) + 1
+        ctx = ScanContext(config=self.config, scan_id=f"s-{_scan_num:04d}")
         result = run_universe_scan(ctx)
 
         # Aborted scan (e.g., no SPY data) — just record metrics
@@ -814,6 +819,23 @@ class WatchLoop:
                      0, 0.0, 0.0, now.isoformat()),
                 )
                 conn.commit()
+            # Structured cycle summary for AI agent review (#314)
+            logger.info(
+                "[WATCH] Scan cycle #%d complete",
+                self._scan_number,
+                extra={"ctx": {
+                    "event": "scan_summary",
+                    "scan_id": f"s-{self._scan_number:04d}",
+                    "scan_number": self._scan_number,
+                    "universe": universe_count,
+                    "features": features_count,
+                    "qualified": packet_worthy,
+                    "llm_success": llm_success,
+                    "llm_total": llm_total,
+                    "conviction_none_rate": round(
+                        1 - (llm_success / llm_total), 2) if llm_total > 0 else 0.0,
+                }},
+            )
             logger.info("[WATCH] Recorded scan_metrics #%d (packets=%d)",
                         self._scan_number, packet_worthy)
         except Exception as e:
@@ -2680,7 +2702,15 @@ class WatchLoop:
                 ).fetchone()
                 council_consensus = council_row["consensus"] if council_row else "N/A"
                 council_conf_raw = council_row["confidence_weighted_score"] if council_row else 0
-                council_confidence = int(council_conf_raw * 100) if council_conf_raw and council_conf_raw <= 1 else int(council_conf_raw or 0)
+                try:
+                    council_conf_value = float(council_conf_raw or 0)
+                except (TypeError, ValueError):
+                    council_conf_value = 0.0
+                council_confidence = (
+                    int(council_conf_value * 100)
+                    if 0 <= council_conf_value <= 1
+                    else int(council_conf_value)
+                )
 
                 # Open positions
                 open_paper = conn.execute(
@@ -2788,11 +2818,11 @@ class WatchLoop:
                 vix_row = conn.execute(
                     "SELECT vix FROM vix_term_structure ORDER BY collected_at DESC LIMIT 1"
                 ).fetchone()
-                vix = vix_row["vix"] if vix_row else 0.0
+                vix = float(vix_row["vix"]) if vix_row else 0.0
                 vix_prev_row = conn.execute(
                     "SELECT vix FROM vix_term_structure ORDER BY collected_at DESC LIMIT 1 OFFSET 1"
                 ).fetchone()
-                vix_prev = vix_prev_row["vix"] if vix_prev_row else vix
+                vix_prev = float(vix_prev_row["vix"]) if vix_prev_row else vix
 
                 from src.features.regime import classify_regime
                 regime = classify_regime({"vix_proxy": vix})
@@ -2804,8 +2834,8 @@ class WatchLoop:
                     "FROM scan_metrics WHERE scan_time LIKE ?",
                     (f"{today_str}%",),
                 ).fetchone()
-                risk_worthy = risk_row["worthy"] if risk_row else 0
-                risk_passed = risk_row["passed"] if risk_row else 0
+                risk_worthy = int(risk_row["worthy"]) if risk_row else 0
+                risk_passed = int(risk_row["passed"]) if risk_row else 0
                 risk_rejected = risk_worthy - risk_passed
 
                 # Log rejection summary to activity_log
@@ -2904,7 +2934,7 @@ class WatchLoop:
                 ).fetchone()
                 if not row:
                     return
-                vix_now = row[0]
+                vix_now = float(row[0]) if row[0] is not None else 0.0
 
             thresholds = [20, 25, 30, 35, 40, 60]
 
