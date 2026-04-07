@@ -128,11 +128,8 @@ export const api = {
   getAttributionStats: () => fetchApi('/attribution/stats'),
   // Stress Testing
   getStressTestResults: () => fetchApi('/stress-test/results'),
-<<<<<<< HEAD
   // Simulation
   getSimulationResults: () => fetchApi('/simulation/results'),
-=======
   // Model Performance
   getModelPerformance: () => fetchApi('/model-performance'),
->>>>>>> origin/feat/model-performance
 }

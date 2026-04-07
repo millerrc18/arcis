@@ -169,7 +169,14 @@ class TestBrokerFactory:
 
 # ── IB Broker Unit Tests ──────────────────────────────────────────
 
+try:
+    import ib_async  # noqa: F401
+    _HAS_IB_ASYNC = True
+except ImportError:
+    _HAS_IB_ASYNC = False
 
+
+@pytest.mark.skipif(not _HAS_IB_ASYNC, reason="ib_async not installed")
 class TestIBBrokerUnit:
     def test_make_contract(self):
         """_make_contract should create a Stock contract for US equity."""
