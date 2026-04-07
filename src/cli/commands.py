@@ -52,7 +52,7 @@ def cmd_send_test_telegram(args):
         "  • Overnight data collection\n"
         "  • System events"
     )
-    print("Telegram test sent successfully! ✓" if success else "Failed to send Telegram message.")
+    _safe_print("Telegram test sent successfully! ✓" if success else "Failed to send Telegram message.")
 
 
 def cmd_ingest(args):
@@ -406,20 +406,20 @@ def cmd_reconcile_live(args):
 
     dry_run = getattr(args, "dry_run", False)
     result = reconcile_live_trades(dry_run=dry_run)
-    print(f"\nAlpaca positions: {result['alpaca_positions']}")
-    print(f"Tracked in DB:    {result['tracked_positions']}")
+    _safe_print(f"\nAlpaca positions: {result['alpaca_positions']}")
+    _safe_print(f"Tracked in DB:    {result['tracked_positions']}")
     if result["orphaned"]:
-        print(f"\nOrphaned (on Alpaca, not in DB): {result['orphaned']}")
+        _safe_print(f"\nOrphaned (on Alpaca, not in DB): {result['orphaned']}")
         if not dry_run:
-            print(f"  → Backfilled: {result['backfilled']}")
+            _safe_print(f"  -> Backfilled: {result['backfilled']}")
     if result["stale"]:
-        print(f"\nStale (in DB, not on Alpaca): {result['stale']}")
+        _safe_print(f"\nStale (in DB, not on Alpaca): {result['stale']}")
         if not dry_run:
-            print(f"  → Marked closed: {result['marked_closed']}")
+            _safe_print(f"  -> Marked closed: {result['marked_closed']}")
     if not result["orphaned"] and not result["stale"]:
-        print("\n✅ All positions reconciled — no discrepancies.")
+        _safe_print("\nAll positions reconciled -- no discrepancies.")
     if dry_run:
-        print("\n(dry run — no changes made)")
+        _safe_print("\n(dry run -- no changes made)")
 
 
 def cmd_review(args):
@@ -589,7 +589,7 @@ def cmd_train(args):
                     "UPDATE model_versions SET version_name = ? WHERE version_id = ?",
                     (version_name, active["version_id"]),
                 )
-            print(f"Renamed {active['version_name']} → {version_name}")
+            _safe_print(f"Renamed {active['version_name']} -> {version_name}")
         else:
             version_id = register_model_version(
                 version_name=version_name,
@@ -815,7 +815,7 @@ def cmd_preflight(args):
     print(f"  Bootcamp:  {'Phase ' + str(status['bootcamp_phase']) if status['bootcamp_enabled'] else 'Disabled'}")
 
     if status.get("config_source") == "example":
-        print("\n⚠️  Running on config/settings.example.yaml (template defaults).")
+        _safe_print("\nWARNING: Running on config/settings.example.yaml (template defaults).")
         print("   Create config/settings.local.yaml with real credentials and enabled flags.")
 
 
@@ -868,8 +868,8 @@ def cmd_evaluate_gate(args):
 
     gates = result.get("gates", {})
     for key, gate in gates.items():
-        status_icon = {"green": "🟢", "yellow": "🟡", "red": "🔴"}.get(gate.get("status"), "⚪")
-        print(f"  {status_icon} {gate.get('label', key)}: {gate.get('value', 'n/a')} (green: {gate.get('green', 'n/a')}, yellow: {gate.get('yellow', 'n/a')})")
+        status_icon = {"green": "[OK]", "yellow": "[WARN]", "red": "[FAIL]"}.get(gate.get("status"), "[--]")
+        _safe_print(f"  {status_icon} {gate.get('label', key)}: {gate.get('value', 'n/a')} (green: {gate.get('green', 'n/a')}, yellow: {gate.get('yellow', 'n/a')})")
 
     print(f"\n  Trade count: {result.get('trade_count', 0)}")
     print(f"  Greens: {result.get('greens', 0)}, Reds: {result.get('reds', 0)}")
@@ -943,7 +943,7 @@ def cmd_collect_data(args):
         print(f"  {results['earnings']}")
         upcoming = results["earnings"].get("upcoming_7d", [])
         if upcoming:
-            print("\n  ⚠️  EARNINGS THIS WEEK:")
+            _safe_print("\n  WARNING - EARNINGS THIS WEEK:")
             for item in upcoming:
                 print(f"    • {item}")
     except Exception as exc:
@@ -989,7 +989,7 @@ def cmd_fetch_earnings(args):
     print(f"\nResults: {result['tickers_with_dates']} tickers with dates, {result['errors']} errors")
 
     if result["upcoming_7d"]:
-        print(f"\n⚠️  EARNINGS THIS WEEK ({len(result['upcoming_7d'])}):")
+        _safe_print(f"\nWARNING - EARNINGS THIS WEEK ({len(result['upcoming_7d'])}):")
         for item in result["upcoming_7d"]:
             print(f"  • {item}")
 
@@ -1025,8 +1025,8 @@ def cmd_council(args):
     for assessment in result.get("agent_assessments", []):
         direction = assessment.get("direction", "?")
         confidence = assessment.get("confidence", 0)
-        emoji = {"bullish": "🟢", "neutral": "⚪", "bearish": "🔴"}.get(direction, "⚪")
-        print(f"  {emoji} {assessment.get('agent', '?')}: {direction} ({confidence:.0%}) — {assessment.get('key_reasoning', '')[:80]}")
+        marker = {"bullish": "[BUY]", "neutral": "[---]", "bearish": "[SELL]"}.get(direction, "[---]")
+        _safe_print(f"  {marker} {assessment.get('agent', '?')}: {direction} ({confidence:.0%}) -- {assessment.get('key_reasoning', '')[:80]}")
 
 
 def cmd_startup(args):
@@ -1188,20 +1188,20 @@ def cmd_validate_system(args):
     if getattr(args, "json", False):
         print(_json.dumps(result, indent=2))
     else:
-        status_icon = {"healthy": "✅", "degraded": "⚠️", "critical": "❌"}.get(result["overall_status"], "?")
-        print(f"\n{status_icon} Overall: {result['overall_status'].upper()}")
-        print(f"   Passed: {result['checks_passed']}  |  Warnings: {result['checks_warning']}  |  Failed: {result['checks_failed']}")
-        print(f"   Total checks: {result['checks_total']}\n")
+        status_icon = {"healthy": "[OK]", "degraded": "[WARN]", "critical": "[FAIL]"}.get(result["overall_status"], "?")
+        _safe_print(f"\n{status_icon} Overall: {result['overall_status'].upper()}")
+        _safe_print(f"   Passed: {result['checks_passed']}  |  Warnings: {result['checks_warning']}  |  Failed: {result['checks_failed']}")
+        _safe_print(f"   Total checks: {result['checks_total']}\n")
 
         for category, checks in result["categories"].items():
             cat_fails = sum(1 for check in checks if check["status"] == "fail")
             cat_warns = sum(1 for check in checks if check["status"] == "warn")
             cat_pass = sum(1 for check in checks if check["status"] == "pass")
-            icon = "❌" if cat_fails else "⚠️" if cat_warns else "✅"
-            print(f"  {icon} {category.upper()} ({cat_pass}P / {cat_warns}W / {cat_fails}F)")
+            icon = "[FAIL]" if cat_fails else "[WARN]" if cat_warns else "[OK]"
+            _safe_print(f"  {icon} {category.upper()} ({cat_pass}P / {cat_warns}W / {cat_fails}F)")
             for check in checks:
-                marker = {"pass": "  ✅", "warn": "  ⚠️", "fail": "  ❌"}.get(check["status"], "  ?")
-                print(f"    {marker} {check['name']}: {check['detail']}")
+                marker = {"pass": "  [OK]", "warn": "  [WARN]", "fail": "  [FAIL]"}.get(check["status"], "  ?")
+                _safe_print(f"    {marker} {check['name']}: {check['detail']}")
             print()
 
     result_id = save_validation_result(result)

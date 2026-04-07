@@ -3,11 +3,7 @@ import { Outlet, NavLink } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api'
 import { IS_CLOUD } from '../config'
-<<<<<<< HEAD
-import { LayoutDashboard, FileText, TrendingUp, Brain, BarChart3, Settings, Map, BookOpen, Users, Activity, Menu, X, DollarSign, ShieldCheck, ScrollText, Network, Database, FlaskConical, Zap, TestTube2 } from 'lucide-react'
-=======
-import { LayoutDashboard, FileText, TrendingUp, Brain, BarChart3, Settings, Map, BookOpen, Users, Activity, Menu, X, DollarSign, ShieldCheck, ScrollText, Network, Database, FlaskConical, Zap, Cpu } from 'lucide-react'
->>>>>>> origin/feat/model-performance
+import { LayoutDashboard, FileText, TrendingUp, Brain, BarChart3, Settings, Map, BookOpen, Users, Activity, Menu, X, DollarSign, ShieldCheck, ScrollText, Network, Database, FlaskConical, Zap, TestTube2, Cpu } from 'lucide-react'
 import StatusBadge from './StatusBadge'
 import ThemeToggle from './ThemeToggle'
 

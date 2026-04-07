@@ -146,6 +146,14 @@ def get_todays_recommendations(db_path: str = DB_PATH) -> list[dict]:
 
 def insert_shadow_trade(trade: dict, db_path: str = DB_PATH) -> str:
     """Insert a shadow trade record and return the trade_id."""
+    # #319: validate direction and shares to prevent corrupted rows
+    direction = trade.get("direction")
+    if direction not in ("long", "short"):
+        raise ValueError(f"insert_shadow_trade: invalid direction={direction!r}, must be 'long' or 'short'")
+    planned_shares = trade.get("planned_shares")
+    if planned_shares is not None and float(planned_shares) <= 0:
+        raise ValueError(f"insert_shadow_trade: planned_shares={planned_shares} must be positive")
+
     initialize_database(db_path)
     trade_id = trade.get("trade_id", str(uuid.uuid4()))
     trade["trade_id"] = trade_id

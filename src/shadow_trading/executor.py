@@ -675,11 +675,18 @@ def check_and_manage_open_trades(
     _price_total = 0
     _price_failures = 0
 
-    # Pre-fetch Alpaca positions for existence checking (single API call)
+    # Pre-fetch broker positions for existence checking (single API call)
+    # #320: use live broker positions when source_filter="live", paper otherwise
     _alpaca_tickers: set[str] = set()
     try:
-        from src.shadow_trading.alpaca_adapter import get_all_positions
-        _alpaca_tickers = {p["symbol"] for p in get_all_positions()}
+        if source_filter == "live":
+            from src.trading.broker_factory import get_live_broker
+            live_broker = get_live_broker()
+            if live_broker:
+                _alpaca_tickers = {p["symbol"] for p in live_broker.get_positions()}
+        else:
+            from src.shadow_trading.alpaca_adapter import get_all_positions
+            _alpaca_tickers = {p["symbol"] for p in get_all_positions()}
     except Exception as e:
         logger.debug("[EXECUTOR] Could not fetch positions for existence check: %s", e)
 
