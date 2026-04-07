@@ -59,10 +59,10 @@ with an unbeatable technological moat.
 | Open positions | ~37 (33 paper + 4 live) |
 | Model | halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF) |
 | Training data | 979 examples, scored, 20+ unique tickers |
-| Tests | 1,467 functions across 119 test files |
-| Python files | 203 |
-| Dashboard pages | 18 |
-| Research docs | 74 |
+| Tests | 1,488 functions across 120 test files |
+| Python files | 207 |
+| Dashboard pages | 20 |
+| Research docs | 64 |
 | Schema tables | 49 (registry) |
 | GitHub issues | 7 open (#302-304 deferred, #318-321 production) |
 | Monthly cost | ~$64 (Render $7 + Ollama free + Claude API ~$50 + domain $7) |

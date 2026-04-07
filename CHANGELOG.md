@@ -1,5 +1,42 @@
 # Changelog
 
+## [Unreleased — pending v0.15.0]
+
+### Gap Assessment (merged 2026-04-07)
+- **feat:** Embedding-based semantic leakage detection — Ollama + LogisticRegression classifier (#295)
+- **feat:** Dynamic Bayesian agent weighting for AI Council — Beta posterior, feature flag, 12-week window (#296)
+- **feat:** Two-tier relative strength — 60% vs SPY + 40% vs sector ETF, 11 sector ETFs mapped (#297)
+- **test:** 7 ranker tests (two-tier RS, pullback bounds, volume weight, backward compat, score cap)
+- **test:** 6 council aggregation tests (dynamic weights, floor enforcement, normalization, fallback)
+- **test:** 6 embedding leakage tests (mock Ollama, graceful fallback, threshold, class balance)
+
+### Pending merge
+- feat/simulation-engine: 13-scenario engine, Monte Carlo, TL validation, dashboard page
+- feat/model-performance: per-model metrics, regression alerts, dashboard page
+- feat/ui-bloomberg: Bloomberg Terminal aesthetic on all 18 pages
+
+## [v0.14.2] - 2026-04-06
+
+### Hotfix merge sprint — 6 critical production bugs + codex fixes + dependencies
+
+**Critical fixes (PR #313):**
+- **fix:** Shadow trade exit cascade — `exit_failed` status + circuit breaker + `cancel-all-pending` CLI (#310)
+- **fix:** Type-safety gaps — `safe_numeric` utility for traffic_light, VIX alerts, EOD report (#311)
+- **fix:** LLM conviction parsing — Stage 6 catch-all regex + debug file logging (#309, #312)
+- **fix:** Risk governor TypeError — `safe_numeric` coercion at `check_trade` entry (#308)
+- **fix:** Postgres schema drift — startup drift check + broker column (#307)
+
+**Codex fixes (PR #305):**
+- **fix:** Ingestion gate markdown detection narrowed to line-leading headings (#299)
+- **fix:** Type-safety in notifications/digests (#300)
+- **fix:** Fundamentals refresh import drift (#301)
+
+**Other:**
+- **feat:** Structured logging with `|ctx:{}` for AI agent review (#314)
+- **fix:** load_dotenv() in config loader — .env works from any entry point (#317)
+- **build:** 9 Dependabot PRs (CI actions, npm bumps, yfinance range)
+- **chore:** 33+ stale branches deleted
+
 ## [v0.14.1] - 2026-04-05
 
 ### Log Audit Hotfix (14 production issues)
