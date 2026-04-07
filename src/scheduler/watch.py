@@ -1330,7 +1330,7 @@ class WatchLoop:
                             import sqlite3
                             with sqlite3.connect(DB_PATH) as conn:
                                 backlog = conn.execute(
-                                    "SELECT COUNT(*) FROM training_examples WHERE quality_score IS NULL"
+                                    "SELECT COUNT(*) FROM training_examples WHERE quality_score_auto IS NULL"
                                 ).fetchone()[0]
                             notify_scoring_summary(self._daily_scored, backlog)
                     except Exception as e:
@@ -2915,11 +2915,11 @@ class WatchLoop:
                 ).fetchone()[0]
 
                 backlog = conn.execute(
-                    "SELECT COUNT(*) FROM training_examples WHERE quality_score IS NULL"
+                    "SELECT COUNT(*) FROM training_examples WHERE quality_score_auto IS NULL"
                 ).fetchone()[0]
 
                 quality_row = conn.execute(
-                    "SELECT AVG(quality_score) FROM training_examples WHERE quality_score IS NOT NULL"
+                    "SELECT AVG(quality_score_auto) FROM training_examples WHERE quality_score_auto IS NOT NULL"
                 ).fetchone()
                 quality_avg = quality_row[0] if quality_row[0] else 0.0
 
@@ -3080,10 +3080,10 @@ class WatchLoop:
                     (week_ago_str,)
                 ).fetchone()[0]
                 backlog = conn.execute(
-                    "SELECT COUNT(*) FROM training_examples WHERE quality_score IS NULL"
+                    "SELECT COUNT(*) FROM training_examples WHERE quality_score_auto IS NULL"
                 ).fetchone()[0]
                 quality_row = conn.execute(
-                    "SELECT AVG(quality_score) FROM training_examples WHERE quality_score IS NOT NULL"
+                    "SELECT AVG(quality_score_auto) FROM training_examples WHERE quality_score_auto IS NOT NULL"
                 ).fetchone()
                 quality_avg = quality_row[0] if quality_row[0] else 0.0
 
