@@ -62,7 +62,7 @@ with an unbeatable technological moat.
 | Tests | 1,488 functions across 120 test files |
 | Python files | 207 |
 | Dashboard pages | 20 |
-| Research docs | 64 |
+| Research docs | 65 |
 | Schema tables | 49 (registry) |
 | GitHub issues | 7 open (#302-304 deferred, #318-321 production) |
 | Monthly cost | ~$64 (Render $7 + Ollama free + Claude API ~$50 + domain $7) |
@@ -451,10 +451,10 @@ src/schema/registry.py          <- THE source of truth (49 TableDefs)
 
 ---
 
-## 5. Strategy Decisions (25 confirmed)
+## 5. Strategy Decisions (26 confirmed)
 
 1. Strategy #1 = Pullback-in-uptrend (LIVE)
-2. Strategy #2 = Mean Reversion / Connors RSI(2) -- PAPER-TRADING NOW
+2. Strategy #2 = Mean Reversion / Connors RSI(2) -- PAPER-TRADING NOW. NOTE: Deep research (Scaling Levers) finds MR is the WORST diversifier for pullback (rho=0.35-0.50, shared "buy the dip" logic). Breakout/momentum (rho=0.10-0.25) should be evaluated as primary second LIVE strategy. MR remains valuable for Phase 1 data volume.
 3. Strategy #3 = Evolved PEAD (Phase 3)
 4. RL = Dr. GRPO (at 100 trades)
 5. Breakout = pullback feature, not separate strategy
@@ -471,13 +471,14 @@ src/schema/registry.py          <- THE source of truth (49 TableDefs)
 16. Council: daily + weekly, monthly after 3 months
 17. Alpha attribution: parallel ranker-only shadow portfolio (second Alpaca paper account)
 18. Mechanical bracket exits optimal through 200 trades, then phased LLM management
-19. Options moved to Phase 2 at $15-25K (vertical spreads only, was $50K)
+19. Options moved to Phase 2 at $25K. ORDER: covered calls at target strike first (133% EV improvement per trade, minimal complexity), THEN vertical spreads. Cash-secured puts require $15-25K collateral per S&P 100 name.
 20. Collective2 account: open immediately for independently verified track record
 21. Training data: expand from 7 to 11 XML sections with random source subsetting
 22. Scanning: 4-tier multi-cadence (15min position / 30min price / 60min sentiment / daily fundamentals)
 23. Outcome-conditioned training prompts: 3-5x data yield per closed trade
 24. 8 new outcome metadata columns in shadow_trades via schema registry
 25. IB activation gated on validation: broker abstraction ready (v0.14.0), but live IB trading delayed until 60+ trades with rolling Sharpe >1.0, 30-day Gateway stability test, GIPS verifier consultation, and market data classification confirmed. Deep research finding: sub-scale accounts ($5-10K) create GIPS composite construction traps. Validation-first, not infrastructure-first.
+26. Scaling levers research (deep research April 2026): salary injection dominates below $80K (4.5x terminal wealth at $1K/mo). Risk per trade decreases with account size: 2% at $5-100K, 1.5% at $100-500K, 1.25% at $500K-1M, 1.0% at $1M+. Leverage sequence: none below $25K, 1.25-1.5x at $25-100K, portfolio margin at $110K+ on IB. Holding period optimization (10->5-7 days) is highest-impact operational lever for capital velocity. MES futures for Section 1256 tax at $100K+. Ruin probability <0.001% at current parameters.
 
 ---
 

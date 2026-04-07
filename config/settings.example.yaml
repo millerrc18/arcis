@@ -21,7 +21,7 @@
 #   app .................. Environment and timezone
 #   email ................ SMTP digest email configuration
 #   alpaca ............... Broker API connection (paper account)
-#   risk ................. Capital and position sizing
+#   risk ................. Capital, position sizing, equity scaling, leverage, injections
 #   shadow_trading ....... Paper trading on/off + limits
 #   live_trading ......... Real-money dual execution (paper + live)
 #   automation ........... Scan cadence and market hours
@@ -104,8 +104,74 @@ risk:
                                 # Applied when conviction is low.
   planned_risk_pct_max: 0.01    # Maximum risk per trade (1.0% of capital = $1,000).
                                 # Applied when conviction is high.
+                                # NOTE: overridden by equity_scaling tiers when enabled.
   max_open_positions: 10        # Hard cap on simultaneous open positions.
                                 # Overridden by bootcamp.max_positions when bootcamp is on.
+
+  # ── Equity-Based Risk Scaling (Strategy Decision #26) ──────────────
+  # As the account grows, risk per trade decreases automatically.
+  # The governor checks current equity against these tiers and applies
+  # the matching planned_risk_pct_max. Tiers are evaluated top-to-bottom;
+  # the first tier where equity >= threshold wins.
+  #
+  # Source: Scaling Levers deep research (Kelly analysis, Monte Carlo).
+  # At 2% risk with 55% WR / 1.5 PF, ruin probability is <0.001%.
+  # Reducing risk at scale preserves the compounding base — a 30% DD
+  # at $500K ($150K) is psychologically devastating vs 30% at $5K ($1.5K).
+  #
+  # When disabled, the static planned_risk_pct_max above applies at all sizes.
+  equity_scaling:
+    enabled: false              # true = auto-adjust risk by equity tier.
+                                # false = use static planned_risk_pct_max above.
+    tiers:                      # Evaluated in order. First match wins.
+      - equity_above: 1000000   # $1M+ → conservative institutional sizing
+        risk_pct_max: 0.010     # 1.0% max risk per trade
+        max_positions: 4        # Fewer, larger positions
+        max_portfolio_heat: 0.04  # 4% total portfolio risk
+      - equity_above: 500000    # $500K-$1M → begin scaling down
+        risk_pct_max: 0.0125    # 1.25% max risk per trade
+        max_positions: 4
+        max_portfolio_heat: 0.05  # 5%
+      - equity_above: 100000    # $100K-$500K → standard scaling
+        risk_pct_max: 0.015     # 1.5% max risk per trade
+        max_positions: 5
+        max_portfolio_heat: 0.075  # 7.5%
+      - equity_above: 0         # $0-$100K → Phase 1 aggressive data collection
+        risk_pct_max: 0.02      # 2.0% max risk per trade
+        max_positions: 5
+        max_portfolio_heat: 0.10  # 10%
+
+  # ── Leverage Awareness ─────────────────────────────────────────────
+  # The system does not control margin (that is broker-side). This tells
+  # the governor what leverage is active so position sizing accounts for
+  # amplified exposure. At 1.5x, a $100K account has $150K buying power
+  # but drawdowns are also 1.5x — the governor must size to the LEVERAGED
+  # drawdown, not the equity-only drawdown.
+  #
+  # Activation sequence (Strategy Decision #26):
+  #   $0-$25K:    1.0 (no leverage — prove edge first)
+  #   $25K-$100K: 1.25-1.5 (Reg T margin after 100+ trades)
+  #   $100K+:     up to 1.5 (IB portfolio margin, lower rates)
+  #   $500K+:     1.0-1.25 (reduce as absolute dollar risk grows)
+  leverage:
+    enabled: false              # true = account for margin in sizing.
+    multiplier: 1.0             # 1.0 = no leverage. 1.5 = 50% margin.
+                                # Affects: buying power calculation, drawdown projection,
+                                # margin cost estimation. Does NOT change broker settings.
+    margin_rate_annual: 0.0625  # Annual interest rate on borrowed capital.
+                                # Alpaca standard: 6.25%. IB Pro: ~5.0%.
+                                # Used for cost estimation in CTO report, not execution.
+
+  # ── Capital Injection Tracking ─────────────────────────────────────
+  # Below $80K, salary injection dominates compounding as a growth driver.
+  # $1K/month → 4.5x terminal wealth improvement over 5 years.
+  # This section tracks planned vs actual injections for dashboard reporting.
+  capital_injection:
+    enabled: false              # true = track monthly injections on dashboard.
+    monthly_target: 0           # USD/month planned injection from W-2 income.
+                                # Set to your actual savings rate (e.g., 1000).
+    zero_withdrawal_until: 500000  # Do not withdraw capital below this equity level.
+                                   # Each $1 withdrawn early costs ~$1.88 in future value.
 
 
 # ─── SHADOW TRADING (Paper) ────────────────────────────────────────────
@@ -120,8 +186,9 @@ shadow_trading:
   default_order_type: market    # "market" — immediate fill at current price.
                                 # "limit" — see execution section below.
   timeout_days: 15              # Auto-close any position held longer than this.
-                                # Pullback strategy default: 7 days.
-                                # Set per-strategy via strategy configs (future).
+                                # NOTE: overridden per-strategy when strategies.pullback.timeout_days
+                                # or strategies.mean_reversion.holding_period is set.
+                                # This is the global fallback for uncategorized trades.
 
 
 # ─── LIVE TRADING (Dual Execution) ─────────────────────────────────────
@@ -436,6 +503,16 @@ execution:
 strategies:
   pullback:
     enabled: true              # Strategy #1 — pullback-in-uptrend (default, always on)
+    timeout_days: 8            # Auto-close pullback trades after N days.
+                               # Research (Scaling Levers): 90%+ of pullback alpha captured
+                               # in 3-7 days. Original 15-day timeout was too generous.
+                               # Capital velocity scales Sharpe by sqrt(N) — shorter holds
+                               # = more trades/year = higher annualized Sharpe.
+    target_hold_days: 5        # Optimal target for pullback hold period.
+                               # Used for analytics/reporting, not execution.
+                               # If median actual hold > 7 days at 50 trades, investigate.
+    stop_atr_multiplier: 2.0   # ATR multiplier for stop-loss distance.
+    target_atr_multiplier: 2.0 # ATR multiplier for take-profit target.
 
   mean_reversion:
     enabled: true              # Strategy #2 — Connors RSI(2) mean reversion
