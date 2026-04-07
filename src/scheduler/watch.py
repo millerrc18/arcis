@@ -237,6 +237,9 @@ class WatchLoop:
         # Stress test scheduling
         self._stress_test_done = False
 
+        # Simulation engine scheduling
+        self._simulation_done = False
+
     def _reset_daily_state(self):
         """Reset daily flags at midnight ET.
 
@@ -288,6 +291,7 @@ class WatchLoop:
         self._postclose_reconcile_done = False
         self._attribution_resolution_done = False
         self._stress_test_done = False
+        self._simulation_done = False
         self._last_bracket_check_time = None
         self._last_reconcile_time = None
         # Research + metrics
@@ -1431,6 +1435,12 @@ class WatchLoop:
                     # Fix for #257: only set done-flag on success
                     if self._safe_run("weekly stress test", self._run_stress_test):
                         self._stress_test_done = True
+
+                # Weekly simulation engine (Sunday 9:30 PM ET, after stress test)
+                elif (now.weekday() == 6 and hour == 21 and minute >= 30
+                      and not self._simulation_done):
+                    if self._safe_run("weekly simulation", self._run_simulation_engine):
+                        self._simulation_done = True
 
                 # Action reminders (8 PM daily via Telegram)
                 if hour == 20 and not self._action_reminders_done:
@@ -3203,6 +3213,19 @@ class WatchLoop:
             except Exception as e:
                 logger.warning("[WATCH] Stress test %s failed: %s", name, e)
         print("[WATCH] Stress test complete")
+
+    def _run_simulation_engine(self):
+        """Run full 13-scenario simulation with Monte Carlo."""
+        import subprocess
+        result = subprocess.run(
+            [sys.executable, "scripts/simulation_engine.py", "--monte-carlo", "1000"],
+            capture_output=True, text=True, timeout=7200,
+        )
+        if result.returncode != 0:
+            logger.error("[WATCH] Simulation engine failed: %s", result.stderr[:500])
+        else:
+            logger.info("[WATCH] Simulation engine completed")
+        return result.returncode == 0
 
     def _model_version_changed(self) -> bool:
         """Check if model version changed since last stress test."""

@@ -25,6 +25,7 @@ import Architecture from './pages/Architecture'
 import DBSchema from './pages/DBSchema'
 import Attribution from './pages/Attribution'
 import StressTest from './pages/StressTest'
+import Simulation from './pages/Simulation'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -92,6 +93,7 @@ export default function App() {
                 <Route path="/schema" element={<ErrorBoundary><DBSchema /></ErrorBoundary>} />
                 <Route path="/attribution" element={<ErrorBoundary><Attribution /></ErrorBoundary>} />
                 <Route path="/stress-test" element={<ErrorBoundary><StressTest /></ErrorBoundary>} />
+                <Route path="/simulation" element={<ErrorBoundary><Simulation /></ErrorBoundary>} />
               </Route>
             </Routes>
           </BrowserRouter>

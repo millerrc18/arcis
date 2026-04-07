@@ -14,6 +14,7 @@ Tests: tests/test_executor_import.py
 import json
 import logging
 import sqlite3
+import sys
 import time
 import uuid
 from collections import deque
@@ -257,6 +258,18 @@ def _handle_stress_test(payload: dict, config: dict) -> dict:
     return {"status": "completed", "scenarios": results}
 
 
+def _handle_simulation(payload: dict, config: dict) -> dict:
+    """Run full-regime simulation engine with Monte Carlo."""
+    import subprocess
+    result = subprocess.run(
+        [sys.executable, "scripts/simulation_engine.py", "--monte-carlo", "1000"],
+        capture_output=True, text=True, timeout=7200,
+    )
+    if result.returncode != 0:
+        return {"status": "error", "error": result.stderr[:500]}
+    return {"status": "completed"}
+
+
 COMMAND_HANDLERS = {
     "scan": _handle_scan,
     "council": _handle_council,
@@ -272,6 +285,7 @@ COMMAND_HANDLERS = {
     "cto-report": _handle_cto_report,
     # Fix for #252: stress test command for frontend Run button
     "stress-test": _handle_stress_test,
+    "simulation": _handle_simulation,
 }
 
 
