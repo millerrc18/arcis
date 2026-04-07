@@ -36,7 +36,7 @@ const COMPONENT_LABELS = {
 }
 
 function scoreColor(score) {
-  if (score >= 70) return 'var(--teal-400)'
+  if (score >= 70) return 'var(--arcis-success)'
   if (score >= 40) return 'var(--amber-400)'
   return 'var(--danger)'
 }
@@ -93,17 +93,17 @@ export default function Health() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h2 className="text-xl font-medium" style={{ color: 'var(--slate-100)' }}>System Health</h2>
-          <p className="text-sm mt-1" style={{ color: 'var(--slate-400)' }}>
+          <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text-primary)' }}>System Health</h2>
+          <p className="text-sm mt-1" style={{ color: 'var(--arcis-text-secondary)' }}>
             Build Score + HSHS composite from live cloud data.
           </p>
         </div>
         <div className="flex gap-2">
-          <div className="px-3 py-1 rounded-full text-xs uppercase tracking-wide" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)', color: 'var(--slate-300)' }}>
+          <div className="px-3 py-1 text-xs uppercase tracking-wide" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-elevated)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-secondary)' }}>
             Phase: {phase}
           </div>
           {phaseProgress.pct_complete != null && (
-            <div className="px-3 py-1 rounded-full text-xs" style={{ background: 'var(--slate-700)', border: '1px solid var(--slate-600)', color: 'var(--slate-300)' }}>
+            <div className="px-3 py-1 text-xs" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-elevated)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-secondary)' }}>
               Gate: {phaseProgress.trades_closed}/{phaseProgress.trades_required}
             </div>
           )}
@@ -117,18 +117,18 @@ export default function Health() {
             {/* Score display */}
             <div className="flex flex-col items-center lg:items-start gap-1 min-w-[160px]">
               <div className="text-xs uppercase tracking-wide" style={{ color: 'var(--arcis-text-secondary)' }}>Build Score</div>
-              <div className="text-6xl font-semibold" style={{ fontFamily: 'var(--font-mono)', color: scoreColor(buildScore) }}>
+              <div className="text-6xl font-semibold" style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', color: scoreColor(buildScore) }}>
                 {buildScore.toFixed(1)}
               </div>
               <div className="flex items-center gap-2 mt-1">
                 {buildDelta != null && (
-                  <span className="flex items-center gap-1 text-sm" style={{ color: buildDelta > 0 ? 'var(--success)' : buildDelta < 0 ? 'var(--danger)' : 'var(--slate-400)' }}>
+                  <span className="flex items-center gap-1 text-sm" style={{ color: buildDelta > 0 ? 'var(--success)' : buildDelta < 0 ? 'var(--danger)' : 'var(--arcis-text-muted)' }}>
                     {buildDelta > 0 ? <TrendingUp size={14} /> : buildDelta < 0 ? <TrendingDown size={14} /> : <Minus size={14} />}
                     {buildDelta > 0 ? '+' : ''}{buildDelta.toFixed(1)} 7d
                   </span>
                 )}
                 {buildDecay && (
-                  <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full" style={{ background: 'rgba(239,68,68,0.15)', color: '#fca5a5' }}>
+                  <span className="flex items-center gap-1 text-xs px-2 py-0.5" style={{ borderRadius: 'var(--radius-sm)', background: 'rgba(239,68,68,0.15)', color: '#fca5a5' }}>
                     <AlertTriangle size={10} /> Decay
                   </span>
                 )}
@@ -142,11 +142,11 @@ export default function Health() {
                 return (
                   <div key={key}>
                     <div className="flex justify-between text-xs mb-1">
-                      <span style={{ color: 'var(--slate-400)' }}>{label}</span>
-                      <span style={{ fontFamily: 'var(--font-mono)', color: scoreColor(val) }}>{val.toFixed(0)}</span>
+                      <span style={{ color: 'var(--arcis-text-secondary)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{label}</span>
+                      <span style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', color: scoreColor(val) }}>{val.toFixed(0)}</span>
                     </div>
-                    <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--slate-600)' }}>
-                      <div className="h-full rounded-full transition-all" style={{ width: `${Math.min(100, val)}%`, background: scoreColor(val) }} />
+                    <div className="h-2 overflow-hidden" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-border)' }}>
+                      <div className="h-full" style={{ borderRadius: 'var(--radius-sm)', width: `${Math.min(100, val)}%`, background: scoreColor(val) }} />
                     </div>
                   </div>
                 )
@@ -156,10 +156,10 @@ export default function Health() {
             {/* Sparkline */}
             {buildHistory.length > 1 && (
               <div className="flex flex-col items-center gap-2 min-w-[140px]">
-                <div className="text-xs uppercase tracking-wide" style={{ color: 'var(--slate-400)' }}>7-Day Trend</div>
+                <div className="text-xs uppercase tracking-wide" style={{ color: 'var(--arcis-text-secondary)', letterSpacing: '0.06em' }}>7-Day Trend</div>
                 <ResponsiveContainer width={140} height={60}>
                   <LineChart data={buildHistory}>
-                    <Line type="monotone" dataKey="score" stroke="var(--teal-400)" strokeWidth={2} dot={false} />
+                    <Line type="monotone" dataKey="score" stroke="var(--arcis-accent)" strokeWidth={2} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -168,22 +168,22 @@ export default function Health() {
 
           {/* Data asset detail */}
           {(dataDetail.quality || dataDetail.diversity || dataDetail.freshness) && (
-            <div className="mt-4 pt-4 grid grid-cols-3 gap-4" style={{ borderTop: '1px solid var(--slate-600)' }}>
+            <div className="mt-4 pt-4 grid grid-cols-3 gap-4" style={{ borderTop: '1px solid var(--arcis-border)' }}>
               <div>
-                <div className="text-xs" style={{ color: 'var(--slate-400)' }}>Data Quality</div>
-                <div className="text-lg font-medium" style={{ fontFamily: 'var(--font-mono)', color: scoreColor(dataDetail.quality || 0) }}>
+                <div style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--arcis-text-secondary)' }}>Data Quality</div>
+                <div className="text-lg font-medium" style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', color: scoreColor(dataDetail.quality || 0) }}>
                   {(dataDetail.quality || 0).toFixed(0)}
                 </div>
               </div>
               <div>
-                <div className="text-xs" style={{ color: 'var(--slate-400)' }}>Data Diversity</div>
-                <div className="text-lg font-medium" style={{ fontFamily: 'var(--font-mono)', color: scoreColor(dataDetail.diversity || 0) }}>
+                <div style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--arcis-text-secondary)' }}>Data Diversity</div>
+                <div className="text-lg font-medium" style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', color: scoreColor(dataDetail.diversity || 0) }}>
                   {(dataDetail.diversity || 0).toFixed(0)}
                 </div>
               </div>
               <div>
-                <div className="text-xs" style={{ color: 'var(--slate-400)' }}>Data Freshness</div>
-                <div className="text-lg font-medium" style={{ fontFamily: 'var(--font-mono)', color: scoreColor(dataDetail.freshness || 0) }}>
+                <div style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--arcis-text-secondary)' }}>Data Freshness</div>
+                <div className="text-lg font-medium" style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', color: scoreColor(dataDetail.freshness || 0) }}>
                   {(dataDetail.freshness || 0).toFixed(0)}
                 </div>
               </div>
@@ -195,16 +195,16 @@ export default function Health() {
       {/* HSHS section */}
       {!hasHshs ? (
         <div className="arcis-card text-center" style={{ padding: '48px' }}>
-          <div className="text-sm" style={{ color: 'var(--slate-400)' }}>Collecting HSHS data...</div>
+          <div className="text-sm" style={{ color: 'var(--arcis-text-muted)' }}>Collecting HSHS data...</div>
         </div>
       ) : (
         <>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div className="arcis-card lg:col-span-1" style={{ padding: '24px' }}>
-              <div className="text-xs uppercase tracking-wide mb-2" style={{ color: 'var(--slate-400)' }}>
+              <div className="text-xs uppercase tracking-wide mb-2" style={{ color: 'var(--arcis-text-secondary)', letterSpacing: '0.06em' }}>
                 HSHS Composite
               </div>
-              <div className="text-6xl font-semibold" style={{ fontFamily: 'var(--font-mono)', color: overallColor(hshsOverall) }}>
+              <div className="text-6xl font-semibold" style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', color: overallColor(hshsOverall) }}>
                 {hshsOverall.toFixed(1)}
               </div>
               <div className="text-sm mt-3" style={{ color: 'var(--arcis-text-secondary)' }}>Out of 100</div>
@@ -215,7 +215,7 @@ export default function Health() {
                 {Object.entries(DIMENSION_LABELS).map(([key, label]) => (
                   <div key={key} className="flex items-center justify-between text-sm">
                     <span style={{ color: 'var(--arcis-text-secondary)' }}>{label}</span>
-                    <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-primary)' }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', color: 'var(--arcis-text-primary)' }}>
                       {weights[key] != null ? `${(weights[key] * 100).toFixed(0)}%` : '--'}
                     </span>
                   </div>
@@ -239,7 +239,7 @@ export default function Health() {
                     contentStyle={{
                       background: 'var(--arcis-bg-surface)',
                       border: '1px solid var(--arcis-border)',
-                      borderRadius: 8,
+                      borderRadius: 3,
                       fontSize: 12,
                       color: 'var(--tooltip-text)',
                     }}

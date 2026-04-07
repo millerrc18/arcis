@@ -11,9 +11,9 @@ const SCENARIO_LABELS = {
 }
 
 const SCENARIO_COLORS = {
-  '2008_financial_crisis': '#ef4444',
-  '2020_covid_crash': '#f59e0b',
-  '2022_bear_market': '#3b82f6',
+  '2008_financial_crisis': 'var(--arcis-danger)',
+  '2020_covid_crash': 'var(--arcis-warning)',
+  '2022_bear_market': 'var(--arcis-accent)',
 }
 
 export default function StressTest() {
@@ -73,7 +73,7 @@ export default function StressTest() {
   if (results.length === 0) {
     return (
       <div className="space-y-6">
-        <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text)' }}>Historical Stress Testing</h2>
+        <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text-primary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Historical Stress Testing</h2>
         <div className="arcis-card" style={{ padding: '20px', textAlign: 'center' }}>
           <span className="text-sm font-medium" style={{ color: 'var(--arcis-text-muted)' }}>No stress test results yet</span>
           <p className="text-xs mt-1 mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>
@@ -85,8 +85,9 @@ export default function StressTest() {
             <button
               onClick={handleRunStressTest}
               disabled={running}
-              className="px-4 py-2 rounded text-sm font-medium transition-colors"
+              className="px-4 py-2 text-sm font-medium"
               style={{
+                borderRadius: 'var(--radius-sm)',
                 background: running ? 'var(--arcis-bg-elevated)' : 'var(--arcis-accent)',
                 color: running ? 'var(--arcis-text-muted)' : '#fff',
                 cursor: running ? 'not-allowed' : 'pointer',
@@ -105,14 +106,15 @@ export default function StressTest() {
     <div className="space-y-6">
       {/* Fix for #252: header with Run button */}
       <div className="flex items-center justify-between">
-        <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text)' }}>Historical Stress Testing</h2>
+        <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text-primary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Historical Stress Testing</h2>
         <div className="flex items-center gap-3">
           {runStatus && <span className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>{runStatus}</span>}
           <button
             onClick={handleRunStressTest}
             disabled={running}
-            className="px-4 py-2 rounded text-sm font-medium transition-colors"
+            className="px-4 py-2 text-sm font-medium"
             style={{
+              borderRadius: 'var(--radius-sm)',
               background: running ? 'var(--arcis-bg-elevated)' : 'var(--arcis-accent)',
               color: running ? 'var(--arcis-text-muted)' : '#fff',
               cursor: running ? 'not-allowed' : 'pointer',
@@ -128,26 +130,26 @@ export default function StressTest() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {results.map((r) => (
           <div key={r.result_id} className="arcis-card" style={{ padding: '16px' }}>
-            <h3 className="text-sm font-medium mb-2" style={{ color: SCENARIO_COLORS[r.scenario] || 'var(--arcis-text)' }}>
+            <h3 className="text-sm font-medium mb-2" style={{ color: 'var(--arcis-text-primary)' }}>
               {SCENARIO_LABELS[r.scenario] || r.scenario}
             </h3>
             <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>{r.start_date} — {r.end_date}</div>
             <div className="grid grid-cols-2 gap-2 mt-3 text-sm">
               <div>
                 <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Trades</div>
-                <div style={{ fontFamily: 'var(--font-mono)' }}>{r.total_trades || 0}</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums' }}>{r.total_trades || 0}</div>
               </div>
               <div>
                 <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Win Rate</div>
-                <div style={{ fontFamily: 'var(--font-mono)' }}>{r.win_rate != null ? `${(r.win_rate * 100).toFixed(1)}%` : '--'}</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums' }}>{r.win_rate != null ? `${(r.win_rate * 100).toFixed(1)}%` : '--'}</div>
               </div>
               <div>
                 <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Max DD</div>
-                <div style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-danger)' }}>{r.max_drawdown_pct != null ? `${r.max_drawdown_pct.toFixed(1)}%` : '--'}</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', color: 'var(--arcis-danger)' }}>{r.max_drawdown_pct != null ? `${r.max_drawdown_pct.toFixed(1)}%` : '--'}</div>
               </div>
               <div>
                 <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Calmar</div>
-                <div style={{ fontFamily: 'var(--font-mono)' }}>{r.calmar_ratio != null ? r.calmar_ratio.toFixed(2) : '--'}</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums' }}>{r.calmar_ratio != null ? r.calmar_ratio.toFixed(2) : '--'}</div>
               </div>
             </div>
           </div>
@@ -163,7 +165,7 @@ export default function StressTest() {
               <XAxis dataKey="day" tick={{ fontSize: 10, fill: 'var(--arcis-text-muted)' }} />
               <YAxis tick={{ fontSize: 10, fill: 'var(--arcis-text-muted)' }} />
               {/* Fix for #250: add tooltip text color for dark mode readability */}
-              <Tooltip contentStyle={{ background: 'var(--arcis-bg-elevated)', border: '1px solid var(--arcis-border)', borderRadius: 8, fontSize: 12, color: 'var(--tooltip-text)' }} />
+              <Tooltip contentStyle={{ background: 'var(--arcis-bg-elevated)', border: '1px solid var(--arcis-border)', borderRadius: 3, fontSize: 12, color: 'var(--tooltip-text)' }} isAnimationActive={false} />
               {results.map((r) => {
                 const curve = Array.isArray(r.equity_curve_json) ? r.equity_curve_json : []
                 if (curve.length === 0) return null
@@ -176,6 +178,7 @@ export default function StressTest() {
                     stroke={SCENARIO_COLORS[r.scenario] || '#888'}
                     strokeWidth={2}
                     dot={false}
+                    isAnimationActive={false}
                   />
                 )
               })}

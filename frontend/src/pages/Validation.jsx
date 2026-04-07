@@ -35,8 +35,8 @@ function CategoryCard({ name, checks, expanded, onToggle }) {
 
   return (
     <div
-      className="rounded-lg overflow-hidden"
-      style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}
+      className="overflow-hidden"
+      style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}
     >
       <button
         onClick={onToggle}
@@ -173,8 +173,9 @@ export default function Validation() {
         <button
           onClick={handleRefresh}
           disabled={refreshing}
-          className="px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
+          className="px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
           style={{
+            borderRadius: 'var(--radius-sm)',
             background: 'var(--arcis-accent-hover)',
             color: 'var(--arcis-text-primary)',
           }}
@@ -186,14 +187,15 @@ export default function Validation() {
 
       {/* Error message */}
       {error && (
-        <div className="rounded-lg p-3 text-sm" style={{ background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)', color: 'var(--arcis-danger)' }}>
+        <div className="p-3 text-sm" style={{ borderRadius: 'var(--radius-sm)', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)', color: 'var(--arcis-danger)' }}>
           {error}
         </div>
       )}
 
       {/* Success feedback */}
       {lastRunResult && !error && (
-        <div className="rounded-lg p-3 text-sm flex items-center justify-between" style={{
+        <div className="p-3 text-sm flex items-center justify-between" style={{
+          borderRadius: 'var(--radius-sm)',
           background: lastRunResult.failed > 0
             ? 'rgba(239, 68, 68, 0.1)'
             : lastRunResult.warned > 0
@@ -219,8 +221,8 @@ export default function Validation() {
 
       {/* Summary bar */}
       <div
-        className="rounded-lg p-5 flex flex-col md:flex-row items-center gap-6"
-        style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}
+        className="p-5 flex flex-col md:flex-row items-center gap-6"
+        style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}
       >
         <div className="text-center md:text-left">
           <div className="text-xs uppercase tracking-wide mb-1" style={{ color: 'var(--arcis-text-secondary)' }}>
