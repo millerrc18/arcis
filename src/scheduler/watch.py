@@ -71,7 +71,11 @@ class DBLogHandler(logging.Handler):
             source = record.name.split(".")[-1] if "." in record.name else record.name
             message = record.getMessage()[:2000]  # Truncate to prevent SQLite bloat
             details = None
-            if record.exc_info and record.exc_info[1]:
+            ctx = getattr(record, "ctx", None)
+            if ctx:
+                import json
+                details = json.dumps(ctx, separators=(",", ":"), default=str)[:5000]
+            elif record.exc_info and record.exc_info[1]:
                 details = str(record.exc_info[1])[:5000]
 
             with sqlite3.connect(self.db_path) as conn:
@@ -671,7 +675,8 @@ class WatchLoop:
         from src.email.notifier import send_email
 
         now = datetime.now(ET)
-        ctx = ScanContext(config=self.config)
+        _scan_num = getattr(self, "_scan_number", 0) + 1
+        ctx = ScanContext(config=self.config, scan_id=f"s-{_scan_num:04d}")
         result = run_universe_scan(ctx)
 
         # Aborted scan (e.g., no SPY data) — just record metrics
@@ -810,6 +815,23 @@ class WatchLoop:
                      0, 0.0, 0.0, now.isoformat()),
                 )
                 conn.commit()
+            # Structured cycle summary for AI agent review (#314)
+            logger.info(
+                "[WATCH] Scan cycle #%d complete",
+                self._scan_number,
+                extra={"ctx": {
+                    "event": "scan_summary",
+                    "scan_id": f"s-{self._scan_number:04d}",
+                    "scan_number": self._scan_number,
+                    "universe": universe_count,
+                    "features": features_count,
+                    "qualified": packet_worthy,
+                    "llm_success": llm_success,
+                    "llm_total": llm_total,
+                    "conviction_none_rate": round(
+                        1 - (llm_success / llm_total), 2) if llm_total > 0 else 0.0,
+                }},
+            )
             logger.info("[WATCH] Recorded scan_metrics #%d (packets=%d)",
                         self._scan_number, packet_worthy)
         except Exception as e:

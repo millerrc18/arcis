@@ -29,6 +29,7 @@ class ScanContext:
     """Input context for a universe scan."""
     config: dict
     db_path: str = DB_PATH
+    scan_id: str | None = None
 
 
 @dataclass
