@@ -143,8 +143,9 @@ function DocSidebar({ docList, groupedDocs, search, setSearch, activeDoc, setAct
           placeholder="Search docs..."
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className="w-full pl-9 pr-3 py-2 rounded-lg text-sm"
+          className="w-full pl-9 pr-3 py-2 text-sm"
           style={{
+            borderRadius: 'var(--radius-sm)',
             background: 'var(--arcis-bg-primary)',
             border: '1px solid var(--arcis-border)',
             color: 'var(--arcis-text-primary)',
@@ -165,8 +166,9 @@ function DocSidebar({ docList, groupedDocs, search, setSearch, activeDoc, setAct
                   <button
                     key={d.id}
                     onClick={() => setActiveDoc(d.id)}
-                    className="w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center gap-2"
+                    className="w-full text-left px-3 py-2 text-sm transition-colors flex items-center gap-2"
                     style={{
+                      borderRadius: 'var(--radius-sm)',
                       background: activeDoc === d.id ? 'var(--arcis-bg-elevated)' : 'transparent',
                       color: activeDoc === d.id ? 'var(--arcis-text-primary)' : 'var(--arcis-text-secondary)',
                     }}
@@ -234,8 +236,8 @@ export default function Docs() {
     <div className="max-w-5xl mx-auto">
       <div className="flex flex-col md:flex-row gap-4 md:gap-6">
         {/* Sidebar: always visible on desktop, hidden when viewing doc on mobile */}
-        <nav className={`w-full md:w-72 md:shrink-0 rounded-lg p-4 ${activeDoc ? 'hidden md:block' : ''}`}
-          style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+        <nav className={`w-full md:w-72 md:shrink-0 p-4 ${activeDoc ? 'hidden md:block' : ''}`}
+          style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
           <DocSidebar
             docList={docList}
             groupedDocs={groupedDocs}
@@ -253,8 +255,8 @@ export default function Docs() {
           {activeDoc && (
             <button
               onClick={() => setActiveDoc(null)}
-              className="md:hidden sticky top-0 z-10 w-full mb-3 flex items-center gap-2 px-4 py-3 rounded-lg text-sm font-medium"
-              style={{ background: 'var(--arcis-bg-surface)', color: 'var(--arcis-accent)', border: '1px solid var(--arcis-border)' }}
+              className="md:hidden sticky top-0 z-10 w-full mb-3 flex items-center gap-2 px-4 py-3 text-sm font-medium"
+              style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', color: 'var(--arcis-accent)', border: '1px solid var(--arcis-border)' }}
             >
               <ArrowLeft size={16} />
               Back to documents
@@ -264,7 +266,7 @@ export default function Docs() {
           {docLoading ? (
             <LoadingSpinner />
           ) : showingDoc ? (
-            <div className="rounded-lg p-4 md:p-6" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+            <div className="p-4 md:p-6" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
               <div
                 className="mx-auto"
                 style={{ maxWidth: '720px', overflowWrap: 'break-word', wordBreak: 'break-word' }}
@@ -272,7 +274,7 @@ export default function Docs() {
               />
             </div>
           ) : (
-            <div className="hidden md:flex items-center justify-center py-16 rounded-lg" style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-secondary)' }}>
+            <div className="hidden md:flex items-center justify-center py-16" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-secondary)' }}>
               <div className="text-center">
                 <FileText size={32} className="mx-auto mb-3" style={{ color: 'var(--arcis-text-muted)' }} />
                 <div className="text-sm">Select a document to view</div>

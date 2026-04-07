@@ -29,7 +29,7 @@ const CLUSTERS = {
     'activity_log', 'log_entries', 'command_queue', 'command_results',
     'config_overrides', 'scan_metrics', 'metric_snapshots',
   ]},
-  intelligence: { color: '#0D9488', label: 'Intelligence', tables: [
+  intelligence: { color: '#6366F1', label: 'Intelligence', tables: [
     'council_sessions', 'council_votes', 'audit_reports', 'build_score_history',
     'hshs_snapshots', 'validation_checks',
   ]},
@@ -101,10 +101,10 @@ function buildNodes(counts) {
         style: {
           background: '#0C0C10',
           border: `2px solid ${cluster.color}`,
-          borderRadius: 6,
+          borderRadius: 2,
           padding: '12px 16px',
           fontSize: 13,
-          color: '#E4E4E7',
+          color: 'var(--arcis-text-primary)',
           fontFamily: "'JetBrains Mono', monospace",
           minWidth: clusterWidth,
           textAlign: 'left',
@@ -152,7 +152,7 @@ export default function DBSchema() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--arcis-text-primary)' }}>DB Schema</h1>
+          <h1 className="text-2xl font-bold" style={{ color: 'var(--arcis-text-primary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>DB Schema</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--arcis-text-secondary)' }}>
             40 tables across 6 domains — dashed lines show foreign keys, counts refresh every 5 min
           </p>
@@ -180,10 +180,10 @@ export default function DBSchema() {
         >
           <Background color="#1E293B" gap={20} />
           <Controls
-            style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 8 }}
+            style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 2 }}
           />
           <MiniMap
-            style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 8 }}
+            style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 2 }}
             nodeColor="#3B82F6"
             maskColor="rgba(5, 5, 7, 0.7)"
           />
