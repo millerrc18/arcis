@@ -35,6 +35,13 @@ import sys
 from pathlib import Path
 
 import yaml
+from dotenv import load_dotenv
+
+# Load .env file BEFORE any os.environ lookups. This ensures API keys
+# in .env are available regardless of how the code is invoked (CLI,
+# direct import, one-liner, etc.). Duplicate of the call in main.py
+# and watch.py, but load_dotenv() is idempotent — safe to call multiple times.
+load_dotenv()
 
 # Central database path constant — override via ARCIS_DB_PATH env var.
 # This is the single source of truth for the SQLite path. Every module
