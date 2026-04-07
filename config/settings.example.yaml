@@ -108,6 +108,28 @@ risk:
   max_open_positions: 10        # Hard cap on simultaneous open positions.
                                 # Overridden by bootcamp.max_positions when bootcamp is on.
 
+  # ─── ACCOUNT-SIZE RISK SCALING (Strategy Decision #26) ──────────
+  # Automatically reduces risk per trade as equity grows.
+  # Governor checks current equity (starting_capital + realized P&L)
+  # and applies the matching tier. First match wins (sorted ascending).
+  # If disabled or empty, planned_risk_pct_max is used as-is.
+  #
+  # This sets the BASE risk. Thorp drawdown adjustment, Traffic Light,
+  # and event risk multipliers are applied ON TOP of the tier value.
+  # ─────────────────────────────────────────────────────────────────
+  risk_scaling:
+    enabled: false                  # true = use tiered risk based on equity
+    tiers:
+      - equity_below: 100000
+        risk_pct_max: 0.02          # 2.0% — prove the edge ($5K-$100K)
+      - equity_below: 500000
+        risk_pct_max: 0.015         # 1.5% — scaling phase ($100K-$500K)
+      - equity_below: 1000000
+        risk_pct_max: 0.0125        # 1.25% — real money ($500K-$1M)
+      - equity_below: 999999999
+        risk_pct_max: 0.01          # 1.0% — institutional ($1M+)
+    notify_on_transition: true      # Telegram alert when tier changes
+
   # ── Equity-Based Risk Scaling (Strategy Decision #26) ──────────────
   # As the account grows, risk per trade decreases automatically.
   # The governor checks current equity against these tiers and applies
