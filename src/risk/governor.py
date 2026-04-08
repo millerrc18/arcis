@@ -220,6 +220,101 @@ def compute_current_drawdown(db_path: str = DB_PATH,
         return 15.0
 
 
+def get_current_equity(config: dict | None = None,
+                       db_path: str = DB_PATH) -> float:
+    """Compute current equity from starting capital + realized P&L.
+    Uses only closed-trade P&L (not unrealized) to prevent equity
+    oscillation during market hours from affecting position sizing.
+    """
+    if config is None:
+        config = load_config()
+    starting_capital = config.get("risk", {}).get("starting_capital", 100000)
+    try:
+        import sqlite3
+        with sqlite3.connect(db_path) as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(pnl_dollars), 0) "
+                "FROM shadow_trades WHERE status = 'closed'"
+            ).fetchone()
+            total_pnl = float(row[0]) if row else 0
+        return starting_capital + total_pnl
+    except Exception as e:
+        logger.warning("[RISK] Equity computation failed: %s — using starting_capital", e)
+        return starting_capital
+
+
+def get_effective_risk_pct(config: dict | None = None,
+                           db_path: str = DB_PATH) -> tuple[float, str]:
+    """Get the risk percentage for the current equity tier.
+    Returns (effective_risk_pct, tier_label).
+    If scaling is disabled or tiers are empty, returns (planned_risk_pct_max, "static").
+    """
+    if config is None:
+        config = load_config()
+    risk_cfg = config.get("risk", {})
+    base = risk_cfg.get("planned_risk_pct_max", 0.02)
+
+    scaling = risk_cfg.get("risk_scaling", {})
+    if not scaling.get("enabled", False):
+        return base, "static"
+
+    tiers = scaling.get("tiers", [])
+    if not tiers:
+        return base, "static"
+
+    equity = get_current_equity(config, db_path)
+
+    for tier in sorted(tiers, key=lambda t: t["equity_below"]):
+        if equity < tier["equity_below"]:
+            label = f"<${tier['equity_below']:,.0f} ({tier['risk_pct_max']:.1%})"
+            return tier["risk_pct_max"], label
+
+    last = tiers[-1]
+    label = f">=${last['equity_below']:,.0f} ({last['risk_pct_max']:.1%})"
+    return last["risk_pct_max"], label
+
+
+def check_tier_transition(config: dict, db_path: str = DB_PATH) -> dict | None:
+    """Detect if equity has crossed a tier boundary since last EOD check.
+    Stores last known tier in the activity_log table. Returns transition dict if changed.
+    """
+    import sqlite3
+    import json
+    current_pct, current_label = get_effective_risk_pct(config, db_path)
+    equity = get_current_equity(config, db_path)
+
+    try:
+        with sqlite3.connect(db_path) as conn:
+            row = conn.execute(
+                "SELECT detail FROM activity_log "
+                "WHERE event_type = 'tier_check' ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+
+        prev_label = None
+        if row and row[0]:
+            prev = json.loads(row[0])
+            prev_label = prev.get("tier_label")
+
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "INSERT INTO activity_log (event_type, detail, created_at) "
+                "VALUES ('tier_check', ?, datetime('now'))",
+                (json.dumps({"tier_label": current_label, "equity": equity, "risk_pct": current_pct}),),
+            )
+
+        if prev_label and prev_label != current_label:
+            return {
+                "equity": equity,
+                "prev_tier": prev_label,
+                "new_tier": current_label,
+                "new_risk_pct": current_pct,
+            }
+    except Exception as e:
+        logger.debug("[RISK] Tier transition check failed: %s", e)
+
+    return None
+
+
 class RiskGovernor:
     """Hard risk limits enforced before every trade.
 

@@ -200,3 +200,146 @@ class TestTypeCoercion:
     def test_zero_allocation_rejected(self, governor, base_portfolio):
         result = governor.check_trade("AAPL", 0, {}, base_portfolio)
         assert result["approved"] is False
+
+
+# ── Helpers for Risk Scaling Tier tests ──────────────────────────────
+
+
+def _init_db(db_path):
+    """Create a minimal shadow_trades table for testing."""
+    import sqlite3
+    with sqlite3.connect(str(db_path)) as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS shadow_trades ("
+            "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "  ticker TEXT,"
+            "  status TEXT,"
+            "  pnl_dollars REAL,"
+            "  actual_exit_time TEXT"
+            ")"
+        )
+
+
+def _add_closed_trade(db_path, pnl):
+    """Insert a closed trade with the given P&L."""
+    import sqlite3
+    with sqlite3.connect(str(db_path)) as conn:
+        conn.execute(
+            "INSERT INTO shadow_trades (ticker, status, pnl_dollars, actual_exit_time) "
+            "VALUES ('TEST', 'closed', ?, '2026-01-01 16:00:00')",
+            (pnl,),
+        )
+
+
+class TestRiskScalingTiers:
+    """Tests for get_current_equity() and get_effective_risk_pct()."""
+
+    _DEFAULT_TIERS = [
+        {"equity_below": 100000, "risk_pct_max": 0.02},
+        {"equity_below": 500000, "risk_pct_max": 0.015},
+        {"equity_below": 1000000, "risk_pct_max": 0.0125},
+        {"equity_below": 999999999, "risk_pct_max": 0.01},
+    ]
+
+    @staticmethod
+    def _mock_config(enabled=True, tiers=None):
+        if tiers is None:
+            tiers = TestRiskScalingTiers._DEFAULT_TIERS
+        return {
+            "risk": {
+                "starting_capital": 100000,
+                "planned_risk_pct_max": 0.02,
+                "risk_scaling": {
+                    "enabled": enabled,
+                    "tiers": tiers,
+                },
+            },
+            "risk_governor": {},
+        }
+
+    def test_scaling_disabled_returns_static(self, tmp_path):
+        from src.risk.governor import get_effective_risk_pct
+        db = tmp_path / "test.db"
+        _init_db(db)
+        config = self._mock_config(enabled=False)
+        pct, label = get_effective_risk_pct(config, str(db))
+        assert pct == 0.02
+        assert label == "static"
+
+    def test_equity_below_starting_returns_2pct(self, tmp_path):
+        from src.risk.governor import get_effective_risk_pct
+        db = tmp_path / "test.db"
+        _init_db(db)
+        _add_closed_trade(db, -20000)  # equity = 80K
+        config = self._mock_config(enabled=True)
+        pct, label = get_effective_risk_pct(config, str(db))
+        assert pct == 0.02
+        assert "2.0%" in label
+
+    def test_equity_200k_returns_1_5pct(self, tmp_path):
+        from src.risk.governor import get_effective_risk_pct
+        db = tmp_path / "test.db"
+        _init_db(db)
+        _add_closed_trade(db, 100000)  # equity = 200K
+        config = self._mock_config(enabled=True)
+        pct, label = get_effective_risk_pct(config, str(db))
+        assert pct == 0.015
+        assert "1.5%" in label
+
+    def test_equity_800k_returns_1_25pct(self, tmp_path):
+        from src.risk.governor import get_effective_risk_pct
+        db = tmp_path / "test.db"
+        _init_db(db)
+        _add_closed_trade(db, 700000)  # equity = 800K
+        config = self._mock_config(enabled=True)
+        pct, label = get_effective_risk_pct(config, str(db))
+        assert pct == 0.0125
+        assert "1.2%" in label  # .1% format renders 0.0125 as 1.2%
+
+    def test_equity_2m_returns_1pct(self, tmp_path):
+        from src.risk.governor import get_effective_risk_pct
+        db = tmp_path / "test.db"
+        _init_db(db)
+        _add_closed_trade(db, 1900000)  # equity = 2M
+        config = self._mock_config(enabled=True)
+        pct, label = get_effective_risk_pct(config, str(db))
+        assert pct == 0.01
+        assert "1.0%" in label
+
+    def test_empty_tiers_returns_static(self, tmp_path):
+        from src.risk.governor import get_effective_risk_pct
+        db = tmp_path / "test.db"
+        _init_db(db)
+        config = self._mock_config(enabled=True, tiers=[])
+        pct, label = get_effective_risk_pct(config, str(db))
+        assert pct == 0.02
+        assert label == "static"
+
+    def test_get_current_equity_no_trades(self, tmp_path):
+        from src.risk.governor import get_current_equity
+        db = tmp_path / "test.db"
+        _init_db(db)
+        config = self._mock_config()
+        equity = get_current_equity(config, str(db))
+        assert equity == 100000
+
+    def test_get_current_equity_with_pnl(self, tmp_path):
+        from src.risk.governor import get_current_equity
+        db = tmp_path / "test.db"
+        _init_db(db)
+        _add_closed_trade(db, 5000)
+        _add_closed_trade(db, -2000)
+        config = self._mock_config()
+        equity = get_current_equity(config, str(db))
+        assert equity == 103000
+
+    def test_equity_at_100k_returns_1_5pct(self, tmp_path):
+        """Equity exactly $100K is NOT below 100K, so falls in <$500K tier -> 1.5%."""
+        from src.risk.governor import get_effective_risk_pct
+        db = tmp_path / "test.db"
+        _init_db(db)
+        # starting_capital is 100K, no trades = equity exactly 100K
+        config = self._mock_config(enabled=True)
+        pct, label = get_effective_risk_pct(config, str(db))
+        assert pct == 0.015
+        assert "1.5%" in label
