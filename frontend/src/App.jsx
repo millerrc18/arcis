@@ -28,6 +28,7 @@ import StressTest from './pages/StressTest'
 import Simulation from './pages/Simulation'
 import ModelPerformance from './pages/ModelPerformance'
 import Monitoring from './pages/Monitoring'
+import Strategy from './pages/Strategy'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -98,6 +99,7 @@ export default function App() {
                 <Route path="/simulation" element={<ErrorBoundary><Simulation /></ErrorBoundary>} />
                 <Route path="/model-performance" element={<ErrorBoundary><ModelPerformance /></ErrorBoundary>} />
                 <Route path="/monitoring" element={<ErrorBoundary><Monitoring /></ErrorBoundary>} />
+                <Route path="/strategy" element={<ErrorBoundary><Strategy /></ErrorBoundary>} />
               </Route>
             </Routes>
           </BrowserRouter>
