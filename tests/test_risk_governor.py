@@ -206,7 +206,7 @@ class TestTypeCoercion:
 
 
 def _init_db(db_path):
-    """Create a minimal shadow_trades table for testing."""
+    """Create minimal shadow_trades and activity_log tables for testing."""
     import sqlite3
     with sqlite3.connect(str(db_path)) as conn:
         conn.execute(
@@ -216,6 +216,14 @@ def _init_db(db_path):
             "  status TEXT,"
             "  pnl_dollars REAL,"
             "  actual_exit_time TEXT"
+            ")"
+        )
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS activity_log ("
+            "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "  event_type TEXT NOT NULL,"
+            "  detail TEXT NOT NULL,"
+            "  created_at TEXT NOT NULL"
             ")"
         )
 
@@ -343,3 +351,50 @@ class TestRiskScalingTiers:
         pct, label = get_effective_risk_pct(config, str(db))
         assert pct == 0.015
         assert "1.5%" in label
+
+
+class TestTierTransition:
+    """Tests for check_tier_transition()."""
+
+    _DEFAULT_TIERS = TestRiskScalingTiers._DEFAULT_TIERS
+
+    @staticmethod
+    def _mock_config(enabled=True, tiers=None):
+        return TestRiskScalingTiers._mock_config(enabled=enabled, tiers=tiers)
+
+    def test_tier_transition_detected(self, tmp_path):
+        """Equity crosses from <$100K to >$100K -> returns transition dict."""
+        from src.risk.governor import check_tier_transition
+        db = tmp_path / "test.db"
+        _init_db(db)
+        config = self._mock_config(enabled=True)
+
+        # First call: equity = 90K (tier <$100K, 2.0%)
+        _add_closed_trade(db, -10000)  # 100K - 10K = 90K
+        result1 = check_tier_transition(config, str(db))
+        # No previous tier recorded, so no transition
+        assert result1 is None
+
+        # Simulate equity jumping above 100K: add +30K P&L -> equity = 120K
+        _add_closed_trade(db, 30000)  # 90K + 30K = 120K
+        result2 = check_tier_transition(config, str(db))
+        assert result2 is not None
+        assert result2["prev_tier"] != result2["new_tier"]
+        assert result2["equity"] == 120000
+        assert result2["new_risk_pct"] == 0.015
+
+    def test_no_transition_returns_none(self, tmp_path):
+        """Equity stays in the same tier -> returns None."""
+        from src.risk.governor import check_tier_transition
+        db = tmp_path / "test.db"
+        _init_db(db)
+        config = self._mock_config(enabled=True)
+
+        # First call: equity = 95K (<$100K tier)
+        _add_closed_trade(db, -5000)
+        check_tier_transition(config, str(db))
+
+        # Second call: equity = 92K (still <$100K tier, add small loss)
+        _add_closed_trade(db, -3000)
+        result = check_tier_transition(config, str(db))
+        assert result is None

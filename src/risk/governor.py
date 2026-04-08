@@ -234,7 +234,8 @@ def get_current_equity(config: dict | None = None,
         with sqlite3.connect(db_path) as conn:
             row = conn.execute(
                 "SELECT COALESCE(SUM(pnl_dollars), 0) "
-                "FROM shadow_trades WHERE status = 'closed'"
+                "FROM shadow_trades WHERE status = 'closed' "
+                "AND pnl_dollars IS NOT NULL"
             ).fetchone()
             total_pnl = float(row[0]) if row else 0
         return starting_capital + total_pnl
@@ -271,7 +272,7 @@ def get_effective_risk_pct(config: dict | None = None,
             return tier["risk_pct_max"], label
 
     last = sorted_tiers[-1]
-    label = f">=${last['equity_below']:,.0f} ({last['risk_pct_max']:.1%})"
+    label = f"$1M+ ({last['risk_pct_max']:.1%})"
     return last["risk_pct_max"], label
 
 
@@ -280,7 +281,6 @@ def check_tier_transition(config: dict, db_path: str = DB_PATH) -> dict | None:
     Stores last known tier in the activity_log table. Returns transition dict if changed.
     """
     import sqlite3
-    import json
     current_pct, current_label = get_effective_risk_pct(config, db_path)
     equity = get_current_equity(config, db_path)
 
@@ -296,12 +296,12 @@ def check_tier_transition(config: dict, db_path: str = DB_PATH) -> dict | None:
             prev = json.loads(row[0])
             prev_label = prev.get("tier_label")
 
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                "INSERT INTO activity_log (event_type, detail, created_at) "
-                "VALUES ('tier_check', ?, datetime('now'))",
-                (json.dumps({"tier_label": current_label, "equity": equity, "risk_pct": current_pct}),),
-            )
+        from src.utils.activity_logger import log_activity
+        log_activity(
+            "tier_check",
+            json.dumps({"tier_label": current_label, "equity": equity, "risk_pct": current_pct}),
+            db_path=db_path,
+        )
 
         if prev_label and prev_label != current_label:
             return {

@@ -1247,8 +1247,11 @@ class WatchLoop:
                                 f"Max risk/trade: {transition['new_risk_pct']:.1%}"
                             )
                             logger.info("[RISK] %s", msg)
-                            from src.notifications.telegram import send_telegram
-                            send_telegram(msg)
+                            notify_cfg = self.config.get("risk", {}).get("risk_scaling", {})
+                            if notify_cfg.get("notify_on_transition", True):
+                                from src.notifications.telegram import send_telegram, is_telegram_enabled
+                                if is_telegram_enabled():
+                                    send_telegram(msg)
                     except Exception as e:
                         logger.debug("[RISK] Tier transition check skipped: %s", e)
                     # H2. Daily metric snapshot (every trading day, not just Saturday)
