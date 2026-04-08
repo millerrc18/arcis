@@ -132,4 +132,7 @@ export const api = {
   getSimulationResults: () => fetchApi('/simulation/results'),
   // Model Performance
   getModelPerformance: () => fetchApi('/model-performance'),
+  // Monitoring
+  getMonitoringSnapshot: () => fetchApi('/api/monitoring/snapshot'),
+  getMonitoringHistory: (hours = 24) => fetchApi(`/api/monitoring/history?hours=${hours}`),
 }

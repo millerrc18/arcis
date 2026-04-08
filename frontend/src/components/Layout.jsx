@@ -3,7 +3,7 @@ import { Outlet, NavLink } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api'
 import { IS_CLOUD } from '../config'
-import { LayoutDashboard, FileText, TrendingUp, Brain, BarChart3, Settings, Map, BookOpen, Users, Activity, Menu, X, DollarSign, ShieldCheck, ScrollText, Network, Database, FlaskConical, Zap, TestTube2, Cpu } from 'lucide-react'
+import { LayoutDashboard, FileText, TrendingUp, Brain, BarChart3, Settings, Map, BookOpen, Users, Activity, Menu, X, DollarSign, ShieldCheck, ScrollText, Network, Database, FlaskConical, Zap, TestTube2, Cpu, Monitor } from 'lucide-react'
 import StatusBadge from './StatusBadge'
 import ThemeToggle from './ThemeToggle'
 
@@ -28,6 +28,7 @@ const navSections = [
     { to: '/schema', icon: Database, label: 'DB Schema' },
     { to: '/health', icon: Activity, label: 'Health Score' },
     { to: '/validation', icon: ShieldCheck, label: 'Validation' },
+    { to: '/monitoring', icon: Monitor, label: 'Monitoring' },
     { to: '/logs', icon: ScrollText, label: 'Logs' },
   ]},
   { label: 'Reference', items: [

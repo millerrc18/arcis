@@ -27,6 +27,7 @@ import Attribution from './pages/Attribution'
 import StressTest from './pages/StressTest'
 import Simulation from './pages/Simulation'
 import ModelPerformance from './pages/ModelPerformance'
+import Monitoring from './pages/Monitoring'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -96,6 +97,7 @@ export default function App() {
                 <Route path="/stress-test" element={<ErrorBoundary><StressTest /></ErrorBoundary>} />
                 <Route path="/simulation" element={<ErrorBoundary><Simulation /></ErrorBoundary>} />
                 <Route path="/model-performance" element={<ErrorBoundary><ModelPerformance /></ErrorBoundary>} />
+                <Route path="/monitoring" element={<ErrorBoundary><Monitoring /></ErrorBoundary>} />
               </Route>
             </Routes>
           </BrowserRouter>
