@@ -264,12 +264,13 @@ def get_effective_risk_pct(config: dict | None = None,
 
     equity = get_current_equity(config, db_path)
 
-    for tier in sorted(tiers, key=lambda t: t["equity_below"]):
+    sorted_tiers = sorted(tiers, key=lambda t: t["equity_below"])
+    for tier in sorted_tiers:
         if equity < tier["equity_below"]:
             label = f"<${tier['equity_below']:,.0f} ({tier['risk_pct_max']:.1%})"
             return tier["risk_pct_max"], label
 
-    last = tiers[-1]
+    last = sorted_tiers[-1]
     label = f">=${last['equity_below']:,.0f} ({last['risk_pct_max']:.1%})"
     return last["risk_pct_max"], label
 
