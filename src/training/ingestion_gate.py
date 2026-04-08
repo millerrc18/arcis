@@ -24,9 +24,12 @@ CONVICTION_PATTERN = re.compile(r"Conviction:\s*(\d+)", re.IGNORECASE)
 DIRECTION_PATTERN = re.compile(r"Direction:\s*(LONG|SHORT|NEUTRAL)", re.IGNORECASE)
 MARKDOWN_PATTERNS = [
     (re.compile(r"^\s*```", re.MULTILINE), "code_fence"),
+    # #334: Narrowed to only match line-leading bold that spans the full line
+    # (structural heading like "**Key Risks**:"). Allows inline bold emphasis
+    # like "The stock was **very** strong" which is common in financial writing.
     (
         re.compile(
-            r"^\s*(?:[-*+]\s+|\d+\.\s+)?\*\*[^*\n]{1,80}\*\*(?::|\s|$)",
+            r"^\s*(?:[-*+]\s+|\d+\.\s+)?\*\*[^*\n]{1,80}\*\*\s*:?\s*$",
             re.MULTILINE,
         ),
         "markdown_bold",

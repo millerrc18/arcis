@@ -215,8 +215,33 @@ class VRAMManager:
                 except ImportError:
                     pass
 
-                if not self._wait_for_vram_clear(threshold_mb=1500, timeout_seconds=45):
-                    logger.error("[VRAM] Handoff to training FAILED — VRAM not clear even after killing Ollama")
+                # #304/#333: 3 retry attempts with 15s backoff before giving up
+                _vram_ready = False
+                for _retry in range(3):
+                    if self._wait_for_vram_clear(threshold_mb=1500, timeout_seconds=15):
+                        _vram_ready = True
+                        break
+                    logger.warning("[VRAM] Retry %d/3: VRAM still not clear, waiting 15s...", _retry + 1)
+                    time.sleep(15)
+                    try:
+                        import torch
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    except ImportError:
+                        pass
+
+                if not _vram_ready:
+                    logger.error("[VRAM] Handoff to training FAILED — VRAM not clear after 3 retries")
+                    # #304: Send Telegram alert on VRAM handoff failure
+                    try:
+                        from src.notifications.telegram import send_telegram, is_telegram_enabled
+                        if is_telegram_enabled():
+                            send_telegram(
+                                "\U0001f6a8 VRAM HANDOFF FAILED: Could not clear VRAM "
+                                "after killing Ollama + 3 retries. Training deferred to next cycle."
+                            )
+                    except Exception:
+                        pass
                     # Ollama was killed but training can't start — restart Ollama so inference still works
                     logger.info("[VRAM] Restarting Ollama to restore inference capability...")
                     try:

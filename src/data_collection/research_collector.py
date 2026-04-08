@@ -146,6 +146,8 @@ def collect_research_papers(db_path: str = DB_PATH) -> dict:
     results = {}
     all_papers = []
 
+    from src.data_collection.research_sources import _SOURCE_CACHE
+
     for name, crawler in [
         ("arxiv", crawl_arxiv),
         ("ssrn", crawl_ssrn),
@@ -156,13 +158,23 @@ def collect_research_papers(db_path: str = DB_PATH) -> dict:
     ]:
         try:
             papers = crawler()
+            # #303: Cache successful results for graceful degradation
+            _SOURCE_CACHE[name] = papers
             new_papers = [p for p in papers if not is_duplicate(p.get("external_id", ""), db_path)]
             all_papers.extend(new_papers)
             results[name] = len(new_papers)
             logger.info("[RESEARCH] %s: %d new papers", name, len(new_papers))
         except Exception as e:
-            logger.warning("[RESEARCH] %s crawl failed: %s", name, e)
-            results[name] = 0
+            # #303: Serve stale data from cache on failure
+            cached = _SOURCE_CACHE.get(name, [])
+            if cached:
+                logger.warning("[RESEARCH] %s crawl failed: %s — serving %d cached papers", name, e, len(cached))
+                new_papers = [p for p in cached if not is_duplicate(p.get("external_id", ""), db_path)]
+                all_papers.extend(new_papers)
+                results[name] = len(new_papers)
+            else:
+                logger.warning("[RESEARCH] %s crawl failed: %s — no cache available", name, e)
+                results[name] = 0
 
     # Score relevance and store
     stored = 0
