@@ -965,6 +965,8 @@ _register(TableDef(
     sync_mode="latest_only",
     sync_time_column="collected_date",
     sync_pk="id",
+    # #332: Add conflict key to prevent duplicate key errors on re-sync
+    sync_conflict_col="series_id",
 ))
 
 _register(TableDef(

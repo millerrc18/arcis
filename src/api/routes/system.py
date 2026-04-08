@@ -47,24 +47,26 @@ logger = logging.getLogger(__name__)
 # These queries are validated by test_stats_queries_reference_valid_columns
 # in test_schema.py to ensure column names match the schema registry.
 # If a query references a non-existent column, the test will catch it (#224).
+# #328: Use COALESCE(collected_at, collected_date) for tables that may have
+# only one of the two time columns in the actual database.
 _DATA_COLLECTION_QUERIES = {
     "options_chains": (
         "SELECT COUNT(*), MAX(collected_at), COUNT(DISTINCT ticker) FROM options_chains"
     ),
     "options_metrics": (
-        "SELECT COUNT(*), MAX(collected_at), COUNT(DISTINCT ticker) FROM options_metrics"
+        "SELECT COUNT(*), MAX(COALESCE(collected_at, collected_date)), COUNT(DISTINCT ticker) FROM options_metrics"
     ),
     "vix_term_structure": (
-        "SELECT COUNT(*), MAX(collected_at), COUNT(DISTINCT collected_date) FROM vix_term_structure"
+        "SELECT COUNT(*), MAX(COALESCE(collected_at, collected_date)), COUNT(DISTINCT collected_date) FROM vix_term_structure"
     ),
     "macro_snapshots": (
-        "SELECT COUNT(*), MAX(collected_at), COUNT(DISTINCT series_id) FROM macro_snapshots"
+        "SELECT COUNT(*), MAX(COALESCE(collected_at, collected_date)), COUNT(DISTINCT series_id) FROM macro_snapshots"
     ),
     "google_trends": (
-        "SELECT COUNT(*), MAX(collected_at), COUNT(DISTINCT ticker) FROM google_trends"
+        "SELECT COUNT(*), MAX(COALESCE(collected_at, collected_date)), COUNT(DISTINCT ticker) FROM google_trends"
     ),
     "cboe_ratios": (
-        "SELECT COUNT(*), MAX(collected_at), COUNT(DISTINCT collected_date) FROM cboe_ratios"
+        "SELECT COUNT(*), MAX(COALESCE(collected_at, collected_date)), COUNT(DISTINCT collected_date) FROM cboe_ratios"
     ),
     "earnings_calendar": (
         "SELECT COUNT(*), MAX(collected_at), COUNT(DISTINCT ticker) FROM earnings_calendar"
