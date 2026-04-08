@@ -1555,3 +1555,38 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="created_at",
 ))
+
+# ---------------------------------------------------------------------------
+# SYSTEM MONITORING
+# GPU/CPU/RAM/disk/Ollama health snapshots collected every ~5 minutes by the
+# watch loop. Stored locally for the monitoring dashboard.
+# ---------------------------------------------------------------------------
+
+_register(TableDef(
+    name="system_metrics",
+    description="System utilization snapshots (GPU, CPU, RAM, disk, Ollama)",
+    columns=[
+        ColumnDef("snapshot_id", "TEXT", nullable=False),
+        ColumnDef("timestamp", "TEXT", description="ISO timestamp ET"),
+        ColumnDef("gpu_util_pct", "REAL"),
+        ColumnDef("gpu_vram_used_mb", "REAL"),
+        ColumnDef("gpu_vram_total_mb", "REAL"),
+        ColumnDef("gpu_temp_c", "REAL"),
+        ColumnDef("gpu_power_w", "REAL"),
+        ColumnDef("cpu_pct", "REAL"),
+        ColumnDef("ram_used_mb", "REAL"),
+        ColumnDef("ram_total_mb", "REAL"),
+        ColumnDef("disk_used_gb", "REAL"),
+        ColumnDef("disk_total_gb", "REAL"),
+        ColumnDef("ollama_status", "TEXT", description="running, stopped, error"),
+        ColumnDef("ollama_model", "TEXT"),
+        ColumnDef("python_rss_mb", "REAL", description="Current process RSS"),
+    ],
+    primary_key="snapshot_id",
+    indexes=[
+        IndexDef("idx_sysmetrics_ts", ["timestamp"]),
+    ],
+    sync_to_postgres=False,
+    sync_mode="incremental",
+    sync_time_column="timestamp",
+))
