@@ -231,6 +231,23 @@ def run_scan(config: dict, dry_run: bool = False, send_email_flag: bool = False,
             trade_id = open_shadow_trade(rec_id, packet, feat)
             if trade_id:
                 trades_opened += 1
+                # Telegram notification for trade open
+                try:
+                    from src.notifications.telegram import notify_trade_opened, is_telegram_enabled
+                    if is_telegram_enabled():
+                        from src.shadow_trading.executor import _parse_price
+                        _entry = _parse_price(packet.entry_zone)
+                        _stop = _parse_price(packet.stop_invalidation)
+                        _target = _parse_price(packet.targets.split("/")[0])
+                        _shares = max(1, int(packet.position_sizing.allocation_dollars / _entry)) if _entry > 0 else 1
+                        notify_trade_opened(
+                            ticker, _entry, _stop, _target,
+                            int(candidate["score"]), _shares,
+                            setup_type=feat.get("setup_type"),
+                            setup_confidence=feat.get("setup_confidence"),
+                        )
+                except Exception as _tg_err:
+                    logger.debug("[SCAN] notify_trade_opened failed for %s: %s", ticker, _tg_err)
 
         packet_worthy_results.append({
             "ticker": ticker,

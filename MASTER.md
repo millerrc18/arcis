@@ -14,7 +14,7 @@
 
 **Name:** Arcis (Adaptive Regime Classification & Intelligence Systems)
 **License:** BSL 1.1 (source-visible, no commercial use until 2030)
-**Release:** v0.15.3 (production sweep: 14 issues closed in 3 phases)
+**Release:** v0.16.0 (dashboard data integrity hotfix: 8 tasks, 5 root causes)
 **Repository:** github.com/millerrc18/halcyon-lab
 **Dashboard:** halcyonlab.app (Render static + Python API)
 
@@ -55,20 +55,19 @@ with an unbeatable technological moat.
 | Metric | Value |
 |---|---|
 | Phase | 1 (Bootcamp) -- paper $100K + $100 live via Alpaca |
-| Closed trades | 18 (Phase 1: 36% through 50-trade gate) |
-| Open positions | ~37 (33 paper + 4 live) |
+| Closed trades | 52 (Phase 1: 50-trade gate PASSED) |
+| Open positions | ~11 |
 | Model | halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF) |
-| Training data | 979 examples, scored, 20+ unique tickers |
-| Tests | 1,488 functions across 120 test files |
-| Python files | 207 |
-| Dashboard pages | 20 |
+| Training data | 1,061 examples (979 scored, avg 3.4/5) |
+| Tests | 1,500+ functions across 123 test files |
+| Python files | 212 |
+| Dashboard pages | 21 |
 | Research docs | 65 |
-| Schema tables | 49 (registry) |
-| GitHub issues | 7 open (#302-304 deferred, #318-321 production) |
-| Monthly cost | ~$64 (Render $7 + Ollama free + Claude API ~$50 + domain $7) |
+| Sprint docs | 33 |
+| Schema tables | 50 (registry), 44 synced to Postgres |
+| GitHub issues | 0 open |
+| Monthly cost | ~$64 (Render $14 + Ollama free + Claude API ~$50 + domain $7) |
 | Hardware | RTX 3060 12GB, Windows 11, Z690, 24/7 operation |
-| HSHS health score | 85.33 |
-| Universe | S&P 100 (expanding to ~325 in Phase 2) |
 
 ### Deployed Components
 
@@ -79,16 +78,16 @@ with an unbeatable technological moat.
 | Risk governor | LIVE -- 8 checks |
 | Council v2 (5 agents) | LIVE -- failure sends Telegram alert |
 | Build Score KPI | LIVE -- 6-component geometric mean |
-| Between-scan quality scoring | LIVE -- GuardedScorer Ollama, 972/972 scored |
+| Between-scan quality scoring | LIVE -- GuardedScorer Ollama, 979/1061 scored |
 | Command queue + config overrides | LIVE -- pull-based, 11 command types |
 | 12 overnight collectors | RUNNING |
 | Broker abstraction (IB + Alpaca) | READY -- config-driven, IB activation gated on validation |
 | Telegram | LIVE -- 55 functions, gated behind trade_id |
 | Intra-day reconciliation | LIVE -- every 15 min during market hours |
-| Dashboard (Arcis) | LIVE -- 19 pages, dark/light toggle |
+| Dashboard (Arcis) | LIVE -- 21 pages, dark/light toggle |
 | Simulation engine | LIVE -- 13 regimes, Monte Carlo, traffic light validation |
 | Schema registry | LIVE -- 50 tables, single source of truth |
-| Render sync | LIVE -- 42/50 tables synced to Postgres |
+| Render sync | LIVE -- 44/50 tables synced to Postgres |
 | Halcyon-audit plugin | LIVE -- 8 domain agents, /audit command |
 | Automated guardrails | LIVE -- test_repo_structure.py |
 | CI on PRs | LIVE -- tests + guardrails + frontend build |
@@ -99,6 +98,8 @@ with an unbeatable technological moat.
 
 0 open as of 2026-04-08:
 - All 14 issues (#302-#304, #325-#335) closed in production sweep sprint (v0.15.1-v0.15.3)
+- 8 dashboard data integrity fixes shipped in v0.16.0
+- Telegram notification gaps fixed (scan_service + reconcile)
 
 ### Known Blockers
 
@@ -134,6 +135,12 @@ with an unbeatable technological moat.
 | Sprint gaps + RCCA | #204 | 6 sprint gaps closed, 8 RCCA bugs fixed, audit plugin |
 | Stress test fix | #205 | yfinance warnings, BRK.B failure |
 | Bug bash v0.11.0 | #206 | Conviction parsing, Finnhub security, tech debt |
+| IB broker abstraction | -- | v0.14.0, Alpaca + IB dual-broker, config-driven |
+| Production sweep (3 phases) | -- | v0.15.1-3, 14 bugs fixed (bracket guard, recon, conviction, type safety) |
+| Consolidated sprint (5 sprints) | -- | Attribution wiring, simulation promotion, MR integration, Sprint 5 refactor |
+| Sprint 5 refactor | -- | watch.py 3403→1968 (42%), telegram.py 1563→786 (50%), 3 new modules |
+| Dashboard hotfix (8 tasks) | -- | v0.16.0, targets_hit filter, fund metrics, market_regime, NEE upsert, version |
+| Telegram notification fix | -- | scan_service opens + reconcile closes (69% of trades were silent) |
 | Audit rectification | #210 | CORS, DDL, test mocking, error handling |
 | Hardening | #211 | 5 remaining issues (#188, #187, #147, #132, #106) |
 | Postgres sync + CI | #212 | Pkey collision fix, 9 CI guardrails, dependabot |
@@ -785,19 +792,29 @@ VIX >40, system offline.
 | 1 | Schema Registry | DONE -- 50 tables, all DDL removed, guardrails |
 | 2 | React Flow interactive diagrams | DONE -- Architecture + DB Schema pages |
 | A | Dashboard polish + documentation consolidation | DONE -- PR #203 |
-| 3 | Alpha attribution experiment | DONE -- PR #203, accumulating paired trades |
-| 4 | Mean reversion paper-trading | DONE -- PR #203, accumulating paper trades |
+| 3 | Alpha attribution experiment | DONE -- PR #203, pipeline wired in Sprint 2, accumulating pairs |
+| 4 | Mean reversion paper-trading | DONE -- PR #203 + Sprint 4 (end-to-end: scan → LLM → execute → exit) |
 | 5 | Multi-cadence scanning (4-tier) | DONE -- PR #203, 4 extracted modules + staleness |
 | 6 | Outcome metadata + conditioned training | DONE -- PR #203, 3-5x data yield |
 | 7 | Historical stress testing | DONE -- PR #203, 2008/2020/2022 scenarios |
 | 8 | Bug bash + conviction parsing (#183) | DONE -- v0.11.0, all issues closed |
-| 9 | IB integration (broker abstraction) | DONE -- v0.14.0, code ready. IB activation gated on 60+ trades + 30-day Gateway stability test (deep research) |
+| 9 | IB integration (broker abstraction) | DONE -- v0.14.0, IB activation gated (SD#25) |
 | 10 | Codebase documentation (inline comments) | DONE -- WHY-focused comments across 200+ files |
-| 11 | Gap analysis rectification | DONE -- 23 issues in 3 tiers (critical/high/medium) |
-| 12 | Log audit | DONE -- v0.14.1, 14 production issues fixed from arcis.log analysis |
-| 13 | iOS app (Capacitor) | QUEUED -- native wrapper for dashboard |
-| 13 | Repo reorganization | Backlog |
-| 14 | architecture.md refresh | Backlog |
+| 11 | Gap analysis rectification | DONE -- 23 issues in 3 tiers |
+| 12 | Log audit | DONE -- v0.14.1, 14 production issues fixed |
+| 13 | Production sweep (14 bugs, 3 phases) | DONE -- v0.15.1-3, all 14 GH issues closed |
+| 14 | Attribution pipeline wiring | DONE -- log_attribution_before/after_llm in scan_service |
+| 15 | Simulation engine promotion | DONE -- src/simulation/engine.py (546 lines) |
+| 16 | MR integration (end-to-end) | DONE -- mr_scan_service.py, watch.py line 1273 |
+| 17 | Codebase refactor (Sprint 5) | DONE -- watch.py 42% reduction, telegram.py 50% reduction |
+| 18 | Dashboard data integrity (8 tasks) | DONE -- v0.16.0, 5 root causes fixed |
+| 19 | Telegram notification gaps | DONE -- scan_service opens + reconcile closes |
+| -- | Strategy dashboard enhancement (7 sections) | QUEUED -- spec at docs/decisions/strategy-dashboard-spec.md |
+| -- | Risk scaling tiers implementation | QUEUED -- spec at docs/decisions/risk-scaling-tiers-spec.md |
+| -- | Saturday model retrain (halcyon-v2.0.0) | QUEUED -- champion-challenger, first flywheel cycle |
+| -- | Bracket calibration analysis | QUEUED -- MFE analysis on 69% stale exits |
+| -- | iOS app (Capacitor) | Backlog -- native wrapper for dashboard |
+| -- | Repo reorganization | Backlog |
 
 ### Phase 2 Hardware (~$1,300)
 
