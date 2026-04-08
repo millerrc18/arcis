@@ -435,6 +435,30 @@ def check_services(config: dict, db_path: str = DB_PATH) -> list[CheckResult]:
             fix_hint="Set risk.starting_capital in settings.local.yaml",
         ))
 
+    # Risk scaling tiers validation (Strategy Decision #26)
+    scaling = config.get("risk", {}).get("risk_scaling", {})
+    if scaling.get("enabled"):
+        tiers = scaling.get("tiers", [])
+        if not tiers:
+            results.append(CheckResult(
+                name="risk_scaling", category="services", status="warn",
+                detail="risk_scaling enabled but tiers is empty",
+                fix_hint="Add tiers or disable scaling",
+            ))
+        for i, tier in enumerate(tiers):
+            if "equity_below" not in tier or "risk_pct_max" not in tier:
+                results.append(CheckResult(
+                    name="risk_scaling", category="services", status="critical",
+                    detail=f"Tier {i} missing equity_below or risk_pct_max",
+                    fix_hint="Fix risk_scaling.tiers config",
+                ))
+            elif tier["risk_pct_max"] > 0.05:
+                results.append(CheckResult(
+                    name="risk_scaling", category="services", status="warn",
+                    detail=f"Tier {i} risk_pct_max={tier['risk_pct_max']:.1%} exceeds 5%",
+                    fix_hint="Verify this is intentional",
+                ))
+
     # Model version
     try:
         from src.training.versioning import get_active_model_name
