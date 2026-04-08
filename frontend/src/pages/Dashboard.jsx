@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import { IS_CLOUD } from '../config'
+import { hapticWarning, hapticSuccess } from '../native'
 import MetricCard from '../components/MetricCard'
 import DataTable from '../components/DataTable'
 import LoadingSpinner from '../components/LoadingSpinner'
@@ -271,6 +272,7 @@ export default function Dashboard() {
             <button
               onClick={() => {
                 if (isHalted || confirm('Are you sure? This stops all new trades.')) {
+                  if (isHalted) { hapticSuccess(); } else { hapticWarning(); }
                   haltMutation.mutate()
                 }
               }}

@@ -7,6 +7,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import ToastContainer, { toast } from './components/Toast'
 import AuthGate from './components/AuthGate'
 import { IS_CLOUD } from './config'
+import { configureStatusBar, onAppStateChange } from './native'
 import Dashboard from './pages/Dashboard'
 import Packets from './pages/Packets'
 import ShadowLedger from './pages/ShadowLedger'
@@ -70,6 +71,16 @@ function CacheInvalidator() {
 }
 
 export default function App() {
+  useEffect(() => { configureStatusBar(); }, []);
+
+  const qcRef = queryClient;
+  useEffect(() => {
+    const cleanup = onAppStateChange(({ isActive }) => {
+      if (isActive) qcRef.invalidateQueries();
+    });
+    return cleanup;
+  }, []);
+
   const content = (
     <QueryClientProvider client={queryClient}>
       <ErrorBoundary>

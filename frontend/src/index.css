@@ -2,6 +2,16 @@
 
 @import "tailwindcss";
 
+:root {
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+#root {
+  padding-top: var(--safe-area-top);
+  padding-bottom: var(--safe-area-bottom);
+}
+
 :root, [data-theme="dark"] {
   /* Bloomberg Terminal Dark — near-black, data-dense, institutional */
   --arcis-bg-primary: #030305;
