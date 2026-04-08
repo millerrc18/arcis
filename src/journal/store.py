@@ -104,6 +104,7 @@ def log_recommendation(
         "enriched_prompt": enriched_prompt,
         "llm_conviction": llm_conviction,
         "llm_conviction_reason": llm_conviction_reason,
+        "market_regime": features.get("regime_label"),
     }
 
     columns = ", ".join(row.keys())

@@ -513,27 +513,51 @@ def run_data_collection(db_path: str = DB_PATH,
 
     # 1. Options chains (most important)
     print("[WATCH]   [1/12] Options chains...")
-    results["options"] = collect_options_chains(universe)
+    try:
+        results["options"] = collect_options_chains(universe)
+    except Exception as e:
+        logger.error("[COLLECT] options_chains: FAILED — %s", e)
+        results["options"] = {"error": str(e)}
 
     # 2. Derived metrics from chains
     print("[WATCH]   [2/12] Options metrics...")
-    results["metrics"] = compute_options_metrics(universe)
+    try:
+        results["metrics"] = compute_options_metrics(universe)
+    except Exception as e:
+        logger.error("[COLLECT] options_metrics: FAILED — %s", e)
+        results["metrics"] = {"error": str(e)}
 
     # 3. VIX term structure
     print("[WATCH]   [3/12] VIX term structure...")
-    results["vix"] = collect_vix_term_structure()
+    try:
+        results["vix"] = collect_vix_term_structure()
+    except Exception as e:
+        logger.error("[COLLECT] vix_term_structure: FAILED — %s", e)
+        results["vix"] = {"error": str(e)}
 
     # 4. CBOE ratios
     print("[WATCH]   [4/12] CBOE ratios...")
-    results["cboe"] = collect_cboe_ratios()
+    try:
+        results["cboe"] = collect_cboe_ratios()
+    except Exception as e:
+        logger.error("[COLLECT] cboe_ratios: FAILED — %s", e)
+        results["cboe"] = {"error": str(e)}
 
     # 5. FRED macro (35+ series)
     print("[WATCH]   [5/12] FRED macro indicators...")
-    results["macro"] = collect_macro_snapshots()
+    try:
+        results["macro"] = collect_macro_snapshots()
+    except Exception as e:
+        logger.error("[COLLECT] macro_snapshots: FAILED — %s", e)
+        results["macro"] = {"error": str(e)}
 
     # 6. Google Trends (market-wide sentiment terms)
     print("[WATCH]   [6/12] Google Trends (sentiment)...")
-    results["trends"] = collect_google_trends(universe, batch_size=20)
+    try:
+        results["trends"] = collect_google_trends(universe, batch_size=20)
+    except Exception as e:
+        logger.error("[COLLECT] google_trends: FAILED — %s", e)
+        results["trends"] = {"error": str(e)}
 
     # 7. Earnings calendar
     print("[WATCH]   [7/12] Earnings calendar...")

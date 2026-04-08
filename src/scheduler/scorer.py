@@ -160,11 +160,14 @@ class GuardedScorer:
 
     def _save_score(self, example_id: str, score: float) -> None:
         """Update quality_score_auto for a training example."""
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        now = datetime.now(ZoneInfo("America/New_York")).isoformat()
         with sqlite3.connect(self.db_path) as conn:
             conn.execute(
-                "UPDATE training_examples SET quality_score_auto = ? "
+                "UPDATE training_examples SET quality_score_auto = ?, updated_at = ? "
                 "WHERE example_id = ?",
-                (score, example_id),
+                (score, now, example_id),
             )
             conn.commit()
 
