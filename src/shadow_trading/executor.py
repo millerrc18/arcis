@@ -266,6 +266,16 @@ def open_shadow_trade(
     target_1 = _parse_price(targets_parts[0]) if len(targets_parts) >= 1 else 0.0
     target_2 = _parse_price(targets_parts[1]) if len(targets_parts) >= 2 else 0.0
 
+    # #326: Reject bracket orders with invalid stop price. A stop_price of 0
+    # means no stop-loss protection — the position has unlimited downside if the
+    # system crashes or Alpaca doesn't fill a polling-based exit.
+    if not stop_price or float(stop_price) <= 0:
+        logger.error(
+            "[EXECUTOR] Refusing bracket order for %s: stop_price=%s (must be > 0)",
+            ticker, stop_price,
+        )
+        return None
+
     # Thorp-style graduated drawdown reduction — as drawdown increases,
     # position sizes decrease proportionally. At 20%+ DD, trading halts entirely.
     # Based on Kelly criterion / Thorp's risk management: the deeper the hole,
@@ -1410,6 +1420,14 @@ def open_live_trade(
     else:
         targets_parts = packet.targets.split("/")
         target_price = _parse_price(targets_parts[0]) if targets_parts else 0.0
+
+    # #326: Reject live bracket orders with invalid stop price.
+    if not stop_price or float(stop_price) <= 0:
+        logger.error(
+            "[LIVE] Refusing bracket order for %s: stop_price=%s (must be > 0)",
+            ticker, stop_price,
+        )
+        return None
 
     # Position size: risk_pct_max of live equity
     risk_per_share = entry_price - stop_price if entry_price > stop_price > 0 else entry_price * 0.02

@@ -742,7 +742,9 @@ class WatchLoop:
             features_count=result.features_count,
             packet_worthy=result.packet_worthy_count,
             llm_success=result.packet_worthy_count,
-            llm_total=result.packet_worthy_count)
+            llm_total=result.packet_worthy_count,
+            conviction_parsed=result.conviction_parsed,
+            conviction_total=result.conviction_total)
 
     def _run_mr_scan(self):
         """Run mean reversion scan after main scan."""
@@ -809,7 +811,8 @@ class WatchLoop:
 
     def _record_scan_metrics(self, *, universe_count: int = 0,
                              features_count: int = 0, packet_worthy: int = 0,
-                             llm_success: int = 0, llm_total: int = 0):
+                             llm_success: int = 0, llm_total: int = 0,
+                             conviction_parsed: int = 0, conviction_total: int = 0):
         """Write a row to scan_metrics for every scan cycle (success or failure)."""
         try:
             import sqlite3 as _sq
@@ -848,6 +851,13 @@ class WatchLoop:
                         1 - (llm_success / llm_total), 2) if llm_total > 0 else 0.0,
                 }},
             )
+            # #329: Log conviction parse rate separately from LLM success rate
+            if conviction_total > 0:
+                logger.info(
+                    "[WATCH] Conviction parse rate: %d/%d (%.0f%%)",
+                    conviction_parsed, conviction_total,
+                    conviction_parsed / conviction_total * 100,
+                )
             logger.info("[WATCH] Recorded scan_metrics #%d (packets=%d)",
                         self._scan_number, packet_worthy)
         except Exception as e:

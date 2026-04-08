@@ -200,7 +200,7 @@ def place_paper_entry(
     return {
         "order_id": str(order.id),
         "symbol": str(order.symbol),
-        "qty": int(order.qty) if order.qty else shares,
+        "qty": float(order.qty) if order.qty else shares,
         "side": str(order.side),
         "type": str(order.type),
         "status": str(order.status),
@@ -235,7 +235,7 @@ def place_paper_exit(
     return {
         "order_id": str(order.id),
         "symbol": str(order.symbol),
-        "qty": int(order.qty) if order.qty else shares,
+        "qty": float(order.qty) if order.qty else shares,
         "side": str(order.side),
         "type": str(order.type),
         "status": str(order.status),
@@ -305,7 +305,7 @@ def place_bracket_order(
     return {
         "order_id": str(order.id),
         "symbol": str(order.symbol),
-        "qty": int(order.qty) if order.qty else shares,
+        "qty": float(order.qty) if order.qty else shares,
         "side": str(order.side),
         "type": str(order.type),
         "order_class": "bracket",
