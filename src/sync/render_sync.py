@@ -260,20 +260,29 @@ def _upsert_to_postgres(
     if not rows or not columns:
         return 0
 
-    # Coerce string-typed numeric fields to float before Postgres INSERT.
+    # Coerce string-typed numeric fields before Postgres INSERT.
     # SQLite stores everything as TEXT affinity; Postgres rejects "259.0" for
     # INTEGER columns and "92.920655" for non-TEXT columns.
-    _NUMERIC_COLUMNS = {
+    _INTEGER_COLUMNS = {
+        "planned_shares", "duration_days", "earnings_adjacent", "timeout_days",
+    }
+    _REAL_COLUMNS = {
         "actual_entry_price", "actual_exit_price", "pnl_dollars", "pnl_pct",
-        "planned_shares", "stop_price", "target_1", "target_2",
+        "stop_price", "target_1", "target_2",
         "entry_price", "signal_price", "signal_entry_price", "signal_exit_price",
-        "fill_entry_price", "fill_exit_price", "duration_days",
+        "fill_entry_price", "fill_exit_price",
         "priority_score", "confidence_score", "position_size_dollars",
         "position_size_pct", "estimated_dollar_risk", "pullback_depth_pct", "atr",
         "max_favorable_excursion", "max_adverse_excursion", "planned_allocation",
     }
     for row in rows:
-        for col in _NUMERIC_COLUMNS:
+        for col in _INTEGER_COLUMNS:
+            if col in row and row[col] is not None:
+                try:
+                    row[col] = int(float(row[col]))
+                except (ValueError, TypeError):
+                    pass
+        for col in _REAL_COLUMNS:
             if col in row and row[col] is not None:
                 try:
                     row[col] = float(row[col])

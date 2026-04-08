@@ -19,7 +19,11 @@ import json
 import logging
 import sys
 import uuid
+import warnings
 from pathlib import Path
+
+warnings.filterwarnings("ignore", message=".*utcnow.*deprecated.*")
+warnings.filterwarnings("ignore", message=".*Timestamp.utcnow.*")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 

@@ -39,9 +39,13 @@ import logging
 import sqlite3
 import sys
 import uuid
+import warnings
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+warnings.filterwarnings("ignore", message=".*utcnow.*deprecated.*")
+warnings.filterwarnings("ignore", message=".*Timestamp.utcnow.*")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
