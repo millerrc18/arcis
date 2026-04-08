@@ -193,7 +193,7 @@ def run_scan(config: dict, dry_run: bool = False, send_email_flag: bool = False,
 
         packet = build_packet_from_features(ticker, feat, config)
         packet = enhance_packet_with_llm(packet, feat, config)
-        enriched_prompt = _build_feature_prompt(packet, feat)
+        enriched_prompt = _build_feature_prompt(feat, packet.ticker)
         rendered = render_packet(packet)
 
         rec_id = None

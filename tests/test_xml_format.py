@@ -1,7 +1,7 @@
-"""Tests for XML-tagged output format parsing."""
+"""Tests for XML-tagged output format parsing and 11-section prompt structure."""
 
 import pytest
-from src.llm.packet_writer import _parse_llm_response
+from src.llm.packet_writer import _parse_llm_response, _build_feature_prompt, _interpret_skew
 
 
 class TestXMLParsing:
@@ -133,3 +133,62 @@ Plain text analysis
         assert conviction is None
         assert why_now is None
         assert analysis is None
+
+
+class TestElevenSections:
+    def test_all_section_headers_present(self):
+        """Verify all 11 === SECTION === headers appear in prompt."""
+        features = {"price": 150.0, "atr": 3.5, "trend": "up", "spy_trend": "up", "vix": 18.0, "sector": "Technology", "sector_etf": "XLK"}
+        prompt = _build_feature_prompt(features, "AAPL")
+        for header in ["=== TECHNICAL DATA ===", "=== MARKET REGIME ===", "=== SECTOR RELATIVE ===",
+                        "=== FUNDAMENTAL SNAPSHOT ===", "=== INSIDER ACTIVITY ===", "=== RECENT NEWS ===",
+                        "=== MACRO CONTEXT ===", "=== OPTIONS FLOW ===", "=== EVENT CALENDAR ===",
+                        "=== EARNINGS SIGNALS ===", "=== CROSS-ASSET CONTEXT ==="]:
+            assert header in prompt, f"Missing: {header}"
+
+    def test_no_subsection_numbering(self):
+        from src.llm.packet_writer import _build_feature_prompt
+        prompt = _build_feature_prompt({}, "TEST")
+        assert "7.5" not in prompt
+        assert "7.6" not in prompt
+        assert "7.7" not in prompt
+
+    def test_missing_data_graceful(self):
+        from src.llm.packet_writer import _build_feature_prompt
+        prompt = _build_feature_prompt({}, "TEST")
+        assert "=== CROSS-ASSET CONTEXT ===" in prompt
+
+    def test_skew_interpretation_bearish(self):
+        assert "bearish" in _interpret_skew({"iv_skew_25d": 0.1}).lower()
+
+    def test_skew_interpretation_bullish(self):
+        assert "bullish" in _interpret_skew({"iv_skew_25d": -0.05}).lower()
+
+    def test_skew_interpretation_normal(self):
+        assert "Normal" in _interpret_skew({"iv_skew_25d": 0.02})
+
+    def test_skew_interpretation_none(self):
+        assert _interpret_skew({}) == "n/a"
+
+
+class TestRandomSourceSubsetting:
+    def test_subsetting_drops_some_sections(self):
+        features = {"price": 150.0, "atr": 3.5, "trend": "up", "spy_trend": "up", "vix": 18.0}
+        full = _build_feature_prompt(features, "TEST", subsetting=False)
+        # Run 50 times — at least one should drop a section
+        shorter_found = False
+        for _ in range(50):
+            p = _build_feature_prompt(features, "TEST", subsetting=True)
+            if len(p) < len(full):
+                shorter_found = True
+                break
+        assert shorter_found, "Subsetting should sometimes drop sections"
+
+    def test_core_sections_never_dropped(self):
+        features = {"price": 150.0, "atr": 3.5, "trend": "up", "spy_trend": "up", "vix": 18.0}
+        for _ in range(50):
+            prompt = _build_feature_prompt(features, "TEST", subsetting=True)
+            assert "=== TECHNICAL DATA ===" in prompt
+            assert "=== MARKET REGIME ===" in prompt
+            assert "=== MACRO CONTEXT ===" in prompt
+            assert "=== EVENT CALENDAR ===" in prompt

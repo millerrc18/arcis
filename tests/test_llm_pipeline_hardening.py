@@ -103,11 +103,10 @@ class TestContextOverflow:
         """When full prompt exceeds token limit, enhance_packet_with_llm
         should fall through to condensed prompt."""
         packet = _make_trade_packet()
-        # Build features that produce a base prompt over 7000 tokens (~28000 chars).
-        big_factors = [f"Factor {i}: " + "detail " * 80 for i in range(100)]
-        features = _make_features(
-            sector_key_factors=big_factors,
-        )
+        # Patch _MAX_PROMPT_TOKENS low so the normal 11-section prompt exceeds it.
+        # The prompt is ~1500-2000 chars (~400-500 tokens), so setting the limit
+        # to 100 guarantees overflow triggers the condensed path.
+        features = _make_features()
         config = {"llm": {"enabled": True}}
 
         # Patch generate to capture what prompt was sent
@@ -122,7 +121,8 @@ class TestContextOverflow:
             )
 
         with patch("src.llm.packet_writer.is_llm_available", return_value=True), \
-             patch("src.llm.packet_writer.generate", side_effect=capture_generate):
+             patch("src.llm.packet_writer.generate", side_effect=capture_generate), \
+             patch("src.llm.packet_writer._MAX_PROMPT_TOKENS", 100):
             enhance_packet_with_llm(packet, features, config)
 
         # The prompt sent should be the condensed one (no enrichment sections)

@@ -181,7 +181,7 @@ def run_universe_scan(ctx: ScanContext) -> ScanResult:
         result.conviction_total += 1
         if getattr(packet, 'llm_conviction', 5) != 5:
             result.conviction_parsed += 1
-        enriched_prompt = _build_feature_prompt(packet, feat)
+        enriched_prompt = _build_feature_prompt(feat, packet.ticker)
         rendered = render_packet(packet)
 
         model_ver = get_active_model_name()

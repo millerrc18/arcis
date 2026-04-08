@@ -27,6 +27,7 @@ WHY so many conviction-parsing fallbacks (#183):
 """
 
 import logging
+import random
 import re
 from datetime import datetime
 
@@ -81,22 +82,64 @@ def _sanitize_enrichment_text(text: str) -> str:
     return cleaned
 
 
-def _build_feature_prompt(packet: TradePacket, features: dict) -> str:
+def _interpret_skew(features: dict) -> str:
+    """Interpret IV skew value for the OPTIONS FLOW section.
+
+    Returns a human-readable description of what the 25-delta skew implies
+    about market positioning.
+    """
+    skew = features.get('iv_skew_25d')
+    if skew is None:
+        return 'n/a'
+    try:
+        skew = float(skew)
+    except (ValueError, TypeError):
+        return 'n/a'
+    if skew > 0.05:
+        return 'Elevated put demand (bearish hedging)'
+    if skew < -0.02:
+        return 'Call skew (bullish speculation)'
+    return 'Normal skew'
+
+
+# Sections that are always included regardless of subsetting.
+# Technical (1), Market Regime (2), Macro (7), Event Calendar (9).
+_REQUIRED_SECTIONS = {1, 2, 7, 9}
+# Sections eligible for random omission during training subsetting.
+_OPTIONAL_SECTIONS = {3, 4, 5, 6, 8, 10, 11}
+
+
+def _build_feature_prompt(features: dict, ticker: str, subsetting: bool = False) -> str:
     """Build a multi-source prompt from all available data.
 
-    WHY 8 sections in this specific order: the model performs best when
+    WHY 11 sections in this specific order: the model performs best when
     technical data (most structured) comes first, followed by contextual
-    overlays (regime, sector, fundamentals), and trade parameters last.
-    This mirrors how an analyst reads a setup: price action first, then
-    context, then what we plan to do about it. The order also matches
-    the training data format from data_collector.py, so the model sees
-    prompts at inference time that match its training distribution.
-    """
-    ticker = packet.ticker
-    company_name = packet.company_name
+    overlays (regime, sector, fundamentals), then event/options/earnings
+    signals, and cross-asset context last. This mirrors how an analyst
+    reads a setup: price action first, then context, then what could
+    catalyze or derail the trade. The order also matches the training
+    data format from data_collector.py, so the model sees prompts at
+    inference time that match its training distribution.
 
-    # SECTION 1: Technical Data (existing)
-    prompt = f"""=== TECHNICAL DATA ===
+    When subsetting=True (training only), 1-3 optional sections are
+    randomly omitted ~30% of the time to teach the model robustness
+    when data sources are unavailable.
+    """
+    company_name = features.get('company_name', get_company_name(ticker))
+
+    # Determine which sections to skip for training subsetting.
+    # WHY 30%: we want the model to see full data most of the time,
+    # but occasionally train on partial data so it doesn't collapse
+    # when a data source is unavailable during live inference.
+    skip_sections = set()
+    if subsetting and random.random() < 0.3:
+        n_drop = random.randint(1, 3)
+        skip_sections = set(random.sample(sorted(_OPTIONAL_SECTIONS), n_drop))
+
+    prompt = ""
+
+    # SECTION 1: Technical Data (required)
+    prompt += f"""=== TECHNICAL DATA ===
 Ticker: {ticker} ({company_name})
 Current Price: ${features.get('current_price', 0):.2f}
 Trend State: {features.get('trend_state', 'n/a')} | SMA50 slope: {features.get('sma50_slope', 'n/a')} | SMA200 slope: {features.get('sma200_slope', 'n/a')}
@@ -108,7 +151,7 @@ ATR(14): ${features.get('atr_14', 0):.2f} ({features.get('atr_pct', 0):.1f}% of 
 Volume Ratio: {features.get('volume_ratio_20d', 0):.2f}x 20-day average
 Distance to SMA20: {features.get('dist_to_sma20_pct', 0):.1f}%"""
 
-    # SECTION 2: Market Regime (new)
+    # SECTION 2: Market Regime (required)
     prompt += f"""
 
 === MARKET REGIME ===
@@ -118,45 +161,49 @@ SPY: {features.get('spy_20d_return', 0):+.1f}% (20d) | {features.get('spy_drawdo
 Breadth: {features.get('market_breadth_label', 'n/a')} ({features.get('market_breadth_pct', 0):.0f}% above 50d MA)
 Regime: {features.get('regime_label', 'n/a')}"""
 
-    # SECTION 3: Sector Context (enhanced 9C)
-    sector_factors = features.get('sector_key_factors', [])
-    factors_str = "\n".join(f"  - {f}" for f in sector_factors) if sector_factors else "  No sector-specific factors available"
-    prompt += f"""
+    # SECTION 3: Sector Relative (optional, enhanced)
+    if 3 not in skip_sections:
+        prompt += f"""
 
-=== SECTOR CONTEXT ===
-Sector: {features.get('sector', 'n/a')} | Rank: {features.get('sector_rs_rank', 'n/a')} | Sector Avg Score: {features.get('sector_avg_score', 0):.0f}
-Typical pullback depth: {features.get('sector_pullback_depth', 'n/a')} | Recovery: {features.get('sector_recovery_speed', 'n/a')}
-Sector-specific factors:
-{factors_str}"""
+=== SECTOR RELATIVE ===
+Sector: {features.get('sector', 'n/a')} ({features.get('sector_etf', 'n/a')})
+Stock vs SPY (3m): {features.get('rs_vs_spy_3m', 0):+.1f}%
+Stock vs Sector ETF (3m): {features.get('rs_vs_sector_3m', 'n/a')}
+Sector vs SPY (3m): {features.get('sector_vs_spy_3m', 'n/a')}
+Sector Rotation Signal: {features.get('sector_rotation_signal', 'n/a')}
+Sector Rank (of 11): {features.get('sector_rank', 'n/a')}"""
 
-    # SECTION 4: Fundamental Snapshot (new)  — #156: sanitize enrichment
-    fundamental_text = _sanitize_enrichment_text(
-        features.get('fundamental_summary', 'No fundamental data available')
-    )
-    prompt += f"""
+    # SECTION 4: Fundamental Snapshot (optional) -- #156: sanitize enrichment
+    if 4 not in skip_sections:
+        fundamental_text = _sanitize_enrichment_text(
+            features.get('fundamental_summary', 'No fundamental data available')
+        )
+        prompt += f"""
 
 === FUNDAMENTAL SNAPSHOT ===
 {fundamental_text}"""
 
-    # SECTION 5: Insider Activity (new)  — #156: sanitize enrichment
-    insider_text = _sanitize_enrichment_text(
-        features.get('insider_summary', 'No insider data available')
-    )
-    prompt += f"""
+    # SECTION 5: Insider Activity (optional) -- #156: sanitize enrichment
+    if 5 not in skip_sections:
+        insider_text = _sanitize_enrichment_text(
+            features.get('insider_summary', 'No insider data available')
+        )
+        prompt += f"""
 
 === INSIDER ACTIVITY ===
 {insider_text}"""
 
-    # SECTION 6: Recent News  — #156: sanitize enrichment
-    news_text = _sanitize_enrichment_text(
-        features.get('news_summary', 'No recent news')
-    )
-    prompt += f"""
+    # SECTION 6: Recent News (optional) -- #156: sanitize enrichment
+    if 6 not in skip_sections:
+        news_text = _sanitize_enrichment_text(
+            features.get('news_summary', 'No recent news')
+        )
+        prompt += f"""
 
 === RECENT NEWS ===
 {news_text}"""
 
-    # SECTION 7: Macro Context  — #156: sanitize enrichment
+    # SECTION 7: Macro Context (required) -- #156: sanitize enrichment
     macro_text = _sanitize_enrichment_text(
         features.get('macro_summary', 'No macro data available')
     )
@@ -165,62 +212,50 @@ Sector-specific factors:
 === MACRO CONTEXT ===
 {macro_text}"""
 
-    # SECTION 7.5: Options Context (9A)
-    iv_rank = features.get('iv_rank')
-    if iv_rank is not None:
+    # SECTION 8: Options Flow (optional, enhanced from old 7.5)
+    if 8 not in skip_sections:
         prompt += f"""
 
-=== OPTIONS CONTEXT ===
-IV Rank: {iv_rank:.0f} | Put/Call Vol: {features.get('put_call_vol_ratio', 0):.2f} | Put/Call OI: {features.get('put_call_oi_ratio', 0):.2f}
-IV Skew: {features.get('iv_skew', 0):.2f} | Unusual Activity: {'YES' if features.get('unusual_options_activity') else 'No'}"""
+=== OPTIONS FLOW ===
+ATM IV (30d): {features.get('atm_iv_30d', 'n/a')}
+IV Rank: {features.get('iv_rank', 'n/a')} | IV Percentile: {features.get('iv_percentile', 'n/a')}
+IV Skew (25d): {features.get('iv_skew_25d', 'n/a')}
+Skew Interpretation: {_interpret_skew(features)}
+Put/Call Volume Ratio: {features.get('put_call_vol_ratio', 'n/a')}
+Put/Call OI Ratio: {features.get('put_call_oi_ratio', 'n/a')}"""
 
-    # SECTION 7.6: Event Context (9B)
-    event_type = features.get('event_proximity_type')
-    if event_type:
-        prompt += f"""
-
-=== EVENT CONTEXT ===
-{event_type} in {features.get('event_proximity_days', '?')} day(s): {features.get('event_proximity_desc', '')}
-Events within 3 days: {features.get('events_within_3d', 0)}"""
-
-    # SECTION 7.7: Earnings Context (PEAD)
-    # WHY earnings get their own section: Martineau (2022) showed PEAD is dead
-    # for large-cap, but our universe includes mid-cap stocks where post-earnings
-    # drift persists. The earnings_signal_strength field lets the model weigh
-    # this appropriately -- "strong" signals in mid-cap are actionable, while
-    # the model should learn to discount them for mega-cap names.
-    earnings = features.get("earnings_signals", {})
-    if earnings.get("include_in_prompt", False):
-        earnings_lines = ["\n=== EARNINGS CONTEXT ==="]
-        proximity = earnings.get("earnings_proximity_days")
-        if proximity is not None:
-            earnings_lines.append(f"Days to next earnings: {proximity}")
-        surprise = earnings.get("last_surprise_pct")
-        if surprise is not None:
-            direction = earnings.get("last_surprise_direction", "unknown")
-            earnings_lines.append(f"Last earnings surprise: {surprise:+.1f}% ({direction})")
-        concordant = earnings.get("last_revenue_eps_concordant")
-        if concordant is not None:
-            earnings_lines.append(f"Revenue-EPS concordance: {'concordant' if concordant else 'mixed'}")
-        rev_vel = earnings.get("analyst_revision_velocity_30d")
-        if rev_vel is not None:
-            trend_word = "rising" if rev_vel > 0 else "falling" if rev_vel < 0 else "stable"
-            earnings_lines.append(f"Analyst revision trend (30d): {trend_word} ({rev_vel:+.1f}%)")
-        inconsistent = earnings.get("recommendation_inconsistency")
-        if inconsistent is not None:
-            earnings_lines.append(f"Recommendation vs surprise: {'inconsistent (stronger signal)' if inconsistent else 'consistent'}")
-        strength = earnings.get("earnings_signal_strength", "none")
-        earnings_lines.append(f"Earnings signal strength: {strength}")
-        prompt += "\n".join(earnings_lines)
-
-    # SECTION 8: Entry/Stop/Targets
+    # SECTION 9: Event Calendar (required, enhanced from old 7.6)
     prompt += f"""
 
-=== TRADE PARAMETERS ===
-Score: {features.get('_score', 0):.0f}/100 | Confidence: {packet.confidence}/10
-Entry Zone: {packet.entry_zone} | Stop: {packet.stop_invalidation} | Targets: {packet.targets}
-Position Size: ${packet.position_sizing.allocation_dollars:.0f} ({packet.position_sizing.allocation_pct:.1f}% of capital) | Risk: ${packet.position_sizing.estimated_risk_dollars:.2f}
-Event Risk: {packet.event_risk}"""
+=== EVENT CALENDAR ===
+Days to Next Earnings: {features.get('days_to_earnings', 'n/a')}
+Earnings Timing: {features.get('earnings_timing', 'n/a')}
+Days to Next FOMC: {features.get('days_to_fomc', 'n/a')}
+Days to Next OPEX: {features.get('days_to_opex', 'n/a')}
+Combined Event Risk Score: {features.get('event_risk_score', 'n/a')}/10
+Active Events: {features.get('active_events_description', 'None')}"""
+
+    # SECTION 10: Earnings Signals (optional, promoted from old 7.7)
+    if 10 not in skip_sections:
+        prompt += f"""
+
+=== EARNINGS SIGNALS ===
+Last EPS Surprise: {features.get('last_eps_surprise_pct', 'n/a')}%
+Last Revenue Surprise: {features.get('last_revenue_surprise_pct', 'n/a')}%
+Surprise Streak: {features.get('surprise_streak', 'n/a')} quarters
+Analyst Revision Momentum: {features.get('revision_momentum', 'n/a')}
+EPS Estimate Trend (90d): {features.get('eps_estimate_trend', 'n/a')}"""
+
+    # SECTION 11: Cross-Asset Context (optional, NEW)
+    if 11 not in skip_sections:
+        prompt += f"""
+
+=== CROSS-ASSET CONTEXT ===
+US 10Y Yield: {features.get('us_10y_yield', 'n/a')}% ({features.get('us_10y_change_1m', 'n/a')} 1m)
+US Dollar Index: {features.get('dxy_level', 'n/a')} ({features.get('dxy_change_1m', 'n/a')} 1m)
+VIX Term Structure: {features.get('vix_term_structure', 'n/a')}
+HY Credit Spread: {features.get('hy_oas', 'n/a')} bps ({features.get('hy_oas_z_score', 'n/a')} Z)
+Gold: {features.get('gold_change_1m', 'n/a')} (1m)"""
 
     return prompt
 
@@ -441,7 +476,7 @@ def enhance_packet_with_llm(packet: TradePacket, features: dict,
 
     The retry cascade is:
     1. Grammar-constrained generation (if enabled) -- most structured output
-    2. Full prompt via Ollama -- all 8 context sections
+    2. Full prompt via Ollama -- all 11 context sections
     3. Condensed prompt via Ollama -- technical data + trade params only
     4. Template fallback -- returns packet unchanged with default prose
 
@@ -458,7 +493,16 @@ def enhance_packet_with_llm(packet: TradePacket, features: dict,
         logger.info("[LLM] Disabled in config — fallback to template for %s", packet.ticker)
         return packet
 
-    prompt = _build_feature_prompt(packet, features)
+    prompt = _build_feature_prompt(features, packet.ticker)
+
+    # Append trade parameters (not part of the 11 data sections)
+    prompt += f"""
+
+=== TRADE PARAMETERS ===
+Score: {features.get('_score', 0):.0f}/100 | Confidence: {packet.confidence}/10
+Entry Zone: {packet.entry_zone} | Stop: {packet.stop_invalidation} | Targets: {packet.targets}
+Position Size: ${packet.position_sizing.allocation_dollars:.0f} ({packet.position_sizing.allocation_pct:.1f}% of capital) | Risk: ${packet.position_sizing.estimated_risk_dollars:.2f}
+Event Risk: {packet.event_risk}"""
 
     # #154: context window overflow protection
     estimated_tokens = len(prompt) // 4
