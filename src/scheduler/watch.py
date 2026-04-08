@@ -807,6 +807,14 @@ class WatchLoop:
         except Exception as e:
             logger.warning("[WATCH] Failed to record scan_metrics: %s", e)
 
+        # System metrics collection every 5 scans (~5 minutes at default cadence)
+        if self._scan_number % 5 == 0:
+            try:
+                from src.monitoring.system_metrics import collect_system_snapshot
+                collect_system_snapshot(DB_PATH)
+            except Exception as e:
+                logger.debug("[WATCH] System metrics collection failed: %s", e)
+
     def _run_eod_recap(self):
         """Execute the EOD recap pipeline."""
         from src.data_ingestion.market_data import fetch_ohlcv, fetch_spy_benchmark

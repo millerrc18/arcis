@@ -427,6 +427,7 @@ _TABLE_WHITELIST = [
     "research_digests", "research_docs", "research_papers",
     "setup_signals", "simulation_results", "sync_state", "traffic_light_state",
     "user_notes",
+    "system_metrics",
 ]
 
 
@@ -625,6 +626,32 @@ def stress_test_results():
     except Exception as exc:
         logger.error("[API] stress-test/results failed: %s", exc)
         return {"results": [], "error": str(exc)}
+
+
+@router.get("/api/monitoring/snapshot")
+def monitoring_snapshot():
+    """Capture and return a fresh system metrics snapshot."""
+    from src.monitoring.system_metrics import collect_system_snapshot
+    return collect_system_snapshot()
+
+
+@router.get("/api/monitoring/history")
+def monitoring_history(hours: int = 24):
+    """Get system metrics history."""
+    import sqlite3
+    try:
+        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM system_metrics "
+                "WHERE timestamp >= datetime('now', ? || ' hours') "
+                "ORDER BY timestamp ASC",
+                (f"-{hours}",),
+            ).fetchall()
+        return [dict(r) for r in rows]
+    except Exception as exc:
+        logger.error("[API] monitoring/history failed: %s", exc)
+        return []
 
 
 @router.get("/simulation/results")
