@@ -101,7 +101,7 @@ def build_premarket_digest(db_path: str = DB_PATH) -> tuple[str, str]:
 
     if closed_yesterday:
         total_pnl = sum(float(t["pnl_dollars"] or 0) for t in closed_yesterday)
-        wins = sum(1 for t in closed_yesterday if (t["pnl_dollars"] or 0) > 0)
+        wins = sum(1 for t in closed_yesterday if _coerce_float(t["pnl_dollars"]) > 0)
         lines.extend([
             "",
             f"Yesterday: {len(closed_yesterday)} trades closed, "
@@ -181,8 +181,8 @@ def build_midday_digest(db_path: str = DB_PATH) -> tuple[str, str]:
     if closed_today:
         lines.extend(["", "━━━ CLOSED TRADES ━━━"])
         for t in closed_today:
-            pnl = t["pnl_dollars"] or 0
-            pct = t["pnl_pct"] or 0
+            pnl = _coerce_float(t["pnl_dollars"])
+            pct = _coerce_float(t["pnl_pct"])
             icon = "+" if pnl > 0 else "-"
             lines.append(f"  {icon} {t['ticker']:6s}  ${pnl:+8.2f}  ({pct:+.1f}%)  [{t['exit_reason']}]")
         lines.append(f"  Net: ${closed_pnl:+.2f}")
@@ -213,7 +213,7 @@ def build_eod_digest(db_path: str = DB_PATH) -> tuple[str, str]:
     closed_pnl = sum(float(t["pnl_dollars"] or 0) for t in closed)
     total_trades = len(all_closed)
     total_pnl = sum(float(t["pnl_dollars"] or 0) for t in all_closed)
-    win_rate = sum(1 for t in all_closed if (t["pnl_dollars"] or 0) > 0) / total_trades if total_trades else 0
+    win_rate = sum(1 for t in all_closed if _coerce_float(t["pnl_dollars"]) > 0) / total_trades if total_trades else 0
 
     subject = f"Arcis EOD — {now.strftime('%b %d')} | {len(closed)} closed, P&L: ${closed_pnl:+.2f} | Total: ${total_pnl:+.2f}"
 
@@ -229,8 +229,8 @@ def build_eod_digest(db_path: str = DB_PATH) -> tuple[str, str]:
     if closed:
         lines.append("")
         for t in closed:
-            pnl = t["pnl_dollars"] or 0
-            pct = t["pnl_pct"] or 0
+            pnl = _coerce_float(t["pnl_dollars"])
+            pct = _coerce_float(t["pnl_pct"])
             icon = "+" if pnl > 0 else "-"
             lines.append(f"  {icon} {t['ticker']:6s}  ${pnl:+8.2f}  ({pct:+.1f}%)  [{t['exit_reason']}]")
 

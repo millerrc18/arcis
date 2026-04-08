@@ -618,7 +618,7 @@ def _retry_exit(trade: dict, db_path: str = DB_PATH) -> None:
     update_shadow_trade(trade["trade_id"],
                         {"exit_retry_count": retry_count + 1}, db_path)
 
-    shares = int(trade.get("shares") or trade.get("planned_shares") or 0)
+    shares = int(float(trade.get("shares") or trade.get("planned_shares") or 0))
     try:
         exit_result = _submit_exit_order(trade, shares)
         exit_status = exit_result.get("status") if isinstance(exit_result, dict) else None
@@ -723,7 +723,7 @@ def check_and_manage_open_trades(
             continue
 
         # Calculate unrealized P&L
-        shares = int(trade.get("planned_shares") or 1)
+        shares = int(float(trade.get("planned_shares") or 1))
         unrealized_pnl = (current_price - entry_price) * shares
         unrealized_pct = ((current_price - entry_price) / entry_price * 100) if entry_price > 0 else 0
 
@@ -1347,7 +1347,7 @@ def open_live_trade(
             if t_entry > 0:
                 current = _get_current_price_safe(t["ticker"])
                 if current:
-                    today_unrealized += (current - t_entry) * int(t["planned_shares"] or 1)
+                    today_unrealized += (current - t_entry) * int(float(t["planned_shares"] or 1))
 
         daily_live_pnl = today_realized + today_unrealized
 
