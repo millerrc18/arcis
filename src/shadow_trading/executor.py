@@ -301,7 +301,8 @@ def open_shadow_trade(
         current_dd_pct = max(0, (peak_equity - current_equity) / peak_equity * 100) if peak_equity > 0 else 0
 
         if current_dd_pct > 0:
-            base_risk = config.get("risk", {}).get("planned_risk_pct_max", 0.02)
+            from src.risk.governor import get_effective_risk_pct
+            base_risk, _tier = get_effective_risk_pct(config, db_path)
             adjusted = drawdown_adjusted_risk(base_risk, current_dd_pct)
             if adjusted <= 0:
                 logger.warning("[RISK] Drawdown %.1f%% — trading halted (Thorp protocol)", current_dd_pct)

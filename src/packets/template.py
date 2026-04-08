@@ -29,7 +29,8 @@ def build_packet_from_features(ticker: str, features: dict, config: dict) -> Tra
     # Position sizing from config
     risk_cfg = config.get("risk", {})
     capital = risk_cfg.get("starting_capital", 1000)
-    risk_pct = risk_cfg.get("planned_risk_pct_max", 0.01)
+    from src.risk.governor import get_effective_risk_pct
+    risk_pct, _tier = get_effective_risk_pct(config)
     max_risk_dollars = capital * risk_pct
     if conservative_sizing:
         max_risk_dollars *= 0.5  # Reduce position size by 50% for earnings risk
