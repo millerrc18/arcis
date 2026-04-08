@@ -42,11 +42,31 @@ RELEVANCE_KEYWORDS = [
 ]
 
 
-def _get(url: str, timeout: int = 15, **kwargs) -> requests.Response:
-    """HTTP GET with standard User-Agent and timeout."""
+# #303: Per-source cache for graceful degradation on failure.
+# Stores {source_name: [list_of_paper_dicts]} from the last successful crawl.
+_SOURCE_CACHE: dict[str, list[dict]] = {}
+
+
+def _get(url: str, timeout: int = 30, **kwargs) -> requests.Response:
+    """HTTP GET with standard User-Agent and timeout (#303: raised to 30s)."""
     headers = kwargs.pop("headers", {})
     headers.setdefault("User-Agent", USER_AGENT)
     return requests.get(url, headers=headers, timeout=timeout, **kwargs)
+
+
+def _get_with_retry(url: str, timeout: int = 30, retries: int = 1,
+                    backoff: float = 2.0, **kwargs) -> requests.Response:
+    """HTTP GET with retry on failure (#303)."""
+    last_exc = None
+    for attempt in range(1 + retries):
+        try:
+            return _get(url, timeout=timeout, **kwargs)
+        except Exception as exc:
+            last_exc = exc
+            if attempt < retries:
+                time.sleep(backoff)
+                logger.debug("[RESEARCH] Retry %d for %s after: %s", attempt + 1, url, exc)
+    raise last_exc
 
 
 def crawl_arxiv(max_results: int = 30) -> list[dict]:

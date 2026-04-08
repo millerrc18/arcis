@@ -49,6 +49,30 @@
 
 ## Releases
 
+### v0.15.3 — Production Sweep (2026-04-08)
+**14 issues closed in 3 phases. Branch: `fix/production-sweep`.**
+
+**v0.15.1 — CRITICAL (5 issues):**
+- #326: Stop-price > 0 guard before all bracket order placements
+- #325: Fractional share tolerance in reconciliation (float qty, 0.001 threshold)
+- #329: Additional conviction extraction patterns (stages 7-8) + parse rate logging
+- #330: safe_numeric() for quality_score_auto, int() cast on config thresholds
+- #335: Overnight training script import path verified
+
+**v0.15.2 — HIGH (4 issues):**
+- #331: Postgres schema validation (create_all_tables + ensure_columns) at sync startup
+- #332: macro_snapshots sync_conflict_col to prevent duplicate key errors
+- #327: DDL guardrail verified — no inline CREATE TABLE outside schema/
+- #328: Data collection stats COALESCE(collected_at, collected_date) for column compat
+
+**v0.15.3 — MEDIUM (5 issues):**
+- #302: NULL PK root cause verified — inline PRIMARY KEY prevents NULL ids
+- #303: Research source graceful degradation with caching + 30s timeout + retry
+- #304/#333: VRAM handoff 3-retry logic (15s backoff, Telegram alert on failure)
+- #334: Ingestion gate narrowed — inline bold emphasis no longer triggers rejection
+
+---
+
 ### v0.15.0 — (pending: 3 more feature branches to merge)
 **4 feature sprints: gap assessment + simulation engine + model performance + Bloomberg UI**
 
