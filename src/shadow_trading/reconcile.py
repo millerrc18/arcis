@@ -219,6 +219,24 @@ def reconcile_live_trades(
                 ticker, trade_id,
                 f"${pnl_dollars:.2f}" if pnl_dollars != 0.0 else "UNKNOWN",
             )
+            # Telegram notification for reconciled close
+            try:
+                from src.notifications.telegram import notify_trade_closed, is_telegram_enabled
+                if is_telegram_enabled():
+                    # Compute days held from trade created_at
+                    _days = 0
+                    try:
+                        with connect_db(db_path) as _c:
+                            _cr = _c.execute("SELECT created_at FROM shadow_trades WHERE trade_id = ?", (trade_id,)).fetchone()
+                            if _cr and _cr["created_at"]:
+                                from datetime import datetime as _dt
+                                _created = _dt.fromisoformat(_cr["created_at"].replace("Z", "+00:00"))
+                                _days = max(0, (now - _created).days)
+                    except Exception:
+                        pass
+                    notify_trade_closed(ticker, pnl_dollars, pnl_pct, "reconciled_stale", _days)
+            except Exception as _tg_err:
+                logger.debug("[RECONCILE] Telegram notify failed for %s: %s", ticker, _tg_err)
 
     return {
         "alpaca_positions": len(alpaca_positions),
@@ -405,6 +423,20 @@ def reconcile_paper_trades(
                 ticker, trade_id,
                 f"${pnl_dollars:.2f}" if pnl_dollars != 0.0 else "UNKNOWN",
             )
+            # Telegram notification for reconciled close
+            try:
+                from src.notifications.telegram import notify_trade_closed, is_telegram_enabled
+                if is_telegram_enabled():
+                    _days = 0
+                    if trade_row and trade_row["created_at"]:
+                        try:
+                            _created = datetime.fromisoformat(trade_row["created_at"])
+                            _days = max(0, (now - _created).days)
+                        except (ValueError, TypeError):
+                            pass
+                    notify_trade_closed(ticker, pnl_dollars, pnl_pct, "reconciled_stale", _days)
+            except Exception as _tg_err:
+                logger.debug("[RECONCILE-PAPER] Telegram notify failed for %s: %s", ticker, _tg_err)
 
     if stale and not marked_closed:
         logger.warning(
