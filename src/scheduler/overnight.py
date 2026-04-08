@@ -920,9 +920,26 @@ def run_premarket_candidates():
     print(f"[WATCH] Pre-analyzed {result['count']} candidates")
 
 
+def _patch_timestamp_utcnow():
+    """Replace deprecated pd.Timestamp.utcnow with Timestamp.now('UTC').
+
+    yfinance calls pd.Timestamp.utcnow() which triggers Pandas4Warning.
+    This warning is emitted from Cython C code and bypasses Python's
+    warnings.filterwarnings. Patching the method with the recommended
+    replacement eliminates the warning at the source.
+    """
+    try:
+        import pandas as pd
+        if hasattr(pd.Timestamp, 'utcnow'):
+            pd.Timestamp.utcnow = staticmethod(lambda: pd.Timestamp.now(tz="UTC"))
+    except Exception:
+        pass
+
+
 def run_stress_test():
     """Run historical stress test across all 3 crisis scenarios."""
     from scripts.stress_test import run_scenario, store_result, SCENARIOS
+    _patch_timestamp_utcnow()
     print("[WATCH] Running stress test (3 scenarios)...")
     for name, dates in SCENARIOS.items():
         try:
