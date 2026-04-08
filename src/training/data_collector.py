@@ -31,7 +31,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH, load_config
-from src.llm.prompts import BLINDED_ANALYSIS_PROMPT, QUALITY_ENHANCEMENT_PROMPT
+from src.llm.prompts import QUALITY_ENHANCEMENT_PROMPT
 from src.training.claude_client import generate_training_example
 from src.training.ingestion_gate import (
     alert_training_halt,
@@ -76,6 +76,32 @@ def _sanitize_feature_snapshot(snapshot: str) -> str:
         if key not in OUTCOME_FIELDS:
             clean.append(line)
     return "\n".join(clean)
+
+
+def _classify_outcome(trade: dict) -> str:
+    """Classify a closed trade's outcome type for prompt selection."""
+    exit_reason = trade.get("exit_reason", "")
+
+    if "timeout" in exit_reason:
+        return "TIMEOUT"
+    pnl = float(trade.get("pnl_dollars") or 0)
+    if pnl > 0:
+        return "WIN"
+    return "LOSS"
+
+
+def _get_outcome_prompt(outcome_type: str) -> str:
+    """Get the system prompt template for a given outcome type."""
+    from src.training.outcome_prompts import (
+        WINNER_SYSTEM_PROMPT, LOSER_SYSTEM_PROMPT,
+        TIMEOUT_SYSTEM_PROMPT, PASS_SYSTEM_PROMPT,
+    )
+    return {
+        "WIN": WINNER_SYSTEM_PROMPT,
+        "LOSS": LOSER_SYSTEM_PROMPT,
+        "TIMEOUT": TIMEOUT_SYSTEM_PROMPT,
+        "PASS": PASS_SYSTEM_PROMPT,
+    }.get(outcome_type, WINNER_SYSTEM_PROMPT)
 
 
 def _build_feature_input(rec: dict) -> str:
@@ -182,10 +208,14 @@ def collect_training_examples_from_closed_trades(
         # the commentary was already contaminated.
         feature_input = _sanitize_feature_snapshot(feature_input)
 
-        # ═══ STAGE 1: BLINDED GENERATION ═══
-        # Claude sees ONLY the sanitized setup data — ZERO outcome information
-        blinded_prompt = BLINDED_ANALYSIS_PROMPT.format(date=rec_date)
-        stage1_response = generate_training_example(blinded_prompt, feature_input, purpose="backfill_blinded")
+        # ═══ STAGE 1: BLINDED GENERATION (outcome-conditioned) ═══
+        # Claude sees ONLY the sanitized setup data — ZERO outcome information.
+        # The outcome type selects WHICH analytical lens to apply (thesis
+        # validation, risk weighting, signal decay) but the template itself
+        # never reveals the outcome. Self-blinding is preserved architecturally.
+        outcome_type = _classify_outcome(trade)
+        outcome_prompt = _get_outcome_prompt(outcome_type)
+        stage1_response = generate_training_example(outcome_prompt, feature_input, purpose="backfill_blinded")
         if stage1_response is None:
             logger.warning("[TRAINING] Stage 1 failed for %s, skipping", trade.get("ticker"))
             continue
@@ -250,43 +280,12 @@ def collect_training_examples_from_closed_trades(
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (example_id, created_at, source, trade.get("ticker"),
                  trade.get("recommendation_id"), feature_input, outcome_text,
-                 blinded_prompt, feature_input, final_output),
+                 outcome_prompt, feature_input, final_output),
             )
             conn.commit()
 
         logger.info("  [TRAINING] Generated blinded example for %s (%s)", trade.get('ticker'), source)
         count += 1
-
-        # ═══ OUTCOME-CONDITIONED TEMPLATES (Sprint 6: 3-5x data yield) ═══
-        # WHY deferred generation: each outcome-conditioned example costs ~$0.01
-        # in Claude API fees and ~5s of latency. Generating inline would make the
-        # collection loop 15-25s per trade (3-5 templates each). Instead, we store
-        # templates with empty output_text and populate them in a separate batch
-        # during off-peak hours. Source prefix "outcome_template_" marks them as
-        # unpopulated -- export_training_data() excludes rows with empty output_text.
-        # He et al. (2025) golden ratio: 62/38 curated-to-synthetic target.
-        try:
-            from src.training.outcome_prompts import generate_training_examples
-            oc_examples = generate_training_examples(trade, {}, feature_input)
-            for oc_ex in oc_examples:
-                oc_id = str(uuid.uuid4())
-                oc_source = f"outcome_template_{oc_ex['type']}"
-                with sqlite3.connect(db_path) as conn:
-                    conn.execute(
-                        """INSERT INTO training_examples
-                           (example_id, created_at, source, ticker, recommendation_id,
-                            feature_snapshot, trade_outcome, instruction, input_text, output_text)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                        (oc_id, created_at, oc_source, trade.get("ticker"),
-                         trade.get("recommendation_id"), feature_input, outcome_text,
-                         oc_ex["system"], feature_input, ""),
-                    )
-                    conn.commit()
-            logger.info("  [TRAINING] Stored %d outcome-conditioned templates for %s",
-                        len(oc_examples), trade.get("ticker"))
-        except Exception as e:
-            logger.warning("[TRAINING] Outcome-conditioned generation failed for %s: %s",
-                           trade.get("ticker"), e)
 
         halt, compliance, top_reason = should_halt_batch(attempted, rejected, rejection_reasons)
         if halt:

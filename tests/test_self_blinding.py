@@ -83,9 +83,17 @@ class TestSelfBlindingDataCollector:
         assert "pnl" not in stage1_user.lower()
         assert "exit_reason" not in stage1_user.lower()
 
-        # Stage 1 system prompt should be the blinded prompt
+        # Stage 1 system prompt should be an outcome-conditioned prompt
+        # that maintains self-blinding (no outcome data in the prompt itself)
         stage1_system = calls[0]["system"]
-        assert "do NOT know" in stage1_system
+        from src.training.outcome_prompts import (
+            WINNER_SYSTEM_PROMPT, LOSER_SYSTEM_PROMPT, TIMEOUT_SYSTEM_PROMPT,
+        )
+        valid_prompts = {WINNER_SYSTEM_PROMPT, LOSER_SYSTEM_PROMPT, TIMEOUT_SYSTEM_PROMPT}
+        assert stage1_system in valid_prompts
+        # Self-blinding check: the system prompt itself must not leak outcome info
+        assert "ACTUAL OUTCOME" not in stage1_system
+        assert "pnl" not in stage1_system.lower()
 
     @patch("src.training.data_collector.generate_training_example")
     @patch("src.training.data_collector.load_config")

@@ -638,3 +638,54 @@ class TestTrainingDataCollectorPnlTypeSafety:
         result = _build_outcome_text(trade)
         assert "$0.00" in result
         assert "0 days" in result
+
+
+# ── Outcome Classification & Prompt Selection ─────────────────────
+
+class TestOutcomeClassification:
+    def test_classify_win(self):
+        from src.training.data_collector import _classify_outcome
+        trade = {"status": "closed", "pnl_dollars": 100, "exit_reason": "target_1_hit"}
+        assert _classify_outcome(trade) == "WIN"
+
+    def test_classify_loss(self):
+        from src.training.data_collector import _classify_outcome
+        trade = {"status": "closed", "pnl_dollars": -50, "exit_reason": "stop_hit"}
+        assert _classify_outcome(trade) == "LOSS"
+
+    def test_classify_timeout(self):
+        from src.training.data_collector import _classify_outcome
+        trade = {"status": "closed", "pnl_dollars": 10, "exit_reason": "timeout"}
+        assert _classify_outcome(trade) == "TIMEOUT"
+
+    def test_classify_timeout_with_loss(self):
+        from src.training.data_collector import _classify_outcome
+        trade = {"status": "closed", "pnl_dollars": -5, "exit_reason": "timeout"}
+        assert _classify_outcome(trade) == "TIMEOUT"
+
+    def test_classify_no_exit_reason_positive(self):
+        from src.training.data_collector import _classify_outcome
+        trade = {"status": "closed", "pnl_dollars": 50, "exit_reason": ""}
+        assert _classify_outcome(trade) == "WIN"
+
+
+class TestOutcomePromptSelection:
+    def test_win_selects_winner_prompt(self):
+        from src.training.data_collector import _get_outcome_prompt
+        from src.training.outcome_prompts import WINNER_SYSTEM_PROMPT
+        assert _get_outcome_prompt("WIN") == WINNER_SYSTEM_PROMPT
+
+    def test_loss_selects_loser_prompt(self):
+        from src.training.data_collector import _get_outcome_prompt
+        from src.training.outcome_prompts import LOSER_SYSTEM_PROMPT
+        assert _get_outcome_prompt("LOSS") == LOSER_SYSTEM_PROMPT
+
+    def test_timeout_selects_timeout_prompt(self):
+        from src.training.data_collector import _get_outcome_prompt
+        from src.training.outcome_prompts import TIMEOUT_SYSTEM_PROMPT
+        assert _get_outcome_prompt("TIMEOUT") == TIMEOUT_SYSTEM_PROMPT
+
+    def test_unknown_defaults_to_winner(self):
+        from src.training.data_collector import _get_outcome_prompt
+        from src.training.outcome_prompts import WINNER_SYSTEM_PROMPT
+        assert _get_outcome_prompt("UNKNOWN") == WINNER_SYSTEM_PROMPT
