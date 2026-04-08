@@ -1234,6 +1234,23 @@ class WatchLoop:
                     # Fix for #257: only set done-flags on success
                     if self._safe_run("EOD recap", self._run_eod_recap):
                         self._eod_done = True
+                    # Check for risk tier transition (Strategy Decision #26)
+                    try:
+                        from src.risk.governor import check_tier_transition
+                        transition = check_tier_transition(self.config, DB_PATH)
+                        if transition:
+                            msg = (
+                                f"\U0001f4ca RISK TIER CHANGE\n"
+                                f"Equity: ${transition['equity']:,.2f}\n"
+                                f"Previous: {transition['prev_tier']}\n"
+                                f"New: {transition['new_tier']}\n"
+                                f"Max risk/trade: {transition['new_risk_pct']:.1%}"
+                            )
+                            logger.info("[RISK] %s", msg)
+                            from src.notifications.telegram import send_telegram
+                            send_telegram(msg)
+                    except Exception as e:
+                        logger.debug("[RISK] Tier transition check skipped: %s", e)
                     # H2. Daily metric snapshot (every trading day, not just Saturday)
                     if not self._daily_metric_snapshot_done:
                         if self._safe_run("daily metric snapshot", self._save_daily_metric_snapshot):
