@@ -690,11 +690,11 @@ def run_fine_tune(db_path: str = DB_PATH) -> dict | None:
     script_path.parent.mkdir(parents=True, exist_ok=True)
     stage1 = Path("training_data") / "stage1_structure.jsonl"
     if stage1.exists() and stage1.stat().st_size > 0:
-        with open(script_path, "w") as f:
+        with open(script_path, "w", encoding="utf-8") as f:
             f.write(CURRICULUM_TRAIN_SCRIPT)
         print("[TRAINING] Using three-stage curriculum training")
     else:
-        with open(script_path, "w") as f:
+        with open(script_path, "w", encoding="utf-8") as f:
             f.write(TRAIN_SCRIPT)
         print("[TRAINING] Using single-stage training (no curriculum data)")
 
