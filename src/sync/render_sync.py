@@ -672,6 +672,16 @@ def run_sync_cycle(database_url: str, db_path: str = LOCAL_DB) -> dict:
         summary["errors"].append(f"connection_failed: {exc}")
         return summary
 
+    # #331: Ensure all Postgres tables and columns exist before syncing.
+    # Without this, new tables added to the registry (e.g., options_chains,
+    # google_trends, cboe_ratios) fail with "relation does not exist".
+    try:
+        from src.schema.postgres import create_all_tables, ensure_columns
+        create_all_tables(database_url)
+        ensure_columns(database_url)
+    except Exception as exc:
+        logger.warning("[SYNC] Postgres schema validation failed: %s — continuing sync", exc)
+
     try:
         for table_name, table_config in SYNC_TABLES.items():
             try:
