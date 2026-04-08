@@ -1,13 +1,10 @@
-import { useCallback } from 'react'
 import {
-  ReactFlow,
-  Background,
-  Controls,
   MiniMap,
   useNodesState,
   useEdgesState,
 } from '@xyflow/react'
-import '@xyflow/react/dist/style.css'
+import FlowDiagram from '../components/diagrams/FlowDiagram'
+import SystemNode from '../components/diagrams/SystemNode'
 
 /* Fix for #255 — improved node styling for readability */
 const nodeStyle = (bg, border) => ({
@@ -141,13 +138,11 @@ const legendItems = [
   { color: '#64748B', label: 'Infrastructure' },
 ]
 
+const nodeTypes = { system: SystemNode }
+
 export default function Architecture() {
   const [nodes, , onNodesChange] = useNodesState(initialNodes)
   const [edges, , onEdgesChange] = useEdgesState(initialEdges)
-
-  const onInit = useCallback((instance) => {
-    instance.fitView({ padding: 0.15 })
-  }, [])
 
   return (
     <div className="space-y-4">
@@ -168,28 +163,21 @@ export default function Architecture() {
         </div>
       </div>
 
-      <div className="arcis-card" style={{ height: 'calc(100vh - 180px)', padding: 0, overflow: 'hidden' }}>
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onInit={onInit}
-          fitView
-          proOptions={{ hideAttribution: true }}
-          style={{ background: 'var(--arcis-bg-elevated)' }}
-        >
-          <Background color="#1E293B" gap={20} />
-          <Controls
-            style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 2 }}
-          />
-          <MiniMap
-            style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 2 }}
-            nodeColor="#3B82F6"
-            maskColor="rgba(5, 5, 7, 0.7)"
-          />
-        </ReactFlow>
-      </div>
+      <FlowDiagram
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        className="arcis-card"
+        style={{ height: 'calc(100vh - 180px)', padding: 0, overflow: 'hidden', background: 'var(--arcis-bg-elevated)' }}
+      >
+        <MiniMap
+          style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 2 }}
+          nodeColor="#3B82F6"
+          maskColor="rgba(5, 5, 7, 0.7)"
+        />
+      </FlowDiagram>
     </div>
   )
 }
