@@ -1,5 +1,28 @@
 # Changelog
 
+## [v0.15.3] - 2026-04-08
+
+### Production Sweep — 14 issues closed in 3 phases
+
+**Phase 1 — CRITICAL (v0.15.1):**
+- **fix:** Stop-price > 0 guard before bracket order placements (#326)
+- **fix:** Fractional share tolerance — alpaca adapter returns float qty (#325)
+- **fix:** Conviction extraction stages 7-8 + parse rate logging (#329)
+- **fix:** safe_numeric for quality_score_auto, int() cast on config thresholds (#330)
+- **fix:** Overnight training script import path verified (#335)
+
+**Phase 2 — HIGH (v0.15.2):**
+- **fix:** Postgres create_all_tables + ensure_columns at sync startup (#331)
+- **fix:** macro_snapshots sync_conflict_col for duplicate key prevention (#332)
+- **fix:** DDL guardrail verified clean (#327)
+- **fix:** Data collection stats COALESCE for column compatibility (#328)
+
+**Phase 3 — MEDIUM (v0.15.3):**
+- **fix:** NULL PK inline PRIMARY KEY root cause verified (#302)
+- **fix:** Research source caching + 30s timeout + retry with backoff (#303)
+- **fix:** VRAM handoff 3-retry logic with Telegram alert (#304, #333)
+- **fix:** Ingestion gate narrowed for inline bold emphasis (#334)
+
 ## [Unreleased — pending v0.15.0]
 
 ### Gap Assessment (merged 2026-04-07)

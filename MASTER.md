@@ -14,7 +14,7 @@
 
 **Name:** Arcis (Adaptive Regime Classification & Intelligence Systems)
 **License:** BSL 1.1 (source-visible, no commercial use until 2030)
-**Release:** v0.14.2 (gap-assessment merged, 3 more features pending → v0.15.0)
+**Release:** v0.15.3 (production sweep: 14 issues closed in 3 phases)
 **Repository:** github.com/millerrc18/halcyon-lab
 **Dashboard:** halcyonlab.app (Render static + Python API)
 
@@ -97,12 +97,8 @@ with an unbeatable technological moat.
 
 ### Open GitHub Issues
 
-7 open as of 2026-04-07:
-- #302-304: Deferred fixes (VRAM handoff, research source resilience, NULL PKs)
-- #318: LLM conviction parsing regression (conviction=None, allocation cap)
-- #319: Paper account positions flipped to short
-- #320: Executor cross-broker mismatch (live vs paper positions)
-- #321: UnicodeEncodeError in reconcile-live CLI (cp1252 emoji)
+0 open as of 2026-04-08:
+- All 14 issues (#302-#304, #325-#335) closed in production sweep sprint (v0.15.1-v0.15.3)
 
 ### Known Blockers
 
