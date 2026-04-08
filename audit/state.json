@@ -1,7 +1,7 @@
 {
-  "run_count": 10,
+  "run_count": 11,
   "current_focus_index": 0,
-  "file_index": 135,
+  "file_index": 150,
   "file_list": [
     "src/__init__.py",
     "src/api/__init__.py",
@@ -180,7 +180,7 @@
     "frontend/src/pages/Training.jsx",
     "frontend/src/pages/Validation.jsx"
   ],
-  "last_run": "2026-04-07T12:00:00Z",
+  "last_run": "2026-04-08T12:00:00Z",
   "findings": {
     "run_4": {
       "focus_area": "code_quality",
@@ -683,6 +683,86 @@
         }
       ],
       "github_issues_blocked": "No gh CLI or GitHub MCP tools available — 8 medium findings need manual issue creation"
+    },
+    "run_11": {
+      "focus_area": "code_quality",
+      "files_audited": [
+        "src/training/quality_drift.py",
+        "src/training/quality_filter.py",
+        "src/training/report.py",
+        "src/training/trainer.py",
+        "src/training/validation.py",
+        "src/training/versioning.py",
+        "src/universe/__init__.py",
+        "src/universe/company_names.py",
+        "src/universe/sectors.py",
+        "src/universe/sp100.py",
+        "src/utils/__init__.py",
+        "src/utils/activity_logger.py",
+        "frontend/src/App.jsx",
+        "frontend/src/components/ActivityFeed.jsx",
+        "frontend/src/components/AuthGate.jsx"
+      ],
+      "high": [],
+      "medium": [
+        {
+          "file": "src/training/trainer.py",
+          "lines": "1-952",
+          "finding": "File is 952 lines (2.4x the 400-line threshold). export_training_data (215 lines, L348-563) and run_fine_tune (210 lines, L669-879) each far exceed the 50-line guideline. Inline training scripts account for ~240 lines.",
+          "suggested_fix": "Extract export_training_data helpers: _apply_temporal_split(examples, holdout_pct), _apply_quality_filter(examples), _write_stage_files(output_dir, train_examples). Extract run_fine_tune helpers: _run_training_subprocess(script_path), _register_and_promote(version_name, gguf_path, holdout_eval). Consider moving inline scripts to separate template files."
+        },
+        {
+          "file": "src/training/trainer.py",
+          "lines": "44",
+          "finding": "Unused import: get_model_history is imported from src.training.versioning (line 44) but never referenced anywhere in the file.",
+          "suggested_fix": "Remove get_model_history from the import statement on line 44."
+        },
+        {
+          "file": "src/training/validation.py",
+          "lines": "22-170",
+          "finding": "validate_training_dataset is 148 lines — mixes 10 distinct checks (format compliance, diversity, win/loss balance, sector coverage, date range, duplicates, near-duplicates, output length, source breakdown, quality scores) in a single function.",
+          "suggested_fix": "Extract each check into a named helper: _check_format_compliance(examples), _check_diversity(examples), _check_balance(examples), _check_duplicates(examples). Keep validate_training_dataset as an orchestrator that calls each check and assembles the result dict."
+        },
+        {
+          "file": "frontend/src/components/ActivityFeed.jsx",
+          "lines": "6",
+          "finding": "Unused import: TrendingDown is imported from lucide-react but never referenced in EVENT_STYLE or anywhere in the component.",
+          "suggested_fix": "Remove TrendingDown from the import destructuring on line 6."
+        },
+        {
+          "file": "frontend/src/components/AuthGate.jsx",
+          "lines": "36-38",
+          "finding": "React hook useEffect (line 38) is called after a conditional early return (line 36: if (!IS_CLOUD) return children). This violates React's Rules of Hooks — hooks must not be called conditionally. While IS_CLOUD is a module-level constant so the hook count never actually changes at runtime, this is a React anti-pattern that ESLint's exhaustive-deps rule would flag.",
+          "suggested_fix": "Move the early return after all hook calls: place the useEffect before the IS_CLOUD check, or restructure to use a wrapper component pattern where the outer component handles the IS_CLOUD check and the inner component always calls hooks."
+        }
+      ],
+      "low": [
+        {
+          "file": "src/training/quality_drift.py",
+          "finding": "Unused import: json (line 15) is imported but never used in the file."
+        },
+        {
+          "file": "src/training/quality_filter.py",
+          "finding": "score_training_example (lines 108-184) is 76 lines. _compute_outcome_overlay returns minimal data vs its comprehensive docstring (annie_duke_quadrant not computed)."
+        },
+        {
+          "file": "src/training/report.py",
+          "finding": "generate_training_report is 97 lines (L20-117). Sequential report builder, not complex but long."
+        },
+        {
+          "file": "src/training/trainer.py",
+          "finding": "evaluate_on_holdout is 100 lines (L566-666). check_model_performance is 62 lines (L889-951)."
+        },
+        {
+          "file": "src/training/versioning.py",
+          "finding": "File is 464 lines (slightly above 400 threshold). get_cost_summary is 79 lines (L384-463)."
+        },
+        {
+          "file": "src/training/validation.py",
+          "finding": "import re at line 83 is inside a for-loop body — imported on every iteration instead of at module level."
+        }
+      ],
+      "github_issues_blocked": "No gh CLI or GitHub MCP tools available — 5 medium findings need manual issue creation"
     }
   }
 }
