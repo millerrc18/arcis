@@ -508,11 +508,12 @@ def create_router(runtime, verify_auth):
             # Execution analysis
             durations = [t.get("duration_days", 0) or 0 for t in closed_recent]
             timeouts = [t for t in closed_recent if t.get("exit_reason") == "timeout"]
-            targets_hit = [t for t in closed_recent if t.get("exit_reason") in ("target_1", "target_2")]
+            targets_hit = [t for t in closed_recent if t.get("exit_reason") in ("target_1_hit", "target_2_hit", "target_1", "target_2")]
             execution_analysis = {
                 "avg_hold_period_days": round(sum(durations) / len(durations), 1) if durations else 0,
                 "targets_hit_pct": round(len(targets_hit) / len(closed_recent) * 100, 1) if closed_recent else 0,
                 "timeout_pct": round(len(timeouts) / len(closed_recent) * 100, 1) if closed_recent else 0,
+                "avg_mfe_winners": None,  # MFE requires intraday data not yet tracked
             }
 
             # Fund metrics
@@ -539,6 +540,36 @@ def create_router(runtime, verify_auth):
                 if max_dd > 0:
                     ann_ret = mean_ret * 252
                     fund_metrics["calmar_ratio"] = round(ann_ret / (max_dd / 100000 * 100), 3) if max_dd else None
+
+            # --- Additional fund metrics (dashboard expects these) ---
+            if pnls:
+                fund_metrics["best_trade_pct"] = round(max(pnls), 2)
+                fund_metrics["worst_trade_pct"] = round(min(pnls), 2)
+                fund_metrics["total_return_pct"] = round(sum(pnls), 2)
+
+                # Return skewness
+                if len(pnls) >= 3:
+                    n = len(pnls)
+                    mean_p = sum(pnls) / n
+                    std_p = (sum((p - mean_p) ** 2 for p in pnls) / (n - 1)) ** 0.5
+                    if std_p > 0:
+                        skew = (n / ((n - 1) * (n - 2))) * sum(((p - mean_p) / std_p) ** 3 for p in pnls)
+                        fund_metrics["return_skewness"] = round(skew, 3)
+
+                # Monthly batting avg: % of calendar months with positive total P&L
+                monthly_pnl = {}
+                for trade in closed_recent:
+                    exit_time = trade.get("actual_exit_time") or trade.get("updated_at") or ""
+                    month_key = exit_time[:7]
+                    if month_key:
+                        monthly_pnl[month_key] = monthly_pnl.get(month_key, 0) + float(trade.get("pnl_dollars", 0) or 0)
+                if monthly_pnl:
+                    winning_months = sum(1 for v in monthly_pnl.values() if v > 0)
+                    fund_metrics["monthly_batting_avg"] = round(winning_months / len(monthly_pnl) * 100, 1)
+
+                # Avg hold period (duplicate in fund_metrics for the second card row)
+                if durations:
+                    fund_metrics["avg_hold_period_days"] = round(sum(durations) / len(durations), 1)
 
             return {
                 "report_period": {

@@ -1331,7 +1331,9 @@ _register(TableDef(
         ColumnDef("created_by", "TEXT", default="dashboard"),
     ],
     primary_key="command_id",
-    sync_to_postgres=False,
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_time_column="created_at",
 ))
 
 # ---------------------------------------------------------------------------
