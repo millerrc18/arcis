@@ -12,6 +12,7 @@ Endpoints:
     GET /api/health/score           - Detailed health score with dimensions
     GET /api/cto-report?days=7      - Full CTO performance report
     GET /api/build-score            - Build Score from synced history (#80)
+    GET /api/strategy-detail/{strategy_type} - Per-strategy analytics (Phase 5)
 
 The HSHS dimension weights reflect our current priorities: data_asset (35%)
 is highest because we're in the data accumulation phase. As we move past
@@ -658,5 +659,118 @@ def create_router(runtime, verify_auth):
         except Exception as exc:
             runtime.logger.error("[API] build-score failed: %s", exc, exc_info=True)
             return {"build_score": 0, "components": {}, "error": str(exc)}
+
+    @router.get("/api/strategy-detail/{strategy_type}", dependencies=[Depends(verify_auth)])
+    def strategy_detail(strategy_type: str):
+        """Detailed analytics for a single strategy (pullback or mean_reversion)."""
+        try:
+            trades = runtime.query(
+                "SELECT st.ticker, st.actual_entry_time as entry_date, "
+                "st.actual_exit_time as exit_date, "
+                "st.pnl_pct, st.pnl_dollars, st.exit_reason, "
+                "st.duration_days, r.priority_score as score, "
+                "st.regime_at_entry as regime "
+                "FROM shadow_trades st "
+                "LEFT JOIN recommendations r ON st.recommendation_id = r.recommendation_id "
+                "WHERE st.status = 'closed' AND st.strategy_type = %s "
+                "ORDER BY st.actual_exit_time ASC",
+                (strategy_type,),
+            )
+
+            if not trades:
+                return {"trades": [], "by_score_band": {}, "by_regime": {},
+                        "hold_distribution": [], "drawdown_series": []}
+
+            trade_list = [dict(t) for t in trades]
+
+            # Compute cumulative P&L
+            cumulative = 0
+            for t in trade_list:
+                cumulative += float(t.get("pnl_dollars") or 0)
+                t["cumulative_pnl"] = round(cumulative, 2)
+
+            # Score band breakdown
+            bands = {"0-39": [], "40-59": [], "60-79": [], "80-100": []}
+            for t in trade_list:
+                s = int(t.get("score") or 0)
+                if s >= 80:
+                    bands["80-100"].append(t)
+                elif s >= 60:
+                    bands["60-79"].append(t)
+                elif s >= 40:
+                    bands["40-59"].append(t)
+                else:
+                    bands["0-39"].append(t)
+
+            by_score_band = {}
+            for band, tlist in bands.items():
+                if not tlist:
+                    by_score_band[band] = {"trades": 0, "wins": 0, "win_rate": 0, "avg_pnl": 0}
+                    continue
+                wins = sum(1 for t in tlist if float(t.get("pnl_dollars") or 0) > 0)
+                avg_pnl = sum(float(t.get("pnl_pct") or 0) for t in tlist) / len(tlist)
+                by_score_band[band] = {
+                    "trades": len(tlist), "wins": wins,
+                    "win_rate": round(wins / len(tlist), 3),
+                    "avg_pnl": round(avg_pnl, 2),
+                }
+
+            # Regime breakdown
+            by_regime = {}
+            for t in trade_list:
+                regime = t.get("regime") or "unknown"
+                if regime not in by_regime:
+                    by_regime[regime] = []
+                by_regime[regime].append(t)
+            by_regime_out = {}
+            for k, v in by_regime.items():
+                wins = sum(1 for t in v if float(t.get("pnl_dollars") or 0) > 0)
+                by_regime_out[k] = {
+                    "trades": len(v),
+                    "win_rate": round(wins / len(v), 3),
+                    "avg_pnl": round(
+                        sum(float(t.get("pnl_pct") or 0) for t in v) / len(v), 2
+                    ),
+                }
+
+            # Hold distribution
+            hold_counts: dict[int, int] = {}
+            for t in trade_list:
+                days = int(t.get("duration_days") or 0)
+                hold_counts[days] = hold_counts.get(days, 0) + 1
+            hold_distribution = [
+                {"days": d, "count": c} for d, c in sorted(hold_counts.items())
+            ]
+
+            # Drawdown series
+            peak = 0.0
+            drawdown_series = []
+            for i, t in enumerate(trade_list):
+                cum = t["cumulative_pnl"]
+                peak = max(peak, cum)
+                dd_pct = (
+                    round((peak - cum) / max(peak, 1) * 100, 1) if peak > 0 else 0
+                )
+                drawdown_series.append(
+                    {"trade_num": i + 1, "cumulative_pnl": cum, "drawdown_pct": dd_pct}
+                )
+
+            return {
+                "trades": trade_list,
+                "by_score_band": by_score_band,
+                "by_regime": by_regime_out,
+                "hold_distribution": hold_distribution,
+                "drawdown_series": drawdown_series,
+            }
+        except Exception as exc:
+            runtime.logger.error(
+                "[API] strategy_detail failed for %s: %s", strategy_type, exc,
+                exc_info=True,
+            )
+            return {
+                "trades": [], "by_score_band": {}, "by_regime": {},
+                "hold_distribution": [], "drawdown_series": [],
+                "error": str(exc),
+            }
 
     return router

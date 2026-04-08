@@ -135,4 +135,6 @@ export const api = {
   // Monitoring
   getMonitoringSnapshot: () => fetchApi('/api/monitoring/snapshot'),
   getMonitoringHistory: (hours = 24) => fetchApi(`/api/monitoring/history?hours=${hours}`),
+  // Strategy
+  getStrategyDetail: (strategy) => fetchApi(`/api/strategy-detail/${strategy}`),
 }
