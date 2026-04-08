@@ -70,7 +70,7 @@ def _backfill_trade_data(ticker, entry_price, qty, allocation, source, now):
         "trade_id": str(uuid4()), "ticker": ticker,
         "direction": "long", "status": "open", "source": source,
         "entry_price": entry_price, "actual_entry_price": entry_price,
-        "planned_shares": qty, "planned_allocation": allocation,
+        "planned_shares": int(qty), "planned_allocation": allocation,
         "actual_entry_time": now.isoformat(),
         "created_at": now.isoformat(), "updated_at": now.isoformat(),
         "order_type": "reconciled", "recommendation_id": None,
