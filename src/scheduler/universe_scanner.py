@@ -47,6 +47,8 @@ class ScanResult:
     packet_worthy: list = field(default_factory=list)
     aborted: bool = False
     abort_reason: str = ""
+    conviction_parsed: int = 0  # #329: count of tickers with non-default conviction
+    conviction_total: int = 0   # #329: total tickers that went through LLM
 
 
 def run_universe_scan(ctx: ScanContext) -> ScanResult:
@@ -175,6 +177,10 @@ def run_universe_scan(ctx: ScanContext) -> ScanResult:
             logger.debug("[SCAN] Attribution Phase 1 failed for %s: %s", ticker, e)
 
         packet = enhance_packet_with_llm(packet, feat, ctx.config)
+        # #329: Track conviction parse rate (5 = default when parsing fails)
+        result.conviction_total += 1
+        if getattr(packet, 'llm_conviction', 5) != 5:
+            result.conviction_parsed += 1
         enriched_prompt = _build_feature_prompt(packet, feat)
         rendered = render_packet(packet)
 

@@ -318,9 +318,10 @@ def should_train(db_path: str = DB_PATH) -> tuple[bool, str]:
     if not training_cfg.get("enabled", False):
         return False, "Training disabled in config"
 
-    threshold = training_cfg.get("auto_train_threshold", 50)
-    time_days = training_cfg.get("auto_train_time_days", 7)
-    min_examples = training_cfg.get("auto_train_min_examples", 20)
+    # #330: Cast config values — YAML can store them as strings
+    threshold = int(training_cfg.get("auto_train_threshold", 50))
+    time_days = int(training_cfg.get("auto_train_time_days", 7))
+    min_examples = int(training_cfg.get("auto_train_min_examples", 20))
 
     init_training_tables(db_path)
     active = get_active_model_version(db_path)
@@ -493,7 +494,10 @@ def export_training_data(
     # factual errors, or format non-compliance. None means unscored (new examples
     # awaiting the between-scan scoring window in scheduler/scorer.py).
     def _quality_ok(e):
-        return e.get("quality_score_auto") is None or e["quality_score_auto"] >= 3.0
+        # #330: safe_numeric guards against SQLite returning str instead of float
+        from src.utils.type_safety import safe_numeric
+        score = e.get("quality_score_auto")
+        return score is None or safe_numeric(score, 0.0) >= 3.0
 
     train_examples = [e for e in train_examples_raw if _quality_ok(e)]
     holdout_examples = [e for e in holdout_examples_raw if _quality_ok(e)]

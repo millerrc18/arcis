@@ -384,6 +384,29 @@ def _parse_llm_response(response: str) -> tuple[int | None, str | None, str | No
                 conviction = raw_conv
                 logger.debug("[LLM] Stage 6 catch-all matched conviction=%d", conviction)
 
+    # Stage 7 (#329): "confidence: N/10", "confidence level: N", or bare
+    # "N/10" on a line by itself. The model sometimes uses "confidence"
+    # instead of "conviction", or outputs a standalone score line.
+    if conviction is None:
+        conf_match = re.search(
+            r'(?:confidence|conviction)\s*(?:level)?[:\s]+(\d+)\s*(?:/\s*10)?',
+            response, re.IGNORECASE,
+        )
+        if conf_match:
+            raw_conv = int(conf_match.group(1))
+            if 1 <= raw_conv <= 10:
+                conviction = raw_conv
+                logger.debug("[LLM] Stage 7 confidence/conviction matched=%d", conviction)
+
+    # Stage 8 (#329): "N/10" standalone on a line — common in short responses
+    if conviction is None:
+        line_match = re.search(r'^(\d+)\s*/\s*10\s*$', response, re.MULTILINE)
+        if line_match:
+            raw_conv = int(line_match.group(1))
+            if 1 <= raw_conv <= 10:
+                conviction = raw_conv
+                logger.debug("[LLM] Stage 8 standalone N/10 matched=%d", conviction)
+
     # Prose fallback: if the response has substantial text but no XML tags or
     # section markers, split on paragraph boundaries. First paragraph becomes
     # why_now (the "hook"), remainder becomes deeper_analysis.
