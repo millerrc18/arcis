@@ -47,8 +47,9 @@ def run_fundamentals_refresh(config: dict, db_path: str = DB_PATH) -> dict:
     # Earnings calendar refresh
     try:
         from scripts.fetch_earnings_calendar import fetch_earnings_dates
+        from src.universe.sp100 import get_sp100_universe
 
-        result = fetch_earnings_dates(db_path=db_path)
+        result = fetch_earnings_dates(tickers=get_sp100_universe(), db_path=db_path)
         summary["refreshed"].append("earnings")
         logger.info("[FUNDAMENTALS] Earnings calendar refreshed")
     except Exception as e:
