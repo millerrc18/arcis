@@ -1,186 +1,9 @@
 {
-  "run_count": 12,
-  "current_focus_index": 0,
-  "file_index": 165,
-  "file_list": [
-    "src/__init__.py",
-    "src/api/__init__.py",
-    "src/api/app.py",
-    "src/api/cloud_app.py",
-    "src/api/routes/__init__.py",
-    "src/api/routes/actions.py",
-    "src/api/routes/docs.py",
-    "src/api/routes/packets.py",
-    "src/api/routes/review.py",
-    "src/api/routes/scan.py",
-    "src/api/routes/shadow.py",
-    "src/api/routes/system.py",
-    "src/api/routes/training.py",
-    "src/api/websocket.py",
-    "src/config.py",
-    "src/council/__init__.py",
-    "src/council/agents.py",
-    "src/council/agents_v1_backup.py",
-    "src/council/engine.py",
-    "src/council/engine_v1_backup.py",
-    "src/council/protocol.py",
-    "src/council/protocol_v1_backup.py",
-    "src/council/value_tracker.py",
-    "src/data_collection/__init__.py",
-    "src/data_collection/analyst_collector.py",
-    "src/data_collection/cboe_collector.py",
-    "src/data_collection/docs_collector.py",
-    "src/data_collection/edgar_collector.py",
-    "src/data_collection/fed_collector.py",
-    "src/data_collection/insider_collector.py",
-    "src/data_collection/macro_collector.py",
-    "src/data_collection/options_collector.py",
-    "src/data_collection/options_metrics.py",
-    "src/data_collection/research_collector.py",
-    "src/data_collection/research_synthesizer.py",
-    "src/data_collection/short_interest_collector.py",
-    "src/data_collection/trends_collector.py",
-    "src/data_collection/vix_collector.py",
-    "src/data_enrichment/__init__.py",
-    "src/data_enrichment/earnings_signals.py",
-    "src/data_enrichment/enricher.py",
-    "src/data_enrichment/fundamentals.py",
-    "src/data_enrichment/insiders.py",
-    "src/data_enrichment/macro.py",
-    "src/data_enrichment/news.py",
-    "src/data_ingestion/__init__.py",
-    "src/data_ingestion/market_data.py",
-    "src/data_integrity.py",
-    "src/email/__init__.py",
-    "src/email/digest_builder.py",
-    "src/email/notifier.py",
-    "src/evaluation/__init__.py",
-    "src/evaluation/auditor.py",
-    "src/evaluation/backtester.py",
-    "src/evaluation/change_detector.py",
-    "src/evaluation/cto_report.py",
-    "src/evaluation/feature_importance.py",
-    "src/evaluation/gate_evaluator.py",
-    "src/evaluation/hshs.py",
-    "src/evaluation/hshs_live.py",
-    "src/evaluation/metrics.py",
-    "src/evaluation/postmortem.py",
-    "src/evaluation/scorecard.py",
-    "src/evaluation/statistics.py",
-    "src/evaluation/system_validator.py",
-    "src/features/__init__.py",
-    "src/features/earnings.py",
-    "src/features/engine.py",
-    "src/features/event_proximity.py",
-    "src/features/filing_nlp.py",
-    "src/features/regime.py",
-    "src/features/setup_classifier.py",
-    "src/features/traffic_light.py",
-    "src/journal/__init__.py",
-    "src/journal/store.py",
-    "src/llm/__init__.py",
-    "src/llm/client.py",
-    "src/llm/packet_writer.py",
-    "src/llm/postmortem_writer.py",
-    "src/llm/prompts.py",
-    "src/llm/validator.py",
-    "src/llm/watchlist_writer.py",
-    "src/log_config.py",
-    "src/logging/__init__.py",
-    "src/logging/activity.py",
-    "src/main.py",
-    "src/models.py",
-    "src/notifications/__init__.py",
-    "src/notifications/telegram.py",
-    "src/packets/__init__.py",
-    "src/packets/eod_recap.py",
-    "src/packets/template.py",
-    "src/packets/watchlist.py",
-    "src/ranking/__init__.py",
-    "src/ranking/ranker.py",
-    "src/risk/__init__.py",
-    "src/risk/governor.py",
-    "src/scheduler/__init__.py",
-    "src/scheduler/metrics.py",
-    "src/scheduler/premarket.py",
-    "src/scheduler/scorer.py",
-    "src/scheduler/vram_manager.py",
-    "src/scheduler/watch.py",
-    "src/schemas.py",
-    "src/services/__init__.py",
-    "src/services/recap_service.py",
-    "src/services/review_service.py",
-    "src/services/scan_service.py",
-    "src/services/shadow_service.py",
-    "src/services/system_service.py",
-    "src/services/training_service.py",
-    "src/services/watchlist_service.py",
-    "src/shadow_trading/__init__.py",
-    "src/shadow_trading/alpaca_adapter.py",
-    "src/shadow_trading/executor.py",
-    "src/shadow_trading/ledger.py",
-    "src/shadow_trading/metrics.py",
-    "src/shadow_trading/models.py",
-    "src/shadow_trading/reconcile.py",
-    "src/strategy/__init__.py",
-    "src/strategy/canary.py",
-    "src/sync/__init__.py",
-    "src/sync/render_sync.py",
-    "src/training/__init__.py",
-    "src/training/ab_evaluation.py",
-    "src/training/backfill.py",
-    "src/training/bootstrap.py",
-    "src/training/canary.py",
-    "src/training/claude_client.py",
-    "src/training/curriculum.py",
-    "src/training/data_collector.py",
-    "src/training/dpo_pipeline.py",
-    "src/training/historical_data.py",
-    "src/training/historical_scanner.py",
-    "src/training/leakage_detector.py",
-    "src/training/quality_drift.py",
-    "src/training/quality_filter.py",
-    "src/training/report.py",
-    "src/training/trainer.py",
-    "src/training/validation.py",
-    "src/training/versioning.py",
-    "src/universe/__init__.py",
-    "src/universe/company_names.py",
-    "src/universe/sectors.py",
-    "src/universe/sp100.py",
-    "src/utils/__init__.py",
-    "src/utils/activity_logger.py",
-    "frontend/src/App.jsx",
-    "frontend/src/components/ActivityFeed.jsx",
-    "frontend/src/components/AuthGate.jsx",
-    "frontend/src/components/DataTable.jsx",
-    "frontend/src/components/EmptyState.jsx",
-    "frontend/src/components/ErrorBoundary.jsx",
-    "frontend/src/components/Layout.jsx",
-    "frontend/src/components/LoadingSpinner.jsx",
-    "frontend/src/components/MetricCard.jsx",
-    "frontend/src/components/MetricTrend.jsx",
-    "frontend/src/components/PnlText.jsx",
-    "frontend/src/components/RevenueProjection.jsx",
-    "frontend/src/components/StatusBadge.jsx",
-    "frontend/src/components/Toast.jsx",
-    "frontend/src/components/Tooltip.jsx",
-    "frontend/src/contexts/WebSocketContext.jsx",
-    "frontend/src/main.jsx",
-    "frontend/src/pages/CTOReport.jsx",
-    "frontend/src/pages/Council.jsx",
-    "frontend/src/pages/Dashboard.jsx",
-    "frontend/src/pages/Docs.jsx",
-    "frontend/src/pages/Health.jsx",
-    "frontend/src/pages/LiveLedger.jsx",
-    "frontend/src/pages/Packets.jsx",
-    "frontend/src/pages/Roadmap.jsx",
-    "frontend/src/pages/Settings.jsx",
-    "frontend/src/pages/ShadowLedger.jsx",
-    "frontend/src/pages/Training.jsx",
-    "frontend/src/pages/Validation.jsx"
-  ],
-  "last_run": "2026-04-08T18:00:00Z",
+  "run_count": 13,
+  "current_focus_index": 1,
+  "file_index": 0,
+  "file_list": [],
+  "last_run": "2026-04-09T12:00:00Z",
   "findings": {
     "run_4": {
       "focus_area": "code_quality",
@@ -217,7 +40,7 @@
         {
           "file": "src/evaluation/backtester.py",
           "lines": "19-179",
-          "description": "backtest_model() is 160 lines — mixes data fetching, day-by-day simulation, trade execution, and metric computation in a single function. Hard to test and maintain.",
+          "description": "backtest_model() is 160 lines \u2014 mixes data fetching, day-by-day simulation, trade execution, and metric computation in a single function. Hard to test and maintain.",
           "suggested_fix": "Extract into helpers: _fetch_backtest_data(), _simulate_trading_day(), _compute_backtest_metrics(), _compute_regime_summary()."
         },
         {
@@ -260,7 +83,7 @@
         }
       ],
       "high": [],
-      "github_issues_status": "BLOCKED — no GitHub token or gh CLI available in this environment. 5 medium issues need to be created manually."
+      "github_issues_status": "BLOCKED \u2014 no GitHub token or gh CLI available in this environment. 5 medium issues need to be created manually."
     },
     "run_5": {
       "focus": "code_quality",
@@ -338,7 +161,7 @@
         }
       ],
       "high": [],
-      "github_issues_blocked": "gh CLI and GITHUB_TOKEN not available — 8 medium findings need manual issue creation"
+      "github_issues_blocked": "gh CLI and GITHUB_TOKEN not available \u2014 8 medium findings need manual issue creation"
     },
     "run_7": {
       "focus_area": "code_quality",
@@ -382,7 +205,7 @@
       "low": [
         {
           "file": "src/llm/packet_writer.py",
-          "finding": "Duplicate 'import re' at line 218 inside _parse_llm_response — already imported at module level (line 11)."
+          "finding": "Duplicate 'import re' at line 218 inside _parse_llm_response \u2014 already imported at module level (line 11)."
         },
         {
           "file": "src/llm/postmortem_writer.py",
@@ -394,7 +217,7 @@
         },
         {
           "file": "src/main.py",
-          "finding": "build_parser is 174 lines (argparse wiring — declarative/boilerplate, not complex logic)."
+          "finding": "build_parser is 174 lines (argparse wiring \u2014 declarative/boilerplate, not complex logic)."
         },
         {
           "file": "src/notifications/telegram.py",
@@ -402,7 +225,7 @@
         }
       ],
       "high": [],
-      "github_issues_blocked": "No GitHub MCP tools or gh CLI available — 3 medium findings need manual issue creation"
+      "github_issues_blocked": "No GitHub MCP tools or gh CLI available \u2014 3 medium findings need manual issue creation"
     },
     "run_8": {
       "focus_area": "code_quality",
@@ -458,7 +281,7 @@
         {
           "file": "src/packets/eod_recap.py",
           "lines": "167, 211",
-          "finding": "get_shadow_data_for_recap() calls get_open_shadow_trades(db_path) twice (lines 167 and 211). Both return the same data — redundant DB query.",
+          "finding": "get_shadow_data_for_recap() calls get_open_shadow_trades(db_path) twice (lines 167 and 211). Both return the same data \u2014 redundant DB query.",
           "suggested_fix": "Remove the second call at line 211 and reuse the open_trades variable."
         },
         {
@@ -487,10 +310,10 @@
         },
         {
           "file": "src/ranking/ranker.py",
-          "finding": "rank_universe is 65 lines — slightly over 50-line guideline but well-structured."
+          "finding": "rank_universe is 65 lines \u2014 slightly over 50-line guideline but well-structured."
         }
       ],
-      "github_issues_blocked": "No gh CLI or GITHUB_TOKEN available — 7 medium findings need manual issue creation"
+      "github_issues_blocked": "No gh CLI or GITHUB_TOKEN available \u2014 7 medium findings need manual issue creation"
     },
     "run_9": {
       "focus_area": "code_quality",
@@ -528,13 +351,13 @@
         {
           "file": "src/shadow_trading/executor.py",
           "lines": "641-1136",
-          "finding": "check_and_manage_open_trades is 496 lines — mixes bracket order monitoring, mean-reversion exit logic, price-based exit checks, exit order submission with retry/partial-fill handling, slippage tracking, postmortem generation, and milestone notifications.",
+          "finding": "check_and_manage_open_trades is 496 lines \u2014 mixes bracket order monitoring, mean-reversion exit logic, price-based exit checks, exit order submission with retry/partial-fill handling, slippage tracking, postmortem generation, and milestone notifications.",
           "suggested_fix": "Extract _handle_mr_exit(), _handle_bracket_exit(), _submit_and_process_exit(), _generate_trade_postmortem() helpers. Keep the main loop as a thin dispatcher."
         },
         {
           "file": "src/services/scan_service.py",
           "lines": "17-259",
-          "finding": "run_scan is 243 lines — single function mixing data fetch, enrichment, traffic light overlay, event risk scoring, data integrity validation, ranking, packet generation, shadow trade execution, and watchlist assembly.",
+          "finding": "run_scan is 243 lines \u2014 single function mixing data fetch, enrichment, traffic light overlay, event risk scoring, data integrity validation, ranking, packet generation, shadow trade execution, and watchlist assembly.",
           "suggested_fix": "Extract into pipeline stages: _fetch_and_enrich(config), _apply_risk_overlays(features, spy, config), _validate_integrity(features), _generate_packets(candidates, config, dry_run), _execute_shadow_trades(packets, config). Keep run_scan as orchestrator."
         },
         {
@@ -581,14 +404,14 @@
         },
         {
           "file": "src/shadow_trading/metrics.py",
-          "finding": "compute_shadow_metrics is 91 lines — linear metric computation, not complex but could split earnings-adjacent breakdown."
+          "finding": "compute_shadow_metrics is 91 lines \u2014 linear metric computation, not complex but could split earnings-adjacent breakdown."
         },
         {
           "file": "src/shadow_trading/executor.py",
           "finding": "_check_close_milestones is 116 lines with many sequential milestone checks."
         }
       ],
-      "github_issues_blocked": "No gh CLI or GitHub MCP tools available — 8 medium findings need manual issue creation"
+      "github_issues_blocked": "No gh CLI or GitHub MCP tools available \u2014 8 medium findings need manual issue creation"
     },
     "run_10": {
       "focus_area": "code_quality",
@@ -620,7 +443,7 @@
         {
           "file": "src/training/backfill.py",
           "lines": "197-445",
-          "finding": "run_historical_backfill is 248 lines — mixes 10 pipeline steps (data download, scan date generation, scanning, outcome computation, quality filtering, balancing, deduplication, capping, commentary generation, reporting) in a single function.",
+          "finding": "run_historical_backfill is 248 lines \u2014 mixes 10 pipeline steps (data download, scan date generation, scanning, outcome computation, quality filtering, balancing, deduplication, capping, commentary generation, reporting) in a single function.",
           "suggested_fix": "Extract pipeline stages into named helpers: _scan_and_collect_candidates(), _filter_and_balance(), _generate_commentary_batch(). Keep run_historical_backfill as a thin orchestrator."
         },
         {
@@ -663,7 +486,7 @@
       "low": [
         {
           "file": "src/sync/render_sync.py",
-          "finding": "Unused import: 'import json' at line 37 — json is never referenced in the file."
+          "finding": "Unused import: 'import json' at line 37 \u2014 json is never referenced in the file."
         },
         {
           "file": "src/training/ab_evaluation.py",
@@ -682,7 +505,7 @@
           "finding": "generate_contrastive_training_data is 85 lines (L276-361)."
         }
       ],
-      "github_issues_blocked": "No gh CLI or GitHub MCP tools available — 8 medium findings need manual issue creation"
+      "github_issues_blocked": "No gh CLI or GitHub MCP tools available \u2014 8 medium findings need manual issue creation"
     },
     "run_11": {
       "focus_area": "code_quality",
@@ -720,7 +543,7 @@
         {
           "file": "src/training/validation.py",
           "lines": "22-170",
-          "finding": "validate_training_dataset is 148 lines — mixes 10 distinct checks (format compliance, diversity, win/loss balance, sector coverage, date range, duplicates, near-duplicates, output length, source breakdown, quality scores) in a single function.",
+          "finding": "validate_training_dataset is 148 lines \u2014 mixes 10 distinct checks (format compliance, diversity, win/loss balance, sector coverage, date range, duplicates, near-duplicates, output length, source breakdown, quality scores) in a single function.",
           "suggested_fix": "Extract each check into a named helper: _check_format_compliance(examples), _check_diversity(examples), _check_balance(examples), _check_duplicates(examples). Keep validate_training_dataset as an orchestrator that calls each check and assembles the result dict."
         },
         {
@@ -732,7 +555,7 @@
         {
           "file": "frontend/src/components/AuthGate.jsx",
           "lines": "36-38",
-          "finding": "React hook useEffect (line 38) is called after a conditional early return (line 36: if (!IS_CLOUD) return children). This violates React's Rules of Hooks — hooks must not be called conditionally. While IS_CLOUD is a module-level constant so the hook count never actually changes at runtime, this is a React anti-pattern that ESLint's exhaustive-deps rule would flag.",
+          "finding": "React hook useEffect (line 38) is called after a conditional early return (line 36: if (!IS_CLOUD) return children). This violates React's Rules of Hooks \u2014 hooks must not be called conditionally. While IS_CLOUD is a module-level constant so the hook count never actually changes at runtime, this is a React anti-pattern that ESLint's exhaustive-deps rule would flag.",
           "suggested_fix": "Move the early return after all hook calls: place the useEffect before the IS_CLOUD check, or restructure to use a wrapper component pattern where the outer component handles the IS_CLOUD check and the inner component always calls hooks."
         }
       ],
@@ -759,10 +582,10 @@
         },
         {
           "file": "src/training/validation.py",
-          "finding": "import re at line 83 is inside a for-loop body — imported on every iteration instead of at module level."
+          "finding": "import re at line 83 is inside a for-loop body \u2014 imported on every iteration instead of at module level."
         }
       ],
-      "github_issues_blocked": "No gh CLI or GitHub MCP tools available — 5 medium findings need manual issue creation"
+      "github_issues_blocked": "No gh CLI or GitHub MCP tools available \u2014 5 medium findings need manual issue creation"
     },
     "run_12": {
       "focus_area": "code_quality",
@@ -788,7 +611,7 @@
         {
           "file": "frontend/src/pages/CTOReport.jsx",
           "lines": "81-369",
-          "finding": "CTOReport component function spans 288 lines — mixes data extraction, conditional rendering for KPIs, trade summaries, confidence calibration, fund metrics, execution analysis, and metric trend charts all in one function. Hard to test and maintain individual sections.",
+          "finding": "CTOReport component function spans 288 lines \u2014 mixes data extraction, conditional rendering for KPIs, trade summaries, confidence calibration, fund metrics, execution analysis, and metric trend charts all in one function. Hard to test and maintain individual sections.",
           "suggested_fix": "Extract into sub-components: <HeadlineKpis kpis={kpis} tradesClosed={tradesClosed} />, <TradeSummaryGrid ts={ts} />, <ConfidenceCalibration data={data.confidence_calibration} tradesClosed={tradesClosed} />, <FundMetrics data={data.fund_metrics} tradesClosed={tradesClosed} />. Keep CTOReport as a thin layout orchestrator."
         },
         {
@@ -801,11 +624,11 @@
       "low": [
         {
           "file": "frontend/src/components/RevenueProjection.jsx",
-          "finding": "Unused import: BarChart is imported from recharts (line 4) but never used — only ComposedChart is used in the JSX."
+          "finding": "Unused import: BarChart is imported from recharts (line 4) but never used \u2014 only ComposedChart is used in the JSX."
         },
         {
           "file": "frontend/src/components/Layout.jsx",
-          "finding": "Layout component function spans 91 lines (lines 88-179). Mostly JSX template — borderline but acceptable for a layout component."
+          "finding": "Layout component function spans 91 lines (lines 88-179). Mostly JSX template \u2014 borderline but acceptable for a layout component."
         },
         {
           "file": "frontend/src/components/Tooltip.jsx",
@@ -820,7 +643,107 @@
           "finding": "JSX comment syntax {/* Fix for #247 */} at module level (line 9) is a no-op block statement with a comment. Should be a regular JS comment (// Fix for #247)."
         }
       ],
-      "github_issues_blocked": "No gh CLI or GitHub MCP tools available — 2 medium findings need manual issue creation"
+      "github_issues_blocked": "No gh CLI or GitHub MCP tools available \u2014 2 medium findings need manual issue creation"
+    },
+    "run_13": {
+      "focus_area": "code_quality",
+      "files_audited": [
+        "frontend/src/pages/Council.jsx",
+        "frontend/src/pages/Dashboard.jsx",
+        "frontend/src/pages/Docs.jsx",
+        "frontend/src/pages/Health.jsx",
+        "frontend/src/pages/LiveLedger.jsx",
+        "frontend/src/pages/Packets.jsx",
+        "frontend/src/pages/Roadmap.jsx",
+        "frontend/src/pages/Settings.jsx",
+        "frontend/src/pages/ShadowLedger.jsx",
+        "frontend/src/pages/Training.jsx",
+        "frontend/src/pages/Validation.jsx"
+      ],
+      "high": [],
+      "medium": [
+        {
+          "file": "frontend/src/pages/ShadowLedger.jsx + frontend/src/pages/LiveLedger.jsx",
+          "lines": "multiple",
+          "finding": "Significant code duplication: PnlValue, PnlPctValue, TickerLogo, sortTrades, SORT_OPTIONS, TradeDetail, and ExpandableTradeRow are copy-pasted between both files with near-identical implementations. A bug fix in one file could easily be missed in the other.",
+          "suggested_fix": "Extract shared components (PnlValue, PnlPctValue, TickerLogo, ExpandableTradeRow, TradeDetail) and utilities (sortTrades, SORT_OPTIONS) into frontend/src/components/TradeShared.jsx or similar shared module. Import from both pages."
+        },
+        {
+          "file": "frontend/src/pages/Dashboard.jsx",
+          "lines": "9, 14",
+          "finding": "Unused imports: PnlText (line 9) is imported but never rendered in the component. Zap (line 14) from lucide-react is imported but never used.",
+          "suggested_fix": "Remove the PnlText and Zap imports."
+        },
+        {
+          "file": "frontend/src/pages/Training.jsx",
+          "lines": "4",
+          "finding": "Unused imports: formatRelativeTime and formatDate are imported from ../utils/formatTimestamp but never called anywhere in the file.",
+          "suggested_fix": "Remove the unused imports from line 4."
+        },
+        {
+          "file": "frontend/src/pages/Roadmap.jsx",
+          "lines": "7",
+          "finding": "Unused import: Info from lucide-react is imported but never used in the component.",
+          "suggested_fix": "Remove Info from the lucide-react import on line 7."
+        },
+        {
+          "file": "frontend/src/pages/ShadowLedger.jsx",
+          "lines": "1-729",
+          "finding": "File is 729 lines (1.8x the 400-line threshold). The main ShadowLedger() component alone is 279 lines with 6 state variables, 3 query hooks, complex sort/filter logic, and extensive visualization tabs.",
+          "suggested_fix": "Extract visualization tabs (EquityCurveTab, DistributionTab, SectorTab, CalendarTab) into a separate TradeViz.jsx. Move shared components to a TradeShared.jsx (see duplication finding). This would reduce the file to ~350 lines."
+        },
+        {
+          "file": "frontend/src/pages/Dashboard.jsx",
+          "lines": "182-504",
+          "finding": "Dashboard() component is 322 lines with 12 useQuery hooks, 3 useMutation hooks, chart data processing, and extensive UI. Mixes data orchestration, business logic, and presentation.",
+          "suggested_fix": "Extract query hooks into a useDashboardData() custom hook. Extract chart data processing (lines 233-242) into a utility. Extract the Scan Metrics section (lines 449-502) into a ScanMetrics subcomponent."
+        },
+        {
+          "file": "frontend/src/pages/Roadmap.jsx",
+          "lines": "22-248",
+          "finding": "ROADMAP_DATA is a ~230-line inline object literal containing all roadmap phases, subphases, and items. Changes to roadmap content require editing a component file, increasing merge conflict risk and making the data hard to consume elsewhere.",
+          "suggested_fix": "Extract ROADMAP_DATA (and REVENUE_MILESTONES, EXIT_FRAMEWORK, GPU_TARGETS) into a separate data file like frontend/src/data/roadmap.js. Import from Roadmap.jsx."
+        }
+      ],
+      "low": [
+        {
+          "file": "frontend/src/pages/Council.jsx",
+          "finding": "File is 464 lines (just over 400-line threshold). Council() is 182 lines; ExpandableSessionRow is 82 lines."
+        },
+        {
+          "file": "frontend/src/pages/Dashboard.jsx",
+          "finding": "File is 505 lines. BuildScoreHero() is 89 lines."
+        },
+        {
+          "file": "frontend/src/pages/Docs.jsx",
+          "finding": "renderMarkdown() is 91 lines \u2014 justified for a markdown parser."
+        },
+        {
+          "file": "frontend/src/pages/Health.jsx",
+          "finding": "Health() is 246 lines \u2014 mostly JSX layout, no complex logic."
+        },
+        {
+          "file": "frontend/src/pages/LiveLedger.jsx",
+          "finding": "LiveLedger() is 245 lines. File is exactly 400 lines (at threshold)."
+        },
+        {
+          "file": "frontend/src/pages/Settings.jsx",
+          "finding": "Settings() is 210 lines; SettingInput() is 84 lines."
+        },
+        {
+          "file": "frontend/src/pages/Training.jsx",
+          "finding": "Training() is 303 lines \u2014 long but well-structured with clear sections."
+        },
+        {
+          "file": "frontend/src/pages/Validation.jsx",
+          "finding": "handleRefresh() is 59 lines with polling logic \u2014 slightly over 50."
+        },
+        {
+          "file": "frontend/src/pages/Roadmap.jsx",
+          "finding": "File is 555 lines. Roadmap() is 177 lines."
+        }
+      ],
+      "github_issues_blocked": "No gh CLI or GitHub MCP tools available \u2014 7 medium findings need manual issue creation"
     }
   }
 }
