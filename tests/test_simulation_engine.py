@@ -25,6 +25,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from tests.conftest import init_test_db
+
 
 # ─── Task 1: Cache Tests ─────────────────────────────────────────────────────
 
@@ -300,35 +302,8 @@ class TestAPIEndpoint:
         db_path = str(tmp_path / "test.db")
 
         # Create table and insert a row
+        init_test_db(db_path, ["simulation_results"])
         with sqlite3.connect(db_path) as conn:
-            conn.execute("""
-                CREATE TABLE simulation_results (
-                    result_id TEXT PRIMARY KEY,
-                    run_id TEXT NOT NULL,
-                    scenario TEXT NOT NULL,
-                    regime_label TEXT NOT NULL,
-                    start_date TEXT NOT NULL,
-                    end_date TEXT NOT NULL,
-                    total_trades INTEGER,
-                    wins INTEGER, losses INTEGER, timeouts INTEGER,
-                    win_rate REAL, profit_factor REAL,
-                    total_pnl_pct REAL, gross_pnl_pct REAL, net_pnl_pct REAL,
-                    max_drawdown_pct REAL, sharpe_ratio REAL, calmar_ratio REAL,
-                    benchmark_pnl_pct REAL, excess_return_pct REAL,
-                    transaction_cost_bps REAL,
-                    mc_median_dd REAL, mc_p95_dd REAL,
-                    mc_p5_equity REAL, mc_p95_equity REAL,
-                    mc_probability_of_ruin REAL, mc_n_simulations INTEGER,
-                    tl_expected TEXT, tl_actual_majority TEXT, tl_correct INTEGER,
-                    monthly_returns_json TEXT, equity_curve_json TEXT,
-                    regime_breakdown_json TEXT,
-                    model_version TEXT, config_json TEXT, verdict TEXT,
-                    statistical_confidence TEXT,
-                    survivorship_bias INTEGER DEFAULT 1,
-                    random_seed INTEGER, git_commit TEXT,
-                    created_at TEXT NOT NULL
-                )
-            """)
             conn.execute(
                 "INSERT INTO simulation_results "
                 "(result_id, run_id, scenario, regime_label, start_date, end_date, "

@@ -7,6 +7,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from tests.conftest import init_test_db
+
 ET = ZoneInfo("America/New_York")
 
 
@@ -31,33 +33,23 @@ def test_rolling_features_with_data(tmp_path):
     from src.scheduler.premarket import PreMarketPipeline
     db = str(tmp_path / "test.db")
 
+    init_test_db(db, ["vix_term_structure", "macro_snapshots", "options_metrics"])
+
     with sqlite3.connect(db) as conn:
-        conn.execute("""
-            CREATE TABLE vix_term_structure (
-                collected_date TEXT, vix_spot REAL, vx1 REAL, vx2 REAL
-            )
-        """)
         conn.execute(
-            "INSERT INTO vix_term_structure VALUES (?, ?, ?, ?)",
-            ("2026-03-25", 18.5, 19.2, 20.1),
+            "INSERT INTO vix_term_structure (collected_at, collected_date, vix, vix9d, vix3m) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("2026-03-25T09:00:00", "2026-03-25", 18.5, 19.2, 20.1),
         )
-        conn.execute("""
-            CREATE TABLE macro_snapshots (
-                series_id TEXT, collected_date TEXT, value REAL
-            )
-        """)
         conn.execute(
-            "INSERT INTO macro_snapshots VALUES (?, ?, ?)",
-            ("DFF", "2026-03-25", 4.33),
+            "INSERT INTO macro_snapshots (collected_at, collected_date, series_id, series_name, value) "
+            "VALUES (?, ?, ?, ?, ?)",
+            ("2026-03-25T09:00:00", "2026-03-25", "DFF", "Federal Funds Rate", 4.33),
         )
-        conn.execute("""
-            CREATE TABLE options_metrics (
-                ticker TEXT, collected_date TEXT, iv_rank REAL
-            )
-        """)
         conn.execute(
-            "INSERT INTO options_metrics VALUES (?, ?, ?)",
-            ("AAPL", "2026-03-25", 0.45),
+            "INSERT INTO options_metrics (collected_at, collected_date, ticker, iv_rank) "
+            "VALUES (?, ?, ?, ?)",
+            ("2026-03-25T09:00:00", "2026-03-25", "AAPL", 0.45),
         )
         conn.commit()
 

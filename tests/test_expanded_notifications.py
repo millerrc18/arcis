@@ -466,8 +466,8 @@ class TestMilestoneDetection:
         # Insert one paper trade
         with sqlite3.connect(db_path) as conn:
             conn.execute(
-                "INSERT INTO shadow_trades (trade_id, ticker, status, source) "
-                "VALUES ('t1', 'AAPL', 'open', 'paper')"
+                "INSERT INTO shadow_trades (trade_id, ticker, status, source, created_at, updated_at) "
+                "VALUES ('t1', 'AAPL', 'open', 'paper', '2026-03-20T10:00:00', '2026-03-20T10:00:00')"
             )
 
         from src.shadow_trading.executor import _check_open_milestones
@@ -490,8 +490,8 @@ class TestMilestoneDetection:
                 conn.execute(
                     "INSERT INTO shadow_trades "
                     "(trade_id, ticker, status, source, pnl_dollars, pnl_pct, "
-                    "actual_exit_time, duration_days) "
-                    "VALUES (?, ?, 'closed', 'paper', ?, ?, ?, ?)",
+                    "actual_exit_time, duration_days, created_at, updated_at) "
+                    "VALUES (?, ?, 'closed', 'paper', ?, ?, ?, ?, '2026-03-15T10:00:00', '2026-03-15T10:00:00')",
                     (f"t{i}", f"TICK{i}", pnl, pnl / 100, f"2026-03-{20+i}", 5),
                 )
 
@@ -521,14 +521,14 @@ class TestLossStreakDetection:
             # A win, then 3 losses
             conn.execute(
                 "INSERT INTO shadow_trades "
-                "(trade_id, ticker, status, source, pnl_dollars, pnl_pct, actual_exit_time) "
-                "VALUES ('t0', 'WIN1', 'closed', 'paper', 10.0, 1.0, '2026-03-20')"
+                "(trade_id, ticker, status, source, pnl_dollars, pnl_pct, actual_exit_time, created_at, updated_at) "
+                "VALUES ('t0', 'WIN1', 'closed', 'paper', 10.0, 1.0, '2026-03-20', '2026-03-19T10:00:00', '2026-03-20T10:00:00')"
             )
             for i in range(1, 4):
                 conn.execute(
                     "INSERT INTO shadow_trades "
-                    "(trade_id, ticker, status, source, pnl_dollars, pnl_pct, actual_exit_time) "
-                    "VALUES (?, ?, 'closed', 'paper', ?, ?, ?)",
+                    "(trade_id, ticker, status, source, pnl_dollars, pnl_pct, actual_exit_time, created_at, updated_at) "
+                    "VALUES (?, ?, 'closed', 'paper', ?, ?, ?, '2026-03-19T10:00:00', '2026-03-20T10:00:00')",
                     (f"t{i}", f"LOSS{i}", -10.0 * i, -1.0 * i, f"2026-03-2{i}"),
                 )
 
@@ -548,14 +548,14 @@ class TestLossStreakDetection:
         with sqlite3.connect(db_path) as conn:
             conn.execute(
                 "INSERT INTO shadow_trades "
-                "(trade_id, ticker, status, source, pnl_dollars, pnl_pct, actual_exit_time) "
-                "VALUES ('t0', 'WIN1', 'closed', 'paper', 10.0, 1.0, '2026-03-20')"
+                "(trade_id, ticker, status, source, pnl_dollars, pnl_pct, actual_exit_time, created_at, updated_at) "
+                "VALUES ('t0', 'WIN1', 'closed', 'paper', 10.0, 1.0, '2026-03-20', '2026-03-19T10:00:00', '2026-03-20T10:00:00')"
             )
             for i in range(1, 3):
                 conn.execute(
                     "INSERT INTO shadow_trades "
-                    "(trade_id, ticker, status, source, pnl_dollars, pnl_pct, actual_exit_time) "
-                    "VALUES (?, ?, 'closed', 'paper', -5.0, -0.5, ?)",
+                    "(trade_id, ticker, status, source, pnl_dollars, pnl_pct, actual_exit_time, created_at, updated_at) "
+                    "VALUES (?, ?, 'closed', 'paper', -5.0, -0.5, ?, '2026-03-19T10:00:00', '2026-03-20T10:00:00')",
                     (f"t{i}", f"LOSS{i}", f"2026-03-2{i}"),
                 )
 
@@ -570,44 +570,5 @@ class TestLossStreakDetection:
 
 def _create_test_db(db_path: str):
     """Create a minimal test database with required tables."""
-    with sqlite3.connect(db_path) as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS shadow_trades (
-                trade_id TEXT PRIMARY KEY,
-                recommendation_id TEXT,
-                ticker TEXT,
-                direction TEXT DEFAULT 'long',
-                status TEXT DEFAULT 'open',
-                entry_price REAL DEFAULT 0,
-                stop_price REAL DEFAULT 0,
-                target_1 REAL DEFAULT 0,
-                target_2 REAL DEFAULT 0,
-                planned_shares INTEGER DEFAULT 1,
-                planned_allocation REAL DEFAULT 0,
-                actual_entry_price REAL,
-                actual_entry_time TEXT,
-                actual_exit_price REAL,
-                actual_exit_time TEXT,
-                exit_reason TEXT,
-                pnl_dollars REAL,
-                pnl_pct REAL,
-                max_favorable_excursion REAL DEFAULT 0,
-                max_adverse_excursion REAL DEFAULT 0,
-                duration_days INTEGER DEFAULT 0,
-                earnings_adjacent INTEGER DEFAULT 0,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                alpaca_order_id TEXT,
-                order_type TEXT,
-                source TEXT DEFAULT 'paper'
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS recommendations (
-                recommendation_id TEXT PRIMARY KEY,
-                ticker TEXT,
-                setup_type TEXT,
-                priority_score REAL,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+    from tests.conftest import init_test_db
+    init_test_db(db_path, ["shadow_trades", "recommendations"])

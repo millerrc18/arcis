@@ -449,39 +449,24 @@ class TestTrainingDataCollectorPnlTypeSafety:
     def test_pnl_dollars_as_string_does_not_raise(self, tmp_db):
         """SQLite may return pnl_dollars as a string — must not TypeError."""
         from src.training.data_collector import collect_training_examples_from_closed_trades
+        from tests.conftest import init_test_db
 
+        init_test_db(tmp_db, ["shadow_trades", "recommendations", "training_examples"])
         conn = sqlite3.connect(tmp_db)
-        conn.execute("""
-            CREATE TABLE shadow_trades (
-                trade_id TEXT PRIMARY KEY, recommendation_id TEXT,
-                ticker TEXT, status TEXT, pnl_dollars TEXT,
-                pnl_pct TEXT, exit_reason TEXT, duration_days TEXT,
-                max_favorable_excursion TEXT, max_adverse_excursion TEXT,
-                actual_exit_time TEXT, created_at TEXT, updated_at TEXT
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE recommendations (
-                recommendation_id TEXT PRIMARY KEY, ticker TEXT,
-                enriched_prompt TEXT, created_at TEXT
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE training_examples (
-                example_id TEXT PRIMARY KEY, created_at TEXT,
-                source TEXT, ticker TEXT, recommendation_id TEXT,
-                feature_snapshot TEXT, trade_outcome TEXT,
-                instruction TEXT, input_text TEXT, output_text TEXT
-            )
-        """)
         conn.execute(
-            "INSERT INTO shadow_trades VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO shadow_trades "
+            "(trade_id, recommendation_id, ticker, status, pnl_dollars, "
+            "pnl_pct, exit_reason, duration_days, max_favorable_excursion, "
+            "max_adverse_excursion, actual_exit_time, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             ("t1", "r1", "AAPL", "closed", "50.25", "3.2",
              "target_1_hit", "5", "60.0", "10.0",
              "2026-01-05T16:00:00", "2026-01-01", "2026-01-05"),
         )
         conn.execute(
-            "INSERT INTO recommendations VALUES (?,?,?,?)",
+            "INSERT INTO recommendations "
+            "(recommendation_id, ticker, enriched_prompt, created_at) "
+            "VALUES (?,?,?,?)",
             ("r1", "AAPL", "Test prompt content", "2026-01-01"),
         )
         conn.commit()
@@ -503,39 +488,24 @@ class TestTrainingDataCollectorPnlTypeSafety:
     def test_negative_string_pnl_does_not_raise(self, tmp_db):
         """Negative string pnl like '-150.50' must not crash or mis-classify."""
         from src.training.data_collector import collect_training_examples_from_closed_trades
+        from tests.conftest import init_test_db
 
+        init_test_db(tmp_db, ["shadow_trades", "recommendations", "training_examples"])
         conn = sqlite3.connect(tmp_db)
-        conn.execute("""
-            CREATE TABLE shadow_trades (
-                trade_id TEXT PRIMARY KEY, recommendation_id TEXT,
-                ticker TEXT, status TEXT, pnl_dollars TEXT,
-                pnl_pct TEXT, exit_reason TEXT, duration_days TEXT,
-                max_favorable_excursion TEXT, max_adverse_excursion TEXT,
-                actual_exit_time TEXT, created_at TEXT, updated_at TEXT
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE recommendations (
-                recommendation_id TEXT PRIMARY KEY, ticker TEXT,
-                enriched_prompt TEXT, created_at TEXT
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE training_examples (
-                example_id TEXT PRIMARY KEY, created_at TEXT,
-                source TEXT, ticker TEXT, recommendation_id TEXT,
-                feature_snapshot TEXT, trade_outcome TEXT,
-                instruction TEXT, input_text TEXT, output_text TEXT
-            )
-        """)
         conn.execute(
-            "INSERT INTO shadow_trades VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO shadow_trades "
+            "(trade_id, recommendation_id, ticker, status, pnl_dollars, "
+            "pnl_pct, exit_reason, duration_days, max_favorable_excursion, "
+            "max_adverse_excursion, actual_exit_time, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             ("t2", "r2", "PFE", "closed", "-150.50", "-8.1",
              "stop_hit", "12", "5.0", "160.0",
              "2026-01-15T16:00:00", "2026-01-03", "2026-01-15"),
         )
         conn.execute(
-            "INSERT INTO recommendations VALUES (?,?,?,?)",
+            "INSERT INTO recommendations "
+            "(recommendation_id, ticker, enriched_prompt, created_at) "
+            "VALUES (?,?,?,?)",
             ("r2", "PFE", "Test prompt content", "2026-01-03"),
         )
         conn.commit()
@@ -556,39 +526,24 @@ class TestTrainingDataCollectorPnlTypeSafety:
     def test_none_pnl_defaults_to_zero(self, tmp_db):
         """None pnl_dollars must default to 0 without crashing."""
         from src.training.data_collector import collect_training_examples_from_closed_trades
+        from tests.conftest import init_test_db
 
+        init_test_db(tmp_db, ["shadow_trades", "recommendations", "training_examples"])
         conn = sqlite3.connect(tmp_db)
-        conn.execute("""
-            CREATE TABLE shadow_trades (
-                trade_id TEXT PRIMARY KEY, recommendation_id TEXT,
-                ticker TEXT, status TEXT, pnl_dollars TEXT,
-                pnl_pct TEXT, exit_reason TEXT, duration_days TEXT,
-                max_favorable_excursion TEXT, max_adverse_excursion TEXT,
-                actual_exit_time TEXT, created_at TEXT, updated_at TEXT
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE recommendations (
-                recommendation_id TEXT PRIMARY KEY, ticker TEXT,
-                enriched_prompt TEXT, created_at TEXT
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE training_examples (
-                example_id TEXT PRIMARY KEY, created_at TEXT,
-                source TEXT, ticker TEXT, recommendation_id TEXT,
-                feature_snapshot TEXT, trade_outcome TEXT,
-                instruction TEXT, input_text TEXT, output_text TEXT
-            )
-        """)
         conn.execute(
-            "INSERT INTO shadow_trades VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO shadow_trades "
+            "(trade_id, recommendation_id, ticker, status, pnl_dollars, "
+            "pnl_pct, exit_reason, duration_days, max_favorable_excursion, "
+            "max_adverse_excursion, actual_exit_time, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             ("t3", "r3", "MSFT", "closed", None, None,
              "timeout", None, None, None,
              "2026-02-01T16:00:00", "2026-01-20", "2026-02-01"),
         )
         conn.execute(
-            "INSERT INTO recommendations VALUES (?,?,?,?)",
+            "INSERT INTO recommendations "
+            "(recommendation_id, ticker, enriched_prompt, created_at) "
+            "VALUES (?,?,?,?)",
             ("r3", "MSFT", "Test prompt content", "2026-01-20"),
         )
         conn.commit()

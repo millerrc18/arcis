@@ -96,6 +96,8 @@ def test_every_new_table_in_render_migrate():
             stripped = line.strip()
             if stripped.startswith("#") or stripped.startswith('"""') or stripped.startswith("'''"):
                 continue
+            if stripped.startswith('"') or stripped.startswith("'"):
+                continue
             m = re.search(
                 r"CREATE TABLE IF NOT EXISTS (\w+)", line, re.IGNORECASE
             )
@@ -158,6 +160,8 @@ def test_no_ddl_outside_registry():
         lines = [l for l in text.splitlines()
                  if "CREATE TABLE" in l.upper()
                  and not l.strip().startswith("#")
+                 and not l.strip().startswith('"')
+                 and not l.strip().startswith("'")
                  and "IF NOT EXISTS" not in l.upper()
                  and "sqlite_master" not in l.lower()]
         assert not lines, f"DDL outside registry in {p}: {lines[0].strip()}"

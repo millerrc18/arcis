@@ -245,28 +245,28 @@ class TestReviewRoutes:
 class TestSystemRoutes:
     def test_data_collection_stats_shape(self, system_client, tmp_path, monkeypatch):
         import sqlite3
+        from tests.conftest import init_test_db
 
         monkeypatch.chdir(tmp_path)
-        conn = sqlite3.connect("ai_research_desk.sqlite3")
-        conn.executescript(
-            """
-            CREATE TABLE options_chains (collected_at TEXT, ticker TEXT);
-            CREATE TABLE options_metrics (collected_date TEXT, ticker TEXT);
-            CREATE TABLE vix_term_structure (collected_date TEXT);
-            CREATE TABLE macro_snapshots (collected_date TEXT, series_id TEXT);
-            CREATE TABLE google_trends (collected_date TEXT, ticker TEXT);
-            CREATE TABLE cboe_ratios (collected_date TEXT, ratio_type TEXT);
-            CREATE TABLE earnings_calendar (collected_at TEXT, ticker TEXT);
-            CREATE TABLE edgar_filings (collected_at TEXT, ticker TEXT);
-            CREATE TABLE insider_transactions (collected_at TEXT, ticker TEXT);
-            CREATE TABLE short_interest (collected_at TEXT, ticker TEXT);
-            CREATE TABLE fed_communications (collected_at TEXT, comm_type TEXT);
-            CREATE TABLE analyst_estimates (collected_at TEXT, ticker TEXT);
-
-            INSERT INTO options_metrics VALUES ('2026-03-30', 'AAPL');
-            INSERT INTO earnings_calendar VALUES ('2026-03-30T21:00:00', 'MSFT');
-            INSERT INTO fed_communications VALUES ('2026-03-29T20:00:00', 'minutes');
-            """
+        db_path = str(tmp_path / "ai_research_desk.sqlite3")
+        init_test_db(db_path, [
+            "options_chains", "options_metrics", "vix_term_structure",
+            "macro_snapshots", "google_trends", "cboe_ratios",
+            "earnings_calendar", "edgar_filings", "insider_transactions",
+            "short_interest", "fed_communications", "analyst_estimates",
+        ])
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "INSERT INTO options_metrics (id, collected_at, collected_date, ticker) "
+            "VALUES (1, '2026-03-30T00:00:00', '2026-03-30', 'AAPL')"
+        )
+        conn.execute(
+            "INSERT INTO earnings_calendar (id, ticker, earnings_date, collected_at) "
+            "VALUES (1, 'MSFT', '2026-04-15', '2026-03-30T21:00:00')"
+        )
+        conn.execute(
+            "INSERT INTO fed_communications (id, comm_type, date, collected_at) "
+            "VALUES (1, 'minutes', '2026-03-29', '2026-03-29T20:00:00')"
         )
         conn.commit()
         conn.close()

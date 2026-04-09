@@ -14,6 +14,8 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
+from tests.conftest import init_test_db
+
 
 # ── #110: Feature snapshot sanitization ──────────────────────────────────
 
@@ -74,22 +76,12 @@ def test_canary_examples_excluded_from_training_export(tmp_path):
         )
 
     # Create DB with training examples including canary IDs
+    init_test_db(db_path, ["training_examples", "model_versions"])
     with sqlite3.connect(db_path) as conn:
-        conn.execute("""CREATE TABLE IF NOT EXISTS training_examples (
-            example_id TEXT, created_at TEXT, source TEXT, ticker TEXT,
-            recommendation_id TEXT, feature_snapshot TEXT, trade_outcome TEXT,
-            instruction TEXT, input_text TEXT, output_text TEXT,
-            quality_score REAL, curriculum_stage TEXT, quality_score_auto REAL
-        )""")
-        conn.execute("""CREATE TABLE IF NOT EXISTS model_versions (
-            version_id TEXT, version_name TEXT, created_at TEXT,
-            examples_count INTEGER, synthetic_count INTEGER, outcome_count INTEGER,
-            model_file_path TEXT, status TEXT, holdout_score REAL, holdout_details TEXT
-        )""")
         now = datetime.now().isoformat()
         for i, eid in enumerate(["canary-001", "canary-002", "train-001", "train-002"]):
             conn.execute(
-                "INSERT INTO training_examples VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO training_examples (example_id, created_at, source, ticker, recommendation_id, feature_snapshot, trade_outcome, instruction, input_text, output_text, quality_score, difficulty, curriculum_stage) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (eid, now, "blinded_win", "AAPL", f"rec-{i}", "features",
                  "outcome", "instruction", "input", "output", None, "structure", None)
             )
@@ -115,18 +107,24 @@ def test_leakage_detector_insufficient_data(tmp_path):
     """With <30 examples per class, detector should return INSUFFICIENT_DATA."""
     pytest.importorskip("sklearn", reason="scikit-learn required for leakage tests")
     db_path = str(tmp_path / "test.db")
+    init_test_db(db_path, ["training_examples"])
     with sqlite3.connect(db_path) as conn:
-        conn.execute("""CREATE TABLE training_examples (
-            output_text TEXT, source TEXT, ticker TEXT
-        )""")
         # 45 wins but only 10 losses — losses below 30 threshold
         # Total >= 50 so we pass the initial minimum check
         for i in range(45):
-            conn.execute("INSERT INTO training_examples VALUES (?, ?, ?)",
-                         (f"analysis of stock {i} showing uptrend with strong momentum indicators", "blinded_win", "AAPL"))
+            conn.execute(
+                "INSERT INTO training_examples (example_id, created_at, source, ticker, "
+                "instruction, input_text, output_text) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (f"win-{i}", "2026-03-25", "blinded_win", "AAPL",
+                 "instr", "input",
+                 f"analysis of stock {i} showing uptrend with strong momentum indicators"))
         for i in range(10):
-            conn.execute("INSERT INTO training_examples VALUES (?, ?, ?)",
-                         (f"analysis of stock {i} showing downtrend with weak volume", "blinded_loss", "MSFT"))
+            conn.execute(
+                "INSERT INTO training_examples (example_id, created_at, source, ticker, "
+                "instruction, input_text, output_text) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (f"loss-{i}", "2026-03-25", "blinded_loss", "MSFT",
+                 "instr", "input",
+                 f"analysis of stock {i} showing downtrend with weak volume"))
 
     from src.training.leakage_detector import check_outcome_leakage
     result = check_outcome_leakage(db_path)
@@ -139,25 +137,15 @@ def test_leakage_detector_insufficient_data(tmp_path):
 def test_holdout_examples_are_chronologically_after_training(tmp_path):
     """All holdout examples must have created_at AFTER all training examples."""
     db_path = str(tmp_path / "test.db")
+    init_test_db(db_path, ["training_examples", "model_versions"])
     with sqlite3.connect(db_path) as conn:
-        conn.execute("""CREATE TABLE training_examples (
-            example_id TEXT, created_at TEXT, source TEXT, ticker TEXT,
-            recommendation_id TEXT, feature_snapshot TEXT, trade_outcome TEXT,
-            instruction TEXT, input_text TEXT, output_text TEXT,
-            quality_score REAL, curriculum_stage TEXT, quality_score_auto REAL
-        )""")
-        conn.execute("""CREATE TABLE IF NOT EXISTS model_versions (
-            version_id TEXT, version_name TEXT, created_at TEXT,
-            examples_count INTEGER, synthetic_count INTEGER, outcome_count INTEGER,
-            model_file_path TEXT, status TEXT, holdout_score REAL, holdout_details TEXT
-        )""")
         base = datetime(2025, 1, 1)
         for i in range(50):
             dt = (base + timedelta(days=i)).isoformat()
             # Alternate quality scores: some good, some poor
             quality = 4.0 if i % 3 != 0 else 2.0
             conn.execute(
-                "INSERT INTO training_examples VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO training_examples (example_id, created_at, source, ticker, recommendation_id, feature_snapshot, trade_outcome, instruction, input_text, output_text, quality_score, difficulty, curriculum_stage) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (f"ex-{i}", dt, "blinded_win", "AAPL", f"rec-{i}", "features",
                  "outcome", "instruction", "input", "output", None, "structure", quality)
             )
@@ -184,22 +172,12 @@ def test_holdout_examples_are_chronologically_after_training(tmp_path):
 def test_small_dataset_does_not_crash(tmp_path):
     """Datasets with <5 examples should skip training, not crash."""
     db_path = str(tmp_path / "test.db")
+    init_test_db(db_path, ["training_examples", "model_versions"])
     with sqlite3.connect(db_path) as conn:
-        conn.execute("""CREATE TABLE training_examples (
-            example_id TEXT, created_at TEXT, source TEXT, ticker TEXT,
-            recommendation_id TEXT, feature_snapshot TEXT, trade_outcome TEXT,
-            instruction TEXT, input_text TEXT, output_text TEXT,
-            quality_score REAL, curriculum_stage TEXT, quality_score_auto REAL
-        )""")
-        conn.execute("""CREATE TABLE IF NOT EXISTS model_versions (
-            version_id TEXT, version_name TEXT, created_at TEXT,
-            examples_count INTEGER, synthetic_count INTEGER, outcome_count INTEGER,
-            model_file_path TEXT, status TEXT, holdout_score REAL, holdout_details TEXT
-        )""")
         # Only 3 examples
         for i in range(3):
             conn.execute(
-                "INSERT INTO training_examples VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO training_examples (example_id, created_at, source, ticker, recommendation_id, feature_snapshot, trade_outcome, instruction, input_text, output_text, quality_score, difficulty, curriculum_stage) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (f"ex-{i}", datetime.now().isoformat(), "blinded_win", "AAPL",
                  f"rec-{i}", "feat", "out", "instr", "input", "output", None, "structure", None)
             )
@@ -235,29 +213,19 @@ def test_partial_close_detected_and_excluded():
 def test_partial_examples_excluded_from_export(tmp_path):
     """Partial-close examples should not appear in exported training data."""
     db_path = str(tmp_path / "test.db")
+    init_test_db(db_path, ["training_examples", "model_versions"])
     with sqlite3.connect(db_path) as conn:
-        conn.execute("""CREATE TABLE training_examples (
-            example_id TEXT, created_at TEXT, source TEXT, ticker TEXT,
-            recommendation_id TEXT, feature_snapshot TEXT, trade_outcome TEXT,
-            instruction TEXT, input_text TEXT, output_text TEXT,
-            quality_score REAL, curriculum_stage TEXT, quality_score_auto REAL
-        )""")
-        conn.execute("""CREATE TABLE IF NOT EXISTS model_versions (
-            version_id TEXT, version_name TEXT, created_at TEXT,
-            examples_count INTEGER, synthetic_count INTEGER, outcome_count INTEGER,
-            model_file_path TEXT, status TEXT, holdout_score REAL, holdout_details TEXT
-        )""")
         now = datetime.now().isoformat()
         # 5 normal + 2 partial
         for i in range(5):
             conn.execute(
-                "INSERT INTO training_examples VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO training_examples (example_id, created_at, source, ticker, recommendation_id, feature_snapshot, trade_outcome, instruction, input_text, output_text, quality_score, difficulty, curriculum_stage) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (f"ex-{i}", now, "blinded_win", "AAPL", f"rec-{i}", "feat",
                  "out", "instr", "input", "output", None, "structure", None)
             )
         for i in range(2):
             conn.execute(
-                "INSERT INTO training_examples VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO training_examples (example_id, created_at, source, ticker, recommendation_id, feature_snapshot, trade_outcome, instruction, input_text, output_text, quality_score, difficulty, curriculum_stage) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (f"partial-{i}", now, "blinded_partial", "MSFT", f"prec-{i}", "feat",
                  "out", "instr", "input", "output", None, "structure", None)
             )

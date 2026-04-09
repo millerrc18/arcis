@@ -2,32 +2,29 @@
 import sqlite3
 import pytest
 from src.data_enrichment.earnings_signals import compute_earnings_signals
+from tests.conftest import init_test_db
 
 
 @pytest.fixture
 def earnings_db(tmp_path):
     db = str(tmp_path / "earnings_test.sqlite3")
+    init_test_db(db, ["earnings_calendar", "analyst_estimates"])
     with sqlite3.connect(db) as conn:
-        conn.executescript("""
-            CREATE TABLE earnings_calendar (
-                id INTEGER PRIMARY KEY, ticker TEXT, earnings_date TEXT);
-            CREATE TABLE analyst_estimates (
-                id INTEGER PRIMARY KEY, ticker TEXT, date TEXT,
-                metric TEXT, period TEXT,
-                estimate REAL, actual REAL, surprise REAL, surprise_pct REAL,
-                collected_at TEXT);
-        """)
         conn.execute(
-            "INSERT INTO earnings_calendar VALUES (1, 'AAPL', '2026-04-15')")
+            "INSERT INTO earnings_calendar (id, ticker, earnings_date, collected_at) "
+            "VALUES (1, 'AAPL', '2026-04-15', '2026-01-01T00:00:00')")
         # EPS: actual 2.10 vs estimate 2.00 = beat (5%)
         conn.execute(
-            "INSERT INTO analyst_estimates VALUES (1, 'AAPL', '2026-03-01', 'EPS', '2026-Q1', 2.00, 2.10, 5.0, 5.0, '2026-03-01')")
-        # Revenue: actual 95.0 vs estimate 90.0 = beat
+            "INSERT INTO analyst_estimates (id, ticker, date, metric, period, estimate, actual, surprise, surprise_pct, collected_at) "
+            "VALUES (1, 'AAPL', '2026-03-01', 'EPS', '2026-Q1', 2.00, 2.10, 5.0, 5.0, '2026-03-01')")
+        # Revenue: actual 95.0 vs estimate 90.0 = beat (use date '2026-03-02' to avoid unique index conflict on ticker+date+source)
         conn.execute(
-            "INSERT INTO analyst_estimates VALUES (2, 'AAPL', '2026-03-01', 'Revenue', '2026-Q1', 90.0, 95.0, 5.56, 5.56, '2026-03-01')")
+            "INSERT INTO analyst_estimates (id, ticker, date, metric, period, estimate, actual, surprise, surprise_pct, collected_at) "
+            "VALUES (2, 'AAPL', '2026-03-02', 'Revenue', '2026-Q1', 90.0, 95.0, 5.56, 5.56, '2026-03-02')")
         # Older EPS estimate for revision velocity
         conn.execute(
-            "INSERT INTO analyst_estimates VALUES (3, 'AAPL', '2026-02-01', 'EPS', '2025-Q4', 2.00, 1.90, -5.0, -5.0, '2026-02-01')")
+            "INSERT INTO analyst_estimates (id, ticker, date, metric, period, estimate, actual, surprise, surprise_pct, collected_at) "
+            "VALUES (3, 'AAPL', '2026-02-01', 'EPS', '2025-Q4', 2.00, 1.90, -5.0, -5.0, '2026-02-01')")
     return db
 
 

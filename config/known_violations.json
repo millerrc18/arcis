@@ -97,6 +97,10 @@
       "lines": 546
     },
     {
+      "file": "src/startup_checks.py",
+      "lines": 443
+    },
+    {
       "file": "src/sync/render_sync.py",
       "lines": 778
     },

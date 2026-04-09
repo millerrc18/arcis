@@ -6,30 +6,24 @@ import os
 import pytest
 from unittest.mock import patch
 from fastapi.testclient import TestClient
+from tests.conftest import init_test_db
 
 
 @pytest.fixture
 def local_db(tmp_path):
     """Create a temporary SQLite database with schema."""
     db_path = str(tmp_path / "test.sqlite3")
+    init_test_db(db_path, ["activity_log"])
     conn = sqlite3.connect(db_path)
     conn.execute(
-        "CREATE TABLE activity_log ("
-        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-        "event_type TEXT NOT NULL, "
-        "detail TEXT, "
-        "level TEXT, "
-        "created_at TEXT NOT NULL)"
+        "INSERT INTO activity_log (id, event_type, detail, created_at) "
+        "VALUES (?, ?, ?, ?)",
+        (1, "scan_complete", '{"event": "scan done"}', "2026-04-02T14:30:00"),
     )
     conn.execute(
-        "INSERT INTO activity_log (event_type, detail, created_at) "
-        "VALUES (?, ?, ?)",
-        ("scan_complete", '{"event": "scan done"}', "2026-04-02T14:30:00"),
-    )
-    conn.execute(
-        "INSERT INTO activity_log (event_type, detail, created_at) "
-        "VALUES (?, ?, ?)",
-        ("trade_opened", '{"event": "opened AAPL"}', "2026-04-02T14:31:00"),
+        "INSERT INTO activity_log (id, event_type, detail, created_at) "
+        "VALUES (?, ?, ?, ?)",
+        (2, "trade_opened", '{"event": "opened AAPL"}', "2026-04-02T14:31:00"),
     )
     conn.commit()
     conn.close()
@@ -75,17 +69,11 @@ class TestActivityFeed:
 def health_db(tmp_path):
     """Create a DB with tables needed by health routes."""
     db_path = str(tmp_path / "health.sqlite3")
+    init_test_db(db_path, [
+        "build_score_history", "shadow_trades", "training_examples",
+        "model_versions", "scan_metrics", "canary_evaluations",
+    ])
     conn = sqlite3.connect(db_path)
-    conn.execute(
-        "CREATE TABLE build_score_history ("
-        "score_id TEXT PRIMARY KEY, "
-        "score_date TEXT, build_score REAL, "
-        "gate_velocity REAL, system_health REAL, "
-        "data_asset_value REAL, model_quality REAL, "
-        "research_velocity REAL, reliability REAL, "
-        "decay_applied INTEGER DEFAULT 0, "
-        "created_at TEXT NOT NULL)"
-    )
     conn.execute(
         "INSERT INTO build_score_history "
         "(score_id, score_date, build_score, gate_velocity, system_health, "
@@ -96,35 +84,12 @@ def health_db(tmp_path):
          "2026-04-02T16:45:00"),
     )
     conn.execute(
-        "CREATE TABLE shadow_trades ("
-        "trade_id TEXT PRIMARY KEY, ticker TEXT, status TEXT, "
-        "pnl_dollars REAL, pnl_pct REAL, "
-        "actual_exit_time TEXT, created_at TEXT, "
-        "entry_price REAL, planned_shares INTEGER, source TEXT)"
-    )
-    conn.execute(
-        "INSERT INTO shadow_trades VALUES "
-        "('t1','AAPL','closed',100.0,1.0,'2026-04-01','2026-03-30',150.0,10,'shadow')"
-    )
-    conn.execute(
-        "CREATE TABLE training_examples ("
-        "id INTEGER PRIMARY KEY, ticker TEXT, source TEXT, outcome TEXT, "
-        "quality_score REAL, quality_score_auto REAL, "
-        "curriculum_stage TEXT, regime_label TEXT, created_at TEXT)"
-    )
-    conn.execute(
-        "CREATE TABLE model_versions ("
-        "id INTEGER PRIMARY KEY, version_name TEXT, status TEXT, created_at TEXT)"
-    )
-    conn.execute(
-        "CREATE TABLE scan_metrics ("
-        "id INTEGER PRIMARY KEY, llm_success INTEGER, llm_total INTEGER, "
-        "created_at TEXT)"
-    )
-    conn.execute(
-        "CREATE TABLE canary_evaluations ("
-        "id INTEGER PRIMARY KEY, verdict TEXT, perplexity REAL, "
-        "distinct_2 REAL, created_at TEXT)"
+        "INSERT INTO shadow_trades "
+        "(trade_id, ticker, status, pnl_dollars, pnl_pct, "
+        "actual_exit_time, created_at, updated_at, entry_price, planned_shares, source) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ("t1", "AAPL", "closed", 100.0, 1.0, "2026-04-01", "2026-03-30",
+         "2026-03-30", 150.0, 10, "shadow"),
     )
     conn.commit()
     conn.close()
@@ -206,28 +171,17 @@ class TestHealthScore:
 def council_db(tmp_path):
     """Create a DB with council tables."""
     db_path = str(tmp_path / "council.sqlite3")
+    init_test_db(db_path, ["council_sessions", "council_votes"])
     conn = sqlite3.connect(db_path)
     conn.execute(
-        "CREATE TABLE council_sessions ("
-        "session_id TEXT PRIMARY KEY, ticker TEXT, "
-        "result_json TEXT, created_at TEXT NOT NULL)"
+        "INSERT INTO council_sessions (session_id, result_json, created_at) "
+        "VALUES (?, ?, ?)",
+        ("sess-1", '{"summary": "bullish"}', "2026-04-02T14:00:00"),
     )
     conn.execute(
-        "CREATE TABLE council_votes ("
-        "vote_id INTEGER PRIMARY KEY AUTOINCREMENT, "
-        "session_id TEXT, agent_name TEXT, round INTEGER, "
-        "vote TEXT, reasoning TEXT, "
-        "key_data_points TEXT, risk_flags TEXT, "
-        "created_at TEXT)"
-    )
-    conn.execute(
-        "INSERT INTO council_sessions VALUES (?, ?, ?, ?)",
-        ("sess-1", "AAPL", '{"summary": "bullish"}', "2026-04-02T14:00:00"),
-    )
-    conn.execute(
-        "INSERT INTO council_votes (session_id, agent_name, round, vote, reasoning, created_at) "
+        "INSERT INTO council_votes (vote_id, session_id, agent_name, round, vote, direction) "
         "VALUES (?, ?, ?, ?, ?, ?)",
-        ("sess-1", "fundamentals", 1, "BUY", "Strong earnings", "2026-04-02T14:00:01"),
+        ("vote-1", "sess-1", "fundamentals", 1, "BUY", "bullish"),
     )
     conn.commit()
     conn.close()
@@ -294,19 +248,7 @@ class TestCouncil:
 def notes_db(tmp_path):
     """Create a DB with user_notes table."""
     db_path = str(tmp_path / "notes.sqlite3")
-    conn = sqlite3.connect(db_path)
-    conn.execute(
-        "CREATE TABLE user_notes ("
-        "note_id TEXT PRIMARY KEY, "
-        "title TEXT NOT NULL DEFAULT 'Untitled Note', "
-        "content TEXT DEFAULT '', "
-        "tags TEXT DEFAULT '[]', "
-        "pinned INTEGER DEFAULT 0, "
-        "created_at TEXT NOT NULL, "
-        "updated_at TEXT NOT NULL)"
-    )
-    conn.commit()
-    conn.close()
+    init_test_db(db_path, ["user_notes"])
     return db_path
 
 
@@ -371,25 +313,28 @@ class TestNotes:
 def live_db(tmp_path):
     """Create a DB with shadow_trades including live-source trades."""
     db_path = str(tmp_path / "live.sqlite3")
+    init_test_db(db_path, ["shadow_trades"])
     conn = sqlite3.connect(db_path)
     conn.execute(
-        "CREATE TABLE shadow_trades ("
-        "trade_id TEXT PRIMARY KEY, ticker TEXT, status TEXT, "
-        "pnl_dollars REAL, pnl_pct REAL, "
-        "actual_exit_time TEXT, created_at TEXT, "
-        "entry_price REAL, planned_shares INTEGER, source TEXT)"
+        "INSERT INTO shadow_trades "
+        "(trade_id, ticker, status, pnl_dollars, pnl_pct, "
+        "actual_exit_time, created_at, updated_at, entry_price, planned_shares, source) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ("t1", "AAPL", "open", None, None, None, "2026-04-01", "2026-04-01", 150.0, 10, "live"),
     )
     conn.execute(
-        "INSERT INTO shadow_trades VALUES "
-        "('t1','AAPL','open',NULL,NULL,NULL,'2026-04-01',150.0,10,'live')"
+        "INSERT INTO shadow_trades "
+        "(trade_id, ticker, status, pnl_dollars, pnl_pct, "
+        "actual_exit_time, created_at, updated_at, entry_price, planned_shares, source) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ("t2", "MSFT", "closed", 50.0, 0.5, "2026-04-02", "2026-03-28", "2026-03-28", 300.0, 5, "live"),
     )
     conn.execute(
-        "INSERT INTO shadow_trades VALUES "
-        "('t2','MSFT','closed',50.0,0.5,'2026-04-02','2026-03-28',300.0,5,'live')"
-    )
-    conn.execute(
-        "INSERT INTO shadow_trades VALUES "
-        "('t3','NVDA','open',NULL,NULL,NULL,'2026-04-01',800.0,2,'shadow')"
+        "INSERT INTO shadow_trades "
+        "(trade_id, ticker, status, pnl_dollars, pnl_pct, "
+        "actual_exit_time, created_at, updated_at, entry_price, planned_shares, source) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ("t3", "NVDA", "open", None, None, None, "2026-04-01", "2026-04-01", 800.0, 2, "shadow"),
     )
     conn.commit()
     conn.close()
@@ -431,13 +376,8 @@ class TestLiveLedger:
 def logs_db(tmp_path):
     """Create a DB with log_entries and command tables."""
     db_path = str(tmp_path / "logs.sqlite3")
+    init_test_db(db_path, ["log_entries", "pending_commands", "command_results"])
     conn = sqlite3.connect(db_path)
-    conn.execute(
-        "CREATE TABLE log_entries ("
-        "log_id TEXT PRIMARY KEY, "
-        "log_level TEXT, source TEXT, message TEXT, "
-        "details_json TEXT, created_at TEXT NOT NULL)"
-    )
     conn.execute(
         "INSERT INTO log_entries (log_id, log_level, source, message, created_at) "
         "VALUES ('log-1', 'INFO', 'scanner', 'Scan started', '2026-04-02T14:00:00')"
@@ -445,20 +385,6 @@ def logs_db(tmp_path):
     conn.execute(
         "INSERT INTO log_entries (log_id, log_level, source, message, created_at) "
         "VALUES ('log-2', 'ERROR', 'llm', 'Timeout', '2026-04-02T14:01:00')"
-    )
-    conn.execute(
-        "CREATE TABLE pending_commands ("
-        "command_id TEXT PRIMARY KEY, command_type TEXT, "
-        "command_name TEXT, payload_json TEXT, "
-        "status TEXT DEFAULT 'pending', priority INTEGER DEFAULT 0, "
-        "created_at TEXT, expires_at TEXT, created_by TEXT)"
-    )
-    conn.execute(
-        "CREATE TABLE command_results ("
-        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-        "command_id TEXT, status TEXT, result_json TEXT, "
-        "error_message TEXT, execution_ms INTEGER, "
-        "created_at TEXT)"
     )
     conn.commit()
     conn.close()
@@ -525,26 +451,11 @@ class TestCommands:
 def settings_db(tmp_path):
     """Create a DB with config_overrides, scan_metrics, model_versions."""
     db_path = str(tmp_path / "settings.sqlite3")
+    init_test_db(db_path, ["config_overrides", "scan_metrics", "model_versions"])
     conn = sqlite3.connect(db_path)
     conn.execute(
-        "CREATE TABLE config_overrides ("
-        "setting_key TEXT PRIMARY KEY, setting_value TEXT, updated_at TEXT)"
-    )
-    conn.execute(
-        "CREATE TABLE scan_metrics ("
-        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
-        "llm_success INTEGER, llm_total INTEGER, "
-        "packet_worthy INTEGER, tickers_scanned INTEGER, "
-        "created_at TEXT, scan_date TEXT)"
-    )
-    conn.execute(
-        "INSERT INTO scan_metrics (llm_success, llm_total, created_at) "
-        "VALUES (90, 100, '2026-04-02T14:00:00')"
-    )
-    conn.execute(
-        "CREATE TABLE model_versions ("
-        "id INTEGER PRIMARY KEY, version_name TEXT, status TEXT, "
-        "created_at TEXT, example_count INTEGER, holdout_score REAL)"
+        "INSERT INTO scan_metrics (id, llm_success, llm_total, created_at) "
+        "VALUES (1, 90, 100, '2026-04-02T14:00:00')"
     )
     conn.commit()
     conn.close()

@@ -8,46 +8,15 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 
-ET = ZoneInfo("America/New_York")
+from tests.conftest import init_test_db
 
-SHADOW_TRADES_SCHEMA = """
-CREATE TABLE IF NOT EXISTS shadow_trades (
-    trade_id TEXT PRIMARY KEY,
-    ticker TEXT,
-    direction TEXT DEFAULT 'long',
-    status TEXT DEFAULT 'open',
-    source TEXT DEFAULT 'paper',
-    entry_price REAL DEFAULT 0,
-    actual_entry_price REAL DEFAULT 0,
-    planned_shares REAL DEFAULT 1,
-    planned_allocation REAL DEFAULT 0,
-    actual_entry_time TEXT,
-    actual_exit_time TEXT,
-    actual_exit_price REAL,
-    created_at TEXT,
-    updated_at TEXT,
-    order_type TEXT,
-    recommendation_id TEXT,
-    stop_price REAL DEFAULT 0,
-    target_1 REAL DEFAULT 0,
-    target_2 REAL DEFAULT 0,
-    max_favorable_excursion REAL DEFAULT 0,
-    max_adverse_excursion REAL DEFAULT 0,
-    pnl_dollars REAL,
-    pnl_pct REAL,
-    exit_reason TEXT,
-    duration_days INTEGER,
-    alpaca_order_id TEXT,
-    sector TEXT
-);
-"""
+ET = ZoneInfo("America/New_York")
 
 
 @pytest.fixture
 def db_path(tmp_path):
     path = str(tmp_path / "test.sqlite3")
-    with sqlite3.connect(path) as conn:
-        conn.executescript(SHADOW_TRADES_SCHEMA)
+    init_test_db(path, ["shadow_trades"])
     return path
 
 
@@ -59,8 +28,8 @@ class TestAtomicDuplicateCheck:
         # Insert an existing open trade
         with sqlite3.connect(db_path) as conn:
             conn.execute(
-                "INSERT INTO shadow_trades (trade_id, ticker, status) "
-                "VALUES ('t1', 'AAPL', 'open')"
+                "INSERT INTO shadow_trades (trade_id, ticker, status, created_at, updated_at) "
+                "VALUES ('t1', 'AAPL', 'open', '2026-03-20T10:00:00', '2026-03-20T10:00:00')"
             )
 
         # Simulate the atomic duplicate check logic from executor.py
@@ -140,21 +109,21 @@ class TestRealizedDailyLoss:
             # Open trade with unrealized loss — should NOT count
             conn.execute(
                 "INSERT INTO shadow_trades "
-                "(trade_id, ticker, status, actual_entry_price, planned_shares) "
-                "VALUES ('open1', 'AAPL', 'open', 150.0, 10)"
+                "(trade_id, ticker, status, actual_entry_price, planned_shares, created_at, updated_at) "
+                "VALUES ('open1', 'AAPL', 'open', 150.0, 10, '2026-03-20T09:00:00', '2026-03-20T09:00:00')"
             )
             # Closed trade today with realized loss — SHOULD count
             conn.execute(
                 "INSERT INTO shadow_trades "
-                "(trade_id, ticker, status, pnl_dollars, actual_exit_time) "
-                "VALUES ('closed1', 'MSFT', 'closed', -200.0, ?)",
-                (f"{today_str}T10:00:00",),
+                "(trade_id, ticker, status, pnl_dollars, actual_exit_time, created_at, updated_at) "
+                "VALUES ('closed1', 'MSFT', 'closed', -200.0, ?, '2026-03-20T09:00:00', ?)",
+                (f"{today_str}T10:00:00", f"{today_str}T10:00:00"),
             )
             # Closed trade yesterday — should NOT count
             conn.execute(
                 "INSERT INTO shadow_trades "
-                "(trade_id, ticker, status, pnl_dollars, actual_exit_time) "
-                "VALUES ('closed2', 'GOOG', 'closed', -500.0, '2020-01-01T10:00:00')",
+                "(trade_id, ticker, status, pnl_dollars, actual_exit_time, created_at, updated_at) "
+                "VALUES ('closed2', 'GOOG', 'closed', -500.0, '2020-01-01T10:00:00', '2020-01-01T09:00:00', '2020-01-01T10:00:00')",
             )
 
         # Query the same way get_portfolio_state does

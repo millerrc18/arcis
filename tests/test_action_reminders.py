@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from src.notifications.telegram import check_action_reminders, notify_action_required
+from tests.conftest import init_test_db
 
 ET = ZoneInfo("America/New_York")
 
@@ -16,32 +17,7 @@ ET = ZoneInfo("America/New_York")
 def db_path(tmp_path):
     """Create a temp DB with required tables."""
     path = str(tmp_path / "test.sqlite3")
-    with sqlite3.connect(path) as conn:
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS shadow_trades (
-                trade_id TEXT PRIMARY KEY,
-                ticker TEXT, status TEXT, source TEXT,
-                pnl_dollars REAL, pnl_pct REAL,
-                created_at TEXT, actual_exit_time TEXT
-            );
-            CREATE TABLE IF NOT EXISTS activity_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                event_type TEXT, detail TEXT, metadata TEXT, created_at TEXT
-            );
-            CREATE TABLE IF NOT EXISTS training_examples (
-                example_id TEXT PRIMARY KEY,
-                quality_score_auto REAL, quality_score REAL,
-                created_at TEXT, source TEXT
-            );
-            CREATE TABLE IF NOT EXISTS model_versions (
-                version_id TEXT PRIMARY KEY,
-                version_name TEXT, status TEXT, created_at TEXT,
-                training_examples_count INTEGER,
-                synthetic_examples_count INTEGER,
-                outcome_examples_count INTEGER,
-                model_file_path TEXT
-            );
-        """)
+    init_test_db(path, ["shadow_trades", "activity_log", "training_examples", "model_versions"])
     return path
 
 
@@ -58,10 +34,11 @@ def test_gate_milestone_50_trades(mock_send, db_path):
     """Should notify when 50 closed trades reached."""
     with sqlite3.connect(db_path) as conn:
         for i in range(52):
+            now_iso = datetime.now(ET).isoformat()
             conn.execute(
-                "INSERT INTO shadow_trades (trade_id, ticker, status, source, created_at) "
-                "VALUES (?, ?, 'closed', 'paper', ?)",
-                (f"t{i}", f"TICK{i}", datetime.now(ET).isoformat()),
+                "INSERT INTO shadow_trades (trade_id, ticker, status, source, created_at, updated_at) "
+                "VALUES (?, ?, 'closed', 'paper', ?, ?)",
+                (f"t{i}", f"TICK{i}", now_iso, now_iso),
             )
     sent = check_action_reminders(db_path)
     assert "gate_50" in sent
@@ -76,10 +53,11 @@ def test_gate_milestone_not_duplicated(mock_send, db_path):
     """Should not re-notify for same milestone."""
     with sqlite3.connect(db_path) as conn:
         for i in range(52):
+            now_iso = datetime.now(ET).isoformat()
             conn.execute(
-                "INSERT INTO shadow_trades (trade_id, ticker, status, source, created_at) "
-                "VALUES (?, ?, 'closed', 'paper', ?)",
-                (f"t{i}", f"TICK{i}", datetime.now(ET).isoformat()),
+                "INSERT INTO shadow_trades (trade_id, ticker, status, source, created_at, updated_at) "
+                "VALUES (?, ?, 'closed', 'paper', ?, ?)",
+                (f"t{i}", f"TICK{i}", now_iso, now_iso),
             )
     # First call should notify
     sent1 = check_action_reminders(db_path)
@@ -95,8 +73,8 @@ def test_unscored_training_data_reminder(mock_send, db_path):
     with sqlite3.connect(db_path) as conn:
         for i in range(150):
             conn.execute(
-                "INSERT INTO training_examples (example_id, quality_score_auto, created_at, source) "
-                "VALUES (?, NULL, ?, 'backfill')",
+                "INSERT INTO training_examples (example_id, quality_score_auto, created_at, source, instruction, input_text, output_text) "
+                "VALUES (?, NULL, ?, 'backfill', 'test', 'test', 'test')",
                 (f"ex{i}", datetime.now(ET).isoformat()),
             )
     sent = check_action_reminders(db_path)
@@ -111,8 +89,8 @@ def test_no_scoring_reminder_when_few_unscored(mock_send, db_path):
     with sqlite3.connect(db_path) as conn:
         for i in range(50):
             conn.execute(
-                "INSERT INTO training_examples (example_id, quality_score_auto, created_at, source) "
-                "VALUES (?, NULL, ?, 'backfill')",
+                "INSERT INTO training_examples (example_id, quality_score_auto, created_at, source, instruction, input_text, output_text) "
+                "VALUES (?, NULL, ?, 'backfill', 'test', 'test', 'test')",
                 (f"ex{i}", datetime.now(ET).isoformat()),
             )
     sent = check_action_reminders(db_path)
