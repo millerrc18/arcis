@@ -12,17 +12,22 @@ def earnings_db(tmp_path):
             CREATE TABLE earnings_calendar (
                 id INTEGER PRIMARY KEY, ticker TEXT, earnings_date TEXT);
             CREATE TABLE analyst_estimates (
-                id INTEGER PRIMARY KEY, ticker TEXT, quarter TEXT,
-                eps_actual REAL, eps_estimate REAL,
-                revenue_actual REAL, revenue_estimate REAL,
+                id INTEGER PRIMARY KEY, ticker TEXT, date TEXT,
+                metric TEXT, period TEXT,
+                estimate REAL, actual REAL, surprise REAL, surprise_pct REAL,
                 collected_at TEXT);
         """)
         conn.execute(
             "INSERT INTO earnings_calendar VALUES (1, 'AAPL', '2026-04-15')")
+        # EPS: actual 2.10 vs estimate 2.00 = beat (5%)
         conn.execute(
-            "INSERT INTO analyst_estimates VALUES (1, 'AAPL', '2026-Q1', 2.10, 2.00, 95.0, 90.0, '2026-03-01')")
+            "INSERT INTO analyst_estimates VALUES (1, 'AAPL', '2026-03-01', 'EPS', '2026-Q1', 2.00, 2.10, 5.0, 5.0, '2026-03-01')")
+        # Revenue: actual 95.0 vs estimate 90.0 = beat
         conn.execute(
-            "INSERT INTO analyst_estimates VALUES (2, 'AAPL', '2025-Q4', 1.90, 2.00, 88.0, 90.0, '2026-02-01')")
+            "INSERT INTO analyst_estimates VALUES (2, 'AAPL', '2026-03-01', 'Revenue', '2026-Q1', 90.0, 95.0, 5.56, 5.56, '2026-03-01')")
+        # Older EPS estimate for revision velocity
+        conn.execute(
+            "INSERT INTO analyst_estimates VALUES (3, 'AAPL', '2026-02-01', 'EPS', '2025-Q4', 2.00, 1.90, -5.0, -5.0, '2026-02-01')")
     return db
 
 
