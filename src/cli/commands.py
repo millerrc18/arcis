@@ -820,9 +820,13 @@ def cmd_preflight(args):
 
 
 def cmd_config_fix(args):
-    """Merge missing keys from settings.example.yaml into settings.local.yaml."""
+    """Merge missing keys from settings.example.yaml into settings.local.yaml.
+
+    Uses ruamel.yaml for round-trip parsing — preserves comments, blank lines,
+    and formatting in the local config. Falls back to PyYAML if ruamel unavailable.
+    """
     from pathlib import Path
-    import yaml
+    import shutil
 
     local_path = Path("config/settings.local.yaml")
     example_path = Path("config/settings.example.yaml")
@@ -836,10 +840,27 @@ def cmd_config_fix(args):
         print("ERROR: config/settings.example.yaml not found.")
         return
 
-    with open(local_path, "r", encoding="utf-8") as f:
-        local = yaml.safe_load(f) or {}
-    with open(example_path, "r", encoding="utf-8") as f:
-        example = yaml.safe_load(f) or {}
+    try:
+        from ruamel.yaml import YAML
+        ryaml = YAML()
+        ryaml.preserve_quotes = True
+        ryaml.width = 120
+
+        with open(local_path, "r", encoding="utf-8") as f:
+            local = ryaml.load(f) or {}
+        with open(example_path, "r", encoding="utf-8") as f:
+            example = ryaml.load(f) or {}
+
+        use_ruamel = True
+    except ImportError:
+        import yaml
+        print("(ruamel.yaml not installed — formatting will not be preserved)")
+        print("  pip install ruamel.yaml")
+        with open(local_path, "r", encoding="utf-8") as f:
+            local = yaml.safe_load(f) or {}
+        with open(example_path, "r", encoding="utf-8") as f:
+            example = yaml.safe_load(f) or {}
+        use_ruamel = False
 
     added = []
 
@@ -848,6 +869,17 @@ def cmd_config_fix(args):
             full = f"{prefix}.{key}" if prefix else key
             if key not in loc:
                 loc[key] = ex[key]
+                # Add a blank line before new top-level sections for readability
+                if use_ruamel and not prefix and hasattr(loc, 'ca'):
+                    try:
+                        from ruamel.yaml.tokens import CommentToken
+                        from ruamel.yaml.error import CommentMark
+                        loc.ca.items[key] = [
+                            CommentToken("\n\n", CommentMark(0), None),
+                            None, None, None,
+                        ]
+                    except Exception:
+                        pass
                 added.append(full)
             elif isinstance(ex[key], dict) and isinstance(loc.get(key), dict):
                 _merge_missing(ex[key], loc[key], full)
@@ -860,11 +892,15 @@ def cmd_config_fix(args):
 
     # Backup before writing
     backup_path = local_path.with_suffix(".yaml.bak")
-    import shutil
     shutil.copy2(local_path, backup_path)
 
-    with open(local_path, "w", encoding="utf-8") as f:
-        yaml.dump(local, f, default_flow_style=False, sort_keys=False)
+    if use_ruamel:
+        with open(local_path, "w", encoding="utf-8") as f:
+            ryaml.dump(local, f)
+    else:
+        import yaml
+        with open(local_path, "w", encoding="utf-8") as f:
+            yaml.dump(local, f, default_flow_style=False, sort_keys=False)
 
     print(f"Added {len(added)} missing keys (backup: {backup_path})")
     for k in added:
