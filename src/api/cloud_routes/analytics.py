@@ -828,8 +828,8 @@ def create_router(runtime, verify_auth):
     def monitoring_history(hours: int = 24):
         """System metrics history from Postgres."""
         try:
-            from datetime import datetime, timedelta
-            cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
+            from datetime import datetime, timedelta, timezone
+            cutoff = (datetime.now(tz=timezone.utc) - timedelta(hours=hours)).isoformat()
             rows = runtime.query(
                 "SELECT * FROM system_metrics WHERE timestamp > %s ORDER BY timestamp DESC LIMIT 500",
                 (cutoff,),

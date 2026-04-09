@@ -12,6 +12,17 @@ import warnings
 
 warnings.filterwarnings("ignore", message=".*utcnow.*deprecated.*")
 warnings.filterwarnings("ignore", message=".*Timestamp.utcnow.*")
+warnings.filterwarnings("ignore", category=FutureWarning, module="yfinance")
+
+# Patch pd.Timestamp.utcnow globally — yfinance calls it from Cython C code
+# which bypasses Python's warnings.filterwarnings. Replacing the method with
+# the non-deprecated equivalent eliminates the warning at the source.
+try:
+    import pandas as _pd
+    if hasattr(_pd.Timestamp, "utcnow"):
+        _pd.Timestamp.utcnow = staticmethod(lambda: _pd.Timestamp.now(tz="UTC"))
+except Exception:
+    pass
 
 from dotenv import load_dotenv
 
