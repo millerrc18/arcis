@@ -133,7 +133,7 @@ export const api = {
   // Model Performance
   getModelPerformance: () => fetchApi('/model-performance'),
   // Monitoring
-  getMonitoringSnapshot: () => fetchApi('/api/monitoring/snapshot'),
+  getMonitoringSnapshot: () => fetchApi('/monitoring/snapshot'),
   getMonitoringHistory: (hours = 24) => fetchApi(`/api/monitoring/history?hours=${hours}`),
   // Strategy
   getStrategyDetail: (strategy) => fetchApi(`/api/strategy-detail/${strategy}`),

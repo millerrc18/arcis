@@ -773,4 +773,82 @@ def create_router(runtime, verify_auth):
                 "error": str(exc),
             }
 
+    # ── Stress Test Results ─────────────────────────────────────────
+    @router.get("/api/stress-test/results", dependencies=[Depends(verify_auth)])
+    def stress_test_results():
+        """Historical stress test results from Postgres."""
+        import json as _json
+        try:
+            rows = runtime.query(
+                "SELECT * FROM stress_test_results ORDER BY created_at DESC"
+            )
+            results = []
+            for r in rows:
+                d = dict(r)
+                for jf in ("monthly_returns_json", "regime_breakdown_json",
+                           "equity_curve_json"):
+                    if d.get(jf):
+                        try:
+                            d[jf] = _json.loads(d[jf])
+                        except (_json.JSONDecodeError, TypeError):
+                            pass
+                results.append(d)
+            return {"results": results}
+        except Exception as exc:
+            runtime.logger.error("[API] stress-test/results failed: %s", exc, exc_info=True)
+            return {"results": [], "error": str(exc)}
+
+    # ── Simulation Results ────────────────────────────────────────
+    @router.get("/api/simulation/results", dependencies=[Depends(verify_auth)])
+    def simulation_results():
+        """Simulation engine results from Postgres."""
+        import json as _json
+        try:
+            rows = runtime.query(
+                "SELECT * FROM simulation_results ORDER BY created_at DESC"
+            )
+            results = []
+            for r in rows:
+                d = dict(r)
+                for jf in ("monthly_returns_json", "equity_curve_json",
+                           "regime_breakdown_json", "config_json"):
+                    if d.get(jf):
+                        try:
+                            d[jf] = _json.loads(d[jf])
+                        except (_json.JSONDecodeError, TypeError):
+                            pass
+                results.append(d)
+            return {"results": results}
+        except Exception as exc:
+            runtime.logger.error("[API] simulation/results failed: %s", exc, exc_info=True)
+            return {"results": [], "error": str(exc)}
+
+    # ── Monitoring Endpoints ────────────────────────────────────────
+    @router.get("/api/monitoring/history", dependencies=[Depends(verify_auth)])
+    def monitoring_history(hours: int = 24):
+        """System metrics history from Postgres."""
+        try:
+            from datetime import datetime, timedelta
+            cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
+            rows = runtime.query(
+                "SELECT * FROM system_metrics WHERE timestamp > %s ORDER BY timestamp DESC LIMIT 500",
+                (cutoff,),
+            )
+            return {"snapshots": [dict(r) for r in rows]}
+        except Exception as exc:
+            runtime.logger.error("[API] monitoring/history failed: %s", exc, exc_info=True)
+            return {"snapshots": [], "error": str(exc)}
+
+    @router.get("/api/monitoring/snapshot", dependencies=[Depends(verify_auth)])
+    def monitoring_snapshot():
+        """Latest system metrics snapshot (cloud mode — returns last synced data)."""
+        try:
+            row = runtime.query_one(
+                "SELECT * FROM system_metrics ORDER BY timestamp DESC LIMIT 1"
+            )
+            return dict(row) if row else {"note": "No metrics synced yet"}
+        except Exception as exc:
+            runtime.logger.error("[API] monitoring/snapshot failed: %s", exc, exc_info=True)
+            return {"note": "Monitoring not available in cloud mode", "error": str(exc)}
+
     return router
