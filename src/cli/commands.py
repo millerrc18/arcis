@@ -819,6 +819,90 @@ def cmd_preflight(args):
         print("   Create config/settings.local.yaml with real credentials and enabled flags.")
 
 
+def cmd_config_fix(args):
+    """Merge missing keys from settings.example.yaml into settings.local.yaml."""
+    from pathlib import Path
+    import yaml
+
+    local_path = Path("config/settings.local.yaml")
+    example_path = Path("config/settings.example.yaml")
+
+    if not local_path.exists():
+        print("ERROR: config/settings.local.yaml not found.")
+        print("  Create it first: cp config/settings.example.yaml config/settings.local.yaml")
+        return
+
+    if not example_path.exists():
+        print("ERROR: config/settings.example.yaml not found.")
+        return
+
+    with open(local_path, "r", encoding="utf-8") as f:
+        local = yaml.safe_load(f) or {}
+    with open(example_path, "r", encoding="utf-8") as f:
+        example = yaml.safe_load(f) or {}
+
+    added = []
+
+    def _merge_missing(ex, loc, prefix=""):
+        for key in ex:
+            full = f"{prefix}.{key}" if prefix else key
+            if key not in loc:
+                loc[key] = ex[key]
+                added.append(full)
+            elif isinstance(ex[key], dict) and isinstance(loc.get(key), dict):
+                _merge_missing(ex[key], loc[key], full)
+
+    _merge_missing(example, local)
+
+    if not added:
+        print("Config is up to date — no missing keys.")
+        return
+
+    # Backup before writing
+    backup_path = local_path.with_suffix(".yaml.bak")
+    import shutil
+    shutil.copy2(local_path, backup_path)
+
+    with open(local_path, "w", encoding="utf-8") as f:
+        yaml.dump(local, f, default_flow_style=False, sort_keys=False)
+
+    print(f"Added {len(added)} missing keys (backup: {backup_path})")
+    for k in added:
+        print(f"  + {k}")
+
+
+def cmd_config_diff(args):
+    """Show keys in settings.example.yaml missing from settings.local.yaml."""
+    from pathlib import Path
+    import yaml
+
+    local_path = Path("config/settings.local.yaml")
+    example_path = Path("config/settings.example.yaml")
+
+    if not local_path.exists():
+        print("ERROR: config/settings.local.yaml not found.")
+        return
+    if not example_path.exists():
+        print("ERROR: config/settings.example.yaml not found.")
+        return
+
+    with open(local_path, "r", encoding="utf-8") as f:
+        local = yaml.safe_load(f) or {}
+    with open(example_path, "r", encoding="utf-8") as f:
+        example = yaml.safe_load(f) or {}
+
+    from src.startup import _find_missing_keys
+    missing = []
+    _find_missing_keys(example, local, "", missing)
+
+    if not missing:
+        print("Config is up to date — no missing keys.")
+    else:
+        print(f"{len(missing)} missing keys:")
+        for k in missing:
+            print(f"  - {k}")
+
+
 def cmd_train_pipeline(args):
     """Run the complete training pipeline end-to-end."""
     from src.training.curriculum import classify_all_examples
