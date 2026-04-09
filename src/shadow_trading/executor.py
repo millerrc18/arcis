@@ -896,6 +896,32 @@ def check_and_manage_open_trades(
                 exit_reason = "timeout"
 
         if exit_reason:
+            # #345: If the entry order never filled, cancel it instead of selling
+            entry_status = trade.get("status", "")
+            entry_order_id = trade.get("alpaca_order_id")
+            if entry_status in ("pending", "pending_entry") and entry_order_id:
+                try:
+                    from src.shadow_trading.alpaca_adapter import cancel_paper_order
+                    cancel_paper_order(entry_order_id)
+                    logger.info(
+                        "[EXIT] Cancelled unfilled entry order for %s (order=%s, reason=%s)",
+                        ticker, entry_order_id, exit_reason,
+                    )
+                except Exception as cancel_err:
+                    logger.warning("[EXIT] Failed to cancel entry order for %s: %s", ticker, cancel_err)
+                update_shadow_trade(
+                    trade["trade_id"],
+                    {"status": "cancelled", "exit_reason": f"entry_unfilled_{exit_reason}"},
+                    db_path,
+                )
+                actions.append({
+                    "type": "cancelled_unfilled",
+                    "ticker": ticker,
+                    "trade_id": trade["trade_id"],
+                    "reason": exit_reason,
+                })
+                continue
+
             # Exit slippage tracking
             signal_exit = current_price  # price that triggered exit
             exit_slippage_bps = 0.0
