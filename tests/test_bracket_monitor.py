@@ -10,26 +10,11 @@ from src.shadow_trading.bracket_monitor import (
     check_bracket_health,
     ensure_bracket_health_table,
 )
-
-
-SHADOW_TRADES_SCHEMA = """
-CREATE TABLE shadow_trades (
-    trade_id TEXT PRIMARY KEY,
-    ticker TEXT NOT NULL,
-    status TEXT DEFAULT 'open',
-    alpaca_order_id TEXT,
-    order_type TEXT,
-    created_at TEXT,
-    updated_at TEXT
-)
-"""
+from tests.conftest import init_test_db
 
 
 def _make_db(db_path: str) -> None:
-    with sqlite3.connect(db_path) as conn:
-        conn.executescript(SHADOW_TRADES_SCHEMA)
-        conn.executescript(generate_create_sql(TABLES["bracket_health"]))
-        conn.commit()
+    init_test_db(db_path, ["shadow_trades", "bracket_health"])
 
 
 def _insert_trade(

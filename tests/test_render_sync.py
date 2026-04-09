@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch, call
 
 import pytest
 
+from tests.conftest import init_test_db
 from src.sync.render_sync import (
     SYNC_TABLES,
     RenderSyncThread,
@@ -29,79 +30,39 @@ from src.sync.render_sync import (
 def test_db(tmp_path):
     """Create a temporary SQLite database with test data."""
     db_path = str(tmp_path / "test.sqlite3")
+    init_test_db(db_path, [
+        "shadow_trades", "council_sessions", "council_votes",
+        "vix_term_structure", "traffic_light_state",
+    ])
     conn = sqlite3.connect(db_path)
-
-    # Create shadow_trades table
-    conn.execute("""
-        CREATE TABLE shadow_trades (
-            trade_id TEXT PRIMARY KEY,
-            ticker TEXT NOT NULL,
-            status TEXT DEFAULT 'open',
-            pnl_dollars REAL,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        )
-    """)
-
-    # Create council_sessions and council_votes
-    conn.execute("""
-        CREATE TABLE council_sessions (
-            session_id TEXT PRIMARY KEY,
-            session_type TEXT NOT NULL,
-            created_at TEXT NOT NULL
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE council_votes (
-            vote_id TEXT PRIMARY KEY,
-            session_id TEXT NOT NULL,
-            agent_name TEXT NOT NULL,
-            round INTEGER NOT NULL
-        )
-    """)
-
-    # Create vix_term_structure (latest_only table)
-    conn.execute("""
-        CREATE TABLE vix_term_structure (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            collected_date TEXT NOT NULL,
-            vix REAL,
-            collected_at TEXT NOT NULL
-        )
-    """)
-
-    conn.execute("""
-        CREATE TABLE traffic_light_state (
-            id INTEGER PRIMARY KEY,
-            current_regime TEXT NOT NULL,
-            updated_at TEXT
-        )
-    """)
 
     # Insert test data
     conn.execute(
-        "INSERT INTO shadow_trades VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO shadow_trades (trade_id, ticker, status, pnl_dollars, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
         ("t1", "AAPL", "open", None, "2025-01-01T10:00:00", "2025-01-01T10:00:00"),
     )
     conn.execute(
-        "INSERT INTO shadow_trades VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO shadow_trades (trade_id, ticker, status, pnl_dollars, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
         ("t2", "MSFT", "closed", 150.0, "2025-01-02T10:00:00", "2025-01-02T12:00:00"),
     )
     conn.execute(
-        "INSERT INTO shadow_trades VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO shadow_trades (trade_id, ticker, status, pnl_dollars, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
         ("t3", "GOOG", "open", None, "2025-01-03T10:00:00", "2025-01-03T10:00:00"),
     )
 
     conn.execute(
-        "INSERT INTO council_sessions VALUES (?, ?, ?)",
+        "INSERT INTO council_sessions (session_id, session_type, created_at) VALUES (?, ?, ?)",
         ("s1", "weekly", "2025-01-01T10:00:00"),
     )
     conn.execute(
-        "INSERT INTO council_votes VALUES (?, ?, ?, ?)",
+        "INSERT INTO council_votes (vote_id, session_id, agent_name, round) VALUES (?, ?, ?, ?)",
         ("v1", "s1", "technician", 1),
     )
     conn.execute(
-        "INSERT INTO council_votes VALUES (?, ?, ?, ?)",
+        "INSERT INTO council_votes (vote_id, session_id, agent_name, round) VALUES (?, ?, ?, ?)",
         ("v2", "s1", "fundamentalist", 1),
     )
 
@@ -114,7 +75,7 @@ def test_db(tmp_path):
         ("2025-01-02", 19.2, "2025-01-02T09:00:00"),
     )
     conn.execute(
-        "INSERT INTO traffic_light_state VALUES (?, ?, ?)",
+        "INSERT INTO traffic_light_state (id, current_regime, updated_at) VALUES (?, ?, ?)",
         (1, "GREEN", "2025-01-02T09:05:00"),
     )
 

@@ -5,6 +5,7 @@ from collections import Counter
 from unittest.mock import patch
 
 from src.training.ingestion_gate import alert_training_halt, should_halt_batch, validate_training_example
+from tests.conftest import init_test_db
 
 
 VALID_EXAMPLE = """<why_now>
@@ -22,11 +23,7 @@ Key Risk: A sharp macro risk-off move could break the pullback structure
 
 
 def _make_db(db_path: str) -> None:
-    with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            "CREATE TABLE training_examples (output_text TEXT, created_at TEXT)"
-        )
-        conn.commit()
+    init_test_db(db_path, ["training_examples"])
 
 
 def test_valid_example_passes(tmp_path):
@@ -123,8 +120,10 @@ def test_duplicate_detected(tmp_path):
 
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO training_examples (output_text, created_at) VALUES (?, ?)",
-            (VALID_EXAMPLE, "2026-03-29T09:00:00"),
+            "INSERT INTO training_examples "
+            "(example_id, created_at, source, instruction, input_text, output_text) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            ("ex-dup-1", "2026-03-29T09:00:00", "test", "test instruction", "test input", VALID_EXAMPLE),
         )
         conn.commit()
 

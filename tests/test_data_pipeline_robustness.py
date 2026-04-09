@@ -36,19 +36,18 @@ class TestRetention:
         """Retention deletes rows older than the configured threshold."""
         from src.data_collection.retention import run_retention, RETENTION_RULES
 
+        from tests.conftest import init_test_db as _init_db
+        _init_db(tmp_db, ["activity_log"])
         with sqlite3.connect(tmp_db) as conn:
-            conn.execute("""CREATE TABLE activity_log (
-                id INTEGER PRIMARY KEY, created_at TEXT, message TEXT
-            )""")
             # Insert old row (60 days ago — exceeds 30-day rule)
             conn.execute(
-                "INSERT INTO activity_log (created_at, message) VALUES (?, ?)",
-                ("2020-01-01T00:00:00", "old"),
+                "INSERT INTO activity_log (event_type, created_at, detail) VALUES (?, ?, ?)",
+                ("test", "2020-01-01T00:00:00", "old"),
             )
             # Insert recent row
             conn.execute(
-                "INSERT INTO activity_log (created_at, message) VALUES (?, ?)",
-                ("2099-01-01T00:00:00", "recent"),
+                "INSERT INTO activity_log (event_type, created_at, detail) VALUES (?, ?, ?)",
+                ("test", "2099-01-01T00:00:00", "recent"),
             )
 
         result = run_retention(db_path=tmp_db)

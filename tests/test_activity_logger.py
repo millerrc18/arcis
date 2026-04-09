@@ -11,19 +11,12 @@ from src.utils.activity_logger import (
     TRADE_OPENED,
     SYSTEM_EVENT,
 )
+from tests.conftest import init_test_db
 
 
 def _create_activity_log_table(db_path: str) -> None:
     """Create the activity_log table expected by log_activity."""
-    with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS activity_log ("
-            "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
-            "  event_type TEXT NOT NULL,"
-            "  detail TEXT NOT NULL,"
-            "  created_at TEXT NOT NULL"
-            ")"
-        )
+    init_test_db(db_path, ["activity_log"])
 
 
 class TestLogActivity:
