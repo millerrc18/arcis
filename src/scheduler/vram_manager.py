@@ -103,6 +103,22 @@ class VRAMManager:
         """Unload the active Ollama model from VRAM."""
         model = self.get_active_model()
         base_url = self._get_ollama_base_url()
+
+        # Try graceful stop first (releases VRAM more reliably than keep_alive=0)
+        try:
+            import subprocess as _sp
+            result = _sp.run(
+                ["ollama", "stop", model],
+                capture_output=True, text=True, timeout=15,
+            )
+            if result.returncode == 0:
+                logger.info("[VRAM] Graceful stop succeeded for %s", model)
+                return True
+            logger.info("[VRAM] 'ollama stop' returned %d, falling back to keep_alive=0", result.returncode)
+        except Exception as e:
+            logger.info("[VRAM] 'ollama stop' unavailable (%s), falling back to keep_alive=0", e)
+
+        # Fallback: keep_alive=0 API call (existing code)
         try:
             resp = requests.post(
                 f"{base_url}/api/generate",
@@ -196,12 +212,12 @@ class VRAMManager:
         time.sleep(3)
 
         # Step 2: Verify VRAM clear
-        if not self._wait_for_vram_clear(threshold_mb=1500, timeout_seconds=30):
+        if not self._wait_for_vram_clear(threshold_mb=2500, timeout_seconds=30):
             # Retry unload
             logger.warning("[VRAM] VRAM not clear, retrying unload...")
             self._unload_ollama()
             time.sleep(3)
-            if not self._wait_for_vram_clear(threshold_mb=1500, timeout_seconds=30):
+            if not self._wait_for_vram_clear(threshold_mb=2500, timeout_seconds=30):
                 # Kill Ollama process entirely to free VRAM
                 logger.warning("[VRAM] Killing Ollama process to reclaim VRAM...")
                 self._kill_ollama_processes()
@@ -218,7 +234,7 @@ class VRAMManager:
                 # #304/#333: 3 retry attempts with 15s backoff before giving up
                 _vram_ready = False
                 for _retry in range(3):
-                    if self._wait_for_vram_clear(threshold_mb=1500, timeout_seconds=15):
+                    if self._wait_for_vram_clear(threshold_mb=2500, timeout_seconds=15):
                         _vram_ready = True
                         break
                     logger.warning("[VRAM] Retry %d/3: VRAM still not clear, waiting 15s...", _retry + 1)
