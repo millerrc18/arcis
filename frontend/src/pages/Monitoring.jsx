@@ -33,13 +33,13 @@ function pct(used, total) {
 export default function Monitoring() {
   const { data: history, isLoading } = useQuery({
     queryKey: ['monitoring-history'],
-    queryFn: () => fetchApi('/api/monitoring/history?hours=24'),
+    queryFn: () => fetchApi('/monitoring/history?hours=24'),
     refetchInterval: 60000,
   })
 
   const { data: snapshot, isFetching: snapshotFetching } = useQuery({
     queryKey: ['monitoring-snapshot'],
-    queryFn: () => fetchApi('/api/monitoring/snapshot'),
+    queryFn: () => fetchApi('/monitoring/snapshot'),
     refetchInterval: 300000,
   })
 

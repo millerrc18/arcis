@@ -22,7 +22,7 @@ export default function Strategy() {
   const [selectedStrategy, setSelectedStrategy] = useState('pullback')
   const { data, isLoading, error } = useQuery({
     queryKey: ['strategy-detail', selectedStrategy],
-    queryFn: () => fetchApi(`/api/strategy-detail/${selectedStrategy}`),
+    queryFn: () => fetchApi(`/strategy-detail/${selectedStrategy}`),
     refetchInterval: 120000,
   })
 
