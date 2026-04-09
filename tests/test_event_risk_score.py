@@ -8,13 +8,13 @@ from src.features.event_risk_score import (
     compute_event_risk_score,
     compute_market_event_risk,
 )
+from tests.conftest import init_test_db
 
 
 def _make_db(db_path: str) -> None:
+    init_test_db(db_path, ["earnings_calendar"])
     with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            "CREATE TABLE earnings_calendar (ticker TEXT, earnings_date TEXT)"
-        )
+        # economic_calendar is not in the schema registry; keep inline DDL
         conn.execute(
             "CREATE TABLE economic_calendar (event_type TEXT, event_date TEXT, description TEXT)"
         )
@@ -24,8 +24,8 @@ def _make_db(db_path: str) -> None:
 def _insert_earnings(db_path: str, ticker: str, earnings_date: str) -> None:
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            "INSERT INTO earnings_calendar (ticker, earnings_date) VALUES (?, ?)",
-            (ticker, earnings_date),
+            "INSERT INTO earnings_calendar (ticker, earnings_date, collected_at) VALUES (?, ?, ?)",
+            (ticker, earnings_date, "2026-01-01T00:00:00"),
         )
         conn.commit()
 

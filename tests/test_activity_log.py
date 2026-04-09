@@ -8,6 +8,8 @@ from unittest import mock
 
 import pytest
 
+from tests.conftest import init_test_db
+
 # Patch DB_PATH before importing the module
 _temp_db = tempfile.NamedTemporaryFile(suffix=".sqlite3", delete=False)
 _temp_db_path = _temp_db.name
@@ -22,18 +24,10 @@ def _patch_db(monkeypatch):
     monkeypatch.setattr(mod, "DB_PATH", _temp_db_path)
     monkeypatch.setattr(mod, "_table_created", False)
 
-    # Recreate the table from the schema registry (table creation is
-    # handled at startup by validate-schema --fix, not by the module)
+    # Recreate the table from the schema registry
     with sqlite3.connect(_temp_db_path) as conn:
         conn.execute("DROP TABLE IF EXISTS activity_log")
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS activity_log ("
-            "id INTEGER PRIMARY KEY, "
-            "event_type TEXT NOT NULL, "
-            "detail TEXT, "
-            "level TEXT, "
-            "created_at TEXT NOT NULL)"
-        )
+    init_test_db(_temp_db_path, ["activity_log"])
 
     yield
 

@@ -11,32 +11,17 @@ import numpy as np
 
 def _create_test_db(examples):
     """Create a temporary database with test training examples."""
+    from tests.conftest import init_test_db
     fd, db_path = tempfile.mkstemp(suffix=".sqlite3")
     os.close(fd)
 
-    conn = sqlite3.connect(db_path)
-    conn.execute("""
-        CREATE TABLE training_examples (
-            example_id TEXT PRIMARY KEY,
-            created_at TEXT,
-            source TEXT,
-            ticker TEXT,
-            recommendation_id TEXT,
-            feature_snapshot TEXT,
-            trade_outcome TEXT,
-            instruction TEXT,
-            input_text TEXT,
-            output_text TEXT,
-            quality_score REAL,
-            quality_score_auto REAL,
-            difficulty TEXT,
-            curriculum_stage TEXT
-        )
-    """)
+    init_test_db(db_path, ["training_examples"])
 
+    conn = sqlite3.connect(db_path)
     for i, (source, output_text) in enumerate(examples):
         conn.execute(
-            "INSERT INTO training_examples (example_id, source, output_text) VALUES (?, ?, ?)",
+            "INSERT INTO training_examples (example_id, source, output_text, created_at, instruction, input_text) "
+            "VALUES (?, ?, ?, '2026-01-01T00:00:00', 'test', 'test')",
             (f"ex-{i}", source, output_text),
         )
     conn.commit()
@@ -188,33 +173,17 @@ class TestLeakageDetectorEdgeCases:
 
 def _create_embedding_test_db(examples):
     """Create a temp DB with training_examples including trade_outcome column."""
+    from tests.conftest import init_test_db
     fd, db_path = tempfile.mkstemp(suffix=".sqlite3")
     os.close(fd)
+
+    init_test_db(db_path, ["training_examples"])
+
     conn = sqlite3.connect(db_path)
-    conn.execute("""
-        CREATE TABLE training_examples (
-            example_id TEXT PRIMARY KEY,
-            created_at TEXT,
-            source TEXT,
-            ticker TEXT,
-            recommendation_id TEXT,
-            feature_snapshot TEXT,
-            trade_outcome TEXT,
-            instruction TEXT,
-            input_text TEXT,
-            output_text TEXT,
-            quality_score REAL,
-            quality_score_auto REAL,
-            difficulty TEXT,
-            curriculum_stage TEXT,
-            outcome_type TEXT,
-            regime TEXT
-        )
-    """)
     for i, (source, output_text, trade_outcome) in enumerate(examples):
         conn.execute(
-            "INSERT INTO training_examples (example_id, source, output_text, trade_outcome, instruction, input_text) "
-            "VALUES (?, ?, ?, ?, 'test', 'test')",
+            "INSERT INTO training_examples (example_id, source, output_text, trade_outcome, instruction, input_text, created_at) "
+            "VALUES (?, ?, ?, ?, 'test', 'test', '2026-01-01T00:00:00')",
             (f"ex-{i}", source, output_text, trade_outcome),
         )
     conn.commit()

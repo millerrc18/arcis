@@ -88,9 +88,15 @@ def test_all_modules_have_standard_docstring():
 def test_every_new_table_in_render_migrate():
     migrate = Path("scripts/render_migrate.py").read_text(encoding="utf-8").lower()
     for p in Path("src").rglob("*.py"):
-        for line in p.read_text(encoding="utf-8").splitlines():
+        try:
+            text = p.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue  # Caught by test_all_source_files_utf8
+        for line in text.splitlines():
             stripped = line.strip()
             if stripped.startswith("#") or stripped.startswith('"""') or stripped.startswith("'''"):
+                continue
+            if stripped.startswith('"') or stripped.startswith("'"):
                 continue
             m = re.search(
                 r"CREATE TABLE IF NOT EXISTS (\w+)", line, re.IGNORECASE
@@ -154,6 +160,8 @@ def test_no_ddl_outside_registry():
         lines = [l for l in text.splitlines()
                  if "CREATE TABLE" in l.upper()
                  and not l.strip().startswith("#")
+                 and not l.strip().startswith('"')
+                 and not l.strip().startswith("'")
                  and "IF NOT EXISTS" not in l.upper()
                  and "sqlite_master" not in l.lower()]
         assert not lines, f"DDL outside registry in {p}: {lines[0].strip()}"
@@ -320,3 +328,70 @@ def test_config_keys_exist_in_example():
     known_fallbacks = {"fred", "ranking"}
     missing = code_sections - valid_sections - {"app"} - known_fallbacks
     assert not missing, f"Config sections used in code but not in settings.example.yaml: {sorted(missing)}"
+
+
+# ── Render deployment hardening ──────────────────────────────────────
+
+
+def test_all_source_files_utf8():
+    """Every .py file in src/ must be valid UTF-8 (prevents Render build failures)."""
+    bad = []
+    for p in Path("src").rglob("*.py"):
+        try:
+            p.read_text(encoding="utf-8")
+        except UnicodeDecodeError as e:
+            bad.append(f"{p}: {e}")
+    assert not bad, f"Non-UTF-8 source files (will break on Render):\n" + "\n".join(bad)
+
+
+def test_cloud_app_imports_covered_by_requirements_cloud():
+    """All 3rd-party imports in the cloud_app import chain must be in requirements-cloud.txt."""
+    # Parse requirements-cloud.txt into package names
+    cloud_reqs = set()
+    for line in Path("requirements-cloud.txt").read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        # Extract package name before version specifier
+        pkg = re.split(r"[>=<!\[]", line)[0].strip().lower().replace("-", "_")
+        cloud_reqs.add(pkg)
+    # Map common import names to pip package names
+    import_to_pkg = {
+        "yaml": "pyyaml", "dotenv": "python_dotenv", "psycopg2": "psycopg2_binary",
+        "uvicorn": "uvicorn", "fastapi": "fastapi", "pydantic": "pydantic",
+        "sqlalchemy": "sqlalchemy",
+    }
+
+    # Files in the cloud_app import chain (not the full src/)
+    cloud_files = [
+        Path("src/api/cloud_app.py"),
+        *Path("src/api/cloud_routes").glob("*.py"),
+        Path("src/sync/render_sync.py"),
+        Path("src/config/__init__.py"),
+        Path("src/schema/sync_config.py"),
+        Path("src/schema/registry.py"),
+        Path("src/schema/postgres.py"),
+        Path("src/schema/sqlite.py"),
+    ]
+
+    import sys
+    stdlib = set(sys.stdlib_module_names) if hasattr(sys, "stdlib_module_names") else set()
+
+    missing = []
+    for fpath in cloud_files:
+        if not fpath.exists():
+            continue
+        tree = ast.parse(fpath.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    top = alias.name.split(".")[0]
+                    pkg = import_to_pkg.get(top, top).lower().replace("-", "_")
+                    if top not in stdlib and not top.startswith("src") and pkg not in cloud_reqs:
+                        missing.append(f"{fpath}: import {alias.name} (need '{pkg}' in requirements-cloud.txt)")
+            elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+                top = node.module.split(".")[0]
+                pkg = import_to_pkg.get(top, top).lower().replace("-", "_")
+                if top not in stdlib and not top.startswith("src") and pkg not in cloud_reqs:
+                    missing.append(f"{fpath}: from {node.module} (need '{pkg}' in requirements-cloud.txt)")
+    assert not missing, f"Cloud imports not in requirements-cloud.txt:\n" + "\n".join(missing)

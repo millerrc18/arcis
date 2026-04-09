@@ -1,5 +1,11 @@
 """Collector error classes for surfacing failures to the watch loop.
 
+Called by: data_collection.*, scheduler.watch (_safe_run)
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: tests/test_data_collectors.py
+
 CollectorConfigError: raised when a required API key or config is missing (#124, #227).
     Before these error classes existed, collectors would silently return a success
     dict with an "error" field, which the watch loop treated as success. Now they

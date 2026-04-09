@@ -1,5 +1,11 @@
 """OHLCV data cache for simulation engine — avoids re-fetching from yfinance.
 
+Called by: scripts/simulation_engine.py
+Calls: universe.sp100
+Owns tables: none (parquet files in data/simulation_cache/)
+Config keys: none
+Tests: tests/test_simulation.py
+
 First run downloads all data (~20 min for 13 scenarios x 103 tickers).
 Subsequent runs: <2 min reading from parquet cache.
 

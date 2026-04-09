@@ -207,35 +207,20 @@ class TestTypeCoercion:
 
 def _init_db(db_path):
     """Create minimal shadow_trades and activity_log tables for testing."""
-    import sqlite3
-    with sqlite3.connect(str(db_path)) as conn:
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS shadow_trades ("
-            "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
-            "  ticker TEXT,"
-            "  status TEXT,"
-            "  pnl_dollars REAL,"
-            "  actual_exit_time TEXT"
-            ")"
-        )
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS activity_log ("
-            "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
-            "  event_type TEXT NOT NULL,"
-            "  detail TEXT NOT NULL,"
-            "  created_at TEXT NOT NULL"
-            ")"
-        )
+    from tests.conftest import init_test_db
+    init_test_db(str(db_path), ["shadow_trades", "activity_log"])
 
 
 def _add_closed_trade(db_path, pnl):
     """Insert a closed trade with the given P&L."""
     import sqlite3
+    import uuid
+    trade_id = f"test-{uuid.uuid4()}"
     with sqlite3.connect(str(db_path)) as conn:
         conn.execute(
-            "INSERT INTO shadow_trades (ticker, status, pnl_dollars, actual_exit_time) "
-            "VALUES ('TEST', 'closed', ?, '2026-01-01 16:00:00')",
-            (pnl,),
+            "INSERT INTO shadow_trades (trade_id, ticker, status, pnl_dollars, actual_exit_time, created_at, updated_at) "
+            "VALUES (?, 'TEST', 'closed', ?, '2026-01-01 16:00:00', '2026-01-01T10:00:00', '2026-01-01T16:00:00')",
+            (trade_id, pnl),
         )
 
 

@@ -132,7 +132,9 @@ class TestCheckConfig:
         config = {
             "alpaca": {"api_key": "YOUR_PAPER_API_KEY", "api_secret": "YOUR_SECRET"},
         }
-        with patch("pathlib.Path.exists", return_value=True):
+        env_patch = {"ALPACA_API_KEY": "", "ALPACA_API_SECRET": ""}
+        with patch("pathlib.Path.exists", return_value=True), \
+             patch.dict("os.environ", env_patch, clear=False):
             results = check_config(config)
         criticals = [r for r in results if r.status == "critical"]
         assert any("Placeholder" in c.detail for c in criticals)

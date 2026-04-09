@@ -177,25 +177,17 @@ _AGENTS = [
 
 def _create_council_db(tmp_path, votes_per_agent=15, correct_ratio=0.7):
     """Create a test DB with council_votes and shadow_trades for dynamic weighting."""
+    from tests.conftest import init_test_db
     db_path = str(tmp_path / "council_dynamic.db")
+    init_test_db(db_path, ["council_sessions", "council_votes", "shadow_trades"])
+
     conn = sqlite3.connect(db_path)
-    conn.execute("""CREATE TABLE IF NOT EXISTS council_sessions (
-        session_id TEXT PRIMARY KEY, session_type TEXT, trigger_reason TEXT,
-        created_at TEXT, rounds_completed INTEGER DEFAULT 0,
-        consensus TEXT, confidence_weighted_score REAL,
-        is_contested INTEGER, total_cost REAL, result_json TEXT
-    )""")
-    conn.execute("""CREATE TABLE IF NOT EXISTS council_votes (
-        vote_id TEXT PRIMARY KEY, session_id TEXT, agent_name TEXT,
-        round INTEGER, position TEXT, confidence INTEGER,
-        recommendation TEXT, key_data_points TEXT, risk_flags TEXT,
-        vote TEXT, is_devils_advocate INTEGER,
-        direction TEXT, confidence_float REAL, assessment_json TEXT
-    )""")
-    conn.execute("""CREATE TABLE IF NOT EXISTS shadow_trades (
-        trade_id TEXT PRIMARY KEY, session_id TEXT, ticker TEXT,
-        status TEXT, pnl_dollars REAL, actual_entry_time TEXT
-    )""")
+    # The production query joins shadow_trades on session_id; the registry
+    # schema doesn't include it yet, so add it for test compatibility.
+    try:
+        conn.execute("ALTER TABLE shadow_trades ADD COLUMN session_id TEXT")
+    except Exception:
+        pass  # column already exists
 
     now = datetime.now(_ET)
     for i in range(votes_per_agent):
@@ -220,9 +212,9 @@ def _create_council_db(tmp_path, votes_per_agent=15, correct_ratio=0.7):
         pnl = 100.0 if i < int(votes_per_agent * correct_ratio) else -100.0
         trade_id = str(uuid.uuid4())
         conn.execute(
-            "INSERT INTO shadow_trades (trade_id, session_id, ticker, status, pnl_dollars) "
-            "VALUES (?, ?, 'TEST', 'closed', ?)",
-            (trade_id, session_id, pnl),
+            "INSERT INTO shadow_trades (trade_id, session_id, ticker, status, pnl_dollars, created_at, updated_at) "
+            "VALUES (?, ?, 'TEST', 'closed', ?, ?, ?)",
+            (trade_id, session_id, pnl, created_at, created_at),
         )
 
     conn.commit()

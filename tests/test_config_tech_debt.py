@@ -10,6 +10,8 @@ from datetime import date, datetime
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
+from tests.conftest import init_test_db
+
 
 def test_db_path_imported_correctly():
     """DB_PATH constant imported from src.config without error."""
@@ -19,16 +21,16 @@ def test_db_path_imported_correctly():
     assert DB_PATH.endswith(".sqlite3")
 
 
-def test_index_creation_sql_runs_without_error():
-    """Index creation SQL from create_missing_tables runs on an in-memory DB."""
-    conn = sqlite3.connect(":memory:")
+def test_index_creation_sql_runs_without_error(tmp_path):
+    """Index creation SQL from create_missing_tables runs on a temp DB."""
+    db_path = str(tmp_path / "tech_debt.db")
+    init_test_db(db_path, ["shadow_trades", "recommendations"])
+
+    conn = sqlite3.connect(db_path)
     cur = conn.cursor()
 
-    # Create minimal tables so the indexes can be applied
-    cur.execute("CREATE TABLE shadow_trades (status TEXT, actual_entry_time TEXT)")
-    cur.execute("CREATE TABLE recommendations (created_at TEXT)")
-
-    # These are the index statements from #92 and #97
+    # These indexes should already exist from the registry schema;
+    # re-running with IF NOT EXISTS should be a no-op.
     cur.execute("CREATE INDEX IF NOT EXISTS idx_shadow_trades_status ON shadow_trades(status)")
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_shadow_trades_status_time "

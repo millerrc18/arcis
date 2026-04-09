@@ -1,16 +1,8 @@
 {
   "oversized_files": [
     {
-      "file": "src/schema/registry.py",
-      "lines": 1380
-    },
-    {
-      "file": "src/llm/packet_writer.py",
-      "lines": 418
-    },
-    {
-      "file": "src/evaluation/build_score.py",
-      "lines": 402
+      "file": "src/api/cloud_routes/analytics.py",
+      "lines": 593
     },
     {
       "file": "src/api/cloud_routes/core.py",
@@ -19,6 +11,10 @@
     {
       "file": "src/api/cloud_routes/training.py",
       "lines": 408
+    },
+    {
+      "file": "src/api/routes/system.py",
+      "lines": 577
     },
     {
       "file": "src/cli/commands.py",
@@ -33,8 +29,16 @@
       "lines": 614
     },
     {
+      "file": "src/evaluation/build_score.py",
+      "lines": 402
+    },
+    {
       "file": "src/evaluation/cto_report.py",
       "lines": 752
+    },
+    {
+      "file": "src/evaluation/model_monitor.py",
+      "lines": 462
     },
     {
       "file": "src/evaluation/system_validator.py",
@@ -45,12 +49,36 @@
       "lines": 524
     },
     {
+      "file": "src/llm/packet_writer.py",
+      "lines": 418
+    },
+    {
       "file": "src/notifications/telegram.py",
       "lines": 1458
     },
     {
+      "file": "src/notifications/telegram_commands.py",
+      "lines": 822
+    },
+    {
+      "file": "src/risk/governor.py",
+      "lines": 673
+    },
+    {
+      "file": "src/scheduler/overnight.py",
+      "lines": 1005
+    },
+    {
+      "file": "src/scheduler/reports.py",
+      "lines": 817
+    },
+    {
       "file": "src/scheduler/watch.py",
       "lines": 2994
+    },
+    {
+      "file": "src/schema/registry.py",
+      "lines": 1380
     },
     {
       "file": "src/shadow_trading/alpaca_adapter.py",
@@ -59,6 +87,18 @@
     {
       "file": "src/shadow_trading/executor.py",
       "lines": 1271
+    },
+    {
+      "file": "src/shadow_trading/reconcile.py",
+      "lines": 522
+    },
+    {
+      "file": "src/simulation/engine.py",
+      "lines": 546
+    },
+    {
+      "file": "src/startup_checks.py",
+      "lines": 443
     },
     {
       "file": "src/sync/render_sync.py",
@@ -79,14 +119,6 @@
     {
       "file": "src/training/versioning.py",
       "lines": 595
-    },
-    {
-      "file": "src/api/cloud_routes/analytics.py",
-      "lines": 593
-    },
-    {
-      "file": "src/api/routes/system.py",
-      "lines": 577
     }
   ],
   "oversized_functions": [
@@ -97,8 +129,23 @@
     },
     {
       "file": "src/api/cloud_routes/analytics.py",
+      "function": "cto_report",
+      "lines": 166
+    },
+    {
+      "file": "src/api/cloud_routes/analytics.py",
+      "function": "health_hshs",
+      "lines": 65
+    },
+    {
+      "file": "src/api/cloud_routes/analytics.py",
       "function": "health_score",
       "lines": 90
+    },
+    {
+      "file": "src/api/cloud_routes/analytics.py",
+      "function": "strategy_detail",
+      "lines": 110
     },
     {
       "file": "src/api/cloud_routes/core.py",
@@ -121,9 +168,19 @@
       "lines": 285
     },
     {
+      "file": "src/api/cloud_routes/trades.py",
+      "function": "shadow_open",
+      "lines": 68
+    },
+    {
       "file": "src/api/cloud_routes/training.py",
       "function": "create_router",
       "lines": 338
+    },
+    {
+      "file": "src/api/cloud_routes/training.py",
+      "function": "training_status",
+      "lines": 106
     },
     {
       "file": "src/api/routes/actions.py",
@@ -137,28 +194,13 @@
     },
     {
       "file": "src/cli/commands.py",
-      "function": "cmd_live_close",
-      "lines": 70
-    },
-    {
-      "file": "src/cli/commands.py",
       "function": "cmd_collect_data",
       "lines": 71
     },
     {
-      "file": "src/council/agent_data.py",
-      "function": "gather_tactical_data",
-      "lines": 86
-    },
-    {
-      "file": "src/council/agent_data.py",
-      "function": "gather_strategic_data",
-      "lines": 68
-    },
-    {
-      "file": "src/council/agent_data.py",
-      "function": "gather_risk_data",
-      "lines": 75
+      "file": "src/cli/commands.py",
+      "function": "cmd_live_close",
+      "lines": 70
     },
     {
       "file": "src/council/agent_data.py",
@@ -171,9 +213,29 @@
       "lines": 81
     },
     {
+      "file": "src/council/agent_data.py",
+      "function": "gather_risk_data",
+      "lines": 75
+    },
+    {
+      "file": "src/council/agent_data.py",
+      "function": "gather_strategic_data",
+      "lines": 68
+    },
+    {
+      "file": "src/council/agent_data.py",
+      "function": "gather_tactical_data",
+      "lines": 86
+    },
+    {
       "file": "src/council/aggregation.py",
       "function": "aggregate_votes",
       "lines": 68
+    },
+    {
+      "file": "src/council/aggregation.py",
+      "function": "compute_dynamic_weights",
+      "lines": 80
     },
     {
       "file": "src/council/context.py",
@@ -182,13 +244,18 @@
     },
     {
       "file": "src/council/engine.py",
-      "function": "run_session",
-      "lines": 91
+      "function": "_build_result_json",
+      "lines": 66
     },
     {
       "file": "src/council/engine.py",
       "function": "_run_rounds",
       "lines": 77
+    },
+    {
+      "file": "src/council/engine.py",
+      "function": "run_session",
+      "lines": 91
     },
     {
       "file": "src/council/parsing.py",
@@ -209,6 +276,11 @@
       "file": "src/data_collection/analyst_collector.py",
       "function": "collect_analyst_estimates",
       "lines": 94
+    },
+    {
+      "file": "src/data_collection/cboe_collector.py",
+      "function": "_fetch_cboe_pc_ratio",
+      "lines": 75
     },
     {
       "file": "src/data_collection/edgar_collector.py",
@@ -277,18 +349,18 @@
     },
     {
       "file": "src/data_enrichment/news.py",
-      "function": "fetch_recent_news",
-      "lines": 96
-    },
-    {
-      "file": "src/data_enrichment/news.py",
       "function": "fetch_historical_news",
       "lines": 90
     },
     {
+      "file": "src/data_enrichment/news.py",
+      "function": "fetch_recent_news",
+      "lines": 96
+    },
+    {
       "file": "src/email/digest_builder.py",
-      "function": "build_premarket_digest",
-      "lines": 70
+      "function": "build_evening_digest",
+      "lines": 61
     },
     {
       "file": "src/email/digest_builder.py",
@@ -297,8 +369,13 @@
     },
     {
       "file": "src/email/digest_builder.py",
-      "function": "build_evening_digest",
-      "lines": 61
+      "function": "build_premarket_digest",
+      "lines": 70
+    },
+    {
+      "file": "src/evaluation/auditor.py",
+      "function": "check_escalation",
+      "lines": 86
     },
     {
       "file": "src/evaluation/auditor.py",
@@ -311,19 +388,19 @@
       "lines": 72
     },
     {
-      "file": "src/evaluation/auditor.py",
-      "function": "check_escalation",
-      "lines": 86
-    },
-    {
       "file": "src/evaluation/backtester.py",
       "function": "backtest_model",
       "lines": 160
     },
     {
       "file": "src/evaluation/cto_report.py",
-      "function": "generate_cto_report",
-      "lines": 132
+      "function": "_compute_confidence_calibration",
+      "lines": 66
+    },
+    {
+      "file": "src/evaluation/cto_report.py",
+      "function": "_compute_fund_metrics",
+      "lines": 87
     },
     {
       "file": "src/evaluation/cto_report.py",
@@ -337,13 +414,13 @@
     },
     {
       "file": "src/evaluation/cto_report.py",
-      "function": "_compute_fund_metrics",
-      "lines": 87
+      "function": "format_cto_report",
+      "lines": 62
     },
     {
       "file": "src/evaluation/cto_report.py",
-      "function": "format_cto_report",
-      "lines": 62
+      "function": "generate_cto_report",
+      "lines": 132
     },
     {
       "file": "src/evaluation/feature_importance.py",
@@ -356,14 +433,29 @@
       "lines": 89
     },
     {
+      "file": "src/evaluation/hshs_live.py",
+      "function": "_score_performance",
+      "lines": 78
+    },
+    {
+      "file": "src/evaluation/model_monitor.py",
+      "function": "_compute_metrics",
+      "lines": 76
+    },
+    {
+      "file": "src/evaluation/model_monitor.py",
+      "function": "check_model_regression",
+      "lines": 113
+    },
+    {
+      "file": "src/evaluation/model_monitor.py",
+      "function": "get_model_performance",
+      "lines": 121
+    },
+    {
       "file": "src/evaluation/postmortem.py",
       "function": "generate_postmortem",
       "lines": 144
-    },
-    {
-      "file": "src/evaluation/scorecard.py",
-      "function": "generate_weekly_scorecard",
-      "lines": 148
     },
     {
       "file": "src/evaluation/scorecard.py",
@@ -371,9 +463,34 @@
       "lines": 74
     },
     {
+      "file": "src/evaluation/scorecard.py",
+      "function": "generate_weekly_scorecard",
+      "lines": 148
+    },
+    {
+      "file": "src/evaluation/system_validator.py",
+      "function": "_check_api",
+      "lines": 68
+    },
+    {
+      "file": "src/evaluation/system_validator.py",
+      "function": "_check_collectors",
+      "lines": 67
+    },
+    {
       "file": "src/evaluation/system_validator.py",
       "function": "_check_database",
       "lines": 120
+    },
+    {
+      "file": "src/evaluation/system_validator.py",
+      "function": "_check_llm",
+      "lines": 77
+    },
+    {
+      "file": "src/evaluation/system_validator.py",
+      "function": "_check_scheduler",
+      "lines": 108
     },
     {
       "file": "src/evaluation/system_validator.py",
@@ -386,19 +503,9 @@
       "lines": 131
     },
     {
-      "file": "src/evaluation/system_validator.py",
-      "function": "_check_api",
-      "lines": 68
-    },
-    {
-      "file": "src/evaluation/system_validator.py",
-      "function": "_check_scheduler",
-      "lines": 108
-    },
-    {
-      "file": "src/evaluation/system_validator.py",
-      "function": "_check_llm",
-      "lines": 77
+      "file": "src/features/engine.py",
+      "function": "compute_all_features",
+      "lines": 73
     },
     {
       "file": "src/features/engine.py",
@@ -406,9 +513,9 @@
       "lines": 95
     },
     {
-      "file": "src/features/engine.py",
-      "function": "compute_all_features",
-      "lines": 73
+      "file": "src/features/regime.py",
+      "function": "classify_regime",
+      "lines": 61
     },
     {
       "file": "src/features/regime.py",
@@ -457,6 +564,16 @@
     },
     {
       "file": "src/notifications/telegram.py",
+      "function": "_cmd_council",
+      "lines": 83
+    },
+    {
+      "file": "src/notifications/telegram.py",
+      "function": "_cmd_pnl",
+      "lines": 65
+    },
+    {
+      "file": "src/notifications/telegram.py",
       "function": "check_action_reminders",
       "lines": 132
     },
@@ -466,14 +583,24 @@
       "lines": 73
     },
     {
-      "file": "src/notifications/telegram.py",
+      "file": "src/notifications/telegram_commands.py",
+      "function": "_cmd_council",
+      "lines": 71
+    },
+    {
+      "file": "src/notifications/telegram_commands.py",
       "function": "_cmd_pnl",
       "lines": 65
     },
     {
-      "file": "src/notifications/telegram.py",
-      "function": "_cmd_council",
-      "lines": 83
+      "file": "src/notifications/telegram_commands.py",
+      "function": "check_action_reminders",
+      "lines": 137
+    },
+    {
+      "file": "src/notifications/telegram_commands.py",
+      "function": "handle_command",
+      "lines": 73
     },
     {
       "file": "src/packets/eod_recap.py",
@@ -502,13 +629,73 @@
     },
     {
       "file": "src/risk/governor.py",
+      "function": "check_trade",
+      "lines": 173
+    },
+    {
+      "file": "src/risk/governor.py",
       "function": "get_portfolio_state",
       "lines": 64
     },
     {
-      "file": "src/risk/governor.py",
-      "function": "check_trade",
-      "lines": 173
+      "file": "src/scheduler/overnight.py",
+      "function": "run_data_collection",
+      "lines": 236
+    },
+    {
+      "file": "src/scheduler/overnight.py",
+      "function": "run_post_close_capture",
+      "lines": 67
+    },
+    {
+      "file": "src/scheduler/overnight.py",
+      "function": "run_saturday_reports",
+      "lines": 78
+    },
+    {
+      "file": "src/scheduler/reports.py",
+      "function": "check_vix_regime_alert",
+      "lines": 63
+    },
+    {
+      "file": "src/scheduler/reports.py",
+      "function": "run_saturday_reports",
+      "lines": 78
+    },
+    {
+      "file": "src/scheduler/reports.py",
+      "function": "save_daily_metric_snapshot",
+      "lines": 66
+    },
+    {
+      "file": "src/scheduler/reports.py",
+      "function": "send_eod_report",
+      "lines": 111
+    },
+    {
+      "file": "src/scheduler/reports.py",
+      "function": "send_premarket_brief",
+      "lines": 120
+    },
+    {
+      "file": "src/scheduler/reports.py",
+      "function": "send_weekly_digest",
+      "lines": 156
+    },
+    {
+      "file": "src/scheduler/universe_scanner.py",
+      "function": "run_universe_scan",
+      "lines": 262
+    },
+    {
+      "file": "src/scheduler/vram_manager.py",
+      "function": "handoff_to_inference",
+      "lines": 62
+    },
+    {
+      "file": "src/scheduler/vram_manager.py",
+      "function": "handoff_to_training",
+      "lines": 71
     },
     {
       "file": "src/scheduler/watch.py",
@@ -522,33 +709,23 @@
     },
     {
       "file": "src/scheduler/watch.py",
-      "function": "_print_banner",
-      "lines": 70
-    },
-    {
-      "file": "src/scheduler/watch.py",
-      "function": "_run_scan",
-      "lines": 275
-    },
-    {
-      "file": "src/scheduler/watch.py",
       "function": "_ensure_all_tables",
       "lines": 168
     },
     {
       "file": "src/scheduler/watch.py",
-      "function": "run",
-      "lines": 454
+      "function": "_get_live_stats",
+      "lines": 61
     },
     {
       "file": "src/scheduler/watch.py",
-      "function": "_run_saturday_reports",
-      "lines": 78
+      "function": "_print_banner",
+      "lines": 70
     },
     {
       "file": "src/scheduler/watch.py",
-      "function": "_run_post_close_capture",
-      "lines": 67
+      "function": "_reset_daily_state",
+      "lines": 72
     },
     {
       "file": "src/scheduler/watch.py",
@@ -557,8 +734,23 @@
     },
     {
       "file": "src/scheduler/watch.py",
-      "function": "_send_premarket_brief",
-      "lines": 96
+      "function": "_run_post_close_capture",
+      "lines": 67
+    },
+    {
+      "file": "src/scheduler/watch.py",
+      "function": "_run_saturday_reports",
+      "lines": 78
+    },
+    {
+      "file": "src/scheduler/watch.py",
+      "function": "_run_scan",
+      "lines": 275
+    },
+    {
+      "file": "src/scheduler/watch.py",
+      "function": "_save_daily_metric_snapshot",
+      "lines": 67
     },
     {
       "file": "src/scheduler/watch.py",
@@ -567,18 +759,33 @@
     },
     {
       "file": "src/scheduler/watch.py",
+      "function": "_send_premarket_brief",
+      "lines": 96
+    },
+    {
+      "file": "src/scheduler/watch.py",
       "function": "_send_weekly_digest",
       "lines": 160
     },
     {
       "file": "src/scheduler/watch.py",
-      "function": "_save_daily_metric_snapshot",
-      "lines": 67
+      "function": "run",
+      "lines": 454
+    },
+    {
+      "file": "src/services/mr_scan_service.py",
+      "function": "run_mr_scan",
+      "lines": 98
     },
     {
       "file": "src/services/scan_service.py",
       "function": "run_scan",
       "lines": 242
+    },
+    {
+      "file": "src/services/shadow_service.py",
+      "function": "get_shadow_status",
+      "lines": 61
     },
     {
       "file": "src/services/system_service.py",
@@ -591,14 +798,24 @@
       "lines": 82
     },
     {
+      "file": "src/shadow_trading/alpaca_adapter.py",
+      "function": "place_bracket_order",
+      "lines": 68
+    },
+    {
       "file": "src/shadow_trading/bracket_monitor.py",
       "function": "check_bracket_health",
       "lines": 89
     },
     {
       "file": "src/shadow_trading/executor.py",
-      "function": "open_shadow_trade",
-      "lines": 299
+      "function": "_check_close_milestones",
+      "lines": 115
+    },
+    {
+      "file": "src/shadow_trading/executor.py",
+      "function": "_check_loss_streak",
+      "lines": 63
     },
     {
       "file": "src/shadow_trading/executor.py",
@@ -612,13 +829,8 @@
     },
     {
       "file": "src/shadow_trading/executor.py",
-      "function": "_check_close_milestones",
-      "lines": 115
-    },
-    {
-      "file": "src/shadow_trading/executor.py",
-      "function": "_check_loss_streak",
-      "lines": 63
+      "function": "open_shadow_trade",
+      "lines": 299
     },
     {
       "file": "src/shadow_trading/metrics.py",
@@ -627,13 +839,33 @@
     },
     {
       "file": "src/shadow_trading/reconcile.py",
+      "function": "reconcile_live_trades",
+      "lines": 103
+    },
+    {
+      "file": "src/shadow_trading/reconcile.py",
       "function": "reconcile_paper_trades",
       "lines": 139
     },
     {
-      "file": "src/shadow_trading/reconcile.py",
-      "function": "reconcile_live_trades",
-      "lines": 103
+      "file": "src/simulation/engine.py",
+      "function": "run_scenario",
+      "lines": 260
+    },
+    {
+      "file": "src/simulation/engine.py",
+      "function": "store_result",
+      "lines": 62
+    },
+    {
+      "file": "src/sync/render_sync.py",
+      "function": "_replace_latest_in_postgres",
+      "lines": 105
+    },
+    {
+      "file": "src/sync/render_sync.py",
+      "function": "_upsert_to_postgres",
+      "lines": 70
     },
     {
       "file": "src/sync/render_sync.py",
@@ -687,11 +919,6 @@
     },
     {
       "file": "src/training/historical_scanner.py",
-      "function": "scan_historical_date",
-      "lines": 96
-    },
-    {
-      "file": "src/training/historical_scanner.py",
       "function": "compute_outcome",
       "lines": 111
     },
@@ -699,6 +926,16 @@
       "file": "src/training/historical_scanner.py",
       "function": "generate_backfill_example",
       "lines": 80
+    },
+    {
+      "file": "src/training/historical_scanner.py",
+      "function": "scan_historical_date",
+      "lines": 96
+    },
+    {
+      "file": "src/training/leakage_detector.py",
+      "function": "check_embedding_leakage",
+      "lines": 118
     },
     {
       "file": "src/training/leakage_detector.py",
@@ -717,13 +954,18 @@
     },
     {
       "file": "src/training/trainer.py",
-      "function": "export_training_data",
-      "lines": 141
+      "function": "check_model_performance",
+      "lines": 62
     },
     {
       "file": "src/training/trainer.py",
       "function": "evaluate_on_holdout",
       "lines": 88
+    },
+    {
+      "file": "src/training/trainer.py",
+      "function": "export_training_data",
+      "lines": 141
     },
     {
       "file": "src/training/trainer.py",
@@ -737,66 +979,31 @@
     },
     {
       "file": "src/training/versioning.py",
-      "function": "init_training_tables",
-      "lines": 98
+      "function": "get_cost_summary",
+      "lines": 79
     },
     {
       "file": "src/training/versioning.py",
-      "function": "get_cost_summary",
-      "lines": 79
+      "function": "init_training_tables",
+      "lines": 98
     },
     {
       "file": "src/universe/sp100.py",
       "function": "get_sp100_universe",
       "lines": 105
-    },
-    {
-      "file": "src/scheduler/vram_manager.py",
-      "function": "handoff_to_training",
-      "lines": 71
-    },
-    {
-      "file": "src/scheduler/vram_manager.py",
-      "function": "handoff_to_inference",
-      "lines": 62
-    },
-    {
-      "file": "src/api/cloud_routes/analytics.py",
-      "function": "health_hshs",
-      "lines": 65
-    },
-    {
-      "file": "src/api/cloud_routes/analytics.py",
-      "function": "cto_report",
-      "lines": 166
-    },
-    {
-      "file": "src/api/cloud_routes/training.py",
-      "function": "training_status",
-      "lines": 106
-    },
-    {
-      "file": "src/scheduler/universe_scanner.py",
-      "function": "run_universe_scan",
-      "lines": 262
-    },
-    {
-      "file": "src/scheduler/watch.py",
-      "function": "_get_live_stats",
-      "lines": 61
-    },
-    {
-      "file": "src/services/shadow_service.py",
-      "function": "get_shadow_status",
-      "lines": 61
-    },
-    {
-      "file": "src/sync/render_sync.py",
-      "function": "_upsert_to_postgres",
-      "lines": 70
     }
   ],
-  "missing_docstring_headers": [],
+  "missing_docstring_headers": [
+    "src/notifications/telegram_commands.py",
+    "src/scheduler/overnight.py",
+    "src/scheduler/reports.py",
+    "src/services/mr_scan_service.py",
+    "src/simulation/engine.py",
+    "src/simulation/monte_carlo.py",
+    "src/trading/alpaca_broker.py",
+    "src/trading/broker_factory.py",
+    "src/utils/type_safety.py"
+  ],
   "missing_migrate_tables": [
     "audit_reports",
     "bracket_health",

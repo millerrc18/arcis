@@ -146,7 +146,7 @@ def fetch_recent_news(ticker: str, lookback_days: int = 7,
         logger.debug("Finnhub news request failed for %s: %s", ticker, e)
         return None
 
-    # Rate limit — shared with insider fetcher (Finnhub 60/min)
+    # Rate limit -- shared with insider fetcher (Finnhub 60/min)
     time.sleep(1.0)
 
     if not articles:

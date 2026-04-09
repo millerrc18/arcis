@@ -6,6 +6,8 @@ import pytest
 from unittest.mock import patch
 from pathlib import Path
 
+from tests.conftest import init_test_db
+
 
 @pytest.fixture
 def db_path(tmp_path):
@@ -80,11 +82,14 @@ class TestEscalation:
 
         # Create a DB with 50+ closed trades so we exit bootcamp mode
         db_path = str(tmp_path / "test.sqlite3")
-        import sqlite3
+        init_test_db(db_path, ["shadow_trades"])
         conn = sqlite3.connect(db_path)
-        conn.execute("CREATE TABLE shadow_trades (trade_id TEXT, status TEXT)")
         for i in range(55):
-            conn.execute("INSERT INTO shadow_trades VALUES (?, 'closed')", (f"t{i}",))
+            conn.execute(
+                "INSERT INTO shadow_trades (trade_id, ticker, status, created_at, updated_at) "
+                "VALUES (?, 'TEST', 'closed', '2026-01-01T00:00:00', '2026-01-01T00:00:00')",
+                (f"t{i}",),
+            )
         conn.commit()
         conn.close()
 

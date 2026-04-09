@@ -6,51 +6,17 @@ from pathlib import Path
 
 import pytest
 
+from tests.conftest import init_test_db
+
 
 @pytest.fixture
 def hshs_db(tmp_path):
     """Create a minimal test DB with the tables HSHS queries."""
     db_path = str(tmp_path / "test_hshs.sqlite3")
-    conn = sqlite3.connect(db_path)
-    conn.executescript("""
-        CREATE TABLE shadow_trades (
-            id INTEGER PRIMARY KEY,
-            ticker TEXT,
-            status TEXT DEFAULT 'open',
-            pnl_dollars REAL,
-            pnl_pct REAL,
-            created_at TEXT DEFAULT (datetime('now')),
-            closed_at TEXT
-        );
-        CREATE TABLE training_examples (
-            id INTEGER PRIMARY KEY,
-            source TEXT,
-            quality_score REAL,
-            created_at TEXT DEFAULT (datetime('now'))
-        );
-        CREATE TABLE model_versions (
-            id INTEGER PRIMARY KEY,
-            version TEXT,
-            created_at TEXT DEFAULT (datetime('now'))
-        );
-        CREATE TABLE scan_metrics (
-            id INTEGER PRIMARY KEY,
-            metric_name TEXT,
-            metric_value REAL,
-            created_at TEXT DEFAULT (datetime('now'))
-        );
-        CREATE TABLE macro_snapshots (
-            id INTEGER PRIMARY KEY,
-            snapshot_data TEXT,
-            created_at TEXT DEFAULT (datetime('now'))
-        );
-        CREATE TABLE council_sessions (
-            id INTEGER PRIMARY KEY,
-            consensus TEXT,
-            created_at TEXT DEFAULT (datetime('now'))
-        );
-    """)
-    conn.close()
+    init_test_db(db_path, [
+        "shadow_trades", "training_examples", "model_versions",
+        "scan_metrics", "macro_snapshots", "council_sessions",
+    ])
     return db_path
 
 
@@ -105,9 +71,10 @@ class TestComputeHSHS:
         conn = sqlite3.connect(hshs_db)
         for i in range(10):
             conn.execute(
-                "INSERT INTO shadow_trades (ticker, status, pnl_dollars, pnl_pct) "
-                "VALUES (?, 'closed', ?, ?)",
-                (f"TICK{i}", 50.0 + i * 10, 2.0 + i * 0.5),
+                "INSERT INTO shadow_trades (trade_id, ticker, status, pnl_dollars, pnl_pct, "
+                "created_at, updated_at) VALUES (?, ?, 'closed', ?, ?, ?, ?)",
+                (f"t{i}", f"TICK{i}", 50.0 + i * 10, 2.0 + i * 0.5,
+                 "2026-03-25T10:00:00", "2026-03-25T10:00:00"),
             )
         conn.commit()
         conn.close()

@@ -7,6 +7,7 @@ import math
 
 import pytest
 
+from tests.conftest import init_test_db
 from src.evaluation.model_monitor import (
     _compute_metrics,
     _build_equity_curve,
@@ -21,28 +22,10 @@ def _create_test_db(model_versions, trades):
     """Create a temporary database with model_versions, recommendations, and shadow_trades."""
     fd, db_path = tempfile.mkstemp(suffix=".sqlite3")
     os.close(fd)
+
+    init_test_db(db_path, ["model_versions", "recommendations", "shadow_trades"])
+
     conn = sqlite3.connect(db_path)
-
-    conn.execute("""CREATE TABLE model_versions (
-        version_id TEXT PRIMARY KEY, version_name TEXT NOT NULL,
-        created_at TEXT NOT NULL, training_examples_count INTEGER,
-        holdout_score REAL, status TEXT NOT NULL DEFAULT 'active',
-        notes TEXT, holdout_details TEXT,
-        synthetic_examples_count INTEGER, outcome_examples_count INTEGER,
-        model_file_path TEXT
-    )""")
-
-    conn.execute("""CREATE TABLE recommendations (
-        recommendation_id TEXT PRIMARY KEY, ticker TEXT, model_version TEXT,
-        created_at TEXT NOT NULL, llm_conviction INTEGER, canary_score INTEGER
-    )""")
-
-    conn.execute("""CREATE TABLE shadow_trades (
-        trade_id TEXT PRIMARY KEY, recommendation_id TEXT, ticker TEXT NOT NULL,
-        status TEXT DEFAULT 'pending', pnl_dollars REAL, pnl_pct REAL,
-        exit_reason TEXT, duration_days INTEGER, actual_exit_time TEXT,
-        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-    )""")
 
     for mv in model_versions:
         conn.execute(
