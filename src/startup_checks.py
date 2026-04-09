@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def check_config(config: dict, db_path: str = DB_PATH) -> list[CheckResult]:
-    """Check config file existence and placeholder value detection."""
+    """Check config file existence, placeholder values, and schema drift."""
     results = []
 
     local_path = Path("config/settings.local.yaml")
@@ -69,6 +69,73 @@ def check_config(config: dict, db_path: str = DB_PATH) -> list[CheckResult]:
             detail="No placeholder values detected", fix_hint="",
         ))
 
+    # Config schema drift: detect missing sections/keys vs example yaml
+    results.extend(_check_config_schema_drift(config))
+
+    return results
+
+
+def _find_missing_keys(example: dict, local: dict, prefix: str,
+                       missing: list[str]) -> None:
+    """Recursively find keys in example that are missing from local."""
+    if not isinstance(example, dict) or not isinstance(local, dict):
+        return
+    for key in example:
+        full_key = f"{prefix}.{key}" if prefix else key
+        if key not in local:
+            missing.append(full_key)
+        elif isinstance(example[key], dict):
+            _find_missing_keys(example[key], local.get(key, {}), full_key, missing)
+
+
+def _check_config_schema_drift(local_config: dict) -> list[CheckResult]:
+    """Compare local config keys against settings.example.yaml."""
+    example_path = Path("config/settings.example.yaml")
+    if not example_path.exists():
+        return [CheckResult(
+            name="config_schema_drift", category="config", status="warn",
+            detail="settings.example.yaml not found",
+            fix_hint="Ensure config/settings.example.yaml exists in repo root",
+        )]
+    try:
+        import yaml as _yaml
+        with open(example_path, "r", encoding="utf-8") as f:
+            example_config = _yaml.safe_load(f) or {}
+    except Exception as e:
+        return [CheckResult(
+            name="config_schema_drift", category="config", status="warn",
+            detail=f"Failed to parse example config: {e}",
+            fix_hint="Check config/settings.example.yaml for YAML syntax errors",
+        )]
+
+    missing = []
+    _find_missing_keys(example_config, local_config, "", missing)
+    if not missing:
+        return [CheckResult(
+            name="config_schema_drift", category="config", status="ok",
+            detail="Local config has all sections from example", fix_hint="",
+        )]
+
+    top_missing = [m for m in missing if m.count(".") == 0]
+    nested_missing = [m for m in missing if m.count(".") >= 1]
+    results = []
+    if top_missing:
+        results.append(CheckResult(
+            name="config_missing_sections", category="config", status="warn",
+            detail=f"Missing top-level sections: {', '.join(top_missing)}",
+            fix_hint="Copy these sections from settings.example.yaml to settings.local.yaml",
+        ))
+    if nested_missing:
+        parents = {}
+        for key in nested_missing:
+            parents.setdefault(key.split(".")[0], []).append(key)
+        parts = [f"{p}: {len(k)} missing keys" for p, k in sorted(parents.items())]
+        results.append(CheckResult(
+            name="config_missing_keys", category="config", status="warn",
+            detail=f"Missing nested keys -- {'; '.join(parts)}",
+            fix_hint=f"Missing: {', '.join(nested_missing[:10])}"
+                     + (f" (+{len(nested_missing) - 10} more)" if len(nested_missing) > 10 else ""),
+        ))
     return results
 
 
