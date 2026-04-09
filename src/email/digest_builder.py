@@ -245,7 +245,7 @@ def build_eod_digest(db_path: str = DB_PATH) -> tuple[str, str]:
     lines.extend(["", "━━━ OPEN POSITIONS ━━━", f"Paper: {len(paper)} | Live: {len(live)}"])
     if paper:
         for t in paper[:10]:
-            lines.append(f"  {t['ticker']:6s}  ${t['entry_price']:.2f}  x{t['planned_shares']}")
+            lines.append(f"  {t['ticker']:6s}  ${float(t['entry_price'] or 0):.2f}  x{t['planned_shares']}")
         if len(paper) > 10:
             lines.append(f"  ...and {len(paper) - 10} more")
 
@@ -273,13 +273,13 @@ def build_evening_digest(db_path: str = DB_PATH) -> tuple[str, str]:
     total_ex = total_examples["c"] if total_examples else 0
     today_ex = today_examples["c"] if today_examples else 0
     scored_count = scored["c"] if scored else 0
-    avg_q = avg_quality["avg"] if avg_quality and avg_quality["avg"] else 0
+    avg_q = float(avg_quality["avg"]) if avg_quality and avg_quality["avg"] else 0
     closed_count = closed_total["c"] if closed_total else 0
 
     llm_s = scan_today["s"] if scan_today and scan_today["s"] else 0
     llm_t = scan_today["t"] if scan_today and scan_today["t"] else 0
     llm_rate = f"{llm_s / llm_t * 100:.0f}%" if llm_t > 0 else "n/a"
-    cost = costs_today["total"] if costs_today and costs_today["total"] else 0
+    cost = float(costs_today["total"]) if costs_today and costs_today["total"] else 0
 
     subject = f"Arcis Evening — {total_ex} examples, {closed_count}/50 trades, LLM {llm_rate}"
 
@@ -302,9 +302,9 @@ def build_evening_digest(db_path: str = DB_PATH) -> tuple[str, str]:
         verdict = "DEGRADED" if canary["degradation_detected"] else "HEALTHY"
         lines.extend(["", "━━━ MODEL QUALITY ━━━", f"Canary verdict:     {verdict}"])
         if canary["avg_score"]:
-            lines.append(f"Avg score:          {canary['avg_score']:.2f}")
+            lines.append(f"Avg score:          {float(canary['avg_score']):.2f}")
         if canary["distinct_2"]:
-            lines.append(f"Distinct-2:         {canary['distinct_2']:.4f}")
+            lines.append(f"Distinct-2:         {float(canary['distinct_2']):.4f}")
         lines.append(f"Last evaluated:     {canary['created_at'][:10]}")
     else:
         lines.extend(["", "━━━ MODEL QUALITY ━━━", "Awaiting first Saturday retrain for canary evaluation."])
