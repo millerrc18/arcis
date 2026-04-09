@@ -162,6 +162,56 @@ class TestCTOReportGeneration:
         assert report["trade_summary"]["win_rate"] == 1.0
 
 
+class TestStringPnlHandling:
+    """Regression test for #341: SQLite returns numeric columns as strings."""
+
+    def test_trade_summary_handles_string_pnl(self):
+        from src.evaluation.cto_report import _compute_trade_summary
+
+        # Simulate SQLite returning ALL numeric fields as strings
+        winner = {
+            "trade_id": "t-1",
+            "ticker": "AAPL",
+            "recommendation_id": "rec-1",
+            "actual_entry_price": "100.0",
+            "actual_exit_price": "104.25",
+            "pnl_dollars": "42.5",
+            "pnl_pct": "4.25",
+            "exit_reason": "target_1_hit",
+            "duration_days": "5",
+            "max_favorable_excursion": "5.0",
+            "max_adverse_excursion": "-1.0",
+            "planned_shares": "10",
+            "earnings_adjacent": "0",
+            "status": "closed",
+            "order_type": "bracket",
+        }
+        loser = {
+            "trade_id": "t-2",
+            "ticker": "MSFT",
+            "recommendation_id": "rec-2",
+            "actual_entry_price": "200.0",
+            "actual_exit_price": "190.0",
+            "pnl_dollars": "-10.0",
+            "pnl_pct": "-5.0",
+            "exit_reason": "stop_hit",
+            "duration_days": "3",
+            "max_favorable_excursion": "1.0",
+            "max_adverse_excursion": "-12.0",
+            "planned_shares": "5",
+            "earnings_adjacent": "0",
+            "status": "closed",
+            "order_type": "bracket",
+        }
+
+        closed = [winner, loser]
+        result = _compute_trade_summary(closed, [], closed)
+
+        # Must not crash (the original bug) and return correct values
+        assert result["win_rate"] == 0.5
+        assert result["total_pnl"] == 32.5
+
+
 class TestByExitReason:
     def test_groups_by_reason(self):
         from src.evaluation.cto_report import _compute_by_exit_reason
