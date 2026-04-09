@@ -89,6 +89,12 @@ app.add_middleware(
 )
 
 
+@app.get("/healthz")
+def healthz():
+    """Health check for Render deployment monitoring."""
+    return {"status": "ok"}
+
+
 def _sha256_hex(value: str) -> str:
     """Compute SHA-256 hex digest of a string."""
     import hashlib

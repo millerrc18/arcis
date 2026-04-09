@@ -368,8 +368,8 @@ def _cmd_trades() -> str:
         if live_trades:
             lines.append(f"\n💰 <b>LIVE</b> ({len(live_trades)}):")
             for r in live_trades:
-                emoji = "🟢" if (r["pnl_pct"] or 0) >= 0 else "🔴"
-                pnl = r["pnl_pct"] or 0
+                pnl = float(r["pnl_pct"] or 0)
+                emoji = "🟢" if pnl >= 0 else "🔴"
                 try:
                     from datetime import datetime
                     opened = datetime.fromisoformat(r["created_at"][:19])
@@ -378,15 +378,15 @@ def _cmd_trades() -> str:
                     logger.warning("[TELEGRAM] _cmd_trades live days_held calc failed: %s", e)
                     days = "?"
                 lines.append(
-                    f"  {emoji} {r['ticker']}: ${r['entry_price']:.2f} "
+                    f"  {emoji} {r['ticker']}: ${float(r['entry_price'] or 0):.2f} "
                     f"({pnl:+.1f}%) Day {days}"
                 )
 
         if paper_trades:
             lines.append(f"\n📝 <b>PAPER</b> ({len(paper_trades)}):")
             for r in paper_trades:
-                emoji = "🟢" if (r["pnl_pct"] or 0) >= 0 else "🔴"
-                pnl = r["pnl_pct"] or 0
+                pnl = float(r["pnl_pct"] or 0)
+                emoji = "🟢" if pnl >= 0 else "🔴"
                 try:
                     from datetime import datetime
                     opened = datetime.fromisoformat(r["created_at"][:19])
@@ -395,7 +395,7 @@ def _cmd_trades() -> str:
                     logger.warning("[TELEGRAM] _cmd_trades paper days_held calc failed: %s", e)
                     days = "?"
                 lines.append(
-                    f"  {emoji} {r['ticker']}: ${r['entry_price']:.2f} "
+                    f"  {emoji} {r['ticker']}: ${float(r['entry_price'] or 0):.2f} "
                     f"({pnl:+.1f}%) Day {days}"
                 )
 
@@ -488,7 +488,7 @@ def _cmd_last_scan() -> str:
 
         lines = ["📊 <b>RECENT RECOMMENDATIONS</b>"]
         for r in rows:
-            score = r["priority_score"] or 0
+            score = float(r["priority_score"] or 0)
             lines.append(f"  • {r['ticker']} (score: {score:.0f}) — {r['created_at'][:16]}")
         return "\n".join(lines)
     except Exception as e:

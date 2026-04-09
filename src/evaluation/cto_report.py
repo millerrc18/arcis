@@ -40,9 +40,15 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.type_safety import safe_numeric
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
+
+
+def _num(val, default=0):
+    """Coerce a value to float. Guards against SQLite returning strings for numeric columns."""
+    return safe_numeric(val, default)
 
 
 def _compute_hshs() -> dict:
@@ -213,26 +219,26 @@ def _compute_trade_summary(closed: list, open_trades: list, all_trades: list) ->
     The `or 0` guards on every pnl_dollars / pnl_pct access are
     defensive against NULL values from open or reconciled trades.
     """
-    winners = [t for t in closed if (t.get("pnl_dollars") or 0) > 0]
-    losers = [t for t in closed if (t.get("pnl_dollars") or 0) <= 0]
+    winners = [t for t in closed if _num(t.get("pnl_dollars")) > 0]
+    losers = [t for t in closed if _num(t.get("pnl_dollars")) <= 0]
 
     win_rate = len(winners) / len(closed) if closed else 0
-    avg_winner = sum(t.get("pnl_pct", 0) or 0 for t in winners) / len(winners) if winners else 0
-    avg_loser = sum(t.get("pnl_pct", 0) or 0 for t in losers) / len(losers) if losers else 0
+    avg_winner = sum(_num(t.get("pnl_pct")) for t in winners) / len(winners) if winners else 0
+    avg_loser = sum(_num(t.get("pnl_pct")) for t in losers) / len(losers) if losers else 0
 
-    total_pnl = sum(t.get("pnl_dollars", 0) or 0 for t in closed)
+    total_pnl = sum(_num(t.get("pnl_dollars")) for t in closed)
     try:
         from src.evaluation.metrics import expectancy as calc_expectancy
-        expectancy = calc_expectancy(t.get("pnl_dollars", 0) or 0 for t in closed)
+        expectancy = calc_expectancy(_num(t.get("pnl_dollars")) for t in closed)
     except Exception:
         expectancy = total_pnl / len(closed) if closed else 0
 
-    max_win = max(closed, key=lambda t: t.get("pnl_pct", 0) or 0) if closed else None
-    max_loss = min(closed, key=lambda t: t.get("pnl_pct", 0) or 0) if closed else None
+    max_win = max(closed, key=lambda t: _num(t.get("pnl_pct"))) if closed else None
+    max_loss = min(closed, key=lambda t: _num(t.get("pnl_pct"))) if closed else None
 
     # Sharpe ratio (annualized from per-trade returns)
     import math
-    pnl_pcts = [t.get("pnl_pct", 0) or 0 for t in closed]
+    pnl_pcts = [_num(t.get("pnl_pct")) for t in closed]
     if len(pnl_pcts) >= 2:
         mean_r = sum(pnl_pcts) / len(pnl_pcts)
         std_r = (sum((r - mean_r) ** 2 for r in pnl_pcts) / (len(pnl_pcts) - 1)) ** 0.5
@@ -247,7 +253,7 @@ def _compute_trade_summary(closed: list, open_trades: list, all_trades: list) ->
     max_dd = 0
     for t in closed:
         # float() cast: pnl_dollars can be TEXT from SQLite (#195 pattern)
-        cumulative += float(t.get("pnl_dollars") or 0)
+        cumulative += _num(t.get("pnl_dollars"))
         if cumulative > peak:
             peak = cumulative
         dd = peak - cumulative
@@ -257,8 +263,8 @@ def _compute_trade_summary(closed: list, open_trades: list, all_trades: list) ->
 
     # Profit factor (gross wins / gross losses)
     # float() casts prevent abs(str) TypeError when pnl_dollars is TEXT
-    gross_wins = sum(float(t.get("pnl_dollars") or 0) for t in winners)
-    gross_losses = abs(sum(float(t.get("pnl_dollars") or 0) for t in losers))
+    gross_wins = sum(_num(t.get("pnl_dollars")) for t in winners)
+    gross_losses = abs(sum(_num(t.get("pnl_dollars")) for t in losers))
     profit_factor = gross_wins / gross_losses if gross_losses > 0 else (float('inf') if gross_wins > 0 else 0)
 
     # Max consecutive losses (#254) — a key behavioral risk metric.
@@ -268,7 +274,7 @@ def _compute_trade_summary(closed: list, open_trades: list, all_trades: list) ->
     max_consec_losses = 0
     current_streak = 0
     for t in closed:
-        if (t.get("pnl_dollars") or 0) <= 0:
+        if _num(t.get("pnl_dollars")) <= 0:
             current_streak += 1
             max_consec_losses = max(max_consec_losses, current_streak)
         else:
@@ -290,13 +296,13 @@ def _compute_trade_summary(closed: list, open_trades: list, all_trades: list) ->
         "total_pnl": round(total_pnl, 2),
         "max_single_win": {
             "ticker": max_win.get("ticker", ""),
-            "pnl_pct": round(max_win.get("pnl_pct", 0) or 0, 1),
-            "duration": max_win.get("duration_days", 0) or 0,
+            "pnl_pct": round(_num(max_win.get("pnl_pct")), 1),
+            "duration": _num(max_win.get("duration_days")),
         } if max_win else None,
         "max_single_loss": {
             "ticker": max_loss.get("ticker", ""),
-            "pnl_pct": round(max_loss.get("pnl_pct", 0) or 0, 1),
-            "duration": max_loss.get("duration_days", 0) or 0,
+            "pnl_pct": round(_num(max_loss.get("pnl_pct")), 1),
+            "duration": _num(max_loss.get("duration_days")),
         } if max_loss else None,
     }
 
@@ -306,7 +312,7 @@ def _compute_by_exit_reason(closed: list) -> dict:
     for t in closed:
         reason = t.get("exit_reason", "unknown")
         by_reason[reason]["count"] += 1
-        by_reason[reason]["pnls"].append(t.get("pnl_pct", 0) or 0)
+        by_reason[reason]["pnls"].append(_num(t.get("pnl_pct")))
 
     result = {}
     for reason, data in by_reason.items():
@@ -320,14 +326,14 @@ def _compute_by_score_band(closed: list, recommendations: list) -> dict:
     # "Do higher-scored trades actually perform better?"  If not, the
     # scoring model needs recalibration.  Bands: 90-100, 80-89, 70-79, <70.
     # Map recommendation_id -> priority_score
-    score_map = {r.get("recommendation_id"): r.get("priority_score", 0) or 0 for r in recommendations}
+    score_map = {r.get("recommendation_id"): _num(r.get("priority_score")) for r in recommendations}
 
     bands = {"90-100": [], "80-89": [], "70-79": [], "below_70": []}
     for t in closed:
         rec_id = t.get("recommendation_id")
         score = score_map.get(rec_id, 0)
-        pnl = t.get("pnl_pct", 0) or 0
-        won = 1 if (t.get("pnl_dollars") or 0) > 0 else 0
+        pnl = _num(t.get("pnl_pct"))
+        won = 1 if _num(t.get("pnl_dollars")) > 0 else 0
 
         if score >= 90:
             bands["90-100"].append((pnl, won))
@@ -357,7 +363,7 @@ def _compute_by_sector(closed: list, recommendations: list) -> dict:
         ticker = t.get("ticker", "")
         sector = SECTOR_MAP.get(ticker, "Unknown")
         by_sector[sector]["trades"] += 1
-        if (t.get("pnl_dollars") or 0) > 0:
+        if _num(t.get("pnl_dollars")) > 0:
             by_sector[sector]["wins"] += 1
 
     result = {}
@@ -376,7 +382,7 @@ def _compute_by_regime(closed: list, recommendations: list) -> dict:
         rec_id = t.get("recommendation_id")
         regime = regime_map.get(rec_id, "unknown") or "unknown"
         by_regime[regime]["trades"] += 1
-        if (t.get("pnl_dollars") or 0) > 0:
+        if _num(t.get("pnl_dollars")) > 0:
             by_regime[regime]["wins"] += 1
 
     result = {}
@@ -394,7 +400,7 @@ def _compute_by_model_version(closed: list, recommendations: list) -> dict:
         rec_id = t.get("recommendation_id")
         version = version_map.get(rec_id, "base") or "base"
         by_model[version]["trades"] += 1
-        pnl = t.get("pnl_dollars", 0) or 0
+        pnl = _num(t.get("pnl_dollars"))
         by_model[version]["pnls"].append(pnl)
         if pnl > 0:
             by_model[version]["wins"] += 1
@@ -423,14 +429,14 @@ def _compute_execution_analysis(closed: list) -> dict:
             "avg_hold_period_days": 0,
         }
 
-    winners = [t for t in closed if (t.get("pnl_dollars") or 0) > 0]
-    losers = [t for t in closed if (t.get("pnl_dollars") or 0) <= 0]
+    winners = [t for t in closed if _num(t.get("pnl_dollars")) > 0]
+    losers = [t for t in closed if _num(t.get("pnl_dollars")) <= 0]
     targets = [t for t in closed if t.get("exit_reason", "").startswith("target")]
     timeouts = [t for t in closed if t.get("exit_reason") == "timeout"]
 
-    avg_mfe_w = sum(t.get("max_favorable_excursion", 0) or 0 for t in winners) / len(winners) if winners else 0
-    avg_mae_l = sum(t.get("max_adverse_excursion", 0) or 0 for t in losers) / len(losers) if losers else 0
-    avg_hold = sum(t.get("duration_days", 0) or 0 for t in closed) / len(closed)
+    avg_mfe_w = sum(_num(t.get("max_favorable_excursion")) for t in winners) / len(winners) if winners else 0
+    avg_mae_l = sum(_num(t.get("max_adverse_excursion")) for t in losers) / len(losers) if losers else 0
+    avg_hold = sum(_num(t.get("duration_days")) for t in closed) / len(closed)
 
     return {
         "avg_stop_distance_atr": 2.0,  # Default per our setup
@@ -447,13 +453,13 @@ def _compute_signal_quality(closed: list, recommendations: list) -> dict:
     # Surfaces "high score losers" — trades where the model was confident
     # (score >= 80) but the trade lost money.  These are the most
     # informative training signals: the model's blind spots.
-    score_map = {r.get("recommendation_id"): r.get("priority_score", 0) or 0 for r in recommendations}
+    score_map = {r.get("recommendation_id"): _num(r.get("priority_score")) for r in recommendations}
 
     high_score_losers = []
     for t in closed:
         rec_id = t.get("recommendation_id")
         score = score_map.get(rec_id, 0)
-        pnl = t.get("pnl_pct", 0) or 0
+        pnl = _num(t.get("pnl_pct"))
         if score >= 80 and pnl < 0:
             high_score_losers.append({
                 "ticker": t.get("ticker"),
@@ -489,7 +495,7 @@ def _compute_feature_correlations(closed: list, recommendations: list) -> dict:
     for t in closed:
         rec_id = t.get("recommendation_id")
         feats = feat_map.get(rec_id, {})
-        won = 1 if (t.get("pnl_dollars") or 0) > 0 else 0
+        won = 1 if _num(t.get("pnl_dollars")) > 0 else 0
 
         trend = feats.get("trend_state", "unknown")
         trend_groups[trend]["total"] += 1
@@ -578,7 +584,7 @@ def _compute_training_status(days: int, db_path: str) -> dict:
             source = row["source"] or ""
             score = row["quality_score_auto"]
             is_win = "win" in source
-            is_good_process = score is not None and score >= 3.0
+            is_good_process = score is not None and _num(score) >= 3.0
             if is_good_process and is_win:
                 quadrants["good_process_good_outcome"] += 1
             elif is_good_process and not is_win:
@@ -625,8 +631,8 @@ def _compute_confidence_calibration(closed: list, recommendations: list) -> dict
         if conv is None:
             continue
 
-        pnl = t.get("pnl_pct", 0) or 0
-        won = 1 if (t.get("pnl_dollars") or 0) > 0 else 0
+        pnl = _num(t.get("pnl_pct"))
+        won = 1 if _num(t.get("pnl_dollars")) > 0 else 0
         convictions.append(conv)
         pnls.append(pnl)
 
@@ -686,9 +692,9 @@ def _compute_fund_metrics(closed: list, trade_summary: dict) -> dict:
     """
     import math
 
-    pnl_pcts = [t.get("pnl_pct", 0) or 0 for t in closed]
-    pnl_dollars = [t.get("pnl_dollars", 0) or 0 for t in closed]
-    durations = [t.get("duration_days", 0) or 0 for t in closed]
+    pnl_pcts = [_num(t.get("pnl_pct")) for t in closed]
+    pnl_dollars = [_num(t.get("pnl_dollars")) for t in closed]
+    durations = [_num(t.get("duration_days")) for t in closed]
 
     if len(pnl_pcts) < 2:
         return {
@@ -731,7 +737,7 @@ def _compute_fund_metrics(closed: list, trade_summary: dict) -> dict:
     for t in closed:
         month_key = (t.get("created_at") or "")[:7]
         if month_key:
-            monthly_pnl[month_key] += t.get("pnl_dollars", 0) or 0
+            monthly_pnl[month_key] += _num(t.get("pnl_dollars"))
     positive_months = sum(1 for v in monthly_pnl.values() if v > 0)
     monthly_batting = (positive_months / len(monthly_pnl) * 100) if monthly_pnl else None
 
