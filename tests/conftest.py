@@ -16,6 +16,15 @@ from unittest.mock import MagicMock
 
 import pytest
 
+# ---------------------------------------------------------------------------
+# Mock yfinance if not installed (prevents 22+ import failures in CI)
+# ---------------------------------------------------------------------------
+if "yfinance" not in sys.modules:
+    _yf_mock = types.ModuleType("yfinance")
+    _yf_mock.download = MagicMock(return_value=None)
+    _yf_mock.Ticker = MagicMock
+    sys.modules["yfinance"] = _yf_mock
+
 from src.schema.registry import TABLES
 from src.schema.sqlite import generate_create_sql
 
@@ -27,7 +36,8 @@ def init_test_db(db_path: str, tables: list[str] | None = None) -> None:
         db_path: Path to the SQLite database file.
         tables: Optional list of table names to create. If None, creates all.
     """
-    with sqlite3.connect(db_path) as conn:
+    conn = sqlite3.connect(db_path)
+    try:
         if tables is None:
             for tdef in TABLES.values():
                 conn.executescript(generate_create_sql(tdef))
@@ -35,6 +45,9 @@ def init_test_db(db_path: str, tables: list[str] | None = None) -> None:
             for name in tables:
                 if name in TABLES:
                     conn.executescript(generate_create_sql(TABLES[name]))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -123,3 +136,16 @@ def _mock_alpaca_sdk(monkeypatch):
     mods = _build_mock_alpaca_modules()
     for mod_name, mod_obj in mods.items():
         monkeypatch.setitem(sys.modules, mod_name, mod_obj)
+
+
+@pytest.fixture
+def schema_db(tmp_path):
+    """Temp database with ALL schema tables created.
+
+    Use this when a test needs database access but you don't want
+    to specify individual tables. Slightly slower than init_test_db
+    with a specific table list, but guaranteed to have everything.
+    """
+    path = str(tmp_path / "test.db")
+    init_test_db(path)
+    return path
