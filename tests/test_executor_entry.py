@@ -116,3 +116,17 @@ def test_entry_blocked_when_alpaca_has_ghost_position(tmp_path):
         result = open_shadow_trade("rec-1", packet, {"strategy_type": "pullback"},
                                    db_path=db_path)
         assert result is None, "Should block entry when Alpaca has a ghost position"
+
+
+def test_buying_power_crisis_alert_after_consecutive_failures():
+    """Fix #358: 3+ consecutive buying power failures should trigger an alert."""
+    import src.shadow_trading.executor as executor_mod
+    executor_mod._consecutive_bp_failures = 0
+    with patch("src.shadow_trading.alpaca_adapter.get_account_info",
+               return_value={"buying_power": 100.0}), \
+         patch("src.notifications.telegram.send_telegram") as mock_tg:
+        for _ in range(3):
+            result = executor_mod._check_paper_buying_power(500.0, 10)
+            assert result is False
+        assert mock_tg.called, "Should send Telegram alert after 3 consecutive BP failures"
+    executor_mod._consecutive_bp_failures = 0

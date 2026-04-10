@@ -52,6 +52,9 @@ logger = logging.getLogger(__name__)
 FILLED_ORDER_STATUSES = {"filled", "closed"}
 PENDING_ORDER_STATUSES = {"new", "accepted", "pending_new", "accepted_for_bidding", "held"}
 
+_consecutive_bp_failures = 0
+_BP_ALERT_THRESHOLD = 3
+
 
 def _check_paper_buying_power(entry_price: float, shares: int) -> bool:
     """Check if paper account has sufficient buying power for the trade.
@@ -65,6 +68,7 @@ def _check_paper_buying_power(entry_price: float, shares: int) -> bool:
     than letting a trade through that might get rejected by Alpaca anyway.
     """
     try:
+        global _consecutive_bp_failures
         from src.shadow_trading.alpaca_adapter import get_account_info
         acct = get_account_info()
         buying_power = acct.get("buying_power", 0)
@@ -74,7 +78,19 @@ def _check_paper_buying_power(entry_price: float, shares: int) -> bool:
                 "[SHADOW] Insufficient buying power: need $%.2f, have $%.2f",
                 required, buying_power,
             )
+            _consecutive_bp_failures += 1
+            if _consecutive_bp_failures >= _BP_ALERT_THRESHOLD:
+                try:
+                    from src.notifications.telegram import send_telegram
+                    send_telegram(
+                        f"⚠️ BUYING POWER CRISIS: {_consecutive_bp_failures} consecutive rejections\n"
+                        f"Available: ${buying_power:,.2f} / Need: ${required:,.2f}\n"
+                        f"Check for orphaned positions consuming capital."
+                    )
+                except Exception:
+                    pass
             return False
+        _consecutive_bp_failures = 0  # Reset on success
         return True
     except Exception as exc:
         logger.warning("[SHADOW] Buying power check failed: %s — allowing trade", exc)
