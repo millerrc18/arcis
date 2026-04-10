@@ -1286,7 +1286,7 @@ def cmd_dashboard(args):
 
     port = getattr(args, "port", 8000)
     print(f"Starting dashboard at http://localhost:{port}")
-    uvicorn.run("src.api.app:app", host="0.0.0.0", port=port, reload=False)
+    uvicorn.run("src.api.app:app", host="127.0.0.1", port=port, reload=False)
 
 
 def cmd_validate_system(args):
