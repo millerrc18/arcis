@@ -138,24 +138,32 @@ def test_open_shadow_trade_happy_path(tmp_path):
     mock_order = {"order_id": "ord-1", "symbol": "AAPL", "qty": 10, "side": "buy",
                   "type": "market", "order_class": "bracket", "status": "filled",
                   "filled_avg_price": 150.0, "legs": []}
-    with patch("src.shadow_trading.executor._check_paper_buying_power", return_value=True), \
-         patch("src.shadow_trading.executor.validate_llm_output", return_value=True), \
-         patch("src.shadow_trading.executor.get_open_shadow_trade_for_ticker", return_value=None), \
-         patch("src.shadow_trading.executor.check_risk_limits", return_value=True), \
+    config = {
+        "shadow_trading": {"enabled": True, "max_positions": 10},
+        "risk": {"base_risk_pct": 1.0, "starting_capital": 100000},
+    }
+
+    mock_governor = MagicMock()
+    mock_governor.check_trade.return_value = {
+        "approved": True,
+        "effective_allocation_dollars": 1000.0,
+    }
+
+    with patch("src.shadow_trading.executor.load_config", return_value=config), \
+         patch("src.shadow_trading.executor._check_paper_buying_power", return_value=True), \
+         patch("src.llm.validator.validate_llm_output", return_value=(True, "ok")), \
+         patch("src.risk.governor.RiskGovernor", return_value=mock_governor), \
+         patch("src.risk.governor.get_portfolio_state", return_value={}), \
+         patch("src.risk.governor.drawdown_adjusted_risk", return_value=1.0), \
+         patch("src.risk.governor.get_effective_risk_pct", return_value=(1.0, "normal")), \
+         patch("src.shadow_trading.executor.get_open_shadow_trades", return_value=[]), \
          patch("src.shadow_trading.alpaca_adapter.place_bracket_order", return_value=mock_order) as mock_bracket, \
          patch("src.shadow_trading.alpaca_adapter.get_all_positions", return_value=[]), \
          patch("src.shadow_trading.alpaca_adapter.verify_order_accepted",
                return_value={"verified": True, "status": "filled", "error": None}):
         from src.shadow_trading.executor import open_shadow_trade
-        packet = MagicMock()
-        packet.ticker = "AAPL"
-        packet.entry_price = "$150.00"
-        packet.stop_loss = "$142.50"
-        packet.target_1 = "$165.00"
-        packet.target_2 = "$180.00"
-        result = open_shadow_trade("rec-1", packet, {"strategy_type": "pullback"},
-                                   config={"risk": {"base_risk_pct": 1.0, "starting_capital": 100000}},
-                                   db_path=db_path)
+        packet = _make_packet("AAPL")
+        result = open_shadow_trade("rec-1", packet, {"strategy_type": "pullback"}, db_path=db_path)
         assert result is not None
         mock_bracket.assert_called_once()
 
@@ -163,23 +171,30 @@ def test_open_shadow_trade_happy_path(tmp_path):
 def test_open_shadow_trade_missing_stop_rejected(tmp_path):
     """#350: stop_price <= 0 must be rejected before bracket order."""
     db_path = _make_test_db(tmp_path)
-    with patch("src.shadow_trading.executor._check_paper_buying_power", return_value=True), \
-         patch("src.shadow_trading.executor.validate_llm_output", return_value=True), \
-         patch("src.shadow_trading.executor.get_open_shadow_trade_for_ticker", return_value=None), \
-         patch("src.shadow_trading.executor.check_risk_limits", return_value=True), \
+    config = {
+        "shadow_trading": {"enabled": True, "max_positions": 10},
+        "risk": {"base_risk_pct": 1.0, "starting_capital": 100000},
+    }
+
+    mock_governor = MagicMock()
+    mock_governor.check_trade.return_value = {
+        "approved": True,
+        "effective_allocation_dollars": 1000.0,
+    }
+
+    with patch("src.shadow_trading.executor.load_config", return_value=config), \
+         patch("src.shadow_trading.executor._check_paper_buying_power", return_value=True), \
+         patch("src.llm.validator.validate_llm_output", return_value=(True, "ok")), \
+         patch("src.risk.governor.RiskGovernor", return_value=mock_governor), \
+         patch("src.risk.governor.get_portfolio_state", return_value={}), \
+         patch("src.risk.governor.drawdown_adjusted_risk", return_value=1.0), \
+         patch("src.risk.governor.get_effective_risk_pct", return_value=(1.0, "normal")), \
+         patch("src.shadow_trading.executor.get_open_shadow_trades", return_value=[]), \
          patch("src.shadow_trading.alpaca_adapter.get_all_positions", return_value=[]):
         from src.shadow_trading.executor import open_shadow_trade
-        packet = MagicMock()
-        packet.ticker = "BAD"
-        packet.entry_price = "$100.00"
-        packet.stop_loss = "$0.00"
-        packet.target_1 = "$110.00"
-        packet.target_2 = "$120.00"
-        result = open_shadow_trade("rec-1", packet, {"strategy_type": "pullback"},
-                                   config={"risk": {"base_risk_pct": 1.0, "starting_capital": 100000}},
-                                   db_path=db_path)
-        conn = sqlite3.connect(db_path)
-        row = conn.execute("SELECT status FROM shadow_trades WHERE ticker='BAD'").fetchone()
-        conn.close()
-        if row:
-            assert row[0] != "open", "Trade with stop_price=0 must not be opened"
+        packet = _make_packet("BAD")
+        # Override stop_invalidation to be 0 to test the guard at line 298
+        packet.stop_invalidation = "$0.00"
+        result = open_shadow_trade("rec-1", packet, {"strategy_type": "pullback"}, db_path=db_path)
+        # Trade should be rejected because stop_price is 0
+        assert result is None, "Trade with stop_price=0 must be rejected"
