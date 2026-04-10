@@ -435,6 +435,36 @@ def cancel_paper_order(order_id: str) -> bool:
         return False
 
 
+def cancel_orders_for_ticker(ticker: str) -> int:
+    """Cancel all open orders for a specific ticker.
+
+    Fix #356: Required before closing a position — pending orders lock
+    shares as 'held_for_orders', preventing close_position from working.
+
+    Returns the number of orders cancelled.
+    """
+    from alpaca.trading.requests import GetOrdersRequest
+    from alpaca.trading.enums import QueryOrderStatus
+    try:
+        client = _get_trading_client()
+        orders = client.get_orders(GetOrdersRequest(
+            status=QueryOrderStatus.OPEN,
+            symbols=[ticker],
+        ))
+        for order in orders:
+            try:
+                client.cancel_order_by_id(order.id)
+            except Exception as e:
+                logger.warning("[CANCEL] Failed to cancel order %s for %s: %s",
+                               order.id, ticker, e)
+        if orders:
+            logger.info("[CANCEL] Cancelled %d open orders for %s", len(orders), ticker)
+        return len(orders)
+    except Exception as e:
+        logger.warning("[CANCEL] Could not list orders for %s: %s", ticker, e)
+        return 0
+
+
 def cancel_all_orders() -> dict:
     """Cancel all pending Alpaca orders.  Returns ``{'cancelled': N}``."""
     try:

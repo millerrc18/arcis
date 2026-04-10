@@ -112,9 +112,11 @@ def _build_mock_alpaca_modules():
     trading_requests.MarketOrderRequest = _MockOrderRequest
     trading_requests.LimitOrderRequest = _MockOrderRequest
     trading_requests.StopOrderRequest = _MockOrderRequest
+    trading_requests.GetOrdersRequest = _MockOrderRequest  # Fix #356
     trading_enums.OrderSide = _MockEnumClass("OrderSide")
     trading_enums.TimeInForce = _MockEnumClass("TimeInForce")
     trading_enums.OrderClass = _MockEnumClass("OrderClass")
+    trading_enums.QueryOrderStatus = _MockEnumClass("QueryOrderStatus")  # Fix #356
     data_historical.StockHistoricalDataClient = MagicMock(name="StockHistoricalDataClient")
     data_requests.StockLatestTradeRequest = MagicMock(name="StockLatestTradeRequest")
     common_exceptions.APIError = type("APIError", (Exception,), {"status_code": None, "code": None, "message": None})
