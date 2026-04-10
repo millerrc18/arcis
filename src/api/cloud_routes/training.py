@@ -533,6 +533,7 @@ def create_router(runtime, verify_auth):
                 "FROM shadow_trades st "
                 "LEFT JOIN recommendations r ON st.recommendation_id = r.recommendation_id "
                 "WHERE st.status = 'closed' AND st.pnl_dollars IS NOT NULL "
+                "AND COALESCE(st.quarantined, 0) = 0 "
                 "ORDER BY st.actual_exit_time ASC"
             ) or []
 

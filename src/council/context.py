@@ -41,7 +41,8 @@ def build_shared_context(db_path: str = DB_PATH) -> str:
 
     try:
         open_positions = _query_db(
-            "SELECT COUNT(*) as n FROM shadow_trades WHERE status = 'open'",
+            "SELECT COUNT(*) as n FROM shadow_trades WHERE status = 'open'"
+            " AND COALESCE(quarantined, 0) = 0",
             db_path=db_path,
         )
         if open_positions:

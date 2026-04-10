@@ -36,6 +36,7 @@ def evaluate_50_trade_gate(db_path: str = DB_PATH) -> dict:
             rows = conn.execute(
                 "SELECT pnl_dollars, pnl_pct FROM shadow_trades "
                 "WHERE status = 'closed' AND pnl_pct IS NOT NULL "
+                "AND COALESCE(quarantined, 0) = 0 "
                 "ORDER BY actual_exit_time ASC"
             ).fetchall()
     except Exception as e:

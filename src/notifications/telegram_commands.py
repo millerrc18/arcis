@@ -123,6 +123,7 @@ def check_action_reminders(db_path: str = DB_PATH) -> list[str]:
             # 1. Phase gate milestones
             closed = conn.execute(
                 "SELECT COUNT(*) as c FROM shadow_trades WHERE status = 'closed'"
+                " AND COALESCE(quarantined, 0) = 0"
             ).fetchone()
             closed_count = closed["c"] if closed else 0
 
@@ -353,7 +354,7 @@ def _cmd_trades() -> str:
             rows = conn.execute(
                 """SELECT ticker, entry_price, pnl_pct, pnl_dollars, created_at,
                        COALESCE(source, 'paper') as source
-                FROM shadow_trades WHERE status = 'open'
+                FROM shadow_trades WHERE status = 'open' AND COALESCE(quarantined, 0) = 0
                 ORDER BY source DESC, created_at DESC"""
             ).fetchall()
 
@@ -414,25 +415,27 @@ def _cmd_pnl() -> str:
             # Overall stats
             open_row = conn.execute(
                 """SELECT COUNT(*) as cnt, COALESCE(SUM(pnl_dollars), 0) as total_pnl
-                FROM shadow_trades WHERE status = 'open'"""
+                FROM shadow_trades WHERE status = 'open' AND COALESCE(quarantined, 0) = 0"""
             ).fetchone()
 
             closed_row = conn.execute(
                 """SELECT COUNT(*) as cnt, COALESCE(SUM(pnl_dollars), 0) as total_pnl,
                    COALESCE(AVG(CASE WHEN pnl_dollars > 0 THEN 1.0 ELSE 0.0 END), 0) as win_rate
-                FROM shadow_trades WHERE status = 'closed'"""
+                FROM shadow_trades WHERE status = 'closed' AND COALESCE(quarantined, 0) = 0"""
             ).fetchone()
 
             # Live-specific stats
             live_open = conn.execute(
                 """SELECT COUNT(*) as cnt, COALESCE(SUM(pnl_dollars), 0) as total_pnl
-                FROM shadow_trades WHERE status = 'open' AND source = 'live'"""
+                FROM shadow_trades WHERE status = 'open' AND source = 'live'
+                AND COALESCE(quarantined, 0) = 0"""
             ).fetchone()
 
             live_closed = conn.execute(
                 """SELECT COUNT(*) as cnt, COALESCE(SUM(pnl_dollars), 0) as total_pnl,
                    COALESCE(AVG(CASE WHEN pnl_dollars > 0 THEN 1.0 ELSE 0.0 END), 0) as win_rate
-                FROM shadow_trades WHERE status = 'closed' AND source = 'live'"""
+                FROM shadow_trades WHERE status = 'closed' AND source = 'live'
+                AND COALESCE(quarantined, 0) = 0"""
             ).fetchone()
 
         open_pnl = open_row["total_pnl"]

@@ -51,10 +51,12 @@ def create_router(runtime, verify_auth):
                 "SELECT st.*, r.setup_type, r.market_regime, r.priority_score "
                 "FROM shadow_trades st "
                 "LEFT JOIN recommendations r ON st.recommendation_id = r.recommendation_id "
-                "WHERE st.status = 'open' ORDER BY st.created_at DESC"
+                "WHERE st.status = 'open' AND COALESCE(st.quarantined, 0) = 0"
+                " ORDER BY st.created_at DESC"
             )
             closed_pnl_row = runtime.query_one(
                 "SELECT COALESCE(SUM(pnl_dollars), 0) as total FROM shadow_trades WHERE status = 'closed'"
+                " AND COALESCE(quarantined, 0) = 0"
             )
             closed_pnl = closed_pnl_row["total"] if closed_pnl_row else 0
             equity = 100000 + (closed_pnl or 0)
@@ -117,7 +119,8 @@ def create_router(runtime, verify_auth):
                 "FROM shadow_trades st "
                 "LEFT JOIN recommendations r ON st.recommendation_id = r.recommendation_id "
                 "WHERE st.status = 'closed' "
-                "AND st.actual_exit_time >= %s ORDER BY st.actual_exit_time DESC",
+                "AND st.actual_exit_time >= %s AND COALESCE(st.quarantined, 0) = 0"
+                " ORDER BY st.actual_exit_time DESC",
                 (cutoff,),
             )
             pnls = [row.get("pnl_dollars", 0) or 0 for row in rows]
@@ -145,7 +148,8 @@ def create_router(runtime, verify_auth):
             cutoff = (datetime.now(runtime.et) - timedelta(days=days)).isoformat()
             rows = runtime.query(
                 "SELECT pnl_dollars, pnl_pct FROM shadow_trades "
-                "WHERE status = 'closed' AND actual_exit_time >= %s",
+                "WHERE status = 'closed' AND actual_exit_time >= %s"
+                " AND COALESCE(quarantined, 0) = 0",
                 (cutoff,),
             )
             if not rows:
@@ -191,10 +195,12 @@ def create_router(runtime, verify_auth):
     def live_trades():
         try:
             open_trades = runtime.query(
-                "SELECT * FROM shadow_trades WHERE source = 'live' AND status = 'open' ORDER BY created_at DESC"
+                "SELECT * FROM shadow_trades WHERE source = 'live' AND status = 'open'"
+                " AND COALESCE(quarantined, 0) = 0 ORDER BY created_at DESC"
             )
             closed_trades = runtime.query(
-                "SELECT * FROM shadow_trades WHERE source = 'live' AND status = 'closed' ORDER BY actual_exit_time DESC"
+                "SELECT * FROM shadow_trades WHERE source = 'live' AND status = 'closed'"
+                " AND COALESCE(quarantined, 0) = 0 ORDER BY actual_exit_time DESC"
             )
             return {"open": open_trades, "closed": closed_trades}
         except Exception as exc:
@@ -206,9 +212,11 @@ def create_router(runtime, verify_auth):
         try:
             closed = runtime.query(
                 "SELECT pnl_dollars, pnl_pct FROM shadow_trades WHERE source = 'live' AND status = 'closed'"
+                " AND COALESCE(quarantined, 0) = 0"
             )
             open_count = runtime.query_one(
                 "SELECT COUNT(*) as c FROM shadow_trades WHERE source = 'live' AND status = 'open'"
+                " AND COALESCE(quarantined, 0) = 0"
             )
             closed_pnl = sum(trade.get("pnl_dollars", 0) or 0 for trade in closed)
             wins = [trade for trade in closed if (trade.get("pnl_dollars", 0) or 0) > 0]
@@ -231,9 +239,11 @@ def create_router(runtime, verify_auth):
             # Fix for #266: select same columns as shadow_open for consistent P&L computation
             open_trades = runtime.query(
                 "SELECT ticker, actual_entry_price, entry_price, actual_shares, planned_shares, pnl_dollars FROM shadow_trades WHERE status = 'open'"
+                " AND COALESCE(quarantined, 0) = 0"
             )
             closed_trades = runtime.query(
                 "SELECT pnl_dollars, pnl_pct FROM shadow_trades WHERE status = 'closed'"
+                " AND COALESCE(quarantined, 0) = 0"
             )
             closed_pnl = sum(trade.get("pnl_dollars", 0) or 0 for trade in closed_trades)
             # Fix for #266: use actual values with fallback, matching shadow_open
@@ -292,7 +302,8 @@ def create_router(runtime, verify_auth):
         try:
             return runtime.query(
                 "SELECT * FROM shadow_trades WHERE status = 'closed' "
-                "AND (exit_reason IS NOT NULL) ORDER BY actual_exit_time DESC LIMIT 20"
+                "AND (exit_reason IS NOT NULL) AND COALESCE(quarantined, 0) = 0"
+                " ORDER BY actual_exit_time DESC LIMIT 20"
             )
         except Exception as exc:
             runtime.logger.error("[API] review_pending failed: %s", exc, exc_info=True)
@@ -317,6 +328,7 @@ def create_router(runtime, verify_auth):
                 "FROM shadow_trades st LEFT JOIN recommendations r "
                 "ON st.recommendation_id = r.recommendation_id "
                 "WHERE st.status = 'closed' AND st.actual_exit_time >= %s "
+                "AND COALESCE(st.quarantined, 0) = 0 "
                 "ORDER BY st.actual_exit_time DESC",
                 (cutoff,),
             )
@@ -345,6 +357,7 @@ def create_router(runtime, verify_auth):
             closed = runtime.query(
                 "SELECT pnl_dollars, pnl_pct FROM shadow_trades "
                 "WHERE status = 'closed' AND pnl_pct IS NOT NULL "
+                "AND COALESCE(quarantined, 0) = 0 "
                 "ORDER BY actual_exit_time ASC"
             )
             if not closed:

@@ -281,7 +281,8 @@ def open_shadow_trade(
         _dup_conn = _sqlite3.connect(db_path)
         _dup_conn.execute("BEGIN IMMEDIATE")
         _dup_row = _dup_conn.execute(
-            "SELECT trade_id FROM shadow_trades WHERE ticker = ? AND status = 'open' LIMIT 1",
+            "SELECT trade_id FROM shadow_trades WHERE ticker = ? AND status = 'open'"
+            " AND COALESCE(quarantined, 0) = 0 LIMIT 1",
             (ticker,),
         ).fetchone()
         if _dup_row:
@@ -336,12 +337,14 @@ def open_shadow_trade(
         with connect_db(db_path) as _conn:
             _row = _conn.execute(
                 "SELECT COALESCE(SUM(pnl_dollars), 0) FROM shadow_trades WHERE status = 'closed'"
+                " AND COALESCE(quarantined, 0) = 0"
             ).fetchone()
             total_pnl = _row[0] if _row else 0
             _peak_row = _conn.execute(
                 "SELECT MAX(running_pnl) FROM ("
                 "  SELECT SUM(pnl_dollars) OVER (ORDER BY updated_at) AS running_pnl"
                 "  FROM shadow_trades WHERE status = 'closed' AND pnl_dollars IS NOT NULL"
+                "  AND COALESCE(quarantined, 0) = 0"
                 ")"
             ).fetchone()
             peak_pnl = _peak_row[0] if _peak_row and _peak_row[0] else max(total_pnl, 0)
@@ -1465,7 +1468,8 @@ def open_live_trade(
             # Today's realized losses from closed live trades
             _realized_row = _conn275.execute(
                 "SELECT COALESCE(SUM(pnl_dollars), 0) as total FROM shadow_trades "
-                "WHERE status='closed' AND source='live' AND actual_exit_time LIKE ?",
+                "WHERE status='closed' AND source='live' AND actual_exit_time LIKE ?"
+                " AND COALESCE(quarantined, 0) = 0",
                 (f"{today_str}%",),
             ).fetchone()
             today_realized = float(_realized_row["total"]) if _realized_row else 0.0
@@ -1473,7 +1477,8 @@ def open_live_trade(
             # Today's unrealized P&L on live trades opened today
             _open_today = _conn275.execute(
                 "SELECT ticker, actual_entry_price, entry_price, planned_shares "
-                "FROM shadow_trades WHERE status='open' AND source='live' AND created_at LIKE ?",
+                "FROM shadow_trades WHERE status='open' AND source='live' AND created_at LIKE ?"
+                " AND COALESCE(quarantined, 0) = 0",
                 (f"{today_str}%",),
             ).fetchall()
 
@@ -1678,7 +1683,8 @@ def _check_open_milestones(db_path: str = DB_PATH,
         with connect_db(db_path) as conn:
             # Count total opened trades for this source
             total = conn.execute(
-                "SELECT COUNT(*) FROM shadow_trades WHERE COALESCE(source,'paper') = ?",
+                "SELECT COUNT(*) FROM shadow_trades WHERE COALESCE(source,'paper') = ?"
+                " AND COALESCE(quarantined, 0) = 0",
                 (source,),
             ).fetchone()[0]
 
@@ -1704,10 +1710,12 @@ def _check_close_milestones(db_path: str = DB_PATH) -> None:
 
             closed_total = conn.execute(
                 "SELECT COUNT(*) FROM shadow_trades WHERE status='closed'"
+                " AND COALESCE(quarantined, 0) = 0"
             ).fetchone()[0]
 
             wins = conn.execute(
                 "SELECT COUNT(*) FROM shadow_trades WHERE status='closed' AND pnl_dollars > 0"
+                " AND COALESCE(quarantined, 0) = 0"
             ).fetchone()[0]
             losses = closed_total - wins
 
@@ -1719,7 +1727,7 @@ def _check_close_milestones(db_path: str = DB_PATH) -> None:
 
                 avg_row = conn.execute(
                     "SELECT AVG(pnl_dollars) as expectancy, AVG(duration_days) as avg_hold "
-                    "FROM shadow_trades WHERE status='closed'"
+                    "FROM shadow_trades WHERE status='closed' AND COALESCE(quarantined, 0) = 0"
                 ).fetchone()
                 expectancy = avg_row["expectancy"] or 0
                 avg_hold = avg_row["avg_hold"] or 0
@@ -1745,7 +1753,7 @@ def _check_close_milestones(db_path: str = DB_PATH) -> None:
             if wins == 1:
                 first_win = conn.execute(
                     "SELECT ticker, pnl_dollars, pnl_pct FROM shadow_trades "
-                    "WHERE status='closed' AND pnl_dollars > 0 "
+                    "WHERE status='closed' AND pnl_dollars > 0 AND COALESCE(quarantined, 0) = 0 "
                     "ORDER BY actual_exit_time ASC LIMIT 1"
                 ).fetchone()
                 if first_win:
@@ -1758,11 +1766,13 @@ def _check_close_milestones(db_path: str = DB_PATH) -> None:
             live_wins = conn.execute(
                 "SELECT COUNT(*) FROM shadow_trades "
                 "WHERE status='closed' AND source='live' AND pnl_dollars > 0"
+                " AND COALESCE(quarantined, 0) = 0"
             ).fetchone()[0]
             if live_wins == 1:
                 first_live_win = conn.execute(
                     "SELECT ticker, pnl_dollars, pnl_pct FROM shadow_trades "
                     "WHERE status='closed' AND source='live' AND pnl_dollars > 0 "
+                    "AND COALESCE(quarantined, 0) = 0 "
                     "ORDER BY actual_exit_time ASC LIMIT 1"
                 ).fetchone()
                 if first_live_win:
@@ -1773,12 +1783,14 @@ def _check_close_milestones(db_path: str = DB_PATH) -> None:
 
             # 3 consecutive wins
             last_3 = conn.execute(
-                "SELECT pnl_dollars FROM shadow_trades WHERE status='closed' "
+                "SELECT pnl_dollars FROM shadow_trades WHERE status='closed'"
+                " AND COALESCE(quarantined, 0) = 0 "
                 "ORDER BY actual_exit_time DESC LIMIT 3"
             ).fetchall()
             if len(last_3) == 3 and all(r["pnl_dollars"] > 0 for r in last_3):
                 last_4 = conn.execute(
-                    "SELECT pnl_dollars FROM shadow_trades WHERE status='closed' "
+                    "SELECT pnl_dollars FROM shadow_trades WHERE status='closed'"
+                    " AND COALESCE(quarantined, 0) = 0 "
                     "ORDER BY actual_exit_time DESC LIMIT 4"
                 ).fetchall()
                 # Only alert if the 4th-most-recent was NOT a win (to avoid repeat alerts)
@@ -1791,12 +1803,14 @@ def _check_close_milestones(db_path: str = DB_PATH) -> None:
             # Best single trade P&L
             best_ever = conn.execute(
                 "SELECT ticker, pnl_dollars, pnl_pct FROM shadow_trades "
-                "WHERE status='closed' ORDER BY pnl_dollars DESC LIMIT 1"
+                "WHERE status='closed' AND COALESCE(quarantined, 0) = 0"
+                " ORDER BY pnl_dollars DESC LIMIT 1"
             ).fetchone()
             # The most recent closed trade
             latest = conn.execute(
                 "SELECT ticker, pnl_dollars FROM shadow_trades "
-                "WHERE status='closed' ORDER BY actual_exit_time DESC LIMIT 1"
+                "WHERE status='closed' AND COALESCE(quarantined, 0) = 0"
+                " ORDER BY actual_exit_time DESC LIMIT 1"
             ).fetchone()
             if (best_ever and latest and closed_total > 1
                     and best_ever["ticker"] == latest["ticker"]
@@ -1821,7 +1835,8 @@ def _check_loss_streak(db_path: str = DB_PATH) -> None:
         with connect_db(db_path) as conn:
             recent = conn.execute(
                 "SELECT ticker, pnl_dollars, pnl_pct FROM shadow_trades "
-                "WHERE status='closed' ORDER BY actual_exit_time DESC LIMIT 10"
+                "WHERE status='closed' AND COALESCE(quarantined, 0) = 0"
+                " ORDER BY actual_exit_time DESC LIMIT 10"
             ).fetchall()
 
         if len(recent) < 3:
@@ -1854,7 +1869,8 @@ def _check_loss_streak(db_path: str = DB_PATH) -> None:
                 # Historical max streak
                 with connect_db(db_path) as conn:
                     all_closed = conn.execute(
-                        "SELECT pnl_dollars FROM shadow_trades WHERE status='closed' "
+                        "SELECT pnl_dollars FROM shadow_trades WHERE status='closed'"
+                        " AND COALESCE(quarantined, 0) = 0 "
                         "ORDER BY actual_exit_time ASC"
                     ).fetchall()
                 max_streak = 0
@@ -1887,6 +1903,7 @@ def _check_sector_exposure(db_path: str = DB_PATH) -> None:
         with connect_db(db_path) as conn:
             open_trades = conn.execute(
                 "SELECT ticker FROM shadow_trades WHERE status='open'"
+                " AND COALESCE(quarantined, 0) = 0"
             ).fetchall()
 
         if len(open_trades) < 3:

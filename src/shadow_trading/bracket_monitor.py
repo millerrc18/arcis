@@ -189,6 +189,7 @@ def check_bracket_health(
                 "FROM shadow_trades "
                 "WHERE status = 'open' AND alpaca_order_id IS NOT NULL "
                 "AND COALESCE(order_type, '') = 'bracket'"
+                " AND COALESCE(quarantined, 0) = 0"
             ).fetchall()
         except Exception:
             trades = conn.execute(
@@ -196,6 +197,7 @@ def check_bracket_health(
                 "FROM shadow_trades "
                 "WHERE status = 'open' AND alpaca_order_id IS NOT NULL "
                 "AND COALESCE(order_type, '') = 'bracket'"
+                " AND COALESCE(quarantined, 0) = 0"
             ).fetchall()
 
     checked = 0

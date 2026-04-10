@@ -254,9 +254,11 @@ def send_premarket_brief():
             # Open positions
             open_paper = conn.execute(
                 "SELECT COUNT(*) FROM shadow_trades WHERE status='open' AND COALESCE(source,'paper')='paper'"
+                " AND COALESCE(quarantined, 0) = 0"
             ).fetchone()[0]
             open_live = conn.execute(
                 "SELECT COUNT(*) FROM shadow_trades WHERE status='open' AND source='live'"
+                " AND COALESCE(quarantined, 0) = 0"
             ).fetchone()[0]
 
         # S&P futures + 10Y from yfinance (works pre-market)
@@ -310,33 +312,35 @@ def send_eod_report():
             paper_open_row = conn.execute(
                 "SELECT COUNT(*) as cnt, COALESCE(SUM(pnl_dollars),0) as pnl "
                 "FROM shadow_trades WHERE status='open' AND COALESCE(source,'paper')='paper'"
+                " AND COALESCE(quarantined, 0) = 0"
             ).fetchone()
 
             # Paper closed today
             paper_closed_row = conn.execute(
                 "SELECT COUNT(*) as cnt, COALESCE(SUM(pnl_dollars),0) as pnl "
                 "FROM shadow_trades WHERE status='closed' AND COALESCE(source,'paper')='paper' "
-                "AND actual_exit_time LIKE ?", (f"{today_str}%",)
+                "AND actual_exit_time LIKE ? AND COALESCE(quarantined, 0) = 0", (f"{today_str}%",)
             ).fetchone()
 
             # Live open
             live_open_row = conn.execute(
                 "SELECT COUNT(*) as cnt, COALESCE(SUM(pnl_dollars),0) as pnl "
                 "FROM shadow_trades WHERE status='open' AND source='live'"
+                " AND COALESCE(quarantined, 0) = 0"
             ).fetchone()
 
             # Live closed today
             live_closed_row = conn.execute(
                 "SELECT COUNT(*) as cnt, COALESCE(SUM(pnl_dollars),0) as pnl "
                 "FROM shadow_trades WHERE status='closed' AND source='live' "
-                "AND actual_exit_time LIKE ?", (f"{today_str}%",)
+                "AND actual_exit_time LIKE ? AND COALESCE(quarantined, 0) = 0", (f"{today_str}%",)
             ).fetchone()
 
             # All-time win rate
             all_closed = conn.execute(
                 "SELECT COUNT(*) as total, "
                 "SUM(CASE WHEN pnl_dollars > 0 THEN 1 ELSE 0 END) as wins "
-                "FROM shadow_trades WHERE status='closed'"
+                "FROM shadow_trades WHERE status='closed' AND COALESCE(quarantined, 0) = 0"
             ).fetchone()
             wins = all_closed["wins"] or 0
             total = all_closed["total"] or 0
@@ -346,12 +350,12 @@ def send_eod_report():
             # Best/worst today
             best = conn.execute(
                 "SELECT ticker, pnl_pct FROM shadow_trades "
-                "WHERE status='closed' AND actual_exit_time LIKE ? "
+                "WHERE status='closed' AND actual_exit_time LIKE ? AND COALESCE(quarantined, 0) = 0 "
                 "ORDER BY pnl_pct DESC LIMIT 1", (f"{today_str}%",)
             ).fetchone()
             worst = conn.execute(
                 "SELECT ticker, pnl_pct FROM shadow_trades "
-                "WHERE status='closed' AND actual_exit_time LIKE ? "
+                "WHERE status='closed' AND actual_exit_time LIKE ? AND COALESCE(quarantined, 0) = 0 "
                 "ORDER BY pnl_pct ASC LIMIT 1", (f"{today_str}%",)
             ).fetchone()
 
@@ -553,19 +557,19 @@ def send_weekly_digest():
             # Trades this week
             opened_paper = conn.execute(
                 "SELECT COUNT(*) FROM shadow_trades WHERE COALESCE(source,'paper')='paper' "
-                "AND created_at >= ?", (week_ago_str,)
+                "AND created_at >= ? AND COALESCE(quarantined, 0) = 0", (week_ago_str,)
             ).fetchone()[0]
             opened_live = conn.execute(
                 "SELECT COUNT(*) FROM shadow_trades WHERE source='live' "
-                "AND created_at >= ?", (week_ago_str,)
+                "AND created_at >= ? AND COALESCE(quarantined, 0) = 0", (week_ago_str,)
             ).fetchone()[0]
             closed_paper = conn.execute(
                 "SELECT COUNT(*) FROM shadow_trades WHERE status='closed' AND COALESCE(source,'paper')='paper' "
-                "AND actual_exit_time >= ?", (week_ago_str,)
+                "AND actual_exit_time >= ? AND COALESCE(quarantined, 0) = 0", (week_ago_str,)
             ).fetchone()[0]
             closed_live = conn.execute(
                 "SELECT COUNT(*) FROM shadow_trades WHERE status='closed' AND source='live' "
-                "AND actual_exit_time >= ?", (week_ago_str,)
+                "AND actual_exit_time >= ? AND COALESCE(quarantined, 0) = 0", (week_ago_str,)
             ).fetchone()[0]
 
             # Win rate and expectancy (all time)
@@ -573,7 +577,7 @@ def send_weekly_digest():
                 "SELECT COUNT(*) as total, "
                 "SUM(CASE WHEN pnl_dollars > 0 THEN 1 ELSE 0 END) as wins, "
                 "AVG(pnl_dollars) as expectancy "
-                "FROM shadow_trades WHERE status='closed'"
+                "FROM shadow_trades WHERE status='closed' AND COALESCE(quarantined, 0) = 0"
             ).fetchone()
             win_rate = (wr_row["wins"] or 0) / max(wr_row["total"] or 1, 1)
             expectancy = wr_row["expectancy"] or 0
@@ -581,24 +585,26 @@ def send_weekly_digest():
             # Best/worst this week
             best = conn.execute(
                 "SELECT ticker, pnl_pct FROM shadow_trades "
-                "WHERE status='closed' AND actual_exit_time >= ? "
+                "WHERE status='closed' AND actual_exit_time >= ? AND COALESCE(quarantined, 0) = 0 "
                 "ORDER BY pnl_pct DESC LIMIT 1", (week_ago_str,)
             ).fetchone()
             worst = conn.execute(
                 "SELECT ticker, pnl_pct FROM shadow_trades "
-                "WHERE status='closed' AND actual_exit_time >= ? "
+                "WHERE status='closed' AND actual_exit_time >= ? AND COALESCE(quarantined, 0) = 0 "
                 "ORDER BY pnl_pct ASC LIMIT 1", (week_ago_str,)
             ).fetchone()
 
             # P&L this week
             pnl_paper = conn.execute(
                 "SELECT COALESCE(SUM(pnl_dollars),0) FROM shadow_trades "
-                "WHERE status='closed' AND COALESCE(source,'paper')='paper' AND actual_exit_time >= ?",
+                "WHERE status='closed' AND COALESCE(source,'paper')='paper' AND actual_exit_time >= ?"
+                " AND COALESCE(quarantined, 0) = 0",
                 (week_ago_str,)
             ).fetchone()[0]
             pnl_live = conn.execute(
                 "SELECT COALESCE(SUM(pnl_dollars),0) FROM shadow_trades "
-                "WHERE status='closed' AND source='live' AND actual_exit_time >= ?",
+                "WHERE status='closed' AND source='live' AND actual_exit_time >= ?"
+                " AND COALESCE(quarantined, 0) = 0",
                 (week_ago_str,)
             ).fetchone()[0]
 
@@ -707,7 +713,7 @@ def check_earnings_proximity():
 
             open_trades = conn.execute(
                 "SELECT trade_id, ticker, actual_entry_price, pnl_dollars, pnl_pct "
-                "FROM shadow_trades WHERE status='open'"
+                "FROM shadow_trades WHERE status='open' AND COALESCE(quarantined, 0) = 0"
             ).fetchall()
 
             if not open_trades:
@@ -756,11 +762,13 @@ def save_daily_metric_snapshot(db_path: str = DB_PATH):
         with sqlite3.connect(db_path) as conn:
             closed = conn.execute(
                 "SELECT pnl_pct, pnl_dollars FROM shadow_trades WHERE status = 'closed'"
+                " AND COALESCE(quarantined, 0) = 0"
             ).fetchall()
             pnls = [r[0] for r in closed if r[0] is not None]
             pnl_dollars = [r[1] for r in closed if r[1] is not None]
             open_count = conn.execute(
                 "SELECT COUNT(*) FROM shadow_trades WHERE status = 'open'"
+                " AND COALESCE(quarantined, 0) = 0"
             ).fetchone()[0]
 
         if not pnls:

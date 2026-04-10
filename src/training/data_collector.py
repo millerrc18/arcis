@@ -172,6 +172,7 @@ def collect_training_examples_from_closed_trades(
             FROM shadow_trades st
             JOIN recommendations r ON st.recommendation_id = r.recommendation_id
             WHERE st.status = 'closed'
+              AND COALESCE(st.quarantined, 0) = 0
               AND st.recommendation_id NOT IN (
                   SELECT recommendation_id FROM training_examples
                   WHERE recommendation_id IS NOT NULL
