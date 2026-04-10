@@ -38,6 +38,7 @@ from src.journal.store import (
 )
 from src.models import TradePacket
 from src.shadow_trading.models import ShadowTrade
+from alpaca.common.exceptions import APIError
 
 logger = logging.getLogger(__name__)
 # Alpaca order status sets — used by exit monitoring to decide whether to
@@ -479,9 +480,56 @@ def open_shadow_trade(
             except ImportError:
                 logger.warning("[SHADOW] Stop order imports unavailable for %s — position unprotected", ticker)
 
+        except (ConnectionError, TimeoutError, OSError) as e2:
+            # Network error — order may have been accepted by Alpaca.
+            # Fix #359: Check Alpaca, retry if position doesn't exist.
+            logger.warning("[SHADOW] Network error for %s: %s — checking Alpaca", ticker, e2)
+            import time as _time
+            _time.sleep(1)
+            try:
+                from src.shadow_trading.alpaca_adapter import get_all_positions
+                if any(p["symbol"] == ticker for p in get_all_positions()):
+                    logger.warning("[SHADOW] Ghost position detected for %s after network error", ticker)
+                    trade_data["status"] = "submission_uncertain"
+                    trade_data["order_type"] = "ghost_detected"
+                else:
+                    try:
+                        order = place_paper_entry(ticker, planned_shares)
+                        trade_data["alpaca_order_id"] = order.get("order_id")
+                        trade_data["order_type"] = "retry_after_network_error"
+                        fill_price = order.get("filled_avg_price")
+                        trade_data["actual_entry_price"] = fill_price if fill_price else entry_price
+                        trade_data["status"] = "open"
+                    except Exception as retry_err:
+                        logger.error("[SHADOW] Retry also failed for %s: %s", ticker, retry_err)
+                        trade_data["status"] = "failed"
+                        trade_data["order_type"] = "failed_after_retry"
+            except Exception as check_err:
+                logger.error("[SHADOW] Cannot verify Alpaca for %s: %s", ticker, check_err)
+                trade_data["status"] = "submission_uncertain"
+                trade_data["order_type"] = "failed_network"
+            trade_data["actual_entry_price"] = trade_data.get("actual_entry_price", entry_price)
+            trade_data["actual_entry_time"] = now.isoformat()
+            trade_data["max_favorable_excursion"] = 0.0
+            trade_data["max_adverse_excursion"] = 0.0
+        except APIError as e2:
+            # Alpaca API error. 400/403/422 = true rejection. 500+ = maybe accepted.
+            sc = getattr(e2, 'status_code', None)
+            if sc and sc >= 500:
+                logger.warning("[SHADOW] Alpaca server error for %s (HTTP %s): %s", ticker, sc, e2)
+                trade_data["status"] = "submission_uncertain"
+                trade_data["order_type"] = f"api_error_{sc}"
+            else:
+                logger.error("[SHADOW] Alpaca rejected order for %s (HTTP %s): %s", ticker, sc, e2)
+                trade_data["status"] = "rejected"
+                trade_data["order_type"] = f"rejected_api_{sc}"
+            trade_data["actual_entry_price"] = entry_price
+            trade_data["actual_entry_time"] = now.isoformat()
+            trade_data["max_favorable_excursion"] = 0.0
+            trade_data["max_adverse_excursion"] = 0.0
         except Exception as e2:
-            logger.warning(f"[SHADOW] Alpaca order failed for {ticker}: {e2}")
-            logger.error("[SHADOW] Both bracket and fallback entry failed for %s: %s", ticker, e2)
+            # Unknown error — code bug, not a broker issue
+            logger.error("[SHADOW] Unexpected error for %s: %s", ticker, e2)
             trade_data["actual_entry_price"] = entry_price
             trade_data["actual_entry_time"] = now.isoformat()
             trade_data["status"] = "failed"
