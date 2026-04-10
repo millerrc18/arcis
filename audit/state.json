@@ -1,7 +1,7 @@
 {
-  "run_count": 15,
+  "run_count": 16,
   "current_focus_index": 1,
-  "file_index": 30,
+  "file_index": 45,
   "file_list": [
     "src/api/__init__.py",
     "src/api/app.py",
@@ -218,7 +218,7 @@
     "src/utils/retry.py",
     "src/utils/type_safety.py"
   ],
-  "last_run": "2026-04-10T07:37:56Z",
+  "last_run": "2026-04-10T08:15:00Z",
   "findings": {
     "run_4": {
       "focus_area": "code_quality",
@@ -1122,6 +1122,63 @@
         }
       ],
       "github_issues_blocked": "No gh CLI or GitHub MCP tools available \u2014 7 findings (2 high, 5 medium) need manual issue creation. Issue titles recorded in each finding."
+    },
+    "run_16": {
+      "focus_area": "security",
+      "files_audited": [
+        "src/services/review_service.py",
+        "src/services/scan_service.py",
+        "src/services/shadow_service.py",
+        "src/services/system_service.py",
+        "src/services/training_service.py",
+        "src/services/watchlist_service.py",
+        "src/__init__.py",
+        "src/attribution/__init__.py",
+        "src/attribution/logger.py",
+        "src/cli/__init__.py",
+        "src/cli/commands.py",
+        "src/commands/__init__.py",
+        "src/commands/executor.py",
+        "src/config_overrides.py",
+        "src/council/__init__.py"
+      ],
+      "medium": [
+        {
+          "file": "src/attribution/logger.py",
+          "lines": "96",
+          "description": "Dynamic SQL construction via f-string in log_attribution_after_llm. The UPDATE SET clause is built with f\"UPDATE attribution_trades SET {', '.join(fields)} WHERE attribution_id = ?\". While fields are currently hardcoded, this pattern is fragile and could become a SQL injection vector if user-controlled values are later added to the fields list.",
+          "suggested_fix": "Refactor to use a fixed UPDATE statement with all columns, or add an explicit allowlist check before constructing the query.",
+          "github_issue": "#361"
+        },
+        {
+          "file": "src/cli/commands.py",
+          "lines": "1289",
+          "description": "Dashboard binds to 0.0.0.0, exposing the trading API on all network interfaces. For a system handling trading operations (halt/resume, close positions, update settings), this unnecessarily increases the attack surface.",
+          "suggested_fix": "Default bind address to 127.0.0.1 and accept an optional --host CLI argument for explicit remote access.",
+          "github_issue": "#362"
+        },
+        {
+          "file": "src/commands/executor.py",
+          "lines": "134, 202, 269, 343",
+          "description": "Multiple command handlers return raw exception messages or subprocess stderr in response dicts sent to the dashboard client. This could leak internal file paths, stack traces, database paths, or configuration details.",
+          "suggested_fix": "Return generic error categories to the client while logging full exception details server-side via logger.error().",
+          "github_issue": "#363"
+        }
+      ],
+      "low": [
+        {
+          "file": "src/services/system_service.py",
+          "description": "Placeholder credential checks (lines 34, 46, 73-74) use hardcoded placeholder strings for validation. Fragile but not a security vulnerability."
+        },
+        {
+          "file": "src/cli/commands.py",
+          "description": "Line 1097: sys.path.insert(0, ...) path manipulation in cmd_fetch_earnings. Local CLI context only."
+        },
+        {
+          "file": "src/cli/commands.py",
+          "description": "Exception messages from external API calls (Alpaca, broker) printed directly to CLI user in multiple handlers (lines 228, 272, 327). Admin context mitigates risk."
+        }
+      ]
     }
   }
 }
