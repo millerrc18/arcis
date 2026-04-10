@@ -13,6 +13,12 @@ from typing import Optional
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+# Status lifecycle — exhaustive.
+# Terminal: trade is done, will not be retried or managed.
+# Active: trade is in-flight, may be retried or exited.
+TERMINAL_STATUSES = frozenset({"closed", "rejected", "failed", "exit_abandoned"})
+ACTIVE_STATUSES = frozenset({"pending", "open", "exit_pending", "exit_failed", "submission_uncertain"})
+
 
 @dataclass
 class ShadowTrade:
@@ -20,7 +26,7 @@ class ShadowTrade:
     recommendation_id: Optional[str] = None
     ticker: str = ""
     direction: str = "long"
-    status: str = "pending"  # pending / open / closed / expired / cancelled
+    status: str = "pending"  # See TERMINAL_STATUSES / ACTIVE_STATUSES
     entry_price: float = 0.0  # target from packet
     stop_price: float = 0.0
     target_1: float = 0.0
