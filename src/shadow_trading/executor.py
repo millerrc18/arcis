@@ -76,8 +76,14 @@ def _check_paper_buying_power(entry_price: float, shares: int) -> bool:
             return False
         return True
     except Exception as exc:
-        logger.warning("[SHADOW] Buying power check failed: %s — allowing trade", exc)
-        return True  # Fail open — Alpaca will reject if truly insufficient
+        # Fail CLOSED — if we can't verify buying power, skip the trade.
+        # A missed trade is recoverable (next scan picks it up). An orphaned
+        # position from a trade that should have been blocked is not.
+        # Changed from fail-open after production incident where API blips
+        # let trades through that exhausted buying power and created
+        # 15 orphaned positions.
+        logger.warning("[SHADOW] Buying power check failed: %s — blocking trade (fail-closed)", exc)
+        return False
 
 
 def _parse_price(value) -> float:
@@ -386,9 +392,12 @@ def open_shadow_trade(
         trade_data["max_favorable_excursion"] = 0.0
         trade_data["max_adverse_excursion"] = 0.0
         insert_shadow_trade(trade_data, db_path)
-        # Fix for #239: was returning trade_data (dict) — callers expect str | None.
-        # Return the trade_id string for consistency with all other code paths.
-        return trade_data.get("trade_id")
+        # Return None — trade was NOT opened. Callers check `if trade_id:`
+        # to decide whether to count it as opened, send notifications, etc.
+        # Returning trade_id here caused rejected trades to be counted as
+        # opened trades, triggering false Telegram notifications and
+        # inflating scan metrics.
+        return None
 
     # Strategy Decision #18: Mechanical bracket exits with 2.0 ATR multiplier.
     # Try bracket order first (entry + stop-loss + take-profit as one atomic
