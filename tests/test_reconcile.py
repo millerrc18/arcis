@@ -386,3 +386,83 @@ def test_reconcile_stale_without_yfinance(mock_positions, db_path):
     # P&L defaults to 0.0 when yfinance fails (better than invisible trade)
     assert row["pnl_dollars"] == 0.0
     assert row["actual_exit_price"] == 0.0
+
+
+# ── Fix #356: Cancel-before-close tests ──
+
+
+@patch(
+    "src.shadow_trading.alpaca_adapter.cancel_orders_for_ticker",
+    return_value=2,
+)
+@patch(
+    "src.shadow_trading.alpaca_adapter.get_all_positions",
+    return_value=[],
+)
+def test_paper_reconcile_cancels_orders_before_close(mock_positions, mock_cancel, db_path):
+    """Stale paper trades should trigger cancel_orders_for_ticker before closing (#356)."""
+    insert_shadow_trade(
+        {
+            "ticker": "TSLA",
+            "status": "open",
+            "source": "paper",
+            "direction": "long",
+            "entry_price": 200.0,
+            "planned_shares": 3,
+            "created_at": "2026-03-27T10:00:00",
+            "updated_at": "2026-03-27T10:00:00",
+        },
+        db_path,
+    )
+
+    result = reconcile_paper_trades(db_path=db_path, dry_run=False)
+
+    assert result["marked_closed"] == ["TSLA"]
+    mock_cancel.assert_called_once_with("TSLA")
+
+    # Trade must be fully closed
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT status, exit_reason FROM shadow_trades WHERE ticker = 'TSLA'"
+        ).fetchone()
+    assert row["status"] == "closed"
+    assert row["exit_reason"] == "reconciled_stale"
+
+
+@patch(
+    "src.shadow_trading.alpaca_adapter.cancel_orders_for_ticker",
+    side_effect=Exception("Alpaca timeout"),
+)
+@patch(
+    "src.shadow_trading.alpaca_adapter.get_all_positions",
+    return_value=[],
+)
+def test_paper_reconcile_cancel_failure_does_not_block_close(mock_positions, mock_cancel, db_path):
+    """A cancel_orders_for_ticker failure must not prevent the stale trade from closing (#356)."""
+    insert_shadow_trade(
+        {
+            "ticker": "GOOG",
+            "status": "open",
+            "source": "paper",
+            "direction": "long",
+            "entry_price": 150.0,
+            "planned_shares": 1,
+            "created_at": "2026-03-27T10:00:00",
+            "updated_at": "2026-03-27T10:00:00",
+        },
+        db_path,
+    )
+
+    result = reconcile_paper_trades(db_path=db_path, dry_run=False)
+
+    # Cancel raised but close must still proceed
+    assert result["marked_closed"] == ["GOOG"]
+
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT status FROM shadow_trades WHERE ticker = 'GOOG'"
+        ).fetchone()
+    assert row["status"] == "closed"
+

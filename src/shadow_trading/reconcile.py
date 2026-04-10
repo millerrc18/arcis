@@ -404,6 +404,18 @@ def reconcile_paper_trades(
                 except (ValueError, TypeError):
                     pass
 
+            # Fix #356: Cancel pending orders before closing to prevent
+            # held_for_orders deadlock.
+            try:
+                from src.shadow_trading.alpaca_adapter import cancel_orders_for_ticker
+                cancelled = cancel_orders_for_ticker(ticker)
+                if cancelled > 0:
+                    import time
+                    time.sleep(1)  # Let cancellations settle
+            except Exception as cancel_err:
+                logger.warning("[RECONCILE-PAPER] Could not cancel orders for %s: %s",
+                               ticker, cancel_err)
+
             exit_price, pnl_dollars, pnl_pct = 0.0, 0.0, 0.0
             if trade_row:
                 ep = float(trade_row["actual_entry_price"] or trade_row["entry_price"] or 0)
