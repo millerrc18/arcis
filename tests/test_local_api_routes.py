@@ -247,8 +247,11 @@ class TestSystemRoutes:
         import sqlite3
         from tests.conftest import init_test_db
 
-        monkeypatch.chdir(tmp_path)
         db_path = str(tmp_path / "ai_research_desk.sqlite3")
+        monkeypatch.setenv("ARCIS_DB_PATH", db_path)
+        monkeypatch.setattr("src.config.DB_PATH", db_path)
+        monkeypatch.setattr("src.api.routes.system.DB_PATH", db_path)
+
         init_test_db(db_path, [
             "options_chains", "options_metrics", "vix_term_structure",
             "macro_snapshots", "google_trends", "cboe_ratios",

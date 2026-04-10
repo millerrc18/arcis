@@ -74,7 +74,11 @@ def _backfill_trade_data(ticker, entry_price, qty, allocation, source, now):
         "actual_entry_time": now.isoformat(),
         "created_at": now.isoformat(), "updated_at": now.isoformat(),
         "order_type": "reconciled", "recommendation_id": None,
-        "stop_price": 0, "target_1": 0, "target_2": 0,
+        # Fix #354: Set protective defaults instead of zero.
+        # 5% stop / 5% T1 / 10% T2 — enough for exit loop to manage.
+        "stop_price": round(entry_price * 0.95, 2) if entry_price > 0 else 0,
+        "target_1": round(entry_price * 1.05, 2) if entry_price > 0 else 0,
+        "target_2": round(entry_price * 1.10, 2) if entry_price > 0 else 0,
         "max_favorable_excursion": 0, "max_adverse_excursion": 0,
     }
 
@@ -180,9 +184,8 @@ def reconcile_live_trades(
                 "[RECONCILE] Backfilled orphaned position: %s (%.4f shares @ $%.2f)",
                 ticker, qty, entry_px,
             )
-            logger.warning(
-                "[RECONCILE] Backfilled %s with stop_price=0, target_1=0 — "
-                "MANUAL INTERVENTION NEEDED: set stop-loss and targets",
+            logger.info(
+                "[RECONCILE] Backfilled %s with protective stop/targets (5%% stop, 5%% T1, 10%% T2)",
                 ticker,
             )
 
@@ -401,6 +404,18 @@ def reconcile_paper_trades(
                 except (ValueError, TypeError):
                     pass
 
+            # Fix #356: Cancel pending orders before closing to prevent
+            # held_for_orders deadlock.
+            try:
+                from src.shadow_trading.alpaca_adapter import cancel_orders_for_ticker
+                cancelled = cancel_orders_for_ticker(ticker)
+                if cancelled > 0:
+                    import time
+                    time.sleep(1)  # Let cancellations settle
+            except Exception as cancel_err:
+                logger.warning("[RECONCILE-PAPER] Could not cancel orders for %s: %s",
+                               ticker, cancel_err)
+
             exit_price, pnl_dollars, pnl_pct = 0.0, 0.0, 0.0
             if trade_row:
                 ep = float(trade_row["actual_entry_price"] or trade_row["entry_price"] or 0)
@@ -506,6 +521,37 @@ def reconcile_paper_trades(
             "[RECONCILE-PAPER] %d stuck exit_failed/exit_pending trades found (dry_run): %s",
             len(stuck), [dict(r)["ticker"] for r in stuck],
         )
+
+    # Resolve submission_uncertain trades: entries where we don't
+    # know if Alpaca received the order (network error during submission).
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        uncertain = conn.execute(
+            "SELECT trade_id, ticker, entry_price, planned_shares "
+            "FROM shadow_trades "
+            "WHERE source = 'paper' AND status = 'submission_uncertain'"
+        ).fetchall()
+
+    if uncertain and not dry_run:
+        for row in uncertain:
+            ticker = row["ticker"]
+            trade_id = row["trade_id"]
+            if ticker in alpaca_tickers:
+                # Alpaca has it — promote to open
+                with sqlite3.connect(db_path) as conn:
+                    conn.execute(
+                        "UPDATE shadow_trades SET status = 'open' WHERE trade_id = ?",
+                        (trade_id,),
+                    )
+                logger.info("[RECONCILE-PAPER] Promoted uncertain trade to open: %s", ticker)
+            else:
+                # Alpaca doesn't have it — close as failed
+                with sqlite3.connect(db_path) as conn:
+                    conn.execute(
+                        "UPDATE shadow_trades SET status = 'failed' WHERE trade_id = ?",
+                        (trade_id,),
+                    )
+                logger.info("[RECONCILE-PAPER] Closed uncertain trade as failed: %s", ticker)
 
     return {
         "alpaca_count": len(alpaca_positions),

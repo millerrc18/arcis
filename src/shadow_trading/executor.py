@@ -38,6 +38,7 @@ from src.journal.store import (
 )
 from src.models import TradePacket
 from src.shadow_trading.models import ShadowTrade
+from alpaca.common.exceptions import APIError
 
 logger = logging.getLogger(__name__)
 # Alpaca order status sets — used by exit monitoring to decide whether to
@@ -52,6 +53,10 @@ FILLED_ORDER_STATUSES = {"filled", "closed"}
 PENDING_ORDER_STATUSES = {"new", "accepted", "pending_new", "accepted_for_bidding", "held"}
 
 
+_consecutive_bp_failures = 0
+_BP_ALERT_THRESHOLD = 3
+
+
 def _check_paper_buying_power(entry_price: float, shares: int) -> bool:
     """Check if paper account has sufficient buying power for the trade.
 
@@ -63,6 +68,7 @@ def _check_paper_buying_power(entry_price: float, shares: int) -> bool:
     Blocking all trades because the buying power check timed out is worse
     than letting a trade through that might get rejected by Alpaca anyway.
     """
+    global _consecutive_bp_failures
     try:
         from src.shadow_trading.alpaca_adapter import get_account_info
         acct = get_account_info()
@@ -73,7 +79,19 @@ def _check_paper_buying_power(entry_price: float, shares: int) -> bool:
                 "[SHADOW] Insufficient buying power: need $%.2f, have $%.2f",
                 required, buying_power,
             )
+            _consecutive_bp_failures += 1
+            if _consecutive_bp_failures >= _BP_ALERT_THRESHOLD:
+                try:
+                    from src.notifications.telegram import send_telegram
+                    send_telegram(
+                        f"⚠️ BUYING POWER CRISIS: {_consecutive_bp_failures} consecutive rejections\n"
+                        f"Available: ${buying_power:,.2f} / Need: ${required:,.2f}\n"
+                        f"Check for orphaned positions consuming capital."
+                    )
+                except Exception:
+                    pass
             return False
+        _consecutive_bp_failures = 0
         return True
     except Exception as exc:
         # Fail CLOSED — if we can't verify buying power, skip the trade.
@@ -84,6 +102,22 @@ def _check_paper_buying_power(entry_price: float, shares: int) -> bool:
         # 15 orphaned positions.
         logger.warning("[SHADOW] Buying power check failed: %s — blocking trade (fail-closed)", exc)
         return False
+
+
+def _verify_and_update(trade_data: dict) -> None:
+    """Verify order was accepted by Alpaca; update trade_data if rejected.
+
+    Fix #352: Post-submission verification catches orders that Alpaca
+    rejected after the SDK returned success.
+    """
+    if trade_data.get("alpaca_order_id"):
+        from src.shadow_trading.alpaca_adapter import verify_order_accepted
+        v = verify_order_accepted(trade_data["alpaca_order_id"])
+        if v["verified"] is False:
+            logger.error("[SHADOW] Order %s REJECTED (status=%s)",
+                         trade_data["alpaca_order_id"], v["status"])
+            trade_data["status"] = "rejected"
+            trade_data["order_type"] = "rejected_by_broker"
 
 
 def _parse_price(value) -> float:
@@ -264,6 +298,15 @@ def open_shadow_trade(
             logger.info("[SHADOW] Already have open trade for %s, skipping", ticker)
             return None
 
+    # Fix #357: Also check Alpaca for ghost positions not tracked in DB
+    try:
+        from src.shadow_trading.alpaca_adapter import get_all_positions
+        if any(p["symbol"] == ticker for p in get_all_positions()):
+            logger.warning("[SHADOW] Ghost position detected for %s on Alpaca — skipping entry", ticker)
+            return None
+    except Exception as e:
+        logger.warning("[SHADOW] Alpaca position check failed for %s: %s — proceeding with DB check only", ticker, e)
+
     # Parse packet values
     entry_price = _parse_price(packet.entry_zone)
     stop_price = _parse_price(packet.stop_invalidation)
@@ -384,8 +427,7 @@ def open_shadow_trade(
 
     # Buying power check before paper entry
     if not _check_paper_buying_power(entry_price, planned_shares):
-        trade_data["status"] = "closed"
-        trade_data["exit_reason"] = "rejected_buying_power"
+        trade_data["status"] = "rejected"
         trade_data["order_type"] = "rejected_buying_power"
         trade_data["actual_entry_price"] = entry_price
         trade_data["actual_entry_time"] = now.isoformat()
@@ -424,6 +466,7 @@ def open_shadow_trade(
         trade_data["status"] = "open"
         trade_data["max_favorable_excursion"] = 0.0
         trade_data["max_adverse_excursion"] = 0.0
+        _verify_and_update(trade_data)
 
     except Exception as e:
         logger.warning(f"[SHADOW] Bracket order failed for {ticker}: {e}, falling back to market")
@@ -445,6 +488,7 @@ def open_shadow_trade(
             trade_data["status"] = "open"
             trade_data["max_favorable_excursion"] = 0.0
             trade_data["max_adverse_excursion"] = 0.0
+            _verify_and_update(trade_data)
 
             # Fix for #274: Immediately place standalone stop-loss protection.
             # If stop submission fails, CLOSE the position — an unprotected
@@ -489,13 +533,59 @@ def open_shadow_trade(
             except ImportError:
                 logger.warning("[SHADOW] Stop order imports unavailable for %s — position unprotected", ticker)
 
-        except Exception as e2:
-            logger.warning(f"[SHADOW] Alpaca order failed for {ticker}: {e2}")
-            logger.error("[SHADOW] Both bracket and fallback entry failed for %s: %s", ticker, e2)
+        except (ConnectionError, TimeoutError, OSError) as e2:
+            # Network error — order may have been accepted by Alpaca.
+            # Fix #359: Check Alpaca, retry if position doesn't exist.
+            logger.warning("[SHADOW] Network error for %s: %s — checking Alpaca", ticker, e2)
+            import time as _time
+            _time.sleep(1)
+            try:
+                from src.shadow_trading.alpaca_adapter import get_all_positions
+                if any(p["symbol"] == ticker for p in get_all_positions()):
+                    logger.warning("[SHADOW] Ghost position detected for %s after network error", ticker)
+                    trade_data["status"] = "submission_uncertain"
+                    trade_data["order_type"] = "ghost_detected"
+                else:
+                    try:
+                        order = place_paper_entry(ticker, planned_shares)
+                        trade_data["alpaca_order_id"] = order.get("order_id")
+                        trade_data["order_type"] = "retry_after_network_error"
+                        fill_price = order.get("filled_avg_price")
+                        trade_data["actual_entry_price"] = fill_price if fill_price else entry_price
+                        trade_data["status"] = "open"
+                    except Exception as retry_err:
+                        logger.error("[SHADOW] Retry also failed for %s: %s", ticker, retry_err)
+                        trade_data["status"] = "failed"
+                        trade_data["order_type"] = "failed_after_retry"
+            except Exception as check_err:
+                logger.error("[SHADOW] Cannot verify Alpaca for %s: %s", ticker, check_err)
+                trade_data["status"] = "submission_uncertain"
+                trade_data["order_type"] = "failed_network"
+            trade_data["actual_entry_price"] = trade_data.get("actual_entry_price", entry_price)
+            trade_data["actual_entry_time"] = now.isoformat()
+            trade_data["max_favorable_excursion"] = 0.0
+            trade_data["max_adverse_excursion"] = 0.0
+        except APIError as e2:
+            # Alpaca API error. 400/403/422 = true rejection. 500+ = maybe accepted.
+            sc = getattr(e2, 'status_code', None)
+            if sc and sc >= 500:
+                logger.warning("[SHADOW] Alpaca server error for %s (HTTP %s): %s", ticker, sc, e2)
+                trade_data["status"] = "submission_uncertain"
+                trade_data["order_type"] = f"api_error_{sc}"
+            else:
+                logger.error("[SHADOW] Alpaca rejected order for %s (HTTP %s): %s", ticker, sc, e2)
+                trade_data["status"] = "rejected"
+                trade_data["order_type"] = f"rejected_api_{sc}"
             trade_data["actual_entry_price"] = entry_price
             trade_data["actual_entry_time"] = now.isoformat()
-            trade_data["status"] = "closed"
-            trade_data["exit_reason"] = "entry_failed"
+            trade_data["max_favorable_excursion"] = 0.0
+            trade_data["max_adverse_excursion"] = 0.0
+        except Exception as e2:
+            # Unknown error — code bug, not a broker issue
+            logger.error("[SHADOW] Unexpected error for %s: %s", ticker, e2)
+            trade_data["actual_entry_price"] = entry_price
+            trade_data["actual_entry_time"] = now.isoformat()
+            trade_data["status"] = "failed"
             trade_data["order_type"] = "failed"
             trade_data["max_favorable_excursion"] = 0.0
             trade_data["max_adverse_excursion"] = 0.0
@@ -633,6 +723,10 @@ def _retry_exit(trade: dict, db_path: str = DB_PATH) -> None:
     shares = int(float(trade.get("shares") or trade.get("planned_shares") or 0))
     try:
         exit_result = _submit_exit_order(trade, shares)
+        # Fix #360: Store exit order ID immediately for audit trail
+        if isinstance(exit_result, dict) and exit_result.get("order_id"):
+            update_shadow_trade(trade["trade_id"],
+                                {"exit_order_id": exit_result["order_id"]}, db_path)
         exit_status = exit_result.get("status") if isinstance(exit_result, dict) else None
         if _is_filled_status(exit_status):
             fill_price = float(exit_result.get("filled_avg_price", 0))
@@ -950,6 +1044,10 @@ def check_and_manage_open_trades(
 
                 try:
                     exit_result = _submit_exit_order(trade, shares)
+                    # Fix #360: Store exit order ID immediately for audit trail
+                    if isinstance(exit_result, dict) and exit_result.get("order_id"):
+                        update_shadow_trade(trade["trade_id"],
+                                            {"exit_order_id": exit_result["order_id"]}, db_path)
                 except Exception as e:
                     logger.error("[EXIT] Broker exit failed for %s — marking exit_failed: %s", ticker, e, extra={"ctx": {"event": "exit_failed", "ticker": ticker, "trade_id": trade["trade_id"], "error": type(e).__name__}})
                     update_shadow_trade(

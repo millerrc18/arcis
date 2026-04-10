@@ -17,13 +17,50 @@ def set_env(monkeypatch):
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
     """Create a test client for the cloud API."""
-    # Re-import to pick up env vars and ensure API_SECRET is cleared
+    # Set API_SECRET to a non-empty value to avoid RuntimeError in verify_auth (Fix #349)
+    monkeypatch.setenv("API_SECRET", "test-api-secret")
+    # Re-import to pick up env vars
     import importlib
     import src.api.cloud_app as cloud_mod
     importlib.reload(cloud_mod)
-    return TestClient(cloud_mod.app)
+
+    test_client = TestClient(cloud_mod.app)
+
+    # Wrap the client to automatically add auth headers for convenience
+    # Tests that need different auth can override this by setting headers explicitly
+    original_get = test_client.get
+    original_post = test_client.post
+    original_put = test_client.put
+    original_delete = test_client.delete
+
+    def _add_auth_headers(**kwargs):
+        """Add default auth headers if not already present."""
+        if "headers" not in kwargs:
+            kwargs["headers"] = {"Authorization": "Bearer test-api-secret"}
+        elif "Authorization" not in kwargs.get("headers", {}):
+            kwargs["headers"]["Authorization"] = "Bearer test-api-secret"
+        return kwargs
+
+    def get_with_auth(url, **kwargs):
+        return original_get(url, **_add_auth_headers(**kwargs))
+
+    def post_with_auth(url, **kwargs):
+        return original_post(url, **_add_auth_headers(**kwargs))
+
+    def put_with_auth(url, **kwargs):
+        return original_put(url, **_add_auth_headers(**kwargs))
+
+    def delete_with_auth(url, **kwargs):
+        return original_delete(url, **_add_auth_headers(**kwargs))
+
+    test_client.get = get_with_auth
+    test_client.post = post_with_auth
+    test_client.put = put_with_auth
+    test_client.delete = delete_with_auth
+
+    return test_client
 
 
 @pytest.fixture
@@ -372,12 +409,23 @@ class TestCouncilEndpoints:
 class TestAuth:
     """Tests for bearer token authentication."""
 
-    def test_no_auth_required_when_no_secret(self, client):
-        """When API_SECRET is not set, all endpoints are accessible."""
-        with patch("src.api.cloud_app._query", return_value=[{"count": 0}]), \
-             patch("src.api.cloud_app._query_one", return_value=None):
-            resp = client.get("/api/status")
-            assert resp.status_code == 200
+    def test_no_auth_required_when_no_secret(self, monkeypatch):
+        """When API_SECRET is not set, the server refuses all requests (Fix #349)."""
+        monkeypatch.delenv("API_SECRET", raising=False)
+        import importlib
+        import src.api.cloud_app as cloud_mod
+        importlib.reload(cloud_mod)
+
+        test_client = TestClient(cloud_mod.app)
+        # Any request should fail because verify_auth raises RuntimeError when API_SECRET is empty
+        # TestClient catches exceptions and returns 500, or may propagate the error
+        try:
+            resp = test_client.get("/api/status")
+            # If we get here, it means the request completed; check for error status
+            assert resp.status_code >= 400, "Expected request to fail without API_SECRET"
+        except RuntimeError as e:
+            # Acceptable: RuntimeError propagates from verify_auth
+            assert "API_SECRET" in str(e)
 
     def test_auth_required_when_secret_set(self, monkeypatch):
         """When API_SECRET is set, requests without token get 401."""

@@ -93,25 +93,33 @@ def _build_mock_alpaca_modules():
     data = types.ModuleType("alpaca.data")
     data_historical = types.ModuleType("alpaca.data.historical")
     data_requests = types.ModuleType("alpaca.data.requests")
+    common = types.ModuleType("alpaca.common")
+    common_exceptions = types.ModuleType("alpaca.common.exceptions")
 
     # Wire up parent-child relationships
     alpaca.trading = trading
     alpaca.data = data
+    alpaca.common = common
     trading.client = trading_client
     trading.requests = trading_requests
     trading.enums = trading_enums
     data.historical = data_historical
     data.requests = data_requests
+    common.exceptions = common_exceptions
 
     # Populate classes
     trading_client.TradingClient = MagicMock(name="TradingClient")
     trading_requests.MarketOrderRequest = _MockOrderRequest
     trading_requests.LimitOrderRequest = _MockOrderRequest
+    trading_requests.StopOrderRequest = _MockOrderRequest
+    trading_requests.GetOrdersRequest = _MockOrderRequest  # Fix #356
     trading_enums.OrderSide = _MockEnumClass("OrderSide")
     trading_enums.TimeInForce = _MockEnumClass("TimeInForce")
     trading_enums.OrderClass = _MockEnumClass("OrderClass")
+    trading_enums.QueryOrderStatus = _MockEnumClass("QueryOrderStatus")  # Fix #356
     data_historical.StockHistoricalDataClient = MagicMock(name="StockHistoricalDataClient")
     data_requests.StockLatestTradeRequest = MagicMock(name="StockLatestTradeRequest")
+    common_exceptions.APIError = type("APIError", (Exception,), {"status_code": None, "code": None, "message": None})
 
     return {
         "alpaca": alpaca,
@@ -122,6 +130,8 @@ def _build_mock_alpaca_modules():
         "alpaca.data": data,
         "alpaca.data.historical": data_historical,
         "alpaca.data.requests": data_requests,
+        "alpaca.common": common,
+        "alpaca.common.exceptions": common_exceptions,
     }
 
 

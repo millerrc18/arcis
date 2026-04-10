@@ -391,6 +391,36 @@ def get_order_status(order_id: str) -> dict:
     return _serialize_order(order)
 
 
+def verify_order_accepted(order_id: str) -> dict:
+    """Verify an order was accepted by Alpaca after submission.
+
+    Fix #352: fire-and-forget submission can miss acceptances when
+    the SDK raises an exception after Alpaca has already accepted.
+
+    Returns:
+        {"verified": True/False/None, "status": str, "error": str|None}
+        - True: order confirmed accepted/filled/partially_filled
+        - False: order confirmed rejected/canceled
+        - None: verification failed (API error) — status uncertain
+    """
+    try:
+        client = _get_trading_client()
+        order = client.get_order_by_id(order_id)
+        status = str(order.status)
+        accepted_states = {"accepted", "new", "pending_new", "filled",
+                           "partially_filled", "done_for_day"}
+        rejected_states = {"rejected", "canceled", "expired", "suspended"}
+        if status in accepted_states:
+            return {"verified": True, "status": status, "error": None}
+        elif status in rejected_states:
+            return {"verified": False, "status": status, "error": None}
+        else:
+            return {"verified": None, "status": status, "error": "unexpected_status"}
+    except Exception as exc:
+        logger.warning("[VERIFY] Could not verify order %s: %s", order_id, exc)
+        return {"verified": None, "status": "unknown", "error": str(exc)}
+
+
 def cancel_paper_order(order_id: str) -> bool:
     """Cancel a pending paper order by ID.
 
@@ -403,6 +433,36 @@ def cancel_paper_order(order_id: str) -> bool:
     except Exception as e:
         logger.warning("[CANCEL] Could not cancel order %s: %s", order_id, e)
         return False
+
+
+def cancel_orders_for_ticker(ticker: str) -> int:
+    """Cancel all open orders for a specific ticker.
+
+    Fix #356: Required before closing a position — pending orders lock
+    shares as 'held_for_orders', preventing close_position from working.
+
+    Returns the number of orders cancelled.
+    """
+    from alpaca.trading.requests import GetOrdersRequest
+    from alpaca.trading.enums import QueryOrderStatus
+    try:
+        client = _get_trading_client()
+        orders = client.get_orders(GetOrdersRequest(
+            status=QueryOrderStatus.OPEN,
+            symbols=[ticker],
+        ))
+        for order in orders:
+            try:
+                client.cancel_order_by_id(order.id)
+            except Exception as e:
+                logger.warning("[CANCEL] Failed to cancel order %s for %s: %s",
+                               order.id, ticker, e)
+        if orders:
+            logger.info("[CANCEL] Cancelled %d open orders for %s", len(orders), ticker)
+        return len(orders)
+    except Exception as e:
+        logger.warning("[CANCEL] Could not list orders for %s: %s", ticker, e)
+        return 0
 
 
 def cancel_all_orders() -> dict:

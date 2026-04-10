@@ -57,18 +57,21 @@ class TestBearerTokenValidation:
 
 
 class TestPassthroughWhenNoSecret:
-    """Test that auth is disabled when API_SECRET is empty."""
+    """Test that the server rejects requests when API_SECRET is empty (Fix #349)."""
 
-    def test_no_token_passes_through(self, app_without_secret):
+    def test_no_token_raises_runtime_error(self, app_without_secret):
+        """Verify that requests fail when API_SECRET is not set."""
         client = TestClient(app_without_secret)
-        res = client.get("/api/status")
-        # Should NOT be 401 -- auth is disabled
-        assert res.status_code != 401
+        # The RuntimeError should propagate from verify_auth
+        with pytest.raises(RuntimeError, match="API_SECRET"):
+            client.get("/api/status")
 
-    def test_any_token_passes_through(self, app_without_secret):
+    def test_any_token_raises_runtime_error(self, app_without_secret):
+        """Verify that requests fail even with auth headers when API_SECRET is not set."""
         client = TestClient(app_without_secret)
-        res = client.get(
-            "/api/status",
-            headers={"Authorization": "Bearer anything"},
-        )
-        assert res.status_code != 401
+        # The RuntimeError should propagate regardless of auth header
+        with pytest.raises(RuntimeError, match="API_SECRET"):
+            client.get(
+                "/api/status",
+                headers={"Authorization": "Bearer anything"},
+            )

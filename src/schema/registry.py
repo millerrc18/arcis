@@ -198,6 +198,7 @@ _register(TableDef(
         ColumnDef("created_at", "TEXT", nullable=False),
         ColumnDef("updated_at", "TEXT", nullable=False),
         ColumnDef("alpaca_order_id", "TEXT"),
+        ColumnDef("exit_order_id", "TEXT"),
         ColumnDef("order_type", "TEXT"),
         ColumnDef("timeout_days", "INTEGER", default="15"),
         ColumnDef("source", "TEXT", default="paper"),

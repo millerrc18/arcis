@@ -115,8 +115,17 @@ python -m ruff format src/ tests/
 - **Surface mass failures** — if >50% of items in a batch fail, raise `CollectorPartialFailureError`. Individual item glitches are expected; mass failures must be visible.
 - **Stats queries must reference real columns** — `test_stats_queries_reference_valid_columns` in `test_schema.py` validates all `/data-collection-stats` queries against the schema registry. It will fail if you reference a column that doesn't exist.
 - **Overnight schedule runs 7 days/week** — data collection, news ingestion, and enrichment run daily (including weekends). Only VRAM handoff and pre-market tasks are weekday-gated.
-- **`_safe_run` returns bool** — done-flags must be conditional: `if self._safe_run(...): self._done = True`. Never set a done-flag unconditionally after `_safe_run`.
+- **`_safe_run` returns bool** — done-flags must be conditional: `if self._safe_run(...): self._done = True`. Never set a done-flag unconditionally after `_safe_run`. For inline try/except blocks, set the done-flag inside the `try`, never after the `except`.
 - **Backoff is per-task** — the `_backoff` dict in `WatchLoop` keys by task name. A failure in one task never delays an unrelated task.
+
+## Shadow Trading Rules
+
+- **Status constants are canonical** — use `TERMINAL_STATUSES` and `ACTIVE_STATUSES` from `src/shadow_trading/models.py` in queries. Never hardcode `status != 'closed'`.
+- **Verify orders after submission** — call `verify_order_accepted()` after `submit_order()`. Network errors don't mean Alpaca rejected the order.
+- **Distinguish exception types** — `ConnectionError`/`TimeoutError` = network (order may exist); `APIError` = Alpaca response (check status_code); `Exception` = code bug.
+- **Cancel before close** — before closing a position via reconciliation, call `cancel_orders_for_ticker()` to release `held_for_orders` locks.
+- **Backfilled orphans get protective defaults** — `stop_price = entry * 0.95`, `target_1 = entry * 1.05`. Operator must still set real levels.
+- **Cloud API requires API_SECRET** — `verify_auth` raises RuntimeError if API_SECRET is empty. Tests must mock/patch a non-empty secret.
 
 ## Architecture Quick Ref
 
@@ -125,5 +134,9 @@ python -m ruff format src/ tests/
 - **Deployment**: Render (static frontend + Python API)
 - **Trading**: Alpaca paper + IB/Alpaca live via broker abstraction (`src/trading/`)
   - IB Gateway required for live IB trades (port 4002=paper, 4001=live)
+  - Shadow trade status lifecycle: `TERMINAL_STATUSES` / `ACTIVE_STATUSES` in `src/shadow_trading/models.py`
+  - Order submission uses post-submit verification (`verify_order_accepted` in alpaca_adapter)
+  - Alpaca SDK exception: `alpaca.common.exceptions.APIError` — the only public exception type
+  - Local API binds to `127.0.0.1` only — not exposed to network
 - **LLM**: Ollama local (halcyon-v1, Qwen3 8B fine-tuned)
 - **Config**: YAML (`config/settings.*.yaml`) + `.env` for secrets
