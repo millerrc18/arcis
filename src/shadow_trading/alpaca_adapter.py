@@ -391,6 +391,36 @@ def get_order_status(order_id: str) -> dict:
     return _serialize_order(order)
 
 
+def verify_order_accepted(order_id: str) -> dict:
+    """Verify an order was accepted by Alpaca after submission.
+
+    Fix #352: fire-and-forget submission can miss acceptances when
+    the SDK raises an exception after Alpaca has already accepted.
+
+    Returns:
+        {"verified": True/False/None, "status": str, "error": str|None}
+        - True: order confirmed accepted/filled/partially_filled
+        - False: order confirmed rejected/canceled
+        - None: verification failed (API error) — status uncertain
+    """
+    try:
+        client = _get_trading_client()
+        order = client.get_order_by_id(order_id)
+        status = str(order.status)
+        accepted_states = {"accepted", "new", "pending_new", "filled",
+                           "partially_filled", "done_for_day"}
+        rejected_states = {"rejected", "canceled", "expired", "suspended"}
+        if status in accepted_states:
+            return {"verified": True, "status": status, "error": None}
+        elif status in rejected_states:
+            return {"verified": False, "status": status, "error": None}
+        else:
+            return {"verified": True, "status": status, "error": None}
+    except Exception as exc:
+        logger.warning("[VERIFY] Could not verify order %s: %s", order_id, exc)
+        return {"verified": None, "status": "unknown", "error": str(exc)}
+
+
 def cancel_paper_order(order_id: str) -> bool:
     """Cancel a pending paper order by ID.
 
