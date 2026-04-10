@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.16.1] - 2026-04-10
+
+### Hotfix: pandas 3.0 import deadlock on Windows
+
+- **fix:** Pin `pandas>=2.2,<3.0` in requirements.txt — pandas 3.0.1 C extensions
+  deadlock on import under Python 3.13 + Windows (DLL loading hang in
+  `pandas._libs.pandas_parser`)
+- **fix:** Recreate venv with pandas 2.2.3 to restore `startup` / watch loop
+
 ## [v0.16.0] - 2026-04-10
 
 ### Trade Reconciliation Hardening & Data Quarantine
