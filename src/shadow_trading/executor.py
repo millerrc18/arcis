@@ -416,6 +416,16 @@ def open_shadow_trade(
         trade_data["max_favorable_excursion"] = 0.0
         trade_data["max_adverse_excursion"] = 0.0
 
+        # Fix #352: Verify order was actually accepted
+        if trade_data.get("alpaca_order_id"):
+            from src.shadow_trading.alpaca_adapter import verify_order_accepted
+            verification = verify_order_accepted(trade_data["alpaca_order_id"])
+            if verification["verified"] is False:
+                logger.error("[SHADOW] Order %s was REJECTED by Alpaca (status=%s)",
+                             trade_data["alpaca_order_id"], verification["status"])
+                trade_data["status"] = "rejected"
+                trade_data["order_type"] = "rejected_by_broker"
+
     except Exception as e:
         logger.warning(f"[SHADOW] Bracket order failed for {ticker}: {e}, falling back to market")
         # Fix for #274: Bracket fallback — place market entry then IMMEDIATELY
@@ -436,6 +446,16 @@ def open_shadow_trade(
             trade_data["status"] = "open"
             trade_data["max_favorable_excursion"] = 0.0
             trade_data["max_adverse_excursion"] = 0.0
+
+            # Fix #352: Verify order was actually accepted
+            if trade_data.get("alpaca_order_id"):
+                from src.shadow_trading.alpaca_adapter import verify_order_accepted
+                verification = verify_order_accepted(trade_data["alpaca_order_id"])
+                if verification["verified"] is False:
+                    logger.error("[SHADOW] Order %s was REJECTED by Alpaca (status=%s)",
+                                 trade_data["alpaca_order_id"], verification["status"])
+                    trade_data["status"] = "rejected"
+                    trade_data["order_type"] = "rejected_by_broker"
 
             # Fix for #274: Immediately place standalone stop-loss protection.
             # If stop submission fails, CLOSE the position — an unprotected
