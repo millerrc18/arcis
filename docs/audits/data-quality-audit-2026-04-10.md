@@ -4,6 +4,7 @@
 **Auditor:** Claude (Opus 4.6)
 **Database:** `ai_research_desk.sqlite3`
 **Verdict:** QUARANTINE (not wipe)
+**Status:** IMPLEMENTED 2026-04-10 via `fix/data-quarantine` branch. 77 records quarantined, 20 clean (18 closed + 2 open). COP -$993.82 verified as legitimate loss.
 
 ---
 
