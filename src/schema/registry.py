@@ -232,6 +232,7 @@ _register(TableDef(
         ColumnDef("drawdown_from_mfe", "REAL", description="Drawdown from MFE at exit (bps)"),
         ColumnDef("concurrent_positions", "INTEGER", description="Number of open positions at entry"),
         ColumnDef("ranking_at_entry", "INTEGER", description="Ranker rank (1=best) at entry"),
+        ColumnDef("quarantined", "INTEGER", default="0", description="1 = compromised record from April 10 cascade, excluded from analytics"),
     ],
     primary_key="trade_id",
     indexes=[
