@@ -622,6 +622,10 @@ def _retry_exit(trade: dict, db_path: str = DB_PATH) -> None:
     shares = int(float(trade.get("shares") or trade.get("planned_shares") or 0))
     try:
         exit_result = _submit_exit_order(trade, shares)
+        # Fix #360: Store exit order ID immediately for audit trail
+        if isinstance(exit_result, dict) and exit_result.get("order_id"):
+            update_shadow_trade(trade["trade_id"],
+                                {"exit_order_id": exit_result["order_id"]}, db_path)
         exit_status = exit_result.get("status") if isinstance(exit_result, dict) else None
         if _is_filled_status(exit_status):
             fill_price = float(exit_result.get("filled_avg_price", 0))
@@ -963,6 +967,11 @@ def check_and_manage_open_trades(
                             pass
                         break
                     continue
+
+                # Fix #360: Store exit order ID immediately for audit trail
+                if isinstance(exit_result, dict) and exit_result.get("order_id"):
+                    update_shadow_trade(trade["trade_id"],
+                                        {"exit_order_id": exit_result["order_id"]}, db_path)
 
                 exit_status = exit_result.get("status") if isinstance(exit_result, dict) else None
                 if _is_filled_status(exit_status):
