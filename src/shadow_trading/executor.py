@@ -52,6 +52,7 @@ logger = logging.getLogger(__name__)
 FILLED_ORDER_STATUSES = {"filled", "closed"}
 PENDING_ORDER_STATUSES = {"new", "accepted", "pending_new", "accepted_for_bidding", "held"}
 
+
 _consecutive_bp_failures = 0
 _BP_ALERT_THRESHOLD = 3
 
@@ -67,8 +68,8 @@ def _check_paper_buying_power(entry_price: float, shares: int) -> bool:
     Blocking all trades because the buying power check timed out is worse
     than letting a trade through that might get rejected by Alpaca anyway.
     """
+    global _consecutive_bp_failures
     try:
-        global _consecutive_bp_failures
         from src.shadow_trading.alpaca_adapter import get_account_info
         acct = get_account_info()
         buying_power = acct.get("buying_power", 0)
@@ -90,11 +91,33 @@ def _check_paper_buying_power(entry_price: float, shares: int) -> bool:
                 except Exception:
                     pass
             return False
-        _consecutive_bp_failures = 0  # Reset on success
+        _consecutive_bp_failures = 0
         return True
     except Exception as exc:
-        logger.warning("[SHADOW] Buying power check failed: %s — allowing trade", exc)
-        return True  # Fail open — Alpaca will reject if truly insufficient
+        # Fail CLOSED — if we can't verify buying power, skip the trade.
+        # A missed trade is recoverable (next scan picks it up). An orphaned
+        # position from a trade that should have been blocked is not.
+        # Changed from fail-open after production incident where API blips
+        # let trades through that exhausted buying power and created
+        # 15 orphaned positions.
+        logger.warning("[SHADOW] Buying power check failed: %s — blocking trade (fail-closed)", exc)
+        return False
+
+
+def _verify_and_update(trade_data: dict) -> None:
+    """Verify order was accepted by Alpaca; update trade_data if rejected.
+
+    Fix #352: Post-submission verification catches orders that Alpaca
+    rejected after the SDK returned success.
+    """
+    if trade_data.get("alpaca_order_id"):
+        from src.shadow_trading.alpaca_adapter import verify_order_accepted
+        v = verify_order_accepted(trade_data["alpaca_order_id"])
+        if v["verified"] is False:
+            logger.error("[SHADOW] Order %s REJECTED (status=%s)",
+                         trade_data["alpaca_order_id"], v["status"])
+            trade_data["status"] = "rejected"
+            trade_data["order_type"] = "rejected_by_broker"
 
 
 def _parse_price(value) -> float:
@@ -411,9 +434,12 @@ def open_shadow_trade(
         trade_data["max_favorable_excursion"] = 0.0
         trade_data["max_adverse_excursion"] = 0.0
         insert_shadow_trade(trade_data, db_path)
-        # Fix for #239: was returning trade_data (dict) — callers expect str | None.
-        # Return the trade_id string for consistency with all other code paths.
-        return trade_data.get("trade_id")
+        # Return None — trade was NOT opened. Callers check `if trade_id:`
+        # to decide whether to count it as opened, send notifications, etc.
+        # Returning trade_id here caused rejected trades to be counted as
+        # opened trades, triggering false Telegram notifications and
+        # inflating scan metrics.
+        return None
 
     # Strategy Decision #18: Mechanical bracket exits with 2.0 ATR multiplier.
     # Try bracket order first (entry + stop-loss + take-profit as one atomic
@@ -440,16 +466,7 @@ def open_shadow_trade(
         trade_data["status"] = "open"
         trade_data["max_favorable_excursion"] = 0.0
         trade_data["max_adverse_excursion"] = 0.0
-
-        # Fix #352: Verify order was actually accepted
-        if trade_data.get("alpaca_order_id"):
-            from src.shadow_trading.alpaca_adapter import verify_order_accepted
-            verification = verify_order_accepted(trade_data["alpaca_order_id"])
-            if verification["verified"] is False:
-                logger.error("[SHADOW] Order %s was REJECTED by Alpaca (status=%s)",
-                             trade_data["alpaca_order_id"], verification["status"])
-                trade_data["status"] = "rejected"
-                trade_data["order_type"] = "rejected_by_broker"
+        _verify_and_update(trade_data)
 
     except Exception as e:
         logger.warning(f"[SHADOW] Bracket order failed for {ticker}: {e}, falling back to market")
@@ -471,16 +488,7 @@ def open_shadow_trade(
             trade_data["status"] = "open"
             trade_data["max_favorable_excursion"] = 0.0
             trade_data["max_adverse_excursion"] = 0.0
-
-            # Fix #352: Verify order was actually accepted
-            if trade_data.get("alpaca_order_id"):
-                from src.shadow_trading.alpaca_adapter import verify_order_accepted
-                verification = verify_order_accepted(trade_data["alpaca_order_id"])
-                if verification["verified"] is False:
-                    logger.error("[SHADOW] Order %s was REJECTED by Alpaca (status=%s)",
-                                 trade_data["alpaca_order_id"], verification["status"])
-                    trade_data["status"] = "rejected"
-                    trade_data["order_type"] = "rejected_by_broker"
+            _verify_and_update(trade_data)
 
             # Fix for #274: Immediately place standalone stop-loss protection.
             # If stop submission fails, CLOSE the position — an unprotected
@@ -1036,6 +1044,10 @@ def check_and_manage_open_trades(
 
                 try:
                     exit_result = _submit_exit_order(trade, shares)
+                    # Fix #360: Store exit order ID immediately for audit trail
+                    if isinstance(exit_result, dict) and exit_result.get("order_id"):
+                        update_shadow_trade(trade["trade_id"],
+                                            {"exit_order_id": exit_result["order_id"]}, db_path)
                 except Exception as e:
                     logger.error("[EXIT] Broker exit failed for %s — marking exit_failed: %s", ticker, e, extra={"ctx": {"event": "exit_failed", "ticker": ticker, "trade_id": trade["trade_id"], "error": type(e).__name__}})
                     update_shadow_trade(
@@ -1060,11 +1072,6 @@ def check_and_manage_open_trades(
                             pass
                         break
                     continue
-
-                # Fix #360: Store exit order ID immediately for audit trail
-                if isinstance(exit_result, dict) and exit_result.get("order_id"):
-                    update_shadow_trade(trade["trade_id"],
-                                        {"exit_order_id": exit_result["order_id"]}, db_path)
 
                 exit_status = exit_result.get("status") if isinstance(exit_result, dict) else None
                 if _is_filled_status(exit_status):

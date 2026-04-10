@@ -415,7 +415,7 @@ def verify_order_accepted(order_id: str) -> dict:
         elif status in rejected_states:
             return {"verified": False, "status": status, "error": None}
         else:
-            return {"verified": True, "status": status, "error": None}
+            return {"verified": None, "status": status, "error": "unexpected_status"}
     except Exception as exc:
         logger.warning("[VERIFY] Could not verify order %s: %s", order_id, exc)
         return {"verified": None, "status": "unknown", "error": str(exc)}
