@@ -466,3 +466,106 @@ def test_paper_reconcile_cancel_failure_does_not_block_close(mock_positions, moc
         ).fetchone()
     assert row["status"] == "closed"
 
+
+# ── Task 14: submission_uncertain reconciliation tests (#352, #353) ──
+
+
+@patch(
+    "src.shadow_trading.alpaca_adapter.get_all_positions",
+    return_value=[
+        {
+            "symbol": "AMZN",
+            "qty": 5.0,
+            "avg_entry_price": 180.0,
+            "current_price": 182.0,
+            "market_value": 910.0,
+            "unrealized_pl": 10.0,
+            "unrealized_plpc": 0.011,
+        },
+    ],
+)
+def test_uncertain_trade_promoted_when_alpaca_has_position(mock_positions, db_path):
+    """submission_uncertain trade should be promoted to open when Alpaca has the position."""
+    insert_shadow_trade(
+        {
+            "ticker": "AMZN",
+            "status": "submission_uncertain",
+            "source": "paper",
+            "direction": "long",
+            "entry_price": 180.0,
+            "planned_shares": 5,
+            "created_at": "2026-03-27T10:00:00",
+            "updated_at": "2026-03-27T10:00:00",
+        },
+        db_path,
+    )
+
+    reconcile_paper_trades(db_path=db_path, dry_run=False)
+
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT status FROM shadow_trades WHERE ticker = 'AMZN'"
+        ).fetchone()
+    assert row["status"] == "open"
+
+
+@patch(
+    "src.shadow_trading.alpaca_adapter.get_all_positions",
+    return_value=[],
+)
+def test_uncertain_trade_marked_failed_when_alpaca_has_no_position(mock_positions, db_path):
+    """submission_uncertain trade should be set to failed when Alpaca has no position."""
+    insert_shadow_trade(
+        {
+            "ticker": "META",
+            "status": "submission_uncertain",
+            "source": "paper",
+            "direction": "long",
+            "entry_price": 500.0,
+            "planned_shares": 2,
+            "created_at": "2026-03-27T10:00:00",
+            "updated_at": "2026-03-27T10:00:00",
+        },
+        db_path,
+    )
+
+    reconcile_paper_trades(db_path=db_path, dry_run=False)
+
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT status FROM shadow_trades WHERE ticker = 'META'"
+        ).fetchone()
+    assert row["status"] == "failed"
+
+
+@patch(
+    "src.shadow_trading.alpaca_adapter.get_all_positions",
+    return_value=[],
+)
+def test_uncertain_trade_not_resolved_in_dry_run(mock_positions, db_path):
+    """submission_uncertain trades must not be modified when dry_run=True."""
+    insert_shadow_trade(
+        {
+            "ticker": "NFLX",
+            "status": "submission_uncertain",
+            "source": "paper",
+            "direction": "long",
+            "entry_price": 600.0,
+            "planned_shares": 1,
+            "created_at": "2026-03-27T10:00:00",
+            "updated_at": "2026-03-27T10:00:00",
+        },
+        db_path,
+    )
+
+    reconcile_paper_trades(db_path=db_path, dry_run=True)
+
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT status FROM shadow_trades WHERE ticker = 'NFLX'"
+        ).fetchone()
+    assert row["status"] == "submission_uncertain"
+

@@ -522,6 +522,37 @@ def reconcile_paper_trades(
             len(stuck), [dict(r)["ticker"] for r in stuck],
         )
 
+    # Resolve submission_uncertain trades: entries where we don't
+    # know if Alpaca received the order (network error during submission).
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        uncertain = conn.execute(
+            "SELECT trade_id, ticker, entry_price, planned_shares "
+            "FROM shadow_trades "
+            "WHERE source = 'paper' AND status = 'submission_uncertain'"
+        ).fetchall()
+
+    if uncertain and not dry_run:
+        for row in uncertain:
+            ticker = row["ticker"]
+            trade_id = row["trade_id"]
+            if ticker in alpaca_tickers:
+                # Alpaca has it — promote to open
+                with sqlite3.connect(db_path) as conn:
+                    conn.execute(
+                        "UPDATE shadow_trades SET status = 'open' WHERE trade_id = ?",
+                        (trade_id,),
+                    )
+                logger.info("[RECONCILE-PAPER] Promoted uncertain trade to open: %s", ticker)
+            else:
+                # Alpaca doesn't have it — close as failed
+                with sqlite3.connect(db_path) as conn:
+                    conn.execute(
+                        "UPDATE shadow_trades SET status = 'failed' WHERE trade_id = ?",
+                        (trade_id,),
+                    )
+                logger.info("[RECONCILE-PAPER] Closed uncertain trade as failed: %s", ticker)
+
     return {
         "alpaca_count": len(alpaca_positions),
         "local_count": len(tracked),
