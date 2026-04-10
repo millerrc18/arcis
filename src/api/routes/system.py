@@ -97,7 +97,7 @@ def _build_table_stats(row: tuple | None) -> dict:
     total_records = row[0] or 0
     return {
         "total_records": total_records,
-        "latest_collection": row[1] if total_records else None,
+        "latest_collection": str(row[1])[:10] if (total_records and row[1]) else None,
         "coverage_count": row[2] if total_records else 0,
     }
 

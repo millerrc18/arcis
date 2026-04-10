@@ -130,3 +130,56 @@ def test_buying_power_crisis_alert_after_consecutive_failures():
             assert result is False
         assert mock_tg.called, "Should send Telegram alert after 3 consecutive BP failures"
     executor_mod._consecutive_bp_failures = 0
+
+
+def test_open_shadow_trade_happy_path(tmp_path):
+    """#350: verify bracket order called with correct stop price."""
+    db_path = _make_test_db(tmp_path)
+    mock_order = {"order_id": "ord-1", "symbol": "AAPL", "qty": 10, "side": "buy",
+                  "type": "market", "order_class": "bracket", "status": "filled",
+                  "filled_avg_price": 150.0, "legs": []}
+    with patch("src.shadow_trading.executor._check_paper_buying_power", return_value=True), \
+         patch("src.shadow_trading.executor.validate_llm_output", return_value=True), \
+         patch("src.shadow_trading.executor.get_open_shadow_trade_for_ticker", return_value=None), \
+         patch("src.shadow_trading.executor.check_risk_limits", return_value=True), \
+         patch("src.shadow_trading.alpaca_adapter.place_bracket_order", return_value=mock_order) as mock_bracket, \
+         patch("src.shadow_trading.alpaca_adapter.get_all_positions", return_value=[]), \
+         patch("src.shadow_trading.alpaca_adapter.verify_order_accepted",
+               return_value={"verified": True, "status": "filled", "error": None}):
+        from src.shadow_trading.executor import open_shadow_trade
+        packet = MagicMock()
+        packet.ticker = "AAPL"
+        packet.entry_price = "$150.00"
+        packet.stop_loss = "$142.50"
+        packet.target_1 = "$165.00"
+        packet.target_2 = "$180.00"
+        result = open_shadow_trade("rec-1", packet, {"strategy_type": "pullback"},
+                                   config={"risk": {"base_risk_pct": 1.0, "starting_capital": 100000}},
+                                   db_path=db_path)
+        assert result is not None
+        mock_bracket.assert_called_once()
+
+
+def test_open_shadow_trade_missing_stop_rejected(tmp_path):
+    """#350: stop_price <= 0 must be rejected before bracket order."""
+    db_path = _make_test_db(tmp_path)
+    with patch("src.shadow_trading.executor._check_paper_buying_power", return_value=True), \
+         patch("src.shadow_trading.executor.validate_llm_output", return_value=True), \
+         patch("src.shadow_trading.executor.get_open_shadow_trade_for_ticker", return_value=None), \
+         patch("src.shadow_trading.executor.check_risk_limits", return_value=True), \
+         patch("src.shadow_trading.alpaca_adapter.get_all_positions", return_value=[]):
+        from src.shadow_trading.executor import open_shadow_trade
+        packet = MagicMock()
+        packet.ticker = "BAD"
+        packet.entry_price = "$100.00"
+        packet.stop_loss = "$0.00"
+        packet.target_1 = "$110.00"
+        packet.target_2 = "$120.00"
+        result = open_shadow_trade("rec-1", packet, {"strategy_type": "pullback"},
+                                   config={"risk": {"base_risk_pct": 1.0, "starting_capital": 100000}},
+                                   db_path=db_path)
+        conn = sqlite3.connect(db_path)
+        row = conn.execute("SELECT status FROM shadow_trades WHERE ticker='BAD'").fetchone()
+        conn.close()
+        if row:
+            assert row[0] != "open", "Trade with stop_price=0 must not be opened"

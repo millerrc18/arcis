@@ -1339,9 +1339,9 @@ class WatchLoop:
                             result["checks_warning"],
                             result["checks_failed"],
                         )
+                        self._daily_validation_done = True
                     except Exception as e:
                         logger.warning("[WATCH] Validation failed: %s", e)
-                    self._daily_validation_done = True
 
                 # 4c. Daily build score snapshot (4:45 PM ET)
                 if (hour == 16 and now.minute >= 45
@@ -1353,9 +1353,9 @@ class WatchLoop:
                             "[WATCH] Build score persisted: %.1f",
                             result.get("build_score", 0),
                         )
+                        self._daily_build_score_done = True
                     except Exception as e:
                         logger.warning("[WATCH] Build score persistence failed: %s", e)
-                    self._daily_build_score_done = True
 
                 if (hour == 16 and now.minute >= 30 and now.minute < 35
                         and not self._postclose_bracket_check_done):
