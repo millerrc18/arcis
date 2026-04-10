@@ -378,7 +378,7 @@ def open_shadow_trade(
 
     # Buying power check before paper entry
     if not _check_paper_buying_power(entry_price, planned_shares):
-        trade_data["status"] = "failed"
+        trade_data["status"] = "rejected"
         trade_data["order_type"] = "rejected_buying_power"
         trade_data["actual_entry_price"] = entry_price
         trade_data["actual_entry_time"] = now.isoformat()
