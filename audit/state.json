@@ -1,7 +1,7 @@
 {
-  "run_count": 14,
+  "run_count": 15,
   "current_focus_index": 1,
-  "file_index": 15,
+  "file_index": 30,
   "file_list": [
     "src/api/__init__.py",
     "src/api/app.py",
@@ -218,7 +218,7 @@
     "src/utils/retry.py",
     "src/utils/type_safety.py"
   ],
-  "last_run": "2026-04-09T18:30:00Z",
+  "last_run": "2026-04-10T07:37:56Z",
   "findings": {
     "run_4": {
       "focus_area": "code_quality",
@@ -1023,6 +1023,105 @@
         }
       ],
       "github_issues_blocked": "No gh CLI or GitHub token available \u2014 3 medium findings need manual issue creation"
+    },
+    "run_15": {
+      "focus_area": "security",
+      "files_audited": [
+        "src/api/routes/live.py",
+        "src/api/routes/logs.py",
+        "src/api/routes/notes.py",
+        "src/api/routes/packets.py",
+        "src/api/routes/review.py",
+        "src/api/routes/scan.py",
+        "src/api/routes/shadow.py",
+        "src/api/routes/system.py",
+        "src/api/routes/training.py",
+        "src/api/websocket.py",
+        "src/config/__init__.py",
+        "src/config/overrides.py",
+        "src/services/__init__.py",
+        "src/services/mr_scan_service.py",
+        "src/services/recap_service.py"
+      ],
+      "high": [
+        {
+          "file": "src/api/routes/system.py",
+          "lines": "361-384",
+          "description": "PUT /config allows unauthenticated arbitrary YAML config file writes. Any network client can overwrite API keys, trading parameters, database URLs, or any config value in settings.local.yaml.",
+          "suggested_fix": "Add authentication middleware (API key or session token) to this endpoint. At minimum, restrict to localhost-only binding or add a shared secret header check.",
+          "issue_status": "pending_creation",
+          "issue_title": "[Audit] security \u2014 unauthenticated PUT /config allows arbitrary config overwrites in system.py"
+        },
+        {
+          "file": "src/api/routes/shadow.py",
+          "lines": "53-145",
+          "description": "POST /shadow/close/{ticker} can submit real Alpaca broker exit orders for live trades with zero authentication. Direct financial risk \u2014 an attacker with network access can close real-money positions.",
+          "suggested_fix": "Add authentication to this endpoint. For live trades (source='live'), require an additional confirmation token or restrict to localhost.",
+          "issue_status": "pending_creation",
+          "issue_title": "[Audit] security \u2014 unauthenticated trade close endpoint can trigger live broker exits in shadow.py"
+        }
+      ],
+      "medium": [
+        {
+          "file": "src/api/routes/system.py",
+          "lines": "117-143",
+          "description": "GET /config masks only email.password, alpaca.api_secret, and training.anthropic_api_key. Does NOT mask alpaca.api_key, finnhub.api_key, fred.api_key, or telegram.bot_token \u2014 all listed as critical keys in src/config/__init__.py.",
+          "suggested_fix": "Mask all keys listed in _CRITICAL_KEYS from src/config/__init__.py. Consider a generic masking approach that checks for key/secret/token/password in the config key name.",
+          "issue_status": "pending_creation",
+          "issue_title": "[Audit] security \u2014 GET /config incomplete secret masking leaks API keys in system.py"
+        },
+        {
+          "file": "src/api/routes/system.py",
+          "lines": "520-544",
+          "description": "POST /settings writes arbitrary keys to config_overrides table without checking WHITELISTED_KEYS or BLOCKED_PREFIXES from src/config/overrides.py. The whitelist is only enforced on read, not on write.",
+          "suggested_fix": "Import and check WHITELISTED_KEYS and BLOCKED_PREFIXES from src/config/overrides.py before writing to config_overrides. Return 403 for non-whitelisted or blocked keys.",
+          "issue_status": "pending_creation",
+          "issue_title": "[Audit] security \u2014 POST /settings bypasses config override whitelist in system.py"
+        },
+        {
+          "file": "src/api/routes/logs.py",
+          "lines": "86-116",
+          "description": "POST /commands/submit allows unauthenticated command queue injection. Any network client can enqueue commands for the watch loop to execute within 5 minutes.",
+          "suggested_fix": "Add authentication middleware. Consider restricting command_name to an allow-list of known safe commands.",
+          "issue_status": "pending_creation",
+          "issue_title": "[Audit] security \u2014 unauthenticated command queue injection via POST /commands/submit in logs.py"
+        },
+        {
+          "file": "src/api/routes/review.py",
+          "lines": "63-78",
+          "description": "POST /review/{recommendation_id} accepts raw dict instead of a Pydantic model with no authentication. Unvalidated review data feeds into the training pipeline, risking training data poisoning.",
+          "suggested_fix": "Replace data: dict with a Pydantic model (e.g., ReviewSubmission) that validates field types and ranges. Add auth to prevent unauthorized training data injection.",
+          "issue_status": "pending_creation",
+          "issue_title": "[Audit] security \u2014 unvalidated review input risks training data poisoning in review.py"
+        },
+        {
+          "file": "src/api/routes/training.py",
+          "lines": "44-62",
+          "description": "POST /training/train, /training/rollback, and /training/bootstrap have no authentication. Allows triggering expensive GPU fine-tuning, model rollback, or synthetic data generation without authorization.",
+          "suggested_fix": "Add authentication middleware to all POST training endpoints. These are destructive/expensive operations that should require authorization.",
+          "issue_status": "pending_creation",
+          "issue_title": "[Audit] security \u2014 unauthenticated POST training endpoints allow model manipulation in training.py"
+        }
+      ],
+      "low": [
+        {
+          "file": "src/api/routes/live.py",
+          "description": "Error handlers at lines 52 and 89 return str(exc) in JSON responses, potentially leaking internal paths or DB schema."
+        },
+        {
+          "file": "src/api/routes/logs.py",
+          "description": "Error handlers at lines 83 and 116 return str(exc) in JSON responses."
+        },
+        {
+          "file": "src/api/routes/shadow.py",
+          "description": "Error handler at line 44 returns str(e), could leak broker API details."
+        },
+        {
+          "file": "src/api/websocket.py",
+          "description": "WebSocket connect() at line 22 accepts all connections without authentication. Low risk since broadcast-only."
+        }
+      ],
+      "github_issues_blocked": "No gh CLI or GitHub MCP tools available \u2014 7 findings (2 high, 5 medium) need manual issue creation. Issue titles recorded in each finding."
     }
   }
 }
