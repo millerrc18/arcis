@@ -114,11 +114,10 @@ def verify_auth(
     the raw plaintext secret (for backward compatibility / curl usage).
     """
     if not API_SECRET:
-        logger.warning(
-            "[AUTH] API_SECRET is empty — authentication disabled. "
-            "Set API_SECRET env var to enable auth."
+        raise RuntimeError(
+            "API_SECRET env var must be set — refusing to serve without authentication. "
+            "Set API_SECRET in your environment variables."
         )
-        return
     if not credentials:
         raise HTTPException(status_code=401, detail="Invalid or missing API token")
     token = credentials.credentials
