@@ -26,14 +26,14 @@ def get_shadow_status(config: dict) -> dict:
     total_unrealized = 0.0
 
     for t in open_trades:
-        entry = t.get("actual_entry_price") or t.get("entry_price", 0)
+        entry = float(t.get("actual_entry_price") or t.get("entry_price") or 0)
         current = _get_current_price_safe(t["ticker"])
         pnl = None
         pnl_pct = None
         if current and entry > 0:
             pnl = current - entry
             pnl_pct = pnl / entry * 100
-            total_unrealized += pnl * (t.get("planned_shares", 1))
+            total_unrealized += pnl * float(t.get("planned_shares") or 1)
 
         trades.append({
             "trade_id": t["trade_id"],
@@ -43,10 +43,10 @@ def get_shadow_status(config: dict) -> dict:
             "status": t.get("status", "open"),
             "entry_price": entry,
             "current_price": current,
-            "stop_price": t.get("stop_price", 0),
-            "target_1": t.get("target_1", 0),
-            "target_2": t.get("target_2", 0),
-            "planned_shares": t.get("planned_shares", 1),
+            "stop_price": float(t.get("stop_price") or 0),
+            "target_1": float(t.get("target_1") or 0),
+            "target_2": float(t.get("target_2") or 0),
+            "planned_shares": float(t.get("planned_shares") or 1),
             "pnl_dollars": round(pnl, 2) if pnl is not None else None,
             "pnl_pct": round(pnl_pct, 2) if pnl_pct is not None else None,
             "max_favorable_excursion": t.get("max_favorable_excursion"),

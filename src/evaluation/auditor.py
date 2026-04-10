@@ -254,7 +254,7 @@ def check_escalation(audit: dict, db_path: str = DB_PATH) -> list[dict]:
     try:
         import sqlite3
         with sqlite3.connect(db_path) as conn:
-            row = conn.execute("SELECT COUNT(*) as c FROM shadow_trades WHERE status = 'closed'").fetchone()
+            row = conn.execute("SELECT COUNT(*) as c FROM shadow_trades WHERE status = 'closed' AND COALESCE(quarantined, 0) = 0").fetchone()
             closed_count = row[0] if row else 0
             bootcamp_mode = closed_count < 50
     except Exception:

@@ -244,6 +244,7 @@ def create_router(runtime, verify_auth):
             # Compute HSHS dimensions from Postgres (mirrors health/score logic)
             closed_trades = runtime.query(
                 "SELECT pnl_dollars, pnl_pct FROM shadow_trades WHERE status = 'closed'"
+                " AND COALESCE(quarantined, 0) = 0"
             )
             example_row = runtime.query_one("SELECT COUNT(*) as count FROM training_examples")
             scan = runtime.query_one(
@@ -254,6 +255,7 @@ def create_router(runtime, verify_auth):
             )
             open_count_row = runtime.query_one(
                 "SELECT COUNT(*) as c FROM shadow_trades WHERE status = 'open'"
+                " AND COALESCE(quarantined, 0) = 0"
             )
             source_rows = runtime.query(
                 "SELECT source, COUNT(*) as cnt FROM training_examples GROUP BY source"
@@ -311,9 +313,11 @@ def create_router(runtime, verify_auth):
         try:
             closed_trades = runtime.query(
                 "SELECT pnl_dollars, pnl_pct FROM shadow_trades WHERE status = 'closed'"
+                " AND COALESCE(quarantined, 0) = 0"
             )
             open_count_row = runtime.query_one(
                 "SELECT COUNT(*) as c FROM shadow_trades WHERE status = 'open'"
+                " AND COALESCE(quarantined, 0) = 0"
             )
             example_row = runtime.query_one("SELECT COUNT(*) as count FROM training_examples")
             model = runtime.query_one(
@@ -407,12 +411,14 @@ def create_router(runtime, verify_auth):
             cutoff = (datetime.now(runtime.et) - timedelta(days=days)).isoformat()
             open_count = runtime.query_one(
                 "SELECT COUNT(*) as c FROM shadow_trades WHERE status = 'open'"
+                " AND COALESCE(quarantined, 0) = 0"
             )
             closed_recent = runtime.query(
                 "SELECT st.ticker, st.pnl_dollars, st.pnl_pct, st.exit_reason, "
                 "st.duration_days, st.recommendation_id "
                 "FROM shadow_trades st "
                 "WHERE st.status = 'closed' AND st.actual_exit_time >= %s "
+                "AND COALESCE(st.quarantined, 0) = 0 "
                 "ORDER BY st.actual_exit_time DESC",
                 (cutoff,),
             )
@@ -637,6 +643,7 @@ def create_router(runtime, verify_auth):
             # Phase progress from closed trades
             closed_row = runtime.query_one(
                 "SELECT COUNT(*) as c FROM shadow_trades WHERE status = 'closed'"
+                " AND COALESCE(quarantined, 0) = 0"
             )
             closed_count = closed_row["c"] if closed_row else 0
             phase_progress = {
@@ -673,6 +680,7 @@ def create_router(runtime, verify_auth):
                 "FROM shadow_trades st "
                 "LEFT JOIN recommendations r ON st.recommendation_id = r.recommendation_id "
                 "WHERE st.status = 'closed' AND st.strategy_type = %s "
+                "AND COALESCE(st.quarantined, 0) = 0 "
                 "ORDER BY st.actual_exit_time ASC",
                 (strategy_type,),
             )

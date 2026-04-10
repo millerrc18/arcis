@@ -89,7 +89,8 @@ def gather_tactical_data(db_path: str = DB_PATH) -> str:
                     "CAST(julianday('now') - julianday(actual_entry_time) AS INTEGER) as days "
                     "FROM shadow_trades st "
                     "LEFT JOIN recommendations r ON st.recommendation_id = r.recommendation_id "
-                    "WHERE st.status = 'open' ORDER BY st.pnl_pct DESC"
+                    "WHERE st.status = 'open' AND COALESCE(st.quarantined, 0) = 0"
+                    " ORDER BY st.pnl_pct DESC"
                 ).fetchall()
                 if positions:
                     winners = sum(1 for position in positions if (position["pnl_pct"] or 0) > 0)
@@ -125,8 +126,11 @@ def gather_strategic_data(db_path: str = DB_PATH) -> str:
             try:
                 closed = conn.execute(
                     "SELECT COUNT(*) as n FROM shadow_trades WHERE status = 'closed'"
+                    " AND COALESCE(quarantined, 0) = 0"
                 ).fetchone()
-                total = conn.execute("SELECT COUNT(*) as n FROM shadow_trades").fetchone()
+                total = conn.execute(
+                    "SELECT COUNT(*) as n FROM shadow_trades WHERE COALESCE(quarantined, 0) = 0"
+                ).fetchone()
                 n_closed = closed["n"] if closed else 0
                 n_open = (total["n"] if total else 0) - n_closed
                 parts.append(f"Trades: {n_closed} closed, {n_open} open")
@@ -139,6 +143,7 @@ def gather_strategic_data(db_path: str = DB_PATH) -> str:
                     "SELECT SUM(pnl_dollars) as total, AVG(pnl_pct) as avg, "
                     "COUNT(CASE WHEN pnl_dollars > 0 THEN 1 END) as wins, COUNT(*) as n "
                     "FROM shadow_trades WHERE status = 'closed' AND pnl_dollars IS NOT NULL"
+                    " AND COALESCE(quarantined, 0) = 0"
                 ).fetchone()
                 if pnl and pnl["n"] > 0:
                     win_rate = pnl["wins"] / pnl["n"] * 100
@@ -199,6 +204,7 @@ def gather_risk_data(db_path: str = DB_PATH) -> str:
                     "FROM shadow_trades st "
                     "LEFT JOIN recommendations r ON st.recommendation_id = r.recommendation_id "
                     "WHERE st.status = 'open' AND r.sector_context IS NOT NULL "
+                    "AND COALESCE(st.quarantined, 0) = 0 "
                     "GROUP BY r.sector_context ORDER BY n DESC"
                 ).fetchall()
                 if sectors:
@@ -215,6 +221,7 @@ def gather_risk_data(db_path: str = DB_PATH) -> str:
                 losses = conn.execute(
                     "SELECT ticker, pnl_pct, exit_reason, actual_exit_time "
                     "FROM shadow_trades WHERE status = 'closed' AND pnl_pct < 0 "
+                    "AND COALESCE(quarantined, 0) = 0 "
                     "ORDER BY actual_exit_time DESC LIMIT 5"
                 ).fetchall()
                 if losses:
@@ -242,6 +249,7 @@ def gather_risk_data(db_path: str = DB_PATH) -> str:
             try:
                 cumulative = conn.execute(
                     "SELECT SUM(pnl_dollars) as total FROM shadow_trades WHERE status = 'closed'"
+                    " AND COALESCE(quarantined, 0) = 0"
                 ).fetchone()
                 if cumulative and cumulative["total"] is not None:
                     parts.append(f"Cumulative closed P&L: ${cumulative['total']:.2f}")
@@ -252,6 +260,7 @@ def gather_risk_data(db_path: str = DB_PATH) -> str:
                 mae = conn.execute(
                     "SELECT ticker, MIN(max_adverse_excursion) as worst_mae "
                     "FROM shadow_trades WHERE status = 'closed' AND max_adverse_excursion IS NOT NULL"
+                    " AND COALESCE(quarantined, 0) = 0"
                 ).fetchone()
                 if mae and mae["worst_mae"] is not None:
                     parts.append(f"Worst MAE (single trade): {mae['worst_mae']:.1f}%")
@@ -422,6 +431,7 @@ def gather_macro_data(db_path: str = DB_PATH) -> str:
                     "FROM shadow_trades st "
                     "LEFT JOIN recommendations r ON st.recommendation_id = r.recommendation_id "
                     "WHERE st.status = 'closed' AND r.sector_context IS NOT NULL "
+                    "AND COALESCE(st.quarantined, 0) = 0 "
                     "GROUP BY r.sector_context HAVING n >= 2 ORDER BY avg DESC"
                 ).fetchall()
                 if sectors:

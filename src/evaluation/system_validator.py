@@ -210,6 +210,7 @@ def _check_database(db_path: str) -> list[dict]:
                 LEFT JOIN recommendations r ON st.recommendation_id = r.recommendation_id
                 WHERE st.recommendation_id IS NOT NULL
                 AND r.recommendation_id IS NULL
+                AND COALESCE(st.quarantined, 0) = 0
             """)
             if orphans and orphans[0][0] > 0:
                 checks.append(_check("db_orphaned_fk", "warn",
@@ -318,7 +319,8 @@ def _check_trading(db_path: str, config: dict) -> list[dict]:
         conn.row_factory = sqlite3.Row
         cutoff = (datetime.now(ET) - timedelta(days=timeout_days)).isoformat()
         zombies = conn.execute(
-            "SELECT COUNT(*) FROM shadow_trades WHERE status='open' AND created_at < ?",
+            "SELECT COUNT(*) FROM shadow_trades WHERE status='open' AND created_at < ?"
+            " AND COALESCE(quarantined, 0) = 0",
             (cutoff,),
         ).fetchone()
         conn.close()
@@ -371,6 +373,7 @@ def _check_trading(db_path: str, config: dict) -> list[dict]:
         conn = sqlite3.connect(db_path, timeout=10)  # #258: busy timeout
         open_count = conn.execute(
             "SELECT COUNT(*) FROM shadow_trades WHERE status='open'"
+            " AND COALESCE(quarantined, 0) = 0"
         ).fetchone()[0]
         conn.close()
         max_positions = shadow_cfg.get("max_positions", 10)

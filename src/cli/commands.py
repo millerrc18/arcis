@@ -285,7 +285,7 @@ def cmd_live_history(args):
                           pnl_dollars, pnl_pct, exit_reason, created_at, actual_exit_time,
                           status
                    FROM shadow_trades
-                   WHERE source = 'live'
+                   WHERE source = 'live' AND COALESCE(quarantined, 0) = 0
                    ORDER BY created_at DESC
                    LIMIT 50"""
             ).fetchall()

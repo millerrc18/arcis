@@ -295,7 +295,7 @@ def get_performance_by_version(db_path: str = DB_PATH) -> list[dict]:
                 SUM(st.pnl_dollars) as total_pnl
             FROM shadow_trades st
             JOIN recommendations r ON st.recommendation_id = r.recommendation_id
-            WHERE st.status = 'closed'
+            WHERE st.status = 'closed' AND COALESCE(st.quarantined, 0) = 0
             GROUP BY COALESCE(r.model_version, 'base')
             ORDER BY MIN(r.created_at) DESC
         """).fetchall()

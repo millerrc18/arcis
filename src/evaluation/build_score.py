@@ -93,7 +93,8 @@ def _score_gate_velocity(conn: sqlite3.Connection) -> float:
         cutoff = (datetime.now(ET) - timedelta(days=7)).isoformat()
         cur = conn.execute(
             "SELECT COUNT(*) FROM shadow_trades "
-            "WHERE status = 'closed' AND actual_exit_time >= ?",
+            "WHERE status = 'closed' AND actual_exit_time >= ?"
+            " AND COALESCE(quarantined, 0) = 0",
             (cutoff,),
         )
         weekly_closed = cur.fetchone()[0] or 0
@@ -266,7 +267,8 @@ def _check_idle_day(conn: sqlite3.Connection) -> bool:
     try:
         cur = conn.execute(
             "SELECT COUNT(*) FROM shadow_trades "
-            "WHERE status = 'closed' AND actual_exit_time >= ?",
+            "WHERE status = 'closed' AND actual_exit_time >= ?"
+            " AND COALESCE(quarantined, 0) = 0",
             (today,),
         )
         closed_today = cur.fetchone()[0] or 0
@@ -290,7 +292,7 @@ def _check_idle_day(conn: sqlite3.Connection) -> bool:
 def _compute_phase_progress(conn: sqlite3.Connection) -> dict:
     """Compute 50-trade gate progress."""
     try:
-        cur = conn.execute("SELECT COUNT(*) FROM shadow_trades WHERE status = 'closed'")
+        cur = conn.execute("SELECT COUNT(*) FROM shadow_trades WHERE status = 'closed' AND COALESCE(quarantined, 0) = 0")
         closed = cur.fetchone()[0] or 0
         pct = min(100.0, (closed / GATE_TOTAL_TARGET) * 100)
         remaining = max(0, GATE_TOTAL_TARGET - closed)

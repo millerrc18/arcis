@@ -198,7 +198,8 @@ def compute_current_drawdown(db_path: str = DB_PATH,
         with sqlite3.connect(db_path) as conn:
             rows = conn.execute(
                 "SELECT pnl_dollars FROM shadow_trades WHERE status = 'closed' "
-                "AND pnl_dollars IS NOT NULL ORDER BY actual_exit_time ASC"
+                "AND pnl_dollars IS NOT NULL AND COALESCE(quarantined, 0) = 0"
+                " ORDER BY actual_exit_time ASC"
             ).fetchall()
         if not rows:
             return 0.0
@@ -235,7 +236,7 @@ def get_current_equity(config: dict | None = None,
             row = conn.execute(
                 "SELECT COALESCE(SUM(pnl_dollars), 0) "
                 "FROM shadow_trades WHERE status = 'closed' "
-                "AND pnl_dollars IS NOT NULL"
+                "AND pnl_dollars IS NOT NULL AND COALESCE(quarantined, 0) = 0"
             ).fetchone()
             total_pnl = float(row[0]) if row else 0
         return starting_capital + total_pnl
@@ -647,7 +648,7 @@ def get_portfolio_state(db_path: str = DB_PATH) -> dict:
             _rows = _conn.execute(
                 "SELECT COALESCE(SUM(pnl_dollars), 0) FROM shadow_trades "
                 "WHERE status = 'closed' AND pnl_dollars IS NOT NULL "
-                "AND actual_exit_time >= ?",
+                "AND actual_exit_time >= ? AND COALESCE(quarantined, 0) = 0",
                 (_today_str,),
             ).fetchone()
             daily_pnl = float(_rows[0]) if _rows else 0.0

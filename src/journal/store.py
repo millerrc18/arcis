@@ -196,6 +196,7 @@ def get_open_shadow_trades(db_path: str = DB_PATH) -> list[dict]:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT * FROM shadow_trades WHERE status IN ('open', 'exit_pending') "
+            "AND COALESCE(quarantined, 0) = 0 "
             "ORDER BY created_at DESC"
         ).fetchall()
     return [dict(row) for row in rows]
@@ -225,7 +226,8 @@ def get_closed_shadow_trades(
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT * FROM shadow_trades WHERE status = 'closed' AND actual_exit_time >= ? ORDER BY actual_exit_time DESC",
+            "SELECT * FROM shadow_trades WHERE status = 'closed' AND actual_exit_time >= ?"
+            " AND COALESCE(quarantined, 0) = 0 ORDER BY actual_exit_time DESC",
             (cutoff,),
         ).fetchall()
     return [dict(row) for row in rows]
@@ -304,6 +306,7 @@ def get_open_shadow_trade_for_ticker(
         row = conn.execute(
             "SELECT * FROM shadow_trades WHERE ticker = ? "
             "AND status IN ('pending', 'open', 'exit_pending') "
+            "AND COALESCE(quarantined, 0) = 0 "
             "ORDER BY created_at DESC LIMIT 1",
             (ticker,),
         ).fetchone()
@@ -389,7 +392,8 @@ def get_all_shadow_trades(
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT * FROM shadow_trades WHERE created_at >= ? ORDER BY created_at DESC",
+            "SELECT * FROM shadow_trades WHERE created_at >= ?"
+            " AND COALESCE(quarantined, 0) = 0 ORDER BY created_at DESC",
             (cutoff,),
         ).fetchall()
     return [dict(row) for row in rows]

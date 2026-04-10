@@ -37,12 +37,12 @@ def live_trades():
             open_trades = [dict(r) for r in conn.execute(
                 "SELECT * FROM shadow_trades "
                 "WHERE source = 'live' AND status = 'open' "
-                "ORDER BY created_at DESC"
+                "AND COALESCE(quarantined, 0) = 0 ORDER BY created_at DESC"
             ).fetchall()]
             closed_trades = [dict(r) for r in conn.execute(
                 "SELECT * FROM shadow_trades "
                 "WHERE source = 'live' AND status = 'closed' "
-                "ORDER BY actual_exit_time DESC"
+                "AND COALESCE(quarantined, 0) = 0 ORDER BY actual_exit_time DESC"
             ).fetchall()]
             return {"open": open_trades, "closed": closed_trades}
         finally:
@@ -61,11 +61,11 @@ def live_summary():
         try:
             closed = conn.execute(
                 "SELECT pnl_dollars, pnl_pct FROM shadow_trades "
-                "WHERE source = 'live' AND status = 'closed'"
+                "WHERE source = 'live' AND status = 'closed' AND COALESCE(quarantined, 0) = 0"
             ).fetchall()
             open_count = conn.execute(
                 "SELECT COUNT(*) as c FROM shadow_trades "
-                "WHERE source = 'live' AND status = 'open'"
+                "WHERE source = 'live' AND status = 'open' AND COALESCE(quarantined, 0) = 0"
             ).fetchone()
 
             closed_pnl = sum(

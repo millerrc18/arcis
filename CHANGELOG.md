@@ -1,5 +1,42 @@
 # Changelog
 
+## [v0.16.0] - 2026-04-10
+
+### Trade Reconciliation Hardening & Data Quarantine
+
+**Security (#348, #349):**
+- **fix:** Local API binds to 127.0.0.1 (was 0.0.0.0)
+- **fix:** Cloud API raises RuntimeError when API_SECRET is empty
+
+**Order Submission (#352, #353, #359, #360):**
+- **feat:** Post-submission order verification via `verify_order_accepted()`
+- **fix:** Typed exception handling — ConnectionError/TimeoutError, APIError, Exception
+- **feat:** Entry retry with ghost position check on network errors
+- **feat:** exit_order_id stored immediately after exit submission
+
+**Reconciler (#354, #356, #357, #358):**
+- **fix:** Backfilled orphans get 5% stop/target defaults (was zero)
+- **feat:** `cancel_orders_for_ticker()` called before closing stale positions
+- **fix:** Alpaca position check before entry prevents duplicate ghost positions
+- **feat:** Telegram alert after 3+ consecutive buying power failures
+- **feat:** `submission_uncertain` trades resolved by reconciler
+
+**Status Model (#355):**
+- **feat:** TERMINAL_STATUSES / ACTIVE_STATUSES constants in models.py
+- **fix:** Buying power rejections use status='rejected' (was 'failed')
+
+**Data Quarantine:**
+- **feat:** `quarantined` column added to shadow_trades
+- 77 compromised records flagged (42 rejected, 34 stale, 1 orphan WMT)
+- 18 verified trades preserved ($603.96 P&L, 83.3% win rate)
+- All shadow_trades queries filtered on quarantine column
+- **fix:** TEXT-to-REAL type casting in shadow_service (TypeError)
+
+**Infrastructure (#328, #350, #351):**
+- **fix:** latest_collection date format truncated to date-only
+- **fix:** Watch loop done-flags moved inside try blocks
+- **test:** Executor entry path coverage added
+
 ## [v0.15.3] - 2026-04-08
 
 ### Production Sweep — 14 issues closed in 3 phases

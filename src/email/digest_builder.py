@@ -62,7 +62,8 @@ def build_premarket_digest(db_path: str = DB_PATH) -> tuple[str, str]:
         open_trades = _safe_fetchall(
             conn,
             "SELECT ticker, entry_price, planned_shares, source, created_at "
-            "FROM shadow_trades WHERE status = 'open' ORDER BY source, ticker",
+            "FROM shadow_trades WHERE status = 'open' AND COALESCE(quarantined, 0) = 0"
+            " ORDER BY source, ticker",
         )
         paper_trades = [t for t in open_trades if t["source"] == "paper"]
         live_trades = [t for t in open_trades if t["source"] == "live"]
@@ -71,7 +72,8 @@ def build_premarket_digest(db_path: str = DB_PATH) -> tuple[str, str]:
         closed_yesterday = _safe_fetchall(
             conn,
             "SELECT ticker, pnl_dollars, pnl_pct, exit_reason "
-            "FROM shadow_trades WHERE status = 'closed' AND date(actual_exit_time) = ?",
+            "FROM shadow_trades WHERE status = 'closed' AND date(actual_exit_time) = ?"
+            " AND COALESCE(quarantined, 0) = 0",
             (yesterday,),
         )
 
@@ -136,13 +138,15 @@ def build_midday_digest(db_path: str = DB_PATH) -> tuple[str, str]:
         opened_today = _safe_fetchall(
             conn,
             "SELECT ticker, entry_price, planned_shares, source "
-            "FROM shadow_trades WHERE date(created_at) = ? AND status IN ('open', 'closed')",
+            "FROM shadow_trades WHERE date(created_at) = ? AND status IN ('open', 'closed')"
+            " AND COALESCE(quarantined, 0) = 0",
             (today,),
         )
         closed_today = _safe_fetchall(
             conn,
             "SELECT ticker, pnl_dollars, pnl_pct, exit_reason "
-            "FROM shadow_trades WHERE status = 'closed' AND date(actual_exit_time) = ?",
+            "FROM shadow_trades WHERE status = 'closed' AND date(actual_exit_time) = ?"
+            " AND COALESCE(quarantined, 0) = 0",
             (today,),
         )
         risk_alerts = _safe_fetchall(
@@ -204,10 +208,10 @@ def build_eod_digest(db_path: str = DB_PATH) -> tuple[str, str]:
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
 
-        opened = _safe_fetchall(conn, "SELECT ticker, entry_price, planned_shares, source FROM shadow_trades WHERE date(created_at) = ?", (today,))
-        closed = _safe_fetchall(conn, "SELECT ticker, pnl_dollars, pnl_pct, exit_reason, source FROM shadow_trades WHERE status = 'closed' AND date(actual_exit_time) = ?", (today,))
-        open_positions = _safe_fetchall(conn, "SELECT ticker, entry_price, planned_shares, source, created_at FROM shadow_trades WHERE status = 'open' ORDER BY source, ticker")
-        all_closed = _safe_fetchall(conn, "SELECT pnl_dollars, pnl_pct FROM shadow_trades WHERE status = 'closed'")
+        opened = _safe_fetchall(conn, "SELECT ticker, entry_price, planned_shares, source FROM shadow_trades WHERE date(created_at) = ? AND COALESCE(quarantined, 0) = 0", (today,))
+        closed = _safe_fetchall(conn, "SELECT ticker, pnl_dollars, pnl_pct, exit_reason, source FROM shadow_trades WHERE status = 'closed' AND date(actual_exit_time) = ? AND COALESCE(quarantined, 0) = 0", (today,))
+        open_positions = _safe_fetchall(conn, "SELECT ticker, entry_price, planned_shares, source, created_at FROM shadow_trades WHERE status = 'open' AND COALESCE(quarantined, 0) = 0 ORDER BY source, ticker")
+        all_closed = _safe_fetchall(conn, "SELECT pnl_dollars, pnl_pct FROM shadow_trades WHERE status = 'closed' AND COALESCE(quarantined, 0) = 0")
         scans = _safe_fetchone(conn, "SELECT COUNT(*) as cnt FROM scan_metrics WHERE date(created_at) = ?", (today,))
 
     closed_pnl = sum(float(t["pnl_dollars"] or 0) for t in closed)
@@ -265,7 +269,7 @@ def build_evening_digest(db_path: str = DB_PATH) -> tuple[str, str]:
         today_examples = _safe_fetchone(conn, "SELECT COUNT(*) as c FROM training_examples WHERE date(created_at) = ?", (today,))
         scored = _safe_fetchone(conn, "SELECT COUNT(*) as c FROM training_examples WHERE quality_score_auto IS NOT NULL")
         avg_quality = _safe_fetchone(conn, "SELECT AVG(quality_score_auto) as avg FROM training_examples WHERE quality_score_auto IS NOT NULL")
-        closed_total = _safe_fetchone(conn, "SELECT COUNT(*) as c FROM shadow_trades WHERE status = 'closed'")
+        closed_total = _safe_fetchone(conn, "SELECT COUNT(*) as c FROM shadow_trades WHERE status = 'closed' AND COALESCE(quarantined, 0) = 0")
         scan_today = _safe_fetchone(conn, "SELECT SUM(llm_success) as s, SUM(llm_total) as t FROM scan_metrics WHERE date(created_at) = ?", (today,))
         canary = _safe_fetchone(conn, "SELECT degradation_detected, avg_score, distinct_2, created_at FROM canary_evaluations ORDER BY created_at DESC LIMIT 1")
         costs_today = _safe_fetchone(conn, "SELECT SUM(cost_dollars) as total FROM api_costs WHERE date(created_at) = ?", (today,))

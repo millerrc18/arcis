@@ -455,21 +455,25 @@ class WatchLoop:
                 conn.row_factory = sqlite3.Row
                 paper = conn.execute(
                     "SELECT COUNT(*) FROM shadow_trades WHERE status='open' AND source='paper'"
+                    " AND COALESCE(quarantined, 0) = 0"
                 ).fetchone()[0]
                 live = conn.execute(
                     "SELECT COUNT(*) FROM shadow_trades WHERE status='open' AND source='live'"
+                    " AND COALESCE(quarantined, 0) = 0"
                 ).fetchone()[0]
                 stats["open_paper"] = paper
                 stats["open_live"] = live
                 closed = conn.execute(
                     "SELECT COUNT(*) FROM shadow_trades WHERE status='closed'"
+                    " AND COALESCE(quarantined, 0) = 0"
                 ).fetchone()[0]
                 stats["phase_trades"] = closed
                 # Today's closed P&L
                 today_str = datetime.now(ET).strftime("%Y-%m-%d")
                 closed_today = conn.execute(
                     "SELECT COALESCE(SUM(pnl_dollars), 0) FROM shadow_trades "
-                    "WHERE status='closed' AND actual_exit_time LIKE ?",
+                    "WHERE status='closed' AND actual_exit_time LIKE ?"
+                    " AND COALESCE(quarantined, 0) = 0",
                     (f"{today_str}%",)
                 ).fetchone()
                 stats["today_pnl"] = round(float(closed_today[0] or 0), 2)
@@ -1280,14 +1284,17 @@ class WatchLoop:
                                     _today = datetime.now(ET).strftime("%Y-%m-%d")
                                     _open = _conn.execute(
                                         "SELECT COUNT(*) FROM shadow_trades WHERE status='open'"
+                                        " AND COALESCE(quarantined, 0) = 0"
                                     ).fetchone()[0]
                                     _closed_today = _conn.execute(
                                         "SELECT COUNT(*) FROM shadow_trades WHERE status='closed' "
-                                        "AND actual_exit_time LIKE ?", (f"{_today}%",)
+                                        "AND actual_exit_time LIKE ? AND COALESCE(quarantined, 0) = 0",
+                                        (f"{_today}%",)
                                     ).fetchone()[0]
                                     _pnl_row = _conn.execute(
                                         "SELECT COALESCE(SUM(pnl_dollars),0) FROM shadow_trades "
-                                        "WHERE status='closed' AND actual_exit_time LIKE ?",
+                                        "WHERE status='closed' AND actual_exit_time LIKE ?"
+                                        " AND COALESCE(quarantined, 0) = 0",
                                         (f"{_today}%",)
                                     ).fetchone()
                                     _total_pnl = _pnl_row[0] if _pnl_row else 0.0

@@ -176,7 +176,7 @@ def _compute_window_value(conn: sqlite3.Connection, window: sqlite3.Row) -> tupl
     trades = conn.execute(
         "SELECT pnl_dollars FROM shadow_trades "
         "WHERE status = 'closed' AND actual_entry_time >= ? "
-        "AND actual_entry_time < ?",
+        "AND actual_entry_time < ? AND COALESCE(quarantined, 0) = 0",
         (window["attribution_start"], window["attribution_end"]),
     ).fetchall()
     if not trades:

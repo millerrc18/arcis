@@ -64,7 +64,8 @@ def check_performance_drift(db_path: str = DB_PATH) -> dict:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT pnl_pct FROM shadow_trades WHERE status = 'closed' "
-                "AND pnl_pct IS NOT NULL ORDER BY actual_exit_time ASC"
+                "AND pnl_pct IS NOT NULL AND COALESCE(quarantined, 0) = 0"
+                " ORDER BY actual_exit_time ASC"
             ).fetchall()
 
         if len(rows) < 10:

@@ -78,6 +78,7 @@ def _score_performance(conn: sqlite3.Connection) -> float:
     try:
         cur = conn.execute(
             "SELECT COUNT(*) as total FROM shadow_trades WHERE status = 'closed'"
+            " AND COALESCE(quarantined, 0) = 0"
         )
         total = int(cur.fetchone()[0] or 0)
 
@@ -87,6 +88,7 @@ def _score_performance(conn: sqlite3.Connection) -> float:
         cur = conn.execute(
             "SELECT COUNT(*) FROM shadow_trades "
             "WHERE status = 'closed' AND pnl_dollars > 0"
+            " AND COALESCE(quarantined, 0) = 0"
         )
         winners = int(cur.fetchone()[0] or 0)
         win_rate = winners / total if total else 0
@@ -97,12 +99,14 @@ def _score_performance(conn: sqlite3.Connection) -> float:
         cur = conn.execute(
             "SELECT COALESCE(SUM(pnl_dollars), 0) FROM shadow_trades "
             "WHERE status = 'closed' AND pnl_dollars > 0"
+            " AND COALESCE(quarantined, 0) = 0"
         )
         gross_profit = float(cur.fetchone()[0] or 0)
 
         cur = conn.execute(
             "SELECT COALESCE(ABS(SUM(pnl_dollars)), 0) FROM shadow_trades "
             "WHERE status = 'closed' AND pnl_dollars < 0"
+            " AND COALESCE(quarantined, 0) = 0"
         )
         gross_loss = float(cur.fetchone()[0] or 0.01)
         if gross_loss == 0:
@@ -116,7 +120,7 @@ def _score_performance(conn: sqlite3.Connection) -> float:
         # drawdown in a diversified portfolio.
         cur = conn.execute(
             "SELECT COALESCE(MIN(pnl_pct), 0) FROM shadow_trades "
-            "WHERE status = 'closed'"
+            "WHERE status = 'closed' AND COALESCE(quarantined, 0) = 0"
         )
         raw = cur.fetchone()[0]
         # float() cast (#181/#195): raw can be None, empty string, Decimal,
