@@ -259,6 +259,15 @@ def open_shadow_trade(
             logger.info("[SHADOW] Already have open trade for %s, skipping", ticker)
             return None
 
+    # Fix #357: Also check Alpaca for ghost positions not tracked in DB
+    try:
+        from src.shadow_trading.alpaca_adapter import get_all_positions
+        if any(p["symbol"] == ticker for p in get_all_positions()):
+            logger.warning("[SHADOW] Ghost position detected for %s on Alpaca — skipping entry", ticker)
+            return None
+    except Exception as e:
+        logger.warning("[SHADOW] Alpaca position check failed for %s: %s — proceeding with DB check only", ticker, e)
+
     # Parse packet values
     entry_price = _parse_price(packet.entry_zone)
     stop_price = _parse_price(packet.stop_invalidation)

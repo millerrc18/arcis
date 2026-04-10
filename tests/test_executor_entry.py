@@ -86,3 +86,33 @@ def test_timeout_error_checks_alpaca_positions(tmp_path):
     conn.close()
     # After timeout + empty Alpaca + retry also fails, should be recorded
     assert row is not None, "Trade should be recorded in DB"
+
+
+def test_entry_blocked_when_alpaca_has_ghost_position(tmp_path):
+    """Fix #357: entry must be blocked if Alpaca has a position not tracked in DB."""
+    db_path = _make_test_db(tmp_path)
+    packet = _make_packet("GHOST")
+    config = _make_config()
+
+    mock_governor = MagicMock()
+    mock_governor.check_trade.return_value = {
+        "approved": True,
+        "effective_allocation_dollars": 1000.0,
+    }
+
+    from src.shadow_trading.executor import open_shadow_trade
+
+    with patch("src.shadow_trading.executor.load_config", return_value=config), \
+         patch("src.llm.validator.validate_llm_output", return_value=(True, "ok")), \
+         patch("src.risk.governor.RiskGovernor", return_value=mock_governor), \
+         patch("src.risk.governor.get_portfolio_state", return_value={}), \
+         patch("src.risk.governor.drawdown_adjusted_risk", return_value=1.0), \
+         patch("src.risk.governor.get_effective_risk_pct", return_value=(1.0, "normal")), \
+         patch("src.shadow_trading.executor.get_open_shadow_trades", return_value=[]), \
+         patch("src.shadow_trading.alpaca_adapter.get_all_positions",
+               return_value=[{"symbol": "GHOST", "qty": 50, "avg_entry_price": 100.0,
+                              "current_price": 100.0, "market_value": 5000.0,
+                              "unrealized_pl": 0.0, "unrealized_plpc": 0.0}]):
+        result = open_shadow_trade("rec-1", packet, {"strategy_type": "pullback"},
+                                   db_path=db_path)
+        assert result is None, "Should block entry when Alpaca has a ghost position"
