@@ -247,6 +247,9 @@ live_trading:
     client_id: 1
     timeout: 10
     # IB Gateway must be running on this machine
+    paper_routing: false                   # Route high-score paper trades to IB paper
+    paper_routing_threshold: 80            # Score >= this goes to IB, below stays Alpaca
+    shadow_mode: false                     # Log what IB would do without executing
   # Alpaca live settings (only used when broker: "alpaca")
   api_key: "your-live-alpaca-api-key"      # → .env: ALPACA_LIVE_API_KEY
   secret_key: "your-live-alpaca-secret-key"  # → .env: ALPACA_LIVE_SECRET_KEY

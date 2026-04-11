@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased] — IB Dual-Execution Routing (Sprint IB-4)
+
+### Score-Based Paper Broker Routing
+
+- **feat:** `_select_paper_broker()` routes paper trades to IB when score >= threshold
+  (default 80) and `live_trading.ib.paper_routing: true`. Falls back to Alpaca with
+  warning if IB Gateway is down.
+- **feat:** `open_shadow_trade()` uses the router — IB paper bracket orders placed via
+  broker abstraction, Alpaca path unchanged for below-threshold trades.
+- **feat:** `reconcile_paper_trades()` checks correct broker per trade — IB trades
+  validate against IB positions, Alpaca trades against Alpaca positions.
+- **config:** `live_trading.ib.paper_routing` (bool) + `paper_routing_threshold` (int)
+- **test:** 12 tests — routing logic, fallback, cross-broker counting, Alpaca regression
+
 ## [Unreleased] — IB Shadow Dashboard + API Routes
 
 ### IB Shadow Dashboard
