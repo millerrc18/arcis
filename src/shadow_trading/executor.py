@@ -828,9 +828,10 @@ def check_and_manage_open_trades(
     try:
         if source_filter == "live":
             from src.trading.broker_factory import get_live_broker
-            live_broker = get_live_broker()
+            live_broker = get_live_broker(load_config())
             if live_broker:
-                _alpaca_tickers = {p["symbol"] for p in live_broker.get_positions()}
+                _live_positions = live_broker.get_all_positions()
+                _alpaca_tickers = {p.ticker for p in _live_positions}
         else:
             from src.shadow_trading.alpaca_adapter import get_all_positions
             _alpaca_tickers = {p["symbol"] for p in get_all_positions()}
