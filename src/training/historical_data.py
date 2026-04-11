@@ -1,13 +1,14 @@
 """Historical data fetcher with point-in-time slicing for backfill engine.
 
-Called by: training.backfill, training.historical_scanner
-Calls: universe.sp100
+Called by: training.backfill, training.historical_scanner, scripts.export_backfill_prompts
+Calls: universe.sp100, data_collection.macro_collector
 Owns tables: none
 Config keys: none
-Tests: tests/test_backfill.py, tests/test_leakage_detector.py
+Tests: tests/test_backfill.py, tests/test_leakage_detector.py, tests/test_fred_history.py
 
 Downloads bulk OHLCV data and provides point-in-time slicing to prevent
-lookahead bias in historical feature computation.
+lookahead bias in historical feature computation. Also fetches FRED
+macro history for point-in-time macro context in backfill prompts.
 """
 
 import logging
@@ -24,6 +25,10 @@ logger = logging.getLogger(__name__)
 
 CACHE_DIR = "training_data"
 CACHE_FILE = os.path.join(CACHE_DIR, "historical_ohlcv.pkl")
+FRED_CACHE_FILE = os.path.join(CACHE_DIR, "fred_history.pkl")
+
+# Core FRED series for backfill macro context
+FRED_BACKFILL_SERIES = ["VIXCLS", "T10Y2Y", "UNRATE", "FEDFUNDS"]
 
 
 def fetch_historical_universe(lookback_years: int = 2) -> dict:
@@ -154,3 +159,111 @@ def slice_to_date(data: dict, as_of_date: str) -> tuple[dict, pd.DataFrame]:
         ohlcv_dict[ticker] = sliced
 
     return ohlcv_dict, spy_sliced
+
+
+def fetch_fred_history(
+    start_year: int = 2021,
+    end_year: int = 2025,
+) -> dict[str, pd.Series]:
+    """Fetch full FRED time series for backfill macro context.
+
+    Downloads daily/monthly observations for VIXCLS, T10Y2Y, UNRATE,
+    FEDFUNDS from 2021-01-01 through end_year-12-31. Caches to
+    training_data/fred_history.pkl (reuses if <7 days old).
+
+    Returns:
+        {"VIXCLS": pd.Series(index=DatetimeIndex, values=float), ...}
+    """
+    if os.path.exists(FRED_CACHE_FILE):
+        cache_age = time.time() - os.path.getmtime(FRED_CACHE_FILE)
+        if cache_age < 7 * 86400:  # 7 days
+            logger.info("[FRED] Loading cached FRED history from %s", FRED_CACHE_FILE)
+            with open(FRED_CACHE_FILE, "rb") as f:
+                return pickle.load(f)
+
+    import requests
+
+    from src.data_collection.macro_collector import _get_fred_api_key
+
+    api_key = _get_fred_api_key()
+    if not api_key:
+        logger.warning("[FRED] No FRED API key — returning empty history")
+        return {}
+
+    fred_base = "https://api.stlouisfed.org/fred/series/observations"
+    start_str = f"{start_year}-01-01"
+    end_str = f"{end_year}-12-31"
+    result = {}
+
+    for series_id in FRED_BACKFILL_SERIES:
+        try:
+            resp = requests.get(
+                fred_base,
+                params={
+                    "series_id": series_id,
+                    "api_key": api_key,
+                    "observation_start": start_str,
+                    "observation_end": end_str,
+                    "file_type": "json",
+                },
+                timeout=30,
+            )
+            resp.raise_for_status()
+            observations = resp.json().get("observations", [])
+
+            dates = []
+            values = []
+            for obs in observations:
+                if obs.get("value", ".") != ".":
+                    dates.append(pd.Timestamp(obs["date"]))
+                    values.append(float(obs["value"]))
+
+            if dates:
+                series = pd.Series(values, index=pd.DatetimeIndex(dates), name=series_id)
+                result[series_id] = series
+                logger.info("[FRED] Fetched %s: %d observations", series_id, len(series))
+            else:
+                logger.warning("[FRED] No data for %s", series_id)
+
+        except Exception as e:
+            logger.warning("[FRED] Failed to fetch %s: %s", series_id, e)
+            continue
+
+    # Cache to disk
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    with open(FRED_CACHE_FILE, "wb") as f:
+        pickle.dump(result, f)
+    logger.info("[FRED] Cached %d series to %s", len(result), FRED_CACHE_FILE)
+
+    return result
+
+
+def get_fred_value_as_of(
+    fred_data: dict[str, pd.Series],
+    series_id: str,
+    as_of_date: str,
+) -> float | None:
+    """Look up the most recent FRED value on or before a given date.
+
+    Point-in-time lookup: returns the latest observation whose date is
+    <= as_of_date. This prevents lookahead bias — a Feb 15 lookup
+    returns the Feb value (or Jan if Feb hasn't published yet), never March.
+
+    Args:
+        fred_data: Output of fetch_fred_history().
+        series_id: E.g. "VIXCLS".
+        as_of_date: ISO date string.
+
+    Returns:
+        The float value, or None if no observation exists before that date.
+    """
+    series = fred_data.get(series_id)
+    if series is None or series.empty:
+        return None
+
+    cutoff = pd.Timestamp(as_of_date)
+    available = series[series.index <= cutoff]
+    if available.empty:
+        return None
+
+    return float(available.iloc[-1])

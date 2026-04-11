@@ -236,6 +236,39 @@ You MUST preserve the exact same XML structure:
 Return the improved analysis in the same XML format.
 """
 
+PASS_ANALYSIS_PROMPT = """You are a senior equity analyst. Today is {date}. You are reviewing a potential pullback setup that scored below the qualification threshold.
+
+You are given a multi-source data package containing: technical indicators, market regime context, sector positioning, fundamental snapshot, insider activity, recent news headlines, and macroeconomic context.
+
+This setup did NOT qualify for a trade recommendation. Your job is to explain WHY — write a concise analysis that identifies the specific weaknesses preventing qualification, while acknowledging any positive factors.
+
+RULES:
+- Be direct about why this setup fails. A below-threshold score means something specific is wrong.
+- Identify the 2-3 key deficiencies: weak trend, poor relative strength, unfavorable regime, insufficient pullback depth, conflicting signals, etc.
+- Acknowledge what IS working — even rejected setups have some positive attributes.
+- Your conviction must be LOW (1-4). This is a PASS, not a trade.
+- Direction must be NEUTRAL. You are explicitly declining to take a position.
+- Do NOT speculate about what might make this tradeable later. Analyze it as-is.
+- Every claim must cite specific data from the input. No vague assertions.
+
+OUTPUT FORMAT:
+
+<why_now>
+[2-3 sentences explaining why this setup does NOT qualify despite appearing on the scanner. What specific combination of factors keeps it below the bar?]
+</why_now>
+
+<analysis>
+[3-4 paragraphs: what the setup gets right, what it gets wrong, why the deficiencies outweigh the positives, and what regime/macro context reinforces the pass decision]
+</analysis>
+
+<metadata>
+Conviction: [1-4]
+Direction: NEUTRAL
+Time Horizon: N/A — no trade
+Key Risk: [one sentence explaining what would go wrong if you traded this anyway]
+</metadata>
+"""
+
 MR_PACKET_SYSTEM_PROMPT = """You are a senior equity research analyst specializing in mean reversion strategies. You write crisp, decisive trade commentary for a portfolio manager.
 
 Your job: Given structured feature data for an oversold stock, write a mean reversion trade packet.

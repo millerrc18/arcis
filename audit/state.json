@@ -1,7 +1,7 @@
 {
-  "run_count": 17,
+  "run_count": 18,
   "current_focus_index": 1,
-  "file_index": 60,
+  "file_index": 75,
   "file_list": [
     "src/api/__init__.py",
     "src/api/app.py",
@@ -218,7 +218,7 @@
     "src/utils/retry.py",
     "src/utils/type_safety.py"
   ],
-  "last_run": "2026-04-11T12:00:00Z",
+  "last_run": "2026-04-11T18:00:00Z",
   "findings": {
     "run_17": {
       "focus_area": "security",
@@ -1219,6 +1219,60 @@
         {
           "file": "src/cli/commands.py",
           "description": "Exception messages from external API calls (Alpaca, broker) printed directly to CLI user in multiple handlers (lines 228, 272, 327). Admin context mitigates risk."
+        }
+      ]
+    },
+    "run_18": {
+      "focus_area": "security",
+      "files_audited": [
+        "src/data_collection/edgar_collector.py",
+        "src/data_collection/errors.py",
+        "src/data_collection/fed_collector.py",
+        "src/data_collection/insider_collector.py",
+        "src/data_collection/macro_collector.py",
+        "src/data_collection/options_collector.py",
+        "src/data_collection/options_metrics.py",
+        "src/data_collection/research_collector.py",
+        "src/data_collection/research_sources.py",
+        "src/data_collection/research_synthesizer.py",
+        "src/data_collection/retention.py",
+        "src/data_collection/short_interest_collector.py",
+        "src/data_collection/trends_collector.py",
+        "src/data_collection/vix_collector.py",
+        "src/data_enrichment/__init__.py"
+      ],
+      "high": [],
+      "medium": [],
+      "low": [
+        {
+          "file": "src/data_collection/edgar_collector.py",
+          "lines": "46",
+          "description": "Contact email hardcoded in SEC_HEADERS User-Agent string. Required by SEC fair access policy, not a secret, but could be externalized to config."
+        },
+        {
+          "file": "src/data_collection/fed_collector.py",
+          "lines": "41",
+          "description": "Contact email hardcoded in FED_HEADERS User-Agent string. Same pattern as edgar_collector."
+        },
+        {
+          "file": "src/data_collection/research_sources.py",
+          "lines": "35",
+          "description": "Contact email hardcoded in USER_AGENT constant. Same pattern as other collectors."
+        },
+        {
+          "file": "src/data_collection/macro_collector.py",
+          "lines": "120-128",
+          "description": "FRED API key passed as URL query parameter in requests.get(). This is the only FRED authentication method available. Not logged by this code, but could surface in request exception tracebacks."
+        },
+        {
+          "file": "src/data_collection/retention.py",
+          "lines": "85",
+          "description": "SQL DELETE with f-string interpolation for table and column names. Values come from hardcoded RETENTION_RULES and _TIME_COLUMNS dicts (not user input). Developer acknowledged with # noqa: S608."
+        },
+        {
+          "file": "src/data_collection/retention.py",
+          "lines": "115",
+          "description": "PRAGMA table_info() with f-string interpolation for table name. Same assessment as line 85 — hardcoded dict values only."
         }
       ]
     }
