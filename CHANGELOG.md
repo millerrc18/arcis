@@ -1,5 +1,25 @@
 # Changelog
 
+## [v0.16.12] - 2026-04-11
+
+### Trading safety + security batch (#361, #363, #369, #370, #380)
+
+**Trading safety (#369, #370):**
+- **fix:** Replaced 6 `except Exception: pass` blocks in `executor.py` with
+  `logger.warning()` — critical trading notifications (buying-power crisis,
+  unprotected positions, exit circuit breaker) were silently swallowed
+- **fix:** Added argument validation to `test_retry_exit_called_for_exit_failed`
+  (`assert_called_once_with` instead of `assert_called_once`)
+- **fix:** Added explicit assertion to `test_missing_table_does_not_raise`
+
+**Security (#361, #363, #380):**
+- **fix:** Added column allowlist in `attribution/logger.py` — dynamic SQL
+  SET clause now validates columns against `_ALLOWED_ATTRIBUTION_COLUMNS`
+- **fix:** Replaced `.format()` SQL in `value_tracker.py` with parameterized
+  `?` placeholders for the `IN` clause
+- **fix:** Replaced raw `str(exc)` in 5 command executor error responses with
+  generic error categories — full details logged server-side only
+
 ## [v0.16.11] - 2026-04-11
 
 ### Fix: Test regressions — buying power mock + training gate assertion (#239, #371, #372)

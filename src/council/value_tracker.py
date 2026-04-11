@@ -295,12 +295,12 @@ def compute_attribution(db_path: str = DB_PATH) -> dict:
             conn.row_factory = sqlite3.Row
 
             # Find closed windows without computed attribution
+            placeholders = ",".join("?" for _ in ATTRIBUTABLE_PARAMETERS)
             windows = conn.execute(
                 "SELECT * FROM council_parameter_log "
                 "WHERE attribution_end IS NOT NULL AND value_added_dollars IS NULL "
-                "AND parameter_name IN ({})".format(
-                    ",".join(f"'{p}'" for p in ATTRIBUTABLE_PARAMETERS)
-                )
+                f"AND parameter_name IN ({placeholders})",
+                tuple(ATTRIBUTABLE_PARAMETERS),
             ).fetchall()
 
             for window in windows:

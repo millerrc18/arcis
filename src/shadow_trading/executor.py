@@ -100,8 +100,8 @@ def _check_paper_buying_power(entry_price: float, shares: int) -> bool:
                         f"Available: ${buying_power:,.2f} / Need: ${required:,.2f}\n"
                         f"Check for orphaned positions consuming capital."
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("[EXECUTOR] Buying-power crisis notification failed: %s", e)
             return False
         _consecutive_bp_failures = 0
         _scan_cycle_committed += required
@@ -544,8 +544,8 @@ def open_shadow_trade(
                             f"Entry filled but stop-loss submission failed.\n"
                             f"Attempted emergency close: {'success' if trade_data.get('status') == 'failed' else 'FAILED'}"
                         )
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning("[EXECUTOR] Unprotected position notification failed: %s", e)
             except ImportError:
                 logger.warning("[SHADOW] Stop order imports unavailable for %s — position unprotected", ticker)
 
@@ -917,8 +917,8 @@ def check_and_manage_open_trades(
                             try:
                                 from src.attribution.logger import link_trade_outcome
                                 link_trade_outcome(_mr_rec_id, "win" if pnl_pct > 0 else "loss", round(pnl_pct, 2))
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.warning("[EXECUTOR] MR exit attribution logging failed: %s", e)
                         continue  # Skip bracket logic
             except Exception as e:
                 logger.debug("[EXECUTOR] MR exit check failed for %s: %s", ticker, e)
@@ -952,8 +952,8 @@ def check_and_manage_open_trades(
                     try:
                         from src.attribution.logger import link_trade_outcome
                         link_trade_outcome(_mr_rec_id, "win" if pnl_pct > 0 else "loss", round(pnl_pct, 2))
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning("[EXECUTOR] MR timeout attribution logging failed: %s", e)
                 continue
 
         # For bracket orders, check Alpaca for exit fills.
@@ -1053,8 +1053,8 @@ def check_and_manage_open_trades(
                         from src.shadow_trading.alpaca_adapter import cancel_paper_order
                         cancel_paper_order(_pending_oid)
                         time.sleep(0.5)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning("[EXECUTOR] Stale exit order cancellation failed: %s", e)
 
                 try:
                     exit_result = _submit_exit_order(trade, shares)
@@ -1082,8 +1082,8 @@ def check_and_manage_open_trades(
                                 f"\U0001f6a8 EXIT CIRCUIT BREAKER: {_exit_failures}/{_exit_attempts} "
                                 f"exits failed this cycle. Remaining exits paused."
                             )
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            logger.warning("[EXECUTOR] Exit circuit breaker notification failed: %s", e)
                         break
                     continue
 

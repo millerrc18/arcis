@@ -90,7 +90,8 @@ class TestLogActivity:
         db_path = str(tmp_path / "no_table.sqlite3")
         # Do NOT create the table
         # Should not raise, just logs a debug message
-        log_activity(SCAN_COMPLETE, "Will fail silently", db_path=db_path)
+        result = log_activity(SCAN_COMPLETE, "Will fail silently", db_path=db_path)
+        assert result is None
 
     def test_invalid_db_path_does_not_raise(self):
         """Totally bogus path should not crash."""
