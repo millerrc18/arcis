@@ -219,34 +219,48 @@ class IBBroker(BrokerAdapter):
         raise ValueError(f"Order {order_id} not found")
 
     def get_position(self, ticker: str) -> Optional[BrokerPosition]:
+        """Get position with live price. Task 8: fetch current_price via
+        market data snapshot instead of hardcoding 0.0."""
         self._ensure_connected()
         for pos in self._ib.positions():
             if pos.contract.symbol == ticker:
+                current = self.get_current_price(ticker) or 0.0
+                qty = float(pos.position)
+                avg = float(pos.avgCost)
                 return BrokerPosition(
                     ticker=ticker,
                     quantity=int(pos.position),
-                    avg_cost=float(pos.avgCost),
-                    current_price=0.0,  # Requires separate market data request
-                    unrealized_pnl=float(getattr(pos, 'unrealizedPNL', 0) or 0),
-                    market_value=float(pos.position * pos.avgCost),
+                    avg_cost=avg,
+                    current_price=current,
+                    unrealized_pnl=qty * (current - avg) if current else 0.0,
+                    market_value=qty * current if current else qty * avg,
                     broker="ib",
                 )
         return None
 
     def get_all_positions(self) -> list[BrokerPosition]:
+        """Get all positions. Task 8: fetch prices for small portfolios (<=10),
+        skip for larger to avoid hitting IB's 100 market data line limit."""
         self._ensure_connected()
-        return [
-            BrokerPosition(
-                ticker=pos.contract.symbol,
+        positions = self._ib.positions()
+        result = []
+        for pos in positions:
+            ticker = pos.contract.symbol
+            qty = float(pos.position)
+            avg = float(pos.avgCost)
+            current = 0.0
+            if len(positions) <= 10:
+                current = self.get_current_price(ticker) or 0.0
+            result.append(BrokerPosition(
+                ticker=ticker,
                 quantity=int(pos.position),
-                avg_cost=float(pos.avgCost),
-                current_price=0.0,
-                unrealized_pnl=float(getattr(pos, 'unrealizedPNL', 0) or 0),
-                market_value=float(pos.position * pos.avgCost),
+                avg_cost=avg,
+                current_price=current,
+                unrealized_pnl=qty * (current - avg) if current else 0.0,
+                market_value=qty * current if current else qty * avg,
                 broker="ib",
-            )
-            for pos in self._ib.positions()
-        ]
+            ))
+        return result
 
     def get_current_price(self, ticker: str) -> Optional[float]:
         """Get current price via IB market data snapshot.
