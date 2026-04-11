@@ -1,5 +1,17 @@
 # Changelog
 
+## [v0.16.7] - 2026-04-11
+
+### Hotfix: Training pipeline — em-dash SyntaxError + GGUF fallback + Modelfile path (#387)
+
+- **fix:** Replaced Unicode em-dash with ASCII `--` in `training_data/train.py:78`
+  — Windows cp1252 subprocess could not parse the UTF-8 character, blocking
+  the entire training script from loading
+- **fix:** Added CPU-based GGUF conversion fallback via llama.cpp when Unsloth
+  GPU export fails due to insufficient VRAM (RTX 3060 12GB)
+- **fix:** Modelfile path now uses `.as_posix()` for forward slashes — was
+  writing Windows backslashes into the `FROM` directive
+
 ## [v0.16.6] - 2026-04-11
 
 ### Hotfix: Council dynamic weights query — fix broken join (#386)
