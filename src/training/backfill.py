@@ -1,7 +1,7 @@
 """Historical backfill orchestrator for high-quality training data generation.
 
 Called by: cli.commands, evaluation.backtester
-Calls: llm.prompts, training.claude_client, training.historical_data, training.historical_scanner, training.ingestion_gate, training.versioning
+Calls: llm.prompts, training.claude_client, training.historical_data, training.historical_scanner, training.ingestion_gate, training.regime_sampler, training.versioning
 Owns tables: none
 Config keys: none
 Tests: tests/test_backfill.py, tests/test_leakage_detector.py
@@ -13,11 +13,10 @@ setups with real results.
 
 import json
 import logging
-import random
 import sqlite3
 import time
 import uuid
-from collections import Counter, defaultdict
+from collections import Counter
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -37,11 +36,21 @@ from src.training.historical_scanner import (
     generate_backfill_example,
     scan_historical_date,
 )
+from src.training.regime_sampler import (
+    balance_dataset,
+    cap_and_diversify,
+    deduplicate_candidates,
+)
 from src.training.versioning import init_training_tables
 
 logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
+
+# Backwards-compatible aliases for existing callers and tests
+_deduplicate_candidates = deduplicate_candidates
+_balance_dataset = balance_dataset
+_cap_and_diversify = cap_and_diversify
 
 
 def estimate_backfill_cost(n_examples: int) -> float:
@@ -67,117 +76,6 @@ def _get_trading_days(spy_df: pd.DataFrame, start_date: str, end_date: str) -> l
     end_ts = pd.Timestamp(end_date)
     mask = (spy_df.index >= start_ts) & (spy_df.index <= end_ts)
     return [d.strftime("%Y-%m-%d") for d in spy_df.index[mask]]
-
-
-def _deduplicate_candidates(candidates: list[dict], min_gap_days: int = 5) -> list[dict]:
-    """Remove consecutive-day entries for the same ticker.
-
-    If the same ticker qualifies on consecutive days, keep only the first
-    occurrence. Require at least min_gap_days trading days between entries
-    for the same ticker.
-    """
-    last_seen: dict[str, str] = {}  # ticker -> last scan_date
-    result = []
-
-    # Sort by scan_date, then score descending
-    candidates.sort(key=lambda x: (x["scan_date"], -x["score"]))
-
-    for c in candidates:
-        ticker = c["ticker"]
-        scan_date = c["scan_date"]
-
-        if ticker in last_seen:
-            last_date = pd.Timestamp(last_seen[ticker])
-            current_date = pd.Timestamp(scan_date)
-            gap = (current_date - last_date).days
-            if gap < min_gap_days:
-                continue
-
-        last_seen[ticker] = scan_date
-        result.append(c)
-
-    return result
-
-
-def _balance_dataset(
-    examples: list[dict], target_win_ratio: float = 0.6
-) -> list[dict]:
-    """Balance win/loss ratio by downsampling the majority class.
-
-    Aims for roughly 60/40 win/loss. Losing trades are more instructionally
-    valuable and should be proportionally overrepresented vs natural frequency.
-    """
-    wins = [e for e in examples if e["outcome"]["outcome_quality"] == "clean_win"]
-    losses = [e for e in examples if e["outcome"]["outcome_quality"] == "clean_loss"]
-    other = [e for e in examples if e["outcome"]["outcome_quality"] not in ("clean_win", "clean_loss")]
-
-    if not losses:
-        return examples
-
-    # Target: wins should be target_win_ratio of (wins + losses)
-    # So wins = target_win_ratio / (1 - target_win_ratio) * losses
-    target_wins = int(len(losses) * target_win_ratio / (1 - target_win_ratio))
-
-    if len(wins) > target_wins:
-        random.shuffle(wins)
-        wins = wins[:target_wins]
-
-    return wins + losses + other
-
-
-def _cap_and_diversify(
-    examples: list[dict],
-    max_examples: int,
-    max_per_ticker: int = 30,
-) -> list[dict]:
-    """Cap total examples and ensure diversity.
-
-    Prioritize:
-    - Higher scores first
-    - Diverse tickers (no more than max_per_ticker per ticker)
-    - Even distribution across the time period
-    """
-    # First cap per-ticker
-    ticker_counts: Counter = Counter()
-    ticker_capped = []
-    # Sort by score descending
-    examples.sort(key=lambda x: -x["candidate"]["score"])
-
-    for ex in examples:
-        ticker = ex["candidate"]["ticker"]
-        if ticker_counts[ticker] >= max_per_ticker:
-            continue
-        ticker_counts[ticker] += 1
-        ticker_capped.append(ex)
-
-    if len(ticker_capped) <= max_examples:
-        return ticker_capped
-
-    # Distribute evenly across time periods (quarters)
-    by_month: defaultdict[str, list] = defaultdict(list)
-    for ex in ticker_capped:
-        month_key = ex["candidate"]["scan_date"][:7]  # YYYY-MM
-        by_month[month_key].append(ex)
-
-    months = sorted(by_month.keys())
-    per_month = max(1, max_examples // len(months))
-    result = []
-
-    for month in months:
-        month_examples = by_month[month]
-        # Sort by score within month
-        month_examples.sort(key=lambda x: -x["candidate"]["score"])
-        result.extend(month_examples[:per_month])
-
-    # If still under cap, fill from remaining
-    if len(result) < max_examples:
-        used = {(e["candidate"]["ticker"], e["candidate"]["scan_date"]) for e in result}
-        remaining = [e for e in ticker_capped
-                     if (e["candidate"]["ticker"], e["candidate"]["scan_date"]) not in used]
-        remaining.sort(key=lambda x: -x["candidate"]["score"])
-        result.extend(remaining[:max_examples - len(result)])
-
-    return result[:max_examples]
 
 
 def _example_exists(db_path: str, ticker: str, scan_date: str) -> bool:
