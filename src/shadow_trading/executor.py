@@ -742,9 +742,17 @@ def _retry_exit(trade: dict, db_path: str = DB_PATH) -> None:
         return
 
     # Cancel any existing pending exit order before resubmitting
+    # Task 5: Use broker factory for live/IB trades, Alpaca direct for paper
     pending_order_id = trade.get("exit_order_id") or trade.get("alpaca_order_id")
     if pending_order_id:
-        cancel_paper_order(pending_order_id)
+        if trade.get("source") == "live":
+            try:
+                from src.trading.broker_factory import get_live_broker as _glb_t5
+                _glb_t5(load_config()).cancel_order(pending_order_id)
+            except Exception as _e_t5:
+                logger.warning("[RETRY] Live cancel failed for %s: %s", ticker, _e_t5)
+        else:
+            cancel_paper_order(pending_order_id)
         time.sleep(1)  # Brief pause for broker to process cancellation
 
     # Increment retry counter
