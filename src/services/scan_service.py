@@ -32,6 +32,10 @@ def run_scan(config: dict, dry_run: bool = False, send_email_flag: bool = False,
     from src.universe.sp100 import get_sp100_universe
     from src.universe.company_names import get_company_name
 
+    # #392: Reset per-cycle buying power tracker to prevent stale state
+    from src.shadow_trading.executor import reset_scan_cycle_committed
+    reset_scan_cycle_committed()
+
     now = datetime.now(ET)
     universe = get_sp100_universe()
 

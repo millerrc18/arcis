@@ -1,5 +1,24 @@
 # Changelog
 
+## [v0.16.10] - 2026-04-11
+
+### P2 batch: research feeds, CBOE scraper, buying power race condition (#389-392)
+
+- **fix:** Research feeds (#389): Removed dead Anthropic `/feed.xml` (404) and
+  OpenAI `/blog/rss/` (403) URLs. Replaced Anthropic with `/research/rss.xml`.
+  Added `Accept` header to SSRN request. Increased arXiv timeout to 60s.
+- **fix:** CBOE scraper (#390): Demoted regex-failure log from `warning` to
+  `debug` — the SPY proxy and FRED fallbacks already produce reliable data.
+  The regex breaks every time CBOE changes their HTML.
+- **note:** NULL ids (#391): Investigated and confirmed already resolved —
+  SQLite `INTEGER PRIMARY KEY` auto-assigns ROWIDs. Current state: 459K rows,
+  0 NULL ids. The auto-repair messages in logs were from a one-time migration.
+- **fix:** Buying power race condition (#392): Added per-scan-cycle committed
+  capital tracker in executor. Previously N trades each passed the buying power
+  check individually but together exhausted capital. Now
+  `_scan_cycle_committed` subtracts capital from earlier orders in the same
+  batch before checking. Reset at scan start via `reset_scan_cycle_committed()`.
+
 ## [v0.16.9] - 2026-04-11
 
 ### Root cause gap closures for #383, #386, #388

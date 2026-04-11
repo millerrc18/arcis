@@ -77,7 +77,7 @@ def crawl_arxiv(max_results: int = 30) -> list[dict]:
         f"sortBy=submittedDate&sortOrder=descending&max_results={max_results}"
     )
     try:
-        resp = _get(url, timeout=30)
+        resp = _get(url, timeout=60)
         resp.raise_for_status()
     except Exception as exc:
         logger.warning("[RESEARCH] arXiv fetch failed: %s", exc)
@@ -217,11 +217,15 @@ def crawl_github_trending() -> list[dict]:
 
 
 def crawl_ai_blogs() -> list[dict]:
-    """Check Anthropic and OpenAI blogs for new posts."""
+    """Check AI company blogs for new posts.
+
+    #389: Anthropic /feed.xml returns 404 (blog restructured), OpenAI /blog/rss/
+    returns 403 (intentionally blocked). Both removed. Anthropic's research feed
+    uses Atom format at /research/rss.xml. OpenAI has no public RSS alternative.
+    """
     papers = []
     feeds = [
-        ("anthropic_blog", "https://www.anthropic.com/feed.xml"),
-        ("openai_blog", "https://openai.com/blog/rss/"),
+        ("anthropic_blog", "https://www.anthropic.com/research/rss.xml"),
     ]
 
     for source, url in feeds:
@@ -278,7 +282,8 @@ def crawl_ssrn() -> list[dict]:
         "npage=1&nstartper=0&nsortby=ab_approval_date&abstractlength=500&lim=10&ntype=1"
     )
     try:
-        resp = _get(url, timeout=15)
+        # #389: SSRN returns 403 without Accept header (bot-blocking)
+        resp = _get(url, timeout=30, headers={"Accept": "application/rss+xml, application/xml, text/xml"})
         resp.raise_for_status()
         root = ET.fromstring(resp.text)
     except Exception as exc:
