@@ -7,6 +7,7 @@ Config keys: none
 Tests: tests/test_change_detector.py, tests/test_digest_builder.py, tests/test_gate_evaluator.py, tests/test_live_trading.py, tests/test_reconcile.py, tests/test_review.py, tests/test_scorecard.py
 """
 
+import logging
 import sqlite3
 import uuid
 from datetime import datetime, timedelta
@@ -15,6 +16,39 @@ from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
 from src.models import TradePacket
+from src.schema.registry import TABLES
+
+_logger = logging.getLogger(__name__)
+
+
+def _coerce_to_schema(table_name: str, data: dict) -> dict:
+    """Coerce dict values to match schema-declared column types.
+
+    SQLite does not enforce column types, so string values can be silently
+    stored in REAL/INTEGER columns.  This function casts values to the
+    type declared in the schema registry before they reach the database,
+    preventing the recurring str-vs-float TypeErrors downstream (#383).
+    """
+    table = TABLES.get(table_name)
+    if not table:
+        return data
+    type_map = {c.name: c.type.upper() for c in table.columns}
+    coerced = {}
+    for k, v in data.items():
+        if v is None:
+            coerced[k] = v
+            continue
+        col_type = type_map.get(k)
+        try:
+            if col_type == "REAL" and not isinstance(v, float):
+                coerced[k] = float(v)
+            elif col_type == "INTEGER" and not isinstance(v, int):
+                coerced[k] = int(float(v))
+            else:
+                coerced[k] = v
+        except (ValueError, TypeError):
+            coerced[k] = v
+    return coerced
 
 
 def initialize_database(db_path: str = DB_PATH) -> None:
@@ -107,6 +141,7 @@ def log_recommendation(
         "market_regime": features.get("regime_label"),
     }
 
+    row = _coerce_to_schema("recommendations", row)
     columns = ", ".join(row.keys())
     placeholders = ", ".join("?" for _ in row)
     values = list(row.values())
@@ -158,6 +193,7 @@ def insert_shadow_trade(trade: dict, db_path: str = DB_PATH) -> str:
     initialize_database(db_path)
     trade_id = trade.get("trade_id", str(uuid.uuid4()))
     trade["trade_id"] = trade_id
+    trade = _coerce_to_schema("shadow_trades", trade)
 
     columns = ", ".join(trade.keys())
     placeholders = ", ".join("?" for _ in trade)
@@ -179,6 +215,7 @@ def update_shadow_trade(
         return
     et = ZoneInfo("America/New_York")
     updates["updated_at"] = datetime.now(et).isoformat()
+    updates = _coerce_to_schema("shadow_trades", updates)
     set_clause = ", ".join(f"{k} = ?" for k in updates)
     values = list(updates.values()) + [trade_id]
 
