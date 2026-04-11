@@ -72,9 +72,64 @@ def save_imported_tracker(tracker_path: str, imported: set[str]):
         json.dump(sorted(imported), f, indent=2)
 
 
+def find_prompt_file(prompts_dir: str, filename: str) -> str | None:
+    """Find the matching prompt file across all regime subdirectories."""
+    if not os.path.isdir(prompts_dir):
+        return None
+    for regime_dir in os.listdir(prompts_dir):
+        candidate = os.path.join(prompts_dir, regime_dir, filename)
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+def extract_input_text_from_prompt(prompt_path: str) -> tuple[str, str]:
+    """Extract the feature data and system prompt from an exported prompt file.
+
+    Prompt files have this structure:
+        # Setup ... header
+        ## System Prompt
+        <system prompt text>
+        ## Feature Data
+        <feature data text>
+        ---
+        SAVE THE RESPONSE AS: ...
+
+    Returns:
+        (system_prompt, feature_data) — the instruction and input_text
+        for the training example.
+    """
+    with open(prompt_path) as f:
+        content = f.read()
+
+    # Extract system prompt: between "## System Prompt" and "## Feature Data"
+    system_prompt = ""
+    sys_marker = "## System Prompt"
+    feat_marker = "## Feature Data"
+    if sys_marker in content and feat_marker in content:
+        sys_start = content.index(sys_marker) + len(sys_marker)
+        sys_end = content.index(feat_marker)
+        system_prompt = content[sys_start:sys_end].strip()
+
+    # Extract feature data: between "## Feature Data" and the trailing "---"
+    input_text = ""
+    if feat_marker in content:
+        feat_start = content.index(feat_marker) + len(feat_marker)
+        # Find the trailing separator
+        rest = content[feat_start:]
+        separator = "\n---\n"
+        if separator in rest:
+            input_text = rest[:rest.index(separator)].strip()
+        else:
+            input_text = rest.strip()
+
+    return system_prompt, input_text
+
+
 def main():
     parser = argparse.ArgumentParser(description="Import backfill results into training DB")
     parser.add_argument("--results-dir", default="training_data/results", help="Directory with result .md files")
+    parser.add_argument("--prompts-dir", default="training_data/prompts", help="Directory with exported prompt files")
     parser.add_argument("--outcomes", default="training_data/outcomes/outcomes.json", help="Sealed outcomes file")
     parser.add_argument("--model", required=True, help="Model that generated results (e.g. claude_opus, chatgpt)")
     parser.add_argument("--db-path", default=DB_PATH, help="Database path")
@@ -152,6 +207,15 @@ def main():
             outcome_data.get("outcome_quality") if outcome_data else "unknown"
         )
 
+        # Read matching prompt file to extract feature data (input_text) and instruction
+        prompt_file = find_prompt_file(args.prompts_dir, filename)
+        if prompt_file:
+            instruction, input_text = extract_input_text_from_prompt(prompt_file)
+        else:
+            logger.warning("  WARN (no prompt file found): %s — input_text will be empty", filename)
+            instruction = f"manual_backfill_{example_type}"
+            input_text = ""
+
         # Build feature snapshot from outcome metadata
         feature_snapshot = json.dumps({
             "scan_date": scan_date,
@@ -174,7 +238,7 @@ def main():
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (example_id, created_at, source, ticker, None,
                  feature_snapshot, trade_outcome,
-                 f"manual_backfill_{example_type}", "",
+                 instruction, input_text,
                  xml_content, outcome_type, regime),
             )
             conn.commit()

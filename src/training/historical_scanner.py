@@ -27,6 +27,105 @@ PACKET_WORTHY_THRESHOLD = 70
 WATCHLIST_THRESHOLD = 45
 
 
+def _scan_date_core(
+    data: dict, scan_date: str, fred_data: dict | None = None,
+    min_score: float = 70, max_score: float = 100,
+    qualification: str = "packet_worthy", fetch_news: bool = True,
+) -> list[dict]:
+    """Shared scanning logic for TRADE and PASS examples.
+
+    Slices data to scan_date, computes regime + features for every
+    ticker, filters by [min_score, max_score] band.
+    """
+    ohlcv_dict, spy_df = slice_to_date(data, scan_date)
+
+    if spy_df.empty or len(spy_df) < 200:
+        return []
+
+    # Compute market regime ONCE for this date
+    regime = {}
+    try:
+        from src.features.regime import compute_market_regime
+        regime = compute_market_regime(spy_df, ohlcv_dict)
+    except Exception as e:
+        logger.debug("Failed to compute market regime for %s: %s", scan_date, e)
+
+    candidates = []
+    for ticker, df in ohlcv_dict.items():
+        try:
+            features = compute_features(ticker, df, spy_df)
+            features["earnings_date"] = None
+            features["hold_overlaps_earnings"] = False
+            features["days_to_earnings"] = None
+            features["event_risk_level"] = "none"
+            features.update(regime)
+
+            # Enrichment — use real FRED data when available
+            features["insider_summary"] = "Not available for historical scan"
+            if fred_data:
+                from src.training.regime_sampler import format_macro_summary
+                features["macro_summary"] = format_macro_summary(fred_data, scan_date)
+                features["fundamental_summary"] = (
+                    f"Historical scan for {get_company_name(ticker)} ({ticker}) "
+                    f"in the {features.get('sector', 'unknown')} sector"
+                )
+            else:
+                features["fundamental_summary"] = "Not available for historical scan"
+                features["macro_summary"] = "Not available for historical scan"
+
+            # News: attempt fetch for TRADE examples, skip for PASS
+            if fetch_news:
+                try:
+                    from src.config import load_config
+                    cfg = load_config()
+                    enrichment_cfg = cfg.get("data_enrichment", {})
+                    if enrichment_cfg.get("include_news_in_backfill", True):
+                        from src.data_enrichment.news import fetch_historical_news, format_news_summary
+                        finnhub_key = enrichment_cfg.get("finnhub_api_key")
+                        news_data = fetch_historical_news(
+                            ticker, as_of_date=scan_date,
+                            finnhub_api_key=finnhub_key,
+                        )
+                        features["news_summary"] = format_news_summary(news_data)
+                        features["news_sentiment"] = (news_data or {}).get("news_sentiment", "no_news")
+                    else:
+                        features["news_summary"] = "News data not available for historical scan"
+                        features["news_sentiment"] = "no_news"
+                except Exception as e:
+                    features["news_summary"] = "News data not available for historical scan"
+                    features["news_sentiment"] = "no_news"
+                    logger.debug("Historical news failed for %s on %s: %s", ticker, scan_date, e)
+            else:
+                features["news_summary"] = "News data not available for historical scan"
+                features["news_sentiment"] = "no_news"
+
+            score = _score_ticker(features)
+            if score < min_score or score > max_score:
+                continue
+
+            entry_price = features["current_price"]
+            atr = features["atr_14"]
+
+            candidates.append({
+                "scan_date": scan_date,
+                "ticker": ticker,
+                "score": score,
+                "qualification": qualification,
+                "features": features,
+                "entry_price": round(entry_price, 2),
+                "stop_price": round(entry_price - (2 * atr), 2),
+                "target_1": round(entry_price + (1.5 * atr), 2),
+                "target_2": round(entry_price + (3 * atr), 2),
+            })
+        except Exception as e:
+            logger.debug("Failed to compute features for %s on %s: %s",
+                         ticker, scan_date, e)
+            continue
+
+    candidates.sort(key=lambda x: x["score"], reverse=True)
+    return candidates
+
+
 def scan_historical_date(data: dict, scan_date: str, fred_data: dict | None = None) -> list[dict]:
     """Run the full scan pipeline as-of a specific date.
 
@@ -42,98 +141,11 @@ def scan_historical_date(data: dict, scan_date: str, fred_data: dict | None = No
     Returns:
         List of qualified candidates with features, scores, and price levels.
     """
-    ohlcv_dict, spy_df = slice_to_date(data, scan_date)
-
-    if spy_df.empty or len(spy_df) < 200:
-        return []
-
-    # Compute market regime ONCE for this date
-    regime = {}
-    try:
-        from src.features.regime import compute_market_regime
-        regime = compute_market_regime(spy_df, ohlcv_dict)
-    except Exception as e:
-        logger.debug("Failed to compute market regime for %s: %s", scan_date, e)
-
-    # Compute features for all tickers (skip earnings — not available historically)
-    candidates = []
-    for ticker, df in ohlcv_dict.items():
-        try:
-            features = compute_features(ticker, df, spy_df)
-            # Set earnings to "none" — historical earnings dates aren't available
-            features["earnings_date"] = None
-            features["hold_overlaps_earnings"] = False
-            features["days_to_earnings"] = None
-            features["event_risk_level"] = "none"
-
-            # Add market regime data
-            features.update(regime)
-
-            # Add enrichment for historical scans — use real FRED data when available
-            features["insider_summary"] = "Not available for historical scan"
-            if fred_data:
-                from src.training.regime_sampler import format_macro_summary
-                features["macro_summary"] = format_macro_summary(fred_data, scan_date)
-                features["fundamental_summary"] = (
-                    f"Historical scan for {get_company_name(ticker)} ({ticker}) "
-                    f"in the {features.get('sector', 'unknown')} sector"
-                )
-            else:
-                features["fundamental_summary"] = "Not available for historical scan"
-                features["macro_summary"] = "Not available for historical scan"
-
-            # Fetch historical news if configured
-            try:
-                from src.config import load_config
-                cfg = load_config()
-                enrichment_cfg = cfg.get("data_enrichment", {})
-                if enrichment_cfg.get("include_news_in_backfill", True):
-                    from src.data_enrichment.news import fetch_historical_news, format_news_summary
-                    finnhub_key = enrichment_cfg.get("finnhub_api_key")
-                    news_data = fetch_historical_news(
-                        ticker, as_of_date=scan_date,
-                        finnhub_api_key=finnhub_key,
-                    )
-                    features["news_summary"] = format_news_summary(news_data)
-                    features["news_sentiment"] = (news_data or {}).get("news_sentiment", "no_news")
-                else:
-                    features["news_summary"] = "News data not available for historical scan"
-                    features["news_sentiment"] = "no_news"
-            except Exception as e:
-                features["news_summary"] = "News data not available for historical scan"
-                features["news_sentiment"] = "no_news"
-                logger.debug("Historical news failed for %s on %s: %s", ticker, scan_date, e)
-
-            score = _score_ticker(features)
-            if score < PACKET_WORTHY_THRESHOLD:
-                continue
-
-            # Compute entry/stop/target levels
-            entry_price = features["current_price"]
-            atr = features["atr_14"]
-            stop_price = entry_price - (2 * atr)
-            target_1 = entry_price + (1.5 * atr)
-            target_2 = entry_price + (3 * atr)
-
-            candidates.append({
-                "scan_date": scan_date,
-                "ticker": ticker,
-                "score": score,
-                "qualification": "packet_worthy",
-                "features": features,
-                "entry_price": round(entry_price, 2),
-                "stop_price": round(stop_price, 2),
-                "target_1": round(target_1, 2),
-                "target_2": round(target_2, 2),
-            })
-        except Exception as e:
-            logger.debug("Failed to compute features for %s on %s: %s",
-                         ticker, scan_date, e)
-            continue
-
-    # Sort by score descending
-    candidates.sort(key=lambda x: x["score"], reverse=True)
-    return candidates
+    return _scan_date_core(
+        data, scan_date, fred_data=fred_data,
+        min_score=PACKET_WORTHY_THRESHOLD, max_score=100,
+        qualification="packet_worthy", fetch_news=True,
+    )
 
 
 def scan_historical_date_pass(
@@ -142,76 +154,18 @@ def scan_historical_date_pass(
 ) -> list[dict]:
     """Scan for PASS examples — setups that score 45-69 (below threshold).
 
-    Same logic as scan_historical_date() but captures the middle band
-    of scores: interesting enough to appear on the scanner but not
+    Same scanning logic as scan_historical_date() but captures the middle
+    band of scores: interesting enough to appear on the scanner but not
     qualifying for a trade recommendation.
 
     Returns:
         List of below-threshold candidates with features and scores.
     """
-    ohlcv_dict, spy_df = slice_to_date(data, scan_date)
-
-    if spy_df.empty or len(spy_df) < 200:
-        return []
-
-    regime = {}
-    try:
-        from src.features.regime import compute_market_regime
-        regime = compute_market_regime(spy_df, ohlcv_dict)
-    except Exception as e:
-        logger.debug("Failed to compute market regime for %s: %s", scan_date, e)
-
-    candidates = []
-    for ticker, df in ohlcv_dict.items():
-        try:
-            features = compute_features(ticker, df, spy_df)
-            features["earnings_date"] = None
-            features["hold_overlaps_earnings"] = False
-            features["days_to_earnings"] = None
-            features["event_risk_level"] = "none"
-            features.update(regime)
-
-            # Enrichment
-            features["insider_summary"] = "Not available for historical scan"
-            if fred_data:
-                from src.training.regime_sampler import format_macro_summary
-                features["macro_summary"] = format_macro_summary(fred_data, scan_date)
-                features["fundamental_summary"] = (
-                    f"Historical scan for {get_company_name(ticker)} ({ticker}) "
-                    f"in the {features.get('sector', 'unknown')} sector"
-                )
-            else:
-                features["fundamental_summary"] = "Not available for historical scan"
-                features["macro_summary"] = "Not available for historical scan"
-
-            features["news_summary"] = "News data not available for historical scan"
-            features["news_sentiment"] = "no_news"
-
-            score = _score_ticker(features)
-            if score < min_score or score > max_score:
-                continue
-
-            entry_price = features["current_price"]
-            atr = features["atr_14"]
-
-            candidates.append({
-                "scan_date": scan_date,
-                "ticker": ticker,
-                "score": score,
-                "qualification": "pass",
-                "features": features,
-                "entry_price": round(entry_price, 2),
-                "stop_price": round(entry_price - (2 * atr), 2),
-                "target_1": round(entry_price + (1.5 * atr), 2),
-                "target_2": round(entry_price + (3 * atr), 2),
-            })
-        except Exception as e:
-            logger.debug("Failed to compute features for %s on %s: %s",
-                         ticker, scan_date, e)
-            continue
-
-    candidates.sort(key=lambda x: x["score"], reverse=True)
-    return candidates
+    return _scan_date_core(
+        data, scan_date, fred_data=fred_data,
+        min_score=min_score, max_score=max_score,
+        qualification="pass", fetch_news=False,
+    )
 
 
 def compute_outcome(
@@ -355,25 +309,10 @@ def _classify_outcome_quality(
 
 
 def generate_backfill_example(candidate: dict, outcome: dict | None = None) -> dict:
-    """Build the training example structure from a historical scan + outcome.
+    """Build training example from a historical scan + outcome.
 
-    The input_text matches the format of _build_feature_prompt() in
-    packet_writer.py so the model sees the same format during training
-    as during inference.
-
-    NOTE: The input_text contains ONLY setup data (no outcome). The outcome
-    is stored separately in metadata for evaluation purposes only.
-
-    For PASS examples (outcome=None), uses PASS_ANALYSIS_PROMPT instead
-    of BLINDED_ANALYSIS_PROMPT, and metadata reflects no-trade status.
-
-    Returns:
-        {
-            "instruction": prompt (formatted with scan_date),
-            "input_text": "..." (feature data only — NO outcome),
-            "output_text": None,  # filled by Claude API or manual generation
-            "metadata": { ... }
-        }
+    Input_text matches _build_feature_prompt() format — NO outcome data.
+    For PASS examples (outcome=None), uses PASS_ANALYSIS_PROMPT.
     """
     features = candidate["features"]
     ticker = candidate["ticker"]
