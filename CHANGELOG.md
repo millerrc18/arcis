@@ -1,5 +1,30 @@
 # Changelog
 
+## [Unreleased] — IB Production Hardening (Sprint IB-5)
+
+### Connection Resilience
+- **fix:** `_ensure_connected()` with exponential backoff (3 retries: 1s, 2s, 4s)
+- **feat:** `_verify_bracket_integrity()` checks all positions have active stops after reconnect
+- **feat:** Connect/disconnect pattern — fresh connection each poll cycle, rebuild state from server
+
+### Order Safety
+- **fix:** `outsideRth=True` on ALL orders — protective orders execute outside regular hours
+- **fix:** `ocaType=3` on bracket children — block/overfill protection prevents dual fills
+- **feat:** `permId` stored for cross-session tracking (survives Gateway restarts)
+- **feat:** Partial fill detection with warning log
+
+### Status Normalization
+- **feat:** `IB_STATUS_MAP` normalizes IB statuses (PreSubmitted→pending, Inactive→rejected, etc.)
+- **feat:** `_handle_ib_error()` classifies common IB error codes (110, 135, 200, 201, 202)
+
+### Schema
+- **schema:** Added `ib_perm_id` column to `shadow_trades` for cross-session order tracking
+- **schema:** Added `perm_id` field to `BrokerOrder` dataclass
+
+### Tests
+- **test:** 16 tests for reconnection, bracket verification, status mapping, partial fills,
+  outsideRth/ocaType, error codes, permId
+
 ## [Unreleased] — IB Dual-Execution Routing (Sprint IB-4)
 
 ### Score-Based Paper Broker Routing

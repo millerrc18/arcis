@@ -1,4 +1,4 @@
-"""Interactive Brokers adapter via ib_async.
+"""Interactive Brokers adapter via ib_async — production hardened.
 
 Called by: trading.broker_factory
 Calls: ib_async (TWS API)
@@ -8,6 +8,11 @@ Tests: tests/test_ib_broker.py
 
 Requires IB Gateway or TWS running on localhost.
 Default ports: 4001 (live), 4002 (paper).
+
+Production hardening (2026-04): exponential-backoff reconnect, bracket
+integrity verification, outsideRth on all orders, ocaType=3 on bracket
+children, permId cross-session tracking, IB_STATUS_MAP normalization,
+partial fill detection, structured IB error code classification.
 
 WHY ib_async (not ib_insync): The original library creator Ewald de Wit passed
 away in early 2024. The community forked it as ib_async under a new GitHub org.
@@ -30,6 +35,27 @@ from src.trading.broker_interface import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Maps raw IB statuses to our canonical set (pending/filled/cancelled/rejected).
+IB_STATUS_MAP = {
+    "presubmitted": "pending",
+    "submitted": "pending",
+    "filled": "filled",
+    "cancelled": "cancelled",
+    "inactive": "rejected",
+    "pendingsubmit": "pending",
+    "pendingcancel": "pending",
+    "apicancelled": "cancelled",
+}
+
+_IB_ERROR_CODES = {
+    110: "price_out_of_range",
+    135: "unknown_order_id",
+    200: "unknown_contract",
+    201: "order_rejected",
+    202: "order_cancelled",
+    10147: "order_not_active",
+}
 
 
 class IBBroker(BrokerAdapter):
@@ -54,22 +80,31 @@ class IBBroker(BrokerAdapter):
         self._ib = None  # Lazy connection
 
     def _ensure_connected(self):
-        """Lazy connect to IB Gateway. Reconnects if disconnected."""
+        """Connect to IB Gateway with exponential backoff. Reconnects if disconnected."""
         if self._ib is not None and self._ib.isConnected():
             return
-        try:
-            from ib_async import IB
-            self._ib = IB()
-            self._ib.connect(
-                self._host, self._port, clientId=self._client_id,
-                timeout=self._timeout,
-            )
-            logger.info("[IB] Connected to gateway at %s:%d (client_id=%d)",
-                        self._host, self._port, self._client_id)
-        except Exception as e:
-            logger.error("[IB] Connection failed (%s:%d): %s", self._host, self._port, e)
-            self._ib = None
-            raise
+        import time as _time
+        for attempt in range(3):
+            try:
+                from ib_async import IB
+                self._ib = IB()
+                self._ib.connect(
+                    self._host, self._port, clientId=self._client_id,
+                    timeout=self._timeout,
+                )
+                logger.info("[IB] Connected to gateway at %s:%d (client_id=%d)",
+                            self._host, self._port, self._client_id)
+                return
+            except Exception as e:
+                delay = 2 ** attempt  # 1, 2, 4
+                logger.warning("[IB] Connection attempt %d/3 failed: %s (retry in %ds)",
+                              attempt + 1, e, delay)
+                self._ib = None
+                if attempt < 2:
+                    _time.sleep(delay)
+        raise ConnectionError(
+            f"IB Gateway unreachable after 3 attempts ({self._host}:{self._port})"
+        )
 
     def _make_contract(self, ticker: str):
         """Create an IB Stock contract for a US equity on SMART routing."""
@@ -78,6 +113,36 @@ class IBBroker(BrokerAdapter):
 
     def is_connected(self) -> bool:
         return self._ib is not None and self._ib.isConnected()
+
+    def _verify_bracket_integrity(self) -> list[str]:
+        """After reconnect, verify all positions have active stop orders.
+        Returns list of tickers with missing protection."""
+        unprotected = []
+        positions = self._ib.positions()
+        open_trades = self._ib.openTrades()
+        # Build set of tickers with active stop orders
+        protected_tickers = set()
+        for trade in open_trades:
+            if (trade.order.orderType in ("STP", "STP LMT") and
+                    trade.order.action == "SELL" and
+                    trade.orderStatus.status in ("PreSubmitted", "Submitted")):
+                protected_tickers.add(trade.contract.symbol)
+        for pos in positions:
+            if pos.position > 0 and pos.contract.symbol not in protected_tickers:
+                unprotected.append(pos.contract.symbol)
+                logger.warning("[IB] UNPROTECTED POSITION: %s (%d shares, no active stop)",
+                              pos.contract.symbol, int(pos.position))
+        return unprotected
+
+    def _handle_ib_error(self, code: int, msg: str, ticker: str = "") -> None:
+        """Log and classify IB error codes."""
+        classification = _IB_ERROR_CODES.get(code, "unknown")
+        if code in (200, 201):
+            logger.error("[IB] %s error for %s (code %d): %s",
+                        classification, ticker, code, msg)
+        else:
+            logger.warning("[IB] %s for %s (code %d): %s",
+                          classification, ticker, code, msg)
 
     def get_account(self) -> BrokerAccount:
         self._ensure_connected()
@@ -127,8 +192,14 @@ class IBBroker(BrokerAdapter):
             bracket[0].lmtPrice = 0
 
         # Set all orders to GTC — exits must persist across sessions
+        # outsideRth=True — protective orders must execute 24/7
         for order in bracket:
             order.tif = "GTC"
+            order.outsideRth = True  # Execute outside regular trading hours
+
+        # Block/overfill protection on bracket children
+        for child in bracket[1:]:
+            child.ocaType = 3
 
         # Place the bracket (parent + children)
         trades = []
@@ -140,8 +211,15 @@ class IBBroker(BrokerAdapter):
         # Wait briefly for fill acknowledgement (NOT time.sleep — keeps IB event loop alive)
         self._ib.sleep(2)
 
-        # Capture child order IDs for bracket health monitoring (Task 3)
+        # Check for partial fills
+        filled = int(parent_trade.orderStatus.filled or 0)
+        if 0 < filled < quantity:
+            logger.warning("[IB] Partial fill for %s: %d/%d shares filled",
+                          ticker, filled, quantity)
+
+        # Capture child order IDs and permIds for bracket health monitoring
         child_ids = [str(t.order.orderId) for t in trades[1:]] if len(trades) > 1 else None
+        child_perm_ids = [str(getattr(t.order, 'permId', '') or '') for t in trades[1:]] if len(trades) > 1 else None
 
         return BrokerOrder(
             order_id=str(parent_trade.order.orderId),
@@ -149,17 +227,20 @@ class IBBroker(BrokerAdapter):
             side="buy",
             quantity=quantity,
             order_type="bracket",
-            status=parent_trade.orderStatus.status.lower(),
+            status=IB_STATUS_MAP.get(parent_trade.orderStatus.status.lower(),
+                                     parent_trade.orderStatus.status.lower()),
             filled_avg_price=parent_trade.orderStatus.avgFillPrice or None,
             filled_qty=int(parent_trade.orderStatus.filled) if parent_trade.orderStatus.filled else 0,
             stop_price=stop_loss_price,
             take_profit_price=take_profit_price,
             child_order_ids=child_ids,
             broker="ib",
+            perm_id=str(getattr(parent_trade.order, 'permId', '') or ''),
         )
 
     def place_market_order(self, ticker: str, quantity: int,
-                           side: str = "buy") -> BrokerOrder:
+                           side: str = "buy",
+                           outside_rth: bool = True) -> BrokerOrder:
         self._ensure_connected()
         from ib_async import MarketOrder
         contract = self._make_contract(ticker)
@@ -167,8 +248,15 @@ class IBBroker(BrokerAdapter):
         action = "BUY" if side == "buy" else "SELL"
         order = MarketOrder(action, quantity)
         order.tif = "GTC"
+        order.outsideRth = outside_rth
         trade = self._ib.placeOrder(contract, order)
         self._ib.sleep(2)
+
+        # Check for partial fills
+        filled = int(trade.orderStatus.filled or 0)
+        if 0 < filled < quantity:
+            logger.warning("[IB] Partial fill for %s: %d/%d shares filled",
+                          ticker, filled, quantity)
 
         return BrokerOrder(
             order_id=str(trade.order.orderId),
@@ -176,10 +264,12 @@ class IBBroker(BrokerAdapter):
             side=side,
             quantity=quantity,
             order_type="market",
-            status=trade.orderStatus.status.lower(),
+            status=IB_STATUS_MAP.get(trade.orderStatus.status.lower(),
+                                     trade.orderStatus.status.lower()),
             filled_avg_price=trade.orderStatus.avgFillPrice or None,
             filled_qty=int(trade.orderStatus.filled) if trade.orderStatus.filled else 0,
             broker="ib",
+            perm_id=str(getattr(trade.order, 'permId', '') or ''),
         )
 
     def place_exit(self, ticker: str, quantity: int = 0) -> BrokerOrder:
@@ -211,10 +301,12 @@ class IBBroker(BrokerAdapter):
                     side=trade.order.action.lower(),
                     quantity=int(trade.order.totalQuantity),
                     order_type=trade.order.orderType.lower(),
-                    status=trade.orderStatus.status.lower(),
+                    status=IB_STATUS_MAP.get(trade.orderStatus.status.lower(),
+                                             trade.orderStatus.status.lower()),
                     filled_avg_price=trade.orderStatus.avgFillPrice or None,
                     filled_qty=int(trade.orderStatus.filled) if trade.orderStatus.filled else 0,
                     broker="ib",
+                    perm_id=str(getattr(trade.order, 'permId', '') or ''),
                 )
         raise ValueError(f"Order {order_id} not found")
 

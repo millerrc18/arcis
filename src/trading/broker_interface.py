@@ -42,6 +42,7 @@ class BrokerOrder:
     take_profit_price: Optional[float] = None
     child_order_ids: Optional[list[str]] = None  # IB bracket: [take_profit_id, stop_loss_id]
     broker: str = ""    # "alpaca" or "ib"
+    perm_id: str = ""   # IB permId for cross-session order tracking
 
 
 @dataclass
