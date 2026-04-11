@@ -1,7 +1,7 @@
 {
-  "run_count": 16,
+  "run_count": 17,
   "current_focus_index": 1,
-  "file_index": 45,
+  "file_index": 60,
   "file_list": [
     "src/api/__init__.py",
     "src/api/app.py",
@@ -218,8 +218,50 @@
     "src/utils/retry.py",
     "src/utils/type_safety.py"
   ],
-  "last_run": "2026-04-10T08:15:00Z",
+  "last_run": "2026-04-11T12:00:00Z",
   "findings": {
+    "run_17": {
+      "focus_area": "security",
+      "files_audited": [
+        "src/council/agent_data.py",
+        "src/council/agents.py",
+        "src/council/aggregation.py",
+        "src/council/constants.py",
+        "src/council/context.py",
+        "src/council/engine.py",
+        "src/council/parsing.py",
+        "src/council/prompts.py",
+        "src/council/protocol.py",
+        "src/council/rate_limiter.py",
+        "src/council/value_tracker.py",
+        "src/data_collection/__init__.py",
+        "src/data_collection/analyst_collector.py",
+        "src/data_collection/cboe_collector.py",
+        "src/data_collection/docs_collector.py"
+      ],
+      "high": [],
+      "medium": [
+        {
+          "file": "src/council/value_tracker.py",
+          "lines": "300-303",
+          "description": "SQL query constructed with .format() and f-string interpolation instead of parameterized queries. ATTRIBUTABLE_PARAMETERS is currently a hardcoded constant, but the pattern is fragile — same class of issue as #361.",
+          "suggested_fix": "Use parameterized queries with dynamically generated ? placeholders instead of string formatting.",
+          "github_issue": "#380"
+        }
+      ],
+      "low": [
+        {
+          "file": "src/council/parsing.py",
+          "lines": "64",
+          "description": "Raw LLM response logged (truncated to 300 chars) via logger.warning. Minor information disclosure risk if logs are exposed."
+        },
+        {
+          "file": "src/data_collection/cboe_collector.py",
+          "lines": "89-99",
+          "description": "FRED API key passed as URL query parameter to requests.get(). If a network exception includes the constructed URL, the key could appear in log output."
+        }
+      ]
+    },
     "run_4": {
       "focus_area": "code_quality",
       "files_audited": [
