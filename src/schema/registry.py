@@ -207,7 +207,11 @@ _register(TableDef(
                   "Used by reconciler to check the correct broker's positions."),
         ColumnDef("ib_child_order_ids", "TEXT",
                   description="JSON list of IB child order IDs [take_profit, stop_loss] "
-                  "for bracket health monitoring. NULL for Alpaca trades."),
+                  "for bracket health monitoring. NULL for Alpaca trades. "
+                  "PermIds also available via ib_perm_id for cross-session tracking."),
+        ColumnDef("ib_perm_id", "TEXT",
+                  description="IB permanent order ID for cross-session tracking. "
+                  "Unlike orderId, permId survives Gateway restarts."),
         ColumnDef("broker_order_id", "TEXT",
                   description="Alias for alpaca_order_id — stores order ID from whichever "
                   "broker executed. Future migration: move all references from "
