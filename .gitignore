@@ -39,6 +39,7 @@ data/
 
 # Training artifacts
 training_data/
+!training_data/README.md
 *.pkl
 *.gguf
 *.safetensors

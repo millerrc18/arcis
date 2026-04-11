@@ -811,6 +811,7 @@ VIX >40, system offline.
 | 19 | Telegram notification gaps | DONE -- scan_service opens + reconcile closes |
 | -- | Strategy dashboard enhancement (7 sections) | QUEUED -- spec at docs/decisions/strategy-dashboard-spec.md |
 | -- | Risk scaling tiers implementation | QUEUED -- spec at docs/decisions/risk-scaling-tiers-spec.md |
+| 20 | Manual backfill pipeline | DONE -- export/import scripts, regime sampler, FRED macro enrichment |
 | -- | Saturday model retrain (halcyon-v2.0.0) | QUEUED -- champion-challenger, first flywheel cycle |
 | -- | Bracket calibration analysis | QUEUED -- MFE analysis on 69% stale exits |
 | -- | iOS app (Capacitor) | Backlog -- native wrapper for dashboard |

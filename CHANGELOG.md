@@ -1,5 +1,25 @@
 # Changelog
 
+## [Unreleased] — Manual Backfill Pipeline
+
+### Historical Backfill: Manual Generation Workflow
+
+**New modules:**
+- `src/training/regime_sampler.py` — regime-targeted date selection, stratified sampling, FRED macro formatting, and dataset balancing helpers (moved from backfill.py)
+- `scripts/export_backfill_prompts.py` — exports regime-targeted prompt files with real FRED macro context for manual generation via Claude/ChatGPT
+- `scripts/import_backfill_results.py` — validates XML, pairs with sealed outcomes, inserts into training_examples (idempotent)
+- `scripts/backfill_progress.py` — visual per-regime progress tracker
+
+**Enhancements:**
+- `src/training/historical_data.py` — FRED historical series fetch (`fetch_fred_history`) + point-in-time lookup (`get_fred_value_as_of`)
+- `src/training/historical_scanner.py` — FRED macro enrichment in scan pipeline, PASS example generation (score 45-69), `generate_backfill_example()` handles outcome=None
+- `src/llm/prompts.py` — `PASS_ANALYSIS_PROMPT` for below-threshold setups (conviction 1-4, NEUTRAL direction)
+
+**Refactors:**
+- `src/training/backfill.py` — 445→343 lines; `_balance_dataset`, `_deduplicate_candidates`, `_cap_and_diversify` moved to `regime_sampler.py`
+
+**Tests:** 16 new tests (6 FRED history + 10 regime sampler); all 40 pass
+
 ## [v0.16.2] - 2026-04-11
 
 ### Hotfix: MR scan broken import (#382)
