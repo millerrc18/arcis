@@ -983,31 +983,64 @@ def check_and_manage_open_trades(
         exit_reason = None
         if trade.get("order_type") == "bracket" and trade.get("alpaca_order_id"):
             try:
-                from src.shadow_trading.alpaca_adapter import get_order_status
-                order_status = get_order_status(trade["alpaca_order_id"])
-                parent_status = order_status.get("status", "")
-                # Check parent order status
-                if parent_status in FILLED_ORDER_STATUSES:
-                    exit_price = order_status.get("filled_avg_price")
-                    if exit_price:
-                        current_price = exit_price
-                        bracket_exit = True
-                # Also check child/leg order statuses (stop-loss or take-profit may have fired)
-                legs = order_status.get("legs", [])
-                for leg in legs:
-                    leg_status = leg.get("status", "")
-                    if leg_status in ("filled", "partially_filled"):
-                        leg_price = leg.get("filled_avg_price")
-                        if leg_price:
-                            current_price = leg_price
+                # Task 4: Route bracket status check through broker factory for
+                # live/IB trades, keep Alpaca direct for paper. IB bracket fills
+                # were previously invisible because get_order_status called Alpaca
+                # unconditionally.
+                if trade.get("source") == "live":
+                    from src.trading.broker_factory import get_live_broker as _glb_t4
+                    _broker_t4 = _glb_t4(load_config())
+                    try:
+                        _bo = _broker_t4.get_order_status(trade["alpaca_order_id"])
+                        order_status = {
+                            "status": _bo.status,
+                            "filled_avg_price": _bo.filled_avg_price,
+                            "filled_qty": _bo.filled_qty,
+                            "legs": [],
+                        }
+                    except ValueError:
+                        order_status = {"status": "unknown", "legs": []}
+
+                    # Check IB child orders for bracket leg fills
+                    if trade.get("ib_child_order_ids"):
+                        import json as _json_t4
+                        child_ids = _json_t4.loads(trade["ib_child_order_ids"])
+                        for idx, child_id in enumerate(child_ids):
+                            try:
+                                child_order = _broker_t4.get_order_status(child_id)
+                                if child_order.status == "filled":
+                                    current_price = child_order.filled_avg_price
+                                    bracket_exit = True
+                                    # child_ids[0] = take_profit, child_ids[1] = stop_loss
+                                    exit_reason = "take_profit" if idx == 0 else "stop_loss"
+                                    break
+                            except ValueError:
+                                continue
+                else:
+                    from src.shadow_trading.alpaca_adapter import get_order_status
+                    order_status = get_order_status(trade["alpaca_order_id"])
+
+                if not bracket_exit:
+                    parent_status = order_status.get("status", "")
+                    if parent_status in FILLED_ORDER_STATUSES:
+                        exit_price = order_status.get("filled_avg_price")
+                        if exit_price:
+                            current_price = exit_price
                             bracket_exit = True
-                            # Identify leg type: stop legs have stop_price, limit legs are take-profit
-                            leg_type = leg.get("order_type", "")
-                            if leg_type == "stop" or leg.get("stop_price"):
-                                exit_reason = "stop_loss"
-                            elif leg_type == "limit" or leg.get("limit_price"):
-                                exit_reason = "take_profit"
-                            break
+                    legs = order_status.get("legs", [])
+                    for leg in legs:
+                        leg_status = leg.get("status", "")
+                        if leg_status in ("filled", "partially_filled"):
+                            leg_price = leg.get("filled_avg_price")
+                            if leg_price:
+                                current_price = leg_price
+                                bracket_exit = True
+                                leg_type = leg.get("order_type", "")
+                                if leg_type == "stop" or leg.get("stop_price"):
+                                    exit_reason = "stop_loss"
+                                elif leg_type == "limit" or leg.get("limit_price"):
+                                    exit_reason = "take_profit"
+                                break
             except Exception as e:
                 logger.warning("[SHADOW] Bracket order status check failed for %s: %s — falling back to price polling", ticker, e)
 
