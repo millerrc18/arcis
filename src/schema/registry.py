@@ -251,6 +251,40 @@ _register(TableDef(
     sync_pk="trade_id",
 ))
 
+# ib_shadow_log: Shadow log of IB validation results for each Alpaca trade.
+# Written by: trading.ib_shadow.IBShadowLogger
+# Read by: dashboard (IB readiness analysis)
+# Never synced to Postgres — local diagnostic data only.
+_register(TableDef(
+    name="ib_shadow_log",
+    description="Shadow log of what IB would have traded alongside Alpaca actuals",
+    columns=[
+        ColumnDef("shadow_id", "TEXT", nullable=False),
+        ColumnDef("created_at", "TEXT", nullable=False),
+        ColumnDef("trade_id", "TEXT"),
+        ColumnDef("ticker", "TEXT", nullable=False),
+        ColumnDef("action", "TEXT"),
+        ColumnDef("quantity", "INTEGER"),
+        ColumnDef("entry_price", "REAL"),
+        ColumnDef("stop_price", "REAL"),
+        ColumnDef("target_price", "REAL"),
+        ColumnDef("ib_connected", "INTEGER", default="0"),
+        ColumnDef("ib_contract_valid", "INTEGER", default="0"),
+        ColumnDef("ib_buying_power", "REAL"),
+        ColumnDef("ib_would_accept", "INTEGER", default="0"),
+        ColumnDef("ib_order_params", "TEXT"),
+        ColumnDef("ib_error", "TEXT"),
+        ColumnDef("alpaca_order_id", "TEXT"),
+        ColumnDef("alpaca_fill_price", "REAL"),
+    ],
+    primary_key="shadow_id",
+    indexes=[
+        IndexDef("idx_ib_shadow_created_at", ["created_at"]),
+        IndexDef("idx_ib_shadow_trade_id", ["trade_id"]),
+    ],
+    sync_to_postgres=False,  # Local diagnostic data, not analytics
+))
+
 # validation_results: Output from `preflight` and daily validation (4:30 PM).
 # Written by: system_validator. Read by: dashboard, startup command.
 _register(TableDef(
