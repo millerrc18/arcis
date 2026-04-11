@@ -88,10 +88,20 @@ def test_inline_bold_emphasis_does_not_trigger_markdown_bold_rejection(tmp_path)
 
 
 def test_markdown_bold_heading_rejected(tmp_path):
+    """Full-line bold headings should be rejected (#334: narrowed to line-spanning only).
+
+    #372: The regex was narrowed in #334 to only match bold that spans the full
+    line (structural heading like "**Key Risks:**"). The old test used inline
+    bold-then-text which is now intentionally allowed. Updated to use a
+    standalone bold heading line which SHOULD be rejected.
+    """
     db_path = str(tmp_path / "training.db")
     _make_db(db_path)
 
-    invalid = VALID_EXAMPLE.replace("The stock remains", "**Market context:** The stock remains")
+    invalid = VALID_EXAMPLE.replace(
+        "The stock remains",
+        "**Market context:**\nThe stock remains",
+    )
 
     ok, reason = validate_training_example(invalid, db_path)
 

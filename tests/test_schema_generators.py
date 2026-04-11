@@ -30,9 +30,9 @@ def test_generate_create_sql_basic():
     )
     sql = generate_create_sql(table)
     assert "CREATE TABLE IF NOT EXISTS test_basic" in sql
-    assert "id INTEGER NOT NULL" in sql
+    # Single INTEGER PK uses inline PRIMARY KEY (ROWID alias for SQLite)
+    assert "id INTEGER NOT NULL PRIMARY KEY" in sql
     assert "name TEXT" in sql
-    assert "PRIMARY KEY (id)" in sql
 
 
 def test_generate_create_sql_with_default():
