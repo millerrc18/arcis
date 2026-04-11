@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased] — IB Integration Validation (Sprint IB-7)
+
+### Integration Tests (16 tests)
+- **test:** End-to-end IB + Alpaca trade lifecycle with broker field tracking
+- **test:** Cross-broker position counting — governor, reconciler, executor all agree
+- **test:** Config progression matrix — shadow → routing → live transitions
+- **test:** Failure/recovery simulation — fallback, resume, mixed broker state
+- **test:** Multi-broker API responses — schema columns, status mapping
+
+### Operational Tooling
+- **feat:** `scripts/validate_ib_integration.py` — data completeness checker across
+  shadow_trades, ib_shadow_log, daily_ib_health, schema columns
+- **docs:** `docs/operations/ib-smoke-test.md` — 6-phase manual validation checklist
+  (shadow mode → dual routing → bracket monitoring → failure recovery → dashboard → scripts)
+
 ## [Unreleased] — IB Paper Trading Activation (Sprint IB-6)
 
 ### Validation & Monitoring
