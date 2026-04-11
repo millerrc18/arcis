@@ -212,6 +212,24 @@ class TestIBPlaceBracketOrder(unittest.TestCase):
             )
 
 
+    @patch("src.trading.ib_broker.IBBroker._ensure_connected")
+    def test_bracket_order_returns_child_ids(self, mock_connect):
+        """place_bracket_order must return child order IDs for bracket monitoring."""
+        broker = IBBroker(port=4002)
+        broker._ib = MagicMock()
+        bracket = mock_bracket_orders()
+        broker._ib.bracketOrder.return_value = bracket
+        # Mock 3 trades with order IDs 100, 101, 102
+        trades = [mock_trade(order_id=100 + i) for i in range(3)]
+        broker._ib.placeOrder.side_effect = trades
+        broker._ib.qualifyContracts = MagicMock()
+
+        result = broker.place_bracket_order("AAPL", 10, 160.0, 140.0, limit_price=150.0)
+
+        assert result.child_order_ids == ["101", "102"]
+        assert result.order_id == "100"
+
+
 # ---------------------------------------------------------------------------
 # TestIBPlaceMarketOrder
 # ---------------------------------------------------------------------------

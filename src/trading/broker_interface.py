@@ -40,6 +40,7 @@ class BrokerOrder:
     filled_qty: Optional[int] = None
     stop_price: Optional[float] = None
     take_profit_price: Optional[float] = None
+    child_order_ids: Optional[list[str]] = None  # IB bracket: [take_profit_id, stop_loss_id]
     broker: str = ""    # "alpaca" or "ib"
 
 

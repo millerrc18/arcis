@@ -140,6 +140,9 @@ class IBBroker(BrokerAdapter):
         # Wait briefly for fill acknowledgement (NOT time.sleep — keeps IB event loop alive)
         self._ib.sleep(2)
 
+        # Capture child order IDs for bracket health monitoring (Task 3)
+        child_ids = [str(t.order.orderId) for t in trades[1:]] if len(trades) > 1 else None
+
         return BrokerOrder(
             order_id=str(parent_trade.order.orderId),
             ticker=ticker,
@@ -151,6 +154,7 @@ class IBBroker(BrokerAdapter):
             filled_qty=int(parent_trade.orderStatus.filled) if parent_trade.orderStatus.filled else 0,
             stop_price=stop_loss_price,
             take_profit_price=take_profit_price,
+            child_order_ids=child_ids,
             broker="ib",
         )
 

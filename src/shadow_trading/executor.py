@@ -1655,6 +1655,10 @@ def open_live_trade(
         trade_data["alpaca_order_id"] = order.order_id  # Works for both IB and Alpaca
         trade_data["order_type"] = order.order_type
         trade_data["broker"] = order.broker  # Track which broker executed
+        # Task 3: Store IB child order IDs for bracket health monitoring
+        if order.child_order_ids:
+            import json as _json_t3
+            trade_data["ib_child_order_ids"] = _json_t3.dumps(order.child_order_ids)
 
         if order.filled_avg_price:
             trade_data["actual_entry_price"] = order.filled_avg_price
