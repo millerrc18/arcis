@@ -105,70 +105,117 @@ def test_live_position_check_uses_broker_adapter_interface(self, ...):
 
 ---
 
-## Task 3: Store IB child order IDs in `place_bracket_order()`
+## Task 3: Fix bracket order construction + store child order IDs
 
-**File:** `src/trading/ib_broker.py` (~line 130-155)
+**File:** `src/trading/ib_broker.py` (~line 110-155)
 
-**Bug:** `place_bracket_order()` places 3 orders (parent + take-profit + stop-loss) but only returns the parent's order ID. The child order IDs are discarded, making bracket health monitoring impossible for IB trades.
+**Bugs (3 combined — from CC gap analysis + deep research):**
+1. Child order IDs discarded — bracket monitoring blind to IB
+2. `outsideRth` not set — GTC stops won't execute outside regular trading hours, leaving positions unprotected overnight (**deep research finding: "multiple community reports document positions left unprotected overnight because this flag was missing"**)
+3. `OcaType` not set — default allows dual-fill race condition in fast markets (**deep research: "use OcaType 3 (with block/overfill protection) for bracket children"**)
+4. `orderId` is session-specific — must store `permId` for cross-session tracking (**deep research: "orderId resets on reconnect, permId is persistent and unique account-wide"**)
 
-**Fix:** Add child order IDs to the returned `BrokerOrder`:
+**Fix — BrokerOrder dataclass** (add to `src/trading/broker_interface.py`):
 
 ```python
-# The BrokerOrder dataclass needs two new optional fields.
-# Add to src/trading/broker_interface.py:
 @dataclass
 class BrokerOrder:
     # ... existing fields ...
-    child_order_ids: list[str] | None = None  # IB bracket: [take_profit_id, stop_loss_id]
+    child_order_ids: list[str] | None = None  # IB bracket: [take_profit_permId, stop_loss_permId]
+    perm_id: str | None = None                # IB permanent order ID (survives sessions)
 ```
 
-Then in `ib_broker.py`, after placing all 3 orders:
+**Fix — `place_bracket_order()` in `ib_broker.py`:**
 
 ```python
-parent_trade = trades[0]
-self._ib.sleep(2)
+    def place_bracket_order(self, ticker, quantity, take_profit_price,
+                            stop_loss_price, limit_price=None):
+        self._ensure_connected()
+        contract = self._make_contract(ticker)
+        self._ib.qualifyContracts(contract)
 
-# Capture child order IDs for bracket health monitoring
-child_ids = [str(t.order.orderId) for t in trades[1:]] if len(trades) > 1 else None
+        bracket = self._ib.bracketOrder(
+            action="BUY",
+            quantity=quantity,
+            limitPrice=round(limit_price, 2) if limit_price else 0,
+            takeProfitPrice=round(take_profit_price, 2),
+            stopLossPrice=round(stop_loss_price, 2),
+        )
 
-return BrokerOrder(
-    order_id=str(parent_trade.order.orderId),
-    ticker=ticker,
-    side="buy",
-    quantity=quantity,
-    order_type="bracket",
-    status=parent_trade.orderStatus.status.lower(),
-    filled_avg_price=parent_trade.orderStatus.avgFillPrice or None,
-    filled_qty=int(parent_trade.orderStatus.filled) if parent_trade.orderStatus.filled else 0,
-    stop_price=stop_loss_price,
-    take_profit_price=take_profit_price,
-    child_order_ids=child_ids,
-    broker="ib",
-)
+        # If no limit price, convert parent to market order
+        if not limit_price:
+            bracket[0].orderType = "MKT"
+            bracket[0].lmtPrice = 0
+
+        # RESEARCH FINDINGS — 3 mandatory settings:
+        for order in bracket:
+            order.tif = "GTC"              # Exits persist across sessions
+            order.outsideRth = True         # Protect positions outside market hours
+        # OcaType 3 = block + overfill protection (prevents dual-fill race)
+        for order in bracket[1:]:           # Children only
+            order.ocaType = 3
+
+        # Place the bracket (parent + children)
+        trades = []
+        for order in bracket:
+            trade = self._ib.placeOrder(contract, order)
+            trades.append(trade)
+
+        parent_trade = trades[0]
+        self._ib.sleep(2)
+
+        # Store PERMANENT IDs (not session-specific orderId)
+        child_perm_ids = [str(t.order.permId) for t in trades[1:]] if len(trades) > 1 else None
+
+        return BrokerOrder(
+            order_id=str(parent_trade.order.orderId),
+            perm_id=str(parent_trade.order.permId),
+            ticker=ticker,
+            side="buy",
+            quantity=quantity,
+            order_type="bracket",
+            status=parent_trade.orderStatus.status.lower(),
+            filled_avg_price=parent_trade.orderStatus.avgFillPrice or None,
+            filled_qty=int(parent_trade.orderStatus.filled) if parent_trade.orderStatus.filled else 0,
+            stop_price=stop_loss_price,
+            take_profit_price=take_profit_price,
+            child_order_ids=child_perm_ids,
+            broker="ib",
+        )
 ```
 
-**Schema change:** Add `ib_child_order_ids` column to `shadow_trades`:
+**Schema change:** Add columns to `shadow_trades`:
 
 ```python
-ColumnDef("ib_child_order_ids", "TEXT", description="JSON list of IB child order IDs [take_profit, stop_loss]"),
+ColumnDef("ib_child_order_ids", "TEXT", description="JSON list of IB child order permIds [take_profit, stop_loss]"),
+ColumnDef("ib_perm_id", "TEXT", description="IB permanent order ID — survives Gateway restarts"),
 ```
 
-**Executor change:** When storing IB bracket trades, save child IDs:
+**Executor change:** When storing IB bracket trades, save IDs:
 
 ```python
 if broker_order.child_order_ids:
     trade_data["ib_child_order_ids"] = json.dumps(broker_order.child_order_ids)
+if broker_order.perm_id:
+    trade_data["ib_perm_id"] = broker_order.perm_id
 ```
 
-**Test:** Add to `tests/test_ib_broker.py`:
+**Tests:**
 ```python
-def test_bracket_order_returns_child_ids(self):
-    """place_bracket_order must return child order IDs for bracket monitoring."""
-    # Mock 3 trades with orderId 100, 101, 102
-    # Verify result.child_order_ids == ["101", "102"]
+def test_bracket_order_returns_child_perm_ids(self):
+    """place_bracket_order must return child permIds for cross-session tracking."""
+
+def test_bracket_all_outside_rth(self):
+    """All 3 bracket orders must have outsideRth=True."""
+
+def test_bracket_children_oca_type_3(self):
+    """Child orders must have ocaType=3 (block/overfill protection)."""
+
+def test_bracket_returns_perm_id(self):
+    """BrokerOrder.perm_id populated from parent trade."""
 ```
 
-**Commit:** `fix(ib): store child order IDs from bracket orders — enables IB bracket monitoring`
+**Commit:** `fix(ib): bracket hardening — outsideRth, OcaType 3, permId, child order tracking`
 
 ---
 
@@ -527,7 +574,13 @@ cd frontend && npm run build && cd ..
 
 **Pass 2:** Task 8 (current_price fix) could cause performance issues — `get_current_price()` does `reqMktData` + `sleep(3)` per call. With 10 positions, that's 30 seconds of blocking. Added the 10-position cap with a skip path for larger portfolios.
 
-**Pass 3:** Task 4 (broker-aware exit monitoring) needs the `ib_child_order_ids` column from Task 3 to detect which child filled. The task ordering is critical — Task 3 must come before Task 4. CC should execute in order.
+**Pass 3:** Task ordering is critical — Task 3 must come before Task 4 because Task 4 depends on the `ib_child_order_ids` and `ib_perm_id` columns from Task 3.
+
+**Pass 4 (post-research — ib_async events):** Deep research recommends the **connect/disconnect pattern** for our 15-30 minute polling loop — connect fresh each scan cycle, rebuild state from server via `openTrades()` + `positions()` + `executions()`, disconnect when done. This eliminates stale Trade objects, event loop management, idle connection risks, and memory leaks. Bracket orders execute server-side at IB regardless of API connection. This simplifies IB-5 (Production Hardening) significantly — Gap 2 (event-driven fills) is replaced by fresh-connection state reconstruction.
+
+**Pass 5 (post-research — OCA groups):** Three mandatory bracket settings: `outsideRth=True` on all orders (positions unprotected overnight without it), `OcaType 3` on children (prevents dual-fill race), `permId` for tracking not `orderId` (session-specific). All folded into Task 3.
+
+**Pass 6 (post-research — paper fills):** IB paper fills are pessimistic (end-of-queue limit model), Alpaca paper fills are optimistic (NBBO, no liquidity check). IB paper is the better simulation. Expected paper-to-live drag: 3-15 bps per round-trip for S&P 100. Apply 20% performance buffer before scaling. IB paper has a known quirk: partial fill remainders are REJECTED (not how real exchanges work).
 
 ---
 
