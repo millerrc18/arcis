@@ -646,12 +646,10 @@ def open_shadow_trade(
     if signal_price and signal_price > 0 and trade_id and trade_data.get("status") == "open":
         try:
             is_bps = ((actual_fill - signal_price) / signal_price) * 10000
-            with connect_db(db_path) as _is_conn:
-                _is_conn.execute(
-                    "UPDATE shadow_trades SET signal_price = ?, implementation_shortfall_bps = ? "
-                    "WHERE trade_id = ?",
-                    (signal_price, round(is_bps, 2), trade_id),
-                )
+            update_shadow_trade(trade_id, {
+                "signal_price": signal_price,
+                "implementation_shortfall_bps": round(is_bps, 2),
+            }, db_path=db_path)
             logger.info("[IS] %s: signal=$%.2f fill=$%.2f IS=%.1f bps",
                         packet.ticker, signal_price, actual_fill, is_bps)
         except Exception as e:

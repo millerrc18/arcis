@@ -1,5 +1,18 @@
 # Changelog
 
+## [v0.16.9] - 2026-04-11
+
+### Root cause gap closures for #383, #386, #388
+
+- **fix:** Added `_coerce_to_schema` to `update_recommendation()` — was unprotected
+- **fix:** Refactored direct SQL UPDATE in `executor.py:650` to use
+  `update_shadow_trade()` — was bypassing the coercion write boundary
+- **fix:** Council dynamic weights: aggregate net PnL per day before joining
+  to votes, preventing many-to-many inflation where 1 vote × 5 trades = 5
+  data points. Added `session_type` filter to the query.
+- **fix:** Applied circuit breaker to `generate_structured()` — was unprotected
+  against Ollama outages, burning 180s timeouts independently of `generate()`
+
 ## [v0.16.8] - 2026-04-11
 
 ### Hotfix: Ollama timeout resilience — circuit breaker + auto-restart (#388)
