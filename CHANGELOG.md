@@ -1,5 +1,19 @@
 # Changelog
 
+## [v0.16.3] - 2026-04-11
+
+### Hotfix: Write-boundary type coercion for shadow_trades (#383)
+
+- **fix:** Added `_coerce_to_schema()` to `src/journal/store.py` — coerces dict
+  values to match schema registry column types (REAL→float, INTEGER→int) before
+  INSERT/UPDATE. Applied to `insert_shadow_trade()`, `update_shadow_trade()`,
+  and `log_recommendation()`. This is the systemic root cause behind 10+ prior
+  issues where `pnl_dollars`, `entry_price`, `price_at_recommendation` etc.
+  were stored as strings, causing TypeErrors in 8+ downstream subsystems.
+- **test:** 13 tests for `_coerce_to_schema` covering string→float, None
+  preservation, unknown tables/columns, invalid values, and multi-column
+  coercion.
+
 ## [v0.16.2] - 2026-04-11
 
 ### Hotfix: MR scan broken import (#382)
