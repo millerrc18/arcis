@@ -82,7 +82,7 @@ def run_mr_scan(config: dict | None = None, dry_run: bool = False) -> dict:
         packet = enhance_packet_with_llm(packet, feat, config)
 
         # Log recommendation
-        from src.journal.recommendation_logger import log_recommendation
+        from src.journal.store import log_recommendation
         from src.training.versioning import get_active_model_name
 
         model_ver = get_active_model_name()
