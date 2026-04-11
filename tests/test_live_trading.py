@@ -709,3 +709,73 @@ class TestLiveAdapter:
                     secret_key="test-secret",
                     paper=False,
                 )
+
+
+# ── IB Shadow Integration Tests ─────────────────────────────────────
+
+class TestIBShadowIntegration:
+    """Verify IB shadow hook in executor — called when enabled, skipped when not."""
+
+    @patch("src.shadow_trading.executor.load_config")
+    @patch("src.shadow_trading.executor._get_current_price_safe")
+    @patch("src.shadow_trading.alpaca_adapter.get_account_info",
+           return_value={"buying_power": 100000.0, "equity": 100000.0, "cash": 100000.0})
+    @patch("src.trading.ib_shadow.IBShadowLogger")
+    def test_shadow_hook_called_when_enabled(self, MockShadow, mock_acct,
+                                              mock_price, mock_config,
+                                              tmp_db, mock_packet, mock_features):
+        """When ib.shadow_mode=true, shadow logger is invoked after successful paper trade."""
+        config = {
+            "shadow_trading": {"enabled": True, "max_positions": 10, "timeout_days": 15},
+            "risk_governor": {"enabled": False},
+            "live_trading": {"ib": {"shadow_mode": True}},
+        }
+        mock_config.return_value = config
+        mock_price.return_value = 50.0
+
+        # Mock a successful bracket order so the trade status is "open"
+        mock_order = {
+            "order_id": "test-123", "symbol": "AAPL", "qty": 1,
+            "side": "buy", "type": "market", "status": "filled",
+            "filled_avg_price": 50.0, "filled_at": None, "created_at": None,
+            "legs": [],
+        }
+        with patch("src.llm.validator.validate_llm_output", return_value=(True, "")):
+            with patch("src.shadow_trading.alpaca_adapter.place_bracket_order",
+                       return_value=mock_order):
+                with patch("src.shadow_trading.alpaca_adapter.verify_order_accepted",
+                           return_value={"verified": True}):
+                    from src.shadow_trading.executor import open_shadow_trade
+                    trade_id = open_shadow_trade("rec-1", mock_packet, mock_features, tmp_db)
+
+        assert trade_id is not None
+        # Shadow logger should have been constructed and log_shadow_trade called
+        MockShadow.assert_called_once_with(config)
+        MockShadow.return_value.log_shadow_trade.assert_called_once()
+
+    @patch("src.shadow_trading.executor.load_config")
+    @patch("src.shadow_trading.executor._get_current_price_safe")
+    @patch("src.shadow_trading.alpaca_adapter.get_account_info",
+           return_value={"buying_power": 100000.0, "equity": 100000.0, "cash": 100000.0})
+    def test_shadow_hook_skipped_when_disabled(self, mock_acct, mock_price,
+                                                mock_config, tmp_db,
+                                                mock_packet, mock_features):
+        """When ib.shadow_mode not set, no shadow logging occurs."""
+        config = {
+            "shadow_trading": {"enabled": True, "max_positions": 10, "timeout_days": 15},
+            "risk_governor": {"enabled": False},
+            "live_trading": {},  # No ib.shadow_mode
+        }
+        mock_config.return_value = config
+        mock_price.return_value = 50.0
+
+        with patch("src.llm.validator.validate_llm_output", return_value=(True, "")):
+            with patch("src.shadow_trading.alpaca_adapter.place_bracket_order",
+                       side_effect=Exception("test")):
+                with patch("src.shadow_trading.alpaca_adapter.place_paper_entry",
+                           side_effect=Exception("test")):
+                    with patch("src.trading.ib_shadow.IBShadowLogger") as MockShadow:
+                        from src.shadow_trading.executor import open_shadow_trade
+                        open_shadow_trade("rec-1", mock_packet, mock_features, tmp_db)
+
+        MockShadow.assert_not_called()

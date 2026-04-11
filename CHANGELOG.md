@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased] — IB Test Coverage + Shadow Mode (#368)
+
+### IB Broker Unit Tests (24 tests)
+
+- **test:** Full unit test coverage for all 10 `BrokerAdapter` methods on `IBBroker`
+  via mock factories (no ib_async dependency required). Covers happy paths (10),
+  error handling (8), and edge cases (6) — connection lifecycle, bracket orders,
+  market orders, exits, cancellations, positions, price snapshots.
+- **test:** Mock factory helpers in `tests/conftest_ib.py` for all 6 ib_async
+  object types (AccountValue, Trade, Position, Order, Stock, Ticker).
+
+### IB Shadow Mode
+
+- **feat:** `IBShadowLogger` class (`src/trading/ib_shadow.py`) — validates IB
+  Gateway connectivity, contract validity, and buying power for each Alpaca
+  trade WITHOUT submitting orders. Stores comparison data in `ib_shadow_log`.
+- **schema:** Added `ib_shadow_log` table (17 columns, sync_to_postgres=False).
+- **feat:** Executor hooks in `open_shadow_trade()` and `open_live_trade()` —
+  non-blocking, wrapped in try/except, only fires when `ib.shadow_mode: true`.
+- **test:** 6 shadow logger tests + 2 executor integration tests.
+
 ## [v0.16.12] - 2026-04-11
 
 ### Trading safety + security batch (#361, #363, #369, #370, #380)

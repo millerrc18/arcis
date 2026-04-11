@@ -694,6 +694,23 @@ def open_shadow_trade(
     else:
         logger.error("[SHADOW] Recorded failed shadow trade for %s", ticker)
 
+    # IB Shadow logging — non-blocking comparison data (#368)
+    try:
+        ib_shadow_cfg = config.get("live_trading", {}).get("ib", {})
+        if ib_shadow_cfg.get("shadow_mode") and trade_data.get("status") == "open":
+            from src.trading.ib_shadow import IBShadowLogger
+            _ib_shadow = IBShadowLogger(config)
+            _ib_shadow.log_shadow_trade(
+                trade_id=trade_id, ticker=ticker, quantity=planned_shares,
+                entry_price=float(entry_price), stop_price=float(stop_price),
+                target_price=float(target_1),
+                alpaca_order_id=str(trade_data.get("alpaca_order_id") or ""),
+                alpaca_fill_price=float(trade_data.get("actual_entry_price") or entry_price),
+                db_path=db_path,
+            )
+    except Exception as e:
+        logger.warning("[SHADOW-IB] Shadow logging failed (non-fatal): %s", e)
+
     return trade_id
 
 
@@ -1679,6 +1696,23 @@ def open_live_trade(
 
     # 1K. Check sector exposure
     _check_sector_exposure(db_path)
+
+    # IB Shadow logging — non-blocking comparison data (#368)
+    try:
+        ib_shadow_cfg = config.get("live_trading", {}).get("ib", {})
+        if ib_shadow_cfg.get("shadow_mode") and trade_data.get("status") == "open":
+            from src.trading.ib_shadow import IBShadowLogger
+            _ib_shadow = IBShadowLogger(config)
+            _ib_shadow.log_shadow_trade(
+                trade_id=trade_id, ticker=ticker, quantity=planned_shares,
+                entry_price=float(entry_price), stop_price=float(stop_price),
+                target_price=float(target_price),
+                alpaca_order_id=str(trade_data.get("alpaca_order_id") or ""),
+                alpaca_fill_price=float(trade_data.get("actual_entry_price") or entry_price),
+                db_path=db_path,
+            )
+    except Exception as e:
+        logger.warning("[SHADOW-IB] Shadow logging failed (non-fatal): %s", e)
 
     return trade_id
 
