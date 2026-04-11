@@ -1,7 +1,7 @@
 """Stripped-down read-only FastAPI for Render cloud deployment.
 
 Called by: none (entry point)
-Calls: api.cloud_routes.analytics, api.cloud_routes.core, api.cloud_routes.council, api.cloud_routes.notes, api.cloud_routes.trades, api.cloud_routes.training, sync.render_sync
+Calls: api.cloud_routes.analytics, api.cloud_routes.core, api.cloud_routes.council, api.cloud_routes.ib_shadow, api.cloud_routes.notes, api.cloud_routes.trades, api.cloud_routes.training, sync.render_sync
 Owns tables: user_notes
 Config keys: none
 Tests: tests/test_cloud_app.py, tests/test_cloud_auth.py
@@ -42,6 +42,7 @@ from src.api.cloud_routes.core import create_router as create_core_router
 from src.api.cloud_routes.council import create_router as create_council_router
 from src.api.cloud_routes.notes import create_router as create_notes_router
 from src.api.cloud_routes.trades import create_router as create_trades_router
+from src.api.cloud_routes.ib_shadow import create_router as create_ib_shadow_router
 from src.api.cloud_routes.training import create_router as create_training_router
 from src.sync.render_sync import SYNC_TABLES
 
@@ -254,5 +255,6 @@ for factory in (
     create_notes_router,
     create_council_router,
     create_analytics_router,
+    create_ib_shadow_router,
 ):
     app.include_router(factory(_runtime, verify_auth))
