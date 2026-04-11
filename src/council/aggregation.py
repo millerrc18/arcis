@@ -52,25 +52,31 @@ def compute_dynamic_weights(db_path: str = DB_PATH,
     try:
         with closing(sqlite3.connect(db_path)) as conn:
             conn.row_factory = sqlite3.Row
-            # #386: Join council_votes with shadow_trades by date proximity.
-            # Council sessions are market-level (not per-trade), so we match
-            # votes to trades opened on the same day.  A bullish vote is
-            # "correct" if trades opened that day were net profitable.
+            # #386 follow-up: Aggregate net PnL per day FIRST, then join to
+            # council votes. This prevents many-to-many inflation where a
+            # single bullish vote matched to 5 same-day trades counted as 5
+            # data points instead of 1. One vote = one accuracy signal.
             rows = conn.execute(
                 """
                 SELECT cv.agent_name,
                        cv.direction,
-                       st.pnl_dollars
+                       daily_pnl.net_pnl
                 FROM council_votes cv
                 JOIN council_sessions cs ON cv.session_id = cs.session_id
-                JOIN shadow_trades st
-                  ON date(cs.created_at) = date(st.created_at)
+                JOIN (
+                    SELECT date(created_at) AS trade_date,
+                           SUM(CAST(pnl_dollars AS REAL)) AS net_pnl
+                    FROM shadow_trades
+                    WHERE status = 'closed'
+                      AND pnl_dollars IS NOT NULL
+                      AND COALESCE(quarantined, 0) = 0
+                    GROUP BY date(created_at)
+                ) daily_pnl ON date(cs.created_at) = daily_pnl.trade_date
                 WHERE cs.created_at >= ?
-                  AND st.status = 'closed'
+                  AND cs.session_type = ?
                   AND cv.direction IN ('bullish', 'bearish')
-                  AND st.pnl_dollars IS NOT NULL
                 """,
-                (cutoff,),
+                (cutoff, session_type),
             ).fetchall()
     except Exception as exc:
         logger.warning("[COUNCIL] Dynamic weights DB query failed: %s", exc)
@@ -83,9 +89,9 @@ def compute_dynamic_weights(db_path: str = DB_PATH,
         if agent not in records:
             continue
         direction = row["direction"]
-        pnl = float(row["pnl_dollars"] or 0)
-        # Bullish + positive PnL = correct; Bearish + negative PnL = correct
-        if (direction == "bullish" and pnl > 0) or (direction == "bearish" and pnl < 0):
+        net_pnl = float(row["net_pnl"] or 0)
+        # Bullish + net positive day = correct; Bearish + net negative = correct
+        if (direction == "bullish" and net_pnl > 0) or (direction == "bearish" and net_pnl < 0):
             records[agent]["correct"] += 1
         else:
             records[agent]["incorrect"] += 1

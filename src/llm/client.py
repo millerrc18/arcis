@@ -193,6 +193,16 @@ def generate_structured(prompt: str, system_prompt: str, response_schema: dict,
     Returns:
         Parsed JSON dict, or None on failure.
     """
+    global _consecutive_failures
+
+    # #388 follow-up: circuit breaker for structured generation too
+    if _consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+        if not _check_ollama_health_or_restart():
+            logger.warning("[LLM] Skipping structured inference — Ollama down after %d failures",
+                           _consecutive_failures)
+            return None
+        _consecutive_failures = 0
+
     try:
         cfg = _get_llm_config()
 
@@ -223,10 +233,13 @@ def generate_structured(prompt: str, system_prompt: str, response_schema: dict,
             logger.warning("[LLM] Empty structured response from Ollama — treating as failure")
             return None
         logger.info("[LLM] Structured inference completed in %.1fs", elapsed)
+        _consecutive_failures = 0
         return json.loads(content)
     except (json.JSONDecodeError, KeyError, IndexError) as e:
         logger.warning("[LLM] Structured parse failed: %s", e)
         return None
     except Exception as e:
-        logger.warning("[LLM] Structured generate failed: %s", e)
+        _consecutive_failures += 1
+        logger.warning("[LLM] Structured generate failed (failure %d/%d): %s",
+                       _consecutive_failures, _MAX_CONSECUTIVE_FAILURES, e)
         return None

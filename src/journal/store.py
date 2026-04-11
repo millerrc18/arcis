@@ -400,6 +400,7 @@ def update_recommendation(
     """Update fields on an existing recommendation."""
     if not updates:
         return
+    updates = _coerce_to_schema("recommendations", updates)
     set_clause = ", ".join(f"{k} = ?" for k in updates)
     values = list(updates.values()) + [recommendation_id]
 
