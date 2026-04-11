@@ -1,5 +1,25 @@
 # Changelog
 
+## [Unreleased] — IB Paper Trading Activation (Sprint IB-6)
+
+### Validation & Monitoring
+- **feat:** `scripts/validate_ib_gateway.py` — validates paper account setup, qualifies 10
+  S&P 100 contracts, checks buying power, tests market data. REFUSES port 4001 (live).
+- **feat:** `daily_ib_health` schema table — tracks uptime_pct, trade_count, error_count,
+  reconnect_count. 30-day gate: >95% market-hours uptime.
+- **feat:** IB Gateway status card on Health page — connection status, shadow mode, trade
+  count, uptime, last connection timestamp
+- **feat:** IB section in EOD digest — connection uptime %, IB vs Alpaca routing breakdown,
+  errors/fallbacks (conditional on shadow_mode or paper_routing enabled)
+
+### Operations
+- **docs:** `docs/operations/ib-gateway-setup.md` — IBC config, Windows hardening, TDR fix,
+  Java heap, Sunday 2FA procedure, troubleshooting
+
+### Tests
+- 5 tests: validation script live port refusal, daily_ib_health schema + SQLite creation,
+  digest section conditional logic
+
 ## [Unreleased] — IB Production Hardening (Sprint IB-5)
 
 ### Connection Resilience

@@ -299,6 +299,28 @@ _register(TableDef(
     sync_pk="shadow_id",
 ))
 
+# daily_ib_health: Daily IB Gateway health metrics for 30-day stability gate.
+# Written by: scripts/validate_ib_gateway.py, future ib_health_monitor
+# Read by: dashboard (IB readiness page), operator review
+# Local-only — not synced to cloud (contains infra metrics, not trading data).
+_register(TableDef(
+    name="daily_ib_health",
+    description="Daily IB Gateway health metrics for 30-day stability gate",
+    columns=[
+        ColumnDef("date", "TEXT", nullable=False),
+        ColumnDef("uptime_pct", "REAL"),
+        ColumnDef("trade_count", "INTEGER", default="0"),
+        ColumnDef("error_count", "INTEGER", default="0"),
+        ColumnDef("reconnect_count", "INTEGER", default="0"),
+        ColumnDef("gateway_version", "TEXT"),
+        ColumnDef("market_hours_connected_min", "INTEGER"),
+        ColumnDef("market_hours_expected_min", "INTEGER"),
+        ColumnDef("notes", "TEXT"),
+    ],
+    primary_key="date",
+    sync_to_postgres=False,
+))
+
 # validation_results: Output from `preflight` and daily validation (4:30 PM).
 # Written by: system_validator. Read by: dashboard, startup command.
 _register(TableDef(

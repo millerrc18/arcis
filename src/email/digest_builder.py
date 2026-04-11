@@ -18,7 +18,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from src.config import DB_PATH
+from src.config import DB_PATH, load_config
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -50,6 +50,83 @@ def _coerce_float(value, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _ib_enabled() -> bool:
+    """Check if IB shadow mode or paper routing is enabled in config."""
+    try:
+        config = load_config()
+        ib_cfg = config.get("live_trading", {}).get("ib", {})
+        return ib_cfg.get("shadow_mode", False) or ib_cfg.get("paper_routing", False)
+    except Exception:
+        return False
+
+
+def _build_ib_section(conn, today: str) -> list[str]:
+    """Build IB status lines for the EOD digest.
+
+    Returns an empty list if IB is not enabled or no data exists.
+    Queries ib_shadow_log for connection uptime and errors,
+    and shadow_trades for broker routing breakdown.
+    """
+    if not _ib_enabled():
+        return []
+
+    # IB shadow log stats for today
+    shadow_row = _safe_fetchone(
+        conn,
+        "SELECT COUNT(*) as total, "
+        "SUM(CASE WHEN ib_connected = 1 THEN 1 ELSE 0 END) as connected, "
+        "SUM(CASE WHEN ib_error IS NOT NULL THEN 1 ELSE 0 END) as errors "
+        "FROM ib_shadow_log WHERE date(created_at) = ?",
+        (today,),
+    )
+    shadow_total = shadow_row["total"] if shadow_row else 0
+    shadow_connected = (shadow_row["connected"] or 0) if shadow_row else 0
+    shadow_errors = (shadow_row["errors"] or 0) if shadow_row else 0
+
+    if shadow_total == 0:
+        return [
+            "", "━━━ IB GATEWAY ━━━",
+            "No IB shadow checks today.",
+        ]
+
+    uptime_pct = round(shadow_connected / shadow_total * 100, 1) if shadow_total > 0 else 0
+
+    # Broker routing breakdown from shadow_trades
+    ib_routed = _safe_fetchone(
+        conn,
+        "SELECT COUNT(*) as c FROM shadow_trades "
+        "WHERE source = 'ib_paper' AND date(created_at) = ?",
+        (today,),
+    )
+    alpaca_routed = _safe_fetchone(
+        conn,
+        "SELECT COUNT(*) as c FROM shadow_trades "
+        "WHERE source = 'paper' AND date(created_at) = ?",
+        (today,),
+    )
+    ib_count = ib_routed["c"] if ib_routed else 0
+    alpaca_count = alpaca_routed["c"] if alpaca_routed else 0
+
+    # Fallback count: shadow entries where IB was not connected or would not accept
+    fallback_row = _safe_fetchone(
+        conn,
+        "SELECT COUNT(*) as c FROM ib_shadow_log "
+        "WHERE date(created_at) = ? AND (ib_connected = 0 OR ib_would_accept = 0)",
+        (today,),
+    )
+    fallbacks = fallback_row["c"] if fallback_row else 0
+
+    lines = [
+        "", "━━━ IB GATEWAY ━━━",
+        f"Connection uptime:  {uptime_pct}% ({shadow_connected}/{shadow_total} checks)",
+        f"Routed to IB:       {ib_count}",
+        f"Routed to Alpaca:   {alpaca_count}",
+        f"Errors:             {shadow_errors}",
+        f"Fallbacks:          {fallbacks}",
+    ]
+    return lines
 
 
 def build_premarket_digest(db_path: str = DB_PATH) -> tuple[str, str]:
@@ -214,6 +291,9 @@ def build_eod_digest(db_path: str = DB_PATH) -> tuple[str, str]:
         all_closed = _safe_fetchall(conn, "SELECT pnl_dollars, pnl_pct FROM shadow_trades WHERE status = 'closed' AND COALESCE(quarantined, 0) = 0")
         scans = _safe_fetchone(conn, "SELECT COUNT(*) as cnt FROM scan_metrics WHERE date(created_at) = ?", (today,))
 
+        # IB section (conditional on config)
+        ib_lines = _build_ib_section(conn, today)
+
     closed_pnl = sum(float(t["pnl_dollars"] or 0) for t in closed)
     total_trades = len(all_closed)
     total_pnl = sum(float(t["pnl_dollars"] or 0) for t in all_closed)
@@ -252,6 +332,9 @@ def build_eod_digest(db_path: str = DB_PATH) -> tuple[str, str]:
             lines.append(f"  {t['ticker']:6s}  ${float(t['entry_price'] or 0):.2f}  x{t['planned_shares']}")
         if len(paper) > 10:
             lines.append(f"  ...and {len(paper) - 10} more")
+
+    if ib_lines:
+        lines.extend(ib_lines)
 
     lines.extend(["", "— Arcis"])
     return subject, "\n".join(lines)

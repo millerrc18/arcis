@@ -141,4 +141,6 @@ export const api = {
   getIBShadowSummary: () => fetchApi('/ib-shadow/summary'),
   getIBShadowLog: (limit = 50) => fetchApi(`/ib-shadow/log?limit=${limit}`),
   getIBShadowHealth: () => fetchApi('/ib-shadow/health'),
+  // IB Gateway Status
+  getIBStatus: () => fetchApi('/ib/status'),
 }

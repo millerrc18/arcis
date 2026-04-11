@@ -63,6 +63,11 @@ export default function Health() {
     queryFn: api.getTrainingHistory,
     refetchInterval: 300000,
   })
+  const { data: ibData } = useQuery({
+    queryKey: ['ib-status'],
+    queryFn: api.getIBStatus,
+    refetchInterval: 60000,
+  })
 
   if (hshsLoading && buildLoading) return <LoadingSpinner />
 
@@ -189,6 +194,53 @@ export default function Health() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* IB Gateway Status */}
+      {ibData && !ibData.error && (
+        <div className="arcis-card" style={{ padding: '24px' }}>
+          <div className="flex items-center justify-between mb-4">
+            <div className="text-xs uppercase tracking-wide" style={{ color: 'var(--arcis-text-secondary)', letterSpacing: '0.06em' }}>
+              IB Gateway
+            </div>
+            <StatusBadge
+              text={ibData.connected ? 'Connected' : 'Disconnected'}
+              variant={ibData.connected ? 'success' : 'danger'}
+            />
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div>
+              <div style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--arcis-text-secondary)' }}>Shadow Mode</div>
+              <div className="text-lg font-medium" style={{ fontFamily: 'var(--font-mono)', color: ibData.shadow_mode ? 'var(--arcis-success)' : 'var(--arcis-text-muted)' }}>
+                {ibData.shadow_mode ? 'Active' : 'Inactive'}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--arcis-text-secondary)' }}>IB Paper Trades</div>
+              <div className="text-lg font-medium" style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', color: 'var(--arcis-text-primary)' }}>
+                {ibData.ib_trade_count}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--arcis-text-secondary)' }}>Last Connection</div>
+              <div className="text-sm font-medium" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text-primary)' }}>
+                {ibData.last_connection ? ibData.last_connection.slice(0, 16).replace('T', ' ') : 'Never'}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--arcis-text-secondary)' }}>30-Day Uptime</div>
+              <div className="text-lg font-medium" style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', color: ibData.uptime_30d != null ? scoreColor(ibData.uptime_30d) : 'var(--arcis-text-muted)' }}>
+                {ibData.uptime_30d != null ? `${ibData.uptime_30d}%` : '--'}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--arcis-text-secondary)' }}>Errors</div>
+              <div className="text-lg font-medium" style={{ fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums', color: ibData.errors > 0 ? 'var(--arcis-danger)' : 'var(--arcis-text-muted)' }}>
+                {ibData.errors}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
