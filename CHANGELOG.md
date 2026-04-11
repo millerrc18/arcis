@@ -1,5 +1,15 @@
 # Changelog
 
+## [v0.16.6] - 2026-04-11
+
+### Hotfix: Council dynamic weights query — fix broken join (#386)
+
+- **fix:** Replaced broken `JOIN shadow_trades st ON cs.session_id = st.session_id`
+  (column never existed) with date-based join `ON date(cs.created_at) = date(st.created_at)`.
+  Council sessions are market-level, not per-trade — votes are matched to trades
+  opened on the same day.
+- **fix:** Added `float()` cast on `pnl_dollars` comparison (defense-in-depth for #383)
+
 ## [v0.16.5] - 2026-04-11
 
 ### Hotfix: Auto-fix Postgres schema drift during startup (#385)
