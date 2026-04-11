@@ -244,10 +244,10 @@ const REVENUE_MILESTONES = [
 ]
 
 const EXIT_FRAMEWORK = [
-  { phase: '1', trades: '18 → 50', strategy: 'Pure mechanical brackets', detail: 'Fix live stop to 2.0x ATR. Log MFE/MAE for every trade. No discretion.', pct: 25, color: 'var(--arcis-accent)' },
-  { phase: '2', trades: '50 → 200', strategy: 'Mechanical + rule-based', detail: 'Time-based stop tightening (2.0x → 1.5x by day 5). Signal exit: close > 5-day SMA.', pct: 50, color: 'var(--chart-4)' },
-  { phase: '3', trades: '200 → 500', strategy: 'Evaluate LLM pilot', detail: 'Thesis invalidation detection on days 5-7 only. A/B test vs mechanical exits.', pct: 75, color: 'var(--chart-1)' },
-  { phase: '4', trades: '500+', strategy: 'Full active (if validated)', detail: 'Separate exit-specialist LoRA. Daily conviction updates. Full LLM exit management.', pct: 100, color: 'var(--chart-7)' },
+  { phase: '1', trades: '18 → 50', strategy: 'Pure mechanical brackets', detail: 'Fixed stop at 2.0x ATR, fixed target. Log MFE/MAE for every trade. No discretion. FINSABER: LLM timing fails even at GPT-4 scale.', pct: 25, color: 'var(--arcis-accent)' },
+  { phase: '2', trades: '50 → 200', strategy: 'Mechanical + rule-based', detail: 'Time-based stop tightening (2.0x → 1.5x by day 5). Signal exit: close > 5-day SMA. Still fully mechanical — no LLM input.', pct: 50, color: 'var(--chart-4)' },
+  { phase: '3', trades: '200 → 500', strategy: 'Mechanical thesis rules', detail: 'Pre-specified thesis invalidation conditions at entry (mechanical, not LLM-driven). A/B test ATR-trailing vs fixed brackets. LLM provides post-trade commentary only.', pct: 75, color: 'var(--chart-1)' },
+  { phase: '4', trades: '500+', strategy: 'Validated mechanical exits', detail: 'Deploy whichever mechanical exit rules won in walk-forward analysis. LLM commentary on exit quality for training data. No LLM exit execution — permanently excluded per FINSABER.', pct: 100, color: 'var(--chart-7)' },
 ]
 
 const GPU_TARGETS = [
