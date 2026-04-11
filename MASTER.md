@@ -162,6 +162,7 @@ with an unbeatable technological moat.
 | IB integration | v0.14.0 | Broker abstraction + IB adapter (ib_async) |
 | Log audit + HSHS fix | v0.14.1 | 14 production issues, IB validation-first strategy |
 | Hotfix merge sprint | v0.14.2 | 6 critical bugs (#307-312), codex telegram fix (#299-301), 9 Dependabot PRs, 5 branch cleanup |
+| IB shadow dashboard | -- | Cloud API routes + dashboard page for IB shadow mode comparison analytics |
 
 ---
 

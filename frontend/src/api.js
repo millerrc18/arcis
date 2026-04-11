@@ -137,4 +137,8 @@ export const api = {
   getMonitoringHistory: (hours = 24) => fetchApi(`/api/monitoring/history?hours=${hours}`),
   // Strategy
   getStrategyDetail: (strategy) => fetchApi(`/api/strategy-detail/${strategy}`),
+  // IB Shadow
+  getIBShadowSummary: () => fetchApi('/ib-shadow/summary'),
+  getIBShadowLog: (limit = 50) => fetchApi(`/ib-shadow/log?limit=${limit}`),
+  getIBShadowHealth: () => fetchApi('/ib-shadow/health'),
 }

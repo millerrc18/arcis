@@ -260,8 +260,8 @@ _register(TableDef(
 
 # ib_shadow_log: Shadow log of IB validation results for each Alpaca trade.
 # Written by: trading.ib_shadow.IBShadowLogger
-# Read by: dashboard (IB readiness analysis)
-# Never synced to Postgres — local diagnostic data only.
+# Read by: dashboard (IB readiness analysis), cloud API (ib-shadow routes)
+# Synced to Postgres for cloud dashboard access.
 _register(TableDef(
     name="ib_shadow_log",
     description="Shadow log of what IB would have traded alongside Alpaca actuals",
@@ -289,7 +289,10 @@ _register(TableDef(
         IndexDef("idx_ib_shadow_created_at", ["created_at"]),
         IndexDef("idx_ib_shadow_trade_id", ["trade_id"]),
     ],
-    sync_to_postgres=False,  # Local diagnostic data, not analytics
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_time_column="created_at",
+    sync_pk="shadow_id",
 ))
 
 # validation_results: Output from `preflight` and daily validation (4:30 PM).
