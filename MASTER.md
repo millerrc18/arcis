@@ -14,7 +14,7 @@
 
 **Name:** Arcis (Adaptive Regime Classification & Intelligence Systems)
 **License:** BSL 1.1 (source-visible, no commercial use until 2030)
-**Release:** v0.16.6 (6 hotfixes post-cascade: execution safety, quarantine, LLM quality, type coercion, Postgres drift, council weights)
+**Release:** v0.16.12 (12 hotfixes post-cascade: execution safety, quarantine, LLM quality, type coercion, Postgres drift, council weights, training pipeline, Ollama resilience, root cause gaps, P2 batch, test regressions, trading safety + security)
 **Repository:** github.com/millerrc18/halcyon-lab
 **Dashboard:** halcyonlab.app (Render static + Python API)
 
@@ -59,12 +59,12 @@ with an unbeatable technological moat.
 | Open positions | ~2 (verify with shadow-status) |
 | Model | halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF) |
 | Training data | 1,019 examples (manual backfill pipeline ready, target 1,500) |
-| Tests | 1,500+ functions across 123 test files |
-| Python files | 212+ |
-| Dashboard pages | 21 |
-| Research docs | 66 |
-| Sprint docs | 35 |
-| Schema tables | 50 (registry), 44 synced to Postgres |
+| Tests | 1,630+ functions across 132 test files |
+| Python files | 216+ |
+| Dashboard pages | 22 |
+| Research docs | 77 |
+| Sprint docs | 39 |
+| Schema tables | 51 (registry), 44 synced to Postgres |
 | GitHub issues | 0 open |
 | Monthly cost | ~$64 (Render $14 + Ollama free + Claude API ~$50 + domain $7) |
 | Hardware | RTX 3060 12GB, Windows 11, Z690, 24/7 operation |
@@ -78,16 +78,16 @@ with an unbeatable technological moat.
 | Risk governor | LIVE -- 8 checks |
 | Council v2 (5 agents) | LIVE -- failure sends Telegram alert |
 | Build Score KPI | LIVE -- 6-component geometric mean |
-| Between-scan quality scoring | LIVE -- GuardedScorer Ollama, 979/1061 scored |
-| Command queue + config overrides | LIVE -- pull-based, 11 command types |
+| Between-scan quality scoring | LIVE -- GuardedScorer Ollama |
+| Command queue + config overrides | LIVE -- pull-based |
 | 12 overnight collectors | RUNNING |
 | Broker abstraction (IB + Alpaca) | READY -- config-driven, IB activation gated on validation |
-| Telegram | LIVE -- 55 functions, gated behind trade_id |
+| Telegram | LIVE -- 56 functions, gated behind trade_id |
 | Intra-day reconciliation | LIVE -- every 15 min during market hours |
-| Dashboard (Arcis) | LIVE -- 21 pages, dark/light toggle |
+| Dashboard (Arcis) | LIVE -- 22 pages, dark/light toggle |
 | Simulation engine | LIVE -- 13 regimes, Monte Carlo, traffic light validation |
-| Schema registry | LIVE -- 50 tables, single source of truth |
-| Render sync | LIVE -- 44/50 tables synced to Postgres |
+| Schema registry | LIVE -- 51 tables, single source of truth |
+| Render sync | LIVE -- 44/51 tables synced to Postgres |
 | Halcyon-audit plugin | LIVE -- 8 domain agents, /audit command |
 | Automated guardrails | LIVE -- test_repo_structure.py |
 | CI on PRs | LIVE -- tests + guardrails + frontend build |
@@ -96,10 +96,10 @@ with an unbeatable technological moat.
 
 ### Open GitHub Issues
 
-0 open as of 2026-04-08:
+0 open as of 2026-04-11:
 - All 14 issues (#302-#304, #325-#335) closed in production sweep sprint (v0.15.1-v0.15.3)
 - 8 dashboard data integrity fixes shipped in v0.16.0
-- Telegram notification gaps fixed (scan_service + reconcile)
+- 12 hotfixes (v0.16.1-v0.16.12): execution safety, quarantine, LLM quality, type coercion, Postgres drift, council weights, training pipeline, Ollama resilience, trading safety + security
 
 ### Known Blockers
 
@@ -141,6 +141,15 @@ with an unbeatable technological moat.
 | Sprint 5 refactor | -- | watch.py 3403→1968 (42%), telegram.py 1563→786 (50%), 3 new modules |
 | Dashboard hotfix (8 tasks) | -- | v0.16.0, targets_hit filter, fund metrics, market_regime, NEE upsert, version |
 | Telegram notification fix | -- | scan_service opens + reconcile closes (69% of trades were silent) |
+| Trade rectification | -- | v0.16.1-v0.16.2, execution safety hardening (12 fixes), typed exceptions, order verification |
+| Data quarantine | -- | 77 compromised records flagged, 18 verified trades preserved, COALESCE filter |
+| LLM quality + type coercion | -- | v0.16.3-v0.16.4, repeat_penalty 1.15, pre-parser validation, _coerce_to_schema() |
+| Postgres drift + council weights | -- | v0.16.5-v0.16.6, auto-fix schema drift at startup, council session_id join fix |
+| Training pipeline + Ollama | -- | v0.16.7-v0.16.8, em-dash SyntaxError, GGUF fallback, circuit breaker + auto-restart |
+| Root cause gaps + P2 batch | -- | v0.16.9-v0.16.10, research feeds, CBOE scraper, buying power race |
+| Test regressions + security | -- | v0.16.11-v0.16.12, buying power mock, training gate, SQL injection fixes, error sanitization |
+| Manual backfill pipeline | -- | Export/import scripts, regime sampler, FRED macro enrichment |
+| Roadmap + MASTER.md updates | -- | Post-quarantine metrics, FINSABER findings, exit framework update |
 | Audit rectification | #210 | CORS, DDL, test mocking, error handling |
 | Hardening | #211 | 5 remaining issues (#188, #187, #147, #132, #106) |
 | Postgres sync + CI | #212 | Pkey collision fix, 9 CI guardrails, dependabot |
@@ -251,7 +260,7 @@ on validation milestones (see Strategy Decision #25).
 | FRED API | 34+ macroeconomic series |
 | SEC EDGAR | Fundamental data (free, 10 req/sec) |
 | yfinance | OHLCV + options chains |
-| Telegram Bot API | Real-time push notifications (32 functions) |
+| Telegram Bot API | Real-time push notifications (36 functions) |
 | Render | Cloud hosting: static frontend + FastAPI + Postgres |
 
 ### Configuration
@@ -297,7 +306,7 @@ post-merge validation on `git merge`, post-merge validation on `git pull`
 | Agent | Purpose | When to Use |
 |---|---|---|
 | security-reviewer | Credential exposure, SQL injection, risk governor bypass | Before merging PRs touching risk/api/.env code |
-| test-runner | Full pytest suite, failure grouping, CI guardian check (1344 min) | After code changes, before commits |
+| test-runner | Full pytest suite, failure grouping, CI guardian check (1339 min) | After code changes, before commits |
 | migration-checker | Schema change idempotency, cross-script sync, backwards compat | When columns or tables are added/modified |
 | drift-detector | Schema drift, config drift, doc staleness, data staleness, orphaned positions | Start of every coding session |
 | data-integrity-checker | FK integrity, orphaned records, data quality across 50 tables | After recovery, before releases |
@@ -334,7 +343,7 @@ frontend-design, feature-dev, pr-review-toolkit, security-guidance,
 
 ## 4. Schema Summary
 
-All 50 tables are defined in `src/schema/registry.py` -- the single source of
+All 51 tables are defined in `src/schema/registry.py` -- the single source of
 truth for both SQLite and Postgres. The registry was created after ~12 hours
 were lost to bugs caused by 6+ files independently defining the same tables
 with subtly different column names. Now a single `TableDef` dataclass defines
@@ -342,7 +351,7 @@ each table and generates DDL for both SQLite and Postgres.
 
 **Architecture:**
 ```
-src/schema/registry.py          <- THE source of truth (49 TableDefs)
+src/schema/registry.py          <- THE source of truth (51 TableDefs)
     +-- src/schema/sqlite.py     <- Generates CREATE TABLE for SQLite
     +-- src/schema/postgres.py   <- Generates CREATE TABLE for Postgres
     +-- src/schema/validator.py  <- Compares live DB against registry
@@ -473,7 +482,7 @@ src/schema/registry.py          <- THE source of truth (49 TableDefs)
 15. Council: holistic + per-agent value tracking
 16. Council: daily + weekly, monthly after 3 months
 17. Alpha attribution: parallel ranker-only shadow portfolio (second Alpaca paper account)
-18. Mechanical bracket exits optimal through 200 trades, then phased LLM management
+18. Mechanical bracket exits permanently — FINSABER (KDD 2026) confirms LLM timing fails even at GPT-4 scale. LLM provides post-trade commentary only, never exit execution
 19. Options moved to Phase 2 at $25K. ORDER: covered calls at target strike first (133% EV improvement per trade, minimal complexity), THEN vertical spreads. Cash-secured puts require $15-25K collateral per S&P 100 name.
 20. Collective2 account: open immediately for independently verified track record
 21. Training data: expand from 7 to 11 XML sections with random source subsetting
@@ -534,10 +543,10 @@ GRPO training: RunPod A100 cloud ($14/mo), not local hardware.
 
 | Phase | Trades | Strategy | Key Additions |
 |---|---|---|---|
-| 1 (now) | 13-50 | Pure mechanical brackets | Fix live stop to 2.0x ATR, MFE/MAE logging |
-| 2 | 50-200 | Mechanical + rule-based | Time-based stop tightening (2.0x->1.5x by day 5), signal exit |
-| 3 | 200-500 | Evaluate LLM pilot | Thesis invalidation detection on days 5-7 only |
-| 4 | 500+ | Full active if validated | Separate exit-specialist LoRA, daily conviction updates past day 3 |
+| 1 (now) | 18-50 | Pure mechanical brackets | Fixed stop at 2.0x ATR, fixed target. Log MFE/MAE. No discretion. FINSABER: LLM timing fails even at GPT-4 scale. |
+| 2 | 50-200 | Mechanical + rule-based | Time-based stop tightening (2.0x->1.5x by day 5). Signal exit: close > 5-day SMA. Still fully mechanical — no LLM input. |
+| 3 | 200-500 | Mechanical thesis rules | Pre-specified thesis invalidation conditions at entry (mechanical, not LLM-driven). A/B test ATR-trailing vs fixed brackets. LLM post-trade commentary only. |
+| 4 | 500+ | Validated mechanical exits | Deploy whichever mechanical exit rules won in walk-forward analysis. LLM commentary on exit quality for training data. No LLM exit execution — permanently excluded per FINSABER. |
 
 ### Scanning Cadence Framework (4-tier)
 
@@ -671,7 +680,7 @@ Use `none` for empty fields. Entry points: `Called by: none (entry point)`.
 
 ### Schema Rules (MANDATORY)
 
-- All 50 tables defined in `src/schema/registry.py` -- THE single source of truth
+- All 51 tables defined in `src/schema/registry.py` -- THE single source of truth
 - NEVER write `CREATE TABLE` or `ALTER TABLE` outside `src/schema/registry.py`
 - CI guardrails: `test_no_create_table_in_source`, `test_no_alter_table_in_source`
 - To add a table: add `TableDef` to registry -> `validate-schema --fix` -> `render_migrate.py`
@@ -690,7 +699,7 @@ Use `none` for empty fields. Entry points: `Called by: none (entry point)`.
 - Minimum 5 tests per module for new modules
 - Use `tmp_path` fixtures for file/DB operations -- never write to repo paths
 - Use real SQLite over mocks -- our tests are integration tests
-- CI enforces minimum of 1,344 tests (guardian)
+- CI enforces minimum of 1,339 tests (guardian)
 - Mock all external APIs in tests (Alpaca, Finnhub, yfinance, FRED, Ollama)
 - Test file naming: `tests/test_{module_name}.py`
 
@@ -742,15 +751,16 @@ to YAML.
 
 1. **Training data quality is sacred** -- never sacrifice for speed
 2. **Risk governor is sacred** -- never bypass or weaken without explicit approval
-3. **Test count must not drop** -- CI minimum 1,344; currently 1,425
+3. **Test count must not drop** -- CI minimum 1,339; currently 1,630
 4. **Mock all external APIs** -- no network calls from pytest
 5. **Schema registry is the single source of truth** -- no DDL outside `src/schema/`
 6. **Test baseline before changes** -- run pytest at session start, count must
    not decrease after changes
 7. **Never commit secrets** -- `.env`, `config/settings.local.yaml`, `.mcp.json`
    are gitignored
-8. **LLM role evolves** -- Phase 1 = commentary engine (doesn't gate paper
-   trades); Phase 2+ = decision-maker with conviction gating
+8. **LLM role is bounded** -- Commentary engine only. Never controls exits,
+   sizing, or risk governor. Conviction soft multiplier only after 300+
+   calibrated trades (FINSABER: even GPT-4 fails at timing decisions)
 9. **One machine, all desks** -- multi-LoRA serving via llama-server
 10. **Lockdown discipline** -- Mon-Fri the system trades autonomously; only
     intervene for Telegram CRITICAL, VIX >40, or system offline
@@ -789,7 +799,7 @@ VIX >40, system offline.
 
 | Priority | Sprint | Status |
 |---|---|---|
-| 1 | Schema Registry | DONE -- 50 tables, all DDL removed, guardrails |
+| 1 | Schema Registry | DONE -- 51 tables, all DDL removed, guardrails |
 | 2 | React Flow interactive diagrams | DONE -- Architecture + DB Schema pages |
 | A | Dashboard polish + documentation consolidation | DONE -- PR #203 |
 | 3 | Alpha attribution experiment | DONE -- PR #203, pipeline wired in Sprint 2, accumulating pairs |
@@ -901,13 +911,14 @@ python -m ruff check src/ tests/ --fix
 python -m ruff format src/ tests/
 ```
 
-### Dashboard Pages (18)
+### Dashboard Pages (22)
 
 Dashboard, Packets, Shadow Ledger, Live Ledger, Training, Council, Health,
 Validation, CTO Report, Settings, Roadmap, Docs, Notes, Logs, Architecture,
-DB Schema, Attribution, Stress Test.
+DB Schema, Attribution, Stress Test, Simulation, Model Performance, Monitoring,
+Strategy.
 
-### CLI Commands (55)
+### CLI Commands (58)
 
 - **Core (8):** init-db, demo-packet, send-test-email, send-test-telegram, ingest, scan, morning-watchlist, eod-recap
 - **Shadow (4):** shadow-status, shadow-history, shadow-close, shadow-account
@@ -917,7 +928,7 @@ DB Schema, Attribution, Stress Test.
 - **Training Quality (5):** classify-training-data, score-training-data, validate-training-data, generate-contrastive, generate-preferences
 - **Training Exec (2):** train, train-pipeline
 - **Evaluation (10):** cto-report, evaluate-holdout, model-evaluation-status, promote-model, feature-importance, backtest, compare-models, check-leakage, performance-report, evaluate-gate
-- **Operations (11):** startup, collect-data, fetch-earnings, halt-trading, resume-trading, preflight, council, watch, dashboard, validate-system, validate-schema
+- **Operations (14):** startup, collect-data, fetch-earnings, halt-trading, resume-trading, cancel-all-pending, preflight, config-fix, config-diff, council, watch, dashboard, validate-system, validate-schema
 
 ---
 
