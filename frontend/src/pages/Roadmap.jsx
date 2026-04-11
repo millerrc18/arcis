@@ -21,10 +21,10 @@ const CAT = {
 }
 
 const ROADMAP_DATA = {
-  lastUpdated: '2026-04-04',
+  lastUpdated: '2026-04-11',
   phases: [
     { id: 'p1', name: 'Phase 1 — Bootcamp', status: 'active', capital: '$100K paper + $100 live', cost: '$64/mo', timeline: 'Apr–Jun 2026',
-      desc: 'Prove the system has an edge. Accumulate 50+ closed trades. Build foundational infrastructure.',
+      desc: 'Prove the system has an edge. 18 verified closed trades post-quarantine (36% of 50-trade gate). Accumulating clean trades.',
       gate: { label: '50+ trades, positive expectancy, alpha attribution, stress test, mean reversion data', metrics: [
         { key: 'trades_closed', label: 'Closed trades', target: 50, op: '>=', fmt: '' },
         { key: 'win_rate', label: 'Win rate', target: 0.45, op: '>=', fmt: 'pct' },
