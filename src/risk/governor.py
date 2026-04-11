@@ -226,9 +226,27 @@ def get_current_equity(config: dict | None = None,
     """Compute current equity from starting capital + realized P&L.
     Uses only closed-trade P&L (not unrealized) to prevent equity
     oscillation during market hours from affecting position sizing.
+
+    Task 6: When live broker is IB, use the broker's reported equity
+    instead of computing from DB. This ensures IB live positions are
+    sized against the correct account balance.
     """
     if config is None:
         config = load_config()
+
+    # For live IB trading, use the broker's reported equity
+    live_cfg = config.get("live_trading", {})
+    if live_cfg.get("enabled") and live_cfg.get("broker") == "ib":
+        try:
+            from src.trading.broker_factory import get_live_broker
+            broker = get_live_broker(config)
+            if broker.is_connected():
+                acct = broker.get_account()
+                return acct.equity
+        except Exception as e:
+            logger.warning("[RISK] Failed to get IB equity, falling back to DB: %s", e)
+
+    # Default: compute from DB (paper or Alpaca live)
     starting_capital = config.get("risk", {}).get("starting_capital", 100000)
     try:
         import sqlite3

@@ -212,6 +212,24 @@ class TestIBPlaceBracketOrder(unittest.TestCase):
             )
 
 
+    @patch("src.trading.ib_broker.IBBroker._ensure_connected")
+    def test_bracket_order_returns_child_ids(self, mock_connect):
+        """place_bracket_order must return child order IDs for bracket monitoring."""
+        broker = IBBroker(port=4002)
+        broker._ib = MagicMock()
+        bracket = mock_bracket_orders()
+        broker._ib.bracketOrder.return_value = bracket
+        # Mock 3 trades with order IDs 100, 101, 102
+        trades = [mock_trade(order_id=100 + i) for i in range(3)]
+        broker._ib.placeOrder.side_effect = trades
+        broker._ib.qualifyContracts = MagicMock()
+
+        result = broker.place_bracket_order("AAPL", 10, 160.0, 140.0, limit_price=150.0)
+
+        assert result.child_order_ids == ["101", "102"]
+        assert result.order_id == "100"
+
+
 # ---------------------------------------------------------------------------
 # TestIBPlaceMarketOrder
 # ---------------------------------------------------------------------------
@@ -400,12 +418,14 @@ class TestIBGetPosition(unittest.TestCase):
 
     @patch("src.trading.ib_broker.IBBroker._ensure_connected")
     def test_position_found(self, mock_connect):
-        """AAPL in positions(), BrokerPosition correct, broker='ib'."""
+        """AAPL in positions(), BrokerPosition correct with live price, broker='ib'."""
         broker = IBBroker(port=4002)
         broker._ib = MagicMock()
         broker._ib.positions.return_value = [
             mock_position("AAPL", 100.0, 150.0, 500.0),
         ]
+        # Task 8: get_position now calls get_current_price for live data
+        broker.get_current_price = MagicMock(return_value=155.0)
 
         result = broker.get_position("AAPL")
 
@@ -413,8 +433,11 @@ class TestIBGetPosition(unittest.TestCase):
         assert result.ticker == "AAPL"
         assert result.quantity == 100
         assert result.avg_cost == 150.0
+        assert result.current_price == 155.0
+        # unrealized_pnl = qty * (current - avg) = 100 * (155 - 150) = 500
         assert result.unrealized_pnl == 500.0
         assert result.broker == "ib"
+        broker.get_current_price.assert_called_once_with("AAPL")
 
     @patch("src.trading.ib_broker.IBBroker._ensure_connected")
     def test_position_not_found(self, mock_connect):

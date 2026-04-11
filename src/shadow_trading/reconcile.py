@@ -207,6 +207,32 @@ def reconcile_live_trades(
             except Exception as exc:
                 logger.warning("[RECONCILE] Failed to compute PnL for stale trade %s: %s", trade_id, exc)
 
+            # Task 7: Cancel IB/broker orders before closing stale live trades.
+            # Without this, GTC bracket orders remain live on the IB side after
+            # the local record is marked closed.
+            try:
+                from src.trading.broker_factory import get_live_broker as _glb_t7
+                _broker_t7 = _glb_t7(load_config())
+                for _oid in [s.get("alpaca_order_id") if isinstance(s, dict) else None
+                             for s in [stale_entry]]:
+                    pass  # stale_entry is {"ticker", "trade_id"} — order IDs are in the DB
+                # Fetch the actual order IDs from the trade row
+                with connect_db(db_path) as _conn_t7:
+                    _trade_t7 = _conn_t7.execute(
+                        "SELECT alpaca_order_id, exit_order_id, ib_child_order_ids "
+                        "FROM shadow_trades WHERE trade_id = ?", (trade_id,),
+                    ).fetchone()
+                if _trade_t7:
+                    for _cancel_id in [_trade_t7["alpaca_order_id"], _trade_t7["exit_order_id"]]:
+                        if _cancel_id:
+                            _broker_t7.cancel_order(str(_cancel_id))
+                    if _trade_t7["ib_child_order_ids"]:
+                        import json as _json_t7
+                        for _child_id in _json_t7.loads(_trade_t7["ib_child_order_ids"]):
+                            _broker_t7.cancel_order(_child_id)
+            except Exception as _cancel_err:
+                logger.warning("[RECONCILE] Live order cancel failed for %s: %s", ticker, _cancel_err)
+
             close_shadow_trade(
                 trade_id=trade_id,
                 exit_price=exit_price,

@@ -392,6 +392,23 @@ def check_services(config: dict, db_path: str = DB_PATH) -> list[CheckResult]:
 
     results.extend(_check_risk_scaling(config))
     results.append(_check_model_version())
+
+    # Task 9: Check ib_async availability when IB broker is configured
+    if config.get("live_trading", {}).get("broker") == "ib":
+        try:
+            import ib_async  # noqa: F401
+            results.append(CheckResult(
+                name="ib_async", category="services", status="ok",
+                detail="ib_async library available",
+                fix_hint="pip install ib_async",
+            ))
+        except ImportError:
+            results.append(CheckResult(
+                name="ib_async", category="services", status="critical",
+                detail="ib_async not installed — required for IB broker",
+                fix_hint="pip install ib_async",
+            ))
+
     return results
 
 

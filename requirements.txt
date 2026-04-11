@@ -12,3 +12,7 @@ pytrends>=4.9
 python-dotenv>=1.0,<2.0
 psutil>=5.9,<7.0
 ruamel.yaml>=0.18
+
+# Optional: Interactive Brokers (only needed when live_trading.broker = "ib")
+# Install manually: pip install ib_async>=1.0.0
+# ib_async>=1.0.0

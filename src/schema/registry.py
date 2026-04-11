@@ -205,6 +205,13 @@ _register(TableDef(
         ColumnDef("broker", "TEXT", default="alpaca",
                   description="Broker that executed the trade (alpaca or ib). "
                   "Used by reconciler to check the correct broker's positions."),
+        ColumnDef("ib_child_order_ids", "TEXT",
+                  description="JSON list of IB child order IDs [take_profit, stop_loss] "
+                  "for bracket health monitoring. NULL for Alpaca trades."),
+        ColumnDef("broker_order_id", "TEXT",
+                  description="Alias for alpaca_order_id — stores order ID from whichever "
+                  "broker executed. Future migration: move all references from "
+                  "alpaca_order_id to broker_order_id and deprecate the original."),
         ColumnDef("setup_type", "TEXT"),
         ColumnDef("setup_confidence", "REAL"),
         ColumnDef("signal_entry_price", "REAL"),

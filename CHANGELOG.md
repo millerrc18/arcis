@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased] — IB Structural Fixes (Sprint IB-2)
+
+### Critical Runtime Bug Fixes
+
+- **fix:** `get_live_broker()` called without config arg — TypeError on live path
+- **fix:** `get_positions()` → `get_all_positions()` + `p["symbol"]` → `p.ticker`
+- **fix:** IB bracket child order IDs now stored (enables bracket health monitoring)
+- **fix:** Bracket exit monitoring routes through broker factory for live trades
+- **fix:** `_retry_exit` cancel uses broker factory for live/IB trades
+- **fix:** Risk governor uses IB account equity when `broker=ib`
+- **fix:** Live reconciler cancels IB orders before closing stale trades
+- **fix:** IB `get_position` fetches current price via market data snapshot
+- **fix:** Startup check validates `ib_async` availability when IB configured
+
+### Schema
+
+- Added `ib_child_order_ids` column to `shadow_trades`
+- Added `broker_order_id` alias column (prep for `alpaca_order_id` migration)
+
 ## [Unreleased] — IB Test Coverage + Shadow Mode (#368)
 
 ### IB Broker Unit Tests (24 tests)
