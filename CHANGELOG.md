@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.16.5] - 2026-04-11
+
+### Hotfix: Auto-fix Postgres schema drift during startup (#385)
+
+- **fix:** Startup sequence now runs `create_all_tables()` + `ensure_columns()`
+  against Render Postgres automatically, matching the SQLite auto-fix pattern.
+  Previously only warned about drift (filed 8 times as #184, #285, #307, #331,
+  #332, #338). Missing tables and columns are now created on every startup.
+
 ## [v0.16.4] - 2026-04-11
 
 ### Hotfix: LLM output quality — repeat penalty + output validation (#384)

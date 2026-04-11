@@ -289,8 +289,28 @@ def _check_render_postgres(config: dict) -> list[CheckResult]:
     try:
         import psycopg2
         from src.schema.registry import TABLES
+        from src.schema.postgres import create_all_tables, ensure_columns
         from src.sync.render_sync import SYNC_TABLES
         synced_names = set(SYNC_TABLES.keys())
+
+        # #385: Auto-fix Postgres drift during startup — same pattern as
+        # SQLite auto-fix at line 161. Previously this only warned, causing
+        # the same drift to be filed 8 times. The schema registry is the
+        # source of truth, and create_all_tables/ensure_columns are idempotent.
+        try:
+            create_all_tables(db_url)
+            added = ensure_columns(db_url)
+            if added:
+                results.append(CheckResult(
+                    name="render_schema_drift", category="connectivity",
+                    status="ok",
+                    detail=f"Postgres auto-fixed: {len(added)} columns added ({', '.join(added[:5])}{'...' if len(added) > 5 else ''})",
+                    fix_hint="",
+                ))
+        except Exception as migrate_err:
+            logger.warning("Postgres auto-migrate failed: %s", migrate_err)
+
+        # Verify post-fix: check for remaining drift
         with psycopg2.connect(db_url) as pg_conn:
             with pg_conn.cursor() as cur:
                 for tname, tdef in TABLES.items():
