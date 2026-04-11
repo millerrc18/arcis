@@ -285,6 +285,45 @@ Position Size: ${packet.position_sizing.allocation_dollars:.0f} ({packet.positio
 Event Risk: {packet.event_risk}"""
 
 
+_PROMPT_LEAK_MARKERS = [
+    "Write a concise trade commentary",
+    "OUTPUT FORMAT:",
+    "RULES:",
+    "Detailed analysis here",
+    "Strong momentum setup</why_now><analysis>Detailed analysis here",
+]
+
+
+def _validate_llm_output(response: str, ticker: str) -> str | None:
+    """Reject contaminated LLM responses before they reach the parser (#384).
+
+    Returns the cleaned response, or None if the response is unsalvageable.
+    Detects: prompt leakage, template stubs, degenerate repetition loops.
+    """
+    if not response or not response.strip():
+        return None
+
+    # Prompt leakage: system instructions echoed in output
+    for marker in _PROMPT_LEAK_MARKERS:
+        if marker in response:
+            logger.warning("[LLM] Prompt leakage detected for %s: '%s'",
+                           ticker, marker[:40])
+            return None
+
+    # Degenerate repetition: same line repeated 5+ times
+    lines = response.strip().splitlines()
+    if len(lines) >= 10:
+        from collections import Counter
+        counts = Counter(line.strip() for line in lines if line.strip())
+        most_common_count = counts.most_common(1)[0][1] if counts else 0
+        if most_common_count >= 5:
+            logger.warning("[LLM] Repetition loop detected for %s: line repeated %d times",
+                           ticker, most_common_count)
+            return None
+
+    return response
+
+
 def _parse_llm_response(response: str) -> tuple[int | None, str | None, str | None]:
     """Parse XML-tagged response into conviction, why_now, and deeper_analysis.
 
@@ -546,6 +585,14 @@ Event Risk: {packet.event_risk}"""
 
     if response is None:
         logger.warning("[LLM] Generation failed — fallback to template for %s", packet.ticker)
+        return packet
+
+    # #384: reject contaminated responses before parsing
+    response = _validate_llm_output(response, packet.ticker)
+    if response is None:
+        logger.warning("[LLM] Response rejected by validation — fallback to template for %s",
+                       packet.ticker)
+        packet.llm_conviction = 5
         return packet
 
     conviction, why_now, deeper_analysis = _parse_llm_response(response)

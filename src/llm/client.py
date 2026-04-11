@@ -101,6 +101,10 @@ def generate(prompt: str, system_prompt: str, temperature: float | None = None,
                 ],
                 "temperature": temp,
                 "max_tokens": tokens,
+                "options": {
+                    "repeat_penalty": 1.15,
+                    "num_predict": tokens,
+                },
             },
             timeout=cfg["timeout_seconds"],
         )
