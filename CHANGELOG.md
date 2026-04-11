@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.16.2] - 2026-04-11
+
+### Hotfix: MR scan broken import (#382)
+
+- **fix:** Corrected import path `src.journal.recommendation_logger` →
+  `src.journal.store` — the `recommendation_logger` module never existed;
+  `log_recommendation()` lives in `store.py`. Mean-reversion scanning has been
+  fully disabled since April 9.
+
 ## [v0.16.1] - 2026-04-10
 
 ### Hotfix: pandas 3.0 import deadlock on Windows
