@@ -331,19 +331,51 @@ def reconcile_paper_trades(
             "error": str(e),
         }
 
+    # Dual-broker support: also fetch IB paper positions if any trades use IB
+    ib_positions = {}
+    try:
+        from src.config import load_config as _lc_reconcile
+        _cfg_r = _lc_reconcile()
+        if _cfg_r.get("live_trading", {}).get("ib", {}).get("paper_routing"):
+            from src.trading.ib_broker import IBBroker
+            _ib_cfg = _cfg_r.get("live_trading", {}).get("ib", {})
+            _ib_broker = IBBroker(
+                host=_ib_cfg.get("host", "127.0.0.1"),
+                port=_ib_cfg.get("port", 4002),
+                client_id=_ib_cfg.get("client_id", 1) + 20,
+                timeout=_ib_cfg.get("timeout", 5),
+            )
+            try:
+                _ib_broker._ensure_connected()
+                for p in _ib_broker.get_all_positions():
+                    ib_positions[p.ticker] = {
+                        "symbol": p.ticker, "qty": p.quantity,
+                        "avg_price": p.avg_cost, "current_price": p.current_price,
+                    }
+                logger.info("[RECONCILE-PAPER] IB positions fetched: %d", len(ib_positions))
+            except Exception as ib_err:
+                logger.debug("[RECONCILE-PAPER] IB positions unavailable: %s", ib_err)
+    except Exception:
+        pass
+
     et = ZoneInfo("America/New_York")
     now = datetime.now(et)
 
     alpaca_tickers = {p["symbol"]: p for p in alpaca_positions}
 
-    # Get tracked paper trades
+    # Get tracked paper trades (including broker field)
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         tracked = conn.execute(
-            "SELECT trade_id, ticker, planned_shares FROM shadow_trades "
+            "SELECT trade_id, ticker, planned_shares, COALESCE(broker, 'alpaca') as broker "
+            "FROM shadow_trades "
             "WHERE source = 'paper' AND status = 'open'"
         ).fetchall()
     tracked_map = {r["ticker"]: dict(r) for r in tracked}
+
+    # Build combined broker position map per trade
+    # Each trade checks its own broker's positions
+    _all_broker_tickers = set(alpaca_tickers.keys()) | set(ib_positions.keys())
 
     orphaned = []
     stale = []
@@ -374,13 +406,18 @@ def reconcile_paper_trades(
             else:
                 matched += 1
 
-    # Local has it, Alpaca doesn't → stale
+    # Local has it, broker doesn't → stale
+    # Check the correct broker per trade (IB trades check IB, Alpaca check Alpaca)
     for ticker, rec in tracked_map.items():
-        if ticker not in alpaca_tickers:
-            stale.append({
-                "ticker": ticker,
-                "trade_id": rec["trade_id"],
-            })
+        trade_broker = rec.get("broker", "alpaca")
+        if trade_broker == "ib":
+            if ticker not in ib_positions:
+                stale.append({"ticker": ticker, "trade_id": rec["trade_id"]})
+            else:
+                matched += 1
+        else:
+            if ticker not in alpaca_tickers:
+                stale.append({"ticker": ticker, "trade_id": rec["trade_id"]})
 
     if not dry_run:
         from src.journal.store import insert_shadow_trade, close_shadow_trade
