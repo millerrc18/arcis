@@ -54,6 +54,12 @@ def _get_llm_config() -> dict:
     }
 
 
+# #388: Track consecutive failures to avoid burning 180s timeouts
+# when Ollama is down. Reset on success.
+_consecutive_failures = 0
+_MAX_CONSECUTIVE_FAILURES = 3
+
+
 def is_llm_available() -> bool:
     """Check if Ollama is running and reachable.
 
@@ -65,6 +71,39 @@ def is_llm_available() -> bool:
         return resp.status_code == 200
     except Exception:
         return False
+
+
+def _check_ollama_health_or_restart() -> bool:
+    """Check Ollama health; attempt restart if unresponsive (#388).
+
+    After 3+ consecutive inference failures, this function is called before
+    the next attempt. If Ollama doesn't respond to /api/tags, it tries to
+    restart the process. Returns True if Ollama is healthy after the check.
+    """
+    if is_llm_available():
+        return True
+
+    logger.warning("[LLM] Ollama unresponsive after %d consecutive failures — attempting restart",
+                   _consecutive_failures)
+    try:
+        import subprocess
+        # Try ollama serve (it exits immediately if already running)
+        subprocess.Popen(
+            ["ollama", "serve"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        # Wait briefly for startup
+        import time
+        time.sleep(5)
+        if is_llm_available():
+            logger.info("[LLM] Ollama restarted successfully")
+            return True
+        logger.warning("[LLM] Ollama still unresponsive after restart attempt")
+    except Exception as e:
+        logger.warning("[LLM] Failed to restart Ollama: %s", e)
+    return False
 
 
 def _strip_think_blocks(text: str) -> str:
@@ -85,6 +124,16 @@ def generate(prompt: str, system_prompt: str, temperature: float | None = None,
     Returns:
         Generated text with think blocks stripped, or None on failure.
     """
+    global _consecutive_failures
+
+    # #388: Skip immediately if Ollama has been failing repeatedly
+    if _consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+        if not _check_ollama_health_or_restart():
+            logger.warning("[LLM] Skipping inference — Ollama down after %d consecutive failures",
+                           _consecutive_failures)
+            return None
+        _consecutive_failures = 0  # Reset after successful restart
+
     try:
         cfg = _get_llm_config()
         temp = temperature if temperature is not None else cfg["temperature"]
@@ -118,9 +167,16 @@ def generate(prompt: str, system_prompt: str, temperature: float | None = None,
             logger.warning("[LLM] Empty response from Ollama — treating as failure")
             return None
         logger.info("[LLM] Inference completed in %.1fs (%d chars)", elapsed, len(content))
+        _consecutive_failures = 0
+        # #388: Brief cooldown between calls to prevent Ollama overload
+        # during batch processing (scan cycles hit 10-20 tickers in sequence).
+        # 2s is enough for Ollama to release KV cache from the prior request.
+        time.sleep(2)
         return content
     except Exception as e:
-        logger.warning("[LLM] generate failed: %s", e)
+        _consecutive_failures += 1
+        logger.warning("[LLM] generate failed (failure %d/%d): %s",
+                       _consecutive_failures, _MAX_CONSECUTIVE_FAILURES, e)
         return None
 
 

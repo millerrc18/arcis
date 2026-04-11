@@ -1,5 +1,17 @@
 # Changelog
 
+## [v0.16.8] - 2026-04-11
+
+### Hotfix: Ollama timeout resilience — circuit breaker + auto-restart (#388)
+
+- **fix:** Added consecutive failure tracking (circuit breaker) to `generate()` —
+  after 3 failures, skips immediately instead of burning 180s timeouts per call.
+  Previously 15 consecutive timeouts wasted 45 minutes on Apr 10 evening.
+- **fix:** Auto-restart mechanism: when circuit breaker trips, attempts to restart
+  Ollama via `ollama serve` before giving up
+- **fix:** 2-second cooldown between inference calls to prevent Ollama overload
+  during batch processing (10-20 tickers per scan cycle)
+
 ## [v0.16.7] - 2026-04-11
 
 ### Hotfix: Training pipeline — em-dash SyntaxError + GGUF fallback + Modelfile path (#387)
