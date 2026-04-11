@@ -1,5 +1,17 @@
 # Changelog
 
+## [v0.16.4] - 2026-04-11
+
+### Hotfix: LLM output quality — repeat penalty + output validation (#384)
+
+- **fix:** Added `repeat_penalty: 1.15` to Ollama API calls in `src/llm/client.py`
+  to suppress degenerate repetition loops (52 debug log files showed `===` or
+  data fields repeated 10-82 times)
+- **fix:** Added `_validate_llm_output()` pre-parser in `src/llm/packet_writer.py`
+  that rejects responses containing prompt leakage (37% of debug logs), template
+  stubs (10%), and repetition loops (14%) before they reach the XML parser
+- **test:** 10 tests for `_validate_llm_output` covering all rejection categories
+
 ## [v0.16.3] - 2026-04-11
 
 ### Hotfix: Write-boundary type coercion for shadow_trades (#383)
