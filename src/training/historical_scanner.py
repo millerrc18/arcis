@@ -1,7 +1,7 @@
 """Historical scanner with outcome tracking and training example generation.
 
-Called by: training.backfill
-Calls: config, data_enrichment.news, features.engine, features.regime, llm.prompts, ranking.ranker, training.historical_data, universe.company_names
+Called by: training.backfill, scripts.export_backfill_prompts
+Calls: config, data_enrichment.news, features.engine, features.regime, llm.prompts, ranking.ranker, training.historical_data, training.regime_sampler, universe.company_names
 Owns tables: none
 Config keys: data_enrichment, finnhub_api_key, include_news_in_backfill
 Tests: tests/test_backfill.py, tests/test_leakage_detector.py
@@ -15,7 +15,7 @@ import logging
 import pandas as pd
 
 from src.features.engine import compute_features
-from src.llm.prompts import BLINDED_ANALYSIS_PROMPT
+from src.llm.prompts import BLINDED_ANALYSIS_PROMPT, PASS_ANALYSIS_PROMPT
 from src.ranking.ranker import _score_ticker
 from src.training.historical_data import slice_to_date
 from src.universe.company_names import get_company_name
@@ -27,7 +27,7 @@ PACKET_WORTHY_THRESHOLD = 70
 WATCHLIST_THRESHOLD = 45
 
 
-def scan_historical_date(data: dict, scan_date: str) -> list[dict]:
+def scan_historical_date(data: dict, scan_date: str, fred_data: dict | None = None) -> list[dict]:
     """Run the full scan pipeline as-of a specific date.
 
     Simulates what the system would have produced on that date,
@@ -36,6 +36,8 @@ def scan_historical_date(data: dict, scan_date: str) -> list[dict]:
     Args:
         data: Output of fetch_historical_universe().
         scan_date: ISO date string.
+        fred_data: Optional output of fetch_fred_history(). When provided,
+            real FRED macro data replaces placeholder text.
 
     Returns:
         List of qualified candidates with features, scores, and price levels.
@@ -67,10 +69,18 @@ def scan_historical_date(data: dict, scan_date: str) -> list[dict]:
             # Add market regime data
             features.update(regime)
 
-            # Add placeholder enrichment for historical scans
-            features["fundamental_summary"] = "Not available for historical scan"
+            # Add enrichment for historical scans — use real FRED data when available
             features["insider_summary"] = "Not available for historical scan"
-            features["macro_summary"] = "Not available for historical scan"
+            if fred_data:
+                from src.training.regime_sampler import format_macro_summary
+                features["macro_summary"] = format_macro_summary(fred_data, scan_date)
+                features["fundamental_summary"] = (
+                    f"Historical scan for {get_company_name(ticker)} ({ticker}) "
+                    f"in the {features.get('sector', 'unknown')} sector"
+                )
+            else:
+                features["fundamental_summary"] = "Not available for historical scan"
+                features["macro_summary"] = "Not available for historical scan"
 
             # Fetch historical news if configured
             try:
@@ -122,6 +132,84 @@ def scan_historical_date(data: dict, scan_date: str) -> list[dict]:
             continue
 
     # Sort by score descending
+    candidates.sort(key=lambda x: x["score"], reverse=True)
+    return candidates
+
+
+def scan_historical_date_pass(
+    data: dict, scan_date: str, fred_data: dict | None = None,
+    min_score: float = 45, max_score: float = 69,
+) -> list[dict]:
+    """Scan for PASS examples — setups that score 45-69 (below threshold).
+
+    Same logic as scan_historical_date() but captures the middle band
+    of scores: interesting enough to appear on the scanner but not
+    qualifying for a trade recommendation.
+
+    Returns:
+        List of below-threshold candidates with features and scores.
+    """
+    ohlcv_dict, spy_df = slice_to_date(data, scan_date)
+
+    if spy_df.empty or len(spy_df) < 200:
+        return []
+
+    regime = {}
+    try:
+        from src.features.regime import compute_market_regime
+        regime = compute_market_regime(spy_df, ohlcv_dict)
+    except Exception as e:
+        logger.debug("Failed to compute market regime for %s: %s", scan_date, e)
+
+    candidates = []
+    for ticker, df in ohlcv_dict.items():
+        try:
+            features = compute_features(ticker, df, spy_df)
+            features["earnings_date"] = None
+            features["hold_overlaps_earnings"] = False
+            features["days_to_earnings"] = None
+            features["event_risk_level"] = "none"
+            features.update(regime)
+
+            # Enrichment
+            features["insider_summary"] = "Not available for historical scan"
+            if fred_data:
+                from src.training.regime_sampler import format_macro_summary
+                features["macro_summary"] = format_macro_summary(fred_data, scan_date)
+                features["fundamental_summary"] = (
+                    f"Historical scan for {get_company_name(ticker)} ({ticker}) "
+                    f"in the {features.get('sector', 'unknown')} sector"
+                )
+            else:
+                features["fundamental_summary"] = "Not available for historical scan"
+                features["macro_summary"] = "Not available for historical scan"
+
+            features["news_summary"] = "News data not available for historical scan"
+            features["news_sentiment"] = "no_news"
+
+            score = _score_ticker(features)
+            if score < min_score or score > max_score:
+                continue
+
+            entry_price = features["current_price"]
+            atr = features["atr_14"]
+
+            candidates.append({
+                "scan_date": scan_date,
+                "ticker": ticker,
+                "score": score,
+                "qualification": "pass",
+                "features": features,
+                "entry_price": round(entry_price, 2),
+                "stop_price": round(entry_price - (2 * atr), 2),
+                "target_1": round(entry_price + (1.5 * atr), 2),
+                "target_2": round(entry_price + (3 * atr), 2),
+            })
+        except Exception as e:
+            logger.debug("Failed to compute features for %s on %s: %s",
+                         ticker, scan_date, e)
+            continue
+
     candidates.sort(key=lambda x: x["score"], reverse=True)
     return candidates
 
@@ -266,7 +354,7 @@ def _classify_outcome_quality(
     return "messy"
 
 
-def generate_backfill_example(candidate: dict, outcome: dict) -> dict:
+def generate_backfill_example(candidate: dict, outcome: dict | None = None) -> dict:
     """Build the training example structure from a historical scan + outcome.
 
     The input_text matches the format of _build_feature_prompt() in
@@ -276,17 +364,21 @@ def generate_backfill_example(candidate: dict, outcome: dict) -> dict:
     NOTE: The input_text contains ONLY setup data (no outcome). The outcome
     is stored separately in metadata for evaluation purposes only.
 
+    For PASS examples (outcome=None), uses PASS_ANALYSIS_PROMPT instead
+    of BLINDED_ANALYSIS_PROMPT, and metadata reflects no-trade status.
+
     Returns:
         {
-            "instruction": BLINDED_ANALYSIS_PROMPT (formatted with scan_date),
+            "instruction": prompt (formatted with scan_date),
             "input_text": "..." (feature data only — NO outcome),
-            "output_text": None,  # filled by Claude API
+            "output_text": None,  # filled by Claude API or manual generation
             "metadata": { ... }
         }
     """
     features = candidate["features"]
     ticker = candidate["ticker"]
     company_name = get_company_name(ticker)
+    is_pass = outcome is None
 
     # Build input_text in the same multi-source format as _build_feature_prompt()
     input_text = f"""=== TECHNICAL DATA ===
@@ -331,11 +423,18 @@ Event Risk: none"""
     # NOTE: Outcome is NOT appended to input_text — self-blinding pipeline
     # ensures Claude never sees the outcome during generation.
 
-    return {
-        "instruction": BLINDED_ANALYSIS_PROMPT.format(date=candidate["scan_date"]),
-        "input_text": input_text,
-        "output_text": None,
-        "metadata": {
+    if is_pass:
+        instruction = PASS_ANALYSIS_PROMPT.format(date=candidate["scan_date"])
+        metadata = {
+            "scan_date": candidate["scan_date"],
+            "ticker": ticker,
+            "score": candidate["score"],
+            "entry_price": candidate["entry_price"],
+            "outcome_quality": "pass",
+        }
+    else:
+        instruction = BLINDED_ANALYSIS_PROMPT.format(date=candidate["scan_date"])
+        metadata = {
             "scan_date": candidate["scan_date"],
             "ticker": ticker,
             "score": candidate["score"],
@@ -345,5 +444,11 @@ Event Risk: none"""
             "pnl_pct": outcome["pnl_pct"],
             "duration_days": outcome["duration_days"],
             "outcome_quality": outcome["outcome_quality"],
-        },
+        }
+
+    return {
+        "instruction": instruction,
+        "input_text": input_text,
+        "output_text": None,
+        "metadata": metadata,
     }
