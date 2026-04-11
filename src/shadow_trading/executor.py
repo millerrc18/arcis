@@ -185,6 +185,39 @@ def _submit_exit_order(trade: dict, shares: int) -> dict:
     return place_paper_exit(trade["ticker"], shares)
 
 
+def _select_paper_broker(config: dict, score: float) -> tuple[str, object | None]:
+    """Select paper broker based on score threshold.
+
+    Returns (broker_name, broker_instance). When paper_routing is enabled
+    and score >= threshold, routes to IB paper. Otherwise returns ("alpaca", None).
+    If IB Gateway is down, falls back to Alpaca with a warning.
+    """
+    ib_cfg = config.get("live_trading", {}).get("ib", {})
+    if not ib_cfg.get("paper_routing"):
+        return "alpaca", None
+
+    threshold = ib_cfg.get("paper_routing_threshold", 80)
+    if score < threshold:
+        return "alpaca", None
+
+    # Score qualifies for IB — try to connect
+    try:
+        from src.trading.ib_broker import IBBroker
+        broker = IBBroker(
+            host=ib_cfg.get("host", "127.0.0.1"),
+            port=ib_cfg.get("port", 4002),
+            client_id=ib_cfg.get("client_id", 1),
+            timeout=ib_cfg.get("timeout", 5),
+        )
+        broker._ensure_connected()
+        logger.info("[ROUTING] Score %.0f >= %d threshold — routing to IB paper", score, threshold)
+        return "ib", broker
+    except Exception as e:
+        logger.warning("[ROUTING] IB Gateway down — falling back to Alpaca (score %.0f): %s",
+                       score, e)
+        return "alpaca", None
+
+
 def open_shadow_trade(
     recommendation_id: str,
     packet: TradePacket,
@@ -457,23 +490,40 @@ def open_shadow_trade(
         # inflating scan metrics.
         return None
 
+    # Select paper broker: IB for high-score trades, Alpaca for the rest
+    _paper_score = features.get("_score", 0)
+    _paper_broker_name, _paper_broker = _select_paper_broker(config, _paper_score)
+    trade_data["broker"] = _paper_broker_name
+
     # Strategy Decision #18: Mechanical bracket exits with 2.0 ATR multiplier.
     # Try bracket order first (entry + stop-loss + take-profit as one atomic
-    # Alpaca order). If bracket fails (e.g., Alpaca rejects the price levels),
-    # fall back to simple market order — the trade still opens but exits will
-    # be managed by the polling loop in check_and_manage_open_trades().
+    # order). If bracket fails, fall back to simple market order.
     try:
-        from src.shadow_trading.alpaca_adapter import place_bracket_order
-        order = place_bracket_order(
-            ticker,
-            planned_shares,
-            take_profit_price=target_1,
-            stop_loss_price=stop_price,
-        )
-        trade_data["alpaca_order_id"] = order.get("order_id")
-        trade_data["order_type"] = "bracket"
+        if _paper_broker_name == "ib" and _paper_broker is not None:
+            # IB paper path — use broker abstraction
+            order = _paper_broker.place_bracket_order(
+                ticker, planned_shares,
+                take_profit_price=target_1, stop_loss_price=stop_price,
+            )
+            trade_data["alpaca_order_id"] = order.order_id
+            trade_data["order_type"] = order.order_type
+            if order.child_order_ids:
+                import json as _json_route
+                trade_data["ib_child_order_ids"] = _json_route.dumps(order.child_order_ids)
+            fill_price = order.filled_avg_price
+        else:
+            # Alpaca paper path (default)
+            from src.shadow_trading.alpaca_adapter import place_bracket_order
+            order = place_bracket_order(
+                ticker,
+                planned_shares,
+                take_profit_price=target_1,
+                stop_loss_price=stop_price,
+            )
+            trade_data["alpaca_order_id"] = order.get("order_id")
+            trade_data["order_type"] = "bracket"
+            fill_price = order.get("filled_avg_price")
 
-        fill_price = order.get("filled_avg_price")
         if fill_price:
             trade_data["actual_entry_price"] = fill_price
         else:
@@ -482,7 +532,8 @@ def open_shadow_trade(
         trade_data["status"] = "open"
         trade_data["max_favorable_excursion"] = 0.0
         trade_data["max_adverse_excursion"] = 0.0
-        _verify_and_update(trade_data)
+        if _paper_broker_name == "alpaca":
+            _verify_and_update(trade_data)
 
     except Exception as e:
         logger.warning(f"[SHADOW] Bracket order failed for {ticker}: {e}, falling back to market")
