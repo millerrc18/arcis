@@ -135,7 +135,9 @@ class TestSourceColumnMigration:
 class TestPaperSourceTagging:
     @patch("src.shadow_trading.executor.load_config")
     @patch("src.shadow_trading.executor._get_current_price_safe")
-    def test_paper_trade_tagged_as_paper(self, mock_price, mock_config,
+    @patch("src.shadow_trading.alpaca_adapter.get_account_info",
+           return_value={"buying_power": 100000.0, "equity": 100000.0, "cash": 100000.0})
+    def test_paper_trade_tagged_as_paper(self, mock_acct, mock_price, mock_config,
                                           tmp_db, mock_packet, mock_features, live_config):
         """Paper trades should be tagged with source='paper'."""
         mock_config.return_value = live_config
@@ -225,16 +227,20 @@ class TestLiveSafetyGuards:
             "buying_power": 40.0,
         }
 
-        # Simulate an open live trade with $10 loss on $100 capital (> 5%)
-        mock_open_trades.return_value = [
-            {
-                "ticker": "TSLA",
-                "source": "live",
-                "actual_entry_price": 60.0,
-                "entry_price": 60.0,
-                "planned_shares": 1,
-            }
-        ]
+        # #239: The daily loss guard queries the DB directly (not get_open_shadow_trades),
+        # so we must INSERT a losing live trade into tmp_db for the guard to find.
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        today = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
+        with sqlite3.connect(tmp_db) as conn:
+            conn.execute(
+                "INSERT INTO shadow_trades (trade_id, ticker, status, source, "
+                "actual_entry_price, entry_price, planned_shares, direction, created_at, updated_at) "
+                "VALUES (?, ?, 'open', 'live', 60.0, 60.0, 1, 'long', ?, ?)",
+                ("loss-trade-1", "TSLA", f"{today}T09:30:00", f"{today}T09:30:00"),
+            )
+
+        mock_open_trades.return_value = []
         mock_price.return_value = 53.0  # $7 loss on 1 share (7% of $100)
 
         with patch("src.notifications.telegram.is_telegram_enabled", return_value=False):
@@ -547,12 +553,15 @@ class TestLiveCLICommands:
 class TestDualExecution:
     @patch("src.shadow_trading.executor.load_config")
     @patch("src.shadow_trading.alpaca_adapter.get_live_account_info")
+    @patch("src.shadow_trading.alpaca_adapter.get_account_info",
+           return_value={"buying_power": 100000.0, "equity": 100000.0, "cash": 100000.0})
     @patch("src.shadow_trading.executor.get_open_shadow_trades")
     @patch("src.shadow_trading.executor._get_current_price_safe")
     @patch("src.shadow_trading.alpaca_adapter.place_live_entry")
     @patch("src.notifications.telegram.is_telegram_enabled", return_value=False)
     def test_paper_and_live_both_execute(self, mock_tg, mock_live_place, mock_price,
-                                          mock_open_trades, mock_acct, mock_config,
+                                          mock_open_trades, mock_paper_acct, mock_acct,
+                                          mock_config,
                                           live_config, mock_packet, mock_features, tmp_db):
         """Both paper and live trades should be created for the same recommendation."""
         mock_config.return_value = live_config

@@ -1,5 +1,23 @@
 # Changelog
 
+## [v0.16.11] - 2026-04-11
+
+### Fix: Test regressions — buying power mock + training gate assertion (#239, #371, #372)
+
+- **fix:** Added `get_account_info` mock to `TestPaperSourceTagging` and
+  `TestDualExecution` — tests failed because `_check_paper_buying_power()`
+  returns $1 with placeholder API keys (#371, #239)
+- **fix:** Updated `test_markdown_bold_heading_rejected` to use a standalone
+  bold heading line (`**Market context:**\n`) instead of inline bold-then-text.
+  The regex was intentionally narrowed in #334 to allow inline emphasis; the
+  test wasn't updated (#372)
+- **fix:** Fixed `test_daily_loss_guard_halts_trading` — the daily loss guard
+  queries the DB directly, not `get_open_shadow_trades`. Test now inserts a
+  losing live trade into tmp_db so the guard finds it.
+- **fix:** Fixed `test_generate_create_sql_basic` — SQLite generator inlines
+  `PRIMARY KEY` on single INTEGER columns (ROWID alias). Test was asserting
+  the separate `PRIMARY KEY (id)` constraint form.
+
 ## [v0.16.10] - 2026-04-11
 
 ### P2 batch: research feeds, CBOE scraper, buying power race condition (#389-392)
