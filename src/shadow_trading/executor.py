@@ -55,6 +55,16 @@ PENDING_ORDER_STATUSES = {"new", "accepted", "pending_new", "accepted_for_biddin
 
 _consecutive_bp_failures = 0
 _BP_ALERT_THRESHOLD = 3
+# #392: Track capital committed within the current scan cycle to prevent
+# race condition where multiple trades each pass the buying power check
+# individually but together exceed available capital.
+_scan_cycle_committed = 0.0
+
+
+def reset_scan_cycle_committed() -> None:
+    """Reset the per-cycle committed capital tracker. Call at scan start."""
+    global _scan_cycle_committed
+    _scan_cycle_committed = 0.0
 
 
 def _check_paper_buying_power(entry_price: float, shares: int) -> bool:
@@ -64,20 +74,22 @@ def _check_paper_buying_power(entry_price: float, shares: int) -> bool:
     ran out of buying power. Now we pre-check and record the trade as
     'rejected_buying_power' so the dashboard shows why it was skipped.
 
-    WHY fail-open on API error: Alpaca paper API has intermittent 503s.
-    Blocking all trades because the buying power check timed out is worse
-    than letting a trade through that might get rejected by Alpaca anyway.
+    #392: Also subtracts capital committed by earlier trades in the same scan
+    cycle to prevent the race condition where N trades each pass individually
+    but together exhaust buying power.
     """
-    global _consecutive_bp_failures
+    global _consecutive_bp_failures, _scan_cycle_committed
     try:
         from src.shadow_trading.alpaca_adapter import get_account_info
         acct = get_account_info()
-        buying_power = acct.get("buying_power", 0)
+        buying_power = float(acct.get("buying_power", 0))
+        # Subtract capital already committed in this scan cycle
+        effective_bp = buying_power - _scan_cycle_committed
         required = entry_price * shares
-        if required > buying_power:
+        if required > effective_bp:
             logger.warning(
-                "[SHADOW] Insufficient buying power: need $%.2f, have $%.2f",
-                required, buying_power,
+                "[SHADOW] Insufficient buying power: need $%.2f, have $%.2f (committed $%.2f this cycle)",
+                required, effective_bp, _scan_cycle_committed,
             )
             _consecutive_bp_failures += 1
             if _consecutive_bp_failures >= _BP_ALERT_THRESHOLD:
@@ -92,6 +104,7 @@ def _check_paper_buying_power(entry_price: float, shares: int) -> bool:
                     pass
             return False
         _consecutive_bp_failures = 0
+        _scan_cycle_committed += required
         return True
     except Exception as exc:
         # Fail CLOSED — if we can't verify buying power, skip the trade.

@@ -138,7 +138,9 @@ def _parse_cboe_page(html: str) -> dict | None:
                 pass
 
     if not matched_any:
-        logger.warning("[CBOE] Regex extraction failed — page format may have changed")
+        # #390: Demoted from warning — CBOE page format changes frequently,
+        # and the SPY proxy / FRED fallbacks produce reliable data.
+        logger.debug("[CBOE] Regex extraction failed — page format may have changed")
         return None
 
     return result
