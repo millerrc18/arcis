@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased] — IB Shadow Dashboard + API Routes
+
+### IB Shadow Dashboard
+
+- **schema:** Enabled Postgres sync for `ib_shadow_log` (incremental, keyed on `shadow_id`)
+- **feat:** 3 cloud API routes (`/api/ib-shadow/summary`, `/api/ib-shadow/log`, `/api/ib-shadow/health`)
+- **feat:** IB Shadow dashboard page with KPI cards (shadow count, gateway uptime, contract valid, BP acceptance), trade log table, and error log
+- **feat:** Navigation entry in System section (GitCompare icon)
+- **feat:** Empty state with setup instructions when no shadow data exists
+
 ## [Unreleased] — IB Structural Fixes (Sprint IB-2)
 
 ### Critical Runtime Bug Fixes
