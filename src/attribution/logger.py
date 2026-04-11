@@ -18,6 +18,10 @@ from src.config import DB_PATH
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
+_ALLOWED_ATTRIBUTION_COLUMNS = {
+    "llm_action", "llm_conviction", "recommendation_id", "pair_type",
+}
+
 
 def log_attribution_before_llm(
     ticker: str,
@@ -90,6 +94,10 @@ def log_attribution_after_llm(
                 pair_type = "unknown"
             fields.append("pair_type = ?")
             values.append(pair_type)
+
+            col_names = {f.split(" = ")[0].strip() for f in fields}
+            if not col_names.issubset(_ALLOWED_ATTRIBUTION_COLUMNS):
+                raise ValueError(f"Invalid columns in attribution update: {col_names - _ALLOWED_ATTRIBUTION_COLUMNS}")
 
             values.append(attribution_id)
             conn.execute(

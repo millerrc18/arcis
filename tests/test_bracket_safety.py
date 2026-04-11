@@ -11,6 +11,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from src.config import DB_PATH
+
 ET = ZoneInfo("America/New_York")
 
 
@@ -72,7 +74,7 @@ class TestExitFailedRecovery:
              patch("src.shadow_trading.executor._get_current_price_safe", return_value=155.0):
             from src.shadow_trading.executor import check_and_manage_open_trades
             check_and_manage_open_trades()
-            mock_retry.assert_called_once()
+            mock_retry.assert_called_once_with(fake_trade, DB_PATH)
 
 
 class TestTimestampParseFailure:

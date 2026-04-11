@@ -131,7 +131,8 @@ def _handle_collect_data(payload: dict, config: dict) -> dict:
             fn()
             results[name] = "success"
         except Exception as exc:
-            results[name] = f"error: {exc}"
+            logger.error("[COMMAND] Data collection '%s' failed: %s", name, exc)
+            results[name] = "collection_error"
     return {"message": "Data collection completed", "results": results}
 
 
@@ -199,7 +200,8 @@ def _handle_get_logs(payload: dict, config: dict) -> dict:
             ).fetchall()
             return {"logs": [dict(r) for r in rows], "count": len(rows)}
     except Exception as exc:
-        return {"error": str(exc)}
+        logger.error("[COMMAND] get_logs query failed: %s", exc)
+        return {"error": "log_query_error"}
 
 
 # ── Command dispatch table ────────────────────────────────────────
@@ -253,7 +255,8 @@ def _handle_stress_test(payload: dict, config: dict) -> dict:
             else:
                 results.append({"scenario": name, "error": result["error"]})
         except Exception as e:
-            results.append({"scenario": name, "error": str(e)})
+            logger.error("[COMMAND] Stress test scenario '%s' failed: %s", name, e)
+            results.append({"scenario": name, "error": "scenario_execution_error"})
 
     return {"status": "completed", "scenarios": results}
 
@@ -266,7 +269,8 @@ def _handle_simulation(payload: dict, config: dict) -> dict:
         capture_output=True, text=True, timeout=7200,
     )
     if result.returncode != 0:
-        return {"status": "error", "error": result.stderr[:500]}
+        logger.error("[COMMAND] Simulation process failed: %s", result.stderr[:500])
+        return {"status": "error", "error": "simulation_process_error"}
     return {"status": "completed"}
 
 
@@ -340,10 +344,9 @@ def execute_command(cmd: dict, config: dict, db_path: str = LOCAL_DB) -> dict:
         return {"status": "success", "result": result}
     except Exception as exc:
         elapsed_ms = (time.monotonic_ns() // 1_000_000) - start_ms
-        error_msg = str(exc)[:500]
-        _store_result(command_id, "error", error=error_msg, execution_ms=elapsed_ms, db_path=db_path)
-        logger.error("Command %s failed: %s", command_name, exc)
-        return {"status": "error", "error": error_msg}
+        logger.error("[COMMAND] %s (id=%s) failed: %s", command_name, command_id, exc)
+        _store_result(command_id, "error", error="command_execution_error", execution_ms=elapsed_ms, db_path=db_path)
+        return {"status": "error", "error": "command_execution_error"}
 
 
 def execute_commands(commands: list[dict], config: dict, db_path: str = LOCAL_DB) -> list[dict]:
