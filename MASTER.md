@@ -14,7 +14,7 @@
 
 **Name:** Arcis (Adaptive Regime Classification & Intelligence Systems)
 **License:** BSL 1.1 (source-visible, no commercial use until 2030)
-**Release:** v0.16.0 (dashboard data integrity hotfix: 8 tasks, 5 root causes)
+**Release:** v0.16.6 (6 hotfixes post-cascade: execution safety, quarantine, LLM quality, type coercion, Postgres drift, council weights)
 **Repository:** github.com/millerrc18/halcyon-lab
 **Dashboard:** halcyonlab.app (Render static + Python API)
 
@@ -55,15 +55,15 @@ with an unbeatable technological moat.
 | Metric | Value |
 |---|---|
 | Phase | 1 (Bootcamp) -- paper $100K + $100 live via Alpaca |
-| Closed trades | 52 (Phase 1: 50-trade gate PASSED) |
-| Open positions | ~11 |
+| Closed trades | 18 verified (77 quarantined from April 10 cascade) |
+| Open positions | ~2 (verify with shadow-status) |
 | Model | halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF) |
-| Training data | 1,061 examples (979 scored, avg 3.4/5) |
+| Training data | 1,019 examples (manual backfill pipeline ready, target 1,500) |
 | Tests | 1,500+ functions across 123 test files |
-| Python files | 212 |
+| Python files | 212+ |
 | Dashboard pages | 21 |
-| Research docs | 65 |
-| Sprint docs | 33 |
+| Research docs | 66 |
+| Sprint docs | 35 |
 | Schema tables | 50 (registry), 44 synced to Postgres |
 | GitHub issues | 0 open |
 | Monthly cost | ~$64 (Render $14 + Ollama free + Claude API ~$50 + domain $7) |
