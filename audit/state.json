@@ -1,7 +1,7 @@
 {
-  "run_count": 18,
+  "run_count": 19,
   "current_focus_index": 1,
-  "file_index": 75,
+  "file_index": 90,
   "file_list": [
     "src/api/__init__.py",
     "src/api/app.py",
@@ -218,7 +218,7 @@
     "src/utils/retry.py",
     "src/utils/type_safety.py"
   ],
-  "last_run": "2026-04-11T18:00:00Z",
+  "last_run": "2026-04-12T07:36:35.748873+00:00",
   "findings": {
     "run_17": {
       "focus_area": "security",
@@ -244,7 +244,7 @@
         {
           "file": "src/council/value_tracker.py",
           "lines": "300-303",
-          "description": "SQL query constructed with .format() and f-string interpolation instead of parameterized queries. ATTRIBUTABLE_PARAMETERS is currently a hardcoded constant, but the pattern is fragile — same class of issue as #361.",
+          "description": "SQL query constructed with .format() and f-string interpolation instead of parameterized queries. ATTRIBUTABLE_PARAMETERS is currently a hardcoded constant, but the pattern is fragile \u2014 same class of issue as #361.",
           "suggested_fix": "Use parameterized queries with dynamically generated ? placeholders instead of string formatting.",
           "github_issue": "#380"
         }
@@ -1272,7 +1272,7 @@
         {
           "file": "src/data_collection/retention.py",
           "lines": "115",
-          "description": "PRAGMA table_info() with f-string interpolation for table name. Same assessment as line 85 — hardcoded dict values only."
+          "description": "PRAGMA table_info() with f-string interpolation for table name. Same assessment as line 85 \u2014 hardcoded dict values only."
         }
       ]
     }
