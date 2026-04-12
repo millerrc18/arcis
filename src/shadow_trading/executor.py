@@ -929,7 +929,10 @@ def check_and_manage_open_trades(
         mae = float(trade.get("max_adverse_excursion") or 0)
 
         price_move = current_price - entry_price
-        if price_move > mfe:
+        # DB-FINAL Task 1: track when MFE peaks. Only update the day/timestamp
+        # on a *new high* so flat or adverse days preserve the true peak.
+        mfe_increased = price_move > mfe
+        if mfe_increased:
             mfe = price_move
         if price_move < mae:
             mae = price_move
@@ -944,6 +947,13 @@ def check_and_manage_open_trades(
             logger.warning("[EXECUTOR] Could not parse entry time '%s' for trade %s — defaulting to days_open=999",
                            entry_time_str, trade.get("trade_id"))
 
+        if mfe_increased:
+            mfe_days = days_open
+            mfe_ts = now.isoformat()
+        else:
+            mfe_days = trade.get("time_to_mfe_days")
+            mfe_ts = trade.get("mfe_timestamp")
+
         # Update trade with current MFE/MAE and duration
         update_shadow_trade(
             trade["trade_id"],
@@ -951,6 +961,8 @@ def check_and_manage_open_trades(
                 "max_favorable_excursion": mfe,
                 "max_adverse_excursion": mae,
                 "duration_days": days_open,
+                "time_to_mfe_days": mfe_days,
+                "mfe_timestamp": mfe_ts,
             },
             db_path,
         )

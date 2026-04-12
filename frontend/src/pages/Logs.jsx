@@ -175,7 +175,7 @@ export default function Logs() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-xl font-medium uppercase" style={{ color: 'var(--arcis-text-primary)', letterSpacing: '0.06em' }}>Logs & Commands</h2>
         <div className="flex items-center gap-2">

@@ -36,6 +36,7 @@ function CategoryCard({ name, checks, expanded, onToggle }) {
   return (
     <div
       className="overflow-hidden"
+      data-testid={`validation-category-${name}`}
       style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}
     >
       <button
@@ -164,7 +165,7 @@ export default function Validation() {
   const categories = result.categories || {}
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text-primary)' }}>

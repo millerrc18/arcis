@@ -244,6 +244,15 @@ _register(TableDef(
         ColumnDef("concurrent_positions", "INTEGER", description="Number of open positions at entry"),
         ColumnDef("ranking_at_entry", "INTEGER", description="Ranker rank (1=best) at entry"),
         ColumnDef("quarantined", "INTEGER", default="0", description="1 = compromised record from April 10 cascade, excluded from analytics"),
+        # Capital-velocity instrumentation (DB-FINAL Task 1 / Strategy Decision #32).
+        # time_to_mfe_days updates each monitoring cycle when MFE hits a new high,
+        # letting the velocity analysis distinguish "winners peaked day 3" from
+        # "winners peaked day 7" — the single most important velocity datapoint.
+        ColumnDef("time_to_mfe_days", "INTEGER",
+                  description="Days from entry to max favorable excursion peak. "
+                  "Updated each monitoring cycle when MFE increases."),
+        ColumnDef("mfe_timestamp", "TEXT",
+                  description="ISO timestamp when MFE last increased (peak P&L moment)."),
     ],
     primary_key="trade_id",
     indexes=[
@@ -397,6 +406,17 @@ _register(TableDef(
         ColumnDef("quality_score_auto", "REAL"),
         ColumnDef("outcome_type", "TEXT"),
         ColumnDef("regime", "TEXT"),
+        # 8-dimension rubric scores (1-5 each) per Gold-Standard Rubric doc.
+        # Written by LLM-as-judge rubric scorer. composite_score is the weighted average.
+        ColumnDef("temporal_honesty", "REAL"),
+        ColumnDef("evidence_integration", "REAL"),
+        ColumnDef("risk_specificity", "REAL"),
+        ColumnDef("uncertainty_calibration", "REAL"),
+        ColumnDef("structural_compliance", "REAL"),
+        ColumnDef("analytical_depth", "REAL"),
+        ColumnDef("source_coverage", "REAL"),
+        ColumnDef("actionability", "REAL"),
+        ColumnDef("composite_score", "REAL"),
     ],
     primary_key="example_id",
     sync_to_postgres=True,

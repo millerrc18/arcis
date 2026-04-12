@@ -4,6 +4,7 @@ import '@xyflow/react/dist/style.css'
 export default function FlowDiagram({
   nodes, edges, nodeTypes, onNodesChange, onEdgesChange,
   fitView = true, className = '', style = {}, children,
+  nodesDraggable = false, nodesConnectable = false,
 }) {
   return (
     <div className={`w-full rounded-lg border ${className}`}
@@ -15,6 +16,8 @@ export default function FlowDiagram({
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         fitView={fitView}
+        nodesDraggable={nodesDraggable}
+        nodesConnectable={nodesConnectable}
         proOptions={{ hideAttribution: true }}
       >
         <Background gap={16} size={1} color="var(--arcis-border)" />

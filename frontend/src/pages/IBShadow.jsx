@@ -72,7 +72,7 @@ export default function IBShadow() {
   // Empty state — no shadow data at all
   if (!isLoading && total === 0 && !summary?.error) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-4 md:space-y-6">
         <div className="flex items-center gap-3">
           <GitCompare size={20} style={{ color: 'var(--arcis-accent)' }} />
           <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text-primary)' }}>Broker Comparison</h2>

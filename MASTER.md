@@ -14,7 +14,7 @@
 
 **Name:** Arcis (Adaptive Regime Classification & Intelligence Systems)
 **License:** BSL 1.1 (source-visible, no commercial use until 2030)
-**Release:** v0.16.12 (12 hotfixes post-cascade: execution safety, quarantine, LLM quality, type coercion, Postgres drift, council weights, training pipeline, Ollama resilience, root cause gaps, P2 batch, test regressions, trading safety + security)
+**Release:** v0.17.0 (IB integration complete across 7 sprints, dashboard overhaul across 4 sprints, capital-velocity instrumentation, council advisory-only guardrail, 703-row regime-diverse backfill, 12 pre-v0.17 hotfixes)
 **Repository:** github.com/millerrc18/halcyon-lab
 **Dashboard:** halcyonlab.app (Render static + Python API)
 
@@ -57,14 +57,14 @@ with an unbeatable technological moat.
 | Phase | 1 (Bootcamp) -- paper $100K + $100 live via Alpaca |
 | Closed trades | 18 verified (77 quarantined from April 10 cascade) |
 | Open positions | ~2 (verify with shadow-status) |
-| Model | halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF) |
-| Training data | 1,019 examples (manual backfill pipeline ready, target 1,500) |
-| Tests | 1,630+ functions across 132 test files |
-| Python files | 216+ |
-| Dashboard pages | 22 |
-| Research docs | 77 |
-| Sprint docs | 39 |
-| Schema tables | 51 (registry), 44 synced to Postgres |
+| Model | halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF); v2.0.0 retrain in progress |
+| Training data | 1,722 examples (1,019 + 703 regime-diverse backfill) |
+| Tests | 1,734 tests across 140 test files |
+| Python files | 219 |
+| Dashboard pages | 24 |
+| Research docs | 91 |
+| Sprint docs | 43 |
+| Schema tables | 53 (registry), 44+ synced to Postgres |
 | GitHub issues | 0 open |
 | Monthly cost | ~$64 (Render $14 + Ollama free + Claude API ~$50 + domain $7) |
 | Hardware | RTX 3060 12GB, Windows 11, Z690, 24/7 operation |
@@ -84,9 +84,9 @@ with an unbeatable technological moat.
 | Broker abstraction (IB + Alpaca) | READY -- config-driven, IB activation gated on validation |
 | Telegram | LIVE -- 56 functions, gated behind trade_id |
 | Intra-day reconciliation | LIVE -- every 15 min during market hours |
-| Dashboard (Arcis) | LIVE -- 22 pages, dark/light toggle |
-| Simulation engine | LIVE -- 13 regimes, Monte Carlo, traffic light validation |
-| Schema registry | LIVE -- 51 tables, single source of truth |
+| Dashboard (Arcis) | LIVE -- 24 pages (adds Broker Comparison, Velocity), dark/light toggle, mobile-responsive sidebar |
+| Simulation engine | LIVE -- 13 regimes, Monte Carlo, traffic light validation, regime selector |
+| Schema registry | LIVE -- 53 tables, single source of truth |
 | Render sync | LIVE -- 44/51 tables synced to Postgres |
 | Halcyon-audit plugin | LIVE -- 8 domain agents, /audit command |
 | Automated guardrails | LIVE -- test_repo_structure.py |
@@ -96,10 +96,11 @@ with an unbeatable technological moat.
 
 ### Open GitHub Issues
 
-0 open as of 2026-04-11:
+0 open as of 2026-04-12:
 - All 14 issues (#302-#304, #325-#335) closed in production sweep sprint (v0.15.1-v0.15.3)
 - 8 dashboard data integrity fixes shipped in v0.16.0
 - 12 hotfixes (v0.16.1-v0.16.12): execution safety, quarantine, LLM quality, type coercion, Postgres drift, council weights, training pipeline, Ollama resilience, trading safety + security
+- v0.17.0 bundles IB integration (7 sprints) + dashboard overhaul (4 sprints) + 703 regime-diverse backfill + capital velocity instrumentation
 
 ### Known Blockers
 
@@ -135,7 +136,18 @@ with an unbeatable technological moat.
 | Sprint gaps + RCCA | #204 | 6 sprint gaps closed, 8 RCCA bugs fixed, audit plugin |
 | Stress test fix | #205 | yfinance warnings, BRK.B failure |
 | Bug bash v0.11.0 | #206 | Conviction parsing, Finnhub security, tech debt |
-| IB broker abstraction | -- | v0.14.0, Alpaca + IB dual-broker, config-driven |
+| IB broker abstraction (IB-1) | -- | v0.14.0, Alpaca + IB dual-broker, config-driven |
+| IB structural fixes (IB-2) | -- | Exception taxonomy, connect/disconnect pattern, permId tracking |
+| IB shadow dashboard (IB-3) | -- | Cloud API routes + dashboard page for IB shadow mode comparison analytics |
+| IB dual-execution routing (IB-4) | -- | Score-based paper broker selection, routing threshold |
+| IB production hardening (IB-5) | -- | Reconnect backoff, bracket verification, outsideRth, OcaType 3 |
+| IB paper trading activation (IB-6) | -- | Validation script, daily_ib_health table, Gateway status card, digest section |
+| IB integration validation (IB-7) | -- | 16 integration tests, ib-smoke-test.md 6-phase checklist |
+| Dashboard DB-1 (data integrity, 9 tasks) | -- | Quarantine sync to Postgres, model version Ollama fallback, flywheel-velocity cycle-anchor, council.auto_apply_parameters guardrail |
+| Dashboard DB-2a (bug fixes, 10 tasks) | -- | Packets prompt leakage strip, current_price on live ledger, OpenPositionCard, ledger merge + broker filter, Strategy win/loss overlay, StressTest latest-only, Monitoring crash |
+| Dashboard DB-2b (features, 7 tasks) | -- | Broker Comparison page rebrand + Trading-nav move, CTO by_broker breakdown, Logs export-errors + stale-commands, IB research docs in Docs index, outcome_counts wired, per-collector log isolation |
+| Dashboard DB-3 (polish, 8 tasks) | -- | Architecture IB Gateway + broker_router nodes, Simulation regime selector, StressTest +4 scenarios, IB Settings section (unblocked), Capital Velocity dashboard placeholder |
+| Dashboard DB-FINAL (cleanup, 8 tasks) | -- | time_to_mfe instrumentation + 3 tests, attribution logger warning-level + defensive _parse_price + integration tests, mobile sidebar + status-bar hide, ReactFlow non-draggable + MiniMap removed, 15 data-testid attributes, docs refresh |
 | Production sweep (3 phases) | -- | v0.15.1-3, 14 bugs fixed (bracket guard, recon, conviction, type safety) |
 | Consolidated sprint (5 sprints) | -- | Attribution wiring, simulation promotion, MR integration, Sprint 5 refactor |
 | Sprint 5 refactor | -- | watch.py 3403→1968 (42%), telegram.py 1563→786 (50%), 3 new modules |
@@ -194,10 +206,12 @@ Universe (S&P 100)
 
 | Layer | Components |
 |---|---|
-| 4 Orchestration | watch.py, main.py |
-| 3 Services | scan_service.py, council/engine.py, *_service.py |
+| 4 Orchestration | watch.py, main.py, scheduler/universe_scanner.py, scheduler/overnight.py |
+| 3 Services | scan_service.py, council/engine.py, *_service.py, attribution/logger.py |
 | 2 Domain | executor.py, governor.py, traffic_light.py, features/*, ranker.py |
-| 1 Infrastructure | alpaca_adapter.py, trading/* (broker_interface, ib_broker, alpaca_broker, broker_factory), telegram.py, render_sync.py, llm/client.py |
+| 1 Infrastructure | alpaca_adapter.py, trading/broker_interface.py, trading/ib_broker.py, trading/alpaca_broker.py, trading/broker_factory.py, trading/ib_status.py, telegram.py, render_sync.py, llm/client.py |
+
+**IB operational tooling:** `scripts/validate_ib_gateway.py` (pre-activation paper-account smoke test, refuses port 4001), `scripts/validate_ib_integration.py` (post-scan data completeness across shadow_trades, ib_shadow_log, daily_ib_health), `docs/operations/ib-smoke-test.md` (6-phase manual validation checklist).
 
 **Rule:** Imports only go DOWN. Never import from a higher layer.
 
@@ -344,7 +358,7 @@ frontend-design, feature-dev, pr-review-toolkit, security-guidance,
 
 ## 4. Schema Summary
 
-All 51 tables are defined in `src/schema/registry.py` -- the single source of
+All 53 tables are defined in `src/schema/registry.py` -- the single source of
 truth for both SQLite and Postgres. The registry was created after ~12 hours
 were lost to bugs caused by 6+ files independently defining the same tables
 with subtly different column names. Now a single `TableDef` dataclass defines
@@ -352,7 +366,7 @@ each table and generates DDL for both SQLite and Postgres.
 
 **Architecture:**
 ```
-src/schema/registry.py          <- THE source of truth (51 TableDefs)
+src/schema/registry.py          <- THE source of truth (53 TableDefs)
     +-- src/schema/sqlite.py     <- Generates CREATE TABLE for SQLite
     +-- src/schema/postgres.py   <- Generates CREATE TABLE for Postgres
     +-- src/schema/validator.py  <- Compares live DB against registry
@@ -362,14 +376,15 @@ src/schema/registry.py          <- THE source of truth (51 TableDefs)
     +-- src/sync/render_sync.py  <- SYNC_TABLES generated from registry
 ```
 
-### Trading Core (4)
+### Trading Core (5)
 
 | Table | Purpose |
 |---|---|
 | `recommendations` | LLM-generated trade recommendations with full context and outcomes |
-| `shadow_trades` | Paper trades tracked from entry to exit with execution quality (`broker` column: alpaca/ib) |
+| `shadow_trades` | Paper + live trades tracked entry→exit with execution quality. IB columns: `broker` (alpaca/ib), `ib_child_order_ids`, `ib_perm_id`, `broker_order_id`. Velocity columns: `time_to_mfe_days`, `mfe_timestamp` |
 | `validation_results` | Preflight validation check results |
-| `attribution_trades` | Paired LLM vs ranker-only trade attribution for alpha measurement |
+| `attribution_trades` | Paired LLM vs ranker-only trade attribution for alpha measurement — syncs to Postgres so the cloud dashboard can see pairs |
+| `daily_ib_health` | IB Gateway 30-day health rollup: uptime %, trade count, error count, reconnect count (30-day gate: >95% market-hours uptime) |
 
 ### Training Pipeline (8)
 
@@ -464,7 +479,7 @@ src/schema/registry.py          <- THE source of truth (51 TableDefs)
 
 ---
 
-## 5. Strategy Decisions (26 confirmed)
+## 5. Strategy Decisions (32 confirmed)
 
 1. Strategy #1 = Pullback-in-uptrend (LIVE)
 2. Strategy #2 = Mean Reversion / Connors RSI(2) -- PAPER-TRADING NOW. NOTE: Deep research (Scaling Levers) finds MR is the WORST diversifier for pullback (rho=0.35-0.50, shared "buy the dip" logic). Breakout/momentum (rho=0.10-0.25) should be evaluated as primary second LIVE strategy. MR remains valuable for Phase 1 data volume.
@@ -492,6 +507,12 @@ src/schema/registry.py          <- THE source of truth (51 TableDefs)
 24. 8 new outcome metadata columns in shadow_trades via schema registry
 25. IB activation gated on validation: broker abstraction ready (v0.14.0), but live IB trading delayed until 60+ trades with rolling Sharpe >1.0, 30-day Gateway stability test, GIPS verifier consultation, and market data classification confirmed. Deep research finding: sub-scale accounts ($5-10K) create GIPS composite construction traps. Validation-first, not infrastructure-first.
 26. Scaling levers research (deep research April 2026): salary injection dominates below $80K (4.5x terminal wealth at $1K/mo). Risk per trade decreases with account size: 2% at $5-100K, 1.5% at $100-500K, 1.25% at $500K-1M, 1.0% at $1M+. Leverage sequence: none below $25K, 1.25-1.5x at $25-100K, portfolio margin at $110K+ on IB. Holding period optimization (10->5-7 days) is highest-impact operational lever for capital velocity. MES futures for Section 1256 tax at $100K+. Ruin probability <0.001% at current parameters.
+27. IB connect/disconnect per-action pattern (Sprint IB-2). Open an IB Gateway socket, perform one order or reconciliation, close it. Long-lived sockets cause `TooManyOrders` on overnight reconnect and silent state drift on Gateway restart. Matching pattern documented in `docs/research/ib-async-event-patterns.md`.
+28. `outsideRth=True` mandatory on all live orders (Sprint IB-5). Without it, limit-price brackets sitting at stops can be cancelled by IB's RTH-only default when a Gateway reconnect lands outside 9:30–4:00. Every order submitted via `IBBroker.submit_order` sets this unconditionally.
+29. OcaType 3 (Reduce-Size) for IB bracket groups (Sprint IB-5). OcaType 1 cancels the surviving child if any sibling fills partially; OcaType 2 does nothing; OcaType 3 reduces the sibling's size in lock-step. This matches Alpaca's bracket semantics and avoids orphaned take-profit or stop orders after a partial fill.
+30. permId tracking for cross-session IB order lookups (Sprint IB-2). `orderId` resets on Gateway restart; `permId` survives. Every IB trade row stores `ib_perm_id` alongside the transient `orderId` so reconciliation after a 2AM Gateway restart can still find its own orders.
+31. 20% performance buffer on IB paper before live activation (Sprint IB-6). Gate `live_trading.broker: ib` in config on: >95% Gateway uptime over 30 market days, and 60+ paper trades with IB-through Sharpe ≥ 0.2 below the Alpaca baseline. Accepts a small expected edge haircut to stay clear of the validation-first rule (SD#25).
+32. Capital velocity — select faster, don't exit faster (docs/research/capital-velocity-optimization.md). Shortening the average hold reduces capital lockup (`sqrt(N)` Sharpe scaling), but tightening stops or timeouts systematically cuts winners short. The correct lever is entry selection: when multiple candidates compete for limited slots, prefer the setup most likely to resolve quickly. Exit mechanics stay mechanical (SD#18). `time_to_mfe_days` + `mfe_timestamp` instrumented on `shadow_trades`; full velocity analysis + `velocity_score` gated on 50 closed trades.
 
 ---
 

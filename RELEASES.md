@@ -42,12 +42,67 @@
 | Watch loop uptime | 7 consecutive days without crash | Clock started Apr 4 |
 | Alpha attribution running | ≥50 paired trades | Accumulating (deployed v0.10.0) |
 | Stress test completed | 2008/2020/2022 scenarios | Deployed, runs Sunday 9 PM |
-| Schema registry | All tables, zero DDL outside | ✅ Done (49 tables) |
+| Schema registry | All tables, zero DDL outside | ✅ Done (53 tables) |
 | CI guardrails | 9 tests, Dependabot | ✅ Done (v0.11.0) |
 
 ---
 
 ## Releases
+
+### v0.17.0 — IB Integration Complete + Dashboard Overhaul + Training Backfill (2026-04-12)
+
+The first release to ship the full Interactive Brokers stack alongside Alpaca,
+plus an end-to-end dashboard rewrite and a 703-row training backfill. Tagged
+out of `main` after twelve merged feature branches.
+
+**IB integration (7 sprints, IB-1 → IB-7):**
+- Broker abstraction (`trading/broker_interface.py`, `broker_factory.py`)
+- IB adapter via `ib_async` (`trading/ib_broker.py`), status module (`ib_status.py`)
+- Shadow mode + dual-execution routing (score-gated paper trades to IB)
+- Production hardening: reconnect backoff, bracket verification, `outsideRth=True`,
+  OcaType 3, permId tracking (SD#27–30)
+- Paper trading activation: `scripts/validate_ib_gateway.py`,
+  `daily_ib_health` schema table, Gateway status card on Health page,
+  EOD digest IB section
+- Integration validation: 16 end-to-end tests (`tests/test_ib_integration.py`),
+  `scripts/validate_ib_integration.py`, 6-phase smoke test checklist
+  (`docs/operations/ib-smoke-test.md`)
+- 20% IB paper performance buffer gate before live activation (SD#31)
+
+**Dashboard (4 sprints, DB-1 → DB-FINAL):**
+- DB-1 data integrity — quarantine sync to Postgres, model-version Ollama
+  fallback, `council.auto_apply_parameters` advisory guardrail,
+  Flywheel Velocity cycle-anchored, version header dynamic
+- DB-2a bug fixes — Packets prompt-leak strip, live-ledger current_price,
+  OpenPositionCard monitor cards, ledger merge + broker filter, Strategy
+  win/loss overlay, StressTest latest-only, Monitoring crash
+- DB-2b features — Broker Comparison nav rebrand, CTO by-broker breakdown,
+  Logs export-errors + clear-stale, outcome distribution, per-collector
+  success/failure logging, IB docs index
+- DB-3 polish — Architecture diagram IB nodes + broker router,
+  Simulation regime selector, StressTest +4 scenarios (2018 Q4, 2011 debt
+  ceiling, 2015 China deval, 2024 yen unwind), IB Settings section,
+  Capital Velocity page
+- DB-FINAL cleanup — time_to_mfe instrumentation (3 tests), attribution
+  warning-level + defensive _parse_price, mobile sidebar overlay, non-draggable
+  ReactFlow with MiniMap removed, 15 data-testid attributes
+
+**Training:**
+- 703 regime-diverse training examples imported; dataset now 1,722 rows
+- Conviction recalibrated to 1-8 (was 5-9)
+- Leakage check passed (59.8%)
+- Halcyon-v2.0.0 retrain in progress
+
+**Research:**
+- `docs/research/capital-velocity-optimization.md` (Strategy Decision #32:
+  select faster, don't exit faster)
+- 4 IB deep-research docs (best practices, async event patterns, Windows
+  stability, OCA/Gateway-restart behavior)
+- `docs/research/deep-research-ib-best-practices.md` hub doc
+
+**Counts at tag:**
+- 219 Python files, 140 test files, 1,734 tests
+- 24 dashboard pages, 91 research docs, 53 schema tables
 
 ### v0.15.3 — Production Sweep (2026-04-08)
 **14 issues closed in 3 phases. Branch: `fix/production-sweep`.**

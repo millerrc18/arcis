@@ -164,6 +164,12 @@ def run_universe_scan(ctx: ScanContext) -> ScanResult:
         packet = build_packet_from_features(ticker, feat, ctx.config)
 
         # Attribution Phase 1: BEFORE LLM
+        #
+        # DB-FINAL Task 2: _parse_price can return 0 or None on unusual
+        # entry_zone formats ("$150 area", "150-152"). Writing 0s into
+        # attribution_trades makes the ranker-only simulation meaningless,
+        # so skip the row entirely and surface a warning instead of a
+        # silent logger.debug.
         attr_id = None
         try:
             from src.attribution.logger import log_attribution_before_llm
@@ -171,10 +177,18 @@ def run_universe_scan(ctx: ScanContext) -> ScanResult:
             _entry = _parse_price(packet.entry_zone)
             _stop = _parse_price(packet.stop_invalidation)
             _tgt = _parse_price(packet.targets.split("/")[0]) if packet.targets else 0
-            attr_id = log_attribution_before_llm(
-                ticker, candidate["score"], _entry, _stop, _tgt)
+            if not (_entry and _stop and _tgt):
+                logger.warning(
+                    "[SCAN] Attribution Phase 1 skipped for %s — unparseable price "
+                    "(entry_zone=%r stop=%r targets=%r → entry=%s stop=%s tgt=%s)",
+                    ticker, packet.entry_zone, packet.stop_invalidation,
+                    packet.targets, _entry, _stop, _tgt,
+                )
+            else:
+                attr_id = log_attribution_before_llm(
+                    ticker, candidate["score"], _entry, _stop, _tgt)
         except Exception as e:
-            logger.debug("[SCAN] Attribution Phase 1 failed for %s: %s", ticker, e)
+            logger.warning("[SCAN] Attribution Phase 1 failed for %s: %s", ticker, e)
 
         packet = enhance_packet_with_llm(packet, feat, ctx.config)
         # #329: Track conviction parse rate (5 = default when parsing fails)
@@ -200,7 +214,7 @@ def run_universe_scan(ctx: ScanContext) -> ScanResult:
                 action = "taken" if conviction is not None else "conviction_none"
                 log_attribution_after_llm(attr_id, action, conviction, rec_id)
             except Exception as e:
-                logger.debug("[SCAN] Attribution Phase 2 failed: %s", e)
+                logger.warning("[SCAN] Attribution Phase 2 failed: %s", e)
         print(f"  -> Logged {ticker}: {rec_id}")
 
         # Shadow trade execution
@@ -221,8 +235,8 @@ def run_universe_scan(ctx: ScanContext) -> ScanResult:
             try:
                 from src.attribution.logger import log_attribution_after_llm
                 log_attribution_after_llm(attr_id, "rejected")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("[SCAN] Attribution rejected-mark failed: %s", e)
 
         if trade_id:
             # Live trade execution (dual execution if enabled)

@@ -95,7 +95,7 @@ export default function Health() {
   }))
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text-primary)' }}>System Health</h2>
@@ -117,7 +117,7 @@ export default function Health() {
 
       {/* Build Score hero section */}
       {hasBuild && (
-        <div className="arcis-card" style={{ padding: '24px' }}>
+        <div className="arcis-card" data-testid="build-score-card" style={{ padding: '24px' }}>
           <div className="flex flex-col lg:flex-row gap-6">
             {/* Score display */}
             <div className="flex flex-col items-center lg:items-start gap-1 min-w-[160px]">
@@ -199,7 +199,7 @@ export default function Health() {
 
       {/* IB Gateway Status */}
       {ibData && !ibData.error && (
-        <div className="arcis-card" style={{ padding: '24px' }}>
+        <div className="arcis-card" data-testid="ib-status-card" style={{ padding: '24px' }}>
           <div className="flex items-center justify-between mb-4">
             <div className="text-xs uppercase tracking-wide" style={{ color: 'var(--arcis-text-secondary)', letterSpacing: '0.06em' }}>
               IB Gateway
@@ -252,7 +252,7 @@ export default function Health() {
       ) : (
         <>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <div className="arcis-card lg:col-span-1" style={{ padding: '24px' }}>
+            <div className="arcis-card lg:col-span-1" data-testid="hshs-composite" style={{ padding: '24px' }}>
               <div className="text-xs uppercase tracking-wide mb-2" style={{ color: 'var(--arcis-text-secondary)', letterSpacing: '0.06em' }}>
                 HSHS Composite
               </div>
@@ -275,7 +275,7 @@ export default function Health() {
               </div>
             </div>
 
-            <div className="arcis-card lg:col-span-2">
+            <div className="arcis-card lg:col-span-2" data-testid="hshs-radar">
               <h3 className="text-sm uppercase tracking-wide mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>
                 HSHS Radar
               </h3>
@@ -309,7 +309,7 @@ export default function Health() {
         </>
       )}
       {/* Model History */}
-      <div className="arcis-card">
+      <div className="arcis-card" data-testid="model-history">
         <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>Model History</h3>
         {trainingHistory && trainingHistory.length > 1 ? (
           <div className="space-y-3">

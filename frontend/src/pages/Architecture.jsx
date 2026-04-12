@@ -1,5 +1,4 @@
 import {
-  MiniMap,
   useNodesState,
   useEdgesState,
 } from '@xyflow/react'
@@ -154,12 +153,12 @@ export default function Architecture() {
   const [edges, , onEdgesChange] = useEdgesState(initialEdges)
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 md:space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold" style={{ color: 'var(--arcis-text-primary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>System Architecture</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--arcis-text-secondary)' }}>
-            Interactive pipeline diagram — drag nodes, scroll to zoom
+            System pipeline diagram — scroll to zoom
           </p>
         </div>
         <div className="flex gap-3 flex-wrap">
@@ -178,15 +177,11 @@ export default function Architecture() {
         nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
+        nodesDraggable={false}
+        nodesConnectable={false}
         className="arcis-card"
         style={{ height: 'calc(100vh - 180px)', padding: 0, overflow: 'hidden', background: 'var(--arcis-bg-elevated)' }}
-      >
-        <MiniMap
-          style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 2 }}
-          nodeColor="#3B82F6"
-          maskColor="rgba(5, 5, 7, 0.7)"
-        />
-      </FlowDiagram>
+      />
     </div>
   )
 }

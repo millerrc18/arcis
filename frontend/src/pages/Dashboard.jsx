@@ -257,7 +257,7 @@ export default function Dashboard() {
   const hasTrades = closedCount >= 2
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text)' }}>Dashboard</h2>
         <div className="flex items-center gap-3">
