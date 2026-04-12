@@ -1,5 +1,58 @@
 # Changelog
 
+## [Unreleased] — Dashboard Data Integrity (Sprint DB-1)
+
+### Data fixes
+- **fix:** `scripts/sync_quarantine_to_postgres.py` — one-time migration that pushes
+  locally-quarantined `shadow_trades.quarantined=1` flags to Render Postgres. The
+  normal sync is incremental on `updated_at`; quarantine UPDATEs run by
+  `scripts/quarantine_april10.py` never touched that column, so 17+ issues across
+  the dashboard were reading compromised rows despite every cloud route filtering
+  on `COALESCE(quarantined, 0) = 0`. The filter was correct; the data wasn't.
+- **fix:** `scripts/quarantine_april10.py` now also bumps `updated_at` on every
+  UPDATE so future runs sync automatically without a dedicated migration.
+- **fix:** `scripts/backfill_model_version.py` — one-time backfill of
+  `recommendations.model_version = 'halcyon-v1.0.0'` for NULL rows, unblocking
+  Model Performance dashboard attribution.
+
+### Detection + display
+- **fix:** `get_active_model_name()` now falls back to Ollama (`/api/ps`) then the
+  config `llm.model` value when `model_versions` is empty. Cloud deployments with
+  an unpopulated table no longer report a misleading "base".
+- **feat:** `src.llm.client.get_loaded_model_name()` — non-recursive helper used by
+  the versioning fallback.
+- **fix:** Header bar version string is now resolved from `ARCIS_VERSION` env var
+  → `VERSION` file → `git describe --tags --abbrev=0` → hardcoded fallback, with
+  `lru_cache` so each request is cheap.
+- **fix:** DB Schema page reads the live table count from `/system/table-counts`
+  and the domain count from the cluster config instead of hardcoding
+  "40 tables across 6 domains".
+- **fix:** Settings page — `shadow_trading.timeout_days` and
+  `strategies.pullback.timeout_days` now resolve to actual config keys; Min
+  Conviction Score renders a "Disabled" pill when the value is 0 or null.
+- **fix:** System Health indicators display "CLOUD" (title: "local status
+  unavailable") instead of "Off" when running against the cloud API, which
+  cannot reach local services like Ollama.
+
+### Metrics
+- **fix:** HSHS Flywheel Velocity anchors on completed train-deploy cycles
+  (`version_count - 1`); scores zero with only one deployed model. Data growth
+  and recent volume are scaled by a spin factor that's zero until the first
+  cycle, so mere data accumulation no longer inflates the score.
+- **fix:** Council agent track-record query in `value_tracker.py` now applies
+  `COALESCE(st.quarantined, 0) = 0` to the `shadow_trades` join.
+
+### Safety
+- **feat:** `council.auto_apply_parameters` config flag (default **false**).
+  While false, the council logs recommended parameter changes for counterfactual
+  attribution but does NOT rewrite live config. Enforces the FINSABER Phase 1
+  authority boundary. Session result JSON now carries
+  `session_meta.advisory_only` so the dashboard can label sessions as advisory.
+
+### Tests
+- **test:** `test_versioning.py` — new `monkeypatch`-based test for the Ollama
+  fallback path of `get_active_model_name`.
+
 ## [Unreleased] — IB Integration Validation (Sprint IB-7)
 
 ### Integration Tests (16 tests)

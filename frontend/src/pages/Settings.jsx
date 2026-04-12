@@ -11,11 +11,11 @@ import { Settings2, Shield, Brain, Clock, RotateCcw } from 'lucide-react'
 const SETTING_META = {
   'shadow_trading.max_positions': { label: 'Max Positions', type: 'number', section: 'Trading', min: 1, max: 100, desc: 'Maximum concurrent open positions' },
   'shadow_trading.enabled': { label: 'Enabled', type: 'toggle', section: 'Trading', desc: 'Enable shadow trading execution' },
-  'shadow_trading.timeout_days.default': { label: 'Timeout Days (Default)', type: 'number', section: 'Trading', min: 1, max: 60, desc: 'Default trade timeout period' },
-  'shadow_trading.timeout_days.pullback': { label: 'Timeout Days (Pullback)', type: 'number', section: 'Trading', min: 1, max: 60, desc: 'Pullback setup timeout period' },
+  'shadow_trading.timeout_days': { label: 'Timeout Days (Default)', type: 'number', section: 'Trading', min: 1, max: 60, desc: 'Default trade timeout period' },
+  'strategies.pullback.timeout_days': { label: 'Timeout Days (Pullback)', type: 'number', section: 'Trading', min: 1, max: 60, desc: 'Pullback setup timeout period' },
   'risk.planned_risk_pct_min': { label: 'Risk % Min', type: 'number', section: 'Risk', min: 0.001, max: 0.1, step: 0.001, desc: 'Minimum position risk percentage' },
   'risk.planned_risk_pct_max': { label: 'Risk % Max', type: 'number', section: 'Risk', min: 0.001, max: 0.1, step: 0.001, desc: 'Maximum position risk percentage' },
-  'llm.min_conviction_score': { label: 'Min Conviction Score', type: 'number', section: 'Model', min: 0, max: 100, desc: 'Minimum score to enter a trade' },
+  'llm.min_conviction_score': { label: 'Min Conviction Score', type: 'number', section: 'Model', min: 0, max: 100, desc: 'Minimum score to enter a trade (0 or blank = disabled)', disabledWhen: (v) => v == null || v === 0 },
   'llm.enabled': { label: 'Enabled', type: 'toggle', section: 'Model', desc: 'Enable LLM inference for trade scoring' },
   'scheduler.scan_interval_minutes': { label: 'Scan Interval (min)', type: 'number', section: 'Scheduler', min: 5, max: 120, desc: 'Minutes between market scans' },
 }
@@ -90,28 +90,38 @@ function SettingInput({ settingKey, meta, currentValue, overrideInfo, onUpdate, 
       </div>
       <div className="flex items-center gap-2">
         {saveAnim && <span className="text-xs" style={{ color: 'var(--arcis-success)' }}>{saveAnim === 'saving' ? 'Saving...' : 'Saved \u2713'}</span>}
-        <input
-          type="number"
-          value={localValue ?? ''}
-          min={meta.min}
-          max={meta.max}
-          step={meta.step || 1}
-          disabled={pending}
-          className="w-28 text-right text-sm px-3 py-1.5"
-          style={{
+        {meta.disabledWhen && meta.disabledWhen(displayValue) ? (
+          <span className="text-xs px-2 py-1" style={{
             borderRadius: 'var(--radius-sm)',
             background: 'var(--arcis-bg-elevated)',
             border: '1px solid var(--arcis-border)',
-            color: 'var(--arcis-text-primary)',
+            color: 'var(--arcis-text-muted)',
             fontFamily: 'var(--font-mono)',
-          }}
-          onChange={(e) => setLocalValue(e.target.value)}
-          onBlur={(e) => {
-            const v = meta.step && meta.step < 1 ? parseFloat(e.target.value) : parseInt(e.target.value, 10)
-            if (!isNaN(v) && v !== displayValue) { onUpdate(settingKey, v); showSaveAnim() }
-          }}
-          onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur() }}
-        />
+          }}>Disabled</span>
+        ) : (
+          <input
+            type="number"
+            value={localValue ?? ''}
+            min={meta.min}
+            max={meta.max}
+            step={meta.step || 1}
+            disabled={pending}
+            className="w-28 text-right text-sm px-3 py-1.5"
+            style={{
+              borderRadius: 'var(--radius-sm)',
+              background: 'var(--arcis-bg-elevated)',
+              border: '1px solid var(--arcis-border)',
+              color: 'var(--arcis-text-primary)',
+              fontFamily: 'var(--font-mono)',
+            }}
+            onChange={(e) => setLocalValue(e.target.value)}
+            onBlur={(e) => {
+              const v = meta.step && meta.step < 1 ? parseFloat(e.target.value) : parseInt(e.target.value, 10)
+              if (!isNaN(v) && v !== displayValue) { onUpdate(settingKey, v); showSaveAnim() }
+            }}
+            onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur() }}
+          />
+        )}
       </div>
     </div>
   )
@@ -246,12 +256,21 @@ export default function Settings() {
               ['Shadow', status.shadow_trading_enabled],
               ['Training', status.training_enabled],
               ['Bootcamp', status.bootcamp_enabled],
-            ].map(([label, ok]) => (
-              <div key={label} className="flex items-center justify-between p-2 rounded" style={{ background: 'var(--arcis-bg-elevated)' }}>
-                <span style={{ color: 'var(--arcis-text-primary)' }}>{label}</span>
-                <StatusBadge text={ok ? 'OK' : 'Off'} variant={ok ? 'success' : 'neutral'} />
-              </div>
-            ))}
+            ].map(([label, ok]) => {
+              const offLabel = IS_CLOUD ? 'CLOUD' : 'Off'
+              const offTitle = IS_CLOUD ? 'local status unavailable' : undefined
+              return (
+                <div
+                  key={label}
+                  className="flex items-center justify-between p-2 rounded"
+                  style={{ background: 'var(--arcis-bg-elevated)' }}
+                  title={ok ? undefined : offTitle}
+                >
+                  <span style={{ color: 'var(--arcis-text-primary)' }}>{label}</span>
+                  <StatusBadge text={ok ? 'OK' : offLabel} variant={ok ? 'success' : 'neutral'} />
+                </div>
+              )
+            })}
           </div>
         </div>
       )}

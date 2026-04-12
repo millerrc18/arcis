@@ -73,6 +73,35 @@ def is_llm_available() -> bool:
         return False
 
 
+def get_loaded_model_name() -> str:
+    """Return the name of the currently-loaded Ollama model.
+
+    Queries ``/api/ps`` for the running model. Falls back to the config's
+    ``llm.model`` value when Ollama is unreachable. Returns ``"unknown"`` only
+    when both sources fail. Used by training.versioning.get_active_model_name
+    as a fallback when model_versions has no active row — the DB may be empty
+    on a cloud deployment while Ollama still reports the correct model locally.
+
+    Does not consult the model_versions table to avoid recursion with the
+    caller.
+    """
+    try:
+        config = load_config()
+        llm_cfg = config.get("llm", {})
+        base_url = llm_cfg.get("base_url", "http://localhost:11434")
+        resp = requests.get(f"{base_url}/api/ps", timeout=3)
+        if resp.status_code == 200:
+            models = (resp.json() or {}).get("models") or []
+            if models and models[0].get("name"):
+                return models[0]["name"]
+        cfg_model = llm_cfg.get("model")
+        if cfg_model:
+            return cfg_model
+    except Exception as exc:
+        logger.debug("get_loaded_model_name failed: %s", exc)
+    return "unknown"
+
+
 def _check_ollama_health_or_restart() -> bool:
     """Check Ollama health; attempt restart if unresponsive (#388).
 

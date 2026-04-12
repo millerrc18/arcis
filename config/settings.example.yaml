@@ -506,6 +506,12 @@ council:
                                # Round 3: final vote (rarely needed).
   temperature: 0.8             # Agent creativity. Higher = more diverse opinions.
   max_session_cost: 2.00       # Cost cap in dollars. Skips Round 2 if exceeding.
+  auto_apply_parameters: false # FINSABER guardrail (Phase 1): when false, the
+                               # council's parameter recommendations are logged
+                               # for counterfactual analysis but NOT applied to
+                               # live config. Defaults remain in force. Flip to
+                               # true only once the council has demonstrated
+                               # positive attributed value (Phase 2).
 
 
 # ─── EXECUTION ──────────────────────────────────────────────────────────
