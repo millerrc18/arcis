@@ -819,6 +819,7 @@ VIX >40, system offline.
 | 16 | MR integration (end-to-end) | DONE -- mr_scan_service.py, watch.py line 1273 |
 | 17 | Codebase refactor (Sprint 5) | DONE -- watch.py 42% reduction, telegram.py 50% reduction |
 | 18 | Dashboard data integrity (8 tasks) | DONE -- v0.16.0, 5 root causes fixed |
+| 18a | Dashboard data integrity (DB-1, 9 tasks) | IN PROGRESS on fix/dashboard-data-integrity -- quarantine sync to Postgres, model version fallback + backfill, dynamic version header, DB Schema live counts, Settings display fixes, Flywheel Velocity cycle-anchored, council advisory-only flag |
 | 19 | Telegram notification gaps | DONE -- scan_service opens + reconcile closes |
 | -- | Strategy dashboard enhancement (7 sections) | QUEUED -- spec at docs/decisions/strategy-dashboard-spec.md |
 | -- | Risk scaling tiers implementation | QUEUED -- spec at docs/decisions/risk-scaling-tiers-spec.md |

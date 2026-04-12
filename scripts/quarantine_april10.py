@@ -1,42 +1,54 @@
 """One-time script to quarantine April 10 cascade records.
 
 Run: python scripts/quarantine_april10.py
+
+Every UPDATE below also bumps ``updated_at``. shadow_trades sync is incremental
+on that column, so touching it is the only way quarantine flags reach Postgres
+without a dedicated migration. A one-time backfill for rows quarantined before
+this change lives in scripts/sync_quarantine_to_postgres.py.
 """
 import sqlite3
 import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 log = logging.getLogger(__name__)
 
 DB_PATH = "ai_research_desk.sqlite3"
+ET = ZoneInfo("America/New_York")
 
 
 def main():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    now_iso = datetime.now(ET).isoformat()
 
     # 1. Quarantine rejected trades (never executed)
     rejected = conn.execute(
-        "UPDATE shadow_trades SET quarantined = 1 "
-        "WHERE exit_reason = 'order_rejected_buying_power' AND quarantined = 0"
+        "UPDATE shadow_trades SET quarantined = 1, updated_at = ? "
+        "WHERE exit_reason = 'order_rejected_buying_power' AND quarantined = 0",
+        (now_iso,),
     ).rowcount
     log.info(f"Quarantined {rejected} rejected trades (buying power failures)")
 
     # 2. Quarantine reconciled-stale with NO exit price
     no_exit = conn.execute(
-        "UPDATE shadow_trades SET quarantined = 1 "
+        "UPDATE shadow_trades SET quarantined = 1, updated_at = ? "
         "WHERE exit_reason = 'reconciled_stale' "
         "AND (actual_exit_price IS NULL OR actual_exit_price = '' OR actual_exit_price = '0') "
-        "AND quarantined = 0"
+        "AND quarantined = 0",
+        (now_iso,),
     ).rowcount
     log.info(f"Quarantined {no_exit} reconciled-stale trades (no exit price)")
 
     # 3. Quarantine stale open WMT trade
     wmt = conn.execute(
         "UPDATE shadow_trades SET quarantined = 1, status = 'closed', "
-        "exit_reason = 'reconciled_stale' "
+        "exit_reason = 'reconciled_stale', updated_at = ? "
         "WHERE ticker = 'WMT' AND status = 'open' "
-        "AND trade_id LIKE 'bb10c4b7%' AND quarantined = 0"
+        "AND trade_id LIKE 'bb10c4b7%' AND quarantined = 0",
+        (now_iso,),
     ).rowcount
     log.info(f"Quarantined {wmt} stale WMT open trade(s)")
 

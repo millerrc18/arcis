@@ -405,11 +405,24 @@ class CouncilEngine:
         recommended value vs the rate-limited applied value, enabling
         counterfactual analysis: "what would have happened if we applied
         the council's recommendation without rate limiting?"
+
+        FINSABER guardrail: when ``council.auto_apply_parameters`` is false
+        (the Phase 1 default), the council is advisory only. Recommendations
+        are logged for attribution but the *applied* values are pinned to the
+        current live parameters — the council never rewrites live config
+        until its value has been demonstrated. A prior incident (#32) saw
+        ``cash_reserve_target_pct`` auto-applied in violation of the FINSABER
+        authority boundaries; this flag makes that violation impossible by
+        default.
         """
+        from src.config import load_config
         from src.council.value_tracker import get_current_parameters, log_parameter_change
 
         current_params = get_current_parameters(self.db_path)
         recommended = aggregation.get("parameter_recommendations", {})
+
+        council_cfg = load_config().get("council", {}) or {}
+        auto_apply = bool(council_cfg.get("auto_apply_parameters", False))
 
         if aggregation["confidence_avg"] < RATE_LIMITS["min_confidence_to_apply"]:
             applied = PARAMETER_DEFAULTS.copy()
@@ -421,6 +434,14 @@ class CouncilEngine:
         else:
             applied = apply_rate_limiters(recommended, current_params, self.db_path)
             rate_limited = applied.pop("_rate_limited", False)
+
+        if not auto_apply:
+            logger.info(
+                "[COUNCIL] auto_apply_parameters=false — advisory only. "
+                "Recommended=%s, would-have-applied=%s, current=%s",
+                recommended, applied, current_params,
+            )
+            applied = dict(current_params)
 
         for param_name, applied_value in applied.items():
             if param_name == "scan_aggressiveness":
@@ -494,8 +515,12 @@ class CouncilEngine:
         signal, not noise.  A 4-1 vote where the lone dissenter is
         red_team may carry more information than a 5-0 rubber stamp.
         """
+        from src.config import load_config
         aggregation = round_data["aggregation"]
         final_assessments = round_data["final_assessments"]
+        auto_apply = bool(
+            (load_config().get("council") or {}).get("auto_apply_parameters", False)
+        )
         dissent = [
             {
                 "agent": assessment["agent"],
@@ -513,6 +538,7 @@ class CouncilEngine:
                 "cost_usd": cost,
                 "rounds_completed": round_data["rounds_completed"],
                 "custom_question": custom_question,
+                "advisory_only": not auto_apply,
             },
             "market_context": shared_context,
             "votes": {

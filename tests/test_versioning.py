@@ -23,10 +23,26 @@ def _tmp_db():
     return path
 
 
-def test_get_active_model_name_returns_base_when_empty():
+def test_get_active_model_name_returns_base_when_empty(monkeypatch):
+    """With no active row AND no Ollama/config fallback available, return 'base'.
+
+    The fallback is injected via src.llm.client.get_loaded_model_name; mocking
+    it to return 'unknown' exercises the true empty-DB path. The production
+    fallback (added alongside this test) lets cloud deployments where
+    model_versions is empty still report the locally-loaded model name
+    instead of a useless 'base'.
+    """
     db = _tmp_db()
     init_training_tables(db)
+    monkeypatch.setattr("src.llm.client.get_loaded_model_name", lambda: "unknown")
     assert get_active_model_name(db) == "base"
+
+
+def test_get_active_model_name_falls_back_to_ollama(monkeypatch):
+    db = _tmp_db()
+    init_training_tables(db)
+    monkeypatch.setattr("src.llm.client.get_loaded_model_name", lambda: "halcyon-v1.0.0")
+    assert get_active_model_name(db) == "halcyon-v1.0.0"
 
 
 def test_register_model_version_creates_active():

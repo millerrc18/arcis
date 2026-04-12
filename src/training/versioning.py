@@ -267,9 +267,24 @@ def update_config_model(version_name: str, config_path: str = "config/settings.l
 
 
 def get_active_model_name(db_path: str = DB_PATH) -> str:
-    """Return active model version name, or 'base' if none exists."""
+    """Return active model version name, with Ollama fallback.
+
+    If ``model_versions`` has no active row (e.g. on a cloud deployment where
+    the table was never populated), consult Ollama's ``/api/ps`` via
+    ``src.llm.client.get_loaded_model_name``. Only returns ``"base"`` when
+    both sources fail.
+    """
     version = get_active_model_version(db_path)
-    return version["version_name"] if version else "base"
+    if version:
+        return version["version_name"]
+    try:
+        from src.llm.client import get_loaded_model_name
+        name = get_loaded_model_name()
+        if name and name != "unknown":
+            return name
+    except Exception as exc:
+        logger.debug("Ollama fallback for active model failed: %s", exc)
+    return "base"
 
 
 def get_performance_by_version(db_path: str = DB_PATH) -> list[dict]:

@@ -141,6 +141,9 @@ export default function DBSchema() {
   const nodes = useMemo(() => buildNodes(counts), [counts])
   const edges = useMemo(() => buildEdges(), [])
 
+  const tableCount = counts ? Object.keys(counts).length : null
+  const domainCount = Object.keys(CLUSTERS).length
+
   const [flowNodes, , onNodesChange] = useNodesState(nodes)
   const [flowEdges, , onEdgesChange] = useEdgesState(edges)
 
@@ -154,7 +157,7 @@ export default function DBSchema() {
         <div>
           <h1 className="text-2xl font-bold" style={{ color: 'var(--arcis-text-primary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>DB Schema</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--arcis-text-secondary)' }}>
-            40 tables across 6 domains — dashed lines show foreign keys, counts refresh every 5 min
+            {tableCount != null ? `${tableCount} tables` : 'loading tables'} across {domainCount} domains — dashed lines show foreign keys, counts refresh every 5 min
           </p>
         </div>
         <div className="flex gap-3 flex-wrap">

@@ -236,23 +236,25 @@ def _score_data_asset(conn: sqlite3.Connection) -> float:
 
 
 def _score_flywheel_velocity(conn: sqlite3.Connection) -> float:
-    """Score based on model version count, training data growth rate.
+    """Score based on *completed* train-deploy-observe cycles.
 
-    Measures the speed of the improve-train-deploy cycle:
-      - Version count (40 pts): each new model version = 20 pts
-      - Growth rate (30 pts): week-over-week data growth ratio
-      - Recent volume (30 pts): raw examples in the last 7 days
+    A flywheel needs motion. The first deployed model is the starting push —
+    not a cycle — so ``cycles = version_count - 1``. Data growth and recent
+    volume are scaled by a "spin factor" that's zero until the first cycle
+    completes; without a second model version, the flywheel hasn't turned and
+    training-data activity alone doesn't count as velocity (HSHS issue #69).
 
-    A system with 0 growth is stagnating — it is not learning from its
-    own trades.  This dimension incentivizes continuous iteration rather
-    than "set and forget" deployment.
+      - Cycle score (50 pts): 25 pts per completed cycle, capped at 50.
+      - Growth score (25 pts): week-over-week growth rate * 12.5 * spin.
+      - Recent score (25 pts): recent_week examples * 2.5 * spin.
     """
     try:
-        # Model version count
-        cur = conn.execute("SELECT COUNT(*) FROM model_versions")
+        cur = conn.execute(
+            "SELECT COUNT(*) FROM model_versions WHERE status IN ('active', 'retired', 'evaluation')"
+        )
         version_count = cur.fetchone()[0] or 0
+        cycles = max(0, version_count - 1)
 
-        # Training data growth: examples in last 7 days vs prior 7 days
         cur = conn.execute(
             "SELECT COUNT(*) FROM training_examples "
             "WHERE created_at >= datetime('now', '-7 days')"
@@ -266,20 +268,20 @@ def _score_flywheel_velocity(conn: sqlite3.Connection) -> float:
         )
         prior_week = cur.fetchone()[0] or 0
 
-        # Growth rate
         if prior_week > 0:
             growth_rate = recent_week / prior_week
         elif recent_week > 0:
-            growth_rate = 2.0  # new data from nothing is strong signal
+            growth_rate = 2.0
         else:
             growth_rate = 0.0
 
-        # Scoring
-        version_score = min(40.0, version_count * 20)  # 2 versions = 40
-        growth_score = min(30.0, growth_rate * 15)  # 2x growth = 30
-        recent_score = min(30.0, recent_week * 3)  # 10 recent = 30
+        spin_factor = min(1.0, cycles)
 
-        return min(100.0, version_score + growth_score + recent_score)
+        cycle_score = min(50.0, cycles * 25.0)
+        growth_score = min(25.0, growth_rate * 12.5) * spin_factor
+        recent_score = min(25.0, recent_week * 2.5) * spin_factor
+
+        return min(100.0, cycle_score + growth_score + recent_score)
 
     except Exception as e:
         logger.warning("[HSHS] flywheel_velocity sub-score error: %s", e)

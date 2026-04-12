@@ -243,6 +243,7 @@ def get_agent_track_records(db_path: str = DB_PATH,
                   AND st.status = 'closed'
                   AND cv.direction IN ('bullish', 'bearish')
                   AND st.pnl_dollars IS NOT NULL
+                  AND COALESCE(st.quarantined, 0) = 0
                 """,
                 (cutoff,),
             ).fetchall()
