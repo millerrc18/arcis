@@ -1,4 +1,4 @@
-const CACHE_NAME = 'arcis-dashboard-v1';
+const CACHE_NAME = 'arcis-dashboard-v2';
 const SHELL_ASSETS = [
   '/',
   '/index.html',
@@ -24,7 +24,7 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Network-first for API calls, cache-first for static assets
+  // Network-first for API calls and navigations so deploys are not pinned to stale HTML.
   if (event.request.url.includes('/api/')) {
     event.respondWith(
       fetch(event.request).catch(() =>
@@ -32,6 +32,10 @@ self.addEventListener('fetch', (event) => {
           headers: { 'Content-Type': 'application/json' },
         })
       )
+    );
+  } else if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request).catch(() => caches.match('/index.html'))
     );
   } else {
     event.respondWith(
