@@ -1,5 +1,6 @@
 
 import json, sys, os, torch
+os.environ["PYTHONUTF8"] = "1"  # Fix TRL gptoss.jinja UnicodeDecodeError on Windows
 
 def main():
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig

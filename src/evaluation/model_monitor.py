@@ -41,9 +41,9 @@ def _compute_metrics(trades: list[dict]) -> dict:
             "avg_win_dollars": 0.0, "avg_loss_dollars": 0.0,
         }
 
-    pnl_dollars = [t.get("pnl_dollars") or 0 for t in trades]
-    pnl_pcts = [t.get("pnl_pct") or 0 for t in trades]
-    durations = [t.get("duration_days") or 0 for t in trades]
+    pnl_dollars = [float(t.get("pnl_dollars") or 0) for t in trades]
+    pnl_pcts = [float(t.get("pnl_pct") or 0) for t in trades]
+    durations = [float(t.get("duration_days") or 0) for t in trades]
 
     wins = [p for p in pnl_dollars if p > 0]
     losses = [p for p in pnl_dollars if p < 0]
@@ -113,7 +113,7 @@ def _build_equity_curve(trades: list[dict]) -> list[dict]:
     for t in trades:
         exit_time = t.get("actual_exit_time") or t.get("created_at") or ""
         date = exit_time[:10] if exit_time else ""
-        pnl = t.get("pnl_dollars") or 0
+        pnl = float(t.get("pnl_dollars") or 0)
         cumulative += pnl
         curve.append({"date": date, "cumulative_pnl": round(cumulative, 2)})
     return curve

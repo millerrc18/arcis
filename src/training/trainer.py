@@ -342,7 +342,9 @@ def should_train(db_path: str = DB_PATH) -> tuple[bool, str]:
         return False, "Training disabled in config"
 
     # #330: Cast config values — YAML can store them as strings
-    threshold = int(training_cfg.get("auto_train_threshold", 50))
+    # Default raised to 500 to prevent bulk imports (backfill) from
+    # falsely triggering auto-retrain during normal watch loop cycles.
+    threshold = int(training_cfg.get("auto_train_threshold", 500))
     time_days = int(training_cfg.get("auto_train_time_days", 7))
     min_examples = int(training_cfg.get("auto_train_min_examples", 20))
 
