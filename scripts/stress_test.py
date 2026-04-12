@@ -60,6 +60,13 @@ SCENARIOS = {
     "2008_financial_crisis": {"start": "2008-09-01", "end": "2009-03-31"},
     "2020_covid_crash": {"start": "2020-02-01", "end": "2020-04-30"},
     "2022_bear_market": {"start": "2022-01-01", "end": "2022-10-31"},
+    # DB-3 Task 8 — 4 additional historical stress scenarios. Windows
+    # bracket the draw-up + draw-down so the backtest sees both the
+    # panic phase and the unwind (or failed unwind).
+    "2018_q4_selloff": {"start": "2018-10-01", "end": "2018-12-24"},
+    "2011_debt_ceiling": {"start": "2011-07-15", "end": "2011-10-14"},
+    "2015_china_deval": {"start": "2015-08-03", "end": "2015-10-02"},
+    "2024_yen_unwind": {"start": "2024-07-15", "end": "2024-08-16"},
 }
 
 # Regime-aware bracket parameters (from full-strategy-RESULTS.md Deliverable 3).

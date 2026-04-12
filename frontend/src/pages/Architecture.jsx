@@ -71,10 +71,12 @@ const initialNodes = [
   { id: 'risk', position: { x: 500, y: 265 }, data: { label: 'Risk Governor\n8 Checks + Kill Switch' }, style: nodeStyle(SLATE, RED) },
   { id: 'llm', position: { x: 750, y: 265 }, data: { label: 'halcyon-v1\nPacket Writer' }, style: nodeStyle(SLATE, PURPLE) },
 
-  // Row 4: Execution
-  { id: 'shadow', position: { x: 200, y: 400 }, data: { label: 'Shadow Execution\nAlpaca Brackets' }, style: nodeStyle(SLATE, GREEN) },
-  { id: 'live', position: { x: 450, y: 400 }, data: { label: 'Live Execution\nAlpaca Paper/Live' }, style: nodeStyle(SLATE, GREEN) },
-  { id: 'reconcile', position: { x: 700, y: 400 }, data: { label: 'Reconciliation\nEvery 15 min' }, style: nodeStyle(SLATE, GREEN) },
+  // Row 4: Execution — dual-broker routing (DB-3 Task 7)
+  { id: 'shadow', position: { x: 80, y: 400 }, data: { label: 'Shadow Execution\nAlpaca Brackets' }, style: nodeStyle(SLATE, GREEN) },
+  { id: 'broker_router', position: { x: 300, y: 400 }, data: { label: 'Broker Router\nScore ≥ threshold → IB' }, style: nodeStyle(SLATE, GREEN) },
+  { id: 'live_alpaca', position: { x: 500, y: 370 }, data: { label: 'Alpaca Paper/Live' }, style: nodeStyle(SLATE, GREEN) },
+  { id: 'live_ib', position: { x: 500, y: 430 }, data: { label: 'IB Gateway\nPaper/Live' }, style: nodeStyle(SLATE, GREEN) },
+  { id: 'reconcile', position: { x: 720, y: 400 }, data: { label: 'Reconciliation\nEvery 15 min' }, style: nodeStyle(SLATE, GREEN) },
 
   // Row 5: Training Flywheel
   { id: 'blinding', position: { x: 50, y: 535 }, data: { label: 'Self-Blinding\nGeneration' }, style: nodeStyle(SLATE, PURPLE) },
@@ -83,11 +85,12 @@ const initialNodes = [
   { id: 'curriculum', position: { x: 650, y: 535 }, data: { label: 'Curriculum SFT\n3-Stage Training' }, style: nodeStyle(SLATE, PURPLE) },
   { id: 'eval', position: { x: 850, y: 535 }, data: { label: 'A/B Eval\n+ Holdout' }, style: nodeStyle(SLATE, PURPLE) },
 
-  // Row 6: Infrastructure
-  { id: 'scheduler', position: { x: 100, y: 670 }, data: { label: 'Watch Loop\n24/7 Scheduler' }, style: nodeStyle(SLATE, '#64748B') },
-  { id: 'dashboard', position: { x: 350, y: 670 }, data: { label: 'Arcis Dashboard\n16 Pages' }, style: nodeStyle(SLATE, '#64748B') },
-  { id: 'telegram', position: { x: 600, y: 670 }, data: { label: 'Telegram\nNotifications' }, style: nodeStyle(SLATE, '#64748B') },
-  { id: 'render', position: { x: 830, y: 670 }, data: { label: 'Render\nCloud Deploy' }, style: nodeStyle(SLATE, '#64748B') },
+  // Row 6: Infrastructure — IB Gateway node added for dual-broker support (DB-3 Task 7)
+  { id: 'scheduler', position: { x: 50, y: 670 }, data: { label: 'Watch Loop\n24/7 Scheduler' }, style: nodeStyle(SLATE, '#64748B') },
+  { id: 'ib_gateway_infra', position: { x: 260, y: 670 }, data: { label: 'IB Gateway\nports 4001/4002' }, style: nodeStyle(SLATE, '#64748B') },
+  { id: 'dashboard', position: { x: 470, y: 670 }, data: { label: 'Arcis Dashboard\n23 Pages' }, style: nodeStyle(SLATE, '#64748B') },
+  { id: 'telegram', position: { x: 680, y: 670 }, data: { label: 'Telegram\nNotifications' }, style: nodeStyle(SLATE, '#64748B') },
+  { id: 'render', position: { x: 880, y: 670 }, data: { label: 'Render\nCloud Deploy' }, style: nodeStyle(SLATE, '#64748B') },
 ]
 
 /* Fix for #255 — thicker edges and readable labels */
@@ -109,11 +112,17 @@ const initialEdges = [
   { id: 'e9', source: 'traffic_light', target: 'risk', ...edgeDefaults },
   { id: 'e10', source: 'risk', target: 'llm', ...edgeDefaults },
 
-  // Decision → Execution
+  // Decision → Execution (dual-broker routing)
   { id: 'e11', source: 'risk', target: 'shadow', ...edgeDefaults },
-  { id: 'e12', source: 'risk', target: 'live', ...edgeDefaults },
+  { id: 'e12', source: 'risk', target: 'broker_router', ...edgeDefaults },
+  { id: 'e12a', source: 'broker_router', target: 'live_alpaca', ...edgeDefaults },
+  { id: 'e12b', source: 'broker_router', target: 'live_ib', ...edgeDefaults },
   { id: 'e13', source: 'shadow', target: 'reconcile', ...edgeDefaults },
-  { id: 'e14', source: 'live', target: 'reconcile', ...edgeDefaults },
+  { id: 'e14a', source: 'live_alpaca', target: 'reconcile', ...edgeDefaults },
+  { id: 'e14b', source: 'live_ib', target: 'reconcile', ...edgeDefaults },
+  // IB Gateway provides the socket connection for live_ib
+  { id: 'e14c', source: 'ib_gateway_infra', target: 'live_ib', ...edgeDefaults,
+    style: { ...edgeDefaults.style, stroke: '#475569', strokeDasharray: '3 3' } },
 
   // Execution → Training
   { id: 'e15', source: 'shadow', target: 'blinding', ...edgeDefaults, style: { ...edgeDefaults.style, stroke: PURPLE, strokeDasharray: '5 5' } },

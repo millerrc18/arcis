@@ -40,6 +40,9 @@ function VerdictBadge({ verdict }) {
 export default function Simulation() {
   const [running, setRunning] = useState(false)
   const [runStatus, setRunStatus] = useState(null)
+  // DB-3 Task 6 — regime selector for equity curve overlay. 'all' shows all
+  // at full strength; a specific regime highlights its line and dims the rest.
+  const [highlightedRegime, setHighlightedRegime] = useState('all')
   const qc = useQueryClient()
 
   const { data, isLoading } = useQuery({
@@ -249,7 +252,25 @@ export default function Simulation() {
       {/* Section 2: Equity Curve Overlay */}
       {equityCurveData.length > 0 && (
         <div className="arcis-card">
-          <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>Equity Curves</h3>
+          <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
+            <h3 className="text-sm uppercase tracking-wide" style={{ color: 'var(--arcis-text-secondary)' }}>Equity Curves</h3>
+            {/* DB-3 Task 6: regime selector — highlight one curve, dim the rest */}
+            <select
+              value={highlightedRegime}
+              onChange={(e) => setHighlightedRegime(e.target.value)}
+              className="text-xs px-2 py-1"
+              style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-elevated)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)', outline: 'none' }}
+            >
+              <option value="all">All regimes</option>
+              {latestResults
+                .filter(r => (r.equity_curve_json || []).length > 0)
+                .map((r) => (
+                  <option key={r.scenario} value={r.scenario}>
+                    {r.regime_label || r.scenario}
+                  </option>
+                ))}
+            </select>
+          </div>
           <ResponsiveContainer width="100%" height={200}>
             <LineChart data={equityCurveData}>
               <XAxis dataKey="day" tick={{ fontSize: 10, fill: 'var(--arcis-text-muted)' }} />
@@ -263,15 +284,18 @@ export default function Simulation() {
               {latestResults.map((r, i) => {
                 const curve = r.equity_curve_json || []
                 if (curve.length === 0) return null
+                const isHighlighted = highlightedRegime === 'all' || highlightedRegime === r.scenario
                 return (
                   <Line
                     key={r.scenario}
                     dataKey={r.scenario}
                     name={r.regime_label || r.scenario}
                     stroke={CHART_COLORS[i % CHART_COLORS.length]}
-                    strokeWidth={1.5}
+                    strokeWidth={isHighlighted ? (highlightedRegime !== 'all' && highlightedRegime === r.scenario ? 2.5 : 1.5) : 1}
+                    strokeOpacity={isHighlighted ? 1 : 0.15}
                     dot={false}
                     connectNulls
+                    isAnimationActive={false}
                   />
                 )
               })}

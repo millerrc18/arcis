@@ -9,12 +9,21 @@ const SCENARIO_LABELS = {
   '2008_financial_crisis': '2008 Financial Crisis',
   '2020_covid_crash': '2020 COVID Crash',
   '2022_bear_market': '2022 Bear Market',
+  // DB-3 Task 8 additions
+  '2018_q4_selloff': '2018 Q4 Selloff',
+  '2011_debt_ceiling': '2011 Debt Ceiling',
+  '2015_china_deval': '2015 China Deval',
+  '2024_yen_unwind': '2024 Yen Unwind',
 }
 
 const SCENARIO_COLORS = {
   '2008_financial_crisis': 'var(--arcis-danger)',
   '2020_covid_crash': 'var(--arcis-warning)',
   '2022_bear_market': 'var(--arcis-accent)',
+  '2018_q4_selloff': '#c084fc',
+  '2011_debt_ceiling': '#f472b6',
+  '2015_china_deval': '#60a5fa',
+  '2024_yen_unwind': '#fbbf24',
 }
 
 export default function StressTest() {

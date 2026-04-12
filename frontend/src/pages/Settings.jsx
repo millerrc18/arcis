@@ -6,7 +6,7 @@ import LoadingSpinner from '../components/LoadingSpinner'
 import StatusBadge from '../components/StatusBadge'
 import MetricCard from '../components/MetricCard'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
-import { Settings2, Shield, Brain, Clock, RotateCcw } from 'lucide-react'
+import { Settings2, Shield, Brain, Clock, RotateCcw, GitCompare } from 'lucide-react'
 
 const SETTING_META = {
   'shadow_trading.max_positions': { label: 'Max Positions', type: 'number', section: 'Trading', min: 1, max: 100, desc: 'Maximum concurrent open positions' },
@@ -18,6 +18,14 @@ const SETTING_META = {
   'llm.min_conviction_score': { label: 'Min Conviction Score', type: 'number', section: 'Model', min: 0, max: 100, desc: 'Minimum score to enter a trade (0 or blank = disabled)', disabledWhen: (v) => v == null || v === 0 },
   'llm.enabled': { label: 'Enabled', type: 'toggle', section: 'Model', desc: 'Enable LLM inference for trade scoring' },
   'scheduler.scan_interval_minutes': { label: 'Scan Interval (min)', type: 'number', section: 'Scheduler', min: 5, max: 120, desc: 'Minutes between market scans' },
+  // DB-2 Task 14 (unblocked after Sprint 1 merge): IB broker settings.
+  // These live under live_trading.ib in the config; the toggles are writable
+  // through config_overrides, port/client_id/host are informational (edit YAML).
+  'live_trading.ib.shadow_mode': { label: 'Shadow mode', type: 'toggle', section: 'IB', desc: 'Log what IB would do without executing (no real orders)' },
+  'live_trading.ib.paper_routing': { label: 'Paper routing', type: 'toggle', section: 'IB', desc: 'Route high-score paper trades through IB paper' },
+  'live_trading.ib.paper_routing_threshold': { label: 'Routing threshold', type: 'number', section: 'IB', min: 0, max: 100, desc: 'Score ≥ threshold routes to IB (below stays Alpaca)' },
+  'live_trading.ib.port': { label: 'Gateway port', type: 'number', section: 'IB', min: 1024, max: 65535, desc: '4002 = paper, 4001 = live. Start with 4002.' },
+  'live_trading.ib.client_id': { label: 'Client ID', type: 'number', section: 'IB', min: 1, max: 32, desc: 'IB API client ID; must be unique per connection' },
 }
 
 const SECTION_ICONS = {
@@ -25,6 +33,7 @@ const SECTION_ICONS = {
   Risk: Shield,
   Model: Brain,
   Scheduler: Clock,
+  IB: GitCompare,
 }
 
 function getNestedValue(obj, path) {
