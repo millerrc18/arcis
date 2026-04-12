@@ -104,6 +104,54 @@ Add `data-testid` attributes to key components on Health.jsx, Validation.jsx, an
 
 ---
 
+### Task 8: Comprehensive documentation update (v0.17.0 release prep)
+
+**MASTER.md — full refresh of all 13 sections:**
+
+Section 2 (Current State — Volatile):
+- Release version: v0.17.0
+- Run actual counts: `find src/ -name "*.py" | wc -l` (Python files), `ls frontend/src/pages/*.jsx | wc -l` (dashboard pages), `ls docs/research/*.md | wc -l` (research docs), `find . -name "test_*.py" -o -name "*_test.py" | wc -l` (test files), count DB tables from schema registry
+- Run test suite: `python -m pytest tests/ -x -q --ignore=tests/test_ingestion.py 2>&1 | tail -5`
+- Update sprint history with DB-1 through DB-FINAL
+- Update open issues count from GitHub
+- Update known blockers
+
+Section 3 (Architecture):
+- Add IB broker abstraction: IBBroker adapter, dual-execution routing, shadow mode
+- Add IB Gateway to infrastructure
+- Update component table with new modules (ib_broker.py, ib_status.py, broker_factory.py, validate_ib_gateway.py, validate_ib_integration.py)
+
+Section 4 (Schema):
+- Add new tables: daily_ib_health, attribution_trades (sync status), ib_shadow_log
+- Add new columns: shadow_trades.broker, ib_child_order_ids, ib_perm_id, broker_order_id, time_to_mfe_days, mfe_timestamp
+
+Strategy Decisions section:
+- Add SD#27: Connect/disconnect pattern for IB
+- Add SD#28: outsideRth=True mandatory
+- Add SD#29: OcaType 3 on bracket children
+- Add SD#30: permId tracking (not orderId)
+- Add SD#31: 20% performance buffer for IB paper fills
+- Add SD#32: Capital velocity — select faster, don't exit faster
+
+**CHANGELOG.md:**
+- Consolidate all [Unreleased] entries into [v0.17.0] with date
+- Organize by category: IB Integration, Dashboard, Training, Research
+
+**RELEASES.md:**
+- Add v0.17.0 entry with summary
+
+**README.md:**
+- Update badge counts (tests, files, pages)
+- Add IB integration to features list
+- Update architecture summary
+
+**Verification:**
+- Run `scripts/verify_docs.py` if it exists
+- Verify no stale references to v0.16.x in any doc
+- Verify all file paths referenced in docs actually exist
+
+---
+
 ## Ralph Loop Findings
 
 ### Pass 1:
