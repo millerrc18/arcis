@@ -187,7 +187,7 @@ export default function Notes() {
   if (isLoading) return <LoadingSpinner />
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h2 className="text-xl font-medium uppercase" style={{ color: 'var(--arcis-text-primary)', letterSpacing: '0.06em' }}>Notes</h2>
         <button

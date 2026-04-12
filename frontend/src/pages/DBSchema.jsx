@@ -5,7 +5,6 @@ import {
   ReactFlow,
   Background,
   Controls,
-  MiniMap,
   useNodesState,
   useEdgesState,
 } from '@xyflow/react'
@@ -152,8 +151,8 @@ export default function DBSchema() {
   }, [])
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 md:space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold" style={{ color: 'var(--arcis-text-primary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>DB Schema</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--arcis-text-secondary)' }}>
@@ -178,17 +177,14 @@ export default function DBSchema() {
           onEdgesChange={onEdgesChange}
           onInit={onInit}
           fitView
+          nodesDraggable={false}
+          nodesConnectable={false}
           proOptions={{ hideAttribution: true }}
           style={{ background: 'var(--arcis-bg-elevated)' }}
         >
           <Background color="#1E293B" gap={20} />
           <Controls
             style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 2 }}
-          />
-          <MiniMap
-            style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 2 }}
-            nodeColor="#3B82F6"
-            maskColor="rgba(5, 5, 7, 0.7)"
           />
         </ReactFlow>
       </div>

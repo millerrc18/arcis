@@ -74,7 +74,7 @@ export default function Training() {
   const avgQuality = status?.avg_quality_score
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       {toast && (
         <div className="fixed top-4 right-4 z-50 px-4 py-2 text-sm" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)' }}>
           {toast}

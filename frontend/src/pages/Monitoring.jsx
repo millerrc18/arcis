@@ -67,7 +67,7 @@ export default function Monitoring() {
   const last10 = historyList.slice(-10).reverse()
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       {/* Header */}
       <div>
         <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text-primary)' }}>System Monitoring</h2>
@@ -77,12 +77,14 @@ export default function Monitoring() {
       </div>
 
       {/* Current metrics cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4">
         <MetricCard label="GPU" value={gpuPct != null ? `${Math.round(gpuPct)}%` : '--'} />
         <MetricCard label="CPU" value={cpuPct != null ? `${Math.round(cpuPct)}%` : '--'} />
         <MetricCard label="RAM" value={ramPct != null ? `${ramPct}%` : '--'} />
-        <MetricCard label="Disk" value={diskPct != null ? `${diskPct}%` : '--'} />
-        <div className="arcis-card flex flex-col items-center justify-center gap-1" style={{ padding: '12px' }}>
+        <div data-testid="disk-status">
+          <MetricCard label="Disk" value={diskPct != null ? `${diskPct}%` : '--'} />
+        </div>
+        <div className="arcis-card flex flex-col items-center justify-center gap-1" data-testid="ollama-status" style={{ padding: '12px' }}>
           <div style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--arcis-text-secondary)' }}>Ollama</div>
           <StatusBadge text={ollamaUp ? 'Running' : 'Offline'} variant={ollamaUp ? 'success' : 'danger'} />
           {latest?.ollama_model && (
@@ -95,7 +97,7 @@ export default function Monitoring() {
 
       {/* GPU utilization chart */}
       {points.length > 1 && (
-        <div className="arcis-card" style={{ padding: '20px' }}>
+        <div className="arcis-card" data-testid="resource-chart" style={{ padding: '20px' }}>
           <h3 className="text-sm uppercase tracking-wide mb-3" style={{ color: 'var(--arcis-text-secondary)', letterSpacing: '0.06em' }}>
             GPU Utilization (24h)
           </h3>
@@ -147,7 +149,7 @@ export default function Monitoring() {
       )}
 
       {/* Recent snapshots table */}
-      <div className="arcis-card" style={{ padding: '20px' }}>
+      <div className="arcis-card" data-testid="log-table" style={{ padding: '20px' }}>
         <h3 className="text-sm uppercase tracking-wide mb-3" style={{ color: 'var(--arcis-text-secondary)', letterSpacing: '0.06em' }}>
           Recent Snapshots
         </h3>

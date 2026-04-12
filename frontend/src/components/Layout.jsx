@@ -63,7 +63,7 @@ function StatusBar({ status }) {
 
   return (
     <div
-      className="flex items-center gap-4 px-3 shrink-0 overflow-x-auto"
+      className="hidden md:flex items-center gap-4 px-3 shrink-0 overflow-x-auto"
       style={{
         height: 28,
         background: 'var(--arcis-bg-primary)',
@@ -122,7 +122,7 @@ export default function Layout() {
                 <NavLink key={to} to={to} end={to === '/'}
                   onClick={() => setSidebarOpen(false)}
                   className={({ isActive }) =>
-                    `flex items-center gap-2.5 relative ${
+                    `flex items-center gap-2.5 relative min-h-[44px] md:min-h-0 ${
                       isActive
                         ? 'text-[var(--arcis-text-primary)] font-medium'
                         : 'text-[var(--arcis-text-secondary)] hover:text-[var(--arcis-text-primary)]'
@@ -174,7 +174,7 @@ export default function Layout() {
           <ThemeToggle />
         </header>
         <StatusBar status={status} />
-        <main className="flex-1 overflow-y-auto p-4">
+        <main className="flex-1 overflow-y-auto p-3 md:p-6 lg:p-8">
           <Outlet />
         </main>
       </div>

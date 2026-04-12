@@ -1,5 +1,124 @@
 # Changelog
 
+## [v0.17.0] - 2026-04-12 — IB Integration Complete + Dashboard Overhaul + Training Backfill
+
+Consolidates seven IB integration sprints (IB-1 through IB-7), four dashboard
+sprints (DB-1, DB-2a, DB-2b, DB-3), one final cleanup sprint (DB-FINAL),
+a capital-velocity instrumentation drop, and a 703-row regime-diverse training
+backfill into a single tagged release. Sub-sections below keep the sprint-level
+notes that previously lived under `[Unreleased]` so the ship history stays
+traceable.
+
+### DB-FINAL — Dashboard cleanup
+
+- **fix:** `shadow_trades` gains `time_to_mfe_days` (INTEGER) and `mfe_timestamp`
+  (TEXT) columns. Executor's `check_and_manage_open_trades` now updates both on
+  every MFE high; flat and adverse cycles preserve the peak. 3 new tests cover
+  the rise/flat/close paths (Strategy Decision #32 instrumentation).
+- **fix:** Attribution logger warnings are visible (`logger.warning` instead of
+  `logger.debug` in `scheduler/universe_scanner.py`) and a defensive
+  `_parse_price` check skips attribution entirely when entry/stop/target parse
+  to 0/None rather than writing corrupt zero-priced ranker-only pairs.
+  `attribution_trades` already carries `sync_to_postgres=True`; integration test
+  added.
+- **feat:** Mobile sidebar collapse in `Layout.jsx` (hamburger + overlay backdrop,
+  status bar hidden below md breakpoint), `min-h-[44px]` touch targets on nav
+  links, `p-3 md:p-6 lg:p-8` main-content padding.
+- **fix:** `Architecture.jsx` and `DBSchema.jsx` set `nodesDraggable={false}` +
+  `nodesConnectable={false}`, `<MiniMap>` removed (bottom-right glitch).
+  Architecture subtitle no longer advertises drag.
+- **chore:** ~15 `data-testid` attributes on Health (hshs-radar, hshs-composite,
+  build-score-card, ib-status-card, model-history), Validation
+  (validation-category-{name}), Monitoring (resource-chart, ollama-status,
+  disk-status, log-table) for the upcoming System Health consolidation.
+- **refactor:** `space-y-4 md:space-y-6` roots across 14 dashboard pages.
+
+### DB-3 — Responsive + polish
+
+- **feat:** Architecture diagram shows IB Gateway infrastructure node + a
+  `broker_router` → (`live_alpaca` | `live_ib`) execution split reflecting the
+  score-gated dual-broker routing.
+- **feat:** Simulation page gains a regime dropdown that highlights one equity
+  curve and dims the rest (opacity 0.15).
+- **feat:** `scripts/stress_test.py` adds 4 historical scenarios — 2018 Q4
+  selloff, 2011 debt ceiling, 2015 China deval, 2024 yen unwind.
+- **feat:** IB section on Settings page (shadow_mode, paper_routing, routing
+  threshold, Gateway port, client_id).
+- **feat:** New `/velocity` dashboard page renders hold-period distribution,
+  time-to-MFE scatter (falls back to duration until the new column fills),
+  MFE capture efficiency. Gated behind a 50-trade banner until statistically
+  useful.
+
+### DB-2b — Feature additions
+
+- **feat:** `IB Shadow` → `Broker Comparison`; nav item moved from System to
+  Trading. CTO report exposes a by-broker breakdown (win rate, avg/total P&L).
+- **feat:** Logs page "Export errors" downloads ERROR+CRITICAL+WARNING entries
+  (last 24h) as markdown; "Clear stale" resolves pending/claimed commands
+  older than 1 hour.
+- **feat:** `get_training_status` returns `outcome_counts` + `source_counts`
+  so the Outcome Distribution card renders real data.
+- **feat:** 9 additional IB research + ops docs indexed on the Docs page.
+- **feat:** `run_data_collection` emits a per-collector success/failure line
+  after the 12-step block.
+
+### DB-2a — Bug fixes
+
+- **fix:** Packets page strips everything before the first recognized XML tag
+  so the analysis pane shows LLM output only.
+- **fix:** `/live/trades` + `/api/live/trades` enrich open rows with
+  `current_price` + unrealized `pnl_dollars` / `pnl_pct` (graceful fallback when
+  `setup_signals` is missing).
+- **feat:** `OpenPositionCard` — rich per-position monitor card (stop/entry/target
+  progress gauge, MFE/MAE, bracket status, conviction, days held/timeout).
+  Shadow Ledger open tab uses a card grid.
+- **feat:** Ledger source toggle (All / Paper / Live) + broker filter (Alpaca /
+  IB) + broker column on closed-trades table.
+- **feat:** Strategy page Drawdown chart is now a ComposedChart with green/red
+  per-trade bars overlaid on the drawdown area.
+- **fix:** Stress Test groups runs by scenario; only the latest per scenario
+  renders, rest collapse into a "Previous Runs" archive.
+- **fix:** Monitoring page crash — `Array.isArray(history) ? history : []`.
+
+### DB-1 — Data integrity + quarantine sync
+
+- **fix:** `scripts/sync_quarantine_to_postgres.py` one-time migration pushes
+  locally-quarantined `shadow_trades.quarantined=1` rows to Render Postgres.
+  The incremental sync uses `updated_at > last_synced_at` as its cursor — prior
+  quarantine UPDATEs didn't touch the column, so ~17 issues were served
+  compromised rows even though `COALESCE(quarantined, 0) = 0` was correctly
+  applied in every cloud route.
+- **fix:** `scripts/quarantine_april10.py` bumps `updated_at` on every UPDATE so
+  future runs sync automatically.
+- **fix:** `scripts/backfill_model_version.py` backfills
+  `recommendations.model_version = 'halcyon-v1.0.0'` for NULL rows, unblocking
+  Model Performance attribution.
+- **fix:** `get_active_model_name()` falls back to Ollama `/api/ps` then
+  `llm.model` when `model_versions` has no active row; new
+  `src.llm.client.get_loaded_model_name` helper.
+- **fix:** Header version resolves from `ARCIS_VERSION` env →  `VERSION` file →
+  `git describe --tags --abbrev=0` → hardcoded fallback (`lru_cache`'d).
+- **fix:** DB Schema page renders live table count + cluster-config domain
+  count instead of hardcoded "40 tables across 6 domains".
+- **fix:** Settings page — `shadow_trading.timeout_days` + `strategies.pullback.timeout_days`
+  resolve to actual keys; Min Conviction Score renders "Disabled" at 0/null;
+  System Health shows "CLOUD (local status unavailable)" on cloud mode.
+- **fix:** HSHS Flywheel Velocity anchors on completed train-deploy cycles
+  (`version_count - 1`); scores zero with one deployed model. Data growth and
+  recent-volume signals scale by a spin factor.
+- **fix:** `council/value_tracker.py` track-record join adds
+  `COALESCE(st.quarantined, 0) = 0`.
+- **feat:** `council.auto_apply_parameters` config flag (default **false**).
+  Advisory-only mode logs recommendations but does NOT rewrite live config.
+  Session meta carries `advisory_only` for the dashboard.
+
+### Training backfill
+
+- **data:** 703 regime-diverse training examples imported — broadens v2 dataset
+  from 1,019 to 1,722 examples spanning every market regime in the backfill
+  sample. Conviction recalibrated (range 1-8, down from 5-9). Leakage check
+  passed (59.8%). Halcyon-v2.0.0 retrain pipeline in progress.
+
 ## [Unreleased] — Dashboard Data Integrity (Sprint DB-1)
 
 ### Data fixes

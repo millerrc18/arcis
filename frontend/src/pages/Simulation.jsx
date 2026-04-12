@@ -136,7 +136,7 @@ export default function Simulation() {
 
   if (latestResults.length === 0) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-4 md:space-y-6">
         <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text)' }}>Simulation Engine</h2>
         <div className="arcis-card" style={{ padding: '20px', textAlign: 'center' }}>
           <span className="text-sm font-medium" style={{ color: 'var(--arcis-text-muted)' }}>No simulation results yet</span>

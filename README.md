@@ -1,21 +1,22 @@
 # Arcis
 
-![version](https://img.shields.io/badge/version-v0.14.2-blue?style=flat-square)
+![version](https://img.shields.io/badge/version-v0.17.0-blue?style=flat-square)
 ![phase](https://img.shields.io/badge/phase-1%20bootcamp-orange?style=flat-square)
-![tests](https://img.shields.io/badge/tests-1%2C467%20passing-brightgreen?style=flat-square)
+![tests](https://img.shields.io/badge/tests-1%2C734%20passing-brightgreen?style=flat-square)
 ![python](https://img.shields.io/badge/python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)
 ![model](https://img.shields.io/badge/model-Qwen3%208B-purple?style=flat-square)
 ![license](https://img.shields.io/badge/license-BSL%201.1-yellow?style=flat-square)
 ![issues](https://img.shields.io/github/issues/millerrc18/halcyon-lab?style=flat-square)
 ![dashboard](https://img.shields.io/badge/dashboard-halcyonlab.app-00C7B7?style=flat-square&logo=render&logoColor=white)
 
-Systematic equity research platform built on fine-tuned LLMs and a 5-agent AI council. Arcis scans the S&P 100 universe for high-conviction pullback setups, generates trade packets with local inference, and executes bracket orders through Alpaca or Interactive Brokers — all governed by a hard risk stack and regime-aware sizing.
+Systematic equity research platform built on fine-tuned LLMs and a 5-agent AI council. Arcis scans the S&P 100 universe for high-conviction pullback setups, generates trade packets with local inference, and executes bracket orders through Alpaca or Interactive Brokers — all governed by a hard risk stack, regime-aware sizing, and a score-gated dual-broker router.
 
 ## Current Status
 
 - **Phase 1 Bootcamp** — paper trading $100K, 18 closed trades
-- **Model**: `halcyon-v1.0.0` (Qwen3 8B, QLoRA fine-tuned on 979 scored examples)
-- **Dashboard**: [halcyonlab.app](https://halcyonlab.app) (18 pages, Palette H dark/light)
+- **Model**: `halcyon-v1.0.0` (Qwen3 8B, QLoRA fine-tuned); v2.0.0 retrain in progress on 1,722-example dataset (703 regime-diverse rows added)
+- **Dashboard**: [halcyonlab.app](https://halcyonlab.app) (24 pages including Broker Comparison and Velocity, mobile-responsive sidebar, dark/light toggle)
+- **IB integration**: complete — broker abstraction, shadow mode, dual-execution routing, paper trading validated (activation gated on 20% buffer + 30-day Gateway stability)
 - **Current counts**: See [MASTER.md](MASTER.md) Section 2 for live metrics (tests, files, tables, etc.)
 
 ## Architecture
@@ -24,7 +25,7 @@ Systematic equity research platform built on fine-tuned LLMs and a 5-agent AI co
   <img src="docs/architecture.svg" alt="Arcis System Architecture" width="100%"/>
 </p>
 
-See [MASTER.md](MASTER.md) Section 4 for the schema summary (49 tables). Full DDL in `src/schema/registry.py`.
+See [MASTER.md](MASTER.md) Section 4 for the schema summary (53 tables). Full DDL in `src/schema/registry.py`.
 
 See [Interactive Architecture (5W detail)](https://halcyonlab.app/architecture.html) for the full system diagram with expandable component details.
 
@@ -95,7 +96,7 @@ All code changes go through Claude Code (CC) sprints with strict guardrails:
 
 ## Research
 
-79 documents in `docs/research/` covering regime detection, position sizing, risk management, training methodology, market microstructure, model degradation prevention, hardware deployment strategy, and broker integration best practices.
+91 documents in `docs/research/` covering regime detection, position sizing, risk management, training methodology, market microstructure, model degradation prevention, hardware deployment strategy, capital velocity optimization, and IB integration best practices (6 IB deep-research docs).
 
 ## SEC Compliance
 

@@ -321,7 +321,7 @@ export default function Council() {
   if (isLoading) return <LoadingSpinner />
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text-primary)' }}>Advisory Council</h2>

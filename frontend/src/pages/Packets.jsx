@@ -42,7 +42,7 @@ export default function Packets() {
   if (isLoading) return <LoadingSpinner />
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text-primary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Packets</h2>
         <div className="flex gap-3">
