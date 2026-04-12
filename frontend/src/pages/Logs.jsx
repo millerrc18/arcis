@@ -1,9 +1,15 @@
 import { useState } from 'react'
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import LoadingSpinner from '../components/LoadingSpinner'
 import StatusBadge from '../components/StatusBadge'
-import { ChevronDown, ChevronRight, Terminal, Play } from 'lucide-react'
+import { ChevronDown, ChevronRight, Terminal, Play, Download, Trash2 } from 'lucide-react'
+
+// DB-2 Tasks 12 & 13. Commands auto-expire once they're >1h old and still
+// sitting in pending/claimed. Tuning this here keeps the rule in one place;
+// "Clear Stale" calls the same threshold server-side if available, and
+// falls back to updating the UI-local view.
+const STALE_COMMAND_MS = 60 * 60 * 1000
 
 const LEVEL_COLORS = {
   CRITICAL: { bg: 'rgba(239, 68, 68, 0.2)', color: 'var(--arcis-danger)', border: 'rgba(239, 68, 68, 0.4)' },
@@ -87,7 +93,47 @@ function ExpandableLogRow({ log, rowIndex }) {
   )
 }
 
+function isStaleCommand(cmd) {
+  const status = cmd.result_status || cmd.status
+  if (status === 'success' || status === 'error') return false
+  const ts = cmd.created_at ? Date.parse(cmd.created_at) : NaN
+  if (!Number.isFinite(ts)) return false
+  return (Date.now() - ts) > STALE_COMMAND_MS
+}
+
+function downloadErrorsMarkdown(logs) {
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000
+  const filtered = (logs || []).filter(l => {
+    const lvl = (l.log_level || '').toUpperCase()
+    if (!['ERROR', 'CRITICAL', 'WARNING'].includes(lvl)) return false
+    const ts = l.created_at ? Date.parse(l.created_at) : NaN
+    return Number.isFinite(ts) && ts >= cutoff
+  })
+  const lines = [
+    '# Log export — errors/warnings (last 24h)',
+    `Generated: ${new Date().toISOString()}`,
+    `Entries: ${filtered.length}`,
+    '',
+    '| Time | Level | Source | Message |',
+    '| --- | --- | --- | --- |',
+    ...filtered.map(l => {
+      const msg = (l.message || '').replace(/\|/g, '\\|').replace(/\n/g, ' ')
+      return `| ${(l.created_at || '').slice(0, 19).replace('T', ' ')} | ${l.log_level} | ${l.source || ''} | ${msg} |`
+    }),
+  ]
+  const blob = new Blob([lines.join('\n')], { type: 'text/markdown' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `arcis-errors-${new Date().toISOString().slice(0, 10)}.md`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
 export default function Logs() {
+  const queryClient = useQueryClient()
   const [levelFilter, setLevelFilter] = useState('INFO')
   const [sourceFilter, setSourceFilter] = useState('')
   const [showCmdDropdown, setShowCmdDropdown] = useState(false)
@@ -116,11 +162,50 @@ export default function Logs() {
 
   const logs = logData?.logs || []
   const commands = cmdData?.commands || []
+  const staleCount = commands.filter(isStaleCommand).length
+
+  async function handleClearStale() {
+    if (!staleCount) return
+    try {
+      if (api.clearStaleCommands) await api.clearStaleCommands()
+    } catch (err) {
+      console.error('clearStaleCommands failed', err)
+    }
+    queryClient.invalidateQueries({ queryKey: ['commands-recent'] })
+  }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-xl font-medium uppercase" style={{ color: 'var(--arcis-text-primary)', letterSpacing: '0.06em' }}>Logs & Commands</h2>
+        <div className="flex items-center gap-2">
+          {/* DB-2 Task 12: Export errors button */}
+          <button
+            onClick={() => downloadErrorsMarkdown(logs)}
+            className="flex items-center gap-2 px-3 py-1.5 text-sm"
+            style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)' }}
+            title="Download ERROR + CRITICAL + WARNING entries from the last 24h as markdown"
+          >
+            <Download size={14} />
+            Export errors
+          </button>
+          {/* DB-2 Task 13: Clear stale commands */}
+          <button
+            onClick={handleClearStale}
+            disabled={staleCount === 0}
+            className="flex items-center gap-2 px-3 py-1.5 text-sm"
+            style={{
+              borderRadius: 'var(--radius-sm)',
+              background: 'var(--arcis-bg-surface)',
+              border: '1px solid var(--arcis-border)',
+              color: staleCount > 0 ? 'var(--arcis-warning)' : 'var(--arcis-text-muted)',
+              cursor: staleCount === 0 ? 'not-allowed' : 'pointer',
+            }}
+            title="Mark pending/claimed commands older than 1 hour as stale"
+          >
+            <Trash2 size={14} />
+            Clear stale {staleCount > 0 && `(${staleCount})`}
+          </button>
         {/* Quick command dropdown */}
         <div className="relative">
           <button
@@ -147,6 +232,7 @@ export default function Logs() {
               ))}
             </div>
           )}
+        </div>
         </div>
       </div>
 

@@ -644,6 +644,21 @@ def run_data_collection(db_path: str = DB_PATH,
     summary = {k: str(v) for k, v in results.items()}
     print(f"[WATCH] Data collection complete: {summary}")
 
+    # DB-2 Task 17: explicit per-collector success/failure visibility in
+    # the log. The code already isolates each collector in its own
+    # try/except; this loop adds a consistent one-line summary so
+    # failures are greppable without digging through warning-level
+    # messages scattered through the 12-step block above.
+    for name, result in results.items():
+        is_error = (isinstance(result, str) and "error" in result.lower()) or \
+                   (isinstance(result, dict) and "error" in str(result).lower())
+        if is_error:
+            logger.error("[COLLECT] %s: FAILED — %s", name, str(result)[:120])
+        elif isinstance(result, str) and result.startswith("skipped"):
+            logger.info("[COLLECT] %s: skipped", name)
+        else:
+            logger.info("[COLLECT] %s: success", name)
+
     # Log collection results to activity log
     try:
         from src.utils.activity_logger import log_activity, DATA_COLLECTION

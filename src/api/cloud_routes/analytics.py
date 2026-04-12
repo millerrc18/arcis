@@ -578,6 +578,31 @@ def create_router(runtime, verify_auth):
                 if durations:
                     fund_metrics["avg_hold_period_days"] = round(sum(durations) / len(durations), 1)
 
+            # DB-2 Task 11: by-broker breakdown. Splits recent closed trades
+            # by broker (alpaca vs ib) so the CTO report can show whether one
+            # broker is dragging the overall numbers. Quarantine filter is
+            # already applied to closed_recent.
+            by_broker = {}
+            for trade in closed_recent:
+                broker = (trade.get("broker") or "alpaca").lower()
+                bucket = by_broker.setdefault(broker, {
+                    "trades": 0, "wins": 0, "losses": 0,
+                    "total_pnl": 0.0, "total_pnl_pct": 0.0,
+                })
+                pnl_d = float(trade.get("pnl_dollars") or 0)
+                bucket["trades"] += 1
+                bucket["total_pnl"] += pnl_d
+                bucket["total_pnl_pct"] += float(trade.get("pnl_pct") or 0)
+                if pnl_d > 0:
+                    bucket["wins"] += 1
+                else:
+                    bucket["losses"] += 1
+            for bucket in by_broker.values():
+                bucket["total_pnl"] = round(bucket["total_pnl"], 2)
+                bucket["total_pnl_pct"] = round(bucket["total_pnl_pct"], 2)
+                bucket["win_rate"] = round(bucket["wins"] / bucket["trades"] * 100, 1) if bucket["trades"] else 0
+                bucket["avg_pnl"] = round(bucket["total_pnl"] / bucket["trades"], 2) if bucket["trades"] else 0
+
             return {
                 "report_period": {
                     "start": cutoff[:10],
@@ -589,6 +614,7 @@ def create_router(runtime, verify_auth):
                 "by_score_band": by_score_band,
                 "by_sector": by_sector,
                 "by_regime": by_regime,
+                "by_broker": by_broker,
                 "execution_analysis": execution_analysis,
                 "fund_metrics": fund_metrics,
                 "confidence_calibration": {},

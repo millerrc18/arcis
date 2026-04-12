@@ -13,6 +13,7 @@ const navSections = [
     { to: '/packets', icon: FileText, label: 'Packets' },
     { to: '/shadow', icon: TrendingUp, label: 'Shadow Ledger' },
     { to: '/live', icon: DollarSign, label: 'Live Ledger' },
+    { to: '/ib-shadow', icon: GitCompare, label: 'Broker Comparison' },
     { to: '/strategy', icon: Target, label: 'Strategy' },
   ]},
   { label: 'Intelligence', items: [
@@ -28,7 +29,6 @@ const navSections = [
     { to: '/architecture', icon: Network, label: 'Architecture' },
     { to: '/schema', icon: Database, label: 'DB Schema' },
     { to: '/health', icon: Activity, label: 'Health Score' },
-    { to: '/ib-shadow', icon: GitCompare, label: 'IB Shadow' },
     { to: '/validation', icon: ShieldCheck, label: 'Validation' },
     { to: '/monitoring', icon: Monitor, label: 'Monitoring' },
     { to: '/logs', icon: ScrollText, label: 'Logs' },

@@ -66,6 +66,19 @@ DOCS = [
     {"id": "research-ai-council", "path": "docs/research/AI_Council_Multi-Agent_Deliberation_Architecture.md", "title": "Research: AI Council Deliberation Architecture"},
     {"id": "research-data-audit", "path": "docs/research/Data_Infrastructure_Audit_Per_Desk_Collection_Requirements.md", "title": "Research: Data Infrastructure Audit Per Desk"},
     {"id": "research-brand-identity", "path": "docs/research/Halcyon_Lab_Complete_Brand_Identity_System.md", "title": "Research: Arcis Brand Identity System"},
+
+    # Research — IB integration (DB-2 Task 15)
+    {"id": "research-ib-best-practices", "path": "docs/research/IB_Best_Practices_for_Autonomous_AI_Trading.md", "title": "Research: IB Best Practices for Autonomous AI Trading"},
+    {"id": "research-ib-async", "path": "docs/research/ib-async-event-patterns.md", "title": "Research: IB-Async Event Patterns"},
+    {"id": "research-ib-gateway-stability", "path": "docs/research/ib-gateway-windows-stability.md", "title": "Research: IB Gateway Windows Stability"},
+    {"id": "research-ib-oca-restart", "path": "docs/research/ib-oca-gateway-restart.md", "title": "Research: IB OCA + Gateway Restart"},
+    {"id": "research-ib-paper-fills", "path": "docs/research/ib-paper-fill-simulation.md", "title": "Research: IB Paper Fill Simulation"},
+    {"id": "research-ib-deep-research-hub", "path": "docs/research/deep-research-ib-best-practices.md", "title": "Research: IB Deep-Research Summary"},
+
+    # Operations (DB-2 Task 15)
+    {"id": "ops-ib-gateway-setup", "path": "docs/operations/ib-gateway-setup.md", "title": "Ops: IB Gateway Setup"},
+    {"id": "ops-ib-smoke-test", "path": "docs/operations/ib-smoke-test.md", "title": "Ops: IB Smoke Test"},
+    {"id": "ops-monday-checklist", "path": "docs/operations/monday-checklist-2026-04-14.md", "title": "Ops: Monday Checklist"},
 ]
 
 

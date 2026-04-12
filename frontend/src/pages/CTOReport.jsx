@@ -288,6 +288,24 @@ export default function CTOReport() {
         />
       )}
 
+      {/* By broker (DB-2 Task 11) — shows whether one broker is dragging
+          the overall numbers. win_rate here is already a percent (0-100). */}
+      {data.by_broker && Object.keys(data.by_broker).length > 0 && (
+        <SectionTable
+          title="By broker"
+          headers={['Broker', 'Trades', 'Win rate', 'Avg P&L $', 'Total P&L $']}
+          rows={Object.entries(data.by_broker)
+            .sort((a, b) => (b[1].trades || 0) - (a[1].trades || 0))
+            .map(([broker, s]) => [
+              broker,
+              s.trades || 0,
+              s.trades > 0 ? `${(s.win_rate ?? 0).toFixed(0)}%` : 'n/a',
+              s.avg_pnl != null ? `$${s.avg_pnl.toFixed(2)}` : 'n/a',
+              s.total_pnl != null ? `$${s.total_pnl.toFixed(2)}` : 'n/a',
+            ])}
+        />
+      )}
+
       {/* Confidence calibration */}
       {data.confidence_calibration && (
         <div className="mb-6">

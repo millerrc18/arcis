@@ -13,6 +13,9 @@ logger = logging.getLogger(__name__)
 
 def get_training_status() -> dict:
     """Get current training pipeline status."""
+    import sqlite3
+
+    from src.config import DB_PATH
     from src.training.versioning import (
         get_active_model_version, get_training_example_counts,
         get_new_examples_since, get_active_model_name,
@@ -39,6 +42,28 @@ def get_training_status() -> dict:
     else:
         rollback_status = "Unknown"
 
+    # DB-2 Task 16: outcome + source distributions. The Training page
+    # previously rendered "Outcome data pending migration" because these
+    # fields weren't in the response. Compute from training_examples so
+    # the dashboard has real counts.
+    outcome_counts: dict[str, int] = {}
+    source_counts: dict[str, int] = {}
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            for row in conn.execute(
+                "SELECT UPPER(COALESCE(outcome_type, 'UNKNOWN')) AS o, COUNT(*) AS n "
+                "FROM training_examples GROUP BY UPPER(COALESCE(outcome_type, 'UNKNOWN'))"
+            ).fetchall():
+                outcome_counts[row["o"]] = row["n"]
+            for row in conn.execute(
+                "SELECT COALESCE(source, 'unknown') AS s, COUNT(*) AS n "
+                "FROM training_examples GROUP BY COALESCE(source, 'unknown')"
+            ).fetchall():
+                source_counts[row["s"]] = row["n"]
+    except Exception as exc:
+        logger.debug("outcome/source distribution query failed: %s", exc)
+
     return {
         "active_version": dict(active) if active else None,
         "model_name": get_active_model_name(),
@@ -46,6 +71,8 @@ def get_training_status() -> dict:
         "dataset_synthetic": counts.get("synthetic_claude", 0),
         "dataset_wins": counts.get("outcome_win", 0),
         "dataset_losses": counts.get("outcome_loss", 0),
+        "outcome_counts": outcome_counts,
+        "source_counts": source_counts,
         "new_since_last_train": new_since,
         "train_queued": trigger,
         "train_reason": trigger_reason,

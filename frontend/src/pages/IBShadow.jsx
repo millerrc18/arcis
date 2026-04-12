@@ -75,7 +75,7 @@ export default function IBShadow() {
       <div className="space-y-6">
         <div className="flex items-center gap-3">
           <GitCompare size={20} style={{ color: 'var(--arcis-accent)' }} />
-          <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text-primary)' }}>IB Shadow Mode</h2>
+          <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text-primary)' }}>Broker Comparison</h2>
         </div>
         <div className="flex flex-col items-center justify-center py-16 gap-4"
           style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
@@ -99,7 +99,7 @@ export default function IBShadow() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <GitCompare size={20} style={{ color: 'var(--arcis-accent)' }} />
-          <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text-primary)' }}>IB Shadow Mode</h2>
+          <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text-primary)' }}>Broker Comparison</h2>
         </div>
         <div className="flex items-center gap-2">
           <span className="inline-block rounded-full" style={{
