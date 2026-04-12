@@ -45,8 +45,12 @@ export default function Monitoring() {
 
   if (isLoading) return <LoadingSpinner />
 
-  const latest = snapshot || (history && history.length > 0 ? history[history.length - 1] : null)
-  const points = (history || []).map(h => ({
+  // `history` is an array on success but /monitoring/history can return
+  // { error: "..." } on failure. Coerce to [] to avoid "(e || []).map is not
+  // a function" crashes when the API has a hiccup.
+  const historyList = Array.isArray(history) ? history : []
+  const latest = snapshot || (historyList.length > 0 ? historyList[historyList.length - 1] : null)
+  const points = historyList.map(h => ({
     ...h,
     time: formatTime(h.timestamp),
     ram_pct: pct(h.ram_used_mb, h.ram_total_mb),
@@ -60,7 +64,7 @@ export default function Monitoring() {
   const diskPct = pct(latest?.disk_used_gb, latest?.disk_total_gb)
   const ollamaUp = latest?.ollama_status === 'running'
 
-  const last10 = (history || []).slice(-10).reverse()
+  const last10 = historyList.slice(-10).reverse()
 
   return (
     <div className="space-y-6">

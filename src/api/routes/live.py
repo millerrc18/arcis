@@ -29,7 +29,13 @@ logger = logging.getLogger(__name__)
 
 @router.get("/live/trades")
 def live_trades():
-    """Return live (Alpaca) trades, split by open/closed."""
+    """Return live (Alpaca) trades, split by open/closed.
+
+    Open trades are enriched with ``current_price`` + unrealized ``pnl_dollars``
+    / ``pnl_pct`` derived from the most recent ``setup_signals.theoretical_entry``
+    for each ticker. shadow_trades stores pnl_dollars=NULL while open, which
+    previously rendered as $0.00 on the live ledger.
+    """
     try:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
@@ -44,6 +50,34 @@ def live_trades():
                 "WHERE source = 'live' AND status = 'closed' "
                 "AND COALESCE(quarantined, 0) = 0 ORDER BY actual_exit_time DESC"
             ).fetchall()]
+            for trade in open_trades:
+                ticker = trade.get("ticker")
+                entry = trade.get("actual_entry_price") or trade.get("entry_price")
+                shares = trade.get("actual_shares") or trade.get("planned_shares")
+                current = None
+                if ticker:
+                    try:
+                        price_row = conn.execute(
+                            "SELECT theoretical_entry FROM setup_signals "
+                            "WHERE ticker = ? ORDER BY created_at DESC LIMIT 1",
+                            (ticker,),
+                        ).fetchone()
+                        if price_row and price_row["theoretical_entry"] is not None:
+                            current = float(price_row["theoretical_entry"])
+                    except (sqlite3.OperationalError, TypeError, ValueError):
+                        # setup_signals may not exist in test fixtures, or
+                        # the value may not be numeric. Leave current_price
+                        # as None rather than aborting the whole endpoint.
+                        current = None
+                trade["current_price"] = current
+                if current is not None and entry is not None:
+                    try:
+                        entry_f = float(entry)
+                        shares_f = float(shares or 0)
+                        trade["pnl_dollars"] = round((current - entry_f) * shares_f, 2)
+                        trade["pnl_pct"] = round((current - entry_f) / entry_f * 100, 2) if entry_f else None
+                    except (TypeError, ValueError, ZeroDivisionError):
+                        pass
             return {"open": open_trades, "closed": closed_trades}
         finally:
             conn.close()
