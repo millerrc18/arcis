@@ -202,6 +202,37 @@ def create_router(runtime, verify_auth):
                 "SELECT * FROM shadow_trades WHERE source = 'live' AND status = 'closed'"
                 " AND COALESCE(quarantined, 0) = 0 ORDER BY actual_exit_time DESC"
             )
+            # Open trades: enrich with current_price + unrealized pnl using the
+            # most recent setup_signals.theoretical_entry for each ticker. The
+            # live ledger has nothing to show otherwise — pnl_dollars is NULL
+            # while the position is open, which previously rendered as $0.00.
+            for trade in open_trades:
+                ticker = trade.get("ticker")
+                entry = trade.get("actual_entry_price") or trade.get("entry_price")
+                shares = trade.get("actual_shares") or trade.get("planned_shares")
+                current = None
+                if ticker:
+                    try:
+                        price_row = runtime.query_one(
+                            "SELECT theoretical_entry FROM setup_signals "
+                            "WHERE ticker = %s ORDER BY created_at DESC LIMIT 1",
+                            (ticker,),
+                        )
+                        if price_row and price_row.get("theoretical_entry"):
+                            current = float(price_row["theoretical_entry"])
+                    except Exception:
+                        # Missing setup_signals row or non-numeric value —
+                        # leave current_price as None rather than aborting.
+                        current = None
+                trade["current_price"] = current
+                if current is not None and entry is not None:
+                    try:
+                        entry_f = float(entry)
+                        shares_f = float(shares or 0)
+                        trade["pnl_dollars"] = round((current - entry_f) * shares_f, 2)
+                        trade["pnl_pct"] = round((current - entry_f) / entry_f * 100, 2) if entry_f else None
+                    except (TypeError, ValueError, ZeroDivisionError):
+                        pass
             return {"open": open_trades, "closed": closed_trades}
         except Exception as exc:
             runtime.logger.error("Live trades error: %s", exc)

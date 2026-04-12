@@ -12,6 +12,23 @@ function scoreVariant(score) {
   return 'neutral'
 }
 
+// Packets.thesis_text historically concatenates the system prompt + the LLM's
+// XML output. Display should show only the analysis — strip everything before
+// the first recognized XML tag (why_now, thesis, setup_analysis, etc.).
+const ANALYSIS_START_TAGS = [
+  '<why_now>', '<thesis>', '<setup_analysis>', '<analysis>', '<assessment>',
+  '<pullback_analysis>', '<mean_reversion_analysis>',
+]
+function cleanAnalysis(text) {
+  if (!text) return ''
+  let earliest = -1
+  for (const tag of ANALYSIS_START_TAGS) {
+    const i = text.indexOf(tag)
+    if (i !== -1 && (earliest === -1 || i < earliest)) earliest = i
+  }
+  return (earliest === -1 ? text : text.slice(earliest)).trim()
+}
+
 export default function Packets() {
   const [days, setDays] = useState(7)
   const [ticker, setTicker] = useState('')
@@ -75,7 +92,7 @@ export default function Packets() {
               </button>
               {expanded === i && (
                 <div className="mt-3 text-sm whitespace-pre-wrap pt-3" style={{ color: 'var(--arcis-text-secondary)', borderTop: '1px solid var(--arcis-border)' }}>
-                  {p.thesis_text || 'No analysis available'}
+                  {cleanAnalysis(p.thesis_text) || 'No analysis available'}
                 </div>
               )}
             </div>

@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fetchApi } from '../api'
 import {
-  LineChart, Line, BarChart, Bar, AreaChart, Area,
+  LineChart, Line, BarChart, Bar, AreaChart, Area, ComposedChart,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts'
 import MetricCard from '../components/MetricCard'
@@ -248,28 +248,54 @@ export default function Strategy() {
             )}
           </div>
 
-          {/* Drawdown Chart */}
+          {/* Drawdown Profile w/ per-trade win/loss overlay (DB-2 Task 6).
+              Same x-axis (trade number), dual display. Win/loss magnitudes
+              sit above (green) / below (red) the zero line, drawdown area
+              reads from the bottom. Answers: are wins getting bigger and
+              losses getting smaller over time? */}
           <div className="arcis-card" style={{ padding: '14px 16px' }}>
             <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 500, color: 'var(--arcis-text-secondary)', marginBottom: 8 }}>
-              Drawdown Profile
+              Drawdown Profile + Trade Magnitudes
             </div>
             {data.drawdown_series?.length > 0 ? (
-              <ResponsiveContainer width="100%" height={220}>
-                <AreaChart data={data.drawdown_series}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--arcis-border)" />
-                  <XAxis dataKey="trade_num" tick={{ fontSize: 10, fill: 'var(--arcis-text-secondary)' }} tickLine={false} label={{ value: 'Trade #', position: 'insideBottom', offset: -2, fontSize: 10, fill: 'var(--arcis-text-secondary)' }} />
-                  <YAxis tick={{ fontSize: 10, fill: 'var(--arcis-text-secondary)' }} tickLine={false} axisLine={false} tickFormatter={v => `${v}%`} reversed />
-                  <Tooltip
-                    contentStyle={{ background: 'var(--arcis-bg-elevated)', border: '1px solid var(--arcis-border)', borderRadius: 6, fontSize: 12 }}
-                    formatter={(val, name) => {
-                      if (name === 'drawdown_pct') return [`${Number(val).toFixed(1)}%`, 'Drawdown']
-                      return [`$${Number(val).toFixed(2)}`, 'Cumulative P&L']
-                    }}
-                    labelFormatter={(l) => `Trade #${l}`}
-                  />
-                  <Area type="monotone" dataKey="drawdown_pct" stroke="var(--arcis-danger)" fill="var(--arcis-danger)" fillOpacity={0.15} strokeWidth={1.5} />
-                </AreaChart>
-              </ResponsiveContainer>
+              (() => {
+                const ddByNum = new Map()
+                for (const d of (data.drawdown_series || [])) ddByNum.set(d.trade_num, d)
+                const pnlSeries = (data.trades || [])
+                  .slice()
+                  .sort((a, b) => (a.actual_exit_time || '').localeCompare(b.actual_exit_time || ''))
+                  .map((t, i) => ({ trade_num: i + 1, pnl_pct: t.pnl_pct }))
+                const composed = pnlSeries.map((p) => ({
+                  ...p,
+                  drawdown_pct: -(ddByNum.get(p.trade_num)?.drawdown_pct ?? 0),
+                  win_pct: (p.pnl_pct || 0) > 0 ? p.pnl_pct : null,
+                  loss_pct: (p.pnl_pct || 0) < 0 ? p.pnl_pct : null,
+                }))
+                const series = composed.length > 0 ? composed : data.drawdown_series.map(d => ({ ...d, drawdown_pct: -d.drawdown_pct }))
+                return (
+                  <ResponsiveContainer width="100%" height={260}>
+                    <ComposedChart data={series}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--arcis-border)" />
+                      <XAxis dataKey="trade_num" tick={{ fontSize: 10, fill: 'var(--arcis-text-secondary)' }} tickLine={false} label={{ value: 'Trade #', position: 'insideBottom', offset: -2, fontSize: 10, fill: 'var(--arcis-text-secondary)' }} />
+                      <YAxis tick={{ fontSize: 10, fill: 'var(--arcis-text-secondary)' }} tickLine={false} axisLine={false} tickFormatter={v => `${v}%`} />
+                      <Tooltip
+                        contentStyle={{ background: 'var(--arcis-bg-elevated)', border: '1px solid var(--arcis-border)', borderRadius: 6, fontSize: 12 }}
+                        formatter={(val, name) => {
+                          if (val == null) return ['--', name]
+                          if (name === 'drawdown_pct') return [`${Math.abs(Number(val)).toFixed(1)}%`, 'Drawdown']
+                          if (name === 'win_pct') return [`+${Number(val).toFixed(1)}%`, 'Win']
+                          if (name === 'loss_pct') return [`${Number(val).toFixed(1)}%`, 'Loss']
+                          return [val, name]
+                        }}
+                        labelFormatter={(l) => `Trade #${l}`}
+                      />
+                      <Area type="monotone" dataKey="drawdown_pct" stroke="var(--arcis-danger)" fill="var(--arcis-danger)" fillOpacity={0.15} strokeWidth={1.5} />
+                      <Bar dataKey="win_pct" fill="var(--arcis-success)" barSize={6} />
+                      <Bar dataKey="loss_pct" fill="var(--arcis-danger)" barSize={6} />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                )
+              })()
             ) : (
               <div style={{ padding: 24, textAlign: 'center', color: 'var(--arcis-text-muted)', fontSize: 13 }}>
                 No drawdown data available

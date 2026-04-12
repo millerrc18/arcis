@@ -5,6 +5,7 @@ import MetricCard from '../components/MetricCard'
 import LoadingSpinner from '../components/LoadingSpinner'
 import EmptyState from '../components/EmptyState'
 import Tooltip from '../components/Tooltip'
+import OpenPositionCard from '../components/OpenPositionCard'
 import { TrendingUp, ChevronDown, ChevronRight, Search, ArrowUpDown } from 'lucide-react'
 import {
   XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, Area, AreaChart,
@@ -452,28 +453,64 @@ export default function ShadowLedger() {
   const [vizTab, setVizTab] = useState('equity')
   const [filter, setFilter] = useState('')
   const [strategyFilter, setStrategyFilter] = useState('')
+  // DB-2 Task 4 — unified ledger with source toggle (Paper / Live / All).
+  // Both shadow and live trades live in shadow_trades with a `source` column
+  // so the join is trivial; we just fetch both feeds and merge client-side.
+  const [sourceFilter, setSourceFilter] = useState('all')  // 'all' | 'paper' | 'live'
+  // DB-2 Task 5 — broker filter (alpaca / ib / all).
+  const [brokerFilter, setBrokerFilter] = useState('all')  // 'all' | 'alpaca' | 'ib'
   const [sortKey, setSortKey] = useState('pnl_pct')
   const [sortDir, setSortDir] = useState('desc')
 
   const { data: openData, isLoading: openLoading } = useQuery({ queryKey: ['shadow-open'], queryFn: api.getOpenTrades, refetchInterval: 30000 })
   const { data: closedData, isLoading: closedLoading } = useQuery({ queryKey: ['shadow-closed'], queryFn: () => api.getClosedTrades(90), refetchInterval: 30000 })
   const { data: accountData } = useQuery({ queryKey: ['shadow-account'], queryFn: api.getAccount, refetchInterval: 60000 })
+  const { data: liveData } = useQuery({
+    queryKey: ['live-trades-for-ledger'],
+    queryFn: api.getLiveTrades,
+    refetchInterval: 60000,
+    enabled: sourceFilter !== 'paper',
+  })
+
+  const applySourceAndBroker = (trades) => {
+    let filtered = trades
+    if (sourceFilter !== 'all') filtered = filtered.filter(t => (t.source || 'paper') === sourceFilter)
+    if (brokerFilter !== 'all') filtered = filtered.filter(t => (t.broker || 'alpaca') === brokerFilter)
+    return filtered
+  }
 
   const openTrades = useMemo(() => {
-    let trades = openData?.open_trades || []
+    const paper = openData?.open_trades || []
+    const live = sourceFilter !== 'paper' ? (liveData?.open || []) : []
+    // Dedupe by trade_id in case shadow_trades query returned both
+    const seen = new Set()
+    const combined = []
+    for (const t of [...paper, ...live]) {
+      const id = t.trade_id || `${t.ticker}-${t.created_at}`
+      if (!seen.has(id)) { seen.add(id); combined.push(t) }
+    }
+    let trades = applySourceAndBroker(combined)
     if (filter) trades = trades.filter(t => (t.ticker || '').toLowerCase().includes(filter.toLowerCase())
       || (t.setup_type || '').toLowerCase().includes(filter.toLowerCase()))
     if (strategyFilter) trades = trades.filter(t => t.strategy_type === strategyFilter)
     return sortTrades(trades, sortKey, sortDir)
-  }, [openData, filter, strategyFilter, sortKey, sortDir])
+  }, [openData, liveData, filter, strategyFilter, sortKey, sortDir, sourceFilter, brokerFilter])
 
   const closedTrades = useMemo(() => {
-    let trades = closedData?.trades || []
+    const paper = closedData?.trades || []
+    const live = sourceFilter !== 'paper' ? (liveData?.closed || []) : []
+    const seen = new Set()
+    const combined = []
+    for (const t of [...paper, ...live]) {
+      const id = t.trade_id || `${t.ticker}-${t.actual_exit_time}`
+      if (!seen.has(id)) { seen.add(id); combined.push(t) }
+    }
+    let trades = applySourceAndBroker(combined)
     if (filter) trades = trades.filter(t => (t.ticker || '').toLowerCase().includes(filter.toLowerCase())
       || (t.setup_type || '').toLowerCase().includes(filter.toLowerCase()))
     if (strategyFilter) trades = trades.filter(t => t.strategy_type === strategyFilter)
     return sortTrades(trades, sortKey, sortDir)
-  }, [closedData, filter, strategyFilter, sortKey, sortDir])
+  }, [closedData, liveData, filter, strategyFilter, sortKey, sortDir, sourceFilter, brokerFilter])
 
   const equity = accountData?.equity || 100000
   const startingCapital = accountData?.starting_capital || 100000
@@ -550,6 +587,15 @@ export default function ShadowLedger() {
       render: (t) => { const r = computeRMultiple(t); return r != null
         ? <span className="financial-data" style={{ color: r >= 1 ? 'var(--arcis-success)' : r < 0 ? 'var(--arcis-danger)' : 'var(--arcis-text-primary)' }}>{r.toFixed(2)}R</span>
         : <span style={{ color: 'var(--arcis-text-muted)' }}>--</span> } },
+    { key: 'broker', label: 'Broker', type: 'text', hideOnMobile: true,
+      render: (t) => {
+        const b = (t.broker || 'alpaca').toLowerCase()
+        const ib = b === 'ib'
+        return <span className="text-xs px-1.5 py-0.5 rounded uppercase" style={{
+          background: ib ? 'rgba(59,130,246,0.15)' : 'rgba(168,85,247,0.15)',
+          color: ib ? '#60a5fa' : '#c084fc',
+        }}>{b}</span>
+      } },
     { key: 'exit_reason', label: 'Exit', type: 'text', hideOnMobile: true },
   ]
 
@@ -631,6 +677,36 @@ export default function ShadowLedger() {
             <option value="mean_reversion">Mean Reversion</option>
           </select>
 
+          {/* DB-2 Task 4 — source toggle */}
+          <select
+            value={sourceFilter}
+            onChange={e => setSourceFilter(e.target.value)}
+            className="pl-2 pr-2 py-1.5 text-xs appearance-none"
+            style={{
+              borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)',
+              color: 'var(--arcis-text-primary)', outline: 'none',
+            }}
+          >
+            <option value="all">All sources</option>
+            <option value="paper">Paper</option>
+            <option value="live">Live</option>
+          </select>
+
+          {/* DB-2 Task 5 — broker filter */}
+          <select
+            value={brokerFilter}
+            onChange={e => setBrokerFilter(e.target.value)}
+            className="pl-2 pr-2 py-1.5 text-xs appearance-none"
+            style={{
+              borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)',
+              color: 'var(--arcis-text-primary)', outline: 'none',
+            }}
+          >
+            <option value="all">All brokers</option>
+            <option value="alpaca">Alpaca</option>
+            <option value="ib">IB</option>
+          </select>
+
           {/* Sort dropdown */}
           <div className="relative">
             <select
@@ -656,37 +732,47 @@ export default function ShadowLedger() {
         </div>
       </div>
 
-      {/* Trade table */}
-      <div className="overflow-hidden" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
-        {isLoading ? <div className="p-8"><LoadingSpinner /></div> :
-         !currentTrades.length ? <div className="p-8"><EmptyState message={`No ${tab} trades${filter ? ' matching filter' : ''}`} icon={TrendingUp} /></div> :
-         <>
-           <SummaryRow trades={currentTrades} />
-           <div className="overflow-x-auto">
-             <table className="w-full text-sm" style={{ tableLayout: 'auto' }}>
-               <thead>
-                 <tr style={{ borderBottom: '1px solid var(--arcis-border)' }}>
-                   <th className="py-2 px-2 w-6"></th>
-                   {currentCols.map(col => (
-                     <th key={col.key}
-                       className={`py-2 px-2 text-left text-xs uppercase cursor-pointer select-none ${col.hideOnMobile ? 'hidden md:table-cell' : ''}`}
-                       style={{ color: sortKey === col.key ? 'var(--arcis-accent)' : 'var(--arcis-text-secondary)' }}
-                       onClick={() => toggleSort(col.key)}>
-                       {col.label}
-                       {sortKey === col.key && <span className="ml-1">{sortDir === 'asc' ? '\u2191' : '\u2193'}</span>}
-                     </th>
+      {/* Trade display — open tab uses rich cards (DB-2 Task 3), closed tab keeps the table */}
+      {tab === 'open' ? (
+        isLoading ? <div className="p-8"><LoadingSpinner /></div> :
+        !currentTrades.length ? <div className="p-8 arcis-card"><EmptyState message={`No open trades${filter ? ' matching filter' : ''}`} icon={TrendingUp} /></div> :
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          {currentTrades.map((t) => (
+            <OpenPositionCard key={t.trade_id || `${t.ticker}-${t.created_at}`} trade={t} />
+          ))}
+        </div>
+      ) : (
+        <div className="overflow-hidden" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
+          {isLoading ? <div className="p-8"><LoadingSpinner /></div> :
+           !currentTrades.length ? <div className="p-8"><EmptyState message={`No ${tab} trades${filter ? ' matching filter' : ''}`} icon={TrendingUp} /></div> :
+           <>
+             <SummaryRow trades={currentTrades} />
+             <div className="overflow-x-auto">
+               <table className="w-full text-sm" style={{ tableLayout: 'auto' }}>
+                 <thead>
+                   <tr style={{ borderBottom: '1px solid var(--arcis-border)' }}>
+                     <th className="py-2 px-2 w-6"></th>
+                     {currentCols.map(col => (
+                       <th key={col.key}
+                         className={`py-2 px-2 text-left text-xs uppercase cursor-pointer select-none ${col.hideOnMobile ? 'hidden md:table-cell' : ''}`}
+                         style={{ color: sortKey === col.key ? 'var(--arcis-accent)' : 'var(--arcis-text-secondary)' }}
+                         onClick={() => toggleSort(col.key)}>
+                         {col.label}
+                         {sortKey === col.key && <span className="ml-1">{sortDir === 'asc' ? '\u2191' : '\u2193'}</span>}
+                       </th>
+                     ))}
+                   </tr>
+                 </thead>
+                 <tbody>
+                   {currentTrades.map((t, i) => (
+                     <ExpandableTradeRow key={t.trade_id || i} trade={t} columns={currentCols} rowIndex={i} maxPnl={maxAbsPnl} />
                    ))}
-                 </tr>
-               </thead>
-               <tbody>
-                 {currentTrades.map((t, i) => (
-                   <ExpandableTradeRow key={t.trade_id || i} trade={t} columns={currentCols} rowIndex={i} maxPnl={maxAbsPnl} />
-                 ))}
-               </tbody>
-             </table>
-           </div>
-         </>}
-      </div>
+                 </tbody>
+               </table>
+             </div>
+           </>}
+        </div>
+      )}
 
       {/* Closed trade metrics + viz */}
       {tab === 'closed' && closedTrades.length > 0 && (

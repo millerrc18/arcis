@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import LoadingSpinner from '../components/LoadingSpinner'
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 
 const SCENARIO_LABELS = {
   '2008_financial_crisis': '2008 Financial Crisis',
@@ -66,9 +67,33 @@ export default function StressTest() {
     }
   }
 
+  const [showPrevious, setShowPrevious] = useState(false)
+
+  // Group by scenario so re-running a scenario shows one summary card with
+  // the latest run only. Previous runs are archived in a collapsible block
+  // so the page doesn't accumulate stale duplicates over time (issue #52).
+  const allResults = data?.results || []
+  const { latestResults, previousResults } = useMemo(() => {
+    const sortKey = (r) => r.created_at || r.run_date || r.end_date || ''
+    const groups = new Map()
+    for (const r of allResults) {
+      const key = r.scenario || 'unknown'
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key).push(r)
+    }
+    const latest = []
+    const previous = []
+    for (const [, rows] of groups) {
+      rows.sort((a, b) => sortKey(b).localeCompare(sortKey(a)))
+      latest.push(rows[0])
+      if (rows.length > 1) previous.push(...rows.slice(1))
+    }
+    return { latestResults: latest, previousResults: previous }
+  }, [allResults])
+
   if (isLoading) return <LoadingSpinner />
 
-  const results = data?.results || []
+  const results = latestResults
 
   if (results.length === 0) {
     return (
@@ -184,6 +209,33 @@ export default function StressTest() {
               })}
             </LineChart>
           </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Previous runs archive */}
+      {previousResults.length > 0 && (
+        <div className="arcis-card" style={{ padding: '16px' }}>
+          <button
+            onClick={() => setShowPrevious(v => !v)}
+            className="flex items-center gap-2 text-sm uppercase tracking-wide"
+            style={{ color: 'var(--arcis-text-secondary)' }}
+          >
+            {showPrevious ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            Previous Runs ({previousResults.length})
+          </button>
+          {showPrevious && (
+            <div className="mt-3 space-y-1 text-xs" style={{ fontFamily: 'var(--font-mono)' }}>
+              {previousResults.map((r) => (
+                <div key={r.result_id} className="flex items-center gap-3 py-1" style={{ color: 'var(--arcis-text-muted)' }}>
+                  <span style={{ minWidth: 180 }}>{SCENARIO_LABELS[r.scenario] || r.scenario}</span>
+                  <span>{(r.created_at || r.run_date || '').slice(0, 10)}</span>
+                  <span>{r.total_trades || 0} trades</span>
+                  <span>{r.win_rate != null ? `${(r.win_rate * 100).toFixed(1)}% WR` : '--'}</span>
+                  <span style={{ color: 'var(--arcis-danger)' }}>{r.max_drawdown_pct != null ? `${r.max_drawdown_pct.toFixed(1)}% DD` : '--'}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
