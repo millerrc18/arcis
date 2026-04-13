@@ -404,6 +404,9 @@ _register(TableDef(
         ColumnDef("difficulty", "TEXT"),
         ColumnDef("curriculum_stage", "TEXT"),
         ColumnDef("quality_score_auto", "REAL"),
+        # updated_at: set by GuardedScorer when quality_score_auto is rewritten
+        # between-scans. Distinct from created_at which is immutable per example.
+        ColumnDef("updated_at", "TEXT"),
         ColumnDef("outcome_type", "TEXT"),
         ColumnDef("regime", "TEXT"),
         # 8-dimension rubric scores (1-5 each) per Gold-Standard Rubric doc.
