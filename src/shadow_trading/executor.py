@@ -41,6 +41,55 @@ from src.shadow_trading.models import ShadowTrade
 from alpaca.common.exceptions import APIError
 
 logger = logging.getLogger(__name__)
+
+
+def _count_live_open_positions(db_path: str) -> int:
+    """Count all non-quarantined open/exit_pending shadow trades regardless of source.
+
+    Returns a fresh count straight from SQLite so every entry path (shadow,
+    live, any future router) agrees.  Used by the hard governor cap.
+    """
+    from src.utils.db import connect_db
+    with connect_db(db_path) as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM shadow_trades "
+            "WHERE status IN ('open', 'exit_pending') "
+            "AND COALESCE(quarantined, 0) = 0"
+        ).fetchone()
+    return int(row[0] or 0)
+
+
+def _governor_cap(config: dict) -> int:
+    """Return the minimum enforced open-position cap across config sections.
+
+    Prefers the stricter of ``risk.max_open_positions`` and
+    ``shadow_trading.max_positions`` so neither alone can be bypassed.  On
+    2026-04-13 we observed 20 open positions against a declared cap of 10 —
+    this helper makes the effective limit explicit at every caller.
+    """
+    risk_cap = config.get("risk", {}).get("max_open_positions")
+    shadow_cap = config.get("shadow_trading", {}).get("max_positions")
+    caps = [c for c in (risk_cap, shadow_cap) if isinstance(c, int) and c > 0]
+    return min(caps) if caps else 10
+
+
+def _enforce_position_cap(config: dict, db_path: str, ticker: str, path: str = "SHADOW") -> bool:
+    """Return True if a new trade is allowed.  Log + return False if at cap.
+
+    Belt-and-braces defence: counts *all* non-quarantined open trades (not
+    just per-source subsets) against the stricter of the configured caps.
+    Called from both ``open_shadow_trade`` and ``open_live_trade`` so no
+    entry path can accidentally exceed the limit.
+    """
+    cap = _governor_cap(config)
+    open_count = _count_live_open_positions(db_path)
+    if open_count >= cap:
+        logger.warning(
+            "[GOVERNOR] Max positions reached (%d/%d), rejecting %s (path=%s)",
+            open_count, cap, ticker, path,
+        )
+        return False
+    return True
 # Alpaca order status sets — used by exit monitoring to decide whether to
 # close the trade record (filled) or wait for broker (pending).
 # GOTCHA: Alpaca SDK enums stringify as "OrderStatus.filled" — the adapter's
@@ -307,6 +356,11 @@ def open_shadow_trade(
         logger.info("[SHADOW] At position limit (%d), skipping", max_positions)
         return None
 
+    # Hard governor cap (#hotfix 2026-04-13): DB-level count + combined caps.
+    # Protects against the 20-open-vs-10-cap divergence observed today.
+    if not _enforce_position_cap(config, db_path, packet.ticker, path="SHADOW"):
+        return None
+
     ticker = packet.ticker
 
     # Fix for #99: Race condition duplicate check. Two scan cycles could both
@@ -500,12 +554,20 @@ def open_shadow_trade(
     # order). If bracket fails, fall back to simple market order.
     try:
         if _paper_broker_name == "ib" and _paper_broker is not None:
-            # IB paper path — use broker abstraction
+            # IB paper path — use broker abstraction.
+            # Hotfix 2026-04-13: route IB integer order IDs to broker_order_id,
+            # leaving alpaca_order_id NULL.  The #420 bug was caused by storing
+            # IB integers in the Alpaca-UUID column, which made every
+            # bracket_monitor / alpaca_adapter lookup fail with "badly formed
+            # hexadecimal UUID string" and triggered the fall-through that
+            # eventually led to premature stale-closure (today: COP/TGT/NEE).
             order = _paper_broker.place_bracket_order(
                 ticker, planned_shares,
                 take_profit_price=target_1, stop_loss_price=stop_price,
             )
-            trade_data["alpaca_order_id"] = order.order_id
+            trade_data["broker_order_id"] = str(order.order_id)
+            trade_data["alpaca_order_id"] = None
+            trade_data["broker"] = "ib"
             trade_data["order_type"] = order.order_type
             if order.child_order_ids:
                 import json as _json_route
@@ -1661,6 +1723,11 @@ def open_live_trade(
         logger.error("[LIVE] Position limit check failed for %s — REJECTING trade: %s", packet.ticker, e)
         return None
 
+    # Hard governor cap (#hotfix 2026-04-13): DB-level count + combined caps,
+    # so paper + live combined can never exceed the stricter configured limit.
+    if not _enforce_position_cap(config, db_path, packet.ticker, path="LIVE"):
+        return None
+
     # Duplicate check (live-specific)
     ticker = packet.ticker
     try:
@@ -1756,7 +1823,14 @@ def open_live_trade(
             take_profit_price=target_price,
             stop_loss_price=stop_price,
         )
-        trade_data["alpaca_order_id"] = order.order_id  # Works for both IB and Alpaca
+        # Hotfix 2026-04-13: do NOT store IB integer IDs in alpaca_order_id
+        # (see bug #420).  Route by broker to the correct typed column.
+        if order.broker == "ib":
+            trade_data["broker_order_id"] = str(order.order_id)
+            trade_data["alpaca_order_id"] = None
+        else:
+            trade_data["alpaca_order_id"] = order.order_id
+            trade_data["broker_order_id"] = str(order.order_id)
         trade_data["order_type"] = order.order_type
         trade_data["broker"] = order.broker  # Track which broker executed
         # Task 3: Store IB child order IDs for bracket health monitoring
