@@ -80,11 +80,21 @@ def test_sentiment_classification():
 
 
 def test_historical_news_date_bounds():
-    """Historical news should only return articles before as_of_date."""
+    """Historical news should only return articles before as_of_date.
+
+    fetch_historical_news checks an on-disk cache before falling through to
+    the no-API-key guard. A stale cache file from a prior run would return
+    data even without an API key, masking the behavior we want to verify.
+    Patch _load_cached to None and strip any FINNHUB_API_KEY from the env
+    so we genuinely exercise the "no API key → None" branch.
+    """
+    import os
     from src.data_enrichment.news import fetch_historical_news
 
-    # Without API key, should return None
-    result = fetch_historical_news("AAPL", "2026-01-15")
+    with patch("src.data_enrichment.news._load_cached", return_value=None), \
+         patch.dict(os.environ, {}, clear=False):
+        os.environ.pop("FINNHUB_API_KEY", None)
+        result = fetch_historical_news("AAPL", "2026-01-15")
     assert result is None
 
 

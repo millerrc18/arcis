@@ -60,7 +60,7 @@ class AlpacaLiveBroker(BrokerAdapter):
             order_type="bracket",
             status=str(order.get("status", "pending")),
             filled_avg_price=float(order["filled_avg_price"]) if order.get("filled_avg_price") else None,
-            filled_qty=int(float(order.get("qty", 0) or 0)),
+            filled_qty=float(order.get("qty", 0) or 0),
             stop_price=stop_loss_price,
             take_profit_price=take_profit_price,
             broker="alpaca",
@@ -86,7 +86,7 @@ class AlpacaLiveBroker(BrokerAdapter):
             order_type="market",
             status=str(order.get("status", "pending")),
             filled_avg_price=float(order["filled_avg_price"]) if order.get("filled_avg_price") else None,
-            filled_qty=int(float(order.get("qty", 0) or 0)),
+            filled_qty=float(order.get("qty", 0) or 0),
             broker="alpaca",
         )
 
@@ -101,7 +101,7 @@ class AlpacaLiveBroker(BrokerAdapter):
             order_type="market",
             status=str(order.get("status", "pending")),
             filled_avg_price=float(order["filled_avg_price"]) if order.get("filled_avg_price") else None,
-            filled_qty=int(float(order.get("qty", 0) or 0)),
+            filled_qty=float(order.get("qty", 0) or 0),
             broker="alpaca",
         )
 
@@ -124,11 +124,11 @@ class AlpacaLiveBroker(BrokerAdapter):
             order_id=order_id,
             ticker=str(status.get("symbol", "")),
             side="unknown",
-            quantity=int(float(status.get("filled_qty", 0) or 0)),
+            quantity=float(status.get("filled_qty", 0) or 0),
             order_type="unknown",
             status=str(status.get("status", "unknown")),
             filled_avg_price=float(status["filled_avg_price"]) if status.get("filled_avg_price") else None,
-            filled_qty=int(float(status.get("filled_qty", 0) or 0)),
+            filled_qty=float(status.get("filled_qty", 0) or 0),
             broker="alpaca",
         )
 
@@ -138,7 +138,7 @@ class AlpacaLiveBroker(BrokerAdapter):
             if pos.get("symbol") == ticker:
                 return BrokerPosition(
                     ticker=ticker,
-                    quantity=int(float(pos.get("qty", 0))),
+                    quantity=float(pos.get("qty", 0) or 0),
                     avg_cost=float(pos.get("avg_entry_price", 0)),
                     current_price=float(pos.get("current_price", 0)),
                     unrealized_pnl=float(pos.get("unrealized_pl", 0)),
@@ -152,7 +152,7 @@ class AlpacaLiveBroker(BrokerAdapter):
         return [
             BrokerPosition(
                 ticker=str(pos.get("symbol", "")),
-                quantity=int(float(pos.get("qty", 0))),
+                quantity=float(pos.get("qty", 0) or 0),
                 avg_cost=float(pos.get("avg_entry_price", 0)),
                 current_price=float(pos.get("current_price", 0)),
                 unrealized_pnl=float(pos.get("unrealized_pl", 0)),
