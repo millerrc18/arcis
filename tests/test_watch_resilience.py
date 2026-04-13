@@ -137,7 +137,7 @@ class TestHeartbeat:
 
     def test_heartbeat_command_callable(self):
         """The /heartbeat command handler exists and is callable."""
-        from src.notifications.telegram import _cmd_heartbeat
+        from src.notifications.telegram_commands import _cmd_heartbeat
         assert callable(_cmd_heartbeat)
 
 

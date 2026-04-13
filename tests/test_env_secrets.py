@@ -156,13 +156,18 @@ class TestEnvVarCoverage:
 
     @pytest.mark.parametrize("var_name", EXPECTED_VARS)
     def test_env_var_referenced_in_source(self, var_name):
-        """Each secret should have os.environ.get() reference in src/."""
-        import subprocess
-        result = subprocess.run(
-            ["grep", "-rn", f'os.environ.get("{var_name}")', "src/",
-             "--include=*.py"],
-            capture_output=True, text=True,
-        )
-        assert result.stdout.strip(), (
-            f'{var_name} has no os.environ.get() reference in src/'
-        )
+        """Each secret should have os.environ.get() reference in src/.
+
+        Uses pathlib to scan src/ directly rather than shelling out to grep —
+        subprocess grep on Windows can't pass the embedded double-quote in the
+        search pattern through without shell interpretation, giving false
+        negatives. Pure Python avoids that class of env bug.
+        """
+        from pathlib import Path
+        needle = f'os.environ.get("{var_name}")'
+        src_dir = Path(__file__).resolve().parent.parent / "src"
+        hits = [
+            p for p in src_dir.rglob("*.py")
+            if needle in p.read_text(encoding="utf-8", errors="ignore")
+        ]
+        assert hits, f"{var_name} has no os.environ.get() reference in src/"
