@@ -90,6 +90,54 @@ def _enforce_position_cap(config: dict, db_path: str, ticker: str, path: str = "
         )
         return False
     return True
+
+
+def _resolve_event_risk_multiplier(features: dict, ticker: str, path: str = "") -> float:
+    """Return the event-risk sizing multiplier, computing on-demand when missing.
+
+    Fix for #422: ``features.get("event_risk_multiplier")`` was returning
+    ``None`` for tickers whose feature builder never ran through
+    ``attach_event_risk_scores`` (single call site at
+    ``services.scan_service:115``).  The previous 0.5 fallback silently halved
+    allocations even when calendar data existed — confirmed for BMY, BK, CSCO,
+    C, TXN on 2026-04-13.
+
+    Resolution order (#422):
+      1. Use ``features["event_risk_multiplier"]`` if present (scan-service path).
+      2. Compute via ``event_risk_score.compute_event_risk_score(ticker)``.
+         Succeeds when ``earnings_calendar`` is populated — the realistic case.
+      3. Fall back to 0.5 (fail-conservative, per #267) only if compute also
+         fails, e.g. DB unavailable.  Respecting #267's defensive default
+         means the worst case now is a sized-down trade, never an
+         unknown-unknowns oversized trade.
+
+    Mutates ``features`` in-place with the resolved value so downstream readers
+    see the correct number.  ``path`` is purely cosmetic for log prefixes.
+    """
+    prefix = f"[{path}]" if path else ""
+    existing = features.get("event_risk_multiplier")
+    if existing is not None:
+        return float(existing)
+    try:
+        from src.features.event_risk_score import compute_event_risk_score
+        ticker_risk = compute_event_risk_score(ticker)
+        computed = float(ticker_risk.get("sizing_multiplier", 1.0))
+        features["event_risk_multiplier"] = computed
+        logger.warning(
+            "%s[RISK] event_risk_multiplier missing from features for %s "
+            "— computed on-demand=%.3f (feature pipeline did not call "
+            "attach_event_risk_scores)",
+            prefix, ticker, computed,
+        )
+        return computed
+    except Exception as exc:
+        logger.warning(
+            "%s[RISK] event_risk_multiplier missing AND compute failed for "
+            "%s (%s) — defaulting to 0.5 (fail-conservative per #267)",
+            prefix, ticker, exc,
+        )
+        features["event_risk_multiplier"] = 0.5
+        return 0.5
 # Alpaca order status sets — used by exit monitoring to decide whether to
 # close the trade record (filled) or wait for broker (pending).
 # GOTCHA: Alpaca SDK enums stringify as "OrderStatus.filled" — the adapter's
@@ -312,10 +360,7 @@ def open_shadow_trade(
         if tl_mult is None:
             tl_mult = 0.5
             logger.warning("[RISK] traffic_light_multiplier missing for %s — defaulting to 0.5 (conservative)", packet.ticker)
-        event_mult = features.get("event_risk_multiplier")
-        if event_mult is None:
-            event_mult = 0.5
-            logger.warning("[RISK] event_risk_multiplier missing for %s — defaulting to 0.5 (conservative)", packet.ticker)
+        event_mult = _resolve_event_risk_multiplier(features, packet.ticker)
         check = governor.check_trade(
             packet.ticker,
             packet.position_sizing.allocation_dollars,
@@ -1571,10 +1616,7 @@ def open_live_trade(
         if tl_mult is None:
             tl_mult = 0.5
             logger.warning("[LIVE][RISK] traffic_light_multiplier missing for %s — defaulting to 0.5 (conservative)", packet.ticker)
-        event_mult = features.get("event_risk_multiplier")
-        if event_mult is None:
-            event_mult = 0.5
-            logger.warning("[LIVE][RISK] event_risk_multiplier missing for %s — defaulting to 0.5 (conservative)", packet.ticker)
+        event_mult = _resolve_event_risk_multiplier(features, packet.ticker, path="LIVE")
         check = governor.check_trade(
             packet.ticker,
             packet.position_sizing.allocation_dollars,

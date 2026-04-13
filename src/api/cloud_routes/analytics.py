@@ -39,8 +39,8 @@ def _compute_performance_score(closed_trades: list[dict]) -> tuple[float, dict]:
     if closed_count < 2:
         return 0, {"status": "Insufficient data", "trade_count": closed_count, "target": 50}
 
-    pnls = [trade.get("pnl_pct", 0) or 0 for trade in closed_trades]
-    pnl_dollars = [trade.get("pnl_dollars", 0) or 0 for trade in closed_trades]
+    pnls = [float(trade.get("pnl_pct", 0) or 0) for trade in closed_trades]
+    pnl_dollars = [float(trade.get("pnl_dollars", 0) or 0) for trade in closed_trades]
     wins = [pnl for pnl in pnls if pnl > 0]
     losses = [pnl for pnl in pnls if pnl <= 0]
     win_rate = len(wins) / closed_count
@@ -156,7 +156,7 @@ def _compute_max_consecutive(closed_trades: list[dict], direction: str = "loss")
     max_streak = 0
     current_streak = 0
     for trade in closed_trades:
-        pnl = trade.get("pnl_dollars", 0) or 0
+        pnl = float(trade.get("pnl_dollars", 0) or 0)
         is_match = pnl <= 0 if direction == "loss" else pnl > 0
         if is_match:
             current_streak += 1
@@ -168,10 +168,10 @@ def _compute_max_consecutive(closed_trades: list[dict], direction: str = "loss")
 
 def _compute_trade_summary(closed_recent: list[dict], open_count: int) -> dict:
     """Compute CTO trade-summary KPIs."""
-    pnls = [trade.get("pnl_pct", 0) or 0 for trade in closed_recent]
+    pnls = [float(trade.get("pnl_pct", 0) or 0) for trade in closed_recent]
     wins = [pnl for pnl in pnls if pnl > 0]
     losses = [pnl for pnl in pnls if pnl <= 0]
-    total_pnl = sum(trade.get("pnl_dollars", 0) or 0 for trade in closed_recent)
+    total_pnl = sum(float(trade.get("pnl_dollars", 0) or 0) for trade in closed_recent)
     sharpe = 0
     if len(pnls) >= 2:
         avg_return = statistics.mean(pnls)
