@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.api.routes import system, scan, shadow, training, review, packets, docs, actions, health, council, notes, live, logs, ib_status
 from src.api.websocket import manager
 
-app = FastAPI(title="Arcis", version="1.0.0")
+app = FastAPI(title="Arcis", version="0.17.1")
 
 app.add_middleware(
     CORSMiddleware,
