@@ -8,6 +8,7 @@ Tests: tests/test_change_detector.py, tests/test_digest_builder.py, tests/test_g
 """
 
 import logging
+import re
 import sqlite3
 import uuid
 from datetime import datetime, timedelta
@@ -19,6 +20,35 @@ from src.models import TradePacket
 from src.schema.registry import TABLES
 
 _logger = logging.getLogger(__name__)
+
+_SQL_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _filter_to_schema(table_name: str, data: dict) -> dict:
+    """Drop keys not declared in the schema registry for this table.
+
+    Closes the SQL-injection vector where dict keys are f-string interpolated
+    into INSERT/UPDATE statements (see audit #415). A malicious key like
+    ``"note = 'x' --"`` is dropped before it can reach the SQL builder, even
+    if a future route forwards unvalidated user input.
+    """
+    table = TABLES.get(table_name)
+    if not table:
+        return data
+    allowed = {c.name for c in table.columns}
+    kept: dict = {}
+    dropped: list[str] = []
+    for k, v in data.items():
+        if k in allowed and _SQL_IDENTIFIER.match(k):
+            kept[k] = v
+        else:
+            dropped.append(k)
+    if dropped:
+        _logger.warning(
+            "journal.store: dropped non-schema keys for %s: %s",
+            table_name, dropped,
+        )
+    return kept
 
 
 def _coerce_to_schema(table_name: str, data: dict) -> dict:
@@ -141,6 +171,7 @@ def log_recommendation(
         "market_regime": features.get("regime_label"),
     }
 
+    row = _filter_to_schema("recommendations", row)
     row = _coerce_to_schema("recommendations", row)
     columns = ", ".join(row.keys())
     placeholders = ", ".join("?" for _ in row)
@@ -193,6 +224,7 @@ def insert_shadow_trade(trade: dict, db_path: str = DB_PATH) -> str:
     initialize_database(db_path)
     trade_id = trade.get("trade_id", str(uuid.uuid4()))
     trade["trade_id"] = trade_id
+    trade = _filter_to_schema("shadow_trades", trade)
     trade = _coerce_to_schema("shadow_trades", trade)
 
     columns = ", ".join(trade.keys())
@@ -215,7 +247,10 @@ def update_shadow_trade(
         return
     et = ZoneInfo("America/New_York")
     updates["updated_at"] = datetime.now(et).isoformat()
+    updates = _filter_to_schema("shadow_trades", updates)
     updates = _coerce_to_schema("shadow_trades", updates)
+    if not updates:
+        return
     set_clause = ", ".join(f"{k} = ?" for k in updates)
     values = list(updates.values()) + [trade_id]
 
@@ -400,7 +435,10 @@ def update_recommendation(
     """Update fields on an existing recommendation."""
     if not updates:
         return
+    updates = _filter_to_schema("recommendations", updates)
     updates = _coerce_to_schema("recommendations", updates)
+    if not updates:
+        return
     set_clause = ", ".join(f"{k} = ?" for k in updates)
     values = list(updates.values()) + [recommendation_id]
 
