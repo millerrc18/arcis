@@ -123,3 +123,25 @@
 15. Stress test caching (#10)
 16. Stress test survivorship fix (#11)
 17. Stress test Alpaca API (#13)
+
+---
+
+## Additions from April 12-13 Deep Research Session
+
+| # | Item | Status | Spec/Plan | Research |
+|---|------|--------|-----------|----------|
+| 55 | Earnings exclusion zone (SD#33) | Spec ready | ✅ `sprint-earnings-regime-retrain.md` Sprint 1 | ✅ `earnings-event-handling-pullback-strategy.md` |
+| 56 | Monthly retraining cadence (SD#34) | Spec ready | ✅ `sprint-earnings-regime-retrain.md` Sprint 3 | ✅ `optimal-retraining-cadence-lora.md` |
+| 57 | 3-regime classifier (SD#35) | Spec ready | ✅ `sprint-earnings-regime-retrain.md` Sprint 2 | ✅ `regime-classifier-fix-3-regimes.md` |
+| 58 | Phased live deployment gates (SD#36) | Decision framework | No sprint — gates defined | ✅ `paper-to-live-statistical-gates.md` |
+| 59 | TTS qualification + tax structure (SD#37) | CPA meeting prep | 🔧 Operational — July 2026 | ✅ `tax-optimization-475f-llc.md` |
+| 60 | TCA logging + broker comparison (SD#38) | Spec ready | Add to earnings sprint | ✅ `transaction-cost-analysis-sp100.md` |
+| 61 | Champion-challenger model evaluation | Needs spec | ❌ | Gap identified |
+| 62 | Statistical Jump Model regime upgrade | Phase 4 per regime research | ⚠️ Research only | In `regime-classifier-fix-3-regimes.md` |
+
+**Updated totals:** 62 roadmap items tracked, 27 with specs (44%), 17 with research only (27%), 10 need new specs (16%), 8 operational (13%).
+
+**Saturday sprint queue (priority order):**
+1. Earnings filter (Sprint 1) — CRITICAL, protects live positions
+2. Regime classifier v2 (Sprint 2) — HIGH, fixes 75% unknown rate
+3. Retraining cadence + watch loop fixes (Sprint 3) — HIGH, prevents auto-retrain misfires
