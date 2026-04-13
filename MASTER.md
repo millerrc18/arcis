@@ -479,7 +479,7 @@ src/schema/registry.py          <- THE source of truth (53 TableDefs)
 
 ---
 
-## 5. Strategy Decisions (38 confirmed)
+## 5. Strategy Decisions (39 confirmed)
 
 1. Strategy #1 = Pullback-in-uptrend (LIVE)
 2. Strategy #2 = Mean Reversion / Connors RSI(2) -- PAPER-TRADING NOW. NOTE: Deep research (Scaling Levers) finds MR is the WORST diversifier for pullback (rho=0.35-0.50, shared "buy the dip" logic). Breakout/momentum (rho=0.10-0.25) should be evaluated as primary second LIVE strategy. MR remains valuable for Phase 1 data volume.
@@ -519,6 +519,7 @@ src/schema/registry.py          <- THE source of truth (53 TableDefs)
 36. Phased live deployment gates (docs/research/paper-to-live-statistical-gates.md). $100 (infra validation, 20-30 trades, zero statistical gate) → $1K (PSR>85%, 50 trades, Wilson CI lower >50%) → $5K (PSR>95%, 100 trades, binomial p<0.05, CCC>0.95) → $25K (200 trades, live Sharpe>0.8, CCC>0.97). Paper Sharpe gate ≥1.25 to survive 20-25% paper-to-live decay. Currently in Phase 1 ($100 live). Next gate: 50 trades.
 37. TTS qualification risk at 50-100 trades/year (docs/research/tax-optimization-475f-llc.md). Poppe benchmark is 720 transactions. Count buys+sells separately. Maintain 4hr daily time logs. S-Corp election needed for Solo 401k access ($72K/yr). 475(f) election on securities only — preserve 1256 for future options/futures. QBI deduction phases out above ~$277K single. Wyoming LLC = zero VA tax savings (resident taxed on worldwide income). CPA meeting: July 2026.
 38. TCA: market impact zero at current scale (docs/research/transaction-cost-analysis-sp100.md). Square-root model predicts 0.75 bps on $25K S&P 100 order. Broker selection = 39 bps spread between best/worst (Schwarz 2025). Build NBBO logging now (signal timestamp, fill price, fill timestamp, exit type). 500 matched trades needed for Alpaca vs IB comparison at 95% confidence. 10:00-11:30 AM entry window validated. Impact becomes relevant at ~$300K-$1M per order.
+39. Champion-challenger model evaluation at n<50 (docs/research/champion-challenger-evaluation-small-n.md). Classical tests useless below 50 trades. Bayesian Beta-Binomial sequential test as primary decision engine with pre-registered stopping thresholds (P(new>old)>0.95 at n=15 = early keep; <0.05 = rollback). Deterministic ranker as concurrent regime control via DiD. Canary holdout (5 examples) as zero-cost first defense. Guard rails: 5 consecutive losses, parse rate <95%, 2x historical DD = automatic rollback. Firth logistic regression for conviction-as-signal (β₂ test). Pre-registered default: revert to old model if inconclusive at n=50.
 
 ---
 
