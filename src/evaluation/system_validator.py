@@ -42,6 +42,11 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH, load_config
+from src.utils.secret_redact import (
+    _TOKEN_PATTERNS,
+    sanitize_error as _sanitize_error,
+    sanitize_text as _sanitize_text,
+)
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -278,7 +283,7 @@ def _check_trading(db_path: str, config: dict) -> list[dict]:
                                       "Paper API returned no equity info"))
         except Exception as e:
             checks.append(_check("trading_paper_creds", "fail",
-                                  f"Paper API error: {str(e)[:100]}"))
+                                  f"Paper API error: {_sanitize_error(e)}"))
     else:
         checks.append(_check("trading_paper_creds", "warn",
                               "Paper API credentials not configured"))
@@ -300,7 +305,7 @@ def _check_trading(db_path: str, config: dict) -> list[dict]:
                                           "Live API returned no equity info"))
             except Exception as e:
                 checks.append(_check("trading_live_creds", "fail",
-                                      f"Live API error: {str(e)[:100]}"))
+                                      f"Live API error: {_sanitize_error(e)}"))
         else:
             checks.append(_check("trading_live_creds", "fail",
                                   "Live trading enabled but credentials not configured"))
@@ -567,7 +572,7 @@ def _check_api(config: dict) -> list[dict]:
                                       "psycopg2 not installed (cloud dependency)"))
             except Exception as e:
                 checks.append(_check("api_render_connection", "fail",
-                                      f"Cannot connect to Render Postgres: {str(e)[:80]}"))
+                                      f"Cannot connect to Render Postgres: {_sanitize_error(e)}"))
         else:
             checks.append(_check("api_render_config", "warn",
                                   "Render enabled but DATABASE_URL not set"))
@@ -717,7 +722,7 @@ def _check_notifications(config: dict) -> list[dict]:
                                       "Bot token is invalid"))
         except Exception as e:
             checks.append(_check("notif_telegram_valid", "warn",
-                                  f"Could not verify bot token: {str(e)[:60]}"))
+                                  f"Could not verify bot token: {_sanitize_error(e)}"))
     elif tg_enabled:
         checks.append(_check("notif_telegram_config", "fail",
                               "Telegram enabled but token/chat_id missing"))
@@ -945,7 +950,7 @@ def _check_llm(config: dict) -> list[dict]:
                                   f"Inference returned {resp.status_code}"))
     except Exception as e:
         checks.append(_check("llm_inference_test", "warn",
-                              f"Inference test failed: {str(e)[:60]}"))
+                              f"Inference test failed: {_sanitize_error(e)}"))
 
     return checks
 
@@ -1020,6 +1025,13 @@ def save_validation_result(result: dict, db_path: str = DB_PATH) -> str:
     result_id = str(uuid.uuid4())
     # Ensure schema exists via registry (idempotent)
     _create_all(db_path)
+    # Defense in depth (#414): even if an upstream call site forgets to use
+    # _sanitize_error, scrub the serialized payload before persist so tokens
+    # cannot reach validation_results.  NOTE: only the persisted DB row is
+    # sanitized here.  The in-memory ``result`` returned by run_full_validation
+    # is still the original — API routes (e.g., api/routes/system.py) that
+    # surface results to the dashboard are tracked as a separate follow-up.
+    safe_payload = _sanitize_text(json.dumps(result))
     conn = sqlite3.connect(db_path, timeout=10)  # #258: busy timeout
     try:
         conn.execute(
@@ -1031,7 +1043,7 @@ def save_validation_result(result: dict, db_path: str = DB_PATH) -> str:
                 result["checks_passed"],
                 result["checks_failed"],
                 result["checks_warning"],
-                json.dumps(result),
+                safe_payload,
             ),
         )
         # Prune results older than 90 days
