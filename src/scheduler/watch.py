@@ -1448,7 +1448,7 @@ class WatchLoop:
                         self._stress_test_done = True
 
                 # Weekly simulation engine (Sunday 9:30 PM ET, after stress test)
-                elif (now.weekday() == 6 and hour == 21 and minute >= 30
+                elif (now.weekday() == 6 and hour == 21 and now.minute >= 30
                       and not self._simulation_done):
                     if self._safe_run("weekly simulation", self._run_simulation_engine):
                         self._simulation_done = True
