@@ -77,6 +77,40 @@ class TestGovernorCap:
                "shadow_trading": {"max_positions": 8}}
         assert _governor_cap(cfg) == 8
 
+    def test_bootcamp_enabled_uses_bootcamp_cap(self):
+        """Bootcamp override matches executor.open_shadow_trade and
+        risk.governor.check_trade behavior so all three surfaces agree."""
+        cfg = {
+            "bootcamp": {"enabled": True, "max_positions": 50},
+            "risk": {"max_open_positions": 5},
+            "shadow_trading": {"max_positions": 10},
+        }
+        assert _governor_cap(cfg) == 50
+
+    def test_bootcamp_disabled_uses_strict_min(self):
+        cfg = {
+            "bootcamp": {"enabled": False, "max_positions": 50},
+            "risk": {"max_open_positions": 5},
+            "shadow_trading": {"max_positions": 10},
+        }
+        assert _governor_cap(cfg) == 5
+
+    def test_bootcamp_enabled_default_is_50(self):
+        cfg = {"bootcamp": {"enabled": True}}
+        assert _governor_cap(cfg) == 50
+
+    def test_bootcamp_enabled_with_invalid_cap_uses_default(self):
+        cfg = {"bootcamp": {"enabled": True, "max_positions": 0}}
+        assert _governor_cap(cfg) == 50
+        cfg = {"bootcamp": {"enabled": True, "max_positions": -1}}
+        assert _governor_cap(cfg) == 50
+
+    def test_bootcamp_missing_falls_through(self):
+        """No bootcamp key at all should behave like disabled."""
+        cfg = {"risk": {"max_open_positions": 3},
+               "shadow_trading": {"max_positions": 10}}
+        assert _governor_cap(cfg) == 3
+
 
 class TestEnforcePositionCap:
     def test_rejects_when_at_cap(self, tmp_db, caplog):

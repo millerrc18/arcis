@@ -60,13 +60,30 @@ def _count_live_open_positions(db_path: str) -> int:
 
 
 def _governor_cap(config: dict) -> int:
-    """Return the minimum enforced open-position cap across config sections.
+    """Return the effective open-position cap, respecting bootcamp overrides.
 
-    Prefers the stricter of ``risk.max_open_positions`` and
-    ``shadow_trading.max_positions`` so neither alone can be bypassed.  On
-    2026-04-13 we observed 20 open positions against a declared cap of 10 —
-    this helper makes the effective limit explicit at every caller.
+    Bootcamp mode intentionally raises the breadth ceiling to teach the
+    model portfolio diversification.  When ``bootcamp.enabled`` is True, the
+    cap comes from ``bootcamp.max_positions`` — matching the existing
+    ternaries at ``executor.open_shadow_trade`` (line 297-303) and
+    ``risk.governor.RiskGovernor.check_trade`` (line 500-502) so all three
+    governor surfaces agree on the effective limit.
+
+    When bootcamp is disabled, falls back to the stricter of
+    ``risk.max_open_positions`` and ``shadow_trading.max_positions`` so
+    neither alone can be bypassed.
+
+    The original #430 investigation (2026-04-13) showed 19 open positions
+    against an intuitive cap of 10 — the intended bootcamp ceiling of 50
+    was active but the hotfix's early helper ignored it, making the
+    effective cap drop to 5 post-merge and blocking all new entries.
     """
+    bootcamp = config.get("bootcamp", {})
+    if bootcamp.get("enabled", False):
+        bc_cap = bootcamp.get("max_positions", 50)
+        if isinstance(bc_cap, int) and bc_cap > 0:
+            return bc_cap
+        return 50
     risk_cap = config.get("risk", {}).get("max_open_positions")
     shadow_cap = config.get("shadow_trading", {}).get("max_positions")
     caps = [c for c in (risk_cap, shadow_cap) if isinstance(c, int) and c > 0]
