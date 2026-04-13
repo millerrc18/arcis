@@ -326,8 +326,10 @@ training:
   enabled: true
   anthropic_api_key: "your-anthropic-api-key-here"  # → .env: ANTHROPIC_API_KEY
   claude_model: "claude-sonnet-4-20250514"           # Used by quality scoring + training gen.
-  auto_train_threshold: 50     # Trigger fine-tune when this many NEW examples accumulate
-                               # since the last training run.
+  auto_train_threshold: 500    # Trigger fine-tune when this many NEW examples accumulate
+                               # since the last training run. 500 is high enough that
+                               # bulk backfill imports won't spuriously trigger retraining;
+                               # genuine trade-flow accumulation is the intended signal.
   auto_train_time_days: 7      # OR trigger fine-tune if this many days since last train.
   auto_train_min_examples: 20  # Minimum new examples for the time-based trigger.
                                # Prevents training on tiny batches.
