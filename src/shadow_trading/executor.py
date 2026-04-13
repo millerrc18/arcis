@@ -41,6 +41,120 @@ from src.shadow_trading.models import ShadowTrade
 from alpaca.common.exceptions import APIError
 
 logger = logging.getLogger(__name__)
+
+
+def _count_live_open_positions(db_path: str) -> int:
+    """Count all non-quarantined open/exit_pending shadow trades regardless of source.
+
+    Returns a fresh count straight from SQLite so every entry path (shadow,
+    live, any future router) agrees.  Used by the hard governor cap.
+    """
+    from src.utils.db import connect_db
+    with connect_db(db_path) as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM shadow_trades "
+            "WHERE status IN ('open', 'exit_pending') "
+            "AND COALESCE(quarantined, 0) = 0"
+        ).fetchone()
+    return int(row[0] or 0)
+
+
+def _governor_cap(config: dict) -> int:
+    """Return the effective open-position cap, respecting bootcamp overrides.
+
+    Bootcamp mode intentionally raises the breadth ceiling to teach the
+    model portfolio diversification.  When ``bootcamp.enabled`` is True, the
+    cap comes from ``bootcamp.max_positions`` — matching the existing
+    ternaries at ``executor.open_shadow_trade`` (line 297-303) and
+    ``risk.governor.RiskGovernor.check_trade`` (line 500-502) so all three
+    governor surfaces agree on the effective limit.
+
+    When bootcamp is disabled, falls back to the stricter of
+    ``risk.max_open_positions`` and ``shadow_trading.max_positions`` so
+    neither alone can be bypassed.
+
+    The original #430 investigation (2026-04-13) showed 19 open positions
+    against an intuitive cap of 10 — the intended bootcamp ceiling of 50
+    was active but the hotfix's early helper ignored it, making the
+    effective cap drop to 5 post-merge and blocking all new entries.
+    """
+    bootcamp = config.get("bootcamp", {})
+    if bootcamp.get("enabled", False):
+        bc_cap = bootcamp.get("max_positions", 50)
+        if isinstance(bc_cap, int) and bc_cap > 0:
+            return bc_cap
+        return 50
+    risk_cap = config.get("risk", {}).get("max_open_positions")
+    shadow_cap = config.get("shadow_trading", {}).get("max_positions")
+    caps = [c for c in (risk_cap, shadow_cap) if isinstance(c, int) and c > 0]
+    return min(caps) if caps else 10
+
+
+def _enforce_position_cap(config: dict, db_path: str, ticker: str, path: str = "SHADOW") -> bool:
+    """Return True if a new trade is allowed.  Log + return False if at cap.
+
+    Belt-and-braces defence: counts *all* non-quarantined open trades (not
+    just per-source subsets) against the stricter of the configured caps.
+    Called from both ``open_shadow_trade`` and ``open_live_trade`` so no
+    entry path can accidentally exceed the limit.
+    """
+    cap = _governor_cap(config)
+    open_count = _count_live_open_positions(db_path)
+    if open_count >= cap:
+        logger.warning(
+            "[GOVERNOR] Max positions reached (%d/%d), rejecting %s (path=%s)",
+            open_count, cap, ticker, path,
+        )
+        return False
+    return True
+
+
+def _resolve_event_risk_multiplier(features: dict, ticker: str, path: str = "") -> float:
+    """Return the event-risk sizing multiplier, computing on-demand when missing.
+
+    Fix for #422: ``features.get("event_risk_multiplier")`` was returning
+    ``None`` for tickers whose feature builder never ran through
+    ``attach_event_risk_scores`` (single call site at
+    ``services.scan_service:115``).  The previous 0.5 fallback silently halved
+    allocations even when calendar data existed — confirmed for BMY, BK, CSCO,
+    C, TXN on 2026-04-13.
+
+    Resolution order (#422):
+      1. Use ``features["event_risk_multiplier"]`` if present (scan-service path).
+      2. Compute via ``event_risk_score.compute_event_risk_score(ticker)``.
+         Succeeds when ``earnings_calendar`` is populated — the realistic case.
+      3. Fall back to 0.5 (fail-conservative, per #267) only if compute also
+         fails, e.g. DB unavailable.  Respecting #267's defensive default
+         means the worst case now is a sized-down trade, never an
+         unknown-unknowns oversized trade.
+
+    Mutates ``features`` in-place with the resolved value so downstream readers
+    see the correct number.  ``path`` is purely cosmetic for log prefixes.
+    """
+    prefix = f"[{path}]" if path else ""
+    existing = features.get("event_risk_multiplier")
+    if existing is not None:
+        return float(existing)
+    try:
+        from src.features.event_risk_score import compute_event_risk_score
+        ticker_risk = compute_event_risk_score(ticker)
+        computed = float(ticker_risk.get("sizing_multiplier", 1.0))
+        features["event_risk_multiplier"] = computed
+        logger.warning(
+            "%s[RISK] event_risk_multiplier missing from features for %s "
+            "— computed on-demand=%.3f (feature pipeline did not call "
+            "attach_event_risk_scores)",
+            prefix, ticker, computed,
+        )
+        return computed
+    except Exception as exc:
+        logger.warning(
+            "%s[RISK] event_risk_multiplier missing AND compute failed for "
+            "%s (%s) — defaulting to 0.5 (fail-conservative per #267)",
+            prefix, ticker, exc,
+        )
+        features["event_risk_multiplier"] = 0.5
+        return 0.5
 # Alpaca order status sets — used by exit monitoring to decide whether to
 # close the trade record (filled) or wait for broker (pending).
 # GOTCHA: Alpaca SDK enums stringify as "OrderStatus.filled" — the adapter's
@@ -263,10 +377,7 @@ def open_shadow_trade(
         if tl_mult is None:
             tl_mult = 0.5
             logger.warning("[RISK] traffic_light_multiplier missing for %s — defaulting to 0.5 (conservative)", packet.ticker)
-        event_mult = features.get("event_risk_multiplier")
-        if event_mult is None:
-            event_mult = 0.5
-            logger.warning("[RISK] event_risk_multiplier missing for %s — defaulting to 0.5 (conservative)", packet.ticker)
+        event_mult = _resolve_event_risk_multiplier(features, packet.ticker)
         check = governor.check_trade(
             packet.ticker,
             packet.position_sizing.allocation_dollars,
@@ -305,6 +416,11 @@ def open_shadow_trade(
     open_trades = get_open_shadow_trades(db_path)
     if len(open_trades) >= max_positions:
         logger.info("[SHADOW] At position limit (%d), skipping", max_positions)
+        return None
+
+    # Hard governor cap (#hotfix 2026-04-13): DB-level count + combined caps.
+    # Protects against the 20-open-vs-10-cap divergence observed today.
+    if not _enforce_position_cap(config, db_path, packet.ticker, path="SHADOW"):
         return None
 
     ticker = packet.ticker
@@ -500,12 +616,20 @@ def open_shadow_trade(
     # order). If bracket fails, fall back to simple market order.
     try:
         if _paper_broker_name == "ib" and _paper_broker is not None:
-            # IB paper path — use broker abstraction
+            # IB paper path — use broker abstraction.
+            # Hotfix 2026-04-13: route IB integer order IDs to broker_order_id,
+            # leaving alpaca_order_id NULL.  The #420 bug was caused by storing
+            # IB integers in the Alpaca-UUID column, which made every
+            # bracket_monitor / alpaca_adapter lookup fail with "badly formed
+            # hexadecimal UUID string" and triggered the fall-through that
+            # eventually led to premature stale-closure (today: COP/TGT/NEE).
             order = _paper_broker.place_bracket_order(
                 ticker, planned_shares,
                 take_profit_price=target_1, stop_loss_price=stop_price,
             )
-            trade_data["alpaca_order_id"] = order.order_id
+            trade_data["broker_order_id"] = str(order.order_id)
+            trade_data["alpaca_order_id"] = None
+            trade_data["broker"] = "ib"
             trade_data["order_type"] = order.order_type
             if order.child_order_ids:
                 import json as _json_route
@@ -1509,10 +1633,7 @@ def open_live_trade(
         if tl_mult is None:
             tl_mult = 0.5
             logger.warning("[LIVE][RISK] traffic_light_multiplier missing for %s — defaulting to 0.5 (conservative)", packet.ticker)
-        event_mult = features.get("event_risk_multiplier")
-        if event_mult is None:
-            event_mult = 0.5
-            logger.warning("[LIVE][RISK] event_risk_multiplier missing for %s — defaulting to 0.5 (conservative)", packet.ticker)
+        event_mult = _resolve_event_risk_multiplier(features, packet.ticker, path="LIVE")
         check = governor.check_trade(
             packet.ticker,
             packet.position_sizing.allocation_dollars,
@@ -1661,6 +1782,11 @@ def open_live_trade(
         logger.error("[LIVE] Position limit check failed for %s — REJECTING trade: %s", packet.ticker, e)
         return None
 
+    # Hard governor cap (#hotfix 2026-04-13): DB-level count + combined caps,
+    # so paper + live combined can never exceed the stricter configured limit.
+    if not _enforce_position_cap(config, db_path, packet.ticker, path="LIVE"):
+        return None
+
     # Duplicate check (live-specific)
     ticker = packet.ticker
     try:
@@ -1756,7 +1882,14 @@ def open_live_trade(
             take_profit_price=target_price,
             stop_loss_price=stop_price,
         )
-        trade_data["alpaca_order_id"] = order.order_id  # Works for both IB and Alpaca
+        # Hotfix 2026-04-13: do NOT store IB integer IDs in alpaca_order_id
+        # (see bug #420).  Route by broker to the correct typed column.
+        if order.broker == "ib":
+            trade_data["broker_order_id"] = str(order.order_id)
+            trade_data["alpaca_order_id"] = None
+        else:
+            trade_data["alpaca_order_id"] = order.order_id
+            trade_data["broker_order_id"] = str(order.order_id)
         trade_data["order_type"] = order.order_type
         trade_data["broker"] = order.broker  # Track which broker executed
         # Task 3: Store IB child order IDs for bracket health monitoring

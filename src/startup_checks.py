@@ -242,9 +242,10 @@ def _check_alpaca(config: dict) -> CheckResult:
             fix_hint="Check ALPACA_API_KEY in .env or alpaca.api_key in YAML",
         )
     except Exception as e:
+        from src.utils.secret_redact import sanitize_error
         return CheckResult(
             name="alpaca", category="connectivity", status="critical",
-            detail=f"Alpaca unreachable: {str(e)[:60]}",
+            detail=f"Alpaca unreachable: {sanitize_error(e)}",
             fix_hint="Check ALPACA_API_KEY in .env or alpaca.api_key in YAML",
         )
 

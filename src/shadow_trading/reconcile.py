@@ -331,12 +331,19 @@ def reconcile_paper_trades(
             "error": str(e),
         }
 
-    # Dual-broker support: also fetch IB paper positions if any trades use IB
-    ib_positions = {}
+    # Dual-broker support: also fetch IB paper positions if any trades use IB.
+    # Tracks whether the fetch succeeded so we don't falsely close IB trades
+    # when IB Gateway is unreachable.  On 2026-04-13 the #419 outage made the
+    # reconciler see 0 IB positions and force-close COP/TGT/NEE as stale —
+    # those positions actually existed at IB, just couldn't be fetched.
+    ib_positions: dict = {}
+    ib_fetch_ok = False
+    ib_enabled = False
     try:
         from src.config import load_config as _lc_reconcile
         _cfg_r = _lc_reconcile()
         if _cfg_r.get("live_trading", {}).get("ib", {}).get("paper_routing"):
+            ib_enabled = True
             from src.trading.ib_broker import IBBroker
             _ib_cfg = _cfg_r.get("live_trading", {}).get("ib", {})
             _ib_broker = IBBroker(
@@ -352,9 +359,14 @@ def reconcile_paper_trades(
                         "symbol": p.ticker, "qty": p.quantity,
                         "avg_price": p.avg_cost, "current_price": p.current_price,
                     }
+                ib_fetch_ok = True
                 logger.info("[RECONCILE-PAPER] IB positions fetched: %d", len(ib_positions))
             except Exception as ib_err:
-                logger.debug("[RECONCILE-PAPER] IB positions unavailable: %s", ib_err)
+                logger.warning(
+                    "[RECONCILE-PAPER] IB Gateway unreachable — IB-broker trades "
+                    "will NOT be closed this cycle (prevents false stale-close "
+                    "during broker outage): %s", ib_err,
+                )
     except Exception:
         pass
 
@@ -406,11 +418,32 @@ def reconcile_paper_trades(
             else:
                 matched += 1
 
-    # Local has it, broker doesn't → stale
-    # Check the correct broker per trade (IB trades check IB, Alpaca check Alpaca)
+    # Local has it, broker doesn't → stale.
+    # Broker-unreachable guard: if we could not fetch positions from a broker,
+    # any trade on that broker is "unknown this cycle" and NOT marked stale.
+    # Also: if IB returned 0 positions while local shows several active IB
+    # trades, treat that as a transient fetch issue rather than a mass-close
+    # signal — the same pattern that burned us in the 2026-04-13 outage.
+    ib_trade_count = sum(1 for rec in tracked_map.values() if rec.get("broker") == "ib")
+    if ib_enabled and not ib_fetch_ok and ib_trade_count > 0:
+        logger.warning(
+            "[RECONCILE-PAPER] Skipping stale closure for %d IB-broker trades "
+            "— IB fetch failed this cycle", ib_trade_count,
+        )
+    if ib_enabled and ib_fetch_ok and len(ib_positions) == 0 and ib_trade_count >= 3:
+        logger.warning(
+            "[RECONCILE-PAPER] IB returned 0 positions but local has %d active "
+            "IB trades — likely transient fetch issue, skipping IB stale closure",
+            ib_trade_count,
+        )
+        ib_fetch_ok = False  # treat as unreachable for this cycle
+
     for ticker, rec in tracked_map.items():
         trade_broker = rec.get("broker", "alpaca")
         if trade_broker == "ib":
+            if not ib_fetch_ok:
+                # Broker unreachable — leave row open, try again next cycle.
+                continue
             if ticker not in ib_positions:
                 stale.append({"ticker": ticker, "trade_id": rec["trade_id"]})
             else:
