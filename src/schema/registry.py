@@ -182,7 +182,10 @@ _register(TableDef(
         ColumnDef("stop_price", "REAL"),
         ColumnDef("target_1", "REAL"),
         ColumnDef("target_2", "REAL"),
-        ColumnDef("planned_shares", "INTEGER"),
+        # REAL (not INTEGER): Alpaca fractional shares. INTEGER would silently
+        # truncate e.g. 0.30 → 0 on reconcile, then the positive-shares guard
+        # in journal.store would reject the row.
+        ColumnDef("planned_shares", "REAL"),
         ColumnDef("planned_allocation", "REAL"),
         ColumnDef("actual_entry_price", "REAL"),
         ColumnDef("actual_entry_time", "TEXT"),
@@ -228,7 +231,8 @@ _register(TableDef(
         ColumnDef("fill_price", "REAL"),
         ColumnDef("implementation_shortfall_bps", "REAL"),
         ColumnDef("strategy_type", "TEXT", default="pullback"),
-        ColumnDef("actual_shares", "INTEGER"),
+        # REAL (not INTEGER): matches planned_shares — Alpaca fractional support.
+        ColumnDef("actual_shares", "REAL"),
         ColumnDef("exit_retry_count", "INTEGER", default="0"),
         # Strategy Decision #24: Outcome metadata for regime-conditional analysis.
         # These columns capture market context at entry/exit so we can answer
@@ -404,6 +408,9 @@ _register(TableDef(
         ColumnDef("difficulty", "TEXT"),
         ColumnDef("curriculum_stage", "TEXT"),
         ColumnDef("quality_score_auto", "REAL"),
+        # updated_at: set by GuardedScorer when quality_score_auto is rewritten
+        # between-scans. Distinct from created_at which is immutable per example.
+        ColumnDef("updated_at", "TEXT"),
         ColumnDef("outcome_type", "TEXT"),
         ColumnDef("regime", "TEXT"),
         # 8-dimension rubric scores (1-5 each) per Gold-Standard Rubric doc.

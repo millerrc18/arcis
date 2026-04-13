@@ -1,5 +1,68 @@
 # Changelog
 
+## [v0.17.1] - 2026-04-13 — Hotfix: test baseline + fractional shares
+
+Post-v0.17.0 hotfix clearing 12 of 19 pre-existing test failures on main and
+a latent fractional-shares source bug. Net: test baseline moves from 1738/1757
+passing to 1750/1757 passing (7 structural/environment failures remain, tracked
+as separate issues for targeted cleanup sprints).
+
+### Schema
+
+- **fix:** `training_examples` gains `updated_at` (TEXT) column. `GuardedScorer`
+  issued `UPDATE training_examples SET quality_score_auto = ?, updated_at = ?`
+  but the column was never defined in `src/schema/registry.py` — every
+  between-scan rescore raised `sqlite3.OperationalError`. Column added,
+  migration applied via `validate-schema --fix`. Fixes `test_scorer.py` × 3.
+- **fix:** `shadow_trades.planned_shares` and `.actual_shares` changed from
+  INTEGER to REAL. Alpaca fractional share counts (e.g. 0.30) were silently
+  truncated to 0, then the positive-shares guard in `journal.store` rejected
+  the backfill.
+
+### Source
+
+- **fix:** `BrokerPosition.quantity`, `BrokerOrder.quantity`, and
+  `BrokerOrder.filled_qty` changed from `int` to `float` in
+  `trading.broker_interface`. `alpaca_broker.py` stops wrapping share counts in
+  `int(float(...))` — fractional quantities now survive the reconcile path
+  end-to-end. Fixes `test_reconcile.py` × 2 (`backfills_orphaned`,
+  `ignores_paper_trades`).
+
+### Tests
+
+- **fix:** `test_env_secrets.py::test_env_var_referenced_in_source` (× 6
+  parametrized) rewrote from `subprocess.run(["grep", ...])` to pure Python
+  `pathlib.rglob + read_text`. Windows subprocess can't pass the embedded
+  double-quote in the search pattern, giving false negatives that bash
+  execution didn't show.
+- **fix:** `test_watch_resilience.py::test_heartbeat_command_callable` —
+  import path updated from `src.notifications.telegram` to
+  `src.notifications.telegram_commands` after the notifications split.
+- **fix:** `test_ingestion.py` × 2 — replaced live `yfinance.download()` calls
+  with `patch` + deterministic OHLCV stubs. Complies with CLAUDE.md's
+  no-network-in-tests rule.
+- **fix:** `test_news.py::test_historical_news_date_bounds` — patches
+  `_load_cached` to None and strips `FINNHUB_API_KEY` from the env so the test
+  actually exercises the "no API key" branch rather than returning stale cache
+  data from a previous run.
+- **fix:** `test_render_sync.py::test_healthy_connection_reused_without_reconnect`
+  — patches `create_all_tables` and `ensure_columns` so schema-helper internal
+  `psycopg2.connect` calls don't inflate the expected count from 1 → 3.
+
+### API
+
+- **chore:** Bump `app.version` in `src.api.app` and `src.api.cloud_app` from
+  `1.0.0` to `0.17.1` to match release tagging.
+
+### Deferred (tracked as issues)
+
+- `test_vram_manager::test_handoff_to_training_unload_fails` — needs
+  `_wait_for_vram_clear` mock to exercise the no-nvidia-smi unload-failure
+  branch correctly.
+- `test_repo_structure.py` × 2 — 2 files over 400-line limit
+  (`src/api/cloud_routes/trades.py` 427, `src/email/digest_builder.py` 405)
+  and 15 functions over 60-line limit — refactor per the lint contract.
+
 ## [v0.17.0] - 2026-04-12 — IB Integration Complete + Dashboard Overhaul + Training Backfill
 
 Consolidates seven IB integration sprints (IB-1 through IB-7), four dashboard

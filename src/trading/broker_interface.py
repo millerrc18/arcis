@@ -33,11 +33,13 @@ class BrokerOrder:
     order_id: str
     ticker: str
     side: str           # "buy" or "sell"
-    quantity: int
+    # Fractional shares are supported by Alpaca — keep float so 0.30 shares
+    # aren't truncated to 0 on the reconcile / backfill path.
+    quantity: float
     order_type: str     # "market", "limit", "bracket"
     status: str         # "pending", "filled", "cancelled", "rejected"
     filled_avg_price: Optional[float] = None
-    filled_qty: Optional[int] = None
+    filled_qty: Optional[float] = None
     stop_price: Optional[float] = None
     take_profit_price: Optional[float] = None
     child_order_ids: Optional[list[str]] = None  # IB bracket: [take_profit_id, stop_loss_id]
@@ -59,7 +61,8 @@ class BrokerAccount:
 class BrokerPosition:
     """Normalized position representation."""
     ticker: str
-    quantity: int
+    # Fractional shares are supported — keep float to avoid int() truncation.
+    quantity: float
     avg_cost: float
     current_price: float
     unrealized_pnl: float
