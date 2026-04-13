@@ -16,6 +16,9 @@ build/
 venv/
 env/
 
+# Worktrees (isolated branch workspaces)
+.worktrees/
+
 # IDE
 .idea/
 .vscode/
