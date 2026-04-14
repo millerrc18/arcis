@@ -47,7 +47,7 @@ def compute_feature_importance(days: int = 30,
         rec_id = t.get("recommendation_id")
         rec = rec_map.get(rec_id, {})
         pnl = t.get("pnl_pct", 0) or 0
-        won = 1 if (t.get("pnl_dollars") or 0) > 0 else 0
+        won = 1 if float(t.get("pnl_dollars") or 0) > 0 else 0
 
         # Numeric features
         numeric_features = {

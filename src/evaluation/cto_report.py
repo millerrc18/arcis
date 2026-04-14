@@ -507,6 +507,11 @@ def _compute_feature_correlations(closed: list, recommendations: list) -> dict:
 
         pb = feats.get("pullback_depth_pct")
         if pb is not None:
+            try:
+                pb = float(pb)
+            except (ValueError, TypeError):
+                pb = None
+        if pb is not None:
             if -7 <= pb <= -3:
                 pb_label = "3_to_7_pct"
             elif -12 <= pb < -7:
