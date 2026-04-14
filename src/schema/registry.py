@@ -153,15 +153,21 @@ _register(TableDef(
         ColumnDef("enriched_prompt", "TEXT"),
         ColumnDef("llm_conviction", "INTEGER"),
         ColumnDef("llm_conviction_reason", "TEXT"),
+        # updated_at lets the render-sync incremental cursor pick up
+        # backfills/patches to existing recommendation rows (e.g. when
+        # market_regime is populated retroactively). Without this, only
+        # newly-created rows sync — backfills are invisible to the dashboard.
+        ColumnDef("updated_at", "TEXT"),
     ],
     primary_key="recommendation_id",
     indexes=[
         IndexDef("idx_recommendations_ticker", ["ticker"]),
         IndexDef("idx_recommendations_created_at", ["created_at"]),
+        IndexDef("idx_recommendations_updated_at", ["updated_at"]),
     ],
     sync_to_postgres=True,
     sync_mode="incremental",
-    sync_time_column="created_at",
+    sync_time_column="updated_at",
     sync_pk="recommendation_id",
 ))
 

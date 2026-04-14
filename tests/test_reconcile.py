@@ -601,13 +601,21 @@ def test_stuck_exit_with_short_position_needs_manual_review(mock_positions, db_p
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT status, exit_reason FROM shadow_trades WHERE ticker = 'NVDA'"
+            "SELECT status, exit_reason, updated_at FROM shadow_trades WHERE ticker = 'NVDA'"
         ).fetchone()
     assert row["status"] == "needs_manual_review", (
         f"Expected needs_manual_review; got {row['status']} — "
         f"reconciler reverted to open despite short position"
     )
     assert "overshoot" in (row["exit_reason"] or "").lower()
+    # Sync cursor relies on updated_at > last_synced_at. The status change
+    # must bump updated_at or render_sync won't push it to Postgres
+    # (dashboard will show stale data). Row was created at 2026-04-14T15:13;
+    # after reconcile, updated_at must be strictly later.
+    assert row["updated_at"] and row["updated_at"] > "2026-04-14T15:13:00", (
+        f"updated_at was not bumped by status change (got {row['updated_at']!r}); "
+        f"render_sync will miss this row"
+    )
 
 
 @patch(
@@ -641,9 +649,11 @@ def test_stuck_exit_with_long_position_still_reverts_to_open(mock_positions, db_
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT status FROM shadow_trades WHERE ticker = 'NVDA'"
+            "SELECT status, updated_at FROM shadow_trades WHERE ticker = 'NVDA'"
         ).fetchone()
     assert row["status"] == "open"
+    # Even the revert path must bump updated_at so render_sync sees it
+    assert row["updated_at"] and row["updated_at"] > "2026-04-14T15:13:00"
 
 
 @patch(

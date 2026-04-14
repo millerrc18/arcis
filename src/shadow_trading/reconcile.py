@@ -593,8 +593,8 @@ def reconcile_paper_trades(
                     with sqlite3.connect(db_path) as conn:
                         conn.execute(
                             "UPDATE shadow_trades SET status = 'needs_manual_review', "
-                            "exit_reason = 'exit_overshoot_detected' "
-                            "WHERE trade_id = ?", (trade_id,),
+                            "exit_reason = 'exit_overshoot_detected', updated_at = ? "
+                            "WHERE trade_id = ?", (now.isoformat(), trade_id),
                         )
                     logger.error(
                         "[RECONCILE-PAPER] Exit overshoot on %s (alpaca_qty=%.0f) — "
@@ -603,8 +603,9 @@ def reconcile_paper_trades(
                     continue
                 with sqlite3.connect(db_path) as conn:
                     conn.execute(
-                        "UPDATE shadow_trades SET status = 'open', exit_reason = NULL "
-                        "WHERE trade_id = ?", (trade_id,),
+                        "UPDATE shadow_trades SET status = 'open', exit_reason = NULL, "
+                        "updated_at = ? WHERE trade_id = ?",
+                        (now.isoformat(), trade_id),
                     )
                 resolved_reopened.append(ticker)
                 logger.info("[RECONCILE-PAPER] Reverted premature exit to open: %s", ticker)
@@ -659,16 +660,16 @@ def reconcile_paper_trades(
                 # Alpaca has it — promote to open
                 with sqlite3.connect(db_path) as conn:
                     conn.execute(
-                        "UPDATE shadow_trades SET status = 'open' WHERE trade_id = ?",
-                        (trade_id,),
+                        "UPDATE shadow_trades SET status = 'open', updated_at = ? "
+                        "WHERE trade_id = ?", (now.isoformat(), trade_id),
                     )
                 logger.info("[RECONCILE-PAPER] Promoted uncertain trade to open: %s", ticker)
             else:
                 # Alpaca doesn't have it — close as failed
                 with sqlite3.connect(db_path) as conn:
                     conn.execute(
-                        "UPDATE shadow_trades SET status = 'failed' WHERE trade_id = ?",
-                        (trade_id,),
+                        "UPDATE shadow_trades SET status = 'failed', updated_at = ? "
+                        "WHERE trade_id = ?", (now.isoformat(), trade_id),
                     )
                 logger.info("[RECONCILE-PAPER] Closed uncertain trade as failed: %s", ticker)
 

@@ -135,6 +135,7 @@ def log_recommendation(
     row = {
         "recommendation_id": rec_id,
         "created_at": created_at,
+        "updated_at": created_at,
         "ticker": packet.ticker,
         "company_name": packet.company_name,
         "mode": "short_swing",
@@ -435,6 +436,9 @@ def update_recommendation(
     """Update fields on an existing recommendation."""
     if not updates:
         return
+    # Bump updated_at so render_sync's incremental cursor picks up the change.
+    et = ZoneInfo("America/New_York")
+    updates["updated_at"] = datetime.now(et).isoformat()
     updates = _filter_to_schema("recommendations", updates)
     updates = _coerce_to_schema("recommendations", updates)
     if not updates:
