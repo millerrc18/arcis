@@ -632,7 +632,7 @@ def _compute_confidence_calibration(closed: list, recommendations: list) -> dict
 
     for t in closed:
         rec_id = t.get("recommendation_id")
-        conv = conv_map.get(rec_id)
+        conv = _num(conv_map.get(rec_id))
         if conv is None:
             continue
 
