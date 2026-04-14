@@ -1014,6 +1014,14 @@ class WatchLoop:
                 self.LOCKFILE.unlink(missing_ok=True)
         self.LOCKFILE.write_text(str(os.getpid()))
         logger.info("[WATCH] Acquired lockfile (PID %d)", os.getpid())
+        # atexit catches normal Python exits (SystemExit, sys.exit, top-of-module
+        # exceptions); Python's signal.signal on Windows only catches a few
+        # signals. Neither catches `taskkill /F` — Windows force-kill sends no
+        # interceptable signal, so a stale lockfile after force-kill is
+        # expected. The startup path already detects and removes stale locks,
+        # so this is belt-and-suspenders for normal shutdowns only.
+        import atexit
+        atexit.register(self._release_lock)
 
     def _release_lock(self):
         """Release PID lockfile if it belongs to this process."""
