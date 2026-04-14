@@ -264,3 +264,52 @@ Push to branch. Do NOT merge.
 **After:** "Check Grafana, filter by ERROR in the last hour" — or CC can describe what to search for and you screenshot the results. Eventually, CC could query Loki directly via API.
 
 **Cost:** $0/month. 1 hour setup. Zero impact on trading performance (async handler).
+
+---
+
+## Ralph Loop Findings
+
+### Pass 1 — Dependency risk
+`python-logging-loki` last released 2020 (v0.3.1). May break on Python 3.12+. **Mitigation:** CC must implement a raw fallback handler using `requests.post()` to `/loki/api/v1/push` with snappy or JSON encoding. The Loki push API accepts:
+```json
+{"streams": [{"stream": {"app": "arcis", "level": "ERROR"}, "values": [["<unix_nano>", "<log line>"]]}]}
+```
+This is 20 lines of code with zero external dependencies beyond `requests`. If `python-logging-loki` works, use it. If not, the fallback ships the same data. CC sprint prompt updated to include both paths.
+
+### Pass 2 — Log volume control
+Tonight's logs showed ~50 repeated `[SCHEMA] Created/verified 53 tables` messages per cycle. At INFO level, these ship to Loki and consume quota unnecessarily. **Fix:** Add a `DedupFilter` class that suppresses identical messages within a 60-second window. Attach to the Loki handler only (local file logging unchanged). Expected volume reduction: ~80% on noisy cycles. Also: hardcode `handler.setLevel(logging.INFO)` — never ship DEBUG to Loki regardless of root logger config.
+
+```python
+class DedupFilter(logging.Filter):
+    """Suppress duplicate log messages within a time window."""
+    def __init__(self, window_seconds=60):
+        super().__init__()
+        self._seen = {}
+        self._window = window_seconds
+    
+    def filter(self, record):
+        import time
+        key = f"{record.name}:{record.getMessage()}"
+        now = time.time()
+        if key in self._seen and (now - self._seen[key]) < self._window:
+            return False
+        self._seen[key] = now
+        # Prune old entries every 100 inserts
+        if len(self._seen) > 1000:
+            cutoff = now - self._window
+            self._seen = {k: v for k, v in self._seen.items() if v > cutoff}
+        return True
+```
+
+### Pass 3 — Windows threading safety
+`multiprocessing.Queue` on Windows spawns a new process, which can conflict with the watch loop's process model and cause pickle serialization errors for log records. **Fix:** Use `queue.Queue` (threading-based) instead of `multiprocessing.Queue`. Also cap queue size: `Queue(maxsize=10000)` — if Grafana Cloud is unreachable, dropped logs are acceptable, unbounded memory growth is not.
+
+Updated CC sprint prompt addition:
+```
+IMPORTANT Windows compatibility notes:
+- Use queue.Queue (threading), NOT multiprocessing.Queue
+- Queue(maxsize=10000) to prevent OOM during Grafana outages
+- Add DedupFilter to suppress repeated messages within 60s window
+- Implement raw requests-based fallback if python-logging-loki fails to import
+- handler.setLevel(logging.INFO) is mandatory — never ship DEBUG to Loki
+```
