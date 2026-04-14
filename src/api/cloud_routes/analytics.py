@@ -496,7 +496,7 @@ def create_router(runtime, verify_auth):
                 if sector not in by_sector:
                     by_sector[sector] = {"trades": 0, "wins": 0}
                 by_sector[sector]["trades"] += 1
-                if (trade.get("pnl_dollars", 0) or 0) > 0:
+                if float(trade.get("pnl_dollars", 0) or 0) > 0:
                     by_sector[sector]["wins"] += 1
             for sector, data in by_sector.items():
                 data["win_rate"] = round(data["wins"] / data["trades"], 3) if data["trades"] else 0
@@ -509,7 +509,7 @@ def create_router(runtime, verify_auth):
                 if regime not in by_regime:
                     by_regime[regime] = {"trades": 0, "wins": 0}
                 by_regime[regime]["trades"] += 1
-                if (trade.get("pnl_dollars", 0) or 0) > 0:
+                if float(trade.get("pnl_dollars", 0) or 0) > 0:
                     by_regime[regime]["wins"] += 1
             for regime, data in by_regime.items():
                 data["win_rate"] = round(data["wins"] / data["trades"], 3) if data["trades"] else 0

@@ -250,7 +250,7 @@ def create_router(runtime, verify_auth):
                 " AND COALESCE(quarantined, 0) = 0"
             )
             closed_pnl = sum(trade.get("pnl_dollars", 0) or 0 for trade in closed)
-            wins = [trade for trade in closed if (trade.get("pnl_dollars", 0) or 0) > 0]
+            wins = [trade for trade in closed if float(trade.get("pnl_dollars", 0) or 0) > 0]
             return {
                 "starting_capital": 100,
                 "current_equity": round(100 + closed_pnl, 2),
@@ -283,8 +283,8 @@ def create_router(runtime, verify_auth):
                 * float(trade.get("actual_shares") or trade.get("planned_shares") or 0)
                 for trade in open_trades
             )
-            wins = [trade for trade in closed_trades if (trade.get("pnl_dollars", 0) or 0) > 0]
-            losses = [trade for trade in closed_trades if (trade.get("pnl_dollars", 0) or 0) <= 0]
+            wins = [trade for trade in closed_trades if float(trade.get("pnl_dollars", 0) or 0) > 0]
+            losses = [trade for trade in closed_trades if float(trade.get("pnl_dollars", 0) or 0) <= 0]
 
             # Fix for #253: compute unrealized P&L for open trades
             unrealized = 0.0

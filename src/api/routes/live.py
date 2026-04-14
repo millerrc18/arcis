@@ -103,9 +103,9 @@ def live_summary():
             ).fetchone()
 
             closed_pnl = sum(
-                (dict(t).get("pnl_dollars", 0) or 0) for t in closed
+                float(dict(t).get("pnl_dollars", 0) or 0) for t in closed
             )
-            wins = [t for t in closed if (dict(t).get("pnl_dollars", 0) or 0) > 0]
+            wins = [t for t in closed if float(dict(t).get("pnl_dollars", 0) or 0) > 0]
             starting = 100_000
             return {
                 "starting_capital": starting,

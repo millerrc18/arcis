@@ -28,7 +28,7 @@ def list_packets(days: int = 7, ticker: str | None = None, min_score: float | No
         recs = [r for r in recs if r.get("ticker", "").upper() == ticker.upper()]
 
     if min_score is not None:
-        recs = [r for r in recs if (r.get("priority_score") or 0) >= min_score]
+        recs = [r for r in recs if float(r.get("priority_score") or 0) >= min_score]
 
     return recs
 

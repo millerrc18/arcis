@@ -2074,14 +2074,14 @@ def _check_close_milestones(db_path: str = DB_PATH) -> None:
                 " AND COALESCE(quarantined, 0) = 0 "
                 "ORDER BY actual_exit_time DESC LIMIT 3"
             ).fetchall()
-            if len(last_3) == 3 and all(r["pnl_dollars"] > 0 for r in last_3):
+            if len(last_3) == 3 and all(float(r["pnl_dollars"] or 0) > 0 for r in last_3):
                 last_4 = conn.execute(
                     "SELECT pnl_dollars FROM shadow_trades WHERE status='closed'"
                     " AND COALESCE(quarantined, 0) = 0 "
                     "ORDER BY actual_exit_time DESC LIMIT 4"
                 ).fetchall()
                 # Only alert if the 4th-most-recent was NOT a win (to avoid repeat alerts)
-                if len(last_4) < 4 or last_4[3]["pnl_dollars"] <= 0:
+                if len(last_4) < 4 or float(last_4[3]["pnl_dollars"] or 0) <= 0:
                     notify_milestone(
                         "3 consecutive wins!",
                         "Hot streak! Keep the discipline."
@@ -2101,8 +2101,8 @@ def _check_close_milestones(db_path: str = DB_PATH) -> None:
             ).fetchone()
             if (best_ever and latest and closed_total > 1
                     and best_ever["ticker"] == latest["ticker"]
-                    and best_ever["pnl_dollars"] == latest["pnl_dollars"]
-                    and best_ever["pnl_dollars"] > 0):
+                    and float(best_ever["pnl_dollars"] or 0) == float(latest["pnl_dollars"] or 0)
+                    and float(best_ever["pnl_dollars"] or 0) > 0):
                 notify_milestone(
                     "New best trade!",
                     f"{best_ever['ticker']}: ${best_ever['pnl_dollars']:+.2f} ({best_ever['pnl_pct']:+.1f}%)"
@@ -2133,7 +2133,7 @@ def _check_loss_streak(db_path: str = DB_PATH) -> None:
         streak = 0
         streak_trades = []
         for r in recent:
-            if r["pnl_dollars"] < 0:
+            if float(r["pnl_dollars"] or 0) < 0:
                 streak += 1
                 streak_trades.append((r["ticker"], r["pnl_pct"]))
             else:
@@ -2144,14 +2144,14 @@ def _check_loss_streak(db_path: str = DB_PATH) -> None:
             # Check if streak was already 3+ before this trade
             prev_streak = 0
             for r in recent[1:]:
-                if r["pnl_dollars"] < 0:
+                if float(r["pnl_dollars"] or 0) < 0:
                     prev_streak += 1
                 else:
                     break
 
             # Alert on first crossing of 3, or every additional loss after
             if streak == 3 or (streak > 3 and prev_streak < streak):
-                max_dd = min(r["pnl_pct"] for r in recent[:streak])
+                max_dd = min(float(r["pnl_pct"] or 0) for r in recent[:streak])
 
                 # Historical max streak
                 with connect_db(db_path) as conn:
@@ -2163,7 +2163,7 @@ def _check_loss_streak(db_path: str = DB_PATH) -> None:
                 max_streak = 0
                 current = 0
                 for r in all_closed:
-                    if r["pnl_dollars"] < 0:
+                    if float(r["pnl_dollars"] or 0) < 0:
                         current += 1
                         max_streak = max(max_streak, current)
                     else:

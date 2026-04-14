@@ -93,14 +93,14 @@ def gather_tactical_data(db_path: str = DB_PATH) -> str:
                     " ORDER BY st.pnl_pct DESC"
                 ).fetchall()
                 if positions:
-                    winners = sum(1 for position in positions if (position["pnl_pct"] or 0) > 0)
-                    total_pnl = sum(position["pnl_pct"] or 0 for position in positions)
+                    winners = sum(1 for position in positions if float(position["pnl_pct"] or 0) > 0)
+                    total_pnl = sum(float(position["pnl_pct"] or 0) for position in positions)
                     parts.append(
                         f"\nOpen positions ({len(positions)}): {winners} green, "
                         f"{len(positions) - winners} red, aggregate {total_pnl:+.1f}%"
                     )
                     for position in positions[:8]:
-                        emoji = "📈" if (position["pnl_pct"] or 0) > 0 else "📉"
+                        emoji = "📈" if float(position["pnl_pct"] or 0) > 0 else "📉"
                         parts.append(
                             f"  {emoji} {position['ticker']} ({position['sector'] or '?'}): "
                             f"{(position['pnl_pct'] or 0):+.1f}% ({position['days'] or 0}d)"
