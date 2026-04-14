@@ -60,6 +60,45 @@ class TestStructuredFormatter:
         assert parsed["duration_s"] == 180
 
 
+class TestSetupLoggingUnicodeSafety:
+    """Regression guard for 2026-04-14 incident where ❌ (\\u274c) crashed the
+    console logger on Windows cp1252 stdout, dropping '[WATCH] Reconciliation:
+    2 mismatched' and spamming tracebacks instead."""
+
+    def test_setup_logging_does_not_crash_on_emoji_with_narrow_encoding(self, monkeypatch):
+        import io
+        import sys
+        from src.log_config import setup_logging
+
+        # Simulate a Windows console: cp1252 with strict errors would raise
+        # UnicodeEncodeError on \u274c (❌). Python's logging framework catches
+        # the exception internally via handleError() and silently drops the
+        # record — so we must assert the message actually reached the stream
+        # (possibly with emoji replaced), not merely that no exception escaped.
+        raw = io.BytesIO()
+        narrow_stream = io.TextIOWrapper(
+            raw, encoding="cp1252", errors="strict", newline="", write_through=True
+        )
+        monkeypatch.setattr(sys, "stdout", narrow_stream)
+
+        try:
+            setup_logging()
+            logger = logging.getLogger("unicode_safety_test")
+            logger.info("status: %s reconciliation done", "\u274c 2 mismatched")
+            for h in logging.getLogger().handlers:
+                h.flush()
+            narrow_stream.flush()
+        finally:
+            logging.getLogger().handlers.clear()
+
+        written = raw.getvalue().decode("cp1252", errors="replace")
+        assert "reconciliation done" in written, (
+            f"Log message was silently dropped by logging.handleError(); "
+            f"stream bytes: {raw.getvalue()!r}"
+        )
+        assert "2 mismatched" in written
+
+
 class TestDBLogHandlerCtx:
     def test_ctx_stored_in_details_json(self, tmp_path):
         """DBLogHandler should store ctx dict in details_json column."""

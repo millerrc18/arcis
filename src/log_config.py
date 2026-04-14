@@ -40,6 +40,17 @@ def setup_logging(level: str = "INFO", log_file: str | None = None):
         level: Log level (DEBUG, INFO, WARNING, ERROR).
         log_file: Optional log file path. If provided, adds a rotating file handler.
     """
+    # Windows console defaults to cp1252 which cannot encode emoji (e.g.
+    # \u274c ❌). Without this reconfigure, logging.handleError() silently
+    # drops records containing such characters and writes a traceback to
+    # stderr. Force utf-8 with errors='replace' so records are never lost.
+    for stream in (sys.stdout, sys.stderr):
+        if stream is not None and hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except (ValueError, OSError):
+                pass
+
     root = logging.getLogger()
     root.setLevel(getattr(logging, level.upper(), logging.INFO))
 
