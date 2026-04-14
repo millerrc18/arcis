@@ -75,3 +75,13 @@ ios/App/DerivedData/
 ios/App/build/
 -e 
 # Secrets
+
+PLAN_REVIEW.md
+scripts/fix_quarantine.py
+scripts/merge_lora_cpu.py
+scripts/patch_gguf_bos.py
+scripts/smoke_test_arcis.py
+scripts/smoke_test_raw.py
+scripts/test_adapter_direct.py
+scripts/test_gguf_direct.py
+scripts/test_merged_hf.py

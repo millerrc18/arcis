@@ -1,6 +1,5 @@
 
 import json, sys, os, torch
-os.environ["PYTHONUTF8"] = "1"  # Fix TRL gptoss.jinja UnicodeDecodeError on Windows
 
 def main():
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
@@ -76,7 +75,7 @@ def main():
             print(f"  Empty dataset for {name}, skipping")
             continue
         if len(ds) < 5:
-            print(f"  Dataset too small for {name} ({len(ds)} examples) -- skipping")
+            print(f"  Dataset too small for {name} ({len(ds)} examples) — skipping")
             continue
         # #115 -- Dynamic gradient accumulation to prevent crash on small datasets.
         # WHY: with batch_size=1, gradient_accumulation_steps must not exceed
@@ -109,15 +108,38 @@ def main():
     tokenizer.save_pretrained("training_data/lora_adapter")
 
     # Merge and export GGUF
+    # #387: Try Unsloth GPU export first, then fall back to llama.cpp CPU conversion.
+    # RTX 3060 12GB may not have enough VRAM for q5_k_m quantization of 8B models.
     print("[TRAIN] Merging LoRA and exporting GGUF...")
+    gguf_exported = False
     try:
         from unsloth import FastLanguageModel
         merged_model, merged_tok = FastLanguageModel.from_pretrained(
             model_name="training_data/lora_adapter", max_seq_length=512, dtype=None, load_in_4bit=True)
         merged_model.save_pretrained_gguf("training_data/halcyon-latest", merged_tok, quantization_method="q5_k_m")
+        gguf_exported = True
     except Exception as e:
         print(f"[TRAIN] GGUF export via Unsloth failed: {e}")
-        print("[TRAIN] LoRA adapter saved. Convert to GGUF manually with llama.cpp if needed.")
+        # Fallback: use llama.cpp convert if available (CPU-based, no VRAM needed)
+        try:
+            import subprocess
+            print("[TRAIN] Attempting CPU-based GGUF conversion via llama.cpp...")
+            result = subprocess.run(
+                ["python", "-m", "llama_cpp.convert",
+                 "training_data/lora_adapter",
+                 "--outfile", "training_data/halcyon-latest.gguf",
+                 "--outtype", "q5_k_m"],
+                capture_output=True, text=True, timeout=600,
+            )
+            if result.returncode == 0:
+                print("[TRAIN] CPU-based GGUF conversion succeeded")
+                gguf_exported = True
+            else:
+                print(f"[TRAIN] llama.cpp conversion failed: {result.stderr[:200]}")
+        except Exception as fallback_err:
+            print(f"[TRAIN] CPU fallback also failed: {fallback_err}")
+    if not gguf_exported:
+        print("[TRAIN] WARNING: No GGUF produced. LoRA adapter saved at training_data/lora_adapter.")
 
     print("TRAINING COMPLETE")
 
