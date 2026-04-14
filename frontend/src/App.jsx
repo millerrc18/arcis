@@ -33,9 +33,18 @@ import Strategy from './pages/Strategy'
 import IBShadow from './pages/IBShadow'
 import Velocity from './pages/Velocity'
 
+// staleTime 5s: dashboard values age fast; refetchInterval 30s for most
+// queries means ~25s staleness window at most. retry: 2 with exponential
+// backoff handles transient Render cold-starts without silent failures.
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: { refetchInterval: 30000, staleTime: 10000 },
+    queries: {
+      refetchInterval: 30000,
+      staleTime: 5000,
+      retry: 2,
+      retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
+      refetchOnWindowFocus: true,
+    },
   },
 })
 

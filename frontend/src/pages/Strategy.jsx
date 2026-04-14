@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { fetchApi } from '../api'
+import { fetchApi, api } from '../api'
 import {
   LineChart, Line, BarChart, Bar, AreaChart, Area, ComposedChart,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
@@ -22,7 +22,7 @@ export default function Strategy() {
   const [selectedStrategy, setSelectedStrategy] = useState('pullback')
   const { data, isLoading, error } = useQuery({
     queryKey: ['strategy-detail', selectedStrategy],
-    queryFn: () => fetchApi(`/strategy-detail/${selectedStrategy}`),
+    queryFn: () => api.getStrategyDetail(selectedStrategy),
     refetchInterval: 120000,
   })
 

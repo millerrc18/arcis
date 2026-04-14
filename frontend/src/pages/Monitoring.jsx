@@ -10,7 +10,7 @@ import {
   ResponsiveContainer,
   CartesianGrid,
 } from 'recharts'
-import { fetchApi } from '../api'
+import { fetchApi, api } from '../api'
 import LoadingSpinner from '../components/LoadingSpinner'
 import MetricCard from '../components/MetricCard'
 import StatusBadge from '../components/StatusBadge'
@@ -33,7 +33,7 @@ function pct(used, total) {
 export default function Monitoring() {
   const { data: history, isLoading } = useQuery({
     queryKey: ['monitoring-history'],
-    queryFn: () => fetchApi('/monitoring/history?hours=24'),
+    queryFn: () => api.getMonitoringHistory(24),
     refetchInterval: 60000,
   })
 
