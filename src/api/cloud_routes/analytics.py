@@ -13,6 +13,8 @@ Endpoints:
     GET /api/cto-report?days=7      - Full CTO performance report
     GET /api/build-score            - Build Score from synced history (#80)
     GET /api/strategy-detail/{strategy_type} - Per-strategy analytics (Phase 5)
+    GET /api/attribution/stats      - Alpha attribution stats (ranker vs LLM)
+    GET /api/stress-test/results    - Historical stress test results per scenario
 
 The HSHS dimension weights reflect our current priorities: data_asset (35%)
 is highest because we're in the data accumulation phase. As we move past
@@ -692,6 +694,57 @@ def create_router(runtime, verify_auth):
         except Exception as exc:
             runtime.logger.error("[API] build-score failed: %s", exc, exc_info=True)
             return {"build_score": 0, "components": {}, "error": str(exc)}
+
+    @router.get("/api/attribution/stats", dependencies=[Depends(verify_auth)])
+    def attribution_stats():
+        """Alpha attribution stats — ranker-only vs LLM-filtered portfolio comparison."""
+        try:
+            total = runtime.query_one("SELECT COUNT(*) as c FROM attribution_trades")
+            total_pairs = total["c"] if total else 0
+
+            by_action_rows = runtime.query(
+                "SELECT llm_action, COUNT(*) as cnt FROM attribution_trades GROUP BY llm_action"
+            )
+            by_action = {r["llm_action"]: r["cnt"] for r in by_action_rows} if by_action_rows else {}
+
+            by_pair_rows = runtime.query(
+                "SELECT pair_type, COUNT(*) as cnt FROM attribution_trades GROUP BY pair_type"
+            )
+            by_pair = {r["pair_type"]: r["cnt"] for r in by_pair_rows} if by_pair_rows else {}
+
+            ranker_resolved = runtime.query_one(
+                "SELECT COUNT(*) as c FROM attribution_trades WHERE ranker_only_outcome != 'pending'"
+            )
+            ranker_wins = runtime.query_one(
+                "SELECT COUNT(*) as c FROM attribution_trades WHERE ranker_only_outcome = 'win'"
+            )
+            llm_resolved = runtime.query_one(
+                "SELECT COUNT(*) as c FROM attribution_trades WHERE llm_portfolio_outcome IS NOT NULL"
+            )
+            llm_wins = runtime.query_one(
+                "SELECT COUNT(*) as c FROM attribution_trades WHERE llm_portfolio_outcome = 'win'"
+            )
+
+            def _win_rate(wins, resolved):
+                return round(wins / resolved, 3) if resolved else None
+
+            rr = ranker_resolved["c"] if ranker_resolved else 0
+            rw = ranker_wins["c"] if ranker_wins else 0
+            lr = llm_resolved["c"] if llm_resolved else 0
+            lw = llm_wins["c"] if llm_wins else 0
+
+            return {
+                "total_pairs": total_pairs,
+                "by_action": by_action,
+                "by_pair_type": by_pair,
+                "ranker_only": {"resolved": rr, "wins": rw, "win_rate": _win_rate(rw, rr)},
+                "llm_portfolio": {"resolved": lr, "wins": lw, "win_rate": _win_rate(lw, lr)},
+                "statistical_power": "insufficient" if total_pairs < 50 else (
+                    "low" if total_pairs < 200 else "adequate"),
+            }
+        except Exception as exc:
+            runtime.logger.error("[API] attribution_stats failed: %s", exc, exc_info=True)
+            return {"total_pairs": 0, "error": str(exc)}
 
     @router.get("/api/strategy-detail/{strategy_type}", dependencies=[Depends(verify_auth)])
     def strategy_detail(strategy_type: str):

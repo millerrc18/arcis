@@ -500,7 +500,7 @@ def create_router(runtime, verify_auth):
         "options_chains", "options_metrics", "vix_term_structure", "cboe_ratios",
         "macro_snapshots", "google_trends", "earnings_calendar", "edgar_filings",
         "insider_transactions", "short_interest", "fed_communications", "analyst_estimates",
-        "activity_log", "log_entries", "command_queue", "command_results",
+        "activity_log", "log_entries", "pending_commands", "command_results",
         "config_overrides", "scan_metrics", "metric_snapshots",
         "council_sessions", "council_votes", "audit_reports", "build_score_history",
         "hshs_snapshots", "validation_checks",
