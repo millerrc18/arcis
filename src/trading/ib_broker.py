@@ -83,10 +83,17 @@ class IBBroker(BrokerAdapter):
         """Connect to IB Gateway with exponential backoff. Reconnects if disconnected."""
         if self._ib is not None and self._ib.isConnected():
             return
+        # Fail fast on missing dependency — ImportError won't resolve by
+        # retrying, so the 1+2+4s backoff ladder is wasted (and produces
+        # 3 identical "No module named 'ib_async'" warnings per cycle).
+        try:
+            from ib_async import IB
+        except ImportError as e:
+            logger.warning("[IB] ib_async not installed — IB broker unavailable: %s", e)
+            raise
         import time as _time
         for attempt in range(3):
             try:
-                from ib_async import IB
                 self._ib = IB()
                 self._ib.connect(
                     self._host, self._port, clientId=self._client_id,

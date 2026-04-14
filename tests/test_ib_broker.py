@@ -59,6 +59,45 @@ def _remove_mock_ib_async():
 
 
 # ---------------------------------------------------------------------------
+# TestEnsureConnectedMissingModule — Phase 1.2 hardening
+# ---------------------------------------------------------------------------
+class TestEnsureConnectedMissingModule(unittest.TestCase):
+    """Regression guard for 12-warnings/cycle log noise on 2026-04-14 when
+    ib_async was uninstalled. _ensure_connected should detect ImportError
+    once and raise, not burn 3 retries (with sleep(1)/(2)/(4)) producing
+    identical warnings."""
+
+    def test_missing_ib_async_raises_importerror_without_retries(self):
+        import time
+        import logging
+        # Simulate missing module: setting sys.modules[name] = None makes
+        # `from <name> import X` raise ModuleNotFoundError immediately.
+        original = sys.modules.get("ib_async")
+        sys.modules["ib_async"] = None
+        try:
+            broker = IBBroker(port=4002, timeout=1)
+            with self.assertLogs("src.trading.ib_broker", level="WARNING") as cap:
+                start = time.monotonic()
+                with self.assertRaises((ImportError, ModuleNotFoundError)):
+                    broker._ensure_connected()
+                elapsed = time.monotonic() - start
+            # Must fail fast — no 1+2+4s sleep retry ladder
+            self.assertLess(elapsed, 1.0,
+                f"_ensure_connected should fail fast on missing module, took {elapsed:.2f}s")
+            # Only one warning — not three identical ones
+            import_warnings = [r for r in cap.records
+                               if "ib_async" in r.getMessage() or "No module" in r.getMessage()]
+            self.assertEqual(len(import_warnings), 1,
+                f"Expected 1 ImportError warning, got {len(import_warnings)}: "
+                f"{[r.getMessage() for r in import_warnings]}")
+        finally:
+            if original is not None:
+                sys.modules["ib_async"] = original
+            else:
+                sys.modules.pop("ib_async", None)
+
+
+# ---------------------------------------------------------------------------
 # TestIBGetAccount
 # ---------------------------------------------------------------------------
 class TestIBGetAccount(unittest.TestCase):
