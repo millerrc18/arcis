@@ -202,6 +202,7 @@ def resolve_pending_outcomes(db_path: str = DB_PATH) -> int:
                     data = yf.download(
                         row["ticker"], start=start.strftime("%Y-%m-%d"),
                         end=end.strftime("%Y-%m-%d"), progress=False,
+                        auto_adjust=True,
                     )
                     if data.empty:
                         continue

@@ -40,7 +40,7 @@ def run_sentiment_refresh(config: dict, db_path: str = DB_PATH) -> dict:
     # VIX refresh
     try:
         import yfinance as yf
-        vix_data = yf.download("^VIX", period="1d", progress=False)
+        vix_data = yf.download("^VIX", period="1d", progress=False, auto_adjust=True)
         if vix_data is not None and not vix_data.empty:
             vix_val = float(vix_data["Close"].iloc[-1].item())
             summary["refreshed"].append(f"VIX={vix_val:.1f}")
