@@ -67,20 +67,20 @@ def compute_shadow_metrics(trades: list[dict]) -> dict:
             max_dd = dd
 
     # Duration
-    durations = [t.get("duration_days", 0) or 0 for t in trades]
+    durations = [float(t.get("duration_days", 0) or 0) for t in trades]
     avg_duration = sum(durations) / len(durations) if durations else 0.0
 
     # MFE/MAE
-    mfes = [t.get("max_favorable_excursion", 0) or 0 for t in trades]
-    maes = [t.get("max_adverse_excursion", 0) or 0 for t in trades]
+    mfes = [float(t.get("max_favorable_excursion", 0) or 0) for t in trades]
+    maes = [float(t.get("max_adverse_excursion", 0) or 0) for t in trades]
     avg_mfe = sum(mfes) / len(mfes) if mfes else 0.0
     avg_mae = sum(maes) / len(maes) if maes else 0.0
 
     # Earnings-adjacent breakdown
     earnings_trades = [t for t in trades if t.get("earnings_adjacent")]
     normal_trades = [t for t in trades if not t.get("earnings_adjacent")]
-    earnings_pnl = sum(t.get("pnl_dollars", 0) or 0 for t in earnings_trades)
-    normal_pnl = sum(t.get("pnl_dollars", 0) or 0 for t in normal_trades)
+    earnings_pnl = sum(float(t.get("pnl_dollars", 0) or 0) for t in earnings_trades)
+    normal_pnl = sum(float(t.get("pnl_dollars", 0) or 0) for t in normal_trades)
 
     return {
         "total_trades": total,
