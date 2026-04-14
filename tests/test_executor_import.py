@@ -174,6 +174,112 @@ class TestRetryExitWithCancel:
         assert update_args[0][1].get("status") == "exit_abandoned"
 
 
+class TestRetryExitDetectsBackgroundFill:
+    """Regression guard for 2026-04-14 NVDA/GOOGL feedback loop.
+
+    Before retrying an exit, _retry_exit must check whether the prior exit
+    order already filled at the broker in the background. If it did:
+      - Close the trade from the broker's fill data
+      - Do NOT cancel (the cancel would be redundant)
+      - Do NOT resubmit (would create a duplicate SELL)
+
+    Two detection paths — both must work:
+      1. Pre-check: get_order_status before cancel shows status=filled
+      2. Cancel-race: cancel_paper_order returns terminal_state='filled'
+         (order raced the cancel and filled at the broker)
+    """
+
+    def test_retry_closes_trade_when_prior_order_already_filled(self):
+        """Path 1: pre-check detects the fill before we even try to cancel."""
+        from src.shadow_trading.executor import _retry_exit
+
+        trade = {
+            "trade_id": "t-nvda-stuck",
+            "ticker": "NVDA",
+            "shares": 49,
+            "actual_entry_price": 150.0,
+            "entry_price": 150.0,
+            "planned_shares": 49,
+            "exit_order_id": "raced-order-id",
+            "exit_reason": "stop_hit",
+            "exit_retry_count": 1,
+        }
+
+        filled_order = {
+            "order_id": "raced-order-id",
+            "status": "filled",
+            "filled_qty": "49",
+            "filled_avg_price": 147.50,
+            "filled_at": "2026-04-14T15:13:30-04:00",
+        }
+
+        with patch("src.shadow_trading.alpaca_adapter.get_order_status",
+                   return_value=filled_order) as mock_status, \
+             patch("src.shadow_trading.alpaca_adapter.cancel_paper_order") as mock_cancel, \
+             patch("src.shadow_trading.executor._submit_exit_order") as mock_submit, \
+             patch("src.shadow_trading.executor.close_shadow_trade") as mock_close, \
+             patch("src.shadow_trading.executor.update_shadow_trade"), \
+             patch("time.sleep"):
+            _retry_exit(trade)
+
+        mock_status.assert_called_once_with("raced-order-id")
+        mock_cancel.assert_not_called()
+        mock_submit.assert_not_called()
+        mock_close.assert_called_once()
+        close_kwargs = mock_close.call_args.kwargs or {}
+        close_args_dict = {**{f"arg{i}": a for i, a in enumerate(mock_close.call_args.args)},
+                           **close_kwargs}
+        # Exit price should come from the broker fill, not re-submitted
+        called_values = list(mock_close.call_args.args) + list(close_kwargs.values())
+        assert 147.50 in called_values, \
+            f"close_shadow_trade should use broker fill price 147.50; got {called_values}"
+
+    def test_retry_closes_trade_when_cancel_reveals_background_fill(self):
+        """Path 2: cancel race — status=pending_new at pre-check, but fill
+        happened between pre-check and cancel, so cancel returns terminal_state=filled."""
+        from src.shadow_trading.executor import _retry_exit
+
+        trade = {
+            "trade_id": "t-googl-stuck",
+            "ticker": "GOOGL",
+            "shares": 13,
+            "actual_entry_price": 180.0,
+            "entry_price": 180.0,
+            "planned_shares": 13,
+            "exit_order_id": "race-order-id",
+            "exit_reason": "stop_hit",
+            "exit_retry_count": 1,
+        }
+
+        # Pre-check says pending; cancel reveals it filled in the interim
+        pending_order = {"order_id": "race-order-id", "status": "pending_new",
+                         "filled_qty": "0", "filled_avg_price": None,
+                         "filled_at": None}
+        cancel_result = {"cancelled": False, "terminal_state": "filled",
+                         "error": 'order is already in "filled" state'}
+        # After the cancel fails with filled, re-fetch status shows filled
+        filled_order = {"order_id": "race-order-id", "status": "filled",
+                        "filled_qty": "13", "filled_avg_price": 178.25,
+                        "filled_at": "2026-04-14T15:30:40-04:00"}
+
+        with patch("src.shadow_trading.alpaca_adapter.get_order_status",
+                   side_effect=[pending_order, filled_order]), \
+             patch("src.shadow_trading.alpaca_adapter.cancel_paper_order",
+                   return_value=cancel_result), \
+             patch("src.shadow_trading.executor._submit_exit_order") as mock_submit, \
+             patch("src.shadow_trading.executor.close_shadow_trade") as mock_close, \
+             patch("src.shadow_trading.executor.update_shadow_trade"), \
+             patch("time.sleep"):
+            _retry_exit(trade)
+
+        mock_submit.assert_not_called()  # NO duplicate SELL
+        mock_close.assert_called_once()
+        called_values = list(mock_close.call_args.args) + list(
+            (mock_close.call_args.kwargs or {}).values())
+        assert 178.25 in called_values, \
+            f"Close price must come from broker fill; got {called_values}"
+
+
 # ── Exit exception handling (#310) ─────────────────────────────────
 
 

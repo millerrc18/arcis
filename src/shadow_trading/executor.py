@@ -894,6 +894,33 @@ def open_shadow_trade(
 _MAX_EXIT_RETRIES = 3
 
 
+def _close_from_broker_fill(trade: dict, filled_order: dict, db_path: str) -> None:
+    """Close a shadow trade using a broker-reported fill rather than submitting
+    a new exit order.
+
+    Called when we detect a prior exit order already reached terminal 'filled'
+    state at the broker (either via pre-check or by the cancel race). Without
+    this path, _retry_exit would blindly re-submit a SELL and extend a short
+    position — the 2026-04-14 NVDA/GOOGL feedback loop.
+    """
+    fill_price = float(filled_order.get("filled_avg_price") or 0)
+    entry_price = float(trade.get("actual_entry_price") or trade.get("entry_price") or 0)
+    shares = int(float(trade.get("planned_shares") or trade.get("shares") or 0))
+    pnl_dollars = (fill_price - entry_price) * shares if entry_price else 0.0
+    pnl_pct = ((fill_price - entry_price) / entry_price * 100) if entry_price else 0.0
+    exit_time = (filled_order.get("filled_at")
+                 or datetime.now(ZoneInfo("America/New_York")).isoformat())
+    close_shadow_trade(
+        trade["trade_id"],
+        exit_price=fill_price,
+        exit_time=exit_time,
+        exit_reason=trade.get("exit_reason") or "late_fill_reconciled",
+        pnl_dollars=round(pnl_dollars, 2),
+        pnl_pct=round(pnl_pct, 2),
+        db_path=db_path,
+    )
+
+
 def _retry_exit(trade: dict, db_path: str = DB_PATH) -> None:
     """Retry exit for trades stuck in exit_pending or exit_failed.
 
@@ -903,8 +930,13 @@ def _retry_exit(trade: dict, db_path: str = DB_PATH) -> None:
 
     Fix for #196: Without this, duplicate exit orders were being placed
     every scan cycle for stuck trades, sometimes causing Alpaca rejections.
+
+    2026-04-14 hardening: before canceling and resubmitting, check whether
+    the prior exit order already filled at the broker (two paths). If it
+    did, close the trade from the broker fill data and return — resubmitting
+    would create duplicate SELLs and inflate a short position.
     """
-    from src.shadow_trading.alpaca_adapter import cancel_paper_order
+    from src.shadow_trading.alpaca_adapter import cancel_paper_order, get_order_status
 
     ticker = trade["ticker"]
     retry_count = int(trade.get("exit_retry_count") or 0)
@@ -916,9 +948,24 @@ def _retry_exit(trade: dict, db_path: str = DB_PATH) -> None:
         update_shadow_trade(trade["trade_id"], {"status": "exit_abandoned"}, db_path)
         return
 
+    pending_order_id = trade.get("exit_order_id") or trade.get("alpaca_order_id")
+
+    # Background-fill detection path 1 (pre-check): ask the broker if the
+    # prior order already filled before we touch it. Cheapest path.
+    if pending_order_id and trade.get("source") != "live":
+        try:
+            prior = get_order_status(pending_order_id)
+            if prior and _is_filled_status(prior.get("status")):
+                logger.info("[RETRY] Late fill detected for %s — reconciling from broker",
+                            ticker)
+                _close_from_broker_fill(trade, prior, db_path)
+                return
+        except Exception as e:
+            logger.warning("[RETRY] Pre-check failed for %s: %s (falling back to cancel)",
+                           ticker, e)
+
     # Cancel any existing pending exit order before resubmitting
     # Task 5: Use broker factory for live/IB trades, Alpaca direct for paper
-    pending_order_id = trade.get("exit_order_id") or trade.get("alpaca_order_id")
     if pending_order_id:
         if trade.get("source") == "live":
             try:
@@ -927,7 +974,27 @@ def _retry_exit(trade: dict, db_path: str = DB_PATH) -> None:
             except Exception as _e_t5:
                 logger.warning("[RETRY] Live cancel failed for %s: %s", ticker, _e_t5)
         else:
-            cancel_paper_order(pending_order_id)
+            cancel_result = cancel_paper_order(pending_order_id)
+            # Background-fill detection path 2 (cancel race): order filled
+            # in the window between our pre-check and cancel attempt — the
+            # broker tells us via "already in 'filled' state". Re-fetch and
+            # close from fill data.
+            if (isinstance(cancel_result, dict)
+                    and cancel_result.get("terminal_state") == "filled"):
+                try:
+                    filled = get_order_status(pending_order_id)
+                    if filled and _is_filled_status(filled.get("status")):
+                        logger.info(
+                            "[RETRY] Cancel raced fill for %s — reconciling from broker",
+                            ticker,
+                        )
+                        _close_from_broker_fill(trade, filled, db_path)
+                        return
+                except Exception as e:
+                    logger.warning(
+                        "[RETRY] Post-cancel fill fetch failed for %s: %s",
+                        ticker, e,
+                    )
         time.sleep(1)  # Brief pause for broker to process cancellation
 
     # Increment retry counter
