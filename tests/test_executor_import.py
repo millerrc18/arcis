@@ -16,7 +16,14 @@ def test_module_imports():
 
 
 class TestCancelPaperOrder:
-    """Test the cancel_paper_order adapter function."""
+    """Test the cancel_paper_order adapter function.
+
+    Returns a dict: {cancelled: bool, terminal_state: str|None, error: str|None}.
+    terminal_state is set when the exception signals the order ALREADY reached
+    a terminal broker state — e.g. 'filled' when Alpaca returns code 42210000
+    ('order is already in "filled" state'). Callers use this signal to detect
+    background fills that raced the cancel (2026-04-14 NVDA/GOOGL incident).
+    """
 
     def test_cancel_success(self):
         from src.shadow_trading.alpaca_adapter import cancel_paper_order
@@ -25,18 +32,53 @@ class TestCancelPaperOrder:
                    return_value=mock_client):
             result = cancel_paper_order("order-123")
 
-        assert result is True
+        assert result == {"cancelled": True, "terminal_state": None, "error": None}
         mock_client.cancel_order_by_id.assert_called_once_with("order-123")
 
-    def test_cancel_already_filled(self):
+    def test_cancel_already_filled_reports_terminal_state(self):
+        """Alpaca APIError code 42210000 means the order filled before the
+        cancel reached the broker. Caller must detect this to avoid
+        submitting a duplicate exit SELL (2026-04-14 feedback loop)."""
         from src.shadow_trading.alpaca_adapter import cancel_paper_order
+        from alpaca.common.exceptions import APIError
         mock_client = MagicMock()
-        mock_client.cancel_order_by_id.side_effect = Exception("order already filled")
+        # Simulate the exact shape from production logs
+        err = APIError({"code": 42210000, "message": 'order is already in "filled" state'})
+        mock_client.cancel_order_by_id.side_effect = err
         with patch("src.shadow_trading.alpaca_adapter._get_trading_client",
                    return_value=mock_client):
             result = cancel_paper_order("order-123")
 
-        assert result is False
+        assert result["cancelled"] is False
+        assert result["terminal_state"] == "filled"
+
+    def test_cancel_already_canceled_reports_terminal_state(self):
+        """Similar race: order cancelled externally; cancel_paper_order should
+        distinguish this from a generic failure so callers don't retry."""
+        from src.shadow_trading.alpaca_adapter import cancel_paper_order
+        from alpaca.common.exceptions import APIError
+        mock_client = MagicMock()
+        err = APIError({"code": 42210000, "message": 'order is already in "canceled" state'})
+        mock_client.cancel_order_by_id.side_effect = err
+        with patch("src.shadow_trading.alpaca_adapter._get_trading_client",
+                   return_value=mock_client):
+            result = cancel_paper_order("order-123")
+
+        assert result["cancelled"] is False
+        assert result["terminal_state"] == "canceled"
+
+    def test_cancel_generic_failure_no_terminal_state(self):
+        """Non-terminal failures (network, auth) return terminal_state=None."""
+        from src.shadow_trading.alpaca_adapter import cancel_paper_order
+        mock_client = MagicMock()
+        mock_client.cancel_order_by_id.side_effect = ConnectionError("network")
+        with patch("src.shadow_trading.alpaca_adapter._get_trading_client",
+                   return_value=mock_client):
+            result = cancel_paper_order("order-123")
+
+        assert result["cancelled"] is False
+        assert result["terminal_state"] is None
+        assert "network" in result["error"]
 
     def test_cancel_no_client(self):
         from src.shadow_trading.alpaca_adapter import cancel_paper_order
@@ -44,7 +86,8 @@ class TestCancelPaperOrder:
                    side_effect=Exception("No API key")):
             result = cancel_paper_order("order-123")
 
-        assert result is False
+        assert result["cancelled"] is False
+        assert result["terminal_state"] is None
 
 
 # ── Exit retry with cancel (#196) ───────────────────────────────────

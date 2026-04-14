@@ -26,6 +26,7 @@ Tests: tests/test_bracket_orders.py, tests/test_executor_import.py, tests/test_l
 
 import logging
 import os
+import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -421,18 +422,31 @@ def verify_order_accepted(order_id: str) -> dict:
         return {"verified": None, "status": "unknown", "error": str(exc)}
 
 
-def cancel_paper_order(order_id: str) -> bool:
+_TERMINAL_STATE_RE = re.compile(r"already in \\?\"?([a-z_]+)\\?\"? state", re.IGNORECASE)
+
+
+def cancel_paper_order(order_id: str) -> dict:
     """Cancel a pending paper order by ID.
 
-    Returns True if canceled successfully, False if already filled/canceled or on error.
+    Returns a dict: ``{cancelled: bool, terminal_state: str|None, error: str|None}``.
+
+    When Alpaca responds "order is already in 'filled' state" (code 42210000),
+    the order raced the cancel and filled at the broker — we extract the
+    terminal state so callers can detect the background fill and avoid
+    resubmitting a duplicate order. That race was the root cause of the
+    2026-04-14 NVDA/GOOGL exit-loop short-position accumulation.
     """
     try:
         client = _get_trading_client()
         client.cancel_order_by_id(order_id)
-        return True
+        return {"cancelled": True, "terminal_state": None, "error": None}
     except Exception as e:
+        terminal_state = None
+        m = _TERMINAL_STATE_RE.search(str(e))
+        if m:
+            terminal_state = m.group(1).lower()
         logger.warning("[CANCEL] Could not cancel order %s: %s", order_id, e)
-        return False
+        return {"cancelled": False, "terminal_state": terminal_state, "error": str(e)}
 
 
 def cancel_orders_for_ticker(ticker: str) -> int:
