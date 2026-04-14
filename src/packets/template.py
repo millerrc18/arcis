@@ -37,6 +37,19 @@ def build_packet_from_features(ticker: str, features: dict, config: dict) -> Tra
     stop_distance = 2 * atr if atr > 0 else price * 0.03
     shares = max(1, int(max_risk_dollars / stop_distance)) if stop_distance > 0 else 1
     allocation = float(int(shares) * float(price))
+    # Cap allocation at the governor's max_position_pct so the packet never
+    # arrives at validate_packet with an allocation that will be rejected for
+    # exceeding the portfolio cap (2026-04-14 EXC 30.5% / SO 32.6% rejections).
+    # The sizer must respect the cap at the source, not rely on downstream
+    # rejection to enforce it.
+    max_position_pct = config.get("risk_governor", {}).get("max_position_pct", 0.25)
+    if capital > 0 and allocation > max_position_pct * capital:
+        capped_allocation = max_position_pct * capital
+        if price > 0:
+            shares = max(1, int(capped_allocation / price))
+            allocation = float(int(shares) * float(price))
+        else:
+            allocation = capped_allocation
     allocation_pct = (allocation / capital * 100) if capital > 0 else 0
 
     # Confidence from score

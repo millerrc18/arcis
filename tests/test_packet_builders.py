@@ -96,6 +96,27 @@ class TestBuildPacketFromFeatures:
         packet = build_packet_from_features("AAPL", _make_features(), _make_config())
         assert packet.event_risk == "Normal"
 
+    def test_allocation_capped_at_max_position_pct(self, mock_name):
+        """2026-04-14 regression guard: a tight-ATR stock in a low-price-per-risk
+        regime can produce allocation > max_position_pct at the sizer, which
+        then gets rejected downstream ("Allocation 30.5% exceeds 25% portfolio
+        cap"). Cap the allocation at the source so the packet is always
+        submittable."""
+        # Tight stop, low price → shares × price can exceed 25% cap.
+        features = _make_features(current_price=10.0, atr_14=0.10, atr_pct=1.0)
+        config = {
+            "risk": {"starting_capital": 1000, "planned_risk_pct_max": 0.10},
+            "risk_governor": {"max_position_pct": 0.25},
+        }
+        packet = build_packet_from_features("AAPL", features, config)
+        # Allocation must be ≤ 25% of capital = $250
+        assert packet.position_sizing.allocation_dollars <= 250.0, (
+            f"Allocation {packet.position_sizing.allocation_dollars} exceeds "
+            f"$250 (25% of $1000 capital cap)"
+        )
+        # Allocation_pct reflected correctly
+        assert packet.position_sizing.allocation_pct <= 25.1  # 0.1% rounding slack
+
     def test_render_packet_produces_string(self, mock_name):
         packet = build_packet_from_features("AAPL", _make_features(), _make_config())
         text = render_packet(packet)
