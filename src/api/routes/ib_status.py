@@ -56,10 +56,12 @@ def ib_status():
             today_total = today_row["total"] if today_row else 0
             today_connected = today_row["connected"] or 0 if today_row else 0
 
-            # IB paper trade count (trades routed to IB from shadow_trades)
+            # IB paper trade count (trades routed to IB from shadow_trades).
+            # Quarantined filter ensures compromised April-10-cascade rows and
+            # any future data-quality quarantines don't inflate the count.
             ib_trade_row = conn.execute(
                 "SELECT COUNT(*) as c FROM shadow_trades "
-                "WHERE source = 'ib_paper'"
+                "WHERE source = 'ib_paper' AND COALESCE(quarantined, 0) = 0"
             ).fetchone()
             ib_trade_count = ib_trade_row["c"] if ib_trade_row else 0
 
