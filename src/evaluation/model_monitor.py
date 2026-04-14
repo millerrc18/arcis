@@ -303,9 +303,9 @@ def _build_canary_comparison(canary_data: list[dict]) -> dict:
         }
 
     llm_correct = sum(1 for d in canary_data
-                       if (d["llm_conviction"] or 0) >= 5 and (d["pnl_dollars"] or 0) > 0)
+                       if (d["llm_conviction"] or 0) >= 5 and float(d["pnl_dollars"] or 0) > 0)
     canary_correct = sum(1 for d in canary_data
-                          if (d["canary_score"] or 0) >= 5 and (d["pnl_dollars"] or 0) > 0)
+                          if (d["canary_score"] or 0) >= 5 and float(d["pnl_dollars"] or 0) > 0)
 
     llm_wr = llm_correct / n if n else 0
     canary_wr = canary_correct / n if n else 0
@@ -316,11 +316,11 @@ def _build_canary_comparison(canary_data: list[dict]) -> dict:
         try:
             # McNemar: count discordant pairs
             b = sum(1 for d in canary_data
-                    if (d["llm_conviction"] or 0) >= 5 and (d["pnl_dollars"] or 0) > 0
-                    and not ((d["canary_score"] or 0) >= 5 and (d["pnl_dollars"] or 0) > 0))
+                    if (d["llm_conviction"] or 0) >= 5 and float(d["pnl_dollars"] or 0) > 0
+                    and not ((d["canary_score"] or 0) >= 5 and float(d["pnl_dollars"] or 0) > 0))
             c = sum(1 for d in canary_data
-                    if not ((d["llm_conviction"] or 0) >= 5 and (d["pnl_dollars"] or 0) > 0)
-                    and (d["canary_score"] or 0) >= 5 and (d["pnl_dollars"] or 0) > 0)
+                    if not ((d["llm_conviction"] or 0) >= 5 and float(d["pnl_dollars"] or 0) > 0)
+                    and (d["canary_score"] or 0) >= 5 and float(d["pnl_dollars"] or 0) > 0)
             if b + c > 0:
                 chi2 = (abs(b - c) - 1) ** 2 / (b + c)
                 # Approximate p-value from chi-squared with 1 df

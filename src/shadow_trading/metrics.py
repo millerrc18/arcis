@@ -37,7 +37,7 @@ def compute_shadow_metrics(trades: list[dict]) -> dict:
         }
 
     total = len(trades)
-    pnls = [t.get("pnl_dollars", 0) or 0 for t in trades]
+    pnls = [float(t.get("pnl_dollars", 0) or 0) for t in trades]
     wins = [p for p in pnls if p > 0]
     losses = [p for p in pnls if p <= 0]
 
