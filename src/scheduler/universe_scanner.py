@@ -101,9 +101,11 @@ def run_universe_scan(ctx: ScanContext) -> ScanResult:
     except Exception as e:
         logger.warning("[SCAN] Data enrichment failed: %s", e)
 
-    # ── Phase 2: Traffic light ───────────────────────────────────────
+    # ── Phase 2: Post-scan enrichment (traffic_light + event_risk + regime_label)
+    # Before 2026-04-14 this block attached traffic_light only; event_risk was
+    # missed and 45 warnings/day logged ("event_risk_multiplier missing ...").
+    # attach_post_scan_features centralizes both so scanners cannot diverge.
     try:
-        from src.features.traffic_light import compute_traffic_light
         import sqlite3 as _sq
         _vix_val = None
         try:
@@ -115,17 +117,16 @@ def run_universe_scan(ctx: ScanContext) -> ScanResult:
                     _vix_val = float(_vr[0])
         except Exception:
             pass
-        tl = compute_traffic_light(spy, vix=_vix_val)
-        for _t in features:
-            features[_t]["traffic_light"] = tl
-            features[_t]["traffic_light_multiplier"] = tl.get("sizing_multiplier", 1.0)
-        logger.info("[SCAN] Traffic Light: score=%d mult=%.1f regime=%s vix=%.1f",
-                    tl.get("total_score", -1), tl.get("sizing_multiplier", 1.0),
-                    tl.get("regime_label", "unknown"), _vix_val or 0.0)
+        from src.features.enrichment import attach_post_scan_features
+        attach_post_scan_features(
+            features, config=ctx.config, spy=spy, vix_value=_vix_val,
+            db_path=ctx.db_path,
+        )
     except Exception as e:
-        logger.warning("[SCAN] Traffic Light failed: %s — using default", e)
+        logger.warning("[SCAN] Feature enrichment failed: %s — using defaults", e)
         for _t in features:
-            features[_t]["traffic_light_multiplier"] = 1.0
+            features[_t].setdefault("traffic_light_multiplier", 1.0)
+            features[_t].setdefault("event_risk_multiplier", 1.0)
 
     # ── Phase 3: Ranking + candidate selection ───────────────────────
     ranked = rank_universe(features)
