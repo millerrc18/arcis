@@ -102,8 +102,7 @@ def create_router(runtime, verify_auth):
     def training_status():
         try:
             active_model = runtime.query_one(
-                "SELECT * FROM model_versions WHERE status = 'active' "
-                "ORDER BY created_at DESC LIMIT 1"
+                "SELECT * FROM model_versions ORDER BY created_at DESC LIMIT 1"
             )
             total_versions = runtime.query("SELECT COUNT(*) as count FROM model_versions")
             total_examples = runtime.query_one("SELECT COUNT(*) as c FROM training_examples")

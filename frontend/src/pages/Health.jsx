@@ -259,9 +259,9 @@ export default function Health() {
       {/* Model History */}
       <div className="arcis-card">
         <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>Model History</h3>
-        {trainingHistory && trainingHistory.length > 1 ? (
+        {trainingHistory?.versions?.length > 1 ? (
           <div className="space-y-3">
-            {trainingHistory.map((run, i) => {
+            {trainingHistory.versions.map((run, i) => {
               const statusVariant = run.status === 'active' ? 'success' : run.status === 'evaluation' ? 'warning' : run.status === 'rejected' ? 'danger' : 'neutral'
               return (
                 <div key={run.model_version || i} className="flex items-center gap-4 border-l-2 pl-4 py-2"

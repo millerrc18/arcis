@@ -26,7 +26,7 @@ const CLUSTERS = {
     'insider_transactions', 'short_interest', 'fed_communications', 'analyst_estimates',
   ]},
   system: { color: '#F59E0B', label: 'System', tables: [
-    'activity_log', 'log_entries', 'command_queue', 'command_results',
+    'activity_log', 'log_entries', 'pending_commands', 'command_results',
     'config_overrides', 'scan_metrics', 'metric_snapshots',
   ]},
   intelligence: { color: '#6366F1', label: 'Intelligence', tables: [
@@ -51,7 +51,7 @@ const FK_EDGES = [
   ['holdout_results', 'model_versions'],
   ['council_votes', 'council_sessions'],
   ['build_score_history', 'hshs_snapshots'],
-  ['command_results', 'command_queue'],
+  ['command_results', 'pending_commands'],
   ['live_trades', 'recommendations'],
 ]
 
