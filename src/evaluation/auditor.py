@@ -23,6 +23,14 @@ from src.training.versioning import init_training_tables
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
+# Flag categories that must NEVER be downgraded from CRITICAL during
+# bootcamp mode. These signal loss-of-containment, not model uncertainty —
+# a compromised safety net always warrants a halt regardless of sample size.
+_NEVER_DOWNGRADE = frozenset({
+    "risk_governor_breach",
+    "emergency_halt_bypass",
+})
+
 AUDITOR_SYSTEM_PROMPT = """You are a risk management auditor for an autonomous equity trading system. Your job is to review the day's trading activity and identify any patterns, anomalies, or risks that need human attention.
 
 You will receive a structured JSON report of today's trading activity. Analyze it and produce a brief, actionable assessment.
@@ -262,9 +270,15 @@ def check_escalation(audit: dict, db_path: str = DB_PATH) -> list[dict]:
 
     for flag in flags:
         severity = flag.get("severity", "warning")
+        category = flag.get("category", "")
 
         if severity == "critical":
-            if bootcamp_mode:
+            # Safety CRITICALs must always halt — bootcamp downgrade is for
+            # model-quality signals (miscalibration, regime-awareness), not
+            # for loss-of-containment signals. A risk-governor breach or
+            # emergency-halt bypass means our safety net is broken; that
+            # never becomes an "alert."
+            if bootcamp_mode and category not in _NEVER_DOWNGRADE:
                 # During bootcamp, downgrade critical to alert — don't halt
                 logger.warning(
                     "[AUDIT] CRITICAL flag DOWNGRADED to alert (bootcamp mode, %d closed trades): %s",
