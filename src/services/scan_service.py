@@ -70,71 +70,41 @@ def run_scan(config: dict, dry_run: bool = False, send_email_flag: bool = False,
     except Exception as e:
         logger.warning("[SCAN] Data enrichment failed: %s — continuing without enrichment", e)
 
-    # Traffic Light regime overlay
-    traffic_light = {"sizing_multiplier": 1.0, "total_score": -1, "regime_label": "unknown"}
+    # Post-scan enrichment (traffic_light + event_risk + regime_label).
+    # Consolidated onto the shared helper (Phase 3.1) so universe_scanner,
+    # mr_scan_service, and this path all use the same enrichment code.
     try:
-        from src.features.traffic_light import compute_traffic_light
+        from src.features.enrichment import attach_post_scan_features
         vix_value = None
         for _t, _f in features.items():
             if "vix_proxy" in _f:
                 vix_value = _f["vix_proxy"]
                 break
-        traffic_light = compute_traffic_light(spy, vix=vix_value)
-        for _t in features:
-            features[_t]["traffic_light"] = traffic_light
-            features[_t]["traffic_light_multiplier"] = traffic_light.get("sizing_multiplier", 1.0)
-
-        # Bootcamp override: floor the multiplier at 0.5 so we collect data in all regimes.
-        # The regime is still RECORDED accurately for training data — only sizing is relaxed.
-        bootcamp_cfg = config.get("bootcamp", {})
-        if bootcamp_cfg.get("enabled", False):
-            tl_mult = traffic_light.get("sizing_multiplier", 1.0)
-            bootcamp_floor = bootcamp_cfg.get("traffic_light_floor", 0.5)
-            if tl_mult < bootcamp_floor:
-                logger.info("[SCAN] Bootcamp override: Traffic Light mult %.1f -> %.1f (floor)",
-                            tl_mult, bootcamp_floor)
-                for _t in features:
-                    features[_t]["traffic_light_multiplier"] = bootcamp_floor
-
-        # Log effective multiplier (may differ from raw if bootcamp override applied)
-        effective_mult = next(iter(features.values()), {}).get("traffic_light_multiplier", 1.0)
-        logger.info("[SCAN] Traffic Light: score=%d mult=%.1f (effective=%.1f) regime=%s",
-                    traffic_light.get("total_score", -1),
-                    traffic_light.get("sizing_multiplier", 1.0),
-                    effective_mult,
-                    traffic_light.get("regime_label", "unknown"))
-    except Exception as e:
-        logger.warning("[SCAN] Traffic Light failed: %s — using default", e)
-        for _t in features:
-            features[_t]["traffic_light_multiplier"] = 1.0
-
-    # Event calendar risk overlay
-    event_risk_summary = {"total_score": 0, "components": {}, "sizing_multiplier": 1.0}
-    try:
-        from src.features.event_risk_score import attach_event_risk_scores
-        event_risk_summary = attach_event_risk_scores(features, settings=config)
-        logger.info(
-            "[SCAN] Event risk: score=%d mult=%.2f components=%s",
-            event_risk_summary.get("total_score", 0),
-            event_risk_summary.get("sizing_multiplier", 1.0),
-            event_risk_summary.get("components", {}),
+        attach_post_scan_features(
+            features, config=config, spy=spy, vix_value=vix_value,
         )
-        alert_threshold = config.get("event_risk", {}).get("alert_threshold", 6)
-        if event_risk_summary.get("total_score", 0) >= alert_threshold and not dry_run:
-            try:
-                from src.notifications.telegram import send_telegram
-                send_telegram(
-                    f"⚠️ Elevated event risk: {event_risk_summary['total_score']}/10 — "
-                    f"{event_risk_summary.get('components', {})}"
-                )
-            except Exception as exc:
-                logger.warning("[SCAN] Event-risk Telegram alert failed: %s", exc)
+        # scan_service-specific behavior: Telegram alert for elevated market-
+        # level event risk. attach_post_scan_features sets feat["market_event_risk"]
+        # via attach_event_risk_scores — pull the shared market score from any feature.
+        if not dry_run:
+            first_feat = next(iter(features.values()), {})
+            market_event_risk = first_feat.get("market_event_risk", {}) or {}
+            event_risk_total = market_event_risk.get("total_score", 0)
+            alert_threshold = config.get("event_risk", {}).get("alert_threshold", 6)
+            if event_risk_total >= alert_threshold:
+                try:
+                    from src.notifications.telegram import send_telegram
+                    send_telegram(
+                        f"⚠️ Elevated event risk: {event_risk_total}/10 — "
+                        f"{market_event_risk.get('components', {})}"
+                    )
+                except Exception as exc:
+                    logger.warning("[SCAN] Event-risk Telegram alert failed: %s", exc)
     except Exception as e:
-        logger.warning("[SCAN] Event risk scoring failed: %s — using default", e)
+        logger.warning("[SCAN] Feature enrichment failed: %s — using defaults", e)
         for _t in features:
-            features[_t]["event_risk_score"] = 0
-            features[_t]["event_risk_components"] = {}
-            features[_t]["event_risk_multiplier"] = 1.0
+            features[_t].setdefault("traffic_light_multiplier", 1.0)
+            features[_t].setdefault("event_risk_multiplier", 1.0)
 
     # Data integrity validation — filter out tickers with invalid features
     try:
