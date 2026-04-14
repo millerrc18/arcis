@@ -578,6 +578,29 @@ def reconcile_paper_trades(
             ticker = row["ticker"]
             trade_id = row["trade_id"]
             if ticker in alpaca_tickers:
+                # 2026-04-14 regression guard: before reverting a stuck
+                # exit_failed/exit_pending trade to 'open', verify the
+                # position is in the EXPECTED direction. A long-only system
+                # seeing a short (qty < 0) or flat (qty == 0) means the exit
+                # SELL filled (possibly multiple times). Reverting to 'open'
+                # would re-trigger the exit loop and extend the short.
+                alpaca_qty = 0.0
+                try:
+                    alpaca_qty = float(alpaca_tickers[ticker].get("qty") or 0)
+                except (TypeError, ValueError):
+                    alpaca_qty = 0.0
+                if alpaca_qty <= 0:
+                    with sqlite3.connect(db_path) as conn:
+                        conn.execute(
+                            "UPDATE shadow_trades SET status = 'needs_manual_review', "
+                            "exit_reason = 'exit_overshoot_detected' "
+                            "WHERE trade_id = ?", (trade_id,),
+                        )
+                    logger.error(
+                        "[RECONCILE-PAPER] Exit overshoot on %s (alpaca_qty=%.0f) — "
+                        "halted for manual review", ticker, alpaca_qty,
+                    )
+                    continue
                 with sqlite3.connect(db_path) as conn:
                     conn.execute(
                         "UPDATE shadow_trades SET status = 'open', exit_reason = NULL "

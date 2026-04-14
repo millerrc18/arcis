@@ -540,6 +540,112 @@ def test_uncertain_trade_marked_failed_when_alpaca_has_no_position(mock_position
     assert row["status"] == "failed"
 
 
+# ── Phase 2.4: exit-overshoot detection (2026-04-14 regression) ──────
+
+_SHORT_NVDA = [
+    {
+        "symbol": "NVDA",
+        "qty": -147.0,  # SHORT — long-only exit over-shot 3x (49 × 3)
+        "avg_entry_price": 150.0,
+        "current_price": 148.0,
+        "market_value": -21756.0,
+        "unrealized_pl": 294.0,
+        "unrealized_plpc": 0.0135,
+    },
+]
+
+_LONG_NVDA = [
+    {
+        "symbol": "NVDA",
+        "qty": 49.0,
+        "avg_entry_price": 150.0,
+        "current_price": 148.0,
+        "market_value": 7252.0,
+        "unrealized_pl": -98.0,
+        "unrealized_plpc": -0.0133,
+    },
+]
+
+
+@patch(
+    "src.shadow_trading.alpaca_adapter.get_all_positions",
+    return_value=_SHORT_NVDA,
+)
+def test_stuck_exit_with_short_position_needs_manual_review(mock_positions, db_path):
+    """2026-04-14 regression guard.
+
+    A stuck exit_failed trade whose Alpaca position is SHORT (qty < 0) means
+    the exit over-shot — each cycle's SELL filled in the background while
+    the reconciler flipped the trade back to 'open', so the scanner kept
+    re-submitting SELLs and extending the short. Reconcile must detect the
+    negative qty and halt the trade (needs_manual_review) instead of
+    reverting to open.
+    """
+    insert_shadow_trade(
+        {
+            "ticker": "NVDA",
+            "status": "exit_failed",
+            "source": "paper",
+            "direction": "long",
+            "entry_price": 150.0,
+            "planned_shares": 49,
+            "exit_reason": "stop_hit",
+            "created_at": "2026-04-14T09:30:00",
+            "updated_at": "2026-04-14T15:13:00",
+        },
+        db_path,
+    )
+
+    reconcile_paper_trades(db_path=db_path, dry_run=False)
+
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT status, exit_reason FROM shadow_trades WHERE ticker = 'NVDA'"
+        ).fetchone()
+    assert row["status"] == "needs_manual_review", (
+        f"Expected needs_manual_review; got {row['status']} — "
+        f"reconciler reverted to open despite short position"
+    )
+    assert "overshoot" in (row["exit_reason"] or "").lower()
+
+
+@patch(
+    "src.shadow_trading.alpaca_adapter.get_all_positions",
+    return_value=_LONG_NVDA,
+)
+def test_stuck_exit_with_long_position_still_reverts_to_open(mock_positions, db_path):
+    """Preservation test: legitimate reverts (long qty > 0) must still work.
+
+    If the position is still long at the expected size, the exit genuinely
+    did not happen and the reconciler should revert to open so the scanner
+    can retry.
+    """
+    insert_shadow_trade(
+        {
+            "ticker": "NVDA",
+            "status": "exit_failed",
+            "source": "paper",
+            "direction": "long",
+            "entry_price": 150.0,
+            "planned_shares": 49,
+            "exit_reason": "stop_hit",
+            "created_at": "2026-04-14T09:30:00",
+            "updated_at": "2026-04-14T15:13:00",
+        },
+        db_path,
+    )
+
+    reconcile_paper_trades(db_path=db_path, dry_run=False)
+
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT status FROM shadow_trades WHERE ticker = 'NVDA'"
+        ).fetchone()
+    assert row["status"] == "open"
+
+
 @patch(
     "src.shadow_trading.alpaca_adapter.get_all_positions",
     return_value=[],

@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo
 # Status lifecycle — exhaustive.
 # Terminal: trade is done, will not be retried or managed.
 # Active: trade is in-flight, may be retried or exited.
-TERMINAL_STATUSES = frozenset({"closed", "rejected", "failed", "exit_abandoned"})
+TERMINAL_STATUSES = frozenset({"closed", "rejected", "failed", "exit_abandoned", "needs_manual_review"})
 ACTIVE_STATUSES = frozenset({"pending", "open", "exit_pending", "exit_failed", "submission_uncertain"})
 
 
