@@ -56,6 +56,34 @@ def run_mr_scan(config: dict | None = None, dry_run: bool = False) -> dict:
 
     logger.info("[MR] Found %d mean reversion candidates", len(candidates))
 
+    # Post-scan enrichment: attach traffic_light_multiplier, event_risk_multiplier,
+    # and top-level regime_label to every candidate's feature dict. Before this,
+    # MR candidates fell back to defaults (0.5 traffic_light → zero-allocation
+    # rejection; NULL market_regime in recommendations). 2026-04-14 regression guard.
+    if not dry_run:
+        try:
+            from src.features.enrichment import attach_post_scan_features
+            features_map = {c["ticker"]: c.get("features", c) for c in candidates}
+            spy_df = ohlcv_dict.get("SPY") if isinstance(ohlcv_dict, dict) else None
+            vix_val = None
+            try:
+                import sqlite3
+                _db = config.get("db_path", "data/ai_research_desk.sqlite3")
+                with sqlite3.connect(_db) as vc:
+                    r = vc.execute(
+                        "SELECT vix FROM vix_term_structure "
+                        "ORDER BY collected_date DESC LIMIT 1"
+                    ).fetchone()
+                    if r:
+                        vix_val = float(r[0])
+            except Exception:
+                pass
+            attach_post_scan_features(
+                features_map, config=config, spy=spy_df, vix_value=vix_val,
+            )
+        except Exception as e:
+            logger.warning("[MR] Post-scan enrichment failed: %s", e)
+
     trades_opened = 0
     results = []
 
