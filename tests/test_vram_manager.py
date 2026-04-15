@@ -106,7 +106,15 @@ def test_handoff_to_training_unload_fails():
     with patch("src.scheduler.vram_manager._find_nvidia_smi", return_value=None):
         vm = VRAMManager()
 
-    with patch("requests.post", side_effect=Exception("Connection refused")), \
+    # _unload_ollama tries `ollama stop <model>` via subprocess before
+    # falling back to the HTTP API. On a dev box that actually has ollama
+    # installed, the subprocess succeeds and the requests.post mock is
+    # never reached. Force subprocess to fail so the test exercises the
+    # HTTP-fallback branch it was written for.
+    subp_fail = MagicMock()
+    subp_fail.returncode = 1
+    with patch("subprocess.run", return_value=subp_fail), \
+         patch("requests.post", side_effect=Exception("Connection refused")), \
          patch("time.sleep"):
         result = vm.handoff_to_training()
     assert result is False
