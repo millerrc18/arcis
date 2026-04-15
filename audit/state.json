@@ -1,7 +1,7 @@
 {
-  "run_count": 24,
+  "run_count": 25,
   "current_focus_index": 1,
-  "file_index": 165,
+  "file_index": 180,
   "file_list": [
     "src/api/__init__.py",
     "src/api/app.py",
@@ -218,7 +218,7 @@
     "src/utils/retry.py",
     "src/utils/type_safety.py"
   ],
-  "last_run": "2026-04-14T19:11:37.583843+00:00",
+  "last_run": "2026-04-15T07:09:31Z",
   "findings": {
     "run_17": {
       "focus_area": "security",
@@ -1275,6 +1275,55 @@
           "description": "PRAGMA table_info() with f-string interpolation for table name. Same assessment as line 85 \u2014 hardcoded dict values only."
         }
       ]
+    },
+    "run_25": {
+      "focus_area": "security",
+      "files_audited": [
+        "src/shadow_trading/bracket_monitor.py",
+        "src/shadow_trading/executor.py",
+        "src/shadow_trading/ledger.py",
+        "src/shadow_trading/metrics.py",
+        "src/shadow_trading/models.py",
+        "src/shadow_trading/reconcile.py",
+        "src/simulation/__init__.py",
+        "src/simulation/cache.py",
+        "src/simulation/engine.py",
+        "src/simulation/monte_carlo.py",
+        "src/startup.py",
+        "src/strategy/__init__.py",
+        "src/strategy/canary.py",
+        "src/sync/__init__.py",
+        "src/sync/render_sync.py"
+      ],
+      "high": [],
+      "medium": [
+        {
+          "file": "src/sync/render_sync.py",
+          "lines": "824-831",
+          "description": "Unhandled sync-cycle exceptions are forwarded verbatim to Telegram via `send_telegram(f\"\ud83d\udea8 Render sync error: <code>{exc}</code>\")`. psycopg2 and requests exceptions routinely embed the connection string (user/host/dbname) and sometimes query parameters. Raw exception text can also include auth-failure details ('FATAL: password authentication failed for user X') which reveals the DB username. Telegram chat history persists these messages outside the application's control.",
+          "suggested_fix": "Sanitize before sending: `send_telegram(f\"\ud83d\udea8 Render sync error: {exc.__class__.__name__}\")` and log the full exception locally only. If richer context is needed, strip connection URIs with a regex such as `re.sub(r'(postgres(?:ql)?://)[^@\\s]+@', r'\\1[REDACTED]@', str(exc))` before forwarding.",
+          "issue_filed": false,
+          "issue_file_note": "GitHub MCP requires interactive OAuth auth which is not available in this automated run. Finding recorded in state.json."
+        }
+      ],
+      "low": [
+        {
+          "file": "src/simulation/engine.py",
+          "lines": "204-206",
+          "description": "subprocess.check_output(['git','rev-parse','HEAD']) \u2014 safe (no user input, list-form args, no shell=True), but worth noting. stderr=subprocess.DEVNULL; exceptions caught broadly."
+        },
+        {
+          "file": "src/sync/render_sync.py",
+          "lines": "146, 150, 171, 177, 197, 317, 342-343, 443, 451, 600",
+          "description": "Multiple f-string SQL templates interpolating table_name/time_col/col_list/placeholders. All values are sourced from SYNC_TABLES (generated from the internal schema registry via generate_sync_tables()) \u2014 no user input reaches these \u2014 so no SQL injection risk. Pattern is fragile if registry ever accepts external input; keep under review."
+        },
+        {
+          "file": "src/simulation/cache.py",
+          "lines": "44-46",
+          "description": "Cache filename built from `{safe_ticker}_{start}_{end}.parquet` with `.` and `/` replaced in ticker only. start/end are passed through unchanged to filename. They originate from hardcoded SCENARIOS dict, so no traversal risk today, but defense-in-depth would validate date format."
+        }
+      ],
+      "notes": "Audited 15 files (shadow_trading/*, simulation/*, startup.py, strategy/*, sync/*). All SQL queries in bracket_monitor, executor, reconcile, render_sync, startup, simulation/engine use parameterized placeholders (? for SQLite, %s for Postgres). No hardcoded secrets. Environment variable access present only in alpaca_adapter (not in this slice). No unvalidated user input reaching SQL or shell. subprocess usage is limited to one hardcoded `git rev-parse HEAD` call. The one medium finding is the render_sync.py Telegram error forwarding which can leak DB connection-string fragments from psycopg2 exceptions. f-string SQL templates in render_sync.py and cloud_routes/core.py use schema-registry-sourced table names (trusted) \u2014 flagged low for pattern fragility."
     }
   }
 }
