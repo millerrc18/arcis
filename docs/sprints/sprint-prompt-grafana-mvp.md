@@ -351,3 +351,38 @@ feat(observability): Grafana Cloud Loki log handler (SD#40)
 - [ ] CHANGELOG.md updated
 - [ ] Existing tests still pass (especially test_log_config if it exists)
 - [ ] Do NOT merge — push to branch `feat/grafana-observability`, open PR
+
+---
+
+## Task 8: Enable Loki on Render cloud app (bonus — low effort)
+
+**File:** `src/api/cloud_app.py`
+
+Near the top of the file, after existing imports, add:
+
+```python
+from src.log_config import setup_logging
+setup_logging(level="INFO")
+```
+
+This makes the cloud app use the same logging setup as the local app, including the Loki handler if env vars are present. Render will need these env vars set manually by Ryan in the Render dashboard:
+- `GRAFANA_LOKI_TOKEN`
+- Plus the observability config must be loadable — verify `load_config()` works on Render (it falls back to `settings.example.yaml` which has `enabled: false`).
+
+**Important:** The Loki handler checks `observability.grafana.enabled` in the YAML config. On Render, `settings.local.yaml` doesn't exist, so `enabled` defaults to `false` from `settings.example.yaml`. Two options:
+
+**Option A (preferred):** Add an env var override in `setup_loki_handler()` — if `os.environ.get("GRAFANA_LOKI_TOKEN")` is set, treat as enabled regardless of YAML config. This matches the existing pattern where env vars override YAML.
+
+**Option B:** Set `enabled: true` in `settings.example.yaml` (less safe — enables for everyone).
+
+Use Option A. Add this check at the top of `setup_loki_handler()`:
+```python
+# Env var presence overrides YAML enabled flag (for Render where settings.local.yaml doesn't exist)
+token = os.environ.get("GRAFANA_LOKI_TOKEN")
+if token and not grafana.get("enabled"):
+    # Token present but YAML says disabled — check if URL/user also available via env
+    loki_url = os.environ.get("GRAFANA_LOKI_URL") or grafana.get("loki_url")
+    loki_user = os.environ.get("GRAFANA_LOKI_USER") or grafana.get("loki_user")
+    if loki_url and loki_user:
+        grafana = {"enabled": True, "loki_url": loki_url, "loki_user": loki_user}
+```
