@@ -557,3 +557,14 @@ strategies:
     max_positions: 5           # Max simultaneous MR positions
     holding_period: 5          # Max days to hold (timeout exit)
     stop_atr_multiple: 2.5    # Stop loss at entry - 2.5x ATR
+
+# ════════════════════════════════════════════════════════════════════════════
+# OBSERVABILITY — Centralized log aggregation
+# ════════════════════════════════════════════════════════════════════════════
+
+observability:
+  grafana:
+    enabled: false                              # Flip true in settings.local.yaml after configuring credentials
+    loki_url: "https://logs-prod-042.grafana.net/loki/api/v1/push"
+    loki_user: "1553293"                        # Grafana Cloud user ID
+    # Token goes in .env as GRAFANA_LOKI_TOKEN (write scope)
