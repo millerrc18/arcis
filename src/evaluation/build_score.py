@@ -129,12 +129,12 @@ def _query_diversity(conn: sqlite3.Connection) -> float:
       - Ticker breadth: 100 distinct tickers = full score
     """
     cur = conn.execute(
-        "SELECT COUNT(DISTINCT regime_label) FROM training_examples WHERE regime_label IS NOT NULL"
+        "SELECT COUNT(DISTINCT regime) FROM training_examples WHERE regime IS NOT NULL"
     )
     regime_score = min(100.0, ((cur.fetchone()[0] or 0) / 4.0) * 100.0)
     cur = conn.execute("SELECT COUNT(*) FROM training_examples")
     total = cur.fetchone()[0] or 0
-    cur = conn.execute("SELECT COUNT(*) FROM training_examples WHERE outcome = 'loss'")
+    cur = conn.execute("SELECT COUNT(*) FROM training_examples WHERE outcome_type = 'loss'")
     loss_pct = (cur.fetchone()[0] or 0) / max(total, 1)
     balance = min(100.0, (loss_pct / 0.15) * 50 + 50) if total > 0 else 50.0
     cur = conn.execute(
@@ -412,8 +412,8 @@ def _build_data_detail(conn: sqlite3.Connection) -> dict:
         cur = conn.execute("SELECT COUNT(*) FROM training_examples")
         total = cur.fetchone()[0] or 1
         cur = conn.execute(
-            "SELECT COUNT(DISTINCT regime_label) FROM training_examples "
-            "WHERE regime_label IS NOT NULL"
+            "SELECT COUNT(DISTINCT regime) FROM training_examples "
+            "WHERE regime IS NOT NULL"
         )
         regimes = cur.fetchone()[0] or 0
         cur = conn.execute(

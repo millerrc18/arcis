@@ -196,7 +196,7 @@ def health_score():
                 "ORDER BY created_at DESC LIMIT 1"
             ).fetchone()
             canary = conn.execute(
-                "SELECT verdict, perplexity, distinct_2 FROM canary_evaluations "
+                "SELECT degradation_detected, avg_score, distinct_2 FROM canary_evaluations "
                 "ORDER BY created_at DESC LIMIT 1"
             ).fetchone()
         finally:
