@@ -558,7 +558,7 @@ def create_router(runtime, verify_auth):
                 models.append({
                     "version": ver,
                     "meta": meta,
-                    "metrics": metrics,
+                    "live_metrics": metrics,
                     "equity_curve": curve,
                 })
 
