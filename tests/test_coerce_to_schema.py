@@ -65,14 +65,17 @@ class TestCoerceToSchema:
         assert isinstance(result["ticker"], str)
 
     def test_integer_column_coercion(self):
-        result = _coerce_to_schema("shadow_trades", {"planned_shares": "100"})
-        assert result["planned_shares"] == 100
-        assert isinstance(result["planned_shares"], int)
+        # duration_days is INTEGER in shadow_trades. planned_shares used to be
+        # here too, but switched to REAL for Alpaca fractional shares
+        # (registry.py:191-193), so this test now targets a still-INTEGER column.
+        result = _coerce_to_schema("shadow_trades", {"duration_days": "100"})
+        assert result["duration_days"] == 100
+        assert isinstance(result["duration_days"], int)
 
     def test_integer_from_float_string(self):
-        result = _coerce_to_schema("shadow_trades", {"planned_shares": "100.0"})
-        assert result["planned_shares"] == 100
-        assert isinstance(result["planned_shares"], int)
+        result = _coerce_to_schema("shadow_trades", {"duration_days": "100.0"})
+        assert result["duration_days"] == 100
+        assert isinstance(result["duration_days"], int)
 
     def test_recommendations_table(self):
         result = _coerce_to_schema("recommendations", {
