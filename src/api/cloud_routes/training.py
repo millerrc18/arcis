@@ -61,7 +61,7 @@ _DATA_COLLECTION_QUERIES = {
     ),
     "cboe_ratios": (
         "SELECT COUNT(*) AS total_records, MAX(collected_at) AS latest_collection, "
-        "COUNT(DISTINCT ratio_type) AS coverage_count FROM cboe_ratios"
+        "COUNT(DISTINCT collected_date) AS coverage_count FROM cboe_ratios"
     ),
     "earnings_calendar": (
         "SELECT COUNT(*) AS total_records, MAX(collected_at) AS latest_collection, "
