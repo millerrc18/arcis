@@ -40,7 +40,11 @@ class TestRetryWithBackoff:
         with patch("src.utils.retry.time.sleep", side_effect=lambda d: delays.append(d)):
             retry_with_backoff(fn, max_retries=3, base_delay=1.0, max_delay=30.0)
         assert len(delays) == 2
-        assert delays[1] > delays[0] * 1.5
+        # Production applies +/-20% jitter (retry.py:52), so delay[0] can hit
+        # 1.2 and delay[1] can hit 1.6 — a 1.5x bound is flaky because
+        # 1.6 > 1.2*1.5 is False. True worst-case ratio is 1.6/1.2 = 1.33, so
+        # 1.3x is a safe floor that still proves exponential growth.
+        assert delays[1] > delays[0] * 1.3
 
     def test_delay_capped_at_max(self):
         fn = MagicMock(side_effect=ConnectionError("fail"))
