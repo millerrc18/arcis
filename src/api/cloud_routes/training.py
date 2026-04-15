@@ -148,12 +148,19 @@ def create_router(runtime, verify_auth):
                 "total": 102,
             } if ticker_row and ticker_row["covered"] else None
 
-            # Regime coverage
+            # Regime coverage (market regime: bull/bear/cautious)
             regime_rows = runtime.query(
+                "SELECT regime, COUNT(*) as count FROM training_examples "
+                "WHERE regime IS NOT NULL GROUP BY regime"
+            )
+            regime_coverage = {r["regime"]: r["count"] for r in regime_rows} if regime_rows else None
+
+            # Curriculum stage coverage
+            stage_rows = runtime.query(
                 "SELECT curriculum_stage, COUNT(*) as count FROM training_examples "
                 "WHERE curriculum_stage IS NOT NULL GROUP BY curriculum_stage"
             )
-            regime_coverage = {r["curriculum_stage"]: r["count"] for r in regime_rows} if regime_rows else None
+            curriculum_coverage = {r["curriculum_stage"]: r["count"] for r in stage_rows} if stage_rows else None
 
             # Examples this week
             week_ago = (datetime.now(runtime.et) - timedelta(days=7)).isoformat()
@@ -165,8 +172,8 @@ def create_router(runtime, verify_auth):
 
             # Recent examples
             recent_rows = runtime.query(
-                "SELECT ticker, source, outcome as outcome_type, "
-                "COALESCE(quality_score_auto, quality_score) as quality_score, "
+                "SELECT ticker, source, outcome_type, "
+                "COALESCE(composite_score, quality_score_auto, quality_score) as quality_score, "
                 "created_at FROM training_examples ORDER BY created_at DESC LIMIT 10"
             )
 
@@ -187,6 +194,7 @@ def create_router(runtime, verify_auth):
                 "source_counts": source_counts,
                 "ticker_coverage": ticker_coverage,
                 "regime_coverage": regime_coverage,
+                "curriculum_coverage": curriculum_coverage,
                 "examples_this_week": examples_this_week,
                 "recent_examples": recent_rows,
             }
@@ -468,7 +476,7 @@ def create_router(runtime, verify_auth):
                 "SELECT curriculum_stage, COUNT(*) as count FROM training_examples GROUP BY curriculum_stage"
             )
             by_outcome = runtime.query(
-                "SELECT outcome, COUNT(*) as count FROM training_examples GROUP BY outcome"
+                "SELECT outcome_type, COUNT(*) as count FROM training_examples GROUP BY outcome_type"
             )
             return {
                 "total": total["c"] if total else 0,

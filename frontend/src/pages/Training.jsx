@@ -65,6 +65,7 @@ export default function Training() {
   // Ticker coverage
   const tickerCoverage = status?.ticker_coverage || null
   const regimeCoverage = status?.regime_coverage || null
+  const curriculumCoverage = status?.curriculum_coverage || null
   const recentExamples = status?.recent_examples || null
 
   if (isLoading) return <LoadingSpinner />
@@ -235,6 +236,22 @@ export default function Training() {
             </div>
           ) : (
             <div className="text-sm" style={{ color: 'var(--arcis-text-muted)' }}>Regime data not available</div>
+          )}
+          {curriculumCoverage && (
+            <div className="mt-3">
+              <div className="text-xs uppercase tracking-wide mb-2" style={{ color: 'var(--arcis-text-muted)' }}>Curriculum Stages</div>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(curriculumCoverage).map(([stage, count]) => (
+                  <div key={stage} className="px-2 py-1 rounded text-xs" style={{
+                    background: 'rgba(13, 148, 136, 0.15)',
+                    border: '1px solid rgba(13, 148, 136, 0.3)',
+                    color: 'var(--arcis-accent)',
+                  }}>
+                    {stage}: {count}
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
         </div>
       </div>
