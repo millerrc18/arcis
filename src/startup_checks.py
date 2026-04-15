@@ -299,8 +299,8 @@ def _check_render_postgres(config: dict) -> list[CheckResult]:
         # the same drift to be filed 8 times. The schema registry is the
         # source of truth, and create_all_tables/ensure_columns are idempotent.
         try:
-            create_all_tables(db_url)
-            added = ensure_columns(db_url)
+            create_all_tables(db_url, connect_timeout=5)
+            added = ensure_columns(db_url, connect_timeout=5)
             if added:
                 results.append(CheckResult(
                     name="render_schema_drift", category="connectivity",
@@ -312,7 +312,7 @@ def _check_render_postgres(config: dict) -> list[CheckResult]:
             logger.warning("Postgres auto-migrate failed: %s", migrate_err)
 
         # Verify post-fix: check for remaining drift
-        with psycopg2.connect(db_url) as pg_conn:
+        with psycopg2.connect(db_url, connect_timeout=5) as pg_conn:
             with pg_conn.cursor() as cur:
                 for tname, tdef in TABLES.items():
                     if tname not in synced_names:

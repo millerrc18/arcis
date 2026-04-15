@@ -89,7 +89,7 @@ def generate_ensure_column_sql(table_name: str, col: ColumnDef) -> str:
     )
 
 
-def create_all_tables(database_url: str) -> None:
+def create_all_tables(database_url: str, *, connect_timeout: int | None = None) -> None:
     """Create all Postgres tables from registry. Idempotent.
 
     Runs DDL in three phases so a newly-added column with an index doesn't
@@ -97,10 +97,16 @@ def create_all_tables(database_url: str) -> None:
       1. CREATE TABLE IF NOT EXISTS (skips existing tables)
       2. ALTER TABLE ADD COLUMN for each missing column (idempotent via DO $$)
       3. CREATE INDEX IF NOT EXISTS for each index (column guaranteed present)
+
+    connect_timeout: TCP connect timeout in seconds. Default None waits
+    indefinitely — appropriate for manual migrations where the caller wants
+    to sit through a cold Render free-tier wake-up. Startup paths pass a
+    small value (e.g. 5) so an unreachable DB fails fast.
     """
     import psycopg2
 
-    conn = psycopg2.connect(database_url)
+    kwargs = {"connect_timeout": connect_timeout} if connect_timeout else {}
+    conn = psycopg2.connect(database_url, **kwargs)
     cur = conn.cursor()
     for table in TABLES.values():
         if table.sync_to_postgres:
@@ -132,12 +138,16 @@ def create_all_tables(database_url: str) -> None:
     logger.info("[SCHEMA] Postgres: created/verified tables + columns + indexes")
 
 
-def ensure_columns(database_url: str) -> list[str]:
-    """Add missing columns to Postgres tables. Idempotent."""
+def ensure_columns(database_url: str, *, connect_timeout: int | None = None) -> list[str]:
+    """Add missing columns to Postgres tables. Idempotent.
+
+    connect_timeout: see create_all_tables() for semantics.
+    """
     import psycopg2
 
     added = []
-    conn = psycopg2.connect(database_url)
+    kwargs = {"connect_timeout": connect_timeout} if connect_timeout else {}
+    conn = psycopg2.connect(database_url, **kwargs)
     cur = conn.cursor()
     for table in TABLES.values():
         if not table.sync_to_postgres:

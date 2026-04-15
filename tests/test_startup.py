@@ -212,6 +212,30 @@ class TestCheckConnectivity:
         assert len(render) == 1
         assert render[0].status == "critical"
 
+    def test_render_db_connect_uses_timeout(self):
+        """Regression: psycopg2.connect on the startup path must pass
+        connect_timeout, otherwise an unreachable Render DB hangs startup
+        indefinitely (libpq default is no timeout)."""
+        config = {"alpaca": {"api_key": "x", "api_secret": "x"},
+                  "render": {"enabled": True,
+                             "database_url": "postgresql://u:p@h:5432/d"}}
+
+        mock_psycopg2 = MagicMock()
+        mock_psycopg2.connect.side_effect = Exception("unreachable")
+
+        with patch.dict("sys.modules", {"psycopg2": mock_psycopg2}), \
+             patch("requests.get",
+                   return_value=MagicMock(status_code=200,
+                                          json=lambda: {"equity": "100"})), \
+             patch("src.llm.client.is_llm_available", return_value=True):
+            check_connectivity(config)
+
+        assert mock_psycopg2.connect.called, "psycopg2.connect was not invoked"
+        for call in mock_psycopg2.connect.call_args_list:
+            assert "connect_timeout" in call.kwargs, (
+                f"connect_timeout missing from psycopg2.connect call: {call}"
+            )
+
 
 # ── check_services ───────────────────────────────────────────────────
 
