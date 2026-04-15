@@ -1,7 +1,7 @@
 # Sprint: Grafana Cloud Loki MVP — Centralized Log Aggregation
 
 **Branch:** `feat/grafana-observability`
-**Priority:** HIGH — watch loop crashes silently with no traceback; need centralized logging for debugging
+**Priority:** HIGH — watch loop crashes silently with no traceback; need centralized logging
 **Spec:** `docs/sprints/sprint-grafana-observability-mvp.md`
 **Estimated time:** 1-2 hours
 
@@ -11,33 +11,35 @@
 
 - [ ] Read MASTER.md (root)
 - [ ] Read `docs/sprints/sprint-grafana-observability-mvp.md` (full spec + Ralph loop findings)
-- [ ] Read `src/log_config.py` (current logging setup)
-- [ ] Read `src/config/__init__.py` (config loading: settings.local.yaml + .env precedence)
+- [ ] Read `src/log_config.py` — current logging: `StructuredFormatter` appends `|ctx:{json}`, console + rotating file handlers
+- [ ] Read `src/config/__init__.py` — config loads from `config/settings.local.yaml` + `.env` via dotenv
 - [ ] Run existing tests: `python -m pytest tests/ -x -q` — must pass before starting
 - [ ] File size check: no src/ file > 400 lines, no function > 60 lines
 
 ---
 
-## Context
+## Critical Context
 
-Config architecture:
-- `config/settings.local.yaml` — non-secret config (gitignored)
-- `.env` — secrets (API keys, tokens)
-- `src/config/__init__.py` — loads YAML, dotenv, caches config
-- `src/log_config.py` — sets up root logger with StructuredFormatter, console + rotating file handlers
+### Config architecture
+- `config/settings.local.yaml` — non-secret YAML config (gitignored)
+- `.env` — secrets via dotenv (API keys, tokens)
+- `src/config/__init__.py` → `load_config()` returns merged dict
 
-Grafana Cloud credentials (already configured):
+### Existing structured logging pattern
+The codebase already uses `extra={"ctx": {"event": "...", "ticker": "...", ...}}` on many log lines. The `StructuredFormatter` in `src/log_config.py` reads `record.ctx` and appends `|ctx:{json}` to the message.
+
+**DO NOT introduce a new `extra={"tags": {...}}` key.** The Loki handler must read from the existing `ctx` dict and extract labels from it. This is a zero-touch integration — most key events already have structured ctx.
+
+### Grafana Cloud credentials
 - Loki push URL: `https://logs-prod-042.grafana.net/loki/api/v1/push`
 - User ID: `1553293`
 - Token: stored in `.env` as `GRAFANA_LOKI_TOKEN`
 
 ---
 
-## Task 1: Add Grafana config section
+## Task 1: Add Grafana config section (2 files)
 
-**File:** `config/settings.example.yaml`
-
-Add to the end of the file:
+**File:** `config/settings.example.yaml` — append to end:
 
 ```yaml
 # ── Observability ──────────────────────────────────────────────────
@@ -49,58 +51,133 @@ observability:
     # Token goes in .env as GRAFANA_LOKI_TOKEN
 ```
 
-**File:** `.env.example` (or add comment to existing .env.example if it exists)
-
-Add line: `# GRAFANA_LOKI_TOKEN=glc_...`
+**File:** `.env.example` — if this file exists, append: `# GRAFANA_LOKI_TOKEN=glc_...`
+If `.env.example` does not exist, skip — do not create it.
 
 ---
 
-## Task 2: Create `src/observability/__init__.py` and `src/observability/loki_handler.py`
+## Task 2: Create `src/observability/loki_handler.py`
 
-Create `src/observability/__init__.py` (empty).
+Create `src/observability/__init__.py` (empty file).
 
-Create `src/observability/loki_handler.py`:
+Create `src/observability/loki_handler.py` with these components:
 
-Requirements:
-- Function `setup_loki_handler(config: dict) -> logging.Handler | None`
-- Reads config from `config.get("observability", {}).get("grafana", {})`
-- Token from `os.environ.get("GRAFANA_LOKI_TOKEN")` — env var takes precedence (same pattern as other secrets)
-- Returns None if `enabled` is False or token is missing
-- **CRITICAL Windows safety:** Use `from queue import Queue` (threading), NOT `from multiprocessing import Queue`
-- `Queue(maxsize=10000)` — prevents OOM if Grafana Cloud is unreachable
-- `handler.setLevel(logging.INFO)` — NEVER ship DEBUG to Loki
-- Include a `DedupFilter` class that suppresses identical log messages within 60 seconds (the schema check logs fire 50+ times per cycle)
-- Attach DedupFilter to the Loki handler only (not to file/console handlers)
+### 2a: `DedupFilter` class
 
-**Two implementation paths — try python-logging-loki first, fall back to raw requests:**
-
-Path A (preferred): Use `python-logging-loki` package
 ```python
-import logging_loki
-handler = logging_loki.LokiHandler(
-    url=loki_url,
-    tags={"application": "arcis", "host": platform.node()},
-    auth=(str(loki_user), loki_token),
-    version="1",
-)
+class DedupFilter(logging.Filter):
+    """Suppress duplicate log messages within a time window.
+    
+    Prevents noisy repeated messages (e.g., '[SCHEMA] Created/verified 53 tables')
+    from consuming Grafana Cloud quota. Attached to Loki handler only —
+    file/console logging is unaffected.
+    """
+    def __init__(self, window_seconds: int = 60):
+        super().__init__()
+        self._seen: dict[str, float] = {}
+        self._window = window_seconds
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        import time
+        key = f"{record.name}:{record.getMessage()}"
+        now = time.time()
+        if key in self._seen and (now - self._seen[key]) < self._window:
+            return False
+        self._seen[key] = now
+        # Prune stale entries to prevent unbounded growth
+        if len(self._seen) > 1000:
+            cutoff = now - self._window
+            self._seen = {k: v for k, v in self._seen.items() if v > cutoff}
+        return True
 ```
-Then wrap in `logging.handlers.QueueHandler` + `logging.handlers.QueueListener` with `queue.Queue(maxsize=10000)`.
 
-Path B (fallback): If `python-logging-loki` import fails, implement a minimal `RawLokiHandler(logging.Handler)` that:
-- Collects log records in a list (batch)
-- Every 5 seconds or 50 records (whichever first), POST to `{loki_url}` with:
-  ```json
-  {"streams": [{"stream": {"application": "arcis", "level": "ERROR", "host": "SWIFT-PC"}, "values": [["<unix_nano>", "<formatted message>"]]}]}
-  ```
-- Uses `requests.post(url, json=payload, auth=(user, token), timeout=5)`
-- Groups by level label so Grafana can filter `{level="ERROR"}`
-- On failure, silently drops the batch (never crashes the watch loop)
-- Runs in a daemon thread
+### 2b: `LokiHandler` class — raw HTTP handler (NO external dependency)
 
-**Docstring must include:**
+**Why not python-logging-loki:** The package was last released in 2020 (v0.3.1), is untested on Python 3.12+, and uses `extra["tags"]` which conflicts with our existing `extra["ctx"]` pattern. A raw handler is ~40 lines, zero dependency risk, and reads our `ctx` natively.
+
+```python
+class LokiHandler(logging.Handler):
+    """Ships log records to Grafana Cloud Loki via HTTP push.
+    
+    Extracts 'event' and 'ticker' from the existing record.ctx dict
+    (set via extra={"ctx": {...}}) and promotes them to Loki labels
+    for efficient querying in Grafana. All other ctx data is included
+    in the log line text via StructuredFormatter.
+    
+    Batches records and flushes every flush_interval seconds or
+    flush_size records, whichever comes first. Runs flush in a
+    daemon thread. Never raises — silently drops on failure.
+    """
+```
+
+Requirements for `LokiHandler`:
+- Constructor args: `url: str, user: str, token: str, flush_interval: float = 5.0, flush_size: int = 50`
+- Stores auth as `(user, token)` tuple for HTTP Basic Auth
+- Internal `_buffer: list` guarded by `threading.Lock`
+- `emit(record)` appends `(record.created, self.format(record), record.levelname, getattr(record, 'ctx', {}))` to `_buffer`. If `len(_buffer) >= flush_size`, triggers `_schedule_flush()`
+- A `threading.Timer` daemon thread calls `_flush()` every `flush_interval` seconds. Timer restarts after each flush.
+- `_flush()` method:
+  - Acquire lock, swap `_buffer` with `[]`, release lock
+  - If empty batch, return immediately
+  - Group records by `(level, event, ticker)` into Loki streams
+  - Extract `event` and `ticker` from the saved ctx dict. If ctx is missing or empty, use empty strings (omit labels)
+  - Build payload:
+    ```json
+    {
+      "streams": [
+        {
+          "stream": {
+            "application": "arcis",
+            "host": "<platform.node()>",
+            "level": "ERROR",
+            "event": "exit_failed",
+            "ticker": "GOOGL"
+          },
+          "values": [
+            ["<nanosecond_timestamp>", "<formatted log line>"],
+            ...
+          ]
+        }
+      ]
+    }
+    ```
+  - Nanosecond timestamp: `str(int(created * 1e9))`
+  - Only include `event` and `ticker` in stream labels if they are non-empty strings
+  - POST to `self.url` with `auth=self._auth, timeout=5, headers={"Content-Type": "application/json"}`
+  - On ANY exception: `print(f"[LOKI] Flush failed: {exc}", file=sys.stderr)` — use print to stderr, NOT logger (avoids infinite recursion). Drop the batch and continue.
+
+### 2c: `setup_loki_handler(config: dict) -> logging.Handler | None`
+
+```python
+def setup_loki_handler(config: dict) -> logging.Handler | None:
+    """Create a non-blocking Loki handler from config.
+    
+    Returns a QueueHandler wrapping LokiHandler, or None if disabled/misconfigured.
+    Uses threading.Queue (NOT multiprocessing.Queue) for Windows compatibility.
+    Queue capped at 10,000 records to prevent OOM during Grafana outages.
+    """
+```
+
+Implementation steps (follow exactly):
+1. Read `grafana = config.get("observability", {}).get("grafana", {})`
+2. If not `grafana.get("enabled")`, return None
+3. Read token from `os.environ.get("GRAFANA_LOKI_TOKEN")` — if missing or empty, log warning, return None
+4. Read `loki_url` and `loki_user` from grafana dict — if either missing, log warning, return None
+5. Create `loki_handler = LokiHandler(url=loki_url, user=str(loki_user), token=token)`
+6. Import `StructuredFormatter` from `src.log_config` and set it as `loki_handler`'s formatter: `loki_handler.setFormatter(StructuredFormatter("%(asctime)s [%(name)s] %(levelname)s: %(message)s"))`
+7. Attach `DedupFilter()` to `loki_handler`: `loki_handler.addFilter(DedupFilter())`
+8. Create `from queue import Queue` → `q = Queue(maxsize=10000)` — **MUST be `queue.Queue` (threading), NOT `multiprocessing.Queue`**
+9. Create `queue_handler = logging.handlers.QueueHandler(q)`
+10. Create `listener = logging.handlers.QueueListener(q, loki_handler, respect_handler_level=True)`
+11. **`listener.start()`** — do not forget this line, the listener does nothing without it
+12. Store listener reference to prevent garbage collection: `queue_handler._loki_listener = listener`
+13. Set `queue_handler.setLevel(logging.INFO)` — **never ship DEBUG to Loki**
+14. Return `queue_handler`
+
+**Docstring:**
 ```
 Called by: src/log_config.py
-Calls: python-logging-loki (optional), requests (fallback)
+Calls: requests (stdlib: threading, queue, logging.handlers)
 Owns tables: none
 Config keys: observability.grafana.enabled, loki_url, loki_user
 Env vars: GRAFANA_LOKI_TOKEN
@@ -111,52 +188,56 @@ Tests: tests/test_loki_handler.py
 
 ## Task 3: Integrate into `src/log_config.py`
 
-At the end of `setup_logging()`, after the file handler is added:
+At the **end** of `setup_logging()`, after the file handler block, add:
 
 ```python
-# Grafana Cloud Loki handler (non-blocking, ships logs to cloud)
-try:
-    from src.config import load_config
-    from src.observability.loki_handler import setup_loki_handler
-    config = load_config()
-    loki = setup_loki_handler(config)
-    if loki:
-        root.addHandler(loki)
-        logging.getLogger(__name__).info("[OBSERVABILITY] Grafana Loki handler active — shipping logs to cloud")
-except Exception as exc:
-    # Never let observability setup crash the application
-    logging.getLogger(__name__).warning("[OBSERVABILITY] Loki handler setup failed: %s", exc)
+    # Grafana Cloud Loki handler (non-blocking, ships logs to cloud)
+    try:
+        from src.config import load_config
+        from src.observability.loki_handler import setup_loki_handler
+        loki_handler = setup_loki_handler(load_config())
+        if loki_handler:
+            root.addHandler(loki_handler)
+            logging.getLogger(__name__).info(
+                "[OBSERVABILITY] Grafana Loki handler active — shipping logs to cloud"
+            )
+    except Exception as exc:
+        # Never let observability setup crash the application
+        logging.getLogger(__name__).warning(
+            "[OBSERVABILITY] Loki setup failed (non-fatal): %s", exc
+        )
 ```
 
-**Important:** Wrap in try/except — Loki setup must NEVER crash the watch loop.
+**Constraint:** This entire block is wrapped in try/except. Loki setup must NEVER prevent the watch loop from starting. If load_config() fails, if the import fails, if anything fails — the watch loop starts normally without Loki.
 
 ---
 
-## Task 4: Add structured tags to 10 high-value log events
+## Task 4: Add `ctx` to log events that are missing it
 
-Add `extra={"tags": {"event": "...", ...}}` to these existing log lines. Do NOT change the message text — only add the extra dict.
+Many key events ALREADY have `extra={"ctx": {"event": "...", ...}}`. Read each file to verify before editing. Do NOT modify lines that already have ctx.
 
-| File | Log line pattern to find | Tags to add |
-|------|------------------------|-------------|
-| `src/shadow_trading/executor.py` | `[EXECUTOR] Entry order placed` or similar entry log | `{"event": "trade_open", "ticker": ticker, "source": source}` |
-| `src/shadow_trading/executor.py` | `[EXIT]` close/exit log | `{"event": "trade_close", "ticker": ticker, "exit_reason": reason}` |
-| `src/shadow_trading/executor.py` | `[EXIT] Broker exit failed` | `{"event": "exit_failed", "ticker": ticker}` |
-| `src/shadow_trading/executor.py` | `[BRACKET]` placement log | `{"event": "bracket_placed", "ticker": ticker}` |
-| `src/scheduler/watch.py` | `[WATCH] Scan cycle #N complete` | `{"event": "scan_complete", "scan_number": n}` |
-| `src/scheduler/watch.py` | `EOD recap` or end-of-day log | `{"event": "eod_recap"}` |
-| `src/scheduler/overnight.py` | overnight collection start/complete | `{"event": "overnight_complete"}` |
-| `src/shadow_trading/reconcile.py` | stale closure or reconcile issue | `{"event": "reconcile_issue", "ticker": ticker}` |
-| `src/training/trainer.py` | training started/completed | `{"event": "training_started"}` or `{"event": "training_completed"}` |
-| `src/notifications/telegram.py` | telegram send | `{"event": "telegram_sent", "type": msg_type}` |
+**Only add ctx to events that don't have it yet.** Likely candidates (verify by reading each file):
 
-**Note:** `python-logging-loki` reads `extra["tags"]` natively and converts them to Loki labels. The raw fallback handler should also extract `record.tags` if present and merge into stream labels.
+| File | Log line to find | ctx to add |
+|------|-----------------|------------|
+| `src/shadow_trading/executor.py` | Entry order placed / trade opened (search for `[EXECUTOR]` near order submission) | `extra={"ctx": {"event": "trade_open", "ticker": ticker}}` |
+| `src/shadow_trading/executor.py` | Bracket placed (search for `[BRACKET]` near bracket order creation) | `extra={"ctx": {"event": "bracket_placed", "ticker": ticker}}` |
+| `src/scheduler/overnight.py` | Overnight collection complete (search for the final summary log) | `extra={"ctx": {"event": "overnight_complete"}}` |
+| `src/shadow_trading/reconcile.py` | Stale trade auto-closed (search for `[RECONCILE]` + `closed` or `stale`) | `extra={"ctx": {"event": "stale_close", "ticker": ticker}}` |
+
+**Events that ALREADY have ctx (verify, do NOT touch):**
+- `executor.py` — `exit_failed`, `exit_success` already have full ctx dicts
+- `watch.py` — `scan_summary` already has full ctx dict with scan_number, universe, etc.
+
+**Rule:** Read each file BEFORE editing. If the log line already has `extra={"ctx": {...}}`, skip it. If in doubt, don't add — fewer clean labels are better than wrong labels. It is better to tag 3 events correctly than 10 events badly.
 
 ---
 
-## Task 5: Add `python-logging-loki` and `requests` to requirements.txt
+## Task 5: Verify `requests` in requirements.txt
 
-- Add `python-logging-loki>=0.3.1` to requirements.txt (if not already present)
-- `requests` should already be in requirements.txt — verify, do not duplicate
+- `requests` should already be in requirements.txt — verify it is present
+- Do NOT add `python-logging-loki` — we are not using it
+- If `requests` is missing, add `requests>=2.28`
 
 ---
 
@@ -164,53 +245,109 @@ Add `extra={"tags": {"event": "...", ...}}` to these existing log lines. Do NOT 
 
 **File:** `tests/test_loki_handler.py`
 
-4 tests:
+5 tests:
 
-1. `test_handler_returns_none_when_disabled` — config has `enabled: false`, assert returns None
-2. `test_handler_returns_none_when_token_missing` — config has `enabled: true` but no env var, assert returns None
-3. `test_dedup_filter_suppresses_duplicates` — create DedupFilter, log same message twice within 1 second, assert second is filtered
-4. `test_dedup_filter_allows_after_window` — create DedupFilter with 0.1s window, sleep 0.2s, assert second message passes
+```python
+"""Tests for Grafana Loki log handler.
+
+Tests handler configuration, DedupFilter, and error paths.
+No network calls — all tests are offline.
+"""
+import logging
+import time
+import pytest
+from src.observability.loki_handler import setup_loki_handler, DedupFilter
+
+
+def test_handler_returns_none_when_disabled():
+    """Config has enabled: false."""
+    config = {"observability": {"grafana": {"enabled": False}}}
+    assert setup_loki_handler(config) is None
+
+
+def test_handler_returns_none_when_config_missing():
+    """No observability section at all."""
+    assert setup_loki_handler({}) is None
+
+
+def test_handler_returns_none_when_token_missing(monkeypatch):
+    """Config enabled but GRAFANA_LOKI_TOKEN env var not set."""
+    monkeypatch.delenv("GRAFANA_LOKI_TOKEN", raising=False)
+    config = {"observability": {"grafana": {
+        "enabled": True, "loki_url": "http://fake", "loki_user": "123"
+    }}}
+    assert setup_loki_handler(config) is None
+
+
+def test_dedup_filter_suppresses_duplicates():
+    """Same message within window is filtered."""
+    f = DedupFilter(window_seconds=60)
+    record = logging.LogRecord("test", logging.INFO, "", 0, "hello", (), None)
+    assert f.filter(record) is True
+    assert f.filter(record) is False  # duplicate suppressed
+
+
+def test_dedup_filter_allows_after_window():
+    """Message allowed again after window expires."""
+    f = DedupFilter(window_seconds=0.1)
+    record = logging.LogRecord("test", logging.INFO, "", 0, "hello", (), None)
+    assert f.filter(record) is True
+    time.sleep(0.15)
+    assert f.filter(record) is True  # window expired
+```
 
 Do NOT test actual Loki connectivity — no network calls in tests.
 
 ---
 
-## Task 7: Update MASTER.md Section 2
+## Task 7: Update docs
 
-Update volatile counts:
-- Research docs count if changed
-- Add to infrastructure section: "Grafana Cloud (free tier) for centralized log aggregation via Loki"
+**MASTER.md Section 2** — update volatile counts:
+- Research docs: update count if changed
+- Add to infrastructure/tools section: "Grafana Cloud (free tier, $0/mo) for centralized log aggregation via Loki"
+
+**CHANGELOG.md** — add entry under next version:
+```
+### Added
+- Grafana Cloud Loki integration for centralized log aggregation (SD#40)
+- DedupFilter suppresses noisy repeated log messages
+- Structured ctx labels promoted to Loki labels for efficient querying
+```
 
 ---
 
-## Backward Compatibility
+## Constraints Summary
 
-- All changes are additive — zero impact if `observability.grafana.enabled` is false or missing
-- Existing file and console logging unchanged
-- If `python-logging-loki` is not installed, falls back to raw handler
-- If raw handler fails, logs warning and continues
-- Watch loop startup is never blocked by observability setup
+- **Zero new pip dependencies** — only `requests` (already present) and stdlib
+- **Zero changes to existing log lines that already have ctx** — additive only
+- **DO NOT use `extra={"tags": {...}}`** — use existing `extra={"ctx": {...}}` pattern
+- **`queue.Queue` (threading), NOT `multiprocessing.Queue`** — Windows safety
+- **`Queue(maxsize=10000)`** — prevents OOM during Grafana Cloud outages
+- **`handler.setLevel(logging.INFO)`** — never ship DEBUG to Loki
+- **All Loki code wrapped in try/except** — never crashes the watch loop
+- **Errors in LokiHandler._flush() go to stderr via print()** — NOT via logger (prevents recursion)
+- **No src/ file > 400 lines, no function > 60 lines**
+- `loki_handler.py` target: ≤120 lines total (DedupFilter ~25, LokiHandler ~50, setup ~30, imports ~15)
 
-## Commit Messages
+## Commit Message
 
 ```
 feat(observability): Grafana Cloud Loki log handler (SD#40)
 
-- Async log shipping to Grafana Cloud Loki via python-logging-loki
+- Raw HTTP handler ships logs to Grafana Cloud Loki (zero new dependencies)
 - DedupFilter suppresses noisy repeated messages (60s window)
-- Raw requests fallback if python-logging-loki unavailable
-- threading.Queue(maxsize=10000) for Windows safety
-- 10 structured event tags across executor, watch, reconcile, training
-- 4 tests (handler disabled, token missing, dedup filter, dedup window)
-- Zero impact when disabled — additive only
+- Extracts event/ticker from existing ctx dicts as Loki labels
+- threading.Queue(maxsize=10000) async wrapper for Windows safety
+- 5 tests (disabled, missing config, missing token, dedup, dedup window)
+- Zero impact when disabled — additive only, never crashes watch loop
 ```
 
 ## Final Checklist
 
 - [ ] `python -m pytest tests/ -x -q` passes
-- [ ] No src/ file > 400 lines
-- [ ] No function > 60 lines
+- [ ] `python -c "from src.observability.loki_handler import setup_loki_handler; print('OK')"` works
+- [ ] No src/ file > 400 lines, no function > 60 lines
 - [ ] MASTER.md Section 2 updated
 - [ ] CHANGELOG.md updated
-- [ ] `python -c "from src.observability.loki_handler import setup_loki_handler; print('import OK')"` works
-- [ ] Do NOT merge — push to branch, open PR
+- [ ] Existing tests still pass (especially test_log_config if it exists)
+- [ ] Do NOT merge — push to branch `feat/grafana-observability`, open PR
