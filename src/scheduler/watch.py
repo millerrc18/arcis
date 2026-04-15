@@ -1391,8 +1391,10 @@ class WatchLoop:
                     ):
                         self._postclose_reconcile_done = True
 
-                # 4c. Attribution outcome resolution (4:30-4:35 PM ET)
-                if (hour == 16 and now.minute >= 30 and now.minute < 35
+                # 4c. Attribution outcome resolution (after market close)
+                # Window widened from 4:30-4:35 to 4:15-22:00 so NSSM restarts
+                # don't miss the window. The resolver is idempotent — safe to retry.
+                if (16 <= hour < 22 and (hour > 16 or now.minute >= 15)
                         and not self._attribution_resolution_done):
                     from src.attribution.logger import resolve_pending_outcomes
                     # Fix for #257: only set done-flag on success
@@ -1402,8 +1404,9 @@ class WatchLoop:
                     ):
                         self._attribution_resolution_done = True
 
-                # 5. Training data collection (4:30 PM ET)
-                elif (self.training_enabled and hour == 16 and now.minute >= 30
+                # 5. Training data collection (after market close)
+                elif (self.training_enabled and 16 <= hour < 22
+                      and (hour > 16 or now.minute >= 30)
                       and not self._training_collection_done):
                     # Fix for #257: only set done-flags on success
                     if self._safe_run("training collection", self._run_training_collection):

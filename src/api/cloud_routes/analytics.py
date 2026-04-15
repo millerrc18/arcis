@@ -489,10 +489,10 @@ def create_router(runtime, verify_auth):
                 data["avg_pnl"] = round(sum(pnls) / len(pnls), 2) if pnls else 0
 
             # By sector
+            from src.universe.sectors import SECTOR_MAP
             by_sector = {}
             for trade in closed_recent:
-                rec = rec_map.get(trade.get("recommendation_id"), {})
-                sector = rec.get("setup_type") or "unknown"
+                sector = SECTOR_MAP.get(trade.get("ticker", ""), "Other")
                 if sector not in by_sector:
                     by_sector[sector] = {"trades": 0, "wins": 0}
                 by_sector[sector]["trades"] += 1
@@ -739,8 +739,8 @@ def create_router(runtime, verify_auth):
                 "by_pair_type": by_pair,
                 "ranker_only": {"resolved": rr, "wins": rw, "win_rate": _win_rate(rw, rr)},
                 "llm_portfolio": {"resolved": lr, "wins": lw, "win_rate": _win_rate(lw, lr)},
-                "statistical_power": "insufficient" if total_pairs < 50 else (
-                    "low" if total_pairs < 200 else "adequate"),
+                "statistical_power": "insufficient" if rr < 50 else (
+                    "low" if rr < 200 else "adequate"),
             }
         except Exception as exc:
             runtime.logger.error("[API] attribution_stats failed: %s", exc, exc_info=True)
