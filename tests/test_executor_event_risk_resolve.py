@@ -36,7 +36,8 @@ class TestResolveEventRiskMultiplier:
             "src.features.event_risk_score.compute_event_risk_score",
             return_value=fake_result,
         ) as mock_compute:
-            with caplog.at_level("ERROR"):
+            # Production logs this at WARNING (executor.py:143), not ERROR.
+            with caplog.at_level("WARNING"):
                 out = _resolve_event_risk_multiplier(features, "BMY")
         assert out == 0.65
         assert features["event_risk_multiplier"] == 0.65
@@ -49,7 +50,7 @@ class TestResolveEventRiskMultiplier:
             "src.features.event_risk_score.compute_event_risk_score",
             side_effect=RuntimeError("db locked"),
         ):
-            with caplog.at_level("ERROR"):
+            with caplog.at_level("WARNING"):
                 out = _resolve_event_risk_multiplier(features, "BMY")
         assert out == 0.5
         assert features["event_risk_multiplier"] == 0.5
@@ -71,7 +72,7 @@ class TestResolveEventRiskMultiplier:
             "src.features.event_risk_score.compute_event_risk_score",
             side_effect=RuntimeError("nope"),
         ):
-            with caplog.at_level("ERROR"):
+            with caplog.at_level("WARNING"):
                 _resolve_event_risk_multiplier(features, "BMY", path="LIVE")
         assert any("[LIVE]" in r.message for r in caplog.records)
 
