@@ -9,6 +9,10 @@
       "lines": 413
     },
     {
+      "file": "src/api/cloud_routes/trades.py",
+      "lines": 427
+    },
+    {
       "file": "src/api/cloud_routes/training.py",
       "lines": 408
     },
@@ -27,6 +31,10 @@
     {
       "file": "src/council/engine.py",
       "lines": 614
+    },
+    {
+      "file": "src/email/digest_builder.py",
+      "lines": 405
     },
     {
       "file": "src/evaluation/build_score.py",
@@ -158,6 +166,11 @@
       "lines": 93
     },
     {
+      "file": "src/api/cloud_routes/ib_shadow.py",
+      "function": "create_router",
+      "lines": 78
+    },
+    {
       "file": "src/api/cloud_routes/notes.py",
       "function": "create_router",
       "lines": 131
@@ -179,6 +192,11 @@
     },
     {
       "file": "src/api/cloud_routes/training.py",
+      "function": "model_performance",
+      "lines": 61
+    },
+    {
+      "file": "src/api/cloud_routes/training.py",
       "function": "training_status",
       "lines": 106
     },
@@ -186,6 +204,11 @@
       "file": "src/api/routes/actions.py",
       "function": "_run_collect_data",
       "lines": 78
+    },
+    {
+      "file": "src/api/routes/ib_status.py",
+      "function": "ib_status",
+      "lines": 90
     },
     {
       "file": "src/api/routes/shadow.py",
@@ -196,6 +219,11 @@
       "file": "src/cli/commands.py",
       "function": "cmd_collect_data",
       "lines": 71
+    },
+    {
+      "file": "src/cli/commands.py",
+      "function": "cmd_config_fix",
+      "lines": 85
     },
     {
       "file": "src/cli/commands.py",
@@ -241,6 +269,11 @@
       "file": "src/council/context.py",
       "function": "build_shared_context",
       "lines": 69
+    },
+    {
+      "file": "src/council/engine.py",
+      "function": "_apply_parameters",
+      "lines": 71
     },
     {
       "file": "src/council/engine.py",
@@ -359,6 +392,11 @@
     },
     {
       "file": "src/email/digest_builder.py",
+      "function": "_build_ib_section",
+      "lines": 64
+    },
+    {
+      "file": "src/email/digest_builder.py",
       "function": "build_evening_digest",
       "lines": 61
     },
@@ -396,6 +434,11 @@
       "file": "src/evaluation/cto_report.py",
       "function": "_compute_confidence_calibration",
       "lines": 66
+    },
+    {
+      "file": "src/evaluation/cto_report.py",
+      "function": "_compute_feature_correlations",
+      "lines": 64
     },
     {
       "file": "src/evaluation/cto_report.py",
@@ -541,6 +584,16 @@
       "file": "src/journal/store.py",
       "function": "log_recommendation",
       "lines": 81
+    },
+    {
+      "file": "src/llm/client.py",
+      "function": "generate",
+      "lines": 66
+    },
+    {
+      "file": "src/llm/client.py",
+      "function": "generate_structured",
+      "lines": 62
     },
     {
       "file": "src/llm/packet_writer.py",
@@ -793,6 +846,11 @@
       "lines": 126
     },
     {
+      "file": "src/services/training_service.py",
+      "function": "get_training_status",
+      "lines": 66
+    },
+    {
       "file": "src/services/watchlist_service.py",
       "function": "generate_morning_watchlist",
       "lines": 82
@@ -816,6 +874,11 @@
       "file": "src/shadow_trading/executor.py",
       "function": "_check_loss_streak",
       "lines": 63
+    },
+    {
+      "file": "src/shadow_trading/executor.py",
+      "function": "_retry_exit",
+      "lines": 111
     },
     {
       "file": "src/shadow_trading/executor.py",
@@ -858,6 +921,11 @@
       "lines": 62
     },
     {
+      "file": "src/startup_checks.py",
+      "function": "_check_render_postgres",
+      "lines": 65
+    },
+    {
       "file": "src/sync/render_sync.py",
       "function": "_replace_latest_in_postgres",
       "lines": 105
@@ -871,6 +939,16 @@
       "file": "src/sync/render_sync.py",
       "function": "pull_commands",
       "lines": 112
+    },
+    {
+      "file": "src/trading/ib_broker.py",
+      "function": "place_bracket_order",
+      "lines": 72
+    },
+    {
+      "file": "src/trading/ib_shadow.py",
+      "function": "log_shadow_trade",
+      "lines": 93
     },
     {
       "file": "src/training/ab_evaluation.py",
@@ -914,7 +992,17 @@
     },
     {
       "file": "src/training/historical_data.py",
+      "function": "fetch_fred_history",
+      "lines": 74
+    },
+    {
+      "file": "src/training/historical_data.py",
       "function": "fetch_historical_universe",
+      "lines": 96
+    },
+    {
+      "file": "src/training/historical_scanner.py",
+      "function": "_scan_date_core",
       "lines": 96
     },
     {
