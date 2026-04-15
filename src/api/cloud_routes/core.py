@@ -164,6 +164,7 @@ def create_router(runtime, verify_auth):
             model_name = latest_model["version_name"] if latest_model else "base"
             return {
                 "environment": "cloud",
+                "version": "v0.17.2",
                 "open_positions": open_trades[0]["count"] if open_trades else 0,
                 "closed_trades": closed_trades[0]["count"] if closed_trades else 0,
                 "latest_model": latest_model,

@@ -95,7 +95,7 @@ CLOUD_ACTION_MSG = {
 
 app = FastAPI(
     title="Arcis Cloud API",
-    version="0.17.1",
+    version="0.17.2",
     description="Read-only cloud API for the Arcis trading system",
 )
 

@@ -59,7 +59,7 @@ function StatusBar({ status }) {
   const mktStatus = status?.market_open ? 'OPEN' : 'CLOSED'
   const tlState = status?.traffic_light || '--'
   const positions = status?.open_positions ?? '--'
-  const version = status?.version || 'v0.16.0'
+  const version = status?.version || 'v0.17.2'
 
   return (
     <div
