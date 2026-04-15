@@ -698,8 +698,10 @@ Each desk launches only after the previous desk is profitable.
 1. **Equity Research Desk** (Phase 2) -- same model, lower thresholds, separate paper account
 2. **Options Volatility Desk** (Phase 3-4) -- separate LoRA, credit spreads + iron condors
 3. **Equity Momentum Desk** (Phase 5) -- separate LoRA, Russell 1000, breakout/trend
-4. **Intraday Desk** (Phase 6+) -- separate model, 1-min bars, VWAP reversion
+4. **Intraday Desk** (Phase 6+) -- separate model, 1-min bars, VWAP reversion, IB historical data as primary source (free with account, 1-min bars ~1yr, daily ~10yr, 60 req/10min pacing)
 5. Event-Driven, Macro/Rates, Crypto (scoped, not scheduled)
+
+**Data resilience:** IB historical data farm as fallback for feature pipeline when FMP/yfinance return empty (pre-market gaps). Phase 2 enhancement — add to feature_engine with try-FMP-then-IB pattern.
 
 ---
 
