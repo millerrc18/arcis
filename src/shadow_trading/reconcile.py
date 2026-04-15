@@ -247,6 +247,7 @@ def reconcile_live_trades(
                 "[RECONCILE] Marked stale record as closed: %s (trade_id=%s, pnl=%s)",
                 ticker, trade_id,
                 f"${pnl_dollars:.2f}" if pnl_dollars != 0.0 else "UNKNOWN",
+                extra={"ctx": {"event": "stale_close", "ticker": ticker}},
             )
             # Telegram notification for reconciled close
             try:

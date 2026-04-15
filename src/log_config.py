@@ -73,3 +73,19 @@ def setup_logging(level: str = "INFO", log_file: str | None = None):
         )
         file_handler.setFormatter(fmt)
         root.addHandler(file_handler)
+
+    # Grafana Cloud Loki handler (non-blocking, ships logs to cloud).
+    # Never allowed to crash logging setup — wrapped in broad try/except.
+    try:
+        from src.config import load_config
+        from src.observability.loki_handler import setup_loki_handler
+        loki_handler = setup_loki_handler(load_config())
+        if loki_handler:
+            root.addHandler(loki_handler)
+            logging.getLogger(__name__).info(
+                "[OBSERVABILITY] Grafana Loki handler active — shipping logs to cloud"
+            )
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "[OBSERVABILITY] Loki setup failed (non-fatal): %s", exc
+        )

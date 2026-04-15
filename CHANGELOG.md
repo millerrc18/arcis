@@ -1,5 +1,55 @@
 # Changelog
 
+## [v0.17.2] - 2026-04-15 — Hotfix: Grafana Cloud Loki MVP (SD#40) + NSSM service installer
+
+Centralized log aggregation and 24/7 Windows service management, plus a
+fix for the startup hang when Render Postgres is unreachable.
+
+### Added
+
+- **Grafana Cloud Loki integration** (SD#40). Raw HTTP handler
+  `src/observability/loki_handler.py` ships logs to Grafana Cloud with zero
+  new dependencies — uses `requests` only. QueueHandler+QueueListener
+  non-blocking dispatch so the trading thread never waits on HTTP.
+- **DedupFilter** attached to the Loki handler. Suppresses duplicate log
+  messages within a 60s window to keep noisy repeats (e.g. `[SCHEMA]
+  Created/verified 53 tables`) from consuming Grafana Cloud quota. File
+  and console logging are unaffected.
+- **Structured `ctx` → Loki labels.** `event` and `ticker` from the existing
+  `extra={"ctx": {...}}` dict are promoted to Loki stream labels; all other
+  ctx data rides along in the log-line text via `StructuredFormatter`.
+- **New `ctx` tags** on two previously unstructured log lines:
+  `shadow_trading.executor` trade-open (`event=trade_open`) and
+  `shadow_trading.reconcile` stale-close (`event=stale_close`).
+- **Cloud-side shipping.** `src/api/cloud_app.py` wires the Loki handler at
+  startup using env vars (`GRAFANA_LOKI_TOKEN`, `GRAFANA_LOKI_URL`,
+  `GRAFANA_LOKI_USER`) so the Render-deployed FastAPI also ships logs.
+- **NSSM Windows service installer** at `scripts/install_service.ps1` —
+  install / uninstall / restart / status commands. Configures AppDirectory,
+  log rotation, AppExit Restart, and a 10s `AppRestartDelay` so the PID
+  lockfile atexit hook can release before the next watch-loop launch.
+- **Config scaffolding.** `config/settings.example.yaml` gains an
+  `observability.grafana` section; `.env.example` gains a
+  `GRAFANA_LOKI_TOKEN` placeholder.
+- **5 new tests** in `tests/test_loki_handler.py` — disabled config,
+  missing observability section, missing env-var token, DedupFilter
+  suppression, DedupFilter window expiry. No network calls.
+
+### Fixed
+
+- **Startup hang on unreachable Render Postgres.** `psycopg2.connect()` had
+  no `connect_timeout`, so libpq retried SYN indefinitely when the Render
+  DB was paused. `create_all_tables` / `ensure_columns` gain an optional
+  `connect_timeout` kwarg (default `None` preserves manual-migration
+  behavior); the three startup-path call sites now pass
+  `connect_timeout=5` so an unreachable DB becomes a warning instead of a
+  hang.
+- **Stale test baselines.** `tests/test_coerce_to_schema.py` targeted
+  `planned_shares` (which flipped INTEGER→REAL in v0.17.1 for fractional
+  shares) — retargeted onto the still-INTEGER `duration_days`.
+  `tests/test_executor_event_risk_resolve.py` filtered caplog at ERROR
+  but the function logs at WARNING — lifted to WARNING across three tests.
+
 ## [v0.17.1] - 2026-04-13 — Hotfix: test baseline + fractional shares
 
 Post-v0.17.0 hotfix clearing 12 of 19 pre-existing test failures on main and

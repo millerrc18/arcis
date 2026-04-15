@@ -859,6 +859,7 @@ def open_shadow_trade(
         logger.info(
             "[SHADOW] Opened shadow trade for %s at $%.2f (%d shares)",
             ticker, actual_price, planned_shares,
+            extra={"ctx": {"event": "trade_open", "ticker": ticker}},
         )
 
         # 1F. Check for trade open milestones

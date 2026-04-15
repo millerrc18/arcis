@@ -14,7 +14,7 @@
 
 **Name:** Arcis (Adaptive Regime Classification & Intelligence Systems)
 **License:** BSL 1.1 (source-visible, no commercial use until 2030)
-**Release:** v0.17.0 (IB integration complete across 7 sprints, dashboard overhaul across 4 sprints, capital-velocity instrumentation, council advisory-only guardrail, 703-row regime-diverse backfill, 12 pre-v0.17 hotfixes)
+**Release:** v0.17.2 (Grafana Cloud Loki observability + NSSM Windows service installer + Render Postgres startup-timeout fix; prior: v0.17.1 test baseline / fractional shares; v0.17.0 IB integration + dashboard overhaul)
 **Repository:** github.com/millerrc18/halcyon-lab
 **Dashboard:** halcyonlab.app (Render static + Python API)
 
@@ -59,8 +59,8 @@ with an unbeatable technological moat.
 | Open positions | ~2 (verify with shadow-status) |
 | Model | halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF); v2.0.0 retrain in progress |
 | Training data | 1,722 examples (1,019 + 703 regime-diverse backfill) |
-| Tests | 1,734 tests across 140 test files |
-| Python files | 219 |
+| Tests | 1,829 tests across 146 test files |
+| Python files | 223 |
 | Dashboard pages | 24 |
 | Research docs | 91 |
 | Sprint docs | 43 |
@@ -175,6 +175,7 @@ with an unbeatable technological moat.
 | Log audit + HSHS fix | v0.14.1 | 14 production issues, IB validation-first strategy |
 | Hotfix merge sprint | v0.14.2 | 6 critical bugs (#307-312), codex telegram fix (#299-301), 9 Dependabot PRs, 5 branch cleanup |
 | IB shadow dashboard | -- | Cloud API routes + dashboard page for IB shadow mode comparison analytics |
+| Observability MVP (SD#40) | -- | Grafana Cloud Loki handler (raw HTTP, no new deps), DedupFilter, ctx→label propagation, NSSM Windows service installer (`scripts/install_service.ps1`), Postgres startup-timeout fix |
 
 ---
 
@@ -277,6 +278,8 @@ on validation milestones (see Strategy Decision #25).
 | yfinance | OHLCV + options chains |
 | Telegram Bot API | Real-time push notifications (36 functions) |
 | Render | Cloud hosting: static frontend + FastAPI + Postgres |
+| Grafana Cloud (Loki) | Centralized log aggregation, free tier $0/mo (SD#40) |
+| NSSM | Windows service wrapper for 24/7 watch loop (`scripts/install_service.ps1`) |
 
 ### Configuration
 
@@ -292,7 +295,42 @@ on validation milestones (see Strategy Decision #25).
 **Secrets in .env:** `ALPACA_API_KEY`, `ALPACA_API_SECRET`,
 `ALPACA_LIVE_API_KEY`, `ALPACA_LIVE_SECRET_KEY`, `ANTHROPIC_API_KEY`,
 `FINNHUB_API_KEY`, `FRED_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`,
-`EMAIL_PASSWORD`, `DATABASE_URL`
+`EMAIL_PASSWORD`, `DATABASE_URL`, `GRAFANA_LOKI_TOKEN`
+
+### Windows Service
+
+The watch loop runs 24/7 — reboots, logoffs, and Python crashes must not
+interrupt it. `scripts/install_service.ps1` wraps NSSM
+(Non-Sucking Service Manager) so the watch loop is managed as a
+native Windows service with automatic restart, log rotation, and
+`services.msc` visibility.
+
+```powershell
+# Elevated PowerShell (right-click → Run as Administrator)
+.\scripts\install_service.ps1 install     # create + start the service
+.\scripts\install_service.ps1 status      # running / stopped / PID / log path
+.\scripts\install_service.ps1 restart     # clean stop + start (e.g. after a deploy)
+.\scripts\install_service.ps1 uninstall   # stop + remove (logs preserved)
+```
+
+Requires NSSM on PATH (`choco install nssm` or
+[nssm.cc/download](https://nssm.cc/download)). The service runs
+`.venv\Scripts\python.exe -m src.main startup` with working
+directory set to the repo root, stdout/stderr rotated into
+`data/logs/service.*.log`, and `AppRestartDelay=10000` to give the
+PID lockfile's atexit hook time to release before the next attempt.
+
+### Observability
+
+Grafana Cloud (free tier, 50 GB/mo logs, 14-day retention) receives
+structured log events from both the local watch loop and the
+Render-deployed FastAPI. The shipper is a raw HTTP handler
+(`src/observability/loki_handler.py`, SD#40) — zero new dependencies
+beyond `requests`. Event/ticker context from the existing
+`extra={"ctx": {...}}` pattern is promoted to Loki labels for
+efficient querying. DedupFilter suppresses repeated messages within
+a 60s window. `GRAFANA_LOKI_TOKEN` in `.env` enables local shipping;
+Render deployment enables via the same env var set on the service.
 
 ### Claude Code Automations
 

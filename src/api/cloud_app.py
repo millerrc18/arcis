@@ -50,6 +50,24 @@ logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 DIAGNOSTIC_TABLES = tuple(SYNC_TABLES.keys())
 
+# Grafana Loki log shipping — Render sets GRAFANA_LOKI_TOKEN as an env var
+# (not YAML), so build the config dict inline rather than calling load_config().
+# Silent-fail wrapped: logging setup must never prevent the API from booting.
+try:
+    from src.observability.loki_handler import setup_loki_handler
+    _loki = setup_loki_handler({"observability": {"grafana": {
+        "enabled": bool(os.environ.get("GRAFANA_LOKI_TOKEN")),
+        "loki_url": os.environ.get(
+            "GRAFANA_LOKI_URL",
+            "https://logs-prod-042.grafana.net/loki/api/v1/push",
+        ),
+        "loki_user": os.environ.get("GRAFANA_LOKI_USER", "1553293"),
+    }}})
+    if _loki:
+        logging.getLogger().addHandler(_loki)
+except Exception:
+    pass
+
 API_SECRET = os.environ.get("API_SECRET", "")
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 # CORS origins are configured via env var on Render. The default restricts
