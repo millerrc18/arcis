@@ -182,6 +182,7 @@ def create_router(runtime, verify_auth):
             cutoff = (datetime.now(runtime.et) - timedelta(days=days)).isoformat()
             return runtime.query(
                 "SELECT * FROM recommendations WHERE created_at >= %s "
+                "AND COALESCE(priority_score, 0) > 0 "
                 "ORDER BY created_at DESC",
                 (cutoff,),
             )

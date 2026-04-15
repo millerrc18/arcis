@@ -176,6 +176,7 @@ def get_system_status(config: dict) -> dict:
         ib_connected = False
 
     return {
+        "version": "v0.17.2",
         "config_loaded": config_loaded,
         "config_source": config_source,
         "email_configured": email_configured,

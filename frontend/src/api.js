@@ -134,9 +134,9 @@ export const api = {
   getModelPerformance: () => fetchApi('/model-performance'),
   // Monitoring
   getMonitoringSnapshot: () => fetchApi('/monitoring/snapshot'),
-  getMonitoringHistory: (hours = 24) => fetchApi(`/api/monitoring/history?hours=${hours}`),
+  getMonitoringHistory: (hours = 24) => fetchApi(`/monitoring/history?hours=${hours}`),
   // Strategy
-  getStrategyDetail: (strategy) => fetchApi(`/api/strategy-detail/${strategy}`),
+  getStrategyDetail: (strategy) => fetchApi(`/strategy-detail/${strategy}`),
   // IB Shadow
   getIBShadowSummary: () => fetchApi('/ib-shadow/summary'),
   getIBShadowLog: (limit = 50) => fetchApi(`/ib-shadow/log?limit=${limit}`),

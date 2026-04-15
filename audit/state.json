@@ -1,7 +1,7 @@
 {
-  "run_count": 25,
+  "run_count": 26,
   "current_focus_index": 1,
-  "file_index": 180,
+  "file_index": 195,
   "file_list": [
     "src/api/__init__.py",
     "src/api/app.py",
@@ -218,7 +218,7 @@
     "src/utils/retry.py",
     "src/utils/type_safety.py"
   ],
-  "last_run": "2026-04-15T07:09:31Z",
+  "last_run": "2026-04-15T08:00:00Z",
   "findings": {
     "run_17": {
       "focus_area": "security",
@@ -1275,6 +1275,54 @@
           "description": "PRAGMA table_info() with f-string interpolation for table name. Same assessment as line 85 \u2014 hardcoded dict values only."
         }
       ]
+    },
+    "run_26": {
+      "focus_area": "security",
+      "files_audited": [
+        "src/trading/alpaca_broker.py",
+        "src/trading/broker_factory.py",
+        "src/trading/broker_interface.py",
+        "src/trading/ib_broker.py",
+        "src/training/__init__.py",
+        "src/training/ab_evaluation.py",
+        "src/training/backfill.py",
+        "src/training/bootstrap.py",
+        "src/training/canary.py",
+        "src/training/claude_client.py",
+        "src/training/curriculum.py",
+        "src/training/data_collector.py",
+        "src/training/dpo_pipeline.py",
+        "src/training/historical_data.py",
+        "src/training/historical_scanner.py"
+      ],
+      "high": [],
+      "medium": [
+        {
+          "file": "src/training/historical_data.py",
+          "lines": "49-55, 124-128, 177-182, 232-236",
+          "description": "pickle.load on two long-lived caches (historical_ohlcv.pkl, fred_history.pkl) enables RCE if an attacker writes to training_data/. Same class as #413 but different subtree — that fix does not cover this file.",
+          "suggested_fix": "Replace pickle with parquet per-ticker (OHLCV) and a single parquet DataFrame (FRED). Delete legacy .pkl files as part of migration.",
+          "github_issue": "#459"
+        }
+      ],
+      "low": [
+        {
+          "file": "src/training/ab_evaluation.py",
+          "lines": "62",
+          "description": "logger.warning('A/B evaluation: new model generation failed: %s', e) after requests.post to Ollama. Ollama URL is localhost so low exposure, but requests exception strings embed the URL; no API key on path."
+        },
+        {
+          "file": "src/training/claude_client.py",
+          "lines": "105",
+          "description": "logger.warning('Claude API call failed: %s', e) — Anthropic SDK exceptions do not include the API key in str(e) (key lives in Authorization header, not URL), but any future SDK change would leak. Safer to format exception type name only."
+        },
+        {
+          "file": "src/training/historical_data.py",
+          "lines": "198-210, 229",
+          "description": "FRED API key passed as URL query parameter in requests.get; requests exceptions embed the URL, and the except at L228-229 formats e via %s into logger.warning. Same class as run_18 low finding on macro_collector and the concern in #424. Included in remediation suggestion on #459."
+        }
+      ],
+      "notes": "Audited 15 files (trading/* adapters + training/* subset). trading/* adapters are pure translation layers with no secrets or user input. training/__init__.py empty. training/* uses parameterized SQL throughout; no hardcoded secrets; API keys sourced from env/config and only interpolated into FRED URLs (FRED requires it). Ollama calls go to localhost. No unvalidated user input reaches SQL or shell. Primary finding is pickle.load RCE in historical_data.py (#459)."
     },
     "run_25": {
       "focus_area": "security",
