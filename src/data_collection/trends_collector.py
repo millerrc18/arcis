@@ -63,9 +63,9 @@ def collect_google_trends(
     """
     try:
         from pytrends.request import TrendReq
-    except ImportError:
-        logger.warning("[TRENDS] pytrends not installed, skipping")
-        return {"terms_collected": 0, "spikes_detected": 0, "error": "pytrends not installed"}
+    except ImportError as exc:
+        logger.warning("[TRENDS] pytrends import failed: %s", exc)
+        return {"terms_collected": 0, "spikes_detected": 0, "error": f"pytrends import: {exc}"}
 
     now = datetime.now(ET)
     today_str = now.strftime("%Y-%m-%d")
