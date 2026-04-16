@@ -422,6 +422,35 @@ def run_news_ingestion():
         logger.warning("[WATCH] broadcast overnight_task failed: %s", e)
 
 
+def run_attribution_resolution_and_notify(db_path: str = DB_PATH) -> int:
+    """Run `resolve_pending_outcomes` + post a Telegram summary.
+
+    Extracted here (rather than inlined in watch.py) so the 4:30 PM ET
+    attribution-resolve branch in `_run_sync_body` stays one line. Counts
+    the pending-remaining total after the resolver finishes so operators
+    can see how many rows are still waiting for their 8-day window.
+    """
+    from src.attribution.logger import resolve_pending_outcomes
+    import sqlite3 as _sqlite3
+
+    resolved = resolve_pending_outcomes(db_path)
+    try:
+        with _sqlite3.connect(db_path) as conn:
+            pending_remaining = conn.execute(
+                "SELECT COUNT(*) FROM attribution_trades "
+                "WHERE ranker_only_outcome = 'pending'"
+            ).fetchone()[0]
+    except Exception as exc:
+        logger.warning("[ATTRIBUTION] pending-count lookup failed: %s", exc)
+        pending_remaining = -1
+    try:
+        from src.notifications.telegram import notify_attribution_resolve_complete
+        notify_attribution_resolve_complete(resolved, max(pending_remaining, 0))
+    except Exception as exc:
+        logger.warning("[ATTRIBUTION] notify failed: %s", exc)
+    return resolved
+
+
 def run_1min_bar_collection():
     """11:30 PM ET — Collect 1-minute OHLCV bars for S&P 100 (Phase 6 intraday data).
 
@@ -435,6 +464,16 @@ def run_1min_bar_collection():
     logger.info("[OVERNIGHT] Collecting 1-minute bars for %s...", target.date())
     result = collect(target_dates=[target])
     logger.info("[OVERNIGHT] 1-minute bar collection complete: %s", result)
+    try:
+        from src.notifications.telegram import notify_1min_bar_collection
+        notify_1min_bar_collection(
+            bars_collected=result.get("bars_collected", 0),
+            tickers=result.get("tickers", 0),
+            empty_ticker_days=result.get("empty_ticker_days", 0),
+            dates=result.get("dates", 1),
+        )
+    except Exception as exc:
+        logger.warning("[OVERNIGHT] notify_1min_bar_collection failed: %s", exc)
 
 
 def run_enrichment_precache(config: dict):
@@ -971,17 +1010,35 @@ def run_stress_test():
     from scripts.stress_test import run_scenario, store_result, SCENARIOS
     _patch_timestamp_utcnow()
     print("[WATCH] Running stress test (3 scenarios)...")
+    results: list[dict] = []
+    failed = 0
     for name, dates in SCENARIOS.items():
         try:
             result = run_scenario(name, dates["start"], dates["end"])
             if "error" not in result:
                 store_result(result)
+                results.append({"name": name, **result})
                 print(f"  -> {name}: {result.get('total_trades', 0)} trades, "
                       f"WR={result.get('win_rate', 0):.0%}, "
                       f"DD={result.get('max_drawdown_pct', 0):.1f}%")
+            else:
+                failed += 1
         except Exception as e:
+            failed += 1
             logger.warning("[WATCH] Stress test %s failed: %s", name, e)
     print("[WATCH] Stress test complete")
+    try:
+        from src.notifications.telegram import notify_stress_test_complete
+        notes = " | ".join(
+            f"{r['name']}: WR {r.get('win_rate', 0):.0%}, DD {r.get('max_drawdown_pct', 0):.1f}%"
+            for r in results
+        )
+        notify_stress_test_complete(
+            scenarios_run=len(SCENARIOS), passed=len(results), failed=failed,
+            notes=notes,
+        )
+    except Exception as exc:
+        logger.warning("[WATCH] notify_stress_test_complete failed: %s", exc)
 
 
 def run_simulation_engine():
