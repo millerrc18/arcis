@@ -229,6 +229,10 @@ def resolve_pending_outcomes(db_path: str = DB_PATH) -> int:
     Called by the watch loop at 4:30 PM ET. Returns count of resolved rows.
     Per-row work delegated to `_resolve_one_row` to keep this function under
     the 60-line cap.
+
+    Skips rows whose 7-day outcome window (`scan_timestamp + 8 days`) is still
+    in the future — yfinance has no data for them yet and each attempt just
+    logs a spurious error. Same guard as `scripts/reresolve_attribution.py`.
     """
     resolved = 0
     try:
@@ -237,7 +241,8 @@ def resolve_pending_outcomes(db_path: str = DB_PATH) -> int:
             pending = conn.execute(
                 "SELECT attribution_id, ticker, ranker_only_entry, "
                 "ranker_only_stop, ranker_only_target, scan_timestamp "
-                "FROM attribution_trades WHERE ranker_only_outcome = 'pending'"
+                "FROM attribution_trades WHERE ranker_only_outcome = 'pending' "
+                "AND DATE(scan_timestamp, '+8 days') <= DATE('now')"
             ).fetchall()
             if not pending:
                 return 0
