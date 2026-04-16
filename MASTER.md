@@ -95,6 +95,20 @@ with an unbeatable technological moat.
 | Implementation Shortfall | DEPLOYED |
 | SPY-matched excess instrumentation | ENABLED -- v0.19.0, per-trade excess_return + /api/shadow/sharpe-attribution + Trade History lead panel (SD#41 REVISED / Sprint D1) |
 
+### Diagnostic D2 Status
+
+- **Audit completed:** 2026-04-16
+- **Classification:** **Hypothesis B — simulation methodology bug (MultiIndex data-shape defect)**
+- **Evidence strength:** overwhelming — 1,600/1,600 resolved rows carry the bug's universal fingerprint
+- **Audit doc:** [`docs/research/attribution-resolver-audit.md`](docs/research/attribution-resolver-audit.md)
+- **Follow-up fix sprint:** [`docs/sprints/sprint-attribution-resolver-fix.md`](docs/sprints/sprint-attribution-resolver-fix.md) (drafted, awaiting PR)
+- **Action policy (effective immediately, lifted when fix sprint merges + re-resolution completes):**
+  No attribution claim ("LLM rejects 100% of losers", "LLM filter adds alpha",
+  "−5.24% avg ranker-only pnl", etc.) may be cited in investor materials, training
+  documentation, onboarding decks, CTO reports, or strategy decision records.
+  All prior attribution-based claims are rescinded pending re-resolution.
+- **Root cause in one line:** `yfinance.download` returns a MultiIndex DataFrame; `bar.get("Low", ...)` in `simulate_mechanical_outcome` misses (key is tuple `('Low', ticker)`, not string `"Low"`), returning default `0`, which trips the stop-first check on every bar.
+
 ### Open GitHub Issues
 
 0 open as of 2026-04-12:
