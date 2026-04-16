@@ -54,6 +54,7 @@ export const api = {
   getClosedTrades: (days = 30) => fetchApi(`/shadow/closed?days=${days}`),
   getAccount: () => fetchApi('/shadow/account'),
   getMetrics: (days = 30) => fetchApi(`/shadow/metrics?days=${days}`),
+  getSharpeAttribution: () => fetchApi('/shadow/sharpe-attribution'),
   closeTrade: (ticker) => fetchApi(`/shadow/close/${ticker}`, { method: 'POST' }),
   getTrainingStatus: () => fetchApi('/training/status'),
   getTrainingVersions: () => fetchApi('/training/versions'),

@@ -59,8 +59,8 @@ with an unbeatable technological moat.
 | Open positions | ~2 (verify with shadow-status) |
 | Model | halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF); v2.0.0 retrain in progress |
 | Training data | 1,722 examples (1,019 + 703 regime-diverse backfill) |
-| Tests | 1,794 tests across 147 test files |
-| Python files | 223 |
+| Tests | 1,801 tests across 148 test files |
+| Python files | 225 |
 | Dashboard pages | 24 |
 | Research docs | 91 |
 | Sprint docs | 43 |
@@ -93,6 +93,7 @@ with an unbeatable technological moat.
 | CI on PRs | LIVE -- tests + guardrails + frontend build |
 | PEAD enrichment (5 signals) | DEPLOYED |
 | Implementation Shortfall | DEPLOYED |
+| SPY-matched excess instrumentation | ENABLED -- v0.19.0, per-trade excess_return + /api/shadow/sharpe-attribution + Trade History lead panel (SD#41 REVISED / Sprint D1) |
 
 ### Open GitHub Issues
 
@@ -179,6 +180,7 @@ with an unbeatable technological moat.
 | Earnings filter hard block (SD#33 / H1) | -- | v0.21.0, `compute_event_risk_score` forces `total_score >= block_threshold` when earnings <=10 calendar days out, 9 regression tests, existing infrastructure (scraper/lookup/governor) untouched |
 
 | IB cold storage (SD#41) | -- | v0.18.0, `trading.ib_enabled=false` gate across broker_factory/executor/reconcile/watch, Settings IB · Dormant indicator, 3 regression tests, all IB code preserved |
+| SPY excess instrumentation (SD#41 REVISED / D1) | -- | v0.19.0, 3 new shadow_trades columns (spy_return_over_hold / excess_return / realized_sector), `src/analytics/spy_benchmark.py` (yfinance + GICS lookup), 85/85 backfilled, `/api/shadow/sharpe-attribution` endpoint, Trade History lead panel, IB gate redefined to excess-Sharpe >= 0.5 at t >= 2.0 over 150 OOS trades, 7 regression tests |
 
 ---
 
@@ -546,7 +548,7 @@ src/schema/registry.py          <- THE source of truth (53 TableDefs)
 22. Scanning: 4-tier multi-cadence (15min position / 30min price / 60min sentiment / daily fundamentals)
 23. Outcome-conditioned training prompts: 3-5x data yield per closed trade
 24. 8 new outcome metadata columns in shadow_trades via schema registry
-25. IB activation gated on validation: broker abstraction ready (v0.14.0), but live IB trading delayed until 60+ trades with rolling Sharpe >1.0, 30-day Gateway stability test, GIPS verifier consultation, and market data classification confirmed. Deep research finding: sub-scale accounts ($5-10K) create GIPS composite construction traps. Validation-first, not infrastructure-first.
+25. IB activation gated on validation: broker abstraction ready (v0.14.0), IB currently cold-stored per SD#41 (v0.18.0). **Gate redefined v0.19.0 (SD#41 REVISED / Sprint D1):** live IB trading delayed until **excess-return Sharpe >= 0.5 at t >= 2.0 over 150 OOS trades** (raw Sharpe >= 1.0 over 60 trades was trivially passed by bull-market SPY beta). 30-day Gateway stability test, GIPS verifier consultation, and market data classification still required. Deep research finding: sub-scale accounts ($5-10K) create GIPS composite construction traps. Validation-first, not infrastructure-first.
 26. Scaling levers research (deep research April 2026): salary injection dominates below $80K (4.5x terminal wealth at $1K/mo). Risk per trade decreases with account size: 2% at $5-100K, 1.5% at $100-500K, 1.25% at $500K-1M, 1.0% at $1M+. Leverage sequence: none below $25K, 1.25-1.5x at $25-100K, portfolio margin at $110K+ on IB. Holding period optimization (10->5-7 days) is highest-impact operational lever for capital velocity. MES futures for Section 1256 tax at $100K+. Ruin probability <0.001% at current parameters.
 27. IB connect/disconnect per-action pattern (Sprint IB-2). Open an IB Gateway socket, perform one order or reconciliation, close it. Long-lived sockets cause `TooManyOrders` on overnight reconnect and silent state drift on Gateway restart. Matching pattern documented in `docs/research/ib-async-event-patterns.md`.
 28. `outsideRth=True` mandatory on all live orders (Sprint IB-5). Without it, limit-price brackets sitting at stops can be cancelled by IB's RTH-only default when a Gateway reconnect lands outside 9:30–4:00. Every order submitted via `IBBroker.submit_order` sets this unconditionally.

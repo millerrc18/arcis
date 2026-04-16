@@ -1,0 +1,103 @@
+ticker,gics_sector
+AAPL,Technology
+ABBV,Health Care
+ABT,Health Care
+ACN,Technology
+ADBE,Technology
+AIG,Financials
+AMD,Technology
+AMGN,Health Care
+AMT,Real Estate
+AMZN,Consumer Discretionary
+AVGO,Technology
+AXP,Financials
+BA,Industrials
+BAC,Financials
+BK,Financials
+BKNG,Consumer Discretionary
+BLK,Financials
+BMY,Health Care
+BRK.B,Financials
+C,Financials
+CAT,Industrials
+CHTR,Communication Services
+CL,Consumer Staples
+CMCSA,Communication Services
+COF,Financials
+COP,Energy
+COST,Consumer Staples
+CRM,Technology
+CSCO,Technology
+CVS,Health Care
+CVX,Energy
+DE,Industrials
+DHR,Health Care
+DIS,Communication Services
+DUK,Utilities
+EMR,Industrials
+ETN,Industrials
+EXC,Utilities
+F,Consumer Discretionary
+FDX,Industrials
+GD,Industrials
+GE,Industrials
+GILD,Health Care
+GM,Consumer Discretionary
+GOOG,Communication Services
+GOOGL,Communication Services
+GS,Financials
+HD,Consumer Discretionary
+HON,Industrials
+IBM,Technology
+INTC,Technology
+INTU,Technology
+JNJ,Health Care
+JPM,Financials
+KHC,Consumer Staples
+KO,Consumer Staples
+LIN,Materials
+LLY,Health Care
+LMT,Industrials
+LOW,Consumer Discretionary
+MA,Financials
+MCD,Consumer Discretionary
+MDLZ,Consumer Staples
+MDT,Health Care
+MET,Financials
+META,Communication Services
+MMM,Industrials
+MO,Consumer Staples
+MRK,Health Care
+MS,Financials
+MSFT,Technology
+NEE,Utilities
+NFLX,Communication Services
+NKE,Consumer Discretionary
+NOW,Technology
+NVDA,Technology
+ORCL,Technology
+PEP,Consumer Staples
+PFE,Health Care
+PG,Consumer Staples
+PM,Consumer Staples
+PYPL,Financials
+QCOM,Technology
+RTX,Industrials
+SBUX,Consumer Discretionary
+SCHW,Financials
+SO,Utilities
+SPG,Real Estate
+T,Communication Services
+TGT,Consumer Staples
+TMO,Health Care
+TMUS,Communication Services
+TXN,Technology
+UNH,Health Care
+UNP,Industrials
+UPS,Industrials
+USB,Financials
+V,Financials
+VZ,Communication Services
+WFC,Financials
+WMT,Consumer Staples
+XOM,Energy

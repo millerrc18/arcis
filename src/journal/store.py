@@ -365,8 +365,39 @@ def close_shadow_trade(
                     )
     except Exception:
         pass  # Exit metadata is best-effort — never block trade close
-
+    fields.update(_build_spy_excess_fields(trade_id, exit_time, pnl_pct, db_path))
     update_shadow_trade(trade_id, fields, db_path)
+
+
+def _build_spy_excess_fields(
+    trade_id: str, exit_time: str, pnl_pct: float, db_path: str
+) -> dict:
+    """Compute the three SPY-excess fields for a closed trade.
+
+    Returns a dict ready to merge into `fields`. Values can be None when
+    SPY data is unavailable — callers treat that as "cannot attribute",
+    NOT "zero return". Fail-open: never raises.
+    """
+    try:
+        from src.analytics.spy_benchmark import (
+            excess_return, get_sector, spy_return_over_range,
+        )
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT ticker, actual_entry_time FROM shadow_trades "
+                "WHERE trade_id = ?", (trade_id,),
+            ).fetchone()
+        if not (row and row["actual_entry_time"] and exit_time):
+            return {}
+        spy_ret = spy_return_over_range(row["actual_entry_time"], exit_time)
+        return {
+            "spy_return_over_hold": spy_ret,
+            "excess_return": excess_return(pnl_pct, spy_ret),
+            "realized_sector": get_sector(row["ticker"]),
+        }
+    except Exception:
+        return {}
 
 
 def get_open_shadow_trade_for_ticker(

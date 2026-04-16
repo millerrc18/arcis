@@ -55,6 +55,73 @@ exits — only by not being in the position when earnings prints.
   exclusion zone; entry-exclusion layer now IMPLEMENTED, force-exit and
   post-earnings cooldown layers deferred)
 
+## [v0.19.0] - 2026-04-16 — SPY-Matched Excess Instrumentation (SD#41 REVISED / Sprint D1)
+
+Foundational alpha-vs-beta measurement. Every Sharpe metric can now
+answer "real alpha, or just SPY drift?" Adds three columns to
+`shadow_trades`, a SPY-benchmark utility, an idempotent backfill, a
+dedicated API endpoint, and a Trade History lead panel. Redefines the
+IB live-trading gate from raw Sharpe (trivially passed by bull-market
+beta) to excess-return Sharpe.
+
+### Added
+
+- **3 columns on `shadow_trades`** (via `src/schema/registry.py`):
+  - `spy_return_over_hold` (REAL) — SPY total return over the exact
+    entry-to-exit date range, close-to-close, auto-adjusted
+  - `excess_return` (REAL) — `pnl_pct - (spy_return * 100)`; positive
+    means beat SPY over the same period
+  - `realized_sector` (TEXT) — GICS sector from
+    `data/reference/sp100-gics-lookup.csv`
+- **`src/analytics/spy_benchmark.py`** — SPY return fetch via
+  yfinance with fail-open semantics (`spy_return_over_range`,
+  `excess_return`, `get_sector`)
+- **`data/reference/sp100-gics-lookup.csv`** — 102 tickers mapped to
+  11 GICS sectors; zero "Unknown" entries
+- **`scripts/backfill_spy_excess.py`** — idempotent backfill for
+  existing closed trades; `--dry-run` and `--force` flags
+- **`/api/shadow/sharpe-attribution`** — primary metric endpoint
+  with raw + excess Sharpe, 95% CIs, t-statistic, hit rate, and a
+  verdict interpretation key (alpha_significant / alpha_suggestive /
+  negative_alpha_* / alpha_not_demonstrated)
+- **Trade History "Primary Metric" panel** — excess-Sharpe leads
+  above the Today/Yesterday/7d/30d recency cards; raw Sharpe visible
+  but demoted to footnote
+- **`tests/analytics/test_spy_benchmark.py`** — 7 regression tests
+  (pure-logic + mocked yfinance + sector lookup)
+
+### Changed
+
+- **IB live trading gate redefined:** excess-return Sharpe >= 0.5 at
+  t >= 2.0 over 150 OOS trades. (Was raw Sharpe >= 1.0, trivially
+  passed by SPY beta during a bull run.)
+- **`src/journal/store.py::close_shadow_trade`** now centrally writes
+  the three SPY fields on every exit (covers 5 executor call sites +
+  3 reconcile call sites in one place). Fail-open: SPY yfinance
+  exceptions never block trade close.
+- **`src/sync/render_sync.py::_REAL_COLUMNS`** adds the two new REAL
+  columns so the Postgres sync coerces them to float, not TEXT.
+
+### Backfill
+
+Live DB: 85/85 closed trades backfilled with SPY-matched excess
+data, zero "Unknown" sectors. Second run of the backfill script
+confirms idempotency (`updated=0, skipped_existing=85`).
+
+### Rationale
+
+Forensic analysis of 78 closed trades showed per-trade Sharpe 3.38
+was mostly SPY beta during a bull run. Excess vs SPY = +0.039%,
+t = 0.098 over 75 matched periods. Without this instrumentation we
+cannot distinguish alpha from beta — every optimization decision
+becomes directional noise chasing.
+
+### Authority
+
+- `docs/research/SD-41-REVISED-diagnostic-first-plan.md`
+- Sprint spec: `docs/sprints/sprint-D1-spy-excess-instrumentation.md`
+- Methodology: `docs/research/sharpe-attribution-methodology.md` (new)
+
 ## [v0.18.0] - 2026-04-16 — IB Cold Storage (SD#41)
 
 Disable Interactive Brokers integration through Phase 1 while preserving

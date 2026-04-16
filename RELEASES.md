@@ -49,6 +49,57 @@
 
 ## Releases
 
+### v0.19.0 — SPY-Matched Excess Instrumentation (2026-04-16)
+
+Foundational alpha-vs-beta measurement for all Phase 1 optimization
+decisions. Adds per-trade SPY excess returns to `shadow_trades`, exposes
+excess-Sharpe as the primary metric on the dashboard and API, and
+redefines the IB live-trading gate to something a bull-market SPY-beta
+strategy cannot trivially pass.
+
+**Authority:** `docs/research/SD-41-REVISED-diagnostic-first-plan.md`
+**Sprint spec:** `docs/sprints/sprint-D1-spy-excess-instrumentation.md`
+**Methodology:** `docs/research/sharpe-attribution-methodology.md` (new)
+
+**Redefined gate:**
+- Old: raw Sharpe >= 1.0 over 60 trades (passed trivially by SPY beta)
+- New: **excess-return Sharpe >= 0.5 at t >= 2.0 over 150 OOS trades**
+
+**Schema (3 new columns on `shadow_trades`):**
+- `spy_return_over_hold` REAL — SPY close-to-close return over exact
+  entry-to-exit date range (auto-adjusted)
+- `excess_return` REAL — `pnl_pct - (spy_return * 100)`
+- `realized_sector` TEXT — GICS from
+  `data/reference/sp100-gics-lookup.csv`
+
+**Coverage:**
+- 102 SP100 tickers mapped to 11 GICS sectors (zero Unknown)
+- 85/85 closed shadow_trades backfilled (zero unknown sectors)
+- Idempotent backfill confirmed on re-run
+
+**Write paths:**
+- Centralized in `src/journal/store.py::close_shadow_trade` — covers
+  both executor (5 call sites) and reconcile (3 call sites) with a
+  single try-block
+- Fail-open: SPY yfinance exceptions log and return None, never block
+  trade close
+
+**API:**
+- `GET /api/shadow/sharpe-attribution` returns raw + excess Sharpe,
+  95% CIs, t-statistic, hit rate vs SPY, and interpretation key
+
+**Dashboard:**
+- Trade History page leads with a 4-metric panel (Excess Sharpe,
+  t-stat, Beat SPY hit rate, Verdict). Raw Sharpe visible as footnote
+- Verdict colored by interpretation
+  (significant/suggestive/negative/not-demonstrated)
+
+**Tests:** 7 new in `tests/analytics/test_spy_benchmark.py` (pure-logic
+math + mocked yfinance + sector lookup)
+
+**Sync:** `src/sync/render_sync.py::_REAL_COLUMNS` adds the two new
+REAL columns so Postgres coercion treats them as float, not TEXT
+
 ### v0.21.0 — Earnings Filter Hard Block (2026-04-16)
 
 Closes the earnings gap-risk hole at the entry gate. The earnings pipeline
