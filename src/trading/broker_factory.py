@@ -35,6 +35,16 @@ def get_live_broker(config: dict) -> BrokerAdapter:
     live_cfg = config.get("live_trading", {})
     broker_name = live_cfg.get("broker", "alpaca")
 
+    # SD#41 — IB cold storage. Gate IB selection behind trading.ib_enabled.
+    # When false, fall back to Alpaca regardless of live_trading.broker. Code
+    # below remains intact so reactivation only requires flipping the flag.
+    if broker_name == "ib" and not config.get("trading", {}).get("ib_enabled", False):
+        logger.warning(
+            "[BROKER] IB requested but trading.ib_enabled=false (SD#41 dormant). "
+            "Falling back to Alpaca. To reactivate, set trading.ib_enabled=true."
+        )
+        broker_name = "alpaca"
+
     if broker_name in _brokers:
         broker = _brokers[broker_name]
         if broker.is_connected():
