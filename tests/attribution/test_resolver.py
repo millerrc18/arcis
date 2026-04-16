@@ -317,3 +317,62 @@ def test_reresolve_skips_future_window_rows(tmp_path, monkeypatch):
     # Rows A and B got reset to 'pending' (resolve patched as no-op).
     assert outcomes["row-A-null-v1"] == "pending"
     assert outcomes["row-B-past"] == "pending"
+
+
+def test_resolve_pending_outcomes_skips_future_window_rows(tmp_path):
+    """4th-bug fix: `resolve_pending_outcomes` must not select rows whose
+    7-day outcome window is still in the future. yfinance has no data yet,
+    and each attempt just logs a spurious `YFPricesMissingError` warning.
+
+    Regression seeds 3 rows:
+      - old-resolvable (scan 30 days ago)  -> selected
+      - fresh-future   (scan today)        -> skipped
+      - boundary-edge  (scan exactly 8d ago, window ends today) -> selected
+    and asserts that the resolver's SELECT filter matches only the 2
+    elapsed-window rows. No yfinance calls are made (mocked empty) so the
+    test is a pure SQL-filter check.
+    """
+    from datetime import datetime, timedelta
+    from src.attribution.logger import resolve_pending_outcomes
+
+    db = str(tmp_path / "future_window.db")
+    conn = sqlite3.connect(db)
+    conn.executescript("""
+        CREATE TABLE attribution_trades (
+          attribution_id TEXT PRIMARY KEY, ticker TEXT, scan_timestamp TEXT,
+          ranker_only_entry REAL, ranker_only_stop REAL, ranker_only_target REAL,
+          ranker_only_outcome TEXT, ranker_only_pnl_pct REAL
+        );
+    """)
+    today = datetime.now().date()
+    seeds = [
+        ("old-resolvable", (today - timedelta(days=30)).isoformat() + "T10:00:00"),
+        ("fresh-future",   today.isoformat() + "T10:00:00"),
+        ("boundary-edge",  (today - timedelta(days=8)).isoformat() + "T10:00:00"),
+    ]
+    for attr_id, ts in seeds:
+        conn.execute(
+            "INSERT INTO attribution_trades VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (attr_id, "AAPL", ts, 100.0, 95.0, 105.0, "pending", None),
+        )
+    conn.commit()
+    conn.close()
+
+    # Mock yfinance to return empty so _resolve_one_row is a no-op per row.
+    # The test only cares WHICH rows get passed to _resolve_one_row.
+    seen_ids: list[str] = []
+
+    def fake_resolve_one_row(conn_inner, row):
+        seen_ids.append(row["attribution_id"])
+        return False  # not resolved — leave pending
+
+    with patch("src.attribution.logger._resolve_one_row",
+               side_effect=fake_resolve_one_row):
+        resolve_pending_outcomes(db_path=db)
+
+    assert "fresh-future" not in seen_ids, (
+        "resolve_pending_outcomes must skip rows whose scan_timestamp + 8 days "
+        "is still in the future (yfinance has no data yet)."
+    )
+    assert "old-resolvable" in seen_ids
+    assert "boundary-edge" in seen_ids
