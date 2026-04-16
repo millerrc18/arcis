@@ -38,6 +38,47 @@ storing bars now to study historical microstructure when the time comes.
 
 Phase 1 decision #3 of `docs/research/deep-research/intraday-desk-feasibility-report.md` — begin storing 1-min bars now.
 
+## [v0.22.1] - 2026-04-16 — alpaca-py Canonicalization (audit + guardrail)
+
+Verification sprint — the `alpaca-py` migration was already complete; this
+sprint documents the audit, tightens the version pin, and adds a CI
+guardrail to prevent accidental reintroduction of the deprecated
+`alpaca_trade_api` SDK. No runtime behavior changes.
+
+### Changed
+
+- **`requirements.txt`** — floor raised `alpaca-py>=0.30` → `alpaca-py>=0.43`
+  to match the locally-installed/tested version and narrow the window
+  for CI/dev drift.
+
+### Added
+
+- **`tests/test_repo_structure.py::test_no_legacy_alpaca_trade_api_imports`**
+  — AST-walking guardrail over `src/` and `tests/` that fails if any
+  `import alpaca_trade_api` or `from alpaca_trade_api ...` appears.
+- **`docs/research/alpaca-py-current-best-practices-audit.md`** — per-call-site
+  audit of `alpaca_adapter.py` (10 imports) and `executor.py` (3 imports)
+  against the modern SDK idioms. Verdict: zero bugs; two improvements
+  flagged as follow-up tickets (typed `APIError` handling, `client_order_id`
+  for idempotency).
+- **`docs/research/alpaca-py-intraday-streaming-gap.md`** — Phase 6 pre-work
+  mapping `TradingStream` / `StockDataStream` integration points into the
+  post-asyncio-refactor watch loop. No code; reference doc for the
+  Phase 6 sprint.
+
+### Verified
+
+- Zero `alpaca_trade_api` references across `src/`, `tests/`, and all
+  `requirements*.txt`.
+- Zero streaming usage (`TradingStream` / `StockDataStream`) in `src/`
+  — Phase 6 surface is intentionally empty.
+- Installed `alpaca.__version__ == 0.43.2`.
+
+### Authority
+
+`docs/sprints/sprint-alpaca-py-migration.md`, drafted on the
+`docs/alpaca-py-migration-spec` branch.
+
 ## [v0.22.0] - 2026-04-16 — Attribution Resolver MultiIndex Fix + Doc Sweep (SD#41 REVISED / D2 follow-up)
 
 Ships the D2 follow-up fix (yfinance MultiIndex bug that corrupted 1,600
