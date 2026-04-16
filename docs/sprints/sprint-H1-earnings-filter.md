@@ -1,427 +1,486 @@
-# Sprint H1: Earnings Filter — Skip Trades Within Earnings Window
+# Sprint H1: Earnings Filter — Scoring Threshold Fix (FINAL)
 
 **Authority:** SD#33 earnings gap risk mitigation
-**Effort:** 4-6 hours CC time
-**Branch:** `feat/earnings-filter`
+**Effort:** 1-2 hours CC time (narrow scoring fix)
+**Branch:** `feat/earnings-filter-hard-block`
 **Tag on merge:** `v0.21.0`
-**Priority:** HIGH — approved for execution in parallel with D1/D2/D3 diagnostics
-**Rationale:** Gap risk from earnings surprises is independent of the alpha-vs-beta question. Even if Arcis turns out to be SPY beta, eliminating earnings gap losses improves the product.
-**Ralph-loop status:** First draft
+**Priority:** HIGH — parallel to D1/D2/D3 diagnostics
+**Ralph-loop status:** Pass 3 complete, grounded in actual event_risk code
 
 ---
 
 ## Goal
 
-Prevent Arcis from entering any new pullback trade when the ticker is within 7 trading days of a scheduled earnings announcement. The pullback strategy assumes mean-reversion over 3-8 day holds; an earnings surprise can produce a 5-15% gap that overwhelms the strategy's normal bracket risk. Filtering earnings-adjacent trades removes the primary source of fat-tail losses.
+Ensure trades are hard-blocked when earnings are scheduled within 7 trading days — regardless of the market-wide event risk score. The earnings filter infrastructure is fully built already; the gap is that **earnings proximity ≤2 days only adds +4 to the risk score while the block threshold is 8**. If the market-wide score is <4 (typical on calm days), an earnings-imminent ticker never crosses the block threshold and slips through.
 
-After this sprint:
-- Every new recommendation checks the earnings calendar before being marked as tradeable
-- Trades within 7 trading days of earnings are rejected at the recommendation layer (never reach execution)
-- The `recommendations.earnings_adjacent` flag is populated (currently mostly unused)
-- Dashboard shows earnings-adjacent rejection count in the daily scan summary
+This is a narrow 1-2 hour fix, not a 4-6 hour rebuild.
 
 ---
 
 ## Background Context for CC
 
-**Why this matters:**
-- Current `shadow_trades.earnings_adjacent` column exists but is rarely set
-- Forensic analysis showed 62 of 78 trades exit as reconciled_stale — some of these may be trades that never resolved because earnings hit mid-hold and the strategy couldn't recover
-- Gap risk cannot be managed by vol-targeting, tighter stops, or any exit optimization. The only mitigation is avoiding the event entirely
+**Pre-existing infrastructure (confirmed via Pass 1 audit — do NOT rebuild):**
 
-**Data sources available:**
-- Finnhub earnings calendar (rate-limited but sufficient for 102 tickers)
-- FMP (Financial Modeling Prep) earnings calendar
-- yfinance `Ticker.earnings_dates` (fallback, less reliable)
+| Component | File | Role |
+|---|---|---|
+| Earnings calendar table | DB: `earnings_calendar` | Populated nightly |
+| Nightly earnings scraper | `scripts/fetch_earnings_calendar.py` | Runs via watch loop overnight schedule |
+| Earnings lookup | `src/features/earnings.py::get_next_earnings_date` | Cached table + yfinance fallback |
+| Earnings signals | `src/data_enrichment/earnings_signals.py` | Feature engineering |
+| Event risk score | `src/features/event_risk_score.py::compute_event_risk_score` | Combines market-wide + ticker-specific |
+| Sizing multiplier | `src/features/event_risk_score.py::_sizing_multiplier_from_score` (line 175) | Maps score → 0.0 (block) or fraction |
+| Risk governor hard block | `src/risk/governor.py` line 430 | "Event risk hard block: no new entries" |
+| Executor hook | `src/shadow_trading/executor.py` lines 570, 1934 | Sets `earnings_adjacent` on trade record |
+| Schema | `shadow_trades.earnings_adjacent` (INTEGER) | Default 0 |
 
-**Full authority:** See `docs/research/Alternative_Data_Signals_for_Large-Cap_Short-Horizon_Trading__A_Cost-Benefit_Analysis_for_the_Halcyon_Lab_Stack.md` for the research foundation.
+**The existing flow:** `event_risk_score.compute_event_risk_score(ticker)` returns a `total_score` = market_wide_score + ticker_earnings_score. The sizing multiplier at `_sizing_multiplier_from_score` returns `0.0` only when `total_score >= block_threshold=8`. Risk governor rejects when multiplier is `0.0`.
+
+**The bug** (from `src/features/event_risk_score.py` lines 265-275):
+```python
+# Earnings proximity score contribution:
+if days_until <= 2:
+    earnings_score = 4    # Only +4, not enough to block alone
+elif days_until <= 5:
+    earnings_score = 2    # +2 is even further from blocking
+components["earnings_proximity"] = earnings_score
+# ...
+total_score = int(base.get("total_score", 0) + earnings_score)
+```
+
+With `block_threshold=8` (from `config/settings.example.yaml`), a ticker with earnings TOMORROW (earnings_score=4) won't block unless market_wide score is already ≥4. On a calm day the market score can easily be 0-2, so the block never triggers.
+
+**Config keys** (`config/settings.example.yaml`):
+```yaml
+event_risk:
+  enabled: true
+  block_threshold: 8       # Hard block at score >= 8
+  alert_threshold: 6       # Telegram alert at score >= 6
+  sizing_floor: 0.25       # Minimum sizing multiplier
+```
 
 ---
 
 ## Pre-Flight Checks
 
-1. **Verify earnings data availability:**
-   ```bash
-   python -c "from src.data.finnhub_client import get_earnings_calendar; print(get_earnings_calendar('AAPL', days_ahead=14))"
-   ```
-   Expected: upcoming earnings date for AAPL. If the client doesn't exist, this sprint includes building it.
+```bash
+# 1. Read the actual scoring logic
+python -c "
+with open('src/features/event_risk_score.py') as f:
+    content = f.read()
+start = content.find('def compute_event_risk_score')
+print(content[start:start+1500])
+"
 
-2. **Check current state of earnings_adjacent column:**
-   ```bash
-   python -c "from src.storage.database import get_db; db=get_db(); [print(r) for r in db.execute('SELECT earnings_adjacent, COUNT(*) FROM shadow_trades GROUP BY earnings_adjacent').fetchall()]"
-   ```
+# 2. Verify earnings_calendar populated
+python -c "
+from src.config import DB_PATH
+import sqlite3
+conn = sqlite3.connect(DB_PATH)
+try:
+    n = conn.execute('SELECT COUNT(*) FROM earnings_calendar').fetchone()[0]
+    upcoming = conn.execute(
+        \"SELECT COUNT(*) FROM earnings_calendar WHERE earnings_date > date('now')\"
+    ).fetchone()[0]
+    print(f'earnings_calendar rows: {n} (upcoming: {upcoming})')
+except Exception as e:
+    print(f'earnings_calendar issue: {e}')
+"
 
-3. **Check recommendations table for earnings fields:**
-   ```bash
-   python -c "from src.storage.database import get_db; db=get_db(); print([r[1] for r in db.execute('PRAGMA table_info(recommendations)').fetchall() if 'earning' in r[1].lower()])"
-   ```
+# 3. Check current earnings_adjacent distribution
+python -c "
+from src.config import DB_PATH
+import sqlite3
+conn = sqlite3.connect(DB_PATH)
+for r in conn.execute('SELECT earnings_adjacent, COUNT(*) FROM shadow_trades GROUP BY earnings_adjacent').fetchall():
+    print(f'earnings_adjacent={r[0]}: n={r[1]}')
+"
 
-4. **Create feature branch:**
-   ```bash
-   git checkout -b feat/earnings-filter
-   ```
+# 4. Check risk governor is wired up
+grep -n "event_risk_multiplier\|Event risk hard block" src/risk/governor.py | head -5
+
+# 5. Branch
+git checkout -b feat/earnings-filter-hard-block
+```
 
 ---
 
-## Task List (max 10 tasks)
+## Task List
 
-### Task 1 — Earnings calendar client (if not already robust)
+### Task 1 — Patch earnings scoring to force block at ≤7 trading days
 
-**File:** `src/data/earnings_calendar.py` (new or enhance existing)
+**File:** `src/features/event_risk_score.py`
+
+Modify `compute_event_risk_score` so earnings within 7 trading days force `total_score >= block_threshold` regardless of market-wide score.
+
+Find the block around line 265-275:
 
 ```python
-"""Earnings calendar fetcher with caching and multi-source fallback.
+if next_earnings is not None:
+    days_until = (next_earnings - ref).days
+    if days_until <= 2:
+        earnings_score = 4
+    elif days_until <= 5:
+        earnings_score = 2
+    components["earnings_proximity"] = earnings_score
+    components["earnings_days"] = days_until
+    components["earnings_date"] = next_earnings.isoformat()
+```
 
-Authority: SD#33 earnings gap risk mitigation.
+Replace with:
 
-Primary source: Finnhub (daily rate-limited, free tier sufficient for 102 tickers)
-Fallback: FMP (if Finnhub fails)
-Last resort: yfinance (least reliable for forward-looking dates)
+```python
+earnings_forces_block = False
+if next_earnings is not None:
+    days_until = (next_earnings - ref).days
+    # SD#33 / Sprint H1: earnings within ~7 trading days = hard block.
+    # days_until is calendar days; 10 calendar days ≈ 7 trading days.
+    if days_until <= 10:
+        earnings_forces_block = True
+        earnings_score = block_threshold  # guarantee hard block
+    elif days_until <= 2:
+        earnings_score = 4
+    elif days_until <= 5:
+        earnings_score = 2
+    components["earnings_proximity"] = earnings_score
+    components["earnings_days"] = days_until
+    components["earnings_date"] = next_earnings.isoformat()
+    components["earnings_forces_block"] = earnings_forces_block
+else:
+    components["earnings_proximity"] = 0
+```
 
-Cache: Daily refresh of full S&P 100 earnings calendar for next 90 days.
-"""
+**Also update the `total_score` line** to ensure forced block respects the threshold:
 
-from __future__ import annotations
+```python
+total_score = int(base.get("total_score", 0) + earnings_score)
+if earnings_forces_block:
+    total_score = max(total_score, block_threshold)
+```
+
+**Why 10 calendar days ≈ 7 trading days:** 7 trading days spans up to 10 calendar days with two weekends. Conservative approximation errs on the side of blocking slightly more trades, which is the intent of a gap-risk filter.
+
+**Constraint:** The inelegant-looking `if days_until <= 10 ... elif days_until <= 2 ...` structure is intentional — the `<= 10` branch short-circuits before `<= 2` ever triggers. Keep the old branches in place (they still assign the descriptive `earnings_score` for components dict), but the `earnings_forces_block` flag takes precedence.
+
+**Alternative cleaner structure** (use whichever CC judges clearer, but ensure the semantics match):
+
+```python
+earnings_score = 0
+earnings_forces_block = False
+if next_earnings is not None:
+    days_until = (next_earnings - ref).days
+    components["earnings_days"] = days_until
+    components["earnings_date"] = next_earnings.isoformat()
+
+    if days_until <= 10:
+        # SD#33/H1: hard block for earnings within ~7 trading days
+        earnings_forces_block = True
+        earnings_score = block_threshold
+    elif days_until <= 5:
+        earnings_score = 2
+
+    components["earnings_proximity"] = earnings_score
+    components["earnings_forces_block"] = earnings_forces_block
+else:
+    components["earnings_proximity"] = 0
+
+total_score = int(base.get("total_score", 0) + earnings_score)
+if earnings_forces_block:
+    total_score = max(total_score, block_threshold)
+```
+
+---
+
+### Task 2 — Add regression tests
+
+**File:** `tests/features/test_event_risk_earnings.py` (new; check if directory exists first — if not, create `tests/features/__init__.py`)
+
+```python
+"""Regression tests for SD#33 / H1 earnings hard-block behavior."""
+
+import sqlite3
+import tempfile
+import pytest
 import datetime as dt
-import logging
-from pathlib import Path
-from typing import Optional
-import json
+from unittest.mock import patch, MagicMock
 
-logger = logging.getLogger(__name__)
-
-CACHE_PATH = Path("data/cache/earnings_calendar.json")
-CACHE_TTL_HOURS = 24
+from src.features.event_risk_score import compute_event_risk_score
 
 
-def refresh_earnings_cache(tickers: list[str]) -> dict[str, list[str]]:
-    """Fetch next 90 days of earnings for all tickers. Persist to cache.
-    
-    Returns: {ticker: [ISO date strings]} for any tickers with upcoming earnings.
-    """
-    # Try Finnhub first
-    try:
-        calendar = _fetch_finnhub_bulk(tickers, days_ahead=90)
-        if calendar:
-            _write_cache(calendar)
-            return calendar
-    except Exception as exc:
-        logger.warning("[EARNINGS] Finnhub bulk fetch failed: %s", exc)
-    
-    # Fallback: FMP
-    try:
-        calendar = _fetch_fmp_bulk(tickers, days_ahead=90)
-        if calendar:
-            _write_cache(calendar)
-            return calendar
-    except Exception as exc:
-        logger.warning("[EARNINGS] FMP bulk fetch failed: %s", exc)
-    
-    # Last resort: yfinance per-ticker (slow)
-    logger.warning("[EARNINGS] Falling back to yfinance per-ticker")
-    calendar = {}
-    for ticker in tickers:
-        try:
-            dates = _fetch_yfinance_single(ticker, days_ahead=90)
-            if dates:
-                calendar[ticker] = dates
-        except Exception as exc:
-            logger.debug("[EARNINGS] yfinance failed for %s: %s", ticker, exc)
-    _write_cache(calendar)
-    return calendar
+@pytest.fixture
+def temp_db():
+    """In-memory DB with empty earnings_calendar table."""
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+    conn = sqlite3.connect(db_path)
+    conn.execute("""
+        CREATE TABLE earnings_calendar (
+            ticker TEXT, earnings_date TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+    yield db_path
 
 
-def is_earnings_adjacent(ticker: str, reference_date: dt.date,
-                         days_before: int = 7, days_after: int = 1) -> bool:
-    """Check whether ticker has an earnings event within the window around reference_date.
-    
-    Default window: 7 trading days before, 1 trading day after. This catches:
-    - Pre-announcement risk (run-up / drift)
-    - Day-of announcement gap
-    - Post-announcement reaction (first day)
-    
-    Returns True if ANY scheduled earnings falls in the window.
-    """
-    calendar = _load_cache()
-    if not calendar:
-        logger.warning("[EARNINGS] Cache empty; cannot evaluate %s", ticker)
-        return False  # fail-open: don't block trading if we can't check
-    
-    dates = calendar.get(ticker, [])
-    if not dates:
-        return False  # no known upcoming earnings
-    
-    # Compute window in calendar days (approximation of trading days)
-    window_start = reference_date - dt.timedelta(days=int(days_before * 1.5))  # calendar buffer
-    window_end = reference_date + dt.timedelta(days=int(days_after * 1.5))
-    
-    for iso_date in dates:
-        try:
-            earnings_date = dt.date.fromisoformat(iso_date)
-            if window_start <= earnings_date <= window_end:
-                return True
-        except ValueError:
-            continue
-    return False
+def _insert_earnings(db_path, ticker, earnings_date):
+    conn = sqlite3.connect(db_path)
+    conn.execute("INSERT INTO earnings_calendar VALUES (?, ?)",
+                 (ticker, earnings_date))
+    conn.commit()
+    conn.close()
 
 
-# Helper implementations
-def _load_cache() -> dict[str, list[str]]:
-    if not CACHE_PATH.exists():
-        return {}
-    # Check TTL
-    age_hours = (dt.datetime.now().timestamp() - CACHE_PATH.stat().st_mtime) / 3600
-    if age_hours > CACHE_TTL_HOURS:
-        logger.info("[EARNINGS] Cache stale (%.1fh); returning empty", age_hours)
-        return {}
-    try:
-        return json.loads(CACHE_PATH.read_text())
-    except Exception as exc:
-        logger.warning("[EARNINGS] Cache read failed: %s", exc)
-        return {}
+def test_earnings_tomorrow_forces_hard_block(temp_db):
+    """Earnings within 2 days → total_score >= block_threshold → multiplier 0."""
+    today = dt.date(2026, 4, 16)
+    tomorrow = (today + dt.timedelta(days=1)).isoformat()
+    _insert_earnings(temp_db, "AAPL", tomorrow)
+
+    result = compute_event_risk_score(
+        ticker="AAPL",
+        db_path=temp_db,
+        reference_date=today,
+        market_risk={"total_score": 0, "components": {}},
+        settings={"event_risk": {"block_threshold": 8, "sizing_floor": 0.25}},
+    )
+
+    assert result["total_score"] >= 8, \
+        f"Expected block-threshold score, got {result['total_score']}"
+    assert result["sizing_multiplier"] == 0.0, \
+        f"Expected multiplier 0.0 (hard block), got {result['sizing_multiplier']}"
+    assert result["components"]["earnings_forces_block"] is True
 
 
-def _write_cache(calendar: dict[str, list[str]]) -> None:
-    CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CACHE_PATH.write_text(json.dumps(calendar, indent=2))
+def test_earnings_in_five_trading_days_forces_block(temp_db):
+    """Earnings 7 calendar days out (~5 trading days) → hard block."""
+    today = dt.date(2026, 4, 16)
+    earnings = (today + dt.timedelta(days=7)).isoformat()
+    _insert_earnings(temp_db, "MSFT", earnings)
+
+    result = compute_event_risk_score(
+        ticker="MSFT",
+        db_path=temp_db,
+        reference_date=today,
+        market_risk={"total_score": 0, "components": {}},
+        settings={"event_risk": {"block_threshold": 8, "sizing_floor": 0.25}},
+    )
+
+    assert result["sizing_multiplier"] == 0.0
 
 
-def _fetch_finnhub_bulk(tickers, days_ahead):
-    # Implementation uses existing Finnhub client if available
-    # Returns {ticker: [iso_date, ...]} or {} on failure
-    raise NotImplementedError  # CC implements based on existing Finnhub client
+def test_earnings_fifteen_days_out_no_block(temp_db):
+    """Earnings 15 days out → no hard block (normal scoring applies)."""
+    today = dt.date(2026, 4, 16)
+    earnings = (today + dt.timedelta(days=15)).isoformat()
+    _insert_earnings(temp_db, "GOOGL", earnings)
+
+    result = compute_event_risk_score(
+        ticker="GOOGL",
+        db_path=temp_db,
+        reference_date=today,
+        market_risk={"total_score": 0, "components": {}},
+        settings={"event_risk": {"block_threshold": 8, "sizing_floor": 0.25}},
+    )
+
+    # No earnings proximity score, multiplier should be 1.0 (full sizing)
+    assert result["sizing_multiplier"] == 1.0
+    assert result["components"]["earnings_forces_block"] is False
 
 
-def _fetch_fmp_bulk(tickers, days_ahead):
-    raise NotImplementedError  # CC implements based on existing FMP client
+def test_no_earnings_data_no_block(temp_db):
+    """Ticker with no earnings_calendar row → no earnings-driven block."""
+    today = dt.date(2026, 4, 16)
+    # temp_db is empty for this ticker
+
+    result = compute_event_risk_score(
+        ticker="UNKNOWN",
+        db_path=temp_db,
+        reference_date=today,
+        market_risk={"total_score": 0, "components": {}},
+        settings={"event_risk": {"block_threshold": 8, "sizing_floor": 0.25}},
+    )
+
+    assert result["sizing_multiplier"] == 1.0
+    assert result["components"]["earnings_proximity"] == 0
 
 
-def _fetch_yfinance_single(ticker, days_ahead):
-    import yfinance as yf
-    t = yf.Ticker(ticker)
-    df = t.earnings_dates
-    if df is None or df.empty:
-        return []
-    cutoff = dt.datetime.now() + dt.timedelta(days=days_ahead)
-    upcoming = df[df.index <= cutoff]
-    return [idx.date().isoformat() for idx in upcoming.index if idx >= dt.datetime.now()]
+def test_high_market_risk_and_distant_earnings_still_blocks(temp_db):
+    """If market-wide score already >= 8, block regardless of earnings."""
+    today = dt.date(2026, 4, 16)
+    earnings = (today + dt.timedelta(days=30)).isoformat()
+    _insert_earnings(temp_db, "JPM", earnings)
+
+    result = compute_event_risk_score(
+        ticker="JPM",
+        db_path=temp_db,
+        reference_date=today,
+        market_risk={"total_score": 9, "components": {}},  # market already extreme
+        settings={"event_risk": {"block_threshold": 8, "sizing_floor": 0.25}},
+    )
+
+    assert result["sizing_multiplier"] == 0.0  # blocked by market, not earnings
 ```
 
-**Constraint:** File size ≤ 200 lines. If any method exceeds 50 lines, refactor.
+---
 
-### Task 2 — Scheduler task: daily earnings cache refresh
+### Task 3 — Verify the full chain end-to-end
 
-**File:** `src/scheduler/watch.py` (or wherever pre-market tasks live)
+**Deliverable:** Manual trace documented in the audit notes.
 
-Add a daily task at 4:00 AM ET (before scan cycle):
+After Task 1's code change, manually trace the chain to confirm blocking:
 
 ```python
-def _refresh_earnings_cache(ctx):
-    """Daily pre-market: refresh earnings calendar for S&P 100."""
-    try:
-        from src.data.earnings_calendar import refresh_earnings_cache
-        tickers = ctx.universe.tickers  # S&P 100 list
-        calendar = refresh_earnings_cache(tickers)
-        ctx.logger.info("[EARNINGS] Refreshed calendar: %d tickers with upcoming earnings",
-                       len([k for k, v in calendar.items() if v]))
-    except Exception as exc:
-        ctx.logger.error("[EARNINGS] Cache refresh failed: %s", exc)
-        # Do not fail the scan cycle; fall back to stale cache
+# Run as a manual verification (not a committed test)
+from src.features.event_risk_score import compute_event_risk_score
+from src.features.event_risk_score import attach_event_risk_scores
+from src.config import DB_PATH, load_config
+
+# Pick a ticker with upcoming earnings
+result = compute_event_risk_score(
+    ticker="AAPL",  # or whatever has earnings within 7d per earnings_calendar
+    db_path=DB_PATH,
+    settings=load_config(),
+)
+print(f"total_score: {result['total_score']}")
+print(f"multiplier: {result['sizing_multiplier']}")
+print(f"components: {result['components']}")
+# Expect: multiplier == 0.0 if earnings within 10 calendar days
 ```
 
-**Schedule:** Daily at 4:00 AM ET, before the first scan.
+Verify the risk governor correctly rejects when it sees `event_risk_multiplier=0.0`:
 
-### Task 3 — Ranker integration: reject earnings-adjacent setups
-
-**File:** `src/ranker/deterministic_ranker.py` (or equivalent — where setups become recommendations)
-
-At the point where a setup is about to be promoted to a recommendation, add the earnings check:
-
-```python
-from src.data.earnings_calendar import is_earnings_adjacent
-
-# ... existing ranker logic that builds the candidate ...
-
-if is_earnings_adjacent(candidate.ticker, today):
-    candidate.rejected = True
-    candidate.rejection_reason = 'earnings_adjacent'
-    # Still log the recommendation (for attribution) but mark as not executable
-    candidate.tradeable = False
+```bash
+grep -B 2 -A 6 "Event risk hard block" src/risk/governor.py | head -20
 ```
 
-**Constraint:** The recommendation is still written to the DB (so attribution can track what was rejected and why), but `tradeable=False` prevents execution.
+Confirm the reject message fires. No code change needed in the governor — it already handles multiplier=0.
 
-### Task 4 — Executor guardrail: double-check at execution time
+---
 
-**File:** `src/shadow_trading/executor.py`
-
-Add a belt-and-suspenders check right before opening a position:
-
-```python
-from src.data.earnings_calendar import is_earnings_adjacent
-import datetime as dt
-
-# ... before placing bracket order ...
-
-if is_earnings_adjacent(ticker, dt.date.today()):
-    logger.warning("[EXECUTOR] Skipping %s: earnings-adjacent (double-check)", ticker)
-    # Mark the recommendation as skipped, don't open position
-    return _record_rejection(recommendation_id, 'earnings_adjacent_executor_guard')
-```
-
-This prevents any race condition where the ranker cleared the trade but earnings data updated before execution.
-
-### Task 5 — Position monitoring: flag existing positions approaching earnings
-
-**File:** `src/shadow_trading/executor.py` (monitoring section) or `src/scheduler/watch.py`
-
-For open positions: if any existing hold is going to cross its ticker's earnings date within the next 2 trading days, log a warning. This is informational only — don't close positions automatically (that would conflict with the bracket logic).
-
-```python
-# Daily check on open positions
-for position in open_positions:
-    if is_earnings_adjacent(position.ticker, today, days_before=2, days_after=0):
-        logger.warning("[EARNINGS] Open position %s approaches earnings within 2 days",
-                      position.ticker)
-        # Emit a metric / dashboard alert
-```
-
-**Constraint:** Do not auto-close. Just alert. Closing policy during earnings is a separate decision (SD candidate for future).
-
-### Task 6 — Populate `earnings_adjacent` column for historical trades
-
-**File:** `scripts/backfill_earnings_adjacent.py` (new)
-
-For all existing closed trades:
-1. Check whether their entry date was within 7 days of the ticker's nearest historical earnings
-2. Update the `shadow_trades.earnings_adjacent` column
-
-This requires HISTORICAL earnings dates (not just future). Use:
-- yfinance `Ticker.earnings_dates` — historical earnings back a few years
-- FMP historical earnings endpoint
-
-**Constraint:** If historical data isn't available for a ticker, leave the column NULL (don't guess).
-
-### Task 7 — Dashboard: earnings rejection count
-
-**File:** `frontend/src/pages/Dashboard.jsx`
-
-Add a small metric card to the daily scan summary:
-
-```jsx
-<div className="arcis-card">
-  <div className="text-xs uppercase" style={{ color: 'var(--arcis-text-secondary)' }}>Earnings-Adjacent Rejected</div>
-  <div className="text-2xl font-medium" style={MONO}>{earningsRejectedToday}</div>
-  <div className="text-xs mt-1" style={{ color: 'var(--arcis-text-secondary)' }}>
-    Today's scan
-  </div>
-</div>
-```
-
-And a 30-day sparkline showing the daily rejection count — useful to see whether we're catching a handful per day (normal) or suddenly a lot (earnings season).
-
-### Task 8 — Regression tests
-
-**File:** `tests/data/test_earnings_calendar.py` (new)
-
-Minimum tests:
-1. `test_is_earnings_adjacent_true_when_earnings_in_window`
-2. `test_is_earnings_adjacent_false_when_no_earnings`
-3. `test_is_earnings_adjacent_fail_open_on_empty_cache` — doesn't block trading if we can't check
-4. `test_cache_ttl_expired_returns_empty`
-5. `test_ranker_rejects_earnings_adjacent_setup` — integration
-6. `test_executor_double_checks_earnings_adjacent` — integration
-
-### Task 9 — Metrics + alerting
-
-**File:** `src/monitoring/metrics.py` (or wherever)
-
-Add two metrics:
-- `arcis_earnings_rejections_total` — counter, labels by ticker
-- `arcis_open_position_approaching_earnings` — gauge, labels by ticker + days_to_earnings
-
-If Grafana is wired (SD#40), add a dashboard panel for these. Alert if any open position is within 1 trading day of earnings and no exit plan (should be rare post-filter).
-
-### Task 10 — Documentation updates
+### Task 4 — Documentation
 
 **Files:**
 - `CHANGELOG.md` — v0.21.0 entry
-- `RELEASES.md`
-- `MASTER.md` — update SD#33 status to "implemented"
-- `docs/strategy-decisions.md` — mark SD#33 as complete
-- `README.md` — update version badge
+- `RELEASES.md` — release notes
+- `MASTER.md` — mark SD#33 as IMPLEMENTED
+- `README.md` — version badge
 
-**CHANGELOG entry:**
+**CHANGELOG:**
 ```markdown
-## v0.21.0 (TBD)
+## v0.21.0
 
-### Added
-- **Earnings filter (SD#33).** Trades within 7 trading days of earnings are
-  rejected at the ranker layer with rejection_reason='earnings_adjacent'.
-  Executor double-checks at entry time to prevent race conditions.
-- Daily pre-market earnings calendar refresh for S&P 100 (Finnhub primary,
-  FMP fallback, yfinance last resort).
-- Dashboard panel: earnings-adjacent rejection count (today + 30d sparkline).
-- Open position monitoring: warning log if any open hold crosses earnings
-  within 2 trading days.
-- Backfill: shadow_trades.earnings_adjacent populated for historical trades
-  where earnings dates are available.
+### Fixed — SD#33 earnings filter (H1)
+
+**The bug:** Event risk scoring capped earnings proximity at +4 on score
+scale where hard-block threshold was 8. On calm market days (total_score
+< 4 before earnings), an earnings-imminent ticker never crossed the
+threshold. Trades within 1-2 days of earnings could slip past the filter.
+
+**The fix:** Earnings within ~7 trading days (10 calendar days) now force
+total_score to at least the block_threshold, guaranteeing a hard block
+via the existing event_risk_multiplier=0 → risk governor path.
+
+**Changes:**
+- `src/features/event_risk_score.py::compute_event_risk_score` —
+  added `earnings_forces_block` flag and threshold-override logic
+- `tests/features/test_event_risk_earnings.py` — 5 regression tests
 
 ### Rationale
-Earnings gap risk cannot be managed by vol-targeting, stops, or exit
-optimization. The only mitigation is avoiding the event. Per forensic
-analysis, gap losses are a plausible contributor to the reconciled_stale
-rate (62 of 78 trades).
+Per forensic analysis, ~80% of closed trades exited via reconciled_stale;
+a non-trivial share of those likely caught an earnings surprise mid-hold.
+Gap risk cannot be managed by stops, vol targeting, or exits — only by
+not being in the position when earnings happens.
+
+### Unchanged infrastructure (confirmed working)
+- Nightly earnings_calendar scraper (`scripts/fetch_earnings_calendar.py`)
+- Earnings lookup with yfinance fallback (`src/features/earnings.py`)
+- Risk governor hard-block path (`src/risk/governor.py:430`)
+- Executor earnings_adjacent flag (`src/shadow_trading/executor.py:570`)
+```
+
+---
+
+### Task 5 — Final checklist
+
+```bash
+# Run new tests
+pytest tests/features/test_event_risk_earnings.py -v 2>&1 | tail -15
+
+# No regressions
+pytest tests/ --no-cov -q 2>&1 | tail -5
+
+# Verify earnings table still populated after nightly scraper expected to run
+python -c "from src.config import DB_PATH; import sqlite3; print('upcoming earnings:', sqlite3.connect(DB_PATH).execute(\"SELECT COUNT(*) FROM earnings_calendar WHERE earnings_date > date('now')\").fetchone()[0])"
+
+# Docs verifier
+python scripts/verify_docs.py 2>&1 | tail -3
+
+# Frontend unchanged but rebuild to be safe
+cd frontend && npm run build && cd ..
+
+git push origin feat/earnings-filter-hard-block
+# Merge → tag v0.21.0
 ```
 
 ---
 
 ## Success Criteria
 
-1. Daily earnings cache refresh runs successfully pre-market
-2. Ranker rejects earnings-adjacent setups with logged reason
-3. Executor double-checks at execution time
-4. `shadow_trades.earnings_adjacent` backfilled for historical trades
-5. Dashboard shows rejection count
-6. 6 new tests pass
-7. No regressions
-8. Frontend builds
-9. Open 2-week observation: no trades enter earnings-adjacent positions
+1. `src/features/event_risk_score.py` patched with earnings hard-block
+2. 5 regression tests pass
+3. No existing test regressions
+4. Manual trace confirms: ticker with earnings in 5 days → `multiplier=0.0`
+5. MASTER.md marks SD#33 as implemented
+6. CHANGELOG + RELEASES entries
+7. `scripts/verify_docs.py` passes
 
 ---
 
 ## Commit Messages
 
 ```
-feat(data): earnings calendar client with Finnhub/FMP/yfinance fallback
-feat(scheduler): daily pre-market earnings cache refresh
-feat(ranker): reject earnings-adjacent setups (SD#33)
-feat(executor): double-check earnings adjacency at entry time
-feat(monitoring): warn on open positions approaching earnings
-feat(scripts): backfill earnings_adjacent for historical trades
-feat(frontend): dashboard shows earnings rejection count
-test: earnings calendar + ranker/executor integration
-docs: SD#33 earnings filter complete
+fix(event_risk): earnings within 7 trading days forces hard block (SD#33)
+test(event_risk): regression tests for earnings hard-block behavior
+docs: mark SD#33 earnings filter as implemented
+docs: v0.21.0 release notes
 ```
 
 ---
 
 ## Out-of-Scope
 
-- Closing existing positions that hit earnings mid-hold (requires separate SD)
-- Post-earnings reentry logic (separate design)
-- Sector-wide earnings season throttling (different SD)
-- Options data collection around earnings (Phase 3+)
+- Building new earnings infrastructure (existing infrastructure is fine)
+- Closing open positions that cross earnings mid-hold (separate SD)
+- Post-earnings re-entry logic (separate design)
+- Dashboard changes (the rejection will show in existing risk governor reject logs)
+- Backfilling `shadow_trades.earnings_adjacent` for historical trades (nice-to-have,
+  but earnings_calendar has limited historical reach and these trades are already
+  closed; skip unless a later sprint requests it)
 
 ---
 
-## Ralph-Loop Review Questions
+## 3× Ralph-Loop Summary
 
-1. **Fail-open or fail-closed on cache miss?** Fail-open (trade as normal) is the less-destructive default. Documented.
-2. **Why not use options IV spike as earnings proxy?** More complex, less reliable. Calendar is the ground truth.
-3. **What about companies without regular earnings (IPOs, REITs)?** If no future earnings date in cache, no filter applied. Fine.
-4. **Does this affect Phase 1 OOS validation?** Yes — earnings filter reduces variance which improves raw AND excess Sharpe. Worth it; earnings risk isn't what we want to learn about.
+**Pass 1 (repo audit):** Discovered the entire earnings pipeline already exists:
+- `scripts/fetch_earnings_calendar.py` (nightly)
+- `src/features/earnings.py` (lookup with fallback)
+- `src/data_enrichment/earnings_signals.py`
+- `src/features/event_risk_score.py` (scoring)
+- `src/risk/governor.py:430` (hard block path)
+- `src/shadow_trading/executor.py:570, 1934` (tags earnings_adjacent)
+- `shadow_trades.earnings_adjacent` column (default 0)
 
----
+The original first-draft sprint would have duplicated ~400 lines of working code.
 
-*Ready for 3× Ralph-loop review before CC execution.*
+**Pass 2 (spec correction):** Identified the actual bug as a scoring scale mismatch
+at `event_risk_score.py:268` where earnings proximity ≤2 days adds only +4 (of 8
+threshold needed). Reduced sprint scope from 10 tasks / 4-6 hours to 5 tasks /
+1-2 hours.
+
+**Pass 3 (tighten):** Added precise before/after code snippets for the fix.
+Simplified regression tests to cover 5 specific scenarios (near earnings, mid-distance,
+far, none, market-already-blocked). Documented out-of-scope work clearly so CC doesn't
+drift into rebuild territory.
+
+**Final confidence:** HIGH. Narrow bug fix, well-understood, minimal blast radius.
+Tests cover the essential behavior. Infrastructure that's working stays untouched.
