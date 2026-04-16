@@ -359,3 +359,247 @@ Expected v2 distribution on a bull-market sample: roughly 35–50% `win`, 25–4
 - Re-training the LLM on v2 attribution data (separate sprint — first confirm there IS signal)
 - Reworking `simulate_mechanical_outcome` internals (the simulator itself is fine; the fix is upstream of it)
 - Intraday path estimation (separate SD — the 7-day window is the same, only the data-shape bug is addressed here)
+
+---
+---
+
+# PART 2: Comprehensive Documentation & Roadmap Sweep
+
+> Combined into this sprint per Ryan's request. These are docs-only tasks
+> (plus frontend JSX for dashboard pages). If any doc merge conflict blocks
+> the resolver fix, the resolver commits should be shipped first and the doc
+> tasks cherry-picked into a follow-up commit.
+
+---
+
+## Goal (Part 2)
+
+MASTER.md, dashboard roadmap page, and supporting docs are severely stale after
+the forensic analysis pivot and 4 sprint merges on 2026-04-16. Update every
+stale section to reflect the current system state.
+
+---
+
+## Current Counts (verified 2026-04-16)
+
+Use these as the source of truth — **re-verify each via the listed command before writing:**
+
+| Metric | Old (stale) | Current |
+|---|---|---|
+| Latest release | v0.17.2 | v0.21.0 (v0.18.0 + v0.19.0 + v0.21.0 all on 2026-04-16) |
+| Closed trades | 18 (+ 77 quarantined) | 85 (verify: `SELECT COUNT(*) FROM shadow_trades WHERE actual_exit_time IS NOT NULL`) |
+| Tests | 1,801 across 148 files | verify: `pytest --collect-only -q 2>&1 \| tail -1` |
+| Python files | 225 | verify: `find src/ -name "*.py" -not -path "*__pycache__*" \| wc -l` |
+| Test files | 148 | 154 (verify: `find tests/ -name "*.py" -not -path "*__pycache__*" \| wc -l`) |
+| Dashboard pages | 24 | 25 (verify: `find frontend/src/pages -name "*.jsx" \| wc -l`) |
+| Research docs | 91 | 106 (verify: `find docs/research -name "*.md" -o -name "*.pdf" \| wc -l`) |
+| Sprint docs | 43 | 57 (verify: `find docs/sprints -name "*.md" \| wc -l`) |
+| Strategy decisions | 40 | 41+ (SD#41 added) |
+| Schema tables | 53 | verify via registry |
+
+---
+
+## Doc Sweep Task List
+
+### Doc Task 1 — MASTER.md Section 1 (System Identity)
+
+**Release line:** Update from v0.17.2 to:
+
+```
+**Release:** v0.21.0 (2026-04-16: earnings filter hard block SD#33; prior: v0.19.0 SPY-matched excess instrumentation SD#41 D1; v0.18.0 IB cold storage SD#41; v0.17.2 Grafana Loki + NSSM)
+```
+
+**Tech stack — Trading line:** Update to:
+
+```
+- Trading: Alpaca paper + live API (bracket orders, GTC); IB Gateway dormant
+  per SD#41 (`trading.ib_enabled=false`), all code preserved for reactivation
+```
+
+---
+
+### Doc Task 2 — MASTER.md Section 2 (Current State)
+
+**Key Metrics table:** Update all stale values. Critical fixes:
+
+- `Closed trades` → `85 closed (verify via shadow-status)`
+- `Phase` → `1 (Diagnostic) -- paper $100K + $100 live via Alpaca. SD#41 REVISED: halt optimization, run diagnostics first.`
+- All file/doc counts → current values from table above
+
+**Deployed Components table:** Add/update:
+
+- Earnings filter (SD#33): `LIVE — v0.21.0, hard block within 10 calendar days of earnings`
+- SPY-matched excess instrumentation: `LIVE — v0.19.0, primary metric is now excess-Sharpe`
+- IB integration: `DORMANT — v0.18.0, trading.ib_enabled=false, all code preserved`
+- Dashboard: `LIVE — 25 pages (Trade History replaces Broker Comparison; excess-Sharpe lead panel)`
+- Remove "PEAD enrichment (5 signals)" line — PEAD is dead per SD#3
+
+**Add new subsections after Diagnostic D2 Status:**
+
+```markdown
+### Forensic Analysis Status (2026-04-16)
+
+- **Report:** `docs/research/deep-research/Arcis-Forensic-Analysis-2026-04-16.pdf`
+- **Key finding:** Per-trade Sharpe 3.38 is SPY beta during a bull run, not alpha.
+  Mean excess vs SPY = +0.039% with t=0.098 over 75 matched periods.
+- **Action:** SD#41 REVISED — halt Phase 1 optimization, run 3 diagnostics first.
+- **Diagnostic D1 (SPY excess):** COMPLETE — v0.19.0, all 85 trades backfilled
+- **Diagnostic D2 (attribution audit):** COMPLETE — Hypothesis B confirmed (yfinance MultiIndex bug), fix sprint drafted
+- **Diagnostic D3 (regime/sector):** COMPLETE or IN PROGRESS (check branch status)
+- **Attribution resolver fix:** THIS SPRINT — executing now
+- **Stage 1 OOS validation:** NOT STARTED — gate: excess-mean > 0 at t > 1.0 over 30 trades
+- **Stage 2 OOS validation:** NOT STARTED — gate: excess-Sharpe ≥ 0.5 at t ≥ 2.0 over 150 trades
+
+### Permanent Methodology Guardrails (SD#41 REVISED)
+
+1. Every Sharpe claim must specify raw vs excess vs alpha
+2. Every metric update must refresh the trade count
+3. Category 2 forensics (own data) runs before Category 1 (literature) when both available
+4. Attribution claims require methodology review — "100% accuracy" should trigger skepticism
+```
+
+**Known Blockers:** Update to:
+
+```
+- Attribution resolver produces garbage data (yfinance MultiIndex bug); fix IN THIS SPRINT
+- Alpha vs SPY is statistically zero at N=85; Stage 1 OOS validation not started
+- Regime classifier NULL on 67% of trades (D3 status: check branch)
+- sector_context 100% NULL (realized_sector backfilled as temporary fix via D1)
+- Database on OneDrive path risks WAL corruption (incident #181)
+- UPS not yet purchased (CyberPower CP1500PFCLCD, ~$220)
+```
+
+---
+
+### Doc Task 3 — MASTER.md Section 5 (Strategy Decisions)
+
+**Update heading count:** "40 confirmed" → "41 confirmed"
+
+**Add SD#41:**
+
+```
+41. SD#41 REVISED: Diagnostic-first plan (docs/research/SD-41-REVISED-diagnostic-first-plan.md).
+    Forensic analysis of 85 closed trades revealed per-trade Sharpe 3.38 is SPY beta during a
+    bull run (excess vs SPY = +0.039%, t=0.098). HALT Phase 1 optimization. Run 3 diagnostics:
+    D1 SPY excess instrumentation (DONE v0.19.0), D2 attribution resolver audit (DONE, Hypothesis B
+    — yfinance MultiIndex bug), D3 regime/sector diagnostic (check status). New IB gate:
+    excess-Sharpe ≥ 0.5 at t ≥ 2.0 over 150 OOS trades. Fund timeline: 24-30 months (was 18-24).
+    Supersedes prior SD#41 trade lifecycle synthesis. Category 2 overrides Category 1.
+```
+
+**Update SD#3:** `~~Strategy #3 = Evolved PEAD (Phase 3)~~ **ELIMINATED.** PEAD dead for large caps (Martineau 2022, Subrahmanyam 2025). Replaced by Options Volatility Desk in Phase 3-4.`
+
+**Update SD#17:** Add: `**COMPROMISED (D2 audit 2026-04-16):** resolver produces 100% loss due to yfinance MultiIndex bug. Fix sprint executing. All attribution claims rescinded until re-resolution.`
+
+**Update SD#36:** Add: `**REDEFINED (SD#41 REVISED):** excess-Sharpe ≥ 0.5 at t ≥ 2.0 over 150 OOS trades (was raw Sharpe-based at 50 trades). See Section 6.`
+
+---
+
+### Doc Task 4 — MASTER.md Section 6 (Phase Gates)
+
+**Replace Phase 1→2 gate row:**
+
+```
+| Phase 1 -> 2 | **REDEFINED (SD#41 REVISED):** excess-Sharpe ≥ 0.5 at t ≥ 2.0 over 150 OOS trades, zero critical bugs, 7-day uptime, ≥90% conviction parse. Raw Sharpe gate deprecated. Attribution with FIXED resolver (≥50 paired trades). Stress test (2008/2020/2022). | 85 closed, D1/D2 done, D3 in progress, resolver fix executing, Stage 1 OOS not started | ~15% (diagnostics) |
+```
+
+**Update GRPO row:** `85 closed (approaching threshold) | Blocked on hardware + excess-Sharpe validation`
+
+---
+
+### Doc Task 5 — MASTER.md Section 8 (Revenue & Business)
+
+**Timeline table:** Shift all milestones +6-12 months per SD#41 REVISED:
+- Month 6 → 9-12 (Phase 1 validation)
+- Month 12 → 15-18 (first external revenue)
+- Month 24 → 30 (fund formation)
+- Month 36 → 36-42 (fund self-sustaining)
+
+Add note: `Timeline extended 6-12 months per SD#41 REVISED. Wyoming LLC (July 2026) is calendar-driven.`
+
+**Future Desks intraday entry:** Add `Feasibility research in progress (docs/research/deep-research/intraday-desk-feasibility-prompt.md).`
+
+---
+
+### Doc Task 6 — MASTER.md Section 11 (Sprint Queue)
+
+**Replace entire active queue** with SD#41 REVISED diagnostic-first plan (see the table in the goal section above). Move all existing DONE items to a "Completed Sprints (historical)" subsection.
+
+Add Research Queue subsection: intraday feasibility (drafted), Connors RSI(2) (pending), options vol desk (Phase 3-4).
+
+---
+
+### Doc Task 7 — MASTER.md Section 12 (Reference Pointers)
+
+Update dashboard page count (22 → 25). Remove "Broker Comparison" from page list, add "Trade History (excess-Sharpe lead panel, SD#41 D1)". Verify all page names match `frontend/src/pages/*.jsx`.
+
+---
+
+### Doc Task 8 — Dashboard pages: stale reference check
+
+```bash
+# Check for stale hardcoded values
+grep -rn "3\.38\|Sharpe.*1\.0\|50 trades\|18 closed\|Broker Comparison" frontend/src/pages/ --include="*.jsx" | head -10
+
+# Check for roadmap page
+ls frontend/src/pages/Roadmap* 2>/dev/null
+grep -rn "roadmap\|phase.*gate\|milestone" frontend/src/pages/ --include="*.jsx" | head -10
+```
+
+If stale references found, update them. If a Roadmap page exists, update for SD#41 REVISED (excess-Sharpe gates, 24-30mo timeline, diagnostic progress).
+
+---
+
+### Doc Task 9 — README.md + CHANGELOG.md + RELEASES.md consistency
+
+- README version badge → v0.21.0 (or whatever the latest tag is after this sprint)
+- CHANGELOG version order descending
+- RELEASES has all three new versions
+- No "Phase 1 gate: Sharpe 1.0" language anywhere — all references use excess-Sharpe
+
+---
+
+## Combined Success Criteria (Parts 1 + 2)
+
+**Part 1 (Resolver Fix):**
+1. `simulate_mechanical_outcome` handles MultiIndex OHLCV
+2. 3+ unit tests protect against regression
+3. `attribution_trades` has `resolution_version`, old values archived
+4. Fingerprint count drops from 1,600 to minority
+5. `win` + `timeout` > 0 in v2_fixed resolutions
+6. Audit doc citation freeze lifted
+7. MASTER.md D2 Status set to CLOSED
+
+**Part 2 (Doc Sweep):**
+8. MASTER.md reflects all merges from 2026-04-16
+9. Phase gates use excess-Sharpe everywhere
+10. Trade count is 85+, not 18
+11. Attribution claims marked rescinded (until Part 1 re-resolves)
+12. Sprint queue reflects diagnostic-first plan
+13. Revenue timeline shows 24-30mo
+14. Dashboard pages have no stale hardcoded metrics
+15. `scripts/verify_docs.py` passes
+16. `cd frontend && npm run build` succeeds
+
+---
+
+## Combined Commit Messages
+
+**Part 1 commits (resolver fix):**
+```
+feat(schema): add resolution_version + v1 archive columns to attribution_trades
+fix(attribution): flatten yfinance MultiIndex before simulate_mechanical_outcome
+test(attribution): MultiIndex + flat-columns + missing-data regression tests
+feat(scripts): re-resolve 1,600 compromised attribution rows (v2_fixed)
+docs: lift D2 citation freeze, update MASTER.md D2 Status → CLOSED
+```
+
+**Part 2 commits (doc sweep):**
+```
+docs(master): update Sections 1-2 (release, metrics, forensic status, guardrails)
+docs(master): update Sections 5-6 (SD#41, PEAD eliminated, phase gates redefined)
+docs(master): update Sections 8+11 (revenue timeline, sprint queue)
+docs(master): update Section 12 (dashboard pages, reference pointers)
+feat(frontend): update dashboard pages for post-forensic state
+docs: README/CHANGELOG/RELEASES consistency
+```
