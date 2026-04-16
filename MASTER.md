@@ -960,6 +960,7 @@ VIX >40, system offline.
 | -- | **Saturday model retrain (halcyon-v2.0.0)** | BLOCKED — gated on excess-Sharpe validation per SD#41 REVISED |
 | -- | **Bracket calibration analysis** | QUEUED — MFE analysis on 69% stale exits |
 | -- | **iOS app (Capacitor)** | Backlog — native wrapper for dashboard |
+| -- | **alpaca-py canonicalization** | DONE v0.22.1 — migration already complete; version pin tightened to `>=0.43,<1.0`, CI guardrail test added, per-call-site best-practices audit + Phase 6 streaming-gap doc landed |
 | -- | **Repo reorganization** | Backlog |
 
 ### Research Queue
