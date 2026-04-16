@@ -966,9 +966,20 @@ VIX >40, system offline.
 
 | Topic | Status |
 |---|---|
-| Intraday desk feasibility | `docs/research/deep-research/intraday-desk-feasibility-prompt.md` — drafted |
+| Intraday desk feasibility | `docs/research/deep-research/intraday-desk-feasibility-report.md` — report delivered |
 | Connors RSI(2) MR validation | Pending — MR paper trading accumulating data |
 | Options volatility desk (Phase 3-4) | Scoped — gated on Phase 2 |
+
+### Infrastructure Prep (Intraday Optionality)
+
+These preserve Phase 6 intraday-desk optionality per the feasibility report.
+Each is cheap to do now, expensive to retrofit later.
+
+| Task | Status | Preserves |
+|---|---|---|
+| alpaca-py SDK migration | SPEC WRITTEN — `docs/sprints/sprint-alpaca-py-migration.md`. Audit shows migration already complete; spec documents verification + CI guardrail + intraday-streaming readiness note | Legacy `alpaca-trade-api` SDK is deprecated; intraday Phase 6 needs `TradingStream` + `StockDataStream` from the modern SDK |
+| asyncio handler refactor | SPEC PENDING | 60-second poll loop restructured into `on_tick` / `on_daily_bar` / `on_fill` / `on_signal` handlers so Phase 6 plugs in without a rewrite |
+| 1-minute bar collection | SPEC PENDING | ~2.3 MB/day of historical 1-min OHLCV for S&P 100; forward-fill starts accumulating the moment it's turned on |
 
 ### Completed Sprints (historical)
 
