@@ -400,10 +400,10 @@ export default function Dashboard() {
           <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>Training Progress</h3>
           {training && (
             <div className="space-y-3 text-sm">
-              <div className="flex justify-between"><span style={{ color: 'var(--arcis-border)' }}>Model</span><span>{training.model_name}</span></div>
-              <div className="flex justify-between"><span style={{ color: 'var(--arcis-border)' }}>Examples</span><span style={{ fontFamily: 'var(--font-mono)' }}>{training.dataset_total}</span></div>
-              <div className="flex justify-between"><span style={{ color: 'var(--arcis-border)' }}>New</span><span style={{ fontFamily: 'var(--font-mono)' }}>{training.new_since_last_train}</span></div>
-              <div className="flex justify-between"><span style={{ color: 'var(--arcis-border)' }}>Status</span>
+              <div className="flex justify-between"><span style={{ color: 'var(--arcis-text-secondary)' }}>Model</span><span>{training.model_name}</span></div>
+              <div className="flex justify-between"><span style={{ color: 'var(--arcis-text-secondary)' }}>Examples</span><span style={{ fontFamily: 'var(--font-mono)' }}>{training.dataset_total}</span></div>
+              <div className="flex justify-between"><span style={{ color: 'var(--arcis-text-secondary)' }}>New</span><span style={{ fontFamily: 'var(--font-mono)' }}>{training.new_since_last_train}</span></div>
+              <div className="flex justify-between"><span style={{ color: 'var(--arcis-text-secondary)' }}>Status</span>
                 <StatusBadge text={training.train_queued ? 'Queued' : 'Collecting'} variant={training.train_queued ? 'warning' : 'info'} />
               </div>
               <div className="mt-2">
