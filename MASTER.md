@@ -59,8 +59,8 @@ with an unbeatable technological moat.
 | Open positions | ~2 (verify with shadow-status) |
 | Model | halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF); v2.0.0 retrain in progress |
 | Training data | 1,722 examples (1,019 + 703 regime-diverse backfill) |
-| Tests | 1,794 tests across 147 test files |
-| Python files | 223 |
+| Tests | 1,801 tests across 148 test files |
+| Python files | 225 |
 | Dashboard pages | 24 |
 | Research docs | 91 |
 | Sprint docs | 43 |
