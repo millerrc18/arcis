@@ -261,17 +261,16 @@ def test_maybe_premarket_candidates_skips_after_925():
 # ── Integration: Phase B dispatch path ────────────────────────────────
 
 
-def test_register_default_handlers_binds_all_14():
-    """WatchLoop._register_default_handlers registers exactly the 14 exported handlers."""
+def test_register_default_handlers_binds_all_handlers():
+    """WatchLoop._register_default_handlers registers OVERNIGHT + DAYTIME handlers."""
     from src.scheduler.watch import WatchLoop
+    from src.scheduler.watch_handlers import ALL_HANDLERS
     loop = WatchLoop(config={})
     loop._register_default_handlers()
     assert "on_tick" in loop._handlers
-    assert len(loop._handlers["on_tick"]) == 14
-    # The bound names must match the exported handler names so log output
-    # and debugging stay readable.
+    assert len(loop._handlers["on_tick"]) == len(ALL_HANDLERS)
     bound_names = [h.__name__ for h in loop._handlers["on_tick"]]
-    expected_names = [h.__name__ for h in OVERNIGHT_HANDLERS]
+    expected_names = [h.__name__ for h in ALL_HANDLERS]
     assert bound_names == expected_names
 
 
@@ -339,6 +338,86 @@ def test_dispatch_sync_fires_overnight_handlers_at_correct_times(monkeypatch):
     # Every target task must appear exactly once
     for _, expected in schedule:
         assert expected in fired_names, f"{expected} did not fire"
+
+
+# ── maybe_stats_pulse (daytime handler) ───────────────────────────────
+
+
+def _make_stats_watch() -> SimpleNamespace:
+    """Watch stand-in for stats-pulse handler (no overnight-guard needed)."""
+    safe_run_calls: list[str] = []
+
+    def safe_run(name: str, func):
+        safe_run_calls.append(name)
+        func()
+        return True
+
+    return SimpleNamespace(
+        overnight=False,                      # overnight-mode shouldn't matter
+        _is_market_open=lambda now: True,     # market open during midday pulse
+        _safe_run=safe_run,
+        _safe_run_calls=safe_run_calls,
+        _stats_premarket_done=False,
+        _stats_midday_done=False,
+        _stats_postclose_done=False,
+    )
+
+
+def test_stats_pulse_skips_weekends():
+    from src.scheduler import watch_handlers
+    w = _make_stats_watch()
+    watch_handlers.maybe_stats_pulse(w, SAT(12, 0))
+    assert w._safe_run_calls == []
+
+
+def test_stats_pulse_fires_premarket_at_745(monkeypatch):
+    from src.scheduler import watch_handlers
+    monkeypatch.setattr(watch_handlers, "_send_stats_pulse", lambda label: None)
+    w = _make_stats_watch()
+    watch_handlers.maybe_stats_pulse(w, MON(7, 45))
+    assert len(w._safe_run_calls) == 1
+    assert "PRE-MARKET" in w._safe_run_calls[0]
+    assert w._stats_premarket_done is True
+
+
+def test_stats_pulse_fires_midday_at_1200(monkeypatch):
+    from src.scheduler import watch_handlers
+    monkeypatch.setattr(watch_handlers, "_send_stats_pulse", lambda label: None)
+    w = _make_stats_watch()
+    watch_handlers.maybe_stats_pulse(w, MON(12, 0))
+    assert len(w._safe_run_calls) == 1
+    assert "MIDDAY" in w._safe_run_calls[0]
+    assert w._stats_midday_done is True
+
+
+def test_stats_pulse_fires_postclose_at_1605(monkeypatch):
+    from src.scheduler import watch_handlers
+    monkeypatch.setattr(watch_handlers, "_send_stats_pulse", lambda label: None)
+    w = _make_stats_watch()
+    watch_handlers.maybe_stats_pulse(w, MON(16, 5))
+    assert len(w._safe_run_calls) == 1
+    assert "POST-CLOSE" in w._safe_run_calls[0]
+    assert w._stats_postclose_done is True
+
+
+def test_stats_pulse_idempotent_per_window(monkeypatch):
+    """Once a pulse's done-flag is set, a later tick in the same window doesn't re-fire."""
+    from src.scheduler import watch_handlers
+    monkeypatch.setattr(watch_handlers, "_send_stats_pulse", lambda label: None)
+    w = _make_stats_watch()
+    watch_handlers.maybe_stats_pulse(w, MON(12, 0))  # fires midday
+    watch_handlers.maybe_stats_pulse(w, MON(12, 3))  # still in midday window
+    assert len(w._safe_run_calls) == 1
+
+
+def test_stats_pulse_skips_between_windows(monkeypatch):
+    """No pulse at 8:30, 14:00, etc. — between configured windows."""
+    from src.scheduler import watch_handlers
+    monkeypatch.setattr(watch_handlers, "_send_stats_pulse", lambda label: None)
+    w = _make_stats_watch()
+    for h, m in [(8, 30), (10, 0), (14, 30), (18, 0)]:
+        watch_handlers.maybe_stats_pulse(w, MON(h, m))
+    assert w._safe_run_calls == []
 
 
 def test_dispatch_sync_handlers_are_idempotent_across_ticks(monkeypatch):

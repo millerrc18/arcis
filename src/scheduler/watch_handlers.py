@@ -209,7 +209,50 @@ def _notify_premarket_complete(watch: "WatchLoop") -> None:
         logger.warning("[WATCH] notify_premarket_complete failed: %s", exc)
 
 
-# ── Canonical handler list — consumed by WatchLoop._register_default_handlers ──
+# ── Market-hours / daytime pulses ──────────────────────────────────────
+
+
+def maybe_stats_pulse(watch: "WatchLoop", now: datetime) -> None:
+    """3× daily trading-stats pulse — pre-market (7:45), midday (12:00),
+    post-close (16:05). Weekdays only. Each window has its own done-flag
+    so the pulse fires at most once per window per day.
+
+    Safe to skip quietly on rare edge cases (empty DB, no closed trades) —
+    `notify_trading_stats_update` returns without sending in that case.
+    """
+    if now.weekday() >= 5:
+        return
+    schedule = [
+        ("_stats_premarket_done", 7, 45, 8, 0, "PRE-MARKET"),
+        ("_stats_midday_done", 12, 0, 12, 5, "MIDDAY"),
+        ("_stats_postclose_done", 16, 5, 16, 10, "POST-CLOSE"),
+    ]
+    for flag, h_start, m_start, h_end, m_end, label in schedule:
+        if getattr(watch, flag, True):
+            continue  # already done today or flag missing
+        fires = (
+            (now.hour, now.minute) >= (h_start, m_start)
+            and (now.hour, now.minute) < (h_end, m_end)
+        )
+        if not fires:
+            continue
+        if watch._safe_run(f"stats pulse ({label})",
+                           lambda lbl=label: _send_stats_pulse(lbl)):
+            setattr(watch, flag, True)
+        return  # one pulse per tick
+
+
+def _send_stats_pulse(label: str) -> None:
+    """Compute stats + send via Telegram. Extracted so _safe_run wraps it."""
+    from src.journal.stats import compute_all_window_stats
+    from src.notifications.telegram import notify_trading_stats_update, is_telegram_enabled
+    if not is_telegram_enabled():
+        return
+    stats = compute_all_window_stats()
+    notify_trading_stats_update(stats, label=label)
+
+
+# ── Canonical handler lists — consumed by WatchLoop._register_default_handlers ──
 
 OVERNIGHT_HANDLERS = [
     maybe_morning_vram_handoff,
@@ -227,3 +270,9 @@ OVERNIGHT_HANDLERS = [
     maybe_premarket_news_scoring,
     maybe_premarket_candidates,
 ]
+
+DAYTIME_HANDLERS = [
+    maybe_stats_pulse,
+]
+
+ALL_HANDLERS = OVERNIGHT_HANDLERS + DAYTIME_HANDLERS

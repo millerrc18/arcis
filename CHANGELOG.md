@@ -1,5 +1,81 @@
 # Changelog
 
+## [v0.23.4] - 2026-04-16 — Telegram Refresh: richer trade pings + periodic stats pulses
+
+Long overdue operator-experience pass on the notification layer. The
+`notify_trade_opened` / `notify_trade_closed` pings now carry sector,
+regime, VIX, conviction, R:R, MFE/MAE, excess vs SPY, and slippage —
+everything an operator needs to evaluate a fill without opening the
+dashboard. Three new stats pulses (7:45, 12:00, 16:05 ET) give
+trade-count + win rate + PnL + excess-Sharpe across today / 7d / 30d /
+all-time, so performance is visible throughout the day. Coverage gaps
+from today's new work (1-min bar collection, attribution resolver,
+stress test) are filled with dedicated notifications.
+
+### Added
+
+- **`notify_trading_stats_update(stats, label)`** — formatted 4-window
+  summary sent 3× per weekday (pre-market, midday, post-close). Silent
+  on empty DB.
+- **`src/journal/stats.py`** — `compute_window_stats` / `compute_all_window_stats`
+  helpers that aggregate closed `shadow_trades` (excluding open +
+  quarantined) across `today` / `7d` / `30d` / `all_time`. Excess-Sharpe
+  shown only once ≥10 closed trades in a window.
+- **`notify_1min_bar_collection`** — nightly confirmation from the
+  Phase B overnight handler (bars, tickers, empty %, storage MB).
+- **`notify_attribution_resolve_complete`** — resolved count + pending
+  remaining, posted after the 4:30 PM ET resolver job.
+- **`notify_stress_test_complete`** — scenario pass/fail summary, posted
+  after the model-version-triggered 7 PM re-run.
+- **`maybe_stats_pulse`** — new DAYTIME handler registered via
+  `_register_default_handlers` alongside the 14 overnight handlers. Three
+  done-flags (`_stats_{premarket,midday,postclose}_done`) reset daily.
+
+### Changed
+
+- **`notify_trade_opened`** — extended with optional `sector`,
+  `regime_at_entry`, `vix_at_entry`, `concurrent_positions`,
+  `llm_conviction` kwargs. Existing callers unchanged (all kwargs
+  default to None; rendering is graceful when fields missing).
+  `scan_service.py` caller now passes the enriched fields it already
+  has from the feature row + current open-position count.
+- **`notify_trade_closed`** — extended with optional `sector`, regime
+  transition, `mfe_pct`, `mae_pct`, `excess_return`,
+  `spy_return_over_hold`, `drawdown_from_mfe`, `entry_slippage_bps`,
+  `exit_slippage_bps`. `executor.py` caller passes the full
+  `shadow_trades` row so all fields render. Extracted
+  `_format_closed_extras` helper to keep `notify_trade_closed`
+  under the 60-line cap.
+- **`src/scheduler/watch_handlers.py`** — added `DAYTIME_HANDLERS` list
+  + `ALL_HANDLERS = OVERNIGHT_HANDLERS + DAYTIME_HANDLERS`.
+  `_register_default_handlers` now registers all 15.
+- **`src/scheduler/overnight.py`** — `run_1min_bar_collection` fires
+  the new notification; new `run_attribution_resolution_and_notify`
+  wrapper calls the resolver + posts the summary. `run_stress_test`
+  now posts the pass/fail summary at the end.
+- **`src/scheduler/watch.py`** — attribution-resolve branch delegates
+  to `run_attribution_resolution_and_notify`; new stats-pulse done-flags
+  initialized in `__init__` and reset in `_reset_daily_state`.
+
+### Added (tests)
+
+- **`tests/test_journal_stats.py`** — 9 tests covering empty DB,
+  open-trade exclusion, quarantined exclusion, window boundaries
+  (today / 7d / 30d / all_time), win rate math, excess-Sharpe minimum
+  threshold, NULL excess_return handling, + 2 smoke tests for the
+  notification formatter.
+- **`tests/test_watch_handlers.py`** +6 `maybe_stats_pulse` tests: skip
+  on weekend, fire at 7:45 / 12:00 / 16:05, idempotent per window,
+  no-op between windows.
+
+### Verified
+
+- 85 tests pass across the relevant suites (registry, handlers, bootstrap,
+  resilience, import, journal stats, repo structure).
+- Frontend builds clean.
+- `notify_trade_closed` now 37 lines — helper extraction brings it well
+  under the 60-line cap.
+
 ## [v0.23.3] - 2026-04-16 — Hotfix: resolve_pending_outcomes future-window filter
 
 Fourth bug from the Task 1 operational sweep — the `reresolve_attribution.py`
