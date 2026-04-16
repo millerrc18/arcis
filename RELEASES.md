@@ -49,6 +49,52 @@
 
 ## Releases
 
+### v0.21.0 — Earnings Filter Hard Block (2026-04-16)
+
+Closes the earnings gap-risk hole at the entry gate. The earnings pipeline
+(nightly scraper, per-ticker lookup, executor tagging, risk governor path)
+was already built and working — this release fixes the scoring-scale
+mismatch that let earnings-imminent tickers slip past the filter on calm
+market days.
+
+**Authority:** Sprint spec `docs/sprints/sprint-H1-earnings-filter.md`;
+Strategy Decision #33 earnings 7-day exclusion zone.
+
+**The bug:**
+- `compute_event_risk_score` added only +4 for earnings <=2 days out
+- Hard-block threshold is 8
+- On calm days (market score 0-2), earnings-imminent tickers never crossed
+  the block threshold and were sized normally
+
+**The fix (`src/features/event_risk_score.py`):**
+- Earnings within 10 calendar days (~7 trading days with two weekends)
+  sets `earnings_proximity = block_threshold` and floors `total_score`
+  at the threshold
+- This forces `sizing_multiplier = 0.0`, which the risk governor already
+  rejects as `"Event risk hard block: no new entries"` (governor.py:430)
+- New `components["earnings_forces_block"]` (bool) gives consumers a
+  direct signal independent of score arithmetic
+
+**Tests:**
+- New `tests/features/test_event_risk_earnings.py` — 9 regression cases
+  (5 core scenarios + parametric boundary at days_until=0/10/11 +
+  earnings_forces_block key-presence when no earnings)
+- Updated existing `tests/test_event_risk_score.py::test_compute_event_risk_score_adds_earnings_and_blocks`
+  to the new contract (earnings_proximity now equals block_threshold)
+
+**Unchanged infrastructure (confirmed during Pass 1 audit — no rebuild):**
+- `scripts/fetch_earnings_calendar.py` (nightly scraper)
+- `src/features/earnings.py::get_next_earnings_date` (lookup + yfinance fallback)
+- `src/shadow_trading/executor.py:570, 1934` (earnings_adjacent tagging)
+- `src/risk/governor.py:430` (hard-block reject path)
+- `shadow_trades.earnings_adjacent` column
+
+**Out-of-scope (per spec — deferred to later SDs):**
+- Closing open positions that cross earnings mid-hold (force-exit layer)
+- Post-earnings re-entry cooldown (third layer of SD#33 defense)
+- Backfilling historical `earnings_adjacent` flags
+- Dashboard changes (reject surfaces in existing governor logs)
+
 ### v0.17.0 — IB Integration Complete + Dashboard Overhaul + Training Backfill (2026-04-12)
 
 The first release to ship the full Interactive Brokers stack alongside Alpaca,
