@@ -1,5 +1,56 @@
 # Changelog
 
+## [v0.18.0] - 2026-04-16 — IB Cold Storage (SD#41)
+
+Disable Interactive Brokers integration through Phase 1 while preserving
+every line of IB code for fast reactivation. The entire change is gated by
+a single `trading.ib_enabled` flag. Default Alpaca-only operation; flipping
+the flag to `true` and restarting the watch loop restores prior behavior.
+
+### Added
+
+- **Top-level `trading.ib_enabled` flag** (default `false`) in
+  `config/settings.example.yaml` and `config/settings.local.yaml`. Cross-cutting
+  feature flag, distinct from `live_trading.broker` (which selects between
+  brokers but no longer overrides the gate).
+- **3 regression tests** (`tests/test_ib_cold_storage.py`) covering the
+  fallback path, the explicit-opt-in escape hatch, and the default-config
+  invariant.
+- **Settings page Broker Status panel** — shows "Alpaca · Active" and
+  "IB · Dormant (SD#41)" with a one-line note about reactivation.
+
+### Changed
+
+- **`broker_factory.get_live_broker`** falls back to Alpaca with a `[BROKER]`
+  warning when `broker=ib` but `trading.ib_enabled=false`. IB
+  instantiation code path is preserved verbatim, just gated.
+- **`executor._select_paper_broker`** skips IB paper-routing entirely when
+  cold-stored, so high-score paper trades stay on Alpaca.
+- **`executor.open_shadow_trade` / `place_paper_exit`** skip IB shadow-log
+  writes (entry + exit call sites) when cold-stored.
+- **`reconcile.reconcile_paper_trades`** defers the IB position fetch when
+  cold-stored. Tracked IB-broker positions (TGT, etc.) get a single
+  `[RECONCILE]` info log per cycle indicating brackets resolve naturally.
+- **`scheduler.watch.WatchLoop.run`** logs `[WATCH] IB integration dormant
+  per SD#41. Alpaca-only mode.` once at startup, and short-circuits the
+  IB Gateway health-check loop.
+- **6 existing IB tests** now opt-in to the IB code path via
+  `trading.ib_enabled=true` in their config dicts.
+
+### Preserved (not deleted)
+
+- `src/trading/ib_broker.py`, `src/trading/ib_shadow.py`
+- `src/api/cloud_routes/ib_shadow.py`, `src/api/routes/ib_status.py`
+- `ib_shadow_log` database table (queryable, just stops growing)
+- `ib_async` dependency in `requirements.txt`
+- All `live_trading.ib.*` config keys (host, port, paper_routing, shadow_mode)
+- IBShadow.jsx component file (no route changes)
+
+### Authority
+
+- `docs/research/SD-41-defer-ib-integration.md`
+- Sprint spec: `docs/sprints/sprint-ib-cold-storage.md`
+
 ## [v0.17.2] - 2026-04-15 — Hotfix: Grafana Cloud Loki MVP (SD#40) + NSSM service installer
 
 Centralized log aggregation and 24/7 Windows service management, plus a

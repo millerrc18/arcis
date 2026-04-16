@@ -81,7 +81,7 @@ with an unbeatable technological moat.
 | Between-scan quality scoring | LIVE -- GuardedScorer Ollama |
 | Command queue + config overrides | LIVE -- pull-based |
 | 12 overnight collectors | RUNNING |
-| Broker abstraction (IB + Alpaca) | READY -- config-driven, IB activation gated on validation |
+| Broker abstraction (Alpaca active, IB dormant) | LIVE -- Alpaca only; IB cold-stored per SD#41 (`trading.ib_enabled=false`), all IB code preserved for reactivation |
 | Telegram | LIVE -- 56 functions, gated behind trade_id |
 | Intra-day reconciliation | LIVE -- every 15 min during market hours |
 | Dashboard (Arcis) | LIVE -- 24 pages (adds Broker Comparison, Velocity), dark/light toggle, mobile-responsive sidebar |
@@ -176,6 +176,7 @@ with an unbeatable technological moat.
 | Hotfix merge sprint | v0.14.2 | 6 critical bugs (#307-312), codex telegram fix (#299-301), 9 Dependabot PRs, 5 branch cleanup |
 | IB shadow dashboard | -- | Cloud API routes + dashboard page for IB shadow mode comparison analytics |
 | Observability MVP (SD#40) | -- | Grafana Cloud Loki handler (raw HTTP, no new deps), DedupFilter, ctx→label propagation, NSSM Windows service installer (`scripts/install_service.ps1`), Postgres startup-timeout fix |
+| IB cold storage (SD#41) | -- | v0.18.0, `trading.ib_enabled=false` gate across broker_factory/executor/reconcile/watch, Settings IB · Dormant indicator, 3 regression tests, all IB code preserved |
 
 ---
 
