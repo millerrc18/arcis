@@ -979,7 +979,7 @@ Each is cheap to do now, expensive to retrofit later.
 | Task | Status | Preserves |
 |---|---|---|
 | alpaca-py SDK migration | SPEC WRITTEN — `docs/sprints/sprint-alpaca-py-migration.md`. Audit shows migration already complete; spec documents verification + CI guardrail + intraday-streaming readiness note | Legacy `alpaca-trade-api` SDK is deprecated; intraday Phase 6 needs `TradingStream` + `StockDataStream` from the modern SDK |
-| asyncio handler refactor | SPEC PENDING | 60-second poll loop restructured into `on_tick` / `on_daily_bar` / `on_fill` / `on_signal` handlers so Phase 6 plugs in without a rewrite |
+| asyncio handler refactor | SPEC WRITTEN — `docs/sprints/sprint-asyncio-handler-refactor.md`. Restructures the 60-second poll loop in `src/scheduler/watch.py` (2,023 lines) into `on_tick` / `on_daily_bar` / `on_fill` / `on_signal` handlers via an asyncio event loop | Phase 6 intraday plugs `StockDataStream` bar handlers and `TradingStream` fill handlers into the same event loop instead of rewriting the scheduler |
 | 1-minute bar collection | **DONE v0.23.0** — `scripts/collect_1min_bars.py`, nightly at 11:30 PM ET | ~2.3 MB/day of historical 1-min OHLCV for S&P 100; forward-fill starts accumulating the moment it's turned on |
 
 ### Completed Sprints (historical)
