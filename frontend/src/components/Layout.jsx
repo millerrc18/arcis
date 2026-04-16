@@ -13,7 +13,7 @@ const navSections = [
     { to: '/packets', icon: FileText, label: 'Packets' },
     { to: '/shadow', icon: TrendingUp, label: 'Shadow Ledger' },
     { to: '/live', icon: DollarSign, label: 'Live Ledger' },
-    { to: '/ib-shadow', icon: GitCompare, label: 'Broker Comparison' },
+    { to: '/trade-history', icon: BarChart3, label: 'Trade History' },
     { to: '/strategy', icon: Target, label: 'Strategy' },
   ]},
   { label: 'Intelligence', items: [

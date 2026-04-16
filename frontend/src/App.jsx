@@ -30,7 +30,7 @@ import Simulation from './pages/Simulation'
 import ModelPerformance from './pages/ModelPerformance'
 import Monitoring from './pages/Monitoring'
 import Strategy from './pages/Strategy'
-import IBShadow from './pages/IBShadow'
+import TradeHistory from './pages/TradeHistory'
 import Velocity from './pages/Velocity'
 
 // staleTime 5s: dashboard values age fast; refetchInterval 30s for most
@@ -122,7 +122,7 @@ export default function App() {
                 <Route path="/model-performance" element={<ErrorBoundary><ModelPerformance /></ErrorBoundary>} />
                 <Route path="/monitoring" element={<ErrorBoundary><Monitoring /></ErrorBoundary>} />
                 <Route path="/strategy" element={<ErrorBoundary><Strategy /></ErrorBoundary>} />
-                <Route path="/ib-shadow" element={<ErrorBoundary><IBShadow /></ErrorBoundary>} />
+                <Route path="/trade-history" element={<ErrorBoundary><TradeHistory /></ErrorBoundary>} />
                 <Route path="/velocity" element={<ErrorBoundary><Velocity /></ErrorBoundary>} />
               </Route>
             </Routes>
