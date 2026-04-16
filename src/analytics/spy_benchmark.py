@@ -3,9 +3,10 @@
 Converts Sharpe metrics from raw to excess by subtracting SPY's return
 over the same date range. Distinguishes alpha from bull-market beta drift.
 
-Called by: shadow_trading.executor (on exit), shadow_trading.reconcile,
-           scripts.backfill_spy_excess, api.cloud_routes.trades
-Owns tables: none (writes via journal.store)
+Called by: journal.store (close_shadow_trade hook), scripts.backfill_spy_excess,
+           api.cloud_routes.trades (sharpe-attribution endpoint)
+Calls: yfinance (SPY download), src.universe.sp100 (via GICS CSV)
+Owns tables: none (writes flow through journal.store.update_shadow_trade)
 Config keys: none
 Tests: tests/analytics/test_spy_benchmark.py
 """

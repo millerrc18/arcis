@@ -33,6 +33,73 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 
 
+# ── SD#41 D1 sharpe-attribution helpers ────────────────────────────────
+
+def _sharpe_with_se(values: list, n_per_year: float = 150.0):
+    """Return (sharpe, standard_error) for a list of returns, or (None, None)."""
+    if len(values) < 2:
+        return None, None
+    mean = sum(values) / len(values)
+    var = sum((v - mean) ** 2 for v in values) / (len(values) - 1)
+    std = var ** 0.5
+    if std == 0:
+        return 0.0, 0.0
+    sr = (mean / std) * (n_per_year ** 0.5)
+    se = ((1 + 0.5 * sr ** 2) / len(values)) ** 0.5
+    return sr, se
+
+
+def _interpret_t_stat(t: float) -> str:
+    """Map excess-return t-statistic to the SD#41 REVISED verdict key."""
+    if abs(t) < 1.0:
+        return "alpha_not_demonstrated"
+    if abs(t) < 2.0:
+        return "alpha_suggestive" if t > 0 else "negative_alpha_suggestive"
+    return "alpha_significant" if t > 0 else "negative_alpha_significant"
+
+
+def _build_attribution_payload(rows: list) -> dict:
+    """Compute raw + excess Sharpe, CIs, t-stat, interpretation from query rows."""
+    pnl = [float(r["pnl_pct"]) for r in rows if r["pnl_pct"] is not None]
+    raw_sr, raw_se = _sharpe_with_se(pnl)
+    excess_values = [
+        float(r["excess_return"]) for r in rows if r["excess_return"] is not None
+    ]
+    n_with_spy = len(excess_values)
+    if n_with_spy < 2:
+        return {
+            "n_trades": len(rows),
+            "trades_with_spy_data": n_with_spy,
+            "raw_sharpe": round(raw_sr, 3) if raw_sr is not None else None,
+            "excess_sharpe": None,
+            "interpretation": "insufficient_spy_data",
+        }
+    ex_sr, ex_se = _sharpe_with_se(excess_values)
+    mean_excess = sum(excess_values) / n_with_spy
+    std_excess = (
+        sum((v - mean_excess) ** 2 for v in excess_values) / (n_with_spy - 1)
+    ) ** 0.5
+    t_stat = (
+        mean_excess / (std_excess / (n_with_spy ** 0.5)) if std_excess > 0 else 0.0
+    )
+    hit_rate = sum(1 for v in excess_values if v > 0) / n_with_spy * 100
+    return {
+        "n_trades": len(rows),
+        "trades_with_spy_data": n_with_spy,
+        "trades_missing_spy_data": len(rows) - n_with_spy,
+        "raw_sharpe": round(raw_sr, 3),
+        "raw_sharpe_ci_low": round(raw_sr - 1.96 * raw_se, 3),
+        "raw_sharpe_ci_high": round(raw_sr + 1.96 * raw_se, 3),
+        "excess_sharpe": round(ex_sr, 3),
+        "excess_sharpe_ci_low": round(ex_sr - 1.96 * ex_se, 3),
+        "excess_sharpe_ci_high": round(ex_sr + 1.96 * ex_se, 3),
+        "excess_t_stat": round(t_stat, 3),
+        "mean_excess_pct": round(mean_excess, 3),
+        "hit_rate_vs_spy": round(hit_rate, 1),
+        "interpretation": _interpret_t_stat(t_stat),
+    }
+
+
 def create_router(runtime, verify_auth):
     """Build the cloud trades router."""
     router = APIRouter()
@@ -146,14 +213,7 @@ def create_router(runtime, verify_auth):
     def sharpe_attribution():
         """SD#41 REVISED primary metric: alpha vs SPY beta.
 
-        Returns raw Sharpe AND excess Sharpe with confidence intervals and
-        t-statistic. Excess is primary; raw is secondary (alpha+beta).
-
-        Interpretation keys:
-          |t| < 1.0            -> alpha_not_demonstrated
-          1.0 <= |t| < 2.0     -> alpha_suggestive (positive t) / negative_alpha_suggestive
-          |t| >= 2.0           -> alpha_significant / negative_alpha_significant
-
+        Returns raw Sharpe + excess Sharpe with 95% CIs and t-statistic.
         IB gate: excess_sharpe >= 0.5 at excess_t_stat >= 2.0 over 150 OOS trades.
         """
         try:
@@ -164,67 +224,8 @@ def create_router(runtime, verify_auth):
                 "AND COALESCE(quarantined, 0) = 0"
             )
             if not rows or len(rows) < 2:
-                return {"error": "insufficient_data",
-                        "n_trades": len(rows or [])}
-
-            def sharpe(values, n_per_year=150.0):
-                if len(values) < 2:
-                    return None, None
-                mean = sum(values) / len(values)
-                var = sum((v - mean) ** 2 for v in values) / (len(values) - 1)
-                std = var ** 0.5
-                if std == 0:
-                    return 0.0, 0.0
-                sr = (mean / std) * (n_per_year ** 0.5)
-                se = ((1 + 0.5 * sr ** 2) / len(values)) ** 0.5
-                return sr, se
-
-            pnl = [float(r["pnl_pct"]) for r in rows if r["pnl_pct"] is not None]
-            raw_sr, raw_se = sharpe(pnl)
-
-            excess_values = [float(r["excess_return"]) for r in rows
-                             if r["excess_return"] is not None]
-            n_with_spy = len(excess_values)
-            if n_with_spy < 2:
-                return {
-                    "n_trades": len(rows),
-                    "trades_with_spy_data": n_with_spy,
-                    "raw_sharpe": round(raw_sr, 3) if raw_sr is not None else None,
-                    "excess_sharpe": None,
-                    "interpretation": "insufficient_spy_data",
-                }
-
-            ex_sr, ex_se = sharpe(excess_values)
-            mean_excess = sum(excess_values) / len(excess_values)
-            std_excess = (sum((v - mean_excess) ** 2 for v in excess_values)
-                          / (len(excess_values) - 1)) ** 0.5
-            t_stat = (mean_excess / (std_excess / (n_with_spy ** 0.5))
-                      if std_excess > 0 else 0.0)
-            hit_rate = (sum(1 for v in excess_values if v > 0)
-                        / n_with_spy * 100)
-
-            if abs(t_stat) < 1.0:
-                interp = "alpha_not_demonstrated"
-            elif abs(t_stat) < 2.0:
-                interp = "alpha_suggestive" if t_stat > 0 else "negative_alpha_suggestive"
-            else:
-                interp = "alpha_significant" if t_stat > 0 else "negative_alpha_significant"
-
-            return {
-                "n_trades": len(rows),
-                "trades_with_spy_data": n_with_spy,
-                "trades_missing_spy_data": len(rows) - n_with_spy,
-                "raw_sharpe": round(raw_sr, 3),
-                "raw_sharpe_ci_low": round(raw_sr - 1.96 * raw_se, 3),
-                "raw_sharpe_ci_high": round(raw_sr + 1.96 * raw_se, 3),
-                "excess_sharpe": round(ex_sr, 3),
-                "excess_sharpe_ci_low": round(ex_sr - 1.96 * ex_se, 3),
-                "excess_sharpe_ci_high": round(ex_sr + 1.96 * ex_se, 3),
-                "excess_t_stat": round(t_stat, 3),
-                "mean_excess_pct": round(mean_excess, 3),
-                "hit_rate_vs_spy": round(hit_rate, 1),
-                "interpretation": interp,
-            }
+                return {"error": "insufficient_data", "n_trades": len(rows or [])}
+            return _build_attribution_payload(rows)
         except HTTPException:
             raise
         except Exception as exc:
