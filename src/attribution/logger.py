@@ -207,6 +207,15 @@ def resolve_pending_outcomes(db_path: str = DB_PATH) -> int:
                     if data.empty:
                         continue
 
+                    # SD#41 REVISED D2 fix — recent yfinance.download returns a
+                    # MultiIndex DataFrame for single-ticker requests. Flatten
+                    # the columns so `bar.get("Low")` resolves against the
+                    # string-keyed dict rather than missing and defaulting to 0
+                    # (which made the stop-first branch trip on every bar and
+                    # corrupted all 1,600 pre-fix resolutions).
+                    if hasattr(data.columns, "get_level_values"):
+                        data.columns = data.columns.get_level_values(0)
+
                     ohlcv = data.reset_index().to_dict("records")
                     outcome, exit_price, days = simulate_mechanical_outcome(
                         row["ranker_only_entry"], row["ranker_only_stop"],
