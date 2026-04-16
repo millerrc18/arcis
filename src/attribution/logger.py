@@ -171,11 +171,51 @@ def simulate_mechanical_outcome(
     return "timeout", entry_price, 0
 
 
+def _resolve_one_row(conn: sqlite3.Connection, row: sqlite3.Row) -> bool:
+    """Fetch OHLCV for a single pending row and update its outcome.
+
+    Returns True if the row was resolved, False if yfinance returned empty
+    or the lookup failed. Handles the SD#41 D2 MultiIndex fix — yfinance
+    returns tuple-keyed columns for single-ticker requests; flatten before
+    building the ohlcv dict list so `bar.get("Low")` hits a string key.
+    """
+    try:
+        import yfinance as yf
+        from datetime import timedelta
+        scan_date = row["scan_timestamp"][:10]
+        start = datetime.fromisoformat(scan_date) + timedelta(days=1)
+        end = start + timedelta(days=8)  # 7-day timeout + 1
+        data = yf.download(
+            row["ticker"], start=start.strftime("%Y-%m-%d"),
+            end=end.strftime("%Y-%m-%d"), progress=False, auto_adjust=True,
+        )
+        if data.empty:
+            return False
+        if hasattr(data.columns, "get_level_values"):
+            data.columns = data.columns.get_level_values(0)
+        ohlcv = data.reset_index().to_dict("records")
+        outcome, exit_price, _ = simulate_mechanical_outcome(
+            row["ranker_only_entry"], row["ranker_only_stop"],
+            row["ranker_only_target"], 7, ohlcv,
+        )
+        pnl_pct = (exit_price - row["ranker_only_entry"]) / row["ranker_only_entry"] * 100
+        conn.execute(
+            "UPDATE attribution_trades SET ranker_only_outcome = ?, "
+            "ranker_only_pnl_pct = ? WHERE attribution_id = ?",
+            (outcome, round(pnl_pct, 2), row["attribution_id"]),
+        )
+        return True
+    except Exception as e:
+        logger.warning("[ATTRIBUTION] Failed to resolve %s: %s", row["ticker"], e)
+        return False
+
+
 def resolve_pending_outcomes(db_path: str = DB_PATH) -> int:
     """Post-close job: resolve pending attribution outcomes using historical data.
 
-    Called by the watch loop at 4:30 PM ET.
-    Returns count of resolved rows.
+    Called by the watch loop at 4:30 PM ET. Returns count of resolved rows.
+    Per-row work delegated to `_resolve_one_row` to keep this function under
+    the 60-line cap.
     """
     resolved = 0
     try:
@@ -186,59 +226,14 @@ def resolve_pending_outcomes(db_path: str = DB_PATH) -> int:
                 "ranker_only_stop, ranker_only_target, scan_timestamp "
                 "FROM attribution_trades WHERE ranker_only_outcome = 'pending'"
             ).fetchall()
-
             if not pending:
                 return 0
-
             for row in pending:
-                try:
-                    import yfinance as yf
-                    from datetime import timedelta
-
-                    scan_date = row["scan_timestamp"][:10]
-                    start = datetime.fromisoformat(scan_date) + timedelta(days=1)
-                    end = start + timedelta(days=8)  # 7-day timeout + 1
-
-                    data = yf.download(
-                        row["ticker"], start=start.strftime("%Y-%m-%d"),
-                        end=end.strftime("%Y-%m-%d"), progress=False,
-                        auto_adjust=True,
-                    )
-                    if data.empty:
-                        continue
-
-                    # SD#41 REVISED D2 fix — recent yfinance.download returns a
-                    # MultiIndex DataFrame for single-ticker requests. Flatten
-                    # the columns so `bar.get("Low")` resolves against the
-                    # string-keyed dict rather than missing and defaulting to 0
-                    # (which made the stop-first branch trip on every bar and
-                    # corrupted all 1,600 pre-fix resolutions).
-                    if hasattr(data.columns, "get_level_values"):
-                        data.columns = data.columns.get_level_values(0)
-
-                    ohlcv = data.reset_index().to_dict("records")
-                    outcome, exit_price, days = simulate_mechanical_outcome(
-                        row["ranker_only_entry"], row["ranker_only_stop"],
-                        row["ranker_only_target"], 7, ohlcv,
-                    )
-
-                    pnl_pct = ((exit_price - row["ranker_only_entry"])
-                               / row["ranker_only_entry"] * 100)
-
-                    conn.execute(
-                        "UPDATE attribution_trades SET ranker_only_outcome = ?, "
-                        "ranker_only_pnl_pct = ? WHERE attribution_id = ?",
-                        (outcome, round(pnl_pct, 2), row["attribution_id"]),
-                    )
+                if _resolve_one_row(conn, row):
                     resolved += 1
-                except Exception as e:
-                    logger.warning("[ATTRIBUTION] Failed to resolve %s: %s",
-                                   row["ticker"], e)
-
             conn.commit()
     except Exception as e:
         logger.warning("[ATTRIBUTION] resolve_pending_outcomes failed: %s", e)
-
     logger.info("[ATTRIBUTION] Resolved %d pending outcomes", resolved)
     return resolved
 
