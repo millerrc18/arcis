@@ -10,13 +10,25 @@ v1_multiindex_bug rows with a complete resolution window remain.
 Authority: docs/research/attribution-resolver-audit.md (SD#41 REVISED D2)
 Sprint: docs/sprints/sprint-attribution-resolver-fix.md
 
-Hotfix bug 1 (fixed when Ryan ran the initial script locally): the v0.22.0
-schema migration added resolution_version as a new TEXT column. Existing
-resolved rows had `resolution_version IS NULL` at the moment the column
-landed, so the snapshot step — which filtered on
-`resolution_version = 'v1_multiindex_bug'` — matched zero rows on first
-run. The `_tag_null_as_v1` pre-step below back-tags every resolved row
-with NULL resolution_version as 'v1_multiindex_bug' BEFORE snapshotting.
+Hotfix bugs (fixed when Ryan ran the initial script locally):
+
+1. **NULL resolution_version at script start.** The v0.22.0 schema migration
+   added resolution_version as a new TEXT column. Existing resolved rows had
+   `resolution_version IS NULL` at the moment the column landed. The
+   snapshot step filtered on `resolution_version = 'v1_multiindex_bug'` and
+   matched zero rows. Fix: `_tag_null_as_v1` back-tags every resolved row
+   with NULL resolution_version as 'v1_multiindex_bug' BEFORE snapshotting.
+
+2. **Future-window lookups.** The resolver computes the 7-day window as
+   `scan_timestamp + 1 day` through `+ 8 days`. For recent scans (last ~8
+   days) the end date is in the future, which makes yfinance return empty
+   and the row stay pending — fine in isolation, but the script was
+   re-resolving 1,600 rows sequentially including those future-window rows
+   (wasted API calls and time). Fix: when resetting v1 rows to 'pending',
+   only reset rows where `DATE(scan_timestamp, '+8 days') <= DATE('now')`.
+   Rows whose window hasn't fully elapsed stay v1-tagged with their
+   original outcome; the nightly `resolve_pending_outcomes` picks them up
+   naturally once their window closes.
 
 Usage:
     python scripts/reresolve_attribution.py            # normal run
@@ -91,15 +103,19 @@ def reresolve(dry_run: bool = False) -> dict:
                 "reset": 0, "reresolved": 0, "tagged": 0, "dry_run": True,
             }
 
-        # Reset v1-tagged rows to pending so resolve_pending_outcomes picks them up.
+        # Bug 2 fix — only reset rows whose 7-day window has fully elapsed.
+        # Rows scanned in the last ~8 days stay v1-tagged with their original
+        # (buggy) outcome. The nightly resolve_pending_outcomes picks them up
+        # once their window closes. Avoids wasted yfinance calls on future dates.
         n_reset = conn.execute(
             """
             UPDATE attribution_trades SET ranker_only_outcome='pending'
             WHERE resolution_version='v1_multiindex_bug'
+              AND DATE(scan_timestamp, '+8 days') <= DATE('now')
             """
         ).rowcount
         conn.commit()
-        logger.info("Reset %d v1-tagged rows to 'pending' for re-resolution", n_reset)
+        logger.info("Reset %d elapsed-window v1 rows to 'pending' for re-resolution", n_reset)
 
     # Call the fixed resolver (no connection held across the potentially-slow
     # yfinance loop).
