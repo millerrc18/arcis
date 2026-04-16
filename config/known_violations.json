@@ -823,7 +823,7 @@
     {
       "file": "src/scheduler/watch.py",
       "function": "_run_sync_body",
-      "lines": 740
+      "lines": 631
     },
     {
       "file": "src/services/mr_scan_service.py",
