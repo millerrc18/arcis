@@ -67,3 +67,24 @@ class HandlerRegistryMixin:
                     "[WATCH] Handler %s for event %s failed: %s",
                     getattr(handler, "__name__", repr(handler)), event, exc,
                 )
+
+    def _dispatch_sync(self, event: str, *args, **kwargs) -> None:
+        """Sync-context dispatch for callers already in a worker thread.
+
+        Phase B uses this inside `_run_sync_body` so the sync tick loop can
+        fire registered handlers without needing to hop back to the event
+        loop via `asyncio.run_coroutine_threadsafe`. Sync handlers run
+        directly; coroutine handlers get a short-lived asyncio.run wrap.
+        Exceptions are still logged + swallowed per the `_dispatch` contract.
+        """
+        for handler in self._handlers.get(event, []):
+            try:
+                if asyncio.iscoroutinefunction(handler):
+                    asyncio.run(handler(*args, **kwargs))
+                else:
+                    handler(*args, **kwargs)
+            except Exception as exc:
+                logger.error(
+                    "[WATCH] Handler %s for event %s failed: %s",
+                    getattr(handler, "__name__", repr(handler)), event, exc,
+                )

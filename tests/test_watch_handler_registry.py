@@ -176,3 +176,62 @@ def test_run_delegates_to_run_async(monkeypatch):
     monkeypatch.setattr(loop, "run_async", fake_run_async)
     loop.run()
     assert called["async_ran"] is True
+
+
+# ── _dispatch_sync — Phase B sync-context helper ──────────────────────
+
+
+def test_dispatch_sync_runs_sync_handlers_inline():
+    """`_dispatch_sync` must run sync handlers on the calling thread (no thread hop)."""
+    loop = _bare_loop()
+    import threading
+    seen_threads: list[int] = []
+
+    def handler(now):
+        seen_threads.append(threading.get_ident())
+
+    loop.on("on_tick")(handler)
+    loop._dispatch_sync("on_tick", "T")
+    assert len(seen_threads) == 1
+    assert seen_threads[0] == threading.get_ident()
+
+
+def test_dispatch_sync_runs_async_handlers_via_asyncio_run():
+    """Async handlers called from sync context get wrapped in a short-lived loop."""
+    loop = _bare_loop()
+    calls: list[str] = []
+
+    async def handler(now):
+        calls.append(now)
+
+    loop.on("on_tick")(handler)
+    loop._dispatch_sync("on_tick", "T")
+    assert calls == ["T"]
+
+
+def test_dispatch_sync_swallows_handler_exceptions():
+    """Same exception contract as `_dispatch` — one broken handler can't kill siblings."""
+    loop = _bare_loop()
+    after: list[str] = []
+
+    def broken(now):
+        raise RuntimeError("boom")
+
+    def works(now):
+        after.append("ran")
+
+    loop.on("on_tick")(broken)
+    loop.on("on_tick")(works)
+    loop._dispatch_sync("on_tick", None)  # must not raise
+    assert after == ["ran"]
+
+
+def test_dispatch_sync_preserves_registration_order():
+    """Handlers fire in registration order across the sync dispatch."""
+    loop = _bare_loop()
+    order: list[str] = []
+    loop.on("on_tick")(lambda now: order.append("a"))
+    loop.on("on_tick")(lambda now: order.append("b"))
+    loop.on("on_tick")(lambda now: order.append("c"))
+    loop._dispatch_sync("on_tick", None)
+    assert order == ["a", "b", "c"]
