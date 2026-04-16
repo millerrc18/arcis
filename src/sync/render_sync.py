@@ -274,6 +274,7 @@ def _upsert_to_postgres(
         "priority_score", "confidence_score", "position_size_dollars",
         "position_size_pct", "estimated_dollar_risk", "pullback_depth_pct", "atr",
         "max_favorable_excursion", "max_adverse_excursion", "planned_allocation",
+        "spy_return_over_hold", "excess_return",  # SD#41 D1
     }
     for row in rows:
         for col in _INTEGER_COLUMNS:
