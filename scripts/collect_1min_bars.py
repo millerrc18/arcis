@@ -85,16 +85,30 @@ def _fetch_minute_bars(ticker: str, target_date: datetime) -> list[dict]:
         # tuple-keyed columns. Same fix pattern as SD#41 D2.
         if hasattr(data.columns, "get_level_values"):
             data.columns = data.columns.get_level_values(0)
+
+        import math
+        def _f(row, key):
+            if key not in row:
+                return None
+            val = row[key]
+            if val is None or (isinstance(val, float) and math.isnan(val)):
+                return None
+            return float(val)
+
+        def _i(row, key):
+            val = _f(row, key)
+            return int(val) if val is not None else None
+
         bars = []
         for idx, row in data.iterrows():
             bars.append({
                 "ticker": ticker,
                 "timestamp": idx.isoformat(),
-                "open": float(row["Open"]) if "Open" in row else None,
-                "high": float(row["High"]) if "High" in row else None,
-                "low": float(row["Low"]) if "Low" in row else None,
-                "close": float(row["Close"]) if "Close" in row else None,
-                "volume": int(row["Volume"]) if "Volume" in row else None,
+                "open": _f(row, "Open"),
+                "high": _f(row, "High"),
+                "low": _f(row, "Low"),
+                "close": _f(row, "Close"),
+                "volume": _i(row, "Volume"),
                 "trade_count": None,  # yfinance does not expose this
             })
         return bars
