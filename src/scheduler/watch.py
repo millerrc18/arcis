@@ -164,6 +164,7 @@ class WatchLoop:
         self._data_collection_done = False
         self._news_ingestion_done = False
         self._enrichment_precache_done = False
+        self._1min_bar_collection_done = False
         self._pre_market_done = False
 
         # Between-scan scoring
@@ -270,6 +271,7 @@ class WatchLoop:
         self._data_collection_done = False
         self._news_ingestion_done = False
         self._enrichment_precache_done = False
+        self._1min_bar_collection_done = False
         self._pre_market_done = False
         # Scoring + VRAM handoffs
         self._daily_scored = 0
@@ -1551,6 +1553,15 @@ class WatchLoop:
                         if self._safe_run("enrichment precache", self._run_enrichment_precache):
                             self._enrichment_precache_done = True
                         ran = True
+                    # 1-minute bars AFTER enrichment — yfinance rate-limited, no
+                    # GPU dependency, 7-days/week (collector handles non-trading
+                    # days gracefully). Phase 6 intraday-desk foundation.
+                    elif (hour == 23 and now.minute >= 30
+                          and not self._1min_bar_collection_done):
+                        if self._safe_run("1-minute bar collection",
+                                          self._run_1min_bar_collection):
+                            self._1min_bar_collection_done = True
+                        ran = True
                     elif is_weekday and hour == 6 and not self._pre_market_done:
                         if self._safe_run("pre-market refresh", self._run_pre_market_refresh):
                             self._pre_market_done = True
@@ -1886,6 +1897,11 @@ class WatchLoop:
         """11:00 PM ET — Pre-fetch fundamentals, insider data, macro for all tickers."""
         from src.scheduler.overnight import run_enrichment_precache
         run_enrichment_precache(self.config)
+
+    def _run_1min_bar_collection(self):
+        """11:30 PM ET — Collect 1-minute OHLCV bars for S&P 100 (Phase 6 intraday)."""
+        from src.scheduler.overnight import run_1min_bar_collection
+        run_1min_bar_collection()
 
     def _run_pre_market_refresh(self):
         """6:00 AM ET — Quick pre-market data check before morning watchlist."""

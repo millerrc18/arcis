@@ -422,6 +422,21 @@ def run_news_ingestion():
         logger.warning("[WATCH] broadcast overnight_task failed: %s", e)
 
 
+def run_1min_bar_collection():
+    """11:30 PM ET — Collect 1-minute OHLCV bars for S&P 100 (Phase 6 intraday data).
+
+    Runs after enrichment to avoid contending with the other overnight
+    collectors for network bandwidth. yfinance only keeps ~7 trading days
+    of 1-minute history, so daily collection is required to avoid gaps.
+    Returns empty on weekends/holidays (handled gracefully by the collector).
+    """
+    from scripts.collect_1min_bars import collect, _previous_trading_day
+    target = _previous_trading_day()
+    logger.info("[OVERNIGHT] Collecting 1-minute bars for %s...", target.date())
+    result = collect(target_dates=[target])
+    logger.info("[OVERNIGHT] 1-minute bar collection complete: %s", result)
+
+
 def run_enrichment_precache(config: dict):
     """11:00 PM ET — Pre-fetch fundamentals, insider data, macro for all tickers."""
     from src.api.websocket import broadcast_sync
