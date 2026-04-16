@@ -1,5 +1,60 @@
 # Changelog
 
+## [v0.21.0] - 2026-04-16 — Earnings Filter Hard Block (SD#33 / Sprint H1)
+
+Narrow scoring fix so trades are hard-blocked when earnings are scheduled
+within ~7 trading days, regardless of the market-wide event risk score.
+The earnings pipeline (scraper, lookup, scoring hook, risk governor, executor
+tagging, dashboard field) was already fully built; the gap was a scoring-scale
+mismatch. One-line threshold-override in `compute_event_risk_score` closes it.
+
+### Fixed
+
+- **`src/features/event_risk_score.py::compute_event_risk_score`** — earnings
+  within 10 calendar days (~7 trading days, bounded by two weekends) now set
+  `earnings_proximity = block_threshold` and floor `total_score` at
+  `block_threshold`, guaranteeing `sizing_multiplier = 0.0` and triggering
+  the existing `risk/governor.py:430` "Event risk hard block" reject path.
+- `components["earnings_forces_block"]` (bool) is always present for
+  downstream consumers, not just when earnings exist.
+
+### The bug
+
+Earnings <=2 days out added only +4 on a scale where hard-block threshold is
+8. On calm market days (total_score < 4 before earnings), an earnings-imminent
+ticker never crossed the threshold, and gap risk was unpriced. Per forensic
+analysis, a non-trivial share of closed trades likely caught earnings
+surprises mid-hold. Gap risk cannot be managed by stops, vol targeting, or
+exits — only by not being in the position when earnings prints.
+
+### Added
+
+- **`tests/features/test_event_risk_earnings.py`** — 9 regression tests
+  (core scenarios + parametric boundary at days_until=0/10/11 +
+  earnings_forces_block key consistency when no earnings).
+- **`tests/features/__init__.py`** — new test subdir.
+
+### Changed
+
+- **`tests/test_event_risk_score.py::test_compute_event_risk_score_adds_earnings_and_blocks`**
+  updated to the new contract: `earnings_proximity = block_threshold` rather
+  than the previous sliding +4/+2 schedule.
+
+### Unchanged infrastructure (confirmed working — no rebuild)
+
+- Nightly earnings scraper (`scripts/fetch_earnings_calendar.py`)
+- Earnings lookup with yfinance fallback (`src/features/earnings.py`)
+- Risk governor hard-block path (`src/risk/governor.py:430`)
+- Executor earnings_adjacent flag (`src/shadow_trading/executor.py:570, 1934`)
+- Schema `shadow_trades.earnings_adjacent` (INTEGER, default 0)
+
+### Authority
+
+- Sprint spec: `docs/sprints/sprint-H1-earnings-filter.md`
+- Strategy Decision #33: MASTER.md Section 5, entry 33 (earnings 7-day
+  exclusion zone; entry-exclusion layer now IMPLEMENTED, force-exit and
+  post-earnings cooldown layers deferred)
+
 ## [v0.18.0] - 2026-04-16 — IB Cold Storage (SD#41)
 
 Disable Interactive Brokers integration through Phase 1 while preserving

@@ -97,9 +97,12 @@ def test_compute_event_risk_score_adds_earnings_and_blocks(tmp_path):
         settings={"event_risk": {"sizing_floor": 0.25, "block_threshold": 8}},
     )
 
-    assert risk["total_score"] == 8
-    assert risk["components"]["earnings_proximity"] == 4
+    # SD#33 / Sprint H1: earnings within 10 calendar days force a hard block
+    # by setting earnings_proximity to block_threshold. Total = market(4)+earnings(8).
+    assert risk["total_score"] == 12
+    assert risk["components"]["earnings_proximity"] == 8
     assert risk["components"]["earnings_days"] == 1
+    assert risk["components"]["earnings_forces_block"] is True
     assert risk["sizing_multiplier"] == 0.0
 
 

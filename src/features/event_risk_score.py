@@ -261,19 +261,31 @@ def compute_event_risk_score(
     except Exception as exc:
         logger.warning("[EVENT RISK] Earnings lookup failed for %s: %s", ticker, exc)
 
+    earnings_forces_block = False
     if next_earnings is not None:
         days_until = (next_earnings - ref).days
-        if days_until <= 2:
-            earnings_score = 4
-        elif days_until <= 5:
-            earnings_score = 2
-        components["earnings_proximity"] = earnings_score
         components["earnings_days"] = days_until
         components["earnings_date"] = next_earnings.isoformat()
+
+        # SD#33 / Sprint H1: earnings within ~7 trading days = hard block.
+        # 10 calendar days bounds 7 trading days (handles two weekends).
+        # Conservative — gap risk cannot be managed by stops or vol targeting,
+        # only by not being in the position when earnings prints.
+        if days_until <= 10:
+            earnings_forces_block = True
+            earnings_score = block_threshold
+
+        components["earnings_proximity"] = earnings_score
+        components["earnings_forces_block"] = earnings_forces_block
     else:
         components["earnings_proximity"] = 0
+        components["earnings_forces_block"] = False
 
     total_score = int(base.get("total_score", 0) + earnings_score)
+    if earnings_forces_block:
+        # Floor at block_threshold so the multiplier-derivation always
+        # short-circuits to 0.0 regardless of market-wide score.
+        total_score = max(total_score, block_threshold)
     return {
         "total_score": total_score,
         "components": components,
