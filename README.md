@@ -1,8 +1,8 @@
 # Arcis
 
-![version](https://img.shields.io/badge/version-v0.17.0-blue?style=flat-square)
-![phase](https://img.shields.io/badge/phase-1%20bootcamp-orange?style=flat-square)
-![tests](https://img.shields.io/badge/tests-1%2C734%20passing-brightgreen?style=flat-square)
+![version](https://img.shields.io/badge/version-v0.22.0-blue?style=flat-square)
+![phase](https://img.shields.io/badge/phase-1%20diagnostic-orange?style=flat-square)
+![tests](https://img.shields.io/badge/tests-1%2C852%20passing-brightgreen?style=flat-square)
 ![python](https://img.shields.io/badge/python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)
 ![model](https://img.shields.io/badge/model-Qwen3%208B-purple?style=flat-square)
 ![license](https://img.shields.io/badge/license-BSL%201.1-yellow?style=flat-square)
@@ -13,10 +13,11 @@ Systematic equity research platform built on fine-tuned LLMs and a 5-agent AI co
 
 ## Current Status
 
-- **Phase 1 Bootcamp** — paper trading $100K, 18 closed trades
-- **Model**: `halcyon-v1.0.0` (Qwen3 8B, QLoRA fine-tuned); v2.0.0 retrain in progress on 1,722-example dataset (703 regime-diverse rows added)
-- **Dashboard**: [halcyonlab.app](https://halcyonlab.app) (24 pages including Broker Comparison and Velocity, mobile-responsive sidebar, dark/light toggle)
+- **Phase 1 Diagnostic** — paper trading $100K, 85 closed trades. Per SD#41 REVISED: halt optimization, run diagnostics first (D1 done v0.19.0, D2 done v0.22.0, D3 done v0.20.0).
+- **Model**: `halcyon-v1.0.0` (Qwen3 8B, QLoRA fine-tuned); v2.0.0 retrain gated on excess-Sharpe validation
+- **Dashboard**: [halcyonlab.app](https://halcyonlab.app) (25 pages including Trade History with excess-Sharpe lead panel, mobile-responsive sidebar, dark/light toggle)
 - **IB integration**: cold-stored per SD#41 — code intact, `trading.ib_enabled=false` default. Reactivation is a single flag flip; all modules, tests, table, and dependency preserved.
+- **Phase 1→2 gate (SD#41 REVISED):** excess-return Sharpe ≥ 0.5 at t ≥ 2.0 over 150 OOS trades (raw Sharpe gate deprecated — was trivially passed by bull-market SPY beta).
 - **Current counts**: See [MASTER.md](MASTER.md) Section 2 for live metrics (tests, files, tables, etc.)
 
 ## Architecture

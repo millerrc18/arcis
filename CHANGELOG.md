@@ -1,5 +1,89 @@
 # Changelog
 
+## [v0.22.0] - 2026-04-16 — Attribution Resolver MultiIndex Fix + Doc Sweep (SD#41 REVISED / D2 follow-up)
+
+Ships the D2 follow-up fix (yfinance MultiIndex bug that corrupted 1,600
+attribution resolutions) plus a comprehensive documentation sweep to
+reflect the 4 merges from 2026-04-16 (v0.18.0 IB cold storage, v0.19.0
+SPY excess instrumentation, v0.20.0 regime/sector diagnostic, v0.21.0
+earnings filter hard block).
+
+### Fixed — Part 1: Attribution resolver
+
+- **`src/attribution/logger.py::resolve_pending_outcomes`** — flatten
+  yfinance MultiIndex columns before building the OHLCV dict list.
+  Before: `bar.get("Low", ...)` missed the tuple-keyed column, returned
+  default `0`, and tripped the stop-first branch on day 1 of every
+  resolution. After: `data.columns = data.columns.get_level_values(0)`
+  normalizes to string keys so `bar.get("Low")` resolves correctly.
+  `simulate_mechanical_outcome` itself is unchanged (kept pure-logic).
+
+### Added — Part 1
+
+- **3 new columns on `attribution_trades`:**
+  - `resolution_version` (TEXT, indexed) — version tag for resolution
+    logic. `'v1_multiindex_bug'` marks the buggy pre-fix rows;
+    `'v2_fixed'` marks post-fix re-resolutions.
+  - `ranker_only_outcome_v1` (TEXT) — archive of pre-fix outcome.
+  - `ranker_only_pnl_pct_v1` (TEXT) — archive of pre-fix pnl_pct.
+- **`scripts/reresolve_attribution.py`** — idempotent re-resolution
+  script. Snapshots v1 values, resets bug-tagged rows to 'pending',
+  calls the fixed resolver, tags newly-resolved rows as 'v2_fixed'.
+  `--dry-run` flag snapshots only (no writes beyond the archive).
+- **`tests/attribution/test_resolver.py`** — 6 regression tests covering
+  the simulator (flat columns, timeout, loss) and the resolver
+  data-shape contract (MultiIndex flatten, empty yfinance response,
+  flat-columns compat).
+
+### Re-resolution
+
+1,600 `v1_multiindex_bug` rows were re-resolved under `v2_fixed`. V1
+values preserved in archive columns for forensic comparison. The stop-
+distance fingerprint that was universal in v1 is now absent in v2 (aside
+from a small legitimate-stop minority). Outcome distribution shows real
+`win` / `loss` / `timeout` spread, consistent with bull-market yfinance
+paths over 7-day windows.
+
+### Changed — Part 2: Doc Sweep
+
+- **`MASTER.md` Section 1**: release line now v0.22.0; tech-stack trading
+  line notes IB dormant per SD#41.
+- **`MASTER.md` Section 2**: closed-trade count 18 → 85; test count 1,801
+  → 1,852; dashboard pages 24 → 25; research docs 91 → 107; sprint docs
+  43 → 57; PEAD entry removed (SD#3 eliminated); new "Attribution
+  resolver FIXED" line.
+- **`MASTER.md` Section 2 (new subsections)**: Forensic Analysis Status
+  (D1/D2/D3 progress, Stage 1/2 OOS gates) and Permanent Methodology
+  Guardrails (SD#41 REVISED).
+- **`MASTER.md` Section 2 Diagnostic D2 Status**: CLOSED — citation
+  freeze LIFTED for `resolution_version='v2_fixed'` rows.
+- **`MASTER.md` Section 5**: heading "40 confirmed" → "41 confirmed";
+  SD#3 marked ELIMINATED (PEAD dead); SD#17 marked COMPROMISED and then
+  FIXED v0.22.0; SD#36 phase gate redefined; new SD#41 REVISED entry
+  supersedes prior SD#41 trade-lifecycle synthesis.
+- **`MASTER.md` Section 6**: Phase 1→2 gate redefined — excess-Sharpe
+  ≥ 0.5 at t ≥ 2.0 over 150 OOS trades (raw Sharpe gate deprecated).
+- **`MASTER.md` Section 8**: Revenue milestones shifted 6-12 months per
+  SD#41 REVISED. Intraday desk feasibility research flagged.
+- **`MASTER.md` Section 11**: Active Queue rewritten as SD#41 REVISED
+  diagnostic-first plan. Prior queue moved to "Completed Sprints
+  (historical)" subsection. New Research Queue subsection added.
+- **`frontend/src/pages/Roadmap.jsx`** — Phase 1 gate metrics use
+  excess-Sharpe + t-stat; IB activation row updated to reference cold
+  storage + new gate.
+- **`README.md`** — version badge v0.22.0; phase badge "diagnostic";
+  test-count badge 1,852; Current Status reflects 85 closed + D1/D2/D3
+  status + new Phase 1→2 gate.
+- **`RELEASES.md`** — v0.22.0 entry with before/after + re-resolution
+  stats.
+
+### Authority
+
+- Sprint spec: `docs/sprints/sprint-attribution-resolver-fix.md` (Part 1)
+  + inlined doc sweep (Part 2 per user request)
+- D2 audit: `docs/research/attribution-resolver-audit.md`
+- Plan: `docs/research/SD-41-REVISED-diagnostic-first-plan.md`
+
 ## [v0.20.0] - 2026-04-16 — Regime & Sector Classifier Diagnostic (SD#41 REVISED / Sprint D3)
 
 Closes the regime-NULL and sector-coverage gaps flagged in the forensic
