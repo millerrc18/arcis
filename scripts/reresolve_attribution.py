@@ -5,14 +5,22 @@ resolution_version = 'v2_fixed'. Preserves the old values in two archive
 columns for forensic comparison: ranker_only_outcome_v1, ranker_only_pnl_pct_v1.
 
 Idempotent — re-running after first pass shows `reresolved=0` because no
-v1_multiindex_bug rows remain.
+v1_multiindex_bug rows with a complete resolution window remain.
 
 Authority: docs/research/attribution-resolver-audit.md (SD#41 REVISED D2)
 Sprint: docs/sprints/sprint-attribution-resolver-fix.md
 
+Hotfix bug 1 (fixed when Ryan ran the initial script locally): the v0.22.0
+schema migration added resolution_version as a new TEXT column. Existing
+resolved rows had `resolution_version IS NULL` at the moment the column
+landed, so the snapshot step — which filtered on
+`resolution_version = 'v1_multiindex_bug'` — matched zero rows on first
+run. The `_tag_null_as_v1` pre-step below back-tags every resolved row
+with NULL resolution_version as 'v1_multiindex_bug' BEFORE snapshotting.
+
 Usage:
     python scripts/reresolve_attribution.py            # normal run
-    python scripts/reresolve_attribution.py --dry-run  # snapshot only, no reset/rewrite
+    python scripts/reresolve_attribution.py --dry-run  # pre-tag + snapshot only, no reset/rewrite
 """
 
 from __future__ import annotations
@@ -34,12 +42,35 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _tag_null_as_v1(conn: sqlite3.Connection) -> int:
+    """Hotfix bug 1 — back-tag resolved rows whose resolution_version is NULL.
+
+    The column was added by the v0.22.0 migration AFTER those rows were
+    written, so they have NULL. This is the canonical back-tag step and is
+    idempotent (second run matches zero rows).
+    """
+    return conn.execute(
+        """
+        UPDATE attribution_trades
+        SET resolution_version = 'v1_multiindex_bug'
+        WHERE ranker_only_outcome != 'pending'
+          AND resolution_version IS NULL
+        """
+    ).rowcount
+
+
 def reresolve(dry_run: bool = False) -> dict:
     """Snapshot v1, reset v1-tagged rows to 'pending', re-resolve, tag v2_fixed.
 
-    Returns a summary dict with snapshotted / reset / reresolved / tagged counts.
+    Returns a summary dict with pre_tagged / snapshotted / reset /
+    reresolved / tagged counts.
     """
     with sqlite3.connect(DB_PATH) as conn:
+        # Bug 1 fix — back-tag NULL resolution_version rows before anything else.
+        n_pre_tag = _tag_null_as_v1(conn)
+        conn.commit()
+        logger.info("Pre-tagged %d rows with NULL resolution_version as v1_multiindex_bug", n_pre_tag)
+
         # Snapshot v1 values (first-run only; idempotent because the v1 columns
         # are only set when ranker_only_outcome_v1 IS NULL).
         n_snap = conn.execute(
@@ -55,7 +86,10 @@ def reresolve(dry_run: bool = False) -> dict:
         logger.info("Snapshotted v1 values on %d rows", n_snap)
 
         if dry_run:
-            return {"snapshotted": n_snap, "reset": 0, "reresolved": 0, "tagged": 0, "dry_run": True}
+            return {
+                "pre_tagged": n_pre_tag, "snapshotted": n_snap,
+                "reset": 0, "reresolved": 0, "tagged": 0, "dry_run": True,
+            }
 
         # Reset v1-tagged rows to pending so resolve_pending_outcomes picks them up.
         n_reset = conn.execute(
@@ -85,6 +119,7 @@ def reresolve(dry_run: bool = False) -> dict:
         conn.commit()
 
     result = {
+        "pre_tagged": n_pre_tag,
         "snapshotted": n_snap,
         "reset": n_reset,
         "reresolved": n_resolved,
@@ -97,6 +132,6 @@ def reresolve(dry_run: bool = False) -> dict:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--dry-run", action="store_true",
-                        help="snapshot only; skip reset/re-resolve/tag")
+                        help="pre-tag + snapshot only; skip reset/re-resolve/tag")
     args = parser.parse_args()
     reresolve(dry_run=args.dry_run)
