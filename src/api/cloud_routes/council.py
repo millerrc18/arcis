@@ -96,7 +96,9 @@ def create_router(runtime, verify_auth):
                     (event_type, limit),
                 )
             return runtime.query(
-                "SELECT * FROM activity_log ORDER BY created_at DESC LIMIT %s",
+                "SELECT * FROM activity_log WHERE event_type IS NOT NULL "
+                "AND detail IS NOT NULL AND detail != '' "
+                "ORDER BY created_at DESC LIMIT %s",
                 (limit,),
             )
         except HTTPException:
