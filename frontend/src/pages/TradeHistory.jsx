@@ -182,10 +182,24 @@ function RecentTradesTable({ trades, title, emptyMessage }) {
   )
 }
 
+const verdictColor = (interp) => {
+  if (!interp) return 'var(--arcis-text-muted)'
+  if (interp === 'alpha_significant') return 'var(--arcis-success)'
+  if (interp === 'alpha_suggestive') return 'var(--arcis-warning)'
+  if (interp.startsWith('negative_alpha')) return 'var(--arcis-danger)'
+  return 'var(--arcis-text-muted)'
+}
+
 export default function TradeHistory() {
   const { data: closedData, isLoading } = useQuery({
     queryKey: ['trade-history-closed'],
     queryFn: () => api.getClosedTrades(180),  // 6 months history
+    refetchInterval: 60000,
+  })
+
+  const { data: attribution } = useQuery({
+    queryKey: ['sharpe-attribution'],
+    queryFn: api.getSharpeAttribution,
     refetchInterval: 60000,
   })
 
@@ -315,6 +329,61 @@ export default function TradeHistory() {
           {all.count} closed trades · Last 6 months · Are we getting better or worse?
         </p>
       </div>
+
+      {/* SD#41 REVISED — Primary metric: alpha vs SPY beta */}
+      {attribution && !attribution.error && (
+        <div className="arcis-card" style={{ borderTop: '3px solid var(--arcis-accent)' }}>
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-xs uppercase tracking-wide" style={{ color: 'var(--arcis-accent)' }}>
+              Primary Metric: Excess-Return Sharpe (vs SPY)
+            </div>
+            <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>
+              SD#41 REVISED
+            </div>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3">
+            <div>
+              <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>Excess Sharpe</div>
+              <div className="text-2xl font-medium" style={MONO}>
+                {attribution.excess_sharpe?.toFixed(2) ?? '--'}
+              </div>
+              <div className="text-xs mt-1" style={{ color: 'var(--arcis-text-secondary)' }}>
+                {attribution.excess_sharpe_ci_low != null
+                  ? `CI [${attribution.excess_sharpe_ci_low.toFixed(2)}, ${attribution.excess_sharpe_ci_high.toFixed(2)}]`
+                  : 'insufficient data'}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>t-statistic</div>
+              <div className="text-2xl font-medium" style={MONO}>
+                {attribution.excess_t_stat?.toFixed(2) ?? '--'}
+              </div>
+              <div className="text-xs mt-1" style={{ color: 'var(--arcis-text-secondary)' }}>
+                IB gate: \u2265 2.0
+              </div>
+            </div>
+            <div>
+              <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>Beat SPY</div>
+              <div className="text-2xl font-medium" style={MONO}>
+                {attribution.hit_rate_vs_spy?.toFixed(0) ?? '--'}%
+              </div>
+              <div className="text-xs mt-1" style={{ color: 'var(--arcis-text-secondary)' }}>
+                hit rate
+              </div>
+            </div>
+            <div>
+              <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>Verdict</div>
+              <div className="text-sm font-medium mt-1"
+                   style={{ color: verdictColor(attribution.interpretation) }}>
+                {(attribution.interpretation || '--').replace(/_/g, ' ')}
+              </div>
+              <div className="text-xs mt-1" style={{ color: 'var(--arcis-text-secondary)' }}>
+                Raw Sharpe: {attribution.raw_sharpe?.toFixed(2) ?? '--'} (alpha+beta)
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Recency buckets */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
