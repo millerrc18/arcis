@@ -153,6 +153,13 @@ def simulate_mechanical_outcome(
     Returns (outcome, exit_price, days_held).
     outcome: 'win', 'loss', 'timeout'
     """
+    # Hotfix (SD#41 D2 follow-up) — guard against bad input data. A handful of
+    # early-pipeline attribution rows have entry_price = 0.0 (or None). The
+    # caller's pnl math divides by entry, so anything <= 0 would trip
+    # ZeroDivisionError. Return a harmless timeout so the caller can skip.
+    if entry_price is None or entry_price <= 0:
+        return "timeout", 0.0, 0
+
     for day_idx, bar in enumerate(ohlcv):
         low = bar.get("Low", bar.get("low", 0))
         high = bar.get("High", bar.get("high", 0))
@@ -179,6 +186,12 @@ def _resolve_one_row(conn: sqlite3.Connection, row: sqlite3.Row) -> bool:
     returns tuple-keyed columns for single-ticker requests; flatten before
     building the ohlcv dict list so `bar.get("Low")` hits a string key.
     """
+    # Hotfix (SD#41 D2 follow-up) — guard against bad input data. See the
+    # sibling guard in simulate_mechanical_outcome for context. Returning
+    # False skips the row cleanly instead of letting the pnl division crash
+    # inside the except block and silently dropping the trade.
+    if row["ranker_only_entry"] is None or row["ranker_only_entry"] == 0:
+        return False
     try:
         import yfinance as yf
         from datetime import timedelta

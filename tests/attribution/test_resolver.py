@@ -161,3 +161,159 @@ def test_resolve_pending_flat_frame_also_works(tmp_path):
     ).fetchone()
     conn.close()
     assert row[0] == "win"
+
+
+# ── Hotfix regressions — bugs 1/2/3 from the reresolve rollout ────────
+
+
+def test_resolve_one_row_handles_zero_entry_price(tmp_path):
+    """Hotfix bug 3 — ranker_only_entry=0.0 must not ZeroDivisionError.
+
+    A handful of early-pipeline rows have entry=0. Pre-fix, the pnl math
+    divided by entry and raised ZeroDivisionError, which the except clause
+    swallowed and silently dropped the row. The guard now returns False
+    cleanly so the loop continues.
+    """
+    db = str(tmp_path / "resolver.db")
+    conn = sqlite3.connect(db)
+    conn.executescript("""
+        CREATE TABLE attribution_trades (
+          attribution_id TEXT PRIMARY KEY, ticker TEXT, scan_timestamp TEXT,
+          ranker_only_entry REAL, ranker_only_stop REAL, ranker_only_target REAL,
+          ranker_only_outcome TEXT, ranker_only_pnl_pct REAL
+        );
+    """)
+    conn.execute(
+        "INSERT INTO attribution_trades VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        ("zero-entry-1", "AAPL", "2026-01-01T10:00:00-05:00",
+         0.0, 0.0, 0.0, "pending", None),
+    )
+    conn.commit()
+    conn.close()
+
+    # Even with valid yfinance data, the zero-entry guard short-circuits
+    # before the fetch and leaves the row pending.
+    with patch("yfinance.download", return_value=_flat_columns_frame()):
+        n = resolve_pending_outcomes(db_path=db)
+
+    assert n == 0, "Zero-entry row must not be counted as resolved"
+    conn = sqlite3.connect(db)
+    row = conn.execute(
+        "SELECT ranker_only_outcome, ranker_only_pnl_pct FROM attribution_trades"
+    ).fetchone()
+    conn.close()
+    assert row[0] == "pending"
+    assert row[1] is None
+
+
+def test_simulate_mechanical_outcome_handles_zero_entry_price():
+    """Hotfix bug 3 (sibling) — simulator must not crash on zero/None entry either."""
+    ohlcv = [{"Low": 10, "High": 20, "Close": 15}]
+
+    # Zero entry: guard triggers, returns harmless timeout tuple.
+    outcome, exit_price, days = simulate_mechanical_outcome(
+        entry_price=0.0, stop_price=9.0, target_price=21.0,
+        timeout_days=7, ohlcv=ohlcv,
+    )
+    assert outcome == "timeout"
+    assert exit_price == 0.0
+    assert days == 0
+
+    # None entry must not raise either.
+    outcome, _, _ = simulate_mechanical_outcome(
+        entry_price=None, stop_price=9.0, target_price=21.0,
+        timeout_days=7, ohlcv=ohlcv,
+    )
+    assert outcome == "timeout"
+
+
+def _seed_mixed_resolution_versions(db_path: str):
+    """Seed attribution_trades with a realistic mix for hotfix bug-1/bug-2 tests:
+
+    - row-A: resolved row with resolution_version=NULL — bug 1 back-tags as v1.
+    - row-B: already-tagged v1 with an ELAPSED window — bug 2 keeps it reset-eligible.
+    - row-C: already-tagged v1 with a FUTURE window — bug 2 must skip it.
+    - row-D: already v2_fixed — untouched.
+    """
+    from datetime import datetime, timedelta
+    today = datetime.now().date()
+    past_scan = (today - timedelta(days=20)).isoformat() + "T10:00:00"
+    recent_scan = (today - timedelta(days=2)).isoformat() + "T10:00:00"  # future window
+
+    conn = sqlite3.connect(db_path)
+    conn.executescript("""
+        CREATE TABLE attribution_trades (
+          attribution_id TEXT PRIMARY KEY, ticker TEXT, scan_timestamp TEXT,
+          ranker_only_entry REAL, ranker_only_stop REAL, ranker_only_target REAL,
+          ranker_only_outcome TEXT, ranker_only_pnl_pct REAL,
+          resolution_version TEXT,
+          ranker_only_outcome_v1 TEXT, ranker_only_pnl_pct_v1 TEXT
+        );
+    """)
+    conn.executemany(
+        "INSERT INTO attribution_trades VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            ("row-A-null-v1", "AAPL", past_scan,
+             100.0, 95.0, 105.0, "loss", -5.0, None, None, None),
+            ("row-B-past", "MSFT", past_scan,
+             100.0, 95.0, 105.0, "loss", -5.0, "v1_multiindex_bug", None, None),
+            ("row-C-future", "TSLA", recent_scan,
+             100.0, 95.0, 105.0, "loss", -5.0, "v1_multiindex_bug", None, None),
+            ("row-D-v2", "GOOG", past_scan,
+             100.0, 95.0, 105.0, "win", 5.0, "v2_fixed",
+             "loss", "-5.0"),
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_reresolve_tags_null_resolution_version_as_v1(tmp_path, monkeypatch):
+    """Hotfix bug 1 — the pre-tag step finds NULL-resolution rows and marks them v1."""
+    import scripts.reresolve_attribution as rr
+    db = str(tmp_path / "resolver.db")
+    _seed_mixed_resolution_versions(db)
+    monkeypatch.setattr(rr, "DB_PATH", db)
+    # No-op out the actual re-resolve so the test focuses on the pre-tag step.
+    monkeypatch.setattr(rr, "resolve_pending_outcomes", lambda *a, **kw: 0)
+
+    result = rr.reresolve(dry_run=True)
+
+    # Bug 1 fix: row-A (NULL → v1) counted in pre_tagged.
+    assert result["pre_tagged"] == 1, f"Expected 1 back-tag, got {result}"
+    conn = sqlite3.connect(db)
+    rv = dict(conn.execute(
+        "SELECT attribution_id, resolution_version FROM attribution_trades"
+    ).fetchall())
+    conn.close()
+    assert rv["row-A-null-v1"] == "v1_multiindex_bug"
+    assert rv["row-B-past"] == "v1_multiindex_bug"
+    assert rv["row-C-future"] == "v1_multiindex_bug"
+    assert rv["row-D-v2"] == "v2_fixed"  # untouched
+
+
+def test_reresolve_skips_future_window_rows(tmp_path, monkeypatch):
+    """Hotfix bug 2 — rows whose scan+8d window hasn't elapsed must NOT be reset."""
+    import scripts.reresolve_attribution as rr
+    db = str(tmp_path / "resolver.db")
+    _seed_mixed_resolution_versions(db)
+    monkeypatch.setattr(rr, "DB_PATH", db)
+    monkeypatch.setattr(rr, "resolve_pending_outcomes", lambda *a, **kw: 0)
+
+    result = rr.reresolve(dry_run=False)
+
+    # Elapsed-window rows reset: row-A (just back-tagged) + row-B = 2.
+    # row-C (future window) must NOT be reset.
+    assert result["reset"] == 2, (
+        f"Expected 2 elapsed-window resets (A + B), got {result}"
+    )
+    conn = sqlite3.connect(db)
+    outcomes = dict(conn.execute(
+        "SELECT attribution_id, ranker_only_outcome FROM attribution_trades"
+    ).fetchall())
+    conn.close()
+    # Row C (future window) keeps its original 'loss' outcome.
+    assert outcomes["row-C-future"] == "loss"
+    # Rows A and B got reset to 'pending' (resolve patched as no-op).
+    assert outcomes["row-A-null-v1"] == "pending"
+    assert outcomes["row-B-past"] == "pending"
