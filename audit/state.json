@@ -1,7 +1,7 @@
 {
-  "run_count": 26,
+  "run_count": 27,
   "current_focus_index": 1,
-  "file_index": 195,
+  "file_index": 210,
   "file_list": [
     "src/api/__init__.py",
     "src/api/app.py",
@@ -218,7 +218,7 @@
     "src/utils/retry.py",
     "src/utils/type_safety.py"
   ],
-  "last_run": "2026-04-15T08:00:00Z",
+  "last_run": "2026-04-16T19:14:47.800513+00:00",
   "findings": {
     "run_17": {
       "focus_area": "security",
@@ -1300,7 +1300,7 @@
         {
           "file": "src/training/historical_data.py",
           "lines": "49-55, 124-128, 177-182, 232-236",
-          "description": "pickle.load on two long-lived caches (historical_ohlcv.pkl, fred_history.pkl) enables RCE if an attacker writes to training_data/. Same class as #413 but different subtree — that fix does not cover this file.",
+          "description": "pickle.load on two long-lived caches (historical_ohlcv.pkl, fred_history.pkl) enables RCE if an attacker writes to training_data/. Same class as #413 but different subtree \u2014 that fix does not cover this file.",
           "suggested_fix": "Replace pickle with parquet per-ticker (OHLCV) and a single parquet DataFrame (FRED). Delete legacy .pkl files as part of migration.",
           "github_issue": "#459"
         }
@@ -1314,7 +1314,7 @@
         {
           "file": "src/training/claude_client.py",
           "lines": "105",
-          "description": "logger.warning('Claude API call failed: %s', e) — Anthropic SDK exceptions do not include the API key in str(e) (key lives in Authorization header, not URL), but any future SDK change would leak. Safer to format exception type name only."
+          "description": "logger.warning('Claude API call failed: %s', e) \u2014 Anthropic SDK exceptions do not include the API key in str(e) (key lives in Authorization header, not URL), but any future SDK change would leak. Safer to format exception type name only."
         },
         {
           "file": "src/training/historical_data.py",
