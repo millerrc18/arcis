@@ -202,6 +202,17 @@ _register(TableDef(
         ColumnDef("pnl_pct", "REAL"),
         ColumnDef("max_favorable_excursion", "REAL"),
         ColumnDef("max_adverse_excursion", "REAL"),
+        ColumnDef("spy_return_over_hold", "REAL",
+                  description="SPY total return (close-to-close, auto-adjusted) over the "
+                              "exact entry-to-exit date range. SD#41 REVISED / Sprint D1 "
+                              "foundation for alpha vs beta measurement."),
+        ColumnDef("excess_return", "REAL",
+                  description="pnl_pct - (spy_return_over_hold * 100). Positive means "
+                              "beat SPY over same period. Primary alpha metric; raw "
+                              "pnl_pct is secondary."),
+        ColumnDef("realized_sector", "TEXT",
+                  description="GICS sector from manual lookup at data/sp100-gics-lookup.csv. "
+                              "Temporary until sector_context classifier (Sprint D3) is fixed."),
         ColumnDef("duration_days", "INTEGER"),
         ColumnDef("earnings_adjacent", "INTEGER", default="0"),
         ColumnDef("created_at", "TEXT", nullable=False),
