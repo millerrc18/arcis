@@ -1,5 +1,70 @@
 # Changelog
 
+## [v0.23.1] - 2026-04-16 — Asyncio Handler Refactor Phase A
+
+Structural refactor of `src/scheduler/watch.py` — introduces an asyncio
+event loop + handler registry without changing any observable behavior.
+Foundation for Phase 6 intraday streaming (TradingStream, StockDataStream).
+
+### Added
+
+- **`src/scheduler/handler_registry.py`** (new, 69 lines) — `HandlerRegistryMixin`
+  providing `run()` / `run_async()` / `on(event)` / `_dispatch(event, ...)`.
+  Sync handlers are wrapped in `asyncio.to_thread` so they never block
+  the event loop; coroutine handlers are awaited directly. Handler
+  exceptions are logged and swallowed to match the `_safe_run` contract.
+- **`tests/test_watch_handler_registry.py`** (new, 12 tests) — unit
+  coverage for the registry: empty-start, decorator/direct-call
+  registration, registration-order preservation, sync + async handler
+  dispatch, exception isolation, unknown-event no-op, args/kwargs
+  passthrough, `run()`→`run_async()`→`_run_sync_body()` delegation.
+- **`docs/research/async-watch-loop-handler-pattern.md`** — handler
+  pattern documentation as a public API for future developers, with
+  canonical event names (`on_tick`, `on_fill`, `on_minute_bar`, etc.)
+  and the Phase B / C / Phase 6 roadmap.
+
+### Changed
+
+- **`src/scheduler/watch.py::WatchLoop`** now inherits
+  `HandlerRegistryMixin`. The pre-refactor `run()` method is renamed to
+  `_run_sync_body()` and unchanged — Phase B will carve its 740 lines
+  of time-window `if/elif` blocks into `_maybe_*` handlers registered
+  on `on_tick`. Net +2 lines on `watch.py` (2,039 → 2,041) — the
+  mixin keeps infrastructure out of the already-bloated host file.
+- **`config/known_violations.json`** — grandfather entry updated from
+  `run` (454 lines) to `_run_sync_body` (740 lines) to reflect the
+  rename. Pre-existing debt carried forward, not worsened.
+
+### Verified
+
+- All 13 existing `test_watch_*` tests pass unchanged (zero behavior
+  change).
+- 12 new registry tests pass.
+- 15 `test_repo_structure.py` tests pass (docstring, importability,
+  60-line cap, 400-line cap, no-legacy-alpaca-SDK).
+- NSSM / `src/cli/commands.py` callers unchanged — `WatchLoop(...).run()`
+  signature preserved.
+
+### Not in this sprint (explicit out-of-scope per spec)
+
+- Phase B — extracting the 30+ time-window blocks from `_run_sync_body`
+  into `_maybe_*` handlers registered on `on_tick`. Queued as
+  `refactor/asyncio-phase-b-handler-extraction`.
+- Phase C — mock-clock integration test that advances a WatchLoop
+  through 24h and asserts every existing task fires at the right ET
+  time. Queued as `refactor/asyncio-phase-c-mock-clock-integration`.
+- Converting existing `_run_*` methods to `async def`. They stay sync,
+  wrapped via `asyncio.to_thread` at dispatch time.
+- Any streaming subscription (`TradingStream`, `StockDataStream`) —
+  that is Phase 6.
+
+### Authority
+
+`docs/sprints/sprint-asyncio-handler-refactor.md`, drafted on
+`docs/asyncio-refactor-spec` branch. This sprint executes Task 1 of
+the spec's 5-task plan; Tasks 2-5 (extraction, dispatch switch, mock-clock
+tests, docs) are follow-up branches.
+
 ## [v0.23.0] - 2026-04-16 — 1-Minute Bar Collection (Phase 6 Foundation)
 
 Lays the data foundation for Phase 6 intraday-desk feasibility work per

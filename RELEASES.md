@@ -49,6 +49,53 @@
 
 ## Releases
 
+### v0.23.1 — Asyncio Handler Refactor Phase A (2026-04-16)
+
+Structural refactor landing the asyncio handler-registry infrastructure
+into the watch loop. Zero behavior change; foundation for Phase 6
+intraday streaming. Phase B (extract 30+ time-window blocks) and Phase C
+(mock-clock integration tests) are queued as separate branches per the
+sprint spec's 2-3 day effort estimate.
+
+**Authority:** `docs/sprints/sprint-asyncio-handler-refactor.md` Task 1
+(Phase A).
+
+**Added:**
+- `src/scheduler/handler_registry.py` (69 lines) — `HandlerRegistryMixin`
+  with `run()`, `run_async()`, `on(event)`, `_dispatch(event, ...)`.
+- `tests/test_watch_handler_registry.py` — 12 unit tests covering
+  registration (decorator + direct call), registration-order
+  preservation, sync + async dispatch, exception isolation, args/kwargs
+  passthrough, and the `run() → run_async() → _run_sync_body()` chain.
+- `docs/research/async-watch-loop-handler-pattern.md` — handler pattern
+  documented as a public API (event naming convention, async vs sync
+  handlers, registration forms, Phase B/C/6 roadmap).
+
+**Changed:**
+- `src/scheduler/watch.py::WatchLoop` inherits `HandlerRegistryMixin`.
+  Pre-refactor `run()` renamed to `_run_sync_body()` (unchanged body).
+  New `run()` on the mixin calls `asyncio.run(self.run_async())`;
+  `run_async()` wraps the sync body via `asyncio.to_thread` so the
+  event loop stays free for Phase 6 streaming tasks.
+- `config/known_violations.json` — grandfather entry renamed `run` →
+  `_run_sync_body`, line count updated from 454 to 740 to reflect reality.
+- `watch.py` line count: 2,039 → 2,041 (+2 net). Infrastructure lives
+  in the new mixin module to avoid bloating the host file further.
+
+**Compatibility:**
+- `WatchLoop(...).run()` signature preserved — NSSM service and
+  `src/cli/commands.py` callers unchanged.
+- Zero observable behavior change — 13 existing `test_watch_*` tests
+  pass byte-for-byte.
+
+**Explicit out-of-scope:**
+- Phase B — extracting `if hour == X` blocks from `_run_sync_body`
+  into `_maybe_*` handlers. Tracked on
+  `refactor/asyncio-phase-b-handler-extraction`.
+- Phase C — 24-hour mock-clock integration test. Tracked on
+  `refactor/asyncio-phase-c-mock-clock-integration`.
+- Any Phase 6 streaming subscription work.
+
 ### v0.23.0 — 1-Minute Bar Collection (Phase 6 Foundation) (2026-04-16)
 
 Lays data foundation for Phase 6 intraday-desk feasibility work. yfinance

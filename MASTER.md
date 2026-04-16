@@ -961,6 +961,7 @@ VIX >40, system offline.
 | -- | **Saturday model retrain (halcyon-v2.0.0)** | BLOCKED — gated on excess-Sharpe validation per SD#41 REVISED |
 | -- | **Bracket calibration analysis** | QUEUED — MFE analysis on 69% stale exits |
 | -- | **iOS app (Capacitor)** | Backlog — native wrapper for dashboard |
+| -- | **asyncio handler refactor (Phase A)** | DONE v0.23.1 — `HandlerRegistryMixin` + `run_async()` wrapper; 12 registry tests; watch.py +2 lines only. Phases B (extraction) + C (mock-clock tests) queued as separate branches. |
 | -- | **Repo reorganization** | Backlog |
 
 ### Research Queue
