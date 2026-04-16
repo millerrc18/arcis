@@ -78,9 +78,10 @@ def spy_return_over_range(entry_iso: str, exit_iso: str) -> Optional[float]:
         if at_or_after_entry.empty or at_or_after_exit.empty:
             return None
 
-        # Future-proof scalar access (pandas FutureWarning avoidance)
-        entry_close = float(at_or_after_entry["Close"].iloc[0])
-        exit_close = float(at_or_after_exit["Close"].iloc[0])
+        # Use .values[0] to extract the numpy scalar, avoiding pandas
+        # FutureWarning "Calling float on a single element Series".
+        entry_close = float(at_or_after_entry["Close"].values[0])
+        exit_close = float(at_or_after_exit["Close"].values[0])
         return (exit_close - entry_close) / entry_close
     except Exception as exc:
         logger.warning(
