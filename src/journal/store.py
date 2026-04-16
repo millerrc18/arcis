@@ -366,6 +366,30 @@ def close_shadow_trade(
     except Exception:
         pass  # Exit metadata is best-effort — never block trade close
 
+    # SD#41 REVISED / Sprint D1 — SPY-matched excess return.
+    # Separate try so VIX/regime failures don't block SPY, and vice versa.
+    # Fields are written all-or-nothing (all three or all None) to keep
+    # column state consistent for downstream aggregations.
+    try:
+        from src.analytics.spy_benchmark import (
+            excess_return, get_sector, spy_return_over_range,
+        )
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT ticker, actual_entry_time FROM shadow_trades "
+                "WHERE trade_id = ?", (trade_id,),
+            ).fetchone()
+        if row and row["actual_entry_time"] and exit_time:
+            spy_ret = spy_return_over_range(
+                row["actual_entry_time"], exit_time
+            )
+            fields["spy_return_over_hold"] = spy_ret
+            fields["excess_return"] = excess_return(pnl_pct, spy_ret)
+            fields["realized_sector"] = get_sector(row["ticker"])
+    except Exception:
+        pass  # SPY enrichment is best-effort — never block trade close
+
     update_shadow_trade(trade_id, fields, db_path)
 
 

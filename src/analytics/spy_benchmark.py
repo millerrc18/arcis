@@ -70,6 +70,11 @@ def spy_return_over_range(entry_iso: str, exit_iso: str) -> Optional[float]:
         if data.empty:
             return None
 
+        # yfinance returns a MultiIndex DataFrame for single-ticker downloads
+        # in recent versions. Collapse to Series via .squeeze() so downstream
+        # scalar extraction works whether the caller gets Series or 1-col DF.
+        close_series = data["Close"].squeeze()
+
         df = data.reset_index()
         df["date"] = df["Date"].dt.date
 
@@ -78,10 +83,10 @@ def spy_return_over_range(entry_iso: str, exit_iso: str) -> Optional[float]:
         if at_or_after_entry.empty or at_or_after_exit.empty:
             return None
 
-        # Use .values[0] to extract the numpy scalar, avoiding pandas
-        # FutureWarning "Calling float on a single element Series".
-        entry_close = float(at_or_after_entry["Close"].values[0])
-        exit_close = float(at_or_after_exit["Close"].values[0])
+        entry_idx = at_or_after_entry.index[0]
+        exit_idx = at_or_after_exit.index[0]
+        entry_close = float(close_series.iloc[entry_idx])
+        exit_close = float(close_series.iloc[exit_idx])
         return (exit_close - entry_close) / entry_close
     except Exception as exc:
         logger.warning(
