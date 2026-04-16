@@ -27,6 +27,7 @@ from tests.conftest import init_test_db
 def routing_config():
     """Config with IB paper routing enabled and threshold=80."""
     return {
+        "trading": {"ib_enabled": True},  # SD#41 — opt past cold-storage gate
         "live_trading": {
             "ib": {
                 "paper_routing": True,
@@ -50,6 +51,7 @@ def no_routing_config():
 def no_threshold_config():
     """Config with paper routing enabled but no explicit threshold key."""
     return {
+        "trading": {"ib_enabled": True},  # SD#41 — opt past cold-storage gate
         "live_trading": {
             "ib": {
                 "paper_routing": True,
@@ -66,6 +68,7 @@ def no_threshold_config():
 def custom_threshold_config():
     """Config with paper routing enabled and a custom threshold of 60."""
     return {
+        "trading": {"ib_enabled": True},  # SD#41 — opt past cold-storage gate
         "live_trading": {
             "ib": {
                 "paper_routing": True,
