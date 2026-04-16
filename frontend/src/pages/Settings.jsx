@@ -191,6 +191,30 @@ export default function Settings() {
         </div>
       )}
 
+      {/* Broker Status — SD#41 IB cold storage indicator */}
+      <div className="arcis-card">
+        <h3 className="text-sm uppercase tracking-wide mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>
+          Broker Status
+        </h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>Primary</div>
+            <div className="text-sm font-medium" style={{ color: 'var(--arcis-success)' }}>
+              Alpaca \u00b7 Active
+            </div>
+          </div>
+          <div>
+            <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>Secondary</div>
+            <div className="text-sm font-medium" style={{ color: 'var(--arcis-text-muted)' }}>
+              IB \u00b7 Dormant (SD#41)
+            </div>
+          </div>
+        </div>
+        <p className="text-xs mt-3" style={{ color: 'var(--arcis-text-muted)' }}>
+          IB integration is preserved but inactive. Reactivation triggers documented in SD#41.
+        </p>
+      </div>
+
       {/* Settings sections */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {Object.entries(sections).map(([sectionName, items]) => {
