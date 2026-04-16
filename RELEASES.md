@@ -49,6 +49,40 @@
 
 ## Releases
 
+### v0.23.0 — 1-Minute Bar Collection (Phase 6 Foundation) (2026-04-16)
+
+Lays data foundation for Phase 6 intraday-desk feasibility work. yfinance
+exposes only ~7 trading days of 1-minute history, so we begin storing
+bars now to have historical microstructure when the research is ready.
+
+**Authority:** Phase 1 decision #3, `docs/research/deep-research/intraday-desk-feasibility-report.md`.
+
+**Added:**
+- `minute_bars` table (schema registry) — composite PK `(ticker, timestamp)`,
+  REAL OHLC + INTEGER volume/trade_count, Postgres sync `incremental` by
+  timestamp. ~2.3 MB/day / ~600 MB/yr projected.
+- `scripts/collect_1min_bars.py` — yfinance nightly collector for S&P 100,
+  rate-limited 0.3s/ticker (≈31s wall). CLI: `--date`, `--days N` (up to 7d
+  backfill), `--dry-run`. Idempotent via `INSERT OR REPLACE` on the composite
+  PK. Flattens yfinance MultiIndex columns (same defect pattern as SD#41 D2)
+  and maps NaN prices/volumes to NULL.
+- Watch-loop integration (`src/scheduler/watch.py`) — new
+  `_1min_bar_collection_done` flag fires at 23:30 ET, after enrichment
+  precache and before the midnight flag reset. 7-days/week; empty weekend
+  responses are a no-op by design.
+- 8 new tests at `tests/test_collect_1min_bars.py` covering schema,
+  MultiIndex flatten, NaN handling, empty-response path, idempotent upsert,
+  dry-run semantics, rate limiting, and weekend walker.
+
+**Changed:**
+- `src/sync/render_sync.py` `_REAL_COLUMNS` / `_INTEGER_COLUMNS`:
+  OHLCV keys added so `minute_bars` rows coerce cleanly for Postgres.
+
+**Fail-safe semantics:**
+- Collector warns on per-ticker yfinance failures but continues. Watch-loop
+  `_safe_run` logs and resets the done-flag on failure — next eligible run
+  retries. No other overnight jobs are blocked by a 1-min collector failure.
+
 ### v0.22.0 — Attribution Resolver MultiIndex Fix + Doc Sweep (2026-04-16)
 
 Ships the D2 follow-up fix that remediates a yfinance MultiIndex bug

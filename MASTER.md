@@ -81,6 +81,7 @@ with an unbeatable technological moat.
 | Between-scan quality scoring | LIVE -- GuardedScorer Ollama |
 | Command queue + config overrides | LIVE -- pull-based |
 | 12 overnight collectors | RUNNING |
+| 1-minute bar collection (Phase 6 foundation) | LIVE -- v0.23.0, nightly yfinance pull for S&P 100, `minute_bars` table |
 | Broker abstraction (Alpaca active, IB dormant) | LIVE -- Alpaca only; IB cold-stored per SD#41 (`trading.ib_enabled=false`), all IB code preserved for reactivation |
 | Telegram | LIVE -- 56 functions, gated behind trade_id |
 | Intra-day reconciliation | LIVE -- every 15 min during market hours |
@@ -966,7 +967,7 @@ VIX >40, system offline.
 
 | Topic | Status |
 |---|---|
-| Intraday desk feasibility | `docs/research/deep-research/intraday-desk-feasibility-prompt.md` — drafted |
+| Intraday desk feasibility | `docs/research/deep-research/intraday-desk-feasibility-prompt.md` — drafted. Foundation data shipping v0.23.0 (`minute_bars` nightly collector). |
 | Connors RSI(2) MR validation | Pending — MR paper trading accumulating data |
 | Options volatility desk (Phase 3-4) | Scoped — gated on Phase 2 |
 
