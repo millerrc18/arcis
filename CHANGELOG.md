@@ -1,5 +1,71 @@
 # Changelog
 
+## [v0.20.0] - 2026-04-16 — Regime & Sector Classifier Diagnostic (SD#41 REVISED / Sprint D3)
+
+Closes the regime-NULL and sector-coverage gaps flagged in the forensic
+report. No production code change — the enrichment bypass that caused
+the 67% NULL `market_regime` was already fixed on 2026-04-14; this
+sprint verifies coverage, adds regression tests so it can't silently
+regress, backfills `realized_sector` to 100%, and clears up the label
+vocabulary confusion between the regime classifier and the traffic
+light.
+
+### Diagnosed
+
+- **`recommendations.market_regime` NULL anomaly** — classified as
+  hypothesis (c) schema-recent scanner bypass. Per-day NULL rate cuts
+  over cleanly at 2026-04-09 (100% -> 0%), matching the
+  `attach_post_scan_features` deployment. 1,076 pre-2026-04-09 rows
+  left as `NULL` accurately; they legitimately predate the fix.
+- **Label-vocabulary confusion** — the codebase carries three distinct
+  label systems: 5-state `compute_market_regime` (stored in
+  `recommendations.market_regime`), 7-state `classify_regime`
+  (canonical going forward), 3-state `traffic_light` (stored in
+  `shadow_trades.regime_at_entry` despite the misleading column name).
+  All three mapped in `docs/research/regime-classifier-audit.md`.
+- **`recommendations.sector_context` 100% NULL** — documented as
+  deprecated. Use `shadow_trades.realized_sector` or ticker-lookup via
+  `data/reference/sp100-gics-lookup.csv` instead.
+
+### Added
+
+- **`tests/features/test_enrichment_coverage.py`** — 4 regression tests
+  that grep the three scanner files for the `attach_post_scan_features`
+  literal, plus a behavior test asserting `classify_regime` returns a
+  label from the canonical 7-state set for representative inputs.
+- **`docs/research/regime-classifier-audit.md`** — 243-line audit
+  with label-source map, per-day cut-over evidence, sector backfill
+  status, canonical vocabulary policy, and regression-protection summary.
+
+### Changed
+
+- **`data/shadow_trades.realized_sector` coverage now 100%** (226/226
+  rows, zero NULL). D1 had backfilled the 85 closed rows; this sprint
+  extended the backfill to the remaining 143 open/failed/pending rows
+  (all S&P 100 tickers; GICS lookup had no gaps).
+
+### Unchanged production code
+
+No `src/` changes. The `attach_post_scan_features` call is present in
+all three scanner paths in current main (`scheduler/universe_scanner.py`,
+`services/scan_service.py`, `services/mr_scan_service.py`) and the bug
+described in `src/features/enrichment.py:8-14` was remediated
+2026-04-14.
+
+### Deferred (out of scope)
+
+- Regime classifier v2 / 7-state DB migration (SD#35, separate sprint).
+- Renaming `shadow_trades.regime_at_entry` to `traffic_light_at_entry`
+  (schema rename; requires data migration plan).
+- Retroactively filling the 1,076 pre-2026-04-09 NULL rows (they
+  accurately signal "enrichment not yet deployed").
+
+### Authority
+
+- Sprint spec: `docs/sprints/sprint-D3-regime-sector-diagnostic.md`
+- Audit doc: `docs/research/regime-classifier-audit.md`
+- Plan: `docs/research/SD-41-REVISED-diagnostic-first-plan.md`
+
 ## [v0.21.0] - 2026-04-16 — Earnings Filter Hard Block (SD#33 / Sprint H1)
 
 Narrow scoring fix so trades are hard-blocked when earnings are scheduled
