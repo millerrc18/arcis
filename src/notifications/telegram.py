@@ -142,47 +142,128 @@ def notify_trade_opened(ticker: str, entry_price: float, stop: float,
                         target: float, score: int, shares: int,
                         setup_type: str | None = None,
                         setup_confidence: float | None = None,
-                        source: str = "paper") -> bool:
+                        source: str = "paper",
+                        sector: str | None = None,
+                        regime_at_entry: str | None = None,
+                        vix_at_entry: float | None = None,
+                        concurrent_positions: int | None = None,
+                        llm_conviction: int | None = None) -> bool:
     """Alert: new trade opened.
 
     Args:
         source: "paper" or "live" — controls header emoji and label.
+        sector, regime_at_entry, vix_at_entry, concurrent_positions, llm_conviction:
+            optional context rendered when present. Callers pass what they have.
     """
     pnl_risk = (entry_price - stop) * shares
+    rr_ratio = ((target - entry_price) / (entry_price - stop)) if entry_price > stop else None
 
-    # Build header with source distinction
-    if source == "live":
-        header = f"🟢💰 <b>LIVE TRADE OPENED: {ticker}"
-    else:
-        header = f"🟢 <b>TRADE OPENED: {ticker}"
-
+    header = "🟢💰 <b>LIVE TRADE OPENED: " if source == "live" else "🟢 <b>TRADE OPENED: "
+    header += ticker
     if setup_type and setup_confidence is not None:
         header += f" ({setup_type} ↑{setup_confidence:.2f})"
     elif setup_type:
         header += f" ({setup_type})"
     header += "</b>"
 
-    msg = (
-        f"{header}\n"
-        f"Entry: ${entry_price:.2f} | Stop: ${stop:.2f} | Target: ${target:.2f}\n"
-        f"Shares: {shares} | Risk: ${pnl_risk:.2f}\n"
-        f"Score: {score}/100"
-    )
-    return send_telegram(msg)
+    lines = [
+        header,
+        f"Entry: ${entry_price:.2f} | Stop: ${stop:.2f} | Target: ${target:.2f}",
+        f"Shares: {shares} | Risk: ${pnl_risk:.2f}" + (
+            f" | R:R {rr_ratio:.2f}" if rr_ratio is not None else ""
+        ),
+        f"Score: {score}/100" + (
+            f" | Conviction: {llm_conviction}/10" if llm_conviction is not None else ""
+        ),
+    ]
+    context_bits = []
+    if sector:
+        context_bits.append(f"🏭 {sector}")
+    if regime_at_entry:
+        context_bits.append(f"📊 {regime_at_entry}")
+    if vix_at_entry is not None:
+        context_bits.append(f"VIX {vix_at_entry:.1f}")
+    if concurrent_positions is not None:
+        context_bits.append(f"{concurrent_positions} open")
+    if context_bits:
+        lines.append(" | ".join(context_bits))
+    return send_telegram("\n".join(lines))
 
 
 def notify_trade_closed(ticker: str, pnl_dollars: float, pnl_pct: float,
                         exit_reason: str, days_held: int,
-                        source: str = "paper") -> bool:
-    """Alert: trade closed."""
+                        source: str = "paper",
+                        sector: str | None = None,
+                        regime_at_entry: str | None = None,
+                        regime_at_exit: str | None = None,
+                        mfe_pct: float | None = None,
+                        mae_pct: float | None = None,
+                        excess_return: float | None = None,
+                        spy_return_over_hold: float | None = None,
+                        drawdown_from_mfe: float | None = None,
+                        entry_slippage_bps: float | None = None,
+                        exit_slippage_bps: float | None = None) -> bool:
+    """Alert: trade closed.
+
+    Optional kwargs render only when present — every caller can pass the
+    fields it has without touching any of the rest. See shadow_trades
+    schema (`src/schema/registry.py`) for field semantics.
+    """
     emoji = "🟢" if pnl_dollars >= 0 else "🔴"
     label = "LIVE TRADE CLOSED" if source == "live" else "TRADE CLOSED"
-    msg = (
-        f"{emoji} <b>{label}: {ticker}</b>\n"
-        f"P&L: ${pnl_dollars:+.2f} ({pnl_pct:+.1f}%)\n"
-        f"Reason: {exit_reason} | Held: {days_held} days"
-    )
-    return send_telegram(msg)
+    lines = [
+        f"{emoji} <b>{label}: {ticker}</b>",
+        f"P&L: ${pnl_dollars:+.2f} ({pnl_pct:+.1f}%)",
+        f"Reason: {exit_reason} | Held: {days_held}d",
+    ]
+    lines.extend(_format_closed_extras(
+        excess_return, spy_return_over_hold, mfe_pct, mae_pct,
+        drawdown_from_mfe, sector, regime_at_entry, regime_at_exit,
+        entry_slippage_bps, exit_slippage_bps,
+    ))
+    return send_telegram("\n".join(lines))
+
+
+def _format_closed_extras(excess_return, spy_return_over_hold, mfe_pct, mae_pct,
+                          drawdown_from_mfe, sector, regime_at_entry,
+                          regime_at_exit, entry_slippage_bps,
+                          exit_slippage_bps) -> list[str]:
+    """Render the optional-field lines of `notify_trade_closed`.
+
+    Split out to keep the caller under the 60-line cap and make it trivial
+    to extend with new optional fields later without touching the caller.
+    """
+    lines: list[str] = []
+    if excess_return is not None and spy_return_over_hold is not None:
+        lines.append(
+            f"🎯 Excess vs SPY: {excess_return:+.2f}% "
+            f"(SPY over hold: {spy_return_over_hold * 100:+.2f}%)"
+        )
+    elif excess_return is not None:
+        lines.append(f"🎯 Excess vs SPY: {excess_return:+.2f}%")
+    mfe_mae = [x for x in (
+        f"MFE {mfe_pct:+.1f}%" if mfe_pct is not None else None,
+        f"MAE {mae_pct:+.1f}%" if mae_pct is not None else None,
+        f"DD-from-peak {drawdown_from_mfe:+.1f}%" if drawdown_from_mfe is not None else None,
+    ) if x]
+    if mfe_mae:
+        lines.append("📈 " + " | ".join(mfe_mae))
+    ctx: list[str] = []
+    if sector:
+        ctx.append(f"🏭 {sector}")
+    if regime_at_entry and regime_at_exit and regime_at_entry != regime_at_exit:
+        ctx.append(f"{regime_at_entry} → {regime_at_exit}")
+    elif regime_at_entry:
+        ctx.append(regime_at_entry)
+    if ctx:
+        lines.append(" | ".join(ctx))
+    slip = [x for x in (
+        f"entry {entry_slippage_bps:+.1f}bps" if entry_slippage_bps is not None else None,
+        f"exit {exit_slippage_bps:+.1f}bps" if exit_slippage_bps is not None else None,
+    ) if x]
+    if slip:
+        lines.append("⚙️ Slippage: " + " | ".join(slip))
+    return lines
 
 
 def notify_scan_complete(packets_count: int, trades_opened: int,
@@ -775,6 +856,117 @@ def notify_validation_summary(result: dict) -> bool:
     except Exception as e:
         logger.warning("[TELEGRAM] notify_validation_summary send failed: %s", e)
         return False
+
+
+def notify_1min_bar_collection(bars_collected: int, tickers: int,
+                                empty_ticker_days: int, dates: int = 1) -> bool:
+    """Alert: nightly 1-minute bar collection completed.
+
+    Called from `scheduler.overnight.run_1min_bar_collection` after the
+    yfinance batch finishes. Silent on bars_collected == 0 to avoid
+    weekend spam (yfinance returns empty for non-trading days).
+    """
+    if not is_telegram_enabled() or bars_collected == 0:
+        return False
+    empty_pct = (empty_ticker_days / (tickers * dates) * 100) if tickers and dates else 0
+    mb = bars_collected * 60 / (1024 * 1024)
+    msg = (
+        "📈 <b>1-min bars collected</b>\n"
+        f"{bars_collected:,} bars across {tickers} tickers / {dates}d\n"
+        f"Empty: {empty_ticker_days}/{tickers * dates} ({empty_pct:.0f}%) "
+        f"| ~{mb:.1f} MB"
+    )
+    return send_telegram(msg)
+
+
+def notify_attribution_resolve_complete(resolved: int, pending_remaining: int) -> bool:
+    """Alert: nightly attribution resolver finished.
+
+    Called from the watch loop after `resolve_pending_outcomes`. Silent on
+    resolved==0 AND pending_remaining==0 (nothing to report).
+    """
+    if not is_telegram_enabled():
+        return False
+    if resolved == 0 and pending_remaining == 0:
+        return True
+    icon = "✅" if resolved > 0 else "⏳"
+    msg = (
+        f"{icon} <b>Attribution resolver</b>\n"
+        f"Resolved: {resolved} | Still pending: {pending_remaining}"
+    )
+    return send_telegram(msg)
+
+
+def notify_stress_test_complete(scenarios_run: int, passed: int, failed: int,
+                                 notes: str = "") -> bool:
+    """Alert: stress-test re-run completed (triggered by model version change).
+
+    Called from the 7 PM overnight handler when the active model rolls
+    over. Always sends — stress test failures are actionable.
+    """
+    if not is_telegram_enabled():
+        return False
+    icon = "✅" if failed == 0 else "🚨"
+    msg = (
+        f"{icon} <b>STRESS TEST</b>\n"
+        f"{scenarios_run} scenarios | {passed} passed | {failed} failed"
+    )
+    if notes:
+        msg += f"\n{notes}"
+    return send_telegram(msg)
+
+
+def notify_trading_stats_update(stats: dict, label: str = "") -> bool:
+    """Periodic stats pulse: trade count + win rate + PnL + excess vs SPY
+    across today / 7d / 30d / all-time windows.
+
+    `stats` is the dict returned by `src.journal.stats.compute_all_window_stats`.
+    `label` is an optional header suffix (e.g. "PRE-MARKET", "MIDDAY", "POST-CLOSE").
+
+    Silent on an empty database — if all four windows show count == 0 we
+    skip the send so fresh deployments don't spam the channel.
+    """
+    if not is_telegram_enabled():
+        return False
+    if all(w.get("count", 0) == 0 for w in stats.values()):
+        return True  # silent — nothing to report yet
+
+    header = "📊 <b>TRADING STATS"
+    if label:
+        header += f" — {label.upper()}"
+    header += "</b>"
+    lines = [header]
+
+    order = [
+        ("today", "Today"),
+        ("7d", "7d"),
+        ("30d", "30d"),
+        ("all_time", "All-time"),
+    ]
+    for key, name in order:
+        w = stats.get(key) or {}
+        count = w.get("count", 0)
+        if count == 0:
+            lines.append(f"<b>{name}:</b> — (0 trades)")
+            continue
+        wr = w.get("win_rate")
+        wr_str = f"{wr:.0%}" if wr is not None else "—"
+        avg_pct = w.get("avg_pnl_pct")
+        avg_str = f"{avg_pct:+.2f}%" if avg_pct is not None else "—"
+        total = w.get("total_pnl_dollars") or 0.0
+        excess = w.get("avg_excess_return")
+        excess_str = f" | excess {excess:+.2f}%" if excess is not None else ""
+        sharpe = w.get("excess_sharpe")
+        sharpe_str = f" | ex-Sharpe {sharpe:.2f}" if sharpe is not None else ""
+        lines.append(
+            f"<b>{name}:</b> {count} trades | WR {wr_str} | "
+            f"avg {avg_str} | PnL ${total:+.2f}{excess_str}{sharpe_str}"
+        )
+    lines.append(
+        "\n<i>Excess = pnl_pct − SPY return over hold. "
+        "ex-Sharpe shown once ≥10 closed trades in the window.</i>"
+    )
+    return send_telegram("\n".join(lines))
 
 
 # Backward compatibility — remove after all callers are updated

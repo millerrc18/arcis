@@ -214,11 +214,23 @@ def run_scan(config: dict, dry_run: bool = False, send_email_flag: bool = False,
                         _stop = _parse_price(packet.stop_invalidation)
                         _target = _parse_price(packet.targets.split("/")[0])
                         _shares = max(1, int(packet.position_sizing.allocation_dollars / _entry)) if _entry > 0 else 1
+                        # Enriched context: sector/regime/vix/conviction from the
+                        # feature row; concurrent position count from shadow_trades.
+                        try:
+                            from src.journal.store import get_open_shadow_trades
+                            _concurrent = len(get_open_shadow_trades())
+                        except Exception:
+                            _concurrent = None
                         notify_trade_opened(
                             ticker, _entry, _stop, _target,
                             int(candidate["score"]), _shares,
                             setup_type=feat.get("setup_type"),
                             setup_confidence=feat.get("setup_confidence"),
+                            sector=feat.get("sector") or feat.get("realized_sector"),
+                            regime_at_entry=feat.get("regime") or feat.get("market_regime"),
+                            vix_at_entry=feat.get("vix"),
+                            concurrent_positions=_concurrent,
+                            llm_conviction=candidate.get("llm_conviction"),
                         )
                 except Exception as _tg_err:
                     logger.debug("[SCAN] notify_trade_opened failed for %s: %s", ticker, _tg_err)
