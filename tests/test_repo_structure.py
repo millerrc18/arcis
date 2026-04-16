@@ -395,3 +395,30 @@ def test_cloud_app_imports_covered_by_requirements_cloud():
                 if top not in stdlib and not top.startswith("src") and pkg not in cloud_reqs:
                     missing.append(f"{fpath}: from {node.module} (need '{pkg}' in requirements-cloud.txt)")
     assert not missing, f"Cloud imports not in requirements-cloud.txt:\n" + "\n".join(missing)
+
+
+def test_no_legacy_alpaca_trade_api_imports():
+    """Legacy `alpaca_trade_api` SDK is deprecated — we're on `alpaca-py`.
+
+    Guards against LLM-pasted old snippets and accidental reintroduction.
+    See docs/sprints/sprint-alpaca-py-migration.md.
+    """
+    offenders = []
+    for root in (Path("src"), Path("tests")):
+        for p in root.rglob("*.py"):
+            try:
+                tree = ast.parse(p.read_text(encoding="utf-8"))
+            except (SyntaxError, UnicodeDecodeError):
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if alias.name.split(".")[0] == "alpaca_trade_api":
+                            offenders.append(f"{p}:{node.lineno} import {alias.name}")
+                elif isinstance(node, ast.ImportFrom):
+                    if node.module and node.module.split(".")[0] == "alpaca_trade_api":
+                        offenders.append(f"{p}:{node.lineno} from {node.module}")
+    assert not offenders, (
+        "Legacy alpaca_trade_api imports detected (use alpaca-py):\n"
+        + "\n".join(offenders)
+    )
