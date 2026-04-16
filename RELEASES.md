@@ -49,6 +49,117 @@
 
 ## Releases
 
+### v0.23.2 — Asyncio Refactor Phase B (overnight) + Phase C (tests) (2026-04-16)
+
+First wave of `_run_sync_body` decomposition. 14 overnight-schedule tasks
+moved from the monolithic tick-time `elif` chain into module-level
+handlers registered on `on_tick` and fired via a new `_dispatch_sync`
+helper. Zero behavior change — done-flag idempotency preserved, handler
+firing times match the pre-refactor chain exactly.
+
+**Authority:** `docs/sprints/sprint-asyncio-handler-refactor.md` Phase B
+(14 of 30+ extractions) + Phase C (mock-clock integration test for
+this subset).
+
+**Added:**
+- `src/scheduler/watch_handlers.py` (229 lines) — 14 `maybe_<name>(watch, now)`
+  functions covering the 5:15 AM morning handoff, 5:30 PM post-close,
+  6:00 PM training collection, 6:50 PM evening handoff, 7:00 PM stress
+  test, 9:30 PM data collection, 10:00 PM news, 11:00 PM enrichment,
+  11:30 PM 1-min bars, 6:00 AM pre-market refresh (+ brief), 6:02 AM
+  rolling features, 7:00 AM pre-market training, 8:02 AM pre-market
+  news scoring, and 9:00-9:24 AM pre-market candidates (+ Telegram
+  complete notify).
+- `HandlerRegistryMixin._dispatch_sync` — sync-context dispatch for
+  callers already inside a worker thread. Sync handlers run inline;
+  coroutine handlers get an `asyncio.run` short-lived loop. Same
+  exception contract as the async `_dispatch`.
+- `WatchLoop._register_default_handlers` — one call at startup registers
+  all 14 handlers on `on_tick`, using `functools.partial(handler, self)`
+  so handler introspection sees readable `__name__` values in logs.
+- `tests/test_watch_handlers.py` (25 tests) — 19 per-handler contract
+  tests (time windows, done-flag respect, weekday gating, chained calls),
+  plus integration tests for `_register_default_handlers` and the full
+  `_dispatch_sync` path driven by a mock clock across a 24-hour schedule.
+- `tests/test_watch_handler_registry.py` (+4 tests) — `_dispatch_sync`
+  runs sync handlers on the caller's thread, wraps async handlers in
+  `asyncio.run`, swallows handler exceptions, preserves registration
+  order.
+
+**Changed:**
+- `src/scheduler/watch.py::_run_sync_body` — lines 1502-1627 (116 lines
+  of the overnight `elif` chain) removed; `self._dispatch_sync("on_tick", now)`
+  called once per tick after the midnight daily-state reset. The 14
+  handlers fire here and set their own done-flags.
+- `_run_sync_body` size: 740 → 631 lines. `watch.py` total:
+  2,041 → 1,941 lines (below the pre-refactor 2,039 baseline).
+- `config/known_violations.json` grandfather entry updated from
+  `_run_sync_body: 740` to `_run_sync_body: 631` to reflect reality.
+
+**Compatibility:**
+- `WatchLoop(...).run()` signature preserved; NSSM / `src/cli/commands.py`
+  callers unchanged.
+- All 13 existing `test_watch_*` tests pass unchanged.
+- The "overnight mode" heartbeat log line is omitted — the watchdog
+  file-touch heartbeat already covers liveness, and the new status
+  logs from `_dispatch_sync` cover task firing.
+
+**Not in this branch (follow-up):**
+- ~20 remaining inline blocks in `_run_sync_body`: market-hours scans
+  (Tier 1-4), EOD cluster (4:00-4:45 PM), digest schedule, Saturday/
+  Sunday reports, IB health, Telegram polling, earnings warning,
+  action reminders, Ollama warm-up, daily council, fundamentals,
+  morning watchlist, between-scan scoring, intraday bracket check.
+  Pattern is proven; remaining extractions are mechanical.
+- No Phase 6 streaming subscriptions.
+
+### v0.23.1 — Asyncio Handler Refactor Phase A (2026-04-16)
+
+Structural refactor landing the asyncio handler-registry infrastructure
+into the watch loop. Zero behavior change; foundation for Phase 6
+intraday streaming. Phase B (extract 30+ time-window blocks) and Phase C
+(mock-clock integration tests) are queued as separate branches per the
+sprint spec's 2-3 day effort estimate.
+
+**Authority:** `docs/sprints/sprint-asyncio-handler-refactor.md` Task 1
+(Phase A).
+
+**Added:**
+- `src/scheduler/handler_registry.py` (69 lines) — `HandlerRegistryMixin`
+  with `run()`, `run_async()`, `on(event)`, `_dispatch(event, ...)`.
+- `tests/test_watch_handler_registry.py` — 12 unit tests covering
+  registration (decorator + direct call), registration-order
+  preservation, sync + async dispatch, exception isolation, args/kwargs
+  passthrough, and the `run() → run_async() → _run_sync_body()` chain.
+- `docs/research/async-watch-loop-handler-pattern.md` — handler pattern
+  documented as a public API (event naming convention, async vs sync
+  handlers, registration forms, Phase B/C/6 roadmap).
+
+**Changed:**
+- `src/scheduler/watch.py::WatchLoop` inherits `HandlerRegistryMixin`.
+  Pre-refactor `run()` renamed to `_run_sync_body()` (unchanged body).
+  New `run()` on the mixin calls `asyncio.run(self.run_async())`;
+  `run_async()` wraps the sync body via `asyncio.to_thread` so the
+  event loop stays free for Phase 6 streaming tasks.
+- `config/known_violations.json` — grandfather entry renamed `run` →
+  `_run_sync_body`, line count updated from 454 to 740 to reflect reality.
+- `watch.py` line count: 2,039 → 2,041 (+2 net). Infrastructure lives
+  in the new mixin module to avoid bloating the host file further.
+
+**Compatibility:**
+- `WatchLoop(...).run()` signature preserved — NSSM service and
+  `src/cli/commands.py` callers unchanged.
+- Zero observable behavior change — 13 existing `test_watch_*` tests
+  pass byte-for-byte.
+
+**Explicit out-of-scope:**
+- Phase B — extracting `if hour == X` blocks from `_run_sync_body`
+  into `_maybe_*` handlers. Tracked on
+  `refactor/asyncio-phase-b-handler-extraction`.
+- Phase C — 24-hour mock-clock integration test. Tracked on
+  `refactor/asyncio-phase-c-mock-clock-integration`.
+- Any Phase 6 streaming subscription work.
+
 ### v0.23.0 — 1-Minute Bar Collection (Phase 6 Foundation) (2026-04-16)
 
 Lays data foundation for Phase 6 intraday-desk feasibility work. yfinance

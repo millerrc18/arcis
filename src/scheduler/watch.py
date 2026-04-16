@@ -43,6 +43,7 @@ load_dotenv()
 
 from src.config import DB_PATH, load_config
 from src.llm.client import is_llm_available
+from src.scheduler.handler_registry import HandlerRegistryMixin
 from src.scheduler.scorer import GuardedScorer
 
 logger = logging.getLogger(__name__)
@@ -99,7 +100,7 @@ class DBLogHandler(logging.Handler):
             pass  # GOTCHA: Never let logging crash the system — silent failure is correct here
 
 
-class WatchLoop:
+class WatchLoop(HandlerRegistryMixin):
     """Automated daily cadence loop for the AI Research Desk."""
 
     def __init__(self, config: dict, email_mode: str | None = None,
@@ -243,6 +244,7 @@ class WatchLoop:
 
         # Simulation engine scheduling
         self._simulation_done = False
+        self._handlers: dict[str, list] = {}  # Phase A: see handler_registry.py
 
     def _reset_daily_state(self):
         """Reset daily flags at midnight ET.
@@ -1035,7 +1037,7 @@ class WatchLoop:
         except Exception:
             pass
 
-    def run(self):
+    def _run_sync_body(self):
         """Main watch loop. Checks every 60 seconds.
 
         Architecture: A single while-loop that sleeps 60s between iterations.
@@ -1090,6 +1092,11 @@ class WatchLoop:
 
         # Sanity-check critical table row counts
         self._check_row_counts()
+
+        # Phase B: register handlers for the extracted overnight schedule.
+        # Inline time-window blocks below still fire for non-extracted tasks;
+        # overnight handlers fire via _dispatch_sync inside the tick loop.
+        self._register_default_handlers()
 
         # SD#41 — Announce IB cold-storage state once at startup. Subsequent code
         # paths (broker_factory, executor, reconcile) also gate on this flag, but
@@ -1164,6 +1171,10 @@ class WatchLoop:
                     print(f"[WATCH] New day: {today}. Daily state reset.")
                     self._reprint_banner_on_next_cycle = True
                 self._today = today
+
+                # Phase B: fire registered on_tick handlers (overnight schedule
+                # lives here — see src/scheduler/watch_handlers.py).
+                self._dispatch_sync("on_tick", now)
 
                 hour = now.hour
                 time_str = now.strftime("%H:%M")
@@ -1492,128 +1503,10 @@ class WatchLoop:
                     if self._safe_run("earnings proximity", self._check_earnings_proximity):
                         self._earnings_warning_done = True
 
-                # ── Overnight schedule (--overnight flag, NOT during market hours) ──
-                # Fix for #225: Changed from `elif` chain to allow weekend execution.
-                # Previously the elif after market-hours checks blocked all overnight
-                # tasks on weekends. Now runs 7 days/week; individual tasks gate on
-                # is_weekday where needed (VRAM handoff, pre-market).
-                elif self.overnight and not self._is_market_open(now):
-                    ran = False
-                    is_weekday = now.weekday() < 5
-
-                    # Morning VRAM handoff (5:15 AM, weekdays only)
-                    if (is_weekday and hour == 5 and now.minute >= 15
-                            and not self._morning_handoff_done):
-                        if self._safe_run("morning VRAM handoff",
-                                          self._run_morning_handoff):
-                            self._morning_handoff_done = True
-                        ran = True
-
-                    elif is_weekday and hour == 17 and now.minute >= 30 and not self._post_close_done:
-                        if self._safe_run("post-close capture", self._run_post_close_capture):
-                            self._post_close_done = True
-                        ran = True
-                    elif (is_weekday and hour == 18 and self.training_enabled
-                          and not self._overnight_training_collection_done):
-                        if self._safe_run("overnight training collection",
-                                          self._run_overnight_training_collection):
-                            self._overnight_training_collection_done = True
-                        ran = True
-
-                    # Evening VRAM handoff (6:50 PM, weekdays only)
-                    elif (is_weekday and hour == 18 and now.minute >= 50
-                          and not self._vram_handoff_done):
-                        if self._safe_run("evening VRAM handoff",
-                                          self._run_evening_handoff):
-                            self._vram_handoff_done = True
-                        ran = True
-
-                    # Re-run stress test if model version changed (7 PM, weekdays only)
-                    elif (is_weekday and hour == 19 and not self._stress_test_done
-                          and self._model_version_changed()):
-                        if self._safe_run("stress test (model change)",
-                                          self._run_stress_test):
-                            self._stress_test_done = True
-                        ran = True
-
-                    # NOTE: 9:30 PM data collection, 10 PM news, 11 PM enrichment
-                    # are CPU/network only (no GPU) — run daily including weekends.
-                    # Weekend data (options flow, news, macro) feeds Monday morning's
-                    # pre-market brief and council session.
-                    elif (hour == 21 and now.minute >= 30
-                          and not self._data_collection_done):
-                        if self._safe_run("data collection", self._run_data_collection):
-                            self._data_collection_done = True
-                        ran = True
-                    elif hour == 22 and not self._news_ingestion_done:
-                        if self._safe_run("news ingestion", self._run_news_ingestion):
-                            self._news_ingestion_done = True
-                        ran = True
-                    elif hour == 23 and not self._enrichment_precache_done:
-                        if self._safe_run("enrichment precache", self._run_enrichment_precache):
-                            self._enrichment_precache_done = True
-                        ran = True
-                    # 1-minute bars AFTER enrichment — yfinance rate-limited, no
-                    # GPU dependency, 7-days/week (collector handles non-trading
-                    # days gracefully). Phase 6 intraday-desk foundation.
-                    elif (hour == 23 and now.minute >= 30
-                          and not self._1min_bar_collection_done):
-                        if self._safe_run("1-minute bar collection",
-                                          self._run_1min_bar_collection):
-                            self._1min_bar_collection_done = True
-                        ran = True
-                    elif is_weekday and hour == 6 and not self._pre_market_done:
-                        if self._safe_run("pre-market refresh", self._run_pre_market_refresh):
-                            self._pre_market_done = True
-
-                            # 1A. Pre-market brief (right after pre-market refresh at 6:00 AM)
-                            if not self._premarket_brief_done:
-                                if self._safe_run("pre-market brief", self._send_premarket_brief):
-                                    self._premarket_brief_done = True
-                        ran = True
-
-                    # ── Pre-market inference tasks (6-9:25 AM, weekdays only) ──
-                    elif (is_weekday and hour == 6 and now.minute >= 2
-                          and not self._premarket_features_done):
-                        if self._safe_run("rolling features",
-                                          self._run_premarket_rolling_features):
-                            self._premarket_features_done = True
-                        ran = True
-                    elif is_weekday and hour == 7 and not self._premarket_training_done:
-                        if self._safe_run("premarket training gen",
-                                          self._run_premarket_training):
-                            self._premarket_training_done = True
-                        ran = True
-                    elif (is_weekday and hour == 8 and now.minute >= 2
-                          and not self._premarket_news_done):
-                        if self._safe_run("premarket news scoring",
-                                          self._run_premarket_news_scoring):
-                            self._premarket_news_done = True
-                        ran = True
-                    elif (is_weekday and hour == 9 and now.minute < 25
-                          and not self._premarket_candidates_done):
-                        if self._safe_run("premarket candidates",
-                                          self._run_premarket_candidates):
-                            self._premarket_candidates_done = True
-                        ran = True
-
-                        # ── Telegram: notify_premarket_complete (all premarket tasks done) ──
-                        if (self._premarket_features_done and self._premarket_training_done
-                                and self._premarket_news_done):
-                            try:
-                                from src.notifications.telegram import notify_premarket_complete, is_telegram_enabled
-                                if is_telegram_enabled():
-                                    notify_premarket_complete(
-                                        features_done=self._premarket_features_done,
-                                        training_gen=0,  # count not tracked at this level
-                                        news_scored=0,
-                                        candidates=0,
-                                    )
-                            except Exception as e:
-                                logger.warning("[WATCH] notify_premarket_complete failed: %s", e)
-
-                    if not ran:
-                        print(f"[WATCH] {time_str} ET -- overnight mode")
+                # Overnight schedule: 14 handlers in src/scheduler/watch_handlers.py
+                # registered by _register_default_handlers() and dispatched via
+                # _dispatch_sync("on_tick", now) above. See Phase B in
+                # docs/sprints/sprint-asyncio-handler-refactor.md.
 
                 # 7. Between-scan scoring (market hours only)
                 if self._is_market_open(now) and self._scorer.is_scoring_window():
@@ -1776,6 +1669,15 @@ class WatchLoop:
             raise
         finally:
             self._release_lock()
+
+    def _register_default_handlers(self) -> None:
+        """Wire the Phase B on_tick handlers. Called once at startup."""
+        from functools import partial
+        from src.scheduler.watch_handlers import OVERNIGHT_HANDLERS
+        for handler in OVERNIGHT_HANDLERS:
+            bound = partial(handler, self)
+            bound.__name__ = handler.__name__
+            self.on("on_tick")(bound)
 
     def _safe_run(self, name: str, func) -> bool:
         """Run a function with per-task exponential backoff error recovery.

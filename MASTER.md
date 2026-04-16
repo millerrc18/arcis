@@ -962,6 +962,9 @@ VIX >40, system offline.
 | -- | **Bracket calibration analysis** | QUEUED — MFE analysis on 69% stale exits |
 | -- | **iOS app (Capacitor)** | Backlog — native wrapper for dashboard |
 | -- | **alpaca-py canonicalization** | DONE v0.22.1 — migration already complete; version pin tightened to `>=0.43,<1.0`, CI guardrail test added, per-call-site best-practices audit + Phase 6 streaming-gap doc landed |
+
+| -- | **asyncio handler refactor (Phase A)** | DONE v0.23.1 — `HandlerRegistryMixin` + `run_async()` wrapper; 12 registry tests; watch.py +2 lines only. |
+| -- | **asyncio handler refactor (Phase B overnight + Phase C tests)** | DONE v0.23.2 — 14 overnight handlers extracted to `src/scheduler/watch_handlers.py`; `_run_sync_body` shrank 740→631 lines; watch.py 2,041→1,941 (below pre-refactor baseline). 25 handler tests + 4 new `_dispatch_sync` tests. Remaining ~20 inline blocks queued. |
 | -- | **Repo reorganization** | Backlog |
 
 ### Research Queue
