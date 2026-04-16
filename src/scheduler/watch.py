@@ -43,6 +43,7 @@ load_dotenv()
 
 from src.config import DB_PATH, load_config
 from src.llm.client import is_llm_available
+from src.scheduler.handler_registry import HandlerRegistryMixin
 from src.scheduler.scorer import GuardedScorer
 
 logger = logging.getLogger(__name__)
@@ -99,7 +100,7 @@ class DBLogHandler(logging.Handler):
             pass  # GOTCHA: Never let logging crash the system — silent failure is correct here
 
 
-class WatchLoop:
+class WatchLoop(HandlerRegistryMixin):
     """Automated daily cadence loop for the AI Research Desk."""
 
     def __init__(self, config: dict, email_mode: str | None = None,
@@ -243,6 +244,7 @@ class WatchLoop:
 
         # Simulation engine scheduling
         self._simulation_done = False
+        self._handlers: dict[str, list] = {}  # Phase A: see handler_registry.py
 
     def _reset_daily_state(self):
         """Reset daily flags at midnight ET.
@@ -1035,7 +1037,7 @@ class WatchLoop:
         except Exception:
             pass
 
-    def run(self):
+    def _run_sync_body(self):
         """Main watch loop. Checks every 60 seconds.
 
         Architecture: A single while-loop that sleeps 60s between iterations.

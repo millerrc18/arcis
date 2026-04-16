@@ -822,8 +822,8 @@
     },
     {
       "file": "src/scheduler/watch.py",
-      "function": "run",
-      "lines": 454
+      "function": "_run_sync_body",
+      "lines": 740
     },
     {
       "file": "src/services/mr_scan_service.py",
