@@ -244,6 +244,10 @@ class WatchLoop(HandlerRegistryMixin):
 
         # Simulation engine scheduling
         self._simulation_done = False
+        # Trading-stats pulses — 3x per weekday (7:45, 12:00, 16:05 ET)
+        self._stats_premarket_done = False
+        self._stats_midday_done = False
+        self._stats_postclose_done = False
         self._handlers: dict[str, list] = {}  # Phase A: see handler_registry.py
 
     def _reset_daily_state(self):
@@ -300,6 +304,9 @@ class WatchLoop(HandlerRegistryMixin):
         self._model_regression_done = False
         self._stress_test_done = False
         self._simulation_done = False
+        self._stats_premarket_done = False
+        self._stats_midday_done = False
+        self._stats_postclose_done = False
         self._last_bracket_check_time = None
         self._last_reconcile_time = None
         # Research + metrics
@@ -1415,11 +1422,11 @@ class WatchLoop(HandlerRegistryMixin):
                 # don't miss the window. The resolver is idempotent — safe to retry.
                 if (16 <= hour < 22 and (hour > 16 or now.minute >= 15)
                         and not self._attribution_resolution_done):
-                    from src.attribution.logger import resolve_pending_outcomes
+                    from src.scheduler.overnight import run_attribution_resolution_and_notify
                     # Fix for #257: only set done-flag on success
                     if self._safe_run(
                         "attribution outcome resolution",
-                        lambda: resolve_pending_outcomes(),
+                        run_attribution_resolution_and_notify,
                     ):
                         self._attribution_resolution_done = True
 
@@ -1673,8 +1680,8 @@ class WatchLoop(HandlerRegistryMixin):
     def _register_default_handlers(self) -> None:
         """Wire the Phase B on_tick handlers. Called once at startup."""
         from functools import partial
-        from src.scheduler.watch_handlers import OVERNIGHT_HANDLERS
-        for handler in OVERNIGHT_HANDLERS:
+        from src.scheduler.watch_handlers import ALL_HANDLERS
+        for handler in ALL_HANDLERS:
             bound = partial(handler, self)
             bound.__name__ = handler.__name__
             self.on("on_tick")(bound)
