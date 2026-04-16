@@ -265,6 +265,7 @@ def _upsert_to_postgres(
     # INTEGER columns and "92.920655" for non-TEXT columns.
     _INTEGER_COLUMNS = {
         "planned_shares", "duration_days", "earnings_adjacent", "timeout_days",
+        "volume", "trade_count",  # minute_bars (also reused by options_chains.volume)
     }
     _REAL_COLUMNS = {
         "actual_entry_price", "actual_exit_price", "pnl_dollars", "pnl_pct",
@@ -275,6 +276,7 @@ def _upsert_to_postgres(
         "position_size_pct", "estimated_dollar_risk", "pullback_depth_pct", "atr",
         "max_favorable_excursion", "max_adverse_excursion", "planned_allocation",
         "spy_return_over_hold", "excess_return",  # SD#41 D1
+        "open", "high", "low", "close",  # minute_bars OHLCV
     }
     for row in rows:
         for col in _INTEGER_COLUMNS:

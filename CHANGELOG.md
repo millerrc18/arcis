@@ -1,5 +1,43 @@
 # Changelog
 
+## [v0.23.0] - 2026-04-16 — 1-Minute Bar Collection (Phase 6 Foundation)
+
+Lays the data foundation for Phase 6 intraday-desk feasibility work per
+`docs/research/deep-research/intraday-desk-feasibility-prompt.md`.
+yfinance only exposes ~7 trading days of 1-minute history, so we begin
+storing bars now to study historical microstructure when the time comes.
+
+### Added
+
+- **`minute_bars` table** (schema registry) — composite PK `(ticker, timestamp)`;
+  OHLCV (REAL) + volume/trade_count (INTEGER); synced to Postgres
+  incrementally via `sync_time_column="timestamp"`. ~2.3 MB/day / ~600 MB/yr.
+- **`scripts/collect_1min_bars.py`** — yfinance-backed nightly collector
+  for S&P 100. Rate-limited at 0.3s/ticker (≈31s wall time). CLI flags:
+  `--date YYYY-MM-DD`, `--days N` (backfill up to 7d), `--dry-run`.
+  Idempotent via `INSERT OR REPLACE` on the composite PK. Flattens
+  yfinance MultiIndex columns (same fix pattern as SD#41 D2) and coerces
+  NaN prices/volumes to NULL.
+- **Overnight schedule wire-up** (`src/scheduler/watch.py`) — new
+  `_1min_bar_collection_done` flag, reset daily, fires at hour 23 minute
+  ≥30 ET (after enrichment precache, before the midnight flag reset).
+  7-days/week like the other network-only collectors; empty weekend
+  responses handled gracefully.
+- **`tests/test_collect_1min_bars.py`** — 8 tests covering schema
+  registration, MultiIndex flatten, NaN coercion, empty-response path,
+  idempotent upsert, dry-run semantics, rate-limiting, and the
+  previous-trading-day walker.
+
+### Changed
+
+- **`src/sync/render_sync.py`** — added `open`, `high`, `low`, `close`
+  to `_REAL_COLUMNS` and `volume`, `trade_count` to `_INTEGER_COLUMNS`
+  so `minute_bars` rows coerce cleanly on the Postgres side.
+
+### Authority
+
+Phase 1 decision #3 of `docs/research/deep-research/intraday-desk-feasibility-report.md` — begin storing 1-min bars now.
+
 ## [v0.22.0] - 2026-04-16 — Attribution Resolver MultiIndex Fix + Doc Sweep (SD#41 REVISED / D2 follow-up)
 
 Ships the D2 follow-up fix (yfinance MultiIndex bug that corrupted 1,600

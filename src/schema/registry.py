@@ -1694,6 +1694,37 @@ _register(TableDef(
 # ---------------------------------------------------------------------------
 
 _register(TableDef(
+    name="minute_bars",
+    description=(
+        "1-minute OHLCV bars for S&P 100 — Phase 6 intraday optionality data. "
+        "Collected nightly via scripts/collect_1min_bars.py using yfinance. "
+        "yfinance only exposes ~7 trading days of 1-min history; daily "
+        "collection required to avoid gaps. Storage: ~2.3 MB/day, 600 MB/yr."
+    ),
+    columns=[
+        ColumnDef("ticker", "TEXT", nullable=False,
+                  description="S&P 100 ticker symbol"),
+        ColumnDef("timestamp", "TEXT", nullable=False,
+                  description="ISO-8601 minute-bar timestamp (ET)"),
+        ColumnDef("open", "REAL"),
+        ColumnDef("high", "REAL"),
+        ColumnDef("low", "REAL"),
+        ColumnDef("close", "REAL"),
+        ColumnDef("volume", "INTEGER"),
+        ColumnDef("trade_count", "INTEGER",
+                  description="Trades per bar (yfinance may leave NULL)"),
+    ],
+    primary_key=["ticker", "timestamp"],
+    indexes=[
+        IndexDef("idx_minute_bars_timestamp", ["timestamp"]),
+    ],
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_time_column="timestamp",
+))
+
+
+_register(TableDef(
     name="system_metrics",
     description="System utilization snapshots (GPU, CPU, RAM, disk, Ollama)",
     columns=[
