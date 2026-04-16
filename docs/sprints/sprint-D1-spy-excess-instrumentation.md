@@ -388,6 +388,35 @@ python -c "from src.config import DB_PATH; import sqlite3; c = sqlite3.connect(D
 
 ---
 
+### Task 6b — Add new REAL columns to render_sync type coercion
+
+**File:** `src/sync/render_sync.py`
+
+The sync layer uses `SELECT *` from SQLite (good — new columns are picked up automatically). But it has hardcoded `_REAL_COLUMNS` and `_INTEGER_COLUMNS` sets (~line 267) for type coercion before Postgres INSERT. SQLite stores everything as TEXT; Postgres needs proper types.
+
+Find `_REAL_COLUMNS` (around line 274) and add the two new REAL columns:
+
+```python
+_REAL_COLUMNS = {
+    "actual_entry_price", "actual_exit_price", "pnl_dollars", "pnl_pct",
+    "stop_price", "target_1", "target_2",
+    "entry_price", "signal_price", "signal_entry_price", "signal_exit_price",
+    "fill_entry_price", "fill_exit_price",
+    "priority_score", "confidence_score", "position_size_dollars",
+    "position_size_pct", "estimated_dollar_risk", "pullback_depth_pct", "atr",
+    "max_favorable_excursion", "max_adverse_excursion", "planned_allocation",
+    "spy_return_over_hold", "excess_return",  # SD#41 D1
+}
+```
+
+`realized_sector` is TEXT — no coercion needed; passes through fine.
+
+**Why this matters:** Without this, backfilled data stays in local SQLite but doesn't reliably sync to Render Postgres, which means the dashboard at halcyonlab.app won't show the new metrics. The Postgres schema auto-creates new columns from the registry, but the data INSERT can fail on type mismatch if the coercion set is incomplete.
+
+**Constraint:** Do not change any other entries in _REAL_COLUMNS or _INTEGER_COLUMNS.
+
+---
+
 ### Task 7 — New API endpoint
 
 **File:** `src/api/cloud_routes/trades.py` (add to existing router)
