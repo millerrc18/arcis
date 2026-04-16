@@ -306,6 +306,10 @@ def _select_paper_broker(config: dict, score: float) -> tuple[str, object | None
     and score >= threshold, routes to IB paper. Otherwise returns ("alpaca", None).
     If IB Gateway is down, falls back to Alpaca with a warning.
     """
+    # SD#41 — IB cold storage. Skip IB paper routing entirely when dormant.
+    if not config.get("trading", {}).get("ib_enabled", False):
+        return "alpaca", None
+
     ib_cfg = config.get("live_trading", {}).get("ib", {})
     if not ib_cfg.get("paper_routing"):
         return "alpaca", None
@@ -871,9 +875,11 @@ def open_shadow_trade(
         logger.error("[SHADOW] Recorded failed shadow trade for %s", ticker)
 
     # IB Shadow logging — non-blocking comparison data (#368)
+    # SD#41 — Gated by trading.ib_enabled. When dormant, skip the import + write.
     try:
+        ib_enabled = config.get("trading", {}).get("ib_enabled", False)
         ib_shadow_cfg = config.get("live_trading", {}).get("ib", {})
-        if ib_shadow_cfg.get("shadow_mode") and trade_data.get("status") == "open":
+        if ib_enabled and ib_shadow_cfg.get("shadow_mode") and trade_data.get("status") == "open":
             from src.trading.ib_shadow import IBShadowLogger
             _ib_shadow = IBShadowLogger(config)
             _ib_shadow.log_shadow_trade(
@@ -2008,9 +2014,11 @@ def open_live_trade(
     _check_sector_exposure(db_path)
 
     # IB Shadow logging — non-blocking comparison data (#368)
+    # SD#41 — Gated by trading.ib_enabled. When dormant, skip the import + write.
     try:
+        ib_enabled = config.get("trading", {}).get("ib_enabled", False)
         ib_shadow_cfg = config.get("live_trading", {}).get("ib", {})
-        if ib_shadow_cfg.get("shadow_mode") and trade_data.get("status") == "open":
+        if ib_enabled and ib_shadow_cfg.get("shadow_mode") and trade_data.get("status") == "open":
             from src.trading.ib_shadow import IBShadowLogger
             _ib_shadow = IBShadowLogger(config)
             _ib_shadow.log_shadow_trade(

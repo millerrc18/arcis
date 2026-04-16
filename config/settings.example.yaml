@@ -228,6 +228,16 @@ shadow_trading:
 #     ALPACA_LIVE_SECRET_KEY — not in this file.
 # ────────────────────────────────────────────────────────────────────────
 
+# ─── BROKER FEATURE FLAGS ───────────────────────────────────────────────
+# Cross-cutting flags that gate broker-specific code paths globally.
+# Distinct from live_trading.broker (which selects which broker to use).
+trading:
+  ib_enabled: false                        # SD#41 — IB dormant through Phase 1.
+                                           # When false: broker_factory falls back
+                                           # to Alpaca, executor skips IB shadow log,
+                                           # reconcile leaves IB positions for brackets.
+                                           # See docs/research/SD-41-defer-ib-integration.md
+
 live_trading:
   enabled: false                           # true = real money. Be very sure.
   broker: "alpaca"                         # "alpaca" or "ib". IB requires Gateway running.

@@ -131,10 +131,11 @@ class TestBrokerFactory:
     def test_factory_returns_ib_when_configured(self):
         from src.trading.broker_factory import get_live_broker
         config = {
+            "trading": {"ib_enabled": True},  # SD#41 — explicit opt-in past cold-storage gate
             "live_trading": {
                 "broker": "ib",
                 "ib": {"host": "127.0.0.1", "port": 4002, "client_id": 99},
-            }
+            },
         }
         broker = get_live_broker(config)
         from src.trading.ib_broker import IBBroker
@@ -152,7 +153,10 @@ class TestBrokerFactory:
     def test_factory_ib_default_port_is_paper(self):
         """Default port should be 4002 (paper), not 4001 (live)."""
         from src.trading.broker_factory import get_live_broker
-        config = {"live_trading": {"broker": "ib"}}
+        config = {
+            "trading": {"ib_enabled": True},  # SD#41 — explicit opt-in past cold-storage gate
+            "live_trading": {"broker": "ib"},
+        }
         broker = get_live_broker(config)
         from src.trading.ib_broker import IBBroker
         assert isinstance(broker, IBBroker)

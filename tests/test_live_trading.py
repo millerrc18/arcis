@@ -726,6 +726,7 @@ class TestIBShadowIntegration:
                                               tmp_db, mock_packet, mock_features):
         """When ib.shadow_mode=true, shadow logger is invoked after successful paper trade."""
         config = {
+            "trading": {"ib_enabled": True},  # SD#41 — opt past cold-storage gate
             "shadow_trading": {"enabled": True, "max_positions": 10, "timeout_days": 15},
             "risk_governor": {"enabled": False},
             "live_trading": {"ib": {"shadow_mode": True}},

@@ -59,7 +59,7 @@ with an unbeatable technological moat.
 | Open positions | ~2 (verify with shadow-status) |
 | Model | halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF); v2.0.0 retrain in progress |
 | Training data | 1,722 examples (1,019 + 703 regime-diverse backfill) |
-| Tests | 1,829 tests across 146 test files |
+| Tests | 1,794 tests across 147 test files |
 | Python files | 223 |
 | Dashboard pages | 24 |
 | Research docs | 91 |
@@ -81,7 +81,7 @@ with an unbeatable technological moat.
 | Between-scan quality scoring | LIVE -- GuardedScorer Ollama |
 | Command queue + config overrides | LIVE -- pull-based |
 | 12 overnight collectors | RUNNING |
-| Broker abstraction (IB + Alpaca) | READY -- config-driven, IB activation gated on validation |
+| Broker abstraction (Alpaca active, IB dormant) | LIVE -- Alpaca only; IB cold-stored per SD#41 (`trading.ib_enabled=false`), all IB code preserved for reactivation |
 | Telegram | LIVE -- 56 functions, gated behind trade_id |
 | Intra-day reconciliation | LIVE -- every 15 min during market hours |
 | Dashboard (Arcis) | LIVE -- 24 pages (adds Broker Comparison, Velocity), dark/light toggle, mobile-responsive sidebar |
@@ -176,6 +176,7 @@ with an unbeatable technological moat.
 | Hotfix merge sprint | v0.14.2 | 6 critical bugs (#307-312), codex telegram fix (#299-301), 9 Dependabot PRs, 5 branch cleanup |
 | IB shadow dashboard | -- | Cloud API routes + dashboard page for IB shadow mode comparison analytics |
 | Observability MVP (SD#40) | -- | Grafana Cloud Loki handler (raw HTTP, no new deps), DedupFilter, ctx→label propagation, NSSM Windows service installer (`scripts/install_service.ps1`), Postgres startup-timeout fix |
+| IB cold storage (SD#41) | -- | v0.18.0, `trading.ib_enabled=false` gate across broker_factory/executor/reconcile/watch, Settings IB · Dormant indicator, 3 regression tests, all IB code preserved |
 
 ---
 

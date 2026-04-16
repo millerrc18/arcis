@@ -340,10 +340,14 @@ def reconcile_paper_trades(
     ib_positions: dict = {}
     ib_fetch_ok = False
     ib_enabled = False
+    ib_globally_enabled = False  # SD#41 — distinct from local ib_enabled (cycle attempt flag)
     try:
         from src.config import load_config as _lc_reconcile
         _cfg_r = _lc_reconcile()
-        if _cfg_r.get("live_trading", {}).get("ib", {}).get("paper_routing"):
+        ib_globally_enabled = _cfg_r.get("trading", {}).get("ib_enabled", False)
+        # SD#41 — Skip IB connection entirely when cold-stored. TGT/COP brackets
+        # resolve naturally on Alpaca side without active reconciler intervention.
+        if ib_globally_enabled and _cfg_r.get("live_trading", {}).get("ib", {}).get("paper_routing"):
             ib_enabled = True
             from src.trading.ib_broker import IBBroker
             _ib_cfg = _cfg_r.get("live_trading", {}).get("ib", {})
@@ -426,6 +430,11 @@ def reconcile_paper_trades(
     # trades, treat that as a transient fetch issue rather than a mass-close
     # signal — the same pattern that burned us in the 2026-04-13 outage.
     ib_trade_count = sum(1 for rec in tracked_map.values() if rec.get("broker") == "ib")
+    if not ib_globally_enabled and ib_trade_count > 0:
+        logger.info(
+            "[RECONCILE] %d IB position(s) tracked but trading.ib_enabled=false (SD#41). "
+            "Letting brackets resolve naturally.", ib_trade_count,
+        )
     if ib_enabled and not ib_fetch_ok and ib_trade_count > 0:
         logger.warning(
             "[RECONCILE-PAPER] Skipping stale closure for %d IB-broker trades "

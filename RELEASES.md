@@ -49,6 +49,48 @@
 
 ## Releases
 
+### v0.18.0 — IB Cold Storage (2026-04-16)
+
+Defers Interactive Brokers integration through Phase 1 to focus operational
+attention on Alpaca. No code is deleted — every IB module, route, table,
+test, and dependency stays in the repo. Reactivation is a single flag flip
+(`trading.ib_enabled: true`) plus a watch-loop restart.
+
+**Authority:** SD#41 — `docs/research/SD-41-defer-ib-integration.md`
+**Sprint spec:** `docs/sprints/sprint-ib-cold-storage.md`
+
+**The gate (`trading.ib_enabled`, defaults to `false`):**
+- `broker_factory` falls back to Alpaca even when `broker=ib` is requested,
+  with a one-line `[BROKER]` warning explaining the dormant state.
+- `executor` skips both IB paper-routing and the two IB shadow-log call
+  sites (entry + exit/reconcile).
+- `reconcile` defers the IB position fetch and emits a single
+  `[RECONCILE]` info log per cycle when IB-broker rows exist; brackets
+  resolve naturally on the broker side.
+- `scheduler.watch` logs `[WATCH] IB integration dormant per SD#41` once
+  at startup and short-circuits the 5-min IB Gateway health-check loop.
+- Settings page renders a static "Alpaca · Active / IB · Dormant (SD#41)"
+  Broker Status panel.
+
+**Tests:**
+- New `tests/test_ib_cold_storage.py` (3 cases): fallback path,
+  explicit opt-in escape hatch, default-config invariant.
+- 6 existing IB tests now set `trading: {ib_enabled: True}` in their
+  fixtures/configs to keep exercising the IB code path.
+
+**Preserved (intentionally untouched):**
+- `src/trading/ib_broker.py`, `src/trading/ib_shadow.py`
+- `src/api/cloud_routes/ib_shadow.py`, `src/api/routes/ib_status.py`
+- `ib_shadow_log` table (queryable, stops growing)
+- `ib_async` in `requirements.txt`
+- IBShadow.jsx component (no route changes)
+
+**Reactivation path:**
+1. `settings.local.yaml`: set `trading.ib_enabled: true`
+2. Verify IB Gateway is running (port 4002 paper, 4001 live)
+3. `nssm restart ArcisWatchLoop`
+4. Watch loop picks up the flag at next config load.
+
 ### v0.17.0 — IB Integration Complete + Dashboard Overhaul + Training Backfill (2026-04-12)
 
 The first release to ship the full Interactive Brokers stack alongside Alpaca,

@@ -177,7 +177,8 @@ class TestReconcilerBrokerUnreachableGuard:
         with patch("src.shadow_trading.alpaca_adapter.get_all_positions",
                    fake_get_all_positions), \
              patch("src.config.load_config",
-                   return_value={"live_trading": {"ib": {"paper_routing": True,
+                   return_value={"trading": {"ib_enabled": True},  # SD#41 — opt past cold-storage gate to exercise IB path
+                                 "live_trading": {"ib": {"paper_routing": True,
                                                          "host": "127.0.0.1",
                                                          "port": 4002,
                                                          "client_id": 1}}}), \
@@ -206,7 +207,8 @@ class TestReconcilerBrokerUnreachableGuard:
         with patch("src.shadow_trading.alpaca_adapter.get_all_positions",
                    lambda: []), \
              patch("src.config.load_config",
-                   return_value={"live_trading": {"ib": {"paper_routing": True,
+                   return_value={"trading": {"ib_enabled": True},  # SD#41 — opt past cold-storage gate to exercise IB path
+                                 "live_trading": {"ib": {"paper_routing": True,
                                                          "host": "127.0.0.1",
                                                          "port": 4002,
                                                          "client_id": 1}}}), \

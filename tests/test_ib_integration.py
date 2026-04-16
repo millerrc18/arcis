@@ -255,6 +255,7 @@ class TestConfigProgression:
         from src.shadow_trading.executor import _select_paper_broker
 
         config = {
+            "trading": {"ib_enabled": True},  # SD#41 — opt past cold-storage gate
             "live_trading": {
                 "ib": {
                     "paper_routing": True,
@@ -281,6 +282,7 @@ class TestConfigProgression:
         from src.shadow_trading.executor import _select_paper_broker
 
         config = {
+            "trading": {"ib_enabled": True},  # SD#41 — opt past cold-storage gate
             "live_trading": {
                 "ib": {
                     "shadow_mode": True,
@@ -332,6 +334,7 @@ class TestIBFailureRecovery:
         from src.shadow_trading.executor import _select_paper_broker
 
         config = {
+            "trading": {"ib_enabled": True},  # SD#41 — opt past cold-storage gate
             "live_trading": {
                 "ib": {
                     "paper_routing": True,

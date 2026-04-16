@@ -16,7 +16,7 @@ Systematic equity research platform built on fine-tuned LLMs and a 5-agent AI co
 - **Phase 1 Bootcamp** — paper trading $100K, 18 closed trades
 - **Model**: `halcyon-v1.0.0` (Qwen3 8B, QLoRA fine-tuned); v2.0.0 retrain in progress on 1,722-example dataset (703 regime-diverse rows added)
 - **Dashboard**: [halcyonlab.app](https://halcyonlab.app) (24 pages including Broker Comparison and Velocity, mobile-responsive sidebar, dark/light toggle)
-- **IB integration**: complete — broker abstraction, shadow mode, dual-execution routing, paper trading validated (activation gated on 20% buffer + 30-day Gateway stability)
+- **IB integration**: cold-stored per SD#41 — code intact, `trading.ib_enabled=false` default. Reactivation is a single flag flip; all modules, tests, table, and dependency preserved.
 - **Current counts**: See [MASTER.md](MASTER.md) Section 2 for live metrics (tests, files, tables, etc.)
 
 ## Architecture
@@ -63,7 +63,7 @@ Cloud: [halcyonlab.app](https://halcyonlab.app) (Render + Postgres sync)
 - **Backend**: Python 3.12, FastAPI, SQLite (local), Postgres (cloud sync)
 - **Frontend**: React 19, Vite 8, Tailwind 4, Recharts
 - **Inference**: Ollama (Qwen3 8B), Anthropic Claude (council + quality scoring)
-- **Broker**: Alpaca (paper + live) / Interactive Brokers (live) via broker abstraction (`src/trading/`)
+- **Broker**: Alpaca (paper + live, active) / Interactive Brokers (dormant per SD#41) via broker abstraction (`src/trading/`)
 - **Data**: Finnhub, FRED, SEC EDGAR, Yahoo Finance, 12 overnight collectors
 - **Ops**: Telegram alerts, Render sync, CI on PRs, command queue from dashboard
 
