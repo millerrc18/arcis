@@ -14,7 +14,7 @@
 
 **Name:** Arcis (Adaptive Regime Classification & Intelligence Systems)
 **License:** BSL 1.1 (source-visible, no commercial use until 2030)
-**Release:** v0.17.2 (Grafana Cloud Loki observability + NSSM Windows service installer + Render Postgres startup-timeout fix; prior: v0.17.1 test baseline / fractional shares; v0.17.0 IB integration + dashboard overhaul)
+**Release:** v0.21.0 (2026-04-16: earnings filter hard block SD#33; prior: v0.20.0 regime/sector classifier diagnostic SD#41 D3; v0.19.0 SPY-matched excess instrumentation SD#41 D1; v0.18.0 IB cold storage SD#41; v0.17.2 Grafana Loki + NSSM)
 **Repository:** github.com/millerrc18/halcyon-lab
 **Dashboard:** halcyonlab.app (Render static + Python API)
 
@@ -38,8 +38,8 @@ with an unbeatable technological moat.
 - Frontend: React 19, Tailwind 4, Vite 8, TanStack Query
 - LLM: Ollama local (halcyon-v1.0.0, Qwen3 8B fine-tuned, Q8_0 GGUF 8.7GB)
 - Training: PEFT + TRL 0.24 + BitsAndBytes on RTX 3060 12GB
-- Trading: Alpaca paper + live API (bracket orders, GTC); IB Gateway via
-  ib_async (broker abstraction, config-driven: `live_trading.broker`)
+- Trading: Alpaca paper + live API (bracket orders, GTC); IB Gateway dormant
+  per SD#41 (`trading.ib_enabled=false`), all code preserved for reactivation
 - Deployment: Render (static frontend + Python API + Postgres read-replica)
 - Config: YAML (`config/settings.*.yaml`) + `.env` for secrets
 
@@ -54,16 +54,16 @@ with an unbeatable technological moat.
 
 | Metric | Value |
 |---|---|
-| Phase | 1 (Bootcamp) -- paper $100K + $100 live via Alpaca |
-| Closed trades | 18 verified (77 quarantined from April 10 cascade) |
+| Phase | 1 (Diagnostic) -- paper $100K + $100 live via Alpaca. **SD#41 REVISED: halt optimization, run diagnostics first.** |
+| Closed trades | 85 closed (105 quarantined from April 10 cascade; verify via shadow-status) |
 | Open positions | ~2 (verify with shadow-status) |
-| Model | halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF); v2.0.0 retrain in progress |
+| Model | halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF); v2.0.0 retrain gated on excess-Sharpe validation |
 | Training data | 1,722 examples (1,019 + 703 regime-diverse backfill) |
-| Tests | 1,801 tests across 148 test files |
+| Tests | 1,852 tests across 150 test files |
 | Python files | 225 |
-| Dashboard pages | 24 |
-| Research docs | 91 |
-| Sprint docs | 43 |
+| Dashboard pages | 25 |
+| Research docs | 107 |
+| Sprint docs | 57 |
 | Schema tables | 53 (registry), 44+ synced to Postgres |
 | GitHub issues | 0 open |
 | Monthly cost | ~$64 (Render $14 + Ollama free + Claude API ~$50 + domain $7) |
@@ -84,30 +84,29 @@ with an unbeatable technological moat.
 | Broker abstraction (Alpaca active, IB dormant) | LIVE -- Alpaca only; IB cold-stored per SD#41 (`trading.ib_enabled=false`), all IB code preserved for reactivation |
 | Telegram | LIVE -- 56 functions, gated behind trade_id |
 | Intra-day reconciliation | LIVE -- every 15 min during market hours |
-| Dashboard (Arcis) | LIVE -- 24 pages (adds Broker Comparison, Velocity), dark/light toggle, mobile-responsive sidebar |
+| Dashboard (Arcis) | LIVE -- 25 pages (Trade History with excess-Sharpe lead panel replaces Broker Comparison; Velocity), dark/light toggle, mobile-responsive sidebar |
 | Simulation engine | LIVE -- 13 regimes, Monte Carlo, traffic light validation, regime selector |
 | Schema registry | LIVE -- 53 tables, single source of truth |
 | Render sync | LIVE -- 44/51 tables synced to Postgres |
 | Halcyon-audit plugin | LIVE -- 8 domain agents, /audit command |
 | Automated guardrails | LIVE -- test_repo_structure.py |
 | CI on PRs | LIVE -- tests + guardrails + frontend build |
-| PEAD enrichment (5 signals) | DEPLOYED |
 | Implementation Shortfall | DEPLOYED |
 | SPY-matched excess instrumentation | ENABLED -- v0.19.0, per-trade excess_return + /api/shadow/sharpe-attribution + Trade History lead panel (SD#41 REVISED / Sprint D1) |
+| Earnings filter (SD#33) | LIVE -- v0.21.0, hard block within 10 calendar days of earnings via event_risk_score |
+| IB integration | DORMANT -- v0.18.0, `trading.ib_enabled=false`, all code preserved for reactivation per SD#41 |
+| Attribution resolver | FIXED -- v0.22.0 (this sprint), yfinance MultiIndex flatten; 1,600 rows re-resolved as v2_fixed |
+| PEAD enrichment | ELIMINATED per SD#3 — PEAD dead for large caps (Martineau 2022, Subrahmanyam 2025). Replaced by Options Volatility Desk (Phase 3-4). |
 
-### Diagnostic D2 Status
+### Diagnostic D2 Status — **CLOSED**
 
-- **Audit completed:** 2026-04-16
-- **Classification:** **Hypothesis B — simulation methodology bug (MultiIndex data-shape defect)**
-- **Evidence strength:** overwhelming — 1,600/1,600 resolved rows carry the bug's universal fingerprint
-- **Audit doc:** [`docs/research/attribution-resolver-audit.md`](docs/research/attribution-resolver-audit.md)
-- **Follow-up fix sprint:** [`docs/sprints/sprint-attribution-resolver-fix.md`](docs/sprints/sprint-attribution-resolver-fix.md) (drafted, awaiting PR)
-- **Action policy (effective immediately, lifted when fix sprint merges + re-resolution completes):**
-  No attribution claim ("LLM rejects 100% of losers", "LLM filter adds alpha",
-  "−5.24% avg ranker-only pnl", etc.) may be cited in investor materials, training
-  documentation, onboarding decks, CTO reports, or strategy decision records.
-  All prior attribution-based claims are rescinded pending re-resolution.
-- **Root cause in one line:** `yfinance.download` returns a MultiIndex DataFrame; `bar.get("Low", ...)` in `simulate_mechanical_outcome` misses (key is tuple `('Low', ticker)`, not string `"Low"`), returning default `0`, which trips the stop-first check on every bar.
+- **Audit completed:** 2026-04-16 — [`docs/research/attribution-resolver-audit.md`](docs/research/attribution-resolver-audit.md)
+- **Classification:** Hypothesis B — simulation methodology bug (MultiIndex data-shape defect)
+- **Evidence strength:** overwhelming — 1,600/1,600 resolved rows carried the bug's universal fingerprint
+- **Fix sprint:** [`docs/sprints/sprint-attribution-resolver-fix.md`](docs/sprints/sprint-attribution-resolver-fix.md) — landed v0.22.0 (this branch)
+- **Re-resolution:** 1,600 rows snapshotted to `ranker_only_outcome_v1` / `ranker_only_pnl_pct_v1`; re-resolved under `resolution_version='v2_fixed'`
+- **Citation freeze:** **LIFTED** — attribution claims may now be cited from `resolution_version='v2_fixed'` rows only. v1 rows remain in the DB for forensic comparison but must NOT be cited.
+- **Root cause fixed:** `resolve_pending_outcomes` now calls `data.columns = data.columns.get_level_values(0)` before building the ohlcv dict list. Guard tests in `tests/attribution/test_resolver.py` prevent regression.
 
 ### Diagnostic D3 Status
 
@@ -121,6 +120,37 @@ with an unbeatable technological moat.
 - **Label vocabulary finding:** three distinct label systems coexist — 5-state `compute_market_regime` (stored in `recommendations.market_regime`), 7-state `classify_regime` (canonical going forward), 3-state `traffic_light` (stored in `shadow_trades.regime_at_entry` despite the misleading column name). Vocabulary migration deferred to SD#35.
 - **Historical NULL rows preserved:** 1,076 March + 961 early-April recommendations with `market_regime=NULL` are accurate artifacts of the pre-2026-04-14 deployment; not retroactively backfilled.
 
+### Forensic Analysis Status (2026-04-16)
+
+- **Report:** `docs/research/deep-research/Arcis-Forensic-Analysis-2026-04-16.pdf`
+- **Key finding:** Per-trade Sharpe 3.38 is SPY beta during a bull run, not alpha.
+  Mean excess vs SPY = +0.039% with t=0.098 over 75 matched periods — statistically
+  indistinguishable from zero.
+- **Action:** SD#41 REVISED — halt Phase 1 optimization, run 3 diagnostics first.
+- **Diagnostic D1 (SPY excess instrumentation):** COMPLETE — v0.19.0, per-trade
+  `excess_return` column + `/api/shadow/sharpe-attribution` endpoint + Trade
+  History lead panel. All 85 closed trades backfilled.
+- **Diagnostic D2 (attribution audit):** COMPLETE — Hypothesis B confirmed
+  (yfinance MultiIndex bug). Fix landed v0.22.0; 1,600 rows re-resolved;
+  citation freeze lifted.
+- **Diagnostic D3 (regime/sector):** COMPLETE — v0.20.0, scanner bypass already
+  fixed 2026-04-14; regression tests added; sector backfill 100%.
+- **Stage 1 OOS validation:** NOT STARTED — gate: excess-mean > 0 at t > 1.0
+  over 30 OOS trades.
+- **Stage 2 OOS validation:** NOT STARTED — gate: excess-Sharpe ≥ 0.5 at t ≥ 2.0
+  over 150 OOS trades (redefined IB gate per SD#41 REVISED).
+
+### Permanent Methodology Guardrails (SD#41 REVISED)
+
+1. Every Sharpe claim must specify raw vs excess vs alpha. Raw Sharpe alone
+   is never sufficient during a bull run.
+2. Every metric update must refresh the trade count that produced it.
+3. Category 2 forensics (own data) runs before Category 1 (literature review)
+   when both are available — a system's own trades dominate decorated priors.
+4. Attribution claims require methodology review before publication.
+   "100% accuracy" should trigger skepticism (see D2 audit for the canonical
+   example of what happens when it doesn't).
+
 ### Open GitHub Issues
 
 0 open as of 2026-04-12:
@@ -131,9 +161,18 @@ with an unbeatable technological moat.
 
 ### Known Blockers
 
+- Alpha vs SPY is statistically zero at N=85 closed trades; Stage 1 OOS
+  validation (30 trades at t > 1.0) not yet started.
+- Regime classifier v2 (SD#35) migration — 5-state `compute_market_regime` to
+  7-state `classify_regime` vocabulary not yet done; `recommendations.market_regime`
+  column still carries legacy 5-state labels.
+- `shadow_trades.regime_at_entry` column is misnamed — stores traffic-light
+  GREEN/YELLOW/RED, not a market regime. Rename requires data-migration sprint.
+- `recommendations.sector_context` 100% NULL (legacy); use
+  `shadow_trades.realized_sector` via GICS lookup as reliable proxy (D1 fix).
 - Database on OneDrive path risks WAL corruption (incident #181); move to
-  local path or exclude `*.sqlite3*` from sync
-- UPS not yet purchased (CyberPower CP1500PFCLCD, ~$220)
+  local path or exclude `*.sqlite3*` from sync.
+- UPS not yet purchased (CyberPower CP1500PFCLCD, ~$220).
 
 ### Sprint History
 
@@ -548,11 +587,11 @@ src/schema/registry.py          <- THE source of truth (53 TableDefs)
 
 ---
 
-## 5. Strategy Decisions (40 confirmed)
+## 5. Strategy Decisions (41 confirmed)
 
 1. Strategy #1 = Pullback-in-uptrend (LIVE)
 2. Strategy #2 = Mean Reversion / Connors RSI(2) -- PAPER-TRADING NOW. NOTE: Deep research (Scaling Levers) finds MR is the WORST diversifier for pullback (rho=0.35-0.50, shared "buy the dip" logic). Breakout/momentum (rho=0.10-0.25) should be evaluated as primary second LIVE strategy. MR remains valuable for Phase 1 data volume.
-3. Strategy #3 = Evolved PEAD (Phase 3)
+3. ~~Strategy #3 = Evolved PEAD (Phase 3)~~ **ELIMINATED.** PEAD dead for large caps (Martineau 2022, Subrahmanyam 2025). Replaced by Options Volatility Desk in Phase 3-4.
 4. RL = Dr. GRPO (at 100 trades)
 5. Breakout = pullback feature, not separate strategy
 6. Traffic Light RED=0.1 safety override (bootcamp floor 0.5)
@@ -566,7 +605,7 @@ src/schema/registry.py          <- THE source of truth (53 TableDefs)
 14. Council: alert 8wk, auto-tighten 12wk, restore 4wk
 15. Council: holistic + per-agent value tracking
 16. Council: daily + weekly, monthly after 3 months
-17. Alpha attribution: parallel ranker-only shadow portfolio (second Alpaca paper account)
+17. Alpha attribution: parallel ranker-only shadow portfolio (second Alpaca paper account). **COMPROMISED (D2 audit 2026-04-16):** resolver produced 100% loss on 1,600 rows due to yfinance MultiIndex bug (`bar.get("Low")` missed tuple-keyed columns). **FIXED v0.22.0 (this sprint):** flatten at data-shape boundary in `resolve_pending_outcomes`; rows re-resolved under `resolution_version='v2_fixed'`; v1 values archived in `ranker_only_outcome_v1` / `ranker_only_pnl_pct_v1`. Citation freeze lifted for v2_fixed rows only.
 18. Mechanical bracket exits permanently — FINSABER (KDD 2026) confirms LLM timing fails even at GPT-4 scale. LLM provides post-trade commentary only, never exit execution
 19. Options moved to Phase 2 at $25K. ORDER: covered calls at target strike first (133% EV improvement per trade, minimal complexity), THEN vertical spreads. Cash-secured puts require $15-25K collateral per S&P 100 name.
 20. Collective2 account: open immediately for independently verified track record
@@ -585,11 +624,12 @@ src/schema/registry.py          <- THE source of truth (53 TableDefs)
 33. Earnings 7-day exclusion zone (docs/research/earnings-event-handling-pullback-strategy.md). Median mega-cap earnings gaps (2-4%) routinely breach 2x ATR stops. PEAD dead for large caps (Martineau 2022, Subrahmanyam 2025). Three-layer defense: 7-calendar-day entry exclusion, 2-day force-exit for open positions, 2-business-day post-earnings cooldown. Costs ~11% of opportunity set. Sprint spec: sprint-earnings-regime-retrain.md Sprint 1. **IMPLEMENTED (layer 1, v0.21.0):** entry exclusion wired via `compute_event_risk_score` forcing `total_score >= block_threshold` when earnings <=10 calendar days out (Sprint H1). Layers 2-3 (force-exit, cooldown) deferred to later SDs.
 34. Monthly retraining cadence, not weekly (docs/research/optimal-retraining-cadence-lora.md). 5-10 weekly examples = 0.3-0.6% corpus increment, below noise floor. Full reset from original Qwen3-8B base monthly when ~30-50 new examples accumulate. Canary perplexity >8% for 2 consecutive weeks = forced retrain. 6-week mandatory ceiling. Maintain FP16 master copy at all times. Sprint spec: sprint-earnings-regime-retrain.md Sprint 3.
 35. 3-regime classifier: bull / cautious / bear (docs/research/regime-classifier-fix-3-regimes.md). Current classifier leaves 75% of trading days as "unknown" due to conjunctive AND-chaining. Priority-ordered decision list with VIX/VIX3M ratio (backwardation > 1.05 = bear override), SPY vs 200MA, breadth. "Cautious" is the default catch-all. 5-day debounce. Hysteresis on entry/exit thresholds. "Range" killed — it encodes a logical impossibility (VIX < 20 AND SPY 5-15% drawdown, r = -0.79). Sprint spec: sprint-earnings-regime-retrain.md Sprint 2.
-36. Phased live deployment gates (docs/research/paper-to-live-statistical-gates.md). $100 (infra validation, 20-30 trades, zero statistical gate) → $1K (PSR>85%, 50 trades, Wilson CI lower >50%) → $5K (PSR>95%, 100 trades, binomial p<0.05, CCC>0.95) → $25K (200 trades, live Sharpe>0.8, CCC>0.97). Paper Sharpe gate ≥1.25 to survive 20-25% paper-to-live decay. Currently in Phase 1 ($100 live). Next gate: 50 trades.
+36. Phased live deployment gates (docs/research/paper-to-live-statistical-gates.md). $100 (infra validation, 20-30 trades, zero statistical gate) → $1K (PSR>85%, 50 trades, Wilson CI lower >50%) → $5K (PSR>95%, 100 trades, binomial p<0.05, CCC>0.95) → $25K (200 trades, live Sharpe>0.8, CCC>0.97). Paper Sharpe gate ≥1.25 to survive 20-25% paper-to-live decay. Currently in Phase 1 ($100 live). **REDEFINED (SD#41 REVISED, v0.19.0):** raw Sharpe gates are trivially passed by bull-market SPY beta. Phase 1→2 gate is now **excess-return Sharpe ≥ 0.5 at t ≥ 2.0 over 150 OOS trades**. Raw Sharpe remains visible as secondary metric but is not a gate. See Section 6.
 37. TTS qualification risk at 50-100 trades/year (docs/research/tax-optimization-475f-llc.md). Poppe benchmark is 720 transactions. Count buys+sells separately. Maintain 4hr daily time logs. S-Corp election needed for Solo 401k access ($72K/yr). 475(f) election on securities only — preserve 1256 for future options/futures. QBI deduction phases out above ~$277K single. Wyoming LLC = zero VA tax savings (resident taxed on worldwide income). CPA meeting: July 2026.
 38. TCA: market impact zero at current scale (docs/research/transaction-cost-analysis-sp100.md). Square-root model predicts 0.75 bps on $25K S&P 100 order. Broker selection = 39 bps spread between best/worst (Schwarz 2025). Build NBBO logging now (signal timestamp, fill price, fill timestamp, exit type). 500 matched trades needed for Alpaca vs IB comparison at 95% confidence. 10:00-11:30 AM entry window validated. Impact becomes relevant at ~$300K-$1M per order.
 39. Champion-challenger model evaluation at n<50 (docs/research/champion-challenger-evaluation-small-n.md). Classical tests useless below 50 trades. Bayesian Beta-Binomial sequential test as primary decision engine with pre-registered stopping thresholds (P(new>old)>0.95 at n=15 = early keep; <0.05 = rollback). Deterministic ranker as concurrent regime control via DiD. Canary holdout (5 examples) as zero-cost first defense. Guard rails: 5 consecutive losses, parse rate <95%, 2x historical DD = automatic rollback. Firth logistic regression for conviction-as-signal (β₂ test). Pre-registered default: revert to old model if inconclusive at n=50.
 40. Grafana Cloud MVP for centralized observability (docs/sprints/sprint-grafana-observability-mvp.md). Free tier: 50GB logs, 10K metrics, 14-day retention, $0/mo. Async Python logging handler ships all logger output to Loki. 4-panel dashboard: log stream, error rate, trade events, watch loop health. DedupFilter suppresses repeated messages. threading.Queue (not multiprocessing) for Windows safety. Raw requests fallback if python-logging-loki broken. Render + IB Gateway logs deferred to Phase 2.
+41. **SD#41 REVISED — Diagnostic-first plan** (`docs/research/SD-41-REVISED-diagnostic-first-plan.md`). Forensic analysis of 85 closed trades revealed per-trade Sharpe 3.38 is SPY beta during a bull run (excess vs SPY = +0.039%, t = 0.098 over 75 matched periods). **HALT Phase 1 optimization.** Run 3 diagnostics in parallel before resuming: **D1 SPY excess instrumentation** (DONE v0.19.0 — per-trade `excess_return` + `/api/shadow/sharpe-attribution` + Trade History lead panel), **D2 attribution resolver audit** (DONE — Hypothesis B confirmed: yfinance MultiIndex bug; fix + re-resolution in v0.22.0), **D3 regime/sector diagnostic** (DONE v0.20.0 — scanner bypass already remediated; sector backfill 100%). New IB gate: excess-Sharpe ≥ 0.5 at t ≥ 2.0 over 150 OOS trades. Fund formation timeline extended 24-30 months (was 18-24). Category 2 forensics (own data) overrides Category 1 (literature review) when both are available. Supersedes prior SD#41 trade lifecycle synthesis.
 
 ---
 
@@ -601,10 +641,10 @@ src/schema/registry.py          <- THE source of truth (53 TableDefs)
 
 | Gate | Requirements | Current | Status |
 |---|---|---|---|
-| Phase 1 -> 2 | 50 closed, WR>=45%, Sharpe>=0.15, PF>=1.3, DD<=12%, alpha attribution running (>=50 paired trades), stress test (2008/2020/2022), >=100 MR paper trades | 18 closed, attribution + MR accumulating | 36% |
+| Phase 1 -> 2 | **REDEFINED (SD#41 REVISED):** excess-Sharpe ≥ 0.5 at t ≥ 2.0 over 150 OOS trades, zero critical bugs, 7-day uptime, ≥90% conviction parse rate, attribution with FIXED resolver (≥50 paired trades v2_fixed), stress test (2008/2020/2022). Raw Sharpe gate deprecated. | 85 closed, D1/D2/D3 complete, Stage 1 OOS (30 trades at t > 1.0) not started | ~15% (diagnostics done, OOS validation pending) |
 | Phase 2 -> 3 | 100 closed + Strategy #2 live + RTX 3090 + options paper at $15-25K | 0 | Not started |
-| GRPO | 100+ closed trades | 0 | Blocked on data |
-| Fund formation | Track record + $2M AUM + Collective2 24-month verified | N/A | Year 3+ |
+| GRPO | 100+ closed trades | 85 closed (approaching threshold) | Blocked on hardware + excess-Sharpe validation |
+| Fund formation | Track record + $2M AUM + Collective2 24-month verified | N/A | Year 3+ (+6-12 months per SD#41 REVISED) |
 
 ### Model Roadmap
 
@@ -713,11 +753,16 @@ GRPO training: RunPod A100 cloud ($14/mo), not local hardware.
 |---|---|---|
 | 0 (now) | Personal trading + capital injections ($1K/mo) | Start |
 | 3 | Open Collective2 account (~$99/mo) | Track record clock starts |
-| 6 | Phase 1 gate -> go live ($5-10K) | Verifiable live returns |
-| 12 | Signal marketplace ($200-$1K/mo) + RIA outreach | First external revenue |
-| 18 | Wyoming LLC + Section 475(f) | Legal entity |
-| 24 | Fund formation at $1-2M AUM | Management + performance fees |
-| 36 | Fund self-sustaining at $2M+ AUM (1.5%+17.5%) | Day job optional |
+| 9-12 | Phase 1 validation via excess-Sharpe (was month 6 on raw Sharpe) | Verifiable live returns |
+| 15-18 | Signal marketplace ($200-$1K/mo) + RIA outreach | First external revenue |
+| 18 | Wyoming LLC + Section 475(f) | Legal entity (calendar-driven, unchanged) |
+| 30 | Fund formation at $1-2M AUM | Management + performance fees |
+| 36-42 | Fund self-sustaining at $2M+ AUM (1.5%+17.5%) | Day job optional |
+
+> **Timeline extended 6-12 months per SD#41 REVISED.** The redefined Phase 1→2
+> gate (excess-Sharpe ≥ 0.5 at t ≥ 2.0 over 150 OOS trades) requires materially
+> more data than the old raw-Sharpe gate at 50 trades. Wyoming LLC (July 2026)
+> is calendar-driven and not affected.
 
 **Entity path:** Arcis -> Arcis Capital Management, LLC -> Arcis Labs
 **SEC language:** "AI-informed", "systematic", "research-driven"
@@ -729,7 +774,7 @@ Each desk launches only after the previous desk is profitable.
 1. **Equity Research Desk** (Phase 2) -- same model, lower thresholds, separate paper account
 2. **Options Volatility Desk** (Phase 3-4) -- separate LoRA, credit spreads + iron condors
 3. **Equity Momentum Desk** (Phase 5) -- separate LoRA, Russell 1000, breakout/trend
-4. **Intraday Desk** (Phase 6+) -- separate model, 1-min bars, VWAP reversion, IB historical data as primary source (free with account, 1-min bars ~1yr, daily ~10yr, 60 req/10min pacing)
+4. **Intraday Desk** (Phase 6+) -- separate model, 1-min bars, VWAP reversion, IB historical data as primary source (free with account, 1-min bars ~1yr, daily ~10yr, 60 req/10min pacing). Feasibility research in progress (`docs/research/deep-research/intraday-desk-feasibility-prompt.md`).
 5. Event-Driven, Macro/Rates, Crypto (scoped, not scheduled)
 
 **Data resilience:** IB historical data farm as fallback for feature pipeline when FMP/yfinance return empty (pre-market gaps). Phase 2 enhancement — add to feature_engine with try-FMP-then-IB pattern.
@@ -898,6 +943,35 @@ VIX >40, system offline.
 
 ## 11. Sprint Queue
 
+### Active Queue (SD#41 REVISED — Diagnostic-First Plan)
+
+| Priority | Sprint | Status |
+|---|---|---|
+| 1 | **D1 — SPY-matched excess instrumentation** | DONE v0.19.0 — per-trade `excess_return` + `/api/shadow/sharpe-attribution` + Trade History lead panel; 85/85 backfilled |
+| 2 | **D2 — Attribution resolver audit** | DONE — Hypothesis B confirmed (yfinance MultiIndex bug); audit doc at `docs/research/attribution-resolver-audit.md` |
+| 3 | **D2 FIX — Attribution resolver MultiIndex fix + re-resolution** | DONE v0.22.0 — resolver flattens MultiIndex; 1,600 rows re-resolved under `resolution_version='v2_fixed'`; v1 archived |
+| 4 | **D3 — Regime/sector classifier diagnostic** | DONE v0.20.0 — hypothesis (c) scanner bypass already fixed; regression tests added; sector backfill 100% |
+| 5 | **H1 — Earnings filter hard block (SD#33 layer 1)** | DONE v0.21.0 — earnings within 10 calendar days force total_score ≥ block_threshold |
+| 6 | **IB cold storage (SD#41)** | DONE v0.18.0 — `trading.ib_enabled=false` gate; all IB code preserved |
+| -- | **Stage 1 OOS validation** | NOT STARTED — gate: excess-mean > 0 at t > 1.0 over 30 OOS trades |
+| -- | **Stage 2 OOS validation** | NOT STARTED — gate: excess-Sharpe ≥ 0.5 at t ≥ 2.0 over 150 OOS trades (Phase 1→2 gate) |
+| -- | **Regime classifier v2 (SD#35)** | QUEUED — migrate 5-state `compute_market_regime` to 7-state canonical vocabulary; rename misnamed `regime_at_entry` column |
+| -- | **Attribution training data re-audit** | QUEUED — now that resolver is fixed, re-evaluate training examples that cited v1 (buggy) outcomes |
+| -- | **Saturday model retrain (halcyon-v2.0.0)** | BLOCKED — gated on excess-Sharpe validation per SD#41 REVISED |
+| -- | **Bracket calibration analysis** | QUEUED — MFE analysis on 69% stale exits |
+| -- | **iOS app (Capacitor)** | Backlog — native wrapper for dashboard |
+| -- | **Repo reorganization** | Backlog |
+
+### Research Queue
+
+| Topic | Status |
+|---|---|
+| Intraday desk feasibility | `docs/research/deep-research/intraday-desk-feasibility-prompt.md` — drafted |
+| Connors RSI(2) MR validation | Pending — MR paper trading accumulating data |
+| Options volatility desk (Phase 3-4) | Scoped — gated on Phase 2 |
+
+### Completed Sprints (historical)
+
 | Priority | Sprint | Status |
 |---|---|---|
 | 1 | Schema Registry | DONE -- 51 tables, all DDL removed, guardrails |
@@ -909,7 +983,7 @@ VIX >40, system offline.
 | 6 | Outcome metadata + conditioned training | DONE -- PR #203, 3-5x data yield |
 | 7 | Historical stress testing | DONE -- PR #203, 2008/2020/2022 scenarios |
 | 8 | Bug bash + conviction parsing (#183) | DONE -- v0.11.0, all issues closed |
-| 9 | IB integration (broker abstraction) | DONE -- v0.14.0, IB activation gated (SD#25) |
+| 9 | IB integration (broker abstraction) | DONE -- v0.14.0 (now cold-stored v0.18.0) |
 | 10 | Codebase documentation (inline comments) | DONE -- WHY-focused comments across 200+ files |
 | 11 | Gap analysis rectification | DONE -- 23 issues in 3 tiers |
 | 12 | Log audit | DONE -- v0.14.1, 14 production issues fixed |
@@ -919,15 +993,12 @@ VIX >40, system offline.
 | 16 | MR integration (end-to-end) | DONE -- mr_scan_service.py, watch.py line 1273 |
 | 17 | Codebase refactor (Sprint 5) | DONE -- watch.py 42% reduction, telegram.py 50% reduction |
 | 18 | Dashboard data integrity (8 tasks) | DONE -- v0.16.0, 5 root causes fixed |
-| 18a | Dashboard data integrity (DB-1, 9 tasks) | IN PROGRESS on fix/dashboard-data-integrity -- quarantine sync to Postgres, model version fallback + backfill, dynamic version header, DB Schema live counts, Settings display fixes, Flywheel Velocity cycle-anchored, council advisory-only flag |
+| 18a | Dashboard data integrity (DB-1, 9 tasks) | DONE -- quarantine sync + model version fallback |
 | 19 | Telegram notification gaps | DONE -- scan_service opens + reconcile closes |
-| -- | Strategy dashboard enhancement (7 sections) | QUEUED -- spec at docs/decisions/strategy-dashboard-spec.md |
-| -- | Risk scaling tiers implementation | QUEUED -- spec at docs/decisions/risk-scaling-tiers-spec.md |
 | 20 | Manual backfill pipeline | DONE -- export/import scripts, regime sampler, FRED macro enrichment |
-| -- | Saturday model retrain (halcyon-v2.0.0) | QUEUED -- champion-challenger, first flywheel cycle |
-| -- | Bracket calibration analysis | QUEUED -- MFE analysis on 69% stale exits |
-| -- | iOS app (Capacitor) | Backlog -- native wrapper for dashboard |
-| -- | Repo reorganization | Backlog |
+| 21 | Observability MVP (SD#40) | DONE v0.17.2 -- Grafana Cloud Loki + NSSM service |
+| 22 | Strategy dashboard enhancement (7 sections) | QUEUED -- spec at docs/decisions/strategy-dashboard-spec.md |
+| 23 | Risk scaling tiers implementation | QUEUED -- spec at docs/decisions/risk-scaling-tiers-spec.md |
 
 ### Phase 2 Hardware (~$1,300)
 

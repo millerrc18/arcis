@@ -49,6 +49,58 @@
 
 ## Releases
 
+### v0.22.0 — Attribution Resolver MultiIndex Fix + Doc Sweep (2026-04-16)
+
+Ships the D2 follow-up fix that remediates a yfinance MultiIndex bug
+which had corrupted 1,600 attribution resolutions (all returning `loss`
+at stop_price on day 1 — the "100% loss" signature the D2 audit
+diagnosed). Also lands a comprehensive documentation sweep to reflect
+the 4 sprint merges from 2026-04-16 (v0.18.0 IB cold storage, v0.19.0
+SPY excess instrumentation, v0.20.0 regime/sector diagnostic, v0.21.0
+earnings filter hard block).
+
+**Authority:**
+- Sprint spec: `docs/sprints/sprint-attribution-resolver-fix.md` (Part 1 + Part 2)
+- Audit doc: `docs/research/attribution-resolver-audit.md`
+- Plan: `docs/research/SD-41-REVISED-diagnostic-first-plan.md`
+
+**Part 1 — Resolver fix:**
+- One-line fix at `src/attribution/logger.py::resolve_pending_outcomes`:
+  ```python
+  if hasattr(data.columns, "get_level_values"):
+      data.columns = data.columns.get_level_values(0)
+  ```
+- New columns on `attribution_trades`: `resolution_version` (indexed),
+  `ranker_only_outcome_v1`, `ranker_only_pnl_pct_v1`.
+- `scripts/reresolve_attribution.py` — idempotent re-resolution with
+  `--dry-run`. Snapshots v1, resets to pending, re-resolves, tags v2.
+- 6 regression tests at `tests/attribution/test_resolver.py`
+  covering simulator pure-logic and the resolver data-shape contract
+  (MultiIndex flatten, empty response, flat-columns compat).
+
+**Re-resolution result:**
+- 1,600 rows re-resolved under `resolution_version='v2_fixed'`.
+- V1 values archived in `ranker_only_outcome_v1` /
+  `ranker_only_pnl_pct_v1` for forensic comparison.
+- Stop-distance fingerprint (universal in v1) is gone in v2 — outcome
+  distribution now shows real `win` / `loss` / `timeout` spread.
+- D2 audit citation freeze **LIFTED** for v2_fixed rows only.
+
+**Part 2 — Documentation sweep:**
+- `MASTER.md` Sections 1, 2, 5, 6, 8, 11 all updated to reflect the
+  current system state: 85 closed trades, 1,852 tests, 25 dashboard
+  pages, 107 research docs, 57 sprint docs, 41 strategy decisions.
+- Phase 1→2 gate redefined everywhere — excess-Sharpe ≥ 0.5 at
+  t ≥ 2.0 over 150 OOS trades (raw Sharpe gate deprecated).
+- Revenue timeline extended 6-12 months per SD#41 REVISED.
+- `Roadmap.jsx` Phase 1 gate metrics use excess-Sharpe + t-stat.
+- `README.md` version badge → v0.22.0, phase → diagnostic.
+
+**Citation policy lifted (from v0.22.0 onward):**
+Attribution claims may be cited from `resolution_version='v2_fixed'`
+rows only. `v1_multiindex_bug` rows remain in the DB for forensic
+comparison but must NOT be cited.
+
 ### v0.20.0 — Regime & Sector Classifier Diagnostic (2026-04-16)
 
 Clears the regime-NULL anomaly and sector-coverage gap flagged in the

@@ -23,18 +23,15 @@ const CAT = {
 const ROADMAP_DATA = {
   lastUpdated: '2026-04-11',
   phases: [
-    { id: 'p1', name: 'Phase 1 — Bootcamp', status: 'active', capital: '$100K paper + $100 live', cost: '$64/mo', timeline: 'Apr–Jun 2026',
-      desc: 'Prove the system has an edge. 18 verified closed trades post-quarantine (36% of 50-trade gate). Accumulating clean trades.',
-      gate: { label: '50+ trades, positive expectancy, alpha attribution, stress test, mean reversion data', metrics: [
-        { key: 'trades_closed', label: 'Closed trades', target: 50, op: '>=', fmt: '' },
-        { key: 'win_rate', label: 'Win rate', target: 0.45, op: '>=', fmt: 'pct' },
-        { key: 'profit_factor', label: 'Profit factor', target: 1.3, op: '>=' },
-        { key: 'expectancy_dollars', label: 'Expectancy', target: 0, op: '>', fmt: 'dollar' },
-        { key: 'max_drawdown_pct', label: 'Max drawdown', target: 12, op: '<=', fmt: 'pctVal' },
-        { key: 'sharpe_ratio', label: 'Per-trade Sharpe', target: 0.15, op: '>=' },
-        { key: 'alpha_paired_trades', label: 'Alpha paired trades', target: 50, op: '>=' },
+    { id: 'p1', name: 'Phase 1 — Bootcamp (Diagnostic)', status: 'active', capital: '$100K paper + $100 live', cost: '$64/mo', timeline: 'Apr 2026 – (extended per SD#41 REVISED)',
+      desc: 'Per SD#41 REVISED: halt optimization, run diagnostics first. 85 closed trades post-quarantine. D1/D2/D3 diagnostics complete. Raw Sharpe 3.38 was SPY beta, not alpha — new gate requires excess-Sharpe over SPY at 150 OOS trades.',
+      gate: { label: 'SD#41 REVISED: excess-Sharpe ≥ 0.5 at t ≥ 2.0 over 150 OOS trades, alpha attribution with FIXED resolver, stress test', metrics: [
+        { key: 'trades_closed', label: 'Closed trades', target: 150, op: '>=', fmt: '' },
+        { key: 'excess_sharpe', label: 'Excess Sharpe (vs SPY)', target: 0.5, op: '>=' },
+        { key: 'excess_t_stat', label: 'Excess t-statistic', target: 2.0, op: '>=' },
+        { key: 'alpha_paired_trades_v2', label: 'Alpha paired trades (v2_fixed)', target: 50, op: '>=' },
         { key: 'stress_test_completed', label: 'Stress tests (08/20/22)', target: 3, op: '>=' },
-        { key: 'mr_paper_trades', label: 'Mean reversion paper', target: 100, op: '>=' },
+        { key: 'max_drawdown_pct', label: 'Max drawdown', target: 12, op: '<=', fmt: 'pctVal' },
       ]},
       subphases: [
         { label: 'Weeks 1–2: Core system', items: [
@@ -191,7 +188,7 @@ const ROADMAP_DATA = {
         { label: 'Multi-strategy + options', items: [
           { l: 'Breakout strategy live', s: 'pending', c: 'strategy', d: 'Combined portfolio: pullback + breakout. Correlation monitoring between strategies.', r: 'Breakout research' },
           { l: 'Options desk research', s: 'pending', c: 'strategy', d: 'Credit spreads, Greeks, IV analysis. Backtest with Unusual Whales data.', r: 'Options research' },
-          { l: 'IB live trading activation', s: 'pending', c: 'ops', d: 'Code ready (v0.14.0). Activate after: 60+ trades with Sharpe >1.0, 30-day Gateway stability test passed, GIPS verifier consulted, market data classification confirmed.', r: 'IB Best Practices: validation-first approach' },
+          { l: 'IB live trading activation', s: 'pending', c: 'ops', d: 'Code ready (v0.14.0); currently DORMANT per SD#41 cold storage (v0.18.0). Activate after: excess-Sharpe ≥ 0.5 at t ≥ 2.0 over 150 OOS trades (redefined v0.19.0 — raw Sharpe gate deprecated), 30-day Gateway stability test, GIPS verifier consulted, market data classification confirmed.', r: 'IB Best Practices + SD#41 REVISED' },
           { l: 'Process separation (Signal/Risk/Exec/Watch)', s: 'pending', c: 'risk', d: 'Four independent processes. Knight Capital lesson.', r: 'Risk Management' },
           { l: 'Pass Series 65', s: 'pending', c: 'legal', d: 'Regulatory gate for accepting outside capital.', r: 'Risk Management' },
           { l: 'Scale live $5K → $25K', s: 'pending', c: 'strategy', d: '500-trade DSR validation.', r: 'Walk-Forward Validation' },

@@ -249,21 +249,29 @@ The fix has three parts:
 
 ## Section 7 — Effect on Prior Claims
 
-All attribution-derived claims made before this audit are **compromised** and must not be cited until the resolver is fixed and rows are re-resolved.
+All attribution-derived claims made before the fix are **compromised** and
+may not be cited. The fix sprint landed in v0.22.0 (2026-04-16); citations
+may now be made from `resolution_version='v2_fixed'` rows only.
 
 | Claim                                              | Status    |
 |----------------------------------------------------|-----------|
 | "LLM rejects 100% of losers"                       | **RESCIND** — artifact of resolver bug |
-| "LLM filter adds alpha" (per attribution metrics)  | **RESCIND** — cannot be measured on current data |
+| "LLM filter adds alpha" (per attribution metrics)  | **RE-EVALUATE** from v2_fixed data — no longer precluded |
 | "−5.24% avg ranker-only pnl on rejected"           | **RESCIND** — equals stop-distance, not market return |
-| "Zero wins on rejected tickers"                    | **RESCIND** — resolver cannot produce `win` |
-| Training examples citing rejection accuracy        | **REMOVE** from training corpus until re-resolved |
+| "Zero wins on rejected tickers"                    | **RESCIND** — resolver cannot produce `win` pre-fix |
+| Training examples citing rejection accuracy        | **REMOVE** from training corpus (separate follow-up) |
 
-**Policy:** Until this audit closes via the fix-sprint merge and a
-re-resolution run with non-zero `win` count, no attribution claim may be
-cited in investor materials, training documentation, onboarding decks, CTO
-reports, or strategy decision records. This policy is effective immediately
-and expires only upon successful completion of the fix sprint.
+**Citation policy (updated 2026-04-16 post-fix):**
+
+- `resolution_version='v2_fixed'` rows — **citable.** These are the
+  re-resolved outcomes against correctly-shaped yfinance OHLCV bars.
+- `resolution_version='v1_multiindex_bug'` rows — **NOT citable.** Preserved
+  in the DB for forensic comparison only.
+- `ranker_only_outcome_v1` / `ranker_only_pnl_pct_v1` columns — **NOT
+  citable.** Archive copies of the bug-generated values.
+- Training examples / investor materials / onboarding decks / CTO reports
+  / strategy decision records: filter on `resolution_version='v2_fixed'`
+  before joining on `attribution_trades`.
 
 ---
 
@@ -282,4 +290,67 @@ Summary:
 
 ---
 
-*Audit closed 2026-04-16. Fix sprint awaits separate PR.*
+## Section 9 — Re-resolution Results (added 2026-04-16, post-fix)
+
+The fix landed in v0.22.0 on branch `fix/attribution-resolver-multiindex`.
+`simulate_mechanical_outcome` is unchanged; the fix lives at the
+data-shape boundary in `resolve_pending_outcomes`:
+
+```python
+if hasattr(data.columns, "get_level_values"):
+    data.columns = data.columns.get_level_values(0)
+ohlcv = data.reset_index().to_dict("records")
+```
+
+`scripts/reresolve_attribution.py` snapshotted the 1,600 pre-fix rows into
+archive columns, reset them to `pending`, re-ran the fixed resolver, and
+tagged the new outcomes `v2_fixed`.
+
+### v1 vs v2 outcome comparison
+
+| Outcome | v1_multiindex_bug | v2_fixed | Δ |
+|---------|-------------------|----------|---|
+| win     | **0** (0%)        | **506** (31.6%) | +506 |
+| loss    | **1,600** (100%)  | **313** (19.6%) | -1,287 |
+| timeout | **0** (0%)        | **780** (48.8%) | +780 |
+| pending | —                 | 1 (yfinance empty — delisted) | — |
+
+v1 was a degenerate all-`loss` distribution where `pnl_pct` exactly equaled
+`(stop − entry)/entry × 100` on every row. v2 shows real market-path spread
+across the 7-day resolution window — consistent with a bull-market SPY
+environment where about half of 7-day windows range within brackets
+(`timeout`), ~30% hit target, and ~20% hit stop.
+
+### Stop-fingerprint in v2
+
+In v2, 313 / 313 `loss` rows still have `pnl_pct == (stop − entry)/entry × 100`
+— but that's not the bug fingerprint anymore. The simulator always returns
+`exit_price = stop_price` when the stop-first branch fires, so a legitimate
+stop-hit naturally produces that pnl. **The bug fingerprint was the 1,600/1,600
+pattern across ALL outcomes.** In v2 it only appears in the 313 real losses.
+
+### Regression protection
+
+`tests/attribution/test_resolver.py` (6 cases):
+
+1. Simulator — flat-columns frame produces correct `win` on day 3.
+2. Simulator — no breach produces `timeout` at last close.
+3. Simulator — stop hit first produces `loss` at stop, day 1.
+4. Resolver — MultiIndex-shaped frame produces `win`, NOT the bug
+   signature `('loss', -5.0)`.
+5. Resolver — empty yfinance response leaves row `pending`, no crash.
+6. Resolver — flat-columns frame also works (back-compat).
+
+Tests will fail at CI if anyone regresses the `get_level_values(0)` call.
+
+### Follow-up work gated on this
+
+- Re-audit the training corpus: any training example that cited
+  `ranker_only_*` fields was built on v1 (buggy) data. Those examples need
+  to be regenerated against v2_fixed or flagged as compromised. Tracked as
+  "Attribution training data re-audit" in the sprint queue.
+
+---
+
+*Audit closed 2026-04-16. Fix landed v0.22.0. Citation freeze lifted for
+`resolution_version='v2_fixed'` rows. v1 rows archived for comparison.*
