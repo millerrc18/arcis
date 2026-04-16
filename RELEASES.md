@@ -49,6 +49,40 @@
 
 ## Releases
 
+### v0.20.0 — Regime & Sector Classifier Diagnostic (2026-04-16)
+
+Clears the regime-NULL anomaly and sector-coverage gap flagged in the
+forensic report. Audit-style sprint: no production code changes
+(the fix was already deployed 2026-04-14). Delivers regression tests,
+sector backfill to 100%, and a decision log on label vocabulary.
+
+**Authority:** `docs/research/SD-41-REVISED-diagnostic-first-plan.md`
+**Sprint spec:** `docs/sprints/sprint-D3-regime-sector-diagnostic.md`
+**Audit doc:** `docs/research/regime-classifier-audit.md`
+
+**Verdict on 67% NULL `market_regime`:**
+- Hypothesis (c) — schema-recent / scanner bypass. Per-day NULL rate
+  cuts over cleanly at 2026-04-09 (100% -> 0%). 1,076 pre-cutover rows
+  remain legitimately NULL.
+- All three scanner paths in current main already call
+  `attach_post_scan_features` per `src/features/enrichment.py:8-14`.
+
+**Label-vocabulary finding:** three coexisting systems documented and
+deconflicted in the audit — 5-state `compute_market_regime`, 7-state
+`classify_regime` (canonical), 3-state `traffic_light`. The
+`shadow_trades.regime_at_entry` column is misnamed (it stores the
+traffic-light value, not a regime); rename deferred.
+
+**Regression tests (4, all passing):** source-literal grep per scanner
++ behavior check on `classify_regime`.
+
+**Sector coverage:** `shadow_trades.realized_sector` 100% populated
+(226/226). D1 filled 85 closed rows; this sprint extended to the 143
+open/failed/pending rows (zero gaps in the GICS lookup).
+
+**Deferred:** regime v2 migration (SD#35), `regime_at_entry` rename,
+backfilling pre-2026-04-09 NULLs.
+
 ### v0.19.0 — SPY-Matched Excess Instrumentation (2026-04-16)
 
 Foundational alpha-vs-beta measurement for all Phase 1 optimization

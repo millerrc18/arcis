@@ -109,6 +109,18 @@ with an unbeatable technological moat.
   All prior attribution-based claims are rescinded pending re-resolution.
 - **Root cause in one line:** `yfinance.download` returns a MultiIndex DataFrame; `bar.get("Low", ...)` in `simulate_mechanical_outcome` misses (key is tuple `('Low', ticker)`, not string `"Low"`), returning default `0`, which trips the stop-first check on every bar.
 
+### Diagnostic D3 Status
+
+- **Audit completed:** 2026-04-16 (v0.20.0)
+- **Classification:** **Hypothesis (c) — schema-recent scanner bypass, already remediated**
+- **Evidence strength:** strong — per-day NULL rate cut over cleanly at 2026-04-09, matching the `attach_post_scan_features` deployment window
+- **Audit doc:** [`docs/research/regime-classifier-audit.md`](docs/research/regime-classifier-audit.md)
+- **Production code changes needed:** **none** — all three scanner paths (`scheduler/universe_scanner.py`, `services/scan_service.py`, `services/mr_scan_service.py`) already call `attach_post_scan_features` in current main
+- **Regression tests added:** 4 in `tests/features/test_enrichment_coverage.py` — each scanner source must contain the literal `attach_post_scan_features`; `classify_regime` must return a label from the canonical 7-state set
+- **Sector backfill:** `shadow_trades.realized_sector` now 100% populated (226/226 rows, zero NULL) via `data/reference/sp100-gics-lookup.csv`
+- **Label vocabulary finding:** three distinct label systems coexist — 5-state `compute_market_regime` (stored in `recommendations.market_regime`), 7-state `classify_regime` (canonical going forward), 3-state `traffic_light` (stored in `shadow_trades.regime_at_entry` despite the misleading column name). Vocabulary migration deferred to SD#35.
+- **Historical NULL rows preserved:** 1,076 March + 961 early-April recommendations with `market_regime=NULL` are accurate artifacts of the pre-2026-04-14 deployment; not retroactively backfilled.
+
 ### Open GitHub Issues
 
 0 open as of 2026-04-12:
