@@ -1,7 +1,13 @@
 # Async Watch-Loop Handler Pattern
 
-**Status:** Phase A landed (v0.23.1, `refactor/asyncio-handler-watch-loop`).
-Phases B and C are queued as separate follow-up sprints (see end of this doc).
+**Status:**
+- Phase A landed (v0.23.1) — handler registry + `run_async` wrapper.
+- Phase B partial (v0.23.2) — 14 overnight-schedule handlers extracted.
+- Phase C landed alongside Phase B — `_dispatch_sync` + unit and
+  mock-clock integration tests covering the extracted handlers.
+- Remaining Phase B work (market-hours scans, digests, EOD, etc.) is
+  queued for a separate branch — see end of this doc.
+
 **Authority:** `docs/sprints/sprint-asyncio-handler-refactor.md`.
 **Consumed by:** Phase 6 intraday desk (streaming handlers).
 
@@ -96,11 +102,47 @@ Keep events narrow and past-tense. Prefer `on_fill` over `on_trade_event`.
 
 Out of scope for this sprint — queued as separate branches:
 
-### Phase B — extract time-window blocks (`refactor/asyncio-phase-b-handler-extraction`)
+### Phase B — extract time-window blocks (IN PROGRESS)
 
-The 30+ `if hour == X` blocks inside `_run_sync_body()` become `_maybe_*`
-methods registered on `on_tick`. Each extraction is a text-move + wrap
-in `if self._should_X(now): self._safe_run("X", self._run_X)`.
+The 30+ `if hour == X` blocks inside `_run_sync_body()` become module-level
+`maybe_<name>(watch, now)` functions registered on `on_tick`. Each
+extraction is a text-move + condition check that calls
+`watch._safe_run("X", watch._run_X)` when the window matches.
+
+**Shipped in this branch (14 handlers, all overnight):**
+- `maybe_morning_vram_handoff` (5:15 AM weekdays)
+- `maybe_post_close_capture` (5:30 PM weekdays)
+- `maybe_overnight_training_collection` (6:00 PM weekdays)
+- `maybe_evening_vram_handoff` (6:50 PM weekdays)
+- `maybe_stress_test` (7:00 PM weekdays, gated on model-version change)
+- `maybe_data_collection` (9:30 PM daily — CPU/network only)
+- `maybe_news_ingestion` (10:00 PM daily)
+- `maybe_enrichment_precache` (11:00 PM daily)
+- `maybe_1min_bar_collection` (11:30 PM daily)
+- `maybe_pre_market_refresh` (6:00 AM weekdays — chains the brief)
+- `maybe_premarket_rolling_features` (6:02 AM weekdays)
+- `maybe_premarket_training` (7:00 AM weekdays)
+- `maybe_premarket_news_scoring` (8:02 AM weekdays)
+- `maybe_premarket_candidates` (9:00-9:24 AM weekdays)
+
+**Still inline in `_run_sync_body` (queued for later branch):**
+- Ollama warm-up + premarket bracket check (9 AM)
+- Daily council (8:30 AM)
+- Fundamentals refresh (7:30 AM)
+- Morning watchlist
+- Position monitor (Tier 1, every 15m)
+- Main scan (Tier 2, every 30m)
+- Sentiment refresh (Tier 3, every 60m)
+- EOD recap + daily audit + training collection + validation cluster
+  (4:00-4:45 PM)
+- Between-scan scoring (market hours)
+- Intraday bracket check (every 5 min during market hours)
+- Status heartbeat + Telegram command polling
+- IB health check
+- Earnings warning (8 AM)
+- Action reminders (8 PM)
+- Digest schedule (4 windows)
+- Saturday / Sunday weekly report tasks
 
 After extraction:
 

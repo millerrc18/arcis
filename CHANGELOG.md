@@ -1,5 +1,75 @@
 # Changelog
 
+## [v0.23.2] - 2026-04-16 — Asyncio Refactor Phase B (overnight extraction) + Phase C (tests)
+
+First wave of `_run_sync_body` decomposition: the 14 overnight-schedule
+tasks now live in a new module and run via the handler dispatch path.
+Zero behavior change — done-flag semantics preserved, handler firing
+times match the pre-refactor `elif` chain. `_run_sync_body` shrank from
+740 → 631 lines; watch.py dropped from 2,041 → 1,941 lines (below the
+pre-refactor baseline of 2,039).
+
+### Added
+
+- **`src/scheduler/watch_handlers.py`** (229 lines) — 14 module-level
+  `maybe_<name>(watch, now)` handlers extracted from the
+  `elif self.overnight and not self._is_market_open(now):` branch of
+  `_run_sync_body`. Each checks its time window + done-flag and calls
+  `watch._safe_run(...)`. `OVERNIGHT_HANDLERS` list exports them in
+  registration order.
+- **`HandlerRegistryMixin._dispatch_sync`** — sync-context dispatch so
+  the `_run_sync_body` worker thread can fire handlers without crossing
+  event-loop boundaries. Coroutine handlers get wrapped in `asyncio.run`;
+  sync handlers run inline. Same exception contract as `_dispatch`.
+- **`WatchLoop._register_default_handlers`** — single entry point called
+  once at startup (between `_check_row_counts()` and the IB cold-storage
+  banner) that `functools.partial(handler, self)`-binds each handler in
+  `OVERNIGHT_HANDLERS` and registers on `on_tick`.
+- **`tests/test_watch_handlers.py`** (25 tests) — per-handler unit tests
+  (time window, done-flag respect, weekday gating, chained calls) plus
+  integration tests: `_register_default_handlers` binds all 14 in the
+  correct order, `_dispatch_sync` fires each handler at the right tick,
+  and double-dispatch at the same tick is idempotent.
+- **`tests/test_watch_handler_registry.py`** gains 4 `_dispatch_sync`
+  tests (sync-handler inline execution, async-handler asyncio.run wrap,
+  exception swallowing, registration-order preservation).
+
+### Changed
+
+- **`src/scheduler/watch.py::_run_sync_body`** now calls
+  `self._dispatch_sync("on_tick", now)` once per tick, right after the
+  midnight daily-state reset. The entire `elif self.overnight and not
+  self._is_market_open(now):` branch (lines 1502-1627, 116 lines) is
+  removed — its work is now done by the 14 registered handlers. The
+  "overnight mode" heartbeat log line is omitted (the watchdog file
+  heartbeat already covers the liveness signal).
+- **`config/known_violations.json`** — `_run_sync_body` grandfather
+  entry updated from 740 → 631 lines to reflect the size reduction.
+
+### Verified
+
+- All 13 existing `test_watch_*` tests pass unchanged.
+- 16 handler-registry tests pass (12 Phase A + 4 new `_dispatch_sync`).
+- 25 watch_handlers tests pass.
+- 15 `test_repo_structure` tests pass.
+- Frontend builds clean in 603ms.
+- `WatchLoop(...).run()` signature preserved — NSSM / `src/cli/commands.py`
+  callers unchanged.
+
+### Not in this branch (queued for follow-up Phase B-continuation)
+
+~20 remaining inline blocks in `_run_sync_body` — market-hours scans
+(Tier 1-4), EOD recap cluster, digest schedule (4 windows),
+Ollama/council/fundamentals, Saturday/Sunday reports, IB health
+check, Telegram polling, earnings warning, action reminders. The
+pattern is proven; extracting them is mechanical.
+
+### Authority
+
+`docs/sprints/sprint-asyncio-handler-refactor.md` Phase B (14 of 30+
+extractions) + Phase C (mock-clock integration test for the extracted
+subset).
+
 ## [v0.23.1] - 2026-04-16 — Asyncio Handler Refactor Phase A
 
 Structural refactor of `src/scheduler/watch.py` — introduces an asyncio
