@@ -1089,6 +1089,12 @@ class WatchLoop:
         # Sanity-check critical table row counts
         self._check_row_counts()
 
+        # SD#41 — Announce IB cold-storage state once at startup. Subsequent code
+        # paths (broker_factory, executor, reconcile) also gate on this flag, but
+        # logging it here gives operators a single unambiguous status line.
+        if not self.config.get("trading", {}).get("ib_enabled", False):
+            logger.info("[WATCH] IB integration dormant per SD#41. Alpaca-only mode.")
+
         # Validate starting capital
         capital = self.config.get("risk", {}).get("starting_capital", 0)
         if capital < 10000:
@@ -1674,7 +1680,10 @@ class WatchLoop:
                 # and live_trading.enabled == True. Avoids alert spam via
                 # _ib_disconnect_alerted flag.
                 live_cfg = self.config.get("live_trading", {})
-                if (live_cfg.get("broker") == "ib"
+                # SD#41 — Skip IB health check entirely when cold-stored.
+                ib_globally_enabled = self.config.get("trading", {}).get("ib_enabled", False)
+                if (ib_globally_enabled
+                        and live_cfg.get("broker") == "ib"
                         and live_cfg.get("enabled", False)
                         and self._is_market_open(now)):
                     ib_check_due = (
