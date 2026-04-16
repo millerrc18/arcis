@@ -1,5 +1,42 @@
 # Changelog
 
+## [v0.23.3] - 2026-04-16 — Hotfix: resolve_pending_outcomes future-window filter
+
+Fourth bug from the Task 1 operational sweep — the `reresolve_attribution.py`
+hotfix correctly skipped future-window rows during the *reset* step, but
+the downstream `resolve_pending_outcomes()` function itself had no date
+filter, so it still picked up every `pending` row including those whose
+7-day outcome window is in the future. Each one caused a noisy
+`YFPricesMissingError` in the logs and wasted ~0.5s on a dead yfinance call.
+
+Observed on 2026-04-16 running `scripts/reresolve_attribution.py`: 180
+fresh `pending` rows from today generated ~180 sequential yfinance error
+logs. No data corruption — rows stay `pending` — but the watch loop's
+nightly 4:30 PM ET resolution job would have reproduced the same error
+storm indefinitely until all rows aged past their 8-day window.
+
+### Fixed
+
+- **`src/attribution/logger.py::resolve_pending_outcomes`** — added
+  `AND DATE(scan_timestamp, '+8 days') <= DATE('now')` to the SELECT so
+  rows whose outcome window is still in the future are skipped. Matches
+  the same filter already present in `scripts/reresolve_attribution.py`.
+
+### Added
+
+- **`tests/attribution/test_resolver.py::test_resolve_pending_outcomes_skips_future_window_rows`**
+  — regression test seeding 3 rows (old-resolvable / fresh-future /
+  boundary-edge at exactly 8 days ago) and asserting the SELECT filter
+  passes only the 2 elapsed-window rows to `_resolve_one_row`. Uses
+  `patch()` on `_resolve_one_row` so no yfinance calls are made — the
+  test isolates the SELECT filter contract.
+
+### Authority
+
+Error storm observed live during the `scripts/reresolve_attribution.py`
+run on 2026-04-16; root-caused as a 4th operational bug that slipped
+past the Task 1 audit.
+
 ## [v0.23.2] - 2026-04-16 — Asyncio Refactor Phase B (overnight extraction) + Phase C (tests)
 
 First wave of `_run_sync_body` decomposition: the 14 overnight-schedule
