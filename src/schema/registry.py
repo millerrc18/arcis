@@ -1528,6 +1528,20 @@ _register(TableDef(
         ColumnDef("llm_portfolio_outcome", "TEXT"),
         ColumnDef("llm_portfolio_pnl_pct", "REAL"),
         ColumnDef("pair_type", "TEXT"),
+        ColumnDef("resolution_version", "TEXT",
+                  description="Version tag for ranker_only_* resolution logic. "
+                              "v1_multiindex_bug = pre-fix buggy resolution where "
+                              "yfinance MultiIndex columns made bar.get('Low') "
+                              "return 0 and stop-first always tripped. "
+                              "v2_fixed = post-fix correct resolution. Added "
+                              "by SD#41 REVISED D2 follow-up fix sprint."),
+        ColumnDef("ranker_only_outcome_v1", "TEXT",
+                  description="Pre-fix archive of ranker_only_outcome for rows "
+                              "tagged v1_multiindex_bug. Preserved so v1 vs v2 "
+                              "comparisons remain possible after re-resolution."),
+        ColumnDef("ranker_only_pnl_pct_v1", "TEXT",
+                  description="Pre-fix archive of ranker_only_pnl_pct (string-cast "
+                              "for type flexibility). Paired with ranker_only_outcome_v1."),
         ColumnDef("created_at", "TEXT", nullable=False),
     ],
     primary_key="attribution_id",
@@ -1535,6 +1549,7 @@ _register(TableDef(
         IndexDef("idx_attribution_ticker", ["ticker"]),
         IndexDef("idx_attribution_created", ["created_at"]),
         IndexDef("idx_attribution_pair_type", ["pair_type"]),
+        IndexDef("idx_attribution_resolution_version", ["resolution_version"]),
     ],
     foreign_keys=[
         ForeignKeyDef("recommendation_id", "recommendations", "recommendation_id"),
