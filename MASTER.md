@@ -99,6 +99,27 @@ with an unbeatable technological moat.
 | Attribution resolver | FIXED -- v0.22.0 (this sprint), yfinance MultiIndex flatten; 1,600 rows re-resolved as v2_fixed |
 | PEAD enrichment | ELIMINATED per SD#3 — PEAD dead for large caps (Martineau 2022, Subrahmanyam 2025). Replaced by Options Volatility Desk (Phase 3-4). |
 
+### Database Path (`ARCIS_DB_PATH`)
+
+Production SQLite lives at **`C:/arcis/data/ai_research_desk.sqlite3`** — 493 MB, 3,371 EDGAR filings, 3,239 with `full_text` populated. This is the DB the watch loop and all collectors write to.
+
+`src/config/__init__.py` defines `DB_PATH` via `os.environ.get("ARCIS_DB_PATH", str(<repo_root> / "ai_research_desk.sqlite3"))`. The env-var override is how production points at `C:/arcis/data/...`; the absolute default prevents CWD-dependent resolution (fixed in v0.24.0-alpha2.1 hotfix).
+
+**NSSM service binding (required):** The `ArcisWatchLoop` nssm service MUST have `ARCIS_DB_PATH=C:/arcis/data/ai_research_desk.sqlite3` set in its `AppEnvironmentExtra` so the service doesn't depend on the interactive user profile's env vars. Verify via:
+
+```
+nssm get ArcisWatchLoop AppEnvironmentExtra
+```
+
+If missing, set it:
+
+```
+nssm set ArcisWatchLoop AppEnvironmentExtra ARCIS_DB_PATH=C:/arcis/data/ai_research_desk.sqlite3
+nssm restart ArcisWatchLoop
+```
+
+The repo-root path `C:/arcis/halcyon-lab/ai_research_desk.sqlite3` is gitignored (`*.sqlite3` pattern) and deleted — any local copy is a stale artifact; rm it rather than backfilling.
+
 ### Diagnostic D2 Status — **CLOSED**
 
 - **Audit completed:** 2026-04-16 — [`docs/research/attribution-resolver-audit.md`](docs/research/attribution-resolver-audit.md)
