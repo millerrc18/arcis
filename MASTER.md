@@ -59,12 +59,12 @@ with an unbeatable technological moat.
 | Open positions | ~2 (verify with shadow-status) |
 | Model | halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF); v2.0.0 retrain gated on excess-Sharpe validation |
 | Training data | 1,722 examples (1,019 + 703 regime-diverse backfill) |
-| Tests | 1,972 tests across 163 test files (+44 tests, +7 test files — Sprint 1: platform/backtest/DSR/metrics/lazy_prices) |
-| Python files | 240 (+12 new src/platform/ modules — Sprint 1) |
+| Tests | 2,027 tests across 171 test files (+44 tests, +7 test files Sprint 1; +55 tests, +8 test files Sprint 2: CSCV/walk-forward/promotion/trials/desk-tag/config) |
+| Python files | 244 (+12 new src/platform/ modules Sprint 1; +4 new src/platform/ modules Sprint 2: promotion, trials, rigor/walkforward, rigor/trials) |
 | Dashboard pages | 25 |
 | Research docs | 107 |
 | Sprint docs | 57 |
-| Schema tables | 56 (registry), 44+ synced to Postgres (+3 Sprint 1: backtest_results, backtest_trades, + 1 via platform) |
+| Schema tables | 59 (registry), 44+ synced to Postgres (+3 Sprint 1: backtest_results, backtest_trades, + 1 via platform; +3 Sprint 2: strategy_registry, strategy_promotion_events, trials_registry) |
 | GitHub issues | 0 open |
 | Monthly cost | ~$64 (Render $14 + Ollama free + Claude API ~$50 + domain $7) |
 | Hardware | RTX 3060 12GB, Windows 11, Z690, 24/7 operation |

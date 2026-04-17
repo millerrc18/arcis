@@ -104,6 +104,42 @@ event-driven backtest).
 backtest examples PASS. CLI exits cleanly. Frontend build was pre-existing
 failure (vite not installed in shell PATH) — not introduced by Sprint 1.
 
+### v0.24.0-alpha2 — CSCV + Walk-Forward + Promotion Pipeline (Sprint 2 of 4) (2026-04-17)
+
+This release ships the statistical rigor stack (CSCV + walk-forward + trials_registry-backed DSR) and the promotion pipeline that gates strategies out of 'backtested' into 'shadow_trading'. Also includes the Sprint 1 hotfix (3 Lazy Prices code-path bugs + DB_PATH absolute) discovered during Sprint 2's end-to-end validation.
+
+**What landed (8 commits on feat/platform-rigor, branched from feat/platform-foundation):**
+
+#### Added
+
+- **`src/platform/rigor/cscv.py`** — Combinatorially Symmetric Cross-Validation (Bailey-Borwein-López de Prado-Zhu 2014). S=16 default splits; returns PBO (Probability of Backtest Overfitting). Flags overfit when PBO > 0.5.
+- **`src/platform/rigor/walkforward.py`** — Rolling walk-forward validation (Pardo 2008). Default 3y train / 1y test windows; OOS_efficiency = OOS_SR / IS_SR; flags overfit when OOS_efficiency < 0.30.
+- **`src/platform/rigor/trials.py`** — Global trials registry with N_eff counter + empirical V[SR] estimator. Fallback to 0.02/250 when fewer than 20 trials.
+- **`src/platform/promotion.py`** — 5-state strategy lifecycle (proposed → backtested → shadow_trading → production, plus deprecated). Enforces DSR + PBO + OOS_efficiency gates, ≥40-char justification on manual promotions, ≥20-char reason on demotion.
+- **Three new SQLite tables:** `strategy_registry`, `strategy_promotion_events`, `trials_registry`.
+- **Three new `shadow_trades` columns:** `desk` (default 'swing'), `research_thesis`, `strategy_spec_hash` + `idx_shadow_trades_desk` index. Migration backfills all 85 existing rows to `desk='swing'` via DEFAULT.
+
+#### Fixed (v0.24.0-alpha2.1 hotfix — commits 6055952 + bbf0a71 + 86a46fc)
+
+- **`src/platform/signal_eval.py`** — `_resolve_universe` now dispatches `universe.tickers: "sp100"` string alias via `_UNIVERSE_ALIASES`. Fixes Lazy Prices returning 0 trades on the production DB (H2).
+- **`src/platform/features/cosine_similarity.py`** — `cosine_similarity_yoy` falls back to parsing sections from `full_text` when `sections_json` is NULL (EDGAR backfill populated `full_text` but never derived sections). Fixes cosine=None for every event (H1).
+- **`src/platform/signal_eval.py`** — `_evaluate_event_signal` now honors `combinator` parameter so `combinator: any` fires on OR logic. Fixes SBUX-style suppression when one-of-two filters passes (H4).
+- **`src/config/__init__.py`** — DB_PATH anchored to `Path(__file__).resolve().parent.parent.parent / "ai_research_desk.sqlite3"` with optional `ARCIS_DB_PATH` env override. Prevents CWD-dependent DB resolution.
+- **`src/platform/promotion.py::check_promotion_gate`** — reads real N_eff + V from `trials_registry`; adds `RuntimeError` guard if V is None so null fallback can't silently fire in production.
+
+#### Tests
+
+- 55+ new tests across `tests/platform/rigor/`, `tests/platform/`, `tests/test_schema_desk_columns.py`, `tests/test_config_db_path.py`. Total suite: 2,027 tests across 171 files.
+- All 8 non-negotiable gates pass: PBO rejects overfit (PBO > 0.8), PBO accepts stable (PBO < 0.2), walk-forward OOS efficiency computed + flags overfit, shadow_trades 85-row backfill, justification-note enforcement, trials_sr_variance plumbing (no null fallback), trials_registry increments on every backtest.
+
+**Known issues:**
+
+- EDGAR data is 2024-only. Lazy Prices e2e test pins on `n_trades >= 1`. Historical 2019-2023 backfill tracked in GitHub issue #469 (v0.24.x); blocks first Lazy Prices promotion to shadow_trading.
+- DSR paper-example test split into two V-values (V=0.5/250 for DSR=0.9004, V=0.046/250 for SR*₀_ann=0.5429) because the paper's two stated outputs are mutually inconsistent under any single V. Documented in `src/platform/rigor/dsr.py` docstring; PDF password-protected — v0.25 followup.
+- Three new guardrail grandfatherings: `src/platform/backtest_engine.py` (432 lines), `src/platform/promotion.py::check_promotion_gate` (97 lines), `src/platform/rigor/walkforward.py::run_walkforward` (83 lines), `src/platform/features/cosine_similarity.py::_parse_section_from_fulltext` (68 lines). Added to `config/known_violations.json`. Refactor deferred to Sprints 3/4.
+
+**Gate status:** All 8 Sprint 2 non-negotiable gates PASS. Frontend build remains a pre-existing vite PATH failure (not introduced by Sprint 2 — no frontend files were touched).
+
 ### v0.23.2 — Asyncio Refactor Phase B (overnight) + Phase C (tests) (2026-04-16)
 
 First wave of `_run_sync_body` decomposition. 14 overnight-schedule tasks
