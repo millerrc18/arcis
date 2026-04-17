@@ -141,7 +141,7 @@ Before writing any code, know what already exists. Reusing these saves ~40% of i
        │ reads                    │ writes               │
        ▼                          ▼                      ▼
 ┌──────────────┐      ┌──────────────┐       ┌──────────────┐
-│ ohlcv_bars   │      │ backtest_    │       │ shadow_trades│
+│ parquet cache│      │ backtest_    │       │ shadow_trades│
 │ edgar_filings│      │ results      │       │ (desk=       │
 │ analyst_...  │      │ backtest_    │       │  research_*) │
 │ (read-only)  │      │ trades       │       │              │
@@ -706,7 +706,7 @@ class ShadowHarness:
 **Key architectural notes:**
 - Shadow harness writes to `shadow_trades` table with `desk='research_<strategy_id>'` convention (e.g., `research_lazy_prices_v1`). This preserves desk-filtering semantics from the abandoned MVP spec.
 - Uses the per-desk Alpaca client pattern from the abandoned spec (Task 3 there) — `get_client(desk)` in `src/shadow_trading/alpaca_clients.py`.
-- **CRITICAL (from skeptical review):** Also patch `src/shadow_trading/reconcile.py` and `src/shadow_trading/bracket_monitor.py` to route by desk. These are the 11 Alpaca call sites the review flagged.
+- **CRITICAL (from skeptical review):** The skeptical review counted ~11 Alpaca call sites; verification grep finds **12 internal calls inside `src/shadow_trading/alpaca_adapter.py` (all using `_get_trading_client()` or `_get_data_client()` helpers) + 1 external call in `src/shadow_trading/executor.py:697`**. The correct patch strategy is: modify the two helpers (`_get_trading_client`, `_get_data_client`) to accept an optional `desk` parameter defaulting to the existing swing-config behavior; then thread `desk` through the handful of external callers (`executor.py`, `reconcile.py` if/when it re-enters play, `bracket_monitor.py`, `shadow_service.py`). Patching the two helpers covers 12 call sites in one change.
 
 **[STUB-OK]:** If time pressure hits Task 7, ship the interface + one happy-path integration test, defer full reconcile/bracket_monitor integration to v0.24.1. Document the gap clearly in code comments.
 
