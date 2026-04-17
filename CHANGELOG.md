@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- deps: add missing `beautifulsoup4` to `requirements.txt` — `fed_collector` and clean-deploy importability depended on a transitive install; now declared as a first-class dependency. (#455)
+
 ## [v0.23.4] - 2026-04-16 — Telegram Refresh: richer trade pings + periodic stats pulses
 
 Long overdue operator-experience pass on the notification layer. The
