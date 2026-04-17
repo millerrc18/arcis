@@ -1,5 +1,6 @@
 """Tests for PEAD earnings enrichment signals."""
 import sqlite3
+from datetime import datetime, timedelta
 import pytest
 from src.data_enrichment.earnings_signals import compute_earnings_signals
 from tests.conftest import init_test_db
@@ -9,10 +10,15 @@ from tests.conftest import init_test_db
 def earnings_db(tmp_path):
     db = str(tmp_path / "earnings_test.sqlite3")
     init_test_db(db, ["earnings_calendar", "analyst_estimates"])
+    # Use a dynamic earnings date 15 days in the future so the "within 30 days"
+    # test stays valid as real-world time advances past any hardcoded literal.
+    future_earnings_date = (datetime.now() + timedelta(days=15)).strftime("%Y-%m-%d")
     with sqlite3.connect(db) as conn:
         conn.execute(
             "INSERT INTO earnings_calendar (id, ticker, earnings_date, collected_at) "
-            "VALUES (1, 'AAPL', '2026-04-15', '2026-01-01T00:00:00')")
+            "VALUES (1, 'AAPL', ?, '2026-01-01T00:00:00')",
+            (future_earnings_date,),
+        )
         # EPS: actual 2.10 vs estimate 2.00 = beat (5%)
         conn.execute(
             "INSERT INTO analyst_estimates (id, ticker, date, metric, period, estimate, actual, surprise, surprise_pct, collected_at) "
@@ -53,5 +59,6 @@ class TestEarningsSignals:
 
     def test_include_in_prompt_when_near_earnings(self, earnings_db):
         result = compute_earnings_signals("AAPL", db_path=earnings_db)
-        # AAPL has earnings on 2026-04-15, within 30 days of now (2026-03-28)
+        # Earnings fixture is 15 days in the future — always within the
+        # 30-day "near earnings" window regardless of when the test runs.
         assert result["include_in_prompt"] is True

@@ -134,9 +134,20 @@ def test_handoff_to_training_vram_not_clear():
     mock_smi.returncode = 0
     mock_smi.stdout = "8000\n"
 
+    # Make time.time() return a monotonically increasing counter so
+    # _wait_for_vram_clear's `while time.time() < deadline` loop exits
+    # immediately (deadline = t + timeout where t is in the past by the
+    # second call). Without this, the test waits the full real-time
+    # 30s + 15s×3 = 75s, exceeding pytest-timeout=60s in CI.
+    time_counter = [0]
+    def fake_time():
+        time_counter[0] += 1000  # jump forward 1000s per call
+        return time_counter[0]
+
     with patch("requests.post", return_value=mock_resp), \
          patch("subprocess.run", return_value=mock_smi), \
-         patch("time.sleep"):
+         patch("time.sleep"), \
+         patch("time.time", side_effect=fake_time):
         result = vm.handoff_to_training()
     assert result is False
 
@@ -286,10 +297,18 @@ def test_handoff_to_inference_escalates_when_vram_not_clear():
     mock_resp = MagicMock()
     mock_resp.status_code = 200
 
+    # Patch time.time so _wait_for_vram_clear's deadline loop exits
+    # immediately (see test_handoff_to_training_vram_not_clear rationale).
+    time_counter = [0]
+    def fake_time():
+        time_counter[0] += 1000
+        return time_counter[0]
+
     with patch("subprocess.run", return_value=mock_smi) as mock_run, \
          patch("subprocess.Popen"), \
          patch("requests.post", return_value=mock_resp), \
-         patch("time.sleep"):
+         patch("time.sleep"), \
+         patch("time.time", side_effect=fake_time):
         result = vm.handoff_to_inference()
 
     # Should have attempted to kill Ollama processes (taskkill or pkill)
@@ -311,10 +330,17 @@ def test_handoff_to_inference_returns_false_after_escalation_failure():
     mock_smi.returncode = 0
     mock_smi.stdout = "5000\n"
 
+    # Patch time.time so wait loop exits immediately
+    time_counter = [0]
+    def fake_time():
+        time_counter[0] += 1000
+        return time_counter[0]
+
     with patch("subprocess.run", return_value=mock_smi), \
          patch("subprocess.Popen"), \
          patch("requests.post", side_effect=Exception("Connection refused")), \
-         patch("time.sleep"):
+         patch("time.sleep"), \
+         patch("time.time", side_effect=fake_time):
         result = vm.handoff_to_inference()
 
     assert result is False
