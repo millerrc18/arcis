@@ -85,3 +85,6 @@ scripts/smoke_test_raw.py
 scripts/test_adapter_direct.py
 scripts/test_gguf_direct.py
 scripts/test_merged_hf.py
+
+# Pipeline scratchpad (session-local)
+.tmp/
