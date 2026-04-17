@@ -59,12 +59,12 @@ with an unbeatable technological moat.
 | Open positions | ~2 (verify with shadow-status) |
 | Model | halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF); v2.0.0 retrain gated on excess-Sharpe validation |
 | Training data | 1,722 examples (1,019 + 703 regime-diverse backfill) |
-| Tests | 1,972 tests across 163 test files (+44 tests, +7 test files — Sprint 1: platform/backtest/DSR/metrics/lazy_prices) |
-| Python files | 240 (+12 new src/platform/ modules — Sprint 1) |
+| Tests | 2,027 tests across 171 test files (+44 tests, +7 test files Sprint 1; +55 tests, +8 test files Sprint 2: CSCV/walk-forward/promotion/trials/desk-tag/config) |
+| Python files | 244 (+12 new src/platform/ modules Sprint 1; +4 new src/platform/ modules Sprint 2: promotion, trials, rigor/walkforward, rigor/trials) |
 | Dashboard pages | 25 |
 | Research docs | 107 |
 | Sprint docs | 57 |
-| Schema tables | 56 (registry), 44+ synced to Postgres (+3 Sprint 1: backtest_results, backtest_trades, + 1 via platform) |
+| Schema tables | 59 (registry), 44+ synced to Postgres (+3 Sprint 1: backtest_results, backtest_trades, + 1 via platform; +3 Sprint 2: strategy_registry, strategy_promotion_events, trials_registry) |
 | GitHub issues | 0 open |
 | Monthly cost | ~$64 (Render $14 + Ollama free + Claude API ~$50 + domain $7) |
 | Hardware | RTX 3060 12GB, Windows 11, Z690, 24/7 operation |
@@ -98,6 +98,27 @@ with an unbeatable technological moat.
 | IB integration | DORMANT -- v0.18.0, `trading.ib_enabled=false`, all code preserved for reactivation per SD#41 |
 | Attribution resolver | FIXED -- v0.22.0 (this sprint), yfinance MultiIndex flatten; 1,600 rows re-resolved as v2_fixed |
 | PEAD enrichment | ELIMINATED per SD#3 — PEAD dead for large caps (Martineau 2022, Subrahmanyam 2025). Replaced by Options Volatility Desk (Phase 3-4). |
+
+### Database Path (`ARCIS_DB_PATH`)
+
+Production SQLite lives at **`C:/arcis/data/ai_research_desk.sqlite3`** — 493 MB, 3,371 EDGAR filings, 3,239 with `full_text` populated. This is the DB the watch loop and all collectors write to.
+
+`src/config/__init__.py` defines `DB_PATH` via `os.environ.get("ARCIS_DB_PATH", str(<repo_root> / "ai_research_desk.sqlite3"))`. The env-var override is how production points at `C:/arcis/data/...`; the absolute default prevents CWD-dependent resolution (fixed in v0.24.0-alpha2.1 hotfix).
+
+**NSSM service binding (required):** The `ArcisWatchLoop` nssm service MUST have `ARCIS_DB_PATH=C:/arcis/data/ai_research_desk.sqlite3` set in its `AppEnvironmentExtra` so the service doesn't depend on the interactive user profile's env vars. Verify via:
+
+```
+nssm get ArcisWatchLoop AppEnvironmentExtra
+```
+
+If missing, set it:
+
+```
+nssm set ArcisWatchLoop AppEnvironmentExtra ARCIS_DB_PATH=C:/arcis/data/ai_research_desk.sqlite3
+nssm restart ArcisWatchLoop
+```
+
+The repo-root path `C:/arcis/halcyon-lab/ai_research_desk.sqlite3` is gitignored (`*.sqlite3` pattern) and deleted — any local copy is a stale artifact; rm it rather than backfilling.
 
 ### Diagnostic D2 Status — **CLOSED**
 

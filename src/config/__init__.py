@@ -46,7 +46,14 @@ load_dotenv()
 # Central database path constant — override via ARCIS_DB_PATH env var.
 # This is the single source of truth for the SQLite path. Every module
 # imports DB_PATH from here rather than hardcoding the filename.
-DB_PATH = os.environ.get("ARCIS_DB_PATH", "ai_research_desk.sqlite3")
+#
+# Hotfix v0.24.0-alpha2.1: anchor to repo root via Path(__file__) so the
+# path is ABSOLUTE regardless of CWD. Relative paths caused different
+# processes (worktree vs repo-root) to open different SQLite files.
+# __file__ = src/config/__init__.py → .parent = src/config → .parent = src
+# → .parent = <repo_root>. Three levels up.
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+DB_PATH = os.environ.get("ARCIS_DB_PATH", str(_REPO_ROOT / "ai_research_desk.sqlite3"))
 
 _config_cache: dict | None = None
 

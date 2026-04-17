@@ -53,3 +53,33 @@ def test_spec_hash_changes_on_modification():
 
 def test_run_id_uuid_generated():
     pytest.skip("integration-level — requires real data; run CLI manually")
+
+
+def test_backtest_uses_registry_survivorship_haircut(tmp_path):
+    """Bonus: CLI/engine must pick up survivorship_haircut_bps from
+    strategy_registry rather than always defaulting to 75."""
+    db = tmp_path / "test.db"
+    from src.schema.sqlite import create_all_tables
+    create_all_tables(str(db))
+    # Register strategy with explicit haircut=200 (momentum default)
+    from src.platform.promotion import register_strategy
+    register_strategy(
+        strategy_id="mom_test", display_name="Mom Test",
+        spec_source="test", spec_hash="x",
+        survivorship_haircut_bps=200, db_path=str(db),
+    )
+    # Read back and verify the value is stored
+    import sqlite3
+    conn = sqlite3.connect(db)
+    row = conn.execute(
+        "SELECT survivorship_haircut_bps FROM strategy_registry "
+        "WHERE strategy_id = 'mom_test'"
+    ).fetchone()
+    conn.close()
+    assert row[0] == 200
+    # The CLI wiring check — run_backtest.py::main must read this.
+    # Test the helper rather than shelling out the CLI.
+    from scripts.run_backtest import _get_survivorship_haircut_bps
+    assert _get_survivorship_haircut_bps("mom_test", str(db)) == 200
+    # Unknown strategy → default 75
+    assert _get_survivorship_haircut_bps("nonexistent", str(db)) == 75
