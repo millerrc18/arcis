@@ -87,7 +87,34 @@ Fix the root cause, then backfill. Backfill approach:
 
 ---
 
-## Architecture
+## Reusable Infrastructure (Pass 2 + 3 audit — DO NOT reimplement)
+
+Before writing any code, know what already exists. Reusing these saves ~40% of implementation time and avoids reintroducing bugs we already fixed.
+
+| Need | Existing module | Notes |
+|---|---|---|
+| OHLCV cached loader | `src/simulation/cache.py:fetch_cached_ohlcv` | Parquet-cached yfinance with MultiIndex fix. Task 3 wraps this, does NOT reimplement. |
+| SPY benchmark + excess returns | `src/analytics/spy_benchmark.py:spy_return_over_range, excess_return` | D1 instrumentation. Call directly. |
+| Stop/target/timeout simulation | `src/attribution/logger.py:simulate_mechanical_outcome` | Production-audited (yesterday's forensic work). Returns `(outcome, exit_price, days_held)`. Reuse in Task 4. |
+| Pattern reference for backtest structure | `src/evaluation/backtester.py` | Pullback-specific but proves the pattern. STUDY before writing Task 4. |
+| Transaction cost constants | `src/simulation/engine.py:TRANSACTION_COSTS` (3 bps slippage, 1.5 bps spread, 0 commission) | Match these exactly for cross-comparability. |
+| Sector classification | `src/universe/sectors.py` + `data/reference/sp100-gics-lookup.csv` | Already populated 100% of swing trades. |
+| Regime classification | `src/features/regime.py` or call spy_benchmark which does it | D3 fix. |
+| Universe | `src/universe/sp100.py:get_sp100_universe` | 100 tickers; sp500 module doesn't exist. |
+| Schema / migration | `src/schema/registry.py` + `src/schema/sqlite.py:ensure_columns` | Idempotent, runs every watch loop startup. |
+| Render sync | `src/sync/render_sync.py` supports `incremental`, `full`, `latest_only` modes | All three new tables use appropriate mode. |
+
+**What does NOT exist (must be built):**
+- Strategy specification format (YAML or Python plugin) — Task 1, 2
+- General (strategy-agnostic) backtest engine — Task 4 (wraps simulate_mechanical_outcome)
+- Shadow-trading harness for research strategies — Task 7
+- Per-desk Alpaca client factory — required by Task 7 (see abandoned MVP spec's Task 3 for pattern)
+- Strategy registry / promotion pipeline — Task 10
+- Platform dashboard page — Task 12
+
+---
+
+
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -324,55 +351,110 @@ def get_plugin(strategy_id: str) -> StrategyPlugin | None:
 
 ### Component B: Backtest Harness (the load-bearing work)
 
-#### Task 3 — OHLCV data access layer (2h)
+#### Task 3 — OHLCV data access layer (1.5h)
 
-**File:** `src/platform/data_loader.py` (new)
+**File:** `src/platform/data_loader.py` (new, thin wrapper)
 
-Consolidates historical data access for the backtester. Reuses existing `src/simulation/cache.py` where possible.
+**Pass 2 correction:** `src/simulation/cache.py:fetch_cached_ohlcv` already does parquet caching + yfinance fallback + MultiIndex handling. There is **no `ohlcv_bars` SQLite table** — OHLCV in Arcis comes from parquet files at `data/simulation_cache/` or live yfinance calls. Task 3 is a thin adapter over the existing cache module, NOT a reimplementation.
 
 ```python
-def load_ohlcv_range(
-    ticker: str, start: str, end: str, db_path: str = DB_PATH,
-) -> pd.DataFrame:
-    """Load OHLCV bars for ticker in date range. Falls through:
-    1. Local ohlcv_bars table
-    2. simulation/cache.py cached yfinance data
-    3. Live yfinance fetch (and cache)
-    Returns DataFrame with columns: date, open, high, low, close, volume, adj_close
-    Returns None if no data available.
-    """
+# src/platform/data_loader.py
+"""Platform data-access adapter.
 
-def load_spy_benchmark(start: str, end: str) -> pd.DataFrame:
-    """SPY adjusted closes for benchmark matching."""
+Called by: src.platform.backtest_engine
+Calls: src.simulation.cache (fetch_cached_ohlcv), src.analytics.spy_benchmark
+Owns tables: none
+Config keys: none
+Tests: tests/platform/test_data_loader.py
+
+This module exists to give the backtest engine a single clean import
+surface. Under the hood, it delegates to:
+  - src/simulation/cache.py:fetch_cached_ohlcv for ticker OHLCV (parquet cached)
+  - src/analytics/spy_benchmark.py:spy_return_over_range for SPY benchmark
+  - src/universe/sp100.py:get_sp100_universe for universe membership
+"""
+
+from __future__ import annotations
+
+import pandas as pd
+from src.simulation.cache import fetch_cached_ohlcv
+from src.analytics.spy_benchmark import spy_return_over_range
+
+
+def load_ohlcv_range(ticker: str, start: str, end: str) -> pd.DataFrame | None:
+    """Delegate to simulation.cache. Returns None on missing data."""
+    return fetch_cached_ohlcv(ticker, start, end)
+
+
+def load_spy_return(entry_iso: str, exit_iso: str) -> float | None:
+    """Delegate to analytics.spy_benchmark. Returns None on missing data."""
+    return spy_return_over_range(entry_iso, exit_iso)
+
 
 def load_universe_as_of(universe_tag: str, date: str) -> list[str]:
-    """S&P 100 membership at a given date. Static for MVP (no point-in-time
-    corrections); use current membership. Tag as limitation."""
+    """S&P 100 membership. Static for MVP (current membership only).
+
+    LIMITATION: no point-in-time universe corrections. A stock that
+    joined SPX in 2022 will be in the 2015 backtest universe. This is a
+    known bias; acceptable for MVP, must be fixed before live capital.
+    """
+    if universe_tag == "sp500":
+        # No sp500 module exists; fall back with warning.
+        import logging
+        logging.getLogger(__name__).warning(
+            "[PLATFORM] sp500 universe requested but not implemented; "
+            "falling back to sp100"
+        )
+    from src.universe.sp100 import get_sp100_universe
+    return get_sp100_universe()
 ```
 
-**Tests:**
-- `test_load_ohlcv_aapl_returns_dataframe`
+**Tests:** `tests/platform/test_data_loader.py`
+- `test_load_ohlcv_aapl_returns_dataframe` (with cached parquet or mock)
 - `test_load_ohlcv_missing_ticker_returns_none`
-- `test_load_spy_benchmark_matches_yfinance`
-- `test_load_universe_returns_sp100`
+- `test_load_spy_return_matches_benchmark_module` (verify delegation works)
+- `test_load_universe_sp500_falls_back_to_sp100_with_warning`
 
-**Acceptance:** Can load 5 years of AAPL OHLCV + SPY benchmark without network hit on second call (cache works).
+**Acceptance:** Adapter works; backtest engine imports from here, not from simulation/cache directly (keeps platform module boundary clean).
 
 ---
 
-#### Task 4 — Backtest engine core (6h, HIGH RISK)
+#### Task 4 — Backtest engine core (4h, HIGH RISK)
 
 **File:** `src/platform/backtest_engine.py` (new)
+
+**Pass 2 corrections (critical reuse):**
+1. `src/attribution/logger.py:simulate_mechanical_outcome` already implements deterministic stop/target/timeout logic with no look-ahead. **Reuse it directly** rather than reimplementing bracket logic. It was audited in yesterday's forensic work and is production-correct.
+2. `src/evaluation/backtester.py` exists and proves the overall pattern (load OHLCV → iterate days → run signal → track portfolio → compute metrics). It's pullback-specific (hardcoded ranker + features); our job is generalizing over the signal source via `StrategySpec`. Study this file before writing Task 4.
+3. `src/analytics/spy_benchmark.py:spy_return_over_range` and `excess_return` already handle SPY-matched attribution. Call these directly.
 
 This is the load-bearing component. Get it wrong and every evaluation is wrong.
 
 ```python
+# src/platform/backtest_engine.py
+"""Strategy-agnostic historical replay harness.
+
+Reuses:
+  - src.attribution.logger.simulate_mechanical_outcome for bracket outcomes
+  - src.analytics.spy_benchmark.spy_return_over_range for excess returns
+  - src.platform.data_loader.load_ohlcv_range for OHLCV (wraps simulation.cache)
+
+Pattern reference (study before writing): src.evaluation.backtester
+"""
+
+from dataclasses import dataclass, field
+from src.attribution.logger import simulate_mechanical_outcome
+from src.analytics.spy_benchmark import spy_return_over_range, excess_return
+from src.platform.data_loader import load_ohlcv_range
+
 @dataclass
 class BacktestConfig:
-    strategy: StrategySpec | StrategyPlugin
+    strategy: StrategySpec  # Python plugins in Tier 5; MVP is YAML-only
     start_date: str
     end_date: str
     initial_capital: float = 100_000.0
+    # Cost model matches src/simulation/engine.py:TRANSACTION_COSTS exactly
+    # so platform backtests are comparable to scenario-engine backtests.
     commission_bps: float = 0
     slippage_bps: float = 3
     spread_bps: float = 1.5
@@ -389,84 +471,80 @@ class BacktestTrade:
     shares: int
     pnl_dollars: float
     pnl_pct: float
-    exit_reason: str              # 'stop' | 'target' | 'timeout'
+    exit_reason: str              # 'win' | 'loss' | 'timeout' (matches simulate_mechanical_outcome)
     hold_days: int
-    spy_return_over_hold: float   # D1 instrumentation
-    excess_return: float
+    spy_return_over_hold: float   # from spy_return_over_range
+    excess_return: float          # from excess_return
     realized_sector: str | None
     regime_at_entry: str | None
-    metadata: dict                # strategy-specific
+    metadata: dict = field(default_factory=dict)
 
 @dataclass
 class BacktestResult:
     strategy_id: str
     config: BacktestConfig
     trades: list[BacktestTrade]
-    equity_curve: list[tuple[str, float]]  # (date, equity)
-    metrics: dict                 # sharpe, excess_sharpe, win_rate, profit_factor, max_dd, calmar
-    reproducibility: dict         # config hash, seed, code git-sha
+    equity_curve: list[tuple[str, float]]
+    metrics: dict
+    reproducibility: dict
 
 def run_backtest(config: BacktestConfig) -> BacktestResult:
     """Deterministic historical replay.
 
     Algorithm:
     1. For each trading day in [start, end]:
-       a. Call strategy.find_candidates(day, universe, context)
-       b. For each candidate that passes risk checks:
-          - Compute entry price (next day's open, or close if event-triggered)
-          - Compute ATR-based stop + target from entry bar
-          - Apply transaction costs
-          - Add to open positions
-       c. For each open position:
-          - Check stop/target/timeout
-          - If exit: realize PnL, compute SPY-matched excess, log
-    2. Compute summary metrics
-    3. Return BacktestResult
+       a. For each ticker: get OHLCV slice, evaluate strategy signal
+       b. If signal fires: compute ATR-based stop/target from entry bar
+       c. Call simulate_mechanical_outcome to get exit
+       d. Apply transaction costs on entry AND exit (2x the one-side bps)
+       e. Compute SPY-matched excess via spy_return_over_range + excess_return
+    2. Aggregate trades into equity curve
+    3. Compute metrics (Task 5 delegates)
+    4. Return BacktestResult
     """
 ```
 
 **Key design decisions (non-negotiable):**
-- **Deterministic.** Same inputs → same outputs. Random seed controls any stochastic steps.
-- **Event-driven loop.** Iterate days, not candidates. This matches how strategies actually run.
-- **Single-bar entry latency.** Signal on day N → entry on day N+1 open. No look-ahead.
-- **Transaction costs applied on entry AND exit.** Matches `src/simulation/engine.py:64 apply_costs`.
-- **SPY-matched excess on every trade.** Reuses `src/analytics/spy_benchmark.py` from D1.
-- **Graceful degradation.** If a ticker is missing data for a day, skip that ticker that day; log and continue. Do not crash the backtest.
+- **Deterministic.** Same inputs → same outputs.
+- **No look-ahead.** Signal on day N uses only data ≤ day N. Entry on day N+1 open (matches live-trading behavior).
+- **Reuse `simulate_mechanical_outcome`.** Do not reimplement stop/target logic.
+- **Graceful degradation.** Missing ticker data for a day → skip that ticker that day. Do not crash.
+- **Event-driven for event strategies.** YAML spec's `entry.kind: event_driven` means signal only fires on event days (filing, earnings); backtest iterates events, not every day.
 
-**Validation — this is the part that must be right:**
-
-Build a known-good test case by hand:
+**Validation — the hand-computed test:**
 
 ```python
 # tests/platform/test_backtest_validation.py
 def test_backtest_matches_hand_computed_example():
-    """Deterministic 3-trade example with manually computed expected output.
+    """Trivial strategy with manually computed expected output.
 
     Setup:
-    - Ticker AAPL, dates 2023-06-01 to 2023-06-30 (22 trading days)
-    - Trivial strategy: 'buy every Monday, hold 5 days'
-    - Entry prices, exit prices, stop hits hand-computed from yfinance
+    - Ticker AAPL, 2023-06-01 to 2023-06-30 (22 trading days)
+    - Strategy: 'buy every Monday close, 2% stop / 3% target / 5-day timeout'
+    - Entry prices, stop hits, exit prices hand-computed from known yfinance data
+    - 4 Mondays in range → 4 entries expected
 
     Assert:
+    - len(trades) == 4
     - trades[0].pnl_pct within 0.01% of hand-computed
-    - metrics.total_return within 0.05% of hand-computed
-    - trade_count == expected
+    - metrics['total_return'] within 0.05% of hand-computed
+    - metrics['excess_sharpe'] computed (non-null)
     """
 ```
 
-Without this test, the harness might be off by 2% and nobody notices. With it, any bug in cost application, entry timing, or exit logic gets caught immediately.
+Without this test the harness can silently drift and nobody notices. This test is the single most important piece of work in Tier 1. **If this test doesn't pass, do not ship the backtest engine.**
 
 **Tests (minimum 8):**
-- `test_backtest_matches_hand_computed_example` (above)
-- `test_backtest_no_lookahead_bias`: strategy that tries to peek at tomorrow → rejected or returns 0 trades
-- `test_backtest_handles_missing_data`: inject NaN in one ticker's week → backtest continues for other tickers
-- `test_backtest_determinism`: run twice with same seed → identical output
-- `test_backtest_applies_transaction_costs`: zero-return trade shows negative PnL = 2 × (slippage + spread + commission)
-- `test_backtest_spy_excess_computed`: every trade has non-null excess_return
-- `test_backtest_regime_attribution_present`: every trade has regime_at_entry
-- `test_backtest_drawdown_correct`: constructed equity curve, max_dd matches manual computation
+- `test_backtest_matches_hand_computed_example` — above
+- `test_backtest_no_lookahead_bias` — strategy that tries to peek at day N+1 → caught
+- `test_backtest_handles_missing_data` — inject NaN for one ticker → backtest continues
+- `test_backtest_determinism` — run twice with same seed → identical output
+- `test_backtest_applies_transaction_costs` — zero-return trade shows cost drag
+- `test_backtest_spy_excess_computed` — every trade has non-null excess_return
+- `test_backtest_regime_attribution_present` — every trade has regime_at_entry (from spy_benchmark module)
+- `test_backtest_drawdown_correct` — constructed equity curve, max_dd matches manual
 
-**Acceptance:** Hand-computed test passes. Run Connors RSI(2) on 2020-2024 and get a result in under 2 minutes. Inspect output trades manually; verify they look sensible.
+**Acceptance:** Hand-computed test passes. Run Connors RSI(2) on 2020-2024 and get a result in <2min. Inspect output trades manually; verify they look sensible. If trades look wrong, STOP — the bug is in the engine, not the strategy.
 
 ---
 
