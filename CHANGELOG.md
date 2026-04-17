@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- deps: add missing `numpy` and `scipy` to `requirements.txt` — analytics modules (evaluation, features/regime, simulation/monte_carlo) import both but neither was declared; clean deploys crashed on first analytics import. (#460)
 - deps: add missing `pyarrow` to `requirements.txt` — `src/simulation/cache.py` uses `pd.read_parquet` / `to_parquet`; pandas requires pyarrow for parquet IO. Simulation cache crashed on clean deploy. (#462)
 
 ## [v0.23.4] - 2026-04-16 — Telegram Refresh: richer trade pings + periodic stats pulses

@@ -22,3 +22,13 @@ def test_pyarrow_importable() -> None:
     declared, `pd.read_parquet(...)` fails on clean deploy.
     """
     import pyarrow  # noqa: F401
+
+
+def test_scipy_importable() -> None:
+    """Regression for #460: src/evaluation/statistics.py uses `from scipy import stats`."""
+    import scipy  # noqa: F401
+
+
+def test_numpy_importable() -> None:
+    """Regression for #460: src/evaluation/*, features/regime, simulation/monte_carlo use numpy."""
+    import numpy  # noqa: F401
