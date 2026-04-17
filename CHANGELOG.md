@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- deps: add missing `numpy` and `scipy` to `requirements.txt` — analytics modules (evaluation, features/regime, simulation/monte_carlo) import both but neither was declared; clean deploys crashed on first analytics import. (#460)
+
 ## [v0.23.4] - 2026-04-16 — Telegram Refresh: richer trade pings + periodic stats pulses
 
 Long overdue operator-experience pass on the notification layer. The
