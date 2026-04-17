@@ -33,8 +33,19 @@ def _matches_scheduled_trigger(day: datetime, entry_spec: dict) -> bool:
     return target is not None and day.weekday() == target
 
 
-def _evaluate_event_signal(sections: dict, signal: list[dict]) -> bool:
-    """For MVP: cosine_similarity on item_1a comparable to threshold."""
+def _evaluate_event_signal(
+    sections: dict,
+    signal: list[dict],
+    combinator: str = "all",
+) -> bool:
+    """Evaluate signal conditions against sections dict.
+
+    combinator: "all" (default, AND logic) or "any" (OR logic).
+    Hotfix v0.24.0-alpha2.1: was hardcoded to AND; now respects "any"
+    combinator so spec.entry.combinator=any fires when ANY filter passes.
+    """
+    use_any = combinator.lower() == "any"
+    any_passed = False
     for condition in signal:
         if condition.get("metric") != "cosine_similarity":
             continue
@@ -42,27 +53,66 @@ def _evaluate_event_signal(sections: dict, signal: list[dict]) -> bool:
         # map target like "item_1a" → key "item_1a_cosine_yoy"
         key = f"{target}_cosine_yoy"
         if key not in sections:
-            return False
+            if not use_any:
+                return False  # AND: missing key means condition can't pass
+            continue  # ANY: skip missing keys (not a failure)
         value = sections[key]
         threshold = float(condition.get("threshold", 0.0))
         op = condition.get("operator", "less_than")
-        if op == "less_than" and not (value < threshold):
-            return False
-        if op == "greater_than" and not (value > threshold):
-            return False
-    return True
+        condition_passes = (
+            (op == "less_than" and value < threshold)
+            or (op == "greater_than" and value > threshold)
+        )
+        if use_any:
+            if condition_passes:
+                return True  # OR: short-circuit on first pass
+        else:
+            if not condition_passes:
+                return False  # AND: short-circuit on first failure
+            any_passed = True
+    if use_any:
+        return False  # OR: no condition passed
+    return True  # AND: all conditions passed (or no cosine conditions found)
+
+
+_UNIVERSE_ALIASES: dict[str, str] = {
+    "sp100": "src.universe.sp100.get_sp100_universe",
+}
+
+
+def _resolve_universe(tickers_spec) -> list[str]:
+    """Resolve a universe spec value to a concrete list of ticker strings.
+
+    Accepts:
+      - A list of tickers (returned as-is).
+      - A string alias like "sp100" (resolved via _UNIVERSE_ALIASES).
+    Returns an empty list for unrecognised inputs.
+    """
+    if isinstance(tickers_spec, list):
+        return tickers_spec
+    if isinstance(tickers_spec, str):
+        fn_path = _UNIVERSE_ALIASES.get(tickers_spec.lower())
+        if fn_path:
+            module_path, fn_name = fn_path.rsplit(".", 1)
+            import importlib
+            mod = importlib.import_module(module_path)
+            return getattr(mod, fn_name)()
+        logger.warning("[PLATFORM] unknown universe alias %r — returning []", tickers_spec)
+    return []
 
 
 def _query_event_rows(spec: StrategySpec, cfg) -> list[dict]:
     """Query spec.entry.event_table for matching rows in [start, end].
 
     cfg is a BacktestConfig; typed as Any here to avoid a circular import.
+    Hotfix v0.24.0-alpha2.1: resolve universe string aliases (e.g. "sp100")
+    to concrete ticker lists instead of returning [] for non-list values.
     """
     entry = spec.entry
     table = entry.get("event_table", "edgar_filings")
     form_types = entry.get("event_filter", {}).get("form_type", [])
-    tickers = spec.universe.get("tickers", [])
-    if not isinstance(tickers, list):
+    tickers = _resolve_universe(spec.universe.get("tickers", []))
+    if not tickers:
         return []
 
     db_path = os.environ.get("PLATFORM_EDGAR_DB")

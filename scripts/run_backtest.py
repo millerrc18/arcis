@@ -20,6 +20,28 @@ from src.platform.backtest_engine import BacktestConfig, run_backtest
 from src.platform.strategy_spec import load_spec
 
 
+def _get_survivorship_haircut_bps(
+    strategy_id: str, db_path: str = DB_PATH,
+) -> int:
+    """Return survivorship_haircut_bps for `strategy_id` from strategy_registry.
+
+    Falls back to 75 when the strategy has not been registered yet (e.g.,
+    first-time backtest before registration).
+    """
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT survivorship_haircut_bps FROM strategy_registry "
+            "WHERE strategy_id = ?",
+            (strategy_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if row is None or row[0] is None:
+        return 75
+    return int(row[0])
+
+
 def _git_sha() -> str:
     try:
         return subprocess.check_output(
@@ -96,8 +118,10 @@ def main() -> int:
     args = p.parse_args()
 
     spec = load_spec(args.strategy)
+    haircut_bps = _get_survivorship_haircut_bps(args.strategy, db_path=args.db_path)
     cfg = BacktestConfig(
         strategy=spec, start_date=args.start, end_date=args.end,
+        survivorship_haircut_bps=haircut_bps,
     )
     result = run_backtest(cfg)
 

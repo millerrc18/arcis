@@ -17,6 +17,7 @@ import hashlib
 import json
 import logging
 import math
+import os
 import subprocess
 import uuid
 from dataclasses import dataclass, field
@@ -29,6 +30,7 @@ from src.attribution.logger import simulate_mechanical_outcome
 from src.features.indicators import compute_atr
 from src.platform.data_loader import load_ohlcv_range
 from src.platform.metrics import compute_all_metrics
+from src.platform.features.cosine_similarity import cosine_similarity_yoy
 from src.platform.signal_eval import (
     _evaluate_event_signal,
     _matches_scheduled_trigger,
@@ -290,19 +292,71 @@ def _run_scheduled(cfg: BacktestConfig) -> list[BacktestTrade]:
     return trades
 
 
+def _inject_cosine_scores(
+    sections: dict,
+    signal: list[dict],
+    ticker: str,
+    accession: str,
+    db_path: str,
+) -> dict:
+    """Compute YoY cosine similarity for each cosine_similarity signal condition
+    and inject the result under '<target>_cosine_yoy' so _evaluate_event_signal
+    can read them.
+
+    If a pre-computed value already exists in sections (e.g. from a test fixture
+    that seeds sections_json directly), it is left untouched.  Live computation
+    is only attempted when the key is absent.
+    """
+    live_db = os.environ.get("PLATFORM_EDGAR_DB", db_path)
+    for condition in signal:
+        if condition.get("metric") != "cosine_similarity":
+            continue
+        target = condition.get("target", "")
+        key = f"{target}_cosine_yoy"
+        if key in sections:
+            continue  # already present (e.g. test fixture)
+        try:
+            cos = cosine_similarity_yoy(ticker, accession, target, live_db)
+        except Exception as exc:
+            logger.debug(
+                "[PLATFORM] cosine_similarity_yoy failed %s/%s/%s: %s",
+                ticker, accession, target, exc,
+            )
+            cos = None
+        if cos is not None:
+            sections[key] = cos
+    return sections
+
+
 def _run_event_driven(cfg: BacktestConfig) -> list[BacktestTrade]:
     spec = cfg.strategy
     signal = spec.entry.get("signal", [])
+    combinator = spec.entry.get("combinator", "all")  # "all" (AND) or "any" (OR)
     rows = _query_event_rows(spec, cfg)
+
+    from src.config import DB_PATH as _default_db
+    db_path = os.environ.get("PLATFORM_EDGAR_DB", _default_db)
+
     trades: list[BacktestTrade] = []
     for row in rows:
         try:
             sections = json.loads(row.get("sections_json") or "{}")
         except json.JSONDecodeError:
             continue
-        if not _evaluate_event_signal(sections, signal):
+        # Inject live-computed cosine scores for any cosine_similarity
+        # signal conditions whose key is not already in sections_json.
+        # Hotfix v0.24.0-alpha2.1: edgar_collector stores raw section text
+        # under 'item_1a' / 'item_7'; _evaluate_event_signal expects the
+        # pre-computed float under 'item_1a_cosine_yoy'. Bridge the gap here
+        # so the signal evaluator always sees the right key regardless of
+        # whether sections_json was pre-computed or is raw text.
+        ticker = row.get("ticker", "")
+        accession = row.get("accession_number", "")
+        sections = _inject_cosine_scores(
+            sections, signal, ticker, accession, db_path,
+        )
+        if not _evaluate_event_signal(sections, signal, combinator):
             continue
-        ticker = row["ticker"]
         filing_date = row["filing_date"]
         # Entry at NEXT trading day's open after filing.
         history_start = (
