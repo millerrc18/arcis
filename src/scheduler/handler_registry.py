@@ -16,6 +16,8 @@ Tests: tests/test_watch_handler_registry.py
 
 import asyncio
 import logging
+import signal
+import threading
 from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
@@ -32,6 +34,11 @@ class HandlerRegistryMixin:
 
     def run(self):
         """Sync entrypoint — drives the asyncio loop (Phase A of asyncio refactor)."""
+        if threading.current_thread() is threading.main_thread():
+            signal.signal(
+                signal.SIGTERM,
+                lambda signum, frame: setattr(self, "_shutdown_requested", True),
+            )
         asyncio.run(self.run_async())
 
     async def run_async(self):

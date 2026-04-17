@@ -1156,7 +1156,10 @@ class WatchLoop(HandlerRegistryMixin):
             print(f"\n[WATCH] Received {sig_name} — shutting down gracefully...")
             self._shutdown_requested = True
 
-        signal.signal(signal.SIGTERM, _handle_shutdown)
+        try:
+            signal.signal(signal.SIGTERM, _handle_shutdown)
+        except ValueError:
+            pass  # Not main thread — handler already registered in run()
         # Write initial heartbeat
         Path("data").mkdir(exist_ok=True)
         Path("data/watchdog.txt").write_text(datetime.now(ET).isoformat())
