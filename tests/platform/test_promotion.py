@@ -8,6 +8,7 @@ import pytest
 
 from src.platform.promotion import (
     GATE_DEMOTION_REASON_MIN_CHARS,
+    GATE_DSR_MIN,
     GATE_JUSTIFICATION_MIN_CHARS,
     STATUSES,
     check_promotion_gate,
@@ -36,7 +37,11 @@ def _seed_strategy(db: str, sid: str = "s1") -> None:
 
 
 def _seed_backtest_row(db: str, sid: str, dsr: float | None = None) -> None:
-    """Seed a backtest_results row so check_promotion_gate finds something."""
+    """Seed a backtest_results row so check_promotion_gate finds something.
+
+    `dsr` is stored in deflated_sharpe for legacy use but the gate now
+    recomputes DSR from backtest_trades rows — see _seed_backtest_trades.
+    """
     import sqlite3
     conn = sqlite3.connect(db)
     try:
@@ -55,6 +60,50 @@ def _seed_backtest_row(db: str, sid: str, dsr: float | None = None) -> None:
         conn.commit()
     finally:
         conn.close()
+
+
+def _seed_backtest_trades(
+    db: str, sid: str,
+    pnl_values: list[float] | None = None,
+) -> None:
+    """Seed backtest_trades rows tied to the result_id seeded by _seed_backtest_row.
+
+    `pnl_values` defaults to a 60-trade series with positive mean so
+    the recomputed DSR passes the 0.95 gate.
+    """
+    import sqlite3
+    if pnl_values is None:
+        # Positive-skewed series: DSR will comfortably exceed 0.95
+        pnl_values = [0.01, 0.012, 0.015, 0.008, 0.009] * 12
+    result_id = f"r_{sid}"
+    conn = sqlite3.connect(db)
+    try:
+        for i, pnl in enumerate(pnl_values):
+            conn.execute(
+                """INSERT INTO backtest_trades
+                   (trade_id, result_id, ticker, entry_date, exit_date,
+                    entry_price, exit_price, shares, pnl_dollars, pnl_pct,
+                    exit_reason, hold_days, spy_return_over_hold, excess_return,
+                    realized_sector, regime_at_entry)
+                   VALUES (?, ?, 'AAPL', '2024-01-01', '2024-01-10',
+                           100.0, 101.0, 10, 10.0, ?, 'win', 5,
+                           0.005, 0.005, 'Tech', 'bull')""",
+                (f"t_{sid}_{i}", result_id, float(pnl)),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _seed_trials(db: str, n: int = 25) -> None:
+    """Seed n trials so get_variance_for_strategy_family returns empirical V."""
+    from src.platform.rigor.trials import record_trial
+    for i in range(n):
+        record_trial(
+            f"strat_{i}", f"hash_{i}",
+            sr_raw=0.1 + 0.01 * i,
+            db_path=db,
+        )
 
 
 def test_statuses_set_is_locked():
@@ -92,25 +141,36 @@ def test_check_gate_shadow_trading_requires_dsr(temp_db):
 
 
 def test_check_gate_shadow_trading_passes_on_dsr_above_threshold(temp_db):
+    """Gate passes when recomputed DSR from trade returns exceeds 0.95."""
     _seed_strategy(temp_db)
     _seed_backtest_row(temp_db, "s1", dsr=0.96)
+    _seed_backtest_trades(temp_db, "s1")  # positive-skewed returns → DSR >= 0.95
+    _seed_trials(temp_db, n=25)
     passes, ev = check_promotion_gate("s1", "shadow_trading", db_path=temp_db)
     assert passes
-    assert ev["dsr"] == 0.96
+    assert ev["dsr"] >= GATE_DSR_MIN
+    assert ev["passes_dsr_min"] is True
+    assert "trials_sr_variance_used" in ev
+    assert ev["trials_sr_variance_used"] is not None
 
 
 def test_check_gate_shadow_trading_fails_on_low_dsr(temp_db):
+    """Gate fails when recomputed DSR from (losing) trade returns is < 0.95."""
     _seed_strategy(temp_db)
     _seed_backtest_row(temp_db, "s1", dsr=0.80)
+    # Negative-mean series → DSR will be very low
+    _seed_backtest_trades(temp_db, "s1", pnl_values=[-0.02, -0.01, -0.015] * 20)
+    _seed_trials(temp_db, n=25)
     passes, ev = check_promotion_gate("s1", "shadow_trading", db_path=temp_db)
     assert not passes
-    assert ev["dsr"] == 0.80
+    assert ev["dsr"] < GATE_DSR_MIN
     assert ev["passes_dsr_min"] is False
 
 
 def test_promote_shadow_trading_requires_justification_note(temp_db):
     _seed_strategy(temp_db)
     _seed_backtest_row(temp_db, "s1", dsr=0.97)
+    # Justification check fires before gate evaluation — no trades/trials needed.
     with pytest.raises(ValueError, match="justification_note"):
         promote("s1", "shadow_trading", triggered_by="manual",
                 justification_note=None, db_path=temp_db)
@@ -122,6 +182,8 @@ def test_promote_shadow_trading_requires_justification_note(temp_db):
 def test_promote_shadow_trading_succeeds_with_long_justification(temp_db):
     _seed_strategy(temp_db)
     _seed_backtest_row(temp_db, "s1", dsr=0.97)
+    _seed_backtest_trades(temp_db, "s1")  # gate recomputes DSR from trades
+    _seed_trials(temp_db, n=25)           # gate uses real V from trials
     # 40 chars exactly
     note = "x" * GATE_JUSTIFICATION_MIN_CHARS
     promote("s1", "shadow_trading", triggered_by="manual",
@@ -155,6 +217,8 @@ def test_demote_succeeds_with_valid_reason(temp_db):
 def test_pause_moves_to_backtested_and_no_close(temp_db):
     _seed_strategy(temp_db)
     _seed_backtest_row(temp_db, "s1", dsr=0.96)
+    _seed_backtest_trades(temp_db, "s1")  # gate recomputes DSR from trades
+    _seed_trials(temp_db, n=25)           # gate uses real V from trials
     promote("s1", "backtested", triggered_by="auto_gate", db_path=temp_db)
     note = "x" * 45
     promote("s1", "shadow_trading", triggered_by="manual",
@@ -168,7 +232,8 @@ def test_get_strategies_by_status_empty_list_returns_empty(temp_db):
 
 
 def test_promotion_event_logged(temp_db):
-    """Every promote/demote writes a row to strategy_promotion_events."""
+    """Every promote/demote writes a row to strategy_promotion_events.
+    backtested is auto — no trades/trials needed."""
     import sqlite3
     _seed_strategy(temp_db)
     _seed_backtest_row(temp_db, "s1", dsr=0.97)
@@ -179,3 +244,88 @@ def test_promotion_event_logged(temp_db):
     ).fetchone()[0]
     conn.close()
     assert count == 1
+
+
+def test_promotion_gate_uses_real_trials_sr_variance(temp_db):
+    """Carryover non-negotiable gate: check_promotion_gate must pass a
+    real trials_sr_variance from trials_registry into deflated_sharpe_ratio;
+    the null fallback warning in dsr.py must not fire."""
+    import warnings
+    from src.platform.rigor.trials import record_trial
+
+    _seed_strategy(temp_db, "s1")
+    _seed_backtest_row(temp_db, "s1", dsr=0.97)
+    # Seed backtest_trades rows so the gate has a return series
+    import sqlite3
+    conn = sqlite3.connect(temp_db)
+    for i, pnl in enumerate([0.01, -0.005, 0.015, 0.008, -0.003] * 12):
+        conn.execute(
+            """INSERT INTO backtest_trades
+               (trade_id, result_id, ticker, entry_date, exit_date,
+                entry_price, exit_price, shares, pnl_dollars, pnl_pct,
+                exit_reason, hold_days, spy_return_over_hold, excess_return,
+                realized_sector, regime_at_entry)
+               VALUES (?, ?, 'AAPL', '2024-01-01', '2024-01-10',
+                       100.0, 101.0, 10, 10.0, ?, 'win', 5,
+                       0.005, 0.005, 'Tech', 'bull')""",
+            (f"t_{i}", "r_s1", float(pnl)),
+        )
+    conn.commit()
+    conn.close()
+    # Seed >= 20 trials so get_variance returns empirical, not fallback.
+    # Close conn first to avoid "database is locked" on Windows.
+    for i in range(25):
+        record_trial(f"strat_{i}", f"hash_{i}", sr_raw=0.1 + 0.01 * i,
+                     db_path=temp_db)
+
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        passes, evidence = check_promotion_gate(
+            "s1", "shadow_trading", db_path=temp_db,
+        )
+
+    # No null-fallback warning fired
+    null_fallback_warnings = [
+        x for x in w if "trials_sr_variance missing" in str(x.message)
+    ]
+    assert not null_fallback_warnings, \
+        f"null fallback fired — should never happen in production: {null_fallback_warnings}"
+
+    # Evidence carries the real variance
+    assert "trials_sr_variance_used" in evidence
+    assert evidence["trials_sr_variance_used"] is not None
+    assert evidence["n_eff_used_for_dsr"] >= 25
+
+
+def test_promotion_gate_raises_if_variance_is_none(temp_db, monkeypatch):
+    """Defense-in-depth: if get_variance_for_strategy_family somehow
+    returns None (it shouldn't), check_promotion_gate must raise rather
+    than silently falling back."""
+    _seed_strategy(temp_db, "s1")
+    _seed_backtest_row(temp_db, "s1", dsr=0.97)
+    import sqlite3
+    conn = sqlite3.connect(temp_db)
+    for i in range(50):
+        conn.execute(
+            """INSERT INTO backtest_trades
+               (trade_id, result_id, ticker, entry_date, exit_date,
+                entry_price, exit_price, shares, pnl_dollars, pnl_pct,
+                exit_reason, hold_days, spy_return_over_hold, excess_return,
+                realized_sector, regime_at_entry)
+               VALUES (?, ?, 'AAPL', '2024-01-01', '2024-01-10',
+                       100.0, 101.0, 10, 10.0, 0.01, 'win', 5,
+                       0.005, 0.005, 'Tech', 'bull')""",
+            (f"t_{i}", "r_s1"),
+        )
+    conn.commit()
+    conn.close()
+
+    # Force get_variance to return None
+    import src.platform.rigor.trials as trials_mod
+    monkeypatch.setattr(
+        trials_mod, "get_variance_for_strategy_family",
+        lambda **kwargs: None,
+    )
+    import pytest
+    with pytest.raises(RuntimeError, match="trials_sr_variance"):
+        check_promotion_gate("s1", "shadow_trading", db_path=temp_db)
