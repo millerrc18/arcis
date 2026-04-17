@@ -40,5 +40,6 @@ def test_load_universe_sp500_falls_back_to_sp100_with_warning(caplog):
         out = load_universe_as_of("sp500", "2023-06-01")
     assert isinstance(out, list)
     assert len(out) >= 100  # actual S&P 100 list has 102 entries (GOOG + GOOGL both included)
+    assert caplog.records, "expected at least one log record — propagation may be off"
     assert any("sp500" in r.message and "falling back" in r.message
                for r in caplog.records)

@@ -17,6 +17,7 @@ import pandas as pd
 
 from src.analytics.spy_benchmark import spy_return_over_range
 from src.simulation.cache import fetch_cached_ohlcv
+from src.universe.sp100 import get_sp100_universe
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +41,8 @@ def load_universe_as_of(universe_tag: str, date: str) -> list[str]:
     """
     if universe_tag == "sp500":
         logger.warning(
-            "[PLATFORM] sp500 universe requested but not implemented; "
-            "falling back to sp100"
+            "[PLATFORM] %s universe requested but not implemented; "
+            "falling back to sp100 (date=%s)",
+            universe_tag, date,
         )
-    from src.universe.sp100 import get_sp100_universe
     return get_sp100_universe()
