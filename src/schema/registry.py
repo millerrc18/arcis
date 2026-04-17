@@ -1831,3 +1831,79 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="entry_date",
 ))
+
+_register(TableDef(
+    name="strategy_registry",
+    description="Registry of all strategies in the research platform lifecycle",
+    columns=[
+        ColumnDef("strategy_id", "TEXT", nullable=False),
+        ColumnDef("display_name", "TEXT", nullable=False),
+        ColumnDef("spec_source", "TEXT", nullable=False),
+        ColumnDef("current_status", "TEXT", nullable=False,
+                  description="proposed | backtested | shadow_trading | production | deprecated"),
+        ColumnDef("current_spec_hash", "TEXT", nullable=False),
+        ColumnDef("expected_factor_profile_json", "TEXT",
+                  description="Expected factor loadings (Sprint 4 correlation monitor)"),
+        ColumnDef("survivorship_haircut_bps", "INTEGER", default="75",
+                  description="Haircut to annualized return: 75 short-hold, 200 momentum, 100 other"),
+        ColumnDef("created_at", "TEXT", nullable=False),
+        ColumnDef("last_status_change", "TEXT", nullable=False),
+        ColumnDef("notes", "TEXT"),
+    ],
+    primary_key="strategy_id",
+    sync_to_postgres=True,
+    sync_mode="full",
+))
+
+_register(TableDef(
+    name="strategy_promotion_events",
+    description="Append-only log of strategy promotion/demotion events",
+    columns=[
+        ColumnDef("event_id", "INTEGER", nullable=False),
+        ColumnDef("strategy_id", "TEXT", nullable=False),
+        ColumnDef("from_status", "TEXT"),
+        ColumnDef("to_status", "TEXT", nullable=False),
+        ColumnDef("triggered_by", "TEXT", nullable=False,
+                  description="'manual' | 'auto_gate'"),
+        ColumnDef("gate_result_json", "TEXT",
+                  description="Evidence dict from check_promotion_gate"),
+        ColumnDef("justification_note", "TEXT",
+                  description="Required for manual promotions (>=40 chars)"),
+        ColumnDef("timestamp", "TEXT", nullable=False),
+    ],
+    primary_key="event_id",
+    indexes=[
+        IndexDef("idx_promotion_strategy_time", ["strategy_id", "timestamp"]),
+    ],
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_time_column="timestamp",
+))
+
+_register(TableDef(
+    name="trials_registry",
+    description="Global trials log for Deflated Sharpe N_eff counter. Counts "
+                "EVERY backtest including parameter sweeps per Bailey-Lopez de Prado "
+                "False Strategy theorem.",
+    columns=[
+        ColumnDef("trial_id", "TEXT", nullable=False),
+        ColumnDef("strategy_id", "TEXT", nullable=False),
+        ColumnDef("spec_hash", "TEXT", nullable=False),
+        ColumnDef("params_searched_json", "TEXT"),
+        ColumnDef("n_params_searched", "INTEGER", default="1"),
+        ColumnDef("sr_raw", "REAL"),
+        ColumnDef("sr_ann", "REAL"),
+        ColumnDef("n_trades", "INTEGER"),
+        ColumnDef("skew", "REAL"),
+        ColumnDef("kurt", "REAL"),
+        ColumnDef("passed_dsr_gate", "INTEGER", default="0"),
+        ColumnDef("created_at", "TEXT", nullable=False),
+    ],
+    primary_key="trial_id",
+    indexes=[
+        IndexDef("idx_trials_strategy_created", ["strategy_id", "created_at"]),
+    ],
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_time_column="created_at",
+))
