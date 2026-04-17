@@ -15,6 +15,11 @@ Tests: self (this IS the test file)
 from __future__ import annotations
 
 
+def test_beautifulsoup4_importable() -> None:
+    """Regression for #455: src/data_collection/fed_collector.py uses bs4."""
+    import bs4  # noqa: F401
+
+
 def test_pyarrow_importable() -> None:
     """Regression for #462: src/simulation/cache.py uses pd.read_parquet / to_parquet.
 
