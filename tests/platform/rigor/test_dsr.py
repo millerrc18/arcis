@@ -43,6 +43,8 @@ def test_dsr_paper_example_reproduction():
     sr0_for_sr0_check = np.sqrt(V_sr0) * (
         (1 - g) * norm.ppf(1 - 1 / N) + g * norm.ppf(1 - 1 / (N * np.e))
     )
+    # Tolerance harmonized to 0.003 (from spec body's 0.002) to match plan
+    # gate-summary. Actual error at V=0.046/250 is ~0.00015, well within both.
     assert abs(sr0_for_sr0_check * np.sqrt(250) - 0.5429) < 0.003
 
     # --- Assertion 2: DSR ≈ 0.9004 ---

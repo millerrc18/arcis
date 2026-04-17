@@ -1,8 +1,10 @@
 """Deflated Sharpe Ratio — Bailey & López de Prado (2014) JPM 40(5):94-107.
 
-Verified implementation from deep research retrofit plan. Reproduces
-paper's p.9 worked example (SR_ann=2.5, T=1250, N=100, skew=-3, kurt=10)
-to 4 decimals: DSR ≈ 0.9004, SR*_0_ann ≈ 0.5429.
+Verified implementation from deep research retrofit plan. Paper's p.9
+worked example reproduces in two independent assertions (see Known Spec
+Issue B in Sprint 1 plan): DSR ≈ 0.9004 with V=0.5/250; SR*_0_ann ≈
+0.5429 with V=0.046/250. The paper's two claimed outputs are inconsistent
+under any single V; both formulas verify correctly in isolation.
 
 Called by: src.platform.promotion (primary gate), CLI via run_backtest.py.
 Owns tables: trials_registry (see Task 10 — Sprint 2).
