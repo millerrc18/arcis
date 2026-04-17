@@ -230,6 +230,7 @@ def _parse_sections(text: str, form_type: str) -> dict[str, str]:
     if form_type == "10-K":
         patterns = {
             "item_1": r"(?i)item\s+1[.\s]+business(.*?)(?=item\s+1[a-z]|item\s+2|\Z)",
+            "item_1a": r"(?i)item\s+1a[.\s]+risk\s+factors(.*?)(?=item\s+1b|item\s+2|\Z)",
             "item_7": r"(?i)item\s+7[.\s]+management.s\s+discussion(.*?)(?=item\s+7a|item\s+8|\Z)",
             "item_8": r"(?i)item\s+8[.\s]+financial\s+statements(.*?)(?=item\s+9|\Z)",
         }
