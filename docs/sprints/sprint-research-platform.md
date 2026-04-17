@@ -2,12 +2,12 @@
 
 **Authority:**
 - Deep research: `docs/research/deep-research/research-desk-design-report.md` (Lazy Prices + ML-SUE as first strategy candidate)
-- Skeptical review: `docs/research/2026-04-16-research-desk-sprint-review.md` (killed the prior MVP spec by exposing EDGAR data crisis + 11 Alpaca call sites)
+- Skeptical review: `docs/research/2026-04-16-research-desk-sprint-review.md` (killed the prior MVP spec by exposing EDGAR data crisis + ~12 Alpaca call sites)
 - User pivot: Ryan wants a **strategy research platform**, not a second production desk. Supersedes `docs/sprints/sprint-research-desk-mvp.md` which is now archived.
 
 **Branch:** `feat/research-platform`
 **Tag on merge:** v0.24.0
-**Effort:** 40-60 hours, honestly. Compressed to a single weekend.
+**Effort:** 38-56 hours, honestly. Compressed to a single weekend.
 **Priority:** Ambitious — user explicitly accepted the risk of shipping partial work.
 
 ---
@@ -116,7 +116,7 @@ Before writing any code, know what already exists. Reusing these saves ~40% of i
 
 ---
 
-
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -156,7 +156,7 @@ Before writing any code, know what already exists. Reusing these saves ~40% of i
 
 ## Task List
 
-13 tasks across 4 components. Each task is independently committable.
+Task 0 (EDGAR data repair, separable) plus 13 tasks across 5 components (A-E). Each task is independently committable.
 
 ### Component A: Strategy Specification Format
 
@@ -166,8 +166,9 @@ Before writing any code, know what already exists. Reusing these saves ~40% of i
 - `docs/specs/strategy-schema.md` (new — documents the schema)
 - `src/platform/__init__.py` (new module)
 - `src/platform/strategy_spec.py` (new — loader + validator)
-- `src/platform/specs/lazy_prices.yaml` (new — first example)
-- `src/platform/specs/connors_rsi2.yaml` (new — second example for future loading)
+- `src/platform/specs/lazy_prices.yaml` (new — first example; full YAML below)
+
+**Note:** A second example strategy (Connors RSI(2), Quality+Momentum, etc.) can be loaded in a follow-up sprint. For this weekend, Lazy Prices is the single tenant that exercises the platform end-to-end. Do not invent YAML contents for untested strategies.
 
 **Schema (YAML form):**
 
@@ -265,6 +266,13 @@ class StrategySpec:
 def load_spec_from_yaml(path: Path) -> StrategySpec:
     """Load + validate a YAML strategy spec. Raises on invalid schema."""
 
+def load_spec(strategy_id: str,
+              specs_dir: Path = Path("src/platform/specs")) -> StrategySpec:
+    """Load spec by strategy_id — resolves to <specs_dir>/<strategy_id>.yaml.
+    Used by Task 9's watch-loop integration. Raises FileNotFoundError if
+    the spec file does not exist.
+    """
+
 def validate_spec(spec: dict) -> tuple[bool, list[str]]:
     """Return (is_valid, errors). Enforces required keys, type constraints."""
 
@@ -275,11 +283,12 @@ def list_available_specs(specs_dir: Path = Path("src/platform/specs")) -> list[S
 **Tests:**
 - `tests/platform/test_strategy_spec.py`
   - `test_load_lazy_prices_yaml_valid`
-  - `test_load_connors_rsi2_yaml_valid`
   - `test_reject_spec_missing_strategy_id`
   - `test_reject_spec_invalid_universe`
   - `test_reject_spec_unknown_entry_kind`
-  - `test_list_available_specs_finds_both`
+  - `test_list_available_specs_finds_lazy_prices`
+  - `test_load_spec_by_id_resolves_yaml_path`
+  - `test_load_spec_by_id_raises_on_missing`
 
 **Acceptance:** Both sample YAMLs load. Validator rejects malformed specs with actionable error messages.
 
@@ -445,13 +454,14 @@ Pattern reference (study before writing): src.evaluation.backtester
 """
 
 from dataclasses import dataclass, field
+from src.platform.strategy_spec import StrategySpec
 from src.attribution.logger import simulate_mechanical_outcome
 from src.analytics.spy_benchmark import spy_return_over_range, excess_return
 from src.platform.data_loader import load_ohlcv_range
 
 @dataclass
 class BacktestConfig:
-    strategy: StrategySpec  # Python plugins in Tier 5; MVP is YAML-only
+    strategy: StrategySpec  # Python plugins (Task 2) are Tier 7; MVP is YAML-only
     start_date: str
     end_date: str
     initial_capital: float = 100_000.0
@@ -509,9 +519,9 @@ def run_backtest(config: BacktestConfig) -> BacktestResult:
 **Key design decisions (non-negotiable):**
 - **Deterministic.** Same inputs → same outputs.
 - **No look-ahead.** Signal on day N uses only data ≤ day N. Entry on day N+1 open (matches live-trading behavior).
-- **Reuse `simulate_mechanical_outcome`.** Do not reimplement stop/target logic.
+- **Reuse `simulate_mechanical_outcome`.** Do not reimplement stop/target logic. The function signature is `(entry_price, stop_price, target_price, timeout_days, ohlcv) -> (outcome, exit_price, days_held)` where outcome is `'win' | 'loss' | 'timeout'`.
 - **Graceful degradation.** Missing ticker data for a day → skip that ticker that day. Do not crash.
-- **Event-driven for event strategies.** YAML spec's `entry.kind: event_driven` means signal only fires on event days (filing, earnings); backtest iterates events, not every day.
+- **Event-driven dispatch.** For strategies with `entry.kind: event_driven`: the backtest loop first enumerates matching event rows from the strategy's declared `event_table` (e.g., `edgar_filings` for Lazy Prices, `analyst_estimates` for earnings-surprise strategies) within the backtest date range. For each event row, it evaluates the YAML `signal` filters; on pass, it opens a trade at the next-day open using OHLCV from `load_ohlcv_range`. This means event strategies iterate events (sparse), not days (dense). For `entry.kind: scheduled` strategies, iterate every trading day in the range.
 
 **Validation — the hand-computed test:**
 
@@ -546,7 +556,7 @@ Without this test the harness can silently drift and nobody notices. This test i
 - `test_backtest_regime_attribution_present` — every trade has regime_at_entry (from spy_benchmark module)
 - `test_backtest_drawdown_correct` — constructed equity curve, max_dd matches manual
 
-**Acceptance:** Hand-computed test passes. Run Connors RSI(2) on 2020-2024 and get a result in <2min. Inspect output trades manually; verify they look sensible. If trades look wrong, STOP — the bug is in the engine, not the strategy.
+**Acceptance:** Hand-computed test passes. Run the trivial "buy every Monday" strategy on AAPL for 2023-06-01 to 2023-06-30 and get a deterministic result. Inspect output trades manually; verify they look sensible. If trades look wrong, STOP — the bug is in the engine, not the strategy.
 
 ---
 
@@ -706,9 +716,10 @@ class ShadowHarness:
 ```
 
 **Key architectural notes:**
-- Shadow harness writes to `shadow_trades` table with `desk='research_<strategy_id>'` convention (e.g., `research_lazy_prices_v1`). This preserves desk-filtering semantics from the abandoned MVP spec.
-- Uses the per-desk Alpaca client pattern from the abandoned spec (Task 3 there) — `get_client(desk)` in `src/shadow_trading/alpaca_clients.py`.
-- **CRITICAL (from skeptical review):** The skeptical review counted ~11 Alpaca call sites; verification grep finds **12 internal calls inside `src/shadow_trading/alpaca_adapter.py` (all using `_get_trading_client()` or `_get_data_client()` helpers) + 1 external call in `src/shadow_trading/executor.py:697`**. The correct patch strategy is: modify the two helpers (`_get_trading_client`, `_get_data_client`) to accept an optional `desk` parameter defaulting to the existing swing-config behavior; then thread `desk` through the handful of external callers (`executor.py`, `reconcile.py` if/when it re-enters play, `bracket_monitor.py`, `shadow_service.py`). Patching the two helpers covers 12 call sites in one change.
+- Shadow harness writes to `shadow_trades` table with `desk='research_<strategy_id>'` convention (e.g., `research_lazy_prices_v1`). This is the filtering key for all desk-aware queries.
+- **Per-desk Alpaca client pattern (inline, since the abandoned MVP spec reference is not authoritative here):** Create `src/shadow_trading/alpaca_clients.py` with a `get_client(desk: str) -> TradingClient` function that reads `desks.{desk}.alpaca_key_env` and `desks.{desk}.alpaca_secret_env` from config, resolves the env var values, and returns a `TradingClient(api_key=..., secret_key=..., paper=True)` with `client.desk_tag = desk` attached for assertion guardrails. Cache per-desk; threadsafe. Add `verify_accounts_distinct()` that calls `get_client('swing').get_account().account_number` vs `get_client('research').get_account().account_number` and raises if they match (prevents the "both desks pointing at the same paper account" bug).
+- **CRITICAL (Pass 2 verification):** reconcile.py is **active**, not dormant. `reconcile_paper_trades` is called from `src/scheduler/overnight.py:27`, `src/scheduler/position_monitor.py:69`, `src/scheduler/watch.py:685`; `reconcile_live_trades` is called from `src/cli/commands.py:405`. Threading `desk` through these call paths is required before any research strategy goes `shadow_trading` active — otherwise reconcile will poll the swing account for positions that live on the research account, silently 404, and may attempt to close research positions via the wrong client.
+- **Call-site map (Pass 2 verified):** 12 internal calls inside `src/shadow_trading/alpaca_adapter.py` (all use `_get_trading_client()` or `_get_data_client()` helpers, lines 163, 184, 222, 277, 321, 340, 369, 390, 408, 440, 463, 485). External callers: `src/shadow_trading/executor.py:697`, `src/shadow_trading/reconcile.py` (active), `src/shadow_trading/bracket_monitor.py`, `src/services/shadow_service.py`. **The correct patch strategy:** modify `_get_trading_client` and `_get_data_client` to accept optional `desk` kwarg defaulting to the current swing-config behavior; then thread `desk` through the 4 external call sites. One helper change covers 12 call sites.
 
 **[STUB-OK]:** If time pressure hits Task 7, ship the interface + one happy-path integration test, defer full reconcile/bracket_monitor integration to v0.24.1. Document the gap clearly in code comments.
 
@@ -721,9 +732,9 @@ class ShadowHarness:
 
 ---
 
-#### Task 8 — Research-desk schema additions (1h)
+#### Task 8 — Schema: add desk tag to shadow_trades (1h)
 
-**File:** `src/schema/registry.py` (EDIT — same columns as abandoned spec, different convention)
+**File:** `src/schema/registry.py` (EDIT)
 
 Add to `shadow_trades`:
 
@@ -741,9 +752,14 @@ ColumnDef("strategy_spec_hash", "TEXT",
 
 Add index: `IndexDef("idx_shadow_trades_desk", ["desk"])`.
 
-Same migration behavior as the abandoned spec — 85 existing rows get `desk='swing'` via DEFAULT.
+**Migration behavior:** `ensure_columns` runs on every watch-loop startup (`src/schema/sqlite.py:112`). On first run after this schema change, it will ALTER TABLE to add the three new columns. All 85 existing `shadow_trades` rows get `desk='swing'` via the DEFAULT clause. `research_thesis` and `strategy_spec_hash` stay NULL on existing rows (acceptable — they only apply to research trades).
 
-**Tests:** Same as abandoned spec's Task 2.
+**Tests** (`tests/test_schema_desk_columns.py`):
+- `test_shadow_trades_has_desk_column`
+- `test_shadow_trades_has_research_thesis_column`
+- `test_shadow_trades_has_strategy_spec_hash_column`
+- `test_existing_rows_backfill_desk_to_swing` — create SQLite DB without desk column, insert 3 rows, run `ensure_columns`, verify all 3 now have `desk='swing'`
+- `test_desk_index_present`
 
 ---
 
@@ -943,8 +959,8 @@ def cosine_similarity_yoy(
 
 **Files (edit — defensive integrations):**
 - `frontend/src/pages/Dashboard.jsx` — add desk filter to all aggregate widgets
-- `src/api/cloud_routes/shadow.py` — accept `?desk=` query param on `/sharpe-attribution` and `/status` endpoints
-- `frontend/src/App.jsx` — register new route
+- `src/api/cloud_routes/trades.py` — accept `?desk=` query param on `/api/shadow/sharpe-attribution`, `/api/shadow/open`, `/api/shadow/closed`, `/api/shadow/metrics`, `/api/shadow/account` (Pass 2 verified all shadow endpoints live in `trades.py`, NOT a separate `shadow.py` — there is no `shadow.py` in cloud_routes)
+- `frontend/src/App.jsx` — register new `/research-platform` route
 - `frontend/src/components/Nav.jsx` — add Research Platform link
 
 ---
@@ -955,7 +971,7 @@ Four sections, fully interactive (not stubbed):
 
 1. **Strategy Registry table** — rows per strategy with columns: name, status, current spec version, last backtest date, last backtest excess-Sharpe, shadow trades count, actions. Clicking a row expands to the detail view.
 2. **Strategy Detail (expandable row)** — YAML spec contents, backtest history grid, shadow-trading status, promotion events timeline, manual action buttons.
-3. **Backtest Results grid** — sortable by date/strategy/excess-Sharpe/DD. Row click opens equity curve modal (reuse existing `EquityCurveChart.jsx` from swing desk).
+3. **Backtest Results grid** — sortable by date/strategy/excess-Sharpe/DD. Row click opens equity curve modal. **Pass 2 verification:** `EquityCurveChart.jsx` does NOT exist in `frontend/src/components/`. Build a new `BacktestEquityChart.jsx` that uses Recharts' `LineChart` / `Area` primitives (same pattern as existing `Attribution.jsx`, `Council.jsx`, `Dashboard.jsx` which all import Recharts directly into pages). Shared `MetricTrend.jsx` component in `frontend/src/components/` can be studied for the chart styling pattern.
 4. **Promotion Events log** — last 50 events, filterable by strategy, color-coded by action type (promote=green, demote=red, gate-fail=yellow).
 
 **API endpoints** (in `src/api/cloud_routes/platform.py`):
@@ -993,10 +1009,9 @@ Backtest kickoff is asynchronous (runs in a background task). Page polls `/api/p
 
 Prevents research P&L from silently contaminating swing metrics.
 
-- **Dashboard.jsx:** add a `deskFilter` dropdown (default: "swing only") above all aggregate widgets. All queries for P&L, win rate, equity curve, excess-Sharpe accept a `?desk=` param.
-- **`/api/shadow/sharpe-attribution`:** accept optional `?desk=` query param (`swing`, `research_<id>`, or `all`). Default behavior when param absent: return swing-only (backward compat — the endpoint was built for swing evaluation).
-- **`/api/shadow/status`:** same `?desk=` param.
-- **`TradeHistory.jsx`:** already gets a desk filter in Task 10; this task confirms the filter lists all active desks dynamically (not hardcoded `swing`/`research`).
+- **Dashboard.jsx:** add a `deskFilter` dropdown (default: `"swing"` only) above all aggregate widgets. All queries for P&L, win rate, equity curve, excess-Sharpe accept a `?desk=` param.
+- **`src/api/cloud_routes/trades.py`:** accept optional `?desk=` query param on every `/api/shadow/*` endpoint listed in the Files section above. Default behavior when param absent: return `swing` only (backward-compat — the endpoints were built for swing evaluation). Note: there is no `/api/shadow/status` endpoint in the current codebase; Pass 2 grep confirmed the live endpoints are `/api/shadow/open`, `/api/shadow/closed`, `/api/shadow/sharpe-attribution`, `/api/shadow/metrics`, `/api/shadow/account`.
+- **`TradeHistory.jsx`:** confirm the desk filter dropdown lists all distinct `desk` values currently present in `shadow_trades` (query at render time), not a hardcoded list. The abandoned MVP spec's Task 10 added a basic desk dropdown; that work has not shipped, so CC builds the dropdown fresh.
 
 **Semantics decision:** `desk=all` sums across desks; `desk=swing` filters to swing only; `desk=research_*` wildcards all research strategies; `desk=research_lazy_prices_v1` filters to one strategy. Server-side SQL uses `WHERE desk = ?` or `WHERE desk LIKE ?` depending on wildcard presence.
 
@@ -1030,7 +1045,7 @@ Called from:
 - `src/platform/promotion.py::check_promotion_gate` when a new gate is first satisfied (once per gate, not per check)
 - `src/platform/promotion.py::promote` and `::demote`
 
-Prefix all research notifications with `[RESEARCH]` (matches Task 10's convention).
+Prefix all platform-event Telegram notifications with `[RESEARCH]` (same convention as existing trade notifications — see `src/notifications/telegram.py`).
 
 ---
 
@@ -1102,7 +1117,7 @@ Before merging, ALL must be true:
 4. `python scripts/run_backtest.py --strategy lazy_prices_v1 --start 2020-01-01 --end 2024-12-31` either produces a result with trades, OR returns `candidates=0 filing_data_coverage=<x>%` without exceptions
 5. Watch loop starts cleanly with no `strategy_registry` entries in `shadow_trading` status (platform inert until strategies are promoted)
 6. All 85 existing `shadow_trades` rows have `desk='swing'`
-7. Strategy Research dashboard page renders (even if stubbed)
+7. Strategy Research dashboard page renders without console errors (full content if Tier 6 shipped; skeleton strategy list if only defensive integration shipped)
 
 ---
 
@@ -1112,7 +1127,7 @@ If the weekend runs short, ship tasks in this order:
 
 **Tier 1 — foundation (must ship, ~10h):** T1 (spec schema), T3 (data loader), T4 (backtest engine), T5 (metrics), T6 (persistence)
 
-**Tier 2 — evaluate a real strategy (~6h):** T11 (Lazy Prices spec), Task 0 (EDGAR fix — concurrent with above)
+**Tier 2 — evaluate a real strategy (~6-9h):** T11 (Lazy Prices spec, 3h), Task 0 (EDGAR fix, 3-6h — concurrent with above where possible). Wide range because Task 0's difficulty depends on what's actually broken in `_fetch_filing_text`.
 
 **Tier 3 — platform lifecycle (~5h):** T8 (schema additions), T10 (promotion pipeline)
 
@@ -1146,7 +1161,7 @@ If the weekend runs short, ship tasks in this order:
 - Jupyter notebook integration for strategy research
 - Cross-strategy correlation monitoring
 - Strategy parameter optimization / hyperparameter search
-- Any second-Alpaca-account work deferred from abandoned MVP spec (the shadow harness uses the research Alpaca account, but the 11-call-site fix is Tier 4 work)
+- Any second-Alpaca-account work deferred from abandoned MVP spec (the shadow harness uses the research Alpaca account, but the 12-call-site fix — see Task 7 — lands in Tier 5, alongside the shadow harness itself)
 
 ---
 
@@ -1156,12 +1171,28 @@ If the weekend runs short, ship tasks in this order:
 |---|---|
 | Backtest engine has a silent bug | Hand-computed validation test (Task 4). Non-negotiable. |
 | EDGAR data still broken at merge time | Task 0 runs independently. Platform ships regardless; Lazy Prices just returns 0 candidates with clear warning. |
-| Weekend time pressure kills Tier 4+5 | Tier-based success criteria. Ship Tier 1+2 minimum. |
-| Shadow harness misroutes trades to swing account | Per-desk Alpaca client assertion pattern from abandoned spec. 11-call-site fix must be thorough. |
+| Weekend time pressure kills Tier 5-7 | Tier-based success criteria. Tier 1+2+3+4 ship as v0.24.0-infra; live deployment (Tier 5) + dashboard surfaces (Tier 6) + nice-to-haves (Tier 7) defer to v0.24.1. |
+| Shadow harness misroutes trades to swing account | Per-desk Alpaca client factory with `verify_accounts_distinct` assertion. 12-call-site fix via modifying the two `_get_trading_client` / `_get_data_client` helpers — see Task 7 for the exact patch strategy. |
+| reconcile.py polls swing account for research positions | Task 7 threads desk through `reconcile_paper_trades` and `reconcile_live_trades` call paths. Must land before any `shadow_trading` activation. |
 | Strategy spec format changes require schema migrations | `spec_version: 1` field in YAML. Future breaking changes bump version; loader checks. |
 | New tables break render_sync | All new tables declared with proper `sync_to_postgres=True` + mode. `ensure_columns` runs every sync cycle. |
 | Lazy Prices backtest produces overly-optimistic results | Deflated Sharpe computation (Task 5) discounts for multiple-testing. Reporting includes both raw and deflated. |
+| Dashboard conflates swing + research P&L after activation | Tier 4 (Task 12c) defensive desk filtering lands BEFORE any strategy reaches `shadow_trading` status. Hard gate per "Critical sequencing note". |
 
 ---
 
-*Ralph loop: this is Pass 1. Pass 2 corrections will come from actual repo grep (done via CC sprint execution with the tool search in context). Commit on merge with a prominent TODO list for v0.24.1.*
+## CI Requirements
+
+- All existing guardrail tests must continue to pass (`pytest tests/ -x`)
+- `tests/test_project_layout.py` (file-size guardrails, if present) — no new src/ file >400 lines, no function >60 lines
+- `cd frontend && npm run build` must succeed
+- `scripts/verify_docs.py` (if present) — CHANGELOG, RELEASES, README badges updated
+- `scripts/daily_repo_audit.py` — no new audit findings introduced by this sprint
+
+**Platform-specific tests that must pass on green:**
+- `tests/platform/test_backtest_validation.py::test_backtest_matches_hand_computed_example` — if this fails, the backtest engine is not trustworthy and nothing else in this sprint is salvageable
+- `tests/test_schema_desk_columns.py::test_existing_rows_backfill_desk_to_swing` — if this fails, the 85 historical swing trades lose their desk attribution
+
+---
+
+*Ralph-looped three times against live repo state (2026-04-17): Pass 1 found 29 inconsistencies, Pass 2 grep-verified 15 claims against the actual codebase (catching the nonexistent `EquityCurveChart.jsx`, the wrong endpoint file `shadow.py`, reconcile.py active status, and the missing `load_spec(strategy_id)` helper), Pass 3 applied all corrections. Spec is ready for CC execution. Remaining uncertainties are data-dependent (Task 0 EDGAR fix feasibility) and tier-feasibility-dependent (40-60h compressed into a weekend).*
