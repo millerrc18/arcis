@@ -1752,3 +1752,71 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="timestamp",
 ))
+
+
+# ---------------------------------------------------------------------------
+# Platform Backtest (2 tables)
+# ---------------------------------------------------------------------------
+
+_register(TableDef(
+    name="backtest_results",
+    description="Platform backtest engine results — one row per backtest run",
+    columns=[
+        ColumnDef("result_id", "TEXT", nullable=False),
+        ColumnDef("strategy_id", "TEXT", nullable=False),
+        ColumnDef("spec_version", "INTEGER", nullable=False),
+        ColumnDef("spec_hash", "TEXT", nullable=False),
+        ColumnDef("start_date", "TEXT", nullable=False),
+        ColumnDef("end_date", "TEXT", nullable=False),
+        ColumnDef("initial_capital", "REAL"),
+        ColumnDef("total_trades", "INTEGER"),
+        ColumnDef("total_return_pct", "REAL"),
+        ColumnDef("sharpe", "REAL"),
+        ColumnDef("excess_sharpe", "REAL"),
+        ColumnDef("deflated_sharpe", "REAL"),
+        ColumnDef("sortino", "REAL"),
+        ColumnDef("calmar", "REAL"),
+        ColumnDef("max_drawdown_pct", "REAL"),
+        ColumnDef("win_rate", "REAL"),
+        ColumnDef("profit_factor", "REAL"),
+        ColumnDef("code_git_sha", "TEXT"),
+        ColumnDef("created_at", "TEXT", nullable=False),
+    ],
+    primary_key="result_id",
+    indexes=[
+        IndexDef("idx_backtest_strategy_date", ["strategy_id", "end_date"]),
+    ],
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_time_column="created_at",
+))
+
+_register(TableDef(
+    name="backtest_trades",
+    description="Individual trades from a backtest run",
+    columns=[
+        ColumnDef("trade_id", "TEXT", nullable=False),
+        ColumnDef("result_id", "TEXT", nullable=False),
+        ColumnDef("ticker", "TEXT", nullable=False),
+        ColumnDef("entry_date", "TEXT", nullable=False),
+        ColumnDef("exit_date", "TEXT"),
+        ColumnDef("entry_price", "REAL"),
+        ColumnDef("exit_price", "REAL"),
+        ColumnDef("shares", "INTEGER"),
+        ColumnDef("pnl_dollars", "REAL"),
+        ColumnDef("pnl_pct", "REAL"),
+        ColumnDef("exit_reason", "TEXT"),
+        ColumnDef("hold_days", "INTEGER"),
+        ColumnDef("spy_return_over_hold", "REAL"),
+        ColumnDef("excess_return", "REAL"),
+        ColumnDef("realized_sector", "TEXT"),
+        ColumnDef("regime_at_entry", "TEXT"),
+    ],
+    primary_key="trade_id",
+    indexes=[
+        IndexDef("idx_backtest_trades_result", ["result_id"]),
+    ],
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_time_column="entry_date",
+))

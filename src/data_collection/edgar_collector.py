@@ -7,24 +7,14 @@ Config keys: none
 Tests: tests/test_data_collectors.py
 
 API: SEC EDGAR (https://data.sec.gov), free, no key required
-Table: edgar_filings
-Schedule: Nightly in overnight pipeline
 Rate limit: 10 req/sec (SEC fair access policy), we use 5 req/sec conservatively
 
 Collects 10-K, 10-Q, and 8-K filings for the S&P 100 universe.
-Stores filing metadata + parsed section text. NLP sentiment scoring
-runs on stored filings to extract cautionary phrases and sentiment polarity.
-
-First run: collects last 2 years of filings. Subsequent runs: incremental
-from the last filing_date stored.
+First run: last 2 years; subsequent runs: incremental from last filing_date.
 
 Known issues:
-  - #126: Accession numbers come in two formats (dashed and undashed).
-    _normalize_accession() canonicalizes to dashed format to prevent
-    duplicate entries.
-  - #127: NLP sentiment columns (sentiment_polarity, etc.) were added
-    after the initial schema. _ensure_nlp_columns() checks they exist
-    before attempting the UPDATE to avoid OperationalError.
+  - #126: Accession numbers come in two formats; _normalize_accession() canonicalizes.
+  - #127: NLP columns added post-schema; _ensure_nlp_columns() guards the UPDATE.
 
 User-Agent: SEC requires a descriptive User-Agent with contact email.
 """
@@ -46,9 +36,7 @@ ET = ZoneInfo("America/New_York")
 SEC_HEADERS = {"User-Agent": "Arcis halcyonlabai@gmail.com"}
 MAX_TEXT_BYTES = 5 * 1024 * 1024  # 5MB limit per filing
 
-# Table creation handled by src/schema/registry.py
-
-# CIK lookup cache (populated from SEC)
+# Table creation: src/schema/registry.py  |  CIK lookup cache (populated from SEC)
 _cik_cache: dict[str, str] = {}
 
 
@@ -145,34 +133,59 @@ def _fetch_filings_from_submissions(
         return []
 
 
-def _fetch_filing_text(cik: str, accession: str) -> str | None:
-    """Download full text of a filing. Returns None if too large or on error."""
-    # Build the filing URL from CIK and accession number
+def _lookup_primary_document(cik: str, accession: str) -> tuple[str, str] | None:
+    """Look up primaryDocument via submissions API; return (filename, archives_base) or None."""
     acc_formatted = accession.replace("-", "")
-    acc_dashes = f"{accession[:10]}-{accession[10:12]}-{accession[12:]}" if "-" not in accession and len(accession) >= 18 else accession
+    acc_dashes = (
+        f"{accession[:10]}-{accession[10:12]}-{accession[12:]}"
+        if "-" not in accession and len(accession) >= 18
+        else accession
+    )
+    cik_stripped = cik.lstrip("0") or "0"
+    archives_pfx = f"https://www.sec.gov/Archives/edgar/data/{cik_stripped}/{acc_formatted}"
+    try:
+        sub_resp = requests.get(
+            f"https://data.sec.gov/submissions/CIK{cik}.json", headers=SEC_HEADERS, timeout=15
+        )
+        if sub_resp.status_code != 200:
+            logger.warning("[EDGAR] Submissions API HTTP %s for CIK %s", sub_resp.status_code, cik)
+            return None
+        recent = sub_resp.json().get("filings", {}).get("recent", {})
+        accs = recent.get("accessionNumber", [])
+        docs = recent.get("primaryDocument", [])
+        for i, acc in enumerate(accs):
+            if acc == acc_dashes and i < len(docs):
+                return docs[i], archives_pfx
+    except Exception as e:
+        logger.warning("[EDGAR] Submissions lookup failed %s / %s: %s", cik, accession, e)
+        return None
+    logger.warning("[EDGAR] Could not resolve primaryDocument for %s / %s", cik, acc_dashes)
+    return None
+
+
+def _fetch_filing_text(cik: str, accession: str) -> str | None:
+    """Download full text of a filing. Returns None if too large or on error.
+
+    Fix (Task 0): filing documents live on www.sec.gov/Archives (NOT
+    data.sec.gov). Uses _lookup_primary_document to resolve the filename.
+    """
+    acc_formatted = accession.replace("-", "")
+
+    result = _lookup_primary_document(cik, accession)
+    if not result:
+        return None
+    primary_doc, archives_base = result
+
+    doc_url = f"{archives_base}/{primary_doc}"
+    time.sleep(0.2)  # Rate limit
 
     try:
-        # Try the index page to find the primary document
-        index_url = f"https://data.sec.gov/Archives/edgar/data/{cik.lstrip('0')}/{acc_formatted}/"
-        resp = requests.get(index_url, headers=SEC_HEADERS, timeout=15)
-        if resp.status_code != 200:
-            return None
-
-        # Find the primary .htm or .txt document
-        text = resp.text
-        # Look for the main filing document (usually the largest .htm file)
-        doc_pattern = re.findall(r'href="([^"]+\.(?:htm|txt))"', text)
-        if not doc_pattern:
-            return None
-
-        # Take the first .htm file (usually the filing itself)
-        primary_doc = doc_pattern[0]
-        doc_url = f"{index_url}{primary_doc}"
-
-        time.sleep(0.2)  # Rate limit
-
         doc_resp = requests.get(doc_url, headers=SEC_HEADERS, timeout=30)
         if doc_resp.status_code != 200:
+            logger.warning(
+                "[EDGAR] Filing fetch returned HTTP %s for %s",
+                doc_resp.status_code, doc_url,
+            )
             return None
 
         content = doc_resp.text
@@ -186,7 +199,7 @@ def _fetch_filing_text(cik: str, accession: str) -> str | None:
         return clean
 
     except Exception as e:
-        logger.debug("[EDGAR] Failed to fetch filing text %s: %s", acc_formatted, e)
+        logger.warning("[EDGAR] Failed to fetch filing text %s: %s", acc_formatted, e)
         return None
 
 
@@ -204,6 +217,7 @@ def _parse_sections(text: str, form_type: str) -> dict[str, str]:
     if form_type == "10-K":
         patterns = {
             "item_1": r"(?i)item\s+1[.\s]+business(.*?)(?=item\s+1[a-z]|item\s+2|\Z)",
+            "item_1a": r"(?i)item\s+1a[.\s]+risk\s+factors(.*?)(?=item\s+1b|item\s+2|\Z)",
             "item_7": r"(?i)item\s+7[.\s]+management.s\s+discussion(.*?)(?=item\s+7a|item\s+8|\Z)",
             "item_8": r"(?i)item\s+8[.\s]+financial\s+statements(.*?)(?=item\s+9|\Z)",
         }
