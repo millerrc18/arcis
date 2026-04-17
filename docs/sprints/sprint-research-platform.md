@@ -29,17 +29,19 @@ Four components:
 
 ## Honest Risk Assessment
 
-This spec is **60-80 hours of work** compressed into a weekend. That is not going to fit. Three things will happen:
+This spec is **38-56 hours of work** compressed into a weekend. That is not going to fit. Three things will happen:
 
 1. Some tasks will be cut. Sections marked **[CUT-CANDIDATE]** are the first to go.
-2. Some tasks will be stubbed — interface created, implementation deferred. Sections marked **[STUB-OK]** can ship as interfaces without full functionality.
+2. Some tasks will be stubbed — interface created, implementation deferred.
 3. At least one task will have a bug we don't catch until next weekend. The backtest harness is the highest-risk component — a bug there invalidates every evaluation.
 
 Explicit success criteria at three tiers:
 
-- **Minimum Viable Product (weekend baseline, ~20h):** Backtest harness + YAML strategy spec + Lazy Prices YAML spec + first backtest result. No shadow-trading, no promotion pipeline, no LLM integration.
-- **Target (stretch, ~40h):** Above + Python strategy plugin interface + shadow-trading harness skeleton + promotion pipeline database schema + one dashboard page.
-- **Ambitious (full spec, ~60h):** All four components functional + LLM-assisted strategy proposal + live Lazy Prices candidate running on second Alpaca account + full dashboard integration.
+- **Minimum Viable Product (weekend baseline, ~16h):** Backtest harness + YAML strategy spec + Lazy Prices YAML spec + first backtest result + defensive dashboard desk filtering. No shadow-trading, no dedicated platform page.
+- **Target (stretch, ~30h):** Above + promotion pipeline + shadow-trading harness + watch loop integration.
+- **Ambitious (full spec, ~56h):** All components functional + full dashboard platform page with action buttons + Python plugin interface + home widget + Telegram event notifications.
+
+**Estimate trajectory:** Pass 1 was 40-60h. Pass 2+3 infrastructure-reuse audit saved ~8h (Task 4 dropped from 6h to 4h, Task 3 dropped from 2h to 1.5h). Task 12 expansion added ~4h for proper dashboard synergy. Net: 38-56h.
 
 I'm going to write the full spec. Ryan (and CC) will decide what survives the weekend.
 
@@ -929,28 +931,125 @@ def cosine_similarity_yoy(
 
 ---
 
-#### Task 12 — Dashboard: Strategy Research page (3h) [STUB-OK]
+#### Task 12 — Dashboard: full platform integration (7h)
 
-**File:** `frontend/src/pages/StrategyResearch.jsx` (new)
-**Route:** Add `/research-platform` to router
+**Scope expanded (was 3h [STUB-OK]).** Covers five layers of dashboard-platform integration identified during Pass 3 review: dedicated platform page, defensive desk filtering on existing pages, action buttons for manual promotion gates, main dashboard widget, and Telegram wiring for platform events.
 
-Four sections:
+**Files (new):**
+- `frontend/src/pages/StrategyResearch.jsx` — dedicated platform page
+- `frontend/src/components/PlatformStatusWidget.jsx` — home-screen widget
+- `src/api/cloud_routes/platform.py` — API surface
+- `src/notifications/platform_events.py` — Telegram event wiring
 
-1. **Strategy Registry table** — all strategies with current status, last backtest date, backtest Sharpe, shadow trades count
-2. **Backtest Results grid** — per strategy, historical backtest results with key metrics
-3. **Shadow Trading status** — per active shadow strategy, open positions count, today P&L, excess-Sharpe on shadow trades
-4. **Promotion Events log** — last 20 promotion/demotion events
+**Files (edit — defensive integrations):**
+- `frontend/src/pages/Dashboard.jsx` — add desk filter to all aggregate widgets
+- `src/api/cloud_routes/shadow.py` — accept `?desk=` query param on `/sharpe-attribution` and `/status` endpoints
+- `frontend/src/App.jsx` — register new route
+- `frontend/src/components/Nav.jsx` — add Research Platform link
 
-**API endpoints needed:** Add to `src/api/cloud_routes/platform.py` (new):
+---
 
-- `GET /api/platform/strategies` → list
-- `GET /api/platform/strategies/{id}` → detail
-- `GET /api/platform/backtest-results?strategy_id=...` → historical runs
-- `GET /api/platform/promotion-events?limit=20` → recent events
+**12a — Dedicated /research-platform page (3h)**
 
-**[STUB-OK]:** If time-pressed, ship a skeleton page that just lists strategies from the registry. Defer backtest result views and promotion event views to v0.24.1.
+Four sections, fully interactive (not stubbed):
 
-**Tests:** `test_platform_routes_registered`, `test_list_strategies_returns_registry_rows`.
+1. **Strategy Registry table** — rows per strategy with columns: name, status, current spec version, last backtest date, last backtest excess-Sharpe, shadow trades count, actions. Clicking a row expands to the detail view.
+2. **Strategy Detail (expandable row)** — YAML spec contents, backtest history grid, shadow-trading status, promotion events timeline, manual action buttons.
+3. **Backtest Results grid** — sortable by date/strategy/excess-Sharpe/DD. Row click opens equity curve modal (reuse existing `EquityCurveChart.jsx` from swing desk).
+4. **Promotion Events log** — last 50 events, filterable by strategy, color-coded by action type (promote=green, demote=red, gate-fail=yellow).
+
+**API endpoints** (in `src/api/cloud_routes/platform.py`):
+- `GET /api/platform/strategies` → list with embedded latest backtest summary
+- `GET /api/platform/strategies/{id}` → full detail including YAML spec
+- `GET /api/platform/backtest-results?strategy_id=...&limit=20` → historical runs
+- `GET /api/platform/backtest-trades?result_id=...` → individual trades for equity curve
+- `GET /api/platform/promotion-events?strategy_id=...&limit=50` → recent events
+
+---
+
+**12b — Manual action buttons (1.5h)**
+
+The six manual touchpoints (M1–M6 from the lifecycle diagram) each get a dashboard surface where reasonable:
+
+| Action | Surface | Confirmation |
+|---|---|---|
+| M1 Write spec | File editor (stays in code) | — |
+| M2 Trigger backtest | Button on Strategy Detail: "Run Backtest" | Date-range modal |
+| M3 Revise rejected | File editor (stays in code) | — |
+| M4 Approve to shadow | Button: "Promote to Shadow Trading" | Modal showing gate evidence + typed confirmation |
+| M5 Demote | Button: "Halt & Demote" | Typed confirmation of strategy_id |
+| M6 Promote to production | Button: "Promote to Production" | Two-step: typed confirmation + date-delayed (24h wait period) |
+
+**API endpoints** for actions:
+- `POST /api/platform/backtests` — `{strategy_id, start_date, end_date}` → kicks off async backtest, returns `result_id`
+- `POST /api/platform/promotions` — `{strategy_id, target_status, confirmation_token}` → calls `promote()` from Task 10
+- `POST /api/platform/demotions` — `{strategy_id, reason}` → calls `demote()`
+
+Backtest kickoff is asynchronous (runs in a background task). Page polls `/api/platform/backtest-results` to detect completion. For MVP, the async runner is a subprocess — no Celery, no job queue.
+
+---
+
+**12c — Defensive desk filtering on existing pages (1h)**
+
+Prevents research P&L from silently contaminating swing metrics.
+
+- **Dashboard.jsx:** add a `deskFilter` dropdown (default: "swing only") above all aggregate widgets. All queries for P&L, win rate, equity curve, excess-Sharpe accept a `?desk=` param.
+- **`/api/shadow/sharpe-attribution`:** accept optional `?desk=` query param (`swing`, `research_<id>`, or `all`). Default behavior when param absent: return swing-only (backward compat — the endpoint was built for swing evaluation).
+- **`/api/shadow/status`:** same `?desk=` param.
+- **`TradeHistory.jsx`:** already gets a desk filter in Task 10; this task confirms the filter lists all active desks dynamically (not hardcoded `swing`/`research`).
+
+**Semantics decision:** `desk=all` sums across desks; `desk=swing` filters to swing only; `desk=research_*` wildcards all research strategies; `desk=research_lazy_prices_v1` filters to one strategy. Server-side SQL uses `WHERE desk = ?` or `WHERE desk LIKE ?` depending on wildcard presence.
+
+---
+
+**12d — Home-screen platform status widget (1h)**
+
+A compact card on the main dashboard showing:
+- Strategies in each status (count with color badge)
+- Number awaiting manual review ("1 strategy ready for shadow approval →")
+- Last backtest completion timestamp
+- Link to the full `/research-platform` page
+
+Fits in the existing dashboard's card grid. Only renders if at least one strategy exists in `strategy_registry`.
+
+---
+
+**12e — Telegram notification wiring (0.5h)**
+
+In `src/notifications/platform_events.py` (new):
+
+```python
+def notify_backtest_complete(strategy_id, result_id, passed_gate_a: bool): ...
+def notify_shadow_gate_ready(strategy_id, evidence: dict): ...
+def notify_strategy_promoted(strategy_id, from_status, to_status): ...
+def notify_strategy_demoted(strategy_id, reason): ...
+```
+
+Called from:
+- `src/platform/backtest_engine.py::run_backtest` on completion
+- `src/platform/promotion.py::check_promotion_gate` when a new gate is first satisfied (once per gate, not per check)
+- `src/platform/promotion.py::promote` and `::demote`
+
+Prefix all research notifications with `[RESEARCH]` (matches Task 10's convention).
+
+---
+
+**Tests (minimum 8):**
+- `test_platform_strategies_endpoint_returns_registry_rows`
+- `test_platform_backtest_trigger_endpoint_runs_async`
+- `test_platform_promotion_endpoint_requires_confirmation_token`
+- `test_sharpe_attribution_desk_filter_swing_only`
+- `test_sharpe_attribution_desk_filter_all_sums_desks`
+- `test_dashboard_widget_renders_zero_strategies_gracefully`
+- `test_telegram_backtest_complete_fires_once`
+- `test_telegram_gate_ready_not_duplicate_fired` (idempotent — don't spam on re-check)
+
+**Acceptance:**
+- `npm run build` passes
+- Visit `/research-platform` → see strategy list (empty if no strategies yet)
+- Home dashboard renders platform widget correctly with zero strategies
+- Existing `/trades` history and main `/` dashboard still work with pre-existing 85 swing trades
+- SQL: running `SELECT * FROM shadow_trades WHERE desk != 'swing'` returns zero rows at merge time (platform inert)
 
 ---
 
@@ -1017,14 +1116,22 @@ If the weekend runs short, ship tasks in this order:
 
 **Tier 3 — platform lifecycle (~5h):** T8 (schema additions), T10 (promotion pipeline)
 
-**Tier 4 — live deployment (~8h):** T7 (shadow harness), T9 (watch loop integration)
+**Tier 4 — defensive dashboard integration (~1h):** T12c (desk filtering on Dashboard.jsx + sharpe-attribution endpoint). Non-negotiable before `enabled: true` on any research strategy — without it, swing metrics get silently contaminated. Promoted from Tier 5 to near the top because it's protective, not additive.
 
-**Tier 5 — surfaces (~4h):** T2 (Python plugin), T12 (dashboard), T13 (docs)
+**Tier 5 — live deployment (~8h):** T7 (shadow harness), T9 (watch loop integration)
 
-**If Tier 1+2 ship:** Platform exists, Lazy Prices has a validated backtest, everything else is v0.24.1.
-**If Tier 1+2+3 ship:** Platform has full lifecycle; shadow trading is plumbed but not connected to watch loop (runs via CLI only).
-**If Tier 1+2+3+4 ship:** Full target scope.
-**If all 5 ship:** Ambitious plan achieved.
+**Tier 6 — dashboard platform surfaces (~6h):** T12a (dedicated /research-platform page), T12b (action buttons), T12d (home widget), T12e (Telegram events)
+
+**Tier 7 — nice-to-haves (~3h):** T2 (Python plugin), T13 (docs)
+
+**Total effort:** 38-56h realistic (the Pass 3 reuse audit saved ~8h off the Pass 1 estimate; the Task 12 expansion added ~4h back).
+
+**If Tier 1+2 ship:** Platform exists, Lazy Prices has a validated backtest, everything else is v0.24.1. Minimum-viable outcome.
+**If Tier 1+2+3+4 ship:** Platform has full lifecycle AND defensive dashboard integration — safe to enable research strategies without contaminating swing metrics.
+**If Tier 1+2+3+4+5 ship:** Live shadow trading. Full target scope.
+**If all 7 ship:** Ambitious plan achieved with full dashboard UX.
+
+**Critical sequencing note:** Tier 4 must land BEFORE any `desks.research.enabled: true` flip or any strategy gets promoted to `shadow_trading` status. Otherwise the main dashboard numbers silently lie. CC should treat this as a hard gate, not a preference.
 
 ---
 
