@@ -146,33 +146,59 @@ def _fetch_filings_from_submissions(
 
 
 def _fetch_filing_text(cik: str, accession: str) -> str | None:
-    """Download full text of a filing. Returns None if too large or on error."""
-    # Build the filing URL from CIK and accession number
+    """Download full text of a filing. Returns None if too large or on error.
+
+    Fix (Task 0): data.sec.gov does not serve Archives content — filing documents
+    live on www.sec.gov/Archives. Also use the submissions JSON to look up the
+    primaryDocument name directly instead of scraping the directory listing
+    (which returned site-nav hrefs before filing-specific ones).
+    """
+    # Normalize accession: strip dashes for URL path, keep dashes for API lookup
     acc_formatted = accession.replace("-", "")
-    acc_dashes = f"{accession[:10]}-{accession[10:12]}-{accession[12:]}" if "-" not in accession and len(accession) >= 18 else accession
+    acc_dashes = (
+        f"{accession[:10]}-{accession[10:12]}-{accession[12:]}"
+        if "-" not in accession and len(accession) >= 18
+        else accession
+    )
+    cik_stripped = cik.lstrip("0") or "0"
 
     try:
-        # Try the index page to find the primary document
-        index_url = f"https://data.sec.gov/Archives/edgar/data/{cik.lstrip('0')}/{acc_formatted}/"
-        resp = requests.get(index_url, headers=SEC_HEADERS, timeout=15)
-        if resp.status_code != 200:
+        # Look up the primary document name from the submissions API.
+        # This avoids scraping the directory listing HTML (which contains
+        # site-navigation hrefs that break the old first-match heuristic).
+        sub_url = f"https://data.sec.gov/submissions/CIK{cik}.json"
+        sub_resp = requests.get(sub_url, headers=SEC_HEADERS, timeout=15)
+        primary_doc = None
+        if sub_resp.status_code == 200:
+            sub_data = sub_resp.json()
+            recent = sub_data.get("filings", {}).get("recent", {})
+            accessions_list = recent.get("accessionNumber", [])
+            primary_docs_list = recent.get("primaryDocument", [])
+            for i, acc in enumerate(accessions_list):
+                if acc == acc_dashes and i < len(primary_docs_list):
+                    primary_doc = primary_docs_list[i]
+                    break
+
+        if not primary_doc:
+            logger.warning(
+                "[EDGAR] Could not resolve primaryDocument for %s / %s",
+                cik, acc_dashes,
+            )
             return None
 
-        # Find the primary .htm or .txt document
-        text = resp.text
-        # Look for the main filing document (usually the largest .htm file)
-        doc_pattern = re.findall(r'href="([^"]+\.(?:htm|txt))"', text)
-        if not doc_pattern:
-            return None
-
-        # Take the first .htm file (usually the filing itself)
-        primary_doc = doc_pattern[0]
-        doc_url = f"{index_url}{primary_doc}"
-
+        # Filing documents are served from www.sec.gov/Archives (NOT data.sec.gov)
+        doc_url = (
+            f"https://www.sec.gov/Archives/edgar/data/"
+            f"{cik_stripped}/{acc_formatted}/{primary_doc}"
+        )
         time.sleep(0.2)  # Rate limit
 
         doc_resp = requests.get(doc_url, headers=SEC_HEADERS, timeout=30)
         if doc_resp.status_code != 200:
+            logger.warning(
+                "[EDGAR] Filing fetch returned HTTP %s for %s",
+                doc_resp.status_code, doc_url,
+            )
             return None
 
         content = doc_resp.text
@@ -186,7 +212,7 @@ def _fetch_filing_text(cik: str, accession: str) -> str | None:
         return clean
 
     except Exception as e:
-        logger.debug("[EDGAR] Failed to fetch filing text %s: %s", acc_formatted, e)
+        logger.warning("[EDGAR] Failed to fetch filing text %s: %s", acc_formatted, e)
         return None
 
 
