@@ -1,7 +1,7 @@
 {
-  "run_count": 28,
+  "run_count": 29,
   "current_focus_index": 2,
-  "file_index": 11,
+  "file_index": 26,
   "file_list": [
     "requirements.txt",
     "frontend/package.json",
@@ -1446,6 +1446,52 @@
         }
       ],
       "notes": "Rotation run: audited final 4 security files (utils/*) \u2014 all clean. Then rotated to dependency_health and audited first 11 files. requirements-cloud.txt has requests missing (needed by loki_handler) but the import is wrapped in try/except so it fails gracefully. psycopg2-binary is correctly in requirements-cloud.txt. All SQL in audited files uses parameterized queries."
+    },
+    "run_29": {
+      "focus_area": "dependency_health",
+      "files_audited": [
+        "src/api/cloud_routes/council.py",
+        "src/api/cloud_routes/ib_shadow.py",
+        "src/api/cloud_routes/notes.py",
+        "src/api/cloud_routes/trades.py",
+        "src/api/cloud_routes/training.py",
+        "src/api/routes/__init__.py",
+        "src/api/routes/actions.py",
+        "src/api/routes/council.py",
+        "src/api/routes/docs.py",
+        "src/api/routes/health.py",
+        "src/api/routes/ib_status.py",
+        "src/api/routes/live.py",
+        "src/api/routes/logs.py",
+        "src/api/routes/notes.py",
+        "src/api/routes/packets.py"
+      ],
+      "high": [],
+      "medium": [],
+      "low": [
+        {
+          "file": "src/api/routes/health.py",
+          "lines": "23",
+          "description": "Unused import: `import json` at module level is shadowed by `import json as _json` at line 111 inside health_startup(). Module-level json is never referenced."
+        },
+        {
+          "file": "src/api/cloud_routes/trades.py",
+          "lines": "314",
+          "description": "Broad `except Exception:` swallows all errors when computing per-trade current price in live_trades(). The local equivalent (src/api/routes/live.py:67) correctly catches only (sqlite3.OperationalError, TypeError, ValueError). The broad catch could hide psycopg2 connection errors or unexpected dependency failures."
+        },
+        {
+          "file": "src/api/routes/actions.py",
+          "lines": "234",
+          "description": "Import from scripts/ directory: `from scripts.fetch_earnings_calendar import fetch_earnings_dates`. Requires project root on sys.path. Wrapped in try/except so degrades gracefully, but the import path is fragile compared to src/ package imports."
+        },
+        {
+          "file": "src/api/cloud_routes/training.py",
+          "lines": "517",
+          "description": "Imports private functions `_compute_metrics` and `_build_equity_curve` from src.evaluation.model_monitor. Coupling to underscore-prefixed internal API names that could change without notice in a refactor."
+        }
+      ],
+      "notes": "Audited 15 API route files (cloud_routes/* + routes/*). All third-party imports (fastapi, pydantic) are properly declared in requirements.txt. No undeclared dependencies, no deprecated API usage, no bare except:pass patterns. All remaining imports are Python stdlib (json, sqlite3, logging, datetime, uuid, threading, statistics, pathlib, subprocess, zoneinfo). This slice is clean — API routes are thin wrappers with minimal dependency surface."
     }
-  }
+  },
+  "last_run": "2026-04-17T14:32:00.000000+00:00"
 }

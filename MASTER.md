@@ -59,12 +59,12 @@ with an unbeatable technological moat.
 | Open positions | ~2 (verify with shadow-status) |
 | Model | halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF); v2.0.0 retrain gated on excess-Sharpe validation |
 | Training data | 1,722 examples (1,019 + 703 regime-diverse backfill) |
-| Tests | 1,852 tests across 150 test files |
-| Python files | 225 |
+| Tests | 1,972 tests across 163 test files (+44 tests, +7 test files — Sprint 1: platform/backtest/DSR/metrics/lazy_prices) |
+| Python files | 240 (+12 new src/platform/ modules — Sprint 1) |
 | Dashboard pages | 25 |
 | Research docs | 107 |
 | Sprint docs | 57 |
-| Schema tables | 53 (registry), 44+ synced to Postgres |
+| Schema tables | 56 (registry), 44+ synced to Postgres (+3 Sprint 1: backtest_results, backtest_trades, + 1 via platform) |
 | GitHub issues | 0 open |
 | Monthly cost | ~$64 (Render $14 + Ollama free + Claude API ~$50 + domain $7) |
 | Hardware | RTX 3060 12GB, Windows 11, Z690, 24/7 operation |
@@ -247,6 +247,7 @@ with an unbeatable technological moat.
 
 | IB cold storage (SD#41) | -- | v0.18.0, `trading.ib_enabled=false` gate across broker_factory/executor/reconcile/watch, Settings IB · Dormant indicator, 3 regression tests, all IB code preserved |
 | SPY excess instrumentation (SD#41 REVISED / D1) | -- | v0.19.0, 3 new shadow_trades columns (spy_return_over_hold / excess_return / realized_sector), `src/analytics/spy_benchmark.py` (yfinance + GICS lookup), 85/85 backfilled, `/api/shadow/sharpe-attribution` endpoint, Trade History lead panel, IB gate redefined to excess-Sharpe >= 0.5 at t >= 2.0 over 150 OOS trades, 7 regression tests |
+| Platform Foundation Sprint 1 (14 commits) | feat/platform-foundation | v0.24.0-alpha1: `src/platform/` package (12 new modules), strategy spec loader + `lazy_prices_v1` YAML, OHLCV data adapter, basic metrics + survivorship haircut, DSR gate (paper-example PASSES), backtest engine + signal_eval, CLI + SQLite persistence, EDGAR fetch repair (URL fix + submissions-API lookup), Lazy Prices feature providers. 44 new tests across 7 files. |
 
 ---
 

@@ -49,6 +49,61 @@
 
 ## Releases
 
+### v0.24.0-alpha1 — Platform Foundation + DSR Gate (Sprint 1 of 4) (2026-04-17)
+
+Sprint 1 of the four-sprint strategy-research platform build. Delivers the
+complete Tier 1+2 foundation: a strategy-agnostic backtest harness, the
+Deflated Sharpe Ratio rigor gate (Bailey & Lopez de Prado 2014), the first
+YAML strategy spec (`lazy_prices_v1`, Cohen-Malloy-Nguyen 2020), Lazy Prices
+feature providers, EDGAR filing-text fetch repair, and a backfill script
+for the 3,362-filing EDGAR corpus. All three non-negotiable correctness gates
+pass (DSR paper example, hand-computed scheduled backtest, hand-computed
+event-driven backtest).
+
+**What landed (14 commits, feat/platform-foundation):**
+
+- **`src/platform/` package** (12 new Python modules): strategy spec schema +
+  YAML loader, OHLCV data adapter, basic metrics (Sharpe, Sortino, max drawdown,
+  win rate) + survivorship haircut, Deflated Sharpe Ratio, strategy-agnostic
+  backtest engine + `signal_eval` extraction, backtest CLI + SQLite persistence,
+  Lazy Prices cosine-similarity feature + event providers.
+- **`src/platform/specs/lazy_prices_v1.yaml`** — first strategy spec; describes
+  the Cohen-Malloy-Nguyen (2020) lazy-prices anomaly in machine-readable form.
+- **Schema registry** expanded from 53 to 56 tables: `backtest_results`,
+  `backtest_trades`, plus one platform-support table.
+- **`scripts/run_backtest.py`** — CLI entrypoint; clean exit with n_trades=0
+  pre-EDGAR-backfill (expected).
+- **`scripts/backfill_edgar_fulltext.py`** — SEC fetch backfill (~20-37 min);
+  operator runs manually.
+- **EDGAR repair (Task 0)** — `_fetch_filing_text` URL base corrected from
+  `data.sec.gov/Archives/...` to `www.sec.gov/Archives/...`; directory-scraping
+  regex replaced with submissions-API `primaryDocument` lookup. Closes the
+  0/3362 EDGAR coverage gap.
+- **44 new tests** across 7 test files; total test suite now 1,972 tests across
+  163 files.
+
+**Known issues to resolve before v0.24.0-final:**
+
+- `src/data_collection/edgar_collector.py` is 413 lines (guardrail: 400) and
+  `_fetch_filing_text` is 68 lines (guardrail: 60). Task 0 repair pushed both
+  over. Grandfathering or a follow-up split is needed before merging to main.
+  These are the only two new guardrail failures introduced by Sprint 1.
+
+**What is deferred to Sprints 2-4:**
+
+- Tier 3: CSCV (combinatorially symmetric cross-validation) anti-overfitting gate.
+- Tier 4: Walk-forward OOS validation harness.
+- Tier 5: Strategy promotion pipeline (shadow → live gating).
+- Tier 6: Shadow execution harness integration.
+- Tier 7: Dashboard — strategy research pages, DSR/backtest result display.
+- Tier 8: Correlation monitoring (strategy-to-strategy exposure tracking).
+- EDGAR backfill must be run manually by the operator before Lazy Prices signals
+  produce non-zero trade counts.
+
+**Gate status:** DSR paper-example reproduction PASSES. Both hand-computed
+backtest examples PASS. CLI exits cleanly. Frontend build was pre-existing
+failure (vite not installed in shell PATH) — not introduced by Sprint 1.
+
 ### v0.23.2 — Asyncio Refactor Phase B (overnight) + Phase C (tests) (2026-04-16)
 
 First wave of `_run_sync_body` decomposition. 14 overnight-schedule tasks
