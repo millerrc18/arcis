@@ -1,13 +1,13 @@
 """Strategy-agnostic historical replay harness.
 
-Reuses:
-  - src.attribution.logger.simulate_mechanical_outcome for bracket outcomes
-  - src.analytics.spy_benchmark.spy_return_over_range + excess_return
-  - src.platform.data_loader.load_ohlcv_range
-  - src.platform.metrics.compute_all_metrics
+Called by: scripts.run_backtest, src.platform.promotion (via Task 10).
+Calls: src.attribution.logger, src.analytics.spy_benchmark,
+       src.platform.data_loader, src.platform.metrics.
+Owns tables: backtest_results, backtest_trades (declared in schema/registry,
+             written by scripts/run_backtest.py:_persist).
+Tests: tests/platform/test_backtest_engine.py.
 
 Pattern reference (study before editing): src.evaluation.backtester.
-Tests: tests/platform/test_backtest_engine.py.
 """
 
 from __future__ import annotations
@@ -150,11 +150,15 @@ def _pct_from_spec(
 def _apply_costs(
     entry: float, raw_exit: float, cfg: BacktestConfig,
 ) -> tuple[float, float]:
-    """Symmetric round-trip transaction cost application. Matches engine.py."""
+    """Symmetric per-side transaction cost application. Matches engine.py.
+
+    per_side bps are applied once on entry (raises cost basis) and once on
+    exit (lowers proceeds), so total round-trip cost = 2 * per_side bps —
+    but each leg is charged only per_side, not 2 * per_side.
+    """
     per_side = cfg.commission_bps + cfg.slippage_bps + cfg.spread_bps
-    total = per_side * 2  # both sides
-    entry_adj = entry * (1.0 + total / 10_000.0)
-    exit_adj = raw_exit * (1.0 - total / 10_000.0)
+    entry_adj = entry * (1.0 + per_side / 10_000.0)
+    exit_adj = raw_exit * (1.0 - per_side / 10_000.0)
     return entry_adj, exit_adj
 
 
