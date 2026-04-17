@@ -4,6 +4,7 @@ Called by: src.platform.backtest_engine (event_driven dispatch path),
            src.platform.shadow_harness (Sprint 4).
 Calls: sqlite3, src.config.
 Owns tables: none (read-only from edgar_filings, analyst_estimates).
+Config keys: PLATFORM_EDGAR_DB (optional env override for edgar_filings DB).
 Tests: tests/platform/test_lazy_prices.py.
 """
 from __future__ import annotations

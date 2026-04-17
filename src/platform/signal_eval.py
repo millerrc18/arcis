@@ -3,6 +3,7 @@
 Called by: src.platform.backtest_engine.
 Calls: sqlite3 (event-table queries), src.platform.strategy_spec.
 Owns tables: none.
+Config keys: PLATFORM_EDGAR_DB (optional env override for event-table DB).
 Tests: tests/platform/test_backtest_engine.py (exercised via backtest_engine).
 """
 

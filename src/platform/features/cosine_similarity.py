@@ -4,6 +4,7 @@ Called by: src.platform.backtest_engine (via signal_eval providers),
            src.platform.shadow_harness (Sprint 4).
 Calls: sqlite3, sklearn.feature_extraction.text, sklearn.metrics.pairwise.
 Owns tables: none (read-only from edgar_filings).
+Config keys: none.
 Tests: tests/platform/test_lazy_prices.py.
 
 Pure function — no DB writes. Reads sections_json from edgar_filings for

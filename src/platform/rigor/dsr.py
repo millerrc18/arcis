@@ -7,7 +7,9 @@ Issue B in Sprint 1 plan): DSR ≈ 0.9004 with V=0.5/250; SR*_0_ann ≈
 under any single V; both formulas verify correctly in isolation.
 
 Called by: src.platform.promotion (primary gate), CLI via run_backtest.py.
+Calls: scipy.stats (norm, kurtosis, skew), numpy, pandas.
 Owns tables: trials_registry (see Task 10 — Sprint 2).
+Config keys: none.
 Tests: tests/platform/rigor/test_dsr.py.
 """
 

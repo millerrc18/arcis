@@ -3,6 +3,7 @@
 Called by: src.platform.backtest_engine, scripts.run_backtest.
 Calls: numpy, math.
 Owns tables: none.
+Config keys: none.
 Tests: tests/platform/test_metrics.py.
 
 Survivorship haircut defaults per deep research (backtest-rigor-retrofit-plan):

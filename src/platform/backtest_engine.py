@@ -5,6 +5,7 @@ Calls: src.attribution.logger, src.analytics.spy_benchmark,
        src.platform.data_loader, src.platform.metrics.
 Owns tables: backtest_results, backtest_trades (declared in schema/registry,
              written by scripts/run_backtest.py:_persist).
+Config keys: PLATFORM_EDGAR_DB (optional env override for event_driven DB).
 Tests: tests/platform/test_backtest_engine.py.
 
 Pattern reference (study before editing): src.evaluation.backtester.

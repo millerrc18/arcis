@@ -4,6 +4,7 @@ Called by: src.platform.backtest_engine
 Calls: src.simulation.cache (fetch_cached_ohlcv), src.analytics.spy_benchmark,
        src.universe.sp100
 Owns tables: none.
+Config keys: none.
 Tests: tests/platform/test_data_loader.py.
 
 Thin wrapper so the backtest engine has a single clean import surface.

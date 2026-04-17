@@ -2,7 +2,9 @@
 
 Called by: src.platform.backtest_engine, scripts.run_backtest,
            src.scheduler.watch (Sprint 4 via Task 9).
+Calls: pyyaml (safe_load), pathlib.
 Owns tables: none.
+Config keys: none.
 Tests: tests/platform/test_strategy_spec.py.
 """
 
