@@ -506,7 +506,12 @@ class TestPerTableReconnection:
 
         mock_psycopg2.connect.side_effect = [dead_conn, live_conn]
 
-        with patch.dict("sys.modules", {"psycopg2": mock_psycopg2}):
+        # Patch time.sleep to no-op so _connect_pg_with_retry's exponential
+        # backoff (2s + 5s per failed attempt across 18+ tables) doesn't
+        # blow past the 60s CI test timeout. We're testing reconnect LOGIC,
+        # not wallclock retry behavior.
+        with patch.dict("sys.modules", {"psycopg2": mock_psycopg2}), \
+             patch("src.sync.render_sync.time.sleep"):
             summary = run_sync_cycle("postgresql://test@localhost/db", test_db)
 
         # Should have reconnected at least once
@@ -518,7 +523,10 @@ class TestPerTableReconnection:
         mock_psycopg2 = MagicMock()
         mock_psycopg2.connect.side_effect = Exception("Connection refused")
 
-        with patch.dict("sys.modules", {"psycopg2": mock_psycopg2}):
+        # Patch time.sleep to no-op — see test_dead_connection_triggers_reconnect
+        # for rationale. Retry backoff × 18 tables would otherwise exceed 60s.
+        with patch.dict("sys.modules", {"psycopg2": mock_psycopg2}), \
+             patch("src.sync.render_sync.time.sleep"):
             summary = run_sync_cycle("postgresql://test@localhost/db", test_db)
 
         # Should have errors but not crash
