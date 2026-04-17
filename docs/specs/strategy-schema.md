@@ -119,7 +119,7 @@ Dict. LLM-assisted signal extraction. Omit to disable.
 
 Enforced by `src.platform.strategy_spec.validate_spec`:
 
-- Required keys: `strategy_id`, `display_name`, `universe`, `entry`, `exit`, `position_sizing`, `attribution`.
+- Required keys: `spec_version`, `strategy_id`, `display_name`, `universe`, `entry`, `exit`, `position_sizing`, `attribution`.
 - `universe` must be a dict.
 - `entry.kind` must be one of `event_driven`, `scheduled`, `python_plugin`.
 - `exit.kind` must be one of `mechanical`, `python_plugin`.

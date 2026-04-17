@@ -8,16 +8,21 @@ Tests: tests/platform/test_strategy_spec.py.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+logger = logging.getLogger(__name__)
+
+_SPECS_DIR = Path(__file__).parent / "specs"
+
 ALLOWED_ENTRY_KINDS = {"scheduled", "event_driven", "python_plugin"}
 ALLOWED_EXIT_KINDS = {"mechanical", "python_plugin"}
 REQUIRED_KEYS = (
-    "strategy_id", "display_name", "universe", "entry", "exit",
+    "spec_version", "strategy_id", "display_name", "universe", "entry", "exit",
     "position_sizing", "attribution",
 )
 
@@ -84,7 +89,7 @@ def load_spec_from_yaml(path: Path) -> StrategySpec:
 
 def load_spec(
     strategy_id: str,
-    specs_dir: Path = Path("src/platform/specs"),
+    specs_dir: Path = _SPECS_DIR,
 ) -> StrategySpec:
     path = Path(specs_dir) / f"{strategy_id}.yaml"
     if not path.exists():
@@ -95,12 +100,14 @@ def load_spec(
 
 
 def list_available_specs(
-    specs_dir: Path = Path("src/platform/specs"),
+    specs_dir: Path = _SPECS_DIR,
 ) -> list[StrategySpec]:
     out: list[StrategySpec] = []
     for p in sorted(Path(specs_dir).glob("*.yaml")):
         try:
             out.append(load_spec_from_yaml(p))
-        except Exception:
-            continue
+        except Exception as e:
+            logger.warning(
+                "[PLATFORM] skipping malformed spec %s: %s", p, e
+            )
     return out
