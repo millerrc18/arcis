@@ -32,30 +32,51 @@ DB = ROOT / "ai_research_desk.sqlite3"
 WATCH_LOCK = ROOT / "data" / "watch.lock"
 WATCHDOG = ROOT / "data" / "watchdog.txt"
 HALT_FILE = ROOT / "data" / "trading_halted"
-LOG_FILE = ROOT / "logs" / "halcyon.log"
+LOG_FILE = ROOT / "logs" / "arcis.log"
+
+
+def _heartbeat_fresh(max_age_s: int = 300) -> bool:
+    """True if watchdog.txt was touched within max_age_s. The heartbeat
+    is the watch loop's authoritative liveness signal.
+    """
+    if not WATCHDOG.exists():
+        return False
+    try:
+        last = datetime.fromisoformat(WATCHDOG.read_text().strip())
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - last).total_seconds() < max_age_s
+    except Exception:
+        return False
 
 
 def watch_status():
-    """Check if the watch loop is running via its PID lockfile."""
+    """Check if the watch loop is running via PID lockfile + heartbeat.
+
+    Tries OpenProcess first (fast path, works for same-session processes).
+    Falls back to heartbeat freshness for service-owned PIDs (Session 0)
+    where user-session OpenProcess is denied by Windows session isolation.
+    """
     if not WATCH_LOCK.exists():
         return "Watch:OFF"
     try:
         pid = int(WATCH_LOCK.read_text().strip())
-        # Cross-platform process liveness check.
-        # On Windows we use the Win32 API because os.kill(pid, 0) doesn't work.
         if sys.platform == "win32":
             import ctypes
             kernel32 = ctypes.windll.kernel32
-            handle = kernel32.OpenProcess(0x100000, False, pid)  # SYNCHRONIZE
+            handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
             if handle:
                 kernel32.CloseHandle(handle)
                 return "Watch:ON"
-            return "Watch:STALE-LOCK"
         else:
             os.kill(pid, 0)
             return "Watch:ON"
     except (ValueError, OSError, PermissionError):
-        return "Watch:STALE-LOCK"
+        pass
+    # Cross-session fallback: heartbeat freshness (NSSM service runs in Session 0)
+    if _heartbeat_fresh():
+        return "Watch:ON"
+    return "Watch:STALE-LOCK"
 
 
 def heartbeat():
