@@ -53,6 +53,51 @@ def _partition_rows(T: int, S: int) -> list[np.ndarray]:
     return [np.arange(edges[i], edges[i + 1]) for i in range(S)]
 
 
+def _compute_split_diagnostics(
+    values: np.ndarray,
+    blocks: list[np.ndarray],
+    is_combo: tuple[int, ...],
+    oos_combo: tuple[int, ...],
+    N: int,
+) -> tuple[float, tuple[float, float]]:
+    """Compute (logit, (is_best_sharpe, oos_sharpe_of_is_best)) for one
+    CSCV split. Logit is based on the IS-best config's relative rank in OOS."""
+    is_rows = np.concatenate([blocks[i] for i in is_combo])
+    oos_rows = np.concatenate([blocks[i] for i in oos_combo])
+    is_data = values[is_rows, :]
+    oos_data = values[oos_rows, :]
+    is_sharpes = np.array([_sharpe(is_data[:, j]) for j in range(N)])
+    oos_sharpes = np.array([_sharpe(oos_data[:, j]) for j in range(N)])
+    best_is = int(np.argmax(is_sharpes))
+    degradation_point = (float(is_sharpes[best_is]), float(oos_sharpes[best_is]))
+    target = oos_sharpes[best_is]
+    rank = int(np.sum(oos_sharpes < target))
+    relative_rank = rank / N
+    clamped = min(max(relative_rank, 1.0 / (2 * N)), 1.0 - 1.0 / (2 * N))
+    logit = log(clamped / (1.0 - clamped))
+    return logit, degradation_point
+
+
+def _adjusted_partition_size(T: int, S: int) -> int:
+    """Adjust S to ensure at least 16 obs per block, and enforce even parity."""
+    MIN_OBS_PER_BLOCK = 16
+    effective_S = S
+    if T // S < MIN_OBS_PER_BLOCK:
+        effective_S = max(2, T // MIN_OBS_PER_BLOCK)
+        if effective_S % 2 == 1:
+            effective_S -= 1
+        effective_S = max(2, effective_S)
+        warnings.warn(
+            f"T={T} with S={S} gives <{MIN_OBS_PER_BLOCK} obs/block; "
+            f"reducing to S={effective_S}",
+            RuntimeWarning,
+        )
+    if effective_S % 2 == 1:
+        effective_S -= 1
+        warnings.warn(f"S must be even; using S={effective_S}", RuntimeWarning)
+    return effective_S
+
+
 def pbo_from_pnl_matrix(
     pnl_matrix: pd.DataFrame, S: int = 16,
 ) -> dict:
@@ -81,23 +126,7 @@ def pbo_from_pnl_matrix(
         return {"PBO": float("nan"), "logit_distribution": [],
                 "performance_degradation_points": []}
 
-    # Partition adjustment: require at least 16 obs per block
-    MIN_OBS_PER_BLOCK = 16
-    effective_S = S
-    if T // S < MIN_OBS_PER_BLOCK:
-        effective_S = max(2, T // MIN_OBS_PER_BLOCK)
-        if effective_S % 2 == 1:
-            effective_S -= 1
-        effective_S = max(2, effective_S)
-        warnings.warn(
-            f"T={T} with S={S} gives <{MIN_OBS_PER_BLOCK} obs/block; "
-            f"reducing to S={effective_S}",
-            RuntimeWarning,
-        )
-    if effective_S % 2 == 1:
-        effective_S -= 1
-        warnings.warn(f"S must be even; using S={effective_S}", RuntimeWarning)
-
+    effective_S = _adjusted_partition_size(T, S)
     values = df.values  # T × N
     blocks = _partition_rows(T, effective_S)
 
@@ -107,32 +136,11 @@ def pbo_from_pnl_matrix(
 
     for is_combo in combinations(range(effective_S), half):
         oos_combo = tuple(i for i in range(effective_S) if i not in is_combo)
-        is_rows = np.concatenate([blocks[i] for i in is_combo])
-        oos_rows = np.concatenate([blocks[i] for i in oos_combo])
-        is_data = values[is_rows, :]      # T_is × N
-        oos_data = values[oos_rows, :]    # T_oos × N
-
-        # Per-config Sharpe in IS and OOS
-        is_sharpes = np.array(
-            [_sharpe(is_data[:, j]) for j in range(N)]
+        logit, deg_point = _compute_split_diagnostics(
+            values, blocks, is_combo, oos_combo, N,
         )
-        oos_sharpes = np.array(
-            [_sharpe(oos_data[:, j]) for j in range(N)]
-        )
-        best_is = int(np.argmax(is_sharpes))
-        degradation.append(
-            (float(is_sharpes[best_is]), float(oos_sharpes[best_is]))
-        )
-
-        # Relative rank of the IS-best config in OOS
-        # rank = count of OOS Sharpes strictly below the IS-best's OOS Sharpe
-        target = oos_sharpes[best_is]
-        rank = int(np.sum(oos_sharpes < target))
-        relative_rank = rank / N
-        # Clamp to avoid log(0) / log(inf)
-        clamped = min(max(relative_rank, 1.0 / (2 * N)), 1.0 - 1.0 / (2 * N))
-        logit = log(clamped / (1.0 - clamped))
         logits.append(logit)
+        degradation.append(deg_point)
 
     # PBO = fraction of splits where the IS-winner underperforms the OOS median.
     # A logit < 0 ⇔ relative_rank < 0.5 ⇔ IS-winner is in bottom half OOS.
