@@ -117,8 +117,12 @@ def compute_all_metrics(
 ) -> dict:
     """All metrics as a dict. Used by BacktestResult.metrics.
 
-    Survivorship haircut is applied to annualized return before Sharpe /
-    Sortino / Calmar. See module docstring for default guidance.
+    Survivorship haircut is a total-return phenomenon (not a per-trade
+    execution cost). It subtracts from the annualized return and therefore
+    flows into `annualized_return_net` and `calmar`. It does NOT shift
+    per-trade returns, so `sharpe` / `sortino` / `excess_sharpe` remain
+    gross per-trade Sharpe family values. See docstring for default
+    haircut guidance.
     """
     per_trade_pnl = [t.pnl_pct for t in trades]
     per_trade_excess = [t.excess_return for t in trades if t.excess_return is not None]
@@ -130,10 +134,6 @@ def compute_all_metrics(
     haircut = survivorship_haircut_bps / 10_000.0
     net_annualized = annualized_return - haircut
 
-    # Sharpe family uses per-trade returns; haircut shifts the mean.
-    per_trade_haircut = haircut / max(len(per_trade_pnl), 1)
-    net_per_trade = [r - per_trade_haircut for r in per_trade_pnl]
-
     dd, peak_date, trough_date = compute_max_drawdown(equity_curve)
 
     return {
@@ -141,9 +141,9 @@ def compute_all_metrics(
         "annualized_return_gross": annualized_return,
         "annualized_return_net": net_annualized,
         "survivorship_haircut_bps": survivorship_haircut_bps,
-        "sharpe": compute_sharpe(net_per_trade),
+        "sharpe": compute_sharpe(per_trade_pnl),
         "excess_sharpe": compute_excess_sharpe(per_trade_excess) if per_trade_excess else None,
-        "sortino": compute_sortino(net_per_trade),
+        "sortino": compute_sortino(per_trade_pnl),
         "calmar": compute_calmar(net_annualized, dd) if dd else None,
         "max_drawdown_pct": dd,
         "max_drawdown_peak_date": peak_date,

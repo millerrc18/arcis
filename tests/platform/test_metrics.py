@@ -73,6 +73,12 @@ def test_compute_all_metrics_applies_survivorship_haircut():
     assert "total_return_pct" in m
     assert math.isclose(m["total_return_pct"], 0.10, abs_tol=1e-6)
     assert m["survivorship_haircut_bps"] == 75
+    # Net annualized is gross minus 75 bps
+    assert math.isclose(
+        m["annualized_return_net"],
+        m["annualized_return_gross"] - 0.0075,
+        abs_tol=1e-6,
+    )
 
 
 def test_compute_all_metrics_zero_haircut_default_when_passed():
@@ -85,3 +91,28 @@ def test_compute_all_metrics_zero_haircut_default_when_passed():
     curve = [("2023-01-01", 100000.0), ("2024-01-01", 110000.0)]
     m = compute_all_metrics(trades, curve, survivorship_haircut_bps=0)
     assert m["survivorship_haircut_bps"] == 0
+    assert math.isclose(
+        m["annualized_return_net"], m["annualized_return_gross"], abs_tol=1e-9,
+    )
+
+
+def test_haircut_does_not_shift_sharpe():
+    """Sharpe is computed from gross per-trade returns. Haircut only
+    affects annualized_return_net and calmar."""
+    class T:
+        def __init__(self, pnl_pct, excess_return):
+            self.pnl_pct = pnl_pct
+            self.excess_return = excess_return
+            self.pnl_dollars = pnl_pct * 1000
+    trades = [T(0.05, 0.03), T(-0.02, -0.01), T(0.04, 0.02), T(0.03, 0.01)]
+    curve = [("2023-01-01", 100000.0), ("2024-01-01", 110000.0)]
+    m0 = compute_all_metrics(trades, curve, survivorship_haircut_bps=0)
+    m75 = compute_all_metrics(trades, curve, survivorship_haircut_bps=75)
+    # Gross sharpe unchanged by haircut
+    if m0["sharpe"] is not None and m75["sharpe"] is not None:
+        assert math.isclose(m0["sharpe"], m75["sharpe"], abs_tol=1e-9)
+    # But net annualized differs by exactly haircut
+    assert math.isclose(
+        m0["annualized_return_net"] - m75["annualized_return_net"],
+        0.0075, abs_tol=1e-6,
+    )
