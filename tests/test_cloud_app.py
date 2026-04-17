@@ -204,12 +204,13 @@ class TestTrainingEndpoints:
             {"c": 10},    # examples_this_week
         ]
         # _query calls: total_versions, outcome_counts, source_counts,
-        #   regime_coverage, recent_examples
+        #   regime_coverage, curriculum_coverage, recent_examples
         mock_query.side_effect = [
             [{"count": 5}],  # total_versions
             [{"outcome": "win", "count": 200}],  # outcome_counts
             [{"source": "blinded_win", "count": 200}],  # source_counts
-            [{"curriculum_stage": "bull", "count": 100}],  # regime_coverage
+            [{"regime": "bull", "count": 100}],  # regime_coverage (NEW — column exists on main)
+            [{"curriculum_stage": "bull", "count": 100}],  # curriculum_coverage
             [{"ticker": "AAPL", "source": "blinded_win", "outcome_type": "win", "quality_score": 3.5, "created_at": "2026-01-01"}],  # recent
         ]
 
