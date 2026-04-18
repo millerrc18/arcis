@@ -861,6 +861,11 @@
       "lines": 68
     },
     {
+      "file": "src/shadow_trading/alpaca_adapter.py",
+      "function": "place_live_entry",
+      "lines": 63
+    },
+    {
       "file": "src/shadow_trading/bracket_monitor.py",
       "function": "check_bracket_health",
       "lines": 89

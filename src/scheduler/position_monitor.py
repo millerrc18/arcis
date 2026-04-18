@@ -64,15 +64,18 @@ def run_position_monitor(config: dict | None = None, db_path: str = DB_PATH) -> 
     except Exception:
         pass  # Staleness check is advisory only
 
-    # 3. Intra-day reconciliation
+    # 3. Intra-day reconciliation (swing + every active research desk)
     try:
-        from src.shadow_trading.reconcile import reconcile_paper_trades
-        result = reconcile_paper_trades(dry_run=False)
-        closed = result.get("marked_closed", [])
-        summary["reconciled"] = len(closed)
-        if closed:
+        from src.shadow_trading.reconcile_dispatch import reconcile_all_paper_trades
+        all_results = reconcile_all_paper_trades(db_path=db_path, dry_run=False)
+        total_closed: list = []
+        for desk, result in all_results.items():
+            closed = result.get("marked_closed", [])
+            total_closed.extend(closed)
+        summary["reconciled"] = len(total_closed)
+        if total_closed:
             logger.info("[POSITION] Reconciliation closed %d stale trades: %s",
-                        len(closed), closed)
+                        len(total_closed), total_closed)
     except Exception as e:
         logger.warning("[POSITION] Reconciliation failed: %s", e)
         summary["errors"] += 1

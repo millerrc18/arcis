@@ -175,7 +175,7 @@ MOCK_PAPER_POSITIONS = [
 
 
 @patch(
-    "src.shadow_trading.alpaca_adapter.get_all_positions",
+    "src.shadow_trading.reconcile.get_all_positions",
     return_value=MOCK_PAPER_POSITIONS,
 )
 def test_paper_reconcile_all_matched(mock_positions, db_path):
@@ -205,7 +205,7 @@ def test_paper_reconcile_all_matched(mock_positions, db_path):
 
 
 @patch(
-    "src.shadow_trading.alpaca_adapter.get_all_positions",
+    "src.shadow_trading.reconcile.get_all_positions",
     return_value=MOCK_PAPER_POSITIONS,
 )
 def test_paper_reconcile_backfills_orphaned(mock_positions, db_path):
@@ -233,7 +233,7 @@ def test_paper_reconcile_backfills_orphaned(mock_positions, db_path):
 
 
 @patch(
-    "src.shadow_trading.alpaca_adapter.get_all_positions",
+    "src.shadow_trading.reconcile.get_all_positions",
     return_value=[],
 )
 def test_paper_reconcile_stale_auto_closed(mock_positions, db_path):
@@ -271,7 +271,7 @@ def test_paper_reconcile_stale_auto_closed(mock_positions, db_path):
 
 
 @patch(
-    "src.shadow_trading.alpaca_adapter.get_all_positions",
+    "src.shadow_trading.reconcile.get_all_positions",
     return_value=[],
 )
 def test_paper_reconcile_skips_recent_trade(mock_positions, db_path):
@@ -313,7 +313,7 @@ def test_paper_reconcile_skips_recent_trade(mock_positions, db_path):
 
 
 @patch(
-    "src.shadow_trading.alpaca_adapter.get_all_positions",
+    "src.shadow_trading.reconcile.get_all_positions",
     return_value=[
         {
             "symbol": "AAPL",
@@ -392,11 +392,11 @@ def test_reconcile_stale_without_yfinance(mock_positions, db_path):
 
 
 @patch(
-    "src.shadow_trading.alpaca_adapter.cancel_orders_for_ticker",
+    "src.shadow_trading.reconcile.cancel_orders_for_ticker",
     return_value=2,
 )
 @patch(
-    "src.shadow_trading.alpaca_adapter.get_all_positions",
+    "src.shadow_trading.reconcile.get_all_positions",
     return_value=[],
 )
 def test_paper_reconcile_cancels_orders_before_close(mock_positions, mock_cancel, db_path):
@@ -418,7 +418,7 @@ def test_paper_reconcile_cancels_orders_before_close(mock_positions, mock_cancel
     result = reconcile_paper_trades(db_path=db_path, dry_run=False)
 
     assert result["marked_closed"] == ["TSLA"]
-    mock_cancel.assert_called_once_with("TSLA")
+    mock_cancel.assert_called_once_with("TSLA", desk="swing")
 
     # Trade must be fully closed
     with sqlite3.connect(db_path) as conn:
@@ -431,11 +431,11 @@ def test_paper_reconcile_cancels_orders_before_close(mock_positions, mock_cancel
 
 
 @patch(
-    "src.shadow_trading.alpaca_adapter.cancel_orders_for_ticker",
+    "src.shadow_trading.reconcile.cancel_orders_for_ticker",
     side_effect=Exception("Alpaca timeout"),
 )
 @patch(
-    "src.shadow_trading.alpaca_adapter.get_all_positions",
+    "src.shadow_trading.reconcile.get_all_positions",
     return_value=[],
 )
 def test_paper_reconcile_cancel_failure_does_not_block_close(mock_positions, mock_cancel, db_path):
@@ -471,7 +471,7 @@ def test_paper_reconcile_cancel_failure_does_not_block_close(mock_positions, moc
 
 
 @patch(
-    "src.shadow_trading.alpaca_adapter.get_all_positions",
+    "src.shadow_trading.reconcile.get_all_positions",
     return_value=[
         {
             "symbol": "AMZN",
@@ -511,7 +511,7 @@ def test_uncertain_trade_promoted_when_alpaca_has_position(mock_positions, db_pa
 
 
 @patch(
-    "src.shadow_trading.alpaca_adapter.get_all_positions",
+    "src.shadow_trading.reconcile.get_all_positions",
     return_value=[],
 )
 def test_uncertain_trade_marked_failed_when_alpaca_has_no_position(mock_positions, db_path):
@@ -568,7 +568,7 @@ _LONG_NVDA = [
 
 
 @patch(
-    "src.shadow_trading.alpaca_adapter.get_all_positions",
+    "src.shadow_trading.reconcile.get_all_positions",
     return_value=_SHORT_NVDA,
 )
 def test_stuck_exit_with_short_position_needs_manual_review(mock_positions, db_path):
@@ -619,7 +619,7 @@ def test_stuck_exit_with_short_position_needs_manual_review(mock_positions, db_p
 
 
 @patch(
-    "src.shadow_trading.alpaca_adapter.get_all_positions",
+    "src.shadow_trading.reconcile.get_all_positions",
     return_value=_LONG_NVDA,
 )
 def test_stuck_exit_with_long_position_still_reverts_to_open(mock_positions, db_path):
@@ -657,7 +657,7 @@ def test_stuck_exit_with_long_position_still_reverts_to_open(mock_positions, db_
 
 
 @patch(
-    "src.shadow_trading.alpaca_adapter.get_all_positions",
+    "src.shadow_trading.reconcile.get_all_positions",
     return_value=[],
 )
 def test_uncertain_trade_not_resolved_in_dry_run(mock_positions, db_path):
