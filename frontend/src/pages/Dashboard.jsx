@@ -12,6 +12,7 @@ import ActivityFeed from '../components/ActivityFeed'
 import Tooltip from '../components/Tooltip'
 import { XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, Area, AreaChart, Line, LineChart } from 'recharts'
 import { TrendingUp, TrendingDown, Minus, AlertTriangle, Zap, ChevronDown, ChevronUp } from 'lucide-react'
+import PlatformStatusWidget from '../components/PlatformStatusWidget.jsx'
 
 function parseAuditSummary(raw) {
   if (!raw) return null
@@ -362,6 +363,9 @@ export default function Dashboard() {
           {researchDesks.map(d => <option key={d} value={d}>{d}</option>)}
         </select>
       </div>
+
+      {/* Research Platform status card — renders only when strategies exist */}
+      <PlatformStatusWidget />
 
       {/* Headline KPIs */}
       {/* Fix for #247 */}

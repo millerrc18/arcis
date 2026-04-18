@@ -285,3 +285,42 @@ def test_harness_uses_fallback_nav_when_account_info_unavailable(tmp_db):
             None,
         )
     assert nav == 100_000.0
+
+
+def test_harness_run_one_tick_places_order_when_candidate_passes_limits(tmp_db):
+    """NON-NEGOTIABLE GATE #6: when find_candidates_for_date returns a
+    real candidate that passes hard limits, run_one_tick must actually
+    call place_bracket_order with desk='research_<id>'."""
+    spec = _test_spec("strat_gate6")
+    with patch("src.platform.shadow_harness.verify_accounts_distinct"):
+        harness = ShadowHarness(spec, db_path=tmp_db)
+
+    fake_candidate = {
+        "ticker": "AAPL",
+        "as_of": "2023-11-05T16:00:00",
+        "shares": 10,
+        "price": 180.0,
+        "signal_strength": 0.9,
+        "metadata": {"filing_accession": "ACC_CURRENT"},
+    }
+
+    with patch.object(harness, "_find_candidates", return_value=[fake_candidate]), \
+         patch(
+             "src.platform.shadow_harness.place_bracket_order",
+             return_value={"order_id": "O1", "entry_price": 180.0, "shares": 10},
+         ) as mock_place, \
+         patch(
+             "src.platform.shadow_harness.get_account_info",
+             return_value={"portfolio_value": 100_000.0},
+         ), \
+         patch(
+             "src.platform.shadow_harness.reconcile_paper_trades",
+             return_value={"status": "ok"},
+         ):
+        result = harness.run_one_tick(as_of=datetime(2023, 11, 5, 16, 0))
+
+    assert result["n_new_positions"] == 1
+    # place_bracket_order was called with desk='research_strat_gate6'
+    assert mock_place.called
+    kwargs = mock_place.call_args.kwargs
+    assert kwargs.get("desk") == "research_strat_gate6"
