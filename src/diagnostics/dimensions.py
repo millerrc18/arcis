@@ -18,7 +18,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-import numpy as np
 import pandas as pd
 
 CACHE_DIR = Path(".tmp/regime_diagnostic_cache")
@@ -63,24 +62,28 @@ def fetch_vix_daily(cache_dir: Path = CACHE_DIR) -> pd.Series:
     cache_file = cache_dir / "vix_daily.parquet"
     if cache_file.exists():
         df = pd.read_parquet(cache_file)
-        return df["Close"].squeeze()
+        series: pd.Series = df["Close"].squeeze()  # type: ignore[assignment]
+        return series
     import yfinance as yf
-    df = yf.download(
+    raw = yf.download(
         "^VIX", start="2025-09-01", end="2026-04-20", progress=False,
     )
+    df = pd.DataFrame(raw)
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
     df.to_parquet(cache_file)
-    return df["Close"]
+    return pd.Series(df["Close"])
 
 
 def _prev_trading_day(
-    dt_str: str, index: pd.DatetimeIndex,
+    dt_str: str, index: pd.Index,
 ) -> Optional[pd.Timestamp]:
     """Find the trading day strictly before the entry date."""
     entry_date = pd.Timestamp(dt_str[:10])
-    prior = index[index < entry_date]
-    return prior[-1] if len(prior) > 0 else None
+    prior = index[index < entry_date]  # type: ignore[operator]
+    if len(prior) == 0:
+        return None
+    return pd.Timestamp(prior[-1])  # type: ignore[arg-type]
 
 
 def backfill_vix(

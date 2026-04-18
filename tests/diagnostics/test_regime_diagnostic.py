@@ -5,8 +5,6 @@ Each test is self-contained with synthetic data — no DB dependency.
 """
 
 import numpy as np
-import pytest
-from datetime import datetime, timezone, timedelta
 
 
 # ── dimensions tests ──────────────────────────────────────────────
