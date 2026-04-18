@@ -85,9 +85,9 @@ with an unbeatable technological moat.
 | Broker abstraction (Alpaca active, IB dormant) | LIVE -- Alpaca only; IB cold-stored per SD#41 (`trading.ib_enabled=false`), all IB code preserved for reactivation |
 | Telegram | LIVE -- 56 functions, gated behind trade_id |
 | Intra-day reconciliation | LIVE -- every 15 min during market hours |
-| Dashboard (Arcis) | LIVE -- 25 pages (Trade History with excess-Sharpe lead panel replaces Broker Comparison; Velocity), dark/light toggle, mobile-responsive sidebar |
+| Dashboard (Arcis) | LIVE -- 26 pages (Diagnostics page added v0.25.0; Trade History with excess-Sharpe lead panel replaces Broker Comparison; Velocity), dark/light toggle, mobile-responsive sidebar |
 | Simulation engine | LIVE -- 13 regimes, Monte Carlo, traffic light validation, regime selector |
-| Schema registry | LIVE -- 53 tables, single source of truth |
+| Schema registry | LIVE -- 63 tables, single source of truth |
 | Render sync | LIVE -- 44/51 tables synced to Postgres |
 | Halcyon-audit plugin | LIVE -- 8 domain agents, /audit command |
 | Automated guardrails | LIVE -- test_repo_structure.py |
@@ -607,6 +607,13 @@ src/schema/registry.py          <- THE source of truth (53 TableDefs)
 | Table | Purpose |
 |---|---|
 | `bracket_health` | Bracket order health checks for open positions |
+
+### Diagnostics (2) — v0.25.0
+
+| Table | Purpose |
+|---|---|
+| `diagnostic_runs` | Regime and forensic diagnostic run metadata + full report markdown + extracted summary |
+| `diagnostic_run_plots` | Base64-encoded PNG plots produced by diagnostic runs (sibling table for per-plot sync granularity) |
 
 ---
 
