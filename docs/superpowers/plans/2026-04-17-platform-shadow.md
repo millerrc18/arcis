@@ -158,8 +158,8 @@ Expected output (or similar) in `config/settings.example.yaml`:
 ```yaml
 desks:
   swing:
-    alpaca_key_env: ALPACA_PAPER_API_KEY
-    alpaca_secret_env: ALPACA_PAPER_API_SECRET
+    alpaca_key_env: ALPACA_API_KEY
+    alpaca_secret_env: ALPACA_API_SECRET
   research:
     alpaca_key_env: ALPACA_RESEARCH_API_KEY
     alpaca_secret_env: ALPACA_RESEARCH_API_SECRET
@@ -187,8 +187,8 @@ If both keys exist: proceed.
 ```yaml
 desks:
   swing:
-    alpaca_key_env: ALPACA_PAPER_API_KEY
-    alpaca_secret_env: ALPACA_PAPER_API_SECRET
+    alpaca_key_env: ALPACA_API_KEY
+    alpaca_secret_env: ALPACA_API_SECRET
     enabled: true
   research:
     alpaca_key_env: ALPACA_RESEARCH_API_KEY
@@ -209,8 +209,8 @@ import pytest
 
 def test_get_client_returns_cached_instance_per_desk(monkeypatch):
     """Calling get_client(desk) twice returns the same instance."""
-    monkeypatch.setenv("ALPACA_PAPER_API_KEY", "swing_key")
-    monkeypatch.setenv("ALPACA_PAPER_API_SECRET", "swing_sec")
+    monkeypatch.setenv("ALPACA_API_KEY", "swing_key")
+    monkeypatch.setenv("ALPACA_API_SECRET", "swing_sec")
 
     from src.shadow_trading.alpaca_clients import get_client, _CLIENT_CACHE
     _CLIENT_CACHE.clear()
@@ -225,8 +225,8 @@ def test_get_client_returns_cached_instance_per_desk(monkeypatch):
 
 
 def test_get_client_tags_desk_attribute(monkeypatch):
-    monkeypatch.setenv("ALPACA_PAPER_API_KEY", "swing_key")
-    monkeypatch.setenv("ALPACA_PAPER_API_SECRET", "swing_sec")
+    monkeypatch.setenv("ALPACA_API_KEY", "swing_key")
+    monkeypatch.setenv("ALPACA_API_SECRET", "swing_sec")
 
     from src.shadow_trading.alpaca_clients import get_client, _CLIENT_CACHE
     _CLIENT_CACHE.clear()
@@ -244,8 +244,8 @@ def test_get_client_unknown_desk_raises():
 
 def test_verify_accounts_distinct_raises_on_same_account(monkeypatch):
     """If both desks resolve to the same Alpaca account_number, raise."""
-    monkeypatch.setenv("ALPACA_PAPER_API_KEY", "same_key")
-    monkeypatch.setenv("ALPACA_PAPER_API_SECRET", "same_sec")
+    monkeypatch.setenv("ALPACA_API_KEY", "same_key")
+    monkeypatch.setenv("ALPACA_API_SECRET", "same_sec")
     monkeypatch.setenv("ALPACA_RESEARCH_API_KEY", "same_key")
     monkeypatch.setenv("ALPACA_RESEARCH_API_SECRET", "same_sec")
 
@@ -263,8 +263,8 @@ def test_verify_accounts_distinct_raises_on_same_account(monkeypatch):
 
 
 def test_verify_accounts_distinct_passes_on_different_accounts(monkeypatch):
-    monkeypatch.setenv("ALPACA_PAPER_API_KEY", "swing_k")
-    monkeypatch.setenv("ALPACA_PAPER_API_SECRET", "swing_s")
+    monkeypatch.setenv("ALPACA_API_KEY", "swing_k")
+    monkeypatch.setenv("ALPACA_API_SECRET", "swing_s")
     monkeypatch.setenv("ALPACA_RESEARCH_API_KEY", "research_k")
     monkeypatch.setenv("ALPACA_RESEARCH_API_SECRET", "research_s")
 
@@ -289,7 +289,7 @@ def test_verify_accounts_distinct_passes_on_different_accounts(monkeypatch):
 
 
 def test_get_client_env_var_missing_raises(monkeypatch):
-    monkeypatch.delenv("ALPACA_PAPER_API_KEY", raising=False)
+    monkeypatch.delenv("ALPACA_API_KEY", raising=False)
 
     from src.shadow_trading.alpaca_clients import get_client, _CLIENT_CACHE
     _CLIENT_CACHE.clear()
