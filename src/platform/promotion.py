@@ -161,14 +161,47 @@ def _evaluate_shadow_trading_gate(
     strategy_id: str, db_path: str,
 ) -> tuple[bool, dict]:
     """Evaluate gate criteria for 'backtested → shadow_trading' transition.
-    Uses real N_eff + V from trials_registry (never falls back to null).
-    PBO and OOS_efficiency stubs filled by future sprint work.
+
+    Enforces all three rigor gates per spec line 1127-1135:
+      DSR >= GATE_DSR_MIN (0.95), PBO <= GATE_PBO_MAX (0.50),
+      OOS_efficiency >= GATE_OOS_EFFICIENCY_MIN (0.30).
+    Fails immediately if PBO or OOS_efficiency are NULL — caller must run
+    --with-walkforward (OOS) or param-sweep campaign (PBO, Sprint 4).
     """
     passes_dsr, evidence = _evaluate_dsr_evidence(strategy_id, db_path)
-    # PBO and OOS_efficiency — filled by future sprint work.
-    evidence["pbo"] = None
-    evidence["oos_efficiency"] = None
-    return passes_dsr, evidence
+    if "error" in evidence:
+        return False, evidence
+
+    # Read pbo + oos_efficiency from the same backtest row (NULL-defaulting).
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT pbo, oos_efficiency FROM backtest_results "
+            "WHERE strategy_id = ? ORDER BY created_at DESC LIMIT 1",
+            (strategy_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    pbo = row[0] if row else None
+    oos_efficiency = row[1] if row else None
+    evidence["pbo"] = pbo
+    evidence["oos_efficiency"] = oos_efficiency
+
+    if pbo is None:
+        evidence["error"] = "backtest has no PBO — run a param sweep with CSCV first"
+        return False, evidence
+    if oos_efficiency is None:
+        evidence["error"] = (
+            "backtest has no walk-forward OOS efficiency — "
+            "run with --with-walkforward first"
+        )
+        return False, evidence
+
+    passes_pbo = bool(pbo <= GATE_PBO_MAX)
+    passes_oos = bool(oos_efficiency >= GATE_OOS_EFFICIENCY_MIN)
+    evidence["passes_pbo_max"] = passes_pbo
+    evidence["passes_oos_efficiency_min"] = passes_oos
+    return passes_dsr and passes_pbo and passes_oos, evidence
 
 
 def _evaluate_production_gate(
@@ -177,11 +210,9 @@ def _evaluate_production_gate(
     """Evaluate gate criteria for 'shadow_trading → production' transition.
     Requires shadow_trading gate pass + 30+ shadow trades + 60+ days +
     manual confirm (enforced at promote() call site).
-    PBO and OOS_efficiency stubs filled by future sprint work.
     """
     passes_dsr, evidence = _evaluate_dsr_evidence(strategy_id, db_path)
-    # PBO and OOS_efficiency — filled by future sprint work.
-    evidence["pbo"] = None
+    evidence["pbo"] = None  # Sprint 4 wires production gate PBO check
     evidence["oos_efficiency"] = None
     return passes_dsr, evidence
 
