@@ -70,11 +70,18 @@ def test_bootstrap_errors_fail_only_on_decorator_validation():
     )
 
 
+CALLABLE_FIELDS = {"query_function", "health_check_function"}
+
+
 def test_every_entry_passes_pydantic_revalidation():
-    """Re-dump and re-validate each entry — confirms nothing monkey-patched it."""
+    """Re-dump each entry, confirming required fields are populated.
+
+    Callable fields are excluded from the JSON dump — they don't serialize
+    and aren't re-validatable without reconstruction, which isn't the point
+    of this test.
+    """
     for entry in all_entries():
-        # Pydantic v2: reconstruct from dump to re-run validators.
-        dumped = entry.model_dump(mode="json")
+        dumped = entry.model_dump(mode="json", exclude=CALLABLE_FIELDS)
         assert "name" in dumped and dumped["name"]
         assert "description" in dumped and dumped["description"]
         assert "category" in dumped and dumped["category"]
