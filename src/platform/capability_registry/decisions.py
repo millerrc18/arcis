@@ -10,6 +10,12 @@ evaluation doc §8.1). Each call to `register_decision(...)` captures:
 
 Future sessions reviewing Halcyon Lab can read this file to understand
 *why* the platform behaves the way it does — complement to MASTER.md.
+
+Called by: src.platform.capability_registry.bootstrap (import-time side effect)
+Calls: src.platform.capability_registry.register_decision
+Owns tables: none
+Config keys: none
+Tests: tests/test_capability_registry_integration.py (end-to-end via bootstrap)
 """
 from __future__ import annotations
 

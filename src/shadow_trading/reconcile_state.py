@@ -5,6 +5,12 @@ signal uses MAX(updated_at) from shadow_trades where status='open' as a
 proxy for "the reconcile loop recently touched the open cohort." Stale
 means no touch in 30 minutes during market hours — surfaces staleness
 without needing a new table.
+
+Called by: src.platform.capability_registry.bootstrap (import-time side effect)
+Calls: src.config.DB_PATH, sqlite3
+Owns tables: none (reads shadow_trades)
+Config keys: none
+Tests: tests/shadow_trading/test_reconcile_state.py
 """
 from __future__ import annotations
 

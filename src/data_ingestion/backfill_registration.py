@@ -8,6 +8,12 @@ detail view documents the CLI invocation.
 
 Sprint 1B registration:
 - edgar_historical_backfill (Action, CLI-only)
+
+Called by: src.platform.capability_registry.bootstrap (import-time side effect)
+Calls: src.platform.capability_registry.register_action
+Owns tables: none
+Config keys: none
+Tests: tests/data_ingestion/test_backfill_registration.py
 """
 from __future__ import annotations
 

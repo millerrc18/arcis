@@ -222,6 +222,36 @@ def _compute_counts(actions, states, systems, decisions) -> dict[str, Any]:
     }
 
 
+def _build_offline_payload(actions, states, systems, decisions) -> dict[str, Any]:
+    """Payload shape when local SQLite is unreachable — registries only."""
+    return {
+        "generated_at": _utc_now_iso(),
+        "actions": [_enrich_action(a) for a in actions],
+        "states": [
+            {**_base_payload(s), "live": {"status": "unavailable", "error": "sqlite_unavailable"}, "delta_since_last_view": None}
+            for s in states
+        ],
+        "systems": [
+            {**_base_payload(s), "health": {"status": "unavailable", "error": "sqlite_unavailable"}}
+            for s in systems
+        ],
+        "decisions": [_enrich_decision(d) for d in decisions],
+        "counts": _compute_counts(actions, states, systems, decisions),
+    }
+
+
+def _build_live_payload(conn, actions, states, systems, decisions) -> dict[str, Any]:
+    """Normal payload shape with live state/health enrichment."""
+    return {
+        "generated_at": _utc_now_iso(),
+        "actions": [_enrich_action(a) for a in actions],
+        "states": [_enrich_state(s, conn) for s in states],
+        "systems": [_enrich_system(s, conn) for s in systems],
+        "decisions": [_enrich_decision(d) for d in decisions],
+        "counts": _compute_counts(actions, states, systems, decisions),
+    }
+
+
 def create_router(runtime, verify_auth) -> APIRouter:
     """Build the /api/system/index router.
 
@@ -243,33 +273,10 @@ def create_router(runtime, verify_auth) -> APIRouter:
             conn = _open_sqlite()
         except sqlite3.Error as exc:
             logger.warning("[SYSTEM_INDEX] unable to open local SQLite: %r", exc)
-            # Return the registry structure without live data — per R5,
-            # infrastructure failure must not 500 the endpoint.
-            return {
-                "generated_at": _utc_now_iso(),
-                "actions": [_enrich_action(a) for a in actions],
-                "states": [
-                    {**_base_payload(s), "live": {"status": "unavailable", "error": "sqlite_unavailable"}, "delta_since_last_view": None}
-                    for s in states
-                ],
-                "systems": [
-                    {**_base_payload(s), "health": {"status": "unavailable", "error": "sqlite_unavailable"}}
-                    for s in systems
-                ],
-                "decisions": [_enrich_decision(d) for d in decisions],
-                "counts": _compute_counts(actions, states, systems, decisions),
-            }
+            return _build_offline_payload(actions, states, systems, decisions)
 
         try:
-            payload = {
-                "generated_at": _utc_now_iso(),
-                "actions": [_enrich_action(a) for a in actions],
-                "states": [_enrich_state(s, conn) for s in states],
-                "systems": [_enrich_system(s, conn) for s in systems],
-                "decisions": [_enrich_decision(d) for d in decisions],
-                "counts": _compute_counts(actions, states, systems, decisions),
-            }
-            return payload
+            return _build_live_payload(conn, actions, states, systems, decisions)
         finally:
             conn.close()
 

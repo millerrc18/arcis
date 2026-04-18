@@ -4,6 +4,12 @@ Thin wrapper that the capability registry exposes via /api/system/index.
 The underlying data lives in the shadow_trades table; the query uses the
 canonical TERMINAL_STATUSES / ACTIVE_STATUSES constants from models.py
 rather than hardcoding status strings.
+
+Called by: src.platform.capability_registry.bootstrap (import-time side effect)
+Calls: src.config.DB_PATH, sqlite3
+Owns tables: none (reads shadow_trades)
+Config keys: none
+Tests: tests/shadow_trading/test_state.py
 """
 from __future__ import annotations
 

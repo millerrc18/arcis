@@ -2,6 +2,12 @@
 
 Reads from the YAML config rather than the database because bootcamp is
 a deployment-level decision, not a runtime-mutable state.
+
+Called by: src.platform.capability_registry.bootstrap (import-time side effect)
+Calls: src.config.load_config
+Owns tables: none
+Config keys: bootcamp.enabled, bootcamp.phase, bootcamp.qualification_threshold, bootcamp.email_mode
+Tests: tests/services/test_bootcamp_state.py
 """
 from __future__ import annotations
 

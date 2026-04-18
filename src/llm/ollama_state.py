@@ -3,6 +3,12 @@
 Reads the configured model from settings.local.yaml rather than probing
 the Ollama server (the probe belongs in a SystemEntry's health check).
 Safe to call in any environment; returns config value or None.
+
+Called by: src.platform.capability_registry.bootstrap (import-time side effect)
+Calls: src.config.load_config
+Owns tables: none
+Config keys: llm.model, llm.host, llm.enabled, llm.temperature
+Tests: tests/llm/test_ollama_state.py
 """
 from __future__ import annotations
 

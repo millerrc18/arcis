@@ -8,31 +8,68 @@ The ratchet: asserts the post-Sprint-1B final state:
   real TestClient against the cloud router.
 
 Lives at tests/ root (not tests/platform/) so every CI run exercises it.
+
+Test-order robustness: prior tests (e.g. tests/platform/test_capability_registry.py
+or tests/api/test_system_index.py) may clear-and-restore the registries, but
+the restore only covers the dict contents — the original modules are already
+in Python's import cache, so a subsequent ensure_bootstrapped() call cannot
+re-run the decorators. The module-scope fixture below force-reloads each
+CAPABILITY_MODULE so decorators fire again, restoring the full 18 regardless
+of what other tests did.
 """
 from __future__ import annotations
 
+import importlib
 from types import SimpleNamespace
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from src.api.cloud_routes.system_index import create_router
 from src.platform.capability_registry import (
+    clear_registries_for_tests,
     ensure_bootstrapped,
     list_actions,
     list_decisions,
     list_states,
     list_systems,
 )
-from src.platform.capability_registry.bootstrap import bootstrap_errors
+from src.platform.capability_registry.bootstrap import (
+    CAPABILITY_MODULES,
+    bootstrap_errors,
+    reset_for_tests,
+)
 
 
 def _noop_auth() -> None:
     return None
 
 
-def test_bootstrap_is_clean_in_final_state():
+@pytest.fixture(scope="module", autouse=True)
+def _force_repopulate():
+    """Guarantee the registries are populated at test-module entry.
+
+    Other test files may have left registries in a partially-cleared
+    state; Python's import cache prevents ensure_bootstrapped from
+    re-firing the decorators. Force-reload each capability module so
+    decorators execute again against a clean registry.
+    """
+    clear_registries_for_tests()
+    reset_for_tests()
+    for module_name in CAPABILITY_MODULES:
+        try:
+            importlib.import_module(module_name)
+            importlib.reload(importlib.import_module(module_name))
+        except ModuleNotFoundError:
+            # Tolerated during incremental rollout
+            pass
+    reset_for_tests()
     ensure_bootstrapped()
+    yield
+
+
+def test_bootstrap_is_clean_in_final_state():
     errs = bootstrap_errors()
     assert errs == [], (
         "Capability registry bootstrap has errors after full registration. "
@@ -42,7 +79,6 @@ def test_bootstrap_is_clean_in_final_state():
 
 
 def test_18_capabilities_registered():
-    ensure_bootstrapped()
     total = (
         len(list_actions())
         + len(list_states())
@@ -56,7 +92,6 @@ def test_18_capabilities_registered():
 
 
 def test_every_registry_type_has_entries():
-    ensure_bootstrapped()
     assert list_actions(), "No Actions registered"
     assert list_states(), "No States registered"
     assert list_systems(), "No Systems registered"
@@ -77,8 +112,6 @@ def test_system_index_endpoint_round_trip(tmp_path, monkeypatch):
         conn.commit()
     finally:
         conn.close()
-
-    ensure_bootstrapped()
 
     app = FastAPI()
     app.include_router(create_router(SimpleNamespace(), _noop_auth))
@@ -120,7 +153,6 @@ def test_mark_reviewed_works_for_real_capability(tmp_path, monkeypatch):
     finally:
         conn.close()
 
-    ensure_bootstrapped()
     app = FastAPI()
     app.include_router(create_router(SimpleNamespace(), _noop_auth))
     client = TestClient(app)

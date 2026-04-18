@@ -10,6 +10,12 @@ Its "health" is a derived signal from the baseline file:
 Since the command runs via Claude Code, not an in-process daemon, there
 is no lockfile or running process to probe — the file-based signal is
 the best honest answer.
+
+Called by: src.platform.capability_registry.bootstrap (import-time side effect)
+Calls: src.platform.capability_registry.register_system
+Owns tables: none (reads config/daily_repo_audit_baseline.json)
+Config keys: none
+Tests: tests/platform/test_capability_registry.py (end-to-end via bootstrap)
 """
 from __future__ import annotations
 

@@ -18,6 +18,9 @@ local dev stays unblocked so the operator can still run the app.
 Called by: src.api.cloud_app startup; src.api.app startup;
            tests/test_capability_registry_metadata.py fixture.
 Calls: the capability-hosting modules below.
+Owns tables: none
+Config keys: none
+Tests: tests/platform/test_capability_registry.py, tests/test_capability_registry_integration.py
 """
 from __future__ import annotations
 
