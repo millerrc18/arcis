@@ -148,8 +148,11 @@ def entry_hour_bucket(entry_time: str) -> str:
     return "14:00-16:00"
 
 
-def holding_period_bucket(duration_days: int) -> str:
+def holding_period_bucket(duration_days: int | str | None) -> str:
     """Categorize holding period into short/medium/long."""
+    if duration_days is None:
+        return "short"
+    duration_days = int(duration_days)
     if duration_days <= 3:
         return "short"
     if duration_days <= 6:
