@@ -132,7 +132,68 @@ class TestBackfillIdempotency:
 
 
 class TestPaginationDiscovery:
-    @pytest.mark.skip(reason="discover_filings_for_ticker implemented in Task 6")
     def test_discovers_filings_from_paginated_files(self):
         """Submissions API filings.files[] pagination yields historical filings."""
-        pass  # Will be implemented after Task 6
+        # Simulate the main submissions response with a files[] reference
+        main_response = {
+            "cik": "320193",
+            "filings": {
+                "recent": {
+                    "form": ["10-K"],
+                    "filingDate": ["2024-11-01"],
+                    "accessionNumber": ["0000320193-24-000123"],
+                    "primaryDocDescription": ["10-K"],
+                    "primaryDocument": ["aapl-20240928.htm"],
+                },
+                "files": [
+                    {"name": "CIK0000320193-submissions-001.json"}
+                ],
+            },
+        }
+
+        # Simulate the paginated file with older filings
+        paginated_response = {
+            "form": ["10-K", "10-Q", "8-K"],
+            "filingDate": ["2019-10-31", "2019-07-31", "2019-08-01"],
+            "accessionNumber": [
+                "0000320193-19-000119",
+                "0000320193-19-000076",
+                "0000320193-19-000080",
+            ],
+            "primaryDocDescription": ["10-K", "10-Q", "8-K"],
+            "primaryDocument": [
+                "aapl-20190928.htm",
+                "aapl-20190629.htm",
+                "some-8k.htm",
+            ],
+        }
+
+        def mock_get(url, **kwargs):
+            resp = MagicMock()
+            resp.status_code = 200
+            if "submissions-001" in url:
+                resp.json.return_value = paginated_response
+            else:
+                resp.json.return_value = main_response
+            resp.raise_for_status.return_value = None
+            return resp
+
+        with patch("scripts.backfill_edgar_historical.requests.get", side_effect=mock_get):
+            from scripts.backfill_edgar_historical import discover_filings_for_ticker
+
+            filings, doc_cache = discover_filings_for_ticker(
+                cik="0000320193",
+                ticker="AAPL",
+                form_types=["10-K", "10-Q"],
+                start_date="2019-01-01",
+                end_date="2023-12-31",
+            )
+
+        # Should find the 10-K and 10-Q from 2019 (8-K filtered out)
+        assert len(filings) == 2
+        forms = {f["form_type"] for f in filings}
+        assert forms == {"10-K", "10-Q"}
+
+        # primaryDocument should be cached from paginated response
+        assert "0000320193-19-000119" in doc_cache
+        assert doc_cache["0000320193-19-000119"] == "aapl-20190928.htm"
