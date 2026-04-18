@@ -682,12 +682,14 @@ class WatchLoop(HandlerRegistryMixin):
         if (self._last_reconcile_time is None or
                 (now - self._last_reconcile_time).total_seconds() > 900):
             try:
-                from src.shadow_trading.reconcile import reconcile_paper_trades
-                recon = reconcile_paper_trades(dry_run=False)
-                closed = recon.get("marked_closed", [])
-                if closed:
+                from src.shadow_trading.reconcile_dispatch import reconcile_all_paper_trades
+                all_recon = reconcile_all_paper_trades(dry_run=False)
+                total_closed: list = []
+                for desk, recon in all_recon.items():
+                    total_closed.extend(recon.get("marked_closed", []))
+                if total_closed:
                     logger.info("[WATCH] Intra-day reconciliation closed %d stale trades: %s",
-                                len(closed), closed)
+                                len(total_closed), total_closed)
                 self._last_reconcile_time = now
             except Exception as e:
                 logger.warning("[WATCH] Intra-day reconciliation failed: %s", e)
