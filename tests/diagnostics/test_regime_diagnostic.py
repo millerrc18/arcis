@@ -87,3 +87,73 @@ def test_holding_period_bucket_edge_cases():
     assert holding_period_bucket(6) == "medium"
     assert holding_period_bucket(7) == "long"
     assert holding_period_bucket(15) == "long"
+
+
+# ── bootstrap tests ───────────────────────────────────────────────
+
+
+def test_bootstrap_ci_coverage():
+    """Bootstrap CI from N(0,1) should contain 0 ~95% of the time."""
+    from src.diagnostics.bootstrap import bootstrap_ci
+
+    rng = np.random.default_rng(42)
+    contains_zero = 0
+    trials = 200
+    for _ in range(trials):
+        data = rng.normal(0, 1, size=30)
+        result = bootstrap_ci(data, n_resamples=2000, seed=None)
+        if result["ci_lower"] <= 0 <= result["ci_upper"]:
+            contains_zero += 1
+    coverage = contains_zero / trials
+    assert 0.88 <= coverage <= 1.00, f"Coverage {coverage:.2f} outside [0.88, 1.00]"
+
+
+def test_bootstrap_ci_shifted_excludes_zero():
+    """Bootstrap CI from N(2, 0.5) with n=50 should NOT contain 0."""
+    from src.diagnostics.bootstrap import bootstrap_ci
+
+    rng = np.random.default_rng(42)
+    data = rng.normal(2.0, 0.5, size=50)
+    result = bootstrap_ci(data, n_resamples=10000, seed=42)
+    assert result["ci_lower"] > 0, f"CI lower {result['ci_lower']:.3f} should be > 0"
+
+
+def test_fdr_uniform_pvalues():
+    """~10% of uniform p-values should survive BH at q=0.10."""
+    from src.diagnostics.fdr import benjamini_hochberg
+
+    rng = np.random.default_rng(42)
+    pvals = rng.uniform(0, 1, size=100)
+    adjusted, survived = benjamini_hochberg(pvals, q=0.10)
+    n_survived = sum(survived)
+    assert 2 <= n_survived <= 20, f"Survived {n_survived}, expected ~10"
+
+
+def test_fdr_strong_signal_survives():
+    """A very small p-value always survives FDR correction."""
+    from src.diagnostics.fdr import benjamini_hochberg
+
+    rng = np.random.default_rng(42)
+    pvals = list(rng.uniform(0.3, 1.0, size=19))
+    pvals.append(0.001)
+    adjusted, survived = benjamini_hochberg(np.array(pvals), q=0.10)
+    assert survived[-1] is True, "p=0.001 should survive FDR"
+
+
+def test_power_mde_matches_scipy():
+    """MDE calculation matches expected range for known params."""
+    from src.diagnostics.power import cell_mde
+
+    mde = cell_mde(n=20, std=1.0, alpha=0.05, power=0.80)
+    assert 0.55 <= mde <= 0.75, f"MDE {mde:.3f} outside expected range"
+
+
+def test_regression_power_mde():
+    """Regression slope MDE is computed in correct units."""
+    from src.diagnostics.power import regression_slope_mde
+
+    mde = regression_slope_mde(
+        n=88, x_std=1.5, y_std=3.0, alpha=0.05, power=0.80,
+    )
+    assert mde > 0, "MDE must be positive"
+    assert 0.2 <= mde <= 3.0, f"MDE {mde:.3f} outside plausible range"
