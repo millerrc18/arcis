@@ -58,11 +58,15 @@ def get_client(desk: str) -> TradingClient:
             f"desk {desk!r} env var {key_var} or {sec_var} not set; "
             "operator must export credentials before watch loop starts"
         )
-    client = TradingClient(api_key=api_key, secret_key=api_sec, paper=True)
-    client.desk_tag = desk
     with _CACHE_LOCK:
+        # Double-checked locking — another thread may have populated
+        # the cache after our early presence check at the top.
+        if desk in _CLIENT_CACHE:
+            return _CLIENT_CACHE[desk]
+        client = TradingClient(api_key=api_key, secret_key=api_sec, paper=True)
+        client.desk_tag = desk
         _CLIENT_CACHE[desk] = client
-    return client
+        return client
 
 
 def verify_accounts_distinct() -> None:

@@ -12,7 +12,23 @@ def test_get_client_returns_cached_instance_per_desk(monkeypatch):
     from src.shadow_trading.alpaca_clients import get_client, _CLIENT_CACHE
     _CLIENT_CACHE.clear()
 
-    with patch("src.shadow_trading.alpaca_clients.TradingClient") as mock_tc:
+    with patch(
+        "src.shadow_trading.alpaca_clients.load_config",
+        return_value={
+            "desks": {
+                "swing": {
+                    "alpaca_key_env": "ALPACA_API_KEY",
+                    "alpaca_secret_env": "ALPACA_API_SECRET",
+                    "enabled": True,
+                },
+                "research": {
+                    "alpaca_key_env": "ALPACA_RESEARCH_API_KEY",
+                    "alpaca_secret_env": "ALPACA_RESEARCH_API_SECRET",
+                    "enabled": True,
+                },
+            },
+        },
+    ), patch("src.shadow_trading.alpaca_clients.TradingClient") as mock_tc:
         mock_tc.return_value = MagicMock(desk_tag=None)
         c1 = get_client("swing")
         c2 = get_client("swing")
@@ -27,7 +43,23 @@ def test_get_client_tags_desk_attribute(monkeypatch):
 
     from src.shadow_trading.alpaca_clients import get_client, _CLIENT_CACHE
     _CLIENT_CACHE.clear()
-    with patch("src.shadow_trading.alpaca_clients.TradingClient") as mock_tc:
+    with patch(
+        "src.shadow_trading.alpaca_clients.load_config",
+        return_value={
+            "desks": {
+                "swing": {
+                    "alpaca_key_env": "ALPACA_API_KEY",
+                    "alpaca_secret_env": "ALPACA_API_SECRET",
+                    "enabled": True,
+                },
+                "research": {
+                    "alpaca_key_env": "ALPACA_RESEARCH_API_KEY",
+                    "alpaca_secret_env": "ALPACA_RESEARCH_API_SECRET",
+                    "enabled": True,
+                },
+            },
+        },
+    ), patch("src.shadow_trading.alpaca_clients.TradingClient") as mock_tc:
         mock_tc.return_value = MagicMock()
         client = get_client("swing")
     assert getattr(client, "desk_tag", None) == "swing"
@@ -36,7 +68,23 @@ def test_get_client_tags_desk_attribute(monkeypatch):
 def test_get_client_unknown_desk_raises():
     from src.shadow_trading.alpaca_clients import get_client, _CLIENT_CACHE
     _CLIENT_CACHE.clear()
-    with pytest.raises(ValueError, match="unknown desk"):
+    with patch(
+        "src.shadow_trading.alpaca_clients.load_config",
+        return_value={
+            "desks": {
+                "swing": {
+                    "alpaca_key_env": "ALPACA_API_KEY",
+                    "alpaca_secret_env": "ALPACA_API_SECRET",
+                    "enabled": True,
+                },
+                "research": {
+                    "alpaca_key_env": "ALPACA_RESEARCH_API_KEY",
+                    "alpaca_secret_env": "ALPACA_RESEARCH_API_SECRET",
+                    "enabled": True,
+                },
+            },
+        },
+    ), pytest.raises(ValueError, match="unknown desk"):
         get_client("nonexistent_desk")
 
 
@@ -151,5 +199,21 @@ def test_get_client_env_var_missing_raises(monkeypatch):
 
     from src.shadow_trading.alpaca_clients import get_client, _CLIENT_CACHE
     _CLIENT_CACHE.clear()
-    with pytest.raises(RuntimeError, match="env var"):
+    with patch(
+        "src.shadow_trading.alpaca_clients.load_config",
+        return_value={
+            "desks": {
+                "swing": {
+                    "alpaca_key_env": "ALPACA_API_KEY",
+                    "alpaca_secret_env": "ALPACA_API_SECRET",
+                    "enabled": True,
+                },
+                "research": {
+                    "alpaca_key_env": "ALPACA_RESEARCH_API_KEY",
+                    "alpaca_secret_env": "ALPACA_RESEARCH_API_SECRET",
+                    "enabled": True,
+                },
+            },
+        },
+    ), pytest.raises(RuntimeError, match="env var"):
         get_client("swing")
