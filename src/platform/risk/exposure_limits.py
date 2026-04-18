@@ -159,6 +159,53 @@ def check_book_drawdown_circuit_breaker(
     return (not breached, float(max_dd))
 
 
+def _check_concentration_limits(
+    ticker: str,
+    proposed_shares: int,
+    proposed_price: float,
+    current_positions: list[dict],
+    current_nav: float,
+) -> tuple[bool, str | None]:
+    """Check single-name and sector concentration; gross leverage.
+    Returns (allowed, reason_if_blocked). NAV assumed positive by caller.
+    """
+    # Single-name concentration
+    single_pct = _aggregate_single_name_value(
+        ticker, current_positions, proposed_shares, proposed_price,
+    ) / current_nav
+    if single_pct > HARD_LIMITS["max_single_name_pct_of_nav"]:
+        return False, (
+            f"single-name concentration exceeded for {ticker}: "
+            f"{single_pct:.2%} > limit "
+            f"{HARD_LIMITS['max_single_name_pct_of_nav']:.2%} (6%)"
+        )
+
+    # Sector concentration
+    sector = _lookup_sector(ticker)
+    if sector is not None:
+        sector_pct = _aggregate_sector_value(
+            sector, current_positions, ticker, proposed_shares, proposed_price,
+        ) / current_nav
+        if sector_pct > HARD_LIMITS["max_sector_pct_of_nav"]:
+            return False, (
+                f"sector concentration exceeded for {sector}: "
+                f"{sector_pct:.2%} > limit "
+                f"{HARD_LIMITS['max_sector_pct_of_nav']:.2%} (25%)"
+            )
+
+    # Gross leverage
+    leverage = _gross_exposure(
+        current_positions, proposed_shares, proposed_price,
+    ) / current_nav
+    if leverage > HARD_LIMITS["max_gross_leverage"]:
+        return False, (
+            f"gross leverage exceeded: {leverage:.2f}x > limit "
+            f"{HARD_LIMITS['max_gross_leverage']:.1f}x"
+        )
+
+    return True, None
+
+
 def check_pre_trade_limits(
     ticker: str,
     proposed_shares: int,
@@ -193,44 +240,10 @@ def check_pre_trade_limits(
             f"ALL new entries blocked until manual reset."
         )
 
-    # 2. Single-name concentration
-    single_value = _aggregate_single_name_value(
-        ticker, current_positions, proposed_shares, proposed_price,
+    # 2-4. Concentration + leverage checks
+    return _check_concentration_limits(
+        ticker, proposed_shares, proposed_price, current_positions, current_nav,
     )
-    single_pct = single_value / current_nav
-    if single_pct > HARD_LIMITS["max_single_name_pct_of_nav"]:
-        return False, (
-            f"single-name concentration exceeded for {ticker}: "
-            f"{single_pct:.2%} > limit "
-            f"{HARD_LIMITS['max_single_name_pct_of_nav']:.2%} (6%)"
-        )
-
-    # 3. Sector concentration
-    sector = _lookup_sector(ticker)
-    if sector is not None:
-        sector_value = _aggregate_sector_value(
-            sector, current_positions, ticker, proposed_shares, proposed_price,
-        )
-        sector_pct = sector_value / current_nav
-        if sector_pct > HARD_LIMITS["max_sector_pct_of_nav"]:
-            return False, (
-                f"sector concentration exceeded for {sector}: "
-                f"{sector_pct:.2%} > limit "
-                f"{HARD_LIMITS['max_sector_pct_of_nav']:.2%} (25%)"
-            )
-
-    # 4. Gross leverage
-    gross = _gross_exposure(
-        current_positions, proposed_shares, proposed_price,
-    )
-    leverage = gross / current_nav
-    if leverage > HARD_LIMITS["max_gross_leverage"]:
-        return False, (
-            f"gross leverage exceeded: {leverage:.2f}x > limit "
-            f"{HARD_LIMITS['max_gross_leverage']:.1f}x"
-        )
-
-    return True, None
 
 
 def get_soft_limit_breaches(db_path: str | None = None) -> list[dict]:
