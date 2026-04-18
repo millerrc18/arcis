@@ -158,3 +158,52 @@ def test_regression_power_mde():
     )
     assert mde > 0, "MDE must be positive"
     assert 0.2 <= mde <= 3.0, f"MDE {mde:.3f} outside plausible range"
+
+
+# ── analyses tests ────────────────────────────────────────────────
+
+
+def test_cells_with_insufficient_data():
+    """Cells with n < 5 produce no computed stats."""
+    from src.diagnostics.analyses import _cell_stats
+
+    data = np.array([1.0, 2.0, 3.0])  # n=3 < 5
+    result = _cell_stats(data, label="tiny_cell")
+    assert result["n"] == 3
+    assert result["status"] == "insufficient_data"
+    assert result["point_estimate"] is None
+    assert result["ci_lower"] is None
+    assert result["p_value"] is None
+
+
+def test_cells_with_sufficient_data():
+    """Cells with n >= 5 produce full stats."""
+    from src.diagnostics.analyses import _cell_stats
+
+    rng = np.random.default_rng(42)
+    data = rng.normal(1.0, 2.0, size=20)
+    result = _cell_stats(data, label="good_cell")
+    assert result["n"] == 20
+    assert result["status"] == "computed"
+    assert result["point_estimate"] is not None
+    assert result["ci_lower"] is not None
+    assert result["ci_upper"] is not None
+    assert result["p_value"] is not None
+    assert result["ci_lower"] <= result["point_estimate"] <= result["ci_upper"]
+
+
+def test_vix_regression_returns_required_fields():
+    """VIX regression result has all required fields including slope MDE."""
+    from src.diagnostics.analyses import vix_regression
+    import pandas as pd
+
+    rng = np.random.default_rng(42)
+    df = pd.DataFrame({
+        "vix_at_entry": rng.uniform(19, 25, size=50),
+        "excess_return": rng.normal(0, 3, size=50),
+    })
+    result = vix_regression(df)
+    required = ["r", "p_value", "slope", "slope_ci_lower", "slope_ci_upper",
+                "intercept", "mde_slope", "mde_benchmark", "is_underpowered"]
+    for key in required:
+        assert key in result, f"Missing key: {key}"
