@@ -188,6 +188,17 @@ async def _run_backtest_async(req: BacktestKickoffReq, result_id: str) -> None:
         )
         result = run_backtest(cfg)
         _persist(result, db_path=DB_PATH)
+        try:
+            from src.notifications.platform_events import notify_backtest_complete
+            notify_backtest_complete(
+                strategy_id=req.strategy_id,
+                result_id=result_id,
+                passed_gate_a=(result.metrics.get("deflated_sharpe") or 0) >= 0.95,
+            )
+        except Exception:
+            logger.exception(
+                "[PLATFORM] notify_backtest_complete failed (non-fatal)",
+            )
     except Exception:
         logger.exception(
             "[PLATFORM] async backtest %s failed", result_id,
@@ -227,6 +238,12 @@ async def promote_strategy(req: PromoteReq) -> dict:
                 media_type="application/json",
             )
 
+    from_row = sqlite3.connect(DB_PATH).execute(
+        "SELECT current_status FROM strategy_registry WHERE strategy_id = ?",
+        (req.strategy_id,),
+    ).fetchone()
+    from_status = from_row[0] if from_row else "unknown"
+
     try:
         promote(
             strategy_id=req.strategy_id,
@@ -237,6 +254,11 @@ async def promote_strategy(req: PromoteReq) -> dict:
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    try:
+        from src.notifications.platform_events import notify_strategy_promoted
+        notify_strategy_promoted(req.strategy_id, from_status, req.target_status)
+    except Exception:
+        logger.exception("[PLATFORM] notify_strategy_promoted failed")
     return {"status": "promoted", "target_status": req.target_status}
 
 
@@ -302,4 +324,9 @@ async def demote_strategy(req: DemoteReq) -> dict:
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    try:
+        from src.notifications.platform_events import notify_strategy_demoted
+        notify_strategy_demoted(req.strategy_id, req.reason)
+    except Exception:
+        logger.exception("[PLATFORM] notify_strategy_demoted failed")
     return {"status": "deprecated"}

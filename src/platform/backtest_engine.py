@@ -386,7 +386,7 @@ def run_backtest(config: BacktestConfig) -> BacktestResult:
     ended = datetime.now(timezone.utc).isoformat()
     reproducibility = _reproducibility_dict(spec, started, ended)
 
-    result = BacktestResult(
+    return BacktestResult(
         strategy_id=spec.strategy_id,
         config=config,
         trades=trades,
@@ -394,15 +394,3 @@ def run_backtest(config: BacktestConfig) -> BacktestResult:
         metrics=metrics,
         reproducibility=reproducibility,
     )
-
-    try:
-        from src.notifications.platform_events import notify_backtest_complete
-        notify_backtest_complete(
-            strategy_id=config.strategy.strategy_id,
-            result_id=result.reproducibility.get("run_id", "unknown"),
-            passed_gate_a=(result.metrics.get("deflated_sharpe") or 0) >= 0.95,
-        )
-    except Exception:
-        logger.exception("[BACKTEST] notify_backtest_complete failed (non-fatal)")
-
-    return result

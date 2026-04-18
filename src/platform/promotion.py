@@ -29,14 +29,11 @@ actual close path).
 from __future__ import annotations
 
 import json
-import logging
 import sqlite3
 from datetime import datetime, timezone
 from typing import Any
 
 from src.config import DB_PATH
-
-logger = logging.getLogger(__name__)
 
 STATUSES = {"proposed", "backtested", "shadow_trading", "production", "deprecated"}
 
@@ -306,12 +303,6 @@ def promote(
     finally:
         conn.close()
 
-    try:
-        from src.notifications.platform_events import notify_strategy_promoted
-        notify_strategy_promoted(strategy_id, from_status, target_status)
-    except Exception:
-        logger.exception("[PROMOTION] notify_strategy_promoted failed")
-
 
 def demote(
     strategy_id: str, reason: str, db_path: str = DB_PATH,
@@ -339,12 +330,6 @@ def demote(
         conn.commit()
     finally:
         conn.close()
-
-    try:
-        from src.notifications.platform_events import notify_strategy_demoted
-        notify_strategy_demoted(strategy_id, reason)
-    except Exception:
-        logger.exception("[PROMOTION] notify_strategy_demoted failed")
 
 
 def pause(strategy_id: str, db_path: str = DB_PATH) -> None:
