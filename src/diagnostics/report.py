@@ -22,7 +22,7 @@ def _fmt(v: object, decimals: int = 3) -> str:
     """Format a numeric value, handling None."""
     if v is None:
         return "\u2014"
-    return f"{float(v):.{decimals}f}"
+    return f"{float(v):.{decimals}f}"  # type: ignore[arg-type]
 
 
 def _cell_table(cells: list[dict]) -> str:
@@ -54,40 +54,40 @@ def _cell_table(cells: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def generate_report(results: dict, date_str: str) -> str:
-    """Generate the full markdown diagnostic report."""
+def _write_header(results: dict, date_str: str) -> str:
+    """Report header with N and decision."""
     decision = results["decision"]
-    rationale = results["decision_rationale"]
-    agg = results["aggregate_ci"]
-    a1 = results["a1_vix"]
-
-    sections: list[str] = []
-
-    # Header
-    sections.append(f"# Regime Diagnostic v1 \u2014 {date_str}\n")
-    sections.append(
+    return (
+        f"# Regime Diagnostic v1 \u2014 {date_str}\n\n"
         f"**N = {results['n_total']}** closed trades | "
         f"**Decision: {decision}**\n"
     )
 
-    # Executive Summary
-    sections.append("## Executive Summary\n")
-    sections.append(f"**Recommendation: {decision}.** {rationale}\n")
-    sections.append(
+
+def _write_executive_summary(results: dict) -> str:
+    """Executive summary leading with decision."""
+    agg = results["aggregate_ci"]
+    lines = [
+        "## Executive Summary\n",
+        f"**Recommendation: {results['decision']}.** "
+        f"{results['decision_rationale']}\n",
         f"The incumbent pullback-in-uptrend strategy produced a mean excess "
         f"return of {_fmt(results['mean_excess'])}% vs SPY across "
         f"{results['n_total']} closed trades (95% CI: "
         f"[{_fmt(agg['ci_lower'])}, {_fmt(agg['ci_upper'])}], "
-        f"p = {_fmt(agg['p_value'], 4)}).\n"
-    )
+        f"p = {_fmt(agg['p_value'], 4)}).\n",
+    ]
     if results.get("quarantine_note"):
-        sections.append(
+        lines.append(
             f"**Quarantine note:** {results['quarantine_note']}\n"
         )
+    return "\n".join(lines)
 
-    # Methodology
-    sections.append("## Methodology\n")
-    sections.append(
+
+def _write_methodology() -> str:
+    """Methodology section with bootcamp-mode caveat."""
+    return (
+        "## Methodology\n\n"
         "- **Data source:** `shadow_trades` table "
         "(closed trades with exit and P&L)\n"
         "- **Excess return:** `pnl_pct - (spy_return_over_hold * 100)` "
@@ -99,51 +99,53 @@ def generate_report(results: dict, date_str: str) -> str:
         "- **Power:** Minimum detectable effect at 80% power, "
         "5% significance\n"
         "- **Minimum cell size:** n >= 5 "
-        "(cells below this are marked 'insufficient data')\n"
-    )
-    sections.append(
+        "(cells below this are marked 'insufficient data')\n\n"
         "**Bootcamp-mode caveat:** These trades were generated under "
         "bootcamp-mode relaxed thresholds (e.g., no conviction floors, "
         "no sector caps). Findings about regime contamination or null "
         "hypothesis apply to the bootcamp-mode strategy, not necessarily "
         "to the strict-mode version that would trade real capital. The "
-        "diagnostic tests whether the bootcamp-mode strategy has any alpha "
-        "signal worth filtering for.\n"
+        "diagnostic tests whether the bootcamp-mode strategy has any "
+        "alpha signal worth filtering for.\n"
     )
 
-    # Aggregate Statistics
-    sections.append("## Aggregate Statistics\n")
-    sections.append(
+
+def _write_aggregate_stats(results: dict) -> str:
+    """Aggregate statistics table + data quality notes."""
+    agg = results["aggregate_ci"]
+    lines = [
+        "## Aggregate Statistics\n",
         f"| Metric | Value |\n|---|---|\n"
         f"| N (closed trades) | {results['n_total']} |\n"
         f"| Mean excess return | {_fmt(results['mean_excess'])}% |\n"
         f"| 95% CI | [{_fmt(agg['ci_lower'])}, "
         f"{_fmt(agg['ci_upper'])}] |\n"
-        f"| p-value (H0: mean = 0) | {_fmt(agg['p_value'], 4)} |\n"
-    )
-
-    # Data Quality Notes
+        f"| p-value (H0: mean = 0) | {_fmt(agg['p_value'], 4)} |\n",
+    ]
     vix_flags = results.get("vix_flags", [])
     if vix_flags:
-        sections.append("### Data Quality Notes\n")
-        sections.append(
+        lines.append("### Data Quality Notes\n")
+        lines.append(
             "VIX cross-check: the following trades have `vix_at_entry` "
             "values that differ from yfinance ^VIX by more than "
             "0.5 points:\n"
         )
-        sections.append(
+        lines.append(
             "| Trade ID | Stored | yfinance | Diff |\n|---|---|---|---|\n"
         )
         for f in vix_flags:
-            sections.append(
+            lines.append(
                 f"| {f['trade_id'][:8]}... | {_fmt(f['stored'], 1)} "
                 f"| {_fmt(f['expected'], 1)} | {_fmt(f['diff'], 1)} |\n"
             )
+    return "\n".join(lines)
 
-    # A1: VIX Regression
-    sections.append("## A1: VIX Regression\n")
+
+def _write_a1_vix(a1: dict) -> str:
+    """A1: VIX regression section."""
+    lines = ["## A1: VIX Regression\n"]
     if a1.get("status") == "computed":
-        sections.append(
+        lines.append(
             f"OLS: `excess_return = {_fmt(a1['slope'])} * vix + "
             f"{_fmt(a1['intercept'])}`\n\n"
             f"| Metric | Value |\n|---|---|\n"
@@ -161,7 +163,7 @@ def generate_report(results: dict, date_str: str) -> str:
             f"{'Yes' if a1['is_underpowered'] else 'No'} |\n"
         )
         if a1["is_underpowered"]:
-            sections.append(
+            lines.append(
                 f"\n**Note:** MDE ({_fmt(a1['mde_slope'])} %/VIX-point) "
                 f"exceeds benchmark ({a1['mde_benchmark']} %/VIX-point). "
                 f"This analysis is underpowered \u2014 its null result "
@@ -169,21 +171,23 @@ def generate_report(results: dict, date_str: str) -> str:
                 f"'no relationship'.\n"
             )
     else:
-        sections.append("*Insufficient data for VIX regression.*\n")
-    sections.append("\n![VIX Regression](a1_vix_regression.png)\n")
+        lines.append("*Insufficient data for VIX regression.*\n")
+    lines.append("\n![VIX Regression](a1_vix_regression.png)\n")
+    return "\n".join(lines)
 
-    # A2: Day Clustering
-    sections.append("## A2: Trade-Day Clustering\n")
-    a2 = results["a2_days"]
-    sections.append("### Per-Day Results\n")
-    sections.append(_cell_table(a2["per_day"]["cells"]))
+
+def _write_a2_days(a2: dict) -> str:
+    """A2: Trade-day clustering section."""
+    lines = [
+        "## A2: Trade-Day Clustering\n",
+        "### Per-Day Results\n",
+        _cell_table(a2["per_day"]["cells"]),
+    ]
     if a2["bad_runs"]:
-        sections.append(
-            "### Contiguous Bad Runs (mean excess < -1%)\n"
-        )
+        lines.append("### Contiguous Bad Runs (mean excess < -1%)\n")
         for run in a2["bad_runs"]:
             dates = ", ".join(run["dates"])
-            sections.append(
+            lines.append(
                 f"- **{dates}** (n={run['n']}, "
                 f"mean excess={_fmt(run['mean_excess'])}%)"
             )
@@ -192,62 +196,98 @@ def generate_report(results: dict, date_str: str) -> str:
                     f"{e['event']} ({e['category']})"
                     for e in run["events"]
                 )
-                sections.append(f"  - Matched events: {evts}")
+                lines.append(f"  - Matched events: {evts}")
             else:
-                sections.append("  - No matched macro events")
-            sections.append(
+                lines.append("  - No matched macro events")
+            lines.append(
                 f"  - Repeatable category: "
                 f"{'Yes' if run['has_repeatable_category'] else 'No'}"
             )
-            sections.append("")
+            lines.append("")
     else:
-        sections.append(
-            "*No contiguous bad runs detected "
-            "(mean excess < -1%).*\n"
+        lines.append(
+            "*No contiguous bad runs detected (mean excess < -1%).*\n"
         )
-    sections.append("\n![Day Clustering](a2_day_clustering.png)\n")
-    sections.append("![Cumulative P&L](a2_cumulative_pnl.png)\n")
+    lines.append("\n![Day Clustering](a2_day_clustering.png)\n")
+    lines.append("![Cumulative P&L](a2_cumulative_pnl.png)\n")
+    return "\n".join(lines)
 
-    # A3-A5
-    for label, key, plot in [
-        ("A3: Sector Rotation", "a3_sector", "a3_sector.png"),
-        ("A4: Entry Time-of-Day", "a4_hour", "a4_entry_time.png"),
-        ("A5: Holding Period", "a5_holding", "a5_holding_period.png"),
-    ]:
-        sections.append(f"## {label}\n")
-        sections.append(_cell_table(results[key]["cells"]))
-        sections.append(f"\n![{label}]({plot})\n")
 
-    # Power Analysis
-    sections.append("## Power Analysis\n")
+def _write_stratified_section(
+    label: str, cells: list[dict], plot: str,
+) -> str:
+    """A3/A4/A5: Generic stratified analysis section."""
+    return (
+        f"## {label}\n\n"
+        f"{_cell_table(cells)}\n"
+        f"\n![{label}]({plot})\n"
+    )
+
+
+def _write_power_analysis(results: dict) -> str:
+    """Power analysis summary across all cell analyses."""
+    a1 = results["a1_vix"]
+    lines = ["## Power Analysis\n"]
     all_cells: list[dict] = []
     for key in ("a3_sector", "a4_hour", "a5_holding"):
         all_cells.extend(results[key]["cells"])
-    computed_cells = [
-        c for c in all_cells if c["status"] == "computed"
-    ]
-    if computed_cells:
-        sections.append(
+    computed = [c for c in all_cells if c["status"] == "computed"]
+    if computed:
+        lines.append(
             "| Cell | n | MDE (excess-Sharpe) "
             "| Underpowered (MDE > 0.5)? |\n"
             "|---|---|---|---|\n"
         )
-        for c in computed_cells:
+        for c in computed:
             up = "Yes" if c.get("is_underpowered") else "No"
-            sections.append(
+            lines.append(
                 f"| {c['label']} | {c['n']} "
                 f"| {_fmt(c.get('mde'))} | {up} |\n"
             )
-    sections.append(
+    lines.append(
         f"\nVIX regression MDE: {_fmt(a1.get('mde_slope'))} "
         f"%/VIX-point (benchmark: "
         f"{a1.get('mde_benchmark', 0.3)} %/VIX-point, "
         f"underpowered: "
         f"{'Yes' if a1.get('is_underpowered') else 'No'})\n"
     )
+    return "\n".join(lines)
 
-    # Decision
-    sections.append("## Decision\n")
-    sections.append(f"**{decision}**\n\n{rationale}\n")
 
+def _write_decision(results: dict) -> str:
+    """Final decision section."""
+    return (
+        "## Decision\n\n"
+        f"**{results['decision']}**\n\n"
+        f"{results['decision_rationale']}\n"
+    )
+
+
+def generate_report(results: dict, date_str: str) -> str:
+    """Generate the full markdown diagnostic report.
+
+    Orchestrates section helpers into a single markdown string.
+    """
+    sections = [
+        _write_header(results, date_str),
+        _write_executive_summary(results),
+        _write_methodology(),
+        _write_aggregate_stats(results),
+        _write_a1_vix(results["a1_vix"]),
+        _write_a2_days(results["a2_days"]),
+        _write_stratified_section(
+            "A3: Sector Rotation",
+            results["a3_sector"]["cells"], "a3_sector.png",
+        ),
+        _write_stratified_section(
+            "A4: Entry Time-of-Day",
+            results["a4_hour"]["cells"], "a4_entry_time.png",
+        ),
+        _write_stratified_section(
+            "A5: Holding Period",
+            results["a5_holding"]["cells"], "a5_holding_period.png",
+        ),
+        _write_power_analysis(results),
+        _write_decision(results),
+    ]
     return "\n".join(sections)
