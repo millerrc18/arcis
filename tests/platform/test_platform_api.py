@@ -5,11 +5,19 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture
-def client(monkeypatch):
-    """App with platform router registered. API_SECRET must be set so
-    verify_auth doesn't raise RuntimeError at boot."""
+def client(tmp_path, monkeypatch):
+    """App with platform router registered + isolated temp database.
+
+    NOTE: uses importlib.reload because cloud_app.py has no create_app()
+    factory — app is built at module level. Tech debt: a future refactor
+    to a factory pattern would remove this reload.
+    """
+    db = str(tmp_path / "test.db")
+    from src.schema.sqlite import create_all_tables
+    create_all_tables(db)
     monkeypatch.setenv("API_SECRET", "test-platform-secret")
     monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
+    monkeypatch.setattr("src.config.DB_PATH", db)
     import importlib
     import src.api.cloud_app as cloud_mod
     importlib.reload(cloud_mod)
@@ -29,11 +37,11 @@ def patch_auth(monkeypatch):
             pass  # module may not import verify_auth
 
 
-def test_strategies_returns_empty_list_when_registry_empty(client):
+def test_strategies_returns_empty_list_when_registry_empty(client, tmp_path):
     """GET /api/platform/strategies with no registered strategies."""
     import sqlite3
-    from src.config import DB_PATH
-    conn = sqlite3.connect(DB_PATH)
+    db = str(tmp_path / "test.db")
+    conn = sqlite3.connect(db)
     conn.execute("DELETE FROM strategy_registry")
     conn.commit()
     conn.close()
@@ -125,43 +133,33 @@ def test_demotion_accepts_long_reason(client):
 def test_backtest_trigger_returns_result_id(client, tmp_path):
     """POST /api/platform/backtests kicks off async; returns result_id + 202."""
     from src.platform.promotion import register_strategy
-    from src.config import DB_PATH
+    db = str(tmp_path / "test.db")
     register_strategy(
         "lazy_prices_v1", "Lazy Prices", "yaml:lazy_prices_v1.yaml",
-        "hash1", db_path=DB_PATH,
+        "hash1", db_path=db,
     )
-    try:
-        with patch("asyncio.create_task"):
-            r = client.post(
-                "/api/platform/backtests",
-                json={
-                    "strategy_id": "lazy_prices_v1",
-                    "start_date": "2023-06-01",
-                    "end_date": "2023-06-30",
-                },
-            )
-        assert r.status_code in (200, 202)
-        body = r.json()
-        assert "result_id" in body
-    finally:
-        import sqlite3
-        conn = sqlite3.connect(DB_PATH)
-        conn.execute(
-            "DELETE FROM strategy_registry WHERE strategy_id='lazy_prices_v1'",
+    with patch("asyncio.create_task"):
+        r = client.post(
+            "/api/platform/backtests",
+            json={
+                "strategy_id": "lazy_prices_v1",
+                "start_date": "2023-06-01",
+                "end_date": "2023-06-30",
+            },
         )
-        conn.commit()
-        conn.close()
+    assert r.status_code in (200, 202)
+    body = r.json()
+    assert "result_id" in body
 
 
-def test_production_promotion_requires_24h_delay(client):
+def test_production_promotion_requires_24h_delay(client, tmp_path):
     """Two-step: first POST returns 202 with delay_until; second POST with
     same token within 24h also returns 202."""
-    from src.platform.promotion import register_strategy
-    from src.config import DB_PATH
-    # Register + advance to shadow_trading state (prerequisite for production)
-    register_strategy("p_test", "P", "yaml:p.yaml", "h", db_path=DB_PATH)
     import sqlite3
-    conn = sqlite3.connect(DB_PATH)
+    from src.platform.promotion import register_strategy
+    db = str(tmp_path / "test.db")
+    register_strategy("p_test", "P", "yaml:p.yaml", "h", db_path=db)
+    conn = sqlite3.connect(db)
     conn.execute(
         "UPDATE strategy_registry SET current_status='shadow_trading' "
         "WHERE strategy_id='p_test'",
@@ -169,37 +167,28 @@ def test_production_promotion_requires_24h_delay(client):
     conn.commit()
     conn.close()
 
-    try:
-        # First attempt — records marker
-        r1 = client.post(
-            "/api/platform/promotions",
-            json={
-                "strategy_id": "p_test",
-                "target_status": "production",
-                "confirmation_token": "step1",
-                "justification_note": "x" * 50,
-            },
-        )
-        assert r1.status_code in (202, 425)  # too-early / accepted
-        body1 = r1.json()
-        assert "delay_until" in body1 or body1.get("status") == "awaiting_delay"
+    # First attempt — records marker
+    r1 = client.post(
+        "/api/platform/promotions",
+        json={
+            "strategy_id": "p_test",
+            "target_status": "production",
+            "confirmation_token": "step1",
+            "justification_note": "x" * 50,
+        },
+    )
+    assert r1.status_code in (202, 425)  # too-early / accepted
+    body1 = r1.json()
+    assert "delay_until" in body1 or body1.get("status") == "awaiting_delay"
 
-        # Second attempt with same token + still within 24h -> still 202
-        r2 = client.post(
-            "/api/platform/promotions",
-            json={
-                "strategy_id": "p_test",
-                "target_status": "production",
-                "confirmation_token": "step1",
-                "justification_note": "x" * 50,
-            },
-        )
-        assert r2.status_code in (202, 425)
-    finally:
-        import sqlite3
-        conn = sqlite3.connect(DB_PATH)
-        conn.execute(
-            "DELETE FROM strategy_registry WHERE strategy_id='p_test'"
-        )
-        conn.commit()
-        conn.close()
+    # Second attempt with same token + still within 24h -> still 202
+    r2 = client.post(
+        "/api/platform/promotions",
+        json={
+            "strategy_id": "p_test",
+            "target_status": "production",
+            "confirmation_token": "step1",
+            "justification_note": "x" * 50,
+        },
+    )
+    assert r2.status_code in (202, 425)
