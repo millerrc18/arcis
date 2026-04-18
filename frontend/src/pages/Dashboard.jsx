@@ -13,6 +13,9 @@ import Tooltip from '../components/Tooltip'
 import { XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, Area, AreaChart, Line, LineChart } from 'recharts'
 import { TrendingUp, TrendingDown, Minus, AlertTriangle, Zap, ChevronDown, ChevronUp } from 'lucide-react'
 import PlatformStatusWidget from '../components/PlatformStatusWidget.jsx'
+import QuickStatsPanel from '../components/system/QuickStatsPanel.jsx'
+import SystemIndexPanel from '../components/system/SystemIndexPanel.jsx'
+import WhatsNewPanel from '../components/system/WhatsNewPanel.jsx'
 
 function parseAuditSummary(raw) {
   if (!raw) return null
@@ -200,6 +203,7 @@ export default function Dashboard() {
   const { data: accountData } = useQuery({ queryKey: ['shadow-account', deskFilter], queryFn: () => api.getAccount(deskFilter), refetchInterval: 60000 })
   const { data: buildScore } = useQuery({ queryKey: ['build-score'], queryFn: api.getBuildScore, refetchInterval: 120000 })
   const { data: scanMetrics } = useQuery({ queryKey: ['scan-metrics'], queryFn: () => api.getScanMetrics(50), refetchInterval: 60000 })
+  const { data: systemIndex, isLoading: systemIndexLoading } = useQuery({ queryKey: ['system-index'], queryFn: api.getSystemIndex, refetchInterval: 60000 })
 
   // Task 12c: fetch distinct desk values from DB at render time (spec line 1014).
   // Populates the dropdown with any research desks currently in shadow_trades.
@@ -320,6 +324,11 @@ export default function Dashboard() {
 
       {/* BUILD SCORE HERO */}
       <BuildScoreHero data={buildScore} />
+
+      {/* System Index panels — capability_registry v1 (Sprint 1B) */}
+      <QuickStatsPanel data={systemIndex} isLoading={systemIndexLoading} />
+      <SystemIndexPanel data={systemIndex} isLoading={systemIndexLoading} />
+      <WhatsNewPanel />
 
       {/* Actions */}
       <div className="flex items-center gap-2 flex-wrap">
