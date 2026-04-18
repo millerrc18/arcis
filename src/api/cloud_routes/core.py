@@ -507,6 +507,7 @@ def create_router(runtime, verify_auth):
         "hshs_snapshots", "validation_checks",
         "feature_cache", "enrichment_cache", "news_cache", "regime_history",
         "sector_snapshots", "fundamental_snapshots",
+        "diagnostic_runs", "diagnostic_run_plots",
     ]
 
     @router.get("/api/system/table-counts", dependencies=[Depends(verify_auth)])
