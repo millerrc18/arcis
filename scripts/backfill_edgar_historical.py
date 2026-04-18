@@ -21,7 +21,7 @@ import re
 import sqlite3
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -189,7 +189,7 @@ def phase1_discover(
         if dry_run:
             continue
 
-        now_iso = datetime.utcnow().isoformat()
+        now_iso = datetime.now(timezone.utc).isoformat()
         changes_before = conn.total_changes
         for filing in filings:
             accession = filing["accession_number"]
@@ -284,8 +284,10 @@ def _fetch_and_store(
         stats["fail_reasons"]["too_large"] = stats["fail_reasons"].get("too_large", 0) + 1
         return
 
-    # Strip HTML
+    # Strip HTML tags and decode entities (&#8217; -> ', &#8220; -> ", etc.)
+    import html
     clean = re.sub(r"<[^>]+>", " ", content)
+    clean = html.unescape(clean)
     clean = re.sub(r"\s+", " ", clean).strip()
 
     if not clean or len(clean) < 100:
@@ -378,7 +380,7 @@ def write_audit_report(
     tickers: list[str],
 ) -> str:
     """Write end-of-run audit report to docs/audits/."""
-    today = datetime.utcnow().strftime("%Y-%m-%d")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     report_path = os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         "docs", "audits", f"edgar-backfill-{today}.md",
