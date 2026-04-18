@@ -163,6 +163,62 @@ def _lookup_primary_document(cik: str, accession: str) -> tuple[str, str] | None
     return None
 
 
+# In-memory cache for index.json responses (keyed by accession_number)
+_index_json_cache: dict[str, dict] = {}
+
+
+def _lookup_primary_document_via_index(
+    cik: str, accession: str, form_type: str = ""
+) -> tuple[str, str] | None:
+    """Look up primaryDocument via EDGAR index.json (last-resort fallback).
+
+    GET https://www.sec.gov/Archives/edgar/data/{cik_int}/{accession_clean}/index.json
+
+    Returns (filename, archives_base_url) or None.
+    """
+    if accession in _index_json_cache:
+        index_data = _index_json_cache[accession]
+    else:
+        acc_clean = accession.replace("-", "")
+        cik_int = str(int(cik))  # strip leading zeros
+        url = f"https://www.sec.gov/Archives/edgar/data/{cik_int}/{acc_clean}/index.json"
+
+        try:
+            resp = requests.get(url, headers=SEC_HEADERS, timeout=15)
+            if resp.status_code != 200:
+                logger.warning("[EDGAR] index.json HTTP %s for %s", resp.status_code, url)
+                return None
+            index_data = resp.json()
+            _index_json_cache[accession] = index_data
+        except Exception as e:
+            logger.warning("[EDGAR] index.json fetch failed for %s: %s", accession, e)
+            return None
+
+    items = index_data.get("directory", {}).get("item", [])
+    acc_clean = accession.replace("-", "")
+    cik_int = str(int(cik))
+    archives_base = f"https://www.sec.gov/Archives/edgar/data/{cik_int}/{acc_clean}"
+
+    # Filter for .htm/.html files
+    htm_items = [
+        it for it in items
+        if it.get("name", "").lower().endswith((".htm", ".html"))
+    ]
+
+    if not htm_items:
+        logger.warning("[EDGAR] No .htm files in index.json for %s", accession)
+        return None
+
+    # Prefer items whose type matches the form_type
+    form_base = form_type.replace("/A", "")  # "10-K/A" -> "10-K"
+    typed = [it for it in htm_items if it.get("type", "") == form_base]
+    if typed:
+        return typed[0]["name"], archives_base
+
+    # Fallback: first .htm file (primary document is listed first in SEC convention)
+    return htm_items[0]["name"], archives_base
+
+
 def _fetch_filing_text(cik: str, accession: str) -> str | None:
     """Download full text of a filing. Returns None if too large or on error.
 
