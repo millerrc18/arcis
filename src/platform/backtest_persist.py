@@ -4,8 +4,11 @@ Extracted from scripts/run_backtest.py so that both the CLI script and
 cloud_routes/platform.py can import without crossing the scripts/ boundary
 (Render deploys don't ship scripts/).
 
+Calls: none (pure persistence — sqlite3 only)
 Called by: scripts/run_backtest.py, api/cloud_routes/platform.py
 Owns tables: writes backtest_results, backtest_trades
+Config keys: none
+Tests: tests/platform/test_platform_api.py (integration via cloud route)
 """
 from __future__ import annotations
 
