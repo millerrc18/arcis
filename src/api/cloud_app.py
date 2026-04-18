@@ -44,6 +44,7 @@ from src.api.cloud_routes.notes import create_router as create_notes_router
 from src.api.cloud_routes.trades import create_router as create_trades_router
 from src.api.cloud_routes.ib_shadow import create_router as create_ib_shadow_router
 from src.api.cloud_routes.training import create_router as create_training_router
+from src.api.cloud_routes import platform as _platform_module
 from src.sync.render_sync import SYNC_TABLES
 
 logger = logging.getLogger(__name__)
@@ -276,3 +277,8 @@ for factory in (
     create_ib_shadow_router,
 ):
     app.include_router(factory(_runtime, verify_auth))
+
+# Platform routes: SQLite-backed, auth-free in dev (verify_auth is optional
+# per endpoint). Registered after the Postgres routers so the router ordering
+# doesn't interfere with existing routes.
+app.include_router(_platform_module.router)
