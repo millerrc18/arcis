@@ -9,8 +9,10 @@ def client(tmp_path, monkeypatch):
     """App with platform router registered + isolated temp database.
 
     NOTE: uses importlib.reload because cloud_app.py has no create_app()
-    factory — app is built at module level. Tech debt: a future refactor
-    to a factory pattern would remove this reload.
+    factory — app is built at module level. The platform module must be
+    reloaded BEFORE cloud_app so its ``from src.config import DB_PATH``
+    re-binds to the monkeypatched value. Tech debt: accessing
+    src.config.DB_PATH at call time would remove this reload chain.
     """
     db = str(tmp_path / "test.db")
     from src.schema.sqlite import create_all_tables
@@ -19,6 +21,8 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
     monkeypatch.setattr("src.config.DB_PATH", db)
     import importlib
+    import src.api.cloud_routes.platform as platform_mod
+    importlib.reload(platform_mod)
     import src.api.cloud_app as cloud_mod
     importlib.reload(cloud_mod)
     return TestClient(cloud_mod.app)
