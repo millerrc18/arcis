@@ -5,10 +5,6 @@
       "lines": 593
     },
     {
-      "file": "src/platform/backtest_engine.py",
-      "lines": 432
-    },
-    {
       "file": "src/api/cloud_routes/core.py",
       "lines": 413
     },
@@ -678,21 +674,6 @@
       "file": "src/packets/watchlist.py",
       "function": "build_morning_watchlist",
       "lines": 99
-    },
-    {
-      "file": "src/platform/features/cosine_similarity.py",
-      "function": "_parse_section_from_fulltext",
-      "lines": 68
-    },
-    {
-      "file": "src/platform/promotion.py",
-      "function": "check_promotion_gate",
-      "lines": 97
-    },
-    {
-      "file": "src/platform/rigor/walkforward.py",
-      "function": "run_walkforward",
-      "lines": 83
     },
     {
       "file": "src/ranking/ranker.py",

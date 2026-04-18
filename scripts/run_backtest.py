@@ -67,10 +67,10 @@ def _persist(result, db_path: str = DB_PATH) -> str:
             """INSERT INTO backtest_results
                (result_id, strategy_id, spec_version, spec_hash, start_date,
                 end_date, initial_capital, total_trades, total_return_pct,
-                sharpe, excess_sharpe, deflated_sharpe, sortino, calmar,
-                max_drawdown_pct, win_rate, profit_factor, code_git_sha,
-                created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                sharpe, excess_sharpe, deflated_sharpe, pbo, oos_efficiency,
+                sortino, calmar, max_drawdown_pct, win_rate, profit_factor,
+                code_git_sha, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 result_id, result.strategy_id,
                 result.config.strategy.raw.get("spec_version", 1),
@@ -79,6 +79,8 @@ def _persist(result, db_path: str = DB_PATH) -> str:
                 result.config.initial_capital, m.get("n_trades"),
                 m.get("total_return_pct"), m.get("sharpe"),
                 m.get("excess_sharpe"), None,  # deflated_sharpe — Sprint 2 wires this
+                m.get("pbo"),               # NULL until param-sweep campaign (Sprint 4)
+                m.get("oos_efficiency"),    # NULL unless --with-walkforward passed
                 m.get("sortino"), m.get("calmar"),
                 m.get("max_drawdown_pct"),
                 m.get("win_rate"), m.get("profit_factor"),
@@ -115,6 +117,15 @@ def main() -> int:
     p.add_argument("--output-format", choices=("json", "pretty"), default="pretty")
     p.add_argument("--persist", action="store_true")
     p.add_argument("--db-path", default=DB_PATH)
+    p.add_argument(
+        "--with-walkforward", action="store_true",
+        help=(
+            "Run a rolling walk-forward analysis (Pardo 2008) against the same "
+            "strategy spec + date range and persist oos_efficiency into the "
+            "backtest_results row. Required for the shadow_trading promotion gate. "
+            "Adds significant runtime (one extra IS+OOS backtest per fold)."
+        ),
+    )
     args = p.parse_args()
 
     spec = load_spec(args.strategy)
@@ -124,6 +135,15 @@ def main() -> int:
         survivorship_haircut_bps=haircut_bps,
     )
     result = run_backtest(cfg)
+
+    if args.with_walkforward:
+        from src.platform.rigor.walkforward import run_walkforward
+        wf = run_walkforward(spec, args.start, args.end)
+        result.metrics["oos_efficiency"] = wf["oos_efficiency"]
+        print(
+            f"walk-forward: oos_efficiency={wf['oos_efficiency']:.4f} "
+            f"(overfit={'yes' if wf['overfit_flag'] else 'no'})"
+        )
 
     if args.persist:
         result_id = _persist(result, db_path=args.db_path)

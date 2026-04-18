@@ -10,6 +10,8 @@ from src.platform.promotion import (
     GATE_DEMOTION_REASON_MIN_CHARS,
     GATE_DSR_MIN,
     GATE_JUSTIFICATION_MIN_CHARS,
+    GATE_OOS_EFFICIENCY_MIN,
+    GATE_PBO_MAX,
     STATUSES,
     check_promotion_gate,
     demote,
@@ -36,11 +38,18 @@ def _seed_strategy(db: str, sid: str = "s1") -> None:
     )
 
 
-def _seed_backtest_row(db: str, sid: str, dsr: float | None = None) -> None:
+def _seed_backtest_row(
+    db: str,
+    sid: str,
+    dsr: float | None = None,
+    pbo: float | None = None,
+    oos_efficiency: float | None = None,
+) -> None:
     """Seed a backtest_results row so check_promotion_gate finds something.
 
     `dsr` is stored in deflated_sharpe for legacy use but the gate now
     recomputes DSR from backtest_trades rows — see _seed_backtest_trades.
+    `pbo` and `oos_efficiency` default to None (gate fails if NULL).
     """
     import sqlite3
     conn = sqlite3.connect(db)
@@ -50,12 +59,13 @@ def _seed_backtest_row(db: str, sid: str, dsr: float | None = None) -> None:
                (result_id, strategy_id, spec_version, spec_hash,
                 start_date, end_date, initial_capital, total_trades,
                 total_return_pct, sharpe, excess_sharpe, deflated_sharpe,
+                pbo, oos_efficiency,
                 sortino, calmar, max_drawdown_pct, win_rate,
                 profit_factor, code_git_sha, created_at)
                VALUES (?, ?, 1, ?, '2020-01-01', '2024-12-31', 100000.0,
-                       50, 0.3, 1.5, 1.0, ?, 1.8, 2.0, 0.1, 0.6, 2.5,
+                       50, 0.3, 1.5, 1.0, ?, ?, ?, 1.8, 2.0, 0.1, 0.6, 2.5,
                        'sha', '2024-01-01T00:00:00+00:00')""",
-            (f"r_{sid}", sid, "abc123", dsr),
+            (f"r_{sid}", sid, "abc123", dsr, pbo, oos_efficiency),
         )
         conn.commit()
     finally:
@@ -65,16 +75,22 @@ def _seed_backtest_row(db: str, sid: str, dsr: float | None = None) -> None:
 def _seed_backtest_trades(
     db: str, sid: str,
     pnl_values: list[float] | None = None,
+    n: int | None = None,
 ) -> None:
     """Seed backtest_trades rows tied to the result_id seeded by _seed_backtest_row.
 
     `pnl_values` defaults to a 60-trade series with positive mean so
-    the recomputed DSR passes the 0.95 gate.
+    the recomputed DSR passes the 0.95 gate. Pass `n` to seed n trades
+    using the default positive-skewed unit value (convenience for new tests).
     """
     import sqlite3
     if pnl_values is None:
-        # Positive-skewed series: DSR will comfortably exceed 0.95
-        pnl_values = [0.01, 0.012, 0.015, 0.008, 0.009] * 12
+        if n is not None:
+            # Repeat a single positive return value n times
+            pnl_values = [0.01] * n
+        else:
+            # Positive-skewed series: DSR will comfortably exceed 0.95
+            pnl_values = [0.01, 0.012, 0.015, 0.008, 0.009] * 12
     result_id = f"r_{sid}"
     conn = sqlite3.connect(db)
     try:
@@ -141,9 +157,10 @@ def test_check_gate_shadow_trading_requires_dsr(temp_db):
 
 
 def test_check_gate_shadow_trading_passes_on_dsr_above_threshold(temp_db):
-    """Gate passes when recomputed DSR from trade returns exceeds 0.95."""
+    """Gate passes when recomputed DSR from trade returns exceeds 0.95
+    and pbo + oos_efficiency are within thresholds."""
     _seed_strategy(temp_db)
-    _seed_backtest_row(temp_db, "s1", dsr=0.96)
+    _seed_backtest_row(temp_db, "s1", dsr=0.96, pbo=0.3, oos_efficiency=0.5)
     _seed_backtest_trades(temp_db, "s1")  # positive-skewed returns → DSR >= 0.95
     _seed_trials(temp_db, n=25)
     passes, ev = check_promotion_gate("s1", "shadow_trading", db_path=temp_db)
@@ -181,7 +198,7 @@ def test_promote_shadow_trading_requires_justification_note(temp_db):
 
 def test_promote_shadow_trading_succeeds_with_long_justification(temp_db):
     _seed_strategy(temp_db)
-    _seed_backtest_row(temp_db, "s1", dsr=0.97)
+    _seed_backtest_row(temp_db, "s1", dsr=0.97, pbo=0.3, oos_efficiency=0.5)
     _seed_backtest_trades(temp_db, "s1")  # gate recomputes DSR from trades
     _seed_trials(temp_db, n=25)           # gate uses real V from trials
     # 40 chars exactly
@@ -216,7 +233,7 @@ def test_demote_succeeds_with_valid_reason(temp_db):
 
 def test_pause_moves_to_backtested_and_no_close(temp_db):
     _seed_strategy(temp_db)
-    _seed_backtest_row(temp_db, "s1", dsr=0.96)
+    _seed_backtest_row(temp_db, "s1", dsr=0.96, pbo=0.3, oos_efficiency=0.5)
     _seed_backtest_trades(temp_db, "s1")  # gate recomputes DSR from trades
     _seed_trials(temp_db, n=25)           # gate uses real V from trials
     promote("s1", "backtested", triggered_by="auto_gate", db_path=temp_db)
@@ -329,3 +346,68 @@ def test_promotion_gate_raises_if_variance_is_none(temp_db, monkeypatch):
     import pytest
     with pytest.raises(RuntimeError, match="trials_sr_variance"):
         check_promotion_gate("s1", "shadow_trading", db_path=temp_db)
+
+
+# ---------------------------------------------------------------------------
+# New tests — PBO + OOS_efficiency gate (#475)
+# ---------------------------------------------------------------------------
+
+def test_promotion_gate_requires_pbo_not_null(temp_db):
+    """PBO NULL → shadow_trading gate fails with clear message."""
+    _seed_strategy(temp_db, "s1")
+    _seed_backtest_row(temp_db, "s1", dsr=0.97, pbo=None, oos_efficiency=0.5)
+    _seed_backtest_trades(temp_db, "s1", n=50)
+    _seed_trials(temp_db, n=25)
+    passes, evidence = check_promotion_gate("s1", "shadow_trading", db_path=temp_db)
+    assert not passes
+    assert "pbo" in evidence["error"].lower() or evidence["pbo"] is None
+
+
+def test_promotion_gate_requires_oos_efficiency_not_null(temp_db):
+    """OOS_efficiency NULL → gate fails."""
+    _seed_strategy(temp_db, "s1")
+    _seed_backtest_row(temp_db, "s1", dsr=0.97, pbo=0.3, oos_efficiency=None)
+    _seed_backtest_trades(temp_db, "s1", n=50)
+    _seed_trials(temp_db, n=25)
+    passes, evidence = check_promotion_gate("s1", "shadow_trading", db_path=temp_db)
+    assert not passes
+    assert "walk-forward" in evidence["error"].lower() or \
+           "oos" in evidence["error"].lower() or \
+           evidence["oos_efficiency"] is None
+
+
+def test_promotion_gate_rejects_pbo_over_threshold(temp_db):
+    """PBO = 0.60 > 0.50 → gate fails."""
+    _seed_strategy(temp_db, "s1")
+    _seed_backtest_row(temp_db, "s1", dsr=0.97, pbo=0.60, oos_efficiency=0.5)
+    _seed_backtest_trades(temp_db, "s1", n=50)
+    _seed_trials(temp_db, n=25)
+    passes, evidence = check_promotion_gate("s1", "shadow_trading", db_path=temp_db)
+    assert not passes
+    assert evidence["pbo"] == 0.60
+    assert evidence["passes_pbo_max"] is False
+
+
+def test_promotion_gate_rejects_oos_efficiency_under_threshold(temp_db):
+    """OOS_efficiency = 0.20 < 0.30 → gate fails."""
+    _seed_strategy(temp_db, "s1")
+    _seed_backtest_row(temp_db, "s1", dsr=0.97, pbo=0.3, oos_efficiency=0.20)
+    _seed_backtest_trades(temp_db, "s1", n=50)
+    _seed_trials(temp_db, n=25)
+    passes, evidence = check_promotion_gate("s1", "shadow_trading", db_path=temp_db)
+    assert not passes
+    assert evidence["oos_efficiency"] == 0.20
+    assert evidence["passes_oos_efficiency_min"] is False
+
+
+def test_promotion_gate_passes_with_all_three_gates(temp_db):
+    """DSR=0.97, PBO=0.3, OOS=0.5 → all three pass → gate passes."""
+    _seed_strategy(temp_db, "s1")
+    _seed_backtest_row(temp_db, "s1", dsr=0.97, pbo=0.30, oos_efficiency=0.5)
+    # Use default pnl_values (varied, positive-skewed series) so DSR computes cleanly
+    _seed_backtest_trades(temp_db, "s1")
+    _seed_trials(temp_db, n=25)
+    passes, evidence = check_promotion_gate("s1", "shadow_trading", db_path=temp_db)
+    assert passes
+    assert evidence["pbo"] == 0.30
+    assert evidence["oos_efficiency"] == 0.5

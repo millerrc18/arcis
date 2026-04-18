@@ -28,9 +28,9 @@ import pandas as pd
 from src.analytics.spy_benchmark import excess_return, spy_return_over_range
 from src.attribution.logger import simulate_mechanical_outcome
 from src.features.indicators import compute_atr
+from src.platform.backtest_attribution import _inject_cosine_scores
 from src.platform.data_loader import load_ohlcv_range
 from src.platform.metrics import compute_all_metrics
-from src.platform.features.cosine_similarity import cosine_similarity_yoy
 from src.platform.signal_eval import (
     _evaluate_event_signal,
     _matches_scheduled_trigger,
@@ -290,42 +290,6 @@ def _run_scheduled(cfg: BacktestConfig) -> list[BacktestTrade]:
             if trade is not None:
                 trades.append(trade)
     return trades
-
-
-def _inject_cosine_scores(
-    sections: dict,
-    signal: list[dict],
-    ticker: str,
-    accession: str,
-    db_path: str,
-) -> dict:
-    """Compute YoY cosine similarity for each cosine_similarity signal condition
-    and inject the result under '<target>_cosine_yoy' so _evaluate_event_signal
-    can read them.
-
-    If a pre-computed value already exists in sections (e.g. from a test fixture
-    that seeds sections_json directly), it is left untouched.  Live computation
-    is only attempted when the key is absent.
-    """
-    live_db = os.environ.get("PLATFORM_EDGAR_DB", db_path)
-    for condition in signal:
-        if condition.get("metric") != "cosine_similarity":
-            continue
-        target = condition.get("target", "")
-        key = f"{target}_cosine_yoy"
-        if key in sections:
-            continue  # already present (e.g. test fixture)
-        try:
-            cos = cosine_similarity_yoy(ticker, accession, target, live_db)
-        except Exception as exc:
-            logger.debug(
-                "[PLATFORM] cosine_similarity_yoy failed %s/%s/%s: %s",
-                ticker, accession, target, exc,
-            )
-            cos = None
-        if cos is not None:
-            sections[key] = cos
-    return sections
 
 
 def _run_event_driven(cfg: BacktestConfig) -> list[BacktestTrade]:
