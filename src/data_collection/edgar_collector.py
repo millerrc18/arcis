@@ -19,6 +19,7 @@ Known issues:
 User-Agent: SEC requires a descriptive User-Agent with contact email.
 """
 
+import html
 import json
 import logging
 import re
@@ -30,6 +31,11 @@ from zoneinfo import ZoneInfo
 import requests
 
 from src.config import DB_PATH
+from src.data_collection.edgar_historical import (  # noqa: F401 — re-exported
+    _lookup_primary_document,
+    _lookup_primary_document_via_index as _lookup_primary_document_via_index,
+    _index_json_cache as _index_json_cache,
+)
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -133,36 +139,6 @@ def _fetch_filings_from_submissions(
         return []
 
 
-def _lookup_primary_document(cik: str, accession: str) -> tuple[str, str] | None:
-    """Look up primaryDocument via submissions API; return (filename, archives_base) or None."""
-    acc_formatted = accession.replace("-", "")
-    acc_dashes = (
-        f"{accession[:10]}-{accession[10:12]}-{accession[12:]}"
-        if "-" not in accession and len(accession) >= 18
-        else accession
-    )
-    cik_stripped = cik.lstrip("0") or "0"
-    archives_pfx = f"https://www.sec.gov/Archives/edgar/data/{cik_stripped}/{acc_formatted}"
-    try:
-        sub_resp = requests.get(
-            f"https://data.sec.gov/submissions/CIK{cik}.json", headers=SEC_HEADERS, timeout=15
-        )
-        if sub_resp.status_code != 200:
-            logger.warning("[EDGAR] Submissions API HTTP %s for CIK %s", sub_resp.status_code, cik)
-            return None
-        recent = sub_resp.json().get("filings", {}).get("recent", {})
-        accs = recent.get("accessionNumber", [])
-        docs = recent.get("primaryDocument", [])
-        for i, acc in enumerate(accs):
-            if acc == acc_dashes and i < len(docs):
-                return docs[i], archives_pfx
-    except Exception as e:
-        logger.warning("[EDGAR] Submissions lookup failed %s / %s: %s", cik, accession, e)
-        return None
-    logger.warning("[EDGAR] Could not resolve primaryDocument for %s / %s", cik, acc_dashes)
-    return None
-
-
 def _fetch_filing_text(cik: str, accession: str) -> str | None:
     """Download full text of a filing. Returns None if too large or on error.
 
@@ -193,8 +169,9 @@ def _fetch_filing_text(cik: str, accession: str) -> str | None:
             logger.debug("[EDGAR] Filing too large, skipping: %s", acc_formatted)
             return None
 
-        # Strip HTML tags for cleaner text
+        # Strip HTML tags and decode entities (&#8217; -> ', etc.)
         clean = re.sub(r"<[^>]+>", " ", content)
+        clean = html.unescape(clean)
         clean = re.sub(r"\s+", " ", clean).strip()
         return clean
 
@@ -214,16 +191,20 @@ def _parse_sections(text: str, form_type: str) -> dict[str, str]:
         return {}
 
     sections = {}
-    if form_type == "10-K":
+    # _sep: handles period, space, colon, em-dash, en-dash, hyphen between item number and title
+    # _apos: handles apostrophe variants (', \u2019, or residual HTML entities)
+    _sep = r"[\s.:\u2014\u2013\-]+"
+    _apos = r".{1,6}s"  # "Management's" — apostrophe may be 1-6 chars
+    if form_type in ("10-K", "10-K/A"):
         patterns = {
-            "item_1": r"(?i)item\s+1[.\s]+business(.*?)(?=item\s+1[a-z]|item\s+2|\Z)",
-            "item_1a": r"(?i)item\s+1a[.\s]+risk\s+factors(.*?)(?=item\s+1b|item\s+2|\Z)",
-            "item_7": r"(?i)item\s+7[.\s]+management.s\s+discussion(.*?)(?=item\s+7a|item\s+8|\Z)",
-            "item_8": r"(?i)item\s+8[.\s]+financial\s+statements(.*?)(?=item\s+9|\Z)",
+            "item_1": rf"(?i)item\s+1{_sep}business(.*?)(?=item\s+1[a-z]|item\s+2|\Z)",
+            "item_1a": rf"(?i)item\s+1a{_sep}risk\s+factors(.*?)(?=item\s+1b|item\s+2|\Z)",
+            "item_7": rf"(?i)item\s+7{_sep}management{_apos}\s+discussion(.*?)(?=item\s+7a|item\s+8|\Z)",
+            "item_8": rf"(?i)item\s+8{_sep}financial\s+statements(.*?)(?=item\s+9|\Z)",
         }
-    elif form_type == "10-Q":
+    elif form_type in ("10-Q", "10-Q/A"):
         patterns = {
-            "item_2": r"(?i)item\s+2[.\s]+management.s\s+discussion(.*?)(?=item\s+3|item\s+4|\Z)",
+            "item_2": rf"(?i)item\s+2{_sep}management{_apos}\s+discussion(.*?)(?=item\s+3|item\s+4|\Z)",
         }
     else:
         # 8-K: capture all items
@@ -232,9 +213,11 @@ def _parse_sections(text: str, form_type: str) -> dict[str, str]:
         }
 
     for key, pattern in patterns.items():
-        match = re.search(pattern, text, re.DOTALL)
-        if match:
-            section_text = match.group(1).strip()
+        # findall returns all matches; pick the longest to skip ToC entries
+        # (ToC entries match but capture only a page number like "5")
+        all_matches = re.findall(pattern, text, re.DOTALL)
+        if all_matches:
+            section_text = max(all_matches, key=len).strip()
             # Truncate very long sections to 50K chars
             sections[key] = section_text[:50000]
 
