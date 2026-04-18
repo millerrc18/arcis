@@ -27,8 +27,10 @@ from datetime import datetime, timezone
 
 from src.config import DB_PATH
 from src.platform.strategy_spec import StrategySpec
+from src.platform.risk.exposure_limits import check_pre_trade_limits
 from src.shadow_trading.alpaca_adapter import (
     cancel_orders_for_ticker,
+    get_account_info,
     get_order_status,
     place_bracket_order,
     place_paper_exit,
@@ -180,9 +182,46 @@ class ShadowHarness:
     def _is_within_hard_limits(
         self, candidate: dict,
     ) -> tuple[bool, str | None]:
-        """Delegate to Sprint 3's check_pre_trade_limits. Wired in Task 7f."""
-        # Task 7e stub — Task 7f fills this in.
-        return True, None
+        """Delegate to Sprint 3's check_pre_trade_limits pure function.
+
+        Gathers open positions for this strategy's desk (enriched with
+        entry_price as current_price proxy — v0.24.1 will fetch live via
+        get_current_price per position), reads NAV from the research Alpaca
+        account (fallback $100K if offline), calls the concentration /
+        leverage / drawdown guardrails.
+        """
+        current_positions = self.get_open_positions()
+        # Enrich positions with current_price. For MVP, use entry_price as
+        # proxy (v0.24.1 follow-up: fetch live via get_current_price per
+        # position).
+        enriched = [
+            {
+                "ticker": p["ticker"],
+                "shares": int(p.get("planned_shares") or p.get("actual_shares") or 0),
+                "current_price": float(p.get("entry_price") or 0.0),
+            }
+            for p in current_positions
+        ]
+        # NAV for the research desk — read via get_account_info(desk=self.desk).
+        # Fallback to conservative $100K on any failure (offline, no account, etc.).
+        try:
+            acct = get_account_info(desk=self.desk)
+            nav = float(acct.get("portfolio_value") or 100_000.0)
+        except Exception as e:
+            logger.warning(
+                "[HARNESS %s] cannot fetch research NAV; using $100K fallback: %s",
+                self.strategy_id, e,
+            )
+            nav = 100_000.0
+
+        return check_pre_trade_limits(
+            ticker=candidate["ticker"],
+            proposed_shares=int(candidate.get("shares", 0)),
+            proposed_price=float(candidate.get("price", 0.0)),
+            current_positions=enriched,
+            current_nav=nav,
+            db_path=self.db_path,
+        )
 
     def _open_position(self, candidate: dict, as_of: datetime) -> None:
         """Place bracket order via research Alpaca client; write shadow

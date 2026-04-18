@@ -191,3 +191,97 @@ def test_harness_get_open_positions_filters_by_strategy(tmp_db):
     open_positions = harness.get_open_positions()
     tickers = {p["ticker"] for p in open_positions}
     assert tickers == {"MSFT", "NVDA"}
+
+
+def test_harness_blocks_candidate_that_fails_hard_limits(tmp_db):
+    """If check_pre_trade_limits rejects the proposed position, the
+    harness must NOT open it."""
+    spec = _test_spec("strat_g")
+    with patch("src.platform.shadow_harness.verify_accounts_distinct"):
+        harness = ShadowHarness(spec, db_path=tmp_db)
+    cand = {
+        "ticker": "AAPL", "as_of": "2026-04-17T10:00:00",
+        "shares": 70, "price": 100.0,  # 7% position — violates 6% cap
+        "signal_strength": 0.9, "metadata": {},
+    }
+    with patch(
+        "src.platform.shadow_harness.check_pre_trade_limits",
+        return_value=(
+            False,
+            "single-name concentration exceeded: 7.00% > 6.00%",
+        ),
+    ) as mock_check, patch(
+        "src.platform.shadow_harness.place_bracket_order"
+    ) as mock_place, patch(
+        "src.platform.shadow_harness.get_account_info",
+        return_value={"portfolio_value": 100_000.0},
+    ):
+        allowed, reason = harness._is_within_hard_limits(cand)
+    assert not allowed
+    assert "6" in reason
+    # check_pre_trade_limits was actually called
+    assert mock_check.called
+    # Place order MUST NOT have been called (we only tested _is_within_hard_limits,
+    # but sanity-check that nothing triggered a downstream order)
+    mock_place.assert_not_called()
+
+
+def test_harness_allows_candidate_within_hard_limits(tmp_db):
+    """check_pre_trade_limits approves → harness returns (True, None)."""
+    spec = _test_spec("strat_h")
+    with patch("src.platform.shadow_harness.verify_accounts_distinct"):
+        harness = ShadowHarness(spec, db_path=tmp_db)
+    cand = {
+        "ticker": "AAPL", "as_of": "2026-04-17T10:00:00",
+        "shares": 40, "price": 100.0,  # 4% — under 6% cap
+        "signal_strength": 0.9, "metadata": {},
+    }
+    with patch(
+        "src.platform.shadow_harness.check_pre_trade_limits",
+        return_value=(True, None),
+    ) as mock_check, patch(
+        "src.platform.shadow_harness.get_account_info",
+        return_value={"portfolio_value": 100_000.0},
+    ):
+        allowed, reason = harness._is_within_hard_limits(cand)
+    assert allowed
+    assert reason is None
+    # check_pre_trade_limits was invoked with ticker and the candidate's
+    # proposed shares/price. Inspect call to verify wiring.
+    assert mock_check.called
+    kwargs = mock_check.call_args.kwargs
+    # Ticker is passed either as kwarg or first positional
+    assert kwargs.get("ticker") == "AAPL" or "AAPL" in str(mock_check.call_args)
+    assert kwargs.get("proposed_shares") == 40 or 40 in mock_check.call_args.args
+
+
+def test_harness_uses_fallback_nav_when_account_info_unavailable(tmp_db):
+    """If get_account_info raises, use $100K fallback + log warning."""
+    spec = _test_spec("strat_i")
+    with patch("src.platform.shadow_harness.verify_accounts_distinct"):
+        harness = ShadowHarness(spec, db_path=tmp_db)
+    cand = {
+        "ticker": "AAPL", "as_of": "2026-04-17T10:00:00",
+        "shares": 10, "price": 100.0,
+        "signal_strength": 0.9, "metadata": {},
+    }
+    with patch(
+        "src.platform.shadow_harness.check_pre_trade_limits",
+        return_value=(True, None),
+    ) as mock_check, patch(
+        "src.platform.shadow_harness.get_account_info",
+        side_effect=RuntimeError("Alpaca API timeout"),
+    ):
+        allowed, reason = harness._is_within_hard_limits(cand)
+    # Function completes without raising — fallback NAV was used
+    assert allowed
+    # check_pre_trade_limits was called with current_nav=100_000.0 fallback
+    kwargs = mock_check.call_args.kwargs
+    nav = kwargs.get("current_nav")
+    if nav is None:
+        # May have been passed positionally; find it in args
+        nav = next(
+            (a for a in mock_check.call_args.args if isinstance(a, float)),
+            None,
+        )
+    assert nav == 100_000.0
