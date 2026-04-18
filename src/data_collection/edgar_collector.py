@@ -200,34 +200,23 @@ def _lookup_primary_document_via_index(
     cik_int = str(int(cik))
     archives_base = f"https://www.sec.gov/Archives/edgar/data/{cik_int}/{acc_clean}"
 
-    # Filter for .htm/.html files, excluding index files and XBRL viewer fragments (R*.htm)
+    # Filter for .htm/.html files
     htm_items = [
         it for it in items
         if it.get("name", "").lower().endswith((".htm", ".html"))
-        and "index" not in it.get("name", "").lower()
-        and not re.match(r"^R\d+\.htm$", it.get("name", ""), re.IGNORECASE)
     ]
 
     if not htm_items:
         logger.warning("[EDGAR] No .htm files in index.json for %s", accession)
         return None
 
-    # Strategy 1: type field matches form type (works for newer filings)
+    # Prefer items whose type matches the form_type
     form_base = form_type.replace("/A", "")  # "10-K/A" -> "10-K"
     typed = [it for it in htm_items if it.get("type", "") == form_base]
     if typed:
         return typed[0]["name"], archives_base
 
-    # Strategy 2: filename contains "10-k" or "10k" (common naming convention)
-    form_slug = form_base.lower().replace("-", "")  # "10-K" -> "10k"
-    named = [it for it in htm_items if form_slug in it.get("name", "").lower().replace("-", "")]
-    if named:
-        # If multiple, prefer the largest file
-        named.sort(key=lambda x: int(x.get("size", "0") or "0"), reverse=True)
-        return named[0]["name"], archives_base
-
-    # Strategy 3: largest .htm file (primary doc is almost always the biggest)
-    htm_items.sort(key=lambda x: int(x.get("size", "0") or "0"), reverse=True)
+    # Fallback: first .htm file (primary document is listed first in SEC convention)
     return htm_items[0]["name"], archives_base
 
 

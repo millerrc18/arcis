@@ -59,7 +59,7 @@ def _sec_get(url: str, timeout: int = 15) -> requests.Response | None:
             resp = requests.get(url, headers=SEC_HEADERS, timeout=timeout)
             if resp.status_code == 200:
                 return resp
-            if resp.status_code in (403, 429, 503):
+            if resp.status_code in (429, 503):
                 retry_after = int(resp.headers.get("Retry-After", 2 ** (attempt + 1)))
                 logger.warning(
                     "[BACKFILL] HTTP %s on %s — retrying in %ds",
