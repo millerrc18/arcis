@@ -146,3 +146,27 @@ export const api = {
   // IB Gateway Status
   getIBStatus: () => fetchApi('/ib/status'),
 }
+
+// Platform / Strategy Research helpers (Task 12a)
+export async function getPlatformStrategies() {
+  return fetchApi("/api/platform/strategies");
+}
+
+export async function getPlatformStrategyDetail(id) {
+  return fetchApi(`/api/platform/strategies/${encodeURIComponent(id)}`);
+}
+
+export async function getPlatformBacktestResults(strategy_id, limit = 20) {
+  const qs = new URLSearchParams({ strategy_id, limit: String(limit) });
+  return fetchApi(`/api/platform/backtest-results?${qs}`);
+}
+
+export async function getPlatformBacktestTrades(result_id) {
+  const qs = new URLSearchParams({ result_id });
+  return fetchApi(`/api/platform/backtest-trades?${qs}`);
+}
+
+export async function getPlatformPromotionEvents(strategy_id, limit = 50) {
+  const qs = new URLSearchParams({ strategy_id, limit: String(limit) });
+  return fetchApi(`/api/platform/promotion-events?${qs}`);
+}
