@@ -39,8 +39,12 @@ def db(tmp_path):
     return str(path)
 
 
-def test_end_to_end_regime_run(db, monkeypatch):
+def test_end_to_end_regime_run(db, tmp_path, monkeypatch):
     """Handler-dispatched regime run persists report + plots end-to-end."""
+    # Handler writes to relative paths under docs/diagnostics/ — isolate via
+    # cwd-pivot so tests don't pollute the real working tree.
+    monkeypatch.chdir(tmp_path)
+
     def fake_subprocess(cmd, **kwargs):
         output = plot_dir = None
         for i, arg in enumerate(cmd):
@@ -87,8 +91,9 @@ def test_end_to_end_regime_run(db, monkeypatch):
     conn.close()
 
 
-def test_end_to_end_forensic_run(db, monkeypatch):
+def test_end_to_end_forensic_run(db, tmp_path, monkeypatch):
     """Forensic handler → completed row with parsed summary."""
+    monkeypatch.chdir(tmp_path)
     # Re-seed with forensic type
     conn = sqlite3.connect(db)
     conn.execute("DELETE FROM diagnostic_runs")
