@@ -118,15 +118,16 @@ def test_bootstrap_ci_shifted_excludes_zero():
     assert result["ci_lower"] > 0, f"CI lower {result['ci_lower']:.3f} should be > 0"
 
 
-def test_fdr_uniform_pvalues():
-    """~10% of uniform p-values should survive BH at q=0.10."""
+def test_fdr_controls_false_discoveries():
+    """BH under complete null rejects very few (FDR control)."""
     from src.diagnostics.fdr import benjamini_hochberg
 
     rng = np.random.default_rng(42)
+    # Under complete null, BH at q=0.10 should reject few or none
     pvals = rng.uniform(0, 1, size=100)
-    adjusted, survived = benjamini_hochberg(pvals, q=0.10)
+    _adjusted, survived = benjamini_hochberg(pvals, q=0.10)
     n_survived = sum(survived)
-    assert 2 <= n_survived <= 20, f"Survived {n_survived}, expected ~10"
+    assert n_survived <= 15, f"Too many survivals under null: {n_survived}"
 
 
 def test_fdr_strong_signal_survives():

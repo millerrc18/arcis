@@ -34,5 +34,5 @@ def benjamini_hochberg(
         adjusted[sorted_idx[i]] = min(adj, adjusted[sorted_idx[i + 1]])
     adjusted = np.clip(adjusted, 0, 1)
 
-    survived = [bool(p_values[i] <= q) for i in range(m)]
+    survived = [bool(adjusted[i] <= q) for i in range(m)]
     return adjusted, survived
