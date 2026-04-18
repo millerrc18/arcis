@@ -30,7 +30,27 @@ This is an approximation — the local API uses actual Alpaca prices.
 import statistics
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+
+# ── SD#41 / Sprint-3 Task-12c desk-filter helper ───────────────────────────
+
+def _desk_clause(desk: str | None) -> tuple[str, list]:
+    """Return (sql_fragment, params) for injecting into WHERE.
+
+    Semantics (spec line 1016):
+      None / 'swing'     -> swing-only (backward-compat default)
+      'all'              -> no desk filter (sums across all desks)
+      'research_*'       -> SQL LIKE with wildcard converted to %
+      exact string       -> equality match
+    """
+    if desk is None or desk == "swing":
+        return ("desk = %s", ["swing"])
+    if desk == "all":
+        return ("1=1", [])
+    if "*" in desk:
+        return ("desk LIKE %s", [desk.replace("*", "%")])
+    return ("desk = %s", [desk])
 
 
 # ── SD#41 D1 sharpe-attribution helpers ────────────────────────────────
@@ -105,25 +125,29 @@ def create_router(runtime, verify_auth):
     router = APIRouter()
 
     @router.get("/api/shadow/open", dependencies=[Depends(verify_auth)])
-    def shadow_open():
+    def shadow_open(desk: str | None = Query(None)):
         """Return open shadow trades with per-trade unrealized P&L.
 
         Fix for #253: total_unrealized_pnl was hardcoded to 0. Now computes P&L
         for each open trade using the latest signal price for that ticker.
         We query setup_signals (most recent theoretical_entry per ticker) as a
         proxy for current price — no live API call needed.
+        Task 12c: accepts optional ?desk= to filter by desk (default swing-only).
         """
+        desk_frag, desk_params = _desk_clause(desk)
         try:
             rows = runtime.query(
                 "SELECT st.*, r.setup_type, r.market_regime, r.priority_score "
                 "FROM shadow_trades st "
                 "LEFT JOIN recommendations r ON st.recommendation_id = r.recommendation_id "
-                "WHERE st.status = 'open' AND COALESCE(st.quarantined, 0) = 0"
-                " ORDER BY st.created_at DESC"
+                f"WHERE st.status = 'open' AND COALESCE(st.quarantined, 0) = 0 AND {desk_frag}"
+                " ORDER BY st.created_at DESC",
+                tuple(desk_params),
             )
             closed_pnl_row = runtime.query_one(
-                "SELECT COALESCE(SUM(pnl_dollars), 0) as total FROM shadow_trades WHERE status = 'closed'"
-                " AND COALESCE(quarantined, 0) = 0"
+                f"SELECT COALESCE(SUM(pnl_dollars), 0) as total FROM shadow_trades WHERE status = 'closed'"
+                f" AND COALESCE(quarantined, 0) = 0 AND {desk_frag}",
+                tuple(desk_params),
             )
             closed_pnl = closed_pnl_row["total"] if closed_pnl_row else 0
             equity = 100000 + (closed_pnl or 0)
@@ -178,17 +202,19 @@ def create_router(runtime, verify_auth):
             }
 
     @router.get("/api/shadow/closed", dependencies=[Depends(verify_auth)])
-    def shadow_closed(days: int = 30):
+    def shadow_closed(days: int = 30, desk: str | None = Query(None)):
+        """Task 12c: accepts optional ?desk= to filter by desk (default swing-only)."""
+        desk_frag, desk_params = _desk_clause(desk)
         try:
             cutoff = (datetime.now(runtime.et) - timedelta(days=days)).isoformat()
             rows = runtime.query(
                 "SELECT st.*, r.setup_type, r.market_regime, r.priority_score "
                 "FROM shadow_trades st "
                 "LEFT JOIN recommendations r ON st.recommendation_id = r.recommendation_id "
-                "WHERE st.status = 'closed' "
-                "AND st.actual_exit_time >= %s AND COALESCE(st.quarantined, 0) = 0"
+                f"WHERE st.status = 'closed' "
+                f"AND st.actual_exit_time >= %s AND COALESCE(st.quarantined, 0) = 0 AND {desk_frag}"
                 " ORDER BY st.actual_exit_time DESC",
-                (cutoff,),
+                (cutoff, *desk_params),
             )
             pnls = [row.get("pnl_dollars", 0) or 0 for row in rows]
             wins = [pnl for pnl in pnls if pnl > 0]
@@ -210,18 +236,21 @@ def create_router(runtime, verify_auth):
             return {"trades": [], "count": 0, "metrics": {}, "error": str(exc)}
 
     @router.get("/api/shadow/sharpe-attribution", dependencies=[Depends(verify_auth)])
-    def sharpe_attribution():
+    def sharpe_attribution(desk: str | None = Query(None)):
         """SD#41 REVISED primary metric: alpha vs SPY beta.
 
         Returns raw Sharpe + excess Sharpe with 95% CIs and t-statistic.
         IB gate: excess_sharpe >= 0.5 at excess_t_stat >= 2.0 over 150 OOS trades.
+        Task 12c: accepts optional ?desk= to filter by desk (default swing-only).
         """
+        desk_frag, desk_params = _desk_clause(desk)
         try:
             rows = runtime.query(
                 "SELECT pnl_pct, spy_return_over_hold, excess_return "
                 "FROM shadow_trades "
-                "WHERE actual_exit_time IS NOT NULL AND pnl_pct IS NOT NULL "
-                "AND COALESCE(quarantined, 0) = 0"
+                f"WHERE actual_exit_time IS NOT NULL AND pnl_pct IS NOT NULL "
+                f"AND COALESCE(quarantined, 0) = 0 AND {desk_frag}",
+                tuple(desk_params),
             )
             if not rows or len(rows) < 2:
                 return {"error": "insufficient_data", "n_trades": len(rows or [])}
@@ -233,14 +262,16 @@ def create_router(runtime, verify_auth):
             return {"error": str(exc)}
 
     @router.get("/api/shadow/metrics", dependencies=[Depends(verify_auth)])
-    def shadow_metrics(days: int = 30):
+    def shadow_metrics(days: int = 30, desk: str | None = Query(None)):
+        """Task 12c: accepts optional ?desk= to filter by desk (default swing-only)."""
+        desk_frag, desk_params = _desk_clause(desk)
         try:
             cutoff = (datetime.now(runtime.et) - timedelta(days=days)).isoformat()
             rows = runtime.query(
-                "SELECT pnl_dollars, pnl_pct FROM shadow_trades "
-                "WHERE status = 'closed' AND actual_exit_time >= %s"
-                " AND COALESCE(quarantined, 0) = 0",
-                (cutoff,),
+                f"SELECT pnl_dollars, pnl_pct FROM shadow_trades "
+                f"WHERE status = 'closed' AND actual_exit_time >= %s"
+                f" AND COALESCE(quarantined, 0) = 0 AND {desk_frag}",
+                (cutoff, *desk_params),
             )
             if not rows:
                 return {"total_trades": 0}
@@ -265,6 +296,27 @@ def create_router(runtime, verify_auth):
         except Exception as exc:
             runtime.logger.error("Shadow metrics error: %s", exc)
             return {"total_trades": 0, "error": str(exc)}
+
+    @router.get("/api/shadow/desks", dependencies=[Depends(verify_auth)])
+    def shadow_desks():
+        """Return distinct desk values for the Dashboard dropdown.
+
+        Always includes 'swing' and 'all'. Any non-swing desks currently present
+        in shadow_trades are appended (e.g. research_lazy_prices_v1 once Sprint 4
+        research trades land). Today this returns ['swing', 'all'].
+        Task 12c / Sprint 3.
+        """
+        try:
+            rows = runtime.query(
+                "SELECT DISTINCT desk FROM shadow_trades "
+                "WHERE desk IS NOT NULL AND desk != 'swing' "
+                "ORDER BY desk"
+            )
+            research_desks = [r["desk"] for r in rows]
+            return ["swing", "all"] + research_desks
+        except Exception as exc:
+            runtime.logger.error("[API] shadow_desks failed: %s", exc)
+            return ["swing", "all"]
 
     @router.get("/api/packets", dependencies=[Depends(verify_auth)])
     def packets(days: int = 7):
@@ -356,16 +408,20 @@ def create_router(runtime, verify_auth):
             return {"starting_capital": 100, "current_equity": 100, "error": str(exc)}
 
     @router.get("/api/shadow/account", dependencies=[Depends(verify_auth)])
-    def shadow_account():
+    def shadow_account(desk: str | None = Query(None)):
+        """Task 12c: accepts optional ?desk= to filter by desk (default swing-only)."""
+        desk_frag, desk_params = _desk_clause(desk)
         try:
             # Fix for #266: select same columns as shadow_open for consistent P&L computation
             open_trades = runtime.query(
-                "SELECT ticker, actual_entry_price, entry_price, actual_shares, planned_shares, pnl_dollars FROM shadow_trades WHERE status = 'open'"
-                " AND COALESCE(quarantined, 0) = 0"
+                f"SELECT ticker, actual_entry_price, entry_price, actual_shares, planned_shares, pnl_dollars FROM shadow_trades WHERE status = 'open'"
+                f" AND COALESCE(quarantined, 0) = 0 AND {desk_frag}",
+                tuple(desk_params),
             )
             closed_trades = runtime.query(
-                "SELECT pnl_dollars, pnl_pct FROM shadow_trades WHERE status = 'closed'"
-                " AND COALESCE(quarantined, 0) = 0"
+                f"SELECT pnl_dollars, pnl_pct FROM shadow_trades WHERE status = 'closed'"
+                f" AND COALESCE(quarantined, 0) = 0 AND {desk_frag}",
+                tuple(desk_params),
             )
             closed_pnl = sum(trade.get("pnl_dollars", 0) or 0 for trade in closed_trades)
             # Fix for #266: use actual values with fallback, matching shadow_open

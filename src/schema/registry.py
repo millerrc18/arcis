@@ -1907,3 +1907,52 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="created_at",
 ))
+
+_register(TableDef(
+    name="correlation_matrices",
+    description="Daily rolling strategy correlation snapshots. "
+                "Stored long-form (one row per strategy pair per method per date).",
+    columns=[
+        ColumnDef("date", "TEXT", nullable=False),
+        ColumnDef("method", "TEXT", nullable=False,
+                  description="'pearson' | 'spearman' | 'neg_exceedance'"),
+        ColumnDef("strategy_a", "TEXT", nullable=False),
+        ColumnDef("strategy_b", "TEXT", nullable=False),
+        ColumnDef("value", "REAL"),
+        ColumnDef("window_days", "INTEGER", nullable=False),
+        ColumnDef("n_observations", "INTEGER"),
+    ],
+    primary_key=["date", "method", "strategy_a", "strategy_b", "window_days"],
+    indexes=[
+        IndexDef("idx_corr_date", ["date"]),
+        IndexDef("idx_corr_pair", ["strategy_a", "strategy_b"]),
+    ],
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_time_column="date",
+))
+
+_register(TableDef(
+    name="factor_loadings",
+    description="Rolling factor regression results per strategy "
+                "(Carhart 4 + QMJ — Sprint 4 task 11b.3 populates).",
+    columns=[
+        ColumnDef("date", "TEXT", nullable=False),
+        ColumnDef("strategy_id", "TEXT", nullable=False),
+        ColumnDef("factor", "TEXT", nullable=False,
+                  description="'MKT' | 'SMB' | 'HML' | 'UMD' | 'QMJ' | 'alpha'"),
+        ColumnDef("beta", "REAL"),
+        ColumnDef("tstat_hac", "REAL",
+                  description="Newey-West HAC standard error adjusted"),
+        ColumnDef("r2", "REAL"),
+        ColumnDef("window_days", "INTEGER", nullable=False),
+        ColumnDef("n_observations", "INTEGER"),
+    ],
+    primary_key=["date", "strategy_id", "factor", "window_days"],
+    indexes=[
+        IndexDef("idx_factor_strategy_date", ["strategy_id", "date"]),
+    ],
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_time_column="date",
+))
