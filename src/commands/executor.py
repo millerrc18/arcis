@@ -274,6 +274,12 @@ def _handle_simulation(payload: dict, config: dict) -> dict:
     return {"status": "completed"}
 
 
+from src.commands.diagnostic_handlers import (
+    handle_run_forensic_audit as _handle_run_forensic_audit,
+    handle_run_regime_diagnostic as _handle_run_regime_diagnostic,
+)
+
+
 COMMAND_HANDLERS = {
     "scan": _handle_scan,
     "council": _handle_council,
@@ -290,6 +296,9 @@ COMMAND_HANDLERS = {
     # Fix for #252: stress test command for frontend Run button
     "stress-test": _handle_stress_test,
     "simulation": _handle_simulation,
+    # v0.25.0: diagnostic dashboard kickoff
+    "run-regime-diagnostic": _handle_run_regime_diagnostic,
+    "run-forensic-audit": _handle_run_forensic_audit,
 }
 
 

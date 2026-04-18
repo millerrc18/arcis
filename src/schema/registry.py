@@ -1464,6 +1464,89 @@ _register(TableDef(
 ))
 
 # ---------------------------------------------------------------------------
+# Diagnostics (2 tables) — v0.25.0
+# ---------------------------------------------------------------------------
+
+# diagnostic_runs: every regime / forensic diagnostic invocation.
+# Written by: src.api.cloud_routes.diagnostics (queued rows into Postgres)
+# and src.diagnostics.dashboard_runner (running/completed/failed updates
+# on the local side, propagated to Postgres via render_sync). The same
+# run_id is used as command_id in pending_commands so the two tables join
+# cleanly.
+_register(TableDef(
+    name="diagnostic_runs",
+    description="Regime and forensic diagnostic run metadata + report markdown",
+    columns=[
+        ColumnDef("run_id", "TEXT", nullable=False),
+        ColumnDef("diagnostic_type", "TEXT", nullable=False,
+                  description="'regime' | 'forensic'"),
+        ColumnDef("status", "TEXT", nullable=False,
+                  description="'queued' | 'running' | 'completed' | 'failed'"),
+        ColumnDef("trigger_source", "TEXT", nullable=False, default="dashboard",
+                  description="'dashboard' | 'cli'"),
+        ColumnDef("triggered_by", "TEXT", default="system",
+                  description="Operator email or 'system'"),
+        ColumnDef("cohort_n", "INTEGER",
+                  description="Closed trades at run start"),
+        ColumnDef("started_at", "TEXT",
+                  description="Set when status -> 'running'"),
+        ColumnDef("completed_at", "TEXT",
+                  description="Set when status -> terminal"),
+        ColumnDef("exit_code", "INTEGER",
+                  description="Subprocess exit code"),
+        ColumnDef("report_markdown", "TEXT",
+                  description="Full report body; set on completion"),
+        ColumnDef("summary_json", "TEXT", default="{}",
+                  description="Extracted headline fields"),
+        ColumnDef("stderr_tail", "TEXT",
+                  description="Last 2KB of stderr on failure"),
+        ColumnDef("payload_json", "TEXT", default="{}",
+                  description="Original submission payload"),
+        ColumnDef("created_at", "TEXT", nullable=False),
+        # updated_at bumps on every row modification; drives incremental sync.
+        ColumnDef("updated_at", "TEXT", nullable=False),
+    ],
+    primary_key="run_id",
+    indexes=[
+        IndexDef("idx_diagnostic_runs_type_status",
+                 ["diagnostic_type", "status"]),
+        IndexDef("idx_diagnostic_runs_created_at", ["created_at"]),
+    ],
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_time_column="updated_at",
+    sync_pk="run_id",
+))
+
+# diagnostic_run_plots: one row per PNG plot, base64-encoded.
+# Sibling table to avoid multi-MB single-row updates when a run completes
+# and to give render_sync per-plot granularity.
+_register(TableDef(
+    name="diagnostic_run_plots",
+    description="Base64-encoded PNG plots from diagnostic runs",
+    columns=[
+        ColumnDef("plot_id", "TEXT", nullable=False),
+        ColumnDef("run_id", "TEXT", nullable=False),
+        ColumnDef("filename", "TEXT", nullable=False),
+        ColumnDef("content_b64", "TEXT", nullable=False),
+        ColumnDef("sort_order", "INTEGER", default="0"),
+        ColumnDef("created_at", "TEXT", nullable=False),
+    ],
+    primary_key="plot_id",
+    indexes=[
+        IndexDef("idx_diagnostic_run_plots_run_id", ["run_id"]),
+    ],
+    foreign_keys=[
+        ForeignKeyDef("run_id", "diagnostic_runs", "run_id"),
+    ],
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_time_column="created_at",
+    sync_pk="plot_id",
+))
+
+
+# ---------------------------------------------------------------------------
 # User Data (1 table)
 # ---------------------------------------------------------------------------
 

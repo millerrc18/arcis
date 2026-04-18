@@ -76,7 +76,42 @@ EXPECTED_TABLES = {
     "user_notes",
     # Trading Internals
     "bracket_health",
+    # Diagnostics
+    "diagnostic_runs", "diagnostic_run_plots",
 }
+
+
+# ── Diagnostic tables (v0.25.0) ──────────────────────────────────
+
+
+def test_diagnostic_runs_in_registry():
+    """diagnostic_runs must be registered with correct columns and sync config."""
+    assert "diagnostic_runs" in TABLES
+    td = TABLES["diagnostic_runs"]
+    names = [c.name for c in td.columns]
+    for expected in [
+        "run_id", "diagnostic_type", "status", "trigger_source", "triggered_by",
+        "cohort_n", "started_at", "completed_at", "exit_code", "report_markdown",
+        "summary_json", "stderr_tail", "payload_json", "created_at", "updated_at",
+    ]:
+        assert expected in names, f"Missing column: {expected}"
+    assert td.primary_key == "run_id"
+    assert td.sync_to_postgres is True
+    assert td.sync_mode == "incremental"
+    assert td.sync_time_column == "updated_at"
+
+
+def test_diagnostic_run_plots_in_registry():
+    """diagnostic_run_plots sibling table must be registered."""
+    assert "diagnostic_run_plots" in TABLES
+    td = TABLES["diagnostic_run_plots"]
+    names = [c.name for c in td.columns]
+    for expected in [
+        "plot_id", "run_id", "filename", "content_b64", "sort_order", "created_at",
+    ]:
+        assert expected in names
+    assert td.primary_key == "plot_id"
+    assert td.sync_to_postgres is True
 
 
 def test_all_expected_tables_present():

@@ -40,6 +40,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from src.api.cloud_routes.analytics import create_router as create_analytics_router
 from src.api.cloud_routes.core import create_router as create_core_router
 from src.api.cloud_routes.council import create_router as create_council_router
+from src.api.cloud_routes.diagnostics import create_router as create_diagnostics_router
 from src.api.cloud_routes.notes import create_router as create_notes_router
 from src.api.cloud_routes.trades import create_router as create_trades_router
 from src.api.cloud_routes.ib_shadow import create_router as create_ib_shadow_router
@@ -275,6 +276,7 @@ for factory in (
     create_council_router,
     create_analytics_router,
     create_ib_shadow_router,
+    create_diagnostics_router,
 ):
     app.include_router(factory(_runtime, verify_auth))
 

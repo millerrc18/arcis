@@ -145,6 +145,22 @@ export const api = {
   getIBShadowHealth: () => fetchApi('/ib-shadow/health'),
   // IB Gateway Status
   getIBStatus: () => fetchApi('/ib/status'),
+  // Diagnostic runs (v0.25.0)
+  triggerRegimeDiagnostic: (opts = {}) => fetchApi('/diagnostic-runs/regime', {
+    method: 'POST',
+    body: JSON.stringify(opts),
+  }),
+  triggerForensicAudit: () => fetchApi('/diagnostic-runs/forensic', {
+    method: 'POST',
+    body: JSON.stringify({}),
+  }),
+  getDiagnosticRuns: (params = {}) => {
+    const q = new URLSearchParams(params).toString()
+    return fetchApi(`/diagnostic-runs${q ? `?${q}` : ''}`)
+  },
+  getDiagnosticRun: (runId) => fetchApi(`/diagnostic-runs/${runId}`),
+  getDiagnosticRunReport: (runId) => fetchApi(`/diagnostic-runs/${runId}/report`),
+  getDiagnosticRunPlots: (runId) => fetchApi(`/diagnostic-runs/${runId}/plots`),
 }
 
 // Platform / Strategy Research helpers (Task 12a)
