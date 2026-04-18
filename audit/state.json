@@ -1,7 +1,7 @@
 {
-  "run_count": 29,
+  "run_count": 30,
   "current_focus_index": 2,
-  "file_index": 26,
+  "file_index": 41,
   "file_list": [
     "requirements.txt",
     "frontend/package.json",
@@ -1493,5 +1493,74 @@
       "notes": "Audited 15 API route files (cloud_routes/* + routes/*). All third-party imports (fastapi, pydantic) are properly declared in requirements.txt. No undeclared dependencies, no deprecated API usage, no bare except:pass patterns. All remaining imports are Python stdlib (json, sqlite3, logging, datetime, uuid, threading, statistics, pathlib, subprocess, zoneinfo). This slice is clean — API routes are thin wrappers with minimal dependency surface."
     }
   },
-  "last_run": "2026-04-17T14:32:00.000000+00:00"
+  "run_30": {
+      "focus_area": "dependency_health",
+      "files_audited": [
+        "src/api/routes/review.py",
+        "src/api/routes/scan.py",
+        "src/api/routes/shadow.py",
+        "src/api/routes/system.py",
+        "src/api/routes/training.py",
+        "src/api/websocket.py",
+        "src/attribution/__init__.py",
+        "src/attribution/logger.py",
+        "src/cli/__init__.py",
+        "src/cli/commands.py",
+        "src/commands/__init__.py",
+        "src/commands/executor.py",
+        "src/config/__init__.py",
+        "src/config/overrides.py",
+        "src/config_overrides.py"
+      ],
+      "high": [
+        {
+          "file": "src/commands/executor.py",
+          "lines": "97, 104, 121, 123, 142, 148, 155, 162, 172",
+          "description": "8 of 13 command handlers import modules or functions that do not exist: run_scan_cycle, run_council_session, collect_options_data, collect_macro_data, score_pending_examples (module missing), run_training_pipeline (module missing), activate_kill_switch, deactivate_kill_switch, close_position. Cloud command queue is effectively broken for scan, council, data-collection, training, halt/resume, and close-position commands.",
+          "suggested_fix": "Update each handler to import the correct module/function. Create missing modules or rewire to actual entry points.",
+          "github_issue": "#501"
+        }
+      ],
+      "medium": [
+        {
+          "file": "src/cli/commands.py",
+          "lines": "202-206",
+          "description": "Bare except Exception: pass in cmd_shadow_close suppresses all Alpaca SDK errors (including ImportError) during paper exit. Journal shows trade closed but broker position may remain open.",
+          "suggested_fix": "Catch specific exceptions (ImportError, alpaca APIError) and log the failure.",
+          "github_issue": "#502"
+        },
+        {
+          "file": "src/commands/executor.py",
+          "lines": "345-348",
+          "description": "Broad except Exception in execute_command catches ImportError from broken handlers and returns generic 'command_execution_error'. Combined with the 8 broken imports, all failing commands return the same unhelpful error.",
+          "suggested_fix": "Catch ImportError/ModuleNotFoundError separately and return 'handler_not_available'.",
+          "github_issue": "#503"
+        }
+      ],
+      "low": [
+        {
+          "file": "src/api/routes/system.py",
+          "lines": "490",
+          "description": "import json as _json inside a for-loop body — re-imported on every iteration instead of at function start."
+        },
+        {
+          "file": "src/api/routes/system.py",
+          "lines": "501",
+          "description": "except Exception: pass silently suppresses config_overrides read errors."
+        },
+        {
+          "file": "src/api/routes/shadow.py",
+          "lines": "43",
+          "description": "Bare except Exception as e returns error string, could hide dependency import errors from get_shadow_account."
+        },
+        {
+          "file": "src/attribution/logger.py",
+          "lines": "203",
+          "description": "yfinance auto_adjust=True deprecated in yfinance >=0.2.40 (always True now). Already flagged in run_28."
+        }
+      ],
+      "notes": "Audited 15 files (routes/review-training, websocket, attribution/*, cli/*, commands/*, config/*, config_overrides). Most files are clean thin wrappers with stdlib + fastapi imports. The major finding is src/commands/executor.py where 8 of 13 cloud command handlers reference phantom modules/functions — the command queue added handlers that were never wired to the real codebase entry points. The CLI (cli/commands.py) correctly imports the real functions, confirming the executor handlers are stale/incorrect copies."
+    }
+  },
+  "last_run": "2026-04-18T12:00:00.000000+00:00"
 }
