@@ -207,3 +207,50 @@ def test_vix_regression_returns_required_fields():
                 "intercept", "mde_slope", "mde_benchmark", "is_underpowered"]
     for key in required:
         assert key in result, f"Missing key: {key}"
+
+
+# ── integration tests ─────────────────────────────────────────────
+
+
+def test_report_contains_all_sections():
+    """Generated report has all required sections."""
+    from src.diagnostics.report import generate_report
+
+    mock_results = {
+        "n_total": 88,
+        "mean_excess": -0.345,
+        "aggregate_ci": {"ci_lower": -1.0, "ci_upper": 0.5, "p_value": 0.42,
+                         "point_estimate": -0.345},
+        "vix_flags": [],
+        "a1_vix": {"status": "computed", "n": 88, "r": 0.05, "r_squared": 0.0025,
+                   "slope": 0.1, "intercept": -2.0, "p_value": 0.65,
+                   "se": 0.2, "slope_ci_lower": -0.3, "slope_ci_upper": 0.5,
+                   "mde_slope": 1.2, "mde_benchmark": 0.3,
+                   "is_underpowered": True, "vix_range": (19.2, 24.2),
+                   "vix_std": 1.5},
+        "a2_days": {"per_day": {"cells": [], "n_computed": 0},
+                    "day_means": [], "bad_runs": []},
+        "a3_sector": {"cells": [], "n_computed": 0},
+        "a4_hour": {"cells": [], "n_computed": 0},
+        "a5_holding": {"cells": [], "n_computed": 0},
+        "decision": "UNIFORMLY_NULL",
+        "decision_rationale": "No subsample shows significant excess.",
+        "quarantine_note": None,
+    }
+    md = generate_report(mock_results, "2026-04-18")
+
+    required_sections = [
+        "# Regime Diagnostic",
+        "## Executive Summary",
+        "## Methodology",
+        "## Aggregate Statistics",
+        "## A1: VIX Regression",
+        "## A2: Trade-Day Clustering",
+        "## A3: Sector Rotation",
+        "## A4: Entry Time-of-Day",
+        "## A5: Holding Period",
+        "## Power Analysis",
+        "## Decision",
+    ]
+    for section in required_sections:
+        assert section in md, f"Missing section: {section}"
