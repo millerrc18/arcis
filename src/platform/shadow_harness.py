@@ -161,23 +161,24 @@ class ShadowHarness:
         return get_order_status(order_id, desk=self.desk)
 
     def _find_candidates(self, as_of: datetime) -> list[dict]:
-        """Query the strategy spec for new candidates at `as_of`.
+        """Query strategy signal for candidates at `as_of` via signal_eval.
 
-        MVP PLACEHOLDER (v0.24.1 follow-up issue filed at tickets time):
-        full signal-eval integration requires exposing
-        src.platform.signal_eval.find_candidates_for_date(spec, db_path,
-        as_of) or similar — reusing the event-driven dispatch logic from
-        backtest_engine._run_event_driven but for a single as_of date.
-        For Sprint 4 MVP, return empty + log a warning until that
-        follow-up lands. The platform is correctly inert when no strategy
-        has candidate-generation wired — NOT a bug.
+        Candidates are deduplicated against currently-open shadow_trades for
+        this strategy's desk inside find_candidates_for_date. A signal-eval
+        bug on one strategy does NOT kill the harness — tick continues with 0
+        candidates.
         """
-        logger.info(
-            "[HARNESS %s] _find_candidates: returning [] (MVP placeholder; "
-            "full signal_eval integration in v0.24.1)",
-            self.strategy_id,
-        )
-        return []
+        from src.platform.signal_eval import find_candidates_for_date
+        try:
+            return find_candidates_for_date(
+                self.spec, db_path=self.db_path, as_of=as_of,
+            )
+        except Exception:
+            logger.exception(
+                "[HARNESS %s] _find_candidates failed; tick continues with []",
+                self.strategy_id,
+            )
+            return []
 
     def _is_within_hard_limits(
         self, candidate: dict,
