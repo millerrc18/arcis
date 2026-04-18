@@ -15,6 +15,7 @@ ruamel.yaml>=0.18
 numpy>=2.4,<3
 scipy>=1.17,<2
 pyarrow>=15,<25
+matplotlib>=3.8,<4.0
 beautifulsoup4>=4.14,<5.0
 
 # Interactive Brokers — required when live_trading.broker = "ib" or
