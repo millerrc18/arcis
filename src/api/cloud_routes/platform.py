@@ -4,7 +4,7 @@ Called by: frontend/src/pages/StrategyResearch.jsx + PlatformStatusWidget
            (Task 12a + 12d).
 Calls: src.platform.promotion (registry reads + promote/demote),
        src.platform.strategy_spec (load YAML), src.platform.backtest_engine,
-       scripts.run_backtest._persist.
+       src.platform.backtest_persist.
 Owns tables: reads strategy_registry, backtest_results, backtest_trades,
              strategy_promotion_events (via promotion module).
 Config keys: none.
@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -175,10 +176,10 @@ async def trigger_backtest(req: BacktestKickoffReq) -> dict:
 
 
 async def _run_backtest_async(req: BacktestKickoffReq, result_id: str) -> None:
-    """Run backtest in background + persist via scripts.run_backtest."""
+    """Run backtest in background + persist result."""
     try:
-        from scripts.run_backtest import _persist
         from src.platform.backtest_engine import BacktestConfig, run_backtest
+        from src.platform.backtest_persist import persist_backtest_result
         from src.platform.strategy_spec import load_spec
         spec = load_spec(req.strategy_id)
         cfg = BacktestConfig(
@@ -187,7 +188,10 @@ async def _run_backtest_async(req: BacktestKickoffReq, result_id: str) -> None:
             end_date=req.end_date,
         )
         result = run_backtest(cfg)
-        _persist(result, db_path=DB_PATH)
+        persist_backtest_result(
+            result, db_path=DB_PATH,
+            git_sha=os.environ.get("RENDER_GIT_COMMIT", "unknown"),
+        )
         try:
             from src.notifications.platform_events import notify_backtest_complete
             notify_backtest_complete(
