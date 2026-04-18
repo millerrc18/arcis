@@ -57,6 +57,60 @@ def _iter_folds(
     return folds
 
 
+def _run_one_fold(
+    strategy_spec: StrategySpec,
+    fold_spec: dict,
+) -> dict:
+    """Run IS (train) + OOS (test) backtests for one walk-forward fold.
+
+    Returns dict with is_sharpe, oos_sharpe, n_oos_trades, oos_trades,
+    oos_equity_curve. fold_spec must contain train_start, train_end,
+    test_start, test_end keys (ISO yyyy-mm-dd strings).
+    """
+    # Train (IS) — for mechanical strategies with no fitted params this
+    # is a diagnostic backtest. Its Sharpe defines the IS baseline.
+    train_cfg = BacktestConfig(
+        strategy=strategy_spec,
+        start_date=fold_spec["train_start"],
+        end_date=fold_spec["train_end"],
+    )
+    train_result = run_backtest(train_cfg)
+    is_sr = train_result.metrics.get("sharpe") or 0.0
+
+    # Test (OOS)
+    test_cfg = BacktestConfig(
+        strategy=strategy_spec,
+        start_date=fold_spec["test_start"],
+        end_date=fold_spec["test_end"],
+    )
+    test_result = run_backtest(test_cfg)
+    oos_sr = test_result.metrics.get("sharpe") or 0.0
+
+    return {
+        "is_sharpe": is_sr,
+        "oos_sharpe": oos_sr,
+        "n_oos_trades": len(test_result.trades),
+        "oos_trades": test_result.trades,
+        "oos_equity_curve": test_result.equity_curve,
+    }
+
+
+def _compute_efficiency(
+    is_sharpes: list[float], oos_sharpes: list[float],
+) -> tuple[float, float]:
+    """Compute fold-averaged OOS Sharpe and OOS/IS efficiency ratio.
+
+    Returns (mean_oos_sharpe, efficiency). Efficiency is 0.0 when IS mean
+    is zero or when no folds exist.
+    """
+    if not is_sharpes or not oos_sharpes:
+        return 0.0, 0.0
+    mean_is = sum(is_sharpes) / len(is_sharpes)
+    mean_oos = sum(oos_sharpes) / len(oos_sharpes)
+    efficiency = mean_oos / mean_is if mean_is != 0 else 0.0
+    return mean_oos, efficiency
+
+
 def run_walkforward(
     strategy_spec: StrategySpec,
     start_date: str,
@@ -95,44 +149,19 @@ def run_walkforward(
     oos_sharpes: list[float] = []
 
     for f in fold_specs:
-        # Train (IS) — for mechanical strategies with no fitted params this
-        # is a diagnostic backtest. Its Sharpe defines the IS baseline.
-        train_cfg = BacktestConfig(
-            strategy=strategy_spec,
-            start_date=f["train_start"],
-            end_date=f["train_end"],
-        )
-        train_result = run_backtest(train_cfg)
-        is_sr = train_result.metrics.get("sharpe") or 0.0
-
-        # Test (OOS)
-        test_cfg = BacktestConfig(
-            strategy=strategy_spec,
-            start_date=f["test_start"],
-            end_date=f["test_end"],
-        )
-        test_result = run_backtest(test_cfg)
-        oos_sr = test_result.metrics.get("sharpe") or 0.0
-
+        result = _run_one_fold(strategy_spec, f)
         folds.append({
             **f,
-            "is_sharpe": is_sr,
-            "oos_sharpe": oos_sr,
-            "n_oos_trades": len(test_result.trades),
+            "is_sharpe": result["is_sharpe"],
+            "oos_sharpe": result["oos_sharpe"],
+            "n_oos_trades": result["n_oos_trades"],
         })
-        aggregate_oos_trades.extend(test_result.trades)
-        aggregate_oos_curve.extend(test_result.equity_curve)
-        is_sharpes.append(is_sr)
-        oos_sharpes.append(oos_sr)
+        aggregate_oos_trades.extend(result["oos_trades"])
+        aggregate_oos_curve.extend(result["oos_equity_curve"])
+        is_sharpes.append(result["is_sharpe"])
+        oos_sharpes.append(result["oos_sharpe"])
 
-    if is_sharpes and oos_sharpes:
-        mean_is = sum(is_sharpes) / len(is_sharpes)
-        mean_oos = sum(oos_sharpes) / len(oos_sharpes)
-        efficiency = mean_oos / mean_is if mean_is != 0 else 0.0
-    else:
-        mean_oos = 0.0
-        efficiency = 0.0
-
+    mean_oos, efficiency = _compute_efficiency(is_sharpes, oos_sharpes)
     return {
         "folds": folds,
         "aggregate_oos_trades": aggregate_oos_trades,

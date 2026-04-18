@@ -27,6 +27,56 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity as _sk_cos
 
 
+# Compiled once at module level — matches cross-reference lines that appear
+# in SEC filings like "Item 1A of this Form 10-K under the heading Risk Factors."
+_REF_PREFIX_RE = re.compile(
+    r"(?i)^\s*(of this form|see item|as described|incorporated|under the heading)"
+)
+
+# Section header patterns per form type: {form_type: {section_key: (header_pat, stop_pat)}}
+# Lookahead stops at the next sibling item to bound the extracted body.
+_SECTION_PATTERNS: dict[str, dict[str, tuple[str, str]]] = {
+    "10-K": {
+        "item_1": (
+            r"(?i)item\s+1[.\s]+business",
+            r"(?i)item\s+(?:1[a-z]|2)\b",
+        ),
+        "item_1a": (
+            r"(?i)item\s+1a[.\s]*(?:risk\s+factors)?",
+            r"(?i)item\s+(?:1b|1c|2)\b",
+        ),
+        "item_7": (
+            r"(?i)item\s+7[.\s]*(?:management.s\s+discussion)?",
+            r"(?i)item\s+(?:7a|8)\b",
+        ),
+        "item_8": (
+            r"(?i)item\s+8[.\s]*(?:financial\s+statements)?",
+            r"(?i)item\s+9\b",
+        ),
+    },
+    "10-Q": {
+        "item_2": (
+            r"(?i)item\s+2[.\s]*(?:management.s\s+discussion)?",
+            r"(?i)item\s+(?:3|4)\b",
+        ),
+    },
+}
+
+
+def _is_substantive_match(body: str) -> bool:
+    """Filter criteria for a regex match body to count as a real section
+    (not a TOC entry, not forward-looking-statement boilerplate).
+
+    Returns True if the body is long enough and does not start with a
+    cross-reference prefix typical of SEC filing TOC or disclaimer entries.
+    """
+    if len(body) < 200:
+        return False  # too short — likely TOC
+    if _REF_PREFIX_RE.match(body):
+        return False  # cross-reference / forward-looking disclaimer
+    return True
+
+
 def _parse_section_from_fulltext(full_text: str, form_type: str, section_key: str) -> str:
     """Extract a single section from full_text using section-header regexes.
 
@@ -41,44 +91,10 @@ def _parse_section_from_fulltext(full_text: str, form_type: str, section_key: st
     if not full_text:
         return ""
 
-    # Section header patterns (lookahead stops at the next sibling item)
-    patterns: dict[str, tuple[str, str]] = {}
-    if form_type == "10-K":
-        patterns = {
-            "item_1": (
-                r"(?i)item\s+1[.\s]+business",
-                r"(?i)item\s+(?:1[a-z]|2)\b",
-            ),
-            "item_1a": (
-                r"(?i)item\s+1a[.\s]*(?:risk\s+factors)?",
-                r"(?i)item\s+(?:1b|1c|2)\b",
-            ),
-            "item_7": (
-                r"(?i)item\s+7[.\s]*(?:management.s\s+discussion)?",
-                r"(?i)item\s+(?:7a|8)\b",
-            ),
-            "item_8": (
-                r"(?i)item\s+8[.\s]*(?:financial\s+statements)?",
-                r"(?i)item\s+9\b",
-            ),
-        }
-    elif form_type == "10-Q":
-        patterns = {
-            "item_2": (
-                r"(?i)item\s+2[.\s]*(?:management.s\s+discussion)?",
-                r"(?i)item\s+(?:3|4)\b",
-            ),
-        }
-
-    entry = patterns.get(section_key)
+    entry = _SECTION_PATTERNS.get(form_type, {}).get(section_key)
     if not entry:
         return ""
     header_pat, stop_pat = entry
-
-    # Patterns for bodies that are forward-looking disclaimer references, not
-    # the actual section body. These appear in SEC filings as cross-references
-    # like "Item 1A of this Form 10-K under the heading Risk Factors."
-    _REF_PREFIX_RE = re.compile(r"(?i)^\s*(of this form|see item|as described|incorporated|under the heading)")
 
     # Find all start positions for this section header
     starts = [m.end() for m in re.finditer(header_pat, full_text)]
@@ -90,9 +106,7 @@ def _parse_section_from_fulltext(full_text: str, form_type: str, section_key: st
         else:
             body = full_text[body_start:]
         body = body.strip()
-        # Skip TOC entries (very short), and cross-reference lines that start
-        # with "of this Form 10-K" or similar forward-looking boilerplate.
-        if len(body) < 200 or _REF_PREFIX_RE.match(body):
+        if not _is_substantive_match(body):
             continue
         return body[:50000]
     return ""

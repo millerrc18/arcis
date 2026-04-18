@@ -405,7 +405,7 @@ def cmd_reconcile_live(args):
     from src.shadow_trading.reconcile import reconcile_live_trades
 
     dry_run = getattr(args, "dry_run", False)
-    result = reconcile_live_trades(dry_run=dry_run)
+    result = reconcile_live_trades(desk="swing", dry_run=dry_run)
     _safe_print(f"\nAlpaca positions: {result['alpaca_positions']}")
     _safe_print(f"Tracked in DB:    {result['tracked_positions']}")
     if result["orphaned"]:

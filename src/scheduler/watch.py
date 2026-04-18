@@ -250,6 +250,11 @@ class WatchLoop(HandlerRegistryMixin):
         self._stats_postclose_done = False
         self._handlers: dict[str, list] = {}  # Phase A: see handler_registry.py
 
+        # Sprint 4 Task 9: platform-tick rate-limiting state. One entry per
+        # strategy_id; cleared on daily reset. Used by _run_platform_shadow_tick
+        # to respect each strategy's shadow_cadence_seconds independently.
+        self._last_platform_tick: dict[str, datetime] = {}
+
     def _reset_daily_state(self):
         """Reset daily flags at midnight ET.
 
@@ -327,6 +332,9 @@ class WatchLoop(HandlerRegistryMixin):
         # Reset per-task backoff and collector failure tracking
         self._backoff.clear()
         self._collector_failures.clear()
+        # Sprint 4 Task 9: clear platform-tick timestamps so each strategy
+        # gets a fresh cadence window on the new trading day.
+        self._last_platform_tick.clear()
 
     def _is_market_open(self, now: datetime) -> bool:
         """Check if market is currently open (weekday, not holiday, between open and close).
@@ -682,12 +690,14 @@ class WatchLoop(HandlerRegistryMixin):
         if (self._last_reconcile_time is None or
                 (now - self._last_reconcile_time).total_seconds() > 900):
             try:
-                from src.shadow_trading.reconcile import reconcile_paper_trades
-                recon = reconcile_paper_trades(dry_run=False)
-                closed = recon.get("marked_closed", [])
-                if closed:
+                from src.shadow_trading.reconcile_dispatch import reconcile_all_paper_trades
+                all_recon = reconcile_all_paper_trades(dry_run=False)
+                total_closed: list = []
+                for desk, recon in all_recon.items():
+                    total_closed.extend(recon.get("marked_closed", []))
+                if total_closed:
                     logger.info("[WATCH] Intra-day reconciliation closed %d stale trades: %s",
-                                len(closed), closed)
+                                len(total_closed), total_closed)
                 self._last_reconcile_time = now
             except Exception as e:
                 logger.warning("[WATCH] Intra-day reconciliation failed: %s", e)
@@ -712,6 +722,61 @@ class WatchLoop(HandlerRegistryMixin):
         if result.get("trades_opened", 0) > 0:
             logger.info("[WATCH] MR scan opened %d trades", result["trades_opened"])
         return result.get("status") != "error"
+
+    def _run_platform_shadow_tick(self) -> None:
+        """Tick every active research-platform strategy once per cadence.
+
+        Uses interval-gating (spec line 991-994), NOT inline dispatch like
+        _run_mr_scan. Each strategy has its own shadow_cadence_seconds from
+        spec.raw; checked independently.
+
+        Failures on one strategy are logged and isolated — swing trading
+        continues. The tick timestamp is recorded BEFORE running so a
+        deterministic crash doesn't cause an infinite retry loop.
+        """
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        from src.platform.promotion import get_strategies_by_status
+        from src.platform.shadow_harness import ShadowHarness
+        from src.platform.strategy_spec import load_spec
+
+        ET = ZoneInfo("America/New_York")
+        # now_et is passed to run_one_tick (harness needs wall-clock context).
+        # gate_now is naive for internal elapsed-time comparisons so that
+        # _last_platform_tick entries stored as naive datetimes stay consistent.
+        now_et = datetime.now(ET)
+        gate_now = datetime.now()
+        try:
+            active = get_strategies_by_status(
+                ["shadow_trading"],
+                db_path=getattr(self, "_db_path", None) or DB_PATH,
+            )
+        except Exception:
+            logger.exception("[PLATFORM] get_strategies_by_status failed")
+            return
+
+        for strategy_id in active:
+            try:
+                spec = load_spec(strategy_id)
+                interval = int(spec.raw.get("shadow_cadence_seconds", 600))
+                last_tick = self._last_platform_tick.get(strategy_id)
+                if last_tick is not None and (gate_now - last_tick).total_seconds() < interval:
+                    continue
+                # Record the tick BEFORE running so a crash doesn't leave
+                # us retrying on every outer-loop iteration.
+                self._last_platform_tick[strategy_id] = gate_now
+                harness = ShadowHarness(spec)
+                result = harness.run_one_tick(now_et)
+                logger.info(
+                    "[PLATFORM] ticked %s: %d new positions",
+                    strategy_id, result.get("n_new_positions", 0),
+                )
+            except Exception:
+                logger.exception(
+                    "[PLATFORM] tick failed for %s — swing continues",
+                    strategy_id,
+                )
 
     def _post_scan_notifications(self, result):
         """Send Telegram notifications after a scan cycle."""
@@ -1657,6 +1722,13 @@ class WatchLoop(HandlerRegistryMixin):
                             logger.debug(
                                 "[WATCH] IB health check error: %s", ib_exc
                             )
+
+                # Sprint 4 Task 9: platform tick — research strategies on their
+                # own cadence (spec line 991-994). Runs every outer cycle so the
+                # per-strategy interval-gating inside the method stays responsive.
+                # _run_platform_shadow_tick already isolates per-strategy failures;
+                # wrap in _safe_run so a top-level exception can't kill swing.
+                self._safe_run("platform shadow tick", self._run_platform_shadow_tick)
 
                 time.sleep(60)
 

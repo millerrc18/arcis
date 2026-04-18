@@ -137,8 +137,21 @@ def _check_enabled() -> dict:
     return cfg
 
 
-def _get_trading_client():
-    """Create and return an Alpaca TradingClient for paper trading."""
+def _get_trading_client(desk: str | None = None):
+    """Create and return an Alpaca TradingClient for paper trading.
+
+    If desk is specified (e.g. 'research_lazy_prices_v1'), dispatches
+    through src.shadow_trading.alpaca_clients.get_client for per-desk
+    routing. If desk is None or 'swing', uses the legacy swing-config
+    path for full backward compatibility with existing swing code.
+
+    Args:
+        desk: Named desk to route through (e.g. 'swing', 'research_xxx').
+              None and 'swing' both use the legacy _get_alpaca_config path.
+    """
+    if desk is not None and desk != "swing":
+        from src.shadow_trading.alpaca_clients import get_client
+        return get_client(desk)
     cfg = _get_alpaca_config()
     from alpaca.trading.client import TradingClient
     return TradingClient(
@@ -148,8 +161,36 @@ def _get_trading_client():
     )
 
 
-def _get_data_client():
-    """Create and return an Alpaca StockHistoricalDataClient."""
+def _get_data_client(desk: str | None = None):
+    """Create and return an Alpaca StockHistoricalDataClient.
+
+    desk kwarg accepted for parallel signature with _get_trading_client;
+    data client reuses the desk's trading-credentials (market data API
+    uses the same api_key/secret). None or 'swing' → legacy path.
+
+    Args:
+        desk: Named desk to route through. None and 'swing' use legacy config.
+    """
+    if desk is not None and desk != "swing":
+        # Research desk — resolve credentials through desks.{desk}.*
+        import os as _os
+        desks_cfg = load_config().get("desks", {})
+        dc = desks_cfg.get(desk, {})
+        key_var = dc.get("alpaca_key_env")
+        sec_var = dc.get("alpaca_secret_env")
+        if not key_var or not sec_var:
+            raise ValueError(
+                f"desk {desk!r} has no alpaca_key_env / alpaca_secret_env "
+                "in config; cannot construct data client"
+            )
+        api_key = _os.environ.get(key_var)
+        api_sec = _os.environ.get(sec_var)
+        if not api_key or not api_sec:
+            raise RuntimeError(
+                f"desk {desk!r} credentials not in environment"
+            )
+        from alpaca.data.historical import StockHistoricalDataClient
+        return StockHistoricalDataClient(api_key=api_key, secret_key=api_sec)
     cfg = _get_alpaca_config()
     from alpaca.data.historical import StockHistoricalDataClient
     return StockHistoricalDataClient(
@@ -158,9 +199,14 @@ def _get_data_client():
     )
 
 
-def get_account_info() -> dict:
-    """Get paper account info: balance, buying power, equity, portfolio value."""
-    client = _get_trading_client()
+def get_account_info(desk: str = "swing") -> dict:
+    """Get paper account info: balance, buying power, equity, portfolio value.
+
+    Args:
+        desk: Named desk to route through (default 'swing').
+              Routes to per-desk Alpaca client via _get_trading_client(desk=desk).
+    """
+    client = _get_trading_client(desk=desk)
     account = client.get_account()
     return {
         "account_id": str(account.id),
@@ -174,14 +220,18 @@ def get_account_info() -> dict:
 
 
 def place_paper_entry(
-    ticker: str, shares: int, order_type: str = "market"
+    ticker: str, shares: int, order_type: str = "market", desk: str = "swing"
 ) -> dict:
-    """Place a paper buy order. Returns order details dict."""
+    """Place a paper buy order. Returns order details dict.
+
+    Args:
+        desk: Named desk to route through (default 'swing').
+    """
     _check_enabled()
 
     logger.info("[SHADOW] Placing paper BUY: %d shares of %s", shares, ticker)
 
-    client = _get_trading_client()
+    client = _get_trading_client(desk=desk)
 
     from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
     from alpaca.trading.enums import OrderSide, TimeInForce
@@ -212,14 +262,18 @@ def place_paper_entry(
 
 
 def place_paper_exit(
-    ticker: str, shares: int, order_type: str = "market"
+    ticker: str, shares: int, order_type: str = "market", desk: str = "swing"
 ) -> dict:
-    """Place a paper sell order. Returns order details dict."""
+    """Place a paper sell order. Returns order details dict.
+
+    Args:
+        desk: Named desk to route through (default 'swing').
+    """
     _check_enabled()
 
     logger.info("[SHADOW] Placing paper SELL: %d shares of %s", shares, ticker)
 
-    client = _get_trading_client()
+    client = _get_trading_client(desk=desk)
 
     from alpaca.trading.requests import MarketOrderRequest
     from alpaca.trading.enums import OrderSide, TimeInForce
@@ -251,6 +305,7 @@ def place_bracket_order(
     take_profit_price: float,
     stop_loss_price: float,
     limit_price: float | None = None,
+    desk: str = "swing",
 ) -> dict:
     """Place a bracket order: entry + take-profit + stop-loss as one atomic order.
 
@@ -266,6 +321,9 @@ def place_bracket_order(
 
     WHY limit_price option: For less-liquid names, a limit entry prevents
     paying an unreasonable spread on market open.
+
+    Args:
+        desk: Named desk to route through (default 'swing').
     """
     _check_enabled()
 
@@ -274,7 +332,7 @@ def place_bracket_order(
                 "(TP=$%.2f, SL=$%.2f)", shares, ticker,
                 take_profit_price, stop_loss_price)
 
-    client = _get_trading_client()
+    client = _get_trading_client(desk=desk)
 
     from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
     from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass
@@ -316,9 +374,13 @@ def place_bracket_order(
     }
 
 
-def get_position(ticker: str) -> dict | None:
-    """Get current position details for a ticker, or None if no position."""
-    client = _get_trading_client()
+def get_position(ticker: str, desk: str = "swing") -> dict | None:
+    """Get current position details for a ticker, or None if no position.
+
+    Args:
+        desk: Named desk to route through (default 'swing').
+    """
+    client = _get_trading_client(desk=desk)
     try:
         pos = client.get_open_position(ticker)
         return {
@@ -335,9 +397,13 @@ def get_position(ticker: str) -> dict | None:
         return None
 
 
-def get_all_positions() -> list[dict]:
-    """Get all open positions."""
-    client = _get_trading_client()
+def get_all_positions(desk: str = "swing") -> list[dict]:
+    """Get all open positions.
+
+    Args:
+        desk: Named desk to route through (default 'swing').
+    """
+    client = _get_trading_client(desk=desk)
     positions = client.get_all_positions()
     return [
         {
@@ -353,7 +419,7 @@ def get_all_positions() -> list[dict]:
     ]
 
 
-def get_current_price(ticker: str) -> float | None:
+def get_current_price(ticker: str, desk: str = "swing") -> float | None:
     """Get the latest trade price for a ticker. Retries on network/DNS errors.
 
     WHY 3 retries with exponential backoff (0s, 1s, 2s): Alpaca's data API
@@ -363,10 +429,13 @@ def get_current_price(ticker: str) -> float | None:
 
     GOTCHA: Only retries ConnectionError/OSError (network issues). Other
     exceptions (e.g., invalid ticker) fail immediately to avoid wasting time.
+
+    Args:
+        desk: Named desk to route through (default 'swing').
     """
     for attempt in range(3):
         try:
-            client = _get_data_client()
+            client = _get_data_client(desk=desk)
             from alpaca.data.requests import StockLatestTradeRequest
             request = StockLatestTradeRequest(symbol_or_symbols=ticker)
             trades = client.get_stock_latest_trade(request)
@@ -385,14 +454,18 @@ def get_current_price(ticker: str) -> float | None:
             return None
 
 
-def get_order_status(order_id: str) -> dict:
-    """Check the status of an order."""
-    client = _get_trading_client()
+def get_order_status(order_id: str, desk: str = "swing") -> dict:
+    """Check the status of an order.
+
+    Args:
+        desk: Named desk to route through (default 'swing').
+    """
+    client = _get_trading_client(desk=desk)
     order = client.get_order_by_id(order_id)
     return _serialize_order(order)
 
 
-def verify_order_accepted(order_id: str) -> dict:
+def verify_order_accepted(order_id: str, desk: str = "swing") -> dict:
     """Verify an order was accepted by Alpaca after submission.
 
     Fix #352: fire-and-forget submission can miss acceptances when
@@ -403,9 +476,12 @@ def verify_order_accepted(order_id: str) -> dict:
         - True: order confirmed accepted/filled/partially_filled
         - False: order confirmed rejected/canceled
         - None: verification failed (API error) — status uncertain
+
+    Args:
+        desk: Named desk to route through (default 'swing').
     """
     try:
-        client = _get_trading_client()
+        client = _get_trading_client(desk=desk)
         order = client.get_order_by_id(order_id)
         status = str(order.status)
         accepted_states = {"accepted", "new", "pending_new", "filled",
@@ -425,7 +501,7 @@ def verify_order_accepted(order_id: str) -> dict:
 _TERMINAL_STATE_RE = re.compile(r"already in \\?\"?([a-z_]+)\\?\"? state", re.IGNORECASE)
 
 
-def cancel_paper_order(order_id: str) -> dict:
+def cancel_paper_order(order_id: str, desk: str = "swing") -> dict:
     """Cancel a pending paper order by ID.
 
     Returns a dict: ``{cancelled: bool, terminal_state: str|None, error: str|None}``.
@@ -435,9 +511,12 @@ def cancel_paper_order(order_id: str) -> dict:
     terminal state so callers can detect the background fill and avoid
     resubmitting a duplicate order. That race was the root cause of the
     2026-04-14 NVDA/GOOGL exit-loop short-position accumulation.
+
+    Args:
+        desk: Named desk to route through (default 'swing').
     """
     try:
-        client = _get_trading_client()
+        client = _get_trading_client(desk=desk)
         client.cancel_order_by_id(order_id)
         return {"cancelled": True, "terminal_state": None, "error": None}
     except Exception as e:
@@ -449,18 +528,21 @@ def cancel_paper_order(order_id: str) -> dict:
         return {"cancelled": False, "terminal_state": terminal_state, "error": str(e)}
 
 
-def cancel_orders_for_ticker(ticker: str) -> int:
+def cancel_orders_for_ticker(ticker: str, desk: str = "swing") -> int:
     """Cancel all open orders for a specific ticker.
 
     Fix #356: Required before closing a position — pending orders lock
     shares as 'held_for_orders', preventing close_position from working.
 
     Returns the number of orders cancelled.
+
+    Args:
+        desk: Named desk to route through (default 'swing').
     """
     from alpaca.trading.requests import GetOrdersRequest
     from alpaca.trading.enums import QueryOrderStatus
     try:
-        client = _get_trading_client()
+        client = _get_trading_client(desk=desk)
         orders = client.get_orders(GetOrdersRequest(
             status=QueryOrderStatus.OPEN,
             symbols=[ticker],
@@ -479,10 +561,14 @@ def cancel_orders_for_ticker(ticker: str) -> int:
         return 0
 
 
-def cancel_all_orders() -> dict:
-    """Cancel all pending Alpaca orders.  Returns ``{'cancelled': N}``."""
+def cancel_all_orders(desk: str = "swing") -> dict:
+    """Cancel all pending Alpaca orders.  Returns ``{'cancelled': N}``.
+
+    Args:
+        desk: Named desk to route through (default 'swing').
+    """
     try:
-        client = _get_trading_client()
+        client = _get_trading_client(desk=desk)
         cancelled = client.cancel_orders()
         count = len(cancelled) if cancelled else 0
         logger.info("[CANCEL] Cancelled %d pending orders", count)
@@ -542,8 +628,13 @@ def _get_live_trading_client():
     )
 
 
-def get_live_account_info() -> dict:
-    """Get live account info: balance, buying power, equity."""
+def get_live_account_info(desk: str = "swing") -> dict:
+    """Get live account info: balance, buying power, equity.
+
+    Args:
+        desk: Must be 'swing' — live trading is swing-only. Parameter accepted
+              for API consistency; non-swing desks should not call this function.
+    """
     client = _get_live_trading_client()
     account = client.get_account()
     return {
@@ -557,20 +648,31 @@ def get_live_account_info() -> dict:
     }
 
 
-def place_live_entry(ticker: str, shares: int, notional: float | None = None) -> dict:
+def place_live_entry(
+    ticker: str, shares: int, notional: float | None = None, desk: str = "swing"
+) -> dict:
     """Place a LIVE market buy order. Returns order details dict.
+
+    COMPLIANCE GUARDRAIL: live trading is swing-only. Raises ValueError if
+    desk != 'swing' — research desks must use paper trading only.
 
     Args:
         ticker: Stock symbol
         shares: Number of whole shares (used if notional is None)
         notional: Dollar amount to invest (enables fractional shares).
                   If provided, overrides shares parameter.
+        desk: Must be 'swing' — live trading restricted to swing desk.
 
     WHY notional ordering: Live account starts with small capital ($100).
     Whole-share ordering can't buy stocks above $100/share. Notional lets
     us invest exact dollar amounts and get fractional shares automatically.
     Strategy Decision #6: Equal weight (1/N) until 200+ trades.
     """
+    if desk != "swing":
+        raise ValueError(
+            f"live trading only supports swing desk; got desk={desk!r}. "
+            "Research strategies must use paper trading only."
+        )
     cfg = _get_live_config()
     if not cfg["enabled"]:
         raise LiveTradingError("Live trading is disabled in config.")
@@ -673,8 +775,13 @@ def place_live_exit(ticker: str, shares: int | float = 0) -> dict:
     }
 
 
-def get_live_positions() -> list[dict]:
-    """Get all open live positions."""
+def get_live_positions(desk: str = "swing") -> list[dict]:
+    """Get all open live positions.
+
+    Args:
+        desk: Must be 'swing' — live trading is swing-only. Parameter accepted
+              for API consistency; non-swing desks should not call this function.
+    """
     client = _get_live_trading_client()
     positions = client.get_all_positions()
     return [

@@ -65,6 +65,158 @@ def _get_strategy_status(
     return row[0] if row else None
 
 
+def _fetch_backtest_pnl_series(
+    strategy_id: str, db_path: str,
+) -> tuple[str | None, dict]:
+    """Fetch pnl_pct series and summary stats for the latest backtest.
+
+    Returns (result_id_or_None, evidence_dict). On failure evidence has an
+    'error' key and result_id is None.
+    """
+    import pandas as pd
+
+    evidence: dict = {}
+    conn = sqlite3.connect(db_path)
+    try:
+        br_row = conn.execute(
+            """SELECT result_id, max_drawdown_pct, total_trades
+               FROM backtest_results
+               WHERE strategy_id = ?
+               ORDER BY created_at DESC LIMIT 1""",
+            (strategy_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if br_row is None:
+        evidence["error"] = "no backtest_results row for this strategy"
+        return None, evidence
+
+    result_id, max_dd, n_trades = br_row
+    evidence["max_drawdown_pct"] = max_dd
+    evidence["n_trades"] = n_trades
+
+    conn = sqlite3.connect(db_path)
+    try:
+        trade_rows = conn.execute(
+            "SELECT pnl_pct FROM backtest_trades WHERE result_id = ?",
+            (result_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    evidence["pnl_series"] = pd.Series(
+        [r[0] for r in trade_rows if r[0] is not None],
+        dtype=float,
+    )
+    return result_id, evidence
+
+
+def _evaluate_dsr_evidence(
+    strategy_id: str, db_path: str,
+) -> tuple[bool, dict]:
+    """Shared DSR computation for both shadow_trading and production gates.
+
+    Uses real N_eff + V from trials_registry — never falls back to null.
+    Raises RuntimeError if V is None (trials_registry integrity violation).
+    """
+    # Avoid circular imports — promotion → trials → (no promotion)
+    from src.platform.rigor.trials import (
+        get_current_n_eff,
+        get_variance_for_strategy_family,
+    )
+    from src.platform.rigor.dsr import deflated_sharpe_ratio
+
+    _, evidence = _fetch_backtest_pnl_series(strategy_id, db_path)
+    if "error" in evidence:
+        return False, evidence
+
+    pnl_series = evidence.pop("pnl_series")
+    n_eff = get_current_n_eff(db_path)
+    trials_sr_variance = get_variance_for_strategy_family(db_path=db_path)
+
+    # Defense-in-depth: if V is somehow None, fail loudly rather than
+    # silently triggering the null-fallback path inside dsr.py.
+    if trials_sr_variance is None:
+        raise RuntimeError(
+            "trials_sr_variance is None — get_variance_for_strategy_family "
+            "must never return None; check trials_registry integrity."
+        )
+
+    evidence["n_eff_used_for_dsr"] = n_eff
+    evidence["trials_sr_variance_used"] = trials_sr_variance
+    dsr_result = deflated_sharpe_ratio(
+        trade_returns=pnl_series,
+        n_trials=n_eff,
+        trials_sr_variance=trials_sr_variance,
+    )
+    dsr = dsr_result["DSR"]
+    evidence["dsr"] = dsr
+    passes_dsr = bool(dsr >= GATE_DSR_MIN)
+    evidence["passes_dsr_min"] = passes_dsr
+    return passes_dsr, evidence
+
+
+def _evaluate_shadow_trading_gate(
+    strategy_id: str, db_path: str,
+) -> tuple[bool, dict]:
+    """Evaluate gate criteria for 'backtested → shadow_trading' transition.
+
+    Enforces all three rigor gates per spec line 1127-1135:
+      DSR >= GATE_DSR_MIN (0.95), PBO <= GATE_PBO_MAX (0.50),
+      OOS_efficiency >= GATE_OOS_EFFICIENCY_MIN (0.30).
+    Fails immediately if PBO or OOS_efficiency are NULL — caller must run
+    --with-walkforward (OOS) or param-sweep campaign (PBO, Sprint 4).
+    """
+    passes_dsr, evidence = _evaluate_dsr_evidence(strategy_id, db_path)
+    if "error" in evidence:
+        return False, evidence
+
+    # Read pbo + oos_efficiency from the same backtest row (NULL-defaulting).
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT pbo, oos_efficiency FROM backtest_results "
+            "WHERE strategy_id = ? ORDER BY created_at DESC LIMIT 1",
+            (strategy_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    pbo = row[0] if row else None
+    oos_efficiency = row[1] if row else None
+    evidence["pbo"] = pbo
+    evidence["oos_efficiency"] = oos_efficiency
+
+    if pbo is None:
+        evidence["error"] = "backtest has no PBO — run a param sweep with CSCV first"
+        return False, evidence
+    if oos_efficiency is None:
+        evidence["error"] = (
+            "backtest has no walk-forward OOS efficiency — "
+            "run with --with-walkforward first"
+        )
+        return False, evidence
+
+    passes_pbo = bool(pbo <= GATE_PBO_MAX)
+    passes_oos = bool(oos_efficiency >= GATE_OOS_EFFICIENCY_MIN)
+    evidence["passes_pbo_max"] = passes_pbo
+    evidence["passes_oos_efficiency_min"] = passes_oos
+    return passes_dsr and passes_pbo and passes_oos, evidence
+
+
+def _evaluate_production_gate(
+    strategy_id: str, db_path: str,
+) -> tuple[bool, dict]:
+    """Evaluate gate criteria for 'shadow_trading → production' transition.
+    Requires shadow_trading gate pass + 30+ shadow trades + 60+ days +
+    manual confirm (enforced at promote() call site).
+    """
+    passes_dsr, evidence = _evaluate_dsr_evidence(strategy_id, db_path)
+    evidence["pbo"] = None  # Sprint 4 wires production gate PBO check
+    evidence["oos_efficiency"] = None
+    return passes_dsr, evidence
+
+
 def check_promotion_gate(
     strategy_id: str, target_status: str, db_path: str = DB_PATH,
 ) -> tuple[bool, dict]:
@@ -83,86 +235,14 @@ def check_promotion_gate(
     """
     if target_status not in STATUSES:
         raise ValueError(f"unknown target_status: {target_status!r}")
-
     if target_status in ("backtested", "deprecated"):
         return True, {"auto": True}
-
-    # Avoid circular imports — promotion → trials → (no promotion)
-    from src.platform.rigor.trials import (
-        get_current_n_eff,
-        get_variance_for_strategy_family,
-    )
-    import pandas as pd
-    from src.platform.rigor.dsr import deflated_sharpe_ratio
-
-    evidence: dict = {}
-    conn = sqlite3.connect(db_path)
-    try:
-        br_row = conn.execute(
-            """SELECT result_id, max_drawdown_pct, total_trades
-               FROM backtest_results
-               WHERE strategy_id = ?
-               ORDER BY created_at DESC LIMIT 1""",
-            (strategy_id,),
-        ).fetchone()
-    finally:
-        conn.close()
-
-    if br_row is None:
-        evidence["error"] = "no backtest_results row for this strategy"
-        return False, evidence
-
-    result_id, max_dd, n_trades = br_row
-    evidence["max_drawdown_pct"] = max_dd
-    evidence["n_trades"] = n_trades
-
-    # Fetch trade-return series for this backtest result
-    conn = sqlite3.connect(db_path)
-    try:
-        trade_rows = conn.execute(
-            "SELECT pnl_pct FROM backtest_trades WHERE result_id = ?",
-            (result_id,),
-        ).fetchall()
-    finally:
-        conn.close()
-
-    pnl_series = pd.Series(
-        [r[0] for r in trade_rows if r[0] is not None],
-        dtype=float,
-    )
-
-    # Real N_eff and V from trials_registry
-    n_eff = get_current_n_eff(db_path)
-    trials_sr_variance = get_variance_for_strategy_family(db_path=db_path)
-
-    # Defense-in-depth: if V is somehow None, fail loudly rather than
-    # silently triggering the null-fallback path inside dsr.py.
-    if trials_sr_variance is None:
-        raise RuntimeError(
-            "trials_sr_variance is None — get_variance_for_strategy_family "
-            "must never return None; check trials_registry integrity."
-        )
-
-    evidence["n_eff_used_for_dsr"] = n_eff
-    evidence["trials_sr_variance_used"] = trials_sr_variance
-
-    # PBO and OOS_efficiency — filled by future sprint work.
-    evidence["pbo"] = None
-    evidence["oos_efficiency"] = None
-
-    # Recompute DSR from real returns + real N_eff + real V.
-    # Explicit kwargs prevent the null-fallback path from ever firing.
-    dsr_result = deflated_sharpe_ratio(
-        trade_returns=pnl_series,
-        n_trials=n_eff,
-        trials_sr_variance=trials_sr_variance,
-    )
-    dsr = dsr_result["DSR"]
-    evidence["dsr"] = dsr
-
-    passes_dsr = bool(dsr >= GATE_DSR_MIN)
-    evidence["passes_dsr_min"] = passes_dsr
-    return passes_dsr, evidence
+    if target_status == "shadow_trading":
+        return _evaluate_shadow_trading_gate(strategy_id, db_path)
+    if target_status == "production":
+        return _evaluate_production_gate(strategy_id, db_path)
+    # Fallthrough should not reach here (STATUSES check above)
+    raise ValueError(f"unhandled target_status: {target_status!r}")
 
 
 def _write_promotion_event(

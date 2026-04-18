@@ -578,3 +578,28 @@ observability:
     loki_url: "https://logs-prod-042.grafana.net/loki/api/v1/push"
     loki_user: "1553293"                        # Grafana Cloud user ID
     # Token goes in .env as GRAFANA_LOKI_TOKEN (write scope)
+
+
+# ─── DESKS ──────────────────────────────────────────────────────────────
+# Per-desk Alpaca paper account routing. Each named desk maps to a pair of
+# env vars that supply the Alpaca API key + secret for that desk's paper
+# account. Task 7a (Sprint 4) reads these to build per-desk TradingClients.
+#
+# ⚠️  Keys must be in .env (not here):
+#   Swing desk:    ALPACA_API_KEY / ALPACA_API_SECRET
+#   Research desk: ALPACA_RESEARCH_API_KEY / ALPACA_RESEARCH_API_SECRET
+#
+# research.enabled defaults to false — operator flips to true after
+# creating a second Alpaca paper account for the research desk and
+# exporting the two ALPACA_RESEARCH_* env vars.
+# ────────────────────────────────────────────────────────────────────────
+
+desks:
+  swing:
+    alpaca_key_env: ALPACA_API_KEY
+    alpaca_secret_env: ALPACA_API_SECRET
+    enabled: true
+  research:
+    alpaca_key_env: ALPACA_RESEARCH_API_KEY
+    alpaca_secret_env: ALPACA_RESEARCH_API_SECRET
+    enabled: false  # operator flips to true after setting up research account

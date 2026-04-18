@@ -5,10 +5,6 @@
       "lines": 593
     },
     {
-      "file": "src/platform/backtest_engine.py",
-      "lines": 432
-    },
-    {
       "file": "src/api/cloud_routes/core.py",
       "lines": 413
     },
@@ -680,21 +676,6 @@
       "lines": 99
     },
     {
-      "file": "src/platform/features/cosine_similarity.py",
-      "function": "_parse_section_from_fulltext",
-      "lines": 68
-    },
-    {
-      "file": "src/platform/promotion.py",
-      "function": "check_promotion_gate",
-      "lines": 97
-    },
-    {
-      "file": "src/platform/rigor/walkforward.py",
-      "function": "run_walkforward",
-      "lines": 83
-    },
-    {
       "file": "src/ranking/ranker.py",
       "function": "rank_universe",
       "lines": 64
@@ -878,6 +859,11 @@
       "file": "src/shadow_trading/alpaca_adapter.py",
       "function": "place_bracket_order",
       "lines": 68
+    },
+    {
+      "file": "src/shadow_trading/alpaca_adapter.py",
+      "function": "place_live_entry",
+      "lines": 63
     },
     {
       "file": "src/shadow_trading/bracket_monitor.py",

@@ -24,9 +24,13 @@ ET = ZoneInfo("America/New_York")
 
 def run_postclose_reconciliation():
     """Reconcile paper positions against Alpaca and send Telegram summary."""
-    from src.shadow_trading.reconcile import reconcile_paper_trades
+    from src.shadow_trading.reconcile_dispatch import reconcile_all_paper_trades
 
-    result = reconcile_paper_trades()
+    all_results = reconcile_all_paper_trades(db_path=DB_PATH)
+
+    # Use swing result for the Telegram summary; research desk failures are
+    # already logged inside reconcile_all_paper_trades.
+    result = all_results.get("swing", {})
 
     if result.get("error"):
         msg = f"[Reconcile] Alpaca API error — skipped: {result['error']}"

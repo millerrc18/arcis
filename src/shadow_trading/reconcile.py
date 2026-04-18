@@ -41,6 +41,11 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.shadow_trading.alpaca_adapter import (
+    cancel_orders_for_ticker,
+    get_all_positions,
+    get_live_positions,
+)
 from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
@@ -105,20 +110,29 @@ def _estimate_exit_pnl(ticker, entry_px, shares):
 
 
 def reconcile_live_trades(
-    db_path: str = DB_PATH, dry_run: bool = False
+    desk: str = "swing",
+    dry_run: bool = False,
+    db_path: str = DB_PATH,
 ) -> dict:
     """Reconcile Alpaca live positions with local shadow_trades.
+
+    Live is swing-only — research desks are forbidden here (parallel to
+    place_live_entry's ValueError guard in Task 7b). Research strategies
+    are paper-only in Sprint 4 scope.
 
     Live reconciliation runs with source='live' and has NO safety guard
     (unlike paper trades) because live position discrepancies are more
     urgent and the live API is more reliable than paper.
 
     Args:
-        db_path: Path to SQLite database
-        dry_run: If True, report discrepancies but don't modify DB
+        desk: Trading desk; must be 'swing'. Any other value raises ValueError
+            before touching any state.
+        dry_run: If True, report discrepancies but don't modify DB.
+        db_path: Path to SQLite database.
 
     Returns:
         {
+            "desk": str,
             "alpaca_positions": int,
             "tracked_positions": int,
             "orphaned": [str],
@@ -127,6 +141,12 @@ def reconcile_live_trades(
             "marked_closed": [str],
         }
     """
+    if desk != "swing":
+        raise ValueError(
+            f"live reconcile only supports swing desk; got desk={desk!r}. "
+            "Research strategies are paper-only."
+        )
+
     et = ZoneInfo("America/New_York")
     now = datetime.now(et)
 
@@ -145,8 +165,7 @@ def reconcile_live_trades(
         ]
     except Exception as e:
         logger.warning("[RECONCILE-LIVE] Broker unreachable, falling back to Alpaca direct: %s", e)
-        from src.shadow_trading.alpaca_adapter import get_live_positions
-        alpaca_positions = get_live_positions()
+        alpaca_positions = get_live_positions(desk=desk)
 
     alpaca_tickers = {p["symbol"]: p for p in alpaca_positions}
 
@@ -269,6 +288,7 @@ def reconcile_live_trades(
                 logger.debug("[RECONCILE] Telegram notify failed for %s: %s", ticker, _tg_err)
 
     return {
+        "desk": desk,
         "alpaca_positions": len(alpaca_positions),
         "tracked_positions": len(tracked),
         "orphaned": orphaned,
@@ -279,9 +299,15 @@ def reconcile_live_trades(
 
 
 def reconcile_paper_trades(
-    db_path: str = DB_PATH, dry_run: bool = False
+    desk: str = "swing",
+    dry_run: bool = False,
+    db_path: str = DB_PATH,
 ) -> dict:
     """Reconcile Alpaca paper positions with local shadow_trades.
+
+    Desk-aware: filters shadow_trades by desk= and routes all Alpaca
+    queries through the matching desk's client (via desk= kwarg on
+    alpaca_adapter public API functions added in Task 7b).
 
     Stale paper trades (in DB but not on Alpaca) are auto-closed with
     exit_reason='reconciled_stale' after a 1-hour safety guard to avoid
@@ -299,11 +325,15 @@ def reconcile_paper_trades(
     target_1_hit uses target_1, etc.).
 
     Args:
-        db_path: Path to SQLite database
-        dry_run: If True, report discrepancies but don't modify DB
+        desk: 'swing' (default, backward-compatible) or 'research_<id>'.
+            Filters shadow_trades rows AND routes Alpaca queries to the
+            matching desk's client.
+        dry_run: If True, report discrepancies but don't modify DB.
+        db_path: Path to SQLite database.
 
     Returns:
         {
+            "desk": str,
             "alpaca_count": int,
             "local_count": int,
             "matched": int,
@@ -316,12 +346,11 @@ def reconcile_paper_trades(
         }
     """
     try:
-        from src.shadow_trading.alpaca_adapter import get_all_positions
-
-        alpaca_positions = get_all_positions()
+        alpaca_positions = get_all_positions(desk=desk)
     except Exception as e:
         logger.warning("[RECONCILE-PAPER] Alpaca API unreachable: %s", e)
         return {
+            "desk": desk,
             "alpaca_count": 0,
             "local_count": 0,
             "matched": 0,
@@ -386,7 +415,8 @@ def reconcile_paper_trades(
         tracked = conn.execute(
             "SELECT trade_id, ticker, planned_shares, COALESCE(broker, 'alpaca') as broker "
             "FROM shadow_trades "
-            "WHERE source = 'paper' AND status = 'open'"
+            "WHERE source = 'paper' AND status = 'open' AND desk = ?",
+            (desk,),
         ).fetchall()
     tracked_map = {r["ticker"]: dict(r) for r in tracked}
 
@@ -513,8 +543,7 @@ def reconcile_paper_trades(
             # Fix #356: Cancel pending orders before closing to prevent
             # held_for_orders deadlock.
             try:
-                from src.shadow_trading.alpaca_adapter import cancel_orders_for_ticker
-                cancelled = cancel_orders_for_ticker(ticker)
+                cancelled = cancel_orders_for_ticker(ticker, desk=desk)
                 if cancelled > 0:
                     import time
                     time.sleep(1)  # Let cancellations settle
@@ -580,7 +609,9 @@ def reconcile_paper_trades(
             "SELECT trade_id, ticker, exit_reason, actual_entry_price, "
             "       entry_price, planned_shares, stop_price, target_1, target_2 "
             "FROM shadow_trades "
-            "WHERE source = 'paper' AND status IN ('exit_failed', 'exit_pending')"
+            "WHERE source = 'paper' AND status IN ('exit_failed', 'exit_pending') "
+            "AND desk = ?",
+            (desk,),
         ).fetchall()
 
     if stuck and not dry_run:
@@ -659,7 +690,9 @@ def reconcile_paper_trades(
         uncertain = conn.execute(
             "SELECT trade_id, ticker, entry_price, planned_shares "
             "FROM shadow_trades "
-            "WHERE source = 'paper' AND status = 'submission_uncertain'"
+            "WHERE source = 'paper' AND status = 'submission_uncertain' "
+            "AND desk = ?",
+            (desk,),
         ).fetchall()
 
     if uncertain and not dry_run:
@@ -684,6 +717,7 @@ def reconcile_paper_trades(
                 logger.info("[RECONCILE-PAPER] Closed uncertain trade as failed: %s", ticker)
 
     return {
+        "desk": desk,
         "alpaca_count": len(alpaca_positions),
         "local_count": len(tracked),
         "matched": matched,

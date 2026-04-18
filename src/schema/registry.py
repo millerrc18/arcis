@@ -1785,6 +1785,14 @@ _register(TableDef(
         ColumnDef("sharpe", "REAL"),
         ColumnDef("excess_sharpe", "REAL"),
         ColumnDef("deflated_sharpe", "REAL"),
+        ColumnDef("pbo", "REAL",
+                  description="Probability of Backtest Overfitting (Bailey et al. "
+                              "2014 at S=16). NULL until a param-sweep campaign "
+                              "computes + persists. Gate fails if NULL for "
+                              "shadow_trading / production transitions."),
+        ColumnDef("oos_efficiency", "REAL",
+                  description="Walk-forward OOS_SR / IS_SR. NULL until a walk-"
+                              "forward CLI populates. Gate fails if NULL."),
         ColumnDef("sortino", "REAL"),
         ColumnDef("calmar", "REAL"),
         ColumnDef("max_drawdown_pct", "REAL"),
