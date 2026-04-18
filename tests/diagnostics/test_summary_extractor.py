@@ -42,3 +42,27 @@ def test_parse_regime_report_no_exec_summary_returns_fallback():
     md = "# Report\n\nNothing useful here."
     summary = parse_regime_report(md)
     assert summary["parse_errors"] == ["no_executive_summary"]
+
+
+# ── forensic ────────────────────────────────────────────────────────
+
+def test_parse_forensic_report_happy_path():
+    md = _load("forensic_report_sample.md")
+    summary = parse_forensic_report(md)
+    assert summary["n_total"] == 88
+    assert "bootcamp cohort" in summary["findings_raw"]
+    assert "raw_executive_summary" in summary
+    assert "parse_errors" not in summary
+
+
+def test_parse_forensic_report_missing_findings():
+    md = "## Executive Summary\n\nAnalyzed **42** trades.\n\n## Other section\n"
+    summary = parse_forensic_report(md)
+    assert summary["n_total"] == 42
+    assert summary["parse_errors"] == ["findings"]
+
+
+def test_parse_forensic_report_no_exec_summary():
+    md = "Nothing here"
+    summary = parse_forensic_report(md)
+    assert summary["parse_errors"] == ["no_executive_summary"]
