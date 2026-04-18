@@ -17,6 +17,10 @@ scipy>=1.17,<2
 matplotlib>=3.8,<4.0
 pyarrow>=15,<25
 beautifulsoup4>=4.14,<5.0
+# jsonschema — Capability Registry validates Action input_schema/output_schema
+# fields as Draft-7 JSON Schema (MCP-compatible). Was transitively installed
+# prior to v0.25.0; now first-class.
+jsonschema>=4.0,<5.0
 
 # Interactive Brokers — required when live_trading.broker = "ib" or
 # live_trading.ib.paper_routing = true (A/B routing of high-score paper
