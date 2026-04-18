@@ -123,8 +123,14 @@ def test_reconcile_live_trades_rejects_research_desk():
         reconcile_live_trades(desk="research_lazy_prices_v1", dry_run=True)
 
 
-def test_reconcile_live_trades_accepts_swing_desk():
-    """reconcile_live_trades(desk='swing') proceeds normally."""
+def test_reconcile_live_trades_accepts_swing_desk(tmp_db_with_mixed_desks):
+    """reconcile_live_trades(desk='swing') proceeds normally.
+
+    Must use the tmp_db fixture — without db_path, falls through to the
+    module-level DB_PATH default, which resolves to a real file on
+    developer machines (who ran prior backtests) but NOT on clean CI,
+    causing `sqlite3.OperationalError: no such table: shadow_trades`.
+    """
     from src.shadow_trading.reconcile import reconcile_live_trades
     with patch(
         "src.shadow_trading.reconcile.get_live_positions", return_value=[],
@@ -132,5 +138,7 @@ def test_reconcile_live_trades_accepts_swing_desk():
         "src.shadow_trading.alpaca_adapter.get_live_positions", return_value=[],
     ):
         # Should not raise
-        result = reconcile_live_trades(desk="swing", dry_run=True)
+        result = reconcile_live_trades(
+            desk="swing", dry_run=True, db_path=tmp_db_with_mixed_desks,
+        )
     assert result.get("desk") == "swing"
