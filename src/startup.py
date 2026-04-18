@@ -182,3 +182,38 @@ def run_startup_checks(config: dict, db_path: str = DB_PATH) -> StartupResult:
         duration_ms=elapsed,
         timestamp=datetime.now(ET).isoformat(),
     )
+
+
+# ── Capability Registry registration (Sprint 1B) ───────────────────────
+
+from datetime import date as _reg_date  # noqa: E402
+
+from src.platform.capability_registry import register_system  # noqa: E402
+
+
+@register_system(
+    name="watch_loop",
+    description=(
+        "The main daemon that schedules scans, reconciliation, overnight "
+        "jobs, and notifications. Presence detected via data/watch.lock "
+        "PID file. Without it, no automated trading activity occurs."
+    ),
+    category="orchestration",
+    version="1.0",
+    maintainer="operator",
+    introduced_in="v0.10.0",
+    last_reviewed_date=_reg_date(2026, 4, 18),
+    expected_runtime="always (24/7)",
+)
+def watch_loop_health() -> dict:
+    pid = is_watch_loop_running()
+    if pid is None:
+        return {
+            "status": "down",
+            "detail": "no watch.lock PID file or stale PID",
+        }
+    return {
+        "status": "ok",
+        "detail": f"running under PID {pid}",
+        "pid": int(pid),
+    }

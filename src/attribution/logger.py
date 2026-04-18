@@ -302,3 +302,49 @@ def get_attribution_stats(db_path: str = DB_PATH) -> dict:
     except Exception as e:
         logger.warning("[ATTRIBUTION] get_attribution_stats failed: %s", e)
         return {"total_pairs": 0, "error": str(e)}
+
+
+# ── Capability Registry registration (Sprint 1B) ───────────────────────
+
+from datetime import date as _reg_date  # noqa: E402
+
+from src.platform.capability_registry import register_system  # noqa: E402
+
+
+@register_system(
+    name="attribution_resolver",
+    description=(
+        "Two-phase alpha attribution resolver: pairs each ranker score "
+        "with the LLM decision, records outcomes after the trade "
+        "completes. Without it, we can't distinguish ranker alpha from "
+        "LLM alpha in evaluation."
+    ),
+    category="evaluation",
+    version="1.0",
+    maintainer="ai_session",
+    introduced_in="v0.16.0",
+    last_reviewed_date=_reg_date(2026, 4, 18),
+    expected_runtime="overnight (once per day)",
+)
+def attribution_resolver_health() -> dict:
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            row = conn.execute(
+                "SELECT MAX(created_at) FROM attribution_trades",
+            ).fetchone()
+        latest = row[0] if row and row[0] else None
+        if latest is None:
+            return {
+                "status": "degraded",
+                "detail": "no attribution rows logged yet",
+            }
+        return {
+            "status": "ok",
+            "detail": f"latest resolution at {latest}",
+            "latest_attribution_at": latest,
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "status": "unavailable",
+            "detail": f"attribution_trades read failed: {exc}",
+        }
