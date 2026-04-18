@@ -181,18 +181,34 @@ function BuildScoreHero({ data }) {
 
 export default function Dashboard() {
   const queryClient = useQueryClient()
+
+  // Task 12c: desk filter — default swing-only (backward compat).
+  // researchDesks populated at render time from /api/shadow/desks.
+  const [deskFilter, setDeskFilter] = useState('swing')
+  const [researchDesks, setResearchDesks] = useState([])
+
   const { data: status, isLoading: statusLoading } = useQuery({ queryKey: ['status'], queryFn: api.getStatus, refetchInterval: 60000 })
-  const { data: openTrades } = useQuery({ queryKey: ['shadow-open'], queryFn: api.getOpenTrades, refetchInterval: 60000 })
-  const { data: closedData } = useQuery({ queryKey: ['shadow-closed'], queryFn: () => api.getClosedTrades(30), refetchInterval: 60000 })
+  const { data: openTrades } = useQuery({ queryKey: ['shadow-open', deskFilter], queryFn: () => api.getOpenTrades(deskFilter), refetchInterval: 60000 })
+  const { data: closedData } = useQuery({ queryKey: ['shadow-closed', deskFilter], queryFn: () => api.getClosedTrades(30, deskFilter), refetchInterval: 60000 })
   const { data: training } = useQuery({ queryKey: ['training-status'], queryFn: api.getTrainingStatus, refetchInterval: 60000 })
   const { data: packets } = useQuery({ queryKey: ['packets'], queryFn: () => api.getPackets({ days: 1 }), refetchInterval: 60000 })
   const { data: haltData } = useQuery({ queryKey: ['halt-status'], queryFn: api.getHaltStatus, refetchInterval: 30000 })
   const { data: auditData } = useQuery({ queryKey: ['audit-latest'], queryFn: api.getLatestAudit, refetchInterval: 60000 })
   const { data: ctoData } = useQuery({ queryKey: ['cto-report'], queryFn: () => api.getCtoReport(365), refetchInterval: 60000 })
   const { data: configData } = useQuery({ queryKey: ['config'], queryFn: api.getConfig, refetchInterval: 300000 })
-  const { data: accountData } = useQuery({ queryKey: ['shadow-account'], queryFn: api.getAccount, refetchInterval: 60000 })
+  const { data: accountData } = useQuery({ queryKey: ['shadow-account', deskFilter], queryFn: () => api.getAccount(deskFilter), refetchInterval: 60000 })
   const { data: buildScore } = useQuery({ queryKey: ['build-score'], queryFn: api.getBuildScore, refetchInterval: 120000 })
   const { data: scanMetrics } = useQuery({ queryKey: ['scan-metrics'], queryFn: () => api.getScanMetrics(50), refetchInterval: 60000 })
+
+  // Task 12c: fetch distinct desk values from DB at render time (spec line 1014).
+  // Populates the dropdown with any research desks currently in shadow_trades.
+  useState(() => {
+    api.getShadowDesks().then(desks => {
+      if (Array.isArray(desks)) {
+        setResearchDesks(desks.filter(d => d !== 'swing' && d !== 'all'))
+      }
+    }).catch(() => {})
+  })
 
   const [toast, setToast] = useState(null)
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
@@ -328,6 +344,23 @@ export default function Dashboard() {
             {collectMutation.isPending ? 'Collecting...' : 'Collect Training Data'}
           </button>
         </Tooltip>
+      </div>
+
+      {/* Task 12c: Desk filter — populates from /api/shadow/desks at render time */}
+      <div className="flex items-center gap-3">
+        <label className="text-xs uppercase tracking-wide" style={{ color: 'var(--arcis-text-muted)' }}>
+          Desk filter:
+        </label>
+        <select
+          value={deskFilter}
+          onChange={e => setDeskFilter(e.target.value)}
+          className="px-2 py-1 text-xs"
+          style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-elevated)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text)' }}
+        >
+          <option value="swing">Swing</option>
+          <option value="all">All (aggregate)</option>
+          {researchDesks.map(d => <option key={d} value={d}>{d}</option>)}
+        </select>
       </div>
 
       {/* Headline KPIs */}
