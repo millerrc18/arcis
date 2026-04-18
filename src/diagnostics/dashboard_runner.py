@@ -105,60 +105,24 @@ def _insert_plots(conn: sqlite3.Connection, run_id: str, plot_dir: Path) -> int:
     return len(png_files)
 
 
-def run_diagnostic(
-    *,
-    run_id: str,
-    script_path: str,
-    script_args: list[str],
-    report_parser: Callable[[str], dict],
-    report_path: str,
-    plot_dir: str,
-    db_path: str,
-    timeout_s: int = 900,
+def _mark_failed(
+    db_path: str, run_id: str, exit_code: int, stderr_tail: str,
 ) -> dict:
-    """Execute a diagnostic script and persist the result.
-
-    Lifecycle: queued (seeded by API) -> running -> completed | failed.
-    Returns a summary dict suitable for command_results.result_json.
-    """
-    started = _now_iso()
+    """Finalize a failed run and return its result dict."""
     with sqlite3.connect(db_path) as conn:
-        _update_run_status(conn, run_id, status="running", started_at=started)
-        conn.commit()
-
-    cmd = [sys.executable, script_path, "--output", report_path,
-           "--plot-dir", plot_dir] + list(script_args)
-
-    try:
-        completed = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout_s,
+        _update_run_status(
+            conn, run_id, status="failed", completed_at=_now_iso(),
+            exit_code=exit_code, stderr_tail=stderr_tail,
         )
-    except subprocess.TimeoutExpired:
-        stderr_tail = f"Timed out after {timeout_s}s"
-        with sqlite3.connect(db_path) as conn:
-            _update_run_status(
-                conn, run_id, status="failed",
-                completed_at=_now_iso(),
-                exit_code=-1, stderr_tail=stderr_tail,
-            )
-            conn.commit()
-        return {"status": "failed", "exit_code": -1, "stderr_tail": stderr_tail}
+        conn.commit()
+    return {"status": "failed", "exit_code": exit_code, "stderr_tail": stderr_tail}
 
-    if completed.returncode != 0:
-        stderr_tail = (completed.stderr or "")[-STDERR_TAIL_BYTES:]
-        with sqlite3.connect(db_path) as conn:
-            _update_run_status(
-                conn, run_id, status="failed",
-                completed_at=_now_iso(),
-                exit_code=completed.returncode, stderr_tail=stderr_tail,
-            )
-            conn.commit()
-        return {
-            "status": "failed",
-            "exit_code": completed.returncode,
-            "stderr_tail": stderr_tail,
-        }
 
+def _finalize_success(
+    db_path: str, run_id: str, report_path: str, plot_dir: str,
+    report_parser: Callable[[str], dict],
+) -> dict:
+    """Read report, insert plots, update status to completed; return result."""
     report_markdown = Path(report_path).read_text(encoding="utf-8")
     summary = report_parser(report_markdown)
     summary_json = json.dumps(summary)
@@ -178,8 +142,52 @@ def run_diagnostic(
         run_id, plot_count, list(summary.keys()),
     )
     return {
-        "status": "completed",
-        "exit_code": 0,
-        "summary": summary,
-        "plot_count": plot_count,
+        "status": "completed", "exit_code": 0,
+        "summary": summary, "plot_count": plot_count,
     }
+
+
+def run_diagnostic(
+    *,
+    run_id: str,
+    script_path: str,
+    script_args: list[str],
+    report_parser: Callable[[str], dict],
+    report_path: str,
+    plot_dir: str,
+    db_path: str,
+    timeout_s: int = 900,
+) -> dict:
+    """Execute a diagnostic script and persist the result.
+
+    Lifecycle: queued (seeded by API) -> running -> completed | failed.
+    Returns a summary dict suitable for command_results.result_json.
+    """
+    with sqlite3.connect(db_path) as conn:
+        _update_run_status(conn, run_id, status="running",
+                           started_at=_now_iso())
+        conn.commit()
+
+    cmd = [sys.executable, script_path, "--output", report_path,
+           "--plot-dir", plot_dir] + list(script_args)
+
+    try:
+        completed = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout_s,
+        )
+    except subprocess.TimeoutExpired:
+        return _mark_failed(
+            db_path, run_id,
+            exit_code=-1, stderr_tail=f"Timed out after {timeout_s}s",
+        )
+
+    if completed.returncode != 0:
+        return _mark_failed(
+            db_path, run_id,
+            exit_code=completed.returncode,
+            stderr_tail=(completed.stderr or "")[-STDERR_TAIL_BYTES:],
+        )
+
+    return _finalize_success(
+        db_path, run_id, report_path, plot_dir, report_parser,
+    )

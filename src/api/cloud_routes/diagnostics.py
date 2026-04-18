@@ -43,87 +43,84 @@ def _command_name_for(diagnostic_type: str) -> str:
     }[diagnostic_type]
 
 
-def create_router(runtime, verify_auth):
-    """Build the /api/diagnostic-runs/* router."""
-    router = APIRouter()
-
-    def _check_dedup(diagnostic_type: str) -> None:
-        """Raise 409 if a run of the same type is queued or running."""
-        existing = runtime.query_one(
-            "SELECT run_id, status FROM diagnostic_runs "
-            "WHERE diagnostic_type = %s AND status IN ('queued', 'running') "
-            "ORDER BY created_at DESC LIMIT 1",
-            (diagnostic_type,),
+def _check_dedup(runtime, diagnostic_type: str) -> None:
+    """Raise 409 if a run of the same type is queued or running."""
+    existing = runtime.query_one(
+        "SELECT run_id, status FROM diagnostic_runs "
+        "WHERE diagnostic_type = %s AND status IN ('queued', 'running') "
+        "ORDER BY created_at DESC LIMIT 1",
+        (diagnostic_type,),
+    )
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"A {diagnostic_type} diagnostic is already "
+                f"{existing['status']} (run_id={existing['run_id']})"
+            ),
         )
-        if existing:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    f"A {diagnostic_type} diagnostic is already "
-                    f"{existing['status']} (run_id={existing['run_id']})"
-                ),
-            )
 
-    def _submit_diagnostic(
-        diagnostic_type: str, payload: dict, triggered_by: str,
-    ) -> dict:
-        """Atomically insert both diagnostic_runs(queued) and pending_commands."""
-        run_id = str(uuid.uuid4())
-        now = datetime.now(runtime.et)
-        expires_at = (now + timedelta(minutes=5)).isoformat()
-        payload_with_run_id = {**payload, "run_id": run_id}
-        payload_json = json.dumps(payload_with_run_id)
 
-        try:
-            with runtime.get_pg(readonly=False) as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "INSERT INTO diagnostic_runs "
-                        "(run_id, diagnostic_type, status, trigger_source, "
-                        "triggered_by, payload_json, created_at, updated_at) "
-                        "VALUES (%s, %s, 'queued', 'dashboard', %s, %s, %s, %s)",
-                        (run_id, diagnostic_type, triggered_by,
-                         payload_json, now.isoformat(), now.isoformat()),
-                    )
-                    cur.execute(
-                        "INSERT INTO pending_commands "
-                        "(command_id, command_type, command_name, payload_json, "
-                        "status, priority, created_at, expires_at, created_by) "
-                        "VALUES (%s, 'diagnostic', %s, %s, 'pending', 5, %s, %s, %s)",
-                        (run_id, _command_name_for(diagnostic_type),
-                         payload_json, now.isoformat(), expires_at,
-                         triggered_by),
-                    )
-                    conn.commit()
-        except HTTPException:
-            raise
-        except Exception as exc:
-            runtime.logger.error("Diagnostic submission failed: %s", exc)
-            raise HTTPException(
-                status_code=503, detail="Database unavailable",
-            )
+def _submit_diagnostic(
+    runtime, diagnostic_type: str, payload: dict, triggered_by: str,
+) -> dict:
+    """Atomically insert diagnostic_runs(queued) + pending_commands in Postgres."""
+    run_id = str(uuid.uuid4())
+    now = datetime.now(runtime.et)
+    expires_at = (now + timedelta(minutes=5)).isoformat()
+    payload_with_run_id = {**payload, "run_id": run_id}
+    payload_json = json.dumps(payload_with_run_id)
 
-        return {"run_id": run_id, "command_id": run_id, "status": "queued"}
+    try:
+        with runtime.get_pg(readonly=False) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO diagnostic_runs "
+                    "(run_id, diagnostic_type, status, trigger_source, "
+                    "triggered_by, payload_json, created_at, updated_at) "
+                    "VALUES (%s, %s, 'queued', 'dashboard', %s, %s, %s, %s)",
+                    (run_id, diagnostic_type, triggered_by,
+                     payload_json, now.isoformat(), now.isoformat()),
+                )
+                cur.execute(
+                    "INSERT INTO pending_commands "
+                    "(command_id, command_type, command_name, payload_json, "
+                    "status, priority, created_at, expires_at, created_by) "
+                    "VALUES (%s, 'diagnostic', %s, %s, 'pending', 5, %s, %s, %s)",
+                    (run_id, _command_name_for(diagnostic_type),
+                     payload_json, now.isoformat(), expires_at, triggered_by),
+                )
+                conn.commit()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        runtime.logger.error("Diagnostic submission failed: %s", exc)
+        raise HTTPException(status_code=503, detail="Database unavailable")
 
+    return {"run_id": run_id, "command_id": run_id, "status": "queued"}
+
+
+def _add_submit_routes(router: APIRouter, runtime, verify_auth) -> None:
+    """POST endpoints for regime + forensic kickoff."""
     @router.post("/api/diagnostic-runs/regime",
                  dependencies=[Depends(verify_auth)], status_code=202)
     def submit_regime(body: RegimePayload):
-        _check_dedup("regime")
+        _check_dedup(runtime, "regime")
         return _submit_diagnostic(
-            "regime",
-            body.model_dump(exclude_none=True),
-            triggered_by="dashboard",
+            runtime, "regime",
+            body.model_dump(exclude_none=True), "dashboard",
         )
 
     @router.post("/api/diagnostic-runs/forensic",
                  dependencies=[Depends(verify_auth)], status_code=202)
     def submit_forensic(body: ForensicPayload | None = None):
-        _check_dedup("forensic")
+        _check_dedup(runtime, "forensic")
         payload = body.model_dump(exclude_none=True) if body else {}
-        return _submit_diagnostic(
-            "forensic", payload, triggered_by="dashboard",
-        )
+        return _submit_diagnostic(runtime, "forensic", payload, "dashboard")
 
+
+def _add_list_and_detail_routes(router: APIRouter, runtime, verify_auth) -> None:
+    """GET list + single-run metadata endpoints."""
     @router.get("/api/diagnostic-runs", dependencies=[Depends(verify_auth)])
     def list_runs(
         limit: int = 20,
@@ -158,12 +155,13 @@ def create_router(runtime, verify_auth):
         )
         if not row:
             raise HTTPException(status_code=404, detail="Run not found")
-        # Strip the heavy field from the single-run response body; the
-        # dashboard fetches the markdown separately via /report.
         if isinstance(row, dict):
             row.pop("report_markdown", None)
         return row
 
+
+def _add_content_routes(router: APIRouter, runtime, verify_auth) -> None:
+    """GET endpoints for the heavy payloads: markdown report + plot base64."""
     @router.get("/api/diagnostic-runs/{run_id}/report",
                 dependencies=[Depends(verify_auth)])
     def get_run_report(run_id: str):
@@ -204,4 +202,11 @@ def create_router(runtime, verify_auth):
         )
         return {"plots": plots, "count": len(plots)}
 
+
+def create_router(runtime, verify_auth):
+    """Build the /api/diagnostic-runs/* router by composing sub-factories."""
+    router = APIRouter()
+    _add_submit_routes(router, runtime, verify_auth)
+    _add_list_and_detail_routes(router, runtime, verify_auth)
+    _add_content_routes(router, runtime, verify_auth)
     return router

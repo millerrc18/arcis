@@ -274,73 +274,10 @@ def _handle_simulation(payload: dict, config: dict) -> dict:
     return {"status": "completed"}
 
 
-def _handle_run_regime_diagnostic(payload: dict, config: dict) -> dict:
-    """Run the regime diagnostic script via dashboard_runner.
-
-    Payload fields:
-      - run_id: UUID matching the diagnostic_runs row seeded by the API
-      - db_path: override for local SQLite (tests); defaults to LOCAL_DB
-      - exclude_quarantined: bool flag passed to the script
-      - bootstrap_n: int override for bootstrap count
-    """
-    import src.diagnostics.dashboard_runner as _runner
-    from src.diagnostics.summary_extractor import parse_regime_report
-    from pathlib import Path as _Path
-
-    run_id = payload.get("run_id")
-    if not run_id:
-        return {"error": "Missing run_id in payload"}
-
-    db_path = payload.get("db_path") or LOCAL_DB
-    args: list[str] = ["--db", db_path]
-    if payload.get("exclude_quarantined"):
-        args.append("--exclude-quarantined")
-    if payload.get("bootstrap_n"):
-        args.extend(["--bootstrap-n", str(int(payload["bootstrap_n"]))])
-
-    report_path = f"docs/diagnostics/regime-{run_id}.md"
-    plot_dir = f"docs/diagnostics/regime-{run_id}/"
-    _Path(plot_dir).mkdir(parents=True, exist_ok=True)
-    _Path(report_path).parent.mkdir(parents=True, exist_ok=True)
-
-    return _runner.run_diagnostic(
-        run_id=run_id,
-        script_path="scripts/diagnostics/regime_diagnostic_v1.py",
-        script_args=args,
-        report_parser=parse_regime_report,
-        report_path=report_path,
-        plot_dir=plot_dir,
-        db_path=db_path,
-    )
-
-
-def _handle_run_forensic_audit(payload: dict, config: dict) -> dict:
-    """Run the forensic trade audit script via dashboard_runner."""
-    import src.diagnostics.dashboard_runner as _runner
-    from src.diagnostics.summary_extractor import parse_forensic_report
-    from pathlib import Path as _Path
-
-    run_id = payload.get("run_id")
-    if not run_id:
-        return {"error": "Missing run_id in payload"}
-
-    db_path = payload.get("db_path") or LOCAL_DB
-    args: list[str] = []  # forensic script has no optional CLI flags for v1
-
-    report_path = f"docs/diagnostics/forensic-audit-{run_id}.md"
-    plot_dir = f"docs/diagnostics/forensic-audit-{run_id}/"
-    _Path(plot_dir).mkdir(parents=True, exist_ok=True)
-    _Path(report_path).parent.mkdir(parents=True, exist_ok=True)
-
-    return _runner.run_diagnostic(
-        run_id=run_id,
-        script_path="scripts/diagnostics/forensic_trade_audit_v1.py",
-        script_args=args,
-        report_parser=parse_forensic_report,
-        report_path=report_path,
-        plot_dir=plot_dir,
-        db_path=db_path,
-    )
+from src.commands.diagnostic_handlers import (
+    handle_run_forensic_audit as _handle_run_forensic_audit,
+    handle_run_regime_diagnostic as _handle_run_regime_diagnostic,
+)
 
 
 COMMAND_HANDLERS = {
