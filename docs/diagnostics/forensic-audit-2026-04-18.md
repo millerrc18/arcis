@@ -6,9 +6,9 @@ Analyzed **88** closed trades (27 non-quarantined, 61 quarantined from April 10 
 
 ### 3 Most Surprising Findings
 
-1. Real SPY beta is -0.33 (equal-weighted), materially different from 1.0 — the strategy is less market-exposed than assumed
+1. Real SPY beta point estimate is -0.33 (equal-weighted) but 95% CI (-0.70, 0.15) spans zero — beta is indistinguishable from zero
 2. Wilcoxon signed-rank test on excess returns: p=0.4172 — cannot reject H0 that median excess = 0, corroborating the zero-alpha finding
-3. Mean return (0.65%) vs median (0.69%) suggests left-skewed distribution
+3. Selection alpha is negative (-0.21%) while holding alpha is near-neutral (-0.04%) — entry signal is actively losing money, holding is a wash
 
 ---
 
@@ -122,7 +122,7 @@ Analyzed **88** closed trades (27 non-quarantined, 61 quarantined from April 10 
 | Selection (day 1) | -0.207 | 0.1634 | (-0.5274, 0.1133) |
 | Holding (day 2+) | -0.0373 | 0.3031 | (-0.6313, 0.5568) |
 
-**Interpretation:** No edge in either selection or holding
+**Interpretation:** Entry signal actively losing; holding roughly neutral — redesign entry
 
 ---
 
@@ -251,6 +251,6 @@ Under strict-mode gates, only 19/88 trades survive. Strict-mode mean excess: -0.
 
 ### 3 Implications for Strategy #2 Design
 
-1. Strategy #2 must improve entry signal quality — current selection alpha is zero, meaning entries add no value
+1. Strategy #2 must improve entry signal quality — current selection alpha is negative (-0.21%), meaning entries are actively destroying value
 2. Strategy #2 should reduce timeout/stale exits (75.0% of trades, mean return 0.3247%) — consider adaptive hold periods tied to regime state
 3. Strategy #2 should exclude or reduce exposure to consistently losing sectors: Communication Services, Consumer Discretionary, Energy

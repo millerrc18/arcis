@@ -754,8 +754,10 @@ def _interpret_q7(sel: float, hold: float) -> str:
         return "Picking correctly but giving it back — change exit logic, not entry"
     elif sel <= 0 and hold > 0:
         return "Entry is noise but pattern is real — redesign entry signal"
+    elif sel < -0.1 and abs(hold) < abs(sel):
+        return "Entry signal actively losing; holding roughly neutral — redesign entry"
     else:
-        return "No edge in either selection or holding"
+        return "Neither selection nor holding shows a statistically meaningful edge"
 
 
 # ── Q8: Sector Concentration ───────────────────────────────────────
@@ -1286,9 +1288,16 @@ def _find_surprises(results: AuditResults) -> list[str]:
     surprises = []
 
     q1 = results.q1
-    if q1.get("equal_weighted_beta"):
+    if q1.get("equal_weighted_beta") is not None:
         beta = q1["equal_weighted_beta"]
-        if abs(beta - 1.0) > 0.3:
+        ci = q1.get("equal_weighted_ci95", (0, 0))
+        ci_crosses_zero = ci[0] <= 0 <= ci[1]
+        if ci_crosses_zero:
+            surprises.append(
+                f"Real SPY beta point estimate is {beta:.2f} (equal-weighted) but 95% CI "
+                f"({ci[0]:.2f}, {ci[1]:.2f}) spans zero — beta is indistinguishable from zero"
+            )
+        elif abs(beta - 1.0) > 0.3:
             surprises.append(
                 f"Real SPY beta is {beta:.2f} (equal-weighted), materially different from 1.0 "
                 f"— the strategy is {'more' if beta > 1 else 'less'} market-exposed than assumed"
@@ -1328,6 +1337,11 @@ def _find_surprises(results: AuditResults) -> list[str]:
             surprises.append(
                 f"Selection alpha is positive ({sel:.2f}%) but holding alpha is negative ({hold:.2f}%) "
                 f"— entry signal has value but exit logic destroys it"
+            )
+        elif sel < -0.1 and abs(hold) < abs(sel):
+            surprises.append(
+                f"Selection alpha is negative ({sel:.2f}%) while holding alpha is near-neutral "
+                f"({hold:.2f}%) — entry signal is actively losing money, holding is a wash"
             )
 
     # Ensure at least 3
@@ -1394,10 +1408,15 @@ def _generate_implications(results: AuditResults) -> list[str]:
                 f"selection alpha ({sel:.2f}%) is positive but holding alpha ({hold:.2f}%) "
                 "destroys the edge"
             )
+        elif sel < -0.1:
+            implications.append(
+                "Strategy #2 must improve entry signal quality — current selection alpha "
+                f"is negative ({sel:.2f}%), meaning entries are actively destroying value"
+            )
         elif sel <= 0:
             implications.append(
                 "Strategy #2 must improve entry signal quality — current selection alpha "
-                f"is {'zero' if abs(sel) < 0.5 else 'negative'}, meaning entries add no value"
+                "is indistinguishable from zero, meaning entries add no value"
             )
 
     q4 = results.q4
