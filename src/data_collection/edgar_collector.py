@@ -270,16 +270,18 @@ def _parse_sections(text: str, form_type: str) -> dict[str, str]:
         return {}
 
     sections = {}
-    if form_type == "10-K":
+    if form_type in ("10-K", "10-K/A"):
+        _sep = r"[\s.:\u2014\u2013\-]+"
         patterns = {
-            "item_1": r"(?i)item\s+1[.\s]+business(.*?)(?=item\s+1[a-z]|item\s+2|\Z)",
-            "item_1a": r"(?i)item\s+1a[.\s]+risk\s+factors(.*?)(?=item\s+1b|item\s+2|\Z)",
-            "item_7": r"(?i)item\s+7[.\s]+management.s\s+discussion(.*?)(?=item\s+7a|item\s+8|\Z)",
-            "item_8": r"(?i)item\s+8[.\s]+financial\s+statements(.*?)(?=item\s+9|\Z)",
+            "item_1": rf"(?i)item\s+1{_sep}business(.*?)(?=item\s+1[a-z]|item\s+2|\Z)",
+            "item_1a": rf"(?i)item\s+1a{_sep}risk\s+factors(.*?)(?=item\s+1b|item\s+2|\Z)",
+            "item_7": rf"(?i)item\s+7{_sep}management.s\s+discussion(.*?)(?=item\s+7a|item\s+8|\Z)",
+            "item_8": rf"(?i)item\s+8{_sep}financial\s+statements(.*?)(?=item\s+9|\Z)",
         }
-    elif form_type == "10-Q":
+    elif form_type in ("10-Q", "10-Q/A"):
+        _sep = r"[\s.:\u2014\u2013\-]+"
         patterns = {
-            "item_2": r"(?i)item\s+2[.\s]+management.s\s+discussion(.*?)(?=item\s+3|item\s+4|\Z)",
+            "item_2": rf"(?i)item\s+2{_sep}management.s\s+discussion(.*?)(?=item\s+3|item\s+4|\Z)",
         }
     else:
         # 8-K: capture all items
