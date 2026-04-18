@@ -5,10 +5,65 @@ Calls: training.bootstrap, training.report, training.trainer, training.versionin
 Owns tables: none
 Config keys: none
 Tests: tests/test_services.py
+
+Capability registration (Sprint 1B):
+- training_corpus (State) — example counts by outcome_type and by source
 """
 import logging
+from datetime import date
+
+from src.platform.capability_registry import register_state
 
 logger = logging.getLogger(__name__)
+
+
+def _training_corpus_counts() -> dict:
+    """Return counts of training_examples grouped by outcome_type and source."""
+    import sqlite3
+
+    from src.config import DB_PATH
+
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        outcome_rows = conn.execute(
+            "SELECT UPPER(COALESCE(outcome_type, 'UNKNOWN')) AS outcome, COUNT(*) AS n "
+            "FROM training_examples GROUP BY UPPER(COALESCE(outcome_type, 'UNKNOWN'))",
+        ).fetchall()
+        source_rows = conn.execute(
+            "SELECT COALESCE(source, 'unknown') AS source, COUNT(*) AS n "
+            "FROM training_examples GROUP BY COALESCE(source, 'unknown')",
+        ).fetchall()
+        total_row = conn.execute(
+            "SELECT COUNT(*) FROM training_examples",
+        ).fetchone()
+    except sqlite3.OperationalError as exc:
+        return {"error": f"training_examples unavailable: {exc}"}
+    finally:
+        conn.close()
+    return {
+        "value": {
+            "total": int((total_row or (0,))[0]),
+            "by_outcome": {row[0]: int(row[1]) for row in outcome_rows},
+            "by_source": {row[0]: int(row[1]) for row in source_rows},
+        },
+    }
+
+
+@register_state(
+    name="training_corpus",
+    description=(
+        "Total training examples by outcome (WIN/LOSS/UNKNOWN) and by "
+        "source (shadow, backfill, synthetic). Drives when to retrain."
+    ),
+    category="training",
+    version="1.0",
+    maintainer="ai_session",
+    introduced_in="v0.18.0",
+    last_reviewed_date=date(2026, 4, 18),
+    refresh_hint="real-time",
+)
+def training_corpus() -> dict:
+    return _training_corpus_counts()
 
 
 def get_training_status() -> dict:

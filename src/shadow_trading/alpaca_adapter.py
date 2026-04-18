@@ -810,3 +810,45 @@ def get_live_order_status(order_id: str) -> dict:
         "filled_avg_price": float(order.filled_avg_price) if order.filled_avg_price else None,
         "filled_at": str(order.filled_at) if order.filled_at else None,
     }
+
+
+# ── Capability Registry registration (Sprint 1B) ───────────────────────
+
+from datetime import date as _date  # noqa: E402
+
+from src.platform.capability_registry import register_state  # noqa: E402
+
+
+def _alpaca_account_summary() -> dict:
+    """Thin wrapper around get_account_info for the registry.
+
+    Failures bubble up as exceptions; the endpoint's timeout/exception
+    handler converts them to {status: unavailable}.
+    """
+    info = get_account_info(desk="swing")
+    return {
+        "value": {
+            "equity": info.get("equity"),
+            "cash": info.get("cash"),
+            "buying_power": info.get("buying_power"),
+            "portfolio_value": info.get("portfolio_value"),
+            "status": info.get("status"),
+        },
+    }
+
+
+@register_state(
+    name="alpaca_account",
+    description=(
+        "Current Alpaca paper account snapshot — equity, cash, buying "
+        "power, portfolio value, account status. Swing desk only."
+    ),
+    category="trading",
+    version="1.0",
+    maintainer="ai_session",
+    introduced_in="v0.13.0",
+    last_reviewed_date=_date(2026, 4, 18),
+    refresh_hint="real-time",
+)
+def alpaca_account_state() -> dict:
+    return _alpaca_account_summary()
