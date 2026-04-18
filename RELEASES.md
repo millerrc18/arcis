@@ -104,6 +104,30 @@ event-driven backtest).
 backtest examples PASS. CLI exits cleanly. Frontend build was pre-existing
 failure (vite not installed in shell PATH) — not introduced by Sprint 1.
 
+### v0.24.0-alpha3 — Defensive Dashboard + Hard Exposure Limits (Sprint 3 of 4) (2026-04-17)
+
+This ships the guard-rail layer required before Sprint 4 can activate any research strategy: defensive desk-filtering on main dashboard (so swing and research P&L never conflate), correlation schema (so Sprint 4's monitor has tables to write to), and hard pre-trade exposure limits (so aggregate single-name, sector, gross leverage, and book drawdown never silently breach). Also lands the correlation schema for Sprint 4's Tier 7 monitoring work.
+
+**What landed (3 commits on feat/platform-safety):**
+
+#### Added
+
+- **Task 12c — Defensive desk filtering.** `/api/shadow/*` endpoints (`open`, `closed`, `sharpe-attribution`, `metrics`, `account`) accept optional `?desk=` query param: absent/`swing` → swing-only (backward compat), `all` → aggregate, `research_*` → SQL LIKE wildcard, exact match otherwise. `Dashboard.jsx` gets a desk-filter dropdown populated at render time from the new `GET /api/shadow/desks` endpoint (returns distinct desks currently in `shadow_trades`).
+- **Task 11b.1 — Correlation schema.** Two new tables registered: `correlation_matrices` (long-form daily Spearman/Pearson/neg_exceedance snapshots) and `factor_loadings` (rolling Carhart 4 + QMJ regression outputs). Both `sync_to_postgres=True`, `sync_mode='incremental'`. No writes this sprint — Sprint 4 correlation monitor populates.
+- **Task 11b.4 — Hard exposure limits.** New `src/platform/risk/exposure_limits.py` with `check_pre_trade_limits(ticker, shares, price, positions, nav, db_path) -> (allowed, reason)`. HARD_LIMITS: 6% single-name / 25% sector / 1.5× gross / 8% book drawdown circuit breaker. Book drawdown computed live from `shadow_trades` cumulative pnl_pct — no persistent breach flag needed; "no auto-reset" enforced by the math itself. SOFT_LIMITS stubbed for Sprint 4 (correlation + factor + vol ratio). `get_soft_limit_breaches()` returns empty until Sprint 4 wires correlation data.
+
+#### Tests
+
+- 37 new tests across `tests/platform/risk/test_exposure_limits.py` (13), `tests/test_correlation_schema.py` (9), `tests/test_shadow_desk_filter.py` (15). Non-negotiable gates all pass: single-name / sector / drawdown blocks, 4 desk-param semantics on `/api/shadow/sharpe-attribution`, correlation tables sync-to-postgres incremental.
+
+#### Notes
+
+- `check_pre_trade_limits` is NOT yet wired into `src/shadow_trading/executor.py` — that's Sprint 4 (per spec line 230). This sprint ships the pure function + tests; integration path follows.
+- Sector-concentration test uses NVDA instead of GOOGL because Alphabet was reclassified from Technology to Communication Services in GICS September 2018.
+- Two post-sprint follow-ups tracked as GitHub issues: #475 (wire PBO + OOS_efficiency into `check_promotion_gate` evidence) and the existing #471 (v0.24.2 refactor sprint for 4 grandfathered violations).
+
+**Gate status:** All 7 Sprint 3 non-negotiable gates PASS. Frontend build succeeds (vite 8.0.5, 2,503 modules). 2,058 tests pass / 4 skipped / 2 pre-existing failures (lazy_prices e2e production-DB flaky, journal_stats open-trades pre-Sprint-3 bug).
+
 ### v0.24.0-alpha2 — CSCV + Walk-Forward + Promotion Pipeline (Sprint 2 of 4) (2026-04-17)
 
 This release ships the statistical rigor stack (CSCV + walk-forward + trials_registry-backed DSR) and the promotion pipeline that gates strategies out of 'backtested' into 'shadow_trading'. Also includes the Sprint 1 hotfix (3 Lazy Prices code-path bugs + DB_PATH absolute) discovered during Sprint 2's end-to-end validation.
