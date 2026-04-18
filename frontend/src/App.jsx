@@ -32,6 +32,7 @@ import Monitoring from './pages/Monitoring'
 import Strategy from './pages/Strategy'
 import TradeHistory from './pages/TradeHistory'
 import Velocity from './pages/Velocity'
+import StrategyResearch from './pages/StrategyResearch'
 
 // staleTime 5s: dashboard values age fast; refetchInterval 30s for most
 // queries means ~25s staleness window at most. retry: 2 with exponential
@@ -124,6 +125,7 @@ export default function App() {
                 <Route path="/strategy" element={<ErrorBoundary><Strategy /></ErrorBoundary>} />
                 <Route path="/trade-history" element={<ErrorBoundary><TradeHistory /></ErrorBoundary>} />
                 <Route path="/velocity" element={<ErrorBoundary><Velocity /></ErrorBoundary>} />
+                <Route path="/research-platform" element={<ErrorBoundary><StrategyResearch /></ErrorBoundary>} />
               </Route>
             </Routes>
           </BrowserRouter>

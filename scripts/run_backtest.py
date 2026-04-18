@@ -7,16 +7,14 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import sqlite3
 import subprocess
 import sys
-import uuid
-from datetime import datetime, timezone
 
 from src.config import DB_PATH
 from src.platform.backtest_engine import BacktestConfig, run_backtest
+from src.platform.backtest_persist import persist_backtest_result
 from src.platform.strategy_spec import load_spec
 
 
@@ -51,62 +49,6 @@ def _git_sha() -> str:
         return "unknown"
 
 
-def _spec_hash(raw: dict) -> str:
-    return hashlib.sha256(
-        json.dumps(raw, sort_keys=True).encode()
-    ).hexdigest()
-
-
-def _persist(result, db_path: str = DB_PATH) -> str:
-    result_id = str(uuid.uuid4())
-    created_at = datetime.now(timezone.utc).isoformat()
-    m = result.metrics
-    conn = sqlite3.connect(db_path)
-    try:
-        conn.execute(
-            """INSERT INTO backtest_results
-               (result_id, strategy_id, spec_version, spec_hash, start_date,
-                end_date, initial_capital, total_trades, total_return_pct,
-                sharpe, excess_sharpe, deflated_sharpe, pbo, oos_efficiency,
-                sortino, calmar, max_drawdown_pct, win_rate, profit_factor,
-                code_git_sha, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                result_id, result.strategy_id,
-                result.config.strategy.raw.get("spec_version", 1),
-                _spec_hash(result.config.strategy.raw),
-                result.config.start_date, result.config.end_date,
-                result.config.initial_capital, m.get("n_trades"),
-                m.get("total_return_pct"), m.get("sharpe"),
-                m.get("excess_sharpe"), None,  # deflated_sharpe — Sprint 2 wires this
-                m.get("pbo"),               # NULL until param-sweep campaign (Sprint 4)
-                m.get("oos_efficiency"),    # NULL unless --with-walkforward passed
-                m.get("sortino"), m.get("calmar"),
-                m.get("max_drawdown_pct"),
-                m.get("win_rate"), m.get("profit_factor"),
-                _git_sha(), created_at,
-            ),
-        )
-        for t in result.trades:
-            conn.execute(
-                """INSERT INTO backtest_trades
-                   (trade_id, result_id, ticker, entry_date, exit_date,
-                    entry_price, exit_price, shares, pnl_dollars, pnl_pct,
-                    exit_reason, hold_days, spy_return_over_hold,
-                    excess_return, realized_sector, regime_at_entry)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    t.trade_id, result_id, t.ticker, t.entry_date,
-                    t.exit_date, t.entry_price, t.exit_price, t.shares,
-                    t.pnl_dollars, t.pnl_pct, t.exit_reason, t.hold_days,
-                    t.spy_return_over_hold, t.excess_return,
-                    t.realized_sector, t.regime_at_entry,
-                ),
-            )
-        conn.commit()
-    finally:
-        conn.close()
-    return result_id
 
 
 def main() -> int:
@@ -146,7 +88,9 @@ def main() -> int:
         )
 
     if args.persist:
-        result_id = _persist(result, db_path=args.db_path)
+        result_id = persist_backtest_result(
+            result, db_path=args.db_path, git_sha=_git_sha(),
+        )
         print(f"persisted as result_id={result_id}")
 
     if args.output_format == "json":

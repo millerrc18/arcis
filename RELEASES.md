@@ -49,6 +49,27 @@
 
 ## Releases
 
+### v0.24.0 — Strategy Research Platform Final (2026-04-18)
+
+Completes the Strategy Research Platform arc (Sprint 4 continuation). Merges the visibility layer, functional signal integration, Python plugin interface, and final documentation sweep.
+
+**What ships:**
+- `find_candidates_for_date` wired into ShadowHarness — any promoted event-driven strategy can now generate real research-desk shadow trades against the EDGAR backfill
+- 5 GET + 3 POST `/api/platform/*` endpoints with justification-note validation and two-step 24h production-promotion delay
+- `/research-platform` dashboard page with 4 sections: strategy registry, YAML spec viewer, backtest history, equity curves
+- `PlatformStatusWidget` on home dashboard — surfaces strategy counts + "awaiting approval" nudge
+- Telegram events for backtest completion, gate readiness, promotions, and demotions — all `[RESEARCH]`-prefixed, send failures never raised
+- `StrategyPlugin` ABC + `Candidate` dataclass + `plugin_registry` — interface-only; v0.24.1 wires execution
+- `docs/platform/activation-guide.md` — operator walkthrough from spec creation to shadow_trading promotion and emergency halt
+
+**Deferred to v0.24.1:** Tier 7 correlation monitoring (Spearman/CSCV/PELT), Python plugin execution wiring, scheduled-kind candidate generation, historical EDGAR backfill 2019-2023.
+
+**Non-negotiable gates:** All green — find_candidates returns real candidates on signal match, ShadowHarness places bracket via research client, POST /promotions and /demotions enforce minimum-char justifications, dashboard renders empty and populated states cleanly, frontend build clean.
+
+**Full suite:** ~2,141 passed + ~5 skipped + 1 pre-existing failure (`test_open_trades_excluded`).
+
+---
+
 ### v0.24.0-alpha4 — Live Deployment Foundation (Sprint 4 Tier 5) (2026-04-18)
 
 This ships the live-deployment foundation for research strategies: per-desk Alpaca client factory with fail-fast mis-config detection, desk threading through alpaca_adapter + reconcile + the 4 scheduler call sites, ShadowHarness class with halt scoping and pre-trade-limits enforcement, watch-loop cadence-gated tick dispatcher, and cost calibration from swing history. All 4 non-negotiable Tier-5 gates pass. Platform remains inert at merge — zero strategies in shadow_trading state, zero live behavior change. Tier 6 (dashboard), Tier 7 (correlation monitoring), Tier 8 (plugin + docs) defer to v0.24.0-alpha5 / v0.24.1.

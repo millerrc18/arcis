@@ -59,8 +59,8 @@ with an unbeatable technological moat.
 | Open positions | ~2 (verify with shadow-status) |
 | Model | halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF); v2.0.0 retrain gated on excess-Sharpe validation |
 | Training data | 1,722 examples (1,019 + 703 regime-diverse backfill) |
-| Tests | 2,095 tests across 181 test files (+44 tests, +7 test files Sprint 1; +55 tests, +8 test files Sprint 2: CSCV/walk-forward/promotion/trials/desk-tag/config; +37 tests Sprint 3: desk-filter/correlation-schema/exposure-limits; +31 tests Sprint 4 Tier 5: alpaca_clients/alpaca_adapter/reconcile-routing/scheduler-dispatch/shadow-harness/watch-tick/cost-calibration) |
-| Python files | 209 (+12 new src/platform/ modules Sprint 1; +4 new src/platform/ modules Sprint 2: promotion, trials, rigor/walkforward, rigor/trials; +1 module Sprint 3: exposure_limits; +4 modules Sprint 4 Tier 5: alpaca_clients, reconcile_dispatch, shadow_harness, cost_calibration) |
+| Tests | 2,141 tests across 181 test files (+44 tests, +7 test files Sprint 1; +55 tests, +8 test files Sprint 2: CSCV/walk-forward/promotion/trials/desk-tag/config; +37 tests Sprint 3: desk-filter/correlation-schema/exposure-limits; +31 tests Sprint 4 Tier 5: alpaca_clients/alpaca_adapter/reconcile-routing/scheduler-dispatch/shadow-harness/watch-tick/cost-calibration; +22 tests Sprint 4 cont.: find_candidates/platform-api/shadow-harness-tick/promotion-gates/widget/telegram/plugin-interface) |
+| Python files | 214 (+12 new src/platform/ modules Sprint 1; +4 new src/platform/ modules Sprint 2: promotion, trials, rigor/walkforward, rigor/trials; +1 module Sprint 3: exposure_limits; +4 modules Sprint 4 Tier 5: alpaca_clients, reconcile_dispatch, shadow_harness, cost_calibration; +3 modules Sprint 4 cont.: signal_eval, strategy_plugin, plugin_registry) |
 | Dashboard pages | 25 |
 | Research docs | 107 |
 | Sprint docs | 57 |
@@ -801,6 +801,45 @@ Each desk launches only after the previous desk is profitable.
 5. Event-Driven, Macro/Rates, Crypto (scoped, not scheduled)
 
 **Data resilience:** IB historical data farm as fallback for feature pipeline when FMP/yfinance return empty (pre-market gaps). Phase 2 enhancement — add to feature_engine with try-FMP-then-IB pattern.
+
+---
+
+## 8.5 Research Platform (v0.24.0)
+
+Strategy Research Platform — systematically propose, backtest, shadow-trade, and promote strategy candidates. Strategy-agnostic infrastructure for evaluating any strategy spec (YAML or Python plugin) against the same rigor bar.
+
+**Components:**
+- Strategy Spec (`src/platform/specs/*.yaml`, `src/platform/strategy_spec.py`, `src/platform/strategy_plugin.py`) — YAML or Python plugin, both satisfy the same interface
+- Backtest Engine (`src/platform/backtest_engine.py` + `src/platform/signal_eval.py`) — deterministic historical replay; scheduled + event_driven dispatch
+- Rigor (`src/platform/rigor/`) — DSR (Bailey-López de Prado 2014), CSCV/PBO, Walk-Forward (Pardo 2008), trials_registry (N_eff counter)
+- Promotion Pipeline (`src/platform/promotion.py`) — 5-state lifecycle: proposed → backtested → shadow_trading → production; deprecated for retirement
+- Shadow Harness (`src/platform/shadow_harness.py`) — per-strategy live paper-trading on the research Alpaca desk
+- Risk (`src/platform/risk/exposure_limits.py`) — 6%/25%/1.5x/8% DD hard limits, pure function enforced pre-trade
+- Dashboard (`frontend/src/pages/StrategyResearch.jsx`) — 4-section dashboard page + `/api/platform/*` endpoints
+
+**State machine:**
+```
+proposed → backtested → shadow_trading → production
+                              ↓
+                          deprecated
+```
+
+**Non-negotiable promotion gates (shadow_trading):**
+- DSR ≥ 0.95 (vs. N_eff trials from trials_registry, real variance)
+- PBO ≤ 0.50 (Bailey et al. 2014 CSCV)
+- OOS_efficiency ≥ 0.30 (Pardo 2008 walk-forward)
+- Justification note ≥ 40 characters
+
+**Operator control plane:**
+- `/research-platform` dashboard page
+- `POST /api/platform/backtests` / `promotions` / `demotions`
+- CLI: `scripts/run_backtest.py`, `src.platform.promotion.promote/demote/pause`
+
+**Safety properties:**
+- Platform inert when `strategy_registry` is empty — zero dashboard calls, zero Alpaca calls
+- Swing + research reconciled separately via desk routing (never cross-contaminated)
+- `verify_accounts_distinct()` fails-fast if both desks point at the same Alpaca account
+- Watch-loop tick failure on one strategy doesn't kill swing
 
 ---
 
