@@ -62,6 +62,7 @@ def test_unknown_command_defaults_to_trading_ttl():
 def test_expire_stale_commands_updates_rowcount():
     """expire_stale_commands should run an UPDATE against Postgres and
     return the rowcount. Verifies the query shape + commit + return path."""
+    import sys
     from src.sync import render_sync
 
     mock_cursor = MagicMock()
@@ -70,7 +71,12 @@ def test_expire_stale_commands_updates_rowcount():
     mock_pg.cursor.return_value.__enter__.return_value = mock_cursor
     mock_pg.__enter__.return_value = mock_pg
 
-    with patch("src.sync.render_sync._connect_pg_with_retry",
+    # Simulate psycopg2 present (CI runs against requirements.txt only, which
+    # does not include psycopg2-binary — that lives in requirements-cloud.txt).
+    # Without this patch, the in-function `import psycopg2` guard returns 0
+    # before _connect_pg_with_retry is called.
+    with patch.dict(sys.modules, {"psycopg2": MagicMock()}), \
+         patch("src.sync.render_sync._connect_pg_with_retry",
                return_value=mock_pg):
         count = render_sync.expire_stale_commands("postgresql://fake")
 
@@ -122,12 +128,18 @@ def test_expire_stale_commands_returns_zero_on_db_error():
 def test_run_sync_cycle_calls_expire_stale_commands(tmp_path):
     """The sync cycle must call expire_stale_commands after pull_commands
     so orphans get cleaned up on the same polling cadence."""
+    import sys
     from src.sync import render_sync
 
     mock_pg = MagicMock()
     mock_pg.cursor.return_value.__enter__.return_value = MagicMock()
 
-    with patch("src.sync.render_sync.SYNC_TABLES", {}), \
+    # Simulate psycopg2 present (CI runs against requirements.txt only, which
+    # does not include psycopg2-binary — that lives in requirements-cloud.txt).
+    # Without this patch, run_sync_cycle early-returns at its psycopg2 guard
+    # before reaching the expire_stale_commands call.
+    with patch.dict(sys.modules, {"psycopg2": MagicMock()}), \
+         patch("src.sync.render_sync.SYNC_TABLES", {}), \
          patch("src.sync.render_sync._connect_pg_with_retry", return_value=mock_pg), \
          patch("src.sync.render_sync._ensure_pg_connection", return_value=mock_pg), \
          patch("src.sync.render_sync._init_sync_state"), \
