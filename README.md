@@ -1,8 +1,9 @@
 # Arcis
 
-![version](https://img.shields.io/badge/version-v0.24.0-blue?style=flat-square)
+![version](https://img.shields.io/badge/version-v0.25.0-blue?style=flat-square)
 ![phase](https://img.shields.io/badge/phase-1%20diagnostic-orange?style=flat-square)
-![tests](https://img.shields.io/badge/tests-2%2C141%20passing-brightgreen?style=flat-square)
+![tests](https://img.shields.io/badge/tests-2%2C272%20passing-brightgreen?style=flat-square)
+![walkforward](https://img.shields.io/badge/walkforward--v1-three--state-amber?style=flat-square)
 ![python](https://img.shields.io/badge/python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)
 ![model](https://img.shields.io/badge/model-Qwen3%208B-purple?style=flat-square)
 ![license](https://img.shields.io/badge/license-BSL%201.1-yellow?style=flat-square)

@@ -26,7 +26,8 @@ NEVER add columns via ALTER TABLE in any other file.
 
 Called by: src.schema.validator, src.schema.sqlite, src.schema.postgres, scripts/render_migrate.py
 Calls: none (data definitions only)
-Owns tables: all 46 tables
+Owns tables: all registered tables (authoritative count via
+             `python -c "from src.schema.registry import TABLES; print(len(TABLES))"`)
 Config keys: none
 Tests: tests/test_schema.py, tests/test_repo_structure.py
 """

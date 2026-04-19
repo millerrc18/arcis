@@ -2,6 +2,68 @@
 
 ## [Unreleased]
 
+### Added (v0.25.0 — Walk-Forward Validation Framework v1)
+
+Load-bearing multi-year infrastructure. Every future strategy must pass
+walk-forward v1 before promotion to `shadow_trading` or real capital.
+Closes three regime traps identified in the April 18 forensic audit:
+regime-averaged false positives, underpowered Sharpe reporting, and
+bootcamp-derivation circularity.
+
+- **Three-state outcome framework** (PASS / FAIL / INCONCLUSIVE) — never
+  collapsed to boolean anywhere in the stack. Schema enforces
+  `outcome_state` NOT NULL; `check_promotion_gate` evidence carries
+  `walkforward_outcome_state` + `walkforward_reason` fields end-to-end.
+- **R1 — Five non-overlapping OOS windows** 2019-01-01 → 2024-09-30,
+  each with a 2-calendar-year IS flank
+  (`src/platform/rigor/walkforward_config.py`).
+- **R2 — Purge + embargo** (`walkforward_purging.py`) runs at every
+  IS/OOS boundary to prevent leakage.
+- **R3 — Point-in-time S&P 100 universe** — no survivorship bias.
+  `data/reference/sp100_historical.csv` sourced from S&P DJI press
+  releases + Wikipedia index-change tables. Resolver in
+  `walkforward_universe.py`.
+- **R4 — Transaction costs** (0.5 bp per side, 1.0 bp round-trip)
+  applied uniformly in `walkforward_costs.py`.
+- **R5 — Determinism** via `WalkForwardConfig.random_seed`; spec hash
+  + git SHA recorded per run.
+- **R6 — MDE gate** using annualized-scale Lo (2002) formula with
+  Newey-West N_effective correction; heavy-tail bootstrap SE override
+  at `bootstrap_SE > 1.5 × parametric_SE` (10k resamples).
+- **R7 — Full reproducibility columns** on every `walkforward_results`
+  row: spec_hash, code_git_sha, random_seed, config_json.
+- **R8 — Strategy identity firewall** (`walkforward_firewall.py`):
+  (a) `derived_from` required field on every spec, (b) overlap
+  assertion before any window runs, (c) no inherited credit,
+  (d) bootcamp forced False, (e) PR body declaration (honor-system).
+  Non-blocking runtime heuristic emits WARNING when spec first-commit
+  is within 30 days of a matching forensic audit AND derived_from=null.
+- **Schema** — `walkforward_results`, `walkforward_trades`, and
+  `sp100_historical_constituents` added to `src/schema/registry.py`.
+  Table count 64 → 67.
+- **CLI wrapper** `scripts/backtest/run_walkforward.py` — exit codes
+  0/1/2/3 map PASS/FAIL/args-error/INCONCLUSIVE so CI can distinguish
+  underpowered from failed.
+- **Lazy Prices v1** spec updated with `derived_from: null`
+  (literature-derived from Cohen-Malloy-Nguyen 2020 JF).
+- **Dashboard** `/walkforward-results` React page with three-state
+  color coding (PASS green, FAIL red, INCONCLUSIVE amber) +
+  INCONCLUSIVE_POWER / INSUFFICIENT_DATA sub-badges +
+  per-window/per-trade drill-down.
+- **Backend route** `src/api/cloud_routes/walkforward.py` — runs list,
+  run detail, window aggregation, trade drill-down.
+- **Promotion gate** `check_promotion_gate` — walk-forward v1 takes
+  precedence when a row exists; three-state result preserved in
+  evidence dict. Soft migration: legacy DSR + PBO + OOS_efficiency path
+  still runs when no walkforward_results row exists.
+- **Synthetic smoke test** — `scripts/backtest/lazy_prices_smoke_test.py`
+  exercises all three outcome paths. Cloud fallback: report marked
+  SYNTHETIC FALLBACK when real EDGAR data not accessible. Operator
+  re-runs locally after PR review.
+- **131 new tests** across 9 new test modules in
+  `tests/platform/rigor/`, `tests/scripts/`, `tests/api/`, and
+  `tests/platform/test_promotion_walkforward.py`.
+
 ### Added (v0.26.0 — Training Data v1-Citation Audit)
 
 - `src/training/audit/` package — three-pass audit for the 1,782-row

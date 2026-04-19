@@ -228,3 +228,231 @@ Per spec section "Non-goals":
 - Non-contiguous `source_date_range` support (v0.30.x).
 - Backtest-engine refactoring — HALT if needed.
 - `known_events.py` tariff backfill — separate prerequisite sprint.
+
+---
+
+# Pass 3 — Self-review
+
+This Pass 3 section is appended after all 14 implementation commits and
+before the sprint PR. Purpose: verify R1–R8 with file/function references,
+list the most fragile parts with their catching tests, enumerate
+operator-side manual verification items, and trace the three-state
+outcome through the full stack to prove it is not silently collapsed.
+
+## R1–R8 verification
+
+### R1 — Window design
+
+- `src/platform/rigor/walkforward_config.py` — `DEFAULT_WINDOWS` tuple
+  (five windows, 2019-01-01 → 2024-09-30).
+- `tests/platform/rigor/test_walkforward_config.py` —
+  `test_default_windows_count_is_five`,
+  `test_default_windows_cover_2019_to_2024`,
+  `test_default_windows_oos_non_overlapping`,
+  `test_default_windows_is_strictly_before_oos`.
+
+### R2 — Purge + embargo
+
+- `src/platform/rigor/walkforward_purging.py` — `purge_is_trades`,
+  `embargo_oos_trades`, `classify_trades_for_audit`.
+- Runner wires them per-window in
+  `src/platform/rigor/walkforward_runner.py:process_window`.
+- `tests/platform/rigor/test_walkforward_purging.py` covers every
+  boundary combination (entry-in-IS/exit-in-OOS straddle, open trade,
+  embargo at start, weekend-skipping `_add_trading_days`).
+
+### R3 — Point-in-time universe
+
+- `data/reference/sp100_historical.csv` — curated from S&P DJI press
+  releases + Wikipedia index-change tables (chosen source per Pass 2
+  item 8).
+- `src/platform/rigor/walkforward_universe.py` —
+  `load_constituents_from_csv`, `populate_constituents_table`,
+  `resolve_universe_as_of`, `resolve_universe_size`.
+- `tests/platform/rigor/test_walkforward_universe.py` — canonical
+  transition dates verified (TSLA add 2020-06-22, FB→META rename
+  2022-06-09, UTX+RTN merger to RTX 2020-04-03), plus CSV-schema
+  rigidity, idempotent populate, re-entry dedup.
+
+### R4 — Transaction costs
+
+- `src/platform/rigor/walkforward_costs.py` — `apply_per_side_cost`,
+  `apply_per_side_cost_batch`, `round_trip_cost_bps`, `pnl_gross_vs_net`.
+- Runner calls the engine with zero bps at `BacktestConfig
+  (commission_bps=0, slippage_bps=0, spread_bps=0)` and applies costs
+  uniformly in `process_window`.
+- `tests/platform/rigor/test_walkforward_costs.py` asserts
+  `net < gross` for positive-PnL trades and verifies the scalar
+  `pnl_gross_vs_net` identity matches the trade-level computation
+  (regression guard against silent gross reporting).
+
+### R5 — Determinism
+
+- `random_seed` defaulted to 42 in `WalkForwardConfig`; runner threads
+  it into `bootstrap_resamples` + bootstrap RNG.
+- `tests/platform/rigor/test_walkforward_runner.py:
+  test_runner_deterministic_under_same_seed` — two runs with identical
+  inputs produce identical `outcome_state`, `reason`, `pooled_sharpe`,
+  and `spec_hash`.
+
+### R6 — Three-state outcome + MDE gate
+
+- Metrics: `src/platform/rigor/walkforward_metrics.py` computes
+  annualized Sharpe, MDD, Lo (2002) SE at annualized scale
+  (`SE = sqrt((T + 0.5·Sharpe^2) / N)`), direct bootstrap SE of
+  the Sharpe statistic, and heavy-tail flag.
+- Power: `src/platform/rigor/walkforward_power.py` —
+  `newey_west_deflator`, `effective_n`, `compute_mde`,
+  `evaluate_window_power` (switches to `bootstrap_se` when
+  heavy-tail), `count_power_states`.
+- Outcome reducer: `src/platform/rigor/walkforward_outcome.py:
+  reduce_outcome` — priority-order state machine.
+- Runner: `walkforward_runner.py:run_walkforward` orchestrates
+  and stores the result.
+- Tests — `test_walkforward_metrics.py` (20), `test_walkforward_power.py`
+  (14), `test_walkforward_outcome.py` (10). Three canonical synthetic
+  cases (N=20/Sh=0.4 → INCONCLUSIVE_POWER; N=200/Sh=0.25 → FAIL;
+  N=200/Sh=0.35 → PASS) plus insufficient data → INCONCLUSIVE_DATA.
+
+### R7 — Deterministic record-keeping
+
+- Schema: `walkforward_results` includes `spec_hash`, `code_git_sha`,
+  `random_seed`, `config_json`, `created_at`.
+- `persist_run_result` writes all five; runner derives `spec_hash` via
+  `hashlib.sha256` of sorted-keys JSON (same technique as
+  `backtest_engine._reproducibility_dict`).
+- Tests — `test_walkforward_runner.py:
+  test_runner_persists_outcome_state_to_db` +
+  `test_walkforward_schema.py` round-trip insert.
+
+### R8 — Strategy identity firewall + runtime heuristic
+
+- `src/platform/rigor/walkforward_firewall.py` —
+  `validate_derived_from` (R8(a)), `assert_no_overlap` (R8(b)),
+  `ensure_bootcamp_off` (R8(d), belt-and-suspenders with
+  `WalkForwardConfig.__post_init__`), `check_provenance_heuristic`
+  (non-blocking runtime heuristic).
+- Runner invokes them up-front before any window runs.
+- Lazy Prices spec updated at `src/platform/specs/lazy_prices_v1.yaml`
+  with `derived_from: null`.
+- Tests — `test_walkforward_firewall.py` (21), including structural
+  rejection paths, all allowed source_types, edge-touching overlap,
+  bootcamp assertion both directions, heuristic matrix.
+- Honor-system caveat carried: framework cannot detect undeclared
+  provenance; PR reviewers verify R8(e).
+
+## Most fragile parts
+
+1. **Heavy-tail flag fires on every window.** Our annualized-scale Lo
+   (2002) parametric SE formula includes the T=252 annualization factor
+   so bootstrap SE ≈ parametric SE for Gaussian returns. If someone
+   later removes that T factor in `compute_parametric_se`, the
+   heavy-tail flag will fire universally and every run will substitute
+   bootstrap SE. Failure mode: runs slow to 10k resamples per window,
+   pooled MDE inflates, PASS becomes unreachable.
+   **Catching test:** `test_walkforward_metrics.py:
+   test_window_metrics_no_heavy_tail_on_clean_gaussian` — asserts
+   `heavy_tail_flag is False` for 300 draws from `N(0.001, 0.01)`.
+
+2. **MDE gate under-powered at realistic N.** MDE ≤ 0.3 effectively
+   requires N_effective > ~22,000 per window at annualized Sharpe
+   magnitudes observed in practice. Real strategies produce 30-100
+   trades per window; production runs will almost always hit
+   INCONCLUSIVE_POWER. This is the intended behavior per the forensic
+   audit.
+   **Catching test:** `test_walkforward_power.py:
+   test_state_n20_sharpe04_is_inconclusive_power`.
+   **Operator verification needed:** tune per-strategy if daily-return
+   series (not per-trade returns) becomes the Sharpe input.
+
+3. **Schema drift on walkforward_trades insert.** The runner's
+   `persist_run_result` uses positional `INSERT OR REPLACE` with 20
+   columns. If someone adds a column to `walkforward_trades` without
+   updating the INSERT, writes will silently fail or shift columns.
+   **Catching test:** `test_walkforward_runner.py:
+   test_runner_persists_outcome_state_to_db` round-trips the primary
+   key + outcome_state, which would fail if column shift corrupted the
+   row. But drift in walkforward_trades alone would not be caught
+   end-to-end — see follow-up.
+
+4. **SPDR CSV header rigidity.** The resolver accepts exactly the
+   5-column header `(ticker, added_date, removed_date, company_name,
+   reason)`. Anyone editing the CSV in Excel and saving with UTF-8 BOM
+   or trailing-whitespace will break the loader.
+   **Catching test:** `test_walkforward_universe.py:
+   test_csv_loader_raises_on_bad_header` — verifies the rigid-schema
+   check fires.
+
+5. **Soft migration of `check_promotion_gate`.** When `walkforward_results`
+   has no row for a strategy, the promotion gate falls back to the legacy
+   OOS_efficiency check. This preserves existing strategies' promotion
+   paths, but means the three-state outcome only bites on strategies
+   that have run walk-forward v1. Operator MUST run walk-forward v1
+   against the incumbent in v0.26.1 before the soft-migration window
+   closes.
+   **Catching test:** `test_promotion_walkforward.py:
+   test_walkforward_gate_no_row_returns_none` — verifies fallback path.
+
+## Operator manual verification
+
+1. **Real-data Lazy Prices smoke run.** Local env has 523/523 EDGAR
+   filings. Re-run `python -m scripts.backtest.lazy_prices_smoke_test
+   --db-path ai_research_desk.sqlite3 --force-synthetic false` (after
+   implementing the real-data branch — currently synthetic-only). If
+   PASS, halt and investigate — that indicates a framework bug.
+   Expected: FAIL (pooled Sharpe low) or INCONCLUSIVE (power).
+
+2. **Live `/walkforward-results` render on halcyonlab.app.** After
+   deploying, verify:
+   - Page renders without console errors.
+   - Color coding (PASS green / FAIL red / INCONCLUSIVE amber) is
+     correct.
+   - INCONCLUSIVE_POWER and INSUFFICIENT_DATA sub-badges distinct.
+   - Per-window drill-down loads trades.
+
+3. **SPDR source choice.** Review
+   `data/reference/sp100_historical.csv` line-by-line for the 2017-2024
+   window. The curated CSV is the single-source-of-truth for
+   point-in-time universe — any misattribution cascades into every
+   future walk-forward run.
+
+4. **R8 PR body declaration.** Verify the PR body includes the literal
+   `derived_from: null` declaration for Lazy Prices v1 (R8(e)
+   honor-system requirement).
+
+5. **Pass 1 / Pass 2 / Pass 3 redline markdown artifacts.** Commit the
+   three local redline files to `docs/sprints/redline-history/` to
+   restore full audit trail.
+
+6. **Full-suite pytest ≥1339 tests.** Local run. Sprint baseline in
+   cloud env: 226 tests pass in platform/rigor + diagnostics +
+   promotion + scripts + api touched by this sprint.
+
+## Three-state outcome propagation audit
+
+Trace PASS, FAIL, INCONCLUSIVE through runner → results table →
+`check_promotion_gate` → dashboard:
+
+| State          | Runner                                    | Table                                                             | check_promotion_gate                                                                    | Dashboard                                          |
+|----------------|-------------------------------------------|-------------------------------------------------------------------|-----------------------------------------------------------------------------------------|----------------------------------------------------|
+| PASS           | `reduce_outcome` returns STATE_PASS       | outcome_state='PASS', reason='walkforward_pass'                   | evidence['walkforward_outcome_state']='PASS', passes=True → continues DSR check         | green badge, no sub-badge                          |
+| FAIL           | `reduce_outcome` returns STATE_FAIL       | outcome_state='FAIL', reason='criterion_X_...'                    | evidence['walkforward_outcome_state']='FAIL', passes=False, error='walkforward_failed'  | red badge                                          |
+| INCONCLUSIVE   | `reduce_outcome` returns STATE_INCONCLUSIVE | outcome_state='INCONCLUSIVE', reason='coverage_inconclusive' OR 'power_inconclusive' | evidence['walkforward_outcome_state']='INCONCLUSIVE', passes=False, error='walkforward_inconclusive' | amber badge + INCONCLUSIVE_POWER or INSUFFICIENT_DATA sub-badge |
+
+Three structural checks confirm no collapse:
+
+- `test_walkforward_outcome.py` exercises the reducer with synthetic
+  inputs that produce all three states.
+- `test_walkforward_runner.py:
+  test_runner_three_outcome_states_all_reachable` exercises the runner
+  end-to-end with synthetic inputs that produce all three states.
+- `test_promotion_walkforward.py` verifies all three states preserve
+  their `outcome_state` string in evidence and the gate returns
+  distinct reason codes.
+
+The dashboard backend `cloud_routes/walkforward.py` exposes
+`outcome_state` as a top-level field on every run row; the React page
+reads it and color-codes without branching on anything else. Test
+`test_walkforward_routes.py:
+test_list_runs_returns_three_state_outcomes` verifies all three states
+appear in the API response.
