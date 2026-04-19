@@ -5,3 +5,7 @@ sqlalchemy>=2.0.0
 pydantic>=2.7,<3.0
 PyYAML>=6.0,<7.0
 python-dotenv>=1.0,<2.0
+# jsonschema — required transitively by src/api/cloud_routes/system_index.py
+# (imports capability_registry which validates Action schemas via jsonschema).
+# Missing → cloud deploy crashed on startup with ModuleNotFoundError.
+jsonschema>=4.0,<5.0
