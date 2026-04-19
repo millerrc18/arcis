@@ -116,6 +116,10 @@ def _query_event_rows(spec: StrategySpec, cfg) -> list[dict]:
     table = entry.get("event_table", "edgar_filings")
     form_types = entry.get("event_filter", {}).get("form_type", [])
     tickers = _resolve_universe(spec.universe.get("tickers", []))
+    sector_filter = spec.universe.get("sector_filter")
+    if sector_filter:
+        from src.universe.sectors import SECTOR_MAP
+        tickers = [t for t in tickers if SECTOR_MAP.get(t) in sector_filter]
     if not tickers:
         return []
 

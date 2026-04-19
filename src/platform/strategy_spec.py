@@ -50,12 +50,28 @@ def validate_spec(spec: dict) -> tuple[bool, list[str]]:
             errors.append(f"missing required key: {k}")
     if "universe" in spec and not isinstance(spec["universe"], dict):
         errors.append("universe must be a dict")
+    if isinstance(spec.get("universe"), dict) and "sector_filter" in spec["universe"]:
+        sf = spec["universe"]["sector_filter"]
+        if not isinstance(sf, list) or not sf or not all(isinstance(x, str) for x in sf):
+            errors.append(
+                "universe.sector_filter must be a non-empty list of strings when present"
+            )
     if "entry" in spec and isinstance(spec["entry"], dict):
         kind = spec["entry"].get("kind")
         if kind not in ALLOWED_ENTRY_KINDS:
             errors.append(
                 f"entry.kind must be one of {sorted(ALLOWED_ENTRY_KINDS)}, got {kind!r}"
             )
+        if "event_exclusion" in spec["entry"]:
+            ex = spec["entry"]["event_exclusion"]
+            if not isinstance(ex, dict):
+                errors.append("entry.event_exclusion must be a dict when present")
+            else:
+                cats = ex.get("categories")
+                if not isinstance(cats, list) or not cats or not all(isinstance(x, str) for x in cats):
+                    errors.append(
+                        "entry.event_exclusion.categories must be a non-empty list of strings"
+                    )
     if "exit" in spec and isinstance(spec["exit"], dict):
         kind = spec["exit"].get("kind")
         if kind not in ALLOWED_EXIT_KINDS:

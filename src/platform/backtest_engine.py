@@ -341,6 +341,11 @@ def _run_event_driven(cfg: BacktestConfig) -> list[BacktestTrade]:
         first_bar = after.iloc[0]
         entry_ts = after.index[0]
         entry_iso = entry_ts.strftime("%Y-%m-%d")
+        exclude_cats = (spec.entry.get("event_exclusion") or {}).get("categories", [])
+        if exclude_cats:
+            from src.diagnostics.known_events import is_known_event
+            if any(is_known_event(entry_iso, category=c) for c in exclude_cats):
+                continue
         entry_price = float(first_bar.get("Open", first_bar.get("open", 0.0)))
         history_df = df[df.index < entry_ts]
         trade = _build_trade(
