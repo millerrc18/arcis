@@ -167,17 +167,11 @@ def test_resume_trading_command(db_path):
     assert result["status"] == "success"
 
 
-# ── Test 8: Close position requires valid ticker ─────────────────
-
-def test_close_position_validates_ticker(db_path):
-    """close-position should require a valid ticker."""
-    from src.commands.executor import _handle_close_position
-
-    result = _handle_close_position({}, {})
-    assert "error" in result or "Invalid" in str(result)
-
-    result = _handle_close_position({"ticker": ""}, {})
-    assert "error" in result or "Invalid" in str(result)
+# ── Test 8: (removed) close-position handler deleted in #501 fix ─
+# The _handle_close_position handler referenced src.shadow_trading.executor.close_position,
+# which never existed. Handler registration was removed; the corresponding validation test
+# goes with it. See tests/test_commands_executor.py for the guard that prevents
+# dead handlers from being re-registered.
 
 
 # ── Test 9: Result truncation ─────────────────────────────────────
