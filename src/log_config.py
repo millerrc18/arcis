@@ -7,30 +7,13 @@ Config keys: none
 Tests: none
 """
 
-import json
+import json  # noqa: F401 — retained for external callers that import from log_config
 import logging
 import sys
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
 
-
-class StructuredFormatter(logging.Formatter):
-    """Log formatter that appends structured context as |ctx:{JSON}.
-
-    When a LogRecord has a non-empty ``ctx`` attribute (set via
-    ``extra={"ctx": {...}}``), the JSON is appended after the message.
-    Plain messages are unchanged — backwards-compatible.
-
-    Example output:
-        2026-04-06 09:01:00 [executor] ERROR: Exit failed for TGT |ctx:{"event":"exit_failed","ticker":"TGT"}
-    """
-
-    def format(self, record: logging.LogRecord) -> str:
-        base = super().format(record)
-        ctx = getattr(record, "ctx", None)
-        if ctx:
-            return f"{base} |ctx:{json.dumps(ctx, separators=(',', ':'), default=str)}"
-        return base
+from src.observability.formatters import StructuredFormatter  # noqa: F401 — re-export for back-compat
 
 
 def setup_logging(level: str = "INFO", log_file: str | None = None):

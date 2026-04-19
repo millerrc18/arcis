@@ -7,6 +7,8 @@ Config keys: none
 Tests: none
 """
 import os
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,7 +16,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.api.routes import system, scan, shadow, training, review, packets, docs, actions, health, council, notes, live, logs, ib_status
 from src.api.websocket import manager
 
-app = FastAPI(title="Arcis", version="0.17.1")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Startup/shutdown hook replacing the deprecated on_event("startup")."""
+    from src.journal.store import initialize_database
+    from src.log_config import setup_logging
+    setup_logging()
+    initialize_database()
+    yield
+
+
+app = FastAPI(title="Arcis", version="0.17.1", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -38,14 +51,6 @@ app.include_router(notes.router, prefix="/api")
 app.include_router(live.router, prefix="/api")
 app.include_router(logs.router, prefix="/api")
 app.include_router(ib_status.router, prefix="/api")
-
-
-@app.on_event("startup")
-def startup():
-    from src.journal.store import initialize_database
-    from src.log_config import setup_logging
-    setup_logging()
-    initialize_database()
 
 
 # WebSocket for live updates (uses shared manager from websocket.py)

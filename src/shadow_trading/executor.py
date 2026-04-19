@@ -2331,23 +2331,4 @@ def _get_recent_ohlcv_safe(ticker: str, days: int = 10):
     return None
 
 
-def _get_current_price_safe(ticker: str) -> float | None:
-    """Get current price, trying Alpaca first then falling back to yfinance."""
-    try:
-        from src.shadow_trading.alpaca_adapter import get_current_price
-        price = get_current_price(ticker)
-        if price:
-            return price
-    except Exception as e:
-        logger.debug("[PRICE] Alpaca price fetch failed for %s: %s", ticker, e)
-
-    # Fallback to yfinance
-    try:
-        from src.data_ingestion.market_data import fetch_ohlcv
-        data = fetch_ohlcv([ticker], period="5d")
-        if ticker in data and not data[ticker].empty:
-            return float(data[ticker]["Close"].iloc[-1])
-    except Exception as e:
-        logger.debug("[PRICE] yfinance price fetch failed for %s: %s", ticker, e)
-
-    return None
+from src.risk.price_utils import _get_current_price_safe  # noqa: F401 — re-exported for back-compat

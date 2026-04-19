@@ -2,13 +2,15 @@
 
 Provides reusable indicator calculations used across feature modules.
 Avoids code duplication between regime.py, setup_classifier.py, and
-mean_reversion.py.
+mean_reversion.py. Also hosts `_slope_direction`, extracted from
+features.engine to break the features.engine ↔ features.regime import
+cycle (#461 Cycle 2).
 
-Called by: features.regime, features.setup_classifier, features.mean_reversion
+Called by: features.engine, features.regime, features.setup_classifier, features.mean_reversion
 Calls: none
 Owns tables: none
 Config keys: none
-Tests: tests/test_indicators.py
+Tests: tests/test_indicators.py, tests/test_circular_imports.py
 """
 
 import pandas as pd
@@ -87,3 +89,22 @@ def compute_bollinger_position(close: pd.Series, period: int = 20,
     if last_upper == last_lower:
         return 0.5
     return round((float(close.iloc[-1]) - last_lower) / (last_upper - last_lower), 4)
+
+
+def _slope_direction(series: pd.Series, window: int = 10) -> str:
+    """Classify the slope of a series over the last `window` periods.
+
+    WHY 10-period window: short enough to detect recent trend changes (2 weeks
+    of trading), long enough to filter out 1-2 day noise. The 0.1% threshold
+    (relative to start value) prevents classifying sideways drift as directional.
+    """
+    if len(series) < window:
+        return "flat"
+    recent = series.iloc[-window:]
+    diff = recent.iloc[-1] - recent.iloc[0]
+    threshold = 0.001 * abs(recent.iloc[0]) if recent.iloc[0] != 0 else 0.01
+    if diff > threshold:
+        return "positive"
+    if diff < -threshold:
+        return "negative"
+    return "flat"

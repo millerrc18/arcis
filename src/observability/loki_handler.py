@@ -159,7 +159,7 @@ def setup_loki_handler(config: dict) -> logging.Handler | None:
         )
         return None
 
-    from src.log_config import StructuredFormatter
+    from src.observability.formatters import StructuredFormatter
     loki_handler = LokiHandler(url=loki_url, user=str(loki_user), token=token)
     loki_handler.setFormatter(
         StructuredFormatter("%(asctime)s [%(name)s] %(levelname)s: %(message)s")
