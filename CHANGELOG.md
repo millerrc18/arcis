@@ -2,6 +2,39 @@
 
 ## [Unreleased]
 
+### Blocked (v0.26.0 — Incumbent strategy as YAML spec)
+
+**Status: BLOCKED.** Closes #523 as BLOCKED; prerequisites enumerated in #530.
+
+Per the v0.26.0 sprint prompt's explicit STOP-and-file path:
+
+> If Pass 2 reveals cross-dependencies that don't YAML-ify, STOP and file issue
+> with specific coupling. Do NOT force incomplete refactor.
+
+Pass 1 + Pass 2 research confirmed 7 cross-dependencies that block byte-identical
+extraction of the incumbent pullback-in-uptrend strategy into
+`src/platform/specs/incumbent_v1.yaml`:
+
+- `daily_scan` entry kind has no runtime (gated on open issue #494)
+- Lazy-prices schema missing ~10 sections (ranking DSL, multi-target brackets,
+  regime-adaptive sizing, attribution hooks, enrichment chain, post-scan chain,
+  event-risk gate, bootcamp overrides, setup-classifier hook)
+- Scan pipeline is not spec-driven — ranker/packet/executor all read hardcoded
+  Python constants
+- Simulation vs live use different bracket tables; YAML must pick one
+- Config-driven state (bootcamp, regime_adaptive) changes ranker thresholds
+- Enrichment pipeline + post-scan chain + setup classifier have no spec
+  declaration form
+
+Pass 1's Blocker 2 (LLM modifies brackets) was **refuted** during Pass 2:
+`src/llm/packet_writer.py:508-514` explicitly documents the
+mechanical-vs-LLM separation. Brackets are deterministic.
+
+No `incumbent_v1.yaml` was created. No schema was extended. No runtime changed.
+Ralph Loop docs (Pass 1 evaluation + Pass 2 research) are preserved in
+`docs/sprints/incumbent_v1_yaml_{evaluation,research}.md` for the follow-up
+sprint sequence proposed in #530.
+
 ### Changed (v0.25.2 — Roadmap completeness audit)
 
 Closes #526. Additions-only sprint — no new code, `frontend/src/pages/Roadmap.jsx`
