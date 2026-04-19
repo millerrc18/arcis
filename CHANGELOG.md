@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### Added (v0.26.2-preflight — post-audit ruleset feasibility diagnostic)
+
+Closes #533. Pass 1 only — docs-only sprint, no implementation, no spec,
+no schema changes.
+
+- **Outcome: Path B (partial block, scoped sprint).** v0.26.2 does NOT
+  inherit the full #530 dependency chain. Walk-forward is insulated
+  from the `signal_eval.py:180` `NotImplementedError` (#494 / #530
+  Sprint A) because it runs through `backtest_engine._run_scheduled`,
+  not the live-flow candidate resolver.
+- **Per-filter verdict:** Defensive (hard-filter, disjoint from #530),
+  Tariff (schema-only, uses v0.25.1 `is_known_event` substrate),
+  Morning-only (deferred to #540 behind intraday OHLCV data layer).
+- **R8(a) finding:** `source_trade_ids: null` fails
+  `validate_derived_from` at `walkforward_firewall.py:129-135` —
+  recommend omitting the key entirely.
+- **Deliverable:** `docs/sprints/post_audit_v1_preflight.md` (343 lines).
+
 ### Validated (v0.25.3 — Walk-forward framework end-to-end on real EDGAR data)
 
 Closes #532. First real-data run of the walk-forward v1 framework (shipped
