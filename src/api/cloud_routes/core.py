@@ -67,14 +67,21 @@ def create_router(runtime, verify_auth):
     ) -> dict:
         """Write a command to pending_commands in Render Postgres.
 
-        Commands expire after 5 minutes to prevent stale actions from
-        executing after the local machine reconnects from a long outage.
+        TTL is resolved per command type via ttl_minutes_for():
+        - Trading-sensitive (halt/resume/close): 5 min — stale replay risk
+        - Config updates: 15 min
+        - Analysis / diagnostics / read-only: 4 hours — OK to wait for the
+          operator to return to the machine.
+
         The local sync thread picks these up via pull_commands() and
         executes them, writing results back to command_results.
         """
+        from src.api.cloud_routes._command_ttl import ttl_minutes_for
+
         command_id = str(uuid.uuid4())
         now = datetime.now(runtime.et)
-        expires_at = (now + timedelta(minutes=5)).isoformat()
+        ttl = ttl_minutes_for(command_name)
+        expires_at = (now + timedelta(minutes=ttl)).isoformat()
 
         import json
         payload_json = json.dumps(payload or {})
