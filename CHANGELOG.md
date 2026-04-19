@@ -77,6 +77,31 @@ deferred to #540. Pending intraday OHLCV data layer.
 on 3/3 OOS trades. Same upstream data-enrichment gap documented in the
 v0.25.3 validation doc. Primary `min_trades_per_window=10` gate already
 binding.
+### Blocked (v0.26.0 — Incumbent YAML extraction)
+
+Closes #523 as **BLOCKED**. See #530 for prerequisite dependency chain.
+
+- **Pass 1 + Pass 2 findings:** 7 of 8 pre-registered blockers hold. Incumbent cannot cleanly extract to YAML without schema extensions + close of #494 + scan pipeline refactor.
+- **Deliverable:** `docs/sprints/incumbent_v1_yaml_evaluation.md` (309 lines) + `docs/sprints/incumbent_v1_yaml_research.md` (261 lines).
+- **Docs-only ship** per prompt's explicit STOP path.
+
+### Added (v0.26.2-preflight — post-audit ruleset feasibility diagnostic)
+
+Closes #533. Pass 1 only — docs-only sprint, no implementation, no spec,
+no schema changes.
+
+- **Outcome: Path B (partial block, scoped sprint).** v0.26.2 does NOT
+  inherit the full #530 dependency chain. Walk-forward is insulated
+  from the `signal_eval.py:180` `NotImplementedError` (#494 / #530
+  Sprint A) because it runs through `backtest_engine._run_scheduled`,
+  not the live-flow candidate resolver.
+- **Per-filter verdict:** Defensive (hard-filter, disjoint from #530),
+  Tariff (schema-only, uses v0.25.1 `is_known_event` substrate),
+  Morning-only (deferred to #540 behind intraday OHLCV data layer).
+- **R8(a) finding:** `source_trade_ids: null` fails
+  `validate_derived_from` at `walkforward_firewall.py:129-135` —
+  recommend omitting the key entirely.
+- **Deliverable:** `docs/sprints/post_audit_v1_preflight.md` (343 lines).
 
 ### Validated (v0.25.3 — Walk-forward framework end-to-end on real EDGAR data)
 
