@@ -37,6 +37,7 @@ CAPABILITY_MODULES: tuple[str, ...] = (
     "src.diagnostics",
     "src.platform",
     "src.data_ingestion.backfill_registration",
+    "src.training.audit",
     # States — registered next to their query logic
     "src.shadow_trading.state",
     "src.services.training_service",
