@@ -35,7 +35,7 @@
 
 | Criterion | Target | Current |
 |---|---|---|
-| Phase 1 gate passed | 50 trades, WR≥45%, Sharpe≥0.15, PF≥1.3, DD≤12% | 18 trades (36%) — accumulating |
+| Phase 1 gate passed | 50 trades, WR≥45%, Sharpe≥0.15, PF≥1.3, DD≤12% | 88 trades (target reached — validate WR/Sharpe/PF/DD next) |
 | Critical bugs resolved | Zero CRITICAL issues open | ✅ Done (0 open issues) |
 | MASTER.md complete | All 13 sections populated | ✅ Done (v0.10.0) |
 | Conviction parsing | ≥90% parse rate | ✅ Fixed (v0.11.0) — verify in logs |
@@ -92,6 +92,70 @@ established cosine-similarity signal alone is underpowered at observed N.
 
 **Tests:** 131 new across 9 new test modules. 226 pass in platform/rigor
 + diagnostics + promotion + scripts + api touched by the sprint.
+
+---
+
+### v0.25.0 — Session addendum (2026-04-19)
+
+Same-day patch-level merges bundled alongside walk-forward v1 (#520) and
+CI posture change (#521). Listed here rather than as a separate v0.25.x
+tag because they're either (a) pre-cursor work reused by v0.25.0 (#506,
+#509) or (b) hygiene / operational cleanup that shipped in the same
+opening-bell sprint window.
+
+**Platform foundation merged earlier in the session:**
+- **PR #506** — Capability registry v1 + home page panels (Sprint 1B).
+  Four in-process registries (ACTIONS, STATES, SYSTEMS, DECISIONS)
+  populated at import via decorators. MCP-compatible JSON-Schema I/O.
+  `GET /api/system/index` shared-ThreadPoolExecutor with 2s per-call
+  timeout.
+- **PR #509** — Training data v1-citation audit (v0.26.0 pre-release,
+  three-pass pipeline: citation / format / leakage). 1,706 clean /
+  76 quarantined this run; Pass C confirmed no narrative → outcome
+  leakage (balanced accuracy 0.500 vs majority baseline 0.721).
+
+**Hygiene bundle (safety-critical, functional, docs):**
+- **PR #512** — Command execution hygiene. Removed bare
+  `except Exception: pass` in `cmd_shadow_close`; split into typed
+  branches for ImportError / ConnectionError / TimeoutError / APIError /
+  unknown. Surfaced + fixed 8 broken command handlers. Split
+  ImportError/ModuleNotFoundError/AttributeError into distinct
+  `handler_not_available` error code.
+- **PR #513** — Doc accuracy fixes (CLAUDE.md table count, initial
+  v0.24 → v0.25 transition notes).
+- **PR #514** — Dependency hygiene. Broke 3 circular imports
+  (extracted `src/risk/price_utils.py`, `src/observability/formatters.py`;
+  moved `_slope_direction` into `features/indicators.py`). Migrated
+  `@app.on_event("startup")` to FastAPI lifespan context manager.
+  Removed phantom `sqlalchemy` from requirements-cloud.txt.
+- **PR #515** — Promotion gate completion (wired PBO + OOS_efficiency
+  gate evaluators). Extracted test-only trace hook to
+  `src/platform/_backtest_trace.py` to keep `backtest_engine.py` under
+  the 400-line guardrail.
+- **PR #516** — Command queue reliability. Per-command TTL
+  (`_SAFE_TRADING_COMMANDS` 5 min / `_CONFIG_COMMANDS` 15 min /
+  `_ANALYSIS_COMMANDS` 4 hr; fail-safe defaults to trading TTL);
+  orphan-sweep `expire_stale_commands` on each sync cycle; quiet-cycle
+  INFO heartbeat every 30 cycles.
+- **PR #517** — Watch-loop numeric coercion. `_as_float` + `_coerce_float`
+  helpers in `src/ranking/ranker.py` and `src/journal/stats.py` to
+  tolerate SQLite's occasional TEXT-for-REAL leakage (pattern #195)
+  post-recovery, preventing morning-watchlist + stats-pulse `TypeError`
+  cascades.
+- **PR #518** — Composite primary-key ON CONFLICT fix. `generate_sync_tables`
+  now emits the full PK tuple as the conflict target, unblocking silent
+  sync failures on `minute_bars`, `correlation_matrices`, `factor_loadings`.
+- **PR #519** — DB lock resilience. `BUSY_TIMEOUT_MS` 5s → 30s in
+  `src/utils/db.py`; migrated `traffic_light.py` (3 sites) +
+  `scheduler/metrics.py` (4 sites) through `connect_db`; added
+  `CLAUDE.md` Database Access Rules section warning against
+  MS-Access-over-SQLite contention (2026-04-19 incident: 118
+  `database is locked` errors in one session).
+- **PR #521** — GitHub Actions disabled + local CI script. Deleted
+  `.github/workflows/ci.yml` and `daily-repo-audit.yml` to conserve
+  Actions spend until walk-forward v1 real-data evidence proves live
+  edge (re-enable gate: excess-Sharpe ≥ 0.5 at t ≥ 2.0 over 150 OOS
+  trades, SD#25). Added `scripts/run_ci_locally.ps1` as replacement.
 
 ---
 

@@ -374,3 +374,63 @@ post-implementation before commit.
 - No new `EVENT_METADATA` consumer wiring — data-only addition.
 - Architecture diagram (`frontend/public/architecture.html`) —
   follow-up, not this PR.
+
+---
+
+## 5. Part 3 — Roadmap.jsx retroactive evidence verification
+
+Updated-prompt addendum (not in original Pass 1). Each Roadmap item
+flipped to `done` must cite evidence verifiable against main.
+
+### 5.1 Strategy Research Platform subphase (14 items)
+
+| Item | Verdict | Evidence on main |
+|---|---|---|
+| Backtest harness | done | `src/platform/backtest_engine.py` + `_backtest_trace.py` (test-only hook extracted in PR #515) |
+| Strategy spec YAML + Python plugin | done | `src/platform/specs/lazy_prices_v1.yaml` + `strategy_plugin.py` + `plugin_registry.py` |
+| DSR promotion gate | done | `src/platform/rigor/dsr.py` wired into `check_promotion_gate` |
+| CSCV/PBO + walk-forward | done | PR #520 v0.25.0 `walkforward_config/costs/firewall/metrics/outcome/power/purging/runner/universe.py` |
+| Survivorship bias haircut | done | `sp100_historical_constituents` table + `walkforward_universe.py` resolver (PR #520 R3) |
+| Task 0 EDGAR fetch repair | done | Commit 5534537 (MAX_TEXT_BYTES 5MB → 50MB); 100% backfill confirmed by operator 2026-04-19 |
+| Per-desk Alpaca client factory | done | **Actual path: `src/shadow_trading/alpaca_clients.py`** (updated-prompt said `src/platform/alpaca_clients.py` — off by one dir); verified by file existence |
+| Shadow-trading harness | done | `src/platform/shadow_harness.py` |
+| Promotion pipeline | done | `src/platform/promotion.py` + `trials_registry` table (registered) |
+| Correlation monitoring | done | `correlation_matrices` + `factor_loadings` tables (registered) |
+| Hard exposure limits | done | **Actual path: `src/platform/risk/exposure_limits.py`** (updated-prompt said `src/risk/exposure_limits.py` — off by one dir); verified by file existence |
+| Defensive dashboard desk filtering | done | `?desk=` threading (v0.24.0-alpha3 Sprint 3) |
+| Strategy Research dashboard page | done | `frontend/src/pages/StrategyResearch.jsx` |
+| Lazy Prices strategy | **in-progress** | Spec + synthetic smoke test done; real-data walk-forward pending operator local run (cloud was SYNTHETIC FALLBACK per PR #520) |
+
+**Two path corrections** vs. the updated-prompt copy applied verbatim in
+Roadmap.jsx descriptions so the reference text matches the actual file
+location. Flagged in PR body.
+
+### 5.2 Weeks 8-12 subphase (4 items)
+
+| Item | Verdict | Evidence |
+|---|---|---|
+| Earnings 7-day exclusion (SD#33) | done | `src/features/event_risk_score.py:270` (SD#33 / Sprint H1 marker); v0.21.0 release notes |
+| 3-regime classifier v2 (SD#35) | done | `src/features/regime.py:188` classify_regime; traffic_light regime changes in v0.23.0 |
+| Monthly retraining cadence (SD#34) | done | Policy locked per SD#34 (not a code gate; marking done reflects decision) |
+| TCA logging (SD#38) | done | NBBO columns in `shadow_trades` — signal_timestamp, fill_price, fill_timestamp, exit_type (registry) |
+
+Items explicitly kept NOT done per updated prompt: Champion-challenger
+(SD#39), Grafana Cloud MVP (SD#40), Monthly salary injection, Conviction
+calibration logging, Open Collective2. Items kept `in-progress`: Alpha
+attribution experiment, Paper-trade mean reversion (#511 open).
+
+### 5.3 New v0.25.0 subphase added
+
+Inserted under `p1.subphases` between "Strategy Research Platform" and
+Phase 2 as a new labeled group `'v0.25.0 — Rigor + hygiene bundle
+(April 19, 2026)'` with 11 `s: 'done'` entries (matches updated-prompt
+copy verbatim). Items reference PR numbers #506, #509, #512, #514,
+#516–#521, and `docs/decisions/013-strategy-evaluation-apr-19.md` (the
+SD#42 entry's reference — not part of this sprint's own deliverables,
+documented as a forward-reference).
+
+### 5.4 Roadmap guardrails verified
+
+- `lastUpdated` flipped 2026-04-17 → 2026-04-19 (line 24).
+- `npm run build` run after edits: **✓ passed** in 526ms; 2,765 modules
+  transformed; no JSX syntax errors; bundle size warning pre-existing.
