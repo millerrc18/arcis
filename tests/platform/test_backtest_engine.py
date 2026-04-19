@@ -237,12 +237,33 @@ def test_backtest_matches_hand_computed_example_event_driven(
 # Other tests — also patched to avoid network calls
 # ---------------------------------------------------------------------------
 
-def test_backtest_no_lookahead_bias():
-    """Signal evaluation uses only data <= as_of date."""
-    pytest.skip(
-        "Requires instrumentation hook on OHLCV slice passed to signal. "
-        "Deferred to v0.24.1 — see plan for rationale."
-    )
+@patch("src.platform.backtest_engine.load_ohlcv_range", side_effect=_mock_ohlcv)
+@patch("src.platform.backtest_engine.spy_return_over_range", side_effect=_mock_spy_return)
+def test_backtest_no_lookahead_bias(mock_spy_return, mock_ohlcv_range):
+    """Every history slice passed to signal evaluation must end strictly
+    before the entry date. Uses the _LOOKAHEAD_TRACE module hook to
+    capture (ticker, entry_iso, max_history_date) on every _build_trade
+    call; assert max_history_date < entry_iso for every recorded trade."""
+    from src.platform import _backtest_trace
+
+    _backtest_trace.set_trace(True)
+    try:
+        cfg = BacktestConfig(
+            strategy=_scheduled_spec(),
+            start_date="2023-06-01", end_date="2023-06-30",
+        )
+        result = run_backtest(cfg)
+        trace = list(_backtest_trace.get_trace() or [])
+    finally:
+        _backtest_trace.set_trace(False)
+
+    assert len(result.trades) > 0, "no trades produced; can't verify no-lookahead"
+    assert trace, "lookahead instrumentation didn't fire — hook may be unwired"
+    for ticker, entry_iso, max_hist_date in trace:
+        assert max_hist_date < entry_iso, (
+            f"lookahead bias: {ticker} entry {entry_iso} saw history through "
+            f"{max_hist_date} (must be strictly before entry)"
+        )
 
 
 @patch("src.platform.backtest_engine.load_ohlcv_range", side_effect=_mock_ohlcv)
@@ -275,11 +296,55 @@ def test_backtest_determinism(mock_spy_return, mock_ohlcv_range):
         assert math.isclose(a.pnl_pct, b.pnl_pct, abs_tol=1e-9)
 
 
-def test_backtest_applies_transaction_costs():
-    pytest.skip(
-        "Requires synthetic constant-price ticker fixture. "
-        "Deferred to v0.24.1 — see plan for rationale."
+def _mock_constant_price_ohlcv(ticker: str, start: str, end: str) -> pd.DataFrame | None:
+    """Flat OHLCV at 100.0 for the entire window so pnl collapses to cost drag."""
+    if ticker != "AAPL":
+        return None
+    all_days = [
+        "2023-06-01", "2023-06-02", "2023-06-05", "2023-06-06", "2023-06-07",
+        "2023-06-08", "2023-06-09", "2023-06-12", "2023-06-13", "2023-06-14",
+        "2023-06-15", "2023-06-16", "2023-06-20", "2023-06-21", "2023-06-22",
+        "2023-06-23", "2023-06-26", "2023-06-27", "2023-06-28", "2023-06-29",
+        "2023-06-30",
+    ]
+    df = pd.DataFrame(
+        [{"Open": 100.0, "High": 100.0, "Low": 100.0, "Close": 100.0,
+          "Volume": 1_000_000} for _ in all_days],
+        index=pd.to_datetime(all_days),
     )
+    start_ts, end_ts = pd.Timestamp(start), pd.Timestamp(end)
+    return df[(df.index >= start_ts) & (df.index <= end_ts)]
+
+
+@patch("src.platform.backtest_engine.load_ohlcv_range",
+       side_effect=_mock_constant_price_ohlcv)
+@patch("src.platform.backtest_engine.spy_return_over_range",
+       side_effect=_mock_spy_return)
+def test_backtest_applies_transaction_costs(mock_spy_return, mock_ohlcv_range):
+    """With flat 100.0 OHLCV, a round-trip trade's raw P&L is zero — the
+    only realized return is the transaction-cost drag. Verifies costs are
+    actually applied, not accidentally zeroed out by a future refactor."""
+    cfg = BacktestConfig(
+        strategy=_scheduled_spec(),
+        start_date="2023-06-01", end_date="2023-06-30",
+    )
+    result = run_backtest(cfg)
+    assert len(result.trades) >= 1, (
+        "expected at least one Monday trade on flat prices + timeout exit"
+    )
+    # per_side = commission + slippage + spread = 0 + 3.0 + 1.5 = 4.5 bps.
+    # entry_adj = 100 * (1 + 4.5/10_000) = 100.045
+    # exit_adj  = 100 * (1 - 4.5/10_000) = 99.955
+    # pnl_pct = (99.955 - 100.045) / 100.045 ≈ -0.00089959
+    per_side = (cfg.commission_bps + cfg.slippage_bps + cfg.spread_bps) / 10_000.0
+    entry_adj = 100.0 * (1.0 + per_side)
+    exit_adj = 100.0 * (1.0 - per_side)
+    expected = (exit_adj - entry_adj) / entry_adj
+    for t in result.trades:
+        assert math.isclose(t.pnl_pct, expected, abs_tol=1e-8), (
+            f"pnl_pct={t.pnl_pct} on flat prices must equal round-trip cost "
+            f"drag {expected:.10f}; costs may not be applied correctly"
+        )
 
 
 @patch("src.platform.backtest_engine.load_ohlcv_range", side_effect=_mock_ohlcv)

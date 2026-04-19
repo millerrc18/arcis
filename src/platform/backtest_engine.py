@@ -40,6 +40,8 @@ from src.platform.strategy_spec import StrategySpec
 
 logger = logging.getLogger(__name__)
 
+from src.platform._backtest_trace import record as _record_lookahead_trace  # noqa: E402
+
 
 @dataclass
 class BacktestConfig:
@@ -225,6 +227,7 @@ def _build_trade(
     """Run bracket simulation + build a BacktestTrade. Returns None on failure."""
     if entry_price <= 0:
         return None
+    _record_lookahead_trace(ticker, entry_iso, history_df)
     timeout = int(exit_spec.get("timeout_days", 21))
     stop_price, target_price = _compute_bracket_prices(
         entry_price, exit_spec, history_df,
