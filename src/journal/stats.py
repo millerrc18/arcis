@@ -28,6 +28,20 @@ from src.config import DB_PATH
 ET = ZoneInfo("America/New_York")
 
 
+def _coerce_float(value) -> float | None:
+    """Coerce a SQLite-returned value to float. Returns None on None or bad input.
+
+    Defensive guard for #195: after a DB recovery, REAL columns sometimes
+    return as TEXT, which breaks downstream numeric comparisons (p > 0 etc.).
+    """
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def compute_window_stats(db_path: str = DB_PATH, days: int | None = None,
                          today_only: bool = False) -> dict:
     """Compute stats for trades closed within the window.
@@ -63,9 +77,12 @@ def compute_window_stats(db_path: str = DB_PATH, days: int | None = None,
     with sqlite3.connect(db_path) as conn:
         rows = conn.execute(sql, params).fetchall()
 
-    pnl_pcts = [r[0] for r in rows if r[0] is not None]
-    pnl_dollars = [r[1] for r in rows if r[1] is not None]
-    excess = [r[2] for r in rows if r[2] is not None]
+    # SQLite REAL columns can return as TEXT after a DB recovery (#195),
+    # which makes downstream `p > 0` compare str to int and raise TypeError.
+    # Coerce at read-time so every downstream consumer sees clean floats.
+    pnl_pcts = [f for f in (_coerce_float(r[0]) for r in rows) if f is not None]
+    pnl_dollars = [f for f in (_coerce_float(r[1]) for r in rows) if f is not None]
+    excess = [f for f in (_coerce_float(r[2]) for r in rows) if f is not None]
 
     count = len(rows)
     wins = sum(1 for p in pnl_pcts if p > 0)
