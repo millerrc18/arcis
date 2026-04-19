@@ -2,6 +2,42 @@
 
 ## [Unreleased]
 
+### Validated (v0.25.3 — Walk-forward framework end-to-end on real EDGAR data)
+
+Closes #532. First real-data run of the walk-forward v1 framework (shipped
+in v0.25.0 / PR #520) against `src/platform/specs/lazy_prices_v1.yaml`
+using the operator's local EDGAR corpus.
+
+- **Outcome:** `INCONCLUSIVE / coverage_inconclusive` — matches the Pass 1
+  pre-registered hypothesis (NOT PASS expected; forensic audit established
+  lazy-prices underpowered at 2019-2024 trade density).
+- **Run:** `run_id=88fd926e-1789-46f0-aee4-501addbb7256`,
+  `spec_hash=ea78fed3...`, `code_git_sha=0f5e7178...`, `random_seed=42`.
+- **Windows:** 5/5 `INCONCLUSIVE_DATA`. 20 OOS trades across 2019-2024
+  (4/7/4/4/1 per window). Zero purged, zero embargoed.
+- **Heavy-tail override:** fired on 4/5 windows, correctly driving MDE
+  values to capture small-N pathology (Window 0: 4-trade, Sharpe −142,
+  MDE 8.37e15). Not a bug — truthful reflection of small-N instability.
+- **R8(a):** `derived_from: null` correctly propagated through to
+  `walkforward_results.derived_from_source_type = NULL`.
+- **Framework-bug trigger:** did NOT fire (would have required
+  `outcome_state = PASS`).
+- **Synthetic vs real comparison:** outcome state, reason, window-state
+  distribution, heavy-tail count, and pooled MDE all match the synthetic
+  INCONCLUSIVE baseline (`docs/validation/lazy-prices-v1-walkforward-2026-04-19.md`).
+- **Validation doc:**
+  `docs/validation/lazy-prices-v1-walkforward-real-2026-04-19.md`
+- **Ralph Loop docs:**
+  `docs/sprints/lazy_prices_v1_real_evaluation.md` (Pass 1),
+  `docs/sprints/lazy_prices_v1_real_raw.md` (Pass 2).
+
+**Secondary finding (non-blocking for this sprint):**
+`vix_at_entry` and `vix_tier` are NULL for 20/20 OOS trades, driving
+`vix_tier_coverage = 0`. Data-enrichment gap upstream of the framework;
+filed as follow-up in the validation doc. Does not affect this run's
+INCONCLUSIVE verdict (primary `min_trades_per_window = 10` gate already
+binding).
+
 ### Changed (v0.25.2 — Roadmap completeness audit)
 
 Closes #526. Additions-only sprint — no new code, `frontend/src/pages/Roadmap.jsx`
