@@ -649,6 +649,43 @@ def pull_commands(database_url: str, db_path: str = LOCAL_DB) -> list[dict]:
     return pulled
 
 
+def expire_stale_commands(database_url: str) -> int:
+    """Mark pending_commands rows whose expires_at has elapsed as 'expired'.
+
+    Called from run_sync_cycle after pull_commands so orphans left by
+    dashboard submissions during machine-off windows don't accumulate
+    forever as status='pending'. Returns the count of rows expired this
+    cycle (0 is the steady-state).
+    """
+    try:
+        import psycopg2  # noqa: F401
+    except ImportError:
+        return 0
+
+    now = datetime.now(ET).isoformat()
+    try:
+        with _connect_pg_with_retry(database_url) as pg_conn:
+            with pg_conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE pending_commands SET status = 'expired' "
+                    "WHERE status = 'pending' AND expires_at IS NOT NULL "
+                    "AND expires_at < %s",
+                    (now,),
+                )
+                count = cur.rowcount or 0
+                pg_conn.commit()
+                if count > 0:
+                    logger.info("Expired %d stale pending_commands rows", count)
+                return count
+    except Exception as exc:
+        logger.error(
+            "expire_stale_commands failed: %s", exc,
+            extra={"ctx": {"event": "sync_error", "table": "pending_commands",
+                           "error": str(exc)}},
+        )
+        return 0
+
+
 def _connect_pg_with_retry(database_url: str):
     """Connect to Postgres with retry + exponential backoff for DNS/network failures."""
     import psycopg2
@@ -743,6 +780,14 @@ def run_sync_cycle(database_url: str, db_path: str = LOCAL_DB) -> dict:
         logger.error("Command pull failed: %s", exc, extra={"ctx": {"event": "sync_error", "table": None, "error": str(exc)}})
         summary["errors"].append(f"pull_commands: {exc}")
 
+    # Sweep orphan 'pending' rows whose expires_at has elapsed. Prevents
+    # dashboard submissions made while the machine was off from piling up.
+    try:
+        expire_stale_commands(database_url)
+    except Exception as exc:
+        logger.error("expire_stale_commands failed: %s", exc)
+        summary["errors"].append(f"expire_stale_commands: {exc}")
+
     return summary
 
 
@@ -814,7 +859,15 @@ class RenderSyncThread(threading.Thread):
                         synced_count,
                         error_count,
                     )
-                # Heartbeat every 10 cycles even when idle
+                # Quiet-cycle heartbeat: INFO every 30 cycles (≈30 min at
+                # 60s interval) so an idle poller is visible in logs without
+                # requiring a DEBUG-level filter. Everything else every
+                # 10 cycles stays at DEBUG.
+                elif self._cycle_count % 30 == 0:
+                    logger.info(
+                        "Render sync heartbeat — cycle %d (quiet, no rows to sync)",
+                        self._cycle_count,
+                    )
                 elif self._cycle_count % 10 == 0:
                     logger.debug("Render sync heartbeat — cycle %d", self._cycle_count)
                 # Execute pulled commands via callback

@@ -71,9 +71,12 @@ def _submit_diagnostic(
     runtime, diagnostic_type: str, payload: dict, triggered_by: str,
 ) -> dict:
     """Atomically insert diagnostic_runs(queued) + pending_commands in Postgres."""
+    from src.api.cloud_routes._command_ttl import ttl_minutes_for
+
     run_id = str(uuid.uuid4())
     now = datetime.now(runtime.et)
-    expires_at = (now + timedelta(minutes=5)).isoformat()
+    command_name = _command_name_for(diagnostic_type)
+    expires_at = (now + timedelta(minutes=ttl_minutes_for(command_name))).isoformat()
     payload_with_run_id = {**payload, "run_id": run_id}
     payload_json = json.dumps(payload_with_run_id)
 
@@ -93,7 +96,7 @@ def _submit_diagnostic(
                     "(command_id, command_type, command_name, payload_json, "
                     "status, priority, created_at, expires_at, created_by) "
                     "VALUES (%s, 'diagnostic', %s, %s, 'pending', 5, %s, %s, %s)",
-                    (run_id, _command_name_for(diagnostic_type),
+                    (run_id, command_name,
                      payload_json, now.isoformat(), expires_at, triggered_by),
                 )
                 conn.commit()
