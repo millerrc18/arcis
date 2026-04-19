@@ -635,7 +635,7 @@ def get_portfolio_state(db_path: str = DB_PATH) -> dict:
         # Use current price for sector exposure if available (#145)
         current_price = entry_price
         try:
-            from src.shadow_trading.executor import _get_current_price_safe
+            from src.risk.price_utils import _get_current_price_safe
             fetched = _get_current_price_safe(ticker)
             if fetched and fetched > 0:
                 current_price = fetched

@@ -94,20 +94,21 @@ def _is_expired(cmd: dict) -> bool:
 
 def _handle_scan(payload: dict, config: dict) -> dict:
     """Trigger a manual scan cycle."""
-    from src.services.scan_service import run_scan_cycle
-    result = run_scan_cycle(config)
+    from src.services.scan_service import run_scan
+    result = run_scan(config)
     return {"message": "Scan completed", "packets": result.get("packets_generated", 0)}
 
 
 def _handle_council(payload: dict, config: dict) -> dict:
-    """Run a council session."""
-    from src.council.engine import run_council_session
+    """Run a council session via CouncilEngine."""
+    from src.council.engine import CouncilEngine
     session_type = payload.get("session_type", "strategic")
     question = payload.get("question")
-    result = run_council_session(
-        config=config,
+    engine = CouncilEngine()
+    result = engine.run_session(
         session_type=session_type,
-        question=question,
+        trigger_reason="dashboard",
+        custom_question=question,
     )
     return {
         "message": "Council session completed",
@@ -118,14 +119,17 @@ def _handle_council(payload: dict, config: dict) -> dict:
 
 def _handle_collect_data(payload: dict, config: dict) -> dict:
     """Trigger all data collectors."""
-    from src.data_collection.options_collector import collect_options_data
+    from src.data_collection.macro_collector import collect_macro_snapshots
+    from src.data_collection.options_collector import collect_options_chains
     from src.data_collection.vix_collector import collect_vix_term_structure
-    from src.data_collection.macro_collector import collect_macro_data
+    from src.universe.sp100 import get_sp100_universe
+
+    tickers = get_sp100_universe()
     results = {}
     for name, fn in [
-        ("options", collect_options_data),
+        ("options", lambda: collect_options_chains(tickers)),
         ("vix", collect_vix_term_structure),
-        ("macro", collect_macro_data),
+        ("macro", collect_macro_snapshots),
     ]:
         try:
             fn()
@@ -136,42 +140,18 @@ def _handle_collect_data(payload: dict, config: dict) -> dict:
     return {"message": "Data collection completed", "results": results}
 
 
-def _handle_collect_training(payload: dict, config: dict) -> dict:
-    """Trigger training data collection."""
-    from src.training.scoring import score_pending_examples
-    scored = score_pending_examples(config)
-    return {"message": "Training collection completed", "scored": scored}
-
-
-def _handle_train_pipeline(payload: dict, config: dict) -> dict:
-    """Run the training pipeline."""
-    from src.training.boot import run_training_pipeline
-    result = run_training_pipeline(config)
-    return {"message": "Training pipeline completed", "result": str(result)}
-
-
 def _handle_halt_trading(payload: dict, config: dict) -> dict:
-    """Activate the kill switch."""
-    from src.risk.governor import activate_kill_switch
-    activate_kill_switch(reason="Dashboard command")
+    """Activate the global trading halt via risk governor."""
+    from src.risk.governor import _global_halt
+    _global_halt(True, source="dashboard", reason="Dashboard command")
     return {"message": "Trading halted via dashboard"}
 
 
 def _handle_resume_trading(payload: dict, config: dict) -> dict:
-    """Deactivate the kill switch."""
-    from src.risk.governor import deactivate_kill_switch
-    deactivate_kill_switch()
+    """Clear the global trading halt via risk governor."""
+    from src.risk.governor import _global_halt
+    _global_halt(False, source="dashboard", reason="Dashboard command")
     return {"message": "Trading resumed via dashboard"}
-
-
-def _handle_close_position(payload: dict, config: dict) -> dict:
-    """Close a specific position."""
-    ticker = payload.get("ticker")
-    if not ticker or not isinstance(ticker, str) or len(ticker) > 10:
-        return {"error": "Invalid or missing ticker in payload"}
-    from src.shadow_trading.executor import close_position
-    result = close_position(ticker, reason="Dashboard command")
-    return {"message": f"Close position request sent for {ticker}", "result": str(result)}
 
 
 def _handle_update_setting(payload: dict, config: dict) -> dict:
@@ -285,11 +265,8 @@ COMMAND_HANDLERS = {
     "scan": _handle_scan,
     "council": _handle_council,
     "collect-data": _handle_collect_data,
-    "collect-training": _handle_collect_training,
-    "train-pipeline": _handle_train_pipeline,
     "halt-trading": _handle_halt_trading,
     "resume-trading": _handle_resume_trading,
-    "close-position": _handle_close_position,
     "update_setting": _handle_update_setting,
     "get_logs": _handle_get_logs,
     "validate-system": _handle_validate_system,
@@ -303,6 +280,30 @@ COMMAND_HANDLERS = {
     # v0.26.0: training-data audit kickoff
     "run-training-audit": _handle_run_training_audit,
 }
+
+
+def _record_handler_error(
+    command_id: str,
+    command_name: str,
+    exc: Exception,
+    start_ms: int,
+    db_path: str,
+    *,
+    error_code: str,
+    stored_error: str,
+) -> dict:
+    """Log + persist a handler error. ImportError gets a distinct code so the
+    dashboard can tell a code bug from a transient runtime failure (#503)."""
+    elapsed_ms = (time.monotonic_ns() // 1_000_000) - start_ms
+    logger.error(
+        "[COMMAND] %s (id=%s) %s: %s",
+        command_name, command_id, error_code, exc, exc_info=True,
+    )
+    _store_result(
+        command_id, "error", error=stored_error,
+        execution_ms=elapsed_ms, db_path=db_path,
+    )
+    return {"status": "error", "error": error_code}
 
 
 def execute_command(cmd: dict, config: dict, db_path: str = LOCAL_DB) -> dict:
@@ -354,11 +355,14 @@ def execute_command(cmd: dict, config: dict, db_path: str = LOCAL_DB) -> dict:
         _store_result(command_id, "success", result=result, execution_ms=elapsed_ms, db_path=db_path)
         logger.info("Command %s completed in %dms", command_name, elapsed_ms)
         return {"status": "success", "result": result}
+    except (ImportError, ModuleNotFoundError, AttributeError) as exc:
+        return _record_handler_error(command_id, command_name, exc, start_ms, db_path,
+                                     error_code="handler_not_available",
+                                     stored_error=f"handler_not_available: {exc}")
     except Exception as exc:
-        elapsed_ms = (time.monotonic_ns() // 1_000_000) - start_ms
-        logger.error("[COMMAND] %s (id=%s) failed: %s", command_name, command_id, exc)
-        _store_result(command_id, "error", error="command_execution_error", execution_ms=elapsed_ms, db_path=db_path)
-        return {"status": "error", "error": "command_execution_error"}
+        return _record_handler_error(command_id, command_name, exc, start_ms, db_path,
+                                     error_code="command_execution_error",
+                                     stored_error="command_execution_error")
 
 
 def execute_commands(commands: list[dict], config: dict, db_path: str = LOCAL_DB) -> list[dict]:

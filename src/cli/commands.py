@@ -8,12 +8,15 @@ Tests: none
 """
 
 import json
+import logging
 import sys
 
 from src.config import DB_PATH
 from src.email.notifier import send_email
 from src.journal.store import initialize_database
 from src.packets.template import build_demo_packet
+
+logger = logging.getLogger(__name__)
 
 
 def cmd_init_db(args):
@@ -200,10 +203,27 @@ def cmd_shadow_close(args):
     now = datetime.now(ZoneInfo("America/New_York"))
     try:
         from src.shadow_trading.alpaca_adapter import place_paper_exit
+        from alpaca.common.exceptions import APIError
 
         place_paper_exit(ticker, shares)
+    except ImportError as exc:
+        # alpaca adapter not installed — fall back to local-only close
+        print(f"  Warning: alpaca adapter not available, skipping paper exit for {ticker}: {exc}")
+        logger.error("[CLI] alpaca_adapter unavailable for %s close", ticker, exc_info=True)
+    except (ConnectionError, TimeoutError) as exc:
+        # Network failure — broker may or may not have received the exit.
+        # Surface mismatch loudly so reconciliation can catch it.
+        print(f"  Warning: NETWORK error on paper exit for {ticker}: {exc}")
+        print(f"  Reconciliation will catch any ledger/broker mismatch for {ticker}")
+        logger.error("[CLI] Network error on paper exit for %s", ticker, exc_info=True)
+    except APIError as exc:
+        # Alpaca rejected the exit — log clearly; local close still proceeds.
+        print(f"  Warning: Alpaca rejected paper exit for {ticker}: {exc}")
+        logger.error("[CLI] Alpaca APIError on exit for %s", ticker, exc_info=True)
     except Exception:
-        pass
+        # Unknown failure — surface and re-raise so the operator sees the bug.
+        logger.error("[CLI] Unexpected error on paper exit for %s", ticker, exc_info=True)
+        raise
     close_shadow_trade(
         trade["trade_id"],
         exit_price=current,
