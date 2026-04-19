@@ -2,6 +2,40 @@
 
 ## [Unreleased]
 
+### Changed (v0.25.2 — Roadmap completeness audit)
+
+Closes #526. Additions-only sprint — no new code, `frontend/src/pages/Roadmap.jsx`
+data extensions only.
+
+- **New Phase 1 subphase "Parked / deferred"** — 15 items captured that memory
+  and open GitHub issues reference but that were missing from the roadmap UI:
+  1 surprise-shipped (HSHS dashboard, flipped to `done` with reference to
+  `Health.jsx:247-289`) + 14 pending items across issue-referenced tech debt
+  (#367 WatchLoop, #432 position-cap consolidation, #451 residual shorts,
+  #478 SQLite repository pattern, #479 executor.py mega-functions, #480
+  shadow_trading test suite, #491/#492 Tier 7 correlation work, #493/#494
+  v0.24.1 wiring gaps, #497 forensic refactor) and memory-only deferred items
+  (AI Council 5→7 expansion, Alpaca MCP integration, IB log-only broker).
+- **Phase 2 Month 3** — 1 item appended: UPS purchase (CyberPower
+  CP1500PFCLCD) — complements the existing Dedicated Arcis machine row that
+  only mentions UPS in its specs blurb.
+- **Phase 3 new subphase "Second strategy candidate (v0.27.x)"** — 1 item:
+  second-strategy candidate spec gated on v0.26 cycle outcome.
+- **Phase 5 Fund formation** — 3 items appended: CPCV upgrade, live
+  walk-forward (rolling OOS extension), and v1.0.0 release gate
+  (fund-formation readiness) with explicit prerequisite list.
+- **Skipped** — "Research Analyst setup" per guardrail #3 (don't invent items
+  when memory is vague). Roadmap.jsx:161 already explicitly supersedes the
+  concept: "Supersedes the stale 'Research Analyst desk (relaxed thresholds)'
+  concept — platform evaluates genuinely uncorrelated strategies, not relaxed
+  variants of swing."
+- **Ralph Loop docs** — `docs/sprints/roadmap_completeness_evaluation.md`
+  (Pass 1) + `docs/sprints/roadmap_completeness_research.md` (Pass 2).
+
+Total Roadmap.jsx delta: +20 items across 4 insertion sites (1 new Phase 1
+subphase with 15 items, 1 Phase 2 append, 1 new Phase 3 subphase with 1 item,
+3 Phase 5 appends). Zero existing items modified. No MASTER.md changes.
+
 ### Added (v0.25.1 — known_events 2019-2024 backfill + is_known_event helper)
 
 Load-bearing prerequisite for v0.26.2's post-audit ruleset tariff-exclusion
