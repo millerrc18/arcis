@@ -474,13 +474,16 @@ class TestPerTableReconnection:
         with patch.dict("sys.modules", {"psycopg2": mock_psycopg2}), \
              patch("src.sync.render_sync.sync_table", return_value=0), \
              patch("src.sync.render_sync.pull_commands", return_value=[]), \
+             patch("src.sync.render_sync.expire_stale_commands", return_value=0), \
              patch("src.schema.postgres.create_all_tables"), \
              patch("src.schema.postgres.ensure_columns"):
             summary = run_sync_cycle("postgresql://test@localhost/db", test_db)
 
         # connect called exactly once — no MID-CYCLE RECONNECT on a healthy
-        # connection. The schema helpers (create_all_tables, ensure_columns)
-        # are patched so they don't spawn their own psycopg2.connect calls.
+        # connection. The schema helpers (create_all_tables, ensure_columns),
+        # pull_commands, and expire_stale_commands (the orphan-sweep sidecar
+        # added in PR #516) are patched so they don't spawn their own
+        # psycopg2.connect calls.
         assert mock_psycopg2.connect.call_count == 1
 
     def test_dead_connection_triggers_reconnect(self, test_db):

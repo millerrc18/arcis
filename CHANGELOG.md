@@ -2,6 +2,143 @@
 
 ## [Unreleased]
 
+### Added (v0.25.1 — known_events 2019-2024 backfill + is_known_event helper)
+
+Load-bearing prerequisite for v0.26.2's post-audit ruleset tariff-exclusion
+rule. Before this sprint, `src/diagnostics/known_events.py` only carried
+March-April 2026 forward-planning dates, meaning any tariff-exclusion rule
+applied to walk-forward v1 OOS windows (2019-01-01 → 2024-09-30 per
+`walkforward_config.py` R1) would match zero historical dates and be
+effectively a no-op.
+
+- **9 new events** added to `KNOWN_EVENTS` covering the 2019-09-30 →
+  2024-09-30 window, each verified against a primary source
+  (treasury.gov/OFAC, USTR, White House EO, BIS, DOD, Maersk). See
+  `docs/sprints/known_events_and_drift_repair_research.md` §1.1 for
+  per-event market-move verdict and source URL.
+- **5 new category labels** — `SANCTIONS_INITIAL`, `SANCTIONS_ESCALATION`,
+  `EXPORT_CONTROLS`, `INDUSTRIAL_POLICY`, `TRADE_DISRUPTION` — all roll
+  up to existing `"Trade Policy"` category for consumer uniformity
+  (`src/diagnostics/analyses.py:_match_events` unchanged).
+- **`EVENT_METADATA: dict[str, EventMeta]`** — new parallel dict keyed on
+  the same dates as `KNOWN_EVENTS`. Carries per-event description,
+  affected-sector list (empty = broad-market), primary-source URL, and
+  market-impact note. Invariant enforced by test:
+  `set(KNOWN_EVENTS) == set(EVENT_METADATA)`.
+- **`is_known_event(date_str, category=None)`** helper — returns True
+  iff the date is keyed in `KNOWN_EVENTS` and (if category given) the
+  category matches. Pure function, no side effects.
+- **Backward compatibility** — `KNOWN_EVENTS` and `EVENT_CATEGORIES`
+  dict shapes unchanged; existing consumer at `analyses.py:210-213`
+  reads the same API.
+- **Coverage floor** — regression test requires ≥ 8 events in the
+  2019-09-30 → 2024-09-30 window; hard fails if count drops.
+- **File size** — `known_events.py` at 327 lines, within the 400-line
+  guardrail; no split required.
+- **13 new tests** in `tests/diagnostics/test_known_events.py` covering
+  schema invariants, category closure, coverage floor, metadata parity,
+  primary-source format, helper lookup, and new-label category routing.
+
+### Fixed (v0.25.1 — MASTER.md Section 2 + CLAUDE.md drift repair)
+
+Today's 11-PR session shipped without mid-sprint `MASTER.md` updates;
+`scripts/verify_docs.py` was failing with 5/5 warnings. Repaired:
+
+- `Tests` row: 2,141 → 2,507 (+366 tests across platform-foundation/rigor/
+  safety/shadow sprints + dashboard v1 + walk-forward v1 + training-data
+  audit + hygiene bundle + known_events backfill). Test files: 181 → 227.
+- `Python files` row: 214 → 303 (+89 modules across the same sprint
+  cluster).
+- `Dashboard pages` row: 25 → 28 (Walkforward Results added v0.25.0).
+- `Research docs` row: 107 → 92 (-15; doc pruning since last update).
+- `Schema tables` row: 61 → 67 registry, 58 synced to Postgres (9
+  local-only enumerated in the annotation).
+- `Closed trades` row: 85 → 88 (live count per latest shadow-status).
+- `GitHub issues` row: 0 → 40 (actual open issue count via `gh issue list`).
+- `Training data` row reformatted to concise
+  `1,782 examples total; 76 quarantined (75 format_drift + 1 v1_citation);
+  1,706 clean corpus` per updated-prompt copy.
+- Component rows in §2 updated to match: `Dashboard (Arcis)`
+  (26 → 28 pages), `Schema registry` (63 → 67 tables), `Render sync`
+  (44/51 → 58/67 tables).
+- **Four new Deployed Components rows** added: WalkforwardResults
+  dashboard page (v0.25.0), Walk-forward v1 promotion gate (v0.25.0,
+  soft migration live), Capability registry + `/api/system/index`
+  (v0.25.0), Training audit pipeline + quarantine (v0.26.0 — 1,706
+  clean / 76 quarantined).
+- `CLAUDE.md` line 14 table count: 64 → 67. Authoritative-count
+  one-liner preserved.
+- `scripts/verify_docs.py` now exits 0 with 5/5 passes.
+
+**Deferred follow-up:** `frontend/public/architecture.html` (880 lines,
+zero `walkforward` references after PR #520) is stale but outside the
+`verify_docs.py` check set. Issue to file for a subsequent sprint.
+
+### Changed (v0.25.1 — RELEASES.md session addendum + Roadmap.jsx retroactive updates)
+
+- `RELEASES.md` v1.0.0 criteria table: Phase 1 gate trade count
+  `18 trades (36%)` → `88 trades (target reached — validate
+  WR/Sharpe/PF/DD next)`. Count only; WR/Sharpe/PF/DD gate metrics
+  not yet computed (next validation sprint).
+- `RELEASES.md` — added "v0.25.0 Session addendum (2026-04-19)"
+  entry documenting PRs #506, #509, #512-#519, #521 with the
+  patch-level rationale for each. Not tagged as its own release
+  because it's the same opening-bell session as v0.25.0 (walk-forward
+  v1 already tagged) and v0.26.0 (training-data audit still
+  [Unreleased]).
+- `frontend/src/pages/Roadmap.jsx`:
+  - `lastUpdated`: 2026-04-17 → 2026-04-19.
+  - **Weeks 8-12 subphase:** 4 items flipped `pending` → `done`
+    (Earnings 7-day exclusion SD#33, 3-regime classifier v2 SD#35,
+    Monthly retraining cadence SD#34, TCA logging SD#38). Each item's
+    `d` field updated with shipping evidence.
+  - **Strategy Research Platform subphase:** 13 items flipped
+    `pending` → `done` (backtest harness, strategy spec YAML + plugin,
+    DSR gate, CSCV/PBO + walk-forward, survivorship bias / point-in-time
+    universe, Task 0 EDGAR fetch, per-desk Alpaca clients, shadow-trading
+    harness, promotion pipeline, correlation monitoring, hard exposure
+    limits, defensive dashboard desk filter, Strategy Research dashboard
+    page). Lazy Prices strategy flipped `pending` → `in-progress`
+    (spec + synthetic smoke done; real-data walk-forward pending).
+  - **New subphase `'v0.25.0 — Rigor + hygiene bundle (April 19, 2026)'`**
+    with 11 `done` entries (capability registry v1, training-data audit,
+    walk-forward framework, command-queue TTL, DB busy_timeout, SQLite
+    TEXT coercion, composite PK fix, command-execution hygiene,
+    dependency hygiene, GitHub Actions disabled, SD#42 strategy
+    evaluation).
+- Frontend build verified after edits (`npm run build` ✓ 526ms,
+  2,765 modules transformed).
+
+### Chore (v0.25.1 — grandfathered violations from 2026-04-19 merges)
+
+`config/known_violations.json` — added 1 file + 4 functions that
+slipped past `test_repo_structure.py` because GitHub Actions was
+disabled mid-session. All pre-existing, not caused by this sprint:
+
+- `src/platform/promotion.py` (525 lines) — PR #520 walk-forward
+  gate evaluator.
+- `src/platform/promotion.py:_evaluate_shadow_trading_gate` (69 lines)
+  — same PR.
+- `src/platform/rigor/walkforward_runner.py:persist_run_result` (93)
+  — PR #520.
+- `src/platform/rigor/walkforward_runner.py:run_walkforward` (103) —
+  PR #520.
+- `src/sync/render_sync.py:run_sync_cycle` (68 lines) — PR #516
+  (expire_stale_commands + heartbeat additions).
+
+Follow-up issue to file: "split platform/promotion.py + rigor/
+walkforward_runner.py + sync/render_sync.py:run_sync_cycle for a
+dedicated cleanup sprint".
+
+### Fixed (v0.25.1 — test_render_sync mock for expire_stale_commands)
+
+`tests/test_render_sync.py::test_healthy_connection_reused_without_reconnect`
+patched `pull_commands` but not the new `expire_stale_commands` orphan-
+sweep (added in PR #516 same day). The sweep opens its own psycopg2
+connection, breaking the test's `connect.call_count == 1` assertion.
+Added `patch("src.sync.render_sync.expire_stale_commands", return_value=0)`
+to the mock stack. Test-only change; runtime behavior unaffected.
+
 ### Changed (2026-04-19 — GitHub Actions disabled)
 
 - Deleted `.github/workflows/ci.yml` and `.github/workflows/daily-repo-audit.yml` to conserve Actions spend until walk-forward validation proves live edge (per April 2026 pivot).
