@@ -286,3 +286,9 @@ for factory in (
 # per endpoint). Registered after the Postgres routers so the router ordering
 # doesn't interfere with existing routes.
 app.include_router(_platform_module.router)
+
+# Walk-forward v1 routes: SQLite-backed like platform routes. Mounted after
+# platform routes so the three-state outcome UI can read walkforward_results
+# without touching Postgres sync config.
+from src.api.cloud_routes import walkforward as _walkforward_module  # noqa: E402
+app.include_router(_walkforward_module.router)
