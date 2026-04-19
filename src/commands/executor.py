@@ -277,6 +277,7 @@ def _handle_simulation(payload: dict, config: dict) -> dict:
 from src.commands.diagnostic_handlers import (
     handle_run_forensic_audit as _handle_run_forensic_audit,
     handle_run_regime_diagnostic as _handle_run_regime_diagnostic,
+    handle_run_training_audit as _handle_run_training_audit,
 )
 
 
@@ -299,6 +300,8 @@ COMMAND_HANDLERS = {
     # v0.25.0: diagnostic dashboard kickoff
     "run-regime-diagnostic": _handle_run_regime_diagnostic,
     "run-forensic-audit": _handle_run_forensic_audit,
+    # v0.26.0: training-data audit kickoff
+    "run-training-audit": _handle_run_training_audit,
 }
 
 

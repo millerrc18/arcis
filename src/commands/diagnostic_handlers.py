@@ -83,3 +83,38 @@ def handle_run_forensic_audit(payload: dict, config: dict) -> dict:
         plot_dir=plot_dir,
         db_path=db_path,
     )
+
+
+def handle_run_training_audit(payload: dict, config: dict) -> dict:
+    """Run the training-data v1-citation audit via dashboard_runner.
+
+    Payload fields:
+      - run_id: UUID matching the diagnostic_runs row seeded by the API
+      - db_path: override for local SQLite (tests); defaults to DB_PATH
+      - dry_run: bool; when true, the audit does not mutate training_examples
+      - passes: subset of ['A','B','C']; defaults to all three
+    """
+    import src.diagnostics.dashboard_runner as _runner
+    from src.diagnostics.summary_extractor import parse_training_audit_report
+
+    run_id = payload.get("run_id")
+    if not run_id:
+        return {"error": "Missing run_id in payload"}
+
+    db_path = payload.get("db_path") or DB_PATH
+    args: list[str] = ["--db", db_path]
+    if payload.get("dry_run"):
+        args.append("--dry-run")
+    for p in payload.get("passes") or []:
+        args.extend(["--pass", str(p)])
+
+    report_path, plot_dir = _prepare_output_paths("training-audit", run_id)
+    return _runner.run_diagnostic(
+        run_id=run_id,
+        script_path="scripts/audits/training_data_v1_audit.py",
+        script_args=args,
+        report_parser=parse_training_audit_report,
+        report_path=report_path,
+        plot_dir=plot_dir,
+        db_path=db_path,
+    )
