@@ -1,7 +1,7 @@
 {
-  "run_count": 31,
+  "run_count": 32,
   "current_focus_index": 2,
-  "file_index": 56,
+  "file_index": 71,
   "file_list": [
     "requirements.txt",
     "frontend/package.json",
@@ -234,7 +234,6 @@
     "src/utils/secret_redact.py",
     "src/utils/type_safety.py"
   ],
-  "last_run": "2026-04-17T07:08:34.869194+00:00",
   "findings": {
     "run_17": {
       "focus_area": "security",
@@ -1490,10 +1489,105 @@
           "description": "Imports private functions `_compute_metrics` and `_build_equity_curve` from src.evaluation.model_monitor. Coupling to underscore-prefixed internal API names that could change without notice in a refactor."
         }
       ],
-      "notes": "Audited 15 API route files (cloud_routes/* + routes/*). All third-party imports (fastapi, pydantic) are properly declared in requirements.txt. No undeclared dependencies, no deprecated API usage, no bare except:pass patterns. All remaining imports are Python stdlib (json, sqlite3, logging, datetime, uuid, threading, statistics, pathlib, subprocess, zoneinfo). This slice is clean — API routes are thin wrappers with minimal dependency surface."
-    }
-  },
-  "run_30": {
+      "notes": "Audited 15 API route files (cloud_routes/* + routes/*). All third-party imports (fastapi, pydantic) are properly declared in requirements.txt. No undeclared dependencies, no deprecated API usage, no bare except:pass patterns. All remaining imports are Python stdlib (json, sqlite3, logging, datetime, uuid, threading, statistics, pathlib, subprocess, zoneinfo). This slice is clean \u2014 API routes are thin wrappers with minimal dependency surface."
+    },
+    "run_32": {
+      "focus_area": "dependency_health",
+      "files_audited": [
+        "src/data_collection/cboe_collector.py",
+        "src/data_collection/docs_collector.py",
+        "src/data_collection/edgar_collector.py",
+        "src/data_collection/errors.py",
+        "src/data_collection/fed_collector.py",
+        "src/data_collection/insider_collector.py",
+        "src/data_collection/macro_collector.py",
+        "src/data_collection/options_collector.py",
+        "src/data_collection/options_metrics.py",
+        "src/data_collection/research_collector.py",
+        "src/data_collection/research_sources.py",
+        "src/data_collection/research_synthesizer.py",
+        "src/data_collection/retention.py",
+        "src/data_collection/short_interest_collector.py",
+        "src/data_collection/trends_collector.py"
+      ],
+      "medium_findings": [
+        {
+          "file": "src/data_collection/edgar_collector.py",
+          "lines": "362-363",
+          "issue_number": 527,
+          "description": "Undeclared optional dependency pysentiment2 with bare except ImportError: pass \u2014 NLP scoring of EDGAR filings silently disabled with no log message."
+        }
+      ],
+      "low_findings": [
+        {
+          "file": "src/data_collection/cboe_collector.py",
+          "lines": "88",
+          "description": "Redundant re-import of requests as _req inside _fetch_cboe_pc_ratio() \u2014 requests already imported on line 45 of the same function."
+        },
+        {
+          "file": "src/data_collection/options_collector.py",
+          "lines": "171, 183",
+          "description": "Redundant import math inside _safe_float() and _safe_int() helper functions \u2014 math already imported at module level on line 30."
+        },
+        {
+          "file": "src/data_collection/research_synthesizer.py",
+          "lines": "146",
+          "description": "Late/lazy import of stdlib re module inside run_weekly_synthesis(); could be at module level for consistency."
+        },
+        {
+          "file": "src/data_collection/research_synthesizer.py",
+          "lines": "186-187",
+          "description": "Bare except Exception: pass for Telegram notification \u2014 silently swallows all errors including potential ImportError from telegram module dependencies."
+        }
+      ],
+      "notes": "Audited 15 data_collection files (cboe through trends). All external dependencies (requests, yfinance, beautifulsoup4, anthropic, pytrends) properly declared in requirements.txt. No deprecated API usage (yfinance .options/.option_chain/.history are current). No version pin conflicts. One medium finding: pysentiment2 undeclared optional dependency silently suppressed via bare ImportError catch in edgar_collector.py (issue #527). Four low findings: redundant re-imports in cboe_collector and options_collector, lazy stdlib import and bare exception suppression in research_synthesizer."
+    },
+    "run_31": {
+      "focus_area": "dependency_health",
+      "files_audited": [
+        "src/council/__init__.py",
+        "src/council/agent_data.py",
+        "src/council/agents.py",
+        "src/council/aggregation.py",
+        "src/council/constants.py",
+        "src/council/context.py",
+        "src/council/engine.py",
+        "src/council/parsing.py",
+        "src/council/prompts.py",
+        "src/council/protocol.py",
+        "src/council/rate_limiter.py",
+        "src/council/value_tracker.py",
+        "src/data_collection/__init__.py",
+        "src/data_collection/analyst_collector.py",
+        "src/data_collection/cboe_collector.py"
+      ],
+      "high": [],
+      "medium": [],
+      "low": [
+        {
+          "file": "src/council/protocol.py",
+          "lines": "20-21",
+          "description": "PARAMETER_DEFAULTS and RATE_LIMITS imported from src.council.constants but never referenced in the file. Unused internal imports."
+        },
+        {
+          "file": "src/data_collection/cboe_collector.py",
+          "lines": "88",
+          "description": "Redundant 'import requests as _req' when requests was already imported at line 45 in the same function (_fetch_cboe_pc_ratio)."
+        },
+        {
+          "file": "src/council/agent_data.py",
+          "lines": "63-64, 168-169, 178-179, 185-186, 246-247, 256-257, 267-268, 300-301, 318-319, 342-343, 357-358, 409-410, 425-426, 442-443",
+          "description": "14 bare 'except Exception: pass' blocks silently swallow DB query errors. Intentional graceful degradation for council data gathering, but could mask schema drift or import errors in deferred imports (e.g., hshs_live at L172-179)."
+        },
+        {
+          "file": "src/data_collection/analyst_collector.py",
+          "lines": "143-144",
+          "description": "Bare 'except Exception: pass' in price target fetch suppresses all errors silently, including potential requests/retry dependency failures."
+        }
+      ],
+      "notes": "Audited 15 files (council/* + data_collection/__init__.py + analyst_collector + cboe_collector). The council module is exceptionally clean from a dependency perspective \u2014 12 of 15 files use only stdlib (logging, sqlite3, json, uuid, datetime, zoneinfo) and internal src.* imports with zero third-party dependencies. The council's LLM calls go through src.training.claude_client (which wraps anthropic SDK), keeping the dependency boundary clean. The two data_collection files properly declare their third-party deps (requests in requirements.txt, yfinance in requirements.txt). No undeclared dependencies, no deprecated API usage, no version pin conflicts. No medium or high findings."
+    },
+    "run_30": {
       "focus_area": "dependency_health",
       "files_audited": [
         "src/api/routes/review.py",
@@ -1541,7 +1635,7 @@
         {
           "file": "src/api/routes/system.py",
           "lines": "490",
-          "description": "import json as _json inside a for-loop body — re-imported on every iteration instead of at function start."
+          "description": "import json as _json inside a for-loop body \u2014 re-imported on every iteration instead of at function start."
         },
         {
           "file": "src/api/routes/system.py",
@@ -1559,53 +1653,8 @@
           "description": "yfinance auto_adjust=True deprecated in yfinance >=0.2.40 (always True now). Already flagged in run_28."
         }
       ],
-      "notes": "Audited 15 files (routes/review-training, websocket, attribution/*, cli/*, commands/*, config/*, config_overrides). Most files are clean thin wrappers with stdlib + fastapi imports. The major finding is src/commands/executor.py where 8 of 13 cloud command handlers reference phantom modules/functions — the command queue added handlers that were never wired to the real codebase entry points. The CLI (cli/commands.py) correctly imports the real functions, confirming the executor handlers are stale/incorrect copies."
+      "notes": "Audited 15 files (routes/review-training, websocket, attribution/*, cli/*, commands/*, config/*, config_overrides). Most files are clean thin wrappers with stdlib + fastapi imports. The major finding is src/commands/executor.py where 8 of 13 cloud command handlers reference phantom modules/functions \u2014 the command queue added handlers that were never wired to the real codebase entry points. The CLI (cli/commands.py) correctly imports the real functions, confirming the executor handlers are stale/incorrect copies."
     }
   },
-  "run_31": {
-      "focus_area": "dependency_health",
-      "files_audited": [
-        "src/council/__init__.py",
-        "src/council/agent_data.py",
-        "src/council/agents.py",
-        "src/council/aggregation.py",
-        "src/council/constants.py",
-        "src/council/context.py",
-        "src/council/engine.py",
-        "src/council/parsing.py",
-        "src/council/prompts.py",
-        "src/council/protocol.py",
-        "src/council/rate_limiter.py",
-        "src/council/value_tracker.py",
-        "src/data_collection/__init__.py",
-        "src/data_collection/analyst_collector.py",
-        "src/data_collection/cboe_collector.py"
-      ],
-      "high": [],
-      "medium": [],
-      "low": [
-        {
-          "file": "src/council/protocol.py",
-          "lines": "20-21",
-          "description": "PARAMETER_DEFAULTS and RATE_LIMITS imported from src.council.constants but never referenced in the file. Unused internal imports."
-        },
-        {
-          "file": "src/data_collection/cboe_collector.py",
-          "lines": "88",
-          "description": "Redundant 'import requests as _req' when requests was already imported at line 45 in the same function (_fetch_cboe_pc_ratio)."
-        },
-        {
-          "file": "src/council/agent_data.py",
-          "lines": "63-64, 168-169, 178-179, 185-186, 246-247, 256-257, 267-268, 300-301, 318-319, 342-343, 357-358, 409-410, 425-426, 442-443",
-          "description": "14 bare 'except Exception: pass' blocks silently swallow DB query errors. Intentional graceful degradation for council data gathering, but could mask schema drift or import errors in deferred imports (e.g., hshs_live at L172-179)."
-        },
-        {
-          "file": "src/data_collection/analyst_collector.py",
-          "lines": "143-144",
-          "description": "Bare 'except Exception: pass' in price target fetch suppresses all errors silently, including potential requests/retry dependency failures."
-        }
-      ],
-      "notes": "Audited 15 files (council/* + data_collection/__init__.py + analyst_collector + cboe_collector). The council module is exceptionally clean from a dependency perspective — 12 of 15 files use only stdlib (logging, sqlite3, json, uuid, datetime, zoneinfo) and internal src.* imports with zero third-party dependencies. The council's LLM calls go through src.training.claude_client (which wraps anthropic SDK), keeping the dependency boundary clean. The two data_collection files properly declare their third-party deps (requests in requirements.txt, yfinance in requirements.txt). No undeclared dependencies, no deprecated API usage, no version pin conflicts. No medium or high findings."
-    },
-  "last_run": "2026-04-19T12:00:00.000000+00:00"
+  "last_run": "2026-04-19T19:20:21.713474+00:00"
 }
