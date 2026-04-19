@@ -147,6 +147,21 @@ def _compute_sector_rs(ticker_features: dict, sector_ohlcv: dict | None) -> floa
         return 0   # underperformer vs sector
 
 
+def _as_float(value, default: float | None = None) -> float | None:
+    """Coerce a feature value to float. Returns default on None or bad input.
+
+    SQLite REAL columns can return as TEXT after a recovery (#195), so every
+    numeric comparison in _score_ticker goes through this — any leaked str
+    becomes a usable float instead of raising TypeError on comparison.
+    """
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _score_ticker(features: dict) -> float:
     """Score a single ticker on a 0-100 scale. Deterministic, no randomness."""
     score = 0.0
@@ -164,7 +179,7 @@ def _score_ticker(features: dict) -> float:
     market_rs = features.get("relative_strength_state", "")
     market_rs_score = 25 if market_rs == "strong_outperformer" else 15 if market_rs == "outperformer" else 0
 
-    sector_rs_score = features.get("_sector_rs_score")
+    sector_rs_score = _as_float(features.get("_sector_rs_score"))
     if sector_rs_score is not None:
         combined_rs = 0.6 * market_rs_score + 0.4 * sector_rs_score
     else:
@@ -172,25 +187,25 @@ def _score_ticker(features: dict) -> float:
     score += combined_rs
 
     # Pullback depth: narrowed for S&P 100 large-caps
-    pullback = features.get("pullback_depth_pct", 0.0)
+    pullback = _as_float(features.get("pullback_depth_pct"), default=0.0)
     if -8 <= pullback <= -3:
         score += 25
     elif -12 <= pullback < -8:
         score += 10
 
     # Distance to SMA20 (pulling back toward support: -1% to -5%)
-    dist_sma20 = features.get("dist_to_sma20_pct", 0.0)
+    dist_sma20 = _as_float(features.get("dist_to_sma20_pct"), default=0.0)
     if -5 <= dist_sma20 <= -1:
         score += 10
 
     # Volume contraction on pullback (increased weight from research)
-    vol_ratio = features.get("volume_ratio_20d", 1.0)
+    vol_ratio = _as_float(features.get("volume_ratio_20d"), default=1.0)
     if vol_ratio < 0.8:
         score += 15
 
     # Options sentiment (9A) — IV rank and put/call as signals
-    iv_rank = features.get("iv_rank")
-    pc_vol = features.get("put_call_vol_ratio")
+    iv_rank = _as_float(features.get("iv_rank"))
+    pc_vol = _as_float(features.get("put_call_vol_ratio"))
     if iv_rank is not None:
         if iv_rank < 25:
             score += 3  # Cheap options = less fear
