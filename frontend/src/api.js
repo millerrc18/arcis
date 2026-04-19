@@ -154,6 +154,11 @@ export const api = {
     method: 'POST',
     body: JSON.stringify({}),
   }),
+  // v0.26.0 — training-data v1-citation audit
+  triggerTrainingAudit: (opts = {}) => fetchApi('/diagnostic-runs/training-audit', {
+    method: 'POST',
+    body: JSON.stringify(opts),
+  }),
   getDiagnosticRuns: (params = {}) => {
     const q = new URLSearchParams(params).toString()
     return fetchApi(`/diagnostic-runs${q ? `?${q}` : ''}`)

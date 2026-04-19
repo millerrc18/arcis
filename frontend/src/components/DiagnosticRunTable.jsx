@@ -12,11 +12,20 @@ function parseDecision(summaryJson) {
   try {
     const s = typeof summaryJson === 'string' ? JSON.parse(summaryJson) : summaryJson
     if (s.decision) return s.decision
+    if (s.quarantined_total != null) {
+      // training_audit summary shape
+      return `Q=${s.quarantined_total} / ${s.total_audited ?? '?'}`
+    }
     if (s.n_total != null) return `N=${s.n_total}`
     return '—'
   } catch {
     return '—'
   }
+}
+
+function formatType(diagnosticType) {
+  if (diagnosticType === 'training_audit') return 'Training Audit'
+  return diagnosticType
 }
 
 export default function DiagnosticRunTable({
@@ -55,7 +64,7 @@ export default function DiagnosticRunTable({
             <td className="p-2 text-xs">
               {r.created_at?.slice(0, 19).replace('T', ' ')}
             </td>
-            <td className="p-2 capitalize">{r.diagnostic_type}</td>
+            <td className="p-2 capitalize">{formatType(r.diagnostic_type)}</td>
             <td className="p-2">
               <StatusBadge
                 text={r.status}
