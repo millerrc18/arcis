@@ -19,9 +19,11 @@ Research: docs/research/Quantitative_Regime_Detection_for_Halcyon_Lab.md
 """
 
 import logging
-import sqlite3
+import sqlite3  # noqa: F401 — retained for test fixtures / future direct use
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
+from src.utils.db import connect_db
 
 import pandas as pd
 
@@ -36,7 +38,7 @@ STATE_TABLE = "traffic_light_state"
 def _ensure_state_table(db_path: str = DB_PATH):
     """Seed the singleton row if missing; schema handled by registry."""
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             # Ensure exactly one row
             existing = conn.execute(f"SELECT COUNT(*) FROM {STATE_TABLE}").fetchone()[0]
             if existing == 0:
@@ -89,7 +91,7 @@ def _classify_trend(spy: pd.DataFrame | None) -> int:
 def _classify_credit(db_path: str = DB_PATH) -> int:
     """Classify HY credit spread z-score from macro_snapshots."""
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             rows = conn.execute(
                 "SELECT value FROM macro_snapshots "
                 "WHERE series_id = 'BAMLH0A0HYM2' "
@@ -153,7 +155,7 @@ def compute_traffic_light(
     persistence_applied = False
     final_regime = raw_regime
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             state = conn.execute(
                 f"SELECT current_regime, pending_regime, pending_count, last_transition_at "
                 f"FROM {STATE_TABLE} WHERE id = 1"
