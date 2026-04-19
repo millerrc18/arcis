@@ -11,26 +11,50 @@ no schema changes.
   inherit the full #530 dependency chain. Walk-forward is insulated
   from the `signal_eval.py:180` `NotImplementedError` (#494 / #530
   Sprint A) because it runs through `backtest_engine._run_scheduled`,
-  not the live-flow candidate resolver. Zero strict overlap with
-  #530 Sprints A–H under the recommended hard-filter interpretation
-  of defensive sector bias.
-- **Three filters, three disjoint gaps:** (1) morning-only entry
-  window — blocked on intraday OHLCV data layer (NEW gap, not on
-  #530); (2) defensive sector bias — schema gap only under hard-filter
-  interpretation; (3) tariff-event exclusion — schema gap only, v0.25.1
-  `is_known_event(date, category="Trade Policy")` substrate is
-  production-ready at `src/diagnostics/known_events.py:302-319`.
-- **R8(a) declaration validity:** 3 of 4 fields accepted by
-  `walkforward_firewall.validate_derived_from`. `source_trade_ids:
-  null` is rejected by the current validator (`:129-135` — checks
-  `isinstance(sti, list)`); spec-convention fix is to omit the key,
-  which is already the "not present" signal per `:128`.
-- **Next step:** file v0.26.2-pre scoped schema-extension sprint
-  (sector_filter convention + `entry.exclusions.known_events` +
-  ~10-line `backtest_engine` wiring). Morning-only deferred to a
-  follow-up gated on intraday OHLCV.
-- **Preflight doc:** `docs/sprints/post_audit_v1_preflight.md` (343
-  lines, under 400-line budget).
+  not the live-flow candidate resolver.
+- **Per-filter verdict:** Defensive (hard-filter, disjoint from #530),
+  Tariff (schema-only, uses v0.25.1 `is_known_event` substrate),
+  Morning-only (deferred to #540 behind intraday OHLCV data layer).
+- **R8(a) finding:** `source_trade_ids: null` fails
+  `validate_derived_from` at `walkforward_firewall.py:129-135` —
+  recommend omitting the key entirely.
+- **Deliverable:** `docs/sprints/post_audit_v1_preflight.md` (343 lines).
+
+### Validated (v0.25.3 — Walk-forward framework end-to-end on real EDGAR data)
+
+Closes #532. First real-data run of the walk-forward v1 framework (shipped
+in v0.25.0 / PR #520) against `src/platform/specs/lazy_prices_v1.yaml`
+using the operator's local EDGAR corpus.
+
+- **Outcome:** `INCONCLUSIVE / coverage_inconclusive` — matches the Pass 1
+  pre-registered hypothesis (NOT PASS expected; forensic audit established
+  lazy-prices underpowered at 2019-2024 trade density).
+- **Run:** `run_id=88fd926e-1789-46f0-aee4-501addbb7256`,
+  `spec_hash=ea78fed3...`, `code_git_sha=0f5e7178...`, `random_seed=42`.
+- **Windows:** 5/5 `INCONCLUSIVE_DATA`. 20 OOS trades across 2019-2024
+  (4/7/4/4/1 per window). Zero purged, zero embargoed.
+- **Heavy-tail override:** fired on 4/5 windows, correctly driving MDE
+  values to capture small-N pathology (Window 0: 4-trade, Sharpe −142,
+  MDE 8.37e15). Not a bug — truthful reflection of small-N instability.
+- **R8(a):** `derived_from: null` correctly propagated through to
+  `walkforward_results.derived_from_source_type = NULL`.
+- **Framework-bug trigger:** did NOT fire (would have required
+  `outcome_state = PASS`).
+- **Synthetic vs real comparison:** outcome state, reason, window-state
+  distribution, heavy-tail count, and pooled MDE all match the synthetic
+  INCONCLUSIVE baseline (`docs/validation/lazy-prices-v1-walkforward-2026-04-19.md`).
+- **Validation doc:**
+  `docs/validation/lazy-prices-v1-walkforward-real-2026-04-19.md`
+- **Ralph Loop docs:**
+  `docs/sprints/lazy_prices_v1_real_evaluation.md` (Pass 1),
+  `docs/sprints/lazy_prices_v1_real_raw.md` (Pass 2).
+
+**Secondary finding (non-blocking for this sprint):**
+`vix_at_entry` and `vix_tier` are NULL for 20/20 OOS trades, driving
+`vix_tier_coverage = 0`. Data-enrichment gap upstream of the framework;
+filed as follow-up in the validation doc. Does not affect this run's
+INCONCLUSIVE verdict (primary `min_trades_per_window = 10` gate already
+binding).
 
 ### Changed (v0.25.2 — Roadmap completeness audit)
 
