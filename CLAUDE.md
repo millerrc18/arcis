@@ -11,7 +11,7 @@ All project rules, architecture, data sources, and constraints are in **MASTER.m
 - **Risk governor is sacred** — never bypass or weaken risk checks without explicit approval
 - **Test count must not drop** — CI enforces a minimum of 1339 tests
 - **Mock all external APIs in tests** — no network calls from pytest (Alpaca, Finnhub, yfinance, FRED, Ollama)
-- **Schema registry is the single source of truth** — all 51 tables are defined in `src/schema/registry.py`. See "Database Schema Rules" below
+- **Schema registry is the single source of truth** — all 64 tables are defined in `src/schema/registry.py` (authoritative count: `python -c "from src.schema.registry import TABLES; print(len(TABLES))"`). See "Database Schema Rules" below
 - **Test baseline before changes** — run `python -m pytest tests/ -q` at the start of any coding session and note the pass count. After changes, the pass count must not decrease and the failure count must not increase. Never dismiss test failures as "pre-existing" without investigating
 
 ## Database Schema Rules (MANDATORY)

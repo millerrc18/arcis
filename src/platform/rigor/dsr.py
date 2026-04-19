@@ -1,10 +1,20 @@
 """Deflated Sharpe Ratio — Bailey & López de Prado (2014) JPM 40(5):94-107.
 
-Verified implementation from deep research retrofit plan. Paper's p.9
-worked example reproduces in two independent assertions (see Known Spec
-Issue B in Sprint 1 plan): DSR ≈ 0.9004 with V=0.5/250; SR*_0_ann ≈
-0.5429 with V=0.046/250. The paper's two claimed outputs are inconsistent
-under any single V; both formulas verify correctly in isolation.
+Paper's p.9 worked example (N=100, T=1250, SR_ann=2.5, skew=-3, kurt=10)
+states BOTH DSR=0.9004 AND SR*_0_ann=0.5429, but these cannot be satisfied
+simultaneously by any single V[SR_n]:
+
+  V = 0.5/250    → SR*_0_ann = 1.79       DSR = 0.9004 ✓
+  V = 0.046/250  → SR*_0_ann = 0.5429 ✓   DSR = 0.9998
+
+This is a paper-exposition inconsistency (erratum), NOT an implementation
+bug. Each formula verifies correctly in isolation against the V that
+matches its claimed output; see test_dsr.py::test_dsr_paper_example_reproduction
+for the dual-V regression guard. The paper's source PDF is password-protected
+(confirmed against multiple distribution sources), so we document both V's
+rather than pick one arbitrarily.
+
+Citation: Bailey, D. & López de Prado, M. (2014). SSRN 2460551.
 
 Called by: src.platform.promotion (primary gate), CLI via run_backtest.py.
 Calls: scipy.stats (norm, kurtosis, skew), numpy, pandas.
