@@ -37,6 +37,19 @@ def _matches_scheduled_trigger(day: datetime, entry_spec: dict) -> bool:
     return target is not None and day.weekday() == target
 
 
+def is_excluded_event_date(entry_iso: str, entry_spec: dict) -> bool:
+    """True if entry_iso matches any category in entry.event_exclusion.categories.
+
+    v0.26.2-scoped schema extension — applied in _run_event_driven after
+    resolving the filing to its entry date.
+    """
+    cats = (entry_spec.get("event_exclusion") or {}).get("categories", [])
+    if not cats:
+        return False
+    from src.diagnostics.known_events import is_known_event
+    return any(is_known_event(entry_iso, category=c) for c in cats)
+
+
 def _evaluate_event_signal(
     sections: dict,
     signal: list[dict],
