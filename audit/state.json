@@ -1,7 +1,7 @@
 {
-  "run_count": 30,
+  "run_count": 31,
   "current_focus_index": 2,
-  "file_index": 41,
+  "file_index": 56,
   "file_list": [
     "requirements.txt",
     "frontend/package.json",
@@ -1562,5 +1562,50 @@
       "notes": "Audited 15 files (routes/review-training, websocket, attribution/*, cli/*, commands/*, config/*, config_overrides). Most files are clean thin wrappers with stdlib + fastapi imports. The major finding is src/commands/executor.py where 8 of 13 cloud command handlers reference phantom modules/functions — the command queue added handlers that were never wired to the real codebase entry points. The CLI (cli/commands.py) correctly imports the real functions, confirming the executor handlers are stale/incorrect copies."
     }
   },
-  "last_run": "2026-04-18T12:00:00.000000+00:00"
+  "run_31": {
+      "focus_area": "dependency_health",
+      "files_audited": [
+        "src/council/__init__.py",
+        "src/council/agent_data.py",
+        "src/council/agents.py",
+        "src/council/aggregation.py",
+        "src/council/constants.py",
+        "src/council/context.py",
+        "src/council/engine.py",
+        "src/council/parsing.py",
+        "src/council/prompts.py",
+        "src/council/protocol.py",
+        "src/council/rate_limiter.py",
+        "src/council/value_tracker.py",
+        "src/data_collection/__init__.py",
+        "src/data_collection/analyst_collector.py",
+        "src/data_collection/cboe_collector.py"
+      ],
+      "high": [],
+      "medium": [],
+      "low": [
+        {
+          "file": "src/council/protocol.py",
+          "lines": "20-21",
+          "description": "PARAMETER_DEFAULTS and RATE_LIMITS imported from src.council.constants but never referenced in the file. Unused internal imports."
+        },
+        {
+          "file": "src/data_collection/cboe_collector.py",
+          "lines": "88",
+          "description": "Redundant 'import requests as _req' when requests was already imported at line 45 in the same function (_fetch_cboe_pc_ratio)."
+        },
+        {
+          "file": "src/council/agent_data.py",
+          "lines": "63-64, 168-169, 178-179, 185-186, 246-247, 256-257, 267-268, 300-301, 318-319, 342-343, 357-358, 409-410, 425-426, 442-443",
+          "description": "14 bare 'except Exception: pass' blocks silently swallow DB query errors. Intentional graceful degradation for council data gathering, but could mask schema drift or import errors in deferred imports (e.g., hshs_live at L172-179)."
+        },
+        {
+          "file": "src/data_collection/analyst_collector.py",
+          "lines": "143-144",
+          "description": "Bare 'except Exception: pass' in price target fetch suppresses all errors silently, including potential requests/retry dependency failures."
+        }
+      ],
+      "notes": "Audited 15 files (council/* + data_collection/__init__.py + analyst_collector + cboe_collector). The council module is exceptionally clean from a dependency perspective — 12 of 15 files use only stdlib (logging, sqlite3, json, uuid, datetime, zoneinfo) and internal src.* imports with zero third-party dependencies. The council's LLM calls go through src.training.claude_client (which wraps anthropic SDK), keeping the dependency boundary clean. The two data_collection files properly declare their third-party deps (requests in requirements.txt, yfinance in requirements.txt). No undeclared dependencies, no deprecated API usage, no version pin conflicts. No medium or high findings."
+    },
+  "last_run": "2026-04-19T12:00:00.000000+00:00"
 }
