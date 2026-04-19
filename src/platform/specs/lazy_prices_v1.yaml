@@ -2,6 +2,13 @@ spec_version: 1
 strategy_id: lazy_prices_v1
 display_name: Lazy Prices (Cohen-Malloy-Nguyen 2020)
 
+# R8(a): derived_from is a required field on every strategy spec. null is
+# the explicit declaration that this strategy was NOT derived from any
+# forensic audit, bootcamp backtest, shadow-trading cohort, or similar
+# internal analysis — it is literature-derived from the Cohen, Malloy,
+# Nguyen (2020 Journal of Finance) paper.
+derived_from: null
+
 description: >
   Enter long positions on stocks with low cosine similarity between current
   and prior-year 10-K/10-Q Risk Factors and MD&A sections. Fundamental

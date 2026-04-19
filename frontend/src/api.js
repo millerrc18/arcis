@@ -196,3 +196,30 @@ export async function getPlatformPromotionEvents(strategy_id, limit = 50) {
   const qs = new URLSearchParams({ strategy_id, limit: String(limit) });
   return fetchApi(`/platform/promotion-events?${qs}`);
 }
+
+// Walk-forward validation v1 helpers (three-state outcome dashboard)
+export async function getWalkforwardRuns(params = {}) {
+  const qs = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== null && v !== undefined && v !== "") qs.append(k, String(v));
+  });
+  const suffix = qs.toString() ? `?${qs}` : "";
+  return fetchApi(`/walkforward/runs${suffix}`);
+}
+
+export async function getWalkforwardRun(runId) {
+  return fetchApi(`/walkforward/runs/${encodeURIComponent(runId)}`);
+}
+
+export async function getWalkforwardRunWindows(runId) {
+  return fetchApi(`/walkforward/runs/${encodeURIComponent(runId)}/windows`);
+}
+
+export async function getWalkforwardRunTrades(runId, windowIndex = null) {
+  const qs = new URLSearchParams();
+  if (windowIndex !== null && windowIndex !== undefined) {
+    qs.append("window_index", String(windowIndex));
+  }
+  const suffix = qs.toString() ? `?${qs}` : "";
+  return fetchApi(`/walkforward/runs/${encodeURIComponent(runId)}/trades${suffix}`);
+}

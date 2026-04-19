@@ -33,6 +33,7 @@ import Strategy from './pages/Strategy'
 import TradeHistory from './pages/TradeHistory'
 import Velocity from './pages/Velocity'
 import StrategyResearch from './pages/StrategyResearch'
+import WalkforwardResults from './pages/WalkforwardResults'
 import Diagnostics from './pages/Diagnostics'
 
 // staleTime 5s: dashboard values age fast; refetchInterval 30s for most
@@ -127,6 +128,7 @@ export default function App() {
                 <Route path="/trade-history" element={<ErrorBoundary><TradeHistory /></ErrorBoundary>} />
                 <Route path="/velocity" element={<ErrorBoundary><Velocity /></ErrorBoundary>} />
                 <Route path="/research-platform" element={<ErrorBoundary><StrategyResearch /></ErrorBoundary>} />
+                <Route path="/walkforward-results" element={<ErrorBoundary><WalkforwardResults /></ErrorBoundary>} />
                 <Route path="/diagnostics" element={<ErrorBoundary><Diagnostics /></ErrorBoundary>} />
               </Route>
             </Routes>

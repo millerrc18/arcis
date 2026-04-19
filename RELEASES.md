@@ -49,6 +49,52 @@
 
 ## Releases
 
+### v0.25.0 — Walk-Forward Validation Framework v1 (2026-04-19)
+
+Load-bearing multi-year infrastructure. Every future strategy must pass
+walk-forward v1 before promotion to `shadow_trading` or real capital.
+Three-state outcome (PASS / FAIL / INCONCLUSIVE) preserved end-to-end —
+never collapsed to boolean anywhere in the stack.
+
+**What ships:**
+
+- R1–R8 rigor requirements wired into a new `src/platform/rigor/walkforward_*`
+  module namespace alongside the legacy `walkforward.py` (soft migration).
+- Three new schema tables: `walkforward_results`, `walkforward_trades`,
+  `sp100_historical_constituents` (table count 64 → 67).
+- Point-in-time S&P 100 resolver at
+  `data/reference/sp100_historical.csv` (curated from S&P DJI press
+  releases + Wikipedia index-change tables).
+- MDE gate (Lo 2002 at annualized scale) with Newey-West N_effective
+  correction and heavy-tail bootstrap SE override.
+- R8 strategy identity firewall with structured `derived_from` field,
+  overlap assertion, and non-blocking provenance heuristic.
+- `check_promotion_gate` evidence preserves three-state outcome; soft
+  migration to legacy OOS_efficiency path when no row exists.
+- CLI wrapper `scripts/backtest/run_walkforward.py` with distinct exit
+  codes for PASS / FAIL / INCONCLUSIVE.
+- Dashboard `/walkforward-results` page with three-state color coding,
+  INCONCLUSIVE_POWER vs INSUFFICIENT_DATA sub-badges, and per-window
+  drill-down.
+- Lazy Prices v1 spec updated with `derived_from: null` (R8(a)) and
+  synthetic smoke test report at
+  `docs/validation/lazy-prices-v1-walkforward-2026-04-19.md`.
+- Backtest-engine refactoring NOT needed (verified Pass 2 item 7).
+
+**Non-goals deferred:** v0.26.x incumbent walk-forward, post-audit
+ruleset walk-forward, CPCV upgrade, non-contiguous source_date_range
+(see sprint follow-ups).
+
+**Cloud execution adjustment:** smoke test run synthetically in cloud
+environment; operator re-runs against real EDGAR data locally after PR
+review. Real-data expected outcome: must NOT PASS — forensic audit
+established cosine-similarity signal alone is underpowered at observed N.
+
+**Tests:** 131 new across 9 new test modules. 226 pass in platform/rigor
++ diagnostics + promotion + scripts + api touched by the sprint.
+
+---
+
 ### v0.24.0 — Strategy Research Platform Final (2026-04-18)
 
 Completes the Strategy Research Platform arc (Sprint 4 continuation). Merges the visibility layer, functional signal integration, Python plugin interface, and final documentation sweep.

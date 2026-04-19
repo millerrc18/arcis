@@ -26,7 +26,8 @@ NEVER add columns via ALTER TABLE in any other file.
 
 Called by: src.schema.validator, src.schema.sqlite, src.schema.postgres, scripts/render_migrate.py
 Calls: none (data definitions only)
-Owns tables: all 46 tables
+Owns tables: all registered tables (authoritative count via
+             `python -c "from src.schema.registry import TABLES; print(len(TABLES))"`)
 Config keys: none
 Tests: tests/test_schema.py, tests/test_repo_structure.py
 """
@@ -2090,4 +2091,143 @@ _register(TableDef(
     ],
     primary_key=["user_id", "entry_name"],
     sync_to_postgres=False,
+))
+
+
+# ---------------------------------------------------------------------------
+# Walk-Forward Validation v1 (3 tables — Sprint walkforward-validation-v1)
+# ---------------------------------------------------------------------------
+
+# Three-state outcome preservation (PASS / FAIL / INCONCLUSIVE) is load-
+# bearing here: any collapse to boolean anywhere in the stack invalidates
+# the framework. The outcome_state and reason columns are the canonical
+# source of truth consumed by check_promotion_gate and the dashboard.
+_register(TableDef(
+    name="walkforward_results",
+    description="Walk-forward validation framework run output. One row per "
+                "walk-forward run across all windows of a strategy. Outcome "
+                "state is three-valued (PASS / FAIL / INCONCLUSIVE) — never "
+                "collapse to boolean.",
+    columns=[
+        ColumnDef("run_id", "TEXT", nullable=False),
+        ColumnDef("strategy_id", "TEXT", nullable=False),
+        ColumnDef("spec_hash", "TEXT", nullable=False,
+                  description="SHA-256 of sorted-keys JSON of the strategy spec"),
+        ColumnDef("code_git_sha", "TEXT",
+                  description="Git HEAD at run time; null if not in a repo"),
+        ColumnDef("random_seed", "INTEGER", nullable=False, default="42"),
+        ColumnDef("config_json", "TEXT",
+                  description="JSON-encoded WalkForwardConfig as used"),
+        ColumnDef("outcome_state", "TEXT", nullable=False,
+                  description="'PASS' | 'FAIL' | 'INCONCLUSIVE'"),
+        ColumnDef("reason", "TEXT",
+                  description="Human-readable explanation. Examples: "
+                              "'walkforward_pass', 'criterion_2_mde', "
+                              "'coverage_inconclusive', 'power_inconclusive'"),
+        ColumnDef("pooled_sharpe", "REAL",
+                  description="Sharpe across all OOS trades pooled (net-of-cost)"),
+        ColumnDef("pooled_mde", "REAL",
+                  description="Minimum detectable effect for the pooled set "
+                              "at 80% power, Lo 2002 formula"),
+        ColumnDef("heavy_tail_flag", "INTEGER", default="0",
+                  description="1 if any window required bootstrap SE override "
+                              "(bootstrap_SE > 1.5 * parametric_SE); else 0"),
+        ColumnDef("heavy_tail_window_count", "INTEGER", default="0"),
+        ColumnDef("n_windows", "INTEGER", nullable=False),
+        ColumnDef("n_windows_pass", "INTEGER", default="0"),
+        ColumnDef("n_windows_fail", "INTEGER", default="0"),
+        ColumnDef("n_windows_inconclusive_data", "INTEGER", default="0"),
+        ColumnDef("n_windows_inconclusive_power", "INTEGER", default="0"),
+        ColumnDef("derived_from_source_type", "TEXT",
+                  description="R8 field: 'forensic_audit_ruleset' | "
+                              "'bootcamp_backtest' | 'shadow_trading_cohort' | "
+                              "'other' | NULL (organic / literature-derived)"),
+        ColumnDef("derived_from_source_run_id", "TEXT"),
+        ColumnDef("effective_universe_size", "INTEGER",
+                  description="Average count of tickers eligible across OOS "
+                              "entry dates (point-in-time resolved)"),
+        ColumnDef("max_drawdown_pct", "REAL"),
+        ColumnDef("vix_tier_coverage", "INTEGER",
+                  description="Distinct VIX tier buckets (0/1/2/3) across OOS"),
+        ColumnDef("created_at", "TEXT", nullable=False),
+    ],
+    primary_key="run_id",
+    indexes=[
+        IndexDef("idx_wf_strategy_created", ["strategy_id", "created_at"]),
+        IndexDef("idx_wf_outcome", ["outcome_state"]),
+    ],
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_time_column="created_at",
+))
+
+_register(TableDef(
+    name="walkforward_trades",
+    description="Per-window trades and per-window statistics for a walk-forward "
+                "run. Writing both IS and OOS trades allows post-hoc audits; "
+                "only OOS trades enter outcome computation.",
+    columns=[
+        ColumnDef("trade_id", "TEXT", nullable=False),
+        ColumnDef("run_id", "TEXT", nullable=False),
+        ColumnDef("window_index", "INTEGER", nullable=False,
+                  description="0-based window id within the run"),
+        ColumnDef("is_in_is_window", "INTEGER", default="0",
+                  description="1 if from IS train window; 0 if from OOS test window"),
+        ColumnDef("ticker", "TEXT", nullable=False),
+        ColumnDef("entry_date", "TEXT", nullable=False),
+        ColumnDef("exit_date", "TEXT"),
+        ColumnDef("entry_price", "REAL"),
+        ColumnDef("exit_price", "REAL"),
+        ColumnDef("pnl_pct", "REAL"),
+        ColumnDef("excess_return", "REAL"),
+        ColumnDef("exit_reason", "TEXT"),
+        ColumnDef("hold_days", "INTEGER"),
+        ColumnDef("vix_at_entry", "REAL"),
+        ColumnDef("vix_tier", "TEXT",
+                  description="'low' (<15) | 'medium' (15-25) | 'high' (>25)"),
+        ColumnDef("purged", "INTEGER", default="0",
+                  description="1 if removed by R2 purge (straddles OOS boundary)"),
+        ColumnDef("embargoed", "INTEGER", default="0",
+                  description="1 if removed by R2 embargo (entry within embargo_days)"),
+        ColumnDef("sharpe_observed", "REAL",
+                  description="Per-window Sharpe stamped on each trade for lookup"),
+        ColumnDef("bootstrap_se", "REAL"),
+        ColumnDef("mde_value", "REAL"),
+    ],
+    primary_key="trade_id",
+    indexes=[
+        IndexDef("idx_wf_trades_run", ["run_id"]),
+        IndexDef("idx_wf_trades_window", ["run_id", "window_index"]),
+    ],
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_time_column="entry_date",
+))
+
+_register(TableDef(
+    name="sp100_historical_constituents",
+    description="Point-in-time S&P 100 (OEX) membership. Loaded from "
+                "data/reference/sp100_historical.csv (curated from S&P DJI "
+                "press releases + Wikipedia index-change tables). Resolver in "
+                "src/platform/rigor/walkforward_universe.py queries this to "
+                "prevent survivorship bias in walk-forward (R3).",
+    columns=[
+        ColumnDef("ticker", "TEXT", nullable=False),
+        ColumnDef("added_date", "TEXT", nullable=False,
+                  description="First date (ISO) the ticker is a constituent"),
+        ColumnDef("removed_date", "TEXT",
+                  description="First date no longer a constituent; NULL = still in"),
+        ColumnDef("company_name", "TEXT"),
+        ColumnDef("reason", "TEXT",
+                  description="Free-form cause: 'addition', 'removed_merger', "
+                              "'renamed:<newticker>', etc."),
+    ],
+    primary_key=["ticker", "added_date"],
+    indexes=[
+        IndexDef("idx_sp100_hist_ticker", ["ticker"]),
+        IndexDef("idx_sp100_hist_added", ["added_date"]),
+    ],
+    sync_to_postgres=True,
+    sync_mode="full",
+    sync_time_column=None,
 ))

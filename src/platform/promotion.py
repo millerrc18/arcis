@@ -45,6 +45,13 @@ GATE_SHADOW_TRADES_MIN = 30
 GATE_JUSTIFICATION_MIN_CHARS = 40
 GATE_DEMOTION_REASON_MIN_CHARS = 20
 
+# Walk-forward three-state outcomes (canonical strings persisted to
+# walkforward_results.outcome_state). Mirrored from
+# src.platform.rigor.walkforward_outcome to avoid a hard import cycle.
+WF_STATE_PASS = "PASS"
+WF_STATE_FAIL = "FAIL"
+WF_STATE_INCONCLUSIVE = "INCONCLUSIVE"
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -157,20 +164,110 @@ def _evaluate_dsr_evidence(
     return passes_dsr, evidence
 
 
+def _fetch_latest_walkforward_outcome(
+    strategy_id: str, db_path: str,
+) -> dict | None:
+    """Return the latest walk-forward v1 outcome row for `strategy_id`, or
+    None if no walkforward_results row exists. The table may be missing on
+    older databases; we tolerate that and return None.
+    """
+    conn = sqlite3.connect(db_path)
+    try:
+        try:
+            row = conn.execute(
+                "SELECT run_id, outcome_state, reason, pooled_sharpe, "
+                "pooled_mde, n_windows_pass, n_windows_fail, "
+                "n_windows_inconclusive_data, n_windows_inconclusive_power, "
+                "heavy_tail_flag, created_at "
+                "FROM walkforward_results WHERE strategy_id = ? "
+                "ORDER BY created_at DESC LIMIT 1",
+                (strategy_id,),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            return None  # table missing on legacy DBs
+    finally:
+        conn.close()
+    if row is None:
+        return None
+    return {
+        "run_id": row[0], "outcome_state": row[1], "reason": row[2],
+        "pooled_sharpe": row[3], "pooled_mde": row[4],
+        "n_windows_pass": row[5], "n_windows_fail": row[6],
+        "n_windows_inconclusive_data": row[7],
+        "n_windows_inconclusive_power": row[8],
+        "heavy_tail_flag": row[9], "created_at": row[10],
+    }
+
+
+def _evaluate_walkforward_gate(
+    strategy_id: str, db_path: str, evidence: dict,
+) -> tuple[bool | None, dict]:
+    """Attach walk-forward v1 three-state outcome to evidence and return
+    a gate decision from the walk-forward result alone.
+
+    Returns:
+        (True, evidence)  if outcome_state == PASS
+        (False, evidence) if outcome_state == FAIL or INCONCLUSIVE
+        (None, evidence)  if no walkforward_results row exists — caller
+                          should fall back to the legacy OOS_efficiency gate
+
+    Attaches to evidence:
+        walkforward_outcome_state: 'PASS' | 'FAIL' | 'INCONCLUSIVE' | None
+        walkforward_reason: structured reason string from the runner
+        walkforward_run_id: cross-reference to walkforward_results
+        walkforward_pooled_sharpe: net-of-cost pooled Sharpe
+    """
+    wf = _fetch_latest_walkforward_outcome(strategy_id, db_path)
+    if wf is None:
+        evidence["walkforward_outcome_state"] = None
+        evidence["walkforward_reason"] = None
+        return None, evidence
+    evidence["walkforward_outcome_state"] = wf["outcome_state"]
+    evidence["walkforward_reason"] = wf["reason"]
+    evidence["walkforward_run_id"] = wf["run_id"]
+    evidence["walkforward_pooled_sharpe"] = wf["pooled_sharpe"]
+    evidence["walkforward_pooled_mde"] = wf["pooled_mde"]
+    evidence["walkforward_heavy_tail_flag"] = bool(wf["heavy_tail_flag"])
+    state = wf["outcome_state"]
+    if state == WF_STATE_PASS:
+        return True, evidence
+    if state == WF_STATE_INCONCLUSIVE:
+        evidence["error"] = "walkforward_inconclusive"
+        return False, evidence
+    if state == WF_STATE_FAIL:
+        evidence["error"] = "walkforward_failed"
+        return False, evidence
+    # Unknown state — don't silently pass. Treat as FAIL.
+    evidence["error"] = f"walkforward_unknown_state:{state}"
+    return False, evidence
+
+
 def _evaluate_shadow_trading_gate(
     strategy_id: str, db_path: str,
 ) -> tuple[bool, dict]:
     """Evaluate gate criteria for 'backtested → shadow_trading' transition.
 
-    Enforces all three rigor gates per spec line 1127-1135:
-      DSR >= GATE_DSR_MIN (0.95), PBO <= GATE_PBO_MAX (0.50),
-      OOS_efficiency >= GATE_OOS_EFFICIENCY_MIN (0.30).
-    Fails immediately if PBO or OOS_efficiency are NULL — caller must run
-    --with-walkforward (OOS) or param-sweep campaign (PBO, Sprint 4).
+    Preference order:
+      1. walkforward_results v1 (three-state outcome preserves PASS /
+         FAIL / INCONCLUSIVE in evidence — never collapse to boolean).
+         If outcome != PASS, gate returns False with a structured reason.
+      2. Legacy DSR + PBO + OOS_efficiency gate (backward-compatibility
+         for strategies that predate walk-forward v1 table).
     """
     passes_dsr, evidence = _evaluate_dsr_evidence(strategy_id, db_path)
     if "error" in evidence:
         return False, evidence
+
+    # Walk-forward v1 three-state outcome takes precedence when available.
+    wf_pass, evidence = _evaluate_walkforward_gate(
+        strategy_id, db_path, evidence,
+    )
+    if wf_pass is False:
+        # INCONCLUSIVE or FAIL — never collapse. Evidence already carries
+        # walkforward_outcome_state + walkforward_reason fields.
+        return False, evidence
+    # wf_pass is True → walk-forward passed, keep checking DSR.
+    # wf_pass is None → no walkforward_results row; fall back to legacy gate.
 
     # Read pbo + oos_efficiency from the same backtest row (NULL-defaulting).
     conn = sqlite3.connect(db_path)
@@ -187,6 +284,19 @@ def _evaluate_shadow_trading_gate(
     evidence["pbo"] = pbo
     evidence["oos_efficiency"] = oos_efficiency
 
+    # When walk-forward v1 has passed, we skip the legacy OOS_efficiency
+    # requirement — the new framework is stricter. PBO is still checked.
+    if wf_pass is True:
+        if pbo is None:
+            evidence["error"] = (
+                "backtest has no PBO — run a param sweep with CSCV first"
+            )
+            return False, evidence
+        passes_pbo = bool(pbo <= GATE_PBO_MAX)
+        evidence["passes_pbo_max"] = passes_pbo
+        return passes_dsr and passes_pbo, evidence
+
+    # Legacy path (wf_pass is None).
     if pbo is None:
         evidence["error"] = "backtest has no PBO — run a param sweep with CSCV first"
         return False, evidence
@@ -222,13 +332,29 @@ def check_promotion_gate(
 ) -> tuple[bool, dict]:
     """Evaluate whether `strategy_id` may transition to `target_status`.
 
-    Returns (passes, evidence_dict). Evidence keys depend on target:
+    Returns (passes, evidence_dict). Evidence always includes structured
+    reason strings — not just a boolean — so three-state walk-forward
+    outcomes (PASS / FAIL / INCONCLUSIVE) are preserved end-to-end.
+
+    Evidence keys depend on target:
       - target='backtested': {'auto': True}
-      - target='shadow_trading': {dsr, pbo, oos_efficiency, max_drawdown_pct,
-                                   n_trades, n_eff_used_for_dsr,
-                                   trials_sr_variance_used}
+      - target='shadow_trading': walk-forward v1 if present
+            {walkforward_outcome_state, walkforward_reason, walkforward_run_id,
+             walkforward_pooled_sharpe, walkforward_pooled_mde,
+             walkforward_heavy_tail_flag, dsr, pbo, n_eff_used_for_dsr,
+             trials_sr_variance_used}
+        else legacy gate
+            {dsr, pbo, oos_efficiency, max_drawdown_pct, n_trades, ...}
       - target='production': above + {n_shadow_trades, shadow_duration_days}
       - target='deprecated': {'auto': True}
+
+    Three-state handling on shadow_trading:
+      - walk-forward outcome PASS → evidence.walkforward_outcome_state='PASS',
+        still checks DSR + PBO
+      - walk-forward FAIL → returns (False, evidence with error='walkforward_failed')
+      - walk-forward INCONCLUSIVE → returns (False, evidence with
+        error='walkforward_inconclusive')
+      - No walkforward_results row → falls back to legacy OOS_efficiency gate
 
     DSR is recomputed from real trade returns + real N_eff and V from
     trials_registry — never read from the stored deflated_sharpe column.
