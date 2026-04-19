@@ -14,12 +14,22 @@ def generate_sync_tables() -> dict[str, dict]:
     """Generate SYNC_TABLES config.
 
     Only includes tables where sync_to_postgres=True.
+
+    For composite primary keys (minute_bars, correlation_matrices,
+    factor_loadings), emit the full comma-joined column list as
+    `conflict_col` so Postgres ON CONFLICT matches the real composite
+    unique constraint. Without this, the upsert targets only the first PK
+    column and fails with "no unique or exclusion constraint matching the
+    ON CONFLICT specification".
     """
     config = {}
     for name, table in TABLES.items():
         if not table.sync_to_postgres:
             continue
         entry: dict = {"mode": table.sync_mode}
+        is_composite = (
+            isinstance(table.primary_key, list) and len(table.primary_key) > 1
+        )
         pk = table.sync_pk or (
             table.primary_key
             if isinstance(table.primary_key, str)
@@ -30,5 +40,7 @@ def generate_sync_tables() -> dict[str, dict]:
             entry["time_col"] = table.sync_time_column
         if table.sync_conflict_col:
             entry["conflict_col"] = table.sync_conflict_col
+        elif is_composite:
+            entry["conflict_col"] = ", ".join(table.primary_key)
         config[name] = entry
     return config
