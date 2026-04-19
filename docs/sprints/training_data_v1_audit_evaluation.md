@@ -205,7 +205,12 @@ This self-audit is CC discipline; operator does not gate.
 
 ## 9. Revision based on Pass 2 findings
 
-(This section reserved for inline revision if Pass 2 research invalidates any decision above.)
+Two Pass 1 decisions were revised after Pass 2 research (full rationale in `training_data_v1_audit_research_findings.md` §12):
+
+- **D4 v1-cohort definition:** was "date cutoff + text pattern"; revised to **`attribution_trades` JOIN where `ranker_only_outcome_v1 != ranker_only_outcome`**. Reason: `training_examples.trade_date` is 100% NULL in production DB; direct column `ranker_only_outcome_v1` exists in `attribution_trades` (not `shadow_trades` as the sprint prompt assumed).
+- **D5 Pass B format target:** was "plain-text schema on input_text only"; revised to **XML-tag drift on `output_text` (primary) + plain-text label drift on `input_text` (secondary)**. Reason: `output_text` is XML-tagged (`<why_now>`, `<analysis>` at 95% prevalence). Ignoring XML loses the main signal.
+
+**Revealed constraint:** Pass A's reachable quarantine cohort in the current DB is **6 rows max** (12 examples join `attribution_trades`; 6 diverged). Sprint still earns merit via Pass B + Pass C corpus-wide checks; the architecture remains sound for future runs as more trades get linked.
 
 ---
 
