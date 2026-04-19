@@ -2,6 +2,36 @@
 
 ## [Unreleased]
 
+### Added (v0.26.2-preflight — post-audit ruleset feasibility diagnostic)
+
+Closes #533. Pass 1 only — docs-only sprint, no implementation, no spec,
+no schema changes.
+
+- **Outcome: Path B (partial block, scoped sprint).** v0.26.2 does NOT
+  inherit the full #530 dependency chain. Walk-forward is insulated
+  from the `signal_eval.py:180` `NotImplementedError` (#494 / #530
+  Sprint A) because it runs through `backtest_engine._run_scheduled`,
+  not the live-flow candidate resolver. Zero strict overlap with
+  #530 Sprints A–H under the recommended hard-filter interpretation
+  of defensive sector bias.
+- **Three filters, three disjoint gaps:** (1) morning-only entry
+  window — blocked on intraday OHLCV data layer (NEW gap, not on
+  #530); (2) defensive sector bias — schema gap only under hard-filter
+  interpretation; (3) tariff-event exclusion — schema gap only, v0.25.1
+  `is_known_event(date, category="Trade Policy")` substrate is
+  production-ready at `src/diagnostics/known_events.py:302-319`.
+- **R8(a) declaration validity:** 3 of 4 fields accepted by
+  `walkforward_firewall.validate_derived_from`. `source_trade_ids:
+  null` is rejected by the current validator (`:129-135` — checks
+  `isinstance(sti, list)`); spec-convention fix is to omit the key,
+  which is already the "not present" signal per `:128`.
+- **Next step:** file v0.26.2-pre scoped schema-extension sprint
+  (sector_filter convention + `entry.exclusions.known_events` +
+  ~10-line `backtest_engine` wiring). Morning-only deferred to a
+  follow-up gated on intraday OHLCV.
+- **Preflight doc:** `docs/sprints/post_audit_v1_preflight.md` (343
+  lines, under 400-line budget).
+
 ### Changed (v0.25.2 — Roadmap completeness audit)
 
 Closes #526. Additions-only sprint — no new code, `frontend/src/pages/Roadmap.jsx`
