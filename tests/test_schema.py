@@ -114,6 +114,41 @@ def test_diagnostic_run_plots_in_registry():
     assert td.sync_to_postgres is True
 
 
+# ── Training-examples quarantine columns (v0.26.0 — training v1-audit) ──
+
+def test_training_examples_has_quarantine_columns():
+    """quarantined + quarantine_reason must exist on training_examples.
+
+    Sprint v0.26.0 (training data v1-audit) depends on these columns to
+    flag contaminated rows without deleting them. Regression guard.
+    """
+    assert "training_examples" in TABLES
+    td = TABLES["training_examples"]
+    names = [c.name for c in td.columns]
+    assert "quarantined" in names, "training_examples missing quarantined column"
+    assert "quarantine_reason" in names, (
+        "training_examples missing quarantine_reason column"
+    )
+    q = next(c for c in td.columns if c.name == "quarantined")
+    assert q.type == "INTEGER"
+    assert q.default == "0"
+    qr = next(c for c in td.columns if c.name == "quarantine_reason")
+    assert qr.type == "TEXT"
+
+
+def test_diagnostic_type_description_includes_training_audit():
+    """diagnostic_type description must enumerate 'training_audit' for R8.
+
+    The column itself is unconstrained TEXT; the description is the
+    single source of truth for what values are valid.
+    """
+    td = TABLES["diagnostic_runs"]
+    dt = next(c for c in td.columns if c.name == "diagnostic_type")
+    assert "training_audit" in (dt.description or ""), (
+        f"diagnostic_type.description must list 'training_audit'; got: {dt.description!r}"
+    )
+
+
 def test_all_expected_tables_present():
     """Every known table must be in the registry."""
     missing = EXPECTED_TABLES - set(TABLES.keys())
