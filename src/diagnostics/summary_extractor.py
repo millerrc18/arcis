@@ -106,3 +106,56 @@ def parse_forensic_report(md: str) -> dict:
     if errors:
         summary["parse_errors"] = errors
     return summary
+
+
+# ── training audit (v0.26.0) ─────────────────────────────────────────
+
+_AUDIT_TOTAL_RE = re.compile(r"\*\*Total audited\*\*:\s*(\d+)")
+_AUDIT_QUARANTINED_RE = re.compile(r"\*\*Quarantined\*\*:\s*(\d+)")
+_AUDIT_CLEAN_RE = re.compile(r"\*\*Clean corpus remaining\*\*:\s*(\d+)")
+_AUDIT_LEAKAGE_RE = re.compile(
+    r"\*\*Pass C balanced accuracy\*\*:\s*([\d\.]+)"
+)
+
+
+def parse_training_audit_report(md: str) -> dict:
+    """Parse a training-audit report's executive summary.
+
+    Extracts the headline counts for diagnostic_runs.summary_json. If
+    any field is absent from the markdown, falls back to the
+    raw_executive_summary pattern (same as regime/forensic).
+    """
+    body = _extract_exec_summary(md)
+    if body is None:
+        return _fallback(None, ["no_executive_summary"])
+
+    errors: list[str] = []
+    summary: dict = {"raw_executive_summary": body[:2000]}
+
+    m = _AUDIT_TOTAL_RE.search(body)
+    if m:
+        summary["total_audited"] = int(m.group(1))
+    else:
+        errors.append("total_audited")
+
+    m = _AUDIT_QUARANTINED_RE.search(body)
+    if m:
+        summary["quarantined_total"] = int(m.group(1))
+    else:
+        errors.append("quarantined_total")
+
+    m = _AUDIT_CLEAN_RE.search(body)
+    if m:
+        summary["clean_corpus_size"] = int(m.group(1))
+    else:
+        errors.append("clean_corpus_size")
+
+    m = _AUDIT_LEAKAGE_RE.search(body)
+    if m:
+        summary["leakage_accuracy"] = float(m.group(1))
+    # leakage_accuracy may legitimately be absent (insufficient data) —
+    # don't record that as a parse error.
+
+    if errors:
+        summary["parse_errors"] = errors
+    return summary
