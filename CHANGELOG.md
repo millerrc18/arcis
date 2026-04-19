@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Blocked (v0.26.0 — Incumbent YAML extraction)
+
+Closes #523 as **BLOCKED**. See #530 for prerequisite dependency chain.
+
+- **Pass 1 + Pass 2 findings:** 7 of 8 pre-registered blockers hold. Incumbent cannot cleanly extract to YAML without schema extensions + close of #494 + scan pipeline refactor.
+- **Deliverable:** `docs/sprints/incumbent_v1_yaml_evaluation.md` (309 lines) + `docs/sprints/incumbent_v1_yaml_research.md` (261 lines).
+- **Docs-only ship** per prompt's explicit STOP path.
+
 ### Added (v0.26.2-preflight — post-audit ruleset feasibility diagnostic)
 
 Closes #533. Pass 1 only — docs-only sprint, no implementation, no spec,
