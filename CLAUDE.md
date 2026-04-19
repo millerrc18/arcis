@@ -118,6 +118,12 @@ python -m ruff format src/ tests/
 - **`_safe_run` returns bool** — done-flags must be conditional: `if self._safe_run(...): self._done = True`. Never set a done-flag unconditionally after `_safe_run`. For inline try/except blocks, set the done-flag inside the `try`, never after the `except`.
 - **Backoff is per-task** — the `_backoff` dict in `WatchLoop` keys by task name. A failure in one task never delays an unrelated task.
 
+## Database Access Rules
+
+- **Never open `data/ai_research_desk.sqlite3` in an external tool (MS Access, DBeaver, DB Browser for SQLite, etc.) while the watch loop is running.** External tools hold Windows file locks for indefinite durations while you're browsing; every concurrent writer in Python then hits `database is locked` until you close the external tool. Even after closing, locks can persist ~60s until Windows releases the handle. 2026-04-19: 118 lock errors in a single session traced to the operator having the DB open in MS Access.
+- **If you must inspect data live, use `sqlite3` from the command line with read-only mode (`sqlite3 -readonly`) or a Python REPL opening with `sqlite3.connect('file:.../ai_research_desk.sqlite3?mode=ro', uri=True)`.**
+- **All Python SQLite connections should use `src.utils.db.connect_db()`** — it applies `busy_timeout=30s` and `row_factory=sqlite3.Row` consistently. Don't write new `sqlite3.connect(...)` call sites without a timeout.
+
 ## Shadow Trading Rules
 
 - **Status constants are canonical** — use `TERMINAL_STATUSES` and `ACTIVE_STATUSES` from `src/shadow_trading/models.py` in queries. Never hardcode `status != 'closed'`.

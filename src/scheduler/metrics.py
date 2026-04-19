@@ -12,11 +12,12 @@ and other operational metrics for the compute schedule.
 
 import json
 import logging
-import sqlite3
+import sqlite3  # noqa: F401 — retained for test fixtures / future direct use
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -35,7 +36,7 @@ def record_metric(metric_name: str, metric_value: float,
     """Record a single schedule metric for today."""
     init_schedule_metrics(db_path)
     metric_date = datetime.now(ET).strftime("%Y-%m-%d")
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.execute(
             "INSERT INTO schedule_metrics (metric_date, metric_name, metric_value, details) "
             "VALUES (?, ?, ?, ?)",
@@ -50,7 +51,7 @@ def upsert_daily_metric(metric_name: str, metric_value: float,
     """Insert or update a metric for today (replaces existing value)."""
     init_schedule_metrics(db_path)
     metric_date = datetime.now(ET).strftime("%Y-%m-%d")
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         existing = conn.execute(
             "SELECT id FROM schedule_metrics "
             "WHERE metric_date = ? AND metric_name = ?",
@@ -77,7 +78,7 @@ def get_metrics(days: int = 30,
     """Get schedule metrics for the last N days."""
     init_schedule_metrics(db_path)
     cutoff = (datetime.now(ET) - timedelta(days=days)).strftime("%Y-%m-%d")
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT metric_date, metric_name, metric_value, details "
@@ -104,7 +105,7 @@ def get_todays_metrics(db_path: str = DB_PATH) -> dict:
     """Get today's running metric totals."""
     init_schedule_metrics(db_path)
     today = datetime.now(ET).strftime("%Y-%m-%d")
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT metric_name, metric_value FROM schedule_metrics "
