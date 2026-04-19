@@ -2,6 +2,82 @@
 
 ## [Unreleased]
 
+### Added (v0.26.2-scoped — Schema extension: sector_filter + event_exclusion)
+
+Closes #539. Two additive optional fields on the strategy spec, both read-only
+filters applied at candidate-selection time (pre-ranking). Minimal and
+declarative per the v0.26.2-preflight (PR #536) Path B scope.
+
+- **`universe.sector_filter: list[str]`** — if present, filters the candidate
+  ticker set to those whose `SECTOR_MAP[ticker]` (GICS name) matches any
+  listed value. Applied in `src/platform/signal_eval.py:_query_event_rows`
+  between universe resolution and the SQL `IN(...)` clause.
+- **`entry.event_exclusion.categories: list[str]`** — if present, skips any
+  entry whose resolved entry date (`filing_date + next trading day`) matches
+  a v0.25.1 `KNOWN_EVENTS` row whose category is in the listed set.
+  Applied in `src/platform/backtest_engine.py:_run_event_driven`.
+
+Both fields are optional and validated in
+`src/platform/strategy_spec.py:validate_spec`. Type rules: non-empty
+`list[str]`; nested `entry.event_exclusion` must be a dict if present.
+
+Preserves the v0.25.3 framework baseline and does not modify
+`lazy_prices_v1.yaml`. Regression test
+`test_lazy_prices_still_loads_without_new_fields` confirms.
+
+### Added (v0.26.2-scoped — post_audit_ruleset_v1.yaml)
+
+First non-null `derived_from` strategy on main. `source_type =
+forensic_audit_ruleset`, source date range 2026-04-01 → 2026-04-18,
+`source_trade_ids` key intentionally omitted per Pass 2 finding (the R8
+firewall at `walkforward_firewall.py:129-135` accepts key-absence but
+rejects `null`).
+
+- `universe.sector_filter: [Consumer Staples, Utilities, Health Care]`
+  (28 tickers, 28% of current S&P 100 by GICS membership)
+- `entry.event_exclusion.categories: [Trade Policy]` (excludes entries on
+  any of the 9 2019-2024 Trade Policy dates from v0.25.1 backfill)
+- Otherwise mirrors `lazy_prices_v1.yaml` — same cosine-similarity signals
+  on 10-K/10-Q sections, same ATR-based brackets, same fixed-pct sizing
+
+### Validated (v0.26.2-scoped — Walk-forward run on real EDGAR data)
+
+First walk-forward run of a non-null-`derived_from` spec.
+
+- **Outcome:** `INCONCLUSIVE / coverage_inconclusive` — matches Pass 1
+  hypothesis; trade count collapses to 3 (all Consumer Staples, windows
+  0/2/3 one each; windows 1/4 empty).
+- **Run:** `run_id=f266e097-0e19-4360-ac4a-ca1c388dda02`,
+  `spec_hash=463853b5...`, `code_git_sha=6b887927...`, `seed=42`.
+- **Pooled Sharpe:** +1.019 (vs v0.25.3 baseline +3.528)
+- **Pooled MDE:** 47.197 (vs 10.545 baseline; ~4.5× scales as 1/√N)
+- **Heavy-tail flag:** 0 (N=1 windows degenerate to MDE=inf before the
+  bootstrap heuristic activates — correct behavior)
+- **R8(a) persisted:** `derived_from_source_type=forensic_audit_ruleset`,
+  `derived_from_source_run_id=april-2026-forensic-audit`
+- **R8(b):** overlap-assertion trivially cleared (2026-04 vs 2019-2024)
+- **Filter bypass trigger (new):** did NOT fire — 3 trades ≤ 20 baseline
+
+**Schema + filters both VALIDATED.** No framework-bug investigation filed.
+
+Per-trade ledger:
+- Window 0: PM (Consumer Staples) 2020-02-10, 13d, -5.79% (stop)
+- Window 2: COST (Consumer Staples) 2021-10-07, 20d, +12.84% (timeout)
+- Window 3: MO (Consumer Staples) 2023-02-28, 17d, -5.00% (stop)
+
+Validation doc:
+`docs/validation/post-audit-v1-scoped-walkforward-2026-04-20.md`.
+Cycle summary: `docs/validation/v0.26-cycle-summary.md`. Ralph Loop:
+`docs/sprints/post_audit_v1_scoped_{evaluation,research}.md`.
+
+**Morning-only filter (the third forensic-audit refinement)** remains
+deferred to #540. Pending intraday OHLCV data layer.
+
+**Secondary finding (non-blocking):** `vix_at_entry` / `vix_tier` NULL
+on 3/3 OOS trades. Same upstream data-enrichment gap documented in the
+v0.25.3 validation doc. Primary `min_trades_per_window=10` gate already
+binding.
+
 ### Validated (v0.25.3 — Walk-forward framework end-to-end on real EDGAR data)
 
 Closes #532. First real-data run of the walk-forward v1 framework (shipped
