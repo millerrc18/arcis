@@ -36,10 +36,16 @@ class ForensicPayload(BaseModel):
     pass
 
 
+class TrainingAuditPayload(BaseModel):
+    dry_run: bool = False
+    passes: list[str] | None = None
+
+
 def _command_name_for(diagnostic_type: str) -> str:
     return {
         "regime": "run-regime-diagnostic",
         "forensic": "run-forensic-audit",
+        "training_audit": "run-training-audit",
     }[diagnostic_type]
 
 
@@ -117,6 +123,27 @@ def _add_submit_routes(router: APIRouter, runtime, verify_auth) -> None:
         _check_dedup(runtime, "forensic")
         payload = body.model_dump(exclude_none=True) if body else {}
         return _submit_diagnostic(runtime, "forensic", payload, "dashboard")
+
+    @router.post("/api/diagnostic-runs/training-audit",
+                 dependencies=[Depends(verify_auth)], status_code=202)
+    def submit_training_audit(body: TrainingAuditPayload | None = None):
+        """Kickoff the three-pass training-data v1-citation audit.
+
+        409 CONFLICT if a training_audit run is already queued or running
+        (same dedup pattern as regime/forensic — enforces serial execution
+        per diagnostic type).
+        """
+        _check_dedup(runtime, "training_audit")
+        payload = body.model_dump(exclude_none=True) if body else {}
+        # Normalize passes to upper-case 'A'/'B'/'C' subset
+        if isinstance(payload.get("passes"), list):
+            payload["passes"] = [
+                p.upper() for p in payload["passes"]
+                if isinstance(p, str) and p.upper() in ("A", "B", "C")
+            ]
+        return _submit_diagnostic(
+            runtime, "training_audit", payload, "dashboard",
+        )
 
 
 def _add_list_and_detail_routes(router: APIRouter, runtime, verify_auth) -> None:

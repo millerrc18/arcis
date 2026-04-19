@@ -2,6 +2,68 @@
 
 ## [Unreleased]
 
+### Added (v0.26.0 — Training Data v1-Citation Audit)
+
+- `src/training/audit/` package — three-pass audit for the 1,782-row
+  `training_examples` corpus:
+  - Pass A (`pass_a_citation.py`) — quarantines rows whose narrative
+    cites the v1-buggy outcome and contradicts the v2-corrected
+    outcome. Ground truth lives in `attribution_trades`
+    (`ranker_only_outcome_v1 != ranker_only_outcome`). Lexicon-based
+    win/loss direction classifier with word-boundary regex
+    (`successful` fires; `unsuccessful` does not).
+  - Pass B (`pass_b_format.py`) — XML tag integrity on `output_text`
+    (`<why_now>`, `<analysis>` at 95% prevalence) + plain-text label
+    schema on `input_text` (`Ticker:`, `Current Price:`, `Trend State:`
+    — all 100% prevalence per commit-12 calibration).
+  - Pass C (`pass_c_leakage.py`) — TF-IDF + LogReg probe with
+    StratifiedKFold CV + balanced-accuracy scoring on the labeled
+    subset (`blinded_win/loss`, `outcome_win/loss`). Masks ticker +
+    company names. Report-only; never auto-quarantines in v1.
+- `@register_action(name="training_data_audit", ...)` — capability
+  registered at import time per Sprint 1B. Appears in
+  `/api/system/index` and as a third kickoff button on `/diagnostics`.
+- `POST /api/diagnostic-runs/training-audit` + 409 CONFLICT dedup
+  (same pattern as regime + forensic).
+- `run-training-audit` command dispatched through
+  `src/commands/diagnostic_handlers.py` →
+  `dashboard_runner.run_diagnostic` →
+  `scripts/audits/training_data_v1_audit.py`.
+- Frontend: third `<div>` in `DiagnosticKickoffButtons.jsx`
+  (grid-cols-3); `DiagnosticRunTable.parseDecision()` recognizes
+  `{quarantined_total, total_audited}` summary_json shape.
+- Schema: `training_examples.quarantined INTEGER DEFAULT 0` +
+  `training_examples.quarantine_reason TEXT` columns (additive via
+  registry). `diagnostic_runs.diagnostic_type` description widened
+  to `'regime' | 'forensic' | 'training_audit'`.
+- Fixed quarantine-reason taxonomy (`src/training/audit/taxonomy.py`):
+  `v1_attribution_contradicts_narrative` |
+  `format_drift_missing_section` | `format_drift_deprecated_marker` |
+  `format_drift_malformed` | `leakage_ngram_suspect`. Free-form
+  strings are not accepted (R3).
+
+### Audit results (2026-04-19 production run)
+
+- Total audited: 1,782; quarantined 76 (4.3%); clean corpus 1,706.
+- Pass A: 1 quarantine (CSCO, `blinded_win`, narrative cited v1="loss"
+  contradicting v2="win"); 7 preserved outcome-neutral.
+- Pass B: 75 missing `<why_now>` or `<analysis>` XML tags.
+- Pass C: balanced accuracy 0.500, majority baseline 0.721 — NOT
+  LEAKING. Probe confirms the narrative does not encode the outcome
+  beyond class-imbalance baseline.
+- Full report: `docs/audits/training-audit-2026-04-19.md`.
+
+### Tests added (v0.26.0)
+
+- `tests/training/test_pass_a.py` (14 tests)
+- `tests/training/test_pass_b.py` (12 tests)
+- `tests/training/test_pass_c.py` (7 tests)
+- `tests/training/test_audit_integration.py` (12 tests)
+- `tests/audits/test_training_audit_cli.py` (6 tests)
+- `tests/test_diagnostic_handlers.py` (+3 tests)
+- `tests/api/test_diagnostic_routes.py` (+5 tests)
+- `tests/test_schema.py` (+2 tests)
+
 ### Added (v0.25.0 — Capability Registry, Sprint 1B)
 
 - `src/platform/capability_registry/` — four in-process registries

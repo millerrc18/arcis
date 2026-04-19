@@ -452,6 +452,15 @@ _register(TableDef(
         ColumnDef("source_coverage", "REAL"),
         ColumnDef("actionability", "REAL"),
         ColumnDef("composite_score", "REAL"),
+        # v0.26.0 — training data v1-audit.
+        # quarantined=1 marks a row excluded from training without deletion.
+        # quarantine_reason is from a fixed taxonomy (see src/training/audit/taxonomy.py):
+        # v1_attribution_contradicts_narrative | format_drift_missing_section |
+        # format_drift_deprecated_marker | format_drift_malformed | leakage_ngram_suspect
+        ColumnDef("quarantined", "INTEGER", default="0",
+                  description="1 = excluded from training, reversible via SQL"),
+        ColumnDef("quarantine_reason", "TEXT",
+                  description="Fixed taxonomy code; NULL iff quarantined=0"),
     ],
     primary_key="example_id",
     sync_to_postgres=True,
@@ -1479,7 +1488,7 @@ _register(TableDef(
     columns=[
         ColumnDef("run_id", "TEXT", nullable=False),
         ColumnDef("diagnostic_type", "TEXT", nullable=False,
-                  description="'regime' | 'forensic'"),
+                  description="'regime' | 'forensic' | 'training_audit'"),
         ColumnDef("status", "TEXT", nullable=False,
                   description="'queued' | 'running' | 'completed' | 'failed'"),
         ColumnDef("trigger_source", "TEXT", nullable=False, default="dashboard",

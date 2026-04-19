@@ -58,7 +58,7 @@ with an unbeatable technological moat.
 | Closed trades | 85 closed (105 quarantined from April 10 cascade; verify via shadow-status) |
 | Open positions | ~2 (verify with shadow-status) |
 | Model | halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF); v2.0.0 retrain gated on excess-Sharpe validation |
-| Training data | 1,722 examples (1,019 + 703 regime-diverse backfill) |
+| Training data | 1,782 examples total; **76 quarantined via v0.26.0 training_data_audit (75 format_drift_missing_section + 1 v1_attribution_contradicts_narrative)** → 1,706 clean corpus for next retrain |
 | Tests | 2,141 tests across 181 test files (+44 tests, +7 test files Sprint 1; +55 tests, +8 test files Sprint 2: CSCV/walk-forward/promotion/trials/desk-tag/config; +37 tests Sprint 3: desk-filter/correlation-schema/exposure-limits; +31 tests Sprint 4 Tier 5: alpaca_clients/alpaca_adapter/reconcile-routing/scheduler-dispatch/shadow-harness/watch-tick/cost-calibration; +22 tests Sprint 4 cont.: find_candidates/platform-api/shadow-harness-tick/promotion-gates/widget/telegram/plugin-interface) |
 | Python files | 214 (+12 new src/platform/ modules Sprint 1; +4 new src/platform/ modules Sprint 2: promotion, trials, rigor/walkforward, rigor/trials; +1 module Sprint 3: exposure_limits; +4 modules Sprint 4 Tier 5: alpaca_clients, reconcile_dispatch, shadow_harness, cost_calibration; +3 modules Sprint 4 cont.: signal_eval, strategy_plugin, plugin_registry) |
 | Dashboard pages | 25 |

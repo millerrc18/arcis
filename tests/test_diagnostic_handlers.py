@@ -28,6 +28,7 @@ def db(tmp_path):
 def test_run_regime_diagnostic_handler_registered():
     assert "run-regime-diagnostic" in COMMAND_HANDLERS
     assert "run-forensic-audit" in COMMAND_HANDLERS
+    assert "run-training-audit" in COMMAND_HANDLERS
 
 
 def test_run_regime_diagnostic_invokes_runner(db, monkeypatch):
@@ -97,3 +98,57 @@ def test_run_forensic_audit_missing_run_id():
     handler = COMMAND_HANDLERS["run-forensic-audit"]
     result = handler({}, config={})
     assert "error" in result
+
+
+# ── training audit (v0.26.0) ─────────────────────────────────────────
+
+
+def test_run_training_audit_invokes_runner(db, monkeypatch):
+    captured = {}
+
+    def fake_runner(**kwargs):
+        captured.update(kwargs)
+        return {"status": "completed", "exit_code": 0,
+                "summary": {"total_audited": 1782, "quarantined_total": 7}}
+
+    monkeypatch.setattr(
+        "src.diagnostics.dashboard_runner.run_diagnostic", fake_runner,
+    )
+    handler = COMMAND_HANDLERS["run-training-audit"]
+    payload = {"run_id": "r-1", "db_path": db, "dry_run": True}
+    result = handler(payload, config={})
+
+    assert result["status"] == "completed"
+    assert "training_data_v1_audit.py" in captured["script_path"]
+    assert "--dry-run" in captured["script_args"]
+    assert captured["db_path"] == db
+
+
+def test_run_training_audit_passes_subset_flags(db, monkeypatch):
+    captured = {}
+
+    def fake_runner(**kwargs):
+        captured.update(kwargs)
+        return {"status": "completed", "exit_code": 0}
+
+    monkeypatch.setattr(
+        "src.diagnostics.dashboard_runner.run_diagnostic", fake_runner,
+    )
+    handler = COMMAND_HANDLERS["run-training-audit"]
+    handler({"run_id": "r-1", "db_path": db, "passes": ["A", "B"]}, config={})
+
+    args = captured["script_args"]
+    assert "--pass" in args
+    # Should have two --pass entries, with values A and B
+    pass_values = [
+        args[i + 1] for i, a in enumerate(args) if a == "--pass"
+    ]
+    assert "A" in pass_values
+    assert "B" in pass_values
+
+
+def test_run_training_audit_missing_run_id():
+    handler = COMMAND_HANDLERS["run-training-audit"]
+    result = handler({}, config={})
+    assert "error" in result
+    assert "run_id" in result["error"]
