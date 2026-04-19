@@ -2,38 +2,67 @@
 
 ## [Unreleased]
 
-### Blocked (v0.26.0 — Incumbent strategy as YAML spec)
+### Blocked (v0.26.0 — Incumbent YAML extraction)
 
-**Status: BLOCKED.** Closes #523 as BLOCKED; prerequisites enumerated in #530.
+Closes #523 as **BLOCKED**. See #530 for prerequisite dependency chain.
 
-Per the v0.26.0 sprint prompt's explicit STOP-and-file path:
+- **Pass 1 + Pass 2 findings:** 7 of 8 pre-registered blockers hold. Incumbent cannot cleanly extract to YAML without schema extensions + close of #494 + scan pipeline refactor.
+- **Deliverable:** `docs/sprints/incumbent_v1_yaml_evaluation.md` (309 lines) + `docs/sprints/incumbent_v1_yaml_research.md` (261 lines).
+- **Docs-only ship** per prompt's explicit STOP path.
 
-> If Pass 2 reveals cross-dependencies that don't YAML-ify, STOP and file issue
-> with specific coupling. Do NOT force incomplete refactor.
+### Added (v0.26.2-preflight — post-audit ruleset feasibility diagnostic)
 
-Pass 1 + Pass 2 research confirmed 7 cross-dependencies that block byte-identical
-extraction of the incumbent pullback-in-uptrend strategy into
-`src/platform/specs/incumbent_v1.yaml`:
+Closes #533. Pass 1 only — docs-only sprint, no implementation, no spec,
+no schema changes.
 
-- `daily_scan` entry kind has no runtime (gated on open issue #494)
-- Lazy-prices schema missing ~10 sections (ranking DSL, multi-target brackets,
-  regime-adaptive sizing, attribution hooks, enrichment chain, post-scan chain,
-  event-risk gate, bootcamp overrides, setup-classifier hook)
-- Scan pipeline is not spec-driven — ranker/packet/executor all read hardcoded
-  Python constants
-- Simulation vs live use different bracket tables; YAML must pick one
-- Config-driven state (bootcamp, regime_adaptive) changes ranker thresholds
-- Enrichment pipeline + post-scan chain + setup classifier have no spec
-  declaration form
+- **Outcome: Path B (partial block, scoped sprint).** v0.26.2 does NOT
+  inherit the full #530 dependency chain. Walk-forward is insulated
+  from the `signal_eval.py:180` `NotImplementedError` (#494 / #530
+  Sprint A) because it runs through `backtest_engine._run_scheduled`,
+  not the live-flow candidate resolver.
+- **Per-filter verdict:** Defensive (hard-filter, disjoint from #530),
+  Tariff (schema-only, uses v0.25.1 `is_known_event` substrate),
+  Morning-only (deferred to #540 behind intraday OHLCV data layer).
+- **R8(a) finding:** `source_trade_ids: null` fails
+  `validate_derived_from` at `walkforward_firewall.py:129-135` —
+  recommend omitting the key entirely.
+- **Deliverable:** `docs/sprints/post_audit_v1_preflight.md` (343 lines).
 
-Pass 1's Blocker 2 (LLM modifies brackets) was **refuted** during Pass 2:
-`src/llm/packet_writer.py:508-514` explicitly documents the
-mechanical-vs-LLM separation. Brackets are deterministic.
+### Validated (v0.25.3 — Walk-forward framework end-to-end on real EDGAR data)
 
-No `incumbent_v1.yaml` was created. No schema was extended. No runtime changed.
-Ralph Loop docs (Pass 1 evaluation + Pass 2 research) are preserved in
-`docs/sprints/incumbent_v1_yaml_{evaluation,research}.md` for the follow-up
-sprint sequence proposed in #530.
+Closes #532. First real-data run of the walk-forward v1 framework (shipped
+in v0.25.0 / PR #520) against `src/platform/specs/lazy_prices_v1.yaml`
+using the operator's local EDGAR corpus.
+
+- **Outcome:** `INCONCLUSIVE / coverage_inconclusive` — matches the Pass 1
+  pre-registered hypothesis (NOT PASS expected; forensic audit established
+  lazy-prices underpowered at 2019-2024 trade density).
+- **Run:** `run_id=88fd926e-1789-46f0-aee4-501addbb7256`,
+  `spec_hash=ea78fed3...`, `code_git_sha=0f5e7178...`, `random_seed=42`.
+- **Windows:** 5/5 `INCONCLUSIVE_DATA`. 20 OOS trades across 2019-2024
+  (4/7/4/4/1 per window). Zero purged, zero embargoed.
+- **Heavy-tail override:** fired on 4/5 windows, correctly driving MDE
+  values to capture small-N pathology (Window 0: 4-trade, Sharpe −142,
+  MDE 8.37e15). Not a bug — truthful reflection of small-N instability.
+- **R8(a):** `derived_from: null` correctly propagated through to
+  `walkforward_results.derived_from_source_type = NULL`.
+- **Framework-bug trigger:** did NOT fire (would have required
+  `outcome_state = PASS`).
+- **Synthetic vs real comparison:** outcome state, reason, window-state
+  distribution, heavy-tail count, and pooled MDE all match the synthetic
+  INCONCLUSIVE baseline (`docs/validation/lazy-prices-v1-walkforward-2026-04-19.md`).
+- **Validation doc:**
+  `docs/validation/lazy-prices-v1-walkforward-real-2026-04-19.md`
+- **Ralph Loop docs:**
+  `docs/sprints/lazy_prices_v1_real_evaluation.md` (Pass 1),
+  `docs/sprints/lazy_prices_v1_real_raw.md` (Pass 2).
+
+**Secondary finding (non-blocking for this sprint):**
+`vix_at_entry` and `vix_tier` are NULL for 20/20 OOS trades, driving
+`vix_tier_coverage = 0`. Data-enrichment gap upstream of the framework;
+filed as follow-up in the validation doc. Does not affect this run's
+INCONCLUSIVE verdict (primary `min_trades_per_window = 10` gate already
+binding).
 
 ### Changed (v0.25.2 — Roadmap completeness audit)
 
