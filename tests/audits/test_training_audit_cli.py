@@ -32,14 +32,14 @@ def _make_db(path: Path) -> None:
     conn.execute(
         "INSERT INTO training_examples VALUES "
         "('ok-1', 'blinded_win', 'AAPL', "
-        "'Ticker: AAPL\nCurrent Price: $1\n=== ACTUAL OUTCOME ===', "
+        "'Ticker: AAPL\nCurrent Price: $1\nTrend State: up',"
         "'<why_now>x</why_now>\n<analysis>y</analysis>', "
         "'win', 'win', 'primary', NULL, 0, NULL)"
     )
     conn.execute(
         "INSERT INTO training_examples VALUES "
         "('bad-1', 'blinded_win', 'CSCO', "
-        "'Ticker: CSCO\nCurrent Price: $60\n=== ACTUAL OUTCOME ===', "
+        "'Ticker: CSCO\nCurrent Price: $60\nTrend State: down',"
         "'<why_now>Trade stopped out and continued decline.</why_now>\n"
         "<analysis>x</analysis>', "
         "'loss', 'loss', 'primary', 'rec-2', 0, NULL)"

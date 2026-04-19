@@ -142,33 +142,33 @@ def _make_test_db(tmp_path: Path) -> Path:
     rows = [
         # clean v1-linked with outcome-neutral narrative (info, no quarantine)
         ("c1", "blinded_win", "AAPL",
-         "Ticker: AAPL\nCurrent Price: $150\n=== ACTUAL OUTCOME ===",
+         "Ticker: AAPL\nCurrent Price: $150\nTrend State: up",
          "<why_now>pullback in trend</why_now>\n<analysis>x</analysis>",
          "win", "win", "primary", "rec-1", 0, None),
         # v1-contradicting narrative (quarantine via Pass A)
         ("c2", "blinded_win", "CSCO",
-         "Ticker: CSCO\nCurrent Price: $60\n=== ACTUAL OUTCOME ===",
+         "Ticker: CSCO\nCurrent Price: $60\nTrend State: down",
          "<why_now>Trade stopped out and continued decline.</why_now>\n"
          "<analysis>x</analysis>",
          "loss", "loss", "primary", "rec-2", 0, None),
         # missing required XML tag (quarantine via Pass B)
         ("c3", "blinded_win", "MSFT",
-         "Ticker: MSFT\nCurrent Price: $400\n=== ACTUAL OUTCOME ===",
+         "Ticker: MSFT\nCurrent Price: $400\nTrend State: up",
          "<why_now>only this tag</why_now>",
          "win", "win", "primary", "rec-3", 0, None),
         # clean non-linked
         ("c4", "synthetic_claude", "AMZN",
-         "Ticker: AMZN\nCurrent Price: $180\n=== ACTUAL OUTCOME ===",
+         "Ticker: AMZN\nCurrent Price: $180\nTrend State: up",
          "<why_now>pullback in trend</why_now>\n<analysis>x</analysis>",
          "win", "win", "primary", None, 0, None),
         # malformed
         ("c5", "blinded_loss", "GOOG",
-         "Ticker: GOOG\nCurrent Price: $200\n=== ACTUAL OUTCOME ===",
+         "Ticker: GOOG\nCurrent Price: $200\nTrend State: up",
          "<why_now>unclosed",
          "loss", "loss", "primary", None, 0, None),
         # all clean
         ("c6", "blinded_loss", "META",
-         "Ticker: META\nCurrent Price: $500\n=== ACTUAL OUTCOME ===",
+         "Ticker: META\nCurrent Price: $500\nTrend State: up",
          "<why_now>x</why_now>\n<analysis>y</analysis>",
          "loss", "loss", "primary", None, 0, None),
     ]

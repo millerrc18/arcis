@@ -25,7 +25,6 @@ CANONICAL_INPUT = (
     "Ticker: AAPL\n"
     "Current Price: $150.00\n"
     "Trend State: uptrend\n"
-    "=== ACTUAL OUTCOME ===\n"
     "Exit Reason: target_1_hit\n"
 )
 CANONICAL_OUTPUT = (
@@ -109,7 +108,7 @@ def test_deprecated_wins_over_missing():
     """If a row has a deprecated marker AND misses a required label,
     deprecated is the more informative reason."""
     drifted_output = CANONICAL_OUTPUT + "<monitoring>foo</monitoring>\n"
-    drifted_input = "Ticker: AAPL\nCurrent Price: $150\n"  # no OUTCOME banner
+    drifted_input = "Ticker: AAPL\nCurrent Price: $150\n"  # no Trend State:
     d = decide(
         example_id="drift-5",
         output_text=drifted_output,
@@ -122,17 +121,24 @@ def test_deprecated_wins_over_missing():
 # ── input label checks ───────────────────────────────────────────────
 
 
-def test_missing_outcome_banner_flags_missing_section():
-    """Remove '=== ACTUAL OUTCOME ===' → missing_section drift."""
-    input_no_banner = "Ticker: AAPL\nCurrent Price: $150.00\nTrend State: up\n"
+def test_missing_trend_state_label_flags_missing_section():
+    """Remove a required label → missing_section drift.
+
+    Uses `Trend State:` (100% prevalence in the corpus). The
+    `=== ACTUAL OUTCOME ===` banner was evaluated as a candidate
+    required label but proved source-specific (historical_backfill
+    + synthetic_claude only), so it was dropped from REQUIRED_INPUT_LABELS
+    during commit-12 dry-run calibration.
+    """
+    input_missing = "Ticker: AAPL\nCurrent Price: $150.00\n"
     d = decide(
         example_id="input-drift-1",
         output_text=CANONICAL_OUTPUT,
-        input_text=input_no_banner,
+        input_text=input_missing,
     )
     assert d.quarantine is True
     assert d.reason_code == "format_drift_missing_section"
-    assert any("ACTUAL OUTCOME" in m for m in d.missing)
+    assert any("Trend State" in m for m in d.missing)
 
 
 def test_empty_text_flags_all_missing():

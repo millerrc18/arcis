@@ -38,13 +38,18 @@ DEPRECATED_OUTPUT_TAGS: tuple[str, ...] = (
     "risk_management", "execution_plan", "monitoring",
 )
 
-# Required plain-text labels in input_text. `Ticker:` and `Current Price:`
-# anchor schema; the `=== ACTUAL OUTCOME ===` banner signals the outcome
-# segment is present.
+# Required plain-text labels in input_text. Empirically verified 100%
+# prevalence across the v0.26.0 sprint production corpus. Calibrated
+# during commit-12 dry-run: the `=== ACTUAL OUTCOME ===` banner was
+# originally in this list but proved to be a source-specific convention
+# (39.5% prevalence — only historical_backfill + synthetic_claude rows
+# carry it), NOT a canonical schema element, so flagging its absence
+# produced a 60% false-positive rate. Removed per Pass 1 D1
+# moderate-strictness directive.
 REQUIRED_INPUT_LABELS: tuple[str, ...] = (
     "Ticker:",
     "Current Price:",
-    "=== ACTUAL OUTCOME ===",
+    "Trend State:",
 )
 
 

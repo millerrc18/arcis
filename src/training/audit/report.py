@@ -153,7 +153,7 @@ def _render_pass_b(
         "Schema checks on each row:",
         "- Output XML required tags: `<why_now>`, `<analysis>` (95% corpus prevalence)",
         "- Output deprecated tags: `<risk_management>`, `<execution_plan>`, `<monitoring>`",
-        "- Input required labels: `Ticker:`, `Current Price:`, `=== ACTUAL OUTCOME ===`",
+        "- Input required labels: `Ticker:`, `Current Price:`, `Trend State:`",
         "",
         f"- **Rows checked**: {result.pass_b_checked}",
         f"- **Missing section / label**: {missing} → `format_drift_missing_section`",
