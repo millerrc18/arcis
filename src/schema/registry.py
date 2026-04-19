@@ -2047,3 +2047,38 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="date",
 ))
+
+# ---------------------------------------------------------------------------
+# Capability Registry (Sprint 1B — operator view-state tracking)
+# ---------------------------------------------------------------------------
+
+# operator_view_state: per-operator tracking of last-viewed value + delta
+# baseline for each registered capability, plus local Mark Reviewed override.
+# Not synced to Postgres because reviews happen on the local machine and the
+# cloud dashboard reads the same registry in-process.
+_register(TableDef(
+    name="operator_view_state",
+    description="Per-operator last-viewed snapshot for capability_registry "
+                "entries. Powers delta_since_last_view + Mark Reviewed. "
+                "Single-operator system keyed by user_id='operator' for v1.",
+    columns=[
+        ColumnDef("user_id", "TEXT", nullable=False,
+                  description="'operator' for single-operator mode"),
+        ColumnDef("entry_name", "TEXT", nullable=False,
+                  description="Capability name from any of the four registries"),
+        ColumnDef("last_viewed_at", "TEXT",
+                  description="ISO timestamp of the most recent GET that "
+                              "returned a usable value"),
+        ColumnDef("last_viewed_value", "TEXT",
+                  description="JSON-encoded baseline value from the previous "
+                              "successful state_query. Used to compute "
+                              "delta_since_last_view on the next read."),
+        ColumnDef("last_reviewed_date_override", "TEXT",
+                  description="ISO date set by POST /mark-reviewed. Overrides "
+                              "the entry's own last_reviewed_date for "
+                              "stale-ness computation. v1 local-only; v1.1 "
+                              "will propagate to the source file."),
+    ],
+    primary_key=["user_id", "entry_name"],
+    sync_to_postgres=False,
+))

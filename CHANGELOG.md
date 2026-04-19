@@ -2,6 +2,54 @@
 
 ## [Unreleased]
 
+### Added (v0.25.0 — Capability Registry, Sprint 1B)
+
+- `src/platform/capability_registry/` — four in-process registries
+  (ACTIONS, STATES, SYSTEMS, DECISIONS) populated at import time via
+  decorators, mirroring `src/platform/plugin_registry.py:19`. Pydantic
+  v2 validation rejects partial metadata at decorator time; deprecated
+  entries must specify `deprecated_replacement`. ActionEntry
+  input/output schemas validated as Draft-7 JSON Schema (MCP-compatible).
+- `GET /api/system/index` + `POST /api/system/index/{name}/mark-reviewed`
+  (`src/api/cloud_routes/system_index.py`). State queries and system
+  health checks run in a shared ThreadPoolExecutor with a 2s per-call
+  timeout. One bad query cannot cascade-break the endpoint (R5).
+- `operator_view_state` table (`src/schema/registry.py`) tracks per-
+  operator last-viewed baseline + delta for each entry, plus local
+  Mark Reviewed override. `sync_to_postgres=False` — local state only
+  until v1.1's source-file automation.
+- 18 retroactive capability registrations across the platform:
+  - Actions: `regime_diagnostic`, `forensic_trade_audit`,
+    `strategy_backtest`, `edgar_historical_backfill`
+  - States: `shadow_trade_cohort`, `strategy_registry_state`,
+    `training_corpus`, `bootcamp_mode`, `alpaca_account`, `ollama_model`
+  - Systems: `watch_loop`, `reconcile_trades`, `attribution_resolver`,
+    `nightly_audit_agent`
+  - Decisions: `bootcamp_still_active`, `pullback_strategy_contaminated`,
+    `lazy_prices_deprecated_on_sp100`,
+    `no_new_strategy_specs_until_walkforward_ships`
+- Dashboard panels: `QuickStatsPanel`, `SystemIndexPanel`,
+  `WhatsNewPanel`, `CapabilityDetailModal` (with Mark Reviewed flow).
+  Wired into `frontend/src/pages/Dashboard.jsx`; 60s refetch interval.
+  No new npm deps.
+- CI enforcement: `tests/test_capability_registry_metadata.py` (10
+  tests) + `tests/test_capability_registry_integration.py` (5 tests).
+  Stale entries (>180d) emit warnings, not failures.
+- `jsonschema>=4.0` promoted from transitive to first-class dependency.
+- `docs/capability_registry.md` spec + how-to.
+- Ralph Loop artifacts: Pass 1 evaluation + Pass 2 research findings
+  committed as `docs/sprints/capability_registry_v1_evaluation.md` and
+  `docs/sprints/capability_registry_v1_research_findings.md`.
+
+### Tests (Sprint 1B totals)
+
+- 15 schema tests (`tests/platform/test_capability_registry_schemas.py`)
+- 14 registry mechanics tests (`tests/platform/test_capability_registry.py`)
+- 10 CI metadata tests (`tests/test_capability_registry_metadata.py`)
+- 12 API endpoint tests (`tests/api/test_system_index.py`)
+- 5 integration tests (`tests/test_capability_registry_integration.py`)
+- 56 new tests total, all green.
+
 ### Added (v0.25.0 — Diagnostic Dashboard)
 
 - New `/diagnostics` dashboard page with kickoff buttons for regime and forensic diagnostic runs, inline markdown report rendering (react-markdown + remark-gfm), and inline base64 plot display. Polls 5s while active, 30s otherwise.

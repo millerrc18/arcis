@@ -161,6 +161,11 @@ export const api = {
   getDiagnosticRun: (runId) => fetchApi(`/diagnostic-runs/${runId}`),
   getDiagnosticRunReport: (runId) => fetchApi(`/diagnostic-runs/${runId}/report`),
   getDiagnosticRunPlots: (runId) => fetchApi(`/diagnostic-runs/${runId}/plots`),
+  // Capability Registry (Sprint 1B, v0.25.0)
+  getSystemIndex: () => fetchApi('/system/index'),
+  markReviewed: (name) => fetchApi(`/system/index/${encodeURIComponent(name)}/mark-reviewed`, {
+    method: 'POST',
+  }),
 }
 
 // Platform / Strategy Research helpers (Task 12a)

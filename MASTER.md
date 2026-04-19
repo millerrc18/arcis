@@ -485,11 +485,25 @@ frontend-design, feature-dev, pr-review-toolkit, security-guidance,
 **halcyon-audit** (8-domain repo audit with GH issue filing, see
 `docs/guides/audit-plugin.md`)
 
+### Capability Registry (Sprint 1B, v0.25.0)
+
+**`/api/system/index` is the authoritative answer to "what does this
+system do and what is its state?"** — four in-process registries (actions,
+states, systems, decisions) populated at import time via decorators in
+`src/platform/capability_registry/`. CC / Claude sessions should hit this
+endpoint before reading this document for an up-to-date, machine-readable
+system index.
+
+- Spec + how-to: `docs/capability_registry.md`
+- Design rationale: `docs/sprints/capability_registry_v1_evaluation.md`
+- 18 initial capabilities registered retroactively in v0.25.0; schema is
+  MCP-compatible so v2 can expose it as an MCP server without redesign.
+
 ---
 
 ## 4. Schema Summary
 
-All 53 tables are defined in `src/schema/registry.py` -- the single source of
+All 54 tables are defined in `src/schema/registry.py` -- the single source of
 truth for both SQLite and Postgres. The registry was created after ~12 hours
 were lost to bugs caused by 6+ files independently defining the same tables
 with subtly different column names. Now a single `TableDef` dataclass defines

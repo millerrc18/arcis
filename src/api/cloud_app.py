@@ -42,6 +42,7 @@ from src.api.cloud_routes.core import create_router as create_core_router
 from src.api.cloud_routes.council import create_router as create_council_router
 from src.api.cloud_routes.diagnostics import create_router as create_diagnostics_router
 from src.api.cloud_routes.notes import create_router as create_notes_router
+from src.api.cloud_routes.system_index import create_router as create_system_index_router
 from src.api.cloud_routes.trades import create_router as create_trades_router
 from src.api.cloud_routes.ib_shadow import create_router as create_ib_shadow_router
 from src.api.cloud_routes.training import create_router as create_training_router
@@ -277,6 +278,7 @@ for factory in (
     create_analytics_router,
     create_ib_shadow_router,
     create_diagnostics_router,
+    create_system_index_router,
 ):
     app.include_router(factory(_runtime, verify_auth))
 
