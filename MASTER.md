@@ -59,12 +59,12 @@ with an unbeatable technological moat.
 | Open positions | ~2 (verify with shadow-status) |
 | Model | halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF); v2.0.0 retrain gated on excess-Sharpe validation |
 | Training data | 1,782 examples total; **76 quarantined via v0.26.0 training_data_audit (75 format_drift_missing_section + 1 v1_attribution_contradicts_narrative)** → 1,706 clean corpus for next retrain |
-| Tests | 2,141 tests across 181 test files (+44 tests, +7 test files Sprint 1; +55 tests, +8 test files Sprint 2: CSCV/walk-forward/promotion/trials/desk-tag/config; +37 tests Sprint 3: desk-filter/correlation-schema/exposure-limits; +31 tests Sprint 4 Tier 5: alpaca_clients/alpaca_adapter/reconcile-routing/scheduler-dispatch/shadow-harness/watch-tick/cost-calibration; +22 tests Sprint 4 cont.: find_candidates/platform-api/shadow-harness-tick/promotion-gates/widget/telegram/plugin-interface) |
-| Python files | 214 (+12 new src/platform/ modules Sprint 1; +4 new src/platform/ modules Sprint 2: promotion, trials, rigor/walkforward, rigor/trials; +1 module Sprint 3: exposure_limits; +4 modules Sprint 4 Tier 5: alpaca_clients, reconcile_dispatch, shadow_harness, cost_calibration; +3 modules Sprint 4 cont.: signal_eval, strategy_plugin, plugin_registry) |
-| Dashboard pages | 25 |
-| Research docs | 107 |
+| Tests | 2,507 tests across 227 test files (+44 tests, +7 test files Sprint 1; +55 tests, +8 test files Sprint 2: CSCV/walk-forward/promotion/trials/desk-tag/config; +37 tests Sprint 3: desk-filter/correlation-schema/exposure-limits; +31 tests Sprint 4 Tier 5: alpaca_clients/alpaca_adapter/reconcile-routing/scheduler-dispatch/shadow-harness/watch-tick/cost-calibration; +22 tests Sprint 4 cont.: find_candidates/platform-api/shadow-harness-tick/promotion-gates/widget/telegram/plugin-interface; +366 tests, +46 test files 2026-04-18/19: platform-foundation/rigor/safety/shadow, dashboard v1, walk-forward v1, training-data audit, hygiene bundle, known_events backfill) |
+| Python files | 303 (+12 new src/platform/ modules Sprint 1; +4 new src/platform/ modules Sprint 2: promotion, trials, rigor/walkforward, rigor/trials; +1 module Sprint 3: exposure_limits; +4 modules Sprint 4 Tier 5: alpaca_clients, reconcile_dispatch, shadow_harness, cost_calibration; +3 modules Sprint 4 cont.: signal_eval, strategy_plugin, plugin_registry; +89 modules 2026-04-18/19: training/audit, platform/rigor/walkforward_*, observability/formatters, api/cloud_routes/_command_ttl, risk/price_utils, platform/_backtest_trace, diagnostic_handlers, summary_extractor, plus capability_registry + diagnostic-runner) |
+| Dashboard pages | 28 |
+| Research docs | 92 |
 | Sprint docs | 57 |
-| Schema tables | 61 (registry), 44+ synced to Postgres (+3 Sprint 1: backtest_results, backtest_trades, + 1 via platform; +3 Sprint 2: strategy_registry, strategy_promotion_events, trials_registry; +2 tables Sprint 3: correlation_matrices, factor_loadings) |
+| Schema tables | 67 (registry), 58 synced to Postgres (+3 Sprint 1: backtest_results, backtest_trades, + 1 via platform; +3 Sprint 2: strategy_registry, strategy_promotion_events, trials_registry; +2 tables Sprint 3: correlation_matrices, factor_loadings; +3 tables v0.25.0 walk-forward: walkforward_results, walkforward_trades, sp100_historical_constituents; 9 local-only: daily_ib_health, model_evaluations, preference_pairs, sync_state, config_overrides, bracket_health, data_freshness, system_metrics, operator_view_state) |
 | GitHub issues | 0 open |
 | Monthly cost | ~$64 (Render $14 + Ollama free + Claude API ~$50 + domain $7) |
 | Hardware | RTX 3060 12GB, Windows 11, Z690, 24/7 operation |
@@ -85,10 +85,10 @@ with an unbeatable technological moat.
 | Broker abstraction (Alpaca active, IB dormant) | LIVE -- Alpaca only; IB cold-stored per SD#41 (`trading.ib_enabled=false`), all IB code preserved for reactivation |
 | Telegram | LIVE -- 56 functions, gated behind trade_id |
 | Intra-day reconciliation | LIVE -- every 15 min during market hours |
-| Dashboard (Arcis) | LIVE -- 26 pages (Diagnostics page added v0.25.0; Trade History with excess-Sharpe lead panel replaces Broker Comparison; Velocity), dark/light toggle, mobile-responsive sidebar |
+| Dashboard (Arcis) | LIVE -- 28 pages (Walkforward Results added v0.25.0; Diagnostics page; Trade History with excess-Sharpe lead panel replaces Broker Comparison; Velocity), dark/light toggle, mobile-responsive sidebar |
 | Simulation engine | LIVE -- 13 regimes, Monte Carlo, traffic light validation, regime selector |
-| Schema registry | LIVE -- 63 tables, single source of truth |
-| Render sync | LIVE -- 44/51 tables synced to Postgres |
+| Schema registry | LIVE -- 67 tables, single source of truth |
+| Render sync | LIVE -- 58/67 tables synced to Postgres |
 | Halcyon-audit plugin | LIVE -- 8 domain agents, /audit command |
 | Automated guardrails | LIVE -- test_repo_structure.py |
 | CI on PRs | LIVE -- tests + guardrails + frontend build |

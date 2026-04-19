@@ -2,6 +2,68 @@
 
 ## [Unreleased]
 
+### Added (v0.25.1 — known_events 2019-2024 backfill + is_known_event helper)
+
+Load-bearing prerequisite for v0.26.2's post-audit ruleset tariff-exclusion
+rule. Before this sprint, `src/diagnostics/known_events.py` only carried
+March-April 2026 forward-planning dates, meaning any tariff-exclusion rule
+applied to walk-forward v1 OOS windows (2019-01-01 → 2024-09-30 per
+`walkforward_config.py` R1) would match zero historical dates and be
+effectively a no-op.
+
+- **9 new events** added to `KNOWN_EVENTS` covering the 2019-09-30 →
+  2024-09-30 window, each verified against a primary source
+  (treasury.gov/OFAC, USTR, White House EO, BIS, DOD, Maersk). See
+  `docs/sprints/known_events_and_drift_repair_research.md` §1.1 for
+  per-event market-move verdict and source URL.
+- **5 new category labels** — `SANCTIONS_INITIAL`, `SANCTIONS_ESCALATION`,
+  `EXPORT_CONTROLS`, `INDUSTRIAL_POLICY`, `TRADE_DISRUPTION` — all roll
+  up to existing `"Trade Policy"` category for consumer uniformity
+  (`src/diagnostics/analyses.py:_match_events` unchanged).
+- **`EVENT_METADATA: dict[str, EventMeta]`** — new parallel dict keyed on
+  the same dates as `KNOWN_EVENTS`. Carries per-event description,
+  affected-sector list (empty = broad-market), primary-source URL, and
+  market-impact note. Invariant enforced by test:
+  `set(KNOWN_EVENTS) == set(EVENT_METADATA)`.
+- **`is_known_event(date_str, category=None)`** helper — returns True
+  iff the date is keyed in `KNOWN_EVENTS` and (if category given) the
+  category matches. Pure function, no side effects.
+- **Backward compatibility** — `KNOWN_EVENTS` and `EVENT_CATEGORIES`
+  dict shapes unchanged; existing consumer at `analyses.py:210-213`
+  reads the same API.
+- **Coverage floor** — regression test requires ≥ 8 events in the
+  2019-09-30 → 2024-09-30 window; hard fails if count drops.
+- **File size** — `known_events.py` at 327 lines, within the 400-line
+  guardrail; no split required.
+- **13 new tests** in `tests/diagnostics/test_known_events.py` covering
+  schema invariants, category closure, coverage floor, metadata parity,
+  primary-source format, helper lookup, and new-label category routing.
+
+### Fixed (v0.25.1 — MASTER.md Section 2 + CLAUDE.md drift repair)
+
+Today's 11-PR session shipped without mid-sprint `MASTER.md` updates;
+`scripts/verify_docs.py` was failing with 5/5 warnings. Repaired:
+
+- `Tests` row: 2,141 → 2,507 (+366 tests across platform-foundation/rigor/
+  safety/shadow sprints + dashboard v1 + walk-forward v1 + training-data
+  audit + hygiene bundle + known_events backfill). Test files: 181 → 227.
+- `Python files` row: 214 → 303 (+89 modules across the same sprint
+  cluster).
+- `Dashboard pages` row: 25 → 28 (Walkforward Results added v0.25.0).
+- `Research docs` row: 107 → 92 (-15; doc pruning since last update).
+- `Schema tables` row: 61 → 67 registry, 58 synced to Postgres (9
+  local-only enumerated in the annotation).
+- Component rows in §2 updated to match: `Dashboard (Arcis)`
+  (26 → 28 pages), `Schema registry` (63 → 67 tables), `Render sync`
+  (44/51 → 58/67 tables).
+- `CLAUDE.md` line 14 table count: 64 → 67. Authoritative-count
+  one-liner preserved.
+- `scripts/verify_docs.py` now exits 0 with 5/5 passes.
+
+**Deferred follow-up:** `frontend/public/architecture.html` (880 lines,
+zero `walkforward` references after PR #520) is stale but outside the
+`verify_docs.py` check set. Issue to file for a subsequent sprint.
+
 ### Changed (2026-04-19 — GitHub Actions disabled)
 
 - Deleted `.github/workflows/ci.yml` and `.github/workflows/daily-repo-audit.yml` to conserve Actions spend until walk-forward validation proves live edge (per April 2026 pivot).
