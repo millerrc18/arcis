@@ -20,6 +20,7 @@ parser.
 Called by: src.training.audit.core
 Calls: src.training.audit.taxonomy
 Owns tables: none
+Config keys: none
 Tests: tests/training/test_pass_b.py
 """
 from __future__ import annotations

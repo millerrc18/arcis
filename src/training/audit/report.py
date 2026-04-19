@@ -15,6 +15,7 @@ Missing any section is a sprint failure. A regression test lives in
 tests/training/test_audit_integration.py.
 
 Called by: src.training.audit.core
+Calls: collections.Counter, datetime (stdlib only)
 Owns tables: none
 Config keys: none
 Tests: tests/training/test_audit_integration.py

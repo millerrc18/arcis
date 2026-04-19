@@ -9,7 +9,9 @@ Called by: src.training.audit.pass_a_citation,
            src.training.audit.pass_c_leakage,
            src.training.audit.core,
            src.training.audit.report
+Calls: typing (stdlib only)
 Owns tables: none
+Config keys: none
 Tests: tests/training/test_audit_integration.py
 """
 from __future__ import annotations

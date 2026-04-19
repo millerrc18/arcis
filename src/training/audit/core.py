@@ -178,6 +178,32 @@ def _write_quarantines(
     return count
 
 
+def _dispatch_passes(
+    examples: list[dict],
+    selected: tuple[str, ...],
+    db_path: str,
+    result: AuditResult,
+) -> None:
+    """Run each enabled pass against the loaded examples."""
+    attr_map = _fetch_attribution_map(db_path) if "A" in selected else {}
+    if "A" in selected:
+        _apply_pass_a(examples, attr_map, result)
+    if "B" in selected:
+        _apply_pass_b(examples, result)
+    if "C" in selected:
+        _apply_pass_c(examples, result, db_path)
+
+
+def _write_report(report_path: str, result: AuditResult, dry_run: bool) -> None:
+    """Render + write the report to disk."""
+    from src.training.audit.report import render_report
+    Path(report_path).parent.mkdir(parents=True, exist_ok=True)
+    Path(report_path).write_text(
+        render_report(result, dry_run=dry_run),
+        encoding="utf-8",
+    )
+
+
 def run_audit(
     *,
     db_path: str | None = None,
@@ -186,60 +212,31 @@ def run_audit(
     report_path: str | None = None,
     plot_dir: str | None = None,
 ) -> dict:
-    """Run the full three-pass audit.
+    """Run the full three-pass audit and return its summary dict.
 
-    Args:
-        db_path: SQLite path; defaults to src.config.DB_PATH
-        dry_run: if True, never modify the database
-        passes: subset of 'A'/'B'/'C' to run; defaults to all three
-        report_path: if set, write markdown report here
-        plot_dir: unused in v1 (Pass C doesn't produce plots); kept for
-                  dashboard_runner compatibility
-
-    Returns:
-        dict suitable for diagnostic_runs.summary_json
+    Args match the CLI: db_path, dry_run, passes (subset of A/B/C),
+    report_path, plot_dir (unused; kept for dashboard_runner symmetry).
+    Returns a dict suitable for diagnostic_runs.summary_json.
     """
     from src.config import DB_PATH
-    from src.training.audit.report import render_report, summarize
+    from src.training.audit.report import summarize
 
     if db_path is None:
         db_path = DB_PATH
     selected = tuple(p.upper() for p in (passes or DEFAULT_PASSES))
 
     examples = _fetch_training_examples(db_path)
-    attr_map = _fetch_attribution_map(db_path) if "A" in selected else {}
-
     result = AuditResult(total_audited=len(examples))
+    _dispatch_passes(examples, selected, db_path, result)
 
-    if "A" in selected:
-        _apply_pass_a(examples, attr_map, result)
-    if "B" in selected:
-        _apply_pass_b(examples, result)
-    if "C" in selected:
-        _apply_pass_c(examples, result, db_path)
-
-    written = 0
-    if not dry_run:
-        written = _write_quarantines(db_path, result.quarantines)
-
+    written = 0 if dry_run else _write_quarantines(db_path, result.quarantines)
     summary = summarize(result, dry_run=dry_run, written=written)
 
     if report_path:
-        Path(report_path).parent.mkdir(parents=True, exist_ok=True)
-        Path(report_path).write_text(
-            render_report(result, dry_run=dry_run),
-            encoding="utf-8",
-        )
-    _ = plot_dir  # present-but-unused argument; dashboard_runner supplies it
-
+        _write_report(report_path, result, dry_run)
+    _ = plot_dir  # dashboard_runner supplies this for symmetry with regime/forensic
     logger.info(
-        "[TRAINING-AUDIT] total=%d pass_a_quarantines=%d "
-        "pass_b_quarantines=%d dry_run=%s written=%d",
-        result.total_audited,
-        sum(1 for r in result.quarantines.values()
-            if r.startswith("v1_attribution_")),
-        sum(1 for r in result.quarantines.values()
-            if r.startswith("format_drift_")),
-        dry_run, written,
+        "[TRAINING-AUDIT] total=%d quarantined=%d dry_run=%s written=%d",
+        result.total_audited, len(result.quarantines), dry_run, written,
     )
     return summary

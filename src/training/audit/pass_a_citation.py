@@ -114,6 +114,27 @@ def classify_direction(output_text: str) -> Direction:
     return "neutral"
 
 
+def _mk(
+    example_id: str,
+    recommendation_id: str | None,
+    v1_outcome: str | None,
+    v2_outcome: str | None,
+    direction: Direction,
+    quarantine: bool,
+    reason_code: str | None,
+) -> PassADecision:
+    """Build a PassADecision without repeating positional args."""
+    return PassADecision(
+        example_id=example_id,
+        recommendation_id=recommendation_id,
+        v1_outcome=v1_outcome,
+        v2_outcome=v2_outcome,
+        narrative_direction=direction,
+        quarantine=quarantine,
+        reason_code=reason_code,
+    )
+
+
 def decide(
     *,
     example_id: str,
@@ -124,20 +145,11 @@ def decide(
 ) -> PassADecision:
     """Compute a single row's Pass A decision.
 
-    Args:
-        example_id: stable id, echoed in the decision
-        output_text: narrative to analyze
-        recommendation_id: link to attribution_trades; None if unlinked
-        v1_outcome: attribution_trades.ranker_only_outcome_v1 (or None)
-        v2_outcome: attribution_trades.ranker_only_outcome (or None)
-
     Rules:
-        1. No link OR v1/v2 agree OR either is None → not v1-affected;
-           return neutral non-quarantine.
-        2. Narrative outcome-neutral → preserve, record INFO code.
-        3. Narrative direction matches v1 AND contradicts v2 → quarantine.
-        4. Narrative direction matches v2 → consistent post-fix data,
-           not quarantined.
+      1. No link OR v1/v2 agree OR either is None → not v1-affected.
+      2. Narrative outcome-neutral → preserve, record INFO code.
+      3. Narrative matches v1 AND contradicts v2 → quarantine.
+      4. Narrative matches v2 → consistent post-fix data; no quarantine.
     """
     direction = classify_direction(output_text)
     v1_diverged = (
@@ -145,52 +157,15 @@ def decide(
         and v2_outcome is not None
         and v1_outcome != v2_outcome
     )
+    common = (example_id, recommendation_id, v1_outcome, v2_outcome, direction)
 
     if not recommendation_id or not v1_diverged:
-        return PassADecision(
-            example_id=example_id,
-            recommendation_id=recommendation_id,
-            v1_outcome=v1_outcome,
-            v2_outcome=v2_outcome,
-            narrative_direction=direction,
-            quarantine=False,
-            reason_code=None,
-        )
-
+        return _mk(*common, False, None)
     if direction == "neutral":
-        return PassADecision(
-            example_id=example_id,
-            recommendation_id=recommendation_id,
-            v1_outcome=v1_outcome,
-            v2_outcome=v2_outcome,
-            narrative_direction=direction,
-            quarantine=False,
-            reason_code=INFO_OUTCOME_NEUTRAL_PRESERVED,
-        )
-
-    narrative_matches_v1 = (direction == v1_outcome)
-    narrative_matches_v2 = (direction == v2_outcome)
-
-    if narrative_matches_v1 and not narrative_matches_v2:
-        return PassADecision(
-            example_id=example_id,
-            recommendation_id=recommendation_id,
-            v1_outcome=v1_outcome,
-            v2_outcome=v2_outcome,
-            narrative_direction=direction,
-            quarantine=True,
-            reason_code="v1_attribution_contradicts_narrative",
-        )
-
-    return PassADecision(
-        example_id=example_id,
-        recommendation_id=recommendation_id,
-        v1_outcome=v1_outcome,
-        v2_outcome=v2_outcome,
-        narrative_direction=direction,
-        quarantine=False,
-        reason_code=None,
-    )
+        return _mk(*common, False, INFO_OUTCOME_NEUTRAL_PRESERVED)
+    if direction == v1_outcome and direction != v2_outcome:
+        return _mk(*common, True, "v1_attribution_contradicts_narrative")
+    return _mk(*common, False, None)
 
 
 def run_pass_a(rows: list[dict]) -> list[PassADecision]:
