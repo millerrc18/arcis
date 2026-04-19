@@ -1,0 +1,113 @@
+ticker,added_date,removed_date,company_name,reason
+AAPL,2000-01-01,,Apple Inc.,baseline
+ABBV,2013-01-01,,AbbVie Inc.,baseline
+ABT,2000-01-01,,Abbott Laboratories,baseline
+ACN,2011-07-06,,Accenture plc,baseline
+ADBE,2012-06-29,,Adobe Inc.,baseline
+AIG,2000-01-01,,American International Group,baseline
+ALL,2000-01-01,2020-12-21,Allstate Corporation,removed_replaced
+AMGN,2000-01-01,,Amgen Inc.,baseline
+AMZN,2005-12-19,,Amazon.com Inc.,baseline
+AMT,2023-09-18,,American Tower Corporation,addition
+AVGO,2018-06-18,,Broadcom Inc.,addition
+AXP,2000-01-01,,American Express,baseline
+BA,2000-01-01,,Boeing Company,baseline
+BAC,2000-01-01,,Bank of America Corporation,baseline
+BIIB,2000-01-01,2021-09-20,Biogen Inc.,removed_replaced
+BK,2000-01-01,,BNY Mellon,baseline
+BKNG,2019-06-24,,Booking Holdings,addition
+BLK,2019-09-23,,BlackRock Inc.,addition
+BMY,2000-01-01,,Bristol-Myers Squibb,baseline
+BRK.B,2000-01-01,,Berkshire Hathaway Class B,baseline
+C,2000-01-01,,Citigroup Inc.,baseline
+CAT,2000-01-01,,Caterpillar Inc.,baseline
+CHTR,2020-09-21,,Charter Communications,addition
+CL,2000-01-01,,Colgate-Palmolive,baseline
+CMCSA,2000-01-01,,Comcast Corporation,baseline
+COF,2019-09-23,,Capital One Financial,addition
+COP,2000-01-01,,ConocoPhillips,baseline
+COST,2020-06-22,,Costco Wholesale Corporation,addition
+CRM,2018-09-17,,Salesforce Inc.,addition
+CSCO,2000-01-01,,Cisco Systems,baseline
+CVS,2000-01-01,,CVS Health,baseline
+CVX,2000-01-01,,Chevron Corporation,baseline
+DD,2000-01-01,2023-09-18,DuPont de Nemours,removed_replaced
+DHR,2018-09-17,,Danaher Corporation,addition
+DIS,2000-01-01,,The Walt Disney Company,baseline
+DOW,2019-06-24,2021-06-21,Dow Inc.,removed_replaced
+DUK,2018-09-17,,Duke Energy Corporation,addition
+EMR,2000-01-01,2018-09-17,Emerson Electric,removed_replaced
+EXC,2000-01-01,2021-09-20,Exelon Corporation,removed_replaced
+F,2000-01-01,2020-06-22,Ford Motor Company,removed_replaced
+FB,2013-12-23,2022-06-09,Facebook Inc.,renamed:META
+FDX,2000-01-01,2021-06-21,FedEx Corporation,removed_replaced
+FOX,2019-03-25,,Fox Corporation Class B,addition_spinoff
+FOXA,2019-03-25,,Fox Corporation Class A,addition_spinoff
+GD,2000-01-01,,General Dynamics,baseline
+GE,2000-01-01,,General Electric,baseline
+GILD,2000-01-01,,Gilead Sciences,baseline
+GM,2010-11-18,,General Motors Company,baseline
+GOOG,2014-04-03,,Alphabet Inc. Class C,baseline
+GOOGL,2004-08-19,,Alphabet Inc. Class A,baseline
+GS,2000-01-01,,Goldman Sachs Group,baseline
+HAL,2000-01-01,2019-09-23,Halliburton Company,removed_replaced
+HD,2000-01-01,,Home Depot,baseline
+HON,2000-01-01,,Honeywell International,baseline
+IBM,2000-01-01,,International Business Machines,baseline
+INTC,2000-01-01,,Intel Corporation,baseline
+JNJ,2000-01-01,,Johnson & Johnson,baseline
+JPM,2000-01-01,,JPMorgan Chase & Co.,baseline
+KHC,2015-07-06,2020-12-21,Kraft Heinz Company,removed_replaced
+KMI,2015-09-18,2020-09-21,Kinder Morgan Inc.,removed_replaced
+KO,2000-01-01,,Coca-Cola Company,baseline
+LIN,2018-11-01,,Linde plc,addition_merger
+LLY,2000-01-01,,Eli Lilly and Company,baseline
+LMT,2000-01-01,,Lockheed Martin,baseline
+LOW,2000-01-01,,Lowe's Companies,baseline
+MA,2013-07-15,,Mastercard Incorporated,baseline
+MCD,2000-01-01,,McDonald's Corporation,baseline
+MDLZ,2012-10-02,,Mondelez International,baseline
+MDT,2000-01-01,,Medtronic plc,baseline
+MET,2000-01-01,2019-09-23,MetLife Inc.,removed_replaced
+META,2022-06-09,,Meta Platforms Inc.,renamed_from:FB
+MMM,2000-01-01,,3M Company,baseline
+MO,2000-01-01,,Altria Group,baseline
+MON,2000-01-01,2018-06-07,Monsanto Company,removed_merger_bayer
+MRK,2000-01-01,,Merck & Co.,baseline
+MS,2006-07-03,,Morgan Stanley,baseline
+MSFT,2000-01-01,,Microsoft Corporation,baseline
+NEE,2018-06-18,,NextEra Energy,addition
+NFLX,2017-07-17,,Netflix Inc.,addition
+NKE,2013-09-23,,Nike Inc.,baseline
+NVDA,2018-06-18,,NVIDIA Corporation,addition
+ORCL,2000-01-01,,Oracle Corporation,baseline
+OXY,2000-01-01,2020-06-22,Occidental Petroleum,removed_replaced
+PEP,2000-01-01,,PepsiCo Inc.,baseline
+PFE,2000-01-01,,Pfizer Inc.,baseline
+PG,2000-01-01,,Procter & Gamble,baseline
+PM,2008-03-31,,Philip Morris International,baseline
+PYPL,2015-07-21,2022-09-19,PayPal Holdings,removed_replaced
+QCOM,2000-01-01,,Qualcomm Incorporated,baseline
+RTN,2000-01-01,2020-04-03,Raytheon Company,merged_into_RTX
+RTX,2020-04-03,,Raytheon Technologies,merger_utx_rtn
+SBUX,2012-06-29,,Starbucks Corporation,baseline
+SLB,2000-01-01,2021-09-20,Schlumberger Limited,removed_replaced
+SO,2018-06-18,,Southern Company,addition
+SPG,2008-06-30,2019-06-24,Simon Property Group,removed_replaced
+T,2000-01-01,,AT&T Inc.,baseline
+TGT,2000-01-01,,Target Corporation,baseline
+TMO,2017-06-19,,Thermo Fisher Scientific,addition
+TMUS,2020-09-21,,T-Mobile US Inc.,addition
+TSLA,2020-06-22,,Tesla Inc.,addition
+TXN,2000-01-01,,Texas Instruments,baseline
+UNH,2000-01-01,,UnitedHealth Group,baseline
+UNP,2013-12-23,,Union Pacific,baseline
+UPS,2000-01-01,,United Parcel Service,baseline
+USB,2000-01-01,,U.S. Bancorp,baseline
+UTX,2000-01-01,2020-04-03,United Technologies,merged_into_RTX
+V,2009-07-01,,Visa Inc.,baseline
+VZ,2000-01-01,,Verizon Communications,baseline
+WBA,2014-12-31,2022-09-19,Walgreens Boots Alliance,removed_replaced
+WFC,2000-01-01,,Wells Fargo & Company,baseline
+WMT,2000-01-01,,Walmart Inc.,baseline
+XOM,2000-01-01,,Exxon Mobil Corporation,baseline
