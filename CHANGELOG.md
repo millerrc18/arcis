@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Changed (2026-04-19 — GitHub Actions disabled)
+
+- Deleted `.github/workflows/ci.yml` and `.github/workflows/daily-repo-audit.yml` to conserve Actions spend until walk-forward validation proves live edge (per April 2026 pivot).
+- Added `scripts/run_ci_locally.ps1` — runs the same checks (repo structure guardrails, full pytest with `-x --timeout=60`, test count floor, frontend build, doc drift). Flags: `-SkipFrontend`, `-SkipSlow`.
+- Re-enable path: restore workflows from git history after walk-forward v1 real-data run shows excess-Sharpe ≥ 0.5 at t ≥ 2.0 over 150 OOS trades (SD#25).
+
 ### Added (v0.25.0 — Walk-Forward Validation Framework v1)
 
 Load-bearing multi-year infrastructure. Every future strategy must pass
