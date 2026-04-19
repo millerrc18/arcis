@@ -27,7 +27,7 @@ WHY regime detection matters for a pullback-in-trend system:
 import numpy as np
 import pandas as pd
 
-from src.features.engine import _slope_direction
+from src.features.indicators import _slope_direction
 from src.features.indicators import compute_rsi as _compute_rsi
 
 

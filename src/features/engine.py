@@ -49,27 +49,9 @@ import logging
 import pandas as pd
 
 from src.config import DB_PATH
+from src.features.indicators import _slope_direction
 
 logger = logging.getLogger(__name__)
-
-
-def _slope_direction(series: pd.Series, window: int = 10) -> str:
-    """Classify the slope of a series over the last `window` periods.
-
-    WHY 10-period window: short enough to detect recent trend changes (2 weeks
-    of trading), long enough to filter out 1-2 day noise. The 0.1% threshold
-    (relative to start value) prevents classifying sideways drift as directional.
-    """
-    if len(series) < window:
-        return "flat"
-    recent = series.iloc[-window:]
-    diff = recent.iloc[-1] - recent.iloc[0]
-    threshold = 0.001 * abs(recent.iloc[0]) if recent.iloc[0] != 0 else 0.01
-    if diff > threshold:
-        return "positive"
-    elif diff < -threshold:
-        return "negative"
-    return "flat"
 
 
 def _classify_trend(price: float, sma50: float, sma200: float,
