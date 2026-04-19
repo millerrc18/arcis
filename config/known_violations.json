@@ -69,6 +69,10 @@
       "lines": 822
     },
     {
+      "file": "src/platform/promotion.py",
+      "lines": 525
+    },
+    {
       "file": "src/risk/governor.py",
       "lines": 673
     },
@@ -676,6 +680,21 @@
       "lines": 99
     },
     {
+      "file": "src/platform/promotion.py",
+      "function": "_evaluate_shadow_trading_gate",
+      "lines": 69
+    },
+    {
+      "file": "src/platform/rigor/walkforward_runner.py",
+      "function": "persist_run_result",
+      "lines": 93
+    },
+    {
+      "file": "src/platform/rigor/walkforward_runner.py",
+      "function": "run_walkforward",
+      "lines": 103
+    },
+    {
       "file": "src/ranking/ranker.py",
       "function": "rank_universe",
       "lines": 64
@@ -944,6 +963,11 @@
       "file": "src/sync/render_sync.py",
       "function": "pull_commands",
       "lines": 112
+    },
+    {
+      "file": "src/sync/render_sync.py",
+      "function": "run_sync_cycle",
+      "lines": 68
     },
     {
       "file": "src/trading/ib_broker.py",
