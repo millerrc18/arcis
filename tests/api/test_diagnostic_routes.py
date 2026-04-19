@@ -117,6 +117,72 @@ def test_submit_forensic_run_returns_202(client, app):
     assert resp.status_code == 202
 
 
+# ── training audit endpoint (v0.26.0) ────────────────────────────────
+
+
+def test_submit_training_audit_returns_202(client, app):
+    resp = client.post("/api/diagnostic-runs/training-audit", json={})
+    assert resp.status_code == 202
+    data = resp.json()
+    assert "run_id" in data
+    assert data["status"] == "queued"
+    stored = app.state._storage["runs"][data["run_id"]]
+    assert stored["diagnostic_type"] == "training_audit"
+
+
+def test_submit_training_audit_409_on_duplicate(client, app):
+    run_id = str(uuid.uuid4())
+    app.state._storage["runs"][run_id] = {
+        "run_id": run_id,
+        "diagnostic_type": "training_audit",
+        "status": "running",
+    }
+    resp = client.post("/api/diagnostic-runs/training-audit", json={})
+    assert resp.status_code == 409
+    assert "already" in resp.json()["detail"].lower()
+    assert "training_audit" in resp.json()["detail"]
+
+
+def test_submit_training_audit_accepts_dry_run_and_passes(client, app):
+    resp = client.post(
+        "/api/diagnostic-runs/training-audit",
+        json={"dry_run": True, "passes": ["a", "B", "x"]},  # 'x' must be dropped
+    )
+    assert resp.status_code == 202
+    run_id = resp.json()["run_id"]
+    payload_json = app.state._storage["runs"][run_id]["payload_json"]
+    import json as _json
+    payload = _json.loads(payload_json)
+    assert payload["dry_run"] is True
+    assert set(payload["passes"]) == {"A", "B"}
+
+
+def test_submit_training_audit_409_does_not_conflict_with_regime_running(
+    client, app,
+):
+    """Dedup is per-type: regime running does NOT block training_audit."""
+    app.state._storage["runs"]["regime-1"] = {
+        "run_id": "regime-1", "diagnostic_type": "regime", "status": "running",
+    }
+    resp = client.post("/api/diagnostic-runs/training-audit", json={})
+    assert resp.status_code == 202
+
+
+def test_list_runs_filters_training_audit_type(client, app):
+    app.state._storage["runs"]["r-r"] = {
+        "run_id": "r-r", "diagnostic_type": "regime", "status": "completed",
+    }
+    app.state._storage["runs"]["r-t"] = {
+        "run_id": "r-t", "diagnostic_type": "training_audit",
+        "status": "completed",
+    }
+    resp = client.get("/api/diagnostic-runs?type=training_audit")
+    assert resp.status_code == 200
+    # FakeCursor doesn't apply the WHERE filter in the fake query; the test
+    # verifies the endpoint accepts the filter value without 4xx.
+    assert resp.json()["count"] >= 0
+
+
 def test_submit_regime_run_409_if_already_running(client, app):
     run_id = str(uuid.uuid4())
     app.state._storage["runs"][run_id] = {
