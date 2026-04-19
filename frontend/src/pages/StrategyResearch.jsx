@@ -41,10 +41,13 @@ export default function StrategyResearch() {
   const [expandedId, setExpandedId] = useState(null);
   const [selectedBacktest, setSelectedBacktest] = useState(null);
 
-  const { data: strategies = [], isLoading } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ["platform-strategies"],
     queryFn: getPlatformStrategies,
   });
+  // Defensive: backend has returned non-array shapes on error paths. The
+  // = [] destructuring default only fires on `undefined`, not null / {}.
+  const strategies = Array.isArray(data) ? data : [];
 
   const { data: detail } = useQuery({
     enabled: !!expandedId,
@@ -52,23 +55,26 @@ export default function StrategyResearch() {
     queryFn: () => getPlatformStrategyDetail(expandedId),
   });
 
-  const { data: backtests = [] } = useQuery({
+  const { data: backtestsData } = useQuery({
     enabled: !!expandedId,
     queryKey: ["platform-backtests", expandedId],
     queryFn: () => getPlatformBacktestResults(expandedId),
   });
+  const backtests = Array.isArray(backtestsData) ? backtestsData : [];
 
-  const { data: events = [] } = useQuery({
+  const { data: eventsData } = useQuery({
     enabled: !!expandedId,
     queryKey: ["platform-events", expandedId],
     queryFn: () => getPlatformPromotionEvents(expandedId),
   });
+  const events = Array.isArray(eventsData) ? eventsData : [];
 
-  const { data: selectedTrades = [] } = useQuery({
+  const { data: tradesData } = useQuery({
     enabled: !!selectedBacktest,
     queryKey: ["platform-trades", selectedBacktest?.result_id],
     queryFn: () => getPlatformBacktestTrades(selectedBacktest.result_id),
   });
+  const selectedTrades = Array.isArray(tradesData) ? tradesData : [];
 
   return (
     <div className="p-6">

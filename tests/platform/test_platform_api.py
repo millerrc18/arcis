@@ -18,7 +18,11 @@ def client(tmp_path, monkeypatch):
     from src.schema.sqlite import create_all_tables
     create_all_tables(db)
     monkeypatch.setenv("API_SECRET", "test-platform-secret")
-    monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/test")
+    # Platform router's read endpoints now route to Postgres when
+    # DATABASE_URL is set (hotfix for cloud-mode research-platform page).
+    # Tests exercise the SQLite path — delete the env var so _read_rows
+    # falls through to sqlite against the monkeypatched DB_PATH.
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.setattr("src.config.DB_PATH", db)
     import importlib
     import src.api.cloud_routes.platform as platform_mod

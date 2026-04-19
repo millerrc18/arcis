@@ -34,45 +34,69 @@ router = APIRouter()
 verify_auth = None
 
 
-# ── GET endpoints ─────────────────────────────────────────────────────
+def _read_rows(sql: str, params: tuple = ()) -> list[dict]:
+    """Run a read-only query against Postgres (if DATABASE_URL is set) or
+    local SQLite (dev mode).
 
-@router.get("/api/platform/strategies")
-async def list_strategies() -> list[dict]:
+    Reason: this module is registered into cloud_app.py AND used in local
+    dev. Previously it always used sqlite3 — which silently creates an
+    empty DB on Render, so SELECTs failed. Gate on DATABASE_URL so the
+    cloud path reads from Render Postgres.
+
+    Placeholder convention: pass `?`-style SQL. Converted to `%s` for
+    Postgres automatically. SQLs in this module do not contain literal `?`.
+    """
+    database_url = os.environ.get("DATABASE_URL", "")
+    if database_url:
+        import psycopg2
+        import psycopg2.extras
+        pg_sql = sql.replace("?", "%s")
+        with psycopg2.connect(database_url) as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(pg_sql, params)
+                return [dict(r) for r in cur.fetchall()]
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     try:
-        rows = conn.execute(
-            """SELECT s.*,
-                      b.deflated_sharpe AS last_dsr,
-                      b.max_drawdown_pct AS last_max_dd,
-                      b.total_trades AS last_n_trades,
-                      b.created_at AS last_backtest_at
-               FROM strategy_registry s
-               LEFT JOIN (
-                   SELECT strategy_id, MAX(created_at) AS max_created
-                   FROM backtest_results
-                   GROUP BY strategy_id
-               ) latest ON latest.strategy_id = s.strategy_id
-               LEFT JOIN backtest_results b ON
-                   b.strategy_id = s.strategy_id AND b.created_at = latest.max_created
-               ORDER BY s.last_status_change DESC"""
-        ).fetchall()
+        rows = conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
     finally:
         conn.close()
 
 
+def _read_one(sql: str, params: tuple = ()) -> dict | None:
+    rows = _read_rows(sql, params)
+    return rows[0] if rows else None
+
+
+# ── GET endpoints ─────────────────────────────────────────────────────
+
+@router.get("/api/platform/strategies")
+async def list_strategies() -> list[dict]:
+    return _read_rows(
+        """SELECT s.*,
+                  b.deflated_sharpe AS last_dsr,
+                  b.max_drawdown_pct AS last_max_dd,
+                  b.total_trades AS last_n_trades,
+                  b.created_at AS last_backtest_at
+           FROM strategy_registry s
+           LEFT JOIN (
+               SELECT strategy_id, MAX(created_at) AS max_created
+               FROM backtest_results
+               GROUP BY strategy_id
+           ) latest ON latest.strategy_id = s.strategy_id
+           LEFT JOIN backtest_results b ON
+               b.strategy_id = s.strategy_id AND b.created_at = latest.max_created
+           ORDER BY s.last_status_change DESC"""
+    )
+
+
 @router.get("/api/platform/strategies/{strategy_id}")
 async def strategy_detail(strategy_id: str) -> dict:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        row = conn.execute(
-            "SELECT * FROM strategy_registry WHERE strategy_id = ?",
-            (strategy_id,),
-        ).fetchone()
-    finally:
-        conn.close()
+    row = _read_one(
+        "SELECT * FROM strategy_registry WHERE strategy_id = ?",
+        (strategy_id,),
+    )
     if not row:
         raise HTTPException(
             status_code=404, detail=f"strategy {strategy_id!r} not found",
@@ -92,38 +116,24 @@ async def backtest_results(
     strategy_id: str | None = Query(None),
     limit: int = Query(20, ge=1, le=500),
 ) -> list[dict]:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        if strategy_id:
-            rows = conn.execute(
-                """SELECT * FROM backtest_results WHERE strategy_id = ?
-                   ORDER BY created_at DESC LIMIT ?""",
-                (strategy_id, limit),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM backtest_results ORDER BY created_at DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
+    if strategy_id:
+        return _read_rows(
+            """SELECT * FROM backtest_results WHERE strategy_id = ?
+               ORDER BY created_at DESC LIMIT ?""",
+            (strategy_id, limit),
+        )
+    return _read_rows(
+        "SELECT * FROM backtest_results ORDER BY created_at DESC LIMIT ?",
+        (limit,),
+    )
 
 
 @router.get("/api/platform/backtest-trades")
 async def backtest_trades(result_id: str) -> list[dict]:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        rows = conn.execute(
-            "SELECT * FROM backtest_trades WHERE result_id = ? "
-            "ORDER BY entry_date",
-            (result_id,),
-        ).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
+    return _read_rows(
+        "SELECT * FROM backtest_trades WHERE result_id = ? ORDER BY entry_date",
+        (result_id,),
+    )
 
 
 @router.get("/api/platform/promotion-events")
@@ -131,24 +141,17 @@ async def promotion_events(
     strategy_id: str | None = Query(None),
     limit: int = Query(50, ge=1, le=500),
 ) -> list[dict]:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        if strategy_id:
-            rows = conn.execute(
-                """SELECT * FROM strategy_promotion_events WHERE strategy_id = ?
-                   ORDER BY timestamp DESC LIMIT ?""",
-                (strategy_id, limit),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                "SELECT * FROM strategy_promotion_events "
-                "ORDER BY timestamp DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
+    if strategy_id:
+        return _read_rows(
+            """SELECT * FROM strategy_promotion_events WHERE strategy_id = ?
+               ORDER BY timestamp DESC LIMIT ?""",
+            (strategy_id, limit),
+        )
+    return _read_rows(
+        "SELECT * FROM strategy_promotion_events "
+        "ORDER BY timestamp DESC LIMIT ?",
+        (limit,),
+    )
 
 
 # ── POST endpoints ────────────────────────────────────────────────────
