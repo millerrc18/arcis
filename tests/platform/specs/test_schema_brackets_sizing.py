@@ -39,8 +39,8 @@ def _valid_regime_adaptive() -> dict:
     return {
         "method": "regime_adaptive",
         "regimes": {
-            "BULL_LOW_VOL": {"packet_worthy": True, "position_pct": 0.05},
-            "CRISIS": {"packet_worthy": False, "position_pct": 0.0},
+            "BULL_LOW_VOL": {"min_score": 50, "position_pct": 0.05},
+            "CRISIS": {"min_score": 90, "position_pct": 0.0},
         },
     }
 
@@ -270,7 +270,8 @@ def test_regime_adaptive_empty_regimes_rejects():
     assert any("regimes" in e and "non-empty dict" in e for e in errors)
 
 
-def test_regime_adaptive_regime_missing_packet_worthy_rejects():
+def test_regime_adaptive_regime_missing_min_score_rejects():
+    """Sprint C.1 Item 1 (#567): packet_worthy → min_score (int threshold)."""
     spec = _base_spec()
     spec["position_sizing"] = {
         "method": "regime_adaptive",
@@ -278,36 +279,37 @@ def test_regime_adaptive_regime_missing_packet_worthy_rejects():
     }
     ok, errors = validate_spec(spec)
     assert not ok
-    assert any("packet_worthy" in e and "BULL_LOW_VOL" in e for e in errors)
+    assert any("min_score" in e and "BULL_LOW_VOL" in e for e in errors)
 
 
 def test_regime_adaptive_regime_missing_position_pct_rejects():
     spec = _base_spec()
     spec["position_sizing"] = {
         "method": "regime_adaptive",
-        "regimes": {"BULL_LOW_VOL": {"packet_worthy": True}},
+        "regimes": {"BULL_LOW_VOL": {"min_score": 50}},
     }
     ok, errors = validate_spec(spec)
     assert not ok
     assert any("position_pct" in e and "BULL_LOW_VOL" in e for e in errors)
 
 
-def test_regime_adaptive_packet_worthy_non_bool_rejects():
+def test_regime_adaptive_min_score_non_int_rejects():
+    """Sprint C.1 Item 1 (#567): min_score must be an int in [0, 100]."""
     spec = _base_spec()
     spec["position_sizing"] = {
         "method": "regime_adaptive",
-        "regimes": {"BULL_LOW_VOL": {"packet_worthy": 0.5, "position_pct": 0.05}},
+        "regimes": {"BULL_LOW_VOL": {"min_score": 0.5, "position_pct": 0.05}},
     }
     ok, errors = validate_spec(spec)
     assert not ok
-    assert any("packet_worthy" in e and "bool" in e for e in errors)
+    assert any("min_score" in e and "int" in e for e in errors)
 
 
 def test_regime_adaptive_position_pct_out_of_range_rejects():
     spec = _base_spec()
     spec["position_sizing"] = {
         "method": "regime_adaptive",
-        "regimes": {"BULL_LOW_VOL": {"packet_worthy": True, "position_pct": 1.5}},
+        "regimes": {"BULL_LOW_VOL": {"min_score": 50, "position_pct": 1.5}},
     }
     ok, errors = validate_spec(spec)
     assert not ok
@@ -318,7 +320,7 @@ def test_regime_adaptive_position_pct_bool_rejects():
     spec = _base_spec()
     spec["position_sizing"] = {
         "method": "regime_adaptive",
-        "regimes": {"BULL_LOW_VOL": {"packet_worthy": True, "position_pct": True}},
+        "regimes": {"BULL_LOW_VOL": {"min_score": 50, "position_pct": True}},
     }
     ok, errors = validate_spec(spec)
     assert not ok
@@ -330,8 +332,8 @@ def test_regime_adaptive_unknown_key_warns_not_rejects(caplog):
     spec["position_sizing"] = {
         "method": "regime_adaptive",
         "regimes": {
-            "BULL_LOW_VOL": {"packet_worthy": True, "position_pct": 0.05},
-            "FROG_MOON_VOL": {"packet_worthy": True, "position_pct": 0.03},
+            "BULL_LOW_VOL": {"min_score": 50, "position_pct": 0.05},
+            "FROG_MOON_VOL": {"min_score": 50, "position_pct": 0.03},
         },
     }
     with caplog.at_level(logging.WARNING, logger="src.platform.strategy_spec"):
@@ -356,7 +358,7 @@ def test_regime_adaptive_all_known_keys_no_warning(caplog):
     spec["position_sizing"] = {
         "method": "regime_adaptive",
         "regimes": {
-            k: {"packet_worthy": True, "position_pct": 0.05}
+            k: {"min_score": 50, "position_pct": 0.05}
             for k in KNOWN_REGIME_KEYS
         },
     }

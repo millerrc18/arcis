@@ -2,10 +2,12 @@
 
 Called by: src.platform.backtest_engine, scripts.run_backtest,
            src.scheduler.watch (Sprint 4 via Task 9).
-Calls: pyyaml (safe_load), pathlib.
+Calls: pyyaml (safe_load), pathlib, src.platform._strategy_spec_ranking.
 Owns tables: none.
 Config keys: none.
-Tests: tests/platform/test_strategy_spec.py.
+Tests: tests/platform/test_strategy_spec.py,
+       tests/platform/specs/test_schema_final_blocks.py,
+       tests/platform/specs/test_schema_c1_refinements.py.
 """
 
 from __future__ import annotations
@@ -16,6 +18,16 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+# Ranking-block validators live in a submodule to keep this file focused.
+# See src/platform/_strategy_spec_ranking.py for the Item 3-8 validators.
+from src.platform._strategy_spec_ranking import (
+    KNOWN_REGIME_LABELS,
+    KNOWN_SCORING_METRICS,
+    validate_adjustments as _validate_adjustments,
+    validate_bands as _validate_bands,
+    validate_derived_metrics as _validate_derived_metrics,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +48,16 @@ KNOWN_REGIME_KEYS = frozenset({
 # for strict-vs-warn justification per block.
 KNOWN_ATTRIBUTION_HOOKS = frozenset({"log_before_llm", "log_after_llm"})
 KNOWN_ENRICHERS = frozenset({"technicals", "insider", "macro", "news", "sector"})
-KNOWN_POST_SCAN_HELPERS = frozenset({"classifier", "filter_duplicates"})
-# Union of sprint-prompt earnings categories + MACRO_EVENT_TYPES
-# (event_risk_score.py, lowercased) + KNOWN_EVENTS labels (known_events.py).
+# Sprint C.1 Item 2 (#568): aligned to runtime dispatch in
+# enrichment.py::attach_post_scan_features (hardcoded imports for
+# compute_traffic_light + attach_event_risk_scores). strict=True in
+# _LIST_BLOCKS makes drift hard-fail. Sprint F wires string dispatch.
+KNOWN_POST_SCAN_HELPERS = frozenset({"traffic_light", "event_risk"})
+# Sprint C.1 Item 9 (#569): all categories use lowercase_with_underscores.
+# Runtime emits lowercase via event_risk_score.py `components` dict
+# (lines 201-207); MACRO_EVENT_TYPES uppercase at line 25 is internal
+# CSV/DB input-normalization only, invisible to specs. Union of
+# sprint-prompt earnings + MACRO_EVENT_TYPES (lowercased) + KNOWN_EVENTS.
 KNOWN_EVENT_RISK_CATEGORIES = frozenset({
     "earnings_imminent", "earnings_elevated",
     "fomc", "nfp", "cpi",
@@ -53,17 +72,29 @@ KNOWN_BOOTCAMP_KEYS = frozenset({
     "watchlist_threshold", "traffic_light_floor",
 })
 # Dispatch table: (outer, inner, known_refs, strict). strict=True rejects;
-# strict=False warns. Keeps validate_spec flat across the 4 list-of-refs blocks.
+# strict=False warns. Sprint C.1 Item 2: post_scan.chain flipped to
+# strict=True post-contents-fix.
 _LIST_BLOCKS: tuple[tuple[str, str, frozenset[str], bool], ...] = (
     ("hooks", "attribution", KNOWN_ATTRIBUTION_HOOKS, True),
     ("enrichment", "chain", KNOWN_ENRICHERS, False),
-    ("post_scan", "chain", KNOWN_POST_SCAN_HELPERS, False),
+    ("post_scan", "chain", KNOWN_POST_SCAN_HELPERS, True),
     ("event_risk", "quarantine_categories", KNOWN_EVENT_RISK_CATEGORIES, False),
 )
 REQUIRED_KEYS = (
     "spec_version", "strategy_id", "display_name", "universe", "entry", "exit",
     "position_sizing", "attribution",
 )
+
+__all__ = [
+    "ALLOWED_ENTRY_KINDS", "ALLOWED_EXIT_KINDS", "ALLOWED_SIZING_METHODS",
+    "KNOWN_REGIME_KEYS", "KNOWN_REGIME_LABELS",
+    "KNOWN_ATTRIBUTION_HOOKS", "KNOWN_ENRICHERS",
+    "KNOWN_POST_SCAN_HELPERS", "KNOWN_EVENT_RISK_CATEGORIES",
+    "KNOWN_BOOTCAMP_KEYS", "KNOWN_SCORING_METRICS",
+    "REQUIRED_KEYS",
+    "StrategySpec", "validate_spec",
+    "load_spec", "load_spec_from_yaml", "list_available_specs",
+]
 
 
 def _is_positive_number(x: Any) -> bool:
@@ -127,15 +158,7 @@ def validate_spec(spec: dict) -> tuple[bool, list[str]]:
     if "position_sizing" in spec and isinstance(spec["position_sizing"], dict):
         _validate_position_sizing(spec["position_sizing"], errors)
     if "ranking" in spec:
-        ranking = spec["ranking"]
-        if not isinstance(ranking, dict):
-            errors.append("ranking must be a dict when present")
-        elif "bands" in ranking:
-            bands = ranking["bands"]
-            if not isinstance(bands, list):
-                errors.append("ranking.bands must be a list when present")
-            else:
-                _validate_bands(bands, errors)
+        _validate_ranking_block(spec["ranking"], errors)
     for outer, inner, known, strict in _LIST_BLOCKS:
         if outer in spec and isinstance(spec[outer], dict):
             _validate_known_ref_list(
@@ -147,58 +170,32 @@ def validate_spec(spec: dict) -> tuple[bool, list[str]]:
     return (len(errors) == 0, errors)
 
 
-def _validate_bands(bands: list, errors: list[str]) -> None:
-    parsed: list[tuple[str, float, float, int]] = []
-    for i, band in enumerate(bands):
-        if not isinstance(band, dict):
-            errors.append(f"ranking.bands[{i}] must be a dict")
-            continue
-        metric = band.get("metric")
-        if not isinstance(metric, str) or not metric:
-            errors.append(
-                f"ranking.bands[{i}].metric must be a non-empty string"
-            )
-            continue
-        rng = band.get("range")
-        if (
-            not isinstance(rng, list)
-            or len(rng) != 2
-            or not all(
-                isinstance(x, (int, float)) and not isinstance(x, bool)
-                for x in rng
-            )
-        ):
-            errors.append(
-                f"ranking.bands[{i}].range must be a 2-element list of numerics"
-            )
-            continue
-        lo, hi = rng
-        if lo >= hi:
-            errors.append(
-                f"ranking.bands[{i}].range[0] must be < range[1] "
-                f"(got {lo} >= {hi})"
-            )
-            continue
-        score = band.get("score")
-        if not isinstance(score, (int, float)) or isinstance(score, bool):
-            errors.append(f"ranking.bands[{i}].score must be numeric")
-            continue
-        parsed.append((metric, float(lo), float(hi), i))
+def _validate_ranking_block(ranking: Any, errors: list[str]) -> None:
+    """Dispatch ranking-block sub-validators (Sprint C.1 Items 3-8).
 
-    by_metric: dict[str, list[tuple[float, float, int]]] = {}
-    for metric, lo, hi, idx in parsed:
-        by_metric.setdefault(metric, []).append((lo, hi, idx))
-    for metric, entries in by_metric.items():
-        for a in range(len(entries)):
-            a_lo, a_hi, a_i = entries[a]
-            for b in range(a + 1, len(entries)):
-                b_lo, b_hi, b_i = entries[b]
-                if a_lo <= b_hi and b_lo <= a_hi:
-                    logger.warning(
-                        "[PLATFORM] ranking.bands overlap: metric=%s "
-                        "band#%d[%s,%s] overlaps band#%d[%s,%s]",
-                        metric, a_i, a_lo, a_hi, b_i, b_lo, b_hi,
-                    )
+    derived_metrics runs first so its output names can be referenced by
+    bands and adjustments. All three share the same effective
+    known_metrics set.
+    """
+    if not isinstance(ranking, dict):
+        errors.append("ranking must be a dict when present")
+        return
+    derived_names: frozenset[str] = frozenset()
+    if "derived_metrics" in ranking:
+        derived_names = _validate_derived_metrics(ranking["derived_metrics"], errors)
+    known_metrics = KNOWN_SCORING_METRICS | derived_names
+    if "bands" in ranking:
+        bands = ranking["bands"]
+        if not isinstance(bands, list):
+            errors.append("ranking.bands must be a list when present")
+        else:
+            _validate_bands(bands, errors, known_metrics=known_metrics)
+    if "adjustments" in ranking:
+        adj = ranking["adjustments"]
+        if not isinstance(adj, dict):
+            errors.append("ranking.adjustments must be a dict when present")
+        else:
+            _validate_adjustments(adj, errors, known_metrics=known_metrics)
 
 
 def _validate_exit_brackets(exit_block: dict, errors: list[str]) -> None:
@@ -276,8 +273,13 @@ def _validate_position_sizing(sizing: dict, errors: list[str]) -> None:
         if not isinstance(rval, dict):
             errors.append(f"position_sizing.regimes[{rkey}] must be a dict")
             continue
-        if not isinstance(rval.get("packet_worthy"), bool):
-            errors.append(f"position_sizing.regimes[{rkey}].packet_worthy must be a bool")
+        # Sprint C.1 Item 1 (#567): hard-rename packet_worthy → min_score.
+        # Original field was validated as bool but runtime stored an int
+        # threshold — type mismatch. Hard-rename, no legacy alias.
+        if not _is_int_0_100(rval.get("min_score")):
+            errors.append(
+                f"position_sizing.regimes[{rkey}].min_score must be an int in [0, 100]"
+            )
         if not _is_unit_number(rval.get("position_pct")):
             errors.append(
                 f"position_sizing.regimes[{rkey}].position_pct must be a number in [0.0, 1.0]"

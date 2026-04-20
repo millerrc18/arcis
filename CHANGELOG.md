@@ -2,6 +2,84 @@
 
 ## [Unreleased]
 
+### Fixed (Sprint C.1 — schema refinement: scoring shape gaps)
+
+Closes #569, #567, #568 — slot 6-a in the #530 Sprint chain (chain count
+revised 8→9; F/G/H shift to slots 7/8/9). Sprint F Pass 1 (see
+`docs/sprints/sprint_F_evaluation.md` on `feat/port-ranker-to-spec`,
+parked at `53dee07`) surfaced 9 schema shape gaps blocking byte-identity
+port of the ranker; Sprint C.1 closes them before Sprint F resumes.
+
+**9 items:**
+
+1. **Categorical bands** — `ranking.bands` accepts `category: <str>` as
+   an alternative to `range: [lo, hi]`. Mutual exclusion. Covers
+   `trend_state` / `relative_strength_state` in `_score_ticker`.
+2. **Compound AND conditions** — band entries may use `conditions:
+   [{metric, operator, threshold}, ...]` instead of a top-level metric.
+   Covers `iv_rank > 75 AND pc_vol > 1.2`. Operator enum
+   `{>, >=, <, <=, ==, !=}`.
+3. **Weighted blend groups** — bands accept optional `weight: float
+   [0,1]` + `blend_group: <str>` for weighted sums across tagged bands.
+   Covers the 0.6/0.4 market-vs-sector RS blend. Weights within a group
+   should sum to 1.0 (warn if not).
+4. **`ranking.adjustments` block** — new block with same grammar as
+   `ranking.bands` plus `clamp: [lo, hi]`. Covers `_regime_adjustment`
+   (ranker.py:72-102).
+5. **`ranking.derived_metrics` block** — declarative feature derivations.
+   Ops: `subtract`, `weighted_sum`. DAG cycle check. Covers
+   `_compute_sector_rs` (ranker.py:105-147).
+6. **#567 — `packet_worthy` → `min_score` hard-rename.** Schema validator
+   previously asserted bool; runtime stored int threshold. Field is now
+   `min_score: int` in `[0, 100]`. No legacy alias.
+7. **#568 — `KNOWN_POST_SCAN_HELPERS` contents + strict flip.** Set
+   aligned to runtime dispatch names `{traffic_light, event_risk}`;
+   `post_scan.chain` flipped to `strict=True`.
+8. **`KNOWN_SCORING_METRICS` registry.** 10-metric seed for
+   `_validate_bands` / `_validate_band_condition`. Effective set at
+   validation = seed ∪ derived-metric names from Item 5.
+9. **Event-risk casing docstring (Item 9).** Schema comment codifies the
+   lowercase_with_underscores convention. No runtime edits — Option 9A
+   per operator resolution 2026-04-20.
+
+**Registry additions:**
+
+- `KNOWN_REGIME_LABELS` — 5-label set from `compute_market_regime()`
+  (regime.py:161-170). Intentionally separate from `KNOWN_REGIME_KEYS`
+  (7-label, threshold dispatch). Documented with comment explaining
+  the split.
+- `KNOWN_SCORING_METRICS` — 10-metric seed from `_score_ticker` +
+  `_regime_adjustment`. Additions require a refinement sprint
+  (C.1-style) — silent edits risk schema/runtime scoring drift.
+- `ALLOWED_BAND_OPERATORS`, `ALLOWED_DERIVED_OPS` — operator enums.
+
+**Structure:**
+
+- Ranking validators extracted to `src/platform/_strategy_spec_ranking.py`
+  (341 LOC) to keep `strategy_spec.py` focused and under guardrail. Main
+  module re-exports the constants for public API stability.
+- `strategy_spec.py`: 393 → 388 lines (under 650 guardrail).
+- `tests/platform/specs/test_schema_c1_refinements.py`: 28 tests covering
+  all 9 items + backward compat + registry seeds.
+
+**Known Sprint F divergence (operator resolution 2026-04-20):** the
+sector_rs None-fallback in `_score_ticker:182-187` (market gets weight
+1.0 when sector data absent) is NOT expressible in pure weighted-blend
+schema. Sprint F will observe byte-identity fuzz failure → STOP → file
+issue for a follow-on sprint (C.2-style) if the fallback matters.
+
+**Follow-up candidates for Sprint F or C.2:** symmetric categorical-value
+validation for non-regime metrics (`trend_state`, `relative_strength_state`,
+`market_breadth_label`) — each ~10 LOC. Deferred because immediate scope
+is `regime_label` per operator. Sprint F may surface additional gaps
+that get bundled.
+
+**Sprint F unblocks:** once #569 merges AND #570 (2024 OHLCV data gap)
+resolves, `feat/port-ranker-to-spec` (parked at `53dee07`) resumes as
+Sprint F at slot 7 of 9.
+
+---
+
 ### Added (Sprint E — hooks, enrichment, post-scan, event-risk, bootcamp schema)
 
 Closes #551 — fifth of 8 prerequisite sprints in the #530 Sprint chain
