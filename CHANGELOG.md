@@ -2,6 +2,123 @@
 
 ## [Unreleased]
 
+### Added (Sprint E — hooks, enrichment, post-scan, event-risk, bootcamp schema)
+
+Closes #551 — fifth of 8 prerequisite sprints in the #530 Sprint chain
+(Sprints A #494, B #493, C #549, D #550 merged earlier). **Sprint E
+completes the v0.26.0 schema surface**; the next two sprints (F, G) port
+the runtime (`compute_all_features`, `rank_universe`, bracket engine) to
+consume the declared spec instead of hardcoded logic.
+
+`src/platform/strategy_spec.py::validate_spec` now validates five
+additive optional top-level blocks:
+
+```yaml
+hooks:                           # attribution logger refs (strict)
+  attribution:
+    - log_before_llm
+    - log_after_llm
+
+enrichment:                      # ordered enricher chain (warn)
+  chain:
+    - technicals
+    - insider
+    - macro
+    - news
+    - sector
+
+post_scan:                       # ordered post-ranking helpers (warn)
+  chain:
+    - classifier
+    - filter_duplicates
+
+event_risk:                      # category-based quarantine gate (warn)
+  quarantine_categories:
+    - earnings_imminent
+    - fomc
+
+bootcamp:                        # strategy-level bootcamp overrides (strict)
+  qualification_threshold: 55
+  watchlist_threshold: 30
+  max_positions: 20
+  traffic_light_floor: 0.5
+```
+
+Per-block policy — strict-vs-warn chosen by registry maturity
+(documented in `docs/sprints/schema_final_blocks_evaluation.md §2`):
+
+| Block | Policy | Registry source | Reason |
+|-------|--------|-----------------|--------|
+| `hooks.attribution` | **strict** | `src/attribution/logger.py` (2 stable functions) | Typo silently disables attribution — 2-year-old code, capability-registry-registered. |
+| `enrichment.chain` | warn | no formal registry yet | Sprint prompt names aspirational; Sprint F wires the registry. |
+| `post_scan.chain` | warn | no registry exists | Same; runtime binding deferred. |
+| `event_risk.quarantine_categories` | warn | fragmented (`MACRO_EVENT_TYPES` + `KNOWN_EVENTS` labels) | 20-seed-entry union of current category sources; sprint-prompt earnings names aren't in code yet. |
+| `bootcamp` | **strict** | `config/settings.example.yaml:435-457` | 4 keys load-bearing at 7 runtime sites; typo silently reverts to hardcoded default. |
+
+Validation rules (strict blocks):
+
+- **`hooks.attribution`** — list of string refs; each must be in
+  `KNOWN_ATTRIBUTION_HOOKS = {log_before_llm, log_after_llm}`.
+- **`bootcamp`** — dict; allowed keys are
+  `{qualification_threshold, watchlist_threshold, max_positions,
+  traffic_light_floor}`. Per-key type check: thresholds are int in
+  `[0, 100]`, `max_positions` is a positive int (bool excluded),
+  `traffic_light_floor` is a number in `[0.0, 1.0]`.
+
+Validation rules (warn blocks): unknown refs emit
+`logger.warning("[PLATFORM] %s[%d]: unknown ref %r (known: ...)")` but
+do not block the spec load. Matches the Sprint C/D precedent
+(ranking.bands overlap, regime-key unknowns).
+
+Added constants and helpers in `strategy_spec.py`:
+
+- `KNOWN_ATTRIBUTION_HOOKS`, `KNOWN_ENRICHERS`,
+  `KNOWN_POST_SCAN_HELPERS`, `KNOWN_EVENT_RISK_CATEGORIES` (20 entries),
+  `KNOWN_BOOTCAMP_KEYS` (all module-level frozensets).
+- `_LIST_BLOCKS` dispatch tuple — single loop handles the 4
+  list-of-refs blocks (hooks, enrichment, post_scan, event_risk).
+- `_validate_known_ref_list(items, known, path, errors, *, strict)` —
+  shared helper factoring the common shape out of four dispatch sites.
+- `_validate_bootcamp_overrides(block, errors)` + `_BOOTCAMP_RULES`
+  table-driven per-key type checks.
+
+Guardrails:
+
+- **Schema-only.** `StrategySpec` dataclass unchanged; new blocks land
+  in `.raw`. Downstream consumers pick them up from `.raw` without
+  modification. Reproducibility hash at `backtest_engine.py:187`
+  captures the new blocks (intentional; same precedent as Sprint C/D).
+- **Zero top-level key collision.** `{hooks, enrichment, post_scan,
+  event_risk, bootcamp}` appear in neither `lazy_prices_v1.yaml` nor
+  `post_audit_ruleset_v1.yaml`; existing `attribution` top-level key
+  is in a separate namespace from `hooks.attribution`.
+- **File-size budget preserved.** `strategy_spec.py` grew from 298 to
+  393 lines — under the 400-line cap set by the sprint prompt.
+
+Tests — `tests/platform/specs/test_schema_final_blocks.py` (25 tests):
+
+- 2 tests per block × 5 blocks = 10 (prompt minimum).
+- +5 combined / backward-compat (all-5-simultaneously, lazy_prices_v1,
+  post_audit_ruleset_v1, none-declared, non-dict outer ignored).
+- +5 edge cases (empty list, not-a-list, non-string entry, bootcamp
+  not-a-dict, all-outer-dicts-empty).
+- +5 bootcamp-specific (threshold range, bool-is-int trap, floor
+  range, floor valid, watchlist valid).
+
+Platform test count: 447 → 470 (23 new + 2 new skipped = 25 additive).
+
+Documentation:
+
+- `docs/sprints/schema_final_blocks_evaluation.md` — Pass 1 per-block
+  registry-source discovery, strict-vs-warn decision matrix, test plan.
+- `docs/sprints/schema_final_blocks_research.md` — Pass 2 verification
+  of the 7 Pass-1 assumptions (attribution module location, bootcamp
+  consumers, top-level key collisions, spec.raw consumers, event-risk
+  seed byte-match, file-size budget, test count floor).
+
+Next: Sprint F (ranker port — `compute_all_features` + `rank_universe`
+consume spec instead of hardcoded logic).
+
 ### Added (Sprint D — multi-target brackets + regime-adaptive sizing schema)
 
 Closes #550 — fourth of 8 prerequisite sprints in the #530 Sprint chain
