@@ -1,7 +1,7 @@
 {
-  "run_count": 33,
+  "run_count": 34,
   "current_focus_index": 2,
-  "file_index": 86,
+  "file_index": 101,
   "file_list": [
     "requirements.txt",
     "frontend/package.json",
@@ -1656,5 +1656,5 @@
       "notes": "Audited 15 files (routes/review-training, websocket, attribution/*, cli/*, commands/*, config/*, config_overrides). Most files are clean thin wrappers with stdlib + fastapi imports. The major finding is src/commands/executor.py where 8 of 13 cloud command handlers reference phantom modules/functions \u2014 the command queue added handlers that were never wired to the real codebase entry points. The CLI (cli/commands.py) correctly imports the real functions, confirming the executor handlers are stale/incorrect copies."
     }
   },
-  "last_run": "2026-04-20T07:04:35.394744+00:00"
+  "last_run": "2026-04-20T19:17:41.410529+00:00"
 }
