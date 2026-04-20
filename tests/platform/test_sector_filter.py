@@ -33,7 +33,10 @@ def _make_spec_raw(sector_filter: list[str] | None) -> dict:
             "event_table": "edgar_filings",
             "event_filter": {"form_type": ["10-K"]},
         },
-        "exit": {"kind": "mechanical", "timeout_days": 21},
+        # Sprint D (#550) tightened mechanical-exit validation to require a
+        # target or targets block. This test only exercises universe.sector_filter;
+        # use python_plugin exit so the brackets-XOR rule doesn't fire.
+        "exit": {"kind": "python_plugin", "timeout_days": 21},
         "position_sizing": {"method": "fixed_pct_equity", "pct": 0.15},
         "attribution": {"benchmark": "SPY", "metrics": []},
     }

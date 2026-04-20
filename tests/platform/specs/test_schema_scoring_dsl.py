@@ -9,14 +9,19 @@ from src.platform.strategy_spec import (
 
 
 def _base_spec() -> dict:
-    """Minimal valid spec dict (all REQUIRED_KEYS present)."""
+    """Minimal valid spec dict (all REQUIRED_KEYS present).
+
+    Uses python_plugin exit because Sprint D (#550) requires mechanical
+    exits to declare target or targets; this fixture only exercises the
+    scoring-DSL block and has no opinion on bracket shape.
+    """
     return {
         "spec_version": 1,
         "strategy_id": "scoring_dsl_test",
         "display_name": "Scoring DSL Test",
         "universe": {"tickers": ["AAPL", "MSFT"]},
         "entry": {"kind": "scheduled"},
-        "exit": {"kind": "mechanical"},
+        "exit": {"kind": "python_plugin"},
         "position_sizing": {"method": "fixed_pct_equity", "pct": 0.1},
         "attribution": {"benchmark": "SPY"},
     }
