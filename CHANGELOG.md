@@ -2,6 +2,51 @@
 
 ## [Unreleased]
 
+### Added (2024 OHLCV backfill for Sprint F byte-identity fuzz)
+
+Closes #570. Unblocks Sprint F (#564) byte-identity fuzz. Populates
+`data/simulation_cache/` with 2023-01-01..2024-12-31 daily OHLCV for
+the S&P 100 universe + SPY + ^VIX = **104 tickers, 501 trading days
+each**. All 11 Sprint F fuzz/primary dates (2024-01-16 through
+2024-11-19, primary 2024-03-26) have exact-match data.
+
+**Date range is 24 months, not calendar-year 2024**, because
+`compute_features` requires SMA200 (200 trading days) and RS-6m
+(126 trading days) of lookback before the earliest fuzz date. A
+calendar-year-2024 fetch would have broken feature computation on
+the first 7 of 11 fuzz dates — confusing `SMA200 NaN` failures
+attributable to data setup rather than the port. The extra 6 months
+of 2023 data costs ~2 MB and ~1 minute of runtime.
+
+**SPY is included** (not just "S&P 100 universe + ^VIX"): `rank_universe`
+uses SPY for `_classify_relative_strength` (the 1m/3m/6m RS calculations
+that feed `relative_strength_state`). SPY is a functional prerequisite
+for the scan pipeline, not universe expansion. `^VIX` is required by
+`compute_market_regime` for the `vix_proxy` volatility classification.
+
+**New script:** `scripts/backfill_2024_ohlcv.py` (throwaway; kept
+committed for re-runnability). Reuses `src/simulation/cache.py::fetch_cached_ohlcv`
+— no new fetch abstractions (prompt anti-goal). Per-call parquet save
+(crash-safe), cache-hit skip on re-run (idempotent).
+
+**Results:**
+- 104 of 104 tickers succeeded (0 failures)
+- Runtime 83.1 seconds (under the 3-minute Pass 1 estimate)
+- 4 Pass-1-flagged tickers (PYPL, F, GM, KHC) all fetched cleanly —
+  none are delisted; S&P 100 membership-staleness remains an open
+  observation but no new issue filed per operator direction (only
+  file if >1 actually fails, which they didn't)
+- 8 pre-existing scenario-partial parquets (different cache keys)
+  preserved untouched as designed
+- BRK.B → `BRK_B_...` filename translation verified via
+  `to_yfinance_ticker()`; hyphen/dot handling clean
+
+**Re-run:** `python scripts/backfill_2024_ohlcv.py` is idempotent —
+skips cached files, re-fetches only missing ones. If any parquet is
+known-bad, delete it before re-running.
+
+---
+
 ### Fixed (Sprint C.1 — schema refinement: scoring shape gaps)
 
 Closes #569, #567, #568 — slot 6-a in the #530 Sprint chain (chain count
