@@ -35,6 +35,7 @@ from src.platform.signal_eval import (
     _evaluate_event_signal,
     _matches_scheduled_trigger,
     _query_event_rows,
+    is_excluded_event_date,
 )
 from src.platform.strategy_spec import StrategySpec
 
@@ -341,6 +342,8 @@ def _run_event_driven(cfg: BacktestConfig) -> list[BacktestTrade]:
         first_bar = after.iloc[0]
         entry_ts = after.index[0]
         entry_iso = entry_ts.strftime("%Y-%m-%d")
+        if is_excluded_event_date(entry_iso, spec.entry):
+            continue
         entry_price = float(first_bar.get("Open", first_bar.get("open", 0.0)))
         history_df = df[df.index < entry_ts]
         trade = _build_trade(

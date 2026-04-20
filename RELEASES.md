@@ -49,6 +49,71 @@
 
 ## Releases
 
+### v0.26.2-scoped — Post-Audit Ruleset v1 (Schema + Filters) (2026-04-19)
+
+Schema extension + spec addition + walk-forward run. First non-null
+`derived_from` strategy to reach production-grade framework. Scoped
+per v0.26.2-preflight (PR #536) Path B — morning-only filter deferred
+to #540.
+
+**What ships:**
+
+- Two additive optional schema fields on the strategy spec:
+  - `universe.sector_filter: list[str]` — hard filter on GICS sector
+    (applied in `signal_eval._query_event_rows` before SQL `IN(...)`)
+  - `entry.event_exclusion.categories: list[str]` — skip entries whose
+    entry date matches `is_known_event(entry_iso, category=C)` for any
+    listed category (applied in `backtest_engine._run_event_driven`)
+- `src/platform/specs/post_audit_ruleset_v1.yaml` — 92-line spec with
+  `derived_from.source_type = forensic_audit_ruleset`,
+  `source_date_range = 2026-04-01 → 2026-04-18`,
+  `source_trade_ids` intentionally omitted. Filters set to Defensive
+  sectors (Consumer Staples, Utilities, Health Care — 28 of S&P 100)
+  and Trade Policy category (9 dates from v0.25.1 `KNOWN_EVENTS`
+  backfill).
+- 22 new tests across 4 files:
+  - `tests/platform/specs/test_post_audit_ruleset_v1.py` (7) — spec loads,
+    R8(a) parses, validator rejects malformed, lazy_prices regression
+  - `tests/platform/test_sector_filter.py` (4) — synthetic-DB confirms
+    ticker filter before SQL query
+  - `tests/platform/test_event_exclusion.py` (8) — `is_known_event`
+    semantics + all 9 Trade Policy dates from v0.25.1 validated
+  - `tests/platform/test_r8_firewall_post_audit.py` (6) — firewall
+    accepts forensic_audit_ruleset, rejects null `source_trade_ids`,
+    accepts omission, accepts empty list
+
+**Walk-forward outcome:** INCONCLUSIVE / `coverage_inconclusive`. 3 OOS
+trades total (PM/COST/MO, all Consumer Staples, windows 0/2/3). Pooled
+Sharpe +1.019, MDE 47.197 (4.5× baseline 10.5 as expected for
+1/√N scaling). Heavy-tail override did NOT fire — N=1 windows
+degenerate to MDE=inf earlier in the state machine. Filter-bypass
+trigger did NOT fire (3 ≤ 20 baseline).
+
+**R8 posture:**
+- R8(a): `derived_from_source_type=forensic_audit_ruleset` persisted
+- R8(b): source date range 2026-04 vs OOS 2019-2024 is trivially
+  disjoint; overlap-assertion cleared
+
+**Framework + filters: VALIDATED.** First exercise of non-null
+`derived_from` provenance chain on real data.
+
+**Deferred:** morning-only filter (third forensic-audit refinement) at
+#540. Requires intraday OHLCV data layer.
+
+**Secondary finding:** same VIX enrichment gap flagged in v0.25.3 still
+present (vix_at_entry NULL on 3/3 trades). Non-blocking for this run.
+
+**Validation docs:**
+- `docs/validation/post-audit-v1-scoped-walkforward-2026-04-20.md`
+- `docs/validation/v0.26-cycle-summary.md` (side-by-side v0.25.3 vs
+  v0.26.2-scoped)
+
+**Ralph Loop:**
+- `docs/sprints/post_audit_v1_scoped_evaluation.md` (Pass 1)
+- `docs/sprints/post_audit_v1_scoped_research.md` (Pass 2)
+
+---
+
 ### v0.25.0 — Walk-Forward Validation Framework v1 (2026-04-19)
 
 Load-bearing multi-year infrastructure. Every future strategy must pass

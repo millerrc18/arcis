@@ -69,6 +69,10 @@
       "lines": 822
     },
     {
+      "file": "src/platform/backtest_engine.py",
+      "lines": 402
+    },
+    {
       "file": "src/platform/promotion.py",
       "lines": 525
     },

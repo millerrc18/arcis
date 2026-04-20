@@ -1,0 +1,99 @@
+spec_version: 1
+strategy_id: post_audit_ruleset_v1
+display_name: Post-Audit Ruleset (Defensive + Tariff Exclusion)
+
+# R8(a) declaration: derived from the April-2026 forensic audit of live
+# paper-trading results. The forensic audit ruleset identified three
+# refinements (Defensive sector bias, tariff exclusion, morning-only entry
+# window); this spec encodes the first two. Morning-only is deferred to
+# #540 pending intraday OHLCV data layer.
+#
+# source_trade_ids is intentionally omitted — the walkforward_firewall
+# validator accepts key-absence but rejects null values (per Pass 2
+# verification). See docs/sprints/post_audit_v1_scoped_research.md §1.
+derived_from:
+  source_type: forensic_audit_ruleset
+  source_run_id: april-2026-forensic-audit
+  source_date_range:
+    start: "2026-04-01"
+    end: "2026-04-18"
+
+description: >
+  Forensic-audit-derived filter layer on top of the lazy_prices signal
+  substrate. Restricts the candidate universe to Defensive GICS sectors
+  (Consumer Staples, Utilities, Health Care) and excludes entries on
+  Trade Policy event dates (tariff announcements, sanctions, export
+  controls, industrial policy, trade disruption). Morning-only filter
+  deferred to #540 pending intraday OHLCV.
+
+citation: >
+  April 2026 forensic audit of live paper-trading (see
+  docs/research/april-2026-forensic-audit.md). Ruleset refinements
+  scoped per v0.26.2-preflight (PR #536) Path B finding.
+
+universe:
+  tickers: sp100
+  # Defensive subset: Consumer Staples (XLP), Utilities (XLU), Health Care (XLV).
+  # GICS sector names used directly to match SECTOR_MAP values (see
+  # src/universe/sectors.py). 28 tickers on current S&P 100 membership.
+  sector_filter:
+    - Consumer Staples
+    - Utilities
+    - Health Care
+
+entry:
+  kind: event_driven
+  event_table: edgar_filings
+  event_filter:
+    form_type: [10-K, 10-Q]
+    filing_date_within_days: 5
+  # Tariff exclusion: skip any entry whose resolved entry date
+  # (filing_date + next trading day) matches a KNOWN_EVENTS row in the
+  # Trade Policy category. 9 dates in 2019-2024 window (v0.25.1 backfill).
+  event_exclusion:
+    categories:
+      - Trade Policy
+  signal:
+    - metric: cosine_similarity
+      target: item_1a
+      reference: prior_year_same_form
+      operator: less_than
+      threshold: 0.75
+    - metric: cosine_similarity
+      target: item_7
+      reference: prior_year_same_form
+      operator: less_than
+      threshold: 0.75
+  combinator: any
+
+exit:
+  kind: mechanical
+  timeout_days: 21
+  stop:
+    method: atr_based
+    atr_period: 14
+    multiplier: 3.0
+    floor_pct: 0.05
+    cap_pct: 0.12
+  target:
+    method: atr_based
+    atr_period: 14
+    multiplier: 6.0
+    floor_pct: 0.10
+    cap_pct: 0.25
+
+position_sizing:
+  method: fixed_pct_equity
+  pct: 0.15
+  max_concurrent: 5
+
+attribution:
+  benchmark: SPY_matched_window
+  metrics: [raw_sharpe, excess_sharpe, win_rate, profit_factor, max_drawdown]
+
+llm_enhancement:
+  enabled: false
+  model: halcyon-v1.0.0
+  role: structured_extraction
+  prompt_template: lazy_prices_research_prompt
+  validation: verbatim_quote_grounded
