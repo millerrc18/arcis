@@ -180,7 +180,7 @@ def _fetch_filing_text(cik: str, accession: str) -> str | None:
         return None
 
 
-def _parse_sections(text: str, form_type: str) -> dict[str, str]:
+def parse_sections(text: str, form_type: str) -> dict[str, str]:
     """Extract key sections from filing text using regex.
 
     For 10-K: Item 1 (Business), Item 7 (MD&A), Item 8 (Financial Statements)
@@ -328,7 +328,7 @@ def collect_new_filings(
 
                     # Parse sections
                     form = filing.get("form_type", "8-K")
-                    sections = _parse_sections(full_text, form) if full_text else {}
+                    sections = parse_sections(full_text, form) if full_text else {}
 
                     filing_url = f"https://data.sec.gov/Archives/edgar/data/{cik.lstrip('0')}/{accession.replace('-', '')}/"
 

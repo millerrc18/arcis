@@ -2,6 +2,58 @@
 
 ## [Unreleased]
 
+### Executed (v0.25.5 — sections_json parser backfill for EDGAR)
+
+Closes #537. Runs the existing section parser over the 3,743 `edgar_filings`
+rows that had `full_text` populated by the 2026-04-19 fulltext backfill but
+`sections_json` still NULL. Pure execution sprint — no parser logic changes,
+no schema changes.
+
+**Coverage delta**
+
+- Useful (`sections_json` non-empty): 1,518 / 5,393 = 28.1% → 3,837 / 5,393 = **71.1%**
+- Attempted (`sections_json IS NOT NULL`): 28.1% → **97.6%**
+
+Remaining 132 NULL rows are all `full_text IS NULL` (ineligible).
+
+**Execution**
+
+3,743 rows processed in 6.1 s total wall-clock (plan budgeted 2 h). Batch
+commits every 100 rows, zero exceptions, zero baseline drift against a
+5-row spot-check of pre-parsed rows.
+
+- 2,319 rows produced non-empty `sections_json`
+- 1,424 rows produced `'{}'` (mark-attempted semantic — see #552)
+- 0 exceptions
+
+**Code changes**
+
+- `_parse_sections` → public `parse_sections` in
+  `src/data_collection/edgar_collector.py`. Callsites updated in
+  `scripts/backfill_edgar_historical.py` and `tests/test_data_collectors.py`.
+  No behavioral change.
+- New `scripts/backfill_sections_json.py` (205 lines, all functions ≤ 48 lines,
+  well under the 60-line guardrail). Flags: `--dry-run`, `--limit`,
+  `--batch-size`, `--db-path`. Built-in `capture_baseline`/`verify_baseline`
+  defense-in-depth against WHERE-clause drift.
+- Storage semantic: empty parser dict stored as `'{}'` literal JSON, NOT NULL.
+  One-way divergence from `edgar_collector.py:351` (inline collector path).
+  Chosen for idempotency on re-run and diagnostic value for #552.
+
+**Follow-up filed (#552)**
+
+1,424 of the 3,743 rows (~38%) produced empty `sections_json`. Diagnosed
+via spot-inspection: `_lookup_primary_document` is resolving some filings
+to iXBRL / SGML submission-header documents instead of the narrative HTML.
+Parser correctly returns `{}` on these — no narrative sections exist to
+extract. Filed as **#552** for a later sprint; out of scope for v0.25.5.
+
+**Docs**
+
+- Pass 1 evaluation: `docs/sprints/v0.25.5_evaluation.md` (commit `c495530`)
+- Pass 2 research: `docs/sprints/v0.25.5_research.md` (commit `6a8f290`)
+- Pass 3 validation: `docs/sprints/v0.25.5_validation.md` (this PR)
+
 ### Added (v0.25.4 Part A — VIX enrichment in walk-forward trades)
 
 Closes #535 (and the umbrella #542). Plugs the gap diagnosed in

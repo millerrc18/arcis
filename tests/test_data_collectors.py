@@ -67,65 +67,65 @@ class TestEdgarCikLookup:
 
 class TestEdgarFilingParser:
     def test_parse_10k_sections(self):
-        from src.data_collection.edgar_collector import _parse_sections
+        from src.data_collection.edgar_collector import parse_sections
 
         text = """Item 1. Business This is the business section.
         Item 7. Management's Discussion This is the MD&A section.
         Item 8. Financial Statements These are the financials."""
 
-        sections = _parse_sections(text, "10-K")
+        sections = parse_sections(text, "10-K")
         assert "item_1" in sections
         assert "item_7" in sections
         assert "item_8" in sections
 
     def test_parse_10q_sections(self):
-        from src.data_collection.edgar_collector import _parse_sections
+        from src.data_collection.edgar_collector import parse_sections
 
         text = """Item 2. Management's Discussion This is the MD&A for Q2.
         Item 3. Quantitative and qualitative disclosures."""
 
-        sections = _parse_sections(text, "10-Q")
+        sections = parse_sections(text, "10-Q")
         assert "item_2" in sections
 
     def test_parse_10k_uppercase_headers(self):
         """Pre-2020 filings often use all-caps headers."""
-        from src.data_collection.edgar_collector import _parse_sections
+        from src.data_collection.edgar_collector import parse_sections
 
         text = """ITEM 1. BUSINESS This is the business description.
         ITEM 1A. RISK FACTORS These are the risk factors.
         ITEM 1B. UNRESOLVED STAFF COMMENTS None.
         ITEM 2. PROPERTIES We own stuff."""
 
-        sections = _parse_sections(text, "10-K")
+        sections = parse_sections(text, "10-K")
         assert "item_1a" in sections
         assert "risk factors" in sections["item_1a"].lower()
 
     def test_parse_10k_hyphen_separator(self):
         """Some filings use hyphen separators (observed in COST, LMT)."""
-        from src.data_collection.edgar_collector import _parse_sections
+        from src.data_collection.edgar_collector import parse_sections
 
         text = """Item 1 - Business Our company does things.
         Item 1A - Risk Factors We face risks.
         Item 2 - Properties We have offices."""
 
-        sections = _parse_sections(text, "10-K")
+        sections = parse_sections(text, "10-K")
         assert "item_1a" in sections
 
     def test_parse_10k_amendment_form_type(self):
         """10-K/A amendments should also parse sections."""
-        from src.data_collection.edgar_collector import _parse_sections
+        from src.data_collection.edgar_collector import parse_sections
 
         text = """Item 7. Management's Discussion This is the MD&A for the amendment.
         Item 8. Financial Statements Amended financials."""
 
-        sections = _parse_sections(text, "10-K/A")
+        sections = parse_sections(text, "10-K/A")
         assert "item_7" in sections
         assert len(sections["item_7"]) > 10
 
     def test_parse_empty_text(self):
-        from src.data_collection.edgar_collector import _parse_sections
-        assert _parse_sections("", "10-K") == {}
-        assert _parse_sections(None, "10-K") == {}
+        from src.data_collection.edgar_collector import parse_sections
+        assert parse_sections("", "10-K") == {}
+        assert parse_sections(None, "10-K") == {}
 
     def test_collect_creates_table(self, tmp_db):
         """Verify edgar_filings table exists (created by fixture from registry)."""

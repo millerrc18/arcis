@@ -32,7 +32,7 @@ from src.data_collection.edgar_collector import (
     _get_cik,
     _load_cik_lookup,
     _normalize_accession,
-    _parse_sections,
+    parse_sections,
     _lookup_primary_document_via_index,
     _index_json_cache,
     MAX_TEXT_BYTES,
@@ -296,7 +296,7 @@ def _fetch_and_store(
         return
 
     # Parse sections
-    sections = _parse_sections(clean, form_type)
+    sections = parse_sections(clean, form_type)
     word_count = len(clean.split())
 
     conn.execute(
