@@ -77,6 +77,10 @@
       "lines": 525
     },
     {
+      "file": "src/platform/signal_eval.py",
+      "lines": 450
+    },
+    {
       "file": "src/risk/governor.py",
       "lines": 673
     },

@@ -23,10 +23,27 @@ _SPECS_DIR = Path(__file__).parent / "specs"
 
 ALLOWED_ENTRY_KINDS = {"scheduled", "event_driven", "python_plugin"}
 ALLOWED_EXIT_KINDS = {"mechanical", "python_plugin"}
+ALLOWED_SIZING_METHODS = {"fixed_pct_equity", "regime_adaptive"}
+# Matches REGIME_THRESHOLDS.keys() in src/ranking/ranker.py and
+# classify_regime() return-set in src/features/regime.py. Changing this
+# set is a breaking schema change — coordinate with ranker port (#530
+# Sprint F) before editing.
+KNOWN_REGIME_KEYS = frozenset({
+    "BULL_LOW_VOL", "BULL_HIGH_VOL", "TRANSITION", "CORRECTION",
+    "BEAR_EARLY", "BEAR_ESTABLISHED", "CRISIS",
+})
 REQUIRED_KEYS = (
     "spec_version", "strategy_id", "display_name", "universe", "entry", "exit",
     "position_sizing", "attribution",
 )
+
+
+def _is_positive_number(x: Any) -> bool:
+    return isinstance(x, (int, float)) and not isinstance(x, bool) and x > 0
+
+
+def _is_unit_number(x: Any) -> bool:
+    return isinstance(x, (int, float)) and not isinstance(x, bool) and 0.0 <= x <= 1.0
 
 
 @dataclass
@@ -78,6 +95,9 @@ def validate_spec(spec: dict) -> tuple[bool, list[str]]:
             errors.append(
                 f"exit.kind must be one of {sorted(ALLOWED_EXIT_KINDS)}, got {kind!r}"
             )
+        _validate_exit_brackets(spec["exit"], errors)
+    if "position_sizing" in spec and isinstance(spec["position_sizing"], dict):
+        _validate_position_sizing(spec["position_sizing"], errors)
     if "ranking" in spec:
         ranking = spec["ranking"]
         if not isinstance(ranking, dict):
@@ -143,6 +163,89 @@ def _validate_bands(bands: list, errors: list[str]) -> None:
                         "band#%d[%s,%s] overlaps band#%d[%s,%s]",
                         metric, a_i, a_lo, a_hi, b_i, b_lo, b_hi,
                     )
+
+
+def _validate_exit_brackets(exit_block: dict, errors: list[str]) -> None:
+    kind = exit_block.get("kind")
+    has_target = "target" in exit_block
+    has_targets = "targets" in exit_block
+
+    if kind == "mechanical":
+        if has_target and has_targets:
+            errors.append("exit: 'target' and 'targets' are mutually exclusive — specify one")
+            return
+        if not has_target and not has_targets:
+            errors.append("exit: mechanical kind requires one of 'target' or 'targets'")
+            return
+    if not has_targets:
+        return  # legacy singular exit.target has no interior validation
+
+    targets = exit_block["targets"]
+    if not isinstance(targets, list) or not targets:
+        errors.append("exit.targets must be a non-empty list when present")
+        return
+
+    seen: dict[str, int] = {}
+    for i, entry in enumerate(targets):
+        if not isinstance(entry, dict):
+            errors.append(f"exit.targets[{i}] must be a dict")
+            continue
+        name = entry.get("name")
+        if not isinstance(name, str) or not name:
+            errors.append(f"exit.targets[{i}].name must be a non-empty string")
+        elif name in seen:
+            errors.append(
+                f"exit.targets[{i}].name duplicates exit.targets[{seen[name]}].name"
+            )
+        else:
+            seen[name] = i
+        if not _is_positive_number(entry.get("atr_multiple")):
+            errors.append(f"exit.targets[{i}].atr_multiple must be a positive number")
+
+    stop = exit_block.get("stop")
+    if not isinstance(stop, dict):
+        errors.append("exit.stop must be a dict with 'atr_multiple' when exit.targets is used")
+        return
+    if not _is_positive_number(stop.get("atr_multiple")):
+        errors.append(
+            "exit.stop.atr_multiple must be a positive number (required when exit.targets is used)"
+        )
+
+
+def _validate_position_sizing(sizing: dict, errors: list[str]) -> None:
+    method = sizing.get("method")
+    if method is None:
+        return  # permissive: absence handled upstream (REQUIRED_KEYS only checks the parent)
+    if method not in ALLOWED_SIZING_METHODS:
+        errors.append(
+            f"position_sizing.method must be one of {sorted(ALLOWED_SIZING_METHODS)}, "
+            f"got {method!r}"
+        )
+        return
+    if method != "regime_adaptive":
+        return  # fixed_pct_equity interior passes through unvalidated (backward compat)
+
+    regimes = sizing.get("regimes")
+    if not isinstance(regimes, dict) or not regimes:
+        errors.append(
+            "position_sizing.regimes must be a non-empty dict when method == 'regime_adaptive'"
+        )
+        return
+    for rkey, rval in regimes.items():
+        if rkey not in KNOWN_REGIME_KEYS:
+            logger.warning(
+                "[PLATFORM] position_sizing.regimes: unknown regime key %r (known: %s)",
+                rkey, ", ".join(sorted(KNOWN_REGIME_KEYS)),
+            )
+        if not isinstance(rval, dict):
+            errors.append(f"position_sizing.regimes[{rkey}] must be a dict")
+            continue
+        if not isinstance(rval.get("packet_worthy"), bool):
+            errors.append(f"position_sizing.regimes[{rkey}].packet_worthy must be a bool")
+        if not _is_unit_number(rval.get("position_pct")):
+            errors.append(
+                f"position_sizing.regimes[{rkey}].position_pct must be a number in [0.0, 1.0]"
+            )
 
 
 def _from_dict(d: dict, source: str) -> StrategySpec:

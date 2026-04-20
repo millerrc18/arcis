@@ -2,6 +2,81 @@
 
 ## [Unreleased]
 
+### Added (Sprint D — multi-target brackets + regime-adaptive sizing schema)
+
+Closes #550 — fourth of 8 prerequisite sprints in the #530 Sprint chain
+(Sprints A #494, B #493, C #549 merged earlier).
+
+`src/platform/strategy_spec.py::validate_spec` now validates two additive
+schema blocks — a list-form `exit.targets[]` alternative to the legacy
+singular `exit.target`, and a `position_sizing.method: regime_adaptive`
+option alongside the existing `fixed_pct_equity`.
+
+Accepted shapes:
+
+```yaml
+exit:
+  kind: mechanical
+  timeout_days: 21
+  stop:
+    atr_multiple: 2.0                # required when using targets[]
+  targets:                           # list-form; alternative to exit.target
+    - name: target_1
+      atr_multiple: 1.5
+    - name: target_2
+      atr_multiple: 3.0
+
+position_sizing:
+  method: regime_adaptive
+  regimes:
+    BULL_LOW_VOL:     {packet_worthy: true,  position_pct: 0.05}
+    CRISIS:           {packet_worthy: false, position_pct: 0.0}
+```
+
+Validation rules:
+
+- **Brackets XOR.** When `exit.kind == "mechanical"`, exactly one of
+  `exit.target` (legacy singular) or `exit.targets` (new plural) is
+  required. Both is rejected; neither is rejected. `exit.kind ==
+  "python_plugin"` passes through without either (plugin owns brackets).
+- **`exit.targets[]` interior.** Non-empty list; each entry has a
+  non-empty string `name` (unique across the list) plus a numeric
+  `atr_multiple > 0`. Bool values rejected (isinstance-True-is-int trap).
+- **`exit.stop.atr_multiple`.** Required when `exit.targets` is used;
+  legacy `exit.target` path leaves `exit.stop` uninspected (rich
+  `{method, atr_period, multiplier, floor_pct, cap_pct}` shape passes
+  through unchanged).
+- **`position_sizing.method`.** Restricted to `fixed_pct_equity` or
+  `regime_adaptive`. `fixed_pct_equity` interior (`pct`,
+  `max_concurrent`) passes through unvalidated.
+- **`regime_adaptive.regimes`.** Non-empty dict. Each entry requires
+  `packet_worthy: bool` + `position_pct: float` in [0.0, 1.0]. Unknown
+  regime keys warn via `logger.warning` but do not reject — the known
+  set is the incumbent 7-label `classify_regime`/`REGIME_THRESHOLDS`
+  codomain (`BULL_LOW_VOL`, `BULL_HIGH_VOL`, `TRANSITION`, `CORRECTION`,
+  `BEAR_EARLY`, `BEAR_ESTABLISHED`, `CRISIS`).
+
+**Schema-only sprint — no runtime consumption.** Sprints F (ranker
+port) and G (exit/bracket port) consume these blocks. `strategy_spec.py`
+grew from 195 → 298 lines (under the 300-line C+D combined budget). New
+tests: `tests/platform/specs/test_schema_brackets_sizing.py` (29 tests)
+cover every rejection path, unknown-regime-key warn semantics, duplicate
+target names, bool/negative/zero `atr_multiple`, and backward compat on
+both shipping specs (`lazy_prices_v1` + `post_audit_ruleset_v1`).
+
+**Backward compat.** Zero production YAML changes — both
+`src/platform/specs/*.yaml` use the legacy `exit.target` +
+`fixed_pct_equity` shapes (2/2 each, grep-verified in Pass 2). Three
+test-helper fixtures that used bare `exit: {kind: mechanical}` without
+targets were updated to `exit: {kind: python_plugin}` (tests don't
+exercise brackets); commented inline.
+
+**Housekeeping.** `config/known_violations.json` grandfathers
+`src/platform/signal_eval.py` (450 lines) — grew past the 400-line cap
+in Sprint B (#556) but wasn't added to the oversized list at merge;
+surfaced by `tests/test_repo_structure.py::test_no_file_over_400_lines`
+after pulling main into the sprint branch.
+
 ### Added (Sprint C — scoring-DSL schema block)
 
 Closes #549 — third of 8 prerequisite sprints in the #530 Sprint chain

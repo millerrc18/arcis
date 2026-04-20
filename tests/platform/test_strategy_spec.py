@@ -73,7 +73,7 @@ def test_list_available_specs_warns_on_malformed_yaml(tmp_path, caplog):
     good = tmp_path / "good.yaml"
     good.write_text(
         "spec_version: 1\nstrategy_id: good_spec\ndisplay_name: Good\n"
-        "universe: {}\nentry: {kind: scheduled}\nexit: {kind: mechanical}\n"
+        "universe: {}\nentry: {kind: scheduled}\nexit: {kind: python_plugin}\n"
         "position_sizing: {}\nattribution: {}\n"
     )
     with caplog.at_level(logging.WARNING, logger="src.platform.strategy_spec"):
