@@ -176,9 +176,10 @@ def find_candidates_for_date(
       - event_driven → _find_candidates_event_driven (EDGAR filings + cosine).
       - scheduled → _find_candidates_scheduled (#494: day_of_week trigger +
         universe ∩ sector_filter ∩ not-excluded-event ∩ not-already-open).
-      - python_plugin → NotImplementedError (#474).
+      - python_plugin → _find_candidates_python_plugin (#493: dispatches to
+        the StrategyPlugin registered under entry.plugin_ref or spec.strategy_id).
 
-    Both paths dedupe against open shadow_trades on desk research_<strategy_id>.
+    All three paths dedupe against open shadow_trades on desk research_<strategy_id>.
 
     Called by: src.platform.shadow_harness.ShadowHarness._find_candidates.
     Returns: list of {ticker, as_of, shares, price, signal_strength, metadata}.
@@ -189,9 +190,7 @@ def find_candidates_for_date(
     if kind == "scheduled":
         return _find_candidates_scheduled(spec, db_path, as_of)
     if kind == "python_plugin":
-        raise NotImplementedError(
-            "python_plugin find_candidates_for_date is Task 2 (issue #474)"
-        )
+        return _find_candidates_python_plugin(spec, db_path, as_of)
     raise ValueError(f"unknown entry.kind: {kind!r}")
 
 
@@ -281,6 +280,58 @@ def _find_candidates_scheduled(
         _build_candidate(t, as_of_iso, 0.5, sched_row, spec_hash)
         for t in tickers if t not in open_tickers
     ]
+
+
+def _find_candidates_python_plugin(
+    spec: StrategySpec, db_path: str, as_of: datetime,
+) -> list[dict]:
+    """python_plugin-kind candidate generation (#493). Dispatches to the
+    StrategyPlugin registered under entry.plugin_ref or spec.strategy_id.
+    """
+    from src.platform.plugin_registry import get_plugin
+    from src.platform.strategy_plugin import Candidate
+
+    entry = spec.entry
+    tickers = _resolve_universe(spec.universe.get("tickers", []))
+    sector_filter = spec.universe.get("sector_filter")
+    if sector_filter:
+        from src.universe.sectors import SECTOR_MAP
+        tickers = [t for t in tickers if SECTOR_MAP.get(t) in sector_filter]
+    if not tickers:
+        logger.warning("[SIGNAL_EVAL] empty universe for %s; returning []", spec.strategy_id)
+        return []
+    if is_excluded_event_date(as_of.strftime("%Y-%m-%d"), entry):
+        return []
+    plugin_ref = entry.get("plugin_ref") or spec.strategy_id
+    plugin = get_plugin(plugin_ref)
+    if plugin is None:
+        raise KeyError(
+            f"python_plugin: no plugin registered for {plugin_ref!r}; "
+            f"import the module with @register_plugin before calling."
+        )
+    live_db = os.environ.get("PLATFORM_EDGAR_DB", db_path)
+    as_of_iso = as_of.isoformat()
+    try:
+        raw = plugin.find_candidates(as_of_iso, tickers,
+            {"db_path": live_db, "strategy_id": spec.strategy_id})
+    except Exception as exc:
+        raise RuntimeError(f"plugin {plugin_ref!r} find_candidates raised: {exc}") from exc
+    if not isinstance(raw, list):
+        raise TypeError(f"plugin {plugin_ref!r} must return list, got {type(raw).__name__}")
+    open_tickers = _load_open_tickers_for_desk(f"research_{spec.strategy_id}", live_db)
+    spec_hash = _spec_hash(spec)
+    out: list[dict] = []
+    for c in raw:
+        if not isinstance(c, Candidate):
+            raise TypeError(f"plugin {plugin_ref!r} returned {type(c).__name__}; expected Candidate")
+        if c.ticker in open_tickers:
+            continue
+        meta = dict(c.metadata or {})
+        meta.update({"strategy_spec_hash": spec_hash, "trigger": "python_plugin",
+                     "signal_direction": c.signal_direction, "plugin_ref": plugin_ref})
+        out.append({"ticker": c.ticker, "as_of": as_of_iso, "shares": 1, "price": 0.0,
+                    "signal_strength": c.signal_strength, "metadata": meta})
+    return out
 
 
 def _query_event_rows_for_date(
