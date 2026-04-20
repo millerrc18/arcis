@@ -79,9 +79,9 @@ async def list_runs(
         f"SELECT run_id, strategy_id, outcome_state, reason, pooled_sharpe, "
         f"pooled_mde, heavy_tail_flag, heavy_tail_window_count, n_windows, "
         f"n_windows_pass, n_windows_fail, n_windows_inconclusive_data, "
-        f"n_windows_inconclusive_power, derived_from_source_type, "
-        f"effective_universe_size, max_drawdown_pct, vix_tier_coverage, "
-        f"created_at "
+        f"n_windows_inconclusive_power, n_windows_inconclusive_duration, "
+        f"derived_from_source_type, effective_universe_size, "
+        f"max_drawdown_pct, vix_tier_coverage, created_at "
         f"FROM walkforward_results WHERE {where_sql} "
         f"ORDER BY created_at DESC LIMIT ?",
         tuple(params),

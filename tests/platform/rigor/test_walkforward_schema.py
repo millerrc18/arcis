@@ -21,6 +21,7 @@ REQUIRED_WF_RESULTS_COLUMNS = {
     "config_json", "outcome_state", "reason", "pooled_sharpe", "pooled_mde",
     "heavy_tail_flag", "n_windows", "n_windows_pass", "n_windows_fail",
     "n_windows_inconclusive_data", "n_windows_inconclusive_power",
+    "n_windows_inconclusive_duration",  # v0.25.4 (#538)
     "derived_from_source_type", "derived_from_source_run_id",
     "effective_universe_size", "max_drawdown_pct", "vix_tier_coverage",
     "created_at",
@@ -141,3 +142,13 @@ def test_walkforward_results_indexes_present():
     idx_names = {i.name for i in TABLES["walkforward_results"].indexes}
     assert "idx_wf_strategy_created" in idx_names
     assert "idx_wf_outcome" in idx_names
+
+
+def test_walkforward_results_has_n_windows_inconclusive_duration_column():
+    """v0.25.4 (#538): per-run counter for windows flagged as too short."""
+    col = next(
+        c for c in TABLES["walkforward_results"].columns
+        if c.name == "n_windows_inconclusive_duration"
+    )
+    assert col.type == "INTEGER"
+    assert col.default == "0"

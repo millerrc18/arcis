@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from datetime import date
 from typing import Sequence
 
 import numpy as np
@@ -41,6 +42,13 @@ from scipy import stats
 from src.platform.rigor.walkforward_metrics import (
     ANNUALIZATION_FACTOR,
     WindowMetrics,
+)
+from src.platform.rigor.walkforward_outcome import (
+    WINDOW_FAIL,
+    WINDOW_INCONCLUSIVE_DATA,
+    WINDOW_INCONCLUSIVE_DURATION,
+    WINDOW_INCONCLUSIVE_POWER,
+    WINDOW_PASS,
 )
 
 
@@ -147,25 +155,50 @@ def evaluate_window_power(
     )
 
 
+def _window_duration_days(window) -> int:
+    """Inclusive day-count is irrelevant for thresholding; we use the
+    half-open delta (date subtraction) for parity with the validation
+    docs (v0.25.3 Window 4 = 273 days)."""
+    return (
+        date.fromisoformat(window.test_end)
+        - date.fromisoformat(window.test_start)
+    ).days
+
+
 def count_power_states(
     power_results: Sequence[PowerResult],
     min_trades_per_window: int,
     n_trades_per_window: Sequence[int],
+    *,
+    windows: Sequence | None = None,
+    min_window_duration_days: int = 0,
 ) -> dict:
     """Categorize every window into one of PASS / FAIL / INCONCLUSIVE_POWER
-    / INCONCLUSIVE_DATA.
+    / INCONCLUSIVE_DATA / INCONCLUSIVE_DURATION.
 
     Returns a dict {window_index: state}. Criteria 1+2 only — the final
     state machine combines with criteria 3–5 in the runner.
+
+    v0.25.4 (#538): if `windows` is provided and a window's span is
+    below `min_window_duration_days`, the per-window state is
+    INCONCLUSIVE_DURATION (overrides INCONCLUSIVE_DATA / DATA / POWER).
+    `windows` defaults to None for backwards compatibility — callers that
+    pre-date the kwarg keep their original behavior.
     """
     states: dict[int, str] = {}
-    for pr, n in zip(power_results, n_trades_per_window):
-        if n < min_trades_per_window:
-            states[pr.window_index] = "INCONCLUSIVE_DATA"
+    for idx, (pr, n) in enumerate(zip(power_results, n_trades_per_window)):
+        if (
+            windows is not None
+            and min_window_duration_days > 0
+            and _window_duration_days(windows[idx]) < min_window_duration_days
+        ):
+            states[pr.window_index] = WINDOW_INCONCLUSIVE_DURATION
+        elif n < min_trades_per_window:
+            states[pr.window_index] = WINDOW_INCONCLUSIVE_DATA
         elif not pr.passes_power_gate:
-            states[pr.window_index] = "INCONCLUSIVE_POWER"
+            states[pr.window_index] = WINDOW_INCONCLUSIVE_POWER
         elif pr.passes_sharpe_gate:
-            states[pr.window_index] = "PASS"
+            states[pr.window_index] = WINDOW_PASS
         else:
-            states[pr.window_index] = "FAIL"
+            states[pr.window_index] = WINDOW_FAIL
     return states

@@ -2138,6 +2138,10 @@ _register(TableDef(
         ColumnDef("n_windows_fail", "INTEGER", default="0"),
         ColumnDef("n_windows_inconclusive_data", "INTEGER", default="0"),
         ColumnDef("n_windows_inconclusive_power", "INTEGER", default="0"),
+        ColumnDef("n_windows_inconclusive_duration", "INTEGER", default="0",
+                  description="v0.25.4 (#538): per-run count of OOS windows "
+                              "flagged as INCONCLUSIVE_DURATION (window span "
+                              "below min_window_duration_days threshold)."),
         ColumnDef("derived_from_source_type", "TEXT",
                   description="R8 field: 'forensic_audit_ruleset' | "
                               "'bootcamp_backtest' | 'shadow_trading_cohort' | "

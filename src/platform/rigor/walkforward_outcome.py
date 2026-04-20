@@ -31,6 +31,11 @@ WINDOW_PASS = "PASS"
 WINDOW_FAIL = "FAIL"
 WINDOW_INCONCLUSIVE_POWER = "INCONCLUSIVE_POWER"
 WINDOW_INCONCLUSIVE_DATA = "INCONCLUSIVE_DATA"
+# v0.25.4 (#538): window span below min_window_duration_days threshold.
+# Takes precedence over INCONCLUSIVE_DATA at both per-window assignment
+# and run-level reduction so operators can distinguish "window too short"
+# from "strategy didn't signal."
+WINDOW_INCONCLUSIVE_DURATION = "INCONCLUSIVE_DURATION"
 
 
 @dataclass
@@ -42,6 +47,19 @@ class OutcomeResult:
     n_windows_fail: int
     n_windows_inconclusive_power: int
     n_windows_inconclusive_data: int
+    n_windows_inconclusive_duration: int = 0
+
+
+def _count_states(window_states: dict[int, str]) -> dict[str, int]:
+    """Count occurrences of each per-window state. Single pass over states."""
+    counts = {
+        WINDOW_PASS: 0, WINDOW_FAIL: 0, WINDOW_INCONCLUSIVE_POWER: 0,
+        WINDOW_INCONCLUSIVE_DATA: 0, WINDOW_INCONCLUSIVE_DURATION: 0,
+    }
+    for s in window_states.values():
+        if s in counts:
+            counts[s] += 1
+    return counts
 
 
 def reduce_outcome(
@@ -56,48 +74,32 @@ def reduce_outcome(
     windows_passing_criterion_2: int,
     inconclusive_window_threshold: int,
 ) -> OutcomeResult:
-    """Deterministic reducer. Priority order:
-
-      1. >= inconclusive_window_threshold windows INCONCLUSIVE_DATA
-         → overall INCONCLUSIVE(coverage)
-      2. >= inconclusive_window_threshold windows INCONCLUSIVE_POWER
-         → overall INCONCLUSIVE(power)
-      3. fewer than windows_passing_criterion_2 windows PASS
-         → overall FAIL(criterion_2_windows)
-      4. any window drawdown > cap
-         → overall FAIL(criterion_4_drawdown)
-      5. distinct VIX tiers < min required
-         → overall FAIL(criterion_5_regime_coverage)
-      6. pooled Sharpe < min
-         → overall FAIL(criterion_3_pooled_sharpe)
-      7. otherwise PASS
+    """Deterministic reducer. Priority: duration > data > power > pass-count >
+    drawdown > regime > pooled-sharpe > overall PASS. The duration check (R6
+    extension v0.25.4 #538) takes precedence over data/power so operators
+    can distinguish "window too short" from "strategy didn't signal."
     """
-    n_pass = sum(1 for s in window_states.values() if s == WINDOW_PASS)
-    n_fail = sum(1 for s in window_states.values() if s == WINDOW_FAIL)
-    n_incpow = sum(
-        1 for s in window_states.values() if s == WINDOW_INCONCLUSIVE_POWER
-    )
-    n_incdata = sum(
-        1 for s in window_states.values() if s == WINDOW_INCONCLUSIVE_DATA
-    )
+    c = _count_states(window_states)
 
     def _wrap(state: str, reason: str) -> OutcomeResult:
         return OutcomeResult(
             outcome_state=state, reason=reason,
-            n_windows_pass=n_pass, n_windows_fail=n_fail,
-            n_windows_inconclusive_power=n_incpow,
-            n_windows_inconclusive_data=n_incdata,
+            n_windows_pass=c[WINDOW_PASS], n_windows_fail=c[WINDOW_FAIL],
+            n_windows_inconclusive_power=c[WINDOW_INCONCLUSIVE_POWER],
+            n_windows_inconclusive_data=c[WINDOW_INCONCLUSIVE_DATA],
+            n_windows_inconclusive_duration=c[WINDOW_INCONCLUSIVE_DURATION],
         )
 
-    if n_incdata >= inconclusive_window_threshold:
+    if c[WINDOW_INCONCLUSIVE_DURATION] >= inconclusive_window_threshold:
+        return _wrap(STATE_INCONCLUSIVE, "duration_inconclusive")
+    if c[WINDOW_INCONCLUSIVE_DATA] >= inconclusive_window_threshold:
         return _wrap(STATE_INCONCLUSIVE, "coverage_inconclusive")
-    if n_incpow >= inconclusive_window_threshold:
+    if c[WINDOW_INCONCLUSIVE_POWER] >= inconclusive_window_threshold:
         return _wrap(STATE_INCONCLUSIVE, "power_inconclusive")
-    if n_pass < windows_passing_criterion_2:
+    if c[WINDOW_PASS] < windows_passing_criterion_2:
         return _wrap(STATE_FAIL, "criterion_2_windows")
-    for mdd in max_drawdowns:
-        if mdd > max_drawdown_cap_pct:
-            return _wrap(STATE_FAIL, "criterion_4_drawdown")
+    if any(mdd > max_drawdown_cap_pct for mdd in max_drawdowns):
+        return _wrap(STATE_FAIL, "criterion_4_drawdown")
     if distinct_vix_tiers < min_vix_tiers:
         return _wrap(STATE_FAIL, "criterion_5_regime_coverage")
     if pooled_sharpe < pooled_sharpe_min:
