@@ -32,6 +32,34 @@ KNOWN_REGIME_KEYS = frozenset({
     "BULL_LOW_VOL", "BULL_HIGH_VOL", "TRANSITION", "CORRECTION",
     "BEAR_EARLY", "BEAR_ESTABLISHED", "CRISIS",
 })
+# Sprint E seed sets. See docs/sprints/schema_final_blocks_evaluation.md
+# for strict-vs-warn justification per block.
+KNOWN_ATTRIBUTION_HOOKS = frozenset({"log_before_llm", "log_after_llm"})
+KNOWN_ENRICHERS = frozenset({"technicals", "insider", "macro", "news", "sector"})
+KNOWN_POST_SCAN_HELPERS = frozenset({"classifier", "filter_duplicates"})
+# Union of sprint-prompt earnings categories + MACRO_EVENT_TYPES
+# (event_risk_score.py, lowercased) + KNOWN_EVENTS labels (known_events.py).
+KNOWN_EVENT_RISK_CATEGORIES = frozenset({
+    "earnings_imminent", "earnings_elevated",
+    "fomc", "nfp", "cpi",
+    "cpi_print", "export_controls", "fomc_decision", "industrial_policy",
+    "nfp_friday", "opex_monthly", "opex_weekly", "ppi_print",
+    "quarter_end_rebalance", "sanctions_initial", "sanctions_escalation",
+    "tariff_pause", "tariff_announcement", "tariff_escalation",
+    "trade_disruption",
+})
+KNOWN_BOOTCAMP_KEYS = frozenset({
+    "qualification_threshold", "max_positions",
+    "watchlist_threshold", "traffic_light_floor",
+})
+# Dispatch table: (outer, inner, known_refs, strict). strict=True rejects;
+# strict=False warns. Keeps validate_spec flat across the 4 list-of-refs blocks.
+_LIST_BLOCKS: tuple[tuple[str, str, frozenset[str], bool], ...] = (
+    ("hooks", "attribution", KNOWN_ATTRIBUTION_HOOKS, True),
+    ("enrichment", "chain", KNOWN_ENRICHERS, False),
+    ("post_scan", "chain", KNOWN_POST_SCAN_HELPERS, False),
+    ("event_risk", "quarantine_categories", KNOWN_EVENT_RISK_CATEGORIES, False),
+)
 REQUIRED_KEYS = (
     "spec_version", "strategy_id", "display_name", "universe", "entry", "exit",
     "position_sizing", "attribution",
@@ -108,6 +136,14 @@ def validate_spec(spec: dict) -> tuple[bool, list[str]]:
                 errors.append("ranking.bands must be a list when present")
             else:
                 _validate_bands(bands, errors)
+    for outer, inner, known, strict in _LIST_BLOCKS:
+        if outer in spec and isinstance(spec[outer], dict):
+            _validate_known_ref_list(
+                spec[outer].get(inner), known,
+                f"{outer}.{inner}", errors, strict=strict,
+            )
+    if "bootcamp" in spec and isinstance(spec["bootcamp"], dict):
+        _validate_bootcamp_overrides(spec["bootcamp"], errors)
     return (len(errors) == 0, errors)
 
 
@@ -246,6 +282,65 @@ def _validate_position_sizing(sizing: dict, errors: list[str]) -> None:
             errors.append(
                 f"position_sizing.regimes[{rkey}].position_pct must be a number in [0.0, 1.0]"
             )
+
+
+def _validate_known_ref_list(
+    items: Any, known: frozenset[str], path: str,
+    errors: list[str], *, strict: bool,
+) -> None:
+    """Validate optional list-of-string-refs. strict=True rejects unknowns;
+    strict=False warns via logger (Sprint C/D precedent)."""
+    if items is None:
+        return
+    if not isinstance(items, list):
+        errors.append(f"{path} must be a list when present")
+        return
+    if not items:
+        errors.append(f"{path} must be a non-empty list when present")
+        return
+    for i, item in enumerate(items):
+        if not isinstance(item, str) or not item:
+            errors.append(f"{path}[{i}] must be a non-empty string")
+            continue
+        if item not in known:
+            if strict:
+                errors.append(
+                    f"{path}[{i}] unknown ref {item!r} "
+                    f"(known: {', '.join(sorted(known))})"
+                )
+            else:
+                logger.warning(
+                    "[PLATFORM] %s[%d]: unknown ref %r (known: %s)",
+                    path, i, item, ", ".join(sorted(known)),
+                )
+
+
+def _is_positive_int(x: Any) -> bool:
+    return isinstance(x, int) and not isinstance(x, bool) and x > 0
+
+
+def _is_int_0_100(x: Any) -> bool:
+    return isinstance(x, int) and not isinstance(x, bool) and 0 <= x <= 100
+
+
+_BOOTCAMP_RULES: tuple[tuple[str, Any, str], ...] = (
+    ("qualification_threshold", _is_int_0_100, "must be an int in [0, 100]"),
+    ("watchlist_threshold", _is_int_0_100, "must be an int in [0, 100]"),
+    ("max_positions", _is_positive_int, "must be a positive int"),
+    ("traffic_light_floor", _is_unit_number, "must be a number in [0.0, 1.0]"),
+)
+
+
+def _validate_bootcamp_overrides(block: dict, errors: list[str]) -> None:
+    unknown = set(block.keys()) - KNOWN_BOOTCAMP_KEYS
+    if unknown:
+        errors.append(
+            f"bootcamp: unknown keys {sorted(unknown)!r} "
+            f"(allowed: {sorted(KNOWN_BOOTCAMP_KEYS)})"
+        )
+    for key, check, msg in _BOOTCAMP_RULES:
+        if key in block and not check(block[key]):
+            errors.append(f"bootcamp.{key} {msg}")
 
 
 def _from_dict(d: dict, source: str) -> StrategySpec:
