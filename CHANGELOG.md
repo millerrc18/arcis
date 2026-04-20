@@ -2,6 +2,47 @@
 
 ## [Unreleased]
 
+### Added (Sprint C — scoring-DSL schema block)
+
+Closes #549 — third of 8 prerequisite sprints in the #530 Sprint chain
+(Sprints A #494 and B #493 merged earlier).
+
+`src/platform/strategy_spec.py::validate_spec` now validates an optional
+`ranking.bands` block — a declarative scoring DSL that the Sprint F ranker
+port will consume in place of the hardcoded bands in
+`src/ranking/ranker.py::_score_ticker`.
+
+Accepted shape:
+
+```yaml
+ranking:
+  bands:
+    - metric: pullback_depth_pct   # non-empty str
+      range: [-8, -3]              # 2-element numeric list, lower < upper
+      score: 25                    # int or float
+```
+
+Validation rules:
+
+- `ranking` is an optional top-level key; specs without it load unchanged
+  (`lazy_prices_v1` and `post_audit_ruleset_v1` regression-tested).
+- `ranking.bands` is optional inside `ranking`; other sub-keys (e.g.
+  hypothetical `ranking.weights`) pass through unchecked.
+- Each band must provide a non-empty string `metric`, a 2-element numeric
+  `range` with `range[0] < range[1]`, and a numeric `score`. Bool values
+  are explicitly rejected (Python's `isinstance(True, int)` trap).
+- Multiple bands per metric are allowed. Overlapping ranges on the same
+  metric emit a `[PLATFORM] ranking.bands overlap: ...` warning via
+  `logger.warning` — the spec still validates successfully. `validate_spec`'s
+  `(ok, errors)` return signature is preserved; no callers break.
+
+**Schema-only sprint — no runtime consumption.** Sprint F ports the ranker
+to consume this block. `strategy_spec.py` grew from 131 → 195 lines (under
+the 250-line sprint cap). New tests:
+`tests/platform/specs/test_schema_scoring_dsl.py` (23 tests) cover every
+rejection path, overlap-warn semantics, backward compat on both shipping
+specs, and the `ranking.weights` pass-through case.
+
 ### Fixed (Sprint B — python_plugin find_candidates_for_date wiring)
 
 Closes #493, #548 — second of 8 prerequisite sprints in the #530 Sprint

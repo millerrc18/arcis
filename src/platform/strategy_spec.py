@@ -78,7 +78,71 @@ def validate_spec(spec: dict) -> tuple[bool, list[str]]:
             errors.append(
                 f"exit.kind must be one of {sorted(ALLOWED_EXIT_KINDS)}, got {kind!r}"
             )
+    if "ranking" in spec:
+        ranking = spec["ranking"]
+        if not isinstance(ranking, dict):
+            errors.append("ranking must be a dict when present")
+        elif "bands" in ranking:
+            bands = ranking["bands"]
+            if not isinstance(bands, list):
+                errors.append("ranking.bands must be a list when present")
+            else:
+                _validate_bands(bands, errors)
     return (len(errors) == 0, errors)
+
+
+def _validate_bands(bands: list, errors: list[str]) -> None:
+    parsed: list[tuple[str, float, float, int]] = []
+    for i, band in enumerate(bands):
+        if not isinstance(band, dict):
+            errors.append(f"ranking.bands[{i}] must be a dict")
+            continue
+        metric = band.get("metric")
+        if not isinstance(metric, str) or not metric:
+            errors.append(
+                f"ranking.bands[{i}].metric must be a non-empty string"
+            )
+            continue
+        rng = band.get("range")
+        if (
+            not isinstance(rng, list)
+            or len(rng) != 2
+            or not all(
+                isinstance(x, (int, float)) and not isinstance(x, bool)
+                for x in rng
+            )
+        ):
+            errors.append(
+                f"ranking.bands[{i}].range must be a 2-element list of numerics"
+            )
+            continue
+        lo, hi = rng
+        if lo >= hi:
+            errors.append(
+                f"ranking.bands[{i}].range[0] must be < range[1] "
+                f"(got {lo} >= {hi})"
+            )
+            continue
+        score = band.get("score")
+        if not isinstance(score, (int, float)) or isinstance(score, bool):
+            errors.append(f"ranking.bands[{i}].score must be numeric")
+            continue
+        parsed.append((metric, float(lo), float(hi), i))
+
+    by_metric: dict[str, list[tuple[float, float, int]]] = {}
+    for metric, lo, hi, idx in parsed:
+        by_metric.setdefault(metric, []).append((lo, hi, idx))
+    for metric, entries in by_metric.items():
+        for a in range(len(entries)):
+            a_lo, a_hi, a_i = entries[a]
+            for b in range(a + 1, len(entries)):
+                b_lo, b_hi, b_i = entries[b]
+                if a_lo <= b_hi and b_lo <= a_hi:
+                    logger.warning(
+                        "[PLATFORM] ranking.bands overlap: metric=%s "
+                        "band#%d[%s,%s] overlaps band#%d[%s,%s]",
+                        metric, a_i, a_lo, a_hi, b_i, b_lo, b_hi,
+                    )
 
 
 def _from_dict(d: dict, source: str) -> StrategySpec:
