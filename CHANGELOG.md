@@ -2,6 +2,75 @@
 
 ## [Unreleased]
 
+### Added (v0.25.4 Part A — VIX enrichment in walk-forward trades)
+
+Closes #535 (and the umbrella #542). Plugs the gap diagnosed in
+`docs/validation/lazy-prices-v1-walkforward-real-2026-04-19.md` where 20/20
+OOS trades carried `vix_at_entry = NULL` because `BacktestTrade` had no such
+field. The runner's `getattr(t, "vix_at_entry", None)` always returned None
+and downstream tier bucketing degenerated to `vix_tier_coverage = 0`.
+
+- New module `src/platform/vix_lookup.py` (~70 lines) with single function
+  `lookup_vix_at_entry(entry_iso) -> float | None` that delegates to
+  `fetch_cached_ohlcv("^VIX", ...)` and returns the most-recent Close on or
+  before `entry_iso`. Returns None on cache miss, empty frame, or no eligible
+  bar (graceful degradation, never raises).
+- Add `vix_at_entry: float | None = None` field to `BacktestTrade` dataclass.
+  Defaulted so existing constructors stay backwards-compatible.
+- Wire `lookup_vix_at_entry` into `_build_trade()` — single call site reached
+  by both `_run_scheduled` and `_run_event_driven` paths.
+
+The runner picks up the new field automatically; `_assign_vix_tier` correctly
+buckets into `low` (<15), `medium` (15–25), `high` (>25). Pass 1 source
+decision: yfinance `^VIX` over FRED VIXCLS / `vix_term_structure` table /
+non-existent `daily_bars` — the only source with full 2019-2024 daily
+coverage (verified 12/12 month-starts in Pass 2) plus already wired through
+the existing OHLCV cache path.
+
+11 new tests in `tests/platform/rigor/test_vix_enrichment.py` cover helper
+behavior + `BacktestTrade` shape + `_build_trade` integration via mocked
+OHLCV/VIX path + end-to-end persistence through `walkforward_runner`.
+
+### Added (v0.25.4 Part B — Window-duration surfacing)
+
+Closes #538 (and the umbrella #542). Adds an `INCONCLUSIVE_WINDOW_DURATION`
+sub-state so operators can distinguish "strategy didn't signal"
+(`INCONCLUSIVE_DATA`) from "the OOS window was too short to deliver
+meaningful coverage" (the new sub-state).
+
+- New constant `WINDOW_INCONCLUSIVE_DURATION` in `walkforward_outcome.py`.
+- New `n_windows_inconclusive_duration` field on `OutcomeResult` and matching
+  `INTEGER DEFAULT 0` column on `walkforward_results`.
+- New per-run config knob `min_window_duration_days: int = 365` on
+  `WalkForwardConfig` + module-level `MIN_WINDOW_DURATION_DAYS = 365`. Round-
+  trips through `as_json_dict()`. Override-able for power-testing or backport.
+- `count_power_states` extended with `windows` + `min_window_duration_days`
+  kwargs (both default-no-op so legacy callers stay unchanged). Per-window
+  precedence: DURATION > DATA > POWER > PASS > FAIL.
+- Run-level reducer: `INCONCLUSIVE_WINDOW_DURATION` ≥ inconclusive_window_threshold
+  → outcome `INCONCLUSIVE / duration_inconclusive`, prepended ahead of the
+  existing `coverage_inconclusive` and `power_inconclusive` checks.
+- `cloud_routes/walkforward.py` SELECT extended to surface the new counter
+  to API consumers. Dashboard chip surfacing is a follow-up; backwards-compat
+  preserved (existing UI ignores the new column).
+
+Pass 1 chose Option 1 (sub-state) over Option 2 (new `walkforward_windows`
+table) because: (a) the `walkforward_windows` table doesn't exist — Option 2
+would require creating it, vs Option 1's +1 INTEGER column; (b) sub-state
+surfaces the distinction in every consumer (validation docs, promotion gate,
+JSON outputs) for free; (c) Option 2 would require every consumer to apply
+the threshold itself — drift waiting to happen.
+
+Threshold = 365 days. v0.25.3 default windows are four 15-month (~456-day)
+windows + one 9-month (273-day) tail window — the threshold cleanly flags
+the tail without affecting the standard four. 1 calendar year is the minimum
+needed to span ~1 cycle of seasonal effects.
+
+15 new tests in `tests/platform/rigor/test_window_duration.py` cover reducer
++ classifier + config + persistence + a v0.25.3 retrofit asserting the new
+sub-state fires on Window 4 while leaving the run-level outcome's
+`coverage_inconclusive` reason intact (1 short window < threshold of 2).
+
 ### Added (v0.26.2-scoped — Schema extension: sector_filter + event_exclusion)
 
 Closes #539. Two additive optional fields on the strategy spec, both read-only

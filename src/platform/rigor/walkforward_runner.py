@@ -234,6 +234,8 @@ def run_walkforward(
         window_power,
         min_trades_per_window=config.min_trades_per_window,
         n_trades_per_window=[m.n_trades for m in window_metrics],
+        windows=config.windows,
+        min_window_duration_days=config.min_window_duration_days,
     )
     pooled_sharpe = compute_pooled_sharpe(oos_trades_per_window)
     pooled_n = sum(m.n_trades for m in window_metrics)
@@ -307,11 +309,12 @@ def persist_run_result(
             "config_json, outcome_state, reason, pooled_sharpe, pooled_mde, "
             "heavy_tail_flag, heavy_tail_window_count, n_windows, "
             "n_windows_pass, n_windows_fail, n_windows_inconclusive_data, "
-            "n_windows_inconclusive_power, derived_from_source_type, "
-            "derived_from_source_run_id, effective_universe_size, "
-            "max_drawdown_pct, vix_tier_coverage, created_at"
+            "n_windows_inconclusive_power, n_windows_inconclusive_duration, "
+            "derived_from_source_type, derived_from_source_run_id, "
+            "effective_universe_size, max_drawdown_pct, vix_tier_coverage, "
+            "created_at"
             ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-            "?, ?, ?, ?, ?)",
+            "?, ?, ?, ?, ?, ?)",
             (
                 result.run_id, result.strategy_id, result.spec_hash,
                 result.code_git_sha, result.config.random_seed,
@@ -325,6 +328,7 @@ def persist_run_result(
                 result.outcome.n_windows_fail,
                 result.outcome.n_windows_inconclusive_data,
                 result.outcome.n_windows_inconclusive_power,
+                result.outcome.n_windows_inconclusive_duration,
                 source_type, source_run_id,
                 result.effective_universe_size,
                 overall_max_dd, result.vix_tier_coverage,

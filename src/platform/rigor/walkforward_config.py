@@ -28,6 +28,11 @@ POOLED_SHARPE_MIN = 0.5
 MAX_DRAWDOWN_CAP_PCT = 0.20
 MIN_TRADES_PER_WINDOW = 10
 MIN_VIX_TIERS_REPRESENTED = 2
+# v0.25.4 (#538): below this many days, OOS test span is too short to
+# carry meaningful seasonal coverage. 365 = 1 calendar year. The
+# canonical 15-month windows clear this comfortably (~456 days); a
+# truncated tail-window like v0.25.3's 273-day Window 4 trips it.
+MIN_WINDOW_DURATION_DAYS = 365
 WINDOWS_PASSING_CRITERION_2 = 4  # ≥4 of 5
 INCONCLUSIVE_WINDOW_THRESHOLD = 2  # ≥2 flips overall to INCONCLUSIVE
 DEFAULT_EMBARGO_DAYS = 5
@@ -112,6 +117,7 @@ class WalkForwardConfig:
     max_drawdown_cap_pct: float = MAX_DRAWDOWN_CAP_PCT
     min_trades_per_window: int = MIN_TRADES_PER_WINDOW
     min_vix_tiers: int = MIN_VIX_TIERS_REPRESENTED
+    min_window_duration_days: int = MIN_WINDOW_DURATION_DAYS
     # R8 defense-in-depth: forced False at the config layer. Runner asserts.
     bootcamp_override: bool = False
 
@@ -156,6 +162,7 @@ class WalkForwardConfig:
             "max_drawdown_cap_pct": self.max_drawdown_cap_pct,
             "min_trades_per_window": self.min_trades_per_window,
             "min_vix_tiers": self.min_vix_tiers,
+            "min_window_duration_days": self.min_window_duration_days,
             "bootcamp_override": self.bootcamp_override,
             "windows": [
                 {

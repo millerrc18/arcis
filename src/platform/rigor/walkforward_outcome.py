@@ -31,6 +31,11 @@ WINDOW_PASS = "PASS"
 WINDOW_FAIL = "FAIL"
 WINDOW_INCONCLUSIVE_POWER = "INCONCLUSIVE_POWER"
 WINDOW_INCONCLUSIVE_DATA = "INCONCLUSIVE_DATA"
+# v0.25.4 (#538): window span below min_window_duration_days threshold.
+# Takes precedence over INCONCLUSIVE_DATA at both per-window assignment
+# and run-level reduction so operators can distinguish "window too short"
+# from "strategy didn't signal."
+WINDOW_INCONCLUSIVE_DURATION = "INCONCLUSIVE_DURATION"
 
 
 @dataclass
@@ -42,6 +47,7 @@ class OutcomeResult:
     n_windows_fail: int
     n_windows_inconclusive_power: int
     n_windows_inconclusive_data: int
+    n_windows_inconclusive_duration: int = 0
 
 
 def reduce_outcome(
@@ -58,6 +64,8 @@ def reduce_outcome(
 ) -> OutcomeResult:
     """Deterministic reducer. Priority order:
 
+      0. >= inconclusive_window_threshold windows INCONCLUSIVE_DURATION
+         → overall INCONCLUSIVE(duration)  (v0.25.4 #538)
       1. >= inconclusive_window_threshold windows INCONCLUSIVE_DATA
          → overall INCONCLUSIVE(coverage)
       2. >= inconclusive_window_threshold windows INCONCLUSIVE_POWER
@@ -80,6 +88,9 @@ def reduce_outcome(
     n_incdata = sum(
         1 for s in window_states.values() if s == WINDOW_INCONCLUSIVE_DATA
     )
+    n_incdur = sum(
+        1 for s in window_states.values() if s == WINDOW_INCONCLUSIVE_DURATION
+    )
 
     def _wrap(state: str, reason: str) -> OutcomeResult:
         return OutcomeResult(
@@ -87,8 +98,11 @@ def reduce_outcome(
             n_windows_pass=n_pass, n_windows_fail=n_fail,
             n_windows_inconclusive_power=n_incpow,
             n_windows_inconclusive_data=n_incdata,
+            n_windows_inconclusive_duration=n_incdur,
         )
 
+    if n_incdur >= inconclusive_window_threshold:
+        return _wrap(STATE_INCONCLUSIVE, "duration_inconclusive")
     if n_incdata >= inconclusive_window_threshold:
         return _wrap(STATE_INCONCLUSIVE, "coverage_inconclusive")
     if n_incpow >= inconclusive_window_threshold:

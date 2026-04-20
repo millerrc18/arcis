@@ -274,7 +274,13 @@ def test_runner_three_outcome_states_all_reachable():
     spec = _minimal_spec(None)
 
     # INCONCLUSIVE: all windows N=5 → INCONCLUSIVE_DATA across the board.
-    cfg_default = WalkForwardConfig(strategy_id="wf_test")
+    # Override min_window_duration_days=0 so the v0.25.4 (#538) duration
+    # gate doesn't intercept the v0.25.3 default 273-day Window 4 — this
+    # test exercises the data/power/sharpe paths only; the duration path
+    # is covered by tests/platform/rigor/test_window_duration.py.
+    cfg_default = WalkForwardConfig(
+        strategy_id="wf_test", min_window_duration_days=0,
+    )
     incon_trades = {
         i: {"is": [], "oos": _generate_trades(w.test_start, w.test_end, 5, 0.5, i)}
         for i, w in enumerate(cfg_default.windows)
@@ -283,7 +289,9 @@ def test_runner_three_outcome_states_all_reachable():
     assert r.outcome.outcome_state == STATE_INCONCLUSIVE
 
     # FAIL: big drawdown in window 0, good elsewhere. Power gate relaxed.
-    cfg_relaxed = WalkForwardConfig(strategy_id="wf_test", mde_max=100.0)
+    cfg_relaxed = WalkForwardConfig(
+        strategy_id="wf_test", mde_max=100.0, min_window_duration_days=0,
+    )
     fail_trades = {}
     for i, w in enumerate(cfg_relaxed.windows):
         if i == 0:
@@ -304,6 +312,7 @@ def test_runner_three_outcome_states_all_reachable():
     # PASS: strong Sharpe in all windows, mixed VIX, small DD.
     cfg_pass = WalkForwardConfig(
         strategy_id="wf_test", mde_max=100.0, pooled_sharpe_min=0.1,
+        min_window_duration_days=0,
     )
     pass_trades = {
         i: {"is": [], "oos": _generate_trades(
