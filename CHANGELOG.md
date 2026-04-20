@@ -2,6 +2,61 @@
 
 ## [Unreleased]
 
+### Fixed (Sprint B — python_plugin find_candidates_for_date wiring)
+
+Closes #493, #548 — second of 8 prerequisite sprints in the #530 Sprint
+chain (Sprint A, #494 scheduled-kind, merged earlier in this chain).
+
+`src/platform/signal_eval.py::find_candidates_for_date` previously raised
+`NotImplementedError` for `entry.kind: python_plugin`, blocking any strategy
+declaring itself via the `StrategyPlugin` ABC from running through the live
+scan pipeline. The new `_find_candidates_python_plugin` branch:
+
+- resolves universe via `_resolve_universe`; applies `spec.universe.sector_filter`
+  (identical plumbing to Sprint A's scheduled path);
+- applies `entry.event_exclusion.categories` on the as_of date — short-circuits
+  BEFORE dispatching to the plugin, so the plugin isn't needlessly invoked on
+  excluded days;
+- looks up the plugin via `plugin_registry.get_plugin(entry.plugin_ref or spec.strategy_id)`.
+  `entry.plugin_ref` is a new **optional** dict key (NO schema change — not
+  validated in `strategy_spec.py`); when absent, the plugin key defaults to
+  the spec's own `strategy_id`;
+- passes `{"db_path": live_db, "strategy_id": spec.strategy_id}` as the plugin
+  `context` arg per the existing `StrategyPlugin.find_candidates` signature;
+- translates returned `Candidate` dataclass objects into the shadow_harness
+  dict shape, augmenting metadata with `strategy_spec_hash`, `trigger`
+  (`"python_plugin"`), `signal_direction`, `plugin_ref`. Plugin-supplied
+  metadata keys are preserved;
+- dedupes against open `shadow_trades` on desk `research_<strategy_id>`.
+
+Error handling (no new exception classes per sprint guardrail):
+
+- Missing plugin → `KeyError` with `plugin_ref` + hint to check `@register_plugin`.
+- Plugin's `find_candidates` raises → `RuntimeError` wrapping original via
+  `raise ... from exc`; plugin name in the message.
+- Plugin returns non-list → `TypeError` with the actual type.
+- Plugin returns non-`Candidate` items → `TypeError` per-item with the actual
+  type. All three are caught by `shadow_harness._find_candidates`' broad
+  `except Exception`; tick degrades to 0 candidates.
+
+New tests in `tests/platform/test_signal_eval_python_plugin.py` (13 tests)
+cover: dispatch on spec.strategy_id, `entry.plugin_ref` override, missing
+plugin / raising plugin / bad return type / wrong item type, dedup, sector
+filter narrowing the universe received by the plugin, event_exclusion
+short-circuit (plugin NOT called), empty universe short-circuit (plugin NOT
+called), plugin context delivery, walk-forward path still raises
+`NotImplementedError` (backtest_engine untouched), scheduled + event_driven
+branches still dispatch correctly.
+
+`backtest_engine._run_backtest` still raises `NotImplementedError` for
+`python_plugin` kind — historical replay for plugin strategies is explicitly
+out of this sprint's scope (tracked in the #530 chain). Walk-forward runner,
+which routes scheduled/event_driven/python_plugin through `run_backtest`,
+is untouched.
+
+`src/platform/signal_eval.py` grew from 399 → 450 lines; at the sprint's
+450-line cap.
+
 ### Executed (v0.25.5 — sections_json parser backfill for EDGAR)
 
 Closes #537. Runs the existing section parser over the 3,743 `edgar_filings`
