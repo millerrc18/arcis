@@ -38,6 +38,7 @@ from src.platform.signal_eval import (
     is_excluded_event_date,
 )
 from src.platform.strategy_spec import StrategySpec
+from src.platform.vix_lookup import lookup_vix_at_entry
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +75,7 @@ class BacktestTrade:
     excess_return: float | None
     realized_sector: str | None
     regime_at_entry: str | None
+    vix_at_entry: float | None = None
     metadata: dict = field(default_factory=dict)
 
 
@@ -252,6 +254,7 @@ def _build_trade(
         cfg.initial_capital * float(sizing.get("pct", 0.05)) / entry_adj,
     ))
     spy_ret, excess = _attribute_vs_spy(pnl_pct, entry_iso, exit_iso)
+    vix_at_entry = lookup_vix_at_entry(entry_iso)
 
     return BacktestTrade(
         trade_id=str(uuid.uuid4()), ticker=ticker,
@@ -260,7 +263,8 @@ def _build_trade(
         shares=shares, pnl_dollars=shares * (exit_adj - entry_adj),
         pnl_pct=pnl_pct, exit_reason=outcome, hold_days=days_held,
         spy_return_over_hold=spy_ret, excess_return=excess,
-        realized_sector=None, regime_at_entry=None, metadata=metadata,
+        realized_sector=None, regime_at_entry=None,
+        vix_at_entry=vix_at_entry, metadata=metadata,
     )
 
 
