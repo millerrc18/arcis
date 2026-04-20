@@ -2,6 +2,48 @@
 
 ## [Unreleased]
 
+### Fixed (Sprint A — scheduled-kind find_candidates_for_date wiring)
+
+Closes #494 — first of 8 prerequisite sprints in the #530 Sprint A chain
+unblocking v0.26.0 incumbent YAML extraction (#523).
+
+`src/platform/signal_eval.py::find_candidates_for_date` previously warned
+and returned `[]` for `entry.kind: scheduled`, blocking any scheduled
+strategy spec from running through the live scan pipeline. The new
+`_find_candidates_scheduled` branch:
+
+- resolves the universe via `_resolve_universe` (honors string aliases like
+  `"sp100"`, unlike `backtest_engine._run_scheduled` which short-circuits on
+  non-list inputs);
+- applies `spec.universe.sector_filter` (v0.26.2-scoped) via `SECTOR_MAP`;
+- fires when `_matches_scheduled_trigger(as_of, entry)` is True
+  (shared with the backtest path — no behavior fork);
+- applies `entry.event_exclusion.categories` (v0.26.2-scoped) on the as_of
+  date via `is_excluded_event_date`;
+- dedupes against open `shadow_trades` on desk `research_<strategy_id>`;
+- emits one candidate dict per qualifying ticker with
+  `metadata.trigger == "scheduled"`.
+
+`entry.signal` is intentionally ignored for the scheduled MVP path —
+scheduled specs express timing via `day_of_week` today. A cron/interval DSL
+is tracked for a later sprint in the #530 chain.
+
+New tests in `tests/platform/test_signal_eval_scheduled.py` (10 tests)
+cover: trigger-match emission on a fixed historical Monday (2023-11-06),
+empty-filter path returning full universe, sector_filter + event_exclusion
+composition, day_of_week mismatch, dedup against open positions, unknown
+operator regression guard (no exception), unknown-kind ValueError, and
+walk-forward-path-untouched confirmation. Two stale assertions in
+`tests/platform/test_find_candidates.py` (which pinned the previous
+warn-and-return-`[]` contract) were updated to the new behavior.
+
+`src/platform/signal_eval.py` grew from 370 → 399 lines; under the sprint's
+400-line file-size budget. `backtest_engine._run_scheduled` (walk-forward
+path) is untouched — Pass 2 research
+`docs/sprints/scheduled_kind_wiring_research.md` §3 confirms the two paths
+are independent siblings sharing only the stateless `_matches_scheduled_trigger`
+helper.
+
 ### Added (v0.25.4 Part A — VIX enrichment in walk-forward trades)
 
 Closes #535 (and the umbrella #542). Plugs the gap diagnosed in
