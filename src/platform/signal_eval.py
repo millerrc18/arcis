@@ -172,34 +172,22 @@ def find_candidates_for_date(
 ) -> list[dict]:
     """Return candidate trades the strategy signal would fire at as_of.
 
-    For event_driven specs: queries spec.entry.event_table for rows within
-    entry.event_filter.filing_date_within_days of as_of, evaluates the signal
-    + combinator, returns one dict per qualifying event.
+    Dispatch by entry.kind:
+      - event_driven → _find_candidates_event_driven (EDGAR filings + cosine).
+      - scheduled → _find_candidates_scheduled (#494: day_of_week trigger +
+        universe ∩ sector_filter ∩ not-excluded-event ∩ not-already-open).
+      - python_plugin → NotImplementedError (#474).
 
-    Candidates are deduplicated against currently-open shadow_trades for the
-    strategy's desk (research_<strategy_id>) — no double-entry on consecutive
-    ticks.
-
-    For scheduled specs: returns [] with a warning (scheduled live-flow
-    integration is v0.24.1 follow-up).
-
-    For python_plugin specs: raises NotImplementedError (Task 2 / issue #474).
+    Both paths dedupe against open shadow_trades on desk research_<strategy_id>.
 
     Called by: src.platform.shadow_harness.ShadowHarness._find_candidates.
-    Returns: list of {ticker, as_of (ISO str), shares, price,
-                      signal_strength, metadata}.
+    Returns: list of {ticker, as_of, shares, price, signal_strength, metadata}.
     """
     kind = spec.entry.get("kind")
     if kind == "event_driven":
         return _find_candidates_event_driven(spec, db_path, as_of)
     if kind == "scheduled":
-        logger.warning(
-            "[SIGNAL_EVAL] scheduled-kind find_candidates_for_date not yet "
-            "supported for live flow; returning []. "
-            "backtest_engine._run_scheduled still works for backtests. "
-            "Track v0.24.1 follow-up."
-        )
-        return []
+        return _find_candidates_scheduled(spec, db_path, as_of)
     if kind == "python_plugin":
         raise NotImplementedError(
             "python_plugin find_candidates_for_date is Task 2 (issue #474)"
@@ -256,6 +244,43 @@ def _find_candidates_event_driven(
         signal_strength = _compute_signal_strength(sections, signal, combinator)
         candidates.append(_build_candidate(ticker, as_of_iso, signal_strength, row, spec_hash))
     return candidates
+
+
+def _find_candidates_scheduled(
+    spec: StrategySpec, db_path: str, as_of: datetime,
+) -> list[dict]:
+    """Scheduled-kind candidate generation at a single as_of date (#494).
+
+    Universe ∩ sector_filter ∩ trigger-matches(as_of) ∩ not-excluded-event ∩
+    not-already-open. entry.signal is ignored for MVP — scheduled specs express
+    timing via day_of_week today; cron/interval DSL is a later sprint.
+    """
+    entry = spec.entry
+    tickers = _resolve_universe(spec.universe.get("tickers", []))
+    sector_filter = spec.universe.get("sector_filter")
+    if sector_filter:
+        from src.universe.sectors import SECTOR_MAP
+        tickers = [t for t in tickers if SECTOR_MAP.get(t) in sector_filter]
+    if not tickers:
+        logger.warning("[SIGNAL_EVAL] empty universe for %s; returning []", spec.strategy_id)
+        return []
+    if not _matches_scheduled_trigger(as_of, entry):
+        return []
+    entry_iso = as_of.strftime("%Y-%m-%d")
+    if is_excluded_event_date(entry_iso, entry):
+        return []
+
+    live_db = os.environ.get("PLATFORM_EDGAR_DB", db_path)
+    desk = f"research_{spec.strategy_id}"
+    open_tickers = _load_open_tickers_for_desk(desk, live_db)
+    spec_hash = _spec_hash(spec)
+    as_of_iso = as_of.isoformat()
+    sched_row = {"accession_number": "", "filing_date": None,
+                 "form_type": None, "trigger": "scheduled"}
+    return [
+        _build_candidate(t, as_of_iso, 0.5, sched_row, spec_hash)
+        for t in tickers if t not in open_tickers
+    ]
 
 
 def _query_event_rows_for_date(
@@ -320,19 +345,23 @@ def _load_open_tickers_for_desk(desk: str, db_path: str) -> set[str]:
 def _build_candidate(
     ticker: str, as_of_iso: str, signal_strength: float, row: dict, spec_hash: str,
 ) -> dict:
-    """Construct a candidate dict from a qualifying event row."""
+    """Construct a candidate dict from a qualifying event or scheduled row."""
+    meta = {
+        "filing_accession": row.get("accession_number", ""),
+        "filing_date": row.get("filing_date"),
+        "form_type": row.get("form_type"),
+        "strategy_spec_hash": spec_hash,
+    }
+    trigger = row.get("trigger")
+    if trigger is not None:
+        meta["trigger"] = trigger
     return {
         "ticker": ticker,
         "as_of": as_of_iso,
         "shares": 1,      # position sizing is the harness's responsibility
         "price": 0.0,     # live price fetched by harness at order time
         "signal_strength": signal_strength,
-        "metadata": {
-            "filing_accession": row.get("accession_number", ""),
-            "filing_date": row.get("filing_date"),
-            "form_type": row.get("form_type"),
-            "strategy_spec_hash": spec_hash,
-        },
+        "metadata": meta,
     }
 
 
