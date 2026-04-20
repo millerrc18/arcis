@@ -619,16 +619,33 @@ Rationale considered during Pass 1:
 - **Option B (weight alone, ALL weighted bands sum globally):** means `weight=0.5` on one band halves its contribution to the total, which has semantic value but doesn't express the "market + sector blend" case cleanly.
 - **Option C (weight + blend_group, explicit tag):** **chosen.** Spec author explicitly tags related bands. Validator checks blend_group cohesion (below). Scales to N-way blends. No ambiguity.
 
-### 5.5 Fallback semantics (open question flagged for Pass 2)
+### 5.5 Fallback semantics — RESOLVED (operator 2026-04-20)
 
 Incumbent line 185 has a fallback: `if sector_rs is None: combined_rs = market_rs_score` (market gets weight 1.0 instead of 0.6).
 
-Pure weighted blend can't express this cleanly. Options:
+Pure weighted blend can't express this cleanly. Options considered at Pass 1:
 - **Defer to Item 7 (derived_metrics).** Define `combined_rs` as a derived metric with a conditional operation (`weighted_sum_or_fallback`), then band that single metric. But this adds a third operation to `derived_metrics`, which Pass 1 §7 decision closes at `subtract` + `weighted_sum` only.
 - **Allow `normalize_on_missing: true` on blend_group.** When a band's `metric` is absent/None at runtime, renormalize remaining weights to sum to 1.0. Schema-side: optional boolean field on the first band in a blend_group, or a top-level `ranking.blends: {<group>: {normalize_on_missing: true}}` dict. Adds 5-10 LOC.
 - **Accept semantic gap.** Document as a known Sprint F limitation; if walk-forward shows the gap matters, open Sprint C.2 for the renormalization feature.
 
-**Pass 1 recommendation: accept semantic gap for now.** Sprint F will port the blend with a pragmatic fix (e.g., populate `sector_rs_score = 0` with `weight = 0.4` when missing, then document the deviation as a known divergence from the Python fallback). This is a byte-identity risk but specific to one edge case; measurement in Pass 3 can confirm impact. **Flagged for operator review — could also resolve by adding `normalize_on_missing` to C.1 scope (+10 LOC).**
+**Resolution (operator, 2026-04-20): ACCEPT SEMANTIC GAP.**
+
+Do NOT add `normalize_on_missing`. Do NOT extend `derived_metrics` operations. Sprint C.1 ships with the pure-weighted-blend schema; the fallback-when-None case remains Python-hardcoded in `ranker.py` (unchanged from today).
+
+**Known Sprint F divergence:** when Sprint F ports the blend via spec-driven dispatch, the YAML path will NOT reproduce the Python fallback at ranker.py:185:
+
+- **Python path (unchanged):** `if sector_rs is None: combined_rs = market_rs_score` — when `_sector_rs_score` is absent, market gets weight 1.0 fallback (full contribution).
+- **Spec-driven path (Sprint F):** pure weighted sum regardless of None-ness. Either pre-populating `sector_rs_score = 0` (weight 0.4 applied to 0 → 0 contribution → market contributes only 0.6 × market_rs_score, which ≠ Python fallback of full market_rs_score) OR skipping the sector band entirely (same semantic issue — market stays at 0.6 weight, not 1.0).
+
+**Expected Sprint F outcome:** byte-identity fuzz will FAIL on any date where at least one ticker lacks sector ETF data. Pass 2 §1.4 confirms the fallback is reachable — likely common across most callers of `rank_universe` (the `sector_etf_features` parameter defaults to `None`, so the fallback triggers for every ticker when the caller doesn't pre-load sector data).
+
+Per the plan's STOP discipline (`SPRINT_FGH_PLAN.md` "If a sprint gets stuck"):
+
+1. Sprint F STOPs on first fuzz failure attributable to this fallback.
+2. Sprint F files a new issue describing the gap.
+3. Operator decides: open Sprint C.2 (`normalize_on_missing` or equivalent) OR accept incumbent simplification (remove the fallback from Python and re-compute byte-identity against the simplified path).
+
+This is the explicit plan. The known-divergence is documented here in Pass 1 so Sprint F can recognize it immediately when fuzz fails, rather than chasing it as a mystery bug.
 
 ### 5.6 Validator change
 
