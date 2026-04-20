@@ -123,13 +123,9 @@ def test_find_candidates_dedupes_already_open_positions(tmp_path):
     )
 
 
-def test_find_candidates_scheduled_kind_returns_empty_or_raises(tmp_path):
-    """find_candidates_for_date currently only supports event_driven;
-    scheduled strategies should either return [] or raise NotImplementedError.
-    Don't silently pretend to evaluate."""
-    db = _seeded_edgar_db(tmp_path)
-    scheduled_spec = StrategySpec(
-        strategy_id="sched_test",
+def _scheduled_spec(strategy_id: str = "sched_test") -> StrategySpec:
+    return StrategySpec(
+        strategy_id=strategy_id,
         display_name="S",
         universe={"tickers": ["AAPL"]},
         entry={"kind": "scheduled", "day_of_week": "Monday", "time": "close"},
@@ -141,46 +137,23 @@ def test_find_candidates_scheduled_kind_returns_empty_or_raises(tmp_path):
         attribution={"benchmark": "SPY_matched_window", "metrics": ["sharpe"]},
         raw={}, source="test",
     )
-    as_of = datetime(2023, 11, 6)  # a Monday
-    # Scheduled support is v0.24.1 follow-up — accept either [] with
-    # warning, OR NotImplementedError. Don't accept silent success.
-    try:
-        candidates = find_candidates_for_date(
-            scheduled_spec, db_path=db, as_of=as_of,
-        )
-        # If it returned, it MUST be an empty list (not fabricated candidates)
-        assert candidates == []
-    except NotImplementedError:
-        pass  # acceptable
 
 
-def test_find_candidates_for_scheduled_spec_fires_warning(tmp_path, caplog):
-    """If scheduled returns [] rather than raising, it should warn
-    so an operator sees 'scheduled kind not yet supported for live flow'."""
-    import logging
+def test_find_candidates_scheduled_kind_fires_on_trigger_match(tmp_path):
+    """#494: scheduled specs now resolve candidates on trigger-match days.
+    A Monday spec on 2023-11-06 (Monday) must emit one AAPL candidate."""
     db = _seeded_edgar_db(tmp_path)
-    scheduled_spec = StrategySpec(
-        strategy_id="sched_warn",
-        display_name="S",
-        universe={"tickers": ["AAPL"]},
-        entry={"kind": "scheduled", "day_of_week": "Monday", "time": "close"},
-        exit={"kind": "mechanical", "timeout_days": 5,
-              "stop": {"method": "pct", "value": 0.02},
-              "target": {"method": "pct", "value": 0.03}},
-        position_sizing={"method": "fixed_pct_equity", "pct": 0.15},
-        attribution={"benchmark": "SPY_matched_window", "metrics": []},
-        raw={}, source="test",
-    )
-    as_of = datetime(2023, 11, 6)
-    with caplog.at_level(logging.WARNING, logger="src.platform.signal_eval"):
-        try:
-            find_candidates_for_date(scheduled_spec, db_path=db, as_of=as_of)
-        except NotImplementedError:
-            return  # either behavior acceptable per prior test
-    # If [] was returned, a warning should have been emitted
-    scheduled_warnings = [
-        r for r in caplog.records
-        if "scheduled" in r.message.lower()
-        or "not supported" in r.message.lower()
-    ]
-    assert len(scheduled_warnings) >= 1
+    spec = _scheduled_spec()
+    as_of = datetime(2023, 11, 6)  # Monday
+    candidates = find_candidates_for_date(spec, db_path=db, as_of=as_of)
+    assert len(candidates) == 1
+    assert candidates[0]["ticker"] == "AAPL"
+    assert candidates[0]["metadata"].get("trigger") == "scheduled"
+
+
+def test_find_candidates_scheduled_kind_empty_on_trigger_miss(tmp_path):
+    """Monday-trigger spec on a Tuesday returns []."""
+    db = _seeded_edgar_db(tmp_path)
+    spec = _scheduled_spec()
+    as_of = datetime(2023, 11, 7)  # Tuesday
+    assert find_candidates_for_date(spec, db_path=db, as_of=as_of) == []
