@@ -2,6 +2,71 @@
 
 ## [Unreleased]
 
+### Validated (v0.25.6 — lazy_prices_v1 walk-forward rerun on real EDGAR)
+
+Closes #547. First walk-forward rerun after three upstream capabilities landed
+(v0.25.4 VIX enrichment #535, v0.25.4 INCONCLUSIVE_DURATION sub-state #538,
+v0.25.5 sections_json parser backfill #537). Spec, seed, and universe
+unchanged from the v0.25.3 baseline (`docs/validation/lazy-prices-v1-walkforward-real-2026-04-19.md`).
+
+**Run identity**
+
+- `run_id`: `7a8a96b6-3d3d-4cc3-9e6f-34573547cc72`
+- `spec_hash`: `ea78fed32a6ff7b3169e1657988392075677885280a22e800dfadd07c62b9e15` (identical to v0.25.3)
+- `code_git_sha`: `638ef96912fa6338d88fd380b6d2328377a06d83`
+- `random_seed`: `42`
+- Exit code: 3 (INCONCLUSIVE)
+
+**Outcome delta (v0.25.3 → v0.25.6)**
+
+| metric | v0.25.3 | v0.25.6 |
+|---|---|---|
+| outcome_state | INCONCLUSIVE | INCONCLUSIVE |
+| Windows (PASS/FAIL/INC_DATA/INC_POWER/INC_DURATION) | 0/0/5/0/— | 0/0/4/0/**1** |
+| vix_tier_coverage | 0 | **3** |
+| OOS trades with vix_at_entry non-NULL | 0/20 | 21/21 |
+| Total OOS trades | 20 | 21 |
+| Pooled Sharpe | 3.5280 | 3.8976 |
+| Pooled MDE | 10.5448 | 10.2932 |
+
+**Confirmations closed**
+
+- **#535 (VIX enrichment):** `vix_at_entry` populated on 100% of OOS trades
+  across 3 tiers (low/medium/high). `lookup_vix_at_entry` wired end-to-end
+  via `_build_trade()`. Closes v0.25.3 §Follow-ups #1.
+- **#538 (window-duration sub-state):** Window 4 (273 days < 365 threshold)
+  correctly flips to `INCONCLUSIVE_DURATION` regardless of trade count.
+  Persisted `n_windows_inconclusive_duration = 1`. Closes v0.25.3 §Follow-ups #3.
+
+**Parser backfill impact observation**
+
+v0.25.5's lift from 28% → 71% useful `sections_json` coverage produced **+1
+new OOS trade** (PG 2024-08-06 in Window 4). Windows 0-3 trade counts
+identical to v0.25.3. Pre-registered rule R3 predicted 2-6× lift; observed
+delta is well below that. Candidate reasons (not in scope): #552 fetcher issue
+still produces `'{}'` on 1,424 rows; prior-year reference filings pre-2019
+are not in the corpus; 8-K filings (69% of the v0.25.5 backlog) don't trigger
+`lazy_prices` signals. Captured, not interpreted — the framework reports the
+number it got.
+
+**Framework-bug triggers**
+
+Inert. All triggers are PASS-conditional; outcome was INCONCLUSIVE. No
+framework-bug issue filed.
+
+**Minor follow-up flagged (not filed)**
+
+`scripts/backtest/run_walkforward.py::main()` JSON summary omits
+`n_windows_inconclusive_duration` — the persisted DB row carries it but the
+CLI stdout doesn't. One-line fix in the `summary` dict. Not bundled into this
+PR per the sprint's anti-goal (no spec/runner modification during validation).
+
+**Docs**
+
+- Pass 1 evaluation: `docs/sprints/v0.25.6_evaluation.md` (commit `638ef96`)
+- Pass 2 raw capture: `docs/sprints/lazy_prices_v1_rerun_raw.md` (commit `2ca4b36`)
+- Pass 3 validation: `docs/validation/lazy-prices-v1-walkforward-real-rerun-2026-04-20.md` (this PR)
+
 ### Executed (v0.25.5 — sections_json parser backfill for EDGAR)
 
 Closes #537. Runs the existing section parser over the 3,743 `edgar_filings`
