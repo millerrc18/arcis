@@ -105,7 +105,7 @@ with an unbeatable technological moat.
 
 ### Database Path (`ARCIS_DB_PATH`)
 
-Production SQLite lives at **`C:/arcis/data/ai_research_desk.sqlite3`** — 493 MB, 3,371 EDGAR filings, 3,239 with `full_text` populated. This is the DB the watch loop and all collectors write to.
+Production SQLite lives at **`C:/arcis/data/ai_research_desk.sqlite3`** — 1,009 MB, 5,393 EDGAR filings, 5,261 with `full_text` populated, 3,837 with non-empty `sections_json` (v0.25.5 backfill, 71.1% useful coverage; 1,424 `sections_json = '{}'` tracked under #552). This is the DB the watch loop and all collectors write to.
 
 `src/config/__init__.py` defines `DB_PATH` via `os.environ.get("ARCIS_DB_PATH", str(<repo_root> / "ai_research_desk.sqlite3"))`. The env-var override is how production points at `C:/arcis/data/...`; the absolute default prevents CWD-dependent resolution (fixed in v0.24.0-alpha2.1 hotfix).
 
