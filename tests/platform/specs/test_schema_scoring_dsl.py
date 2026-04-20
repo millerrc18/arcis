@@ -61,11 +61,13 @@ def test_bands_missing_range_rejects():
 
 
 def test_bands_range_lower_ge_upper_rejects():
+    """Sprint C.1 Item 8: metric names now validated against
+    KNOWN_SCORING_METRICS, so test uses real metric names."""
     spec = _base_spec()
     spec["ranking"] = {
         "bands": [
-            {"metric": "m1", "range": [5, 5], "score": 10},
-            {"metric": "m2", "range": [5, 3], "score": 10},
+            {"metric": "iv_rank", "range": [5, 5], "score": 10},
+            {"metric": "spy_rsi_14", "range": [5, 3], "score": 10},
         ],
     }
     ok, errors = validate_spec(spec)

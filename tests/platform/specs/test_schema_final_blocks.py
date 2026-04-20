@@ -71,26 +71,27 @@ def test_enrichment_chain_unknown_ref_warns(caplog):
     assert any("'frog'" in m and "technicals" in m for m in warn_msgs), warn_msgs
 
 
-# ── Block 3: post_scan.chain (warn) ─────────────────────────────────────
+# ── Block 3: post_scan.chain (strict post-Sprint C.1 Item 2 #568) ───────
 
 
 def test_post_scan_chain_valid_loads():
+    """Sprint C.1 Item 2 (#568): frozenset aligned to runtime dispatch names
+    (traffic_light, event_risk) and strict=True now that drift is fixed."""
     spec = _base_spec()
-    spec["post_scan"] = {"chain": ["classifier", "filter_duplicates"]}
+    spec["post_scan"] = {"chain": ["traffic_light", "event_risk"]}
     ok, errors = validate_spec(spec)
     assert ok, errors
     assert errors == []
 
 
-def test_post_scan_chain_unknown_ref_warns(caplog):
+def test_post_scan_chain_unknown_ref_rejects():
+    """Sprint C.1 Item 2: strict=True — unknown refs hard-fail, not warn."""
     spec = _base_spec()
     spec["post_scan"] = {"chain": ["frog"]}
-    with caplog.at_level(logging.WARNING, logger="src.platform.strategy_spec"):
-        ok, errors = validate_spec(spec)
-    assert ok, errors
-    assert errors == []
-    warn_msgs = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
-    assert any("'frog'" in m for m in warn_msgs), warn_msgs
+    ok, errors = validate_spec(spec)
+    assert not ok
+    assert any("post_scan.chain" in e and "unknown ref" in e and "'frog'" in e
+               for e in errors), errors
 
 
 # ── Block 4: event_risk.quarantine_categories (warn) ────────────────────
@@ -181,7 +182,7 @@ def test_all_five_blocks_combined_loads():
     spec = _base_spec()
     spec["hooks"] = {"attribution": ["log_before_llm"]}
     spec["enrichment"] = {"chain": ["technicals", "macro"]}
-    spec["post_scan"] = {"chain": ["classifier"]}
+    spec["post_scan"] = {"chain": ["traffic_light"]}
     spec["event_risk"] = {"quarantine_categories": ["earnings_imminent", "cpi"]}
     spec["bootcamp"] = {
         "qualification_threshold": 55,
