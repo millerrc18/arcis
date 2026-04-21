@@ -89,7 +89,16 @@ def _classify_trend(spy: pd.DataFrame | None) -> int:
 
 
 def _classify_credit(db_path: str = DB_PATH) -> int:
-    """Classify HY credit spread z-score from macro_snapshots."""
+    """Classify HY credit spread z-score from macro_snapshots.
+
+    Sprint 2 H5: macro_snapshots.value is stored as SQLite TEXT by the
+    upstream FRED collector (all 31 rows for BAMLH0A0HYM2 observed as
+    text on 2026-04-20, values like '2.86'). Wrap each non-None row in
+    ``float()`` and skip unparseable entries so ``sum(values)`` does
+    not raise ``TypeError: unsupported operand type(s) for +: 'int' and
+    'str'`` (which fired 26 times in 2026-04-20's log, disabling
+    credit-spread regime input silently).
+    """
     try:
         with connect_db(db_path) as conn:
             rows = conn.execute(
@@ -99,8 +108,17 @@ def _classify_credit(db_path: str = DB_PATH) -> int:
             ).fetchall()
         if not rows or len(rows) < 20:
             return 0  # No data, assume green
-        values = [r[0] for r in rows if r[0] is not None]
-        if not values:
+        values: list[float] = []
+        for r in rows:
+            if r[0] is None:
+                continue
+            try:
+                values.append(float(r[0]))
+            except (TypeError, ValueError):
+                # Skip malformed values rather than reject the whole set
+                continue
+        if len(values) < 20:
+            # Below the minimum-rows threshold after filtering — assume green
             return 0
         current = values[0]
         mean = sum(values) / len(values)
