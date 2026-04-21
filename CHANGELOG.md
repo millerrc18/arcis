@@ -2,6 +2,51 @@
 
 ## [Unreleased]
 
+### Fixed (Cleanup Sprint 1 — critical-path code fixes: C3, H6, H3.b)
+
+Three independent zero-live-state fixes surfaced by the 2026-04-20 log
+audit (see `docs/sprints/cleanup_sprint_1_evaluation.md` and
+`cleanup_sprint_1_research.md`). Kill-switch stayed engaged throughout;
+no trading-path, governor, or model-registry changes.
+
+- **C3 — reconcile dispatch `db_path=None` TypeError.**
+  `src/scheduler/watch.py:694` calls `reconcile_all_paper_trades()` with
+  no `db_path` kwarg; the `None` default propagated through
+  `get_strategies_by_status` to `sqlite3.connect(None)` and raised
+  TypeError. Intra-day reconciliation failed 13× today and has been
+  silently failing every 30-min scan cycle. Added None-guards at both
+  call sites (`src/shadow_trading/reconcile_dispatch.py`,
+  `src/platform/promotion.py:489`) that resolve `None` to the config
+  `DB_PATH`. 5 regression tests in
+  `tests/shadow_trading/test_reconcile_dispatch_db_path.py`.
+- **H6 — cp1252 Unicode crash in overnight reconciliation log.**
+  Windows StreamHandler could not encode `❌` (U+274C) when emitted via
+  `logger.info("[WATCH] %s", msg)` on line 67 (source on line 65);
+  10 logger crashes today. Replaced `❌`/`✅`/`—` in logger/print/msg
+  paths with `[FAIL]`/`[OK]`/`--`. Preserved emojis in Telegram-only
+  paths (Telegram renders UTF-8 natively). Preserved em dashes in
+  docstrings and comments (never reach an emittable stream). 5
+  regression tests in `tests/scheduler/test_overnight_encoding.py`
+  including a cp1252 round-trip and a static scan that fails if any
+  logger/print/msg line contains cp1252-incompatible bytes.
+- **H3.b — `trl` version pin.** Pinned `trl>=0.12,<0.25` in
+  `requirements-training.txt`. Unbounded upper resolved to trl 1.1.0
+  which ships `chat_templates/gptoss.jinja` read via `Path.read_text()`
+  without an explicit encoding; on Windows that raised
+  UnicodeDecodeError, killing `SFTTrainer` import and silently breaking
+  overnight fine-tune for approximately one week. Pin is compatible
+  with co-pinned `transformers>=4.46` and `accelerate>=1.0`.
+
+Operator follow-up (not in sprint scope):
+- Add `PYTHONUTF8=1` to the watch-loop NSSM service environment.
+- `pip install -r requirements-training.txt` on the training host to
+  downgrade `trl` to the 0.12–0.24 window.
+- Investigate what caused remote `main` to be fast-forwarded to this
+  sprint's tip without a PR (see `audit/2026-04-21` branch for the
+  automated audit commit preserved from the incident).
+
+---
+
 ### Added (2024 OHLCV backfill for Sprint F byte-identity fuzz)
 
 Closes #570. Unblocks Sprint F (#564) byte-identity fuzz. Populates

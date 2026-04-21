@@ -33,7 +33,7 @@ def run_postclose_reconciliation():
     result = all_results.get("swing", {})
 
     if result.get("error"):
-        msg = f"[Reconcile] Alpaca API error — skipped: {result['error']}"
+        msg = f"[Reconcile] Alpaca API error -- skipped: {result['error']}"
         logger.warning("[WATCH] %s", msg)
         try:
             from src.notifications.telegram import send_telegram, is_telegram_enabled
@@ -50,8 +50,8 @@ def run_postclose_reconciliation():
 
     if not orphaned and not stale and not discrep:
         msg = (
-            f"\u2705 Reconciliation: {result['local_count']} local / "
-            f"{result['alpaca_count']} Alpaca \u2014 all matched"
+            f"[OK] Reconciliation: {result['local_count']} local / "
+            f"{result['alpaca_count']} Alpaca -- all matched"
         )
     else:
         parts = []
@@ -62,7 +62,7 @@ def run_postclose_reconciliation():
             parts.append(f"{len(stale)} stale: {tickers}")
         if discrep:
             parts.append(f"{len(discrep)} mismatched")
-        msg = f"\u274c Reconciliation: {', '.join(parts)}"
+        msg = f"[FAIL] Reconciliation: {', '.join(parts)}"
 
     logger.info("[WATCH] %s", msg)
     try:
@@ -82,7 +82,7 @@ def run_daily_audit():
     audit = run_daily_audit()
     assessment = audit.get("overall_assessment", "green")
     summary = (audit.get("summary") or "")[:200]
-    print(f"[WATCH] Audit: {assessment} — {summary}")
+    print(f"[WATCH] Audit: {assessment} -- {summary}")
 
     # Check for escalation
     actions = check_escalation(audit)
@@ -91,10 +91,10 @@ def run_daily_audit():
 
     # Send alert if red or yellow
     if assessment == "red":
-        subject = "[TRADE DESK] DAILY AUDIT — RED"
+        subject = "[TRADE DESK] DAILY AUDIT -- RED"
         send_email(subject, f"Assessment: RED\n\n{audit.get('summary', '')}")
     elif assessment == "yellow":
-        logger.info("[AUDIT] Yellow assessment — included in EOD recap")
+        logger.info("[AUDIT] Yellow assessment -- included in EOD recap")
 
     # CUSUM performance change detection
     try:
@@ -253,9 +253,9 @@ def log_overnight_task(task_name: str, status: str,
         from src.logging.activity import log_activity
         detail = f"{task_name}: {status}"
         if result:
-            detail += f" — {result}"
+            detail += f" -- {result}"
         if error:
-            detail += f" — ERROR: {error}"
+            detail += f" -- ERROR: {error}"
         log_activity("overnight_task", detail)
     except Exception as e:
         logger.debug("[WATCH] Failed to log overnight task: %s", e)
@@ -266,7 +266,7 @@ def run_model_regression_check():
     from src.evaluation.model_monitor import check_model_regression
 
     result = check_model_regression()
-    logger.info("[MODEL_MONITOR] Regression check: %s — %s",
+    logger.info("[MODEL_MONITOR] Regression check: %s -- %s",
                 result["status"], result["message"])
 
     if result["status"] == "critical":
@@ -574,7 +574,7 @@ def run_data_collection(db_path: str = DB_PATH,
     try:
         results["options"] = collect_options_chains(universe)
     except Exception as e:
-        logger.error("[COLLECT] options_chains: FAILED — %s", e)
+        logger.error("[COLLECT] options_chains: FAILED -- %s", e)
         results["options"] = {"error": str(e)}
 
     # 2. Derived metrics from chains
@@ -582,7 +582,7 @@ def run_data_collection(db_path: str = DB_PATH,
     try:
         results["metrics"] = compute_options_metrics(universe)
     except Exception as e:
-        logger.error("[COLLECT] options_metrics: FAILED — %s", e)
+        logger.error("[COLLECT] options_metrics: FAILED -- %s", e)
         results["metrics"] = {"error": str(e)}
 
     # 3. VIX term structure
@@ -590,7 +590,7 @@ def run_data_collection(db_path: str = DB_PATH,
     try:
         results["vix"] = collect_vix_term_structure()
     except Exception as e:
-        logger.error("[COLLECT] vix_term_structure: FAILED — %s", e)
+        logger.error("[COLLECT] vix_term_structure: FAILED -- %s", e)
         results["vix"] = {"error": str(e)}
 
     # 4. CBOE ratios
@@ -598,7 +598,7 @@ def run_data_collection(db_path: str = DB_PATH,
     try:
         results["cboe"] = collect_cboe_ratios()
     except Exception as e:
-        logger.error("[COLLECT] cboe_ratios: FAILED — %s", e)
+        logger.error("[COLLECT] cboe_ratios: FAILED -- %s", e)
         results["cboe"] = {"error": str(e)}
 
     # 5. FRED macro (35+ series)
@@ -606,7 +606,7 @@ def run_data_collection(db_path: str = DB_PATH,
     try:
         results["macro"] = collect_macro_snapshots()
     except Exception as e:
-        logger.error("[COLLECT] macro_snapshots: FAILED — %s", e)
+        logger.error("[COLLECT] macro_snapshots: FAILED -- %s", e)
         results["macro"] = {"error": str(e)}
 
     # 6. Google Trends (market-wide sentiment terms)
@@ -614,7 +614,7 @@ def run_data_collection(db_path: str = DB_PATH,
     try:
         results["trends"] = collect_google_trends(universe, batch_size=20)
     except Exception as e:
-        logger.error("[COLLECT] google_trends: FAILED — %s", e)
+        logger.error("[COLLECT] google_trends: FAILED -- %s", e)
         results["trends"] = {"error": str(e)}
 
     # 7. Earnings calendar
@@ -711,7 +711,7 @@ def run_data_collection(db_path: str = DB_PATH,
         is_error = (isinstance(result, str) and "error" in result.lower()) or \
                    (isinstance(result, dict) and "error" in str(result).lower())
         if is_error:
-            logger.error("[COLLECT] %s: FAILED — %s", name, str(result)[:120])
+            logger.error("[COLLECT] %s: FAILED -- %s", name, str(result)[:120])
         elif isinstance(result, str) and result.startswith("skipped"):
             logger.info("[COLLECT] %s: skipped", name)
         else:
@@ -814,7 +814,7 @@ def run_evening_handoff(vram_manager=None):
             "overnight",
             ["-m", "scripts.overnight_train"],
         )
-        print("[WATCH] VRAM handoff complete — overnight training started")
+        print("[WATCH] VRAM handoff complete -- overnight training started")
         try:
             from src.notifications.telegram import notify_vram_handoff, is_telegram_enabled
             if is_telegram_enabled():
@@ -823,7 +823,7 @@ def run_evening_handoff(vram_manager=None):
             logger.warning("[WATCH] notify_vram_handoff failed: %s", e)
         return vm
     else:
-        print("[WATCH] VRAM handoff FAILED — staying in inference mode")
+        print("[WATCH] VRAM handoff FAILED -- staying in inference mode")
         try:
             from src.notifications.telegram import notify_vram_handoff, is_telegram_enabled
             if is_telegram_enabled():
@@ -849,7 +849,7 @@ def run_morning_handoff(vram_manager=None):
     vm = vram_manager or VRAMManager()
     if vm.handoff_to_inference():
         stop_flag.unlink(missing_ok=True)
-        print("[WATCH] Morning handoff complete — Ollama loaded and warm")
+        print("[WATCH] Morning handoff complete -- Ollama loaded and warm")
         try:
             from src.notifications.telegram import notify_vram_handoff, is_telegram_enabled
             if is_telegram_enabled():
@@ -857,7 +857,7 @@ def run_morning_handoff(vram_manager=None):
         except Exception as e:
             logger.warning("[WATCH] notify_vram_handoff failed: %s", e)
     else:
-        print("[WATCH] Morning handoff FAILED — attempting Ollama restart")
+        print("[WATCH] Morning handoff FAILED -- attempting Ollama restart")
         try:
             from src.notifications.telegram import notify_vram_handoff, is_telegram_enabled
             if is_telegram_enabled():
@@ -928,7 +928,7 @@ def run_ollama_warmup():
     from src.llm.client import generate, is_llm_available
 
     if not is_llm_available():
-        print("[WATCH] Ollama not available — skipping warm-up")
+        print("[WATCH] Ollama not available -- skipping warm-up")
         return
 
     warmup_path = Path("data/reference/warmup_prompt.txt")
@@ -951,9 +951,9 @@ def run_ollama_warmup():
     elapsed = _time.time() - start
 
     if result:
-        print(f"[WATCH] Ollama warm-up complete — {elapsed:.1f}s — ready for first scan")
+        print(f"[WATCH] Ollama warm-up complete -- {elapsed:.1f}s -- ready for first scan")
     else:
-        print(f"[WATCH] WARNING: Ollama warm-up failed ({elapsed:.1f}s) — "
+        print(f"[WATCH] WARNING: Ollama warm-up failed ({elapsed:.1f}s) -- "
               "first scan may be slow")
 
 
@@ -970,7 +970,7 @@ def run_premarket_training():
     from src.scheduler.premarket import PreMarketPipeline
     pipeline = PreMarketPipeline()
     if not pipeline.verify_ollama_warm():
-        print("[WATCH] Ollama not warm — skipping training generation")
+        print("[WATCH] Ollama not warm -- skipping training generation")
         return
     result = pipeline.run_training_generation()
     print(f"[WATCH] Premarket training: {result['generated']} generated, "
