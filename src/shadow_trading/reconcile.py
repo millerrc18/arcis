@@ -502,6 +502,28 @@ def reconcile_paper_trades(
             )
             if trade_data is None:
                 continue
+            # Sprint 2 C2-partial: cancel any dangling open orders for the
+            # orphan ticker before backfilling the DB row. Without this,
+            # the backfilled trade can race with residual bracket legs on
+            # Alpaca (a TP/stop leg from the original entry that the
+            # executor never tracked), producing the overshoot pattern
+            # observed 2026-04-20 (12 shorts matching long-side planned
+            # quantities). Uses the existing helper already imported for
+            # the stale-close path at line 546.
+            try:
+                cancelled = cancel_orders_for_ticker(orph["ticker"], desk=desk)
+                if cancelled > 0:
+                    logger.info(
+                        "[RECONCILE-PAPER] Cancelled %d dangling orders for %s "
+                        "before backfill",
+                        cancelled, orph["ticker"],
+                    )
+            except Exception as e:
+                logger.warning(
+                    "[RECONCILE-PAPER] cancel_orders_for_ticker(%s) failed: %s "
+                    "— proceeding with backfill",
+                    orph["ticker"], e,
+                )
             insert_shadow_trade(trade_data, db_path)
             backfilled.append(orph["ticker"])
             logger.info(
