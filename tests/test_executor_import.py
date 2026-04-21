@@ -330,12 +330,16 @@ class TestExitExceptionMarksFailure:
             "source": "paper",
         }
 
+        # D3 sprint: mock get_all_positions to include TGT so the D3 sync
+        # does not short-circuit with `position_already_closed`. The test's
+        # intent is to verify exception handling in _submit_exit_order;
+        # D3's pre-submit skip is a separate (and valid) code path.
         with patch("src.shadow_trading.executor.get_open_shadow_trades",
                    return_value=[mock_trade]), \
              patch("src.shadow_trading.executor._get_current_price_safe",
                    return_value=115.0), \
              patch("src.shadow_trading.alpaca_adapter.get_all_positions",
-                   return_value=[]), \
+                   return_value=[{"symbol": "TGT", "qty": "166"}]), \
              patch("src.shadow_trading.executor._submit_exit_order",
                    side_effect=Exception("insufficient qty")), \
              patch("src.shadow_trading.executor.update_shadow_trade") as mock_update, \

@@ -2,6 +2,63 @@
 
 ## [Unreleased]
 
+### Fixed (Sprint fix/paper-exit-qty-asymmetry — CVS retry loop + phantom exits)
+
+Closes #591 (D2 reconcile 3rd branch) and #592 (D3 paper exit qty sync).
+
+Three interlocking bugs surfaced by the 2026-04-21 investigation
+(`docs/audit/root_cause_investigation_2026-04-21.md`) collapsed into a
+single root cause: `_strip_enum` at `src/shadow_trading/alpaca_adapter.py:38`
+returned UPPERCASE names instead of lowercase values from alpaca-py's
+regular-Enum `OrderStatus`. Downstream executor checks at
+`executor.py:1375` and `:1383` compare against lowercase sets and
+silently missed every filled bracket leg. Fallback stop/target/timeout
+path then dispatched `_submit_exit_order(planned_shares)` against a
+position already closed server-side → phantom sell-to-open → overshoot.
+
+CVS on 2026-04-21 added a second failure mode: a partial fill left
+4 residual shares against `planned_shares=130`. Reconcile's stuck-trade
+resolution only had two branches (qty<=0 or qty>0); missing branch for
+`0 < qty < planned` reverted to `open` every cycle → 17+ failed sell
+attempts before operator manual quarantine.
+
+- **D2 fix (`src/shadow_trading/reconcile.py:655-700`):** added the
+  `0 < alpaca_qty < planned_shares` branch. Marks
+  `status='needs_manual_review'`, `exit_reason='qty_mismatch_partial_fill'`.
+  Distinct reason separates qty-mismatch residuals from directional
+  overshoots for cleanup tooling.
+- **D3 fix (`src/shadow_trading/executor.py`):** new helper
+  `_sync_exit_qty(ticker, requested_shares, broker_positions)` reuses
+  the `get_all_positions` result already fetched at `:1174` (now a
+  `dict[str, float]` keyed by ticker) to clip or skip exits against
+  actual broker qty. Threads `broker_positions` through `_retry_exit`.
+  Phantom exits (`broker_qty <= 0`) are marked `exit_pending` with
+  `position_already_closed` for reconcile to finalize — no sell ever
+  submitted against a closed position.
+- **Upstream fix (`src/shadow_trading/alpaca_adapter.py:38-70`):**
+  `_strip_enum` now returns `val.value` for `enum.Enum` instances.
+  Callsite audit documented in commit 6 message — no other callers
+  needed changes beyond the existing `.lower()` patterns they already
+  applied (`bracket_monitor.py:75`, `_is_filled_status`, `_is_pending_status`).
+- **9 new tests + 3 test updates** covering partial-fill mismatch,
+  phantom-exit prevention, race with reconcile, `_strip_enum`
+  normalization, and bracket leg-fill detection case-insensitivity.
+  Three existing tests (`test_retry_exit_called_for_exit_failed`,
+  `test_bad_timestamp_forces_timeout`, `test_exception_marks_exit_failed_not_open`)
+  updated to mock broker positions so they exercise their intended paths
+  rather than hitting D3's new skip branch.
+- **`scripts/cleanup_overshoot_zombies_2026_04_21.py`** for operator to
+  run post-deploy to close the 13 accumulated zombies (dry-run default;
+  `--apply` required; idempotent; read-only Alpaca calls).
+
+Sprint artifacts:
+- Pass 1 evaluation: `docs/sprints/fix_paper_exit_qty_asymmetry_evaluation.md`
+- Pass 2 research: `docs/sprints/fix_paper_exit_qty_asymmetry_research.md`
+
+Pre-existing failures on main, NOT introduced or fixed by this sprint:
+2 Sprint F byte-identity tests; `ranker.py` > 400 lines (not in
+`config/known_violations.json`).
+
 ### Added (Cleanup Sprint 3 — 4 strategic-sprint spec drafts)
 
 Four draftable-tonight specs surfaced by the 2026-04-20 audit's

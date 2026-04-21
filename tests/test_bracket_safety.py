@@ -60,7 +60,13 @@ class TestExitFailedRecovery:
     """#100: exit_failed trades should be retried."""
 
     def test_retry_exit_called_for_exit_failed(self):
-        """Trades with status=exit_failed should trigger _retry_exit."""
+        """Trades with status=exit_failed should trigger _retry_exit.
+
+        D3 sprint: _retry_exit now accepts a broker_positions kwarg so it
+        can skip retries against closed positions; the existing behavior
+        (retry is called) is preserved for stuck trades whose position
+        still exists at the broker.
+        """
         fake_trade = {
             "trade_id": "t1", "ticker": "AAPL", "entry_price": 150.0,
             "actual_entry_price": 150.0, "stop_price": 140.0,
@@ -71,21 +77,34 @@ class TestExitFailedRecovery:
 
         with patch("src.shadow_trading.executor._retry_exit") as mock_retry, \
              patch("src.shadow_trading.executor.get_open_shadow_trades", return_value=[fake_trade]), \
-             patch("src.shadow_trading.executor._get_current_price_safe", return_value=155.0):
+             patch("src.shadow_trading.executor._get_current_price_safe", return_value=155.0), \
+             patch("src.shadow_trading.alpaca_adapter.get_all_positions",
+                   return_value=[{"symbol": "AAPL", "qty": "10"}]):
             from src.shadow_trading.executor import check_and_manage_open_trades
             check_and_manage_open_trades()
-            mock_retry.assert_called_once_with(fake_trade, DB_PATH)
+            # D3: _retry_exit now receives broker_positions kwarg with the cached
+            # positions dict built at the top of check_and_manage_open_trades.
+            mock_retry.assert_called_once_with(
+                fake_trade, DB_PATH, broker_positions={"AAPL": 10.0},
+            )
 
 
 class TestTimestampParseFailure:
     """#105: Unparseable timestamps must default to days_open=999."""
 
     def test_bad_timestamp_forces_timeout(self):
-        """Trade with bad entry time gets days_open=999 -> forces timeout."""
+        """Trade with bad entry time gets days_open=999 -> forces timeout.
+
+        D3 sprint: the test now mocks `get_all_positions` to include AAPL
+        so the D3 qty-sync at executor.py:~1547 lets the submit proceed.
+        Without this mock, D3 would short-circuit (broker_qty=0) and mark
+        the trade exit_pending instead of timing out via fallback path.
+        """
         fake_trade = {
             "trade_id": "t1", "ticker": "AAPL", "entry_price": 150.0,
             "actual_entry_price": 150.0, "stop_price": 140.0,
             "target_1": 160.0, "target_2": 170.0, "shares": 10,
+            "planned_shares": 10,
             "status": "open", "source": "paper", "order_type": "market",
             "actual_entry_time": "NOT-A-DATE", "created_at": "NOT-A-DATE",
             "alpaca_order_id": None,
@@ -94,6 +113,8 @@ class TestTimestampParseFailure:
 
         with patch("src.shadow_trading.executor.get_open_shadow_trades", return_value=[fake_trade]), \
              patch("src.shadow_trading.executor._get_current_price_safe", return_value=155.0), \
+             patch("src.shadow_trading.alpaca_adapter.get_all_positions",
+                   return_value=[{"symbol": "AAPL", "qty": "10"}]), \
              patch("src.shadow_trading.executor._submit_exit_order") as mock_exit, \
              patch("src.shadow_trading.executor.close_shadow_trade") as mock_close, \
              patch("src.shadow_trading.executor.update_shadow_trade"):
