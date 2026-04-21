@@ -10,11 +10,17 @@ Adds fundamental, insider, and macro data to all ticker feature dicts.
 Called AFTER compute_all_features and BEFORE ranking/packet generation.
 """
 
+from __future__ import annotations
+
 import logging
 import os
 import time
+from typing import TYPE_CHECKING
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from src.platform.strategy_spec import StrategySpec
 
 _missing_key_alerts_sent: set[str] = set()
 
@@ -50,7 +56,11 @@ def _alert_missing_key(key_name: str) -> None:
         pass
 
 
-def enrich_features(features: dict[str, dict], config: dict) -> dict[str, dict]:
+def enrich_features(
+    features: dict[str, dict],
+    config: dict,
+    strategy: "StrategySpec" | None = None,
+) -> dict[str, dict]:
     """Add fundamental, insider, and macro data to all ticker feature dicts.
 
     Fetches data with caching and rate limiting. Never crashes —
@@ -59,14 +69,20 @@ def enrich_features(features: dict[str, dict], config: dict) -> dict[str, dict]:
     Args:
         features: Output of compute_all_features() — dict of ticker -> feature dict
         config: Application config
+        strategy: Optional StrategySpec for Sprint F chain dispatch.
 
     Returns:
-        Same dict with fundamental_summary, insider_summary, macro_summary added.
+        Same dict with enrichment fields added in place.
     """
     enrichment_cfg = config.get("data_enrichment", {})
     if not enrichment_cfg.get("enabled", True):
         logger.info("[ENRICHMENT] Data enrichment disabled in config")
         return features
+
+    chain = _strategy_enrichment_chain(strategy)
+    macro_enabled = chain is None or "macro" in chain
+    insider_enabled = chain is None or "insider" in chain
+    news_enabled = chain is None or "news" in chain
 
     cache_hours = enrichment_cfg.get("cache_hours", 24)
     finnhub_key = os.environ.get("FINNHUB_API_KEY") or enrichment_cfg.get("finnhub_api_key")
@@ -80,12 +96,13 @@ def enrich_features(features: dict[str, dict], config: dict) -> dict[str, dict]:
 
     # 1. Fetch macro context ONCE (shared across all tickers)
     macro_summary = "No macro data available"
-    try:
-        from src.data_enrichment.macro import fetch_macro_context, format_macro_summary
-        macro_data = fetch_macro_context(fred_api_key=fred_key, cache_hours=cache_hours)
-        macro_summary = format_macro_summary(macro_data)
-    except Exception as e:
-        logger.warning("[ENRICHMENT] Failed to fetch macro context: %s", e)
+    if macro_enabled:
+        try:
+            from src.data_enrichment.macro import fetch_macro_context, format_macro_summary
+            macro_data = fetch_macro_context(fred_api_key=fred_key, cache_hours=cache_hours)
+            macro_summary = format_macro_summary(macro_data)
+        except Exception as e:
+            logger.warning("[ENRICHMENT] Failed to fetch macro context: %s", e)
 
     # 2. Enrich each ticker
     total = len(features)
@@ -95,7 +112,8 @@ def enrich_features(features: dict[str, dict], config: dict) -> dict[str, dict]:
 
     for ticker, feat in features.items():
         # Always add macro (same for all)
-        feat["macro_summary"] = macro_summary
+        if macro_enabled:
+            feat["macro_summary"] = macro_summary
 
         # Fundamental data
         try:
@@ -115,44 +133,46 @@ def enrich_features(features: dict[str, dict], config: dict) -> dict[str, dict]:
             logger.debug("[ENRICHMENT] Fundamentals failed for %s: %s", ticker, e)
 
         # Insider data
-        try:
-            from src.data_enrichment.insiders import (
-                fetch_insider_activity,
-                format_insider_summary,
-            )
-            _rate_limit("finnhub")
-            insider_data = fetch_insider_activity(
-                ticker,
-                lookback_days=lookback_days,
-                finnhub_api_key=finnhub_key,
-                cache_hours=cache_hours,
-            )
-            feat["insider_summary"] = format_insider_summary(insider_data)
-            if insider_data is None:
+        if insider_enabled:
+            try:
+                from src.data_enrichment.insiders import (
+                    fetch_insider_activity,
+                    format_insider_summary,
+                )
+                _rate_limit("finnhub")
+                insider_data = fetch_insider_activity(
+                    ticker,
+                    lookback_days=lookback_days,
+                    finnhub_api_key=finnhub_key,
+                    cache_hours=cache_hours,
+                )
+                feat["insider_summary"] = format_insider_summary(insider_data)
+                if insider_data is None:
+                    missing_insiders += 1
+            except Exception as e:
+                feat["insider_summary"] = "No insider data available"
                 missing_insiders += 1
-        except Exception as e:
-            feat["insider_summary"] = "No insider data available"
-            missing_insiders += 1
-            logger.debug("[ENRICHMENT] Insiders failed for %s: %s", ticker, e)
+                logger.debug("[ENRICHMENT] Insiders failed for %s: %s", ticker, e)
 
         # News data
-        try:
-            from src.data_enrichment.news import (
-                fetch_recent_news,
-                format_news_summary,
-            )
-            _rate_limit("finnhub")
-            news_data = fetch_recent_news(
-                ticker,
-                finnhub_api_key=finnhub_key,
-                cache_hours=min(cache_hours, 6),
-            )
-            feat["news_summary"] = format_news_summary(news_data)
-            feat["news_sentiment"] = (news_data or {}).get("news_sentiment", "no_news")
-        except Exception as e:
-            feat["news_summary"] = "No recent news"
-            feat["news_sentiment"] = "no_news"
-            logger.debug("[ENRICHMENT] News failed for %s: %s", ticker, e)
+        if news_enabled:
+            try:
+                from src.data_enrichment.news import (
+                    fetch_recent_news,
+                    format_news_summary,
+                )
+                _rate_limit("finnhub")
+                news_data = fetch_recent_news(
+                    ticker,
+                    finnhub_api_key=finnhub_key,
+                    cache_hours=min(cache_hours, 6),
+                )
+                feat["news_summary"] = format_news_summary(news_data)
+                feat["news_sentiment"] = (news_data or {}).get("news_sentiment", "no_news")
+            except Exception as e:
+                feat["news_summary"] = "No recent news"
+                feat["news_sentiment"] = "no_news"
+                logger.debug("[ENRICHMENT] News failed for %s: %s", ticker, e)
 
         # Earnings signals (PEAD enrichment)
         try:
@@ -174,3 +194,16 @@ def enrich_features(features: dict[str, dict], config: dict) -> dict[str, dict]:
     )
 
     return features
+
+
+def _strategy_enrichment_chain(strategy: "StrategySpec" | None) -> set[str] | None:
+    if strategy is None:
+        return None
+    raw = getattr(strategy, "raw", {}) or {}
+    enrichment = raw.get("enrichment")
+    if not isinstance(enrichment, dict):
+        return None
+    chain = enrichment.get("chain")
+    if not isinstance(chain, list) or not chain:
+        return None
+    return {item for item in chain if isinstance(item, str) and item}
