@@ -23,6 +23,13 @@ def run_mr_scan(config: dict | None = None, dry_run: bool = False) -> dict:
 
     Returns a summary dict with scan results.
     """
+    # #392 (Sprint 2 L): Reset per-cycle BP counter on every scan entry.
+    # MR scan shares the module-level _scan_cycle_committed with the main
+    # universe scan; resetting here prevents committed from persisting
+    # across the interval between scans when only one path runs per cycle.
+    from src.shadow_trading.executor import reset_scan_cycle_committed
+    reset_scan_cycle_committed()
+
     config = config or load_config()
     mr_cfg = config.get("strategies", {}).get("mean_reversion", {})
 

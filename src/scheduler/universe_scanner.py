@@ -71,6 +71,14 @@ def run_universe_scan(ctx: ScanContext) -> ScanResult:
     from src.ranking.ranker import rank_universe, get_top_candidates
     from src.universe.sp100 import get_sp100_universe
 
+    # #392 (Sprint 2 L): Reset per-cycle BP counter. Must fire on every scan
+    # entry or the module-level counter persists across cycles, silently
+    # degrading effective_bp and mass-rejecting otherwise-fundable trades.
+    # scan_service.run_scan also resets; universe_scanner is the production
+    # watch path and must do the same.
+    from src.shadow_trading.executor import reset_scan_cycle_committed
+    reset_scan_cycle_committed()
+
     result = ScanResult()
 
     print("[SCAN] Running market scan...")
