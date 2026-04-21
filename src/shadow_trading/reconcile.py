@@ -410,7 +410,7 @@ def reconcile_paper_trades(
     alpaca_tickers = {p["symbol"]: p for p in alpaca_positions}
 
     # Get tracked paper trades (including broker field)
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         tracked = conn.execute(
             "SELECT trade_id, ticker, planned_shares, COALESCE(broker, 'alpaca') as broker "
@@ -625,7 +625,7 @@ def reconcile_paper_trades(
     #   - No:  close with estimated P&L based on exit_reason
     resolved_closed = []
     resolved_reopened = []
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         stuck = conn.execute(
             "SELECT trade_id, ticker, exit_reason, actual_entry_price, "
@@ -653,7 +653,7 @@ def reconcile_paper_trades(
                 except (TypeError, ValueError):
                     alpaca_qty = 0.0
                 if alpaca_qty <= 0:
-                    with sqlite3.connect(db_path) as conn:
+                    with connect_db(db_path) as conn:
                         conn.execute(
                             "UPDATE shadow_trades SET status = 'needs_manual_review', "
                             "exit_reason = 'exit_overshoot_detected', updated_at = ? "
@@ -664,7 +664,7 @@ def reconcile_paper_trades(
                         "halted for manual review", ticker, alpaca_qty,
                     )
                     continue
-                with sqlite3.connect(db_path) as conn:
+                with connect_db(db_path) as conn:
                     conn.execute(
                         "UPDATE shadow_trades SET status = 'open', exit_reason = NULL, "
                         "updated_at = ? WHERE trade_id = ?",
@@ -707,7 +707,7 @@ def reconcile_paper_trades(
 
     # Resolve submission_uncertain trades: entries where we don't
     # know if Alpaca received the order (network error during submission).
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         uncertain = conn.execute(
             "SELECT trade_id, ticker, entry_price, planned_shares "
@@ -723,7 +723,7 @@ def reconcile_paper_trades(
             trade_id = row["trade_id"]
             if ticker in alpaca_tickers:
                 # Alpaca has it — promote to open
-                with sqlite3.connect(db_path) as conn:
+                with connect_db(db_path) as conn:
                     conn.execute(
                         "UPDATE shadow_trades SET status = 'open', updated_at = ? "
                         "WHERE trade_id = ?", (now.isoformat(), trade_id),
@@ -731,7 +731,7 @@ def reconcile_paper_trades(
                 logger.info("[RECONCILE-PAPER] Promoted uncertain trade to open: %s", ticker)
             else:
                 # Alpaca doesn't have it — close as failed
-                with sqlite3.connect(db_path) as conn:
+                with connect_db(db_path) as conn:
                     conn.execute(
                         "UPDATE shadow_trades SET status = 'failed', updated_at = ? "
                         "WHERE trade_id = ?", (now.isoformat(), trade_id),
