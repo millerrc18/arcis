@@ -41,8 +41,9 @@ Operator follow-up (not in sprint scope):
 - Add `PYTHONUTF8=1` to the watch-loop NSSM service environment.
 - `pip install -r requirements-training.txt` on the training host to
   downgrade `trl` to the 0.12–0.24 window.
-- Decide on the interleaved `docs(#564): Sprint F Pass 2 research` commit
-  (`82d7983`) that appeared on this branch from a parallel agent session.
+- Investigate what caused remote `main` to be fast-forwarded to this
+  sprint's tip without a PR (see `audit/2026-04-21` branch for the
+  automated audit commit preserved from the incident).
 
 ---
 
