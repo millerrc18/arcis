@@ -44,7 +44,10 @@ WHY these specific features:
        come from features/regime.py and are merged into every ticker's dict.
 """
 
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING
 
 import pandas as pd
 
@@ -52,6 +55,9 @@ from src.config import DB_PATH
 from src.features.indicators import _slope_direction
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from src.platform.strategy_spec import StrategySpec
 
 
 def _classify_trend(price: float, sma50: float, sma200: float,
@@ -202,7 +208,8 @@ def compute_features(ticker: str, ohlcv: pd.DataFrame, spy: pd.DataFrame) -> dic
 
 
 def compute_all_features(ohlcv_data: dict[str, pd.DataFrame],
-                          spy: pd.DataFrame) -> dict[str, dict]:
+                          spy: pd.DataFrame,
+                          strategy: "StrategySpec" | None = None) -> dict[str, dict]:
     """Compute features for all tickers in the OHLCV data dict.
 
     WHY 200-row minimum: SMA200 requires 200 data points. Stocks with less
@@ -218,6 +225,9 @@ def compute_all_features(ohlcv_data: dict[str, pd.DataFrame],
     from src.features.earnings import get_next_earnings_date, check_earnings_overlap
     from src.features.regime import compute_market_regime
 
+    chain = _strategy_enrichment_chain(strategy)
+    sector_enabled = chain is None or "sector" in chain
+
     # Compute market regime ONCE for all tickers
     try:
         regime = compute_market_regime(spy, ohlcv_data)
@@ -232,7 +242,7 @@ def compute_all_features(ohlcv_data: dict[str, pd.DataFrame],
     event_features = _load_event_proximity()
 
     # Load sector profiles ONCE
-    sector_profiles = _load_sector_profiles()
+    sector_profiles = _load_sector_profiles() if sector_enabled else {}
 
     results = {}
     for ticker, df in ohlcv_data.items():
@@ -261,7 +271,8 @@ def compute_all_features(ohlcv_data: dict[str, pd.DataFrame],
             feat.update(event_features)
 
             # Sector conditioning (9C)
-            _add_sector_features(feat, ticker, sector_profiles)
+            if sector_enabled:
+                _add_sector_features(feat, ticker, sector_profiles)
 
             # Setup classification (Workstream 5) -- categorizes each stock
             # into one of 6 setup types for the LLM prompt and signal zoo.
@@ -286,6 +297,19 @@ def compute_all_features(ohlcv_data: dict[str, pd.DataFrame],
         except Exception as e:
             logger.warning("Failed to compute features for %s: %s", ticker, e)
     return results
+
+
+def _strategy_enrichment_chain(strategy: "StrategySpec" | None) -> set[str] | None:
+    if strategy is None:
+        return None
+    raw = getattr(strategy, "raw", {}) or {}
+    enrichment = raw.get("enrichment")
+    if not isinstance(enrichment, dict):
+        return None
+    chain = enrichment.get("chain")
+    if not isinstance(chain, list) or not chain:
+        return None
+    return {item for item in chain if isinstance(item, str) and item}
 
 
 def _load_options_metrics() -> dict[str, dict]:

@@ -7,11 +7,17 @@ Config keys: bootcamp, enabled, packet_worthy_threshold, qualification_threshold
 Tests: tests/test_ranking.py, tests/test_regime.py
 """
 
+from __future__ import annotations
+
 import logging
+from typing import TYPE_CHECKING, Any
 
 from src.config import load_config
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from src.platform.strategy_spec import StrategySpec
 
 
 REGIME_THRESHOLDS = {
@@ -162,6 +168,262 @@ def _as_float(value, default: float | None = None) -> float | None:
         return default
 
 
+def _strategy_ranking_config(strategy: "StrategySpec" | None) -> dict | None:
+    if strategy is None:
+        return None
+    raw = getattr(strategy, "raw", {}) or {}
+    ranking = raw.get("ranking")
+    if not isinstance(ranking, dict):
+        return None
+    if not any(key in ranking for key in ("bands", "adjustments", "derived_metrics")):
+        return None
+    return ranking
+
+
+def _resolve_metric_value(
+    name: str,
+    features: dict,
+    derived_specs: dict[str, dict],
+    derived_cache: dict[str, Any],
+    resolving: set[str],
+) -> Any:
+    if name in derived_cache:
+        return derived_cache[name]
+    if name not in derived_specs:
+        return features.get(name)
+
+    if name in resolving:
+        return None
+
+    resolving.add(name)
+    spec = derived_specs[name]
+    op = spec.get("operation")
+    inputs = spec.get("inputs")
+
+    if op == "subtract":
+        left = _resolve_metric_value(inputs[0], features, derived_specs, derived_cache, resolving)
+        right = _resolve_metric_value(inputs[1], features, derived_specs, derived_cache, resolving)
+        left_f = _as_float(left)
+        right_f = _as_float(right)
+        value = None if left_f is None or right_f is None else left_f - right_f
+    elif op == "weighted_sum":
+        total = 0.0
+        value = None
+        if isinstance(inputs, dict):
+            for metric, weight in inputs.items():
+                current = _resolve_metric_value(metric, features, derived_specs, derived_cache, resolving)
+                current_f = _as_float(current)
+                if current_f is None:
+                    value = None
+                    break
+                total += float(weight) * current_f
+            else:
+                value = total
+    else:
+        value = None
+
+    resolving.discard(name)
+    derived_cache[name] = value
+    return value
+
+
+def _compute_derived_metric_values(features: dict, ranking_cfg: dict) -> dict[str, Any]:
+    derived_specs = ranking_cfg.get("derived_metrics", {})
+    if not isinstance(derived_specs, dict) or not derived_specs:
+        return {}
+
+    derived_cache: dict[str, Any] = {}
+    for name in derived_specs:
+        _resolve_metric_value(name, features, derived_specs, derived_cache, set())
+    return derived_cache
+
+
+def _lookup_metric_value(features: dict, derived_values: dict[str, Any], metric: str) -> Any:
+    if metric in derived_values:
+        return derived_values[metric]
+    return features.get(metric)
+
+
+def _condition_matches(features: dict, derived_values: dict[str, Any], condition: dict) -> bool:
+    metric = condition.get("metric")
+    op = condition.get("operator")
+    threshold = condition.get("threshold")
+    value = _lookup_metric_value(features, derived_values, metric)
+
+    if op in ("==", "!="):
+        if isinstance(threshold, (int, float)) and not isinstance(threshold, bool):
+            value_cmp = _as_float(value)
+            if value_cmp is None:
+                matched = False
+            else:
+                matched = value_cmp == float(threshold)
+        else:
+            matched = value == threshold
+        return matched if op == "==" else not matched
+
+    value_f = _as_float(value)
+    if value_f is None:
+        return False
+
+    if op == ">":
+        return value_f > float(threshold)
+    if op == ">=":
+        return value_f >= float(threshold)
+    if op == "<":
+        return value_f < float(threshold)
+    if op == "<=":
+        return value_f <= float(threshold)
+    return False
+
+
+def _band_matches(features: dict, derived_values: dict[str, Any], band: dict) -> bool:
+    if "conditions" in band:
+        conditions = band.get("conditions", [])
+        return all(_condition_matches(features, derived_values, cond) for cond in conditions)
+
+    metric = band.get("metric")
+    value = _lookup_metric_value(features, derived_values, metric)
+    if "category" in band:
+        return value == band.get("category")
+
+    value_f = _as_float(value)
+    if value_f is None:
+        return False
+
+    lower, upper = band.get("range", [None, None])
+    if lower is None or upper is None:
+        return False
+    return float(lower) <= value_f <= float(upper)
+
+
+def _band_has_available_value(features: dict, derived_values: dict[str, Any], band: dict) -> bool:
+    if "conditions" in band:
+        for condition in band.get("conditions", []):
+            metric = condition.get("metric")
+            value = _lookup_metric_value(features, derived_values, metric)
+            threshold = condition.get("threshold")
+            if isinstance(threshold, (int, float)) and not isinstance(threshold, bool):
+                if _as_float(value) is None:
+                    return False
+            elif value is None:
+                return False
+        return True
+
+    metric = band.get("metric")
+    value = _lookup_metric_value(features, derived_values, metric)
+    if "category" in band:
+        return value is not None
+    return _as_float(value) is not None
+
+
+def _blend_metric_key(band: dict, idx: int) -> str:
+    metric = band.get("metric")
+    if isinstance(metric, str) and metric:
+        return f"metric:{metric}"
+    return f"compound:{idx}"
+
+
+def _evaluate_ranking_bands(features: dict, derived_values: dict[str, Any], bands: list[dict]) -> float:
+    score = 0.0
+    matched_metrics: set[str] = set()
+    blend_groups: dict[str, dict[str, dict[str, Any]]] = {}
+
+    for idx, band in enumerate(bands):
+        if not isinstance(band, dict):
+            continue
+
+        blend_group = band.get("blend_group")
+        if blend_group:
+            key = _blend_metric_key(band, idx)
+            weight = float(band.get("weight", 0.0))
+            group_metrics = blend_groups.setdefault(blend_group, {})
+            entry = group_metrics.setdefault(
+                key,
+                {
+                    "weight": weight,
+                    "available": False,
+                    "matched": False,
+                    "score": 0.0,
+                },
+            )
+            if _band_has_available_value(features, derived_values, band):
+                entry["available"] = True
+            if entry["matched"]:
+                continue
+            if _band_matches(features, derived_values, band):
+                entry["matched"] = True
+                entry["score"] = float(band.get("score", 0.0))
+            continue
+
+        metric = band.get("metric")
+        if metric and metric in matched_metrics:
+            continue
+        if _band_matches(features, derived_values, band):
+            score += float(band.get("score", 0.0))
+            if metric:
+                matched_metrics.add(metric)
+
+    for group_metrics in blend_groups.values():
+        declared_total = sum(entry["weight"] for entry in group_metrics.values())
+        active_total = sum(
+            entry["weight"] for entry in group_metrics.values() if entry["available"]
+        )
+        if active_total <= 0:
+            continue
+
+        contribution = sum(
+            entry["weight"] * entry["score"]
+            for entry in group_metrics.values()
+            if entry["available"]
+        )
+
+        # Preserve incumbent parity when a metric is unavailable by reweighting
+        # the remaining active metrics back to the group's declared total.
+        if active_total < declared_total:
+            contribution *= declared_total / active_total
+
+        score += contribution
+
+    return score
+
+
+def _evaluate_adjustments(features: dict, derived_values: dict[str, Any], adjustments: dict) -> float:
+    if not isinstance(adjustments, dict):
+        return 0.0
+
+    total = 0.0
+    for band in adjustments.get("bands", []):
+        if isinstance(band, dict) and _band_matches(features, derived_values, band):
+            total += float(band.get("score", 0.0))
+
+    clamp = adjustments.get("clamp")
+    if isinstance(clamp, list) and len(clamp) == 2:
+        lower = float(clamp[0])
+        upper = float(clamp[1])
+        total = max(lower, min(upper, total))
+    return total
+
+
+def _score_ticker_from_strategy(features: dict, ranking_cfg: dict) -> tuple[float, dict[str, Any]]:
+    derived_values = _compute_derived_metric_values(features, ranking_cfg)
+    band_score = _evaluate_ranking_bands(
+        features,
+        derived_values,
+        ranking_cfg.get("bands", []),
+    )
+    adjustment = _evaluate_adjustments(
+        features,
+        derived_values,
+        ranking_cfg.get("adjustments", {}),
+    )
+    total = max(0, min(100, band_score + adjustment))
+    return total, {
+        "bands": band_score,
+        "adjustment": adjustment,
+        "derived_metrics": derived_values,
+    }
+
+
 def _score_ticker(features: dict) -> float:
     """Score a single ticker on a 0-100 scale. Deterministic, no randomness."""
     score = 0.0
@@ -221,7 +483,8 @@ def _score_ticker(features: dict) -> float:
 
 
 def rank_universe(features: dict[str, dict],
-                  sector_etf_features: dict[str, dict] | None = None) -> list[dict]:
+                  sector_etf_features: dict[str, dict] | None = None,
+                  strategy: "StrategySpec" | None = None) -> list[dict]:
     """Rank all tickers and classify each as packet_worthy, watchlist, or not_interesting.
 
     Args:
@@ -248,6 +511,7 @@ def rank_universe(features: dict[str, dict],
     thresholds = _load_thresholds(regime_type=regime_type)
     packet_threshold = thresholds["packet_worthy"]
     watchlist_threshold = thresholds["watchlist"]
+    ranking_cfg = _strategy_ranking_config(strategy)
 
     # Pre-compute sector RS for each ticker (if sector ETF data available)
     if sector_etf_features:
@@ -261,7 +525,10 @@ def rank_universe(features: dict[str, dict],
     # First pass: score all tickers and store scores in features
     scored = {}
     for ticker, feat in features.items():
-        score = _score_ticker(feat)
+        if ranking_cfg is None:
+            score = _score_ticker(feat)
+        else:
+            score, _details = _score_ticker_from_strategy(feat, ranking_cfg)
         feat["_score"] = score
         scored[ticker] = score
 
