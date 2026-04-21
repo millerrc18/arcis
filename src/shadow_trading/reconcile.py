@@ -652,6 +652,10 @@ def reconcile_paper_trades(
                     alpaca_qty = float(alpaca_tickers[ticker].get("qty") or 0)
                 except (TypeError, ValueError):
                     alpaca_qty = 0.0
+                try:
+                    planned_shares = float(row["planned_shares"] or 0)
+                except (TypeError, ValueError):
+                    planned_shares = 0.0
                 if alpaca_qty <= 0:
                     with connect_db(db_path) as conn:
                         conn.execute(
@@ -662,6 +666,28 @@ def reconcile_paper_trades(
                     logger.error(
                         "[RECONCILE-PAPER] Exit overshoot on %s (alpaca_qty=%.0f) — "
                         "halted for manual review", ticker, alpaca_qty,
+                    )
+                    continue
+                # D2 fix (sprint fix/paper-exit-qty-asymmetry): the broker has
+                # a position but fewer shares than the trade's planned_shares.
+                # This happens when a prior exit partially filled (126/130) and
+                # Alpaca canceled the residual. Reverting to 'open' with the
+                # original planned_shares re-triggers the qty-mismatch retry
+                # loop (CVS `00330e8d` ran 17+ cycles on 2026-04-21 before
+                # manual quarantine). Surface as needs_manual_review with a
+                # distinct reason so cleanup tooling can tell these apart from
+                # overshoot zombies.
+                if 0 < alpaca_qty < planned_shares:
+                    with connect_db(db_path) as conn:
+                        conn.execute(
+                            "UPDATE shadow_trades SET status = 'needs_manual_review', "
+                            "exit_reason = 'qty_mismatch_partial_fill', updated_at = ? "
+                            "WHERE trade_id = ?", (now.isoformat(), trade_id),
+                        )
+                    logger.warning(
+                        "[RECONCILE-PAPER] Qty mismatch on %s (alpaca_qty=%.0f, "
+                        "planned=%.0f) — halted for manual review",
+                        ticker, alpaca_qty, planned_shares,
                     )
                     continue
                 with connect_db(db_path) as conn:
