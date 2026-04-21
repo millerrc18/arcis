@@ -2,6 +2,41 @@
 
 ## [Unreleased]
 
+### Added (Cleanup Sprint 3 — 4 strategic-sprint spec drafts)
+
+Four draftable-tonight specs surfaced by the 2026-04-20 audit's
+"Strategic" items 1–4, landed in `docs/sprints/future/`. Zero code
+changes; future-CC can Ralph-Loop each spec into its own sprint.
+
+- **`docs/sprints/future/eval_harness_spec.md`** — wire the existing
+  canary / A/B / quality-drift / leakage-detector infrastructure into
+  a nightly harness that gates model promotions (300-prompt canary,
+  6-dim rubric judge, composite gate, `eval_results` table). 2–3
+  sprints to deliver; dependencies none.
+- **`docs/sprints/future/second_strategy_evaluation_spec.md`** —
+  pivoted from the prompt's 4-candidate selection to "implement the
+  already-selected Strategy 2 (mean reversion) and Strategy 3
+  (evolved PEAD)" because existing decision docs
+  (`Strategy_2_Selection__Mean_Reversion_Wins.md`, ADR-002) already
+  made the selection. Track A: Strategy 2 implementation audit.
+  Track B: Strategy 3 ground-up build (4-way PEAD composite).
+- **`docs/sprints/future/training_curriculum_gate_spec.md`** —
+  10-criteria pre-training gate blocking training runs with
+  unbalanced outcome mix (40/25/5/15) or ratio drift from the 62/38
+  curated/generated target. Chains with the eval harness spec
+  (post-training gate) without circular dependency. 1–2 sprints.
+- **`docs/sprints/future/containerization_spec.md`** — move training
+  subsystem to WSL2 (alone first, Docker later) to eliminate cp1252
+  issues that cost three subsystems tonight. Watch loop stays
+  Windows-native per NSSM integration. 1–2 sprints.
+
+Pass-1 evaluation + Pass-2 research docs in
+`docs/sprints/cleanup_sprint_3_evaluation.md` and
+`cleanup_sprint_3_research.md` record the scope pivots for Spec 1
+(infra exists, not greenfield) and Spec 2 (decisions already made).
+
+---
+
 ### Added (Cleanup Sprint 2 — Track A DB reconciliation script)
 
 `scripts/reconcile_2026_04_20.py` — one-shot DB reconciliation for the
