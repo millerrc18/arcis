@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from src.config import DB_PATH
 from src.platform.promotion import get_strategies_by_status
 from src.shadow_trading.reconcile import reconcile_paper_trades
 
@@ -31,6 +32,8 @@ def reconcile_all_paper_trades(
     Returns dict keyed by desk with per-desk result payloads.
     Failure on one desk does not stop others.
     """
+    if db_path is None:
+        db_path = DB_PATH
     results: dict[str, Any] = {}
     try:
         results["swing"] = reconcile_paper_trades(

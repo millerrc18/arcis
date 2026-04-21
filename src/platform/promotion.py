@@ -480,11 +480,13 @@ def pause(strategy_id: str, db_path: str = DB_PATH) -> None:
 
 
 def get_strategies_by_status(
-    statuses: list[str], db_path: str = DB_PATH,
+    statuses: list[str], db_path: str | None = DB_PATH,
 ) -> list[str]:
     """Return strategy_ids currently in any of the given statuses."""
     if not statuses:
         return []
+    if db_path is None:
+        db_path = DB_PATH
     placeholders = ",".join("?" * len(statuses))
     conn = sqlite3.connect(db_path)
     try:
