@@ -231,6 +231,87 @@ def _check_paper_buying_power(entry_price: float, shares: int) -> bool:
         return False
 
 
+def _check_paper_buying_power_allocation(allocation_dollars: float) -> bool:
+    """Cheap BP precheck at packet-allocation granularity (Sprint 2 K).
+
+    Called from scan entry points BEFORE Ollama LLM inference to avoid
+    wasting ~17s of compute on tickers that can't be funded. Returns
+    True if the trade is fundable given current buying power and the
+    committed-this-cycle counter, False otherwise.
+
+    Does NOT increment ``_scan_cycle_committed``. The full
+    ``_check_paper_buying_power`` at the later ``open_shadow_trade``
+    call site remains the authoritative gate and the only increment
+    point, so submission-vs-not accounting stays consistent even if BP
+    changes between the pre-LLM precheck and order submission.
+
+    Fail-closed on any error: if we cannot verify BP, skip the LLM
+    (safer to miss a trade than to commit compute we can't fund).
+    """
+    global _scan_cycle_committed
+    try:
+        from src.shadow_trading.alpaca_adapter import get_account_info
+        acct = get_account_info()
+        buying_power = float(acct.get("buying_power", 0))
+        effective_bp = buying_power - _scan_cycle_committed
+        return allocation_dollars <= effective_bp
+    except Exception as exc:
+        logger.warning(
+            "[SHADOW] Pre-LLM BP check failed: %s -- skipping LLM (fail-closed)",
+            exc,
+        )
+        return False
+
+
+def _record_bp_rejection_pre_llm(packet, db_path: str | None = None) -> None:
+    """Record a BP-rejected shadow trade without LLM or order submission (Sprint 2 K).
+
+    Mirrors the rejection-recording path at ``open_shadow_trade`` line 598
+    so the dashboard and audit trail still show why a pre-LLM candidate
+    was skipped, without the Ollama round-trip. Produces a
+    ``status='rejected'`` / ``order_type='rejected_buying_power'`` row
+    with no recommendation_id (no LLM rec was logged).
+    """
+    from src.journal.store import insert_shadow_trade
+    from src.shadow_trading.models import ShadowTrade
+
+    entry_price = _parse_price(packet.entry_zone)
+    stop_price = _parse_price(packet.stop_invalidation)
+    target_1_raw = packet.targets.split("/")[0] if packet.targets else "0"
+    target_1 = _parse_price(target_1_raw)
+    planned_allocation = packet.position_sizing.allocation_dollars
+    planned_shares = (
+        max(1, int(planned_allocation / entry_price)) if entry_price > 0 else 1
+    )
+
+    et = ZoneInfo("America/New_York")
+    now = datetime.now(et)
+    trade = ShadowTrade(
+        recommendation_id=None,
+        ticker=packet.ticker,
+        direction="long",
+        status="rejected",
+        entry_price=entry_price,
+        stop_price=stop_price,
+        target_1=target_1,
+        target_2=0.0,
+        planned_shares=planned_shares,
+        planned_allocation=planned_allocation,
+        created_at=now.isoformat(),
+        updated_at=now.isoformat(),
+    )
+    trade_data = trade.to_dict()
+    trade_data["order_type"] = "rejected_buying_power"
+    trade_data["actual_entry_price"] = entry_price
+    trade_data["actual_entry_time"] = now.isoformat()
+    trade_data["max_favorable_excursion"] = 0.0
+    trade_data["max_adverse_excursion"] = 0.0
+    if db_path is not None:
+        insert_shadow_trade(trade_data, db_path)
+    else:
+        insert_shadow_trade(trade_data)
+
+
 def _verify_and_update(trade_data: dict) -> None:
     """Verify order was accepted by Alpaca; update trade_data if rejected.
 

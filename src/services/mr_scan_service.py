@@ -114,6 +114,21 @@ def run_mr_scan(config: dict | None = None, dry_run: bool = False) -> dict:
         from src.llm.packet_writer import enhance_packet_with_llm
 
         packet = build_packet_from_features(ticker, feat, config)
+
+        # Sprint 2 K: pre-LLM BP check. Skip Ollama for un-fundable packets.
+        from src.shadow_trading.executor import (
+            _check_paper_buying_power_allocation,
+            _record_bp_rejection_pre_llm,
+        )
+        _alloc = packet.position_sizing.allocation_dollars
+        if not _check_paper_buying_power_allocation(_alloc):
+            logger.info(
+                "[MR] BP pre-check rejected %s: $%.2f exceeds effective BP",
+                ticker, _alloc,
+            )
+            _record_bp_rejection_pre_llm(packet)
+            continue
+
         packet = enhance_packet_with_llm(packet, feat, config)
 
         # Log recommendation

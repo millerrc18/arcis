@@ -172,6 +172,22 @@ def run_universe_scan(ctx: ScanContext) -> ScanResult:
 
         packet = build_packet_from_features(ticker, feat, ctx.config)
 
+        # Sprint 2 K: pre-LLM BP check. Skip Ollama (~17s) for packets
+        # that can't be funded. If BP insufficient, record rejection
+        # directly and continue to next candidate.
+        from src.shadow_trading.executor import (
+            _check_paper_buying_power_allocation,
+            _record_bp_rejection_pre_llm,
+        )
+        _alloc = packet.position_sizing.allocation_dollars
+        if not _check_paper_buying_power_allocation(_alloc):
+            logger.info(
+                "[SCAN] BP pre-check rejected %s: $%.2f exceeds effective BP",
+                ticker, _alloc,
+            )
+            _record_bp_rejection_pre_llm(packet, ctx.db_path)
+            continue
+
         # Attribution Phase 1: BEFORE LLM
         #
         # DB-FINAL Task 2: _parse_price can return 0 or None on unusual

@@ -166,6 +166,21 @@ def run_scan(config: dict, dry_run: bool = False, send_email_flag: bool = False,
             logger.debug("[ATTRIBUTION] Phase 1 failed for %s: %s", ticker, e)
 
         packet = build_packet_from_features(ticker, feat, config)
+
+        # Sprint 2 K: pre-LLM BP check. Skip Ollama for un-fundable packets.
+        from src.shadow_trading.executor import (
+            _check_paper_buying_power_allocation,
+            _record_bp_rejection_pre_llm,
+        )
+        _alloc = packet.position_sizing.allocation_dollars
+        if not _check_paper_buying_power_allocation(_alloc):
+            logger.info(
+                "[SCAN] BP pre-check rejected %s: $%.2f exceeds effective BP",
+                ticker, _alloc,
+            )
+            _record_bp_rejection_pre_llm(packet)
+            continue
+
         packet = enhance_packet_with_llm(packet, feat, config)
         enriched_prompt = _build_feature_prompt(feat, packet.ticker)
         rendered = render_packet(packet)
