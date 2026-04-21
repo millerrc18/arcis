@@ -23,6 +23,13 @@ def run_mr_scan(config: dict | None = None, dry_run: bool = False) -> dict:
 
     Returns a summary dict with scan results.
     """
+    # #392 (Sprint 2 L): Reset per-cycle BP counter on every scan entry.
+    # MR scan shares the module-level _scan_cycle_committed with the main
+    # universe scan; resetting here prevents committed from persisting
+    # across the interval between scans when only one path runs per cycle.
+    from src.shadow_trading.executor import reset_scan_cycle_committed
+    reset_scan_cycle_committed()
+
     config = config or load_config()
     mr_cfg = config.get("strategies", {}).get("mean_reversion", {})
 
@@ -107,6 +114,24 @@ def run_mr_scan(config: dict | None = None, dry_run: bool = False) -> dict:
         from src.llm.packet_writer import enhance_packet_with_llm
 
         packet = build_packet_from_features(ticker, feat, config)
+
+        # Sprint 2 K: pre-LLM BP check. Skip Ollama for un-fundable packets.
+        # Defensive on packets that lack position_sizing (test mocks).
+        _ps = getattr(packet, "position_sizing", None)
+        _alloc = getattr(_ps, "allocation_dollars", None) if _ps else None
+        if isinstance(_alloc, (int, float)) and _alloc > 0:
+            from src.shadow_trading.executor import (
+                _check_paper_buying_power_allocation,
+                _record_bp_rejection_pre_llm,
+            )
+            if not _check_paper_buying_power_allocation(_alloc):
+                logger.info(
+                    "[MR] BP pre-check rejected %s: $%.2f exceeds effective BP",
+                    ticker, _alloc,
+                )
+                _record_bp_rejection_pre_llm(packet)
+                continue
+
         packet = enhance_packet_with_llm(packet, feat, config)
 
         # Log recommendation

@@ -2,6 +2,110 @@
 
 ## [Unreleased]
 
+### Added (Cleanup Sprint 2 — Track A DB reconciliation script)
+
+`scripts/reconcile_2026_04_20.py` — one-shot DB reconciliation for the
+19 broken-state shadow_trades rows + 1 stale model_versions row
+surfaced by the 2026-04-20 live-state analysis. Author-only in this
+PR; the operator runs it after Alpaca fills confirm zero-short state.
+
+- 12 trades (9 CLOSE_AT_OPEN incl GS + 3 NEEDS_OPERATOR_JUDGMENT) →
+  `status='closed'`, `exit_reason='manual_reconcile'`.
+- 7 trades (4 stale exit_failed + 3 open-row phantoms) →
+  `status='exit_abandoned'`, `exit_reason='phantom_row_cleanup'`.
+- TGT #12 broker-tag corrected `ib → alpaca` (position was on Alpaca).
+- `model_versions.arcis:v1.0.0` → `status='active'` after three-way
+  reconciliation (Ollama + config agree it is operational).
+
+Safeguards: kill-switch pre-flight (exit 2), Alpaca pre-flight for
+zero shorts (exit 3), single atomic transaction, post-update count
+verification with rollback (exit 4), idempotent re-runs skip resolved
+rows. Structured audit log appended to
+`docs/audit/reconcile_2026_04_20_execution.log`. 5 regression tests
+(`tests/scripts/test_reconcile_2026_04_20.py`).
+
+### Changed (Cleanup Sprint 2 — `bootcamp.max_packets_per_scan` 20 → 8)
+
+`config/settings.local.yaml:103` (gitignored — operator-local value).
+Post-reconciliation BP (~$100-200K) comfortably fits 8 × ~$15.5K = $124K.
+20-cap produced 11 BP-rejections 2026-04-20 because 20 × $15.5K =
+$310K exceeded the $6,982 BP. Matches `settings.example.yaml:455`
+default. **Operator must manually verify their local
+`config/settings.local.yaml` contains `max_packets_per_scan: 8`** —
+gitignored file cannot be committed.
+
+### Fixed (Cleanup Sprint 2 — 7 medium-risk code fixes: L, K, C2-partial, H4, H5, H7, L5)
+
+Seven independent code fixes from the 2026-04-20 post-market audit.
+Kill-switch engaged throughout; no order submissions, no live-state
+mutations. See `docs/sprints/cleanup_sprint_2_evaluation.md` (Pass-1)
+and `cleanup_sprint_2_research.md` (Pass-2) for per-item rationale.
+
+- **L — `_scan_cycle_committed` reset on every scan entry.**
+  The module-level BP-committed counter persisted across scan cycles
+  because `reset_scan_cycle_committed()` was called only from
+  `src/services/scan_service.py:37`. The production watch path
+  (`src/scheduler/universe_scanner.py`) and the MR path
+  (`src/services/mr_scan_service.py`) skipped the reset, producing
+  `committed $37,942` persistence across 11 scans today. Fix: add
+  `reset_scan_cycle_committed()` at the top of both scan entries.
+  4 regression tests including a static guard that fails CI if any
+  scan-entry module loses the reset call.
+- **K — pre-LLM BP check in scan entry paths.**
+  New helpers `_check_paper_buying_power_allocation(allocation)` and
+  `_record_bp_rejection_pre_llm(packet)` in executor.py. Wired at
+  `universe_scanner.py:202`, `scan_service.py:169`, and
+  `mr_scan_service.py:117` — before `enhance_packet_with_llm`. Saves
+  ~17s of Ollama compute per un-fundable ticker (11 AVGO retries
+  today = ~3 min wasted). Fail-closed on account-fetch errors. Does
+  not increment `_scan_cycle_committed` (authoritative gate stays at
+  `executor.py:598`). 7 regression tests.
+- **C2-partial — cancel dangling orders before orphan backfill.**
+  `reconcile.py:498` orphan-backfill loop now calls
+  `cancel_orders_for_ticker` before `insert_shadow_trade`, matching
+  the existing stale-close path at `:546` (fix #356). Prevents
+  stale bracket legs from firing a duplicate sell after backfill
+  (the exit-overshoot pattern behind today's 12 shorts). 2
+  regression tests.
+- **H4 — governor-disabled critical alert.**
+  `risk/governor.py` — when `enabled=False`, `check_trade` now fires
+  one `logger.critical` + one Telegram alert per process lifetime
+  (module-level sentinel prevents per-check spam). Alert message
+  names the config key to edit (`risk_governor.enabled`). Prevents a
+  silent governance bypass from a config flip. 5 regression tests.
+- **H5 — traffic-light credit classifier `int+str` TypeError.**
+  `macro_snapshots.value` is stored as SQLite TEXT (SQLite type
+  affinity allows str INSERTs into REAL columns). `sum(values)` of
+  str raised `TypeError` (26 warnings today, silently disabling the
+  credit-spread regime input). Fix: parse each value via `float()`
+  with try/except skip; require 20 parseable values post-filter.
+  5 regression tests.
+- **H7 — bare `sqlite3.connect()` → `connect_db()` in reconcile.py.**
+  7 call sites swapped. Promotes `busy_timeout` from the 5-second
+  default to the canonical 30 seconds and adds `row_factory=Row`.
+  Matches CLAUDE.md rule for all SQLite connections. connect_db does
+  **not** apply `PRAGMA foreign_keys` or WAL (Pass-2 research
+  correction) — FK enforcement remains a separate follow-up. 4
+  regression tests including an integration test that a second
+  writer waits rather than failing immediately.
+- **L5 — EOD report format-string `Unknown format code 'f'` crash.**
+  `reports.py:399-407` now casts `pnl_dollars` and `pnl_pct` to
+  `float()` before passing into `notify_eod_report`'s `{:+.2f}`
+  f-strings. Fixes the 4 EOD failures observed on 04-14/04-15/04-16/04-17.
+  3 regression tests. Upstream writer storing TEXT remains a separate
+  data-layer bug.
+
+### Deferred to dedicated sprints
+
+- **H8** — `activity_log.id` needs `PRIMARY KEY AUTOINCREMENT` —
+  schema migration tracked in issue #580.
+- **AAPL 24-day stop=0/target=0** — backfill-default root cause
+  investigation tracked in issue #581.
+- **Model registry archaeology** — `arcis:v1.0.0` rollback audit
+  tracked in issue #582.
+
+---
+
 ### Fixed (Cleanup Sprint 1 — critical-path code fixes: C3, H6, H3.b)
 
 Three independent zero-live-state fixes surfaced by the 2026-04-20 log

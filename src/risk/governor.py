@@ -50,6 +50,39 @@ _ET = ZoneInfo("America/New_York")
 
 logger = logging.getLogger(__name__)
 
+# Sprint 2 H4: emit once-per-process alert when the risk governor is
+# disabled, via logger.critical + Telegram. Without this, a config
+# mistake (enabled=False) silently approves every trade — bypassing
+# kill-switch, daily-loss, VIX, sector, correlation, BP, max-positions,
+# event, and duplicate checks — with only an INFO-level log trail.
+_governor_disabled_alerted = False
+
+
+def _warn_governor_disabled_once() -> None:
+    """Emit a critical log + Telegram once per process when governor is disabled.
+
+    Idempotent: subsequent calls within the same process are no-ops.
+    Reset only on process restart (module re-import) or by directly
+    setting ``_governor_disabled_alerted = False`` (used in tests).
+    """
+    global _governor_disabled_alerted
+    if _governor_disabled_alerted:
+        return
+    _governor_disabled_alerted = True
+    logger.critical(
+        "[RISK] Governor DISABLED -- all trades auto-approved. "
+        "Review config/settings.local.yaml risk_governor.enabled.",
+    )
+    try:
+        from src.notifications.telegram import send_telegram, is_telegram_enabled
+        if is_telegram_enabled():
+            send_telegram(
+                "[FAIL] RISK GOVERNOR DISABLED -- all trades auto-approved. "
+                "Review config/settings.local.yaml risk_governor.enabled.",
+            )
+    except Exception as e:
+        logger.warning("[RISK] governor-disabled Telegram alert failed: %s", e)
+
 # Kill switch is a file-based flag rather than a DB column so it works
 # even when the database is corrupt or locked.  The sentinel file path
 # is configurable for tests (#47: kill switch was contaminating test
@@ -392,6 +425,7 @@ class RiskGovernor:
             return self._reject(checks, "Zero or negative allocation")
 
         if not self.enabled:
+            _warn_governor_disabled_once()
             return {
                 "approved": True,
                 "checks": [{"name": "governor_disabled", "passed": True, "detail": "Risk governor disabled"}],

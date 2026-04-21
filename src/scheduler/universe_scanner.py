@@ -71,6 +71,14 @@ def run_universe_scan(ctx: ScanContext) -> ScanResult:
     from src.ranking.ranker import rank_universe, get_top_candidates
     from src.universe.sp100 import get_sp100_universe
 
+    # #392 (Sprint 2 L): Reset per-cycle BP counter. Must fire on every scan
+    # entry or the module-level counter persists across cycles, silently
+    # degrading effective_bp and mass-rejecting otherwise-fundable trades.
+    # scan_service.run_scan also resets; universe_scanner is the production
+    # watch path and must do the same.
+    from src.shadow_trading.executor import reset_scan_cycle_committed
+    reset_scan_cycle_committed()
+
     result = ScanResult()
 
     print("[SCAN] Running market scan...")
@@ -163,6 +171,27 @@ def run_universe_scan(ctx: ScanContext) -> ScanResult:
         feat["_score"] = candidate["score"]
 
         packet = build_packet_from_features(ticker, feat, ctx.config)
+
+        # Sprint 2 K: pre-LLM BP check. Skip Ollama (~17s) for packets
+        # that can't be funded. If BP insufficient, record rejection
+        # directly and continue to next candidate.
+        # Defensive: some test/mock packets lack position_sizing; in that
+        # case skip the precheck and let the downstream
+        # _check_paper_buying_power at executor.py:598 catch it.
+        _ps = getattr(packet, "position_sizing", None)
+        _alloc = getattr(_ps, "allocation_dollars", None) if _ps else None
+        if isinstance(_alloc, (int, float)) and _alloc > 0:
+            from src.shadow_trading.executor import (
+                _check_paper_buying_power_allocation,
+                _record_bp_rejection_pre_llm,
+            )
+            if not _check_paper_buying_power_allocation(_alloc):
+                logger.info(
+                    "[SCAN] BP pre-check rejected %s: $%.2f exceeds effective BP",
+                    ticker, _alloc,
+                )
+                _record_bp_rejection_pre_llm(packet, ctx.db_path)
+                continue
 
         # Attribution Phase 1: BEFORE LLM
         #

@@ -395,16 +395,25 @@ def send_eod_report():
                 )
                 conn.commit()
 
+        # Sprint 2 L5: shadow_trades.pnl_dollars and pnl_pct are stored
+        # as SQLite TEXT (89 live rows typed text as of 2026-04-20),
+        # so SUM() / SELECT returns str. notify_eod_report uses
+        # f-strings like `${pnl:+.2f}` which raise TypeError on str.
+        # Cast at the call site.
         notify_eod_report(
-            paper_open=paper_open_row["cnt"], paper_open_pnl=paper_open_row["pnl"],
-            paper_closed_today=paper_closed_row["cnt"], paper_closed_pnl=paper_closed_row["pnl"],
-            live_open=live_open_row["cnt"], live_open_pnl=live_open_row["pnl"],
-            live_closed_today=live_closed_row["cnt"], live_closed_pnl=live_closed_row["pnl"],
+            paper_open=paper_open_row["cnt"],
+            paper_open_pnl=float(paper_open_row["pnl"] or 0),
+            paper_closed_today=paper_closed_row["cnt"],
+            paper_closed_pnl=float(paper_closed_row["pnl"] or 0),
+            live_open=live_open_row["cnt"],
+            live_open_pnl=float(live_open_row["pnl"] or 0),
+            live_closed_today=live_closed_row["cnt"],
+            live_closed_pnl=float(live_closed_row["pnl"] or 0),
             win_rate=win_rate, wins=wins, losses=losses,
             best_ticker=best["ticker"] if best else "N/A",
-            best_pct=best["pnl_pct"] if best else 0.0,
+            best_pct=float(best["pnl_pct"]) if best and best["pnl_pct"] is not None else 0.0,
             worst_ticker=worst["ticker"] if worst else "N/A",
-            worst_pct=worst["pnl_pct"] if worst else 0.0,
+            worst_pct=float(worst["pnl_pct"]) if worst and worst["pnl_pct"] is not None else 0.0,
             regime=regime, vix=vix, vix_change=vix - vix_prev,
             risk_rejected=risk_rejected, risk_qualified=risk_worthy,
         )
