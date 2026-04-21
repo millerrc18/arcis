@@ -982,6 +982,51 @@ def open_shadow_trade(
 _MAX_EXIT_RETRIES = 3
 
 
+def _sync_exit_qty(
+    ticker: str,
+    requested_shares: int,
+    broker_positions: dict[str, float] | None,
+) -> tuple[int, str | None]:
+    """Sync the requested exit quantity against the broker's current position.
+
+    D3 fix (sprint fix/paper-exit-qty-asymmetry): before submitting a paper
+    exit, verify the broker still has the position and at least the
+    requested quantity. Prevents two failure modes:
+
+      1. Phantom exit (C 2026-04-21 09:43): DB row says status='open' with
+         planned_shares=65, but Alpaca's bracket target leg already filled
+         and closed the position. Submitting a sell against qty=0 → Alpaca
+         accepts as sell_to_open → opens a short.
+      2. Qty mismatch (CVS 2026-04-21 09:48): DB says planned_shares=130,
+         Alpaca has 4 after a partial-fill exit. Submitting 130 → Alpaca
+         rejects "insufficient qty" → reconcile reverts to open → loop.
+
+    Args:
+        ticker: The symbol to exit.
+        requested_shares: What the caller wants to sell (DB planned_shares).
+        broker_positions: Cached dict of symbol → current qty at the broker,
+            built once per exit-check cycle at check_and_manage_open_trades.
+            None means cache unavailable — fall back to requested_shares for
+            backward compatibility.
+
+    Returns:
+        (actual_qty_to_submit, skip_reason).
+        - If broker_positions is None: (requested_shares, None) — legacy.
+        - If broker_qty <= 0: (0, "position_already_closed") — caller must skip.
+        - If 0 < broker_qty < requested: (broker_qty, None) — clip to broker.
+        - If broker_qty >= requested: (requested_shares, None) — unchanged.
+    """
+    if broker_positions is None:
+        return requested_shares, None
+    try:
+        broker_qty = float(broker_positions.get(ticker, 0))
+    except (TypeError, ValueError):
+        broker_qty = 0.0
+    if broker_qty <= 0:
+        return 0, "position_already_closed"
+    return min(requested_shares, int(broker_qty)), None
+
+
 def _close_from_broker_fill(trade: dict, filled_order: dict, db_path: str) -> None:
     """Close a shadow trade using a broker-reported fill rather than submitting
     a new exit order.
@@ -1009,7 +1054,11 @@ def _close_from_broker_fill(trade: dict, filled_order: dict, db_path: str) -> No
     )
 
 
-def _retry_exit(trade: dict, db_path: str = DB_PATH) -> None:
+def _retry_exit(
+    trade: dict,
+    db_path: str = DB_PATH,
+    broker_positions: dict[str, float] | None = None,
+) -> None:
     """Retry exit for trades stuck in exit_pending or exit_failed.
 
     Cancels any pending exit order before resubmitting. Gives up after
@@ -1023,6 +1072,11 @@ def _retry_exit(trade: dict, db_path: str = DB_PATH) -> None:
     the prior exit order already filled at the broker (two paths). If it
     did, close the trade from the broker fill data and return — resubmitting
     would create duplicate SELLs and inflate a short position.
+
+    D3 fix (sprint fix/paper-exit-qty-asymmetry): `broker_positions` is the
+    cache populated in check_and_manage_open_trades. When passed, the retry
+    uses `_sync_exit_qty` to resize or skip the exit against actual broker
+    state, preventing the CVS-style qty-mismatch retry loop.
     """
     from src.shadow_trading.alpaca_adapter import cancel_paper_order, get_order_status
 
@@ -1090,6 +1144,29 @@ def _retry_exit(trade: dict, db_path: str = DB_PATH) -> None:
                         {"exit_retry_count": retry_count + 1}, db_path)
 
     shares = int(float(trade.get("shares") or trade.get("planned_shares") or 0))
+
+    # D3 sync: don't retry against stale qty. If broker no longer holds the
+    # position (qty <= 0), skip the submit and let reconcile close the trade.
+    actual_qty, skip_reason = _sync_exit_qty(ticker, shares, broker_positions)
+    if skip_reason:
+        logger.warning(
+            "[RETRY] %s position already closed at broker (qty=0) — "
+            "marking exit_pending:%s for reconcile to finalize",
+            ticker, skip_reason,
+        )
+        update_shadow_trade(
+            trade["trade_id"],
+            {"status": "exit_pending", "exit_reason": skip_reason},
+            db_path,
+        )
+        return
+    if actual_qty != shares:
+        logger.warning(
+            "[RETRY] %s qty sync: planned=%d, broker=%d, submitting %d",
+            ticker, shares, int(broker_positions.get(ticker, 0)) if broker_positions else shares, actual_qty,
+        )
+        shares = actual_qty
+
     try:
         exit_result = _submit_exit_order(trade, shares)
         # Fix #360: Store exit order ID immediately for audit trail
@@ -1160,8 +1237,14 @@ def check_and_manage_open_trades(
     _price_total = 0
     _price_failures = 0
 
-    # Pre-fetch broker positions for existence checking (single API call)
-    # #320: use live broker positions when source_filter="live", paper otherwise
+    # Pre-fetch broker positions for existence checking (single API call).
+    # #320: use live broker positions when source_filter="live", paper otherwise.
+    #
+    # D3 fix (sprint fix/paper-exit-qty-asymmetry): also capture qty per ticker
+    # into `_alpaca_positions` so `_sync_exit_qty` can resize or skip exits
+    # when the broker's actual qty diverges from DB planned_shares. `_alpaca_tickers`
+    # is preserved as a set-view for the existing existence-check at line ~1398.
+    _alpaca_positions: dict[str, float] = {}
     _alpaca_tickers: set[str] = set()
     try:
         if source_filter == "live":
@@ -1169,17 +1252,21 @@ def check_and_manage_open_trades(
             live_broker = get_live_broker(load_config())
             if live_broker:
                 _live_positions = live_broker.get_all_positions()
-                _alpaca_tickers = {p.ticker for p in _live_positions}
+                _alpaca_positions = {p.ticker: float(p.quantity) for p in _live_positions}
         else:
             from src.shadow_trading.alpaca_adapter import get_all_positions
-            _alpaca_tickers = {p["symbol"] for p in get_all_positions()}
+            _alpaca_positions = {
+                p["symbol"]: float(p.get("qty") or 0)
+                for p in get_all_positions()
+            }
+        _alpaca_tickers = set(_alpaca_positions.keys())
     except Exception as e:
         logger.debug("[EXECUTOR] Could not fetch positions for existence check: %s", e)
 
     for trade in open_trades:
         # Retry exit for failed exits instead of skipping
         if trade.get("status") in ("exit_pending", "exit_failed"):
-            _retry_exit(trade, db_path)
+            _retry_exit(trade, db_path, broker_positions=_alpaca_positions)
             continue
 
         ticker = trade["ticker"]
@@ -1447,6 +1534,39 @@ def check_and_manage_open_trades(
             exit_slippage_bps = 0.0
 
             if not bracket_exit:
+                # D3 sync: verify broker has a position with sufficient qty
+                # before submitting the sell. Prevents phantom exits (qty=0)
+                # and qty-mismatch retries (planned > broker).
+                _exit_qty, _skip_reason = _sync_exit_qty(
+                    ticker, shares, _alpaca_positions,
+                )
+                if _skip_reason:
+                    logger.warning(
+                        "[EXIT] %s position already closed at broker "
+                        "(qty=0) — marking exit_pending:%s for reconcile",
+                        ticker, _skip_reason,
+                    )
+                    update_shadow_trade(
+                        trade["trade_id"],
+                        {"status": "exit_pending", "exit_reason": _skip_reason},
+                        db_path,
+                    )
+                    actions.append({
+                        "type": "exit_skipped_no_position",
+                        "ticker": ticker,
+                        "trade_id": trade["trade_id"],
+                        "exit_reason_trigger": exit_reason,
+                    })
+                    continue
+                if _exit_qty != shares:
+                    logger.warning(
+                        "[EXIT] %s qty sync: planned=%d, broker=%d, submitting %d",
+                        ticker, shares,
+                        int(_alpaca_positions.get(ticker, 0)) if _alpaca_positions else shares,
+                        _exit_qty,
+                    )
+                    shares = _exit_qty
+
                 # Cancel any stale pending order before initial exit attempt (#310)
                 _pending_oid = trade.get("exit_order_id") or trade.get("alpaca_order_id")
                 if _pending_oid:
