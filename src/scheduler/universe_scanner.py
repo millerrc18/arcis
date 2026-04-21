@@ -175,18 +175,23 @@ def run_universe_scan(ctx: ScanContext) -> ScanResult:
         # Sprint 2 K: pre-LLM BP check. Skip Ollama (~17s) for packets
         # that can't be funded. If BP insufficient, record rejection
         # directly and continue to next candidate.
-        from src.shadow_trading.executor import (
-            _check_paper_buying_power_allocation,
-            _record_bp_rejection_pre_llm,
-        )
-        _alloc = packet.position_sizing.allocation_dollars
-        if not _check_paper_buying_power_allocation(_alloc):
-            logger.info(
-                "[SCAN] BP pre-check rejected %s: $%.2f exceeds effective BP",
-                ticker, _alloc,
+        # Defensive: some test/mock packets lack position_sizing; in that
+        # case skip the precheck and let the downstream
+        # _check_paper_buying_power at executor.py:598 catch it.
+        _ps = getattr(packet, "position_sizing", None)
+        _alloc = getattr(_ps, "allocation_dollars", None) if _ps else None
+        if isinstance(_alloc, (int, float)) and _alloc > 0:
+            from src.shadow_trading.executor import (
+                _check_paper_buying_power_allocation,
+                _record_bp_rejection_pre_llm,
             )
-            _record_bp_rejection_pre_llm(packet, ctx.db_path)
-            continue
+            if not _check_paper_buying_power_allocation(_alloc):
+                logger.info(
+                    "[SCAN] BP pre-check rejected %s: $%.2f exceeds effective BP",
+                    ticker, _alloc,
+                )
+                _record_bp_rejection_pre_llm(packet, ctx.db_path)
+                continue
 
         # Attribution Phase 1: BEFORE LLM
         #
