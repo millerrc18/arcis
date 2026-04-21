@@ -81,7 +81,7 @@ def _last_buy_to_close_fill(ticker: str, lookback_days: int = 14) -> dict | None
     try:
         req = GetOrdersRequest(
             status=QueryOrderStatus.CLOSED,
-            symbols=ticker,
+            symbols=[ticker],
             after=after,
             limit=50,
         )
