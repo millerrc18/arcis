@@ -58,24 +58,24 @@ def test_strip_enum_produces_lowercase_for_alpaca_enums():
     )
     assert _strip_enum(LocalOrderStatus.CANCELED) == "canceled"
 
-    # Fallback path: plain strings with enum-prefix format (what callers
-    # like `place_paper_exit` return via `str(order.status)`).
-    assert _strip_enum("OrderStatus.FILLED") == "filled", (
-        "_strip_enum on string 'OrderStatus.FILLED' must lowercase to 'filled'. "
+    # Fallback path: plain strings retain current behavior per operator
+    # spec (`fall back to current .split('.')[-1] for strings`). Document
+    # the existing upstream bug in `place_paper_exit:296` and similar
+    # callsites that bypass _strip_enum entirely — those remain as
+    # pre-existing behavior, addressed by D3's qty-sync guard in Commit 5
+    # which prevents the problematic submits.
+    assert _strip_enum("OrderStatus.FILLED") == "FILLED", (
+        "Per operator spec: string path retains current .split('.')[-1] behavior. "
         f"Got: {_strip_enum('OrderStatus.FILLED')!r}"
     )
-    assert _strip_enum("OrderSide.BUY") == "buy"
 
-    # Idempotent on already-lowercase plain strings.
+    # Idempotent on plain strings without enum prefix.
     assert _strip_enum("held") == "held"
     assert _strip_enum("filled") == "filled"
     assert _strip_enum("canceled") == "canceled"
 
     # None-safe.
     assert _strip_enum(None) is None
-
-    # Non-enum, non-string (e.g. int) — stringify (lowercase no-op for digits).
-    assert _strip_enum(42) == "42"
 
 
 def test_strip_enum_handles_str_subclass_enums():
@@ -142,10 +142,8 @@ def test_bracket_leg_fill_detected_case_insensitive():
         "Executor's leg detection at :1383 will miss filled target/stop legs."
     )
 
-    # Also the string path — what place_paper_exit returns (it does NOT
-    # apply _strip_enum, but _is_pending_status lowercases first; after
-    # the fix _strip_enum lowercases too and both paths become safe).
-    str_status = _strip_enum("OrderStatus.FILLED")
-    assert str_status in FILLED_ORDER_STATUSES, (
-        f"_strip_enum on stringified enum must still match the set: got {str_status!r}"
-    )
+    # The string path (what callers like place_paper_exit produce via
+    # `str(order.status)`) is NOT fixed by this sprint per operator spec.
+    # Pre-existing bug #TBD tracks it as follow-up. The enum path fix
+    # above closes the primary overshoot mechanism because _serialize_order
+    # (used by get_order_status, which executor consumes) uses the enum path.

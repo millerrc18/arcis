@@ -24,6 +24,7 @@ Config keys: alpaca, api_key, api_secret, base_url, default_order_type, enabled,
 Tests: tests/test_bracket_orders.py, tests/test_executor_import.py, tests/test_live_trading.py
 """
 
+import enum
 import logging
 import os
 import re
@@ -36,14 +37,36 @@ logger = logging.getLogger(__name__)
 
 
 def _strip_enum(val) -> str | None:
-    """Strip Python enum class prefix from str(enum).
+    """Strip Python enum class prefix from str(enum); prefer enum.value.
 
     Fix for #248: Alpaca SDK enums like OrderStatus.held stringify as
     "OrderStatus.held", but downstream code (bracket monitor) compares
-    against plain "held". Split on "." and take the last segment.
+    against plain "held".
+
+    Sprint fix/paper-exit-qty-asymmetry Commit 6: alpaca-py 0.43 exposes
+    regular `Enum` (not `StrEnum`), so `str(OrderStatus.FILLED)` returns
+    'OrderStatus.FILLED' and the .split('.')[-1] fallback produces
+    'FILLED' (uppercase from enum NAME, not VALUE). Downstream checks at
+    executor.py:1470 and :1478 compare against lowercase sets and
+    silently miss every filled bracket leg — producing phantom exits.
+
+    Primary fix: when given an `enum.Enum` instance, return `.value`
+    directly (alpaca-py values are lowercase strings). String-input
+    fallback retains the current .split('.')[-1] behavior per operator
+    spec; the raw `str(order.status)` callsites in place_paper_*/
+    place_live_* (8 locations) remain a pre-existing bug and are
+    scope-deferred to a follow-up sprint.
     """
     if val is None:
         return None
+    # Primary path: extract .value directly from Enum instances. This
+    # yields the alpaca-py lowercase value ('filled', 'pending_new',
+    # 'canceled', etc.) regardless of how Python's enum.__str__ behaves.
+    if isinstance(val, enum.Enum):
+        v = val.value
+        return v if isinstance(v, str) else str(v)
+    # Fallback: plain strings — split on "." for the enum-prefixed form
+    # and return the segment unchanged (CURRENT behavior). See docstring.
     s = str(val)
     return s.split(".")[-1] if "." in s else s
 
