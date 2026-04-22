@@ -2,6 +2,7 @@
 
 from unittest.mock import patch
 
+from src.platform.strategy_spec import StrategySpec
 from src.ranking.ranker import _score_ticker, _compute_sector_rs, rank_universe, get_top_candidates
 
 
@@ -65,6 +66,22 @@ def _make_watchlist_features() -> dict:
         "sma_50": 118.0,
         "sma_200": 110.0,
     }
+
+
+def _make_strategy(**overrides) -> StrategySpec:
+    base = {
+        "strategy_id": "ranker_test",
+        "display_name": "Ranker Test",
+        "universe": {"tickers": ["AAPL"]},
+        "entry": {"kind": "scheduled"},
+        "exit": {"kind": "python_plugin"},
+        "position_sizing": {"method": "fixed_pct_equity", "pct": 0.1},
+        "attribution": {"benchmark": "SPY_matched_window", "metrics": ["sharpe"]},
+        "raw": {},
+        "source": "test",
+    }
+    base.update(overrides)
+    return StrategySpec(**base)
 
 
 @patch("src.ranking.ranker.load_config", _mock_load_config)
@@ -132,6 +149,31 @@ def test_get_top_candidates_limits():
     top = get_top_candidates(ranked, max_packets=3, max_watchlist=5)
     assert len(top["packet_worthy"]) <= 3
     assert len(top["watchlist"]) <= 5
+
+
+@patch("src.ranking.ranker.load_config", _mock_load_config)
+def test_strategy_bootcamp_thresholds_override_config():
+    strategy = _make_strategy(
+        raw={"bootcamp": {"qualification_threshold": 50, "watchlist_threshold": 20}}
+    )
+    features = {"MID": _make_watchlist_features()}
+    ranked = rank_universe(features, strategy=strategy)
+    assert ranked[0]["qualification"] == "packet_worthy"
+
+
+@patch("src.ranking.ranker.load_config", _mock_load_config)
+@patch("src.features.regime.classify_regime", return_value="CRISIS")
+def test_strategy_regime_disable_blocks_candidates(mock_regime):
+    strategy = _make_strategy(
+        position_sizing={
+            "method": "regime_adaptive",
+            "regimes": {
+                "CRISIS": {"packet_worthy": False, "position_pct": 0.0},
+            },
+        }
+    )
+    ranked = rank_universe({"STRONG": _make_strong_features()}, strategy=strategy)
+    assert ranked[0]["qualification"] == "not_interesting"
 
 
 # ── Two-tier RS + enhanced ranker tests ─────────────────────────────────

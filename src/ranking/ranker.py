@@ -31,7 +31,62 @@ REGIME_THRESHOLDS = {
 }
 
 
-def _load_thresholds(regime_type: str | None = None) -> dict:
+def _is_unit_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and 0.0 <= value <= 1.0
+
+
+def _load_strategy_thresholds(
+    strategy: "StrategySpec" | None,
+    regime_type: str | None,
+    config: dict,
+) -> dict | None:
+    if strategy is None:
+        return None
+
+    raw = getattr(strategy, "raw", {}) or {}
+    bootcamp_cfg = raw.get("bootcamp")
+    sizing_cfg = getattr(strategy, "position_sizing", {}) or {}
+    regimes_block = sizing_cfg.get("regimes")
+    if not isinstance(bootcamp_cfg, dict) and not (
+        sizing_cfg.get("method") == "regime_adaptive" and isinstance(regimes_block, dict)
+    ):
+        return None
+
+    ranking_cfg = config.get("ranking", {})
+    base = {
+        "packet_worthy": ranking_cfg.get("packet_worthy_threshold", 70),
+        "watchlist": ranking_cfg.get("watchlist_threshold", 45),
+        "position_pct": 1.0,
+    }
+
+    if isinstance(bootcamp_cfg, dict):
+        if "qualification_threshold" in bootcamp_cfg:
+            base["packet_worthy"] = bootcamp_cfg["qualification_threshold"]
+        if "watchlist_threshold" in bootcamp_cfg:
+            base["watchlist"] = bootcamp_cfg["watchlist_threshold"]
+
+    if sizing_cfg.get("method") == "regime_adaptive" and regime_type and isinstance(regimes_block, dict):
+        entry = regimes_block.get(regime_type)
+        if isinstance(entry, dict):
+            if entry.get("packet_worthy") is False:
+                logger.info("[RANKER] Strategy disables packet generation in regime %s", regime_type)
+                base["packet_worthy"] = float("inf")
+                base["watchlist"] = float("inf")
+                base["position_pct"] = 0.0
+                base["regime_disabled"] = True
+                return base
+
+            position_pct = entry.get("position_pct")
+            if _is_unit_number(position_pct):
+                base["position_pct"] = float(position_pct)
+
+    return base
+
+
+def _load_thresholds(
+    regime_type: str | None = None,
+    strategy: "StrategySpec" | None = None,
+) -> dict:
     """Load scoring thresholds from config, with defaults.
 
     If bootcamp is enabled, uses bootcamp-specific thresholds.
@@ -39,6 +94,10 @@ def _load_thresholds(regime_type: str | None = None) -> dict:
     the packet_worthy threshold based on market conditions.
     """
     config = load_config()
+    strategy_thresholds = _load_strategy_thresholds(strategy, regime_type, config)
+    if strategy_thresholds is not None:
+        return strategy_thresholds
+
     bootcamp_cfg = config.get("bootcamp", {})
 
     if bootcamp_cfg.get("enabled", False):
@@ -508,7 +567,7 @@ def rank_universe(features: dict[str, dict],
         except Exception:
             pass
 
-    thresholds = _load_thresholds(regime_type=regime_type)
+    thresholds = _load_thresholds(regime_type=regime_type, strategy=strategy)
     packet_threshold = thresholds["packet_worthy"]
     watchlist_threshold = thresholds["watchlist"]
     ranking_cfg = _strategy_ranking_config(strategy)

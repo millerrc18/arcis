@@ -49,6 +49,15 @@ _CACHE_ENV_VAR = "ARCIS_SIM_CACHE_ROOT"
 _DEFAULT_CACHE_GLOB = "data/simulation_cache"
 
 
+def _is_usable_cache_root(path: Path) -> bool:
+    if not path.exists() or not path.is_dir():
+        return False
+    try:
+        return any(child.suffix == ".parquet" for child in path.iterdir())
+    except OSError:
+        return False
+
+
 def _normalize_scalar(value: Any) -> Any:
     if hasattr(value, "item") and not isinstance(value, (str, bytes, bytearray)):
         try:
@@ -138,7 +147,7 @@ def resolve_cache_root(explicit: str | Path | None = None) -> Path:
         if resolved in seen:
             continue
         seen.add(resolved)
-        if resolved.exists():
+        if _is_usable_cache_root(resolved):
             return resolved
 
     searched = ", ".join(str(path) for path in seen)
