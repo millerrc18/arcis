@@ -6,12 +6,117 @@ Owns tables: none
 Config keys: planned_risk_pct_max, risk, starting_capital
 Tests: tests/test_packet_builders.py
 """
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from src.models import PositionSizing, TradePacket
 from src.universe.company_names import get_company_name
 
+if TYPE_CHECKING:
+    from src.platform.strategy_spec import StrategySpec
 
-def build_packet_from_features(ticker: str, features: dict, config: dict) -> TradePacket:
+
+def _is_unit_number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and 0.0 <= value <= 1.0
+
+
+def _resolve_strategy_regime_key(features: dict) -> str | None:
+    for key in ("regime_key", "_regime_key", "regime_type"):
+        value = features.get(key)
+        if isinstance(value, str) and value:
+            return value
+
+    try:
+        from src.features.regime import classify_regime
+
+        regime_key = classify_regime(features)
+    except Exception:
+        return None
+    return regime_key if isinstance(regime_key, str) and regime_key else None
+
+
+def _resolve_strategy_position_multiplier(
+    features: dict,
+    strategy: "StrategySpec" | None,
+) -> float:
+    if strategy is None:
+        return 1.0
+
+    sizing = getattr(strategy, "position_sizing", {}) or {}
+    if sizing.get("method") != "regime_adaptive":
+        return 1.0
+
+    regimes = sizing.get("regimes")
+    if not isinstance(regimes, dict):
+        return 1.0
+
+    regime_key = _resolve_strategy_regime_key(features)
+    if not regime_key:
+        return 1.0
+
+    entry = regimes.get(regime_key)
+    if not isinstance(entry, dict):
+        return 1.0
+
+    position_pct = entry.get("position_pct")
+    if _is_unit_number(position_pct):
+        return float(position_pct)
+    return 1.0
+
+
+def _resolve_strategy_brackets(
+    price: float,
+    atr: float,
+    strategy: "StrategySpec" | None,
+) -> tuple[float, list[float], str] | None:
+    if strategy is None or price <= 0 or atr <= 0:
+        return None
+
+    exit_block = getattr(strategy, "exit", {}) or {}
+    if exit_block.get("kind") != "mechanical":
+        return None
+
+    stop_block = exit_block.get("stop")
+    targets_block = exit_block.get("targets")
+    if not isinstance(stop_block, dict) or not isinstance(targets_block, list) or not targets_block:
+        return None
+
+    stop_mult = stop_block.get("atr_multiple")
+    if not isinstance(stop_mult, (int, float)) or isinstance(stop_mult, bool) or stop_mult <= 0:
+        return None
+
+    target_prices: list[float] = []
+    for target in targets_block:
+        if not isinstance(target, dict):
+            continue
+        atr_multiple = target.get("atr_multiple")
+        if isinstance(atr_multiple, (int, float)) and not isinstance(atr_multiple, bool) and atr_multiple > 0:
+            target_prices.append(price + float(atr_multiple) * atr)
+    if not target_prices:
+        return None
+
+    stop_price = price - float(stop_mult) * atr
+    return stop_price, target_prices, f"{float(stop_mult):g}x ATR"
+
+
+def _resolve_expected_hold_period(strategy: "StrategySpec" | None) -> str:
+    if strategy is None:
+        return "2 to 10 trading days"
+
+    exit_block = getattr(strategy, "exit", {}) or {}
+    timeout_days = exit_block.get("timeout_days")
+    if isinstance(timeout_days, int) and timeout_days > 0:
+        return f"Up to {timeout_days} trading days"
+    return "2 to 10 trading days"
+
+
+def build_packet_from_features(
+    ticker: str,
+    features: dict,
+    config: dict,
+    strategy: "StrategySpec" | None = None,
+) -> TradePacket:
     """Build a real TradePacket from computed features and config."""
     price = features.get("current_price", 0.0)
     atr = features.get("atr_14", 0.0)
@@ -31,10 +136,19 @@ def build_packet_from_features(ticker: str, features: dict, config: dict) -> Tra
     capital = risk_cfg.get("starting_capital", 1000)
     from src.risk.governor import get_effective_risk_pct
     risk_pct, _tier = get_effective_risk_pct(config)
-    max_risk_dollars = capital * risk_pct
+    position_multiplier = _resolve_strategy_position_multiplier(features, strategy)
+    max_risk_dollars = capital * risk_pct * position_multiplier
     if conservative_sizing:
         max_risk_dollars *= 0.5  # Reduce position size by 50% for earnings risk
-    stop_distance = 2 * atr if atr > 0 else price * 0.03
+    bracket_override = _resolve_strategy_brackets(price, atr, strategy)
+    if bracket_override is None:
+        stop_distance = 2 * atr if atr > 0 else price * 0.03
+        stop_price = price - stop_distance
+        target_prices = [price + 1.5 * atr, price + 3.0 * atr]
+        stop_descriptor = "2x ATR"
+    else:
+        stop_price, target_prices, stop_descriptor = bracket_override
+        stop_distance = max(price - stop_price, 0.0)
     shares = max(1, int(max_risk_dollars / stop_distance)) if stop_distance > 0 else 1
     allocation = float(int(shares) * float(price))
     # Cap allocation at the governor's max_position_pct so the packet never
@@ -69,11 +183,9 @@ def build_packet_from_features(ticker: str, features: dict, config: dict) -> Tra
 
     # Entry, stop, targets
     entry_zone = f"${price:.2f} area"
-    stop_price = price - stop_distance
     stop_invalidation = f"${stop_price:.2f} close basis"
-    target_1 = price + 1.5 * atr
-    target_2 = price + 3.0 * atr
-    targets = f"${target_1:.2f} / ${target_2:.2f}"
+    targets = " / ".join(f"${target_price:.2f}" for target_price in target_prices)
+    expected_hold_period = _resolve_expected_hold_period(strategy)
 
     # Event risk text
     if event_risk_level == "imminent":
@@ -117,8 +229,9 @@ def build_packet_from_features(ticker: str, features: dict, config: dict) -> Tra
         f"Pullback quality: {pullback:.1f}% decline from 50-day high. "
         f"ATR(14): ${atr:.2f} ({features.get('atr_pct', 0):.1f}% of price). "
         f"Volume ratio: {features.get('volume_ratio_20d', 0):.2f}x 20-day average.\n"
-        f"Risk: Stop at ${stop_price:.2f} (2x ATR). "
-        f"Planned risk ${max_risk_dollars:.2f} ({risk_pct*100:.1f}% of ${capital} capital)."
+        f"Risk: Stop at ${stop_price:.2f} ({stop_descriptor}). "
+        f"Planned risk ${max_risk_dollars:.2f} "
+        f"({((max_risk_dollars / capital) * 100) if strategy is not None and capital > 0 else (risk_pct * 100):.1f}% of ${capital} capital)."
     )
 
     # Append earnings risk section to deeper analysis when relevant
@@ -138,7 +251,7 @@ def build_packet_from_features(ticker: str, features: dict, config: dict) -> Tra
         entry_zone=entry_zone,
         stop_invalidation=stop_invalidation,
         targets=targets,
-        expected_hold_period="2 to 10 trading days",
+        expected_hold_period=expected_hold_period,
         confidence=confidence,
         event_risk=event_risk,
         position_sizing=PositionSizing(

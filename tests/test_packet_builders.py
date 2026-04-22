@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
+from src.platform.strategy_spec import StrategySpec
 from src.packets.template import build_packet_from_features, render_packet, build_demo_packet
 from src.packets.watchlist import build_morning_watchlist
 from src.packets.eod_recap import build_eod_recap
@@ -59,6 +60,27 @@ def _make_candidate(ticker: str, score: float = 80.0, **feat_overrides) -> dict:
         "score": score,
         "features": _make_features(**feat_overrides),
     }
+
+
+def _make_strategy(**overrides) -> StrategySpec:
+    base = {
+        "strategy_id": "packet_test",
+        "display_name": "Packet Test",
+        "universe": {"tickers": ["AAPL"]},
+        "entry": {"kind": "scheduled"},
+        "exit": {
+            "kind": "mechanical",
+            "timeout_days": 21,
+            "stop": {"method": "pct", "value": 0.02},
+            "target": {"method": "pct", "value": 0.03},
+        },
+        "position_sizing": {"method": "fixed_pct_equity", "pct": 0.1},
+        "attribution": {"benchmark": "SPY_matched_window", "metrics": ["sharpe"]},
+        "raw": {},
+        "source": "test",
+    }
+    base.update(overrides)
+    return StrategySpec(**base)
 
 
 # ---------------------------------------------------------------------------
@@ -130,6 +152,51 @@ class TestBuildPacketFromFeatures:
         packet = build_packet_from_features("AAPL", _make_features(), _make_config())
         assert packet.position_sizing.allocation_dollars > 0
         assert packet.position_sizing.estimated_risk_dollars > 0
+
+    def test_strategy_targets_override_default_brackets(self, mock_name):
+        strategy = _make_strategy(
+            exit={
+                "kind": "mechanical",
+                "timeout_days": 7,
+                "stop": {"atr_multiple": 2.5},
+                "targets": [
+                    {"name": "t1", "atr_multiple": 1.0},
+                    {"name": "t2", "atr_multiple": 2.0},
+                ],
+            }
+        )
+        packet = build_packet_from_features(
+            "AAPL",
+            _make_features(current_price=150.0, atr_14=3.0),
+            _make_config(),
+            strategy=strategy,
+        )
+        assert packet.stop_invalidation == "$142.50 close basis"
+        assert packet.targets == "$153.00 / $156.00"
+        assert packet.expected_hold_period == "Up to 7 trading days"
+
+    def test_strategy_regime_adaptive_position_multiplier_reduces_allocation(self, mock_name):
+        strategy = _make_strategy(
+            position_sizing={
+                "method": "regime_adaptive",
+                "regimes": {
+                    "CRISIS": {"packet_worthy": True, "position_pct": 0.2},
+                },
+            }
+        )
+        baseline = build_packet_from_features(
+            "AAPL",
+            _make_features(current_price=150.0, atr_14=3.0),
+            _make_config(),
+        )
+        regime_packet = build_packet_from_features(
+            "AAPL",
+            _make_features(current_price=150.0, atr_14=3.0, regime_key="CRISIS"),
+            _make_config(),
+            strategy=strategy,
+        )
+        assert regime_packet.position_sizing.allocation_dollars < baseline.position_sizing.allocation_dollars
+        assert regime_packet.position_sizing.estimated_risk_dollars < baseline.position_sizing.estimated_risk_dollars
 
 
 # ---------------------------------------------------------------------------

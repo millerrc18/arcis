@@ -9,6 +9,8 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
+from src.platform.strategy_spec import StrategySpec
+
 
 # ===================================================================
 # Shared helpers
@@ -42,6 +44,28 @@ def _scan_config():
         "email": {},
         "llm": {"enabled": False},
     }
+
+
+def _scan_strategy(raw=None):
+    return StrategySpec(
+        strategy_id="incumbent_v1",
+        display_name="Incumbent",
+        universe={"tickers": ["AAPL"]},
+        entry={"kind": "scheduled"},
+        exit={
+            "kind": "mechanical",
+            "timeout_days": 7,
+            "stop": {"atr_multiple": 2.0},
+            "targets": [
+                {"name": "target_1", "atr_multiple": 1.5},
+                {"name": "target_2", "atr_multiple": 3.0},
+            ],
+        },
+        position_sizing={"method": "fixed_pct_equity", "pct": 0.1},
+        attribution={"benchmark": "SPY_matched_window", "metrics": ["sharpe"]},
+        raw=raw or {},
+        source="test",
+    )
 
 
 # ===================================================================
@@ -110,6 +134,111 @@ def test_scan_with_packet_worthy_dry_run(mock_uni, mock_ohlcv, mock_spy, mock_fe
     assert result["packets_generated"] == 1
     assert result["packet_worthy"][0]["ticker"] == "AAPL"
     assert result["packets_emailed"] == 0  # dry_run so no email
+
+
+@patch("src.universe.company_names.get_company_name", return_value="Apple Inc.")
+@patch("src.training.versioning.get_active_model_name", return_value="model_v3")
+@patch("src.packets.template.render_packet", return_value="RENDERED")
+@patch("src.llm.packet_writer._build_feature_prompt", return_value="prompt text")
+@patch("src.llm.packet_writer.enhance_packet_with_llm", return_value=_make_packet())
+@patch("src.packets.template.build_packet_from_features", return_value=_make_packet())
+@patch("src.attribution.logger.log_attribution_after_llm")
+@patch("src.attribution.logger.log_attribution_before_llm", return_value="attr-1")
+@patch("src.ranking.ranker.get_top_candidates", return_value={
+    "packet_worthy": [{"ticker": "AAPL", "score": 90, "qualification": "packet_worthy",
+                        "features": {"trend_state": "uptrend"}, "earnings_risk": False}],
+    "watchlist": [],
+})
+@patch("src.ranking.ranker.rank_universe", return_value=[])
+@patch("src.features.enrichment.attach_post_scan_features")
+@patch("src.data_enrichment.enricher.enrich_features", return_value={})
+@patch("src.features.engine.compute_all_features", return_value={})
+@patch("src.data_ingestion.market_data.fetch_spy_benchmark", return_value=_make_spy_df())
+@patch("src.data_ingestion.market_data.fetch_ohlcv", return_value={"AAPL": pd.DataFrame()})
+@patch("src.universe.sp100.get_sp100_universe", return_value=["AAPL"])
+def test_scan_strategy_wires_strategy_and_attribution_hooks(
+    mock_uni,
+    mock_ohlcv,
+    mock_spy,
+    mock_feat,
+    mock_enrich,
+    mock_post_scan,
+    mock_rank,
+    mock_top,
+    mock_before,
+    mock_after,
+    mock_build,
+    mock_enhance,
+    mock_prompt,
+    mock_render,
+    mock_model,
+    mock_name,
+):
+    from src.services.scan_service import run_scan
+
+    strategy = _scan_strategy(raw={"hooks": {"attribution": ["log_before_llm", "log_after_llm"]}})
+    result = run_scan(_scan_config(), dry_run=True, strategy=strategy)
+
+    assert result["packets_generated"] == 1
+    feat_args, feat_kwargs = mock_feat.call_args
+    assert feat_kwargs == {"strategy": strategy}
+    assert list(feat_args[0]) == ["AAPL"]
+    assert feat_args[1].equals(mock_spy.return_value)
+    mock_enrich.assert_called_once_with({}, _scan_config(), strategy=strategy)
+    mock_post_scan.assert_called_once()
+    assert mock_post_scan.call_args.kwargs.get("strategy") == strategy
+    mock_rank.assert_called_once_with({}, strategy=strategy)
+    mock_build.assert_called_once_with("AAPL", {"trend_state": "uptrend", "_score": 90, "signal_price": 0.0}, _scan_config(), strategy=strategy)
+    mock_before.assert_called_once()
+    mock_after.assert_called_once()
+
+
+@patch("src.universe.company_names.get_company_name", return_value="Apple Inc.")
+@patch("src.training.versioning.get_active_model_name", return_value="model_v3")
+@patch("src.packets.template.render_packet", return_value="RENDERED")
+@patch("src.llm.packet_writer._build_feature_prompt", return_value="prompt text")
+@patch("src.llm.packet_writer.enhance_packet_with_llm", return_value=_make_packet())
+@patch("src.packets.template.build_packet_from_features", return_value=_make_packet())
+@patch("src.attribution.logger.log_attribution_after_llm")
+@patch("src.attribution.logger.log_attribution_before_llm", return_value="attr-1")
+@patch("src.ranking.ranker.get_top_candidates", return_value={
+    "packet_worthy": [{"ticker": "AAPL", "score": 90, "qualification": "packet_worthy",
+                        "features": {"trend_state": "uptrend"}, "earnings_risk": False}],
+    "watchlist": [],
+})
+@patch("src.ranking.ranker.rank_universe", return_value=[])
+@patch("src.features.enrichment.attach_post_scan_features")
+@patch("src.data_enrichment.enricher.enrich_features", return_value={})
+@patch("src.features.engine.compute_all_features", return_value={})
+@patch("src.data_ingestion.market_data.fetch_spy_benchmark", return_value=_make_spy_df())
+@patch("src.data_ingestion.market_data.fetch_ohlcv", return_value={"AAPL": pd.DataFrame()})
+@patch("src.universe.sp100.get_sp100_universe", return_value=["AAPL"])
+def test_scan_strategy_without_attribution_hooks_skips_logging(
+    mock_uni,
+    mock_ohlcv,
+    mock_spy,
+    mock_feat,
+    mock_enrich,
+    mock_post_scan,
+    mock_rank,
+    mock_top,
+    mock_before,
+    mock_after,
+    mock_build,
+    mock_enhance,
+    mock_prompt,
+    mock_render,
+    mock_model,
+    mock_name,
+):
+    from src.services.scan_service import run_scan
+
+    strategy = _scan_strategy()
+    result = run_scan(_scan_config(), dry_run=True, strategy=strategy)
+
+    assert result["packets_generated"] == 1
+    mock_before.assert_not_called()
+    mock_after.assert_not_called()
 
 
 # ===================================================================
