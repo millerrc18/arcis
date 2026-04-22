@@ -1,7 +1,7 @@
 {
-  "run_count": 35,
+  "run_count": 36,
   "current_focus_index": 2,
-  "file_index": 116,
+  "file_index": 131,
   "file_list": [
     "requirements.txt",
     "frontend/package.json",
@@ -1654,7 +1654,70 @@
         }
       ],
       "notes": "Audited 15 files (routes/review-training, websocket, attribution/*, cli/*, commands/*, config/*, config_overrides). Most files are clean thin wrappers with stdlib + fastapi imports. The major finding is src/commands/executor.py where 8 of 13 cloud command handlers reference phantom modules/functions \u2014 the command queue added handlers that were never wired to the real codebase entry points. The CLI (cli/commands.py) correctly imports the real functions, confirming the executor handlers are stale/incorrect copies."
+    },
+    "run_36": {
+      "focus_area": "dependency_health",
+      "files_audited": [
+        "src/llm/__init__.py",
+        "src/llm/client.py",
+        "src/llm/grammar_client.py",
+        "src/llm/packet_writer.py",
+        "src/llm/postmortem_writer.py",
+        "src/llm/prompts.py",
+        "src/llm/validator.py",
+        "src/llm/watchlist_writer.py",
+        "src/log_config.py",
+        "src/logging/__init__.py",
+        "src/logging/activity.py",
+        "src/main.py",
+        "src/models.py",
+        "src/monitoring/__init__.py",
+        "src/monitoring/system_metrics.py"
+      ],
+      "medium": [
+        {
+          "file": "src/llm/grammar_client.py",
+          "lines": "31",
+          "description": "llama-cpp-python imported but not in requirements.txt. Grammar enforcement silently unavailable without it.",
+          "issue": 599
+        },
+        {
+          "file": "src/llm/grammar_client.py",
+          "lines": "105",
+          "description": "torch imported but not in requirements.txt. CUDA VRAM cleanup silently skipped without it.",
+          "issue": 600
+        },
+        {
+          "file": "src/llm/client.py",
+          "lines": "36-38",
+          "description": "Bare except Exception: pass suppresses all errors from get_active_model_name() with no logging.",
+          "issue": 601
+        }
+      ],
+      "low": [
+        {
+          "file": "src/llm/client.py",
+          "lines": "128",
+          "description": "Redundant import time inside _check_ollama_health_or_restart() \u2014 already imported at module level (line 13)."
+        },
+        {
+          "file": "src/llm/packet_writer.py",
+          "lines": "350",
+          "description": "Redundant import re inside _parse_llm_response() \u2014 already imported at module level (line 31)."
+        },
+        {
+          "file": "src/llm/packet_writer.py",
+          "lines": "629",
+          "description": "Bare except Exception: pass when writing LLM debug file \u2014 minor since debug-only path."
+        },
+        {
+          "file": "src/log_config.py",
+          "lines": "10",
+          "description": "import json retained only for backward-compat re-export (noqa F401). Tech debt."
+        }
+      ],
+      "notes": "Audited 15 files covering src/llm/*, src/log_config.py, src/logging/*, src/main.py, src/models.py, src/monitoring/*. The LLM subsystem has two undeclared optional dependencies (llama-cpp-python, torch) and one bare exception suppression in the config loader. Most other files have clean dependency hygiene \u2014 imports match requirements.txt, no deprecated API usage detected."
     }
   },
-  "last_run": "2026-04-21T19:05:02.327811+00:00"
+  "last_run": "2026-04-22T07:08:44.996668+00:00"
 }
