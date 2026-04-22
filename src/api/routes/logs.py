@@ -170,3 +170,39 @@ def recent_commands(limit: int = 20):
     except Exception as exc:
         logger.error("Recent commands error: %s", exc)
         return {"commands": [], "count": 0, "error": str(exc)}
+
+
+@router.post("/commands/expire-stale")
+def expire_stale_commands_endpoint():
+    """Trigger an on-demand sweep that marks aged pending_commands rows as 'expired'.
+
+    This uses the same Postgres-side sweep implemented in
+    `src.sync.render_sync.expire_stale_commands`. The route is intentionally
+    permissive (returns 0 when Postgres/psycopg2 is not available) so it can
+    be called safely from the dashboard in local/cloud deployments.
+    """
+    try:
+        # Pull configuration for Render Postgres connection (if configured)
+        from src.config import get_config
+        cfg = get_config() or {}
+        render_cfg = cfg.get("render") if isinstance(cfg, dict) else None
+        database_url = None
+        if render_cfg and isinstance(render_cfg, dict):
+            database_url = render_cfg.get("database_url")
+        # Fallback to DATABASE_URL env var if not in YAML
+        if not database_url:
+            import os
+
+            database_url = os.environ.get("DATABASE_URL")
+
+        if not database_url:
+            # Nothing to do in truly-local mode without a Render Postgres
+            return {"expired": 0, "note": "no render database configured"}
+
+        from src.sync.render_sync import expire_stale_commands
+
+        count = expire_stale_commands(database_url)
+        return {"expired": count}
+    except Exception as exc:
+        logger.error("/commands/expire-stale failed: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
