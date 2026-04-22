@@ -6,16 +6,40 @@ Owns tables: none
 Config keys: enabled, event_risk, shadow_trading
 Tests: tests/test_services.py
 """
+from __future__ import annotations
+
 import logging
 from datetime import datetime
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
+if TYPE_CHECKING:
+    from src.platform.strategy_spec import StrategySpec
 
-def run_scan(config: dict, dry_run: bool = False, send_email_flag: bool = False,
-             run_shadow: bool = True) -> dict:
+
+def _resolve_attribution_hooks(
+    strategy: "StrategySpec" | None,
+) -> tuple[bool, bool]:
+    if strategy is None:
+        return True, True
+
+    raw = getattr(strategy, "raw", {}) or {}
+    hooks = (raw.get("hooks") or {}).get("attribution", [])
+    if not isinstance(hooks, list):
+        return False, False
+    return "log_before_llm" in hooks, "log_after_llm" in hooks
+
+
+def run_scan(
+    config: dict,
+    dry_run: bool = False,
+    send_email_flag: bool = False,
+    run_shadow: bool = True,
+    strategy: "StrategySpec" | None = None,
+) -> dict:
     """Execute the full scan pipeline and return structured results.
 
     Returns a dict with keys: timestamp, tickers_scanned, tickers_succeeded, tickers_failed,
@@ -61,12 +85,18 @@ def run_scan(config: dict, dry_run: bool = False, send_email_flag: bool = False,
             "model_version": get_active_model_name(),
         }
 
-    features = compute_all_features(ohlcv, spy)
+    if strategy is None:
+        features = compute_all_features(ohlcv, spy)
+    else:
+        features = compute_all_features(ohlcv, spy, strategy=strategy)
 
     # Enrich features with fundamental, insider, and macro data
     try:
         from src.data_enrichment.enricher import enrich_features
-        features = enrich_features(features, config)
+        if strategy is None:
+            features = enrich_features(features, config)
+        else:
+            features = enrich_features(features, config, strategy=strategy)
     except Exception as e:
         logger.warning("[SCAN] Data enrichment failed: %s — continuing without enrichment", e)
 
@@ -80,9 +110,14 @@ def run_scan(config: dict, dry_run: bool = False, send_email_flag: bool = False,
             if "vix_proxy" in _f:
                 vix_value = _f["vix_proxy"]
                 break
-        attach_post_scan_features(
-            features, config=config, spy=spy, vix_value=vix_value,
-        )
+        if strategy is None:
+            attach_post_scan_features(
+                features, config=config, spy=spy, vix_value=vix_value,
+            )
+        else:
+            attach_post_scan_features(
+                features, config=config, strategy=strategy, spy=spy, vix_value=vix_value,
+            )
         # scan_service-specific behavior: Telegram alert for elevated market-
         # level event risk. attach_post_scan_features sets feat["market_event_risk"]
         # via attach_event_risk_scores — pull the shared market score from any feature.
@@ -125,8 +160,12 @@ def run_scan(config: dict, dry_run: bool = False, send_email_flag: bool = False,
     except Exception as e:
         logger.warning("[INTEGRITY] Data integrity check failed: %s", e)
 
-    ranked = rank_universe(features)
+    if strategy is None:
+        ranked = rank_universe(features)
+    else:
+        ranked = rank_universe(features, strategy=strategy)
     candidates = get_top_candidates(ranked)
+    log_before_llm, log_after_llm = _resolve_attribution_hooks(strategy)
 
     packet_worthy_raw = candidates["packet_worthy"]
     watchlist_raw = candidates["watchlist"]
@@ -149,23 +188,27 @@ def run_scan(config: dict, dry_run: bool = False, send_email_flag: bool = False,
 
         # Attribution Phase 1: log ranker-only snapshot before LLM
         attribution_id = None
-        try:
-            from src.attribution.logger import log_attribution_before_llm
-            entry_price = float(feat.get("current_price", 0))
-            atr = float(feat.get("atr_14", 0))
-            stop_price = entry_price - 2 * atr if atr > 0 else entry_price * 0.97
-            target_price = entry_price + 1.5 * atr if atr > 0 else entry_price * 1.02
-            attribution_id = log_attribution_before_llm(
-                ticker=ticker,
-                ranker_score=candidate["score"],
-                entry_price=entry_price,
-                stop_price=stop_price,
-                target_price=target_price,
-            )
-        except Exception as e:
-            logger.debug("[ATTRIBUTION] Phase 1 failed for %s: %s", ticker, e)
+        if log_before_llm:
+            try:
+                from src.attribution.logger import log_attribution_before_llm
+                entry_price = float(feat.get("current_price", 0))
+                atr = float(feat.get("atr_14", 0))
+                stop_price = entry_price - 2 * atr if atr > 0 else entry_price * 0.97
+                target_price = entry_price + 1.5 * atr if atr > 0 else entry_price * 1.02
+                attribution_id = log_attribution_before_llm(
+                    ticker=ticker,
+                    ranker_score=candidate["score"],
+                    entry_price=entry_price,
+                    stop_price=stop_price,
+                    target_price=target_price,
+                )
+            except Exception as e:
+                logger.debug("[ATTRIBUTION] Phase 1 failed for %s: %s", ticker, e)
 
-        packet = build_packet_from_features(ticker, feat, config)
+        if strategy is None:
+            packet = build_packet_from_features(ticker, feat, config)
+        else:
+            packet = build_packet_from_features(ticker, feat, config, strategy=strategy)
 
         # Sprint 2 K: pre-LLM BP check. Skip Ollama for un-fundable packets.
         # Defensive on packets that lack position_sizing (test mocks).
@@ -199,7 +242,7 @@ def run_scan(config: dict, dry_run: bool = False, send_email_flag: bool = False,
             )
 
         # Attribution Phase 2: log LLM decision after recommendation
-        if attribution_id:
+        if attribution_id and log_after_llm:
             try:
                 from src.attribution.logger import log_attribution_after_llm
                 llm_action = "buy" if rec_id else "skip"
