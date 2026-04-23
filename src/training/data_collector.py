@@ -170,12 +170,16 @@ def collect_training_examples_from_closed_trades(
         rows = conn.execute("""
             SELECT st.*, r.*
             FROM shadow_trades st
-            JOIN recommendations r ON st.recommendation_id = r.recommendation_id
+            LEFT JOIN recommendations r ON st.recommendation_id = r.recommendation_id
             WHERE st.status = 'closed'
               AND COALESCE(st.quarantined, 0) = 0
-              AND st.recommendation_id NOT IN (
-                  SELECT recommendation_id FROM training_examples
-                  WHERE recommendation_id IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM training_examples te
+                  WHERE te.recommendation_id = COALESCE(
+                      st.recommendation_id,
+                      'trade:' || st.trade_id
+                  )
               )
             ORDER BY st.actual_exit_time DESC
         """).fetchall()
@@ -199,6 +203,12 @@ def collect_training_examples_from_closed_trades(
 
         # Get the scan/recommendation date for the blinded prompt
         rec_date = (trade.get("created_at") or "")[:10]  # YYYY-MM-DD
+
+        # Some older / reconciled trades can have missing recommendation rows or
+        # null recommendation_id. Keep these eligible by assigning a stable
+        # synthetic link key so they can still be deduplicated in
+        # training_examples.
+        link_recommendation_id = trade.get("recommendation_id") or f"trade:{trade.get('trade_id')}"
 
         # Fix for #277: Sanitize BEFORE LLM generation, not after.
         # The old code called _sanitize_feature_snapshot after the LLM had already
@@ -280,7 +290,7 @@ def collect_training_examples_from_closed_trades(
                     feature_snapshot, trade_outcome, instruction, input_text, output_text)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (example_id, created_at, source, trade.get("ticker"),
-                 trade.get("recommendation_id"), feature_input, outcome_text,
+                 link_recommendation_id, feature_input, outcome_text,
                  outcome_prompt, feature_input, final_output),
             )
             conn.commit()
@@ -316,7 +326,7 @@ def collect_training_examples_from_closed_trades(
                             feature_snapshot, trade_outcome, instruction, input_text, output_text)
                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (contrastive_id, created_at, contrastive_source,
-                         trade.get("ticker"), trade.get("recommendation_id"),
+                         trade.get("ticker"), link_recommendation_id,
                          feature_input, outcome_text,
                          contrastive_prompt, feature_input, contrastive_response),
                     )

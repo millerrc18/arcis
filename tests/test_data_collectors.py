@@ -629,6 +629,72 @@ class TestTrainingDataCollectorPnlTypeSafety:
         assert "$0.00" in result
         assert "0 days" in result
 
+    def test_closed_trade_without_recommendation_row_still_collects(self, tmp_db):
+        """Closed trades should remain collectible even if recommendations row is missing."""
+        from src.training.data_collector import collect_training_examples_from_closed_trades
+        from tests.conftest import init_test_db
+
+        init_test_db(tmp_db, ["shadow_trades", "recommendations", "training_examples"])
+        conn = sqlite3.connect(tmp_db)
+        conn.execute(
+            "INSERT INTO shadow_trades "
+            "(trade_id, recommendation_id, ticker, status, pnl_dollars, "
+            "pnl_pct, exit_reason, duration_days, max_favorable_excursion, "
+            "max_adverse_excursion, actual_exit_time, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            ("t_missing_rec", "r_missing", "AAPL", "closed", "50.25", "3.2",
+             "target_1_hit", "5", "60.0", "10.0",
+             "2026-01-05T16:00:00", "2026-01-01", "2026-01-05"),
+        )
+        conn.commit()
+        conn.close()
+
+        with patch("src.training.data_collector.load_config",
+                   return_value={"training": {"enabled": True}}), \
+             patch("src.training.data_collector.init_training_tables"), \
+             patch("src.training.data_collector.generate_training_example",
+                   return_value="Mock analysis output"), \
+             patch("src.training.data_collector.validate_training_example",
+                   return_value=(True, None)), \
+             patch("src.training.data_collector.DB_PATH", tmp_db):
+            count = collect_training_examples_from_closed_trades(db_path=tmp_db)
+
+        assert count >= 1
+
+    def test_closed_trade_without_recommendation_id_uses_trade_fallback_key(self, tmp_db):
+        """Null recommendation_id should use a stable trade-based dedupe key."""
+        from src.training.data_collector import collect_training_examples_from_closed_trades
+        from tests.conftest import init_test_db
+
+        init_test_db(tmp_db, ["shadow_trades", "recommendations", "training_examples"])
+        conn = sqlite3.connect(tmp_db)
+        conn.execute(
+            "INSERT INTO shadow_trades "
+            "(trade_id, recommendation_id, ticker, status, pnl_dollars, "
+            "pnl_pct, exit_reason, duration_days, max_favorable_excursion, "
+            "max_adverse_excursion, actual_exit_time, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            ("t_null_rec_id", None, "MSFT", "closed", "22.0", "1.1",
+             "target_1_hit", "3", "30.0", "9.0",
+             "2026-01-10T16:00:00", "2026-01-08", "2026-01-10"),
+        )
+        conn.commit()
+        conn.close()
+
+        with patch("src.training.data_collector.load_config",
+                   return_value={"training": {"enabled": True}}), \
+             patch("src.training.data_collector.init_training_tables"), \
+             patch("src.training.data_collector.generate_training_example",
+                   return_value="Mock analysis output"), \
+             patch("src.training.data_collector.validate_training_example",
+                   return_value=(True, None)), \
+             patch("src.training.data_collector.DB_PATH", tmp_db):
+            first_count = collect_training_examples_from_closed_trades(db_path=tmp_db)
+            second_count = collect_training_examples_from_closed_trades(db_path=tmp_db)
+
+        assert first_count >= 1
+        assert second_count == 0, "Fallback dedupe key should prevent duplicate inserts"
+
 
 # ── Outcome Classification & Prompt Selection ─────────────────────
 

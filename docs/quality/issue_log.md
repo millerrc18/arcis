@@ -35,3 +35,15 @@
   - #303 research source resilience (403/404 feeds)
   - #304 VRAM handoff reload timeout reliability
 - **Evidence:** GitHub API issue creation responses (201) with URLs `https://github.com/millerrc18/halcyon-lab/issues/299` through `/304`.
+
+## 2026-04-22 — Training examples not appearing after trade completion
+- **Issue:** Operators observed that completed trades were not producing new training examples.
+- **Impact:** Training data flywheel appears stalled, reducing trust in post-trade learning cadence.
+- **Fix:** Performed an exhaustive code-path investigation and documented all hard eligibility gates and failure modes in `docs/quality/training_collection_investigation_2026-04-22.md`.
+- **Evidence:** `pytest -q tests/test_self_blinding.py tests/test_data_collectors.py -k "training_examples_from_closed_trades or TrainingDataCollectorPnlTypeSafety"`; `pytest -q tests/shadow_trading/test_reconcile_partial_fill_mismatch.py`.
+
+## 2026-04-22 — Closed trades dropped from training collection when recommendation linkage was missing
+- **Issue:** The collector required an inner join to `recommendations` and deduped only by `recommendation_id`, so closed trades with missing recommendation rows or null recommendation IDs were excluded and never became pending training examples.
+- **Impact:** Operators could observe newly closed trades without any corresponding increase in pending/collected training examples.
+- **Fix:** Switched collector candidate query to `LEFT JOIN recommendations`, added dedupe by a stable fallback key (`trade:<trade_id>`) when `recommendation_id` is missing, and persisted that key in `training_examples.recommendation_id`.
+- **Evidence:** `pytest -q tests/test_data_collectors.py -k "without_recommendation_row_still_collects or without_recommendation_id_uses_trade_fallback_key"`; `pytest -q tests/test_self_blinding.py tests/test_data_collectors.py -k "training_examples_from_closed_trades or TrainingDataCollectorPnlTypeSafety or without_recommendation"`.
