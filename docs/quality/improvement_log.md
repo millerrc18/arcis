@@ -30,3 +30,13 @@
   - https://github.com/millerrc18/halcyon-lab/issues/302
   - https://github.com/millerrc18/halcyon-lab/issues/303
   - https://github.com/millerrc18/halcyon-lab/issues/304
+
+## 2026-04-22 — Added explicit triage playbook for training collection drop-offs
+- **Improvement:** Added a dedicated investigation report with ranked root-cause candidates, code-path analysis, and production SQL diagnostics to pinpoint where candidates are being filtered.
+- **Why it matters:** Converts a vague "no examples collected" symptom into a deterministic step-by-step debug workflow and prevents repeated ad hoc investigations.
+- **Evidence:** `docs/quality/training_collection_investigation_2026-04-22.md`; `pytest -q tests/test_self_blinding.py tests/test_data_collectors.py -k "training_examples_from_closed_trades or TrainingDataCollectorPnlTypeSafety"`; `pytest -q tests/shadow_trading/test_reconcile_partial_fill_mismatch.py`.
+
+## 2026-04-22 — Training collector now handles closed trades without recommendation linkage
+- **Improvement:** Relaxed training collector eligibility to include closed, non-quarantined trades even when `recommendations` linkage is absent, with deterministic fallback dedupe keys for null `recommendation_id` records.
+- **Why it matters:** Restores training flywheel continuity for reconciled/legacy rows that still represent real closed outcomes but were previously invisible to collection.
+- **Evidence:** `pytest -q tests/test_data_collectors.py -k "without_recommendation_row_still_collects or without_recommendation_id_uses_trade_fallback_key"`; `pytest -q tests/test_self_blinding.py tests/test_data_collectors.py -k "training_examples_from_closed_trades or TrainingDataCollectorPnlTypeSafety or without_recommendation"`.
