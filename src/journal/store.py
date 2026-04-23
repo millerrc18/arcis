@@ -324,15 +324,18 @@ def close_shadow_trade(
         "pnl_dollars": pnl_dollars,
         "pnl_pct": pnl_pct,
     }
+    trade_row = None
 
     # Populate exit metadata (Sprint 6, Strategy Decision #24)
     try:
         with sqlite3.connect(db_path) as conn:
             conn.row_factory = sqlite3.Row
             trade = conn.execute(
-                "SELECT entry_price, actual_entry_time, max_favorable_excursion "
+                "SELECT ticker, source, entry_price, actual_entry_time, "
+                "max_favorable_excursion "
                 "FROM shadow_trades WHERE trade_id = ?", (trade_id,)
             ).fetchone()
+            trade_row = trade
             if trade:
                 entry_price = trade["entry_price"] or 0
                 # VIX at exit
@@ -367,6 +370,23 @@ def close_shadow_trade(
         pass  # Exit metadata is best-effort — never block trade close
     fields.update(_build_spy_excess_fields(trade_id, exit_time, pnl_pct, db_path))
     update_shadow_trade(trade_id, fields, db_path)
+    try:
+        from src.api.websocket import broadcast_sync
+
+        broadcast_sync(
+            "trade_closed",
+            {
+                "trade_id": trade_id,
+                "ticker": trade_row["ticker"] if trade_row else None,
+                "source": trade_row["source"] if trade_row else None,
+                "exit_reason": exit_reason,
+                "pnl_dollars": pnl_dollars,
+                "pnl_pct": pnl_pct,
+                "exit_price": exit_price,
+            },
+        )
+    except Exception as exc:
+        _logger.warning("[JOURNAL] broadcast trade_closed failed for %s: %s", trade_id, exc)
 
 
 def _build_spy_excess_fields(

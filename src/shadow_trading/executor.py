@@ -946,6 +946,22 @@ def open_shadow_trade(
             ticker, actual_price, planned_shares,
             extra={"ctx": {"event": "trade_open", "ticker": ticker}},
         )
+        try:
+            from src.api.websocket import broadcast_sync
+
+            broadcast_sync(
+                "trade_opened",
+                {
+                    "ticker": ticker,
+                    "side": "BUY",
+                    "source": trade_data.get("source", "paper"),
+                    "trade_id": trade_id,
+                    "broker": trade_data.get("broker", "alpaca"),
+                    "shares": planned_shares,
+                },
+            )
+        except Exception as exc:
+            logger.warning("[SHADOW] broadcast trade_opened failed for %s: %s", ticker, exc)
 
         # 1F. Check for trade open milestones
         _check_open_milestones(db_path, source="paper")

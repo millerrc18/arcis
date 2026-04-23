@@ -284,12 +284,6 @@ def run_universe_scan(ctx: ScanContext) -> ScanResult:
                 except Exception as e:
                     logger.warning("[SCAN] Live trade failed for %s: %s", ticker, e)
 
-            try:
-                broadcast_sync("trade_opened", {"ticker": ticker, "side": "BUY",
-                                                "score": candidate["score"]})
-            except Exception as e:
-                logger.warning("[SCAN] broadcast trade_opened failed: %s", e)
-
             # Telegram trade notification
             try:
                 from src.notifications.telegram import notify_trade_opened, is_telegram_enabled
