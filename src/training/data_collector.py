@@ -123,6 +123,55 @@ Entry Zone: {rec.get('entry_zone', 'n/a')} | Stop: {rec.get('stop_level', 'n/a')
 Event Risk: {rec.get('event_risk_flag', 'none')}"""
 
 
+def _build_feature_input_from_trade(trade: dict) -> str | None:
+    """Build feature text from shadow_trades columns when the recommendation row is missing.
+
+    Returns None when the trade also lacks usable shadow_trades context — caller
+    must skip rather than write a degenerate all-N/A training example. The
+    "useful data" gate is setup_type / regime_at_entry / vix_at_entry: at least
+    one must be populated. Earlier orphan trades pre-date the regime+vix
+    capture and are intentionally excluded from the training corpus.
+    """
+    setup_type = trade.get("setup_type")
+    regime = trade.get("regime_at_entry")
+    vix = trade.get("vix_at_entry")
+    if setup_type is None and regime is None and vix is None:
+        return None
+
+    ticker = trade.get("ticker") or "N/A"
+    setup_conf = trade.get("setup_confidence")
+    ranking = trade.get("ranking_at_entry")
+    sector = trade.get("realized_sector")
+    entry = trade.get("actual_entry_price")
+    if entry is None:
+        entry = trade.get("entry_price")
+    stop = trade.get("stop_price")
+    target_1 = trade.get("target_1")
+    target_2 = trade.get("target_2")
+
+    def _money(v):
+        return f"${float(v):.2f}" if v is not None else "n/a"
+
+    def _num(v, fmt=".2f"):
+        return format(float(v), fmt) if v is not None else "n/a"
+
+    setup_line = f"Setup: {setup_type or 'n/a'}"
+    if setup_conf is not None:
+        setup_line += f" (confidence {float(setup_conf):.2f})"
+
+    return (
+        f"Ticker: {ticker}\n"
+        f"Entry Price: {_money(entry)}\n"
+        f"{setup_line}\n"
+        f"Market Regime at Entry: {regime or 'n/a'}\n"
+        f"VIX at Entry: {_num(vix)}\n"
+        f"Ranker Position at Entry: {ranking if ranking is not None else 'n/a'}\n"
+        f"Sector: {sector or 'n/a'}\n"
+        f"Stop: {_money(stop)} | Target 1: {_money(target_1)} | Target 2: {_money(target_2)}\n"
+        f"[Note: rebuilt from shadow_trades fallback — recommendation row missing]"
+    )
+
+
 def _build_outcome_text(trade: dict) -> str:
     """Build outcome text from a closed shadow trade.
 
@@ -170,12 +219,16 @@ def collect_training_examples_from_closed_trades(
         rows = conn.execute("""
             SELECT st.*, r.*
             FROM shadow_trades st
-            JOIN recommendations r ON st.recommendation_id = r.recommendation_id
+            LEFT JOIN recommendations r ON st.recommendation_id = r.recommendation_id
             WHERE st.status = 'closed'
               AND COALESCE(st.quarantined, 0) = 0
-              AND st.recommendation_id NOT IN (
-                  SELECT recommendation_id FROM training_examples
-                  WHERE recommendation_id IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM training_examples te
+                  WHERE te.recommendation_id = COALESCE(
+                      st.recommendation_id,
+                      'trade:' || st.trade_id
+                  )
               )
             ORDER BY st.actual_exit_time DESC
         """).fetchall()
@@ -194,11 +247,33 @@ def collect_training_examples_from_closed_trades(
         enriched = trade.get("enriched_prompt")
         if enriched:
             feature_input = enriched
+        elif (
+            trade.get("price_at_recommendation") is None
+            and trade.get("trend_state") is None
+            and trade.get("pullback_depth_pct") is None
+        ):
+            # Recommendation row absent (LEFT JOIN miss). Without this branch
+            # _build_feature_input(trade) would emit an all-N/A snapshot that
+            # contaminates the training corpus. Fall back to shadow_trades
+            # columns; if those are also empty, skip rather than write garbage.
+            feature_input = _build_feature_input_from_trade(trade)
+            if feature_input is None:
+                logger.warning(
+                    "[TRAINING] Skipping %s trade_id=%s — no feature data available for training",
+                    trade.get("ticker"), trade.get("trade_id"),
+                )
+                continue
         else:
             feature_input = _build_feature_input(trade)
 
         # Get the scan/recommendation date for the blinded prompt
         rec_date = (trade.get("created_at") or "")[:10]  # YYYY-MM-DD
+
+        # Some older / reconciled trades can have missing recommendation rows or
+        # null recommendation_id. Keep these eligible by assigning a stable
+        # synthetic link key so they can still be deduplicated in
+        # training_examples.
+        link_recommendation_id = trade.get("recommendation_id") or f"trade:{trade.get('trade_id')}"
 
         # Fix for #277: Sanitize BEFORE LLM generation, not after.
         # The old code called _sanitize_feature_snapshot after the LLM had already
@@ -280,7 +355,7 @@ def collect_training_examples_from_closed_trades(
                     feature_snapshot, trade_outcome, instruction, input_text, output_text)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (example_id, created_at, source, trade.get("ticker"),
-                 trade.get("recommendation_id"), feature_input, outcome_text,
+                 link_recommendation_id, feature_input, outcome_text,
                  outcome_prompt, feature_input, final_output),
             )
             conn.commit()
@@ -316,7 +391,7 @@ def collect_training_examples_from_closed_trades(
                             feature_snapshot, trade_outcome, instruction, input_text, output_text)
                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (contrastive_id, created_at, contrastive_source,
-                         trade.get("ticker"), trade.get("recommendation_id"),
+                         trade.get("ticker"), link_recommendation_id,
                          feature_input, outcome_text,
                          contrastive_prompt, feature_input, contrastive_response),
                     )

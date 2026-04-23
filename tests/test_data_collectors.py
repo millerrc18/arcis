@@ -629,6 +629,195 @@ class TestTrainingDataCollectorPnlTypeSafety:
         assert "$0.00" in result
         assert "0 days" in result
 
+    def test_closed_trade_without_recommendation_row_still_collects(self, tmp_db):
+        """Closed trades should remain collectible even if recommendations row is missing.
+
+        Fixture includes setup_type/regime_at_entry/vix_at_entry so the
+        shadow_trades fallback emits a real feature snapshot rather than skipping.
+        """
+        from src.training.data_collector import collect_training_examples_from_closed_trades
+        from tests.conftest import init_test_db
+
+        init_test_db(tmp_db, ["shadow_trades", "recommendations", "training_examples"])
+        conn = sqlite3.connect(tmp_db)
+        conn.execute(
+            "INSERT INTO shadow_trades "
+            "(trade_id, recommendation_id, ticker, status, pnl_dollars, "
+            "pnl_pct, exit_reason, duration_days, max_favorable_excursion, "
+            "max_adverse_excursion, actual_exit_time, created_at, updated_at, "
+            "setup_type, regime_at_entry, vix_at_entry) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            ("t_missing_rec", "r_missing", "AAPL", "closed", "50.25", "3.2",
+             "target_1_hit", "5", "60.0", "10.0",
+             "2026-01-05T16:00:00", "2026-01-01", "2026-01-05",
+             "pullback", "neutral_chop", 18.4),
+        )
+        conn.commit()
+        conn.close()
+
+        with patch("src.training.data_collector.load_config",
+                   return_value={"training": {"enabled": True}}), \
+             patch("src.training.data_collector.init_training_tables"), \
+             patch("src.training.data_collector.generate_training_example",
+                   return_value="Mock analysis output"), \
+             patch("src.training.data_collector.validate_training_example",
+                   return_value=(True, None)), \
+             patch("src.training.data_collector.DB_PATH", tmp_db):
+            count = collect_training_examples_from_closed_trades(db_path=tmp_db)
+
+        assert count >= 1
+
+    def test_closed_trade_without_recommendation_id_uses_trade_fallback_key(self, tmp_db):
+        """Null recommendation_id should use a stable trade-based dedupe key.
+
+        Fixture includes setup_type/regime_at_entry/vix_at_entry so the
+        shadow_trades fallback emits a real feature snapshot rather than skipping.
+        """
+        from src.training.data_collector import collect_training_examples_from_closed_trades
+        from tests.conftest import init_test_db
+
+        init_test_db(tmp_db, ["shadow_trades", "recommendations", "training_examples"])
+        conn = sqlite3.connect(tmp_db)
+        conn.execute(
+            "INSERT INTO shadow_trades "
+            "(trade_id, recommendation_id, ticker, status, pnl_dollars, "
+            "pnl_pct, exit_reason, duration_days, max_favorable_excursion, "
+            "max_adverse_excursion, actual_exit_time, created_at, updated_at, "
+            "setup_type, regime_at_entry, vix_at_entry) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            ("t_null_rec_id", None, "MSFT", "closed", "22.0", "1.1",
+             "target_1_hit", "3", "30.0", "9.0",
+             "2026-01-10T16:00:00", "2026-01-08", "2026-01-10",
+             "pullback", "low_vol_grind", 14.2),
+        )
+        conn.commit()
+        conn.close()
+
+        with patch("src.training.data_collector.load_config",
+                   return_value={"training": {"enabled": True}}), \
+             patch("src.training.data_collector.init_training_tables"), \
+             patch("src.training.data_collector.generate_training_example",
+                   return_value="Mock analysis output"), \
+             patch("src.training.data_collector.validate_training_example",
+                   return_value=(True, None)), \
+             patch("src.training.data_collector.DB_PATH", tmp_db):
+            first_count = collect_training_examples_from_closed_trades(db_path=tmp_db)
+            second_count = collect_training_examples_from_closed_trades(db_path=tmp_db)
+
+        assert first_count >= 1
+        assert second_count == 0, "Fallback dedupe key should prevent duplicate inserts"
+
+    def test_closed_trade_without_recommendation_uses_shadow_trade_fallback(self, tmp_db):
+        """When the recommendation row is missing, _build_feature_input_from_trade
+        must emit a snapshot derived from shadow_trades columns — not the
+        all-N/A degenerate snapshot that _build_feature_input(trade) would produce.
+        """
+        from src.training.data_collector import collect_training_examples_from_closed_trades
+        from tests.conftest import init_test_db
+
+        init_test_db(tmp_db, ["shadow_trades", "recommendations", "training_examples"])
+        conn = sqlite3.connect(tmp_db)
+        conn.execute(
+            "INSERT INTO shadow_trades "
+            "(trade_id, recommendation_id, ticker, status, pnl_dollars, "
+            "pnl_pct, exit_reason, duration_days, max_favorable_excursion, "
+            "max_adverse_excursion, actual_exit_time, created_at, updated_at, "
+            "setup_type, setup_confidence, regime_at_entry, vix_at_entry, "
+            "ranking_at_entry, realized_sector, "
+            "entry_price, actual_entry_price, stop_price, target_1, target_2) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            ("t_fallback_path", None, "NVDA", "closed", "180.0", "4.5",
+             "target_1_hit", "4", "210.0", "20.0",
+             "2026-02-12T16:00:00", "2026-02-08", "2026-02-12",
+             "pullback", 0.78, "strong_bull", 16.5,
+             3, "Information Technology",
+             420.5, 422.10, 405.0, 445.0, 470.0),
+        )
+        conn.commit()
+        conn.close()
+
+        captured_inputs = []
+
+        def _capture(prompt, feature_input, purpose=None):
+            captured_inputs.append((purpose, feature_input))
+            return "Mock analysis output"
+
+        with patch("src.training.data_collector.load_config",
+                   return_value={"training": {"enabled": True}}), \
+             patch("src.training.data_collector.init_training_tables"), \
+             patch("src.training.data_collector.generate_training_example",
+                   side_effect=_capture), \
+             patch("src.training.data_collector.validate_training_example",
+                   return_value=(True, None)), \
+             patch("src.training.data_collector.DB_PATH", tmp_db):
+            count = collect_training_examples_from_closed_trades(db_path=tmp_db)
+
+        assert count >= 1
+        assert captured_inputs, "generate_training_example was never called"
+
+        # The Stage 1 snapshot must reflect shadow_trades values, not N/A defaults.
+        stage1 = next((fi for purpose, fi in captured_inputs if purpose == "backfill_blinded"), None)
+        assert stage1 is not None, "No Stage 1 backfill_blinded call captured"
+        assert "Ticker: NVDA" in stage1
+        assert "Setup: pullback" in stage1
+        assert "Market Regime at Entry: strong_bull" in stage1
+        assert "VIX at Entry: 16.50" in stage1
+        assert "Sector: Information Technology" in stage1
+        assert "Stop: $405.00" in stage1
+        assert "Target 1: $445.00" in stage1
+        assert "shadow_trades fallback" in stage1
+        # No N/A leakage on the populated fields
+        assert "Setup: n/a" not in stage1
+        assert "Market Regime at Entry: n/a" not in stage1
+
+    def test_closed_trade_with_no_feature_data_anywhere_is_skipped(self, tmp_db, caplog):
+        """A trade with no recommendation row AND no shadow_trades context
+        (setup_type, regime_at_entry, vix_at_entry all NULL) must be SKIPPED
+        — never written as a degenerate all-N/A training example."""
+        import logging
+        from src.training.data_collector import collect_training_examples_from_closed_trades
+        from tests.conftest import init_test_db
+
+        init_test_db(tmp_db, ["shadow_trades", "recommendations", "training_examples"])
+        conn = sqlite3.connect(tmp_db)
+        conn.execute(
+            "INSERT INTO shadow_trades "
+            "(trade_id, recommendation_id, ticker, status, pnl_dollars, "
+            "pnl_pct, exit_reason, duration_days, max_favorable_excursion, "
+            "max_adverse_excursion, actual_exit_time, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            ("t_no_data_anywhere", None, "GOOG", "closed", "12.0", "0.5",
+             "target_1_hit", "2", "15.0", "5.0",
+             "2026-03-01T16:00:00", "2026-02-27", "2026-03-01"),
+        )
+        conn.commit()
+        conn.close()
+
+        gen_mock = MagicMock(return_value="Should never run")
+
+        with caplog.at_level(logging.WARNING, logger="src.training.data_collector"), \
+             patch("src.training.data_collector.load_config",
+                   return_value={"training": {"enabled": True}}), \
+             patch("src.training.data_collector.init_training_tables"), \
+             patch("src.training.data_collector.generate_training_example", gen_mock), \
+             patch("src.training.data_collector.validate_training_example",
+                   return_value=(True, None)), \
+             patch("src.training.data_collector.DB_PATH", tmp_db):
+            count = collect_training_examples_from_closed_trades(db_path=tmp_db)
+
+        assert count == 0, "Trade with no feature data must not produce a training example"
+        gen_mock.assert_not_called()  # LLM call must be skipped before generation
+
+        # No row should have been written either.
+        with sqlite3.connect(tmp_db) as conn2:
+            te_count = conn2.execute("SELECT COUNT(*) FROM training_examples").fetchone()[0]
+        assert te_count == 0
+
+        # Skip warning must mention the trade.
+        skip_msg = " ".join(r.message for r in caplog.records if r.levelno == logging.WARNING)
+        assert "no feature data available for training" in skip_msg
+        assert "GOOG" in skip_msg or "t_no_data_anywhere" in skip_msg
+
 
 # ── Outcome Classification & Prompt Selection ─────────────────────
 
