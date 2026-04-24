@@ -974,6 +974,24 @@ def open_shadow_trade(
     except Exception as e:
         logger.warning("[SHADOW-IB] Shadow logging failed (non-fatal): %s", e)
 
+    # #614 — Persist trade-open to activity_log for the dashboard feed.
+    # Pre-fix the TRADE_OPENED constant existed but had zero writers.
+    try:
+        import json as _json_to
+        from src.utils.activity_logger import TRADE_OPENED, log_activity
+        log_activity(
+            TRADE_OPENED,
+            _json_to.dumps({
+                "trade_id": trade_id,
+                "ticker": ticker,
+                "shares": shares,
+                "entry_price": entry_price,
+                "source": source_filter or "paper",
+            }),
+        )
+    except Exception as _e_to:
+        logger.debug("[EXECUTOR] activity_log TRADE_OPENED failed: %s", _e_to)
+
     return trade_id
 
 

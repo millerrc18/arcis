@@ -22,6 +22,30 @@ logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
 
+def _is_collector_error(result) -> bool:
+    """Classify a collector return value as success or failure.
+
+    #623 — Pre-fix used `'error' in str(result).lower()` which matched
+    successful return dicts containing `'errors': 0` as a substring,
+    producing 8 false ERROR rows / 3-day window. Now interrogates the
+    structure directly: an explicit `error` key (or a string starting with
+    "Error") signals failure; an `errors` count of 0 with at least one
+    processed item is success.
+    """
+    if isinstance(result, str):
+        return result.lower().startswith("error")
+    if isinstance(result, dict):
+        if result.get("error") not in (None, "", 0, False):
+            return True
+        # All-failed batch: errors > 0 AND nothing processed.
+        errors = result.get("errors")
+        if isinstance(errors, int) and errors > 0:
+            processed = result.get("tickers_processed", 0)
+            if not processed:
+                return True
+    return False
+
+
 def run_postclose_reconciliation():
     """Reconcile paper positions against Alpaca and send Telegram summary."""
     from src.shadow_trading.reconcile_dispatch import reconcile_all_paper_trades
@@ -743,9 +767,7 @@ def run_data_collection(db_path: str = DB_PATH,
     # failures are greppable without digging through warning-level
     # messages scattered through the 12-step block above.
     for name, result in results.items():
-        is_error = (isinstance(result, str) and "error" in result.lower()) or \
-                   (isinstance(result, dict) and "error" in str(result).lower())
-        if is_error:
+        if _is_collector_error(result):
             logger.error("[COLLECT] %s: FAILED -- %s", name, str(result)[:120])
         elif isinstance(result, str) and result.startswith("skipped"):
             logger.info("[COLLECT] %s: skipped", name)
