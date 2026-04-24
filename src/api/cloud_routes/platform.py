@@ -76,7 +76,7 @@ def _read_one(sql: str, params: tuple = ()) -> dict | None:
 
 # ── GET endpoints ─────────────────────────────────────────────────────
 
-@router.get("/api/platform/strategies")
+@router.get("/api/platform/strategies", dependencies=[Depends(verify_auth)])
 async def list_strategies() -> list[dict]:
     return _read_rows(
         """SELECT s.*,
@@ -96,7 +96,7 @@ async def list_strategies() -> list[dict]:
     )
 
 
-@router.get("/api/platform/strategies/{strategy_id}")
+@router.get("/api/platform/strategies/{strategy_id}", dependencies=[Depends(verify_auth)])
 async def strategy_detail(strategy_id: str) -> dict:
     row = _read_one(
         "SELECT * FROM strategy_registry WHERE strategy_id = ?",
@@ -116,7 +116,7 @@ async def strategy_detail(strategy_id: str) -> dict:
     return body
 
 
-@router.get("/api/platform/backtest-results")
+@router.get("/api/platform/backtest-results", dependencies=[Depends(verify_auth)])
 async def backtest_results(
     strategy_id: str | None = Query(None),
     limit: int = Query(20, ge=1, le=500),
@@ -133,7 +133,7 @@ async def backtest_results(
     )
 
 
-@router.get("/api/platform/backtest-trades")
+@router.get("/api/platform/backtest-trades", dependencies=[Depends(verify_auth)])
 async def backtest_trades(result_id: str) -> list[dict]:
     return _read_rows(
         "SELECT * FROM backtest_trades WHERE result_id = ? ORDER BY entry_date",
@@ -141,7 +141,7 @@ async def backtest_trades(result_id: str) -> list[dict]:
     )
 
 
-@router.get("/api/platform/promotion-events")
+@router.get("/api/platform/promotion-events", dependencies=[Depends(verify_auth)])
 async def promotion_events(
     strategy_id: str | None = Query(None),
     limit: int = Query(50, ge=1, le=500),

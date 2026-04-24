@@ -296,5 +296,10 @@ app.include_router(_platform_module.router)
 # Walk-forward v1 routes: SQLite-backed like platform routes. Mounted after
 # platform routes so the three-state outcome UI can read walkforward_results
 # without touching Postgres sync config.
+#
+# #632 — same dependency_overrides pattern as platform: walkforward defines
+# a no-op verify_auth placeholder to avoid the circular import; we override
+# it here with the real bearer-token check before mounting the router.
 from src.api.cloud_routes import walkforward as _walkforward_module  # noqa: E402
+app.dependency_overrides[_walkforward_module.verify_auth] = verify_auth
 app.include_router(_walkforward_module.router)
