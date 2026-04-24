@@ -26,6 +26,7 @@ import sqlite3
 from fastapi import APIRouter
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 router = APIRouter(tags=["health"])
 logger = logging.getLogger(__name__)
@@ -90,7 +91,7 @@ def _read_persisted_score(conn):
 def build_score():
     """Return Build Score matching cloud response shape."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db(DB_PATH)
         conn.row_factory = sqlite3.Row
         try:
             result = _read_persisted_score(conn)
@@ -110,7 +111,7 @@ def health_startup():
     """Return the latest startup validation result for dashboard display."""
     import json as _json
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db(DB_PATH)
         conn.row_factory = sqlite3.Row
         try:
             row = conn.execute(
@@ -181,7 +182,7 @@ def health_score():
         from src.evaluation.hshs_live import compute_hshs
         hshs_result = compute_hshs(DB_PATH)
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db(DB_PATH)
         conn.row_factory = sqlite3.Row
         try:
             closed_row = conn.execute(

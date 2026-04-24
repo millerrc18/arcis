@@ -43,6 +43,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH, load_config
+from src.shadow_trading._status_sql import terminal_in_clause
 
 # All risk timestamps use Eastern Time because US equity markets
 # operate on ET and daily loss limits reset at midnight ET.
@@ -228,11 +229,13 @@ def compute_current_drawdown(db_path: str = DB_PATH,
     """
     import sqlite3
     try:
+        _frag, _params = terminal_in_clause()
         with sqlite3.connect(db_path) as conn:
             rows = conn.execute(
-                "SELECT pnl_dollars FROM shadow_trades WHERE status = 'closed' "
+                f"SELECT pnl_dollars FROM shadow_trades WHERE status IN ({_frag}) "
                 "AND pnl_dollars IS NOT NULL AND COALESCE(quarantined, 0) = 0"
-                " ORDER BY actual_exit_time ASC"
+                " ORDER BY actual_exit_time ASC",
+                _params,
             ).fetchall()
         if not rows:
             return 0.0
@@ -283,11 +286,13 @@ def get_current_equity(config: dict | None = None,
     starting_capital = config.get("risk", {}).get("starting_capital", 100000)
     try:
         import sqlite3
+        _frag, _params = terminal_in_clause()
         with sqlite3.connect(db_path) as conn:
             row = conn.execute(
                 "SELECT COALESCE(SUM(pnl_dollars), 0) "
-                "FROM shadow_trades WHERE status = 'closed' "
-                "AND pnl_dollars IS NOT NULL AND COALESCE(quarantined, 0) = 0"
+                f"FROM shadow_trades WHERE status IN ({_frag}) "
+                "AND pnl_dollars IS NOT NULL AND COALESCE(quarantined, 0) = 0",
+                _params,
             ).fetchone()
             total_pnl = float(row[0]) if row else 0
         return starting_capital + total_pnl
@@ -713,12 +718,13 @@ def get_portfolio_state(db_path: str = DB_PATH) -> dict:
     _today_str = _dt.now(_ZI("America/New_York")).strftime("%Y-%m-%d")
     daily_pnl = 0.0
     try:
+        _frag, _t_params = terminal_in_clause()
         with _sq3.connect(db_path) as _conn:
             _rows = _conn.execute(
                 "SELECT COALESCE(SUM(pnl_dollars), 0) FROM shadow_trades "
-                "WHERE status = 'closed' AND pnl_dollars IS NOT NULL "
+                f"WHERE status IN ({_frag}) AND pnl_dollars IS NOT NULL "
                 "AND actual_exit_time >= ? AND COALESCE(quarantined, 0) = 0",
-                (_today_str,),
+                (*_t_params, _today_str),
             ).fetchone()
             daily_pnl = float(_rows[0]) if _rows else 0.0
     except Exception as e:

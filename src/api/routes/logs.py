@@ -30,6 +30,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 router = APIRouter(tags=["logs"])
 logger = logging.getLogger(__name__)
@@ -49,7 +50,7 @@ class CommandSubmission(BaseModel):
 def recent_logs(level: str = "INFO", limit: int = 100, source: str = None):
     """Query log_entries table with level filtering."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db(DB_PATH)
         conn.row_factory = sqlite3.Row
         try:
             params = []
@@ -91,7 +92,7 @@ def submit_command(body: CommandSubmission):
         now = datetime.now(ET)
         expires_at = (now + timedelta(minutes=5)).isoformat()
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db(DB_PATH)
         try:
             conn.execute(
                 "INSERT INTO pending_commands "
@@ -120,7 +121,7 @@ def submit_command(body: CommandSubmission):
 def command_status(command_id: str):
     """Check command + result status."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db(DB_PATH)
         conn.row_factory = sqlite3.Row
         try:
             cmd = conn.execute(
@@ -152,7 +153,7 @@ def command_status(command_id: str):
 def recent_commands(limit: int = 20):
     """Last N commands with their results."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db(DB_PATH)
         conn.row_factory = sqlite3.Row
         try:
             rows = conn.execute(

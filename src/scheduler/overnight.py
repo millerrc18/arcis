@@ -381,7 +381,9 @@ def run_post_close_capture():
 
 def _alert_training_silent_failure(result) -> None:
     """Emit ERROR log + Telegram alert when collection produced 0 examples
-    despite real work (#615)."""
+    despite real work (stage-1 failures or rejections). #615 — without
+    this, the 4/13–4/23 outage was indistinguishable from "no closed
+    trades to collect from"."""
     logger.error(
         "[TRAINING] Collection produced 0 examples despite work — "
         "stage1_failures=%s rejected=%s halted=%s halt_reason=%s",

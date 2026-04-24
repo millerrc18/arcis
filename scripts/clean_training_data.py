@@ -8,7 +8,7 @@ When to run:
 What it reads:
     - training_examples.output_text column from SQLite
 
-What it writes:
+What it writes (only with --apply):
     - Updates training_examples.output_text in-place (destructive — back up first)
 
 Prerequisites:
@@ -20,9 +20,12 @@ Fixes 4 problems:
 3. Conviction format inconsistency (decimals, /10 suffix, bold)
 4. Trailing content after </metadata>
 
-Usage: python scripts/clean_training_data.py
+Usage:
+    python scripts/clean_training_data.py             # dry-run (prints diff counts)
+    python scripts/clean_training_data.py --apply     # commit the UPDATE
 """
 
+import argparse
 import os
 import re
 import sqlite3
@@ -71,6 +74,15 @@ def clean_output(text: str) -> str:
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    parser.add_argument(
+        "--apply", action="store_true",
+        help="Actually commit the UPDATE. Without this flag, runs in "
+             "dry-run mode and only reports what would change.",
+    )
+    args = parser.parse_args()
+    dry_run = not args.apply
+
     db_path = DB_PATH
     try:
         conn = sqlite3.connect(db_path)
@@ -89,13 +101,21 @@ def main():
             continue
         new_output = clean_output(output)
         if new_output != output:
-            conn.execute('UPDATE training_examples SET output_text = ? WHERE example_id = ?',
-                        (new_output, eid))
+            if not dry_run:
+                conn.execute(
+                    'UPDATE training_examples SET output_text = ? WHERE example_id = ?',
+                    (new_output, eid),
+                )
             cleaned += 1
 
-    conn.commit()
-    conn.close()
-    print(f"Cleaned {cleaned}/{len(rows)} examples")
+    if dry_run:
+        conn.close()
+        print(f"[DRY-RUN] Would clean {cleaned}/{len(rows)} examples. "
+              f"Re-run with --apply to commit changes.")
+    else:
+        conn.commit()
+        conn.close()
+        print(f"Cleaned {cleaned}/{len(rows)} examples")
 
 
 if __name__ == "__main__":

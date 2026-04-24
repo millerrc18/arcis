@@ -22,6 +22,7 @@ import sqlite3
 from fastapi import APIRouter
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 router = APIRouter(tags=["live"])
 logger = logging.getLogger(__name__)
@@ -37,7 +38,7 @@ def live_trades():
     previously rendered as $0.00 on the live ledger.
     """
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db(DB_PATH)
         conn.row_factory = sqlite3.Row
         try:
             open_trades = [dict(r) for r in conn.execute(
@@ -90,7 +91,7 @@ def live_trades():
 def live_summary():
     """Return live account summary."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db(DB_PATH)
         conn.row_factory = sqlite3.Row
         try:
             closed = conn.execute(

@@ -86,6 +86,10 @@ def backtest_model(model_name: str, months: int = 6,
                 if ticker in ohlcv:
                     from src.packets.template import build_packet_from_features
                     packet = build_packet_from_features(ticker, feat, config)
+                    if packet is None:
+                        # #621 — upstream feature pipeline returned price<=0;
+                        # builder refused. Skip this candidate.
+                        continue
 
                     from src.shadow_trading.executor import _parse_price
                     entry = _parse_price(packet.entry_zone)
