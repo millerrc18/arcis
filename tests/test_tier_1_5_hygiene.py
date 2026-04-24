@@ -44,3 +44,29 @@ def test_claude_md_test_count_baseline_is_current():
         f"CLAUDE.md baseline ({declared}) is below the 2026-04-24 sweep size "
         f"of 2897 (PR #639). Bump the number in CLAUDE.md."
     )
+
+
+# ---------------------------------------------------------------------------
+# Destructive cleanup scripts must default to dry-run (require --apply)
+# ---------------------------------------------------------------------------
+
+
+def test_clean_training_data_requires_explicit_apply_flag():
+    """scripts/clean_training_data.py UPDATEs training_examples.output_text
+    in-place. Without a --dry-run/--apply gate, an accidental run could
+    mass-overwrite the corpus. The script must:
+      - parse argparse with --apply (or --dry-run that defaults True)
+      - print a "Re-run with --apply" hint when in dry-run
+      - not call conn.commit() unless --apply was passed
+    """
+    src = _read("scripts/clean_training_data.py")
+    assert "argparse" in src, "clean_training_data.py must use argparse"
+    assert "--apply" in src or "--dry-run" in src, (
+        "clean_training_data.py must accept --apply (or --dry-run) so accidental "
+        "runs do not mass-overwrite training_examples.output_text"
+    )
+    # When --apply is absent, conn.commit() must be guarded
+    assert "args.apply" in src or "dry_run" in src.lower(), (
+        "clean_training_data.py must check the apply/dry-run flag before "
+        "calling conn.commit() — otherwise the gate is cosmetic"
+    )
