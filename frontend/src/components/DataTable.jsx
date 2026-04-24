@@ -24,6 +24,13 @@ export default function DataTable({ columns, data, onRowClick }) {
       case 'currency': return `$${Number(val).toFixed(2)}`
       case 'percent': return `${Number(val).toFixed(1)}%`
       case 'number': return Number(val).toFixed(2)
+      // #631-19 — Format ISO timestamps as YYYY-MM-DD so the Open Shadow
+      // Trades table can show an Opened-date column to disambiguate two
+      // simultaneous positions in the same ticker.
+      case 'date': {
+        const s = String(val)
+        return s.length >= 10 ? s.slice(0, 10) : s
+      }
       default: return String(val)
     }
   }

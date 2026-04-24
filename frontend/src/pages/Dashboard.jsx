@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import { IS_CLOUD } from '../config'
@@ -92,6 +93,18 @@ function scoreColor(score) {
   return 'var(--danger)'
 }
 
+// #631-7 — Qualitative label gives the operator a one-word read on what the
+// numeric Build Score means. Pre-fix the score was a bare number with no
+// scale legend — a user landing on the page couldn't tell if 19.8 was good
+// or bad.
+function scoreLabel(score) {
+  if (score >= 80) return 'Elite'
+  if (score >= 65) return 'Strong'
+  if (score >= 45) return 'Developing'
+  if (score >= 25) return 'Early'
+  return 'Nascent'
+}
+
 function BuildScoreHero({ data }) {
   if (!data) return null
   const score = data.build_score ?? 0
@@ -122,10 +135,17 @@ function BuildScoreHero({ data }) {
     <div className="arcis-card" style={{ padding: '20px' }}>
       <div className="flex flex-col lg:flex-row gap-6">
         {/* Left: Score + delta */}
-        <div className="flex flex-col items-center lg:items-start gap-1 min-w-[140px]">
-          <div className="text-xs uppercase tracking-wide" style={{ color: 'var(--arcis-text-muted)' }}>Build Score</div>
+        <div className="flex flex-col items-center lg:items-start gap-1 min-w-[140px]"
+             title="Build Score — composite 0-100 metric across 6 components (Gate Velocity, System Health, Data Asset, Model Quality, Research Velocity, Reliability). Higher is better.">
+          <div className="text-xs uppercase tracking-wide" style={{ color: 'var(--arcis-text-muted)' }}>
+            Build Score
+          </div>
           <div className="text-5xl font-bold" style={{ fontFamily: 'var(--font-mono)', color: scoreColor(score) }}>
-            {score.toFixed(1)}
+            {score.toFixed(1)}<span className="text-2xl" style={{ color: 'var(--arcis-text-muted)' }}>/100</span>
+          </div>
+          {/* #631-7 — Qualitative label below the number gives immediate context. */}
+          <div className="text-xs uppercase tracking-wide" style={{ color: scoreColor(score), letterSpacing: '0.1em' }}>
+            {scoreLabel(score)}
           </div>
           <div className="flex items-center gap-2 mt-1">
             {delta != null && (
@@ -145,14 +165,19 @@ function BuildScoreHero({ data }) {
         </div>
 
         {/* Center: Component bars */}
-        <div className="flex-1 grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2">
+        {/* #631-6 — Each component score is now explicitly shown as N/100 so a
+            value of 0 reads as "0 out of 100" (low score) instead of being
+            ambiguous with "no events / system OK". Title attribute adds the
+            score-scale tooltip on hover. */}
+        <div className="flex-1 grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-2"
+             title="Build Score components — 0-100 scale; higher is better">
           {Object.entries(componentLabels).map(([key, label]) => {
             const val = components[key] ?? 0
             return (
               <div key={key}>
                 <div className="flex justify-between text-xs mb-1">
                   <span style={{ color: 'var(--arcis-text-muted)' }}>{label}</span>
-                  <span style={{ fontFamily: 'var(--font-mono)', color: scoreColor(val) }}>{val.toFixed(0)}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', color: scoreColor(val) }}>{val.toFixed(0)}/100</span>
                 </div>
                 <div className="h-1.5 overflow-hidden" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-text-secondary)' }}>
                   <div className="h-full" style={{ borderRadius: 'var(--radius-sm)', width: `${Math.min(100, val)}%`, background: scoreColor(val) }} />
@@ -262,8 +287,12 @@ export default function Dashboard() {
       return acc
     }, [])
 
+  // #631-19 — Add an Opened-date column so multiple positions in the same
+  // ticker (e.g., 2× CVS rows during the 4/21 quarantine incident) are
+  // visually distinguishable instead of looking like duplicate rows.
   const tradeColumns = [
     { key: 'ticker', label: 'Ticker', type: 'text' },
+    { key: 'created_at', label: 'Opened', type: 'date' },
     { key: 'entry_price', label: 'Entry', type: 'currency' },
     { key: 'current_price', label: 'Current', type: 'currency' },
     { key: 'pnl_dollars', label: 'P&L', type: 'currency' },
@@ -400,17 +429,35 @@ export default function Dashboard() {
         <Tooltip content="Measures how well the model's confidence predictions match actual outcomes. Requires 50+ closed trades.">
           <div className="arcis-card text-center" style={{ padding: '12px' }}>
             <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Confidence cal.</div>
-            <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text)' }}>
-              {closedCount >= 50 ? (kpis.confidence_calibration || 0).toFixed(3) : `< ${closedCount}/50 trades`}
-            </div>
+            {/* #631-4 — Pre-fix the value slot showed "< 46/50 trades" which
+                read like a metric value. Now we show the score when it's
+                computed (>=50 trades) and otherwise present a dim progress
+                indicator that visually signals "pending" rather than "value". */}
+            {closedCount >= 50 ? (
+              <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text)' }}>
+                {(kpis.confidence_calibration || 0).toFixed(3)}
+              </div>
+            ) : (
+              <div className="text-xs" style={{ color: 'var(--arcis-text-muted)', fontStyle: 'italic' }}>
+                Pending — {closedCount}/50 trades
+              </div>
+            )}
           </div>
         </Tooltip>
         <Tooltip content="Average quality score from Claude-graded rubric evaluation of trade reasoning.">
           <div className="arcis-card text-center" style={{ padding: '12px' }}>
             <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Rubric score</div>
-            <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text)' }}>
-              {kpis.avg_rubric_score != null ? `${kpis.avg_rubric_score.toFixed(1)}/5` : 'Not scored yet'}
-            </div>
+            {/* #631-5 — When unscored, show a dim italic placeholder so it
+                doesn't read as a live metric value at the same visual weight. */}
+            {kpis.avg_rubric_score != null ? (
+              <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text)' }}>
+                {kpis.avg_rubric_score.toFixed(1)}/5
+              </div>
+            ) : (
+              <div className="text-xs" style={{ color: 'var(--arcis-text-muted)', fontStyle: 'italic' }}>
+                Not scored yet
+              </div>
+            )}
           </div>
         </Tooltip>
       </div>
@@ -453,10 +500,21 @@ export default function Dashboard() {
                 <StatusBadge text={training.train_queued ? 'Queued' : 'Collecting'} variant={training.train_queued ? 'warning' : 'info'} />
               </div>
               <div className="mt-2">
-                <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--arcis-text-secondary)' }}>
-                  <div className="h-full" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-accent)', width: `${Math.min(100, (training.new_since_last_train / 50) * 100)}%` }} />
-                </div>
-                <div className="text-xs mt-1" style={{ color: 'var(--arcis-text-muted)' }}>{training.new_since_last_train}/50 to next training</div>
+                {/* #631-16 — Defensive math: when new_since_last_train is undefined
+                    (loading state) the previous expression evaluated to NaN,
+                    which CSS rendered as full-width — making 0/50 look 95% full. */}
+                {(() => {
+                  const newCount = Number(training?.new_since_last_train ?? 0)
+                  const pct = Math.max(0, Math.min(100, (newCount / 50) * 100))
+                  return (
+                    <>
+                      <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--arcis-text-secondary)' }}>
+                        <div className="h-full" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-accent)', width: `${pct}%` }} />
+                      </div>
+                      <div className="text-xs mt-1" style={{ color: 'var(--arcis-text-muted)' }}>{newCount}/50 to next training</div>
+                    </>
+                  )
+                })()}
               </div>
             </div>
           )}
@@ -468,14 +526,33 @@ export default function Dashboard() {
 
       {/* Open trades table */}
       <div className="arcis-card">
-        <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>Open Shadow Trades</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm uppercase tracking-wide" style={{ color: 'var(--arcis-text-secondary)' }}>Open Shadow Trades</h3>
+          {/* #631-3 — Surface market-closed state so empty CURRENT/P&L cells
+              are not mistaken for a broken data feed. */}
+          {status && !status.market_open && (
+            <span className="text-xs italic" style={{ color: 'var(--arcis-text-muted)' }}>
+              Live prices unavailable — market closed
+            </span>
+          )}
+        </div>
         <DataTable columns={tradeColumns} data={openTrades?.open_trades || []} />
       </div>
 
       {/* Today's packets */}
       {packets && packets.length > 0 && (
         <div className="arcis-card">
-          <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>Today's Packets ({packets.length})</h3>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm uppercase tracking-wide" style={{ color: 'var(--arcis-text-secondary)' }}>Today's Packets ({packets.length})</h3>
+            {/* #631-14 — When the list is truncated to the first 5, surface
+                that fact + link to the full Packets page so the user has an
+                affordance to see the rest. */}
+            {packets.length > 5 && (
+              <Link to="/packets" className="text-xs hover:opacity-80" style={{ color: 'var(--arcis-accent)' }}>
+                View all {packets.length} →
+              </Link>
+            )}
+          </div>
           <div className="space-y-3">
             {packets.slice(0, 5).map((p, i) => (
               <div key={i} className="rounded p-3" style={{ border: '1px solid var(--arcis-text-secondary)' }}>
@@ -487,6 +564,11 @@ export default function Dashboard() {
                 <p className="text-sm" style={{ color: 'var(--arcis-border)' }}>{(p.thesis_text || '').slice(0, 200)}...</p>
               </div>
             ))}
+            {packets.length > 5 && (
+              <div className="text-xs italic text-center" style={{ color: 'var(--arcis-text-muted)' }}>
+                Showing 5 of {packets.length} — <Link to="/packets" style={{ color: 'var(--arcis-accent)' }}>view all</Link>
+              </div>
+            )}
           </div>
         </div>
       )}
