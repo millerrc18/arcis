@@ -5,6 +5,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 
+# #613 — log_activity now refuses writes under pytest unless opted in.
+# The tier-transition test relies on log_activity persisting state between
+# calls — opt in for this whole file.
+@pytest.fixture(autouse=True)
+def _opt_in_activity_writes(monkeypatch):
+    monkeypatch.setenv("ARCIS_LOG_ACTIVITY_IN_PYTEST", "1")
+
+
 @pytest.fixture
 def governor(tmp_path, monkeypatch):
     from src.risk.governor import RiskGovernor
