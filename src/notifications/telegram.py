@@ -79,6 +79,25 @@ ET = ZoneInfo("America/New_York")
 TELEGRAM_API = "https://api.telegram.org/bot{token}/sendMessage"
 
 
+# #424 — Sanitize the bot token from any string that contains the
+# standard Telegram URL pattern. Telegram bot tokens have the shape
+# `<digits>:<base64-ish>` and appear in URLs as `/bot<TOKEN>/<method>`.
+# requests.post exceptions on connection errors include the URL in the
+# message, so any logger.warning("...%s", e) call leaks the token to
+# wherever logs ship (Loki, files, dashboard streams).
+import re as _re_424
+_TELEGRAM_TOKEN_RE = _re_424.compile(r"/bot([0-9]+:[A-Za-z0-9_\-]+)")
+
+
+def _redact_token(text) -> str:
+    """Replace any embedded Telegram bot token with [REDACTED].
+
+    Accepts a string OR an Exception instance. Returns a string safe
+    to log. Use in EVERY except-block log call inside this module."""
+    s = str(text) if not isinstance(text, str) else text
+    return _TELEGRAM_TOKEN_RE.sub("/bot[REDACTED]", s)
+
+
 def _get_telegram_config() -> dict:
     """Load Telegram config from settings. .env takes precedence over YAML.
 
@@ -128,10 +147,13 @@ def send_telegram(message: str, parse_mode: str = "HTML") -> bool:
         if resp.status_code == 200:
             return True
         else:
-            logger.warning("[TELEGRAM] Send failed: %s %s", resp.status_code, resp.text[:200])
+            logger.warning(
+                "[TELEGRAM] Send failed: %s %s",
+                resp.status_code, _redact_token(resp.text[:200]),
+            )
             return False
     except Exception as e:
-        logger.warning("[TELEGRAM] Send error: %s", e)
+        logger.warning("[TELEGRAM] Send error: %s", _redact_token(e))
         return False
 
 
@@ -858,7 +880,10 @@ def notify_validation_summary(result: dict) -> bool:
     try:
         return send_telegram("\n".join(lines))
     except Exception as e:
-        logger.warning("[TELEGRAM] notify_validation_summary send failed: %s", e)
+        logger.warning(
+            "[TELEGRAM] notify_validation_summary send failed: %s",
+            _redact_token(e),
+        )
         return False
 
 
