@@ -1212,13 +1212,9 @@ def cmd_startup(args):
     check_only = getattr(args, "check_only", False)
     force = getattr(args, "force", False)
 
-    # #574 — fail-fast on dangerous live+governor combination BEFORE
-    # touching any state. Skip when --check-only since check-only mode
-    # is non-destructive by definition.
     if not check_only:
+        # #574 — fail-fast on dangerous live+governor combo BEFORE state.
         _assert_safe_live_governor_combo(config, force=force)
-
-    if not check_only:
         existing_pid = is_watch_loop_running()
         if existing_pid:
             print(f"Another watch loop is already running (PID {existing_pid}).")

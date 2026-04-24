@@ -10,9 +10,24 @@ Tests: tests/test_schema.py
 import logging
 import sqlite3
 
-from src.schema.registry import TABLES, TableDef
+from src.schema.registry import TABLES, ColumnDef, TableDef
 
 logger = logging.getLogger(__name__)
+
+
+def _render_column(c: ColumnDef, inline_pk_col: str | None) -> str:
+    """Render one column's DDL fragment. AUTOINCREMENT is only emitted
+    when the column is also the inline INTEGER PRIMARY KEY (#580)."""
+    parts = [c.name, c.type]
+    if not c.nullable:
+        parts.append("NOT NULL")
+    if c.name == inline_pk_col:
+        parts.append("PRIMARY KEY")
+        if getattr(c, "autoincrement", False):
+            parts.append("AUTOINCREMENT")
+    if c.default is not None:
+        parts.append(f"DEFAULT '{c.default}'")
+    return " ".join(parts)
 
 
 def generate_create_sql(table: TableDef) -> str:
@@ -38,22 +53,7 @@ def generate_create_sql(table: TableDef) -> str:
                 inline_pk_col = pk_name
                 break
 
-    cols = []
-    for c in table.columns:
-        parts = [c.name, c.type]
-        if not c.nullable:
-            parts.append("NOT NULL")
-        # Add inline PRIMARY KEY for the single INTEGER pk column
-        if c.name == inline_pk_col:
-            parts.append("PRIMARY KEY")
-            # #580 — AUTOINCREMENT only valid alongside inline PRIMARY KEY
-            # on the single INTEGER pk column. Prevents rowid reuse after
-            # DELETE so audit trails stay monotonic.
-            if getattr(c, "autoincrement", False):
-                parts.append("AUTOINCREMENT")
-        if c.default is not None:
-            parts.append(f"DEFAULT '{c.default}'")
-        cols.append(" ".join(parts))
+    cols = [_render_column(c, inline_pk_col) for c in table.columns]
 
     # Only add separate PRIMARY KEY constraint for composite or non-inline keys
     if inline_pk_col is None:
