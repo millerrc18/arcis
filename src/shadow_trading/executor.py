@@ -440,6 +440,71 @@ def _select_paper_broker(config: dict, score: float) -> tuple[str, object | None
         return "alpaca", None
 
 
+def open_shadow_trade_with_reason(
+    recommendation_id: str,
+    packet: "TradePacket",
+    features: dict,
+    db_path: str = DB_PATH,
+) -> "tuple[str | None, str | None]":
+    """Same as open_shadow_trade but also returns the rejection reason.
+
+    #511 — diagnostic wrapper for callers that need to surface why a
+    candidate was rejected (mr_scan_service, dashboard rejection feed).
+    Avoids changing open_shadow_trade's signature which has many callers.
+
+    Strategy: run the governor check explicitly first to capture
+    rejection_reason from the structured result. If approved, delegate
+    to open_shadow_trade for actual execution. The governor pre-check is
+    redundant (open_shadow_trade re-runs it internally) but harmless and
+    necessary to obtain the reason string before the executor's [GOVERNOR]
+    log line consumes it.
+
+    Returns:
+        (trade_id, None) on success
+        (None, "rejection reason") on rejection (governor / BP / dup / etc.)
+        (None, "internal error: ...") on unexpected exception
+    """
+    try:
+        from src.risk.governor import RiskGovernor, get_portfolio_state
+        cfg = load_config()
+        portfolio = get_portfolio_state(db_path)
+        gov = RiskGovernor(cfg)
+        tl_mult = features.get("traffic_light_multiplier", 0.5)
+        event_mult = _resolve_event_risk_multiplier(features, packet.ticker, path="MR")
+        check = gov.check_trade(
+            packet.ticker,
+            packet.position_sizing.allocation_dollars,
+            features,
+            portfolio,
+            traffic_light_multiplier=tl_mult,
+            event_risk_multiplier=event_mult,
+        )
+        if not check["approved"]:
+            return (None, check.get("rejection_reason", "rejected (no reason captured)"))
+    except Exception as e:
+        logger.debug(
+            "[MR-WRAPPER] governor pre-check failed for %s: %s",
+            packet.ticker, e,
+        )
+        # Fall through — let open_shadow_trade do its own checks
+
+    try:
+        trade_id = open_shadow_trade(recommendation_id, packet, features, db_path)
+        if trade_id:
+            return (trade_id, None)
+        return (
+            None,
+            "rejected by executor (post-governor check failed — "
+            "see [SHADOW] log for detail)",
+        )
+    except Exception as e:
+        logger.warning(
+            "[MR-WRAPPER] open_shadow_trade raised for %s: %s",
+            packet.ticker, e,
+        )
+        return (None, f"internal error: {type(e).__name__}: {e}")
+
+
 def open_shadow_trade(
     recommendation_id: str,
     packet: TradePacket,
