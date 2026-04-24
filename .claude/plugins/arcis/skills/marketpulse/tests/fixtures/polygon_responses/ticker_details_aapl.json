@@ -1,0 +1,16 @@
+{
+  "results": {
+    "ticker": "AAPL",
+    "name": "Apple Inc.",
+    "market": "stocks",
+    "locale": "us",
+    "primary_exchange": "XNAS",
+    "type": "CS",
+    "active": true,
+    "currency_name": "usd",
+    "sic_code": "3571",
+    "sic_description": "Electronic Computers"
+  },
+  "status": "OK",
+  "request_id": "test_fixture_002"
+}

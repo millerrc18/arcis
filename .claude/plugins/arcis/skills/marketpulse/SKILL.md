@@ -24,6 +24,14 @@ The following tools are available via the `marketpulse` MCP server (prefixed `mc
 - `mp_resume_job` -- Resume a paused/failed pull job
 - `mp_query_bars` -- Query cached bar data
 - `mp_cache_status` -- Show what data is cached
+- `mp_list_indices` -- List available stock indices and custom lists
+- `mp_refresh_index` -- Re-scrape index constituents from Wikipedia
+- `mp_create_custom_list` -- Create a named custom ticker list
+- `mp_analyze` -- Run analytics functions (summary, volatility, correlation, patterns, sectors)
+- `mp_detect_events` -- Detect volume spikes, price gaps, or anomalies
+- `mp_event_impact` -- Analyze price/volume impact around a specific event date
+- `mp_export_data` -- Export cached bar data to Excel, CSV, or Parquet
+- `mp_generate_report` -- Generate a pre-built analysis report (daily, period, correlation, event study)
 
 ## Data Notes
 

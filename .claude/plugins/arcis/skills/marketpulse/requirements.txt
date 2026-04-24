@@ -12,3 +12,4 @@ python-dotenv>=1.0,<2.0
 mcp>=1.0,<2.0
 beautifulsoup4>=4.12,<5.0
 pyrate-limiter>=3.0,<4.0
+scipy>=1.11,<2.0

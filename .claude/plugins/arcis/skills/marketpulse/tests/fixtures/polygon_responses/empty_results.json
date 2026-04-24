@@ -1,0 +1,9 @@
+{
+  "ticker": "AAPL",
+  "queryCount": 0,
+  "resultsCount": 0,
+  "adjusted": true,
+  "results": [],
+  "status": "OK",
+  "request_id": "test_fixture_003"
+}

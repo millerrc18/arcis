@@ -130,8 +130,7 @@ def test_duckdb_independent_connections():
 def test_bars_glob_ticker_only(tmp_path: Path):
     get_config()  # ensure singleton is initialised
     result = bars_glob("AAPL", "1min")
-    assert result.endswith("ticker=AAPL/*.parquet") or \
-        result.endswith("ticker=AAPL\\*.parquet")
+    assert result.endswith("ticker=AAPL/*.parquet")
     assert "timespan=1min" in result
 
 
@@ -154,4 +153,4 @@ def test_bars_glob_uses_real_path(tmp_path: Path):
     get_config()
     result = bars_glob("MSFT", "day")
     assert "~" not in result
-    assert str(tmp_path) in result
+    assert str(tmp_path).replace("\\", "/") in result

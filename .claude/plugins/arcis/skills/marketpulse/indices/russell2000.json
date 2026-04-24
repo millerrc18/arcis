@@ -1,0 +1,9 @@
+{
+  "name": "Russell 2000",
+  "short_name": "RUT2000",
+  "description": "2000 small-cap U.S. stocks (subset of Russell 3000)",
+  "source": "placeholder",
+  "last_updated": "2026-04-24",
+  "constituents": [],
+  "note": "Russell 2000 constituents are not freely available. Use 'marketpulse indices refresh RUT2000' with a data source, or create a custom list."
+}

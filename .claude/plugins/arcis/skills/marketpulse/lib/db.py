@@ -218,5 +218,5 @@ def bars_glob(
         base = base / "ticker=*"
 
     if year_month is not None:
-        return str(base / f"{year_month}.parquet")
-    return str(base / "*.parquet")
+        return str(base / f"{year_month}.parquet").replace("\\", "/")
+    return str(base / "*.parquet").replace("\\", "/")
