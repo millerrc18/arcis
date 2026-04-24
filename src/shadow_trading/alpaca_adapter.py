@@ -737,6 +737,90 @@ def place_live_entry(
     }
 
 
+def place_live_bracket(
+    ticker: str,
+    shares: int,
+    take_profit_price: float,
+    stop_loss_price: float,
+    limit_price: float | None = None,
+) -> dict:
+    """Place a LIVE bracket order: entry + take-profit + stop-loss as one atomic order.
+
+    Mirrors place_bracket_order (paper) but routes through the live trading
+    client. Alpaca's OrderClass.BRACKET works identically for paper and live
+    accounts — the comment in src/trading/alpaca_broker.py that claimed
+    otherwise was wrong (#651).
+
+    WHY this matters: previously AlpacaLiveBroker.place_bracket_order called
+    place_live_entry (a market order) and recorded order_type='bracket' in
+    the DB despite no broker-side stop or take-profit being submitted. If
+    the watch loop process died, the position had zero downside protection
+    and zero gain capture. SBUX (2026-04-10, sat open 14d, operator manually
+    liquidated on Alpaca) was the canonical victim.
+
+    With this function, the broker holds the stop and take-profit legs in
+    OCO semantics — they survive process restarts, network blips, and
+    overnight scheduler gaps.
+
+    WHY GTC: bracket exits must persist across sessions. DAY orders would
+    expire at close, leaving positions unprotected overnight.
+
+    WHY limit_price option: live entries are real money — operators may
+    want slippage protection on illiquid names or volatile open windows.
+    """
+    cfg = _get_live_config()
+    if not cfg["enabled"]:
+        raise LiveTradingError("Live trading is disabled in config.")
+
+    logger.info(
+        "[LIVE] Placing BRACKET order: %d shares of %s "
+        "(TP=$%.2f, SL=$%.2f%s)",
+        shares, ticker, take_profit_price, stop_loss_price,
+        f", LMT=${limit_price:.2f}" if limit_price else "",
+    )
+
+    client = _get_live_trading_client()
+
+    from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
+    from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass
+
+    if limit_price:
+        request = LimitOrderRequest(
+            symbol=ticker,
+            qty=shares,
+            side=OrderSide.BUY,
+            time_in_force=TimeInForce.GTC,
+            order_class=OrderClass.BRACKET,
+            limit_price=round(limit_price, 2),
+            take_profit={"limit_price": round(take_profit_price, 2)},
+            stop_loss={"stop_price": round(stop_loss_price, 2)},
+        )
+    else:
+        request = MarketOrderRequest(
+            symbol=ticker,
+            qty=shares,
+            side=OrderSide.BUY,
+            time_in_force=TimeInForce.GTC,
+            order_class=OrderClass.BRACKET,
+            take_profit={"limit_price": round(take_profit_price, 2)},
+            stop_loss={"stop_price": round(stop_loss_price, 2)},
+        )
+
+    order = client.submit_order(request)
+
+    return {
+        "order_id": str(order.id),
+        "symbol": str(order.symbol),
+        "qty": float(order.qty) if order.qty else shares,
+        "side": str(order.side),
+        "type": str(order.type),
+        "order_class": "bracket",
+        "status": str(order.status),
+        "filled_avg_price": float(order.filled_avg_price) if order.filled_avg_price else None,
+        "legs": [str(leg.id) for leg in order.legs] if order.legs else [],
+    }
+
+
 def place_live_exit(ticker: str, shares: int | float = 0) -> dict:
     """Place a LIVE market sell order. Returns order details dict.
 

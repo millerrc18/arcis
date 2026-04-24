@@ -2333,6 +2333,9 @@ def open_live_trade(
 
     # Place live order via broker factory (IB or Alpaca, config-driven).
     # Uses bracket order so the broker manages stop-loss and take-profit exits.
+    # #651 — pass limit_price=entry_price so the parent fill is bounded; combined
+    # with the bracket's broker-side stop+target legs this gives full slippage
+    # protection on entry plus survivability if our process dies.
     try:
         from src.trading.broker_factory import get_live_broker
         broker = get_live_broker(config)
@@ -2341,6 +2344,7 @@ def open_live_trade(
             quantity=planned_shares,
             take_profit_price=target_price,
             stop_loss_price=stop_price,
+            limit_price=entry_price,
         )
         # Hotfix 2026-04-13: do NOT store IB integer IDs in alpaca_order_id
         # (see bug #420).  Route by broker to the correct typed column.

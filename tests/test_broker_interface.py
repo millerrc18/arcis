@@ -230,3 +230,170 @@ class TestAlpacaBrokerDelegation:
         price = broker.get_current_price("AAPL")
         assert price == 150.25
         mock_price.assert_called_once_with("AAPL")
+
+
+class TestAlpacaLiveBracket651:
+    """#651 — AlpacaLiveBroker.place_bracket_order must place a REAL bracket
+    on the Alpaca live account (entry + take_profit + stop_loss as one
+    atomic OCO order), not a market order with software-managed stops.
+
+    Pre-#651 the wrapper called place_live_entry (a MarketOrderRequest with
+    no broker-side stop or take-profit) and lied about it by recording
+    order_type='bracket' in the DB. SBUX (2026-04-10) sat open 14 days with
+    zero broker-side protection because of this — operator manually liquidated.
+    """
+
+    def test_place_bracket_order_routes_to_place_live_bracket(self):
+        """Wrapper must call place_live_bracket (not place_live_entry)."""
+        from unittest.mock import patch
+        from src.trading.alpaca_broker import AlpacaLiveBroker
+
+        fake_order = {
+            "order_id": "alpaca-bracket-123",
+            "status": "accepted",
+            "filled_avg_price": None,
+            "qty": 10,
+            "legs": ["leg-tp", "leg-sl"],
+        }
+        with patch(
+            "src.shadow_trading.alpaca_adapter.place_live_bracket",
+            return_value=fake_order,
+        ) as mock_bracket, patch(
+            "src.shadow_trading.alpaca_adapter.place_live_entry"
+        ) as mock_entry:
+            broker = AlpacaLiveBroker()
+            result = broker.place_bracket_order(
+                ticker="SBUX",
+                quantity=10,
+                take_profit_price=102.0,
+                stop_loss_price=91.88,
+                limit_price=96.95,
+            )
+
+        # Critical: the bracket function was called, the market entry was NOT
+        mock_bracket.assert_called_once()
+        mock_entry.assert_not_called()
+
+        kwargs = mock_bracket.call_args.kwargs
+        assert kwargs["ticker"] == "SBUX"
+        assert kwargs["shares"] == 10
+        assert kwargs["take_profit_price"] == 102.0
+        assert kwargs["stop_loss_price"] == 91.88
+        assert kwargs["limit_price"] == 96.95
+
+        # Returned BrokerOrder reflects the bracket
+        assert result.order_type == "bracket"
+        assert result.stop_price == 91.88
+        assert result.take_profit_price == 102.0
+        assert result.child_order_ids == ["leg-tp", "leg-sl"]
+
+    def test_place_live_bracket_submits_alpaca_bracket_request(self):
+        """place_live_bracket must submit OrderClass.BRACKET with TP+SL fields."""
+        from unittest.mock import MagicMock, patch
+        from src.shadow_trading.alpaca_adapter import place_live_bracket
+
+        fake_order = MagicMock()
+        fake_order.id = "alpaca-bracket-456"
+        fake_order.symbol = "SBUX"
+        fake_order.qty = 10
+        fake_order.side = "buy"
+        fake_order.type = "market"
+        fake_order.status = "accepted"
+        fake_order.filled_avg_price = None
+        fake_order.legs = []
+
+        fake_client = MagicMock()
+        fake_client.submit_order.return_value = fake_order
+
+        with patch(
+            "src.shadow_trading.alpaca_adapter._get_live_config",
+            return_value={"enabled": True, "api_key": "k", "api_secret": "s"},
+        ), patch(
+            "src.shadow_trading.alpaca_adapter._get_live_trading_client",
+            return_value=fake_client,
+        ):
+            place_live_bracket(
+                ticker="SBUX",
+                shares=10,
+                take_profit_price=102.0,
+                stop_loss_price=91.88,
+            )
+
+        # Inspect the request we sent to Alpaca. Conftest mocks aliases
+        # MarketOrderRequest and LimitOrderRequest to the same class, so we
+        # check by absence of limit_price (the distinguishing attribute) and
+        # by the mock enum's `value` payload rather than identity equality.
+        submitted = fake_client.submit_order.call_args.args[0]
+        assert not hasattr(submitted, "limit_price"), "market path must not set limit_price"
+        assert submitted.order_class.value == "bracket"
+        assert submitted.time_in_force.value == "gtc"  # survive across sessions
+        assert submitted.take_profit == {"limit_price": 102.0}
+        assert submitted.stop_loss == {"stop_price": 91.88}
+
+    def test_place_live_bracket_with_limit_uses_limit_request(self):
+        """When limit_price is provided, use LimitOrderRequest for slippage protection."""
+        from unittest.mock import MagicMock, patch
+        from src.shadow_trading.alpaca_adapter import place_live_bracket
+
+        fake_order = MagicMock()
+        fake_order.id = "x"
+        fake_order.symbol = "SBUX"
+        fake_order.qty = 10
+        fake_order.side = "buy"
+        fake_order.type = "limit"
+        fake_order.status = "accepted"
+        fake_order.filled_avg_price = None
+        fake_order.legs = []
+
+        fake_client = MagicMock()
+        fake_client.submit_order.return_value = fake_order
+
+        with patch(
+            "src.shadow_trading.alpaca_adapter._get_live_config",
+            return_value={"enabled": True, "api_key": "k", "api_secret": "s"},
+        ), patch(
+            "src.shadow_trading.alpaca_adapter._get_live_trading_client",
+            return_value=fake_client,
+        ):
+            place_live_bracket(
+                ticker="SBUX",
+                shares=10,
+                take_profit_price=102.0,
+                stop_loss_price=91.88,
+                limit_price=96.95,
+            )
+
+        # Limit path must include limit_price (the distinguishing attribute
+        # vs the market path) and still attach broker-side bracket children.
+        submitted = fake_client.submit_order.call_args.args[0]
+        assert hasattr(submitted, "limit_price"), "limit path must set limit_price"
+        assert submitted.limit_price == 96.95
+        assert submitted.order_class.value == "bracket"
+        assert submitted.take_profit == {"limit_price": 102.0}
+        assert submitted.stop_loss == {"stop_price": 91.88}
+
+    def test_paper_and_live_bracket_use_same_alpaca_api(self):
+        """Coupling test: paper and live bracket implementations must be
+        structurally equivalent (same OrderClass, TimeInForce, request types).
+
+        The pre-#651 comment "Alpaca live doesn't have a native bracket order
+        API like paper" was factually wrong. This test makes that assumption
+        explicit so future developers can't reintroduce the same belief.
+        """
+        import inspect
+        from src.shadow_trading import alpaca_adapter
+
+        paper_src = inspect.getsource(alpaca_adapter.place_bracket_order)
+        live_src = inspect.getsource(alpaca_adapter.place_live_bracket)
+
+        # Both must use OrderClass.BRACKET — that's the safety contract
+        assert "OrderClass.BRACKET" in paper_src
+        assert "OrderClass.BRACKET" in live_src
+
+        # Both must use GTC so brackets survive across sessions
+        assert "TimeInForce.GTC" in paper_src
+        assert "TimeInForce.GTC" in live_src
+
+        # Both must support take_profit and stop_loss kwargs
+        assert "take_profit=" in paper_src and "take_profit=" in live_src
+        assert "stop_loss=" in paper_src and "stop_loss=" in live_src
