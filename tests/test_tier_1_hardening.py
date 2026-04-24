@@ -110,3 +110,119 @@ def test_imports_connect_db(path):
     assert "from src.utils.db import connect_db" in src, (
         f"{path} must import connect_db from src.utils.db (#578)"
     )
+
+
+# ---------------------------------------------------------------------------
+# #437 + #482 — status string consolidation
+# ---------------------------------------------------------------------------
+
+
+def test_status_sql_helper_exists_and_returns_canonical_constants():
+    """The helper must derive its values from TERMINAL_STATUSES /
+    ACTIVE_STATUSES, not hardcoded copies. This guards against the helper
+    drifting from the canonical constants over time."""
+    from src.shadow_trading._status_sql import (
+        active_in_clause,
+        terminal_in_clause,
+    )
+    from src.shadow_trading.models import ACTIVE_STATUSES, TERMINAL_STATUSES
+
+    t_frag, t_params = terminal_in_clause()
+    a_frag, a_params = active_in_clause()
+
+    assert set(t_params) == set(TERMINAL_STATUSES)
+    assert set(a_params) == set(ACTIVE_STATUSES)
+    # Placeholder count matches param count (parameterized, not interpolated)
+    assert t_frag.count("?") == len(t_params)
+    assert a_frag.count("?") == len(a_params)
+    # Sorted for stable query-plan / cache-key behavior
+    assert list(t_params) == sorted(t_params)
+    assert list(a_params) == sorted(a_params)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "src/shadow_trading/executor.py",
+        "src/shadow_trading/reconcile.py",
+        "src/risk/governor.py",
+        "src/scheduler/reports.py",
+    ],
+)
+def test_no_hardcoded_status_filter_predicates(path):
+    """#437 + #482 — SQL filter predicates that compare shadow_trades.status
+    against literal string(s) must use the helper from _status_sql.py.
+
+    Targets the patterns:
+      - status = 'closed' / "closed"
+      - status='open' / "open"
+      - status IN ('open', 'exit_pending')
+
+    Skips:
+      - SET status = 'X'  (assignment, not filter)
+      - INSERT ... 'X' ... (value, not filter)
+      - status="X" as Python kwarg (caught by dataclass init)
+      - status ==  Python comparison (not SQL)
+    """
+    src = _read(path)
+    # SQL filter predicates only — must be inside a string literal that
+    # contains "WHERE" or "AND" before the status check, OR be an `IN (...)`
+    # clause with quoted status values.
+    bad_patterns = [
+        # `status = 'X'` or `status='X'` (with optional space)
+        r"status\s*=\s*['\"](?:closed|open|exit_pending|exit_failed|"
+        r"submission_uncertain|pending|rejected|failed|exit_abandoned|"
+        r"needs_manual_review)['\"]",
+        # `status IN (...)` with literals
+        r"status\s+IN\s*\(\s*['\"][a-z_]+['\"]",
+    ]
+    violations: list[str] = []
+    src_lines = src.splitlines()
+    for line_no, line in enumerate(src_lines, start=1):
+        stripped = line.lstrip()
+        # Skip SET status = ... (assignment in UPDATE)
+        if re.search(r"\bSET\s+status\s*=", line, re.IGNORECASE):
+            continue
+        # Skip pure-comment lines and docstring-marker lines. These can
+        # legitimately mention status values without being SQL.
+        if stripped.startswith("#"):
+            continue
+        if re.match(r'^\s*"""|^\s*\'\'\'', line):
+            continue
+        # Skip lines that look like they're inside an active docstring —
+        # heuristic: most-recent triple-quote pair is unbalanced (i.e.,
+        # this line is between """ and the next """).
+        before = "\n".join(src_lines[:line_no - 1])
+        triple_double = before.count('"""')
+        triple_single = before.count("'''")
+        if triple_double % 2 == 1 or triple_single % 2 == 1:
+            continue
+        for pat in bad_patterns:
+            if re.search(pat, line):
+                # Only count if the line is part of a SQL string literal
+                # (heuristic: it contains SQL keywords or is inside a
+                # multi-line string with WHERE/SELECT in the previous
+                # ~5 lines)
+                window = "\n".join(src_lines[max(0, line_no - 6):line_no])
+                if not re.search(
+                    r"\b(WHERE|SELECT|FROM|UPDATE|JOIN|AND|OR)\b",
+                    window,
+                    re.IGNORECASE,
+                ):
+                    break
+                # Escape hatch: a `# STATUS-NARROW:` comment within the
+                # preceding 12 lines documents that the literal status is
+                # intentionally narrow (e.g., recovery paths that must
+                # not broaden). The comment itself can be multi-line, so
+                # we look back generously. The comment must explain why.
+                escape_window = "\n".join(src_lines[max(0, line_no - 13):line_no])
+                if re.search(r"#\s*STATUS-NARROW\s*:", escape_window):
+                    break
+                violations.append(f"{path}:{line_no}: {line.strip()}")
+                break
+    assert not violations, (
+        f"Found {len(violations)} hardcoded status filter predicate(s) in "
+        f"{path}. Use terminal_in_clause() / active_in_clause() from "
+        f"src.shadow_trading._status_sql instead (#437, #482):\n"
+        + "\n".join(violations)
+    )
