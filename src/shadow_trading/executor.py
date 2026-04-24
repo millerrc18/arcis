@@ -37,8 +37,29 @@ from src.journal.store import (
     update_recommendation,
 )
 from src.models import TradePacket
+from src.shadow_trading._status_sql import (
+    active_in_clause,
+    terminal_in_clause,
+)
 from src.shadow_trading.models import ShadowTrade
 from alpaca.common.exceptions import APIError
+
+# #436 — alpaca.trading.requests / alpaca.trading.enums are hoisted to
+# the module top so an ImportError surfaces at startup instead of
+# silently bypassing the standalone-stop-loss fallback (which would
+# leave a live position unprotected). _ALPACA_BRACKET_AVAILABLE is the
+# canary callers check before attempting bracket / stop-order paths;
+# when False, the executor must refuse new entries rather than enter
+# unprotected.
+try:
+    from alpaca.trading.requests import StopOrderRequest  # noqa: F401
+    from alpaca.trading.enums import OrderSide, TimeInForce  # noqa: F401
+    _ALPACA_BRACKET_AVAILABLE = True
+except ImportError:  # pragma: no cover — only fires when alpaca-py absent
+    StopOrderRequest = None  # type: ignore[assignment]
+    OrderSide = None  # type: ignore[assignment]
+    TimeInForce = None  # type: ignore[assignment]
+    _ALPACA_BRACKET_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -50,11 +71,13 @@ def _count_live_open_positions(db_path: str) -> int:
     live, any future router) agrees.  Used by the hard governor cap.
     """
     from src.utils.db import connect_db
+    _a_frag, _a_params = active_in_clause()
     with connect_db(db_path) as conn:
         row = conn.execute(
             "SELECT COUNT(*) FROM shadow_trades "
-            "WHERE status IN ('open', 'exit_pending') "
-            "AND COALESCE(quarantined, 0) = 0"
+            f"WHERE status IN ({_a_frag}) "
+            "AND COALESCE(quarantined, 0) = 0",
+            _a_params,
         ).fetchone()
     return int(row[0] or 0)
 
@@ -527,10 +550,11 @@ def open_shadow_trade(
     try:
         _dup_conn = _sqlite3.connect(db_path)
         _dup_conn.execute("BEGIN IMMEDIATE")
+        _a_frag_dup, _a_params_dup = active_in_clause()
         _dup_row = _dup_conn.execute(
-            "SELECT trade_id FROM shadow_trades WHERE ticker = ? AND status = 'open'"
+            f"SELECT trade_id FROM shadow_trades WHERE ticker = ? AND status IN ({_a_frag_dup})"
             " AND COALESCE(quarantined, 0) = 0 LIMIT 1",
-            (ticker,),
+            (ticker, *_a_params_dup),
         ).fetchone()
         if _dup_row:
             _dup_conn.rollback()
@@ -581,18 +605,21 @@ def open_shadow_trade(
         from src.risk.governor import drawdown_adjusted_risk
         starting_capital = config.get("risk", {}).get("starting_capital", 100000)
         # Compute peak equity and current drawdown from closed trades
+        _t_frag_dd, _t_params_dd = terminal_in_clause()
         with connect_db(db_path) as _conn:
             _row = _conn.execute(
-                "SELECT COALESCE(SUM(pnl_dollars), 0) FROM shadow_trades WHERE status = 'closed'"
-                " AND COALESCE(quarantined, 0) = 0"
+                f"SELECT COALESCE(SUM(pnl_dollars), 0) FROM shadow_trades WHERE status IN ({_t_frag_dd})"
+                " AND COALESCE(quarantined, 0) = 0",
+                _t_params_dd,
             ).fetchone()
             total_pnl = _row[0] if _row else 0
             _peak_row = _conn.execute(
                 "SELECT MAX(running_pnl) FROM ("
                 "  SELECT SUM(pnl_dollars) OVER (ORDER BY updated_at) AS running_pnl"
-                "  FROM shadow_trades WHERE status = 'closed' AND pnl_dollars IS NOT NULL"
+                f"  FROM shadow_trades WHERE status IN ({_t_frag_dd}) AND pnl_dollars IS NOT NULL"
                 "  AND COALESCE(quarantined, 0) = 0"
-                ")"
+                ")",
+                _t_params_dd,
             ).fetchone()
             peak_pnl = _peak_row[0] if _peak_row and _peak_row[0] else max(total_pnl, 0)
         peak_equity = starting_capital + peak_pnl
@@ -766,13 +793,42 @@ def open_shadow_trade(
             trade_data["max_adverse_excursion"] = 0.0
             _verify_and_update(trade_data)
 
-            # Fix for #274: Immediately place standalone stop-loss protection.
-            # If stop submission fails, CLOSE the position — an unprotected
-            # position is worse than no position.
-            try:
-                from src.shadow_trading.alpaca_adapter import place_paper_exit
-                from alpaca.trading.requests import StopOrderRequest
-                from alpaca.trading.enums import OrderSide, TimeInForce
+            # Fix for #274 + #436: Immediately place standalone stop-loss
+            # protection. If stop submission fails, CLOSE the position —
+            # an unprotected position is worse than no position. The
+            # alpaca.trading symbols are hoisted to module top (#436), so
+            # an SDK-missing failure surfaces at startup. If somehow this
+            # branch is reached without the SDK, fail-loud and emergency-
+            # close instead of silently leaving the position unprotected.
+            from src.shadow_trading.alpaca_adapter import place_paper_exit
+            if not _ALPACA_BRACKET_AVAILABLE:
+                logger.error(
+                    "[SHADOW] CRITICAL: alpaca.trading SDK unavailable for %s — "
+                    "cannot place stop. Emergency-closing position to avoid "
+                    "unprotected exposure (#436).", ticker,
+                )
+                try:
+                    place_paper_exit(ticker, planned_shares)
+                    trade_data["status"] = "failed"
+                    trade_data["order_type"] = "failed_sdk_missing"
+                except Exception as close_err:
+                    logger.error(
+                        "[SHADOW] EMERGENCY: Cannot close unprotected position %s: %s",
+                        ticker, close_err,
+                    )
+                try:
+                    from src.notifications.telegram import send_telegram
+                    send_telegram(
+                        f"🚨 UNPROTECTED POSITION (SDK MISSING): {ticker}\n"
+                        f"alpaca.trading imports unavailable. Attempted emergency "
+                        f"close: {'success' if trade_data.get('status') == 'failed' else 'FAILED'}"
+                    )
+                except Exception as notify_err:
+                    logger.warning(
+                        "[EXECUTOR] Unprotected position notification failed: %s",
+                        notify_err,
+                    )
+            else:
                 client = None
                 try:
                     from src.shadow_trading.alpaca_adapter import _get_trading_client
@@ -806,8 +862,6 @@ def open_shadow_trade(
                         )
                     except Exception as e:
                         logger.warning("[EXECUTOR] Unprotected position notification failed: %s", e)
-            except ImportError:
-                logger.warning("[SHADOW] Stop order imports unavailable for %s — position unprotected", ticker)
 
         except (ConnectionError, TimeoutError, OSError) as e2:
             # Network error — order may have been accepted by Alpaca.
@@ -2121,23 +2175,25 @@ def open_live_trade(
     try:
         import sqlite3 as _sql275
         today_str = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
+        _t_frag275, _t_params275 = terminal_in_clause()
+        _a_frag275, _a_params275 = active_in_clause()
         with _sql275.connect(db_path, timeout=10) as _conn275:
             _conn275.row_factory = _sql275.Row
             # Today's realized losses from closed live trades
             _realized_row = _conn275.execute(
                 "SELECT COALESCE(SUM(pnl_dollars), 0) as total FROM shadow_trades "
-                "WHERE status='closed' AND source='live' AND actual_exit_time LIKE ?"
+                f"WHERE status IN ({_t_frag275}) AND source='live' AND actual_exit_time LIKE ?"
                 " AND COALESCE(quarantined, 0) = 0",
-                (f"{today_str}%",),
+                (*_t_params275, f"{today_str}%"),
             ).fetchone()
             today_realized = float(_realized_row["total"]) if _realized_row else 0.0
 
             # Today's unrealized P&L on live trades opened today
             _open_today = _conn275.execute(
                 "SELECT ticker, actual_entry_price, entry_price, planned_shares "
-                "FROM shadow_trades WHERE status='open' AND source='live' AND created_at LIKE ?"
+                f"FROM shadow_trades WHERE status IN ({_a_frag275}) AND source='live' AND created_at LIKE ?"
                 " AND COALESCE(quarantined, 0) = 0",
-                (f"{today_str}%",),
+                (*_a_params275, f"{today_str}%"),
             ).fetchall()
 
         today_unrealized = 0.0
@@ -2399,16 +2455,19 @@ def _check_close_milestones(db_path: str = DB_PATH) -> None:
         if not is_telegram_enabled():
             return
 
+        _t_frag_m, _t_params_m = terminal_in_clause()
         with connect_db(db_path) as conn:
 
             closed_total = conn.execute(
-                "SELECT COUNT(*) FROM shadow_trades WHERE status='closed'"
-                " AND COALESCE(quarantined, 0) = 0"
+                f"SELECT COUNT(*) FROM shadow_trades WHERE status IN ({_t_frag_m})"
+                " AND COALESCE(quarantined, 0) = 0",
+                _t_params_m,
             ).fetchone()[0]
 
             wins = conn.execute(
-                "SELECT COUNT(*) FROM shadow_trades WHERE status='closed' AND pnl_dollars > 0"
-                " AND COALESCE(quarantined, 0) = 0"
+                f"SELECT COUNT(*) FROM shadow_trades WHERE status IN ({_t_frag_m}) AND pnl_dollars > 0"
+                " AND COALESCE(quarantined, 0) = 0",
+                _t_params_m,
             ).fetchone()[0]
             losses = closed_total - wins
 
@@ -2420,7 +2479,8 @@ def _check_close_milestones(db_path: str = DB_PATH) -> None:
 
                 avg_row = conn.execute(
                     "SELECT AVG(pnl_dollars) as expectancy, AVG(duration_days) as avg_hold "
-                    "FROM shadow_trades WHERE status='closed' AND COALESCE(quarantined, 0) = 0"
+                    f"FROM shadow_trades WHERE status IN ({_t_frag_m}) AND COALESCE(quarantined, 0) = 0",
+                    _t_params_m,
                 ).fetchone()
                 expectancy = avg_row["expectancy"] or 0
                 avg_hold = avg_row["avg_hold"] or 0
@@ -2446,8 +2506,9 @@ def _check_close_milestones(db_path: str = DB_PATH) -> None:
             if wins == 1:
                 first_win = conn.execute(
                     "SELECT ticker, pnl_dollars, pnl_pct FROM shadow_trades "
-                    "WHERE status='closed' AND pnl_dollars > 0 AND COALESCE(quarantined, 0) = 0 "
-                    "ORDER BY actual_exit_time ASC LIMIT 1"
+                    f"WHERE status IN ({_t_frag_m}) AND pnl_dollars > 0 AND COALESCE(quarantined, 0) = 0 "
+                    "ORDER BY actual_exit_time ASC LIMIT 1",
+                    _t_params_m,
                 ).fetchone()
                 if first_win:
                     notify_milestone(
@@ -2458,15 +2519,17 @@ def _check_close_milestones(db_path: str = DB_PATH) -> None:
             # First live profit
             live_wins = conn.execute(
                 "SELECT COUNT(*) FROM shadow_trades "
-                "WHERE status='closed' AND source='live' AND pnl_dollars > 0"
-                " AND COALESCE(quarantined, 0) = 0"
+                f"WHERE status IN ({_t_frag_m}) AND source='live' AND pnl_dollars > 0"
+                " AND COALESCE(quarantined, 0) = 0",
+                _t_params_m,
             ).fetchone()[0]
             if live_wins == 1:
                 first_live_win = conn.execute(
                     "SELECT ticker, pnl_dollars, pnl_pct FROM shadow_trades "
-                    "WHERE status='closed' AND source='live' AND pnl_dollars > 0 "
+                    f"WHERE status IN ({_t_frag_m}) AND source='live' AND pnl_dollars > 0 "
                     "AND COALESCE(quarantined, 0) = 0 "
-                    "ORDER BY actual_exit_time ASC LIMIT 1"
+                    "ORDER BY actual_exit_time ASC LIMIT 1",
+                    _t_params_m,
                 ).fetchone()
                 if first_live_win:
                     notify_milestone(
@@ -2476,15 +2539,17 @@ def _check_close_milestones(db_path: str = DB_PATH) -> None:
 
             # 3 consecutive wins
             last_3 = conn.execute(
-                "SELECT pnl_dollars FROM shadow_trades WHERE status='closed'"
+                f"SELECT pnl_dollars FROM shadow_trades WHERE status IN ({_t_frag_m})"
                 " AND COALESCE(quarantined, 0) = 0 "
-                "ORDER BY actual_exit_time DESC LIMIT 3"
+                "ORDER BY actual_exit_time DESC LIMIT 3",
+                _t_params_m,
             ).fetchall()
             if len(last_3) == 3 and all(float(r["pnl_dollars"] or 0) > 0 for r in last_3):
                 last_4 = conn.execute(
-                    "SELECT pnl_dollars FROM shadow_trades WHERE status='closed'"
+                    f"SELECT pnl_dollars FROM shadow_trades WHERE status IN ({_t_frag_m})"
                     " AND COALESCE(quarantined, 0) = 0 "
-                    "ORDER BY actual_exit_time DESC LIMIT 4"
+                    "ORDER BY actual_exit_time DESC LIMIT 4",
+                    _t_params_m,
                 ).fetchall()
                 # Only alert if the 4th-most-recent was NOT a win (to avoid repeat alerts)
                 if len(last_4) < 4 or float(last_4[3]["pnl_dollars"] or 0) <= 0:
@@ -2496,14 +2561,16 @@ def _check_close_milestones(db_path: str = DB_PATH) -> None:
             # Best single trade P&L
             best_ever = conn.execute(
                 "SELECT ticker, pnl_dollars, pnl_pct FROM shadow_trades "
-                "WHERE status='closed' AND COALESCE(quarantined, 0) = 0"
-                " ORDER BY pnl_dollars DESC LIMIT 1"
+                f"WHERE status IN ({_t_frag_m}) AND COALESCE(quarantined, 0) = 0"
+                " ORDER BY pnl_dollars DESC LIMIT 1",
+                _t_params_m,
             ).fetchone()
             # The most recent closed trade
             latest = conn.execute(
                 "SELECT ticker, pnl_dollars FROM shadow_trades "
-                "WHERE status='closed' AND COALESCE(quarantined, 0) = 0"
-                " ORDER BY actual_exit_time DESC LIMIT 1"
+                f"WHERE status IN ({_t_frag_m}) AND COALESCE(quarantined, 0) = 0"
+                " ORDER BY actual_exit_time DESC LIMIT 1",
+                _t_params_m,
             ).fetchone()
             if (best_ever and latest and closed_total > 1
                     and best_ever["ticker"] == latest["ticker"]
@@ -2525,11 +2592,13 @@ def _check_loss_streak(db_path: str = DB_PATH) -> None:
         if not is_telegram_enabled():
             return
 
+        _t_frag_ls, _t_params_ls = terminal_in_clause()
         with connect_db(db_path) as conn:
             recent = conn.execute(
                 "SELECT ticker, pnl_dollars, pnl_pct FROM shadow_trades "
-                "WHERE status='closed' AND COALESCE(quarantined, 0) = 0"
-                " ORDER BY actual_exit_time DESC LIMIT 10"
+                f"WHERE status IN ({_t_frag_ls}) AND COALESCE(quarantined, 0) = 0"
+                " ORDER BY actual_exit_time DESC LIMIT 10",
+                _t_params_ls,
             ).fetchall()
 
         if len(recent) < 3:
@@ -2562,9 +2631,10 @@ def _check_loss_streak(db_path: str = DB_PATH) -> None:
                 # Historical max streak
                 with connect_db(db_path) as conn:
                     all_closed = conn.execute(
-                        "SELECT pnl_dollars FROM shadow_trades WHERE status='closed'"
+                        f"SELECT pnl_dollars FROM shadow_trades WHERE status IN ({_t_frag_ls})"
                         " AND COALESCE(quarantined, 0) = 0 "
-                        "ORDER BY actual_exit_time ASC"
+                        "ORDER BY actual_exit_time ASC",
+                        _t_params_ls,
                     ).fetchall()
                 max_streak = 0
                 current = 0
@@ -2593,10 +2663,12 @@ def _check_sector_exposure(db_path: str = DB_PATH) -> None:
         if not is_telegram_enabled():
             return
 
+        _a_frag_se, _a_params_se = active_in_clause()
         with connect_db(db_path) as conn:
             open_trades = conn.execute(
-                "SELECT ticker FROM shadow_trades WHERE status='open'"
-                " AND COALESCE(quarantined, 0) = 0"
+                f"SELECT ticker FROM shadow_trades WHERE status IN ({_a_frag_se})"
+                " AND COALESCE(quarantined, 0) = 0",
+                _a_params_se,
             ).fetchall()
 
         if len(open_trades) < 3:

@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -36,7 +37,7 @@ def save_metric_snapshot(metrics: dict, db_path: str = DB_PATH) -> None:
     init_training_tables(db_path)
     today = datetime.now(ET).strftime("%Y-%m-%d")
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         existing = conn.execute(
             "SELECT 1 FROM metric_snapshots WHERE snapshot_date = ?", (today,)
         ).fetchone()
@@ -60,7 +61,7 @@ def get_metric_history(days: int = 90, db_path: str = DB_PATH) -> list[dict]:
     import json
     init_training_tables(db_path)
     cutoff = (datetime.now(ZoneInfo("America/New_York")) - timedelta(days=days)).strftime("%Y-%m-%d")
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT snapshot_date, metrics_json FROM metric_snapshots "
@@ -81,7 +82,7 @@ def get_metric_history(days: int = 90, db_path: str = DB_PATH) -> list[dict]:
 def get_active_model_version(db_path: str = DB_PATH) -> dict | None:
     """Return the currently active model version, or None if using base."""
     init_training_tables(db_path)
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             "SELECT * FROM model_versions WHERE status = 'active' ORDER BY created_at DESC LIMIT 1"
@@ -105,7 +106,7 @@ def register_model_version(
     version_id = str(uuid.uuid4())
     created_at = datetime.now(ET).isoformat()
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         if status == "active":
             # Retire current active version
             conn.execute(
@@ -129,7 +130,7 @@ def register_model_version(
 def get_evaluation_model(db_path: str = DB_PATH) -> dict | None:
     """Return a model in 'evaluation' status, or None."""
     init_training_tables(db_path)
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             "SELECT * FROM model_versions WHERE status = 'evaluation' ORDER BY created_at DESC LIMIT 1"
@@ -140,7 +141,7 @@ def get_evaluation_model(db_path: str = DB_PATH) -> dict | None:
 def promote_evaluation_model(db_path: str = DB_PATH) -> dict | None:
     """Promote the evaluation model to active status."""
     init_training_tables(db_path)
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         eval_model = conn.execute(
             "SELECT * FROM model_versions WHERE status = 'evaluation' ORDER BY created_at DESC LIMIT 1"
@@ -157,7 +158,7 @@ def promote_evaluation_model(db_path: str = DB_PATH) -> dict | None:
 def reject_evaluation_model(db_path: str = DB_PATH) -> dict | None:
     """Reject the evaluation model (set to rejected status)."""
     init_training_tables(db_path)
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         eval_model = conn.execute(
             "SELECT * FROM model_versions WHERE status = 'evaluation' ORDER BY created_at DESC LIMIT 1"
@@ -173,7 +174,7 @@ def reject_evaluation_model(db_path: str = DB_PATH) -> dict | None:
 def rollback_model(db_path: str = DB_PATH) -> dict | None:
     """Roll back active model to previous retired version. Returns restored version or None."""
     init_training_tables(db_path)
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
 
         # Set active to rolled_back
@@ -201,7 +202,7 @@ def rollback_model(db_path: str = DB_PATH) -> dict | None:
 def get_model_history(db_path: str = DB_PATH) -> list[dict]:
     """Return all model versions ordered by created_at descending."""
     init_training_tables(db_path)
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT * FROM model_versions ORDER BY created_at DESC"
@@ -296,7 +297,7 @@ def get_performance_by_version(db_path: str = DB_PATH) -> list[dict]:
     # Ensure model_version column exists
     _migrate_model_version_column(db_path)
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute("""
             SELECT
@@ -326,7 +327,7 @@ def get_performance_by_version(db_path: str = DB_PATH) -> list[dict]:
 def get_training_example_counts(db_path: str = DB_PATH) -> dict:
     """Return counts of training examples by source."""
     init_training_tables(db_path)
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT source, COUNT(*) as count FROM training_examples GROUP BY source"
@@ -342,7 +343,7 @@ def get_training_example_counts(db_path: str = DB_PATH) -> dict:
 def get_new_examples_since(since_date: str, db_path: str = DB_PATH) -> int:
     """Count training examples created after the given date."""
     init_training_tables(db_path)
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         row = conn.execute(
             "SELECT COUNT(*) FROM training_examples WHERE created_at > ?",
             (since_date,),
@@ -384,7 +385,7 @@ def log_api_cost(
         cost_id = str(uuid.uuid4())
         created_at = datetime.now(ET).isoformat()
 
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.execute(
                 """INSERT INTO api_costs
                    (cost_id, created_at, model, purpose, input_tokens, output_tokens, cost_dollars)
@@ -404,7 +405,7 @@ def get_cost_summary(days: int = 30, db_path: str = DB_PATH) -> dict:
     today_str = now.strftime("%Y-%m-%d")
     week_ago = (now - timedelta(days=7)).isoformat()
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
 
         # Total (all time)

@@ -1,5 +1,11 @@
 """Local-API auth dependency (#576).
 
+Called by: api.routes.actions
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: tests/test_phase_d_auth_and_safety.py
+
 Pre-#576, all 7 POST endpoints in src/api/routes/actions.py were
 unauthenticated. Mitigation existed at the network layer (127.0.0.1
 binding) but there was no route-level gate. The audit flagged this as a

@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo
 from src.config import DB_PATH
 from src.models import TradePacket
 from src.schema.registry import TABLES
+from src.utils.db import connect_db
 
 _logger = logging.getLogger(__name__)
 
@@ -89,7 +90,7 @@ def initialize_database(db_path: str = DB_PATH) -> None:
 
     # Data migration: backfill actual_exit_time for trades closed by reconciliation
     # that were missing this field (causes them to be invisible to dashboard)
-    with sqlite3.connect(Path(db_path)) as conn:
+    with connect_db(db_path) as conn:
         conn.execute(
             "UPDATE shadow_trades SET actual_exit_time = COALESCE(updated_at, created_at) "
             "WHERE status = 'closed' AND actual_exit_time IS NULL"
@@ -178,7 +179,7 @@ def log_recommendation(
     placeholders = ", ".join("?" for _ in row)
     values = list(row.values())
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.execute(f"INSERT INTO recommendations ({columns}) VALUES ({placeholders})", values)
         conn.commit()
 
@@ -199,7 +200,7 @@ def get_todays_recommendations(db_path: str = DB_PATH) -> list[dict]:
     ]
     columns_sql = ", ".join(fields)
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             f"SELECT {columns_sql} FROM recommendations WHERE created_at LIKE ?",
@@ -232,7 +233,7 @@ def insert_shadow_trade(trade: dict, db_path: str = DB_PATH) -> str:
     placeholders = ", ".join("?" for _ in trade)
     values = list(trade.values())
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.execute(
             f"INSERT INTO shadow_trades ({columns}) VALUES ({placeholders})", values
         )
@@ -255,7 +256,7 @@ def update_shadow_trade(
     set_clause = ", ".join(f"{k} = ?" for k in updates)
     values = list(updates.values()) + [trade_id]
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.execute(
             f"UPDATE shadow_trades SET {set_clause} WHERE trade_id = ?", values
         )
@@ -265,7 +266,7 @@ def update_shadow_trade(
 def get_open_shadow_trades(db_path: str = DB_PATH) -> list[dict]:
     """Return all broker-open shadow trades, including pending exits."""
     initialize_database(db_path)
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT * FROM shadow_trades WHERE status IN ('open', 'exit_pending') "
@@ -280,7 +281,7 @@ def get_shadow_trade(
 ) -> dict | None:
     """Return a single shadow trade by ID, or None."""
     initialize_database(db_path)
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             "SELECT * FROM shadow_trades WHERE trade_id = ?", (trade_id,)
@@ -296,7 +297,7 @@ def get_closed_shadow_trades(
     et = ZoneInfo("America/New_York")
     cutoff = (datetime.now(et) - timedelta(days=days)).isoformat()
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT * FROM shadow_trades WHERE status = 'closed' AND actual_exit_time >= ?"
@@ -304,6 +305,101 @@ def get_closed_shadow_trades(
             (cutoff,),
         ).fetchall()
     return [dict(row) for row in rows]
+
+
+def _populate_exit_metadata(
+    trade_id: str, exit_time: str, exit_price: float, db_path: str,
+) -> tuple[dict, dict | None]:
+    """Best-effort exit-metadata population (Sprint 6, SD#24).
+
+    Returns (extra_fields_to_merge, trade_row_or_None). Failures here
+    must NEVER block the trade close — log and return what we have.
+    """
+    extras: dict = {}
+    try:
+        with connect_db(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            trade = conn.execute(
+                "SELECT ticker, source, entry_price, actual_entry_time, "
+                "max_favorable_excursion "
+                "FROM shadow_trades WHERE trade_id = ?", (trade_id,)
+            ).fetchone()
+            if not trade:
+                return extras, None
+            entry_price = trade["entry_price"] or 0
+            vix_row = conn.execute(
+                "SELECT vix FROM vix_term_structure ORDER BY collected_date DESC LIMIT 1"
+            ).fetchone()
+            if vix_row:
+                extras["vix_at_exit"] = float(vix_row[0])
+            from src.features.regime import compute_market_regime
+            from src.data_ingestion.market_data import fetch_spy_benchmark
+            spy = fetch_spy_benchmark()
+            if not spy.empty:
+                regime = compute_market_regime(spy, {})
+                extras["regime_at_exit"] = regime.get("regime_label", "")
+            if trade["actual_entry_time"] and exit_time:
+                from datetime import datetime as _dt
+                try:
+                    entry_dt = _dt.fromisoformat(trade["actual_entry_time"][:19])
+                    exit_dt = _dt.fromisoformat(exit_time[:19])
+                    extras["time_to_target_days"] = (exit_dt - entry_dt).days
+                except (ValueError, TypeError):
+                    pass
+            mfe = trade["max_favorable_excursion"] or 0
+            if entry_price > 0 and mfe > 0:
+                extras["drawdown_from_mfe"] = round(
+                    (mfe - (exit_price - entry_price)) / entry_price * 10000, 1
+                )
+            return extras, trade
+    except Exception as exc:
+        # #588 — best-effort but visible (warning, not silent debug)
+        _logger.warning(
+            "[JOURNAL] close_shadow_trade exit-metadata write failed for trade %s: %s",
+            trade_id, exc,
+        )
+        return extras, None
+
+
+def _broadcast_and_log_close(
+    trade_id: str, trade_row: dict | None,
+    exit_price: float, exit_reason: str,
+    pnl_dollars: float, pnl_pct: float,
+) -> None:
+    """Broadcast the trade-closed event to dashboard websockets and
+    persist to activity_log. Failures are non-fatal."""
+    try:
+        from src.api.websocket import broadcast_sync
+        broadcast_sync(
+            "trade_closed",
+            {
+                "trade_id": trade_id,
+                "ticker": trade_row["ticker"] if trade_row else None,
+                "source": trade_row["source"] if trade_row else None,
+                "exit_reason": exit_reason,
+                "pnl_dollars": pnl_dollars,
+                "pnl_pct": pnl_pct,
+                "exit_price": exit_price,
+            },
+        )
+    except Exception as exc:
+        _logger.warning("[JOURNAL] broadcast trade_closed failed for %s: %s", trade_id, exc)
+
+    # #614 — Persist trade-close to activity_log for the dashboard feed.
+    try:
+        import json as _json_tc
+        from src.utils.activity_logger import TRADE_CLOSED, log_activity
+        log_activity(
+            TRADE_CLOSED,
+            _json_tc.dumps({
+                "trade_id": trade_id,
+                "exit_reason": exit_reason,
+                "pnl_dollars": pnl_dollars,
+                "pnl_pct": pnl_pct,
+            }),
+        )
+    except Exception as exc:
+        _logger.debug("[JOURNAL] activity_log TRADE_CLOSED failed: %s", exc)
 
 
 def close_shadow_trade(
@@ -324,109 +420,15 @@ def close_shadow_trade(
         "pnl_dollars": pnl_dollars,
         "pnl_pct": pnl_pct,
     }
-    trade_row = None
-
-    # Populate exit metadata (Sprint 6, Strategy Decision #24)
-    try:
-        with sqlite3.connect(db_path) as conn:
-            conn.row_factory = sqlite3.Row
-            trade = conn.execute(
-                "SELECT ticker, source, entry_price, actual_entry_time, "
-                "max_favorable_excursion "
-                "FROM shadow_trades WHERE trade_id = ?", (trade_id,)
-            ).fetchone()
-            trade_row = trade
-            if trade:
-                entry_price = trade["entry_price"] or 0
-                # VIX at exit
-                vix_row = conn.execute(
-                    "SELECT vix FROM vix_term_structure ORDER BY collected_date DESC LIMIT 1"
-                ).fetchone()
-                if vix_row:
-                    fields["vix_at_exit"] = float(vix_row[0])
-                # Regime at exit
-                from src.features.regime import compute_market_regime
-                from src.data_ingestion.market_data import fetch_spy_benchmark
-                spy = fetch_spy_benchmark()
-                if not spy.empty:
-                    regime = compute_market_regime(spy, {})
-                    fields["regime_at_exit"] = regime.get("regime_label", "")
-                # Time to target (days from entry to exit)
-                if trade["actual_entry_time"] and exit_time:
-                    from datetime import datetime as _dt
-                    try:
-                        entry_dt = _dt.fromisoformat(trade["actual_entry_time"][:19])
-                        exit_dt = _dt.fromisoformat(exit_time[:19])
-                        fields["time_to_target_days"] = (exit_dt - entry_dt).days
-                    except (ValueError, TypeError):
-                        pass
-                # Drawdown from MFE (bps)
-                mfe = trade["max_favorable_excursion"] or 0
-                if entry_price > 0 and mfe > 0:
-                    fields["drawdown_from_mfe"] = round(
-                        (mfe - (exit_price - entry_price)) / entry_price * 10000, 1
-                    )
-    except Exception as exc:
-        # #588 — Exit metadata is best-effort (never block trade close), but
-        # silent failures hide diagnosable issues. Warning level so it shows up
-        # in operator logs without blocking the close.
-        _logger.warning(
-            "[JOURNAL] close_shadow_trade exit-metadata write failed for trade %s: %s",
-            trade_id, exc,
-        )
+    extras, trade_row = _populate_exit_metadata(
+        trade_id, exit_time, exit_price, db_path,
+    )
+    fields.update(extras)
     fields.update(_build_spy_excess_fields(trade_id, exit_time, pnl_pct, db_path))
     update_shadow_trade(trade_id, fields, db_path)
-    try:
-        from src.api.websocket import broadcast_sync
-
-        broadcast_sync(
-            "trade_closed",
-            {
-                "trade_id": trade_id,
-                "ticker": trade_row["ticker"] if trade_row else None,
-                "source": trade_row["source"] if trade_row else None,
-                "exit_reason": exit_reason,
-                "pnl_dollars": pnl_dollars,
-                "pnl_pct": pnl_pct,
-                "exit_price": exit_price,
-            },
-        )
-    except Exception as exc:
-        _logger.warning("[JOURNAL] broadcast trade_closed failed for %s: %s", trade_id, exc)
-
-    # #614 — Persist trade-close to activity_log for the dashboard feed.
-    # Pre-fix the TRADE_CLOSED constant existed but had zero writers.
-    try:
-        import json as _json_tc
-        from src.utils.activity_logger import TRADE_CLOSED, log_activity
-        log_activity(
-            TRADE_CLOSED,
-            _json_tc.dumps({
-                "trade_id": trade_id,
-                "exit_reason": exit_reason,
-                "pnl_dollars": pnl_dollars,
-                "pnl_pct": pnl_pct,
-            }),
-        )
-    except Exception as exc:
-        _logger.debug("[JOURNAL] activity_log TRADE_CLOSED failed: %s", exc)
-
-    # #614 — Persist trade-close to activity_log for the dashboard feed.
-    # Pre-fix the TRADE_CLOSED constant existed but had zero writers.
-    try:
-        import json as _json_tc
-        from src.utils.activity_logger import TRADE_CLOSED, log_activity
-        log_activity(
-            TRADE_CLOSED,
-            _json_tc.dumps({
-                "trade_id": trade_id,
-                "exit_reason": exit_reason,
-                "pnl_dollars": pnl_dollars,
-                "pnl_pct": pnl_pct,
-            }),
-        )
-    except Exception as exc:
-        _logger.debug("[JOURNAL] activity_log TRADE_CLOSED failed: %s", exc)
+    _broadcast_and_log_close(
+        trade_id, trade_row, exit_price, exit_reason, pnl_dollars, pnl_pct,
+    )
 
 
 def _build_spy_excess_fields(
@@ -442,7 +444,7 @@ def _build_spy_excess_fields(
         from src.analytics.spy_benchmark import (
             excess_return, get_sector, spy_return_over_range,
         )
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
             row = conn.execute(
                 "SELECT ticker, actual_entry_time FROM shadow_trades "
@@ -465,7 +467,7 @@ def get_open_shadow_trade_for_ticker(
 ) -> dict | None:
     """Return an open shadow trade for a given ticker, or None."""
     initialize_database(db_path)
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             "SELECT * FROM shadow_trades WHERE ticker = ? "
@@ -485,7 +487,7 @@ def get_recommendation_by_id(
 ) -> dict | None:
     """Return a single recommendation by ID."""
     initialize_database(db_path)
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             "SELECT * FROM recommendations WHERE recommendation_id = ?",
@@ -499,7 +501,7 @@ def get_recommendations_by_ticker(
 ) -> list[dict]:
     """Return recent recommendations for a ticker."""
     initialize_database(db_path)
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT * FROM recommendations WHERE ticker = ? ORDER BY created_at DESC LIMIT ?",
@@ -513,7 +515,7 @@ def get_recommendations_pending_review(
 ) -> list[dict]:
     """Return recommendations where ryan_executed=1 and user_grade is null."""
     initialize_database(db_path)
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT * FROM recommendations WHERE ryan_executed = 1 AND user_grade IS NULL ORDER BY created_at DESC"
@@ -537,7 +539,7 @@ def update_recommendation(
     set_clause = ", ".join(f"{k} = ?" for k in updates)
     values = list(updates.values()) + [recommendation_id]
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.execute(
             f"UPDATE recommendations SET {set_clause} WHERE recommendation_id = ?",
             values,
@@ -560,7 +562,7 @@ def get_all_shadow_trades(
     et = ZoneInfo("America/New_York")
     cutoff = (datetime.now(et) - timedelta(days=days)).isoformat()
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT * FROM shadow_trades WHERE created_at >= ?"
@@ -578,7 +580,7 @@ def get_recommendations_in_period(
     et = ZoneInfo("America/New_York")
     cutoff = (datetime.now(et) - timedelta(days=days)).isoformat()
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT * FROM recommendations WHERE created_at >= ? ORDER BY created_at DESC",

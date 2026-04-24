@@ -41,6 +41,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.shadow_trading._status_sql import active_in_clause
 from src.shadow_trading.alpaca_adapter import (
     cancel_orders_for_ticker,
     get_all_positions,
@@ -233,7 +234,12 @@ def reconcile_live_trades(
 
     alpaca_tickers = {p["symbol"]: p for p in alpaca_positions}
 
-    # Get tracked live trades
+    # STATUS-NARROW: orphan-check requires the broker to ALREADY have
+    # this position. 'pending' has not been submitted yet; 'submission_
+    # uncertain' is post-submit limbo handled by its own resolver. Only
+    # 'open' satisfies the precondition that the broker should hold this
+    # position right now (regression caught by
+    # test_uncertain_trade_marked_failed_when_alpaca_has_no_position).
     with connect_db(db_path) as conn:
         tracked = conn.execute(
             "SELECT trade_id, ticker FROM shadow_trades "
@@ -476,6 +482,12 @@ def reconcile_paper_trades(
     # Get tracked paper trades (including broker field)
     with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
+        # STATUS-NARROW: orphan-check requires the broker to ALREADY have
+        # this position. 'pending' has not been submitted yet; 'submission_
+        # uncertain' is post-submit limbo handled by its own resolver. Only
+        # 'open' satisfies the precondition that the broker should hold
+        # this position right now (regression caught by
+        # test_uncertain_trade_marked_failed_when_alpaca_has_no_position).
         tracked = conn.execute(
             "SELECT trade_id, ticker, planned_shares, COALESCE(broker, 'alpaca') as broker "
             "FROM shadow_trades "
@@ -691,6 +703,10 @@ def reconcile_paper_trades(
     resolved_reopened = []
     with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
+        # STATUS-NARROW: this is the stuck-exit recovery path — it must
+        # only target trades whose exit attempt explicitly failed or is
+        # pending. Broadening to ACTIVE_STATUSES would scan healthy 'open'
+        # trades and misclassify them as needing recovery.
         stuck = conn.execute(
             "SELECT trade_id, ticker, exit_reason, actual_entry_price, "
             "       entry_price, planned_shares, stop_price, target_1, target_2 "
@@ -815,6 +831,10 @@ def reconcile_paper_trades(
     # know if Alpaca received the order (network error during submission).
     with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
+        # STATUS-NARROW: post-submit verification recovery path — must
+        # only target trades whose submission verification failed (the
+        # submission_uncertain limbo state). Broadening would scan all
+        # active trades and misroute them to recovery.
         uncertain = conn.execute(
             "SELECT trade_id, ticker, entry_price, planned_shares "
             "FROM shadow_trades "
