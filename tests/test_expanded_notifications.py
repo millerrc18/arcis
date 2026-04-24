@@ -56,6 +56,71 @@ class TestPremarketBrief:
         assert "No major events" in msg
         assert "None" in msg  # No earnings
 
+    @patch("src.notifications.telegram.send_telegram")
+    def test_643_small_moves_render_with_two_decimals(self, mock_send):
+        """#643 regression: pre-merge, quiet pre-market mornings rendered
+        S&P futures of -0.04% as `-0.0%`, which operators read as broken data.
+
+        With 2-decimal precision, sub-0.05% moves are visible.
+        """
+        mock_send.return_value = True
+        from src.notifications.telegram import notify_premarket_brief
+
+        notify_premarket_brief(
+            vix=18.92, vix_change=-0.6, regime="TRANSITION",
+            spy_futures_pct=-0.04, ten_year=4.32,
+            earnings_today=["CHTR", "PG"],
+            fomc_days=5, nfp_days=7,
+            council_consensus="BEARISH", council_confidence=51,
+            open_paper=6, open_live=4,
+        )
+        msg = mock_send.call_args[0][0]
+        # Pre-fix this would be "-0.0%" — the bug under test.
+        assert "S&amp;P Futures: -0.04%" in msg, (
+            f"Expected 2-decimal precision on S&P futures; got: {msg!r}"
+        )
+        # VIX change should also use 2 decimals for consistency.
+        assert "(-0.60)" in msg, (
+            f"Expected 2-decimal precision on VIX change; got: {msg!r}"
+        )
+        # 10Y unchanged at 2 decimals.
+        assert "10Y: 4.32%" in msg
+
+    @patch("src.notifications.telegram.send_telegram")
+    def test_643_positive_zero_distinct_from_negative_small(self, mock_send):
+        """#643 — the leading-sign rendering must distinguish a true zero
+        (default-on-fetch-failure) from a tiny-but-real negative move.
+
+        With `:+.2f`, exact 0.0 renders as `+0.00%` (clearly intentional)
+        while -0.04 renders as `-0.04%` (clearly real data).
+        """
+        mock_send.return_value = True
+        from src.notifications.telegram import notify_premarket_brief
+
+        # Case 1: exact zero (yfinance default fallback)
+        notify_premarket_brief(
+            vix=18.0, vix_change=0.0, regime="NEUTRAL",
+            spy_futures_pct=0.0, ten_year=4.30,
+            earnings_today=[], fomc_days=None, nfp_days=None,
+            council_consensus="NEUTRAL", council_confidence=50,
+            open_paper=0, open_live=0,
+        )
+        msg_zero = mock_send.call_args[0][0]
+        assert "S&amp;P Futures: +0.00%" in msg_zero
+        assert "(+0.00)" in msg_zero  # vix_change
+
+        # Case 2: tiny real negative — must NOT collapse to +0.00
+        notify_premarket_brief(
+            vix=18.0, vix_change=-0.03, regime="NEUTRAL",
+            spy_futures_pct=-0.02, ten_year=4.30,
+            earnings_today=[], fomc_days=None, nfp_days=None,
+            council_consensus="NEUTRAL", council_confidence=50,
+            open_paper=0, open_live=0,
+        )
+        msg_tiny = mock_send.call_args[0][0]
+        assert "S&amp;P Futures: -0.02%" in msg_tiny
+        assert "(-0.03)" in msg_tiny
+
 
 class TestFirstScanSummary:
     """Test notify_first_scan_summary formatting."""

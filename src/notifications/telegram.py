@@ -499,10 +499,14 @@ def notify_premarket_brief(vix: float, vix_change: float, regime: str,
         event_parts.append(f"NFP in {nfp_days} days")
     events_str = " | ".join(event_parts) if event_parts else "No major events this week"
 
+    # #643 — both VIX-change and S&P futures pct rendered as `-0.0` on quiet
+    # mornings (precision too low for fields whose typical magnitude is <0.5).
+    # Operators read the leading minus + zero as broken data and panic-debug.
+    # Bumped to 2 decimals so e.g. -0.04% renders as -0.04% instead of -0.0%.
     msg = (
         f"🌅 <b>PRE-MARKET BRIEF</b> ({now})\n\n"
-        f"VIX: {vix:.2f} ({vix_change:+.1f}) | Regime: {regime}\n"
-        f"S&amp;P Futures: {spy_futures_pct:+.1f}% | 10Y: {ten_year:.2f}%\n"
+        f"VIX: {vix:.2f} ({vix_change:+.2f}) | Regime: {regime}\n"
+        f"S&amp;P Futures: {spy_futures_pct:+.2f}% | 10Y: {ten_year:.2f}%\n"
         f"Earnings today: {earnings_str}\n"
         f"{events_str}\n\n"
         f"Council consensus: {council_consensus.upper()} ({council_confidence}%)\n"
