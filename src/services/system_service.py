@@ -175,8 +175,9 @@ def get_system_status(config: dict) -> dict:
     except Exception:
         ib_connected = False
 
+    from src.version import VERSION as _ARCIS_VERSION
     return {
-        "version": "v0.17.2",
+        "version": _ARCIS_VERSION,  # #631-15: single source of truth (src/version.py)
         "config_loaded": config_loaded,
         "config_source": config_source,
         "email_configured": email_configured,
