@@ -547,7 +547,7 @@ def cancel_paper_order(order_id: str, desk: str = "swing") -> dict:
         m = _TERMINAL_STATE_RE.search(str(e))
         if m:
             terminal_state = m.group(1).lower()
-        logger.warning("[CANCEL] Could not cancel order %s: %s", order_id, e)
+        logger.debug("[CANCEL] Could not cancel order %s: %s", order_id, e)
         return {"cancelled": False, "terminal_state": terminal_state, "error": str(e)}
 
 
@@ -574,13 +574,13 @@ def cancel_orders_for_ticker(ticker: str, desk: str = "swing") -> int:
             try:
                 client.cancel_order_by_id(order.id)
             except Exception as e:
-                logger.warning("[CANCEL] Failed to cancel order %s for %s: %s",
+                logger.debug("[CANCEL] Failed to cancel order %s for %s: %s",
                                order.id, ticker, e)
         if orders:
             logger.info("[CANCEL] Cancelled %d open orders for %s", len(orders), ticker)
         return len(orders)
     except Exception as e:
-        logger.warning("[CANCEL] Could not list orders for %s: %s", ticker, e)
+        logger.debug("[CANCEL] Could not list orders for %s: %s", ticker, e)
         return 0
 
 
@@ -597,7 +597,7 @@ def cancel_all_orders(desk: str = "swing") -> dict:
         logger.info("[CANCEL] Cancelled %d pending orders", count)
         return {"cancelled": count}
     except Exception as e:
-        logger.warning("[CANCEL] Could not cancel all orders: %s", e)
+        logger.debug("[CANCEL] Could not cancel all orders: %s", e)
         return {"cancelled": 0, "error": str(e)}
 
 
