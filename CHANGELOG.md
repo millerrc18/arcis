@@ -2,6 +2,37 @@
 
 ## [Unreleased]
 
+## [v0.26.0] - 2026-04-23 — v0.26.0 chain complete + triage bundle + overshoot root cause
+
+### Release summary
+
+Tag cut pre-Friday bootcamp archive (SD#42) to anchor code state for the DB cutover. Scope since v0.25.0 is too large for a patch release — this is a minor bump.
+
+**Trading safety (critical):**
+- Exit-overshoot cancel-race fix (#608/#609/#610, PR #636): `_handle_pre_exit_cancel` routes to `_close_from_broker_fill` when cancel races a fill instead of submitting another SELL. Addresses C 4/21 + AMD 4/22 root cause that survived #595.
+- CVS retry loop + phantom exits (PR #595): D2 reconcile 3rd branch + D3 executor qty sync + _strip_enum enum.value normalization.
+- Council fail-closed (#612, PR #636): ClaudeAuthError + CouncilUnavailableError replace silent fake 5-0 consensus from failed stubs.
+
+**Training data:**
+- Silent-failure detection (#615, PR #636): CollectionResult dataclass + Telegram alert when is_silent_failure=True. Closes 11-day blind-spot pattern 4/13-4/23.
+- Missing recommendation fallback (PR #606): LEFT JOIN + COALESCE + _build_feature_input_from_trade fallback builder + skip-instead-of-degenerate-example guard.
+
+**v0.26.0 chain (closes #530):**
+- Sprint F (PR #585): spec-driven ranker + features/enrichment port with 20 byte-identity fixtures
+- Sprint G/H (commit 413fd39): spec-driven packet builder + scan plumbing
+
+**Triage bundle (PR #636 — 29 issues closed across 4 tiers):**
+- Tier 3 dep-health 13-pack: #527, #544-546, #572, #587-590, #599-601, #605, #608-610, #612, #615, #616, #630
+- Tier 1 observability: #613, #614, #618, #623
+- Tier 2 safety one-liners: #438, #440
+- Tier 4 scoped feature work: #576, #598, #622, #624
+
+**Dashboard (PR #637, #638):**
+- src/version.py single source of truth (#631-15)
+- Trade open/close websocket refresh events
+- 10 other UX polish items from #631
+
+
 ### Fixed (Sprint fix/paper-exit-qty-asymmetry — CVS retry loop + phantom exits)
 
 Closes #591 (D2 reconcile 3rd branch) and #592 (D3 paper exit qty sync).

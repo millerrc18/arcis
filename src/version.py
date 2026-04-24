@@ -12,5 +12,5 @@ also been updated to match. Bump VERSION here when cutting a release;
 update CHANGELOG.md alongside.
 """
 
-# Update when cutting a release. Latest CHANGELOG header: v0.24.0-alpha1.
-VERSION = "v0.24.0-alpha1"
+# Update when cutting a release. Latest CHANGELOG header: v0.26.0.
+VERSION = "v0.26.0"

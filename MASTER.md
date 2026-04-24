@@ -14,7 +14,7 @@
 
 **Name:** Arcis (Adaptive Regime Classification & Intelligence Systems)
 **License:** BSL 1.1 (source-visible, no commercial use until 2030)
-**Release:** v0.21.0 (2026-04-16: earnings filter hard block SD#33; prior: v0.20.0 regime/sector classifier diagnostic SD#41 D3; v0.19.0 SPY-matched excess instrumentation SD#41 D1; v0.18.0 IB cold storage SD#41; v0.17.2 Grafana Loki + NSSM)
+**Release:** v0.26.0 (2026-04-23: v0.26.0 chain complete (Sprints F/G/H spec-driven port) + overshoot root-cause trio (cancel-race fix #636, CVS loop #595, council fail-closed #612) + training silent-failure detection #615 + 29-issue triage bundle; pre-Friday archive tag (SD#42); prior: v0.25.0 walk-forward v1; v0.23.4 Telegram refresh; v0.21.0 earnings filter SD#33)
 **Repository:** github.com/millerrc18/halcyon-lab
 **Dashboard:** halcyonlab.app (Render static + Python API)
 
