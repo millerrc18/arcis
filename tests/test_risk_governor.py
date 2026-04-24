@@ -5,12 +5,18 @@ from pathlib import Path
 from unittest.mock import patch
 
 
-# #613 — log_activity now refuses writes under pytest unless opted in.
-# The tier-transition test relies on log_activity persisting state between
-# calls — opt in for this whole file.
-@pytest.fixture(autouse=True)
-def _opt_in_activity_writes(monkeypatch):
-    monkeypatch.setenv("ARCIS_LOG_ACTIVITY_IN_PYTEST", "1")
+# #647 — Removed the autouse `_opt_in_activity_writes` fixture.
+# It set ARCIS_LOG_ACTIVITY_IN_PYTEST=1 for the whole file (intended to support
+# one tier-transition test) but never monkeypatched DB_PATH. Result: every test
+# in this file wrote real rows to the production activity_log table — 562+
+# pollution rows accumulated over weeks before discovery on 2026-04-24.
+#
+# The principle: opt-in to writes MUST be paired with redirection of writes.
+# If a future test genuinely needs log_activity persistence, it should:
+#   1. Patch src.utils.activity_logger.DB_PATH and the bound default in
+#      log_activity (or pass db_path explicitly to the call site)
+#   2. Set ARCIS_LOG_ACTIVITY_IN_PYTEST=1 inside that one test
+# See test_pollution_regression in tests/test_activity_log_isolation.py.
 
 
 @pytest.fixture
@@ -355,8 +361,15 @@ class TestTierTransition:
     def _mock_config(enabled=True, tiers=None):
         return TestRiskScalingTiers._mock_config(enabled=enabled, tiers=tiers)
 
-    def test_tier_transition_detected(self, tmp_path):
-        """Equity crosses from <$100K to >$100K -> returns transition dict."""
+    def test_tier_transition_detected(self, tmp_path, monkeypatch):
+        """Equity crosses from <$100K to >$100K -> returns transition dict.
+
+        #647 — opts in to log_activity writes ONLY for this test (the previous
+        autouse opt-in for the whole file polluted prod). Safe because
+        check_tier_transition passes db_path=db_path explicitly to log_activity,
+        so writes hit tmp_path/test.db, not the real DB_PATH.
+        """
+        monkeypatch.setenv("ARCIS_LOG_ACTIVITY_IN_PYTEST", "1")
         from src.risk.governor import check_tier_transition
         db = tmp_path / "test.db"
         _init_db(db)
@@ -376,8 +389,13 @@ class TestTierTransition:
         assert result2["equity"] == 120000
         assert result2["new_risk_pct"] == 0.015
 
-    def test_no_transition_returns_none(self, tmp_path):
-        """Equity stays in the same tier -> returns None."""
+    def test_no_transition_returns_none(self, tmp_path, monkeypatch):
+        """Equity stays in the same tier -> returns None.
+
+        #647 — opts in to log_activity writes ONLY for this test. Safe because
+        check_tier_transition passes db_path explicitly, so writes go to tmp.
+        """
+        monkeypatch.setenv("ARCIS_LOG_ACTIVITY_IN_PYTEST", "1")
         from src.risk.governor import check_tier_transition
         db = tmp_path / "test.db"
         _init_db(db)
