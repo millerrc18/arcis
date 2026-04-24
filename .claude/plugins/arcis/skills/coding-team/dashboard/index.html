@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ARCIS Coding Team Dashboard</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      background: #0d1117; color: #c9d1d9;
+      padding: 20px; min-height: 100vh;
+    }
+    .header {
+      display: flex; justify-content: space-between; align-items: center;
+      border-bottom: 1px solid #30363d; padding-bottom: 12px; margin-bottom: 16px;
+    }
+    .header h1 { font-size: 16px; color: #58a6ff; font-weight: 600; }
+    .header .meta { font-size: 12px; color: #8b949e; }
+    .phase-flow {
+      display: flex; gap: 4px; align-items: center;
+      margin-bottom: 16px; padding: 12px;
+      background: #161b22; border-radius: 6px; border: 1px solid #30363d;
+    }
+    .phase-step {
+      padding: 4px 10px; border-radius: 4px; font-size: 11px;
+      font-weight: 600; text-transform: uppercase;
+    }
+    .phase-step.completed { background: #238636; color: #fff; }
+    .phase-step.active { background: #1f6feb; color: #fff; animation: pulse 2s infinite; }
+    .phase-step.pending { background: #21262d; color: #484f58; }
+    .phase-arrow { color: #484f58; font-size: 10px; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.7; } }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+    .panel {
+      background: #161b22; border: 1px solid #30363d;
+      border-radius: 6px; padding: 12px;
+    }
+    .panel h2 {
+      font-size: 12px; color: #8b949e; text-transform: uppercase;
+      letter-spacing: 0.5px; margin-bottom: 8px;
+    }
+    .task-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 4px 0; font-size: 13px;
+    }
+    .task-item .icon { width: 16px; text-align: center; }
+    .task-item.completed .name { color: #8b949e; text-decoration: line-through; }
+    .task-item.active .name { color: #58a6ff; font-weight: 600; }
+    .task-item.blocked .name { color: #484f58; }
+    .task-item .dep { font-size: 11px; color: #484f58; margin-left: 24px; }
+    .pm-note {
+      padding: 8px; margin-bottom: 6px; font-size: 12px;
+      border-left: 3px solid #30363d; background: #0d1117;
+      line-height: 1.4;
+    }
+    .pm-note.confident { border-left-color: #238636; }
+    .pm-note.cautious { border-left-color: #d29922; }
+    .pm-note.concerned { border-left-color: #f85149; }
+    .pm-note.recovering { border-left-color: #a371f7; }
+    .pm-note .time { color: #484f58; font-size: 10px; }
+    .agent-bar {
+      margin: 6px 0; padding: 6px 8px; font-size: 12px;
+      background: #0d1117; border-radius: 4px;
+    }
+    .agent-bar .bar-track {
+      height: 4px; background: #21262d; border-radius: 2px;
+      margin-top: 4px; overflow: hidden;
+    }
+    .agent-bar .bar-fill {
+      height: 100%; background: #1f6feb; border-radius: 2px;
+      transition: width 0.5s ease;
+    }
+    .issue-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 4px 0; font-size: 12px;
+    }
+    .issue-item .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .issue-item .dot.error { background: #f85149; }
+    .issue-item .dot.warning { background: #d29922; }
+    .scorecard { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+    .score-item {
+      display: flex; justify-content: space-between;
+      font-size: 12px; padding: 2px 0;
+    }
+    .score-item .label { color: #8b949e; }
+    .score-item .value { color: #c9d1d9; font-weight: 600; }
+    .no-data {
+      text-align: center; padding: 40px; color: #484f58; font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="no-data">Waiting for coding-dashboard.json...</div>
+  </div>
+
+  <script>
+    const PHASES = ['INTAKE', 'PLAN', 'EXECUTE', 'REVIEW', 'DOCUMENT', 'INTEGRATE', 'REPORT'];
+    const TASK_ICONS = { completed: '✅', active: '🔄', pending: '⏳', blocked: '🔒', failed: '❌' };
+    const SENTIMENT_LABELS = { confident: '🟢', cautious: '🟡', concerned: '🔴', recovering: '🟣' };
+
+    function formatElapsed(seconds) {
+      const m = Math.floor(seconds / 60);
+      const s = seconds % 60;
+      return `${m}m ${s}s`;
+    }
+
+    function phaseIndex(phase) {
+      return PHASES.indexOf(phase);
+    }
+
+    function renderPhaseFlow(currentPhase) {
+      const idx = phaseIndex(currentPhase);
+      return PHASES.map((p, i) => {
+        const cls = i < idx ? 'completed' : i === idx ? 'active' : 'pending';
+        const arrow = i < PHASES.length - 1 ? '<span class="phase-arrow">→</span>' : '';
+        return `<span class="phase-step ${cls}">${p}</span>${arrow}`;
+      }).join('');
+    }
+
+    function renderTasks(tasks) {
+      if (!tasks || tasks.length === 0) return '<div style="color:#484f58;font-size:12px;">No tasks yet</div>';
+      return tasks.map(t => {
+        const status = t.status || 'pending';
+        const icon = TASK_ICONS[status] || '⏳';
+        const dep = t.blocked_by && t.blocked_by.length > 0
+          ? `<div class="dep">└─ blocked by ${t.blocked_by.join(', ')}</div>` : '';
+        return `<div class="task-item ${status}">
+          <span class="icon">${icon}</span>
+          <span class="name">${t.id}. ${t.name}</span>
+        </div>${dep}`;
+      }).join('');
+    }
+
+    function renderNotes(notes) {
+      if (!notes || notes.length === 0) return '<div style="color:#484f58;font-size:12px;">No notes yet</div>';
+      return notes.slice(-6).map(n => {
+        const sentiment = n.sentiment || 'confident';
+        const time = n.timestamp ? new Date(n.timestamp).toLocaleTimeString() : '';
+        return `<div class="pm-note ${sentiment}">
+          <span class="time">${time}</span> ${n.note}
+        </div>`;
+      }).join('');
+    }
+
+    function renderAgents(agents) {
+      if (!agents || agents.length === 0) return '<div style="color:#484f58;font-size:12px;">No active agents</div>';
+      return agents.map(a => {
+        const pct = a.max_turns > 0 ? Math.round((a.turn / a.max_turns) * 100) : 0;
+        return `<div class="agent-bar">
+          🔨 ${a.role} (${a.model}) — Task ${a.task_id} — turn ${a.turn}/${a.max_turns}
+          <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+        </div>`;
+      }).join('');
+    }
+
+    function renderIssues(issues) {
+      if (!issues || issues.length === 0) return '<div style="color:#484f58;font-size:12px;">No issues</div>';
+      return issues.map(i => {
+        const cls = i.severity === 'error' ? 'error' : 'warning';
+        return `<div class="issue-item">
+          <span class="dot ${cls}"></span>
+          Task ${i.task_id}: ${i.message}
+        </div>`;
+      }).join('');
+    }
+
+    function renderScorecard(sc) {
+      if (!sc) return '';
+      return `<div class="scorecard">
+        <div class="score-item"><span class="label">Tests pass</span><span class="value">${sc.tests_pass}</span></div>
+        <div class="score-item"><span class="label">Tests fail</span><span class="value">${sc.tests_fail}</span></div>
+        <div class="score-item"><span class="label">Scope violations</span><span class="value">${sc.scope_violations}</span></div>
+        <div class="score-item"><span class="label">Regressions caught</span><span class="value">${sc.regressions_caught}</span></div>
+        <div class="score-item"><span class="label">Fallacies detected</span><span class="value">${sc.fallacies_detected}</span></div>
+        <div class="score-item"><span class="label">Files changed</span><span class="value">${sc.files_changed}</span></div>
+        <div class="score-item"><span class="label">Lines added</span><span class="value">${sc.lines_added}</span></div>
+      </div>`;
+    }
+
+    function render(data) {
+      const issueCount = (data.issues || []).reduce((acc, i) => {
+        acc[i.severity] = (acc[i.severity] || 0) + 1; return acc;
+      }, {});
+
+      document.getElementById('app').innerHTML = `
+        <div class="header">
+          <h1>ARCIS Coding Team — "${data.project_name || 'Untitled'}"</h1>
+          <div class="meta">Phase: ${data.phase || 'INTAKE'} &nbsp;|&nbsp; Elapsed: ${formatElapsed(data.elapsed_seconds || 0)}</div>
+        </div>
+        <div class="phase-flow">${renderPhaseFlow(data.phase || 'INTAKE')}</div>
+        <div class="grid">
+          <div class="panel">
+            <h2>Task Graph</h2>
+            ${renderTasks(data.tasks)}
+          </div>
+          <div class="panel">
+            <h2>PM Notes</h2>
+            ${renderNotes(data.pm_notes)}
+          </div>
+        </div>
+        <div class="panel" style="margin-bottom:16px;">
+          <h2>Active Agents</h2>
+          ${renderAgents(data.active_agents)}
+        </div>
+        <div class="grid">
+          <div class="panel">
+            <h2>Issues & Alerts &nbsp; ${issueCount.error ? '🔴 ' + issueCount.error : ''} ${issueCount.warning ? '🟡 ' + issueCount.warning : ''}</h2>
+            ${renderIssues(data.issues)}
+          </div>
+          <div class="panel">
+            <h2>Scorecard</h2>
+            ${renderScorecard(data.scorecard)}
+          </div>
+        </div>
+      `;
+    }
+
+    async function poll() {
+      try {
+        const resp = await fetch('../../../.arcis/coding-dashboard.json', { cache: 'no-store' });
+        if (resp.ok) {
+          const data = await resp.json();
+          render(data);
+        }
+      } catch (e) {
+        // File not ready yet — keep polling
+      }
+    }
+
+    setInterval(poll, 2000);
+    poll();
+  </script>
+</body>
+</html>
