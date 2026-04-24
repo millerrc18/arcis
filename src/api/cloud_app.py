@@ -144,8 +144,12 @@ def verify_auth(
         raise HTTPException(status_code=401, detail="Invalid or missing API token")
     token = credentials.credentials
     # Accept hashed token (frontend sends SHA-256 of password)
-    # or raw plaintext (backward compat for curl/scripts)
-    if token == _API_SECRET_HASH or token == API_SECRET:
+    # or raw plaintext (backward compat for curl/scripts).
+    # #440 — hmac.compare_digest is constant-time; prevents timing attacks
+    # against the bearer token (regular `==` short-circuits on first mismatch).
+    import hmac
+    if (hmac.compare_digest(token, _API_SECRET_HASH)
+            or hmac.compare_digest(token, API_SECRET)):
         return
     raise HTTPException(status_code=401, detail="Invalid or missing API token")
 
