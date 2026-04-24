@@ -515,6 +515,28 @@ def notify_premarket_brief(vix: float, vix_change: float, regime: str,
     return send_telegram(msg)
 
 
+def notify_trainer_holdout_empty(
+    train_count: int,
+    most_recent_date: str,
+    days_stale: int,
+) -> bool:
+    """#617 — alert: training holdout split was empty due to stalled corpus.
+
+    Fires when export_training_data writes a non-empty training set but
+    zero holdout examples. This happens when all examples are older than
+    the 5-day temporal gap window, meaning model evaluation (canary, A/B)
+    cannot run on out-of-sample data.
+    """
+    msg = (
+        f"⚠️ <b>TRAINER HOLDOUT EMPTY</b>\n"
+        f"Training examples: {train_count}\n"
+        f"Holdout examples:  0\n"
+        f"Corpus most recent: {most_recent_date} ({days_stale}d stale)\n"
+        f"Model evaluation blocked. Run backfill or wait for collection to resume."
+    )
+    return send_telegram(msg)
+
+
 def notify_first_scan_summary(total_scanned: int, packet_worthy: int,
                               watchlist: int, trades_opened_paper: int,
                               trades_opened_live: int,
