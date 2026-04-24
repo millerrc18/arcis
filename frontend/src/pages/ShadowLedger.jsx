@@ -468,7 +468,7 @@ export default function ShadowLedger() {
   const { data: liveData } = useQuery({
     queryKey: ['live-trades-for-ledger'],
     queryFn: api.getLiveTrades,
-    refetchInterval: 60000,
+    refetchInterval: 30000,
     enabled: sourceFilter !== 'paper',
   })
 

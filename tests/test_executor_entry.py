@@ -168,6 +168,49 @@ def test_open_shadow_trade_happy_path(tmp_path):
         mock_bracket.assert_called_once()
 
 
+def test_open_shadow_trade_broadcasts_trade_opened(tmp_path):
+    """Successful shadow entries should emit a dashboard refresh event."""
+    db_path = _make_test_db(tmp_path)
+    mock_order = {"order_id": "ord-1", "symbol": "AAPL", "qty": 10, "side": "buy",
+                  "type": "market", "order_class": "bracket", "status": "filled",
+                  "filled_avg_price": 150.0, "legs": []}
+    config = {
+        "shadow_trading": {"enabled": True, "max_positions": 10},
+        "risk": {"base_risk_pct": 1.0, "starting_capital": 100000},
+    }
+
+    mock_governor = MagicMock()
+    mock_governor.check_trade.return_value = {
+        "approved": True,
+        "effective_allocation_dollars": 1000.0,
+    }
+
+    with patch("src.shadow_trading.executor.load_config", return_value=config), \
+         patch("src.shadow_trading.executor._check_paper_buying_power", return_value=True), \
+         patch("src.llm.validator.validate_llm_output", return_value=(True, "ok")), \
+         patch("src.risk.governor.RiskGovernor", return_value=mock_governor), \
+         patch("src.risk.governor.get_portfolio_state", return_value={}), \
+         patch("src.risk.governor.drawdown_adjusted_risk", return_value=1.0), \
+         patch("src.risk.governor.get_effective_risk_pct", return_value=(1.0, "normal")), \
+         patch("src.shadow_trading.executor.get_open_shadow_trades", return_value=[]), \
+         patch("src.shadow_trading.alpaca_adapter.place_bracket_order", return_value=mock_order), \
+         patch("src.shadow_trading.alpaca_adapter.get_all_positions", return_value=[]), \
+         patch("src.shadow_trading.alpaca_adapter.verify_order_accepted",
+               return_value={"verified": True, "status": "filled", "error": None}), \
+         patch("src.api.websocket.broadcast_sync") as mock_broadcast:
+        from src.shadow_trading.executor import open_shadow_trade
+        packet = _make_packet("AAPL")
+        trade_id = open_shadow_trade("rec-1", packet, {"strategy_type": "pullback"}, db_path=db_path)
+
+    assert trade_id is not None
+    mock_broadcast.assert_called_once()
+    event_name, payload = mock_broadcast.call_args[0]
+    assert event_name == "trade_opened"
+    assert payload["ticker"] == "AAPL"
+    assert payload["source"] == "paper"
+    assert payload["trade_id"] == trade_id
+
+
 def test_open_shadow_trade_missing_stop_rejected(tmp_path):
     """#350: stop_price <= 0 must be rejected before bracket order."""
     db_path = _make_test_db(tmp_path)
@@ -198,3 +241,42 @@ def test_open_shadow_trade_missing_stop_rejected(tmp_path):
         result = open_shadow_trade("rec-1", packet, {"strategy_type": "pullback"}, db_path=db_path)
         # Trade should be rejected because stop_price is 0
         assert result is None, "Trade with stop_price=0 must be rejected"
+
+
+def test_close_shadow_trade_broadcasts_trade_closed(tmp_path):
+    """Closing a trade should emit a dashboard refresh event."""
+    db_path = _make_test_db(tmp_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "INSERT INTO shadow_trades (trade_id, recommendation_id, ticker, direction, status, "
+            "entry_price, actual_entry_price, stop_price, target_1, planned_shares, "
+            "planned_allocation, source, created_at, updated_at, actual_entry_time) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "trade-1", "rec-1", "AAPL", "long", "open",
+                100.0, 100.0, 95.0, 110.0, 10,
+                1000.0, "paper", "2026-04-22T09:30:00",
+                "2026-04-22T09:30:00", "2026-04-22T09:30:00",
+            ),
+        )
+        conn.commit()
+
+    with patch("src.api.websocket.broadcast_sync") as mock_broadcast:
+        from src.journal.store import close_shadow_trade
+
+        close_shadow_trade(
+            "trade-1",
+            exit_price=105.0,
+            exit_time="2026-04-23T10:30:00",
+            exit_reason="manual",
+            pnl_dollars=50.0,
+            pnl_pct=5.0,
+            db_path=db_path,
+        )
+
+    mock_broadcast.assert_called_once()
+    event_name, payload = mock_broadcast.call_args[0]
+    assert event_name == "trade_closed"
+    assert payload["ticker"] == "AAPL"
+    assert payload["exit_reason"] == "manual"
+    assert payload["pnl_dollars"] == 50.0
