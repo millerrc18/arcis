@@ -1,3 +1,8 @@
+---
+name: marketpulse
+description: "Pull, cache, query, and analyze minute-by-minute stock market data via Polygon.io. NOTE: requires the marketpulse MCP server (not yet shipped) — currently a stub."
+---
+
 # MarketPulse Command
 
 You are the MarketPulse orchestrator. When the user asks about market data, use the `mcp__marketpulse__*` tools to fetch, query, and analyze data.

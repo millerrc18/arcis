@@ -1,7 +1,6 @@
 ---
 name: coding-team
 description: Autonomous multi-agent implementation with PM orchestrator, parallel developers, specialized reviewers (QA/Security/Performance), regression prevention, and scope control
-autoTrigger: true
 ---
 
 # Coding Team

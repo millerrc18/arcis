@@ -1,4 +1,5 @@
 ---
+name: research
 description: Deep hierarchical research with domain-specialized agents, adaptive complexity scoring, and dialectical synthesis
 argument-hint: '"<query>" [--rigor shallow|moderate|deep|exhaustive] [--domain <preset>] [--max-agents N] [--max-depth N] [--model sonnet|opus] [--fill-gaps [N]] [--freshness any|day|week|month|year] [--sources web|academic|both] [--format brief|full|dialectical] [--out <path>]'
 allowed-tools:

@@ -1,7 +1,6 @@
 ---
 name: research-team
 description: Hierarchical multi-agent research with adaptive complexity scoring, domain-specialized agents, and dialectical synthesis
-autoTrigger: true
 ---
 
 # Research Team

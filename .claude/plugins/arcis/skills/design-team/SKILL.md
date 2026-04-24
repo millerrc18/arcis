@@ -1,7 +1,6 @@
 ---
 name: design-team
 description: Idea-to-spec pipeline with codebase-grounded analysis, structured interviewing, feasibility validation, and adversarial stress-testing — produces specs and plans consumable by /arcis:code
-autoTrigger: true
 ---
 
 # Design Team

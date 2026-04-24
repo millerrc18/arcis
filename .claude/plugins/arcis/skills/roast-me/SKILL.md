@@ -1,7 +1,6 @@
 ---
 name: roast-me
 description: Adversarial critique of any artifact — research, code, designs, plans, proposals — using Prosecutor vs. Defense vs. Judge debate model
-autoTrigger: true
 ---
 
 # Roast Me
