@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Added `scripts/archive_bootcamp_2026_04_24.py` — SD#42 Friday bootcamp cutover tooling. Preflight-gated VACUUM INTO archive + schema-only fresh-DB anchor + manifest enumerating 17 prod-only columns preserved. See `docs/archive/README.md` for operator choreography. Dry-run default; `--apply` required for live operation.
+
 ## [v0.26.0] - 2026-04-23 — v0.26.0 chain complete + triage bundle + overshoot root cause
 
 ### Release summary
