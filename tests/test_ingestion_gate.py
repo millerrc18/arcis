@@ -60,6 +60,60 @@ def test_bad_conviction_rejected(tmp_path):
     assert reason == "invalid_conviction"
 
 
+def test_prompt_validator_metadata_coupling():
+    """Coupling test: every system prompt that drives backfill data generation
+    MUST tell the LLM about the metadata fields the validator requires.
+
+    Background: in 2026-04 the backfill batch halted at 0% compliance because
+    the outcome-conditioned system prompts told Claude to use <metadata> tags
+    but never specified that `Conviction: N` and `Direction: V` lines must
+    appear inside. The validator rejected every example for missing_conviction.
+
+    This test couples the prompt source to the validator's requirements so the
+    same drift can't happen again — if either side changes its field names or
+    formats without the other being updated, this test fails immediately.
+    """
+    from src.training.outcome_prompts import (
+        _FORMAT_RULES,
+        WINNER_SYSTEM_PROMPT,
+        LOSER_SYSTEM_PROMPT,
+        TIMEOUT_SYSTEM_PROMPT,
+        PASS_SYSTEM_PROMPT,
+    )
+    from src.training.ingestion_gate import CONVICTION_PATTERN, DIRECTION_PATTERN
+
+    # The format rules block must mention both required fields.
+    assert "Conviction:" in _FORMAT_RULES, (
+        "_FORMAT_RULES must mention 'Conviction:' so the LLM knows to emit it"
+    )
+    assert "Direction:" in _FORMAT_RULES, (
+        "_FORMAT_RULES must mention 'Direction:' so the LLM knows to emit it"
+    )
+
+    # And every prompt that uses _FORMAT_RULES must include those rules.
+    for name, prompt in [
+        ("WINNER_SYSTEM_PROMPT", WINNER_SYSTEM_PROMPT),
+        ("LOSER_SYSTEM_PROMPT", LOSER_SYSTEM_PROMPT),
+        ("TIMEOUT_SYSTEM_PROMPT", TIMEOUT_SYSTEM_PROMPT),
+        ("PASS_SYSTEM_PROMPT", PASS_SYSTEM_PROMPT),
+    ]:
+        assert "Conviction:" in prompt, f"{name} must instruct the LLM to emit Conviction:"
+        assert "Direction:" in prompt, f"{name} must instruct the LLM to emit Direction:"
+
+    # Sanity-check the validator patterns themselves still recognize the
+    # canonical format the prompt asks for. If someone renames a field on
+    # either side, this assertion catches it.
+    sample_metadata = "Conviction: 7\nDirection: LONG"
+    assert CONVICTION_PATTERN.search(sample_metadata), (
+        "CONVICTION_PATTERN failed to recognize the canonical 'Conviction: N' "
+        "format. Prompt and validator drifted apart again."
+    )
+    assert DIRECTION_PATTERN.search(sample_metadata), (
+        "DIRECTION_PATTERN failed to recognize the canonical 'Direction: V' "
+        "format. Prompt and validator drifted apart again."
+    )
+
+
 def test_markdown_contamination_rejected(tmp_path):
     db_path = str(tmp_path / "training.db")
     _make_db(db_path)

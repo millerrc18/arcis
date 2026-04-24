@@ -87,7 +87,15 @@ OUTPUT FORMAT (HARD):
   "the stock was **very** strong" within prose is fine.
 - Do NOT use bullet lists (-, *, +) or numbered lists (1., 2.).
 - Preserve the exact XML structure: <why_now>...</why_now>, <analysis>...</analysis>,
-  <metadata>...</metadata>. No text outside these tags."""
+  <metadata>...</metadata>. No text outside these tags.
+- The <metadata> section MUST contain these two lines (exactly this format —
+  the post-processing validator at src/training/ingestion_gate.py rejects
+  examples missing them and halts the entire batch at 0% compliance):
+      Conviction: N        (where N is an integer 1-10)
+      Direction: V         (where V is exactly LONG, SHORT, or NEUTRAL)
+  Pick conviction from the analysis (high conviction = converging signals,
+  low = conflicting). Pick direction from the trade setup (long bias = LONG,
+  short bias = SHORT, declining to take = NEUTRAL)."""
 
 
 # The model needs to learn WHAT made a setup work (pattern recognition, timing,
