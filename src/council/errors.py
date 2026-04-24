@@ -1,5 +1,11 @@
 """Council exception types (#612).
 
+Called by: council.aggregation, council.engine, council.protocol
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: tests/test_council_fail_closed.py
+
 Defined in a separate module to avoid import cycles between aggregation,
 engine, and protocol modules.
 """

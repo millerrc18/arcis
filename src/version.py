@@ -1,5 +1,11 @@
 """Single source of truth for the app version (#631 item 15).
 
+Called by: api.cloud_routes.core, services.system_service
+Calls: none
+Owns tables: none
+Config keys: none
+Tests: tests/test_version.py
+
 Pre-fix the version "v0.17.2" was hardcoded in three places (cloud_routes/
 core.py, services/system_service.py, frontend/Layout.jsx fallback) while
 the actual deployed version was v0.24.0-alpha1 — confusing operators reading

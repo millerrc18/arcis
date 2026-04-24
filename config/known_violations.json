@@ -81,6 +81,10 @@
       "lines": 450
     },
     {
+      "file": "src/ranking/ranker.py",
+      "lines": 660
+    },
+    {
       "file": "src/risk/governor.py",
       "lines": 673
     },
@@ -131,6 +135,10 @@
     {
       "file": "src/training/curriculum.py",
       "lines": 461
+    },
+    {
+      "file": "src/training/data_collector.py",
+      "lines": 481
     },
     {
       "file": "src/training/trainer.py",
@@ -704,8 +712,18 @@
     },
     {
       "file": "src/ranking/ranker.py",
+      "function": "_evaluate_ranking_bands",
+      "lines": 61
+    },
+    {
+      "file": "src/ranking/ranker.py",
       "function": "rank_universe",
       "lines": 64
+    },
+    {
+      "file": "src/training/data_collector.py",
+      "function": "collect_training_examples_from_closed_trades_detailed",
+      "lines": 219
     },
     {
       "file": "src/risk/governor.py",

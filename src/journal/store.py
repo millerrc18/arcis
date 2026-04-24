@@ -324,9 +324,26 @@ def close_shadow_trade(
         "pnl_dollars": pnl_dollars,
         "pnl_pct": pnl_pct,
     }
-    trade_row = None
+    extras, trade_row = _populate_exit_metadata(
+        trade_id, exit_time, exit_price, db_path,
+    )
+    fields.update(extras)
+    fields.update(_build_spy_excess_fields(trade_id, exit_time, pnl_pct, db_path))
+    update_shadow_trade(trade_id, fields, db_path)
+    _broadcast_and_log_close(
+        trade_id, trade_row, exit_price, exit_reason, pnl_dollars, pnl_pct,
+    )
 
-    # Populate exit metadata (Sprint 6, Strategy Decision #24)
+
+def _populate_exit_metadata(
+    trade_id: str, exit_time: str, exit_price: float, db_path: str,
+) -> tuple[dict, dict | None]:
+    """Best-effort exit-metadata population (Sprint 6, SD#24).
+
+    Returns (extra_fields_to_merge, trade_row_or_None). Failures here
+    must NEVER block the trade close — log and return what we have.
+    """
+    extras: dict = {}
     try:
         with sqlite3.connect(db_path) as conn:
             conn.row_factory = sqlite3.Row
@@ -335,50 +352,52 @@ def close_shadow_trade(
                 "max_favorable_excursion "
                 "FROM shadow_trades WHERE trade_id = ?", (trade_id,)
             ).fetchone()
-            trade_row = trade
-            if trade:
-                entry_price = trade["entry_price"] or 0
-                # VIX at exit
-                vix_row = conn.execute(
-                    "SELECT vix FROM vix_term_structure ORDER BY collected_date DESC LIMIT 1"
-                ).fetchone()
-                if vix_row:
-                    fields["vix_at_exit"] = float(vix_row[0])
-                # Regime at exit
-                from src.features.regime import compute_market_regime
-                from src.data_ingestion.market_data import fetch_spy_benchmark
-                spy = fetch_spy_benchmark()
-                if not spy.empty:
-                    regime = compute_market_regime(spy, {})
-                    fields["regime_at_exit"] = regime.get("regime_label", "")
-                # Time to target (days from entry to exit)
-                if trade["actual_entry_time"] and exit_time:
-                    from datetime import datetime as _dt
-                    try:
-                        entry_dt = _dt.fromisoformat(trade["actual_entry_time"][:19])
-                        exit_dt = _dt.fromisoformat(exit_time[:19])
-                        fields["time_to_target_days"] = (exit_dt - entry_dt).days
-                    except (ValueError, TypeError):
-                        pass
-                # Drawdown from MFE (bps)
-                mfe = trade["max_favorable_excursion"] or 0
-                if entry_price > 0 and mfe > 0:
-                    fields["drawdown_from_mfe"] = round(
-                        (mfe - (exit_price - entry_price)) / entry_price * 10000, 1
-                    )
+            if not trade:
+                return extras, None
+            entry_price = trade["entry_price"] or 0
+            vix_row = conn.execute(
+                "SELECT vix FROM vix_term_structure ORDER BY collected_date DESC LIMIT 1"
+            ).fetchone()
+            if vix_row:
+                extras["vix_at_exit"] = float(vix_row[0])
+            from src.features.regime import compute_market_regime
+            from src.data_ingestion.market_data import fetch_spy_benchmark
+            spy = fetch_spy_benchmark()
+            if not spy.empty:
+                regime = compute_market_regime(spy, {})
+                extras["regime_at_exit"] = regime.get("regime_label", "")
+            if trade["actual_entry_time"] and exit_time:
+                from datetime import datetime as _dt
+                try:
+                    entry_dt = _dt.fromisoformat(trade["actual_entry_time"][:19])
+                    exit_dt = _dt.fromisoformat(exit_time[:19])
+                    extras["time_to_target_days"] = (exit_dt - entry_dt).days
+                except (ValueError, TypeError):
+                    pass
+            mfe = trade["max_favorable_excursion"] or 0
+            if entry_price > 0 and mfe > 0:
+                extras["drawdown_from_mfe"] = round(
+                    (mfe - (exit_price - entry_price)) / entry_price * 10000, 1
+                )
+            return extras, trade
     except Exception as exc:
-        # #588 — Exit metadata is best-effort (never block trade close), but
-        # silent failures hide diagnosable issues. Warning level so it shows up
-        # in operator logs without blocking the close.
+        # #588 — best-effort but visible (warning, not silent debug)
         _logger.warning(
             "[JOURNAL] close_shadow_trade exit-metadata write failed for trade %s: %s",
             trade_id, exc,
         )
-    fields.update(_build_spy_excess_fields(trade_id, exit_time, pnl_pct, db_path))
-    update_shadow_trade(trade_id, fields, db_path)
+        return extras, None
+
+
+def _broadcast_and_log_close(
+    trade_id: str, trade_row: dict | None,
+    exit_price: float, exit_reason: str,
+    pnl_dollars: float, pnl_pct: float,
+) -> None:
+    """Broadcast the trade-closed event to dashboard websockets and persist
+    to activity_log. Failures are non-fatal."""
     try:
         from src.api.websocket import broadcast_sync
-
         broadcast_sync(
             "trade_closed",
             {
@@ -395,24 +414,8 @@ def close_shadow_trade(
         _logger.warning("[JOURNAL] broadcast trade_closed failed for %s: %s", trade_id, exc)
 
     # #614 — Persist trade-close to activity_log for the dashboard feed.
-    # Pre-fix the TRADE_CLOSED constant existed but had zero writers.
-    try:
-        import json as _json_tc
-        from src.utils.activity_logger import TRADE_CLOSED, log_activity
-        log_activity(
-            TRADE_CLOSED,
-            _json_tc.dumps({
-                "trade_id": trade_id,
-                "exit_reason": exit_reason,
-                "pnl_dollars": pnl_dollars,
-                "pnl_pct": pnl_pct,
-            }),
-        )
-    except Exception as exc:
-        _logger.debug("[JOURNAL] activity_log TRADE_CLOSED failed: %s", exc)
-
-    # #614 — Persist trade-close to activity_log for the dashboard feed.
-    # Pre-fix the TRADE_CLOSED constant existed but had zero writers.
+    # (Pre-fix this block was duplicated from a bad merge in PR #634;
+    # removed in this PR — every close was writing to activity_log twice.)
     try:
         import json as _json_tc
         from src.utils.activity_logger import TRADE_CLOSED, log_activity
