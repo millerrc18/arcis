@@ -27,6 +27,11 @@ const EVENT_STYLE = {
   llm_generation: { icon: Brain, color: 'var(--arcis-info)' },
   data_collection: { icon: Database, color: 'var(--arcis-text-secondary)' },
   system: { icon: Settings, color: 'var(--arcis-info)' },
+  // #631-10 — Distinct icons + colors for the kill-switch events so they
+  // stand out from routine system events in the feed.
+  kill_switch_halt: { icon: Shield, color: 'var(--arcis-danger)' },
+  kill_switch_resume: { icon: Shield, color: 'var(--arcis-success)' },
+  system_event: { icon: Settings, color: 'var(--arcis-text-secondary)' },
 }
 
 function getEventStyle(evt) {
@@ -77,6 +82,12 @@ function formatEvent(evt) {
       return `Order submitted: ${d.ticker || '?'} ${d.order_type || ''}`
     case 'order_filled':
       return `Order filled: ${d.ticker || '?'}${d.price ? ` @ $${d.price}` : ''}`
+    // #631-10 — Humanize kill-switch events; previously the raw
+    // `source=unknown, reason=` text leaked directly to the dashboard.
+    case 'kill_switch_halt':
+      return _formatKillSwitchEvent(evt, 'halted')
+    case 'kill_switch_resume':
+      return _formatKillSwitchEvent(evt, 'resumed')
     default: {
       const detail = evt.detail || d.detail || ''
       if (detail && !detail.startsWith('{')) return detail.slice(0, 120)
@@ -85,6 +96,28 @@ function formatEvent(evt) {
       return summary ? `${eventName}: ${String(summary).slice(0, 80)}` : eventName
     }
   }
+}
+
+// #631-10 — Parse the legacy `source=X, reason=Y` detail string into a
+// readable sentence. Pre-fix the raw kv string was rendered as-is.
+function _formatKillSwitchEvent(evt, verb) {
+  const raw = String(evt.detail || '')
+  const parts = Object.fromEntries(
+    raw.split(',').map(s => {
+      const [k, ...rest] = s.split('=')
+      return [String(k).trim(), rest.join('=').trim()]
+    }).filter(([k]) => k),
+  )
+  const source = parts.source || 'unknown'
+  const reason = parts.reason || ''
+  const sourceLabel = {
+    test: 'test fixture',
+    telegram: 'operator (Telegram)',
+    auditor: 'auditor agent',
+    unknown: 'unknown source',
+  }[source] || source
+  if (reason) return `Kill switch ${verb} by ${sourceLabel}: ${reason}`
+  return `Kill switch ${verb} by ${sourceLabel}`
 }
 
 function normalizeActivityLogEntry(entry) {
