@@ -174,6 +174,21 @@ def reject_evaluation_model(db_path: str = DB_PATH) -> dict | None:
 def rollback_model(db_path: str = DB_PATH) -> dict | None:
     """Roll back active model to previous retired version. Returns restored version or None."""
     init_training_tables(db_path)
+
+    # #582 — Capture pre-state for the audit trail (so we know what was
+    # being rolled back FROM). Pre-fix, rollback_model() silently UPDATEd
+    # model_versions.status with no log entry; investigation 4 weeks later
+    # could not answer "who/when/why" for the arcis:v1.0.0 rollback.
+    pre_active_name = None
+    with connect_db(db_path) as conn_pre:
+        conn_pre.row_factory = sqlite3.Row
+        row_pre = conn_pre.execute(
+            "SELECT version_name FROM model_versions WHERE status = 'active' LIMIT 1"
+        ).fetchone()
+        if row_pre:
+            pre_active_name = row_pre["version_name"]
+
+    restored = None
     with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
 
@@ -192,11 +207,27 @@ def rollback_model(db_path: str = DB_PATH) -> dict | None:
                 "UPDATE model_versions SET status = 'active' WHERE version_id = ?",
                 (row["version_id"],),
             )
-            conn.commit()
-            return dict(row)
+            restored = dict(row)
 
         conn.commit()
-    return None
+
+    # #582 — Audit trail for the operator-initiated state change. Best-
+    # effort: a logging failure must NEVER block the rollback itself.
+    try:
+        from src.utils.activity_logger import log_activity
+        import json as _json
+        log_activity(
+            "model_rollback",
+            _json.dumps({
+                "rolled_back_from": pre_active_name,
+                "restored_to": restored["version_name"] if restored else None,
+            }),
+            db_path=db_path,
+        )
+    except Exception as exc:
+        logger.debug("[VERSIONING] activity_log write failed during rollback: %s", exc)
+
+    return restored
 
 
 def get_model_history(db_path: str = DB_PATH) -> list[dict]:
