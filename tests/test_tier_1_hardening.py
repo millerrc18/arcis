@@ -70,3 +70,43 @@ def test_log_config_source_declares_utf8_on_file_handler():
     assert 'encoding="utf-8"' in args or "encoding='utf-8'" in args, (
         "RotatingFileHandler must explicitly pass encoding='utf-8' (#619)"
     )
+
+
+# ---------------------------------------------------------------------------
+# #578 — connect_db migration: journal/store.py + training/versioning.py
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["src/journal/store.py", "src/training/versioning.py"],
+)
+def test_uses_connect_db_helper_not_raw_sqlite3(path):
+    """#578 — every DB connection in journal/store.py and training/versioning.py
+    must go through src.utils.db.connect_db so busy_timeout=30s and
+    row_factory=Row apply consistently. Raw sqlite3.connect(...) is a code
+    smell that re-introduces the 'database is locked' regression we saw on
+    2026-04-19 (118 errors traced to MS Access holding the file lock and
+    a writer using the 5s default timeout).
+    """
+    src = _read(path)
+    # Strip the import line — we still need `import sqlite3` at the top
+    # for type hints / sqlite3.Row references, but no .connect() calls.
+    body_only = re.sub(r"^import sqlite3\b.*$", "", src, flags=re.MULTILINE)
+    matches = re.findall(r"\bsqlite3\.connect\b", body_only)
+    assert not matches, (
+        f"{path} contains {len(matches)} raw sqlite3.connect call(s); "
+        f"use connect_db(db_path) from src.utils.db instead (#578)"
+    )
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["src/journal/store.py", "src/training/versioning.py"],
+)
+def test_imports_connect_db(path):
+    """If a file is migrated to connect_db, it must actually import the helper."""
+    src = _read(path)
+    assert "from src.utils.db import connect_db" in src, (
+        f"{path} must import connect_db from src.utils.db (#578)"
+    )

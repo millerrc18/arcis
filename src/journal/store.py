@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo
 from src.config import DB_PATH
 from src.models import TradePacket
 from src.schema.registry import TABLES
+from src.utils.db import connect_db
 
 _logger = logging.getLogger(__name__)
 
@@ -89,7 +90,7 @@ def initialize_database(db_path: str = DB_PATH) -> None:
 
     # Data migration: backfill actual_exit_time for trades closed by reconciliation
     # that were missing this field (causes them to be invisible to dashboard)
-    with sqlite3.connect(Path(db_path)) as conn:
+    with connect_db(db_path) as conn:
         conn.execute(
             "UPDATE shadow_trades SET actual_exit_time = COALESCE(updated_at, created_at) "
             "WHERE status = 'closed' AND actual_exit_time IS NULL"
@@ -178,7 +179,7 @@ def log_recommendation(
     placeholders = ", ".join("?" for _ in row)
     values = list(row.values())
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.execute(f"INSERT INTO recommendations ({columns}) VALUES ({placeholders})", values)
         conn.commit()
 
@@ -199,7 +200,7 @@ def get_todays_recommendations(db_path: str = DB_PATH) -> list[dict]:
     ]
     columns_sql = ", ".join(fields)
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             f"SELECT {columns_sql} FROM recommendations WHERE created_at LIKE ?",
@@ -232,7 +233,7 @@ def insert_shadow_trade(trade: dict, db_path: str = DB_PATH) -> str:
     placeholders = ", ".join("?" for _ in trade)
     values = list(trade.values())
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.execute(
             f"INSERT INTO shadow_trades ({columns}) VALUES ({placeholders})", values
         )
@@ -255,7 +256,7 @@ def update_shadow_trade(
     set_clause = ", ".join(f"{k} = ?" for k in updates)
     values = list(updates.values()) + [trade_id]
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.execute(
             f"UPDATE shadow_trades SET {set_clause} WHERE trade_id = ?", values
         )
@@ -265,7 +266,7 @@ def update_shadow_trade(
 def get_open_shadow_trades(db_path: str = DB_PATH) -> list[dict]:
     """Return all broker-open shadow trades, including pending exits."""
     initialize_database(db_path)
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT * FROM shadow_trades WHERE status IN ('open', 'exit_pending') "
@@ -280,7 +281,7 @@ def get_shadow_trade(
 ) -> dict | None:
     """Return a single shadow trade by ID, or None."""
     initialize_database(db_path)
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             "SELECT * FROM shadow_trades WHERE trade_id = ?", (trade_id,)
@@ -296,7 +297,7 @@ def get_closed_shadow_trades(
     et = ZoneInfo("America/New_York")
     cutoff = (datetime.now(et) - timedelta(days=days)).isoformat()
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT * FROM shadow_trades WHERE status = 'closed' AND actual_exit_time >= ?"
@@ -328,7 +329,7 @@ def close_shadow_trade(
 
     # Populate exit metadata (Sprint 6, Strategy Decision #24)
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
             trade = conn.execute(
                 "SELECT ticker, source, entry_price, actual_entry_time, "
@@ -442,7 +443,7 @@ def _build_spy_excess_fields(
         from src.analytics.spy_benchmark import (
             excess_return, get_sector, spy_return_over_range,
         )
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
             row = conn.execute(
                 "SELECT ticker, actual_entry_time FROM shadow_trades "
@@ -465,7 +466,7 @@ def get_open_shadow_trade_for_ticker(
 ) -> dict | None:
     """Return an open shadow trade for a given ticker, or None."""
     initialize_database(db_path)
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             "SELECT * FROM shadow_trades WHERE ticker = ? "
@@ -485,7 +486,7 @@ def get_recommendation_by_id(
 ) -> dict | None:
     """Return a single recommendation by ID."""
     initialize_database(db_path)
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             "SELECT * FROM recommendations WHERE recommendation_id = ?",
@@ -499,7 +500,7 @@ def get_recommendations_by_ticker(
 ) -> list[dict]:
     """Return recent recommendations for a ticker."""
     initialize_database(db_path)
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT * FROM recommendations WHERE ticker = ? ORDER BY created_at DESC LIMIT ?",
@@ -513,7 +514,7 @@ def get_recommendations_pending_review(
 ) -> list[dict]:
     """Return recommendations where ryan_executed=1 and user_grade is null."""
     initialize_database(db_path)
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT * FROM recommendations WHERE ryan_executed = 1 AND user_grade IS NULL ORDER BY created_at DESC"
@@ -537,7 +538,7 @@ def update_recommendation(
     set_clause = ", ".join(f"{k} = ?" for k in updates)
     values = list(updates.values()) + [recommendation_id]
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.execute(
             f"UPDATE recommendations SET {set_clause} WHERE recommendation_id = ?",
             values,
@@ -560,7 +561,7 @@ def get_all_shadow_trades(
     et = ZoneInfo("America/New_York")
     cutoff = (datetime.now(et) - timedelta(days=days)).isoformat()
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT * FROM shadow_trades WHERE created_at >= ?"
@@ -578,7 +579,7 @@ def get_recommendations_in_period(
     et = ZoneInfo("America/New_York")
     cutoff = (datetime.now(et) - timedelta(days=days)).isoformat()
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT * FROM recommendations WHERE created_at >= ? ORDER BY created_at DESC",
