@@ -1,0 +1,37 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "halcyon-local",
+  "description": "Project-bundled Claude Code plugins for the Halcyon Lab / Arcis trading system.",
+  "owner": {
+    "name": "millerrc18"
+  },
+  "plugins": [
+    {
+      "name": "arcis",
+      "description": "ARCIS toolbox: research, design, code, roast, and marketpulse multi-agent skills",
+      "source": {
+        "source": "directory",
+        "path": "./arcis"
+      },
+      "category": "development"
+    },
+    {
+      "name": "deep-research",
+      "description": "Deep multi-step research with parallel agents, citation tracing, dialectical synthesis, and council debate",
+      "source": {
+        "source": "directory",
+        "path": "./deep-research"
+      },
+      "category": "research"
+    },
+    {
+      "name": "halcyon-audit",
+      "description": "Repo audit with 8 parallel domain agents and synthesizer",
+      "source": {
+        "source": "directory",
+        "path": "./halcyon-audit"
+      },
+      "category": "development"
+    }
+  ]
+}
