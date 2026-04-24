@@ -1,13 +1,17 @@
 """Deployment info banner + drift detection (#630).
 
+Called by: cli.commands.cmd_startup, scheduler.watch.WatchLoop.run
+Calls: utils.activity_logger
+Owns tables: none
+Config keys: none
+Tests: tests/test_deploy_info.py
+
 Captures the deployed git SHA + commit age at startup so operators can spot when
 a long-running watch loop is still running stale bytecode after a fix has landed
 on main. Without this, the loop continues to emit errors that look like "fix
 didn't work" when the real cause is "fix is on disk but the running process
 predates it." The 2026-04-23 audit found two examples (#619 emoji crash post-
 bf63dc5, #622 signal-handler ValueError).
-
-Called by: cli.commands.cmd_startup, scheduler.watch.WatchLoop.run
 """
 
 from __future__ import annotations

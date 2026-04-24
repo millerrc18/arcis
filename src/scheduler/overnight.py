@@ -379,6 +379,27 @@ def run_post_close_capture():
         logger.warning("[WATCH] broadcast overnight_task failed: %s", e)
 
 
+def _alert_training_silent_failure(result) -> None:
+    """Emit ERROR log + Telegram alert when collection produced 0 examples
+    despite real work (#615)."""
+    logger.error(
+        "[TRAINING] Collection produced 0 examples despite work — "
+        "stage1_failures=%s rejected=%s halted=%s halt_reason=%s",
+        result.stage1_failures, result.rejected, result.halted, result.halt_reason,
+    )
+    try:
+        from src.notifications.telegram import send_telegram, is_telegram_enabled
+        if is_telegram_enabled():
+            send_telegram(
+                f"🛑 TRAINING SILENT FAILURE: 0 examples written despite "
+                f"{result.stage1_failures} Stage-1 failures + "
+                f"{result.rejected} validator rejections. "
+                f"Halt reason: {result.halt_reason or 'none'}"
+            )
+    except Exception as exc:
+        logger.warning("[TRAINING] silent-failure alert failed: %s", exc)
+
+
 def run_overnight_training_collection():
     """6:00 PM ET — Collect training examples from today's closed trades."""
     from src.api.websocket import broadcast_sync
@@ -398,8 +419,6 @@ def run_overnight_training_collection():
     print(f"[WATCH] Training collection: {count} new examples")
 
     # #615 — Structured payload distinguishes "no work" from "100% failed".
-    # Pre-#615, both produced "examples=0" indistinguishable, masking 11 days
-    # of complete pipeline outage during 4/13–4/23.
     summary = (
         f"examples={count} attempted={result.attempted} "
         f"rejected={result.rejected} stage1_failures={result.stage1_failures} "
@@ -407,22 +426,7 @@ def run_overnight_training_collection():
         f"halted={result.halted}"
     )
     if result.is_silent_failure:
-        logger.error(
-            "[TRAINING] Collection produced 0 examples despite work — "
-            "stage1_failures=%s rejected=%s halted=%s halt_reason=%s",
-            result.stage1_failures, result.rejected, result.halted, result.halt_reason,
-        )
-        try:
-            from src.notifications.telegram import send_telegram, is_telegram_enabled
-            if is_telegram_enabled():
-                send_telegram(
-                    f"🛑 TRAINING SILENT FAILURE: 0 examples written despite "
-                    f"{result.stage1_failures} Stage-1 failures + "
-                    f"{result.rejected} validator rejections. "
-                    f"Halt reason: {result.halt_reason or 'none'}"
-                )
-        except Exception as exc:
-            logger.warning("[TRAINING] silent-failure alert failed: %s", exc)
+        _alert_training_silent_failure(result)
 
     log_overnight_task(
         "training_collection",
