@@ -207,7 +207,9 @@ def compute_market_event_risk(
     }
 
     try:
-        with sqlite3.connect(db_path) as conn:
+        # #590 — connect_db applies busy_timeout=30s
+        from src.utils.db import connect_db
+        with connect_db(db_path) as conn:
             for event in _fetch_macro_events(conn, ref):
                 days_away = (event["event_date"] - ref).days
                 if event["event_type"] == "FOMC" and days_away <= 2:
@@ -256,7 +258,9 @@ def compute_event_risk_score(
     earnings_score = 0
     next_earnings = None
     try:
-        with sqlite3.connect(db_path) as conn:
+        # #590 — connect_db applies busy_timeout=30s
+        from src.utils.db import connect_db
+        with connect_db(db_path) as conn:
             next_earnings = _fetch_next_earnings_date(conn, ticker, ref)
     except Exception as exc:
         logger.warning("[EVENT RISK] Earnings lookup failed for %s: %s", ticker, exc)

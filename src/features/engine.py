@@ -315,9 +315,13 @@ def _strategy_enrichment_chain(strategy: "StrategySpec" | None) -> set[str] | No
 def _load_options_metrics() -> dict[str, dict]:
     """Load latest options metrics per ticker from the database."""
     import sqlite3
+    # #590 — connect_db (busy_timeout=30s) prevents the "database is locked"
+    # cluster seen during overnight write bursts; raw sqlite3.connect did not
+    # apply the timeout.
+    from src.utils.db import connect_db
     result = {}
     try:
-        with sqlite3.connect(DB_PATH) as conn:
+        with connect_db(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             # Fix for #256: use correct column names from schema registry
             rows = conn.execute(

@@ -233,6 +233,13 @@ You MUST preserve the exact same XML structure:
 <analysis>...</analysis>
 <metadata>...</metadata>
 
+OUTPUT FORMAT (HARD): Inside the <analysis> tag write prose only. Do NOT add
+markdown structural headings such as **Section Name**: on their own line, or
+## Heading style headers. Inline emphasis like "the stock was **very** strong"
+within prose is fine, but standalone bolded section labels are forbidden — they
+will be rejected by the post-processing validator. Do not use bullet lists or
+numbered lists.
+
 Return the improved analysis in the same XML format.
 """
 

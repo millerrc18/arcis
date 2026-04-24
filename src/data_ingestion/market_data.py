@@ -8,11 +8,22 @@ Tests: tests/test_ingestion.py
 """
 
 import logging
+import warnings
 
 import pandas as pd
 import yfinance as yf
 
 logger = logging.getLogger(__name__)
+
+# #546 — yfinance >=0.2.50 emits FutureWarning for `auto_adjust=False` even
+# when explicitly requested. We need raw OHLCV (no adjustment) for accurate
+# slippage/PnL accounting, so we keep the kwarg and just suppress the noise.
+# Audit found ~540 instances over 3 days clogging stderr.
+warnings.filterwarnings(
+    "ignore",
+    message=r"YF\.download\(\) has changed argument auto_adjust default to True",
+    category=FutureWarning,
+)
 
 # Tickers that need translation for yfinance compatibility
 TICKER_MAP = {

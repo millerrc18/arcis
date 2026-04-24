@@ -285,7 +285,9 @@ def log_setup_signal(ticker: str, classification: dict, features: dict,
     now = datetime.now(ET)
 
     try:
-        with sqlite3.connect(db_path) as conn:
+        # #590 — connect_db applies busy_timeout=30s
+        from src.utils.db import connect_db
+        with connect_db(db_path) as conn:
             conn.execute(
                 """INSERT INTO setup_signals
                    (signal_id, created_at, ticker, date, setup_type, confidence,

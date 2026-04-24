@@ -10,10 +10,10 @@ Free, no API key required. Rate limit: 10 requests/second.
 Requires User-Agent header per SEC guidelines.
 """
 
-import json
+# #544 — `import json` removed; was never referenced anywhere in this module.
 import logging
 import os
-import pickle
+import pickle  # noqa: S403  # pre-existing — see #413 for migration plan
 import time
 from datetime import datetime, timedelta
 from pathlib import Path

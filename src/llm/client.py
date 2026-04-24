@@ -34,8 +34,10 @@ def _get_llm_config() -> dict:
         active = get_active_model_name()
         if active and active != "base":
             model = active
-    except Exception:
-        pass  # Fall back to config model
+    except Exception as exc:
+        # #601 — Don't silently swallow active-model lookup failures; debug-log
+        # so the operator can see when versioning state is broken.
+        logger.debug("[LLM] active model lookup failed; using config default %s: %s", model, exc)
 
     # #153: inference_timeout_seconds is the preferred key; fall back to
     # the legacy timeout_seconds, then to the 300s default.

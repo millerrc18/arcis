@@ -363,8 +363,14 @@ def close_shadow_trade(
                     fields["drawdown_from_mfe"] = round(
                         (mfe - (exit_price - entry_price)) / entry_price * 10000, 1
                     )
-    except Exception:
-        pass  # Exit metadata is best-effort — never block trade close
+    except Exception as exc:
+        # #588 — Exit metadata is best-effort (never block trade close), but
+        # silent failures hide diagnosable issues. Warning level so it shows up
+        # in operator logs without blocking the close.
+        _logger.warning(
+            "[JOURNAL] close_shadow_trade exit-metadata write failed for trade %s: %s",
+            trade_id, exc,
+        )
     fields.update(_build_spy_excess_fields(trade_id, exit_time, pnl_pct, db_path))
     update_shadow_trade(trade_id, fields, db_path)
 
