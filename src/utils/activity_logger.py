@@ -53,12 +53,25 @@ def log_activity(event_type: str, detail: str, metadata: dict | None = None,
     # Pre-fix, tests/test_kill_switch.py and tests/test_auditor.py wrote 540
     # fake kill_switch_halt rows into the prod ai_research_desk.sqlite3
     # because they patched _HALT_FILE but not the activity_logger DB path.
-    # This belt-and-suspenders guard prevents future regressions of the same
-    # shape — tests that intentionally need to write should monkeypatch
-    # DB_PATH AND opt in via ARCIS_LOG_ACTIVITY_IN_PYTEST=1.
+    # Tests that intentionally need to write should monkeypatch DB_PATH AND
+    # opt in via ARCIS_LOG_ACTIVITY_IN_PYTEST=1.
     import os
-    if os.environ.get("PYTEST_CURRENT_TEST") and not os.environ.get("ARCIS_LOG_ACTIVITY_IN_PYTEST"):
-        return
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        if not os.environ.get("ARCIS_LOG_ACTIVITY_IN_PYTEST"):
+            return
+        # #647 — Defense-in-depth: even if a test opts in via the env var, it
+        # MUST redirect db_path away from the prod DB. Pre-#647, tests/test_
+        # risk_governor.py had an autouse fixture setting ARCIS_LOG_ACTIVITY_
+        # IN_PYTEST=1 without redirecting DB_PATH, leaking 562+ rows into prod
+        # over weeks. Raising loudly here forces future contributors to fix
+        # the same shape immediately instead of polluting silently.
+        if db_path == DB_PATH or (isinstance(db_path, str) and "ai_research_desk" in db_path):
+            raise RuntimeError(
+                f"log_activity called from pytest with "
+                f"ARCIS_LOG_ACTIVITY_IN_PYTEST=1 but db_path={db_path!r} is the "
+                f"production DB. Tests opting into writes MUST also redirect "
+                f"db_path to a tmp file (e.g. via tmp_path fixture)."
+            )
     try:
         now = datetime.now(ET).isoformat()
         with sqlite3.connect(db_path) as conn:

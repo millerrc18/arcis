@@ -105,3 +105,56 @@ class TestLogActivity:
     def test_invalid_db_path_does_not_raise(self):
         """Totally bogus path should not crash."""
         log_activity(SCAN_COMPLETE, "Bogus", db_path="/nonexistent/dir/db.sqlite3")
+
+
+class TestProductionDbLeakGuard:
+    """#647 — defense-in-depth: when ARCIS_LOG_ACTIVITY_IN_PYTEST=1 is set,
+    log_activity must REFUSE to write to the production DB.
+
+    Background: pre-#647, tests/test_risk_governor.py had an autouse fixture
+    that set ARCIS_LOG_ACTIVITY_IN_PYTEST=1 without redirecting db_path,
+    leaking 562+ rows into prod activity_log. The runtime guard at
+    src/utils/activity_logger.py raises RuntimeError if the same shape recurs.
+    """
+
+    def test_raises_when_db_path_matches_prod_default(self, monkeypatch):
+        """If a test opts in but uses the default DB_PATH, raise loudly."""
+        from src.utils.activity_logger import DB_PATH
+        monkeypatch.setenv("ARCIS_LOG_ACTIVITY_IN_PYTEST", "1")
+
+        with pytest.raises(RuntimeError, match="production DB"):
+            log_activity(SCAN_COMPLETE, "should-fail", db_path=DB_PATH)
+
+    def test_raises_when_db_path_string_contains_ai_research_desk(
+        self, monkeypatch, tmp_path
+    ):
+        """Heuristic catch: even a custom path is rejected if its name matches the prod DB."""
+        monkeypatch.setenv("ARCIS_LOG_ACTIVITY_IN_PYTEST", "1")
+        sneaky_path = str(tmp_path / "ai_research_desk.sqlite3")
+
+        with pytest.raises(RuntimeError, match="production DB"):
+            log_activity(SCAN_COMPLETE, "should-fail", db_path=sneaky_path)
+
+    def test_does_not_raise_with_safe_tmp_path(self, monkeypatch, tmp_path):
+        """The autouse opt-in pattern in this file uses tmp_path/test.sqlite3,
+        which doesn't match prod-DB shape and must succeed (no false positives)."""
+        # autouse fixture already set the env var; verify it doesn't trip
+        safe_path = str(tmp_path / "test.sqlite3")
+        _create_activity_log_table(safe_path)
+
+        # Should NOT raise
+        log_activity(SCAN_COMPLETE, "safe-tmp-write", db_path=safe_path)
+
+        with sqlite3.connect(safe_path) as conn:
+            count = conn.execute("SELECT COUNT(*) FROM activity_log").fetchone()[0]
+        assert count == 1
+
+    def test_guard_still_returns_early_without_opt_in(self, monkeypatch):
+        """The original #613 behavior still works — without opt-in, no write."""
+        from src.utils.activity_logger import DB_PATH
+        # Explicitly clear opt-in (autouse fixture set it)
+        monkeypatch.delenv("ARCIS_LOG_ACTIVITY_IN_PYTEST", raising=False)
+
+        # Should NOT raise (returns early), even with prod DB_PATH
+        result = log_activity(SCAN_COMPLETE, "guard-blocks", db_path=DB_PATH)
+        assert result is None
