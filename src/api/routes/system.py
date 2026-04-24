@@ -40,6 +40,7 @@ import logging
 from fastapi import APIRouter, Query
 from src.config import DB_PATH, load_config
 from src.services.system_service import get_system_status
+from src.utils.db import connect_db
 
 router = APIRouter(tags=["system"])
 logger = logging.getLogger(__name__)
@@ -189,7 +190,7 @@ def latest_audit():
     from src.training.versioning import init_training_tables
     import sqlite3
     init_training_tables()
-    with sqlite3.connect(DB_PATH, timeout=10) as conn:  # #258: busy timeout
+    with connect_db(DB_PATH) as conn:  # #258: connect_db applies 30s busy_timeout
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             "SELECT * FROM audit_reports ORDER BY created_at DESC LIMIT 1"
@@ -217,7 +218,7 @@ def audit_history(days: int = 7):
     init_training_tables()
     et = ZoneInfo("America/New_York")
     cutoff = (datetime.now(et) - timedelta(days=days)).isoformat()
-    with sqlite3.connect(DB_PATH, timeout=10) as conn:  # #258: busy timeout
+    with connect_db(DB_PATH) as conn:  # #258: connect_db applies 30s busy_timeout
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT * FROM audit_reports WHERE created_at >= ? ORDER BY created_at DESC",
@@ -304,7 +305,7 @@ def data_collection_stats():
     db_path = DB_PATH
     stats = {}
 
-    with sqlite3.connect(db_path, timeout=10) as conn:  # #258: busy timeout
+    with connect_db(db_path) as conn:  # #258: connect_db applies 30s busy_timeout
         for table_name, sql in _DATA_COLLECTION_QUERIES.items():
             try:
                 row = conn.execute(sql).fetchone()
@@ -435,7 +436,7 @@ _TABLE_WHITELIST = [
 def table_counts():
     """Return row counts for whitelisted tables (for DB Schema page)."""
     import sqlite3
-    conn = sqlite3.connect(DB_PATH, timeout=10)  # #258: busy timeout
+    conn = connect_db(DB_PATH)  # #258: connect_db applies 30s busy_timeout
     counts = {}
     for table in _TABLE_WHITELIST:
         try:
@@ -455,7 +456,7 @@ def activity_feed(
     """Activity feed matching cloud /api/activity/feed response shape."""
     import sqlite3 as _sqlite3
     try:
-        with _sqlite3.connect(DB_PATH, timeout=10) as conn:
+        with connect_db(DB_PATH) as conn:
             conn.row_factory = _sqlite3.Row
             if event_type:
                 rows = conn.execute(
@@ -481,7 +482,7 @@ def get_settings():
     config = load_config()
     overrides = {}
     try:
-        with _sqlite3.connect(DB_PATH, timeout=10) as conn:
+        with connect_db(DB_PATH) as conn:
             conn.row_factory = _sqlite3.Row
             rows = conn.execute(
                 "SELECT setting_key, setting_value, updated_at FROM config_overrides"
@@ -532,7 +533,7 @@ def update_settings(body: dict):
 
     now = datetime.now(ZoneInfo("America/New_York")).isoformat()
     try:
-        with _sqlite3.connect(DB_PATH, timeout=10) as conn:
+        with connect_db(DB_PATH) as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO config_overrides "
                 "(setting_key, setting_value, updated_at) VALUES (?, ?, ?)",
@@ -549,7 +550,7 @@ def clear_overrides():
     """Clear all dashboard overrides."""
     import sqlite3 as _sqlite3
     try:
-        with _sqlite3.connect(DB_PATH, timeout=10) as conn:
+        with connect_db(DB_PATH) as conn:
             conn.execute("DELETE FROM config_overrides")
         return {"message": "All overrides cleared"}
     except Exception as exc:
@@ -561,7 +562,7 @@ def scan_metrics(limit: int = Query(default=20, ge=1, le=200)):
     """Return scan metrics history."""
     import sqlite3 as _sqlite3
     try:
-        with _sqlite3.connect(DB_PATH, timeout=10) as conn:
+        with connect_db(DB_PATH) as conn:
             conn.row_factory = _sqlite3.Row
             rows = conn.execute(
                 "SELECT * FROM scan_metrics ORDER BY created_at DESC LIMIT ?",
@@ -578,7 +579,7 @@ def training_history():
     """Alias for training/versions (cloud parity)."""
     import sqlite3 as _sqlite3
     try:
-        with _sqlite3.connect(DB_PATH, timeout=10) as conn:
+        with connect_db(DB_PATH) as conn:
             conn.row_factory = _sqlite3.Row
             rows = conn.execute(
                 "SELECT * FROM model_versions ORDER BY created_at DESC"
@@ -606,7 +607,7 @@ def stress_test_results():
     import sqlite3 as _sqlite3
     import json
     try:
-        with _sqlite3.connect(DB_PATH, timeout=10) as conn:
+        with connect_db(DB_PATH) as conn:
             conn.row_factory = _sqlite3.Row
             rows = conn.execute(
                 "SELECT * FROM stress_test_results ORDER BY created_at DESC"
@@ -640,7 +641,7 @@ def monitoring_history(hours: int = 24):
     """Get system metrics history."""
     import sqlite3
     try:
-        with sqlite3.connect(DB_PATH, timeout=10) as conn:
+        with connect_db(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT * FROM system_metrics "
@@ -660,7 +661,7 @@ def simulation_results():
     import sqlite3 as _sqlite3
     import json
     try:
-        with _sqlite3.connect(DB_PATH, timeout=10) as conn:
+        with connect_db(DB_PATH) as conn:
             conn.row_factory = _sqlite3.Row
             rows = conn.execute(
                 "SELECT * FROM simulation_results ORDER BY created_at DESC"

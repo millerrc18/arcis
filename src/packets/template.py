@@ -8,6 +8,7 @@ Tests: tests/test_packet_builders.py
 """
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from src.models import PositionSizing, TradePacket
@@ -15,6 +16,8 @@ from src.universe.company_names import get_company_name
 
 if TYPE_CHECKING:
     from src.platform.strategy_spec import StrategySpec
+
+logger = logging.getLogger(__name__)
 
 
 def _is_unit_number(value) -> bool:
@@ -116,9 +119,25 @@ def build_packet_from_features(
     features: dict,
     config: dict,
     strategy: "StrategySpec" | None = None,
-) -> TradePacket:
-    """Build a real TradePacket from computed features and config."""
+) -> TradePacket | None:
+    """Build a real TradePacket from computed features and config.
+
+    Returns None when current_price <= 0 (#621). The upstream feature
+    pipeline can silently return current_price=0 for tickers that fail
+    a fetch (observed for ~14 specific tickers daily during 4/21–4/23,
+    causing 390 'zero allocation' rejections and ~110 min/day of
+    wasted LLM compute). Refusing here closes the wasted-compute path
+    and surfaces the affected ticker to operators.
+    """
     price = features.get("current_price", 0.0)
+    if price is None or price <= 0:
+        logger.warning(
+            "[PACKET] Refusing to build packet for %s — current_price=%r "
+            "invalid (upstream feature pipeline silently failed). "
+            "Skipping LLM + governor — fix the feature fetch instead. (#621)",
+            ticker, price,
+        )
+        return None
     atr = features.get("atr_14", 0.0)
     trend = features.get("trend_state", "neutral")
     rs = features.get("relative_strength_state", "neutral")

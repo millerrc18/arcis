@@ -4,7 +4,7 @@ Called by: api.routes.actions
 Calls: none
 Owns tables: none
 Config keys: none
-Tests: tests/test_phase_d_auth_and_safety.py
+Tests: tests/test_phase_d_auth_and_safety.py, tests/test_helper_coverage_backfill.py
 
 Pre-#576, all 7 POST endpoints in src/api/routes/actions.py were
 unauthenticated. Mitigation existed at the network layer (127.0.0.1

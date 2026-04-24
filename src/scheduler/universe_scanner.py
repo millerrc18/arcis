@@ -172,6 +172,11 @@ def run_universe_scan(ctx: ScanContext) -> ScanResult:
         feat["_score"] = candidate["score"]
 
         packet = build_packet_from_features(ticker, feat, ctx.config)
+        if packet is None:
+            # #621 — upstream feature pipeline returned price<=0;
+            # builder refused. Skip the entire pipeline for this ticker
+            # (no LLM, no governor) — wasted compute eliminated.
+            continue
 
         # Sprint 2 K: pre-LLM BP check. Skip Ollama (~17s) for packets
         # that can't be funded. If BP insufficient, record rejection

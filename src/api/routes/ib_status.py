@@ -16,6 +16,7 @@ import sqlite3
 from fastapi import APIRouter
 
 from src.config import DB_PATH, load_config
+from src.utils.db import connect_db
 
 router = APIRouter(tags=["ib"])
 logger = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ def ib_status():
         shadow_mode = ib_cfg.get("shadow_mode", False)
         paper_routing = ib_cfg.get("paper_routing", False)
 
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db(DB_PATH)
         conn.row_factory = sqlite3.Row
         try:
             # Overall shadow log stats

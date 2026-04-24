@@ -87,7 +87,7 @@ def test_today_vs_7d_vs_30d_windows(tmp_path):
     db = str(tmp_path / "windows.db")
     _init_schema(db)
     # Today
-    _seed(db, "today-a", days_ago=0.1, pnl_pct=2.0)
+    _seed(db, "today-a", days_ago=0, pnl_pct=2.0)
     # 4 days ago — in 7d, 30d, all_time
     _seed(db, "recent",  days_ago=4,   pnl_pct=3.0)
     # 15 days ago — in 30d, all_time (not 7d)
@@ -107,7 +107,7 @@ def test_win_rate_math(tmp_path):
     _init_schema(db)
     # 3 wins, 1 loss
     for i, pct in enumerate([1.0, 2.0, 3.0, -4.0]):
-        _seed(db, f"t-{i}", days_ago=0.1, pnl_pct=pct)
+        _seed(db, f"t-{i}", days_ago=0, pnl_pct=pct)
     stats = compute_all_window_stats(db)
     assert stats["today"]["wins"] == 3
     assert stats["today"]["losses"] == 1
@@ -117,12 +117,17 @@ def test_win_rate_math(tmp_path):
 def test_excess_sharpe_requires_min_10_trades(tmp_path):
     db = str(tmp_path / "sharpe.db")
     _init_schema(db)
+    # NB: days_ago=0 (not 0.5) — `today_only` filters by the ET DATE
+    # portion of actual_exit_time. Seeding at 12h ago caused this test
+    # to flake just past midnight ET because the seeded trades landed in
+    # yesterday's window (same timezone-flake category fixed in PR #634
+    # for the `actual_exit_time` substr filter).
     # 9 trades with excess_return — Sharpe should be None
     for i in range(9):
-        _seed(db, f"t-{i}", days_ago=0.5, pnl_pct=1.0, excess_return=0.5)
+        _seed(db, f"t-{i}", days_ago=0, pnl_pct=1.0, excess_return=0.5)
     assert compute_all_window_stats(db)["today"]["excess_sharpe"] is None
     # Add a 10th — Sharpe should now compute
-    _seed(db, "t-9", days_ago=0.5, pnl_pct=1.0, excess_return=0.5)
+    _seed(db, "t-9", days_ago=0, pnl_pct=1.0, excess_return=0.5)
     stats = compute_all_window_stats(db)
     # Every excess_return is identical (0.5) so stdev=0 -> None
     assert stats["today"]["excess_sharpe"] is None

@@ -27,6 +27,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, HTTPException, Query
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 router = APIRouter(tags=["council"])
 logger = logging.getLogger(__name__)
@@ -49,7 +50,7 @@ def _parse_json_fields(row: dict, fields: list[str]) -> dict:
 def council_latest():
     """Return the most recent council session with votes."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db(DB_PATH)
         conn.row_factory = sqlite3.Row
         try:
             session = conn.execute(
@@ -82,7 +83,7 @@ def council_history(days: int = Query(default=30, ge=1, le=365)):
     """Return council sessions within date range."""
     try:
         cutoff = (datetime.now(ET) - timedelta(days=days)).isoformat()
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db(DB_PATH)
         conn.row_factory = sqlite3.Row
         try:
             rows = conn.execute(
@@ -102,7 +103,7 @@ def council_history(days: int = Query(default=30, ge=1, le=365)):
 def council_session_detail(session_id: str):
     """Return a specific council session with its votes."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db(DB_PATH)
         conn.row_factory = sqlite3.Row
         try:
             session = conn.execute(
