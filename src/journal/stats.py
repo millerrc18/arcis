@@ -42,40 +42,41 @@ def _coerce_float(value) -> float | None:
         return None
 
 
-def compute_window_stats(db_path: str = DB_PATH, days: int | None = None,
-                         today_only: bool = False) -> dict:
-    """Compute stats for trades closed within the window.
-
-    Args:
-        db_path: SQLite path override (tests use a tmp file).
-        days: look back this many days from now. None + today_only=False
-            means "all time".
-        today_only: restrict to trades closed today (ET calendar day).
-
-    Returns dict with:
-        count, wins, losses, win_rate, avg_pnl_pct, median_pnl_pct,
-        total_pnl_dollars, avg_excess_return, best_pct, worst_pct,
-        excess_sharpe (trade-count-scaled, None if < 10 trades).
-    """
-    where_clauses = ["status != 'open'", "COALESCE(quarantined, 0) = 0",
-                     "actual_exit_time IS NOT NULL"]
+def _build_window_filter(
+    days: int | None, today_only: bool,
+) -> tuple[list[str], list]:
+    """Build the WHERE-clause fragments + params for compute_window_stats."""
+    where_clauses = [
+        "status != 'open'",
+        "COALESCE(quarantined, 0) = 0",
+        "actual_exit_time IS NOT NULL",
+    ]
     params: list = []
-
     if today_only:
-        today_et = datetime.now(ET).date().isoformat()
         # WHY substr(.., 1, 10) instead of DATE(actual_exit_time):
         # SQLite's DATE() converts ISO timestamps with timezone offsets to UTC
         # before extracting the date — so a 2026-04-23T20:41-04:00 ET timestamp
         # becomes 2026-04-24 (UTC), and "today in ET" stops matching after
-        # ~8pm ET. The actual_exit_time is always written in ET-localized
-        # ISO form, so the first 10 chars are the ET date directly.
+        # ~8pm ET. actual_exit_time is always written in ET-localized ISO
+        # form, so the first 10 chars are the ET date directly.
         where_clauses.append("substr(actual_exit_time, 1, 10) = ?")
-        params.append(today_et)
+        params.append(datetime.now(ET).date().isoformat())
     elif days is not None:
-        cutoff = (datetime.now(ET) - timedelta(days=days)).isoformat()
         where_clauses.append("actual_exit_time >= ?")
-        params.append(cutoff)
+        params.append((datetime.now(ET) - timedelta(days=days)).isoformat())
+    return where_clauses, params
 
+
+def compute_window_stats(db_path: str = DB_PATH, days: int | None = None,
+                         today_only: bool = False) -> dict:
+    """Compute stats for trades closed within the window.
+
+    days=None + today_only=False means "all time". Returns dict with
+    count, wins, losses, win_rate, avg_pnl_pct, median_pnl_pct,
+    total_pnl_dollars, avg_excess_return, best_pct, worst_pct,
+    excess_sharpe (trade-count-scaled, None if < 10 trades).
+    """
+    where_clauses, params = _build_window_filter(days, today_only)
     sql = (
         "SELECT pnl_pct, pnl_dollars, excess_return "
         "FROM shadow_trades WHERE " + " AND ".join(where_clauses)

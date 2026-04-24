@@ -51,14 +51,10 @@ def setup_logging(level: str = "INFO", log_file: str | None = None):
     if log_file:
         log_path = Path(log_file)
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        # encoding="utf-8" is required so emoji/CJK in log records are
-        # written intact. Without it, Windows defaults to cp1252 and
-        # silently drops records via logging.handleError() (#619).
+        # encoding="utf-8" — without it Windows uses cp1252 and silently
+        # drops records with emoji/CJK via logging.handleError() (#619).
         file_handler = RotatingFileHandler(
-            log_path,
-            maxBytes=10 * 1024 * 1024,
-            backupCount=5,
-            encoding="utf-8",
+            log_path, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8",
         )
         file_handler.setFormatter(fmt)
         root.addHandler(file_handler)

@@ -1,5 +1,11 @@
 """SQL helpers for shadow_trades.status filtering — uses canonical constants.
 
+Called by: shadow_trading.executor, shadow_trading.reconcile, risk.governor, scheduler.reports
+Calls: shadow_trading.models
+Owns tables: none
+Config keys: none
+Tests: tests/test_tier_1_hardening.py
+
 Centralizes the IN-clause expansion of TERMINAL_STATUSES / ACTIVE_STATUSES so
 that future status additions automatically propagate to all consumer queries
 without each call site needing to enumerate them. Closes #437 and #482.

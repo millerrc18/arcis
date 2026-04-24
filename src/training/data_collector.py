@@ -226,6 +226,58 @@ def collect_training_examples_from_closed_trades(
     return collect_training_examples_from_closed_trades_detailed(db_path).count
 
 
+def _emit_contrastive_example(
+    outcome_type: str, trade: dict, feature_input: str,
+    link_recommendation_id: str, outcome_text: str, created_at: str,
+    db_path: str,
+) -> bool:
+    """Generate the DPO contrastive sibling for WIN/LOSS trades.
+
+    For DPO training we need (chosen, rejected) pairs. The primary example
+    is the "chosen" side; the contrastive argues the opposite stance and
+    becomes the "rejected" side:
+      WIN  → use PASS_SYSTEM_PROMPT (argue why you'd skip this trade)
+      LOSS → use WINNER_SYSTEM_PROMPT (argue why this could be good)
+    TIMEOUT trades get no contrastive — signal-decay analysis has no
+    natural opposite. Returns True if a row was written, False otherwise.
+    """
+    if outcome_type not in ("WIN", "LOSS"):
+        return False
+    from src.training.outcome_prompts import (
+        PASS_SYSTEM_PROMPT as _PASS_PROMPT,
+        WINNER_SYSTEM_PROMPT as _WIN_PROMPT,
+    )
+    contrastive_prompt = _PASS_PROMPT if outcome_type == "WIN" else _WIN_PROMPT
+    contrastive_source = f"contrastive_{outcome_type.lower()}"
+    contrastive_response = generate_training_example(
+        contrastive_prompt, feature_input, purpose="backfill_blinded",
+    )
+    if contrastive_response is None:
+        logger.warning(
+            "[TRAINING] Contrastive generation failed for %s, skipping",
+            trade.get("ticker"),
+        )
+        return False
+    contrastive_id = str(uuid.uuid4())
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """INSERT INTO training_examples
+               (example_id, created_at, source, ticker, recommendation_id,
+                feature_snapshot, trade_outcome, instruction, input_text, output_text)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (contrastive_id, created_at, contrastive_source,
+             trade.get("ticker"), link_recommendation_id,
+             feature_input, outcome_text,
+             contrastive_prompt, feature_input, contrastive_response),
+        )
+        conn.commit()
+    logger.info(
+        "  [TRAINING] Generated contrastive example for %s (%s)",
+        trade.get("ticker"), contrastive_source,
+    )
+    return True
+
+
 def collect_training_examples_from_closed_trades_detailed(
     db_path: str = DB_PATH,
 ) -> CollectionResult:
@@ -422,44 +474,11 @@ def collect_training_examples_from_closed_trades_detailed(
         count += 1
 
         # ═══ CONTRASTIVE EXAMPLE (WIN/LOSS only — natural DPO pair) ═══
-        # For DPO training, we need (chosen, rejected) pairs. The primary
-        # example above is the "chosen" side. This contrastive example argues
-        # the OPPOSITE stance and becomes the "rejected" side:
-        #   WIN  → use PASS_SYSTEM_PROMPT (argue why you'd skip this trade)
-        #   LOSS → use WINNER_SYSTEM_PROMPT (argue why this could be good)
-        # TIMEOUT trades get no contrastive — their signal-decay analysis has
-        # no natural opposite.
-        if outcome_type in ("WIN", "LOSS"):
-            from src.training.outcome_prompts import (
-                PASS_SYSTEM_PROMPT as _PASS_PROMPT,
-                WINNER_SYSTEM_PROMPT as _WIN_PROMPT,
-            )
-            contrastive_prompt = _PASS_PROMPT if outcome_type == "WIN" else _WIN_PROMPT
-            contrastive_source = f"contrastive_{outcome_type.lower()}"
-
-            contrastive_response = generate_training_example(
-                contrastive_prompt, feature_input, purpose="backfill_blinded",
-            )
-            if contrastive_response is not None:
-                contrastive_id = str(uuid.uuid4())
-                with sqlite3.connect(db_path) as conn:
-                    conn.execute(
-                        """INSERT INTO training_examples
-                           (example_id, created_at, source, ticker, recommendation_id,
-                            feature_snapshot, trade_outcome, instruction, input_text, output_text)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                        (contrastive_id, created_at, contrastive_source,
-                         trade.get("ticker"), link_recommendation_id,
-                         feature_input, outcome_text,
-                         contrastive_prompt, feature_input, contrastive_response),
-                    )
-                    conn.commit()
-                logger.info("  [TRAINING] Generated contrastive example for %s (%s)",
-                            trade.get("ticker"), contrastive_source)
-                count += 1
-            else:
-                logger.warning("[TRAINING] Contrastive generation failed for %s, skipping",
-                               trade.get("ticker"))
+        if _emit_contrastive_example(
+            outcome_type, trade, feature_input, link_recommendation_id,
+            outcome_text, created_at, db_path,
+        ):
+            count += 1
 
         halt, compliance, top_reason = should_halt_batch(attempted, rejected, rejection_reasons)
         if halt:
