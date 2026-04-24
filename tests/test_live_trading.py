@@ -330,7 +330,7 @@ class TestLiveTradeExecution:
     @patch("src.shadow_trading.alpaca_adapter.get_live_account_info")
     @patch("src.shadow_trading.executor.get_open_shadow_trades")
     @patch("src.shadow_trading.executor._get_current_price_safe")
-    @patch("src.shadow_trading.alpaca_adapter.place_live_entry")
+    @patch("src.shadow_trading.alpaca_adapter.place_live_bracket")
     @patch("src.notifications.telegram.is_telegram_enabled", return_value=False)
     def test_successful_live_trade(self, mock_tg, mock_place, mock_price,
                                     mock_open_trades, mock_acct, mock_config,
@@ -375,7 +375,7 @@ class TestLiveTradeExecution:
     @patch("src.shadow_trading.alpaca_adapter.get_live_account_info")
     @patch("src.shadow_trading.executor.get_open_shadow_trades")
     @patch("src.shadow_trading.executor._get_current_price_safe")
-    @patch("src.shadow_trading.alpaca_adapter.place_live_entry")
+    @patch("src.shadow_trading.alpaca_adapter.place_live_bracket")
     def test_failed_order_not_recorded(self, mock_place, mock_price,
                                         mock_open_trades, mock_acct, mock_config,
                                         live_config, mock_packet, mock_features, tmp_db):
@@ -409,7 +409,7 @@ class TestLiveRiskParameters:
     @patch("src.shadow_trading.alpaca_adapter.get_live_account_info")
     @patch("src.shadow_trading.executor.get_open_shadow_trades")
     @patch("src.shadow_trading.executor._get_current_price_safe")
-    @patch("src.shadow_trading.alpaca_adapter.place_live_entry")
+    @patch("src.shadow_trading.alpaca_adapter.place_live_bracket")
     @patch("src.notifications.telegram.is_telegram_enabled", return_value=False)
     def test_atr_based_stop_and_target(self, mock_tg, mock_place, mock_price,
                                         mock_open_trades, mock_acct, mock_config,
@@ -557,7 +557,7 @@ class TestDualExecution:
            return_value={"buying_power": 100000.0, "equity": 100000.0, "cash": 100000.0})
     @patch("src.shadow_trading.executor.get_open_shadow_trades")
     @patch("src.shadow_trading.executor._get_current_price_safe")
-    @patch("src.shadow_trading.alpaca_adapter.place_live_entry")
+    @patch("src.shadow_trading.alpaca_adapter.place_live_bracket")
     @patch("src.notifications.telegram.is_telegram_enabled", return_value=False)
     def test_paper_and_live_both_execute(self, mock_tg, mock_live_place, mock_price,
                                           mock_open_trades, mock_paper_acct, mock_acct,

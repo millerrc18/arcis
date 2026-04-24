@@ -48,10 +48,26 @@ class AlpacaLiveBroker(BrokerAdapter):
         stop_loss_price: float,
         limit_price: Optional[float] = None,
     ) -> BrokerOrder:
-        # Alpaca live doesn't have a native bracket order API like paper.
-        # Use market entry; stops are managed by the executor's polling loop.
-        from src.shadow_trading.alpaca_adapter import place_live_entry
-        order = place_live_entry(ticker, quantity)
+        """Place a real Alpaca bracket order on the live account (#651).
+
+        Pre-#651 this called place_live_entry (market order with no broker-side
+        stop or take-profit) and recorded order_type='bracket' in the DB —
+        the comment claimed Alpaca live didn't have a native bracket API,
+        which was factually wrong. Alpaca's OrderClass.BRACKET works
+        identically on paper and live; only the trading client differs.
+
+        Now: places a real bracket via place_live_bracket (entry + take-profit
+        + stop-loss in OCO semantics, all sitting on the broker). Position is
+        protected even if our process is down.
+        """
+        from src.shadow_trading.alpaca_adapter import place_live_bracket
+        order = place_live_bracket(
+            ticker=ticker,
+            shares=quantity,
+            take_profit_price=take_profit_price,
+            stop_loss_price=stop_loss_price,
+            limit_price=limit_price,
+        )
         return BrokerOrder(
             order_id=str(order.get("order_id", "")),
             ticker=ticker,
@@ -63,6 +79,7 @@ class AlpacaLiveBroker(BrokerAdapter):
             filled_qty=float(order.get("qty", 0) or 0),
             stop_price=stop_loss_price,
             take_profit_price=take_profit_price,
+            child_order_ids=order.get("legs", []) or None,
             broker="alpaca",
         )
 
