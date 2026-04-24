@@ -527,6 +527,35 @@ def export_training_data(
     train_examples = [e for e in train_examples_raw if _quality_ok(e)]
     holdout_examples = [e for e in holdout_examples_raw if _quality_ok(e)]
 
+    # #617 — surface the corpus-stall failure mode that pre-fix produced
+    # silent zero-holdout. If train_examples is populated but holdout is
+    # empty, the 5-day gap pushed holdout past the end of corpus. Model
+    # evaluation is blocked until new examples land.
+    if train_examples and not holdout_examples:
+        most_recent = examples[-1]["created_at"][:10] if examples else "unknown"
+        try:
+            from datetime import datetime as _dt2
+            days_stale = (_dt2.now() - _dt2.fromisoformat(most_recent)).days
+        except (ValueError, TypeError):
+            days_stale = -1
+        logger.error(
+            "[TRAINER] HOLDOUT EMPTY: corpus most recent %s (%dd stale) — "
+            "5-day gap pushed holdout past end of corpus. Model evaluation BLOCKED.",
+            most_recent, days_stale,
+        )
+        try:
+            from src.notifications.telegram import (
+                notify_trainer_holdout_empty, is_telegram_enabled,
+            )
+            if is_telegram_enabled():
+                notify_trainer_holdout_empty(
+                    train_count=len(train_examples),
+                    most_recent_date=most_recent,
+                    days_stale=days_stale,
+                )
+        except Exception as exc:
+            logger.debug("[TRAINER] holdout-empty Telegram alert failed: %s", exc)
+
     def _write_jsonl(path, exs):
         with open(path, "w") as f:
             for ex in exs:
