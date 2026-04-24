@@ -156,3 +156,33 @@ def test_activity_log_id_auto_populates_on_insert(tmp_path):
     assert row is not None
     assert row[0] is not None
     assert row[0] == 1, f"Expected id=1 on first insert, got {row[0]}"
+
+
+# ---------------------------------------------------------------------------
+# #615 follow-up — backfill script presence + safety
+# ---------------------------------------------------------------------------
+
+
+def test_backfill_script_exists():
+    """The one-shot backfill script must exist with the expected name."""
+    path = ROOT / "scripts" / "backfill_training_4_13_to_4_23.py"
+    assert path.exists(), (
+        "scripts/backfill_training_4_13_to_4_23.py must exist (#615 followup)"
+    )
+
+
+def test_backfill_script_requires_explicit_apply_flag():
+    """The script must default to dry-run and require --apply to commit."""
+    src = _read("scripts/backfill_training_4_13_to_4_23.py")
+    assert "argparse" in src
+    assert "--apply" in src
+    assert "dry_run" in src.lower(), (
+        "backfill script must default to dry-run mode (#615 followup safety)"
+    )
+
+
+def test_backfill_script_targets_correct_window():
+    """The script must target the documented 4/13–4/23 window."""
+    src = _read("scripts/backfill_training_4_13_to_4_23.py")
+    assert "2026-04-13" in src
+    assert "2026-04-23" in src
