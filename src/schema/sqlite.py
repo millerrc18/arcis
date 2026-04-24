@@ -46,6 +46,11 @@ def generate_create_sql(table: TableDef) -> str:
         # Add inline PRIMARY KEY for the single INTEGER pk column
         if c.name == inline_pk_col:
             parts.append("PRIMARY KEY")
+            # #580 — AUTOINCREMENT only valid alongside inline PRIMARY KEY
+            # on the single INTEGER pk column. Prevents rowid reuse after
+            # DELETE so audit trails stay monotonic.
+            if getattr(c, "autoincrement", False):
+                parts.append("AUTOINCREMENT")
         if c.default is not None:
             parts.append(f"DEFAULT '{c.default}'")
         cols.append(" ".join(parts))

@@ -99,3 +99,60 @@ def test_cmd_startup_calls_safe_combo_check():
         "cmd_startup must call _assert_safe_live_governor_combo before "
         "launching the watch loop (#574)"
     )
+
+
+# ---------------------------------------------------------------------------
+# #580 — activity_log.id must be AUTOINCREMENT in the registry
+# ---------------------------------------------------------------------------
+
+
+def test_activity_log_id_column_marked_autoincrement():
+    """#580 — without AUTOINCREMENT, SQLite's ROWID can be reused after
+    deletions; downstream cloud-sync dedup keys on id and would conflate
+    new events with deleted ones."""
+    from src.schema.registry import TABLES
+    activity_log = TABLES.get("activity_log")
+    assert activity_log is not None
+    id_col = next((c for c in activity_log.columns if c.name == "id"), None)
+    assert id_col is not None
+    assert id_col.type == "INTEGER"
+    assert id_col.nullable is False
+    assert getattr(id_col, "autoincrement", False) is True, (
+        "activity_log.id must have autoincrement=True so the DDL emits "
+        "AUTOINCREMENT (#580)"
+    )
+
+
+def test_activity_log_ddl_emits_autoincrement_keyword():
+    """The generated CREATE TABLE for activity_log must include the literal
+    AUTOINCREMENT keyword."""
+    from src.schema.registry import TABLES
+    from src.schema.sqlite import generate_create_sql
+    sql = generate_create_sql(TABLES["activity_log"])
+    assert "AUTOINCREMENT" in sql, (
+        f"DDL for activity_log must include AUTOINCREMENT, got:\n{sql}"
+    )
+
+
+def test_activity_log_id_auto_populates_on_insert(tmp_path):
+    """Behavioral test: a fresh activity_log table from the registry must
+    auto-populate id on INSERT-without-id."""
+    import sqlite3
+    from src.schema.registry import TABLES
+    from src.schema.sqlite import generate_create_sql
+
+    db_path = str(tmp_path / "audit.db")
+    conn = sqlite3.connect(db_path)
+    conn.executescript(generate_create_sql(TABLES["activity_log"]))
+    # INSERT without id — must NOT crash, and id must populate
+    conn.execute(
+        "INSERT INTO activity_log (event_type, detail, level, created_at) "
+        "VALUES (?, ?, ?, ?)",
+        ("test_event", "test detail", "info", "2026-04-24T00:00:00"),
+    )
+    conn.commit()
+    row = conn.execute("SELECT id FROM activity_log").fetchone()
+    conn.close()
+    assert row is not None
+    assert row[0] is not None
+    assert row[0] == 1, f"Expected id=1 on first insert, got {row[0]}"
