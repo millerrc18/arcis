@@ -169,9 +169,10 @@ def create_router(runtime, verify_auth):
                 example_count = 0
 
             model_name = latest_model["version_name"] if latest_model else "base"
+            from src.version import VERSION as _ARCIS_VERSION
             return {
                 "environment": "cloud",
-                "version": "v0.17.2",
+                "version": _ARCIS_VERSION,  # #631-15: single source of truth (src/version.py)
                 "open_positions": open_trades[0]["count"] if open_trades else 0,
                 "closed_trades": closed_trades[0]["count"] if closed_trades else 0,
                 "latest_model": latest_model,

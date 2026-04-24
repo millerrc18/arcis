@@ -51,6 +51,39 @@ const queryClient = new QueryClient({
   },
 })
 
+const SCAN_QUERY_KEYS = [
+  ['scan'],
+  ['scan-metrics'],
+  ['packets'],
+  ['status'],
+]
+
+const LIVE_TRADE_QUERY_KEYS = [
+  ['shadow-open'],
+  ['shadow-account'],
+  ['live-trades'],
+  ['live-summary'],
+  ['live-trades-for-ledger'],
+]
+
+const CLOSED_TRADE_QUERY_KEYS = [
+  ['shadow-closed'],
+  ['trade-history-closed'],
+  ['sharpe-attribution'],
+]
+
+const TRAINING_QUERY_KEYS = [
+  ['training-status'],
+  ['training-versions'],
+  ['data-collection-stats'],
+]
+
+function invalidateQueryKeys(qc, queryKeys) {
+  for (const queryKey of queryKeys) {
+    qc.invalidateQueries({ queryKey })
+  }
+}
+
 function CacheInvalidator() {
   const qc = useQueryClient()
   const { subscribe } = useWebSocketContext()
@@ -59,21 +92,20 @@ function CacheInvalidator() {
     return subscribe((msg) => {
       const msgType = msg.type
       if (msgType === 'scan_complete') {
-        qc.invalidateQueries({ queryKey: ['scan'] })
-        qc.invalidateQueries({ queryKey: ['status'] })
+        invalidateQueryKeys(qc, SCAN_QUERY_KEYS)
         toast('Scan complete', 'info')
       } else if (msgType === 'trade_opened') {
-        qc.invalidateQueries({ queryKey: ['shadow'] })
+        invalidateQueryKeys(qc, LIVE_TRADE_QUERY_KEYS)
         toast(`Trade opened: ${msg.data?.ticker || ''}`, 'info')
       } else if (msgType === 'trade_closed') {
-        qc.invalidateQueries({ queryKey: ['shadow'] })
+        invalidateQueryKeys(qc, [...LIVE_TRADE_QUERY_KEYS, ...CLOSED_TRADE_QUERY_KEYS])
         const pnl = msg.data?.pnl_dollars
         const pnlType = pnl >= 0 ? 'success' : 'error'
         toast(`Trade closed: ${msg.data?.ticker || ''} $${pnl?.toFixed(2) || ''}`, pnlType)
       } else if (msgType === 'pnl_update') {
-        qc.invalidateQueries({ queryKey: ['shadow'] })
+        invalidateQueryKeys(qc, LIVE_TRADE_QUERY_KEYS)
       } else if (msgType === 'training_update') {
-        qc.invalidateQueries({ queryKey: ['training'] })
+        invalidateQueryKeys(qc, TRAINING_QUERY_KEYS)
         toast('Training update', 'info')
       } else if (msgType === 'system_status') {
         qc.invalidateQueries({ queryKey: ['status'] })
@@ -87,10 +119,9 @@ function CacheInvalidator() {
 export default function App() {
   useEffect(() => { configureStatusBar(); }, []);
 
-  const qcRef = queryClient;
   useEffect(() => {
     const cleanup = onAppStateChange(({ isActive }) => {
-      if (isActive) qcRef.invalidateQueries();
+      if (isActive) queryClient.invalidateQueries();
     });
     return cleanup;
   }, []);

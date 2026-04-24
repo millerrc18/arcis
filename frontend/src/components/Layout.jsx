@@ -59,9 +59,17 @@ function StatusBar({ status }) {
 
   const llmStatus = IS_CLOUD ? 'CLOUD' : (status?.ollama_available ? 'ONLINE' : 'OFFLINE')
   const mktStatus = status?.market_open ? 'OPEN' : 'CLOSED'
-  const tlState = status?.traffic_light || '--'
+  // #631-2 — Distinguish "loading" from "set but unset" Traffic Light state.
+  // Pre-fix `--` was ambiguous; now we show "…" while loading and "Not set"
+  // when the backend reports no TL value.
+  const tlLoaded = status !== undefined
+  const tlState = status?.traffic_light || (tlLoaded ? 'NOT SET' : '...')
   const positions = status?.open_positions ?? '--'
-  const version = status?.version || 'v0.17.2'
+  // #631-15 — When status is loading, show '…' rather than a stale hardcoded
+  // version string. The single source of truth is src/version.py (server-side);
+  // the loading-state placeholder avoids the misleading impression that the
+  // dashboard is running an ancient build.
+  const version = status?.version || (tlLoaded ? 'unknown' : '…')
 
   return (
     <div
@@ -82,7 +90,7 @@ function StatusBar({ status }) {
       <span style={{ color: 'var(--arcis-border)' }}>|</span>
       <span>MKT <span style={{ color: mktStatus === 'OPEN' ? 'var(--arcis-success)' : 'var(--arcis-text-secondary)' }}>{mktStatus}</span></span>
       <span style={{ color: 'var(--arcis-border)' }}>|</span>
-      <span>TL: <span style={{ color: tlState === 'GREEN' ? 'var(--arcis-success)' : tlState === 'RED' ? 'var(--arcis-danger)' : tlState === 'AMBER' ? 'var(--arcis-warning)' : 'var(--arcis-text-secondary)' }}>{tlState.toUpperCase()}</span></span>
+      <span title="Traffic Light gating state — GREEN/AMBER/RED">TL: <span style={{ color: tlState === 'GREEN' ? 'var(--arcis-success)' : tlState === 'RED' ? 'var(--arcis-danger)' : tlState === 'AMBER' ? 'var(--arcis-warning)' : 'var(--arcis-text-secondary)' }}>{tlState.toUpperCase()}</span></span>
       <span style={{ color: 'var(--arcis-border)' }}>|</span>
       <span>{positions} POSITIONS</span>
       <span style={{ color: 'var(--arcis-border)' }}>|</span>

@@ -160,10 +160,10 @@ export default function LiveLedger() {
   const [sortDir, setSortDir] = useState('desc')
 
   const { data: summary, isLoading: sumLoading } = useQuery({
-    queryKey: ['live-summary'], queryFn: api.getLiveSummary, refetchInterval: 60000,
+    queryKey: ['live-summary'], queryFn: api.getLiveSummary, refetchInterval: 30000,
   })
   const { data: trades, isLoading: tradesLoading } = useQuery({
-    queryKey: ['live-trades'], queryFn: api.getLiveTrades, refetchInterval: 60000,
+    queryKey: ['live-trades'], queryFn: api.getLiveTrades, refetchInterval: 30000,
   })
 
   const isLoading = sumLoading || tradesLoading
@@ -257,12 +257,17 @@ export default function LiveLedger() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text-primary)' }}>Live Ledger</h2>
-        <Tooltip content="Syncs Alpaca live positions with the local database. Run locally: python -m src.main reconcile-live">
-          <button disabled className="px-3 py-1.5 text-xs rounded opacity-50 cursor-not-allowed"
-            style={{ background: 'var(--arcis-border)', color: 'var(--arcis-text-secondary)' }}>
-            Reconcile (CLI only)
-          </button>
-        </Tooltip>
+        <div className="flex items-center gap-3">
+          <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>
+            Updated every 30s
+          </div>
+          <Tooltip content="Syncs Alpaca live positions with the local database. Run locally: python -m src.main reconcile-live">
+            <button disabled className="px-3 py-1.5 text-xs rounded opacity-50 cursor-not-allowed"
+              style={{ background: 'var(--arcis-border)', color: 'var(--arcis-text-secondary)' }}>
+              Reconcile (CLI only)
+            </button>
+          </Tooltip>
+        </div>
       </div>
 
       {/* Metrics */}

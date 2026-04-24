@@ -324,15 +324,18 @@ def close_shadow_trade(
         "pnl_dollars": pnl_dollars,
         "pnl_pct": pnl_pct,
     }
+    trade_row = None
 
     # Populate exit metadata (Sprint 6, Strategy Decision #24)
     try:
         with sqlite3.connect(db_path) as conn:
             conn.row_factory = sqlite3.Row
             trade = conn.execute(
-                "SELECT entry_price, actual_entry_time, max_favorable_excursion "
+                "SELECT ticker, source, entry_price, actual_entry_time, "
+                "max_favorable_excursion "
                 "FROM shadow_trades WHERE trade_id = ?", (trade_id,)
             ).fetchone()
+            trade_row = trade
             if trade:
                 entry_price = trade["entry_price"] or 0
                 # VIX at exit
@@ -373,6 +376,40 @@ def close_shadow_trade(
         )
     fields.update(_build_spy_excess_fields(trade_id, exit_time, pnl_pct, db_path))
     update_shadow_trade(trade_id, fields, db_path)
+    try:
+        from src.api.websocket import broadcast_sync
+
+        broadcast_sync(
+            "trade_closed",
+            {
+                "trade_id": trade_id,
+                "ticker": trade_row["ticker"] if trade_row else None,
+                "source": trade_row["source"] if trade_row else None,
+                "exit_reason": exit_reason,
+                "pnl_dollars": pnl_dollars,
+                "pnl_pct": pnl_pct,
+                "exit_price": exit_price,
+            },
+        )
+    except Exception as exc:
+        _logger.warning("[JOURNAL] broadcast trade_closed failed for %s: %s", trade_id, exc)
+
+    # #614 — Persist trade-close to activity_log for the dashboard feed.
+    # Pre-fix the TRADE_CLOSED constant existed but had zero writers.
+    try:
+        import json as _json_tc
+        from src.utils.activity_logger import TRADE_CLOSED, log_activity
+        log_activity(
+            TRADE_CLOSED,
+            _json_tc.dumps({
+                "trade_id": trade_id,
+                "exit_reason": exit_reason,
+                "pnl_dollars": pnl_dollars,
+                "pnl_pct": pnl_pct,
+            }),
+        )
+    except Exception as exc:
+        _logger.debug("[JOURNAL] activity_log TRADE_CLOSED failed: %s", exc)
 
     # #614 — Persist trade-close to activity_log for the dashboard feed.
     # Pre-fix the TRADE_CLOSED constant existed but had zero writers.
