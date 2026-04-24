@@ -145,17 +145,19 @@ def run_mr_scan(config: dict | None = None, dry_run: bool = False) -> dict:
             llm_conviction=getattr(packet, "llm_conviction", None),
         )
 
-        # Open shadow trade
+        # Open shadow trade (with rejection-reason capture, #511)
         if shadow_enabled and rec_id:
-            from src.shadow_trading.executor import open_shadow_trade
-            trade_id = open_shadow_trade(rec_id, packet, feat)
+            from src.shadow_trading.executor import open_shadow_trade_with_reason
+            trade_id, reject_reason = open_shadow_trade_with_reason(rec_id, packet, feat)
             if trade_id:
                 trades_opened += 1
                 results.append({"ticker": ticker, "rsi_2": feat.get("rsi_2"),
                                 "trade_id": trade_id, "action": "opened"})
             else:
+                logger.info("[MR] %s rejected: %s", ticker, reject_reason or "unknown")
                 results.append({"ticker": ticker, "rsi_2": feat.get("rsi_2"),
-                                "action": "rejected"})
+                                "action": "rejected",
+                                "rejection_reason": reject_reason or "unknown"})
         else:
             results.append({"ticker": ticker, "rsi_2": feat.get("rsi_2"),
                             "action": "no_shadow"})
