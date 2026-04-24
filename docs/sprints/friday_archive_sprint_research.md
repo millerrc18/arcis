@@ -169,7 +169,7 @@ COLUMN_MIGRATIONS list length: 4
 
 Headline: **table counts match, no tables are prod-orphaned, and there are ZERO columns that exist in the registry but are missing from prod** (the `ensure_columns()` path has been doing its job). The drift is exclusively in the direction of **prod has more than registry** — which is the harder direction for cutover reasoning.
 
-#### Prod-only columns (6 tables, 15 columns total)
+#### Prod-only columns (6 tables, 17 columns total)
 
 | Table | Prod-only columns | Classification |
 |---|---|---|
@@ -305,8 +305,8 @@ Key statistics of the full diff:
 - 883 total lines
 - ~60 `-` lines that are structural reshuffling (old DDL shape)
 - ~60 `+` lines that are the prod-canonical DDL shape
-- ~15 `+` lines that are genuine prod-only columns (enumerated in the table above)
-- ~15 `+` lines that are prod-only indexes (enumerated above)
+- ~17 `+` lines that are genuine prod-only columns (enumerated in the table above)
+- ~11 `+` lines that are prod-only indexes (enumerated above)
 
 </details>
 
@@ -317,7 +317,7 @@ Key statistics of the full diff:
 | Class | Count | Notes |
 |---|---|---|
 | **(a) registry-can-catch-up** | **11** | All prod-only indexes. Registry missing 11 indexes on `api_costs` (2), `earnings_calendar` (3), `metric_snapshots` (1), `model_versions` (1), `training_examples` (4). Rebuildable, no data loss. |
-| **(b) prod-has-extra-columns-to-preserve (HARD BLOCKER)** | **15** | 15 columns across 6 tables (see table above). Any operation that recreates these tables from the registry DDL would drop these columns and their data. |
+| **(b) prod-has-extra-columns-to-preserve (HARD BLOCKER)** | **17** | 17 columns across 6 tables (see table above). Any operation that recreates these tables from the registry DDL would drop these columns and their data. |
 | **(c) prod-has-renamed-columns (HARD BLOCKER)** | **0** | No evidence of in-place renames. Every column in the registry is also present in prod. |
 | **(d) type-affinity drift (outside rubric; new category)** | **173** | Shared columns where prod declared TEXT but registry declares REAL/INTEGER. Not a rename, not an extra column — but would cause subtle behavior changes in any rebuild-from-registry path. SQLite coercion hides this for most queries but not all. |
 
@@ -328,7 +328,7 @@ Key statistics of the full diff:
 **No.** The migration script closes **zero** of the Diff A gap:
 
 - Diff B is empty (registry is a superset of what the migration script applies). Running `migrate_production_db.py` on a fresh registry-generated DB produces a DB that is **identical** to the fresh registry-generated DB.
-- The 15 prod-only columns (class b), 11 prod-only indexes (class a), and 173 type-affinity drifts (class d) are **not** in `COLUMN_MIGRATIONS` and are **not** added by `migrate_tables`. They originated from **manual patches or historical code-paths** that bypassed both the registry and the migration script.
+- The 17 prod-only columns (class b), 11 prod-only indexes (class a), and 173 type-affinity drifts (class d) are **not** in `COLUMN_MIGRATIONS` and are **not** added by `migrate_tables`. They originated from **manual patches or historical code-paths** that bypassed both the registry and the migration script.
 
 In plain English: **prod schema ≠ registry + migrations.** Prod has drift *beyond* what the migration script introduces. The gap is explained by:
 1. Legacy `CREATE TABLE` statements that existed in the codebase before the registry was introduced (#580-era refactor), now removed from `src/` but preserved in prod by the idempotency of `CREATE TABLE IF NOT EXISTS`.
@@ -336,8 +336,8 @@ In plain English: **prod schema ≠ registry + migrations.** Prod has drift *bey
 3. Types drifting because prod tables were born as TEXT-everything and later "upgraded" only in the registry.
 
 For the **archive sprint specifically** (row-level DELETE on bootcamp-era data): this drift is **not a blocker** — the archive does not touch schema. But:
-- **Flag for follow-up:** the 15 prod-only columns and 173 type drifts constitute an unbounded technical-debt surface. A principled fix is (a) reconciling each into the registry or (b) making a deliberate deprecation+drop decision per column. **This is out of scope for P2 and should be considered for follow-up issue filing in P2.4 / Pass 3.**
-- **Cutover-to-fresh-DB operations are blocked** until class (b) is resolved. If any team member ever runs "drop DB, recreate from registry, re-migrate, reload backup" as a recovery path, they will silently lose data in 15 columns.
+- **Flag for follow-up:** the 17 prod-only columns and 173 type drifts constitute an unbounded technical-debt surface. A principled fix is (a) reconciling each into the registry or (b) making a deliberate deprecation+drop decision per column. **This is out of scope for P2 and should be considered for follow-up issue filing in P2.4 / Pass 3.**
+- **Cutover-to-fresh-DB operations are blocked** until class (b) is resolved. If any team member ever runs "drop DB, recreate from registry, re-migrate, reload backup" as a recovery path, they will silently lose data in 17 columns.
 
 ---
 
