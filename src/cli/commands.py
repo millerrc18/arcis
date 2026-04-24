@@ -1191,6 +1191,16 @@ def cmd_startup(args):
     print("         ARCIS — STARTUP SEQUENCE")
     print("=" * 44)
 
+    # #630 — Capture deployed git SHA so the operator (and future log dives)
+    # can spot when a long-running watch loop is running stale bytecode.
+    try:
+        from src.utils.deploy_info import log_deployment_info
+        info = log_deployment_info("watch_start")
+        print(f"  Deployed: {info.get('git_short_sha')} ({info.get('git_branch')}) — committed {info.get('git_commit_age')}")
+    except Exception as exc:
+        # Never let banner code crash startup.
+        print(f"  Deployed: unknown (banner failed: {exc})")
+
     all_checks = []
     start = _time.time()
     for i, (label, check_fn) in enumerate(STARTUP_CATEGORIES, 1):

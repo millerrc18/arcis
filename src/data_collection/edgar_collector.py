@@ -359,8 +359,14 @@ def collect_new_filings(
                         if full_text and len(full_text) > 100:
                             try:
                                 _run_nlp_scoring(conn, accession, full_text)
-                            except ImportError:
-                                pass  # pysentiment2 not installed
+                            except ImportError as exc:
+                                # #527 — Don't silently swallow the missing optional
+                                # dep; debug-log so it's visible if someone enables
+                                # the NLP path without installing pysentiment2.
+                                logger.debug(
+                                    "[EDGAR] pysentiment2 not installed; skipping NLP scoring for %s: %s",
+                                    accession, exc,
+                                )
                             except Exception as nlp_err:
                                 logger.debug("[EDGAR] NLP scoring failed for %s: %s", accession, nlp_err)
 

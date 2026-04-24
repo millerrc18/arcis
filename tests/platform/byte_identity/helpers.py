@@ -330,6 +330,19 @@ def load_market_snapshot(
     return ohlcv_data, spy
 
 
+# Canonical config snapshot used to capture the Sprint F byte-identity fixtures.
+# Operator's local settings.local.yaml may diverge (e.g., bootcamp.enabled=true);
+# without this fixed snapshot the legacy ranker pulls operator-specific
+# thresholds and breaks fixture comparison.
+_BYTE_IDENTITY_CONFIG = {
+    "bootcamp": {"enabled": False},
+    "regime_adaptive": {"enabled": True},
+    "ranking": {},
+    "risk": {},
+    "trading": {},
+}
+
+
 @contextmanager
 def historical_feature_patches(as_of_date: str):
     reference_date = pd.Timestamp(as_of_date).date()
@@ -340,6 +353,7 @@ def historical_feature_patches(as_of_date: str):
             side_effect=lambda: get_event_proximity_features(reference_date=reference_date),
         ),
         patch("src.features.earnings.get_next_earnings_date", return_value=None),
+        patch("src.ranking.ranker.load_config", return_value=_BYTE_IDENTITY_CONFIG),
     ):
         yield
 
@@ -369,9 +383,10 @@ def compute_ranked_outputs(
 
     features = compute_engine_outputs(as_of_date, strategy=strategy, cache_root=cache_root)
     ranked_input = copy.deepcopy(features)
-    if strategy is None:
-        return rank_universe(ranked_input)
-    return rank_universe(ranked_input, strategy=strategy)
+    with historical_feature_patches(as_of_date):
+        if strategy is None:
+            return rank_universe(ranked_input)
+        return rank_universe(ranked_input, strategy=strategy)
 
 
 def engine_fixture_payload(

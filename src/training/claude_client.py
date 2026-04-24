@@ -4,7 +4,7 @@ Called by: council.protocol, evaluation.auditor, training.ab_evaluation, trainin
 Calls: config, training.versioning
 Owns tables: none
 Config keys: anthropic_api_key, api, training
-Tests: tests/test_leakage_detector.py
+Tests: tests/test_leakage_detector.py, tests/test_council_fail_closed.py
 """
 
 import logging
@@ -13,6 +13,29 @@ import os
 from src.config import load_config
 
 logger = logging.getLogger(__name__)
+
+
+# #612 — Typed exception for unrecoverable Anthropic outages so callers
+# (data_collector, council/protocol) can fail-closed on auth/billing failures
+# instead of silently returning None and synthesizing fake consensus.
+class ClaudeAuthError(RuntimeError):
+    """Raised when the Anthropic API rejects the request unrecoverably
+    (credit_balance_too_low, authentication_error, invalid_api_key).
+    Caller should halt the batch + alert operator, NOT retry per-item."""
+
+
+_AUTH_ERROR_MARKERS = (
+    "credit_balance_too_low",
+    "authentication_error",
+    "invalid_api_key",
+    "invalid x-api-key",
+)
+
+
+def _get_anthropic_client(api_key: str):
+    """Construct an Anthropic client. Extracted so tests can patch."""
+    import anthropic
+    return anthropic.Anthropic(api_key=api_key)
 
 
 def _get_model_for_purpose(config: dict, purpose: str) -> str:
@@ -79,7 +102,7 @@ def generate_training_example(
     model = model_override or _get_model_for_purpose(config, purpose)
 
     try:
-        client = anthropic.Anthropic(api_key=api_key)
+        client = _get_anthropic_client(api_key)
         message = client.messages.create(
             model=model,
             max_tokens=1500,
@@ -101,6 +124,16 @@ def generate_training_example(
             pass
 
         return message.content[0].text
+    except ClaudeAuthError:
+        raise  # already typed; propagate
     except Exception as e:
+        # #612 — Classify auth/billing failures as unrecoverable so the caller
+        # (data_collector, council) can halt + alert instead of silently
+        # retrying per-item. Transient failures (rate limit, 5xx, network)
+        # still return None so the batch can skip and continue.
+        err_str = str(e).lower()
+        if any(marker in err_str for marker in _AUTH_ERROR_MARKERS):
+            logger.error("[CLAUDE] Unrecoverable auth/billing failure: %s", e)
+            raise ClaudeAuthError(str(e)) from e
         logger.warning("Claude API call failed: %s", e)
         return None

@@ -358,7 +358,9 @@ def run_post_close_capture():
 def run_overnight_training_collection():
     """6:00 PM ET — Collect training examples from today's closed trades."""
     from src.api.websocket import broadcast_sync
-    from src.training.data_collector import collect_training_examples_from_closed_trades
+    from src.training.data_collector import (
+        collect_training_examples_from_closed_trades_detailed,
+    )
 
     try:
         broadcast_sync("overnight_task", {"task": "training_collection", "status": "started"})
@@ -367,11 +369,44 @@ def run_overnight_training_collection():
 
     logger.info("[OVERNIGHT] Running training data collection...")
     print("[WATCH] Running overnight training data collection...")
-    count = collect_training_examples_from_closed_trades()
+    result = collect_training_examples_from_closed_trades_detailed()
+    count = result.count
     print(f"[WATCH] Training collection: {count} new examples")
-    log_overnight_task("training_collection", "completed",
-                       datetime.now(ET).isoformat(), datetime.now(ET).isoformat(),
-                       result=f"examples={count}")
+
+    # #615 — Structured payload distinguishes "no work" from "100% failed".
+    # Pre-#615, both produced "examples=0" indistinguishable, masking 11 days
+    # of complete pipeline outage during 4/13–4/23.
+    summary = (
+        f"examples={count} attempted={result.attempted} "
+        f"rejected={result.rejected} stage1_failures={result.stage1_failures} "
+        f"skipped_no_features={result.skipped_no_features} "
+        f"halted={result.halted}"
+    )
+    if result.is_silent_failure:
+        logger.error(
+            "[TRAINING] Collection produced 0 examples despite work — "
+            "stage1_failures=%s rejected=%s halted=%s halt_reason=%s",
+            result.stage1_failures, result.rejected, result.halted, result.halt_reason,
+        )
+        try:
+            from src.notifications.telegram import send_telegram, is_telegram_enabled
+            if is_telegram_enabled():
+                send_telegram(
+                    f"🛑 TRAINING SILENT FAILURE: 0 examples written despite "
+                    f"{result.stage1_failures} Stage-1 failures + "
+                    f"{result.rejected} validator rejections. "
+                    f"Halt reason: {result.halt_reason or 'none'}"
+                )
+        except Exception as exc:
+            logger.warning("[TRAINING] silent-failure alert failed: %s", exc)
+
+    log_overnight_task(
+        "training_collection",
+        "failed" if result.is_silent_failure else "completed",
+        datetime.now(ET).isoformat(),
+        datetime.now(ET).isoformat(),
+        result=summary,
+    )
 
     try:
         broadcast_sync("overnight_task", {"task": "training_collection", "status": "complete",

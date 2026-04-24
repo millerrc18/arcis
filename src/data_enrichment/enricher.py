@@ -52,8 +52,10 @@ def _alert_missing_key(key_name: str) -> None:
     try:
         from src.notifications.telegram import send_telegram
         send_telegram(f"\u26a0\ufe0f Missing API key: <b>{key_name}</b> \u2014 data collection degraded")
-    except Exception:
-        pass
+    except Exception as exc:
+        # #545 \u2014 Don't silently swallow Telegram alert failures; debug-log
+        # so the operator can see when the warning channel itself is broken.
+        logger.debug("[ENRICHER] Telegram alert for missing key %s failed: %s", key_name, exc)
 
 
 def enrich_features(

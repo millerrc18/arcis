@@ -63,7 +63,13 @@ def compute_window_stats(db_path: str = DB_PATH, days: int | None = None,
 
     if today_only:
         today_et = datetime.now(ET).date().isoformat()
-        where_clauses.append("DATE(actual_exit_time) = ?")
+        # WHY substr(.., 1, 10) instead of DATE(actual_exit_time):
+        # SQLite's DATE() converts ISO timestamps with timezone offsets to UTC
+        # before extracting the date — so a 2026-04-23T20:41-04:00 ET timestamp
+        # becomes 2026-04-24 (UTC), and "today in ET" stops matching after
+        # ~8pm ET. The actual_exit_time is always written in ET-localized
+        # ISO form, so the first 10 chars are the ET date directly.
+        where_clauses.append("substr(actual_exit_time, 1, 10) = ?")
         params.append(today_et)
     elif days is not None:
         cutoff = (datetime.now(ET) - timedelta(days=days)).isoformat()
@@ -74,7 +80,9 @@ def compute_window_stats(db_path: str = DB_PATH, days: int | None = None,
         "SELECT pnl_pct, pnl_dollars, excess_return "
         "FROM shadow_trades WHERE " + " AND ".join(where_clauses)
     )
-    with sqlite3.connect(db_path) as conn:
+    # #590 — connect_db applies busy_timeout=30s
+    from src.utils.db import connect_db
+    with connect_db(db_path) as conn:
         rows = conn.execute(sql, params).fetchall()
 
     # SQLite REAL columns can return as TEXT after a DB recovery (#195),

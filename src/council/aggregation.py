@@ -139,7 +139,19 @@ def aggregate_votes(
     if filtered_count:
         logger.warning("[COUNCIL] Filtered %d unparseable votes from tally", filtered_count)
     if not valid_assessments:
-        valid_assessments = assessments  # Fallback to all if everything failed
+        # #612 — Fail-closed instead of synthesizing consensus from all-failed
+        # assessments. Pre-#612, the fallback `valid_assessments = assessments`
+        # silently produced a fake 5-0 neutral consensus during the 4/21
+        # Anthropic billing outage that drove real risk-knob clipping.
+        from src.council.errors import CouncilUnavailableError
+        failure_modes = sorted({
+            (a.get("failure_reason") or "parse_failed")
+            for a in assessments
+        })
+        raise CouncilUnavailableError(
+            f"All {len(assessments)} agents failed to produce valid assessments — "
+            f"cannot synthesize consensus. Failure modes: {failure_modes}"
+        )
 
     # Try dynamic weights first, fall back to static
     dynamic = compute_dynamic_weights(db_path, session_type)
