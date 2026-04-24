@@ -29,9 +29,14 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# verify_auth is injected at registration time from cloud_app.py to avoid
-# a circular import. The module-level name is set by _register_platform_router.
-verify_auth = None
+
+# #598 — verify_auth is injected at mount time from cloud_app.py to avoid a
+# circular import. We define a default no-op so the route still loads in test
+# mode; cloud_app overrides it via dependency_overrides at app start so the
+# real verify_auth runs in prod.
+def verify_auth() -> None:  # noqa: D401  # placeholder, overridden in prod
+    """Default platform auth dep — no-op until cloud_app overrides it."""
+    return None
 
 
 def _read_rows(sql: str, params: tuple = ()) -> list[dict]:
@@ -163,7 +168,11 @@ class BacktestKickoffReq(BaseModel):
     end_date: str
 
 
-@router.post("/api/platform/backtests", status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/api/platform/backtests",
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(verify_auth)],
+)
 async def trigger_backtest(req: BacktestKickoffReq) -> dict:
     from src.platform.strategy_spec import load_spec
     try:
@@ -219,7 +228,7 @@ class PromoteReq(BaseModel):
     justification_note: str = Field(..., min_length=40)
 
 
-@router.post("/api/platform/promotions")
+@router.post("/api/platform/promotions", dependencies=[Depends(verify_auth)])
 async def promote_strategy(req: PromoteReq) -> dict:
     """Manual promotion. Production transitions require two-step 24h delay."""
     from src.platform.promotion import STATUSES, promote
@@ -322,7 +331,7 @@ class DemoteReq(BaseModel):
     reason: str = Field(..., min_length=20)
 
 
-@router.post("/api/platform/demotions")
+@router.post("/api/platform/demotions", dependencies=[Depends(verify_auth)])
 async def demote_strategy(req: DemoteReq) -> dict:
     from src.platform.promotion import demote
     try:

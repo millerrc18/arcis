@@ -286,9 +286,11 @@ for factory in (
 ):
     app.include_router(factory(_runtime, verify_auth))
 
-# Platform routes: SQLite-backed, auth-free in dev (verify_auth is optional
-# per endpoint). Registered after the Postgres routers so the router ordering
-# doesn't interfere with existing routes.
+# Platform routes: SQLite-backed. POST endpoints require verify_auth (#598).
+# We override the placeholder verify_auth in the platform module with the real
+# cloud_app verify_auth via FastAPI's dependency_overrides — this avoids the
+# circular import between cloud_app and cloud_routes.platform.
+app.dependency_overrides[_platform_module.verify_auth] = verify_auth
 app.include_router(_platform_module.router)
 
 # Walk-forward v1 routes: SQLite-backed like platform routes. Mounted after
