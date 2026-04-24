@@ -44,6 +44,23 @@ from src.shadow_trading._status_sql import (
 from src.shadow_trading.models import ShadowTrade
 from alpaca.common.exceptions import APIError
 
+# #436 — alpaca.trading.requests / alpaca.trading.enums are hoisted to
+# the module top so an ImportError surfaces at startup instead of
+# silently bypassing the standalone-stop-loss fallback (which would
+# leave a live position unprotected). _ALPACA_BRACKET_AVAILABLE is the
+# canary callers check before attempting bracket / stop-order paths;
+# when False, the executor must refuse new entries rather than enter
+# unprotected.
+try:
+    from alpaca.trading.requests import StopOrderRequest  # noqa: F401
+    from alpaca.trading.enums import OrderSide, TimeInForce  # noqa: F401
+    _ALPACA_BRACKET_AVAILABLE = True
+except ImportError:  # pragma: no cover — only fires when alpaca-py absent
+    StopOrderRequest = None  # type: ignore[assignment]
+    OrderSide = None  # type: ignore[assignment]
+    TimeInForce = None  # type: ignore[assignment]
+    _ALPACA_BRACKET_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -776,13 +793,42 @@ def open_shadow_trade(
             trade_data["max_adverse_excursion"] = 0.0
             _verify_and_update(trade_data)
 
-            # Fix for #274: Immediately place standalone stop-loss protection.
-            # If stop submission fails, CLOSE the position — an unprotected
-            # position is worse than no position.
-            try:
-                from src.shadow_trading.alpaca_adapter import place_paper_exit
-                from alpaca.trading.requests import StopOrderRequest
-                from alpaca.trading.enums import OrderSide, TimeInForce
+            # Fix for #274 + #436: Immediately place standalone stop-loss
+            # protection. If stop submission fails, CLOSE the position —
+            # an unprotected position is worse than no position. The
+            # alpaca.trading symbols are hoisted to module top (#436), so
+            # an SDK-missing failure surfaces at startup. If somehow this
+            # branch is reached without the SDK, fail-loud and emergency-
+            # close instead of silently leaving the position unprotected.
+            from src.shadow_trading.alpaca_adapter import place_paper_exit
+            if not _ALPACA_BRACKET_AVAILABLE:
+                logger.error(
+                    "[SHADOW] CRITICAL: alpaca.trading SDK unavailable for %s — "
+                    "cannot place stop. Emergency-closing position to avoid "
+                    "unprotected exposure (#436).", ticker,
+                )
+                try:
+                    place_paper_exit(ticker, planned_shares)
+                    trade_data["status"] = "failed"
+                    trade_data["order_type"] = "failed_sdk_missing"
+                except Exception as close_err:
+                    logger.error(
+                        "[SHADOW] EMERGENCY: Cannot close unprotected position %s: %s",
+                        ticker, close_err,
+                    )
+                try:
+                    from src.notifications.telegram import send_telegram
+                    send_telegram(
+                        f"🚨 UNPROTECTED POSITION (SDK MISSING): {ticker}\n"
+                        f"alpaca.trading imports unavailable. Attempted emergency "
+                        f"close: {'success' if trade_data.get('status') == 'failed' else 'FAILED'}"
+                    )
+                except Exception as notify_err:
+                    logger.warning(
+                        "[EXECUTOR] Unprotected position notification failed: %s",
+                        notify_err,
+                    )
+            else:
                 client = None
                 try:
                     from src.shadow_trading.alpaca_adapter import _get_trading_client
@@ -816,8 +862,6 @@ def open_shadow_trade(
                         )
                     except Exception as e:
                         logger.warning("[EXECUTOR] Unprotected position notification failed: %s", e)
-            except ImportError:
-                logger.warning("[SHADOW] Stop order imports unavailable for %s — position unprotected", ticker)
 
         except (ConnectionError, TimeoutError, OSError) as e2:
             # Network error — order may have been accepted by Alpaca.

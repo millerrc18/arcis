@@ -226,3 +226,71 @@ def test_no_hardcoded_status_filter_predicates(path):
         f"src.shadow_trading._status_sql instead (#437, #482):\n"
         + "\n".join(violations)
     )
+
+
+# ---------------------------------------------------------------------------
+# #436 — IB bracket / stop-loss imports hoisted to module top
+# ---------------------------------------------------------------------------
+
+
+def test_alpaca_stop_imports_at_module_top_level_in_executor():
+    """#436 — `from alpaca.trading.requests import StopOrderRequest` and
+    `from alpaca.trading.enums import ...` must be at the module top
+    (the import block before any function definitions). When buried
+    inside the standalone-stop fallback, an ImportError silently bypasses
+    the stop-loss branch and leaves the position unprotected.
+
+    The hoist also exposes a `_ALPACA_BRACKET_AVAILABLE` flag so test
+    environments without alpaca-py don't crash on import.
+    """
+    src = _read("src/shadow_trading/executor.py")
+
+    # Find the first 'def ' (or 'async def ') line — anything before that
+    # is module-level.
+    lines = src.splitlines()
+    first_def_line = next(
+        (i for i, ln in enumerate(lines) if re.match(r"^(async\s+)?def\s+\w+", ln)),
+        len(lines),
+    )
+    module_top = "\n".join(lines[:first_def_line])
+
+    assert "StopOrderRequest" in module_top, (
+        "StopOrderRequest must be imported at module top, not inside a "
+        "fallback try block (#436)"
+    )
+    assert "OrderSide" in module_top and "TimeInForce" in module_top, (
+        "OrderSide and TimeInForce must be imported at module top (#436)"
+    )
+    assert "_ALPACA_BRACKET_AVAILABLE" in module_top, (
+        "Module must expose _ALPACA_BRACKET_AVAILABLE flag so callers can "
+        "fail-fast when alpaca-py is missing (#436)"
+    )
+
+
+def test_no_inline_alpaca_trading_imports_in_stop_loss_block():
+    """The original bug: the alpaca imports lived INSIDE the stop-loss
+    fallback try block, so an ImportError there skipped the stop-loss
+    branch entirely. After the hoist, the imports must only appear at
+    module level (before the first `def`); inline imports inside a
+    function body re-introduce the silent-failure path."""
+    src = _read("src/shadow_trading/executor.py")
+    lines = src.splitlines()
+    # Locate the first function-or-method definition. Imports BEFORE this
+    # line are module-level (the correct fix). Imports AFTER are inside
+    # a function body and re-introduce the bug.
+    first_def_line = next(
+        (
+            i for i, ln in enumerate(lines)
+            if re.match(r"^(async\s+)?def\s+\w+", ln)
+        ),
+        len(lines),
+    )
+    function_body = "\n".join(lines[first_def_line:])
+    bad_inline = re.findall(
+        r"from\s+alpaca\.trading\.(?:requests|enums)\s+import",
+        function_body,
+    )
+    assert not bad_inline, (
+        f"Found alpaca.trading imports inside a function body (re-introduces "
+        f"the silent stop-loss bypass from #436): {bad_inline}"
+    )
