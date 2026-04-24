@@ -9,11 +9,23 @@ Tests: none
 
 import json  # noqa: F401 — retained for external callers that import from log_config
 import logging
+import os
 import sys
+import warnings
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
 
 from src.observability.formatters import StructuredFormatter  # noqa: F401 — re-export for back-compat
+
+# #629 — Suppress upstream FutureWarning + pandas/sklearn DeprecationWarning
+# spam at module-load time. ~28k of these polluted the operator's log stream
+# over 3 days, drowning out actionable warnings. They're upstream lib
+# deprecation hints, not actionable from our code; re-enable during library
+# upgrade windows by setting ARCIS_SHOW_WARNINGS=1.
+if not os.environ.get("ARCIS_SHOW_WARNINGS"):
+    warnings.filterwarnings("ignore", category=FutureWarning)
+    warnings.filterwarnings("ignore", category=DeprecationWarning, module="pandas")
+    warnings.filterwarnings("ignore", category=DeprecationWarning, module="sklearn")
 
 
 def setup_logging(level: str = "INFO", log_file: str | None = None):

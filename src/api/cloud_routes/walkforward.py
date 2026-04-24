@@ -25,13 +25,24 @@ import logging
 import os
 import sqlite3
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.config import DB_PATH
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+# #632 — verify_auth is injected at mount time from cloud_app.py via
+# FastAPI's dependency_overrides to avoid a circular import (cloud_app
+# imports this module, this module needs cloud_app's verify_auth). The
+# placeholder is a no-op so routes still load in test/dev mode; cloud_app
+# overrides it with the real bearer-token check in prod. Mirrors the
+# pattern used by src/api/cloud_routes/platform.py.
+def verify_auth() -> None:  # noqa: D401  # placeholder, overridden in prod
+    """Default walkforward auth dep — no-op until cloud_app overrides it."""
+    return None
 
 
 def _read_rows(sql: str, params: tuple = ()) -> list[dict]:
@@ -57,7 +68,7 @@ def _read_one(sql: str, params: tuple = ()) -> dict | None:
     return rows[0] if rows else None
 
 
-@router.get("/api/walkforward/runs")
+@router.get("/api/walkforward/runs", dependencies=[Depends(verify_auth)])
 async def list_runs(
     limit: int = Query(50, ge=1, le=200),
     strategy_id: str | None = None,
@@ -89,7 +100,7 @@ async def list_runs(
     return {"runs": rows, "count": len(rows)}
 
 
-@router.get("/api/walkforward/runs/{run_id}")
+@router.get("/api/walkforward/runs/{run_id}", dependencies=[Depends(verify_auth)])
 async def get_run(run_id: str) -> dict:
     row = _read_one(
         "SELECT * FROM walkforward_results WHERE run_id = ?", (run_id,),
@@ -101,7 +112,7 @@ async def get_run(run_id: str) -> dict:
     return row
 
 
-@router.get("/api/walkforward/runs/{run_id}/windows")
+@router.get("/api/walkforward/runs/{run_id}/windows", dependencies=[Depends(verify_auth)])
 async def get_run_windows(run_id: str) -> dict:
     """Per-window breakdown for a given run: counts of trades, per-window
     Sharpe / MDE / bootstrap_SE, VIX-tier coverage. Derived from the
@@ -133,7 +144,7 @@ async def get_run_windows(run_id: str) -> dict:
     }
 
 
-@router.get("/api/walkforward/runs/{run_id}/trades")
+@router.get("/api/walkforward/runs/{run_id}/trades", dependencies=[Depends(verify_auth)])
 async def get_run_trades(
     run_id: str,
     window_index: int | None = None,
