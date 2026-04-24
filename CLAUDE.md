@@ -14,6 +14,28 @@ All project rules, architecture, data sources, and constraints are in **MASTER.m
 - **Schema registry is the single source of truth** — all 67 tables are defined in `src/schema/registry.py` (authoritative count: `python -c "from src.schema.registry import TABLES; print(len(TABLES))"`). See "Database Schema Rules" below
 - **Test baseline before changes** — run `python -m pytest tests/ -q` at the start of any coding session and note the pass count. After changes, the pass count must not decrease and the failure count must not increase. Never dismiss test failures as "pre-existing" without investigating
 
+## Repo Layout (local dev)
+
+The runtime data lives **outside** the git repo. This is intentional, not accidental.
+
+- `C:\arcis\halcyon-lab\` — git repo. Must be cwd when running CLI (`python -m src.main ...`)
+- `C:\arcis\halcyon-lab\.env` — sets `ARCIS_DB_PATH=C:/arcis/data/ai_research_desk.sqlite3` (canonical)
+- `C:\arcis\data\ai_research_desk.sqlite3` — active SQLite DB (~1 GB). **DO NOT** create or write a SQLite file at the repo root or `halcyon-lab/data/`; those are stub locations and have been removed (#642). Code reads `src.config.DB_PATH` which respects the env override.
+- `C:\arcis\logs\` — runtime logs (mirrored to Render-deployed instances)
+- `C:\arcis\data\reference\`, `data\simulation_cache\`, `data\watch.lock`, `data\watchdog.txt` — runtime artifacts
+
+**Why state lives outside the repo:**
+1. Keeps a 1 GB binary out of `git status` / `git diff` performance scans
+2. Survives repo re-clone, branch switches, and worktree creation
+3. Mirrors the Render production layout where the DB is a separate managed resource
+
+**Mechanism:** `src/config/__init__.py:55-56` reads `ARCIS_DB_PATH` from env (loaded by `python-dotenv` via `.env`). Override per-process by exporting `ARCIS_DB_PATH=...` to point elsewhere (e.g. for testing against a snapshot DB).
+
+**Common gotchas:**
+- The watch loop must be started from a working directory where `.env` can be discovered. NSSM service startup uses the configured `AppDirectory`. If you change to a clone outside `C:\arcis\halcyon-lab\`, also set the env var explicitly.
+- `scripts/statusline.py` uses the same `_resolve_data_root()` pattern — when adding new operator scripts that read runtime state, follow the same convention.
+- Tests must NEVER write to the prod DB. The runtime guard in `src/utils/activity_logger.py` (#647) raises if a test opts in to writes without redirecting `db_path`.
+
 ## Database Schema Rules (MANDATORY)
 
 All database tables are defined in `src/schema/registry.py` — the single source of truth.
