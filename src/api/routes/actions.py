@@ -26,12 +26,21 @@ real-time progress without polling.
 import logging
 import threading
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
+from src.api.local_auth import verify_local_token
 from src.api.websocket import broadcast_sync
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/actions", tags=["actions"])
+# #576 — All 7 POST endpoints below require verify_local_token. The dep is a
+# no-op when ARCIS_LOCAL_API_TOKEN env var is unset (preserves the pre-#576
+# localhost-only mode); enforces a constant-time bearer token comparison
+# when set. Operators can flip on hardening without changing route code.
+router = APIRouter(
+    prefix="/actions",
+    tags=["actions"],
+    dependencies=[Depends(verify_local_token)],
+)
 
 # Simple in-memory lock to prevent concurrent actions. We use a global lock
 # rather than per-action locks because actions compete for the same GPU VRAM
