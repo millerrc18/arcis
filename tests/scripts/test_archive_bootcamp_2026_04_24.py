@@ -56,10 +56,13 @@ def seeded_source_db(tmp_path) -> Path:
     create_all_tables(str(db_path))
 
     with sqlite3.connect(str(db_path)) as conn:
-        # shadow_trades — 2 rows: one closed SPY, one active AAPL.
+        # shadow_trades — 2 rows: one closed SPY, one open AAPL.
         # Status strings match TERMINAL_STATUSES / ACTIVE_STATUSES in
-        # src/shadow_trading/models.py (closed ∈ TERMINAL, active would
-        # be a non-standard active synonym — spec §6 pins it verbatim).
+        # src/shadow_trading/models.py (closed ∈ TERMINAL, open ∈ ACTIVE).
+        # Note: spec §6 originally used "active" as a placeholder literal,
+        # but "active" is NOT in ACTIVE_STATUSES — the coherent value from
+        # the canonical constants is "open". Corrected by T2 (archive script
+        # implementation) to match the authoritative constants.
         conn.execute(
             "INSERT INTO shadow_trades ("
             "trade_id, ticker, direction, status, "
@@ -86,7 +89,7 @@ def seeded_source_db(tmp_path) -> Path:
             "created_at, updated_at, source, broker"
             ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                "TEST-TRADE-002", "AAPL", "long", "active",
+                "TEST-TRADE-002", "AAPL", "long", "open",
                 180.00, 171.00, 189.00,
                 180.00, TS_ENTRY,
                 TS_ENTRY, TS_ENTRY, "paper", "alpaca",
