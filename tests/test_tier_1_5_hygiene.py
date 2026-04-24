@@ -70,3 +70,62 @@ def test_clean_training_data_requires_explicit_apply_flag():
         "clean_training_data.py must check the apply/dry-run flag before "
         "calling conn.commit() — otherwise the gate is cosmetic"
     )
+
+
+# ---------------------------------------------------------------------------
+# #621 — packets/template.py must refuse to build on price <= 0
+# ---------------------------------------------------------------------------
+
+
+def test_build_packet_from_features_returns_none_on_zero_price():
+    """#621 — 390 risk-rejection rows in 4/21–4/23 traced to upstream
+    feature pipeline returning current_price=0 for ~14 specific tickers.
+    System burned ~110 min/day of LLM compute on packets that could
+    never fund. The packet builder must refuse early so the wasted
+    compute path is gone."""
+    from src.packets.template import build_packet_from_features
+
+    features_no_price = {
+        "current_price": 0.0,
+        "atr_14": 1.0,
+        "trend_state": "uptrend",
+        "_score": 80,
+    }
+    config = {"risk": {"starting_capital": 100000}, "risk_governor": {}}
+    result = build_packet_from_features("ZERO", features_no_price, config)
+    assert result is None, (
+        "build_packet_from_features must return None when current_price<=0 "
+        "(#621). Returning a TradePacket with allocation=0 wastes downstream "
+        "LLM + governor compute on a packet that cannot fund."
+    )
+
+
+def test_build_packet_from_features_returns_none_on_missing_price():
+    """Defensive: missing current_price (treated as 0.0 by .get default)
+    is functionally identical to price=0 for funding purposes."""
+    from src.packets.template import build_packet_from_features
+
+    config = {"risk": {"starting_capital": 100000}, "risk_governor": {}}
+    result = build_packet_from_features("MISSING", {"_score": 80}, config)
+    assert result is None
+
+
+def test_build_packet_from_features_succeeds_with_normal_price(monkeypatch):
+    """Sanity: a valid price still builds a packet (no over-restriction)."""
+    from src.packets import template as tpl
+
+    # The function calls get_effective_risk_pct which reads config — stub it.
+    monkeypatch.setattr(
+        "src.risk.governor.get_effective_risk_pct",
+        lambda cfg: (0.005, "static"),
+    )
+    features = {
+        "current_price": 100.0,
+        "atr_14": 2.0,
+        "trend_state": "uptrend",
+        "_score": 80,
+    }
+    config = {"risk": {"starting_capital": 100000}, "risk_governor": {}}
+    pkt = tpl.build_packet_from_features("AAPL", features, config)
+    assert pkt is not None
+    assert pkt.position_sizing.allocation_dollars > 0
