@@ -28,11 +28,45 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DB = ROOT / "ai_research_desk.sqlite3"
-WATCH_LOCK = ROOT / "data" / "watch.lock"
-WATCHDOG = ROOT / "data" / "watchdog.txt"
-HALT_FILE = ROOT / "data" / "trading_halted"
-LOG_FILE = ROOT / "logs" / "arcis.log"
+
+# #642 — runtime data lives OUTSIDE the repo (at C:\arcis\data\ on the
+# operator's box, configured via ARCIS_DB_PATH in .env). The statusline
+# previously rooted every path under the repo, so all five indicators
+# silently read non-existent files and showed '?'. Resolution order:
+#   1. ARCIS_DB_PATH env var (canonical — same source the runtime uses)
+#   2. Try to load .env from the repo root (covers the case where the
+#      status line runs without an inherited shell env)
+#   3. Fall back to repo-internal path (works for fresh checkouts and CI)
+def _resolve_data_root() -> Path:
+    db_env = os.environ.get("ARCIS_DB_PATH")
+    if not db_env:
+        env_file = ROOT / ".env"
+        if env_file.exists():
+            try:
+                for line in env_file.read_text().splitlines():
+                    line = line.strip()
+                    if line.startswith("ARCIS_DB_PATH="):
+                        db_env = line.split("=", 1)[1].strip().strip('"').strip("'")
+                        break
+            except OSError:
+                pass
+    if db_env:
+        return Path(db_env).parent
+    return ROOT
+
+
+_DATA_DIR = _resolve_data_root()
+_RUNTIME_ROOT = _DATA_DIR.parent  # logs/ sits next to data/
+
+DB = _DATA_DIR / "ai_research_desk.sqlite3"
+WATCH_LOCK = _DATA_DIR / "watch.lock"
+WATCHDOG = _DATA_DIR / "watchdog.txt"
+HALT_FILE = _DATA_DIR / "trading_halted"
+# Runtime logs live at <runtime_root>/logs/, repo logs at <repo>/logs/ — try
+# runtime first (the live one), fall back to repo-internal for fresh checkouts.
+_RUNTIME_LOG = _RUNTIME_ROOT / "logs" / "arcis.log"
+_REPO_LOG = ROOT / "logs" / "arcis.log"
+LOG_FILE = _RUNTIME_LOG if _RUNTIME_LOG.exists() else _REPO_LOG
 
 
 def _heartbeat_fresh(max_age_s: int = 300) -> bool:
@@ -104,24 +138,31 @@ def halt_status():
 
 
 def position_counts():
+    """Return active position counts for paper and live.
+
+    Uses ACTIVE_STATUSES (pending, open, exit_pending, exit_failed,
+    submission_uncertain) so trades in mid-lifecycle states are visible.
+    All-time closed count is omitted — it grows without bound and adds
+    noise to the status bar.
+    """
     if not DB.exists():
         return "Shadow:? | Live:?"
+    # Mirrors ACTIVE_STATUSES from src/shadow_trading/models.py
+    active = ("pending", "open", "exit_pending", "exit_failed", "submission_uncertain")
+    placeholders = ",".join("?" * len(active))
     try:
         conn = sqlite3.connect(str(DB), timeout=2)
         cur = conn.cursor()
         cur.execute(
-            "SELECT source, status, COUNT(*) FROM shadow_trades "
-            "WHERE status IN ('open','closed') GROUP BY source, status"
+            f"SELECT source, COUNT(*) FROM shadow_trades "
+            f"WHERE status IN ({placeholders}) GROUP BY source",
+            active,
         )
-        d = {}
-        for src, st, cnt in cur.fetchall():
-            d[(src, st)] = cnt
+        d = dict(cur.fetchall())
         conn.close()
-        so = d.get(("paper", "open"), 0)
-        sc = d.get(("paper", "closed"), 0)
-        lo = d.get(("live", "open"), 0)
-        lc = d.get(("live", "closed"), 0)
-        return f"Shadow:{so}o/{sc}c | Live:{lo}o/{lc}c"
+        shadow = d.get("paper", 0)
+        live = d.get("live", 0)
+        return f"Shadow:{shadow} | Live:{live}"
     except Exception:
         return "Shadow:? | Live:?"
 
