@@ -508,12 +508,19 @@ class RiskGovernor:
         # Caps any single position to prevent one name from dominating
         # the portfolio.  This is a hard cap on the *proposed* allocation
         # after Traffic Light and Event Risk scaling have been applied.
-        if equity > 0:
-            position_pct = allocation_dollars / equity
-            size_ok = position_pct <= self.max_position_pct
-        else:
-            position_pct = 0
-            size_ok = True
+        # #438 — When equity <= 0 the previous code set size_ok = True (a
+        # FAIL-OPEN). With zero or negative equity there is no capital to
+        # deploy; reject explicitly so we never approve trades against an
+        # empty/negative portfolio.
+        if equity <= 0:
+            checks.append({
+                "name": "position_size",
+                "passed": False,
+                "detail": f"equity=${equity:.0f} (no capital available)",
+            })
+            return self._reject(checks, f"No equity available — refusing trade (equity=${equity:.0f})")
+        position_pct = allocation_dollars / equity
+        size_ok = position_pct <= self.max_position_pct
         checks.append({
             "name": "position_size",
             "passed": size_ok,
@@ -620,6 +627,16 @@ class RiskGovernor:
         }
 
     def _reject(self, checks: list, reason: str) -> dict:
+        # #614 — Persist risk rejection to activity_log for the dashboard feed.
+        # Pre-fix the RISK_ALERT constant existed but had zero writers;
+        # operators couldn't see the 463 risk-rejection warnings/day surfaced
+        # by the 4/21 audit (related: #423).
+        try:
+            import json as _json_ra
+            from src.utils.activity_logger import RISK_ALERT, log_activity
+            log_activity(RISK_ALERT, _json_ra.dumps({"reason": reason}))
+        except Exception:
+            pass  # Never let observability instrumentation break the governor
         return {
             "approved": False,
             "checks": checks,

@@ -22,6 +22,30 @@ logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
 
+def _is_collector_error(result) -> bool:
+    """Classify a collector return value as success or failure.
+
+    #623 — Pre-fix used `'error' in str(result).lower()` which matched
+    successful return dicts containing `'errors': 0` as a substring,
+    producing 8 false ERROR rows / 3-day window. Now interrogates the
+    structure directly: an explicit `error` key (or a string starting with
+    "Error") signals failure; an `errors` count of 0 with at least one
+    processed item is success.
+    """
+    if isinstance(result, str):
+        return result.lower().startswith("error")
+    if isinstance(result, dict):
+        if result.get("error") not in (None, "", 0, False):
+            return True
+        # All-failed batch: errors > 0 AND nothing processed.
+        errors = result.get("errors")
+        if isinstance(errors, int) and errors > 0:
+            processed = result.get("tickers_processed", 0)
+            if not processed:
+                return True
+    return False
+
+
 def run_postclose_reconciliation():
     """Reconcile paper positions against Alpaca and send Telegram summary."""
     from src.shadow_trading.reconcile_dispatch import reconcile_all_paper_trades
@@ -358,7 +382,9 @@ def run_post_close_capture():
 def run_overnight_training_collection():
     """6:00 PM ET — Collect training examples from today's closed trades."""
     from src.api.websocket import broadcast_sync
-    from src.training.data_collector import collect_training_examples_from_closed_trades
+    from src.training.data_collector import (
+        collect_training_examples_from_closed_trades_detailed,
+    )
 
     try:
         broadcast_sync("overnight_task", {"task": "training_collection", "status": "started"})
@@ -367,11 +393,44 @@ def run_overnight_training_collection():
 
     logger.info("[OVERNIGHT] Running training data collection...")
     print("[WATCH] Running overnight training data collection...")
-    count = collect_training_examples_from_closed_trades()
+    result = collect_training_examples_from_closed_trades_detailed()
+    count = result.count
     print(f"[WATCH] Training collection: {count} new examples")
-    log_overnight_task("training_collection", "completed",
-                       datetime.now(ET).isoformat(), datetime.now(ET).isoformat(),
-                       result=f"examples={count}")
+
+    # #615 — Structured payload distinguishes "no work" from "100% failed".
+    # Pre-#615, both produced "examples=0" indistinguishable, masking 11 days
+    # of complete pipeline outage during 4/13–4/23.
+    summary = (
+        f"examples={count} attempted={result.attempted} "
+        f"rejected={result.rejected} stage1_failures={result.stage1_failures} "
+        f"skipped_no_features={result.skipped_no_features} "
+        f"halted={result.halted}"
+    )
+    if result.is_silent_failure:
+        logger.error(
+            "[TRAINING] Collection produced 0 examples despite work — "
+            "stage1_failures=%s rejected=%s halted=%s halt_reason=%s",
+            result.stage1_failures, result.rejected, result.halted, result.halt_reason,
+        )
+        try:
+            from src.notifications.telegram import send_telegram, is_telegram_enabled
+            if is_telegram_enabled():
+                send_telegram(
+                    f"🛑 TRAINING SILENT FAILURE: 0 examples written despite "
+                    f"{result.stage1_failures} Stage-1 failures + "
+                    f"{result.rejected} validator rejections. "
+                    f"Halt reason: {result.halt_reason or 'none'}"
+                )
+        except Exception as exc:
+            logger.warning("[TRAINING] silent-failure alert failed: %s", exc)
+
+    log_overnight_task(
+        "training_collection",
+        "failed" if result.is_silent_failure else "completed",
+        datetime.now(ET).isoformat(),
+        datetime.now(ET).isoformat(),
+        result=summary,
+    )
 
     try:
         broadcast_sync("overnight_task", {"task": "training_collection", "status": "complete",
@@ -708,9 +767,7 @@ def run_data_collection(db_path: str = DB_PATH,
     # failures are greppable without digging through warning-level
     # messages scattered through the 12-step block above.
     for name, result in results.items():
-        is_error = (isinstance(result, str) and "error" in result.lower()) or \
-                   (isinstance(result, dict) and "error" in str(result).lower())
-        if is_error:
+        if _is_collector_error(result):
             logger.error("[COLLECT] %s: FAILED -- %s", name, str(result)[:120])
         elif isinstance(result, str) and result.startswith("skipped"):
             logger.info("[COLLECT] %s: skipped", name)

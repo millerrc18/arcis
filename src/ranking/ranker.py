@@ -564,8 +564,10 @@ def rank_universe(features: dict[str, dict],
     if sample_feat:
         try:
             regime_type = classify_regime(sample_feat)
-        except Exception:
-            pass
+        except Exception as exc:
+            # #605 — Don't silently fall through to base thresholds; debug-log
+            # so failures in regime classification are visible during runtime.
+            logger.debug("[RANKER] classify_regime failed; using base thresholds: %s", exc)
 
     thresholds = _load_thresholds(regime_type=regime_type, strategy=strategy)
     packet_threshold = thresholds["packet_worthy"]
@@ -596,8 +598,10 @@ def rank_universe(features: dict[str, dict],
         try:
             sector_ctx = compute_sector_context(ticker, scored[ticker], features)
             feat.update(sector_ctx)
-        except Exception:
-            pass
+        except Exception as exc:
+            # #605 — Don't silently swallow sector-context failures; debug-log
+            # so missing sector_etf data or import errors are visible.
+            logger.debug("[RANKER] compute_sector_context failed for %s: %s", ticker, exc)
 
     # Third pass: classify
     ranked = []

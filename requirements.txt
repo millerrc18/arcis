@@ -26,3 +26,19 @@ jsonschema>=4.0,<5.0
 # live_trading.ib.paper_routing = true (A/B routing of high-score paper
 # trades to IB Gateway for broker comparison during the validation phase).
 ib_async>=1.0.0,<2.0
+
+# #572 — Postgres client used by render-sync, cloud_routes/platform.py,
+# walkforward.py, and system_validator.py. Was transitively present before;
+# now first-class so deployments don't break when transitive deps shift.
+psycopg2-binary>=2.9,<3.0
+
+# #599 — llama-cpp-python: Optional GBNF grammar-constrained generation for
+# Ollama-served models. Skipped on Windows where the prebuilt wheel is
+# notoriously fragile; install manually via `pip install llama-cpp-python`
+# if you want grammar-constrained packet writers on macOS/Linux.
+llama-cpp-python>=0.2,<1.0; sys_platform != "win32"
+
+# #600 — torch: Required by the local fine-tuning + grammar paths in
+# src/llm/grammar_client.py. CPU-only wheel is fine for inference; install
+# the appropriate CUDA build manually if doing GPU training.
+torch>=2.1,<3.0

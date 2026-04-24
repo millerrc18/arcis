@@ -72,6 +72,24 @@ def classify_outcome(trade: dict) -> str:
 # the audience expectation anchors the response.
 
 # WHY WINNER focuses on thesis validation, not celebration:
+# #616 — Format rules appended to every system prompt to keep producer in sync
+# with the post-#334 markdown_bold validator. Sonnet's default analysis style
+# emits structural headers like "**Key Risks**:" which the validator rejects.
+# Without explicit format rules, the entire 4/23 batch was rejected at 0%
+# compliance after Anthropic credits restored. Inline emphasis ("very **strong**")
+# inside prose is still allowed; only line-leading bolded headings are forbidden.
+_FORMAT_RULES = """
+
+OUTPUT FORMAT (HARD):
+- Inside the <analysis> tag write prose only. Do NOT use markdown structural
+  headings such as **Section Name**: on their own line, ## Heading, or any line
+  consisting solely of a bolded label and a colon. Inline emphasis like
+  "the stock was **very** strong" within prose is fine.
+- Do NOT use bullet lists (-, *, +) or numbered lists (1., 2.).
+- Preserve the exact XML structure: <why_now>...</why_now>, <analysis>...</analysis>,
+  <metadata>...</metadata>. No text outside these tags."""
+
+
 # The model needs to learn WHAT made a setup work (pattern recognition, timing,
 # confirmatory signals) so it can identify similar setups in the future.
 # "This trade made money" is useless training signal; "the breakout above
@@ -81,7 +99,7 @@ Focus on thesis validation: what evidence supported the original thesis?
 Emphasize pattern recognition, entry timing quality, and risk/reward calibration.
 Analyze how the setup developed and what confirmatory signals appeared.
 Write as if presenting to a portfolio manager who wants to understand
-what made this setup work."""
+what made this setup work.""" + _FORMAT_RULES
 
 # WHY LOSER focuses on warning signals at entry, not hindsight:
 # Post-hoc "the market dropped" is not actionable. Training the model to
@@ -93,7 +111,7 @@ Focus on risk weighting: what warning signals were present at entry?
 Emphasize regime conditions, sector headwinds, and position sizing adequacy.
 Analyze the quality of the stop placement and whether the thesis
 was invalidated by new information or market conditions.
-Write as if presenting to a risk manager reviewing position losses."""
+Write as if presenting to a risk manager reviewing position losses.""" + _FORMAT_RULES
 
 # WHY TIMEOUT is a separate category, not merged with LOSS:
 # A timeout is a different failure mode than a stop-out. Stop-outs indicate
@@ -105,7 +123,7 @@ Focus on signal decay: why did the setup fail to reach its target in time?
 Emphasize whether the catalyst window was realistic, whether the
 holding period was appropriate for the volatility regime, and whether
 the position should have been managed more actively.
-Write as if presenting to a strategy researcher studying holding periods."""
+Write as if presenting to a strategy researcher studying holding periods.""" + _FORMAT_RULES
 
 # WHY PASS decisions are the most informative training category:
 # McLean & Pontiff (2015) showed 58% post-publication anomaly decay --
@@ -117,7 +135,7 @@ trading setup should NOT be traded despite meeting quantitative thresholds.
 Focus on the qualitative factors that justify passing: regime concerns,
 sector rotation, earnings proximity, news risk, or correlation with
 existing positions. Write as if presenting to a PM who asked
-"why didn't we take this?"""
+"why didn't we take this?""" + _FORMAT_RULES
 
 # WHY contrastive prompts argue the OPPOSITE of the outcome:
 # For DPO, the (chosen, rejected) pair teaches the model to prefer one

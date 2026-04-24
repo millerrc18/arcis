@@ -29,6 +29,14 @@ def client(tmp_path, monkeypatch):
     importlib.reload(platform_mod)
     import src.api.cloud_app as cloud_mod
     importlib.reload(cloud_mod)
+    # #598 — cloud_app now overrides platform.verify_auth with the real
+    # verify_auth via dependency_overrides at module load. The TestClient
+    # doesn't send the bearer token, so tests that exercise POST endpoints
+    # (promotions, demotions, backtests) need the override cleared.
+    # Re-point the override to a no-op so the test isn't gated on auth.
+    async def _noop_verify():
+        return None
+    cloud_mod.app.dependency_overrides[platform_mod.verify_auth] = _noop_verify
     return TestClient(cloud_mod.app)
 
 

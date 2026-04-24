@@ -144,8 +144,12 @@ def verify_auth(
         raise HTTPException(status_code=401, detail="Invalid or missing API token")
     token = credentials.credentials
     # Accept hashed token (frontend sends SHA-256 of password)
-    # or raw plaintext (backward compat for curl/scripts)
-    if token == _API_SECRET_HASH or token == API_SECRET:
+    # or raw plaintext (backward compat for curl/scripts).
+    # #440 — hmac.compare_digest is constant-time; prevents timing attacks
+    # against the bearer token (regular `==` short-circuits on first mismatch).
+    import hmac
+    if (hmac.compare_digest(token, _API_SECRET_HASH)
+            or hmac.compare_digest(token, API_SECRET)):
         return
     raise HTTPException(status_code=401, detail="Invalid or missing API token")
 
@@ -282,9 +286,11 @@ for factory in (
 ):
     app.include_router(factory(_runtime, verify_auth))
 
-# Platform routes: SQLite-backed, auth-free in dev (verify_auth is optional
-# per endpoint). Registered after the Postgres routers so the router ordering
-# doesn't interfere with existing routes.
+# Platform routes: SQLite-backed. POST endpoints require verify_auth (#598).
+# We override the placeholder verify_auth in the platform module with the real
+# cloud_app verify_auth via FastAPI's dependency_overrides — this avoids the
+# circular import between cloud_app and cloud_routes.platform.
+app.dependency_overrides[_platform_module.verify_auth] = verify_auth
 app.include_router(_platform_module.router)
 
 # Walk-forward v1 routes: SQLite-backed like platform routes. Mounted after

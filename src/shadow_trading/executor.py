@@ -974,12 +974,66 @@ def open_shadow_trade(
     except Exception as e:
         logger.warning("[SHADOW-IB] Shadow logging failed (non-fatal): %s", e)
 
+    # #614 — Persist trade-open to activity_log for the dashboard feed.
+    # Pre-fix the TRADE_OPENED constant existed but had zero writers.
+    try:
+        import json as _json_to
+        from src.utils.activity_logger import TRADE_OPENED, log_activity
+        log_activity(
+            TRADE_OPENED,
+            _json_to.dumps({
+                "trade_id": trade_id,
+                "ticker": ticker,
+                "shares": shares,
+                "entry_price": entry_price,
+                "source": source_filter or "paper",
+            }),
+        )
+    except Exception as _e_to:
+        logger.debug("[EXECUTOR] activity_log TRADE_OPENED failed: %s", _e_to)
+
     return trade_id
 
 
 # Fix for #196: Cap exit retries to prevent infinite exit order spam.
 # After 3 failures, mark as exit_abandoned for reconciliation to handle.
 _MAX_EXIT_RETRIES = 3
+
+# #609 — Terminal states a cancel response can report when the order raced
+# the cancel and filled (or partially filled) at the broker. When we see one
+# of these, the executor MUST NOT submit another SELL — the position is
+# already gone (or partially gone). Pre-fix, the cancel return value was
+# dropped at executor.py:1575 → executor proceeded to submit, opening shorts
+# (C 4/21, AMD 4/22).
+_CANCEL_TERMINAL_NO_SUBMIT = ("filled", "partially_filled")
+
+
+def _handle_pre_exit_cancel(cancel_result: dict | None) -> bool:
+    """Inspect a `cancel_paper_order` response and signal whether the caller
+    should SKIP submitting a new SELL (because the order already executed).
+
+    Returns True when the cancel race detected a terminal state that means
+    "the position is already moving / gone" — caller must NOT submit.
+    """
+    if not isinstance(cancel_result, dict):
+        return False
+    return cancel_result.get("terminal_state") in _CANCEL_TERMINAL_NO_SUBMIT
+
+
+def _next_exit_retry_count(trade: dict) -> int:
+    """Compute the next exit_retry_count for a trade about to be marked
+    exit_failed. Centralizes the increment so both _retry_exit and the
+    first-time exit path stay consistent (#610)."""
+    current = trade.get("exit_retry_count")
+    try:
+        return int(current or 0) + 1
+    except (TypeError, ValueError):
+        return 1
+
+
+def _should_abandon_exit(retry_count: int) -> bool:
+    """True when retry_count has hit the abandonment threshold (#196 / #610)."""
+    return retry_count >= _MAX_EXIT_RETRIES
 
 
 def _sync_exit_qty(
@@ -1571,8 +1625,36 @@ def check_and_manage_open_trades(
                 _pending_oid = trade.get("exit_order_id") or trade.get("alpaca_order_id")
                 if _pending_oid:
                     try:
-                        from src.shadow_trading.alpaca_adapter import cancel_paper_order
-                        cancel_paper_order(_pending_oid)
+                        from src.shadow_trading.alpaca_adapter import (
+                            cancel_paper_order, get_order_status,
+                        )
+                        _cancel_result = cancel_paper_order(_pending_oid)
+                        # #608/#609 — If the cancel raced a fill, the order is
+                        # already executed at the broker. Do NOT submit another
+                        # SELL — that's how C 4/21 and AMD 4/22 went short. Route
+                        # to _close_from_broker_fill instead.
+                        if _handle_pre_exit_cancel(_cancel_result):
+                            logger.info(
+                                "[EXIT] %s cancel raced fill (terminal_state=%s) "
+                                "— closing from broker fill, not submitting new SELL",
+                                ticker, _cancel_result.get("terminal_state"),
+                            )
+                            try:
+                                _filled = get_order_status(_pending_oid)
+                                if _filled and _is_filled_status(_filled.get("status")):
+                                    _close_from_broker_fill(trade, _filled, db_path)
+                            except Exception as _fetch_err:
+                                logger.warning(
+                                    "[EXIT] Post-cancel fill fetch failed for %s: %s",
+                                    ticker, _fetch_err,
+                                )
+                            actions.append({
+                                "type": "exit_skipped_cancel_race",
+                                "ticker": ticker,
+                                "trade_id": trade["trade_id"],
+                                "exit_reason_trigger": exit_reason,
+                            })
+                            continue
                         time.sleep(0.5)
                     except Exception as e:
                         logger.warning("[EXECUTOR] Stale exit order cancellation failed: %s", e)
@@ -1584,10 +1666,29 @@ def check_and_manage_open_trades(
                         update_shadow_trade(trade["trade_id"],
                                             {"exit_order_id": exit_result["order_id"]}, db_path)
                 except Exception as e:
-                    logger.error("[EXIT] Broker exit failed for %s — marking exit_failed: %s", ticker, e, extra={"ctx": {"event": "exit_failed", "ticker": ticker, "trade_id": trade["trade_id"], "error": type(e).__name__}})
+                    # #610 — Increment exit_retry_count on first-time failure too.
+                    # Pre-fix, this path wrote status=exit_failed without bumping
+                    # the counter; reconciler then flipped status back to open;
+                    # next scan re-entered THIS path; counter never grew. CVS
+                    # retried 33× on 4/21 without ever hitting MAX_EXIT_RETRIES.
+                    _next_retry = _next_exit_retry_count(trade)
+                    _failed_status = "exit_abandoned" if _should_abandon_exit(_next_retry) else "exit_failed"
+                    logger.error(
+                        "[EXIT] Broker exit failed for %s — marking %s (retry=%d): %s",
+                        ticker, _failed_status, _next_retry, e,
+                        extra={"ctx": {
+                            "event": "exit_failed", "ticker": ticker,
+                            "trade_id": trade["trade_id"], "error": type(e).__name__,
+                            "exit_retry_count": _next_retry,
+                        }},
+                    )
                     update_shadow_trade(
                         trade["trade_id"],
-                        {"status": "exit_failed", "exit_reason": f"broker_exception:{type(e).__name__}"},
+                        {
+                            "status": _failed_status,
+                            "exit_reason": f"broker_exception:{type(e).__name__}",
+                            "exit_retry_count": _next_retry,
+                        },
                         db_path,
                     )
                     _exit_attempts += 1

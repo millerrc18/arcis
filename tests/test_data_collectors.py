@@ -868,3 +868,122 @@ class TestOutcomePromptSelection:
         from src.training.data_collector import _get_outcome_prompt
         from src.training.outcome_prompts import WINNER_SYSTEM_PROMPT
         assert _get_outcome_prompt("UNKNOWN") == WINNER_SYSTEM_PROMPT
+
+
+# ── #615: structured CollectionResult distinguishes failure modes ──
+
+class TestCollectionResult:
+    """Verify the detailed collector exposes attempted/rejected/skipped counts
+    so overnight summaries can distinguish 'no work' from '100% failed'."""
+
+    def test_detailed_collector_returns_collection_result(self, tmp_db):
+        from src.training.data_collector import (
+            CollectionResult,
+            collect_training_examples_from_closed_trades_detailed,
+        )
+        from tests.conftest import init_test_db
+
+        init_test_db(tmp_db, ["shadow_trades", "recommendations", "training_examples"])
+        with patch("src.training.data_collector.load_config",
+                   return_value={"training": {"enabled": True}}), \
+             patch("src.training.data_collector.init_training_tables"), \
+             patch("src.training.data_collector.DB_PATH", tmp_db):
+            result = collect_training_examples_from_closed_trades_detailed(db_path=tmp_db)
+
+        assert isinstance(result, CollectionResult)
+        assert result.count == 0
+        assert result.attempted == 0
+        assert result.rejected == 0
+        assert result.skipped_no_features == 0
+        assert result.halted is False
+        assert result.is_silent_failure is False, "Empty DB is 'no work', not failure"
+
+    def test_detailed_collector_distinguishes_failure_from_no_work(self, tmp_db):
+        """When attempted>0 but count==0, is_silent_failure must be True.
+
+        Pre-#615 callers couldn't tell 'ran but every LLM call returned None'
+        from 'nothing to do' — both produced examples=0.
+        """
+        from src.training.data_collector import (
+            collect_training_examples_from_closed_trades_detailed,
+        )
+        from tests.conftest import init_test_db
+
+        init_test_db(tmp_db, ["shadow_trades", "recommendations", "training_examples"])
+        conn = sqlite3.connect(tmp_db)
+        conn.execute(
+            "INSERT INTO shadow_trades "
+            "(trade_id, recommendation_id, ticker, status, pnl_dollars, "
+            "pnl_pct, exit_reason, duration_days, max_favorable_excursion, "
+            "max_adverse_excursion, actual_exit_time, created_at, updated_at, "
+            "setup_type, regime_at_entry, vix_at_entry) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            ("t_apifail", None, "AAPL", "closed", "50.25", "3.2",
+             "target_1_hit", "5", "60.0", "10.0",
+             "2026-01-05T16:00:00", "2026-01-01", "2026-01-05",
+             "pullback", "neutral_chop", 18.4),
+        )
+        conn.commit()
+        conn.close()
+
+        with patch("src.training.data_collector.load_config",
+                   return_value={"training": {"enabled": True}}), \
+             patch("src.training.data_collector.init_training_tables"), \
+             patch("src.training.data_collector.generate_training_example",
+                   return_value=None), \
+             patch("src.training.data_collector.validate_training_example",
+                   return_value=(True, None)), \
+             patch("src.training.data_collector.DB_PATH", tmp_db):
+            result = collect_training_examples_from_closed_trades_detailed(db_path=tmp_db)
+
+        assert result.count == 0
+        assert result.stage1_failures >= 1
+        assert result.is_silent_failure is True, (
+            "attempted>0 + count==0 must be flagged as silent failure"
+        )
+
+    def test_legacy_int_returning_function_still_works(self, tmp_db):
+        """The plain int-returning entrypoint must remain backward compatible."""
+        from src.training.data_collector import collect_training_examples_from_closed_trades
+        from tests.conftest import init_test_db
+
+        init_test_db(tmp_db, ["shadow_trades", "recommendations", "training_examples"])
+        with patch("src.training.data_collector.load_config",
+                   return_value={"training": {"enabled": True}}), \
+             patch("src.training.data_collector.init_training_tables"), \
+             patch("src.training.data_collector.DB_PATH", tmp_db):
+            count = collect_training_examples_from_closed_trades(db_path=tmp_db)
+
+        assert isinstance(count, int)
+        assert count == 0
+
+
+# ── #616: prompts forbid markdown structural headings ──
+
+class TestPromptForbidsMarkdownHeadings:
+    """Sonnet's default analysis style emits **Heading**: structural headers
+    that the post-#334 markdown_bold validator rejects. Prompts must explicitly
+    forbid this format to keep the producer + validator in sync."""
+
+    def test_quality_enhancement_prompt_forbids_markdown_headings(self):
+        from src.llm.prompts import QUALITY_ENHANCEMENT_PROMPT
+        text = QUALITY_ENHANCEMENT_PROMPT.lower()
+        assert "markdown" in text and ("heading" in text or "**" in text), (
+            "QUALITY_ENHANCEMENT_PROMPT must explicitly forbid markdown headings"
+        )
+
+    def test_winner_prompt_forbids_markdown_headings(self):
+        from src.training.outcome_prompts import WINNER_SYSTEM_PROMPT
+        assert "markdown" in WINNER_SYSTEM_PROMPT.lower() or "**" in WINNER_SYSTEM_PROMPT
+
+    def test_loser_prompt_forbids_markdown_headings(self):
+        from src.training.outcome_prompts import LOSER_SYSTEM_PROMPT
+        assert "markdown" in LOSER_SYSTEM_PROMPT.lower() or "**" in LOSER_SYSTEM_PROMPT
+
+    def test_timeout_prompt_forbids_markdown_headings(self):
+        from src.training.outcome_prompts import TIMEOUT_SYSTEM_PROMPT
+        assert "markdown" in TIMEOUT_SYSTEM_PROMPT.lower() or "**" in TIMEOUT_SYSTEM_PROMPT
+
+    def test_pass_prompt_forbids_markdown_headings(self):
+        from src.training.outcome_prompts import PASS_SYSTEM_PROMPT
+        assert "markdown" in PASS_SYSTEM_PROMPT.lower() or "**" in PASS_SYSTEM_PROMPT

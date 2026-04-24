@@ -363,10 +363,33 @@ def close_shadow_trade(
                     fields["drawdown_from_mfe"] = round(
                         (mfe - (exit_price - entry_price)) / entry_price * 10000, 1
                     )
-    except Exception:
-        pass  # Exit metadata is best-effort — never block trade close
+    except Exception as exc:
+        # #588 — Exit metadata is best-effort (never block trade close), but
+        # silent failures hide diagnosable issues. Warning level so it shows up
+        # in operator logs without blocking the close.
+        _logger.warning(
+            "[JOURNAL] close_shadow_trade exit-metadata write failed for trade %s: %s",
+            trade_id, exc,
+        )
     fields.update(_build_spy_excess_fields(trade_id, exit_time, pnl_pct, db_path))
     update_shadow_trade(trade_id, fields, db_path)
+
+    # #614 — Persist trade-close to activity_log for the dashboard feed.
+    # Pre-fix the TRADE_CLOSED constant existed but had zero writers.
+    try:
+        import json as _json_tc
+        from src.utils.activity_logger import TRADE_CLOSED, log_activity
+        log_activity(
+            TRADE_CLOSED,
+            _json_tc.dumps({
+                "trade_id": trade_id,
+                "exit_reason": exit_reason,
+                "pnl_dollars": pnl_dollars,
+                "pnl_pct": pnl_pct,
+            }),
+        )
+    except Exception as exc:
+        _logger.debug("[JOURNAL] activity_log TRADE_CLOSED failed: %s", exc)
 
 
 def _build_spy_excess_fields(

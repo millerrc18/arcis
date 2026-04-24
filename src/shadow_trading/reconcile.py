@@ -88,6 +88,70 @@ def _backfill_trade_data(ticker, entry_price, qty, allocation, source, now):
     }
 
 
+def _resolve_stuck_pnl(
+    trade: dict,
+    exit_reason: str,
+    current_price_provider=None,
+):
+    """Compute pnl_dollars for a stuck trade being force-closed by reconcile.
+
+    #624 — Pre-fix the inline switch defaulted to `exit_px = entry_px` for
+    `timeout` exits, writing literal `pnl=$0.00` to training_examples and
+    corrupting the corpus (CLAUDE.md: "Training data quality is #1"). This
+    helper returns None when the price source is unknown so the caller can
+    write NULL pnl rather than synthesize zero.
+
+    For known reasons (target/stop hits) the planned levels are used.
+    For 'timeout' / unknown reasons, the optional `current_price_provider`
+    callback is invoked to fetch the last-known market price; if it returns
+    None, pnl is None (UNKNOWN).
+    """
+    entry_px = float(trade.get("actual_entry_price") or trade.get("entry_price") or 0)
+    shares = float(trade.get("planned_shares") or trade.get("shares") or 1)
+    if entry_px <= 0:
+        return None
+
+    if exit_reason in ("stop_hit", "stop_loss"):
+        exit_px = trade.get("stop_price")
+    elif exit_reason in ("target_1_hit", "take_profit"):
+        exit_px = trade.get("target_1")
+    elif exit_reason == "target_2_hit":
+        exit_px = trade.get("target_2")
+    else:
+        # timeout, reconciled_stale, or anything else → fetch current price
+        if current_price_provider is None:
+            current_price_provider = _default_current_price_provider
+        try:
+            exit_px = current_price_provider(trade.get("ticker"))
+        except Exception as exc:
+            logger.warning("[RECONCILE] _resolve_stuck_pnl price fetch failed: %s", exc)
+            exit_px = None
+
+    if exit_px is None:
+        return None
+    try:
+        exit_px_f = float(exit_px)
+    except (TypeError, ValueError):
+        return None
+    if exit_px_f <= 0:
+        return None
+    return (exit_px_f - entry_px) * shares
+
+
+def _default_current_price_provider(ticker: str | None) -> float | None:
+    """Default last-bar fetcher used by _resolve_stuck_pnl (#624)."""
+    if not ticker:
+        return None
+    try:
+        from src.data_ingestion.market_data import fetch_ohlcv
+        data = fetch_ohlcv([ticker], period="5d")
+        if ticker in data and not data[ticker].empty:
+            return float(data[ticker]["Close"].iloc[-1])
+    except Exception as exc:
+        logger.debug("[RECONCILE] _default_current_price_provider %s failed: %s", ticker, exc)
+    return None
+
+
 def _estimate_exit_pnl(ticker, entry_px, shares):
     """Estimate exit P&L via last known market price.
 
@@ -699,31 +763,47 @@ def reconcile_paper_trades(
                 resolved_reopened.append(ticker)
                 logger.info("[RECONCILE-PAPER] Reverted premature exit to open: %s", ticker)
             else:
-                entry_px = float(row["actual_entry_price"] or row["entry_price"] or 0)
-                shares = float(row["planned_shares"] or 1)
-                reason = row["exit_reason"] or "reconciled_stale"
+                trade_dict = dict(row)
+                reason = trade_dict.get("exit_reason") or "reconciled_stale"
+                # #624 — Use the helper so timeout closures fetch the actual
+                # current price instead of defaulting to entry_px (which wrote
+                # literal pnl=$0.00 into training_examples and corrupted the
+                # corpus). When current price is unknown the helper returns
+                # None — we then write NULL pnl rather than synthesize 0.
+                pnl_dollars_calc = _resolve_stuck_pnl(trade_dict, exit_reason=reason)
+                entry_px = float(trade_dict.get("actual_entry_price") or trade_dict.get("entry_price") or 0)
+                shares = float(trade_dict.get("planned_shares") or 1)
 
-                if reason in ("stop_hit", "stop_loss"):
-                    exit_px = float(row["stop_price"] or 0)
-                elif reason in ("target_1_hit", "take_profit"):
-                    exit_px = float(row["target_1"] or 0)
-                elif reason == "target_2_hit":
-                    exit_px = float(row["target_2"] or 0)
+                if pnl_dollars_calc is None:
+                    # Unknown PnL — store NULL not 0.0; close_shadow_trade will
+                    # log a warning so the operator sees the unknown closure.
+                    exit_px = 0.0
+                    pnl_dollars = None
+                    pnl_pct = None
+                    logger.warning(
+                        "[RECONCILE-PAPER] Closing %s with UNKNOWN pnl (no price source for %s)",
+                        ticker, reason,
+                    )
                 else:
-                    exit_px = entry_px  # fallback — P&L unknown
-
-                pnl_dollars = round((exit_px - entry_px) * shares, 2) if entry_px > 0 else 0.0
-                pnl_pct = round((exit_px - entry_px) / entry_px * 100, 2) if entry_px > 0 else 0.0
+                    pnl_dollars = round(pnl_dollars_calc, 2)
+                    # Reconstruct exit_px from pnl for the close call.
+                    if shares > 0 and entry_px > 0:
+                        exit_px = round(pnl_dollars_calc / shares + entry_px, 4)
+                        pnl_pct = round((exit_px - entry_px) / entry_px * 100, 2)
+                    else:
+                        exit_px = entry_px
+                        pnl_pct = 0.0
 
                 close_shadow_trade(
                     trade_id=trade_id, exit_price=exit_px,
                     exit_time=now.isoformat(), exit_reason=reason,
-                    pnl_dollars=pnl_dollars, pnl_pct=pnl_pct, db_path=db_path,
+                    pnl_dollars=pnl_dollars or 0.0, pnl_pct=pnl_pct or 0.0, db_path=db_path,
                 )
                 resolved_closed.append(ticker)
                 logger.info(
-                    "[RECONCILE-PAPER] Closed stuck %s trade: %s (pnl=$%.2f)",
-                    reason, ticker, pnl_dollars,
+                    "[RECONCILE-PAPER] Closed stuck %s trade: %s (pnl=%s)",
+                    reason, ticker,
+                    f"${pnl_dollars:.2f}" if pnl_dollars is not None else "UNKNOWN",
                 )
     elif stuck:
         logger.info(

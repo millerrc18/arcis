@@ -13,6 +13,7 @@ Config keys: bootcamp.*, shadow_trading.*, live_trading.*
 Tests: tests/test_universe_scanner.py
 """
 
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -360,5 +361,22 @@ def run_universe_scan(ctx: ScanContext) -> ScanResult:
                                          "packets": result.packet_worthy_count})
     except Exception as e:
         logger.warning("[SCAN] broadcast scan_complete failed: %s", e)
+
+    # #614 — Persist scan completion to activity_log for the dashboard feed.
+    # Pre-fix the SCAN_COMPLETE constant existed but had zero writers, so the
+    # operator's activity feed showed ~2-4 events/day instead of hundreds.
+    try:
+        from src.utils.activity_logger import SCAN_COMPLETE, log_activity
+        log_activity(
+            SCAN_COMPLETE,
+            json.dumps({
+                "universe": result.universe_count,
+                "scored": result.features_count,
+                "packets": result.packet_worthy_count,
+                "trades_opened": result.trades_opened,
+            }),
+        )
+    except Exception as e:
+        logger.debug("[SCAN] activity_log write failed: %s", e)
 
     return result

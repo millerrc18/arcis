@@ -27,12 +27,13 @@ import logging
 import sqlite3
 import uuid
 from collections import Counter
+from dataclasses import dataclass, field
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH, load_config
 from src.llm.prompts import QUALITY_ENHANCEMENT_PROMPT
-from src.training.claude_client import generate_training_example
+from src.training.claude_client import ClaudeAuthError, generate_training_example
 from src.training.ingestion_gate import (
     alert_training_halt,
     should_halt_batch,
@@ -43,6 +44,31 @@ from src.training.versioning import init_training_tables
 logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
+
+
+# #615 — Structured collection summary so callers (overnight task,
+# /collect-training endpoint) can distinguish "no work to do" from "ran but
+# every Stage-1 failed". Pre-#615, both produced the same `examples=0` log
+# line, masking 11 days of complete pipeline outage during 4/13–4/23.
+@dataclass
+class CollectionResult:
+    count: int = 0                         # successful inserts (incl. contrastive)
+    attempted: int = 0                     # made it past Stage 1 → counted toward halt threshold
+    rejected: int = 0                      # validator rejected
+    stage1_failures: int = 0               # Stage-1 returned None (LLM unavailable, billing, etc.)
+    skipped_no_features: int = 0           # no recommendation row + no shadow_trades fallback data
+    halted: bool = False                   # batch halted early by ingestion gate
+    halt_reason: str | None = None         # top rejection reason at halt time
+    rejection_reasons: dict = field(default_factory=dict)
+
+    @property
+    def is_silent_failure(self) -> bool:
+        """True when work was attempted but produced zero successful inserts.
+
+        Distinguishes 'no eligible work' (count=0, stage1_failures=0) from
+        'pipeline failure' (count=0 with stage1_failures or rejected > 0).
+        """
+        return self.count == 0 and (self.stage1_failures > 0 or self.rejected > 0 or self.attempted > 0)
 
 # #110 — Fields that correlate with trade outcome and MUST NOT appear in
 # the feature_snapshot stored alongside training examples.
@@ -191,6 +217,18 @@ MFE: ${float(trade.get('max_favorable_excursion') or 0):.2f} | MAE: ${float(trad
 def collect_training_examples_from_closed_trades(
     db_path: str = DB_PATH,
 ) -> int:
+    """Backward-compatible entrypoint that returns the count only.
+
+    Prefer `collect_training_examples_from_closed_trades_detailed` for callers
+    that need to distinguish "no work" from "100% failed" (overnight task,
+    /collect-training endpoint).
+    """
+    return collect_training_examples_from_closed_trades_detailed(db_path).count
+
+
+def collect_training_examples_from_closed_trades_detailed(
+    db_path: str = DB_PATH,
+) -> CollectionResult:
     """Generate training examples from closed trades using the self-blinding pipeline.
 
     The self-blinding pipeline ensures NO outcome information leaks into the
@@ -203,12 +241,13 @@ def collect_training_examples_from_closed_trades(
                           quality instructions. Still no outcome. Improves prose
                           without changing directional stance or conviction.
 
-    Returns count of new examples created.
+    Returns a CollectionResult with count + failure-mode breakdown so callers
+    can distinguish "nothing to do" from "ran but every LLM call returned None".
     """
     config = load_config()
     training_cfg = config.get("training", {})
     if not training_cfg.get("enabled", False):
-        return 0
+        return CollectionResult()
 
     init_training_tables(db_path)
 
@@ -236,6 +275,10 @@ def collect_training_examples_from_closed_trades(
     count = 0
     attempted = 0
     rejected = 0
+    stage1_failures = 0
+    skipped_no_features = 0
+    halted = False
+    halt_reason: str | None = None
     rejection_reasons: Counter[str] = Counter()
     for row in rows:
         trade = dict(row)
@@ -258,6 +301,7 @@ def collect_training_examples_from_closed_trades(
             # columns; if those are also empty, skip rather than write garbage.
             feature_input = _build_feature_input_from_trade(trade)
             if feature_input is None:
+                skipped_no_features += 1
                 logger.warning(
                     "[TRAINING] Skipping %s trade_id=%s — no feature data available for training",
                     trade.get("ticker"), trade.get("trade_id"),
@@ -291,8 +335,20 @@ def collect_training_examples_from_closed_trades(
         # never reveals the outcome. Self-blinding is preserved architecturally.
         outcome_type = _classify_outcome(trade)
         outcome_prompt = _get_outcome_prompt(outcome_type)
-        stage1_response = generate_training_example(outcome_prompt, feature_input, purpose="backfill_blinded")
+        try:
+            stage1_response = generate_training_example(outcome_prompt, feature_input, purpose="backfill_blinded")
+        except ClaudeAuthError as exc:
+            # #612 — Auth/billing failure is unrecoverable. Halt the entire batch
+            # immediately so we don't waste cycles retrying every trade.
+            stage1_failures += 1
+            halted = True
+            halt_reason = "claude_auth_error"
+            logger.error(
+                "[TRAINING] Halting batch — Claude auth/billing error: %s", exc,
+            )
+            break
         if stage1_response is None:
+            stage1_failures += 1
             logger.warning("[TRAINING] Stage 1 failed for %s, skipping", trade.get("ticker"))
             continue
 
@@ -312,6 +368,8 @@ def collect_training_examples_from_closed_trades(
             logger.warning("[TRAINING] Rejected example for %s: %s", trade.get("ticker"), rejection_reason)
             halt, compliance, top_reason = should_halt_batch(attempted, rejected, rejection_reasons)
             if halt:
+                halted = True
+                halt_reason = top_reason
                 alert_training_halt(compliance, rejected, attempted, top_reason)
                 logger.error("[TRAINING] Halting collection batch at %.1f%% compliance", compliance)
                 break
@@ -405,8 +463,19 @@ def collect_training_examples_from_closed_trades(
 
         halt, compliance, top_reason = should_halt_batch(attempted, rejected, rejection_reasons)
         if halt:
+            halted = True
+            halt_reason = top_reason
             alert_training_halt(compliance, rejected, attempted, top_reason)
             logger.error("[TRAINING] Halting collection batch at %.1f%% compliance", compliance)
             break
 
-    return count
+    return CollectionResult(
+        count=count,
+        attempted=attempted,
+        rejected=rejected,
+        stage1_failures=stage1_failures,
+        skipped_no_features=skipped_no_features,
+        halted=halted,
+        halt_reason=halt_reason,
+        rejection_reasons=dict(rejection_reasons),
+    )

@@ -1,6 +1,7 @@
 """Tests for src/utils/activity_logger.py."""
 
 import json
+import os
 import sqlite3
 
 import pytest
@@ -12,6 +13,14 @@ from src.utils.activity_logger import (
     SYSTEM_EVENT,
 )
 from tests.conftest import init_test_db
+
+
+# #613 — log_activity now refuses to write under pytest unless opted in.
+# These tests are the legitimate consumer that asserts writes happen, so
+# they must opt in via the env var. Auto-applied to every test in this file.
+@pytest.fixture(autouse=True)
+def _opt_in_activity_writes(monkeypatch):
+    monkeypatch.setenv("ARCIS_LOG_ACTIVITY_IN_PYTEST", "1")
 
 
 def _create_activity_log_table(db_path: str) -> None:
