@@ -129,3 +129,35 @@ def test_build_packet_from_features_succeeds_with_normal_price(monkeypatch):
     pkt = tpl.build_packet_from_features("AAPL", features, config)
     assert pkt is not None
     assert pkt.position_sizing.allocation_dollars > 0
+
+
+# ---------------------------------------------------------------------------
+# #478 — route DB reads must use connect_db (busy_timeout=30s)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "src/api/routes/council.py",
+        "src/api/routes/health.py",
+        "src/api/routes/ib_status.py",
+        "src/api/routes/live.py",
+        "src/api/routes/logs.py",
+        "src/api/routes/notes.py",
+        "src/api/routes/system.py",
+    ],
+)
+def test_route_uses_connect_db_helper(path):
+    """#478 — route DB reads must use connect_db so the busy_timeout=30s
+    applies consistently. Without it, a route that fires during external-
+    tool DB inspection (MS Access, DB Browser) gets immediate 'database
+    is locked' instead of waiting for the lock to release.
+    """
+    src = _read(path)
+    body_only = re.sub(r"^import sqlite3\b.*$", "", src, flags=re.MULTILINE)
+    matches = re.findall(r"\bsqlite3\.connect\b", body_only)
+    assert not matches, (
+        f"{path} contains {len(matches)} raw sqlite3.connect call(s); "
+        f"use connect_db() from src.utils.db instead (#478)"
+    )

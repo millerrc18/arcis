@@ -29,6 +29,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 router = APIRouter(tags=["notes"])
 logger = logging.getLogger(__name__)
@@ -81,7 +82,7 @@ def _parse_note(row: dict) -> dict:
 def list_notes():
     """List all notes, pinned first."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db(DB_PATH)
         conn.row_factory = sqlite3.Row
         try:
             rows = conn.execute(
@@ -102,7 +103,7 @@ def create_note(payload: NoteCreatePayload):
         now = datetime.now(ET).isoformat()
         note_id = str(uuid.uuid4())
         tags_json = json.dumps(_normalize_tags(payload.tags))
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db(DB_PATH)
         try:
             conn.execute(
                 "INSERT INTO user_notes "
@@ -134,7 +135,7 @@ def update_note(note_id: str, payload: NoteUpdatePayload):
     """Update an existing note."""
     try:
         updates = payload.model_dump(exclude_unset=True)
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db(DB_PATH)
         conn.row_factory = sqlite3.Row
         try:
             if not updates:
@@ -188,7 +189,7 @@ def update_note(note_id: str, payload: NoteUpdatePayload):
 def delete_note(note_id: str):
     """Delete a note by ID."""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        conn = connect_db(DB_PATH)
         try:
             cursor = conn.execute(
                 "DELETE FROM user_notes WHERE note_id = ?", (note_id,)
