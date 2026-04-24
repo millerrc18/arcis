@@ -49,6 +49,16 @@ RESEARCH_DIGEST = "research_digest"
 def log_activity(event_type: str, detail: str, metadata: dict | None = None,
                  db_path: str = DB_PATH) -> None:
     """Log a structured activity event for dashboard display."""
+    # #613 — Guard against test fixtures that forget to monkeypatch DB_PATH.
+    # Pre-fix, tests/test_kill_switch.py and tests/test_auditor.py wrote 540
+    # fake kill_switch_halt rows into the prod ai_research_desk.sqlite3
+    # because they patched _HALT_FILE but not the activity_logger DB path.
+    # This belt-and-suspenders guard prevents future regressions of the same
+    # shape — tests that intentionally need to write should monkeypatch
+    # DB_PATH AND opt in via ARCIS_LOG_ACTIVITY_IN_PYTEST=1.
+    import os
+    if os.environ.get("PYTEST_CURRENT_TEST") and not os.environ.get("ARCIS_LOG_ACTIVITY_IN_PYTEST"):
+        return
     try:
         now = datetime.now(ET).isoformat()
         with sqlite3.connect(db_path) as conn:

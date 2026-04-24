@@ -100,6 +100,18 @@ class DBLogHandler(logging.Handler):
             pass  # GOTCHA: Never let logging crash the system — silent failure is correct here
 
 
+# #618 — Sleep-recovery threshold helper. Pre-fix the inline check used
+# `elapsed > 30` which equals scan_interval, so natural scheduler jitter
+# (~30-32 min for a 30-min interval) fired the alert ~12 times/day. The
+# 1.5x multiplier preserves true-positive detection of Windows sleep gaps
+# (which are typically 60+ min) while filtering out routine jitter.
+def _is_likely_sleep_gap(elapsed_min: float, scan_interval_min: int) -> bool:
+    """Return True only when elapsed time exceeds 1.5× the scan interval —
+    the buffer absorbs typical scheduler jitter (which is bounded by ~5%
+    in practice but spikes occasionally) without missing actual gaps."""
+    return elapsed_min > 1.5 * scan_interval_min
+
+
 class WatchLoop(HandlerRegistryMixin):
     """Automated daily cadence loop for the AI Research Desk."""
 
@@ -437,9 +449,11 @@ class WatchLoop(HandlerRegistryMixin):
         elapsed = (now - self._last_scan_time).total_seconds() / 60
 
         # Fix for #152: Sleep recovery detection. Windows 11 sleep/hibernate
-        # can cause 30+ minute gaps during market hours. When detected, log
-        # and alert so the operator knows scans were missed.
-        if elapsed > 30 and self._is_market_open(now):
+        # can cause 30+ minute gaps during market hours.
+        # #618 — threshold raised from `>30` (literal scan_interval) to
+        # `>1.5*scan_interval` because natural scheduler jitter (~30-32 min
+        # for a 30-min interval) was firing the alert ~12 times/day.
+        if _is_likely_sleep_gap(elapsed, self.scan_interval) and self._is_market_open(now):
             logger.warning(
                 "[WATCH] Possible sleep recovery detected: %.0f min since last scan "
                 "(expected %d min). Resuming scans.",
