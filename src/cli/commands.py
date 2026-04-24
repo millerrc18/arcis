@@ -1169,6 +1169,36 @@ def cmd_council(args):
         _safe_print(f"  {marker} {assessment.get('agent', '?')}: {direction} ({confidence:.0%}) -- {assessment.get('key_reasoning', '')[:80]}")
 
 
+def _assert_safe_live_governor_combo(config: dict, force: bool) -> None:
+    """#574 — Refuse to launch when live trading is on but the risk
+    governor is disabled. That combination auto-approves every trade
+    with no daily-loss cap, no per-position size limit, no VIX circuit
+    breaker, no sector concentration check, and no correlation cap —
+    the textbook system-blow-up scenario.
+
+    The --force flag bypasses the check (logs critically, then proceeds)
+    so the operator retains an explicit escape hatch for emergencies.
+    """
+    live_enabled = bool(config.get("live_trading", {}).get("enabled"))
+    governor_enabled = bool(config.get("risk_governor", {}).get("enabled"))
+    if live_enabled and not governor_enabled:
+        msg = (
+            "REFUSING TO LAUNCH: live_trading.enabled=true AND "
+            "risk_governor.enabled=false. This auto-approves every trade "
+            "with NO daily-loss cap, NO position-size limit, NO VIX "
+            "circuit breaker, NO sector concentration cap, NO correlation "
+            "limit. Set risk_governor.enabled=true OR pass --force to "
+            "bypass (logs critically). (#574)"
+        )
+        if not force:
+            raise RuntimeError(msg)
+        # Force-bypass — log critically so the audit trail is unmistakable
+        import logging
+        logging.getLogger("src.cli.commands").critical(
+            "[STARTUP] %s — operator passed --force, proceeding anyway.", msg,
+        )
+
+
 def cmd_startup(args):
     """Validate system and launch watch loop — single startup command."""
     import sys
@@ -1180,7 +1210,11 @@ def cmd_startup(args):
 
     config = load_config()
     check_only = getattr(args, "check_only", False)
+    force = getattr(args, "force", False)
+
     if not check_only:
+        # #574 — fail-fast on dangerous live+governor combo BEFORE state.
+        _assert_safe_live_governor_combo(config, force=force)
         existing_pid = is_watch_loop_running()
         if existing_pid:
             print(f"Another watch loop is already running (PID {existing_pid}).")

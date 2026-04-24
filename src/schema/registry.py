@@ -42,6 +42,11 @@ class ColumnDef:
     nullable: bool = True
     default: str | None = None
     description: str = ""
+    # #580 — When True (only valid on the single INTEGER PRIMARY KEY column),
+    # the DDL generator emits `INTEGER PRIMARY KEY AUTOINCREMENT` so SQLite
+    # never reuses rowids. Audit-trail tables (activity_log, etc.) need this
+    # to keep the dashboard feed dedup logic correct after row deletions.
+    autoincrement: bool = False
 
 
 @dataclass
@@ -1370,7 +1375,11 @@ _register(TableDef(
     name="activity_log",
     description="System-wide event log for all notable actions",
     columns=[
-        ColumnDef("id", "INTEGER", nullable=False),
+        # #580 — AUTOINCREMENT prevents rowid reuse after deletions so the
+        # cloud audit trail dedup logic stays correct. Live DB rebuild
+        # required (existing rows have NULL ids) — see PR description for
+        # operator-action steps.
+        ColumnDef("id", "INTEGER", nullable=False, autoincrement=True),
         ColumnDef("event_type", "TEXT", nullable=False),
         ColumnDef("detail", "TEXT"),
         ColumnDef("level", "TEXT"),
