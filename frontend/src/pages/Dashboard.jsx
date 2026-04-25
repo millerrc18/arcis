@@ -7,6 +7,7 @@ import { hapticWarning, hapticSuccess } from '../native'
 import MetricCard from '../components/MetricCard'
 import KPIStrip from '../components/dashboard/KPIStrip'
 import BrokerExceptionsPanel from '../components/dashboard/BrokerExceptionsPanel'
+import PreflightStatusCard from '../components/dashboard/PreflightStatusCard'
 import DataTable from '../components/DataTable'
 import LoadingSpinner from '../components/LoadingSpinner'
 import PnlText from '../components/PnlText'
@@ -416,18 +417,34 @@ export default function Dashboard() {
       {/* Broker exceptions panel — Track 1.5 / Round 8.C (closes G1) */}
       <BrokerExceptionsPanel />
 
+      {/* Preflight status card — Track 1.5 / Round 8.D (S4 preflight echo) */}
+      <PreflightStatusCard />
+
       {/* System status cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard label="Shadow Equity" value={equity.toLocaleString(undefined, { minimumFractionDigits: 0 })} prefix="$" delta={equityDelta} />
+        {/* R3 — Explicit data-source label so equity card / cumulative P&L divergence
+            on first live trade is explainable. Equity reads Alpaca paper account balance;
+            chart reads shadow_trades (quarantine-filtered). */}
+        <Tooltip content="Source: Alpaca paper account balance. Note: this value will diverge from the cumulative P&L chart (shadow_trades canonical, quarantine-filtered) on first live trade.">
+          <MetricCard label="Shadow Equity" value={equity.toLocaleString(undefined, { minimumFractionDigits: 0 })} prefix="$" delta={equityDelta} />
+        </Tooltip>
         <MetricCard label="Open Trades" value={openTrades?.open_count || accountData?.open_positions || 0} />
-        <MetricCard label="Win Rate" value={closedData?.metrics?.win_rate != null ? `${(closedData.metrics.win_rate * 100).toFixed(1)}%` : accountData?.win_rate != null ? `${(accountData.win_rate * 100).toFixed(1)}%` : '--'} />
+        {/* R2 — Silent Alpaca fallback removed. Alpaca's win_rate uses a different
+            denominator and includes pre-#651 cascade trades (not quarantine-filtered).
+            When shadow_service returns null, show "—" with a tooltip explaining deferral. */}
+        <Tooltip content="Win rate not yet computable; need ≥1 closed quarantine-filtered trade. Alpaca's win_rate is suppressed here — it uses a different denominator and includes pre-#651 cascade trades.">
+          <MetricCard label="Win Rate" value={closedData?.metrics?.win_rate != null ? `${(closedData.metrics.win_rate * 100).toFixed(1)}%` : '—'} />
+        </Tooltip>
         <MetricCard label="Model Version" value={status?.model_version || 'base'} delta={training ? `${training.dataset_total} examples` : null} />
       </div>
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
         <div className="lg:col-span-3 arcis-card">
-          <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>Cumulative P&L</h3>
+          <div className="flex items-baseline gap-3 mb-4">
+            <h3 className="text-sm uppercase tracking-wide" style={{ color: 'var(--arcis-text-secondary)' }}>Cumulative P&L</h3>
+            <span className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>shadow_trades canonical, quarantine-filtered</span>
+          </div>
           {chartData.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
               <AreaChart data={chartData}>

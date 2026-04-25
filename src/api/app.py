@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.api.routes import system, scan, shadow, training, review, packets, docs, actions, health, council, notes, live, logs, ib_status, ib_shadow, strategy_detail, system_index, projections
 from src.api.cloud_routes import kpis as kpis_route
 from src.api.cloud_routes import broker_exceptions as broker_exceptions_route
+from src.api.cloud_routes import preflight as preflight_route
 from src.api.websocket import manager
 
 
@@ -59,6 +60,7 @@ app.include_router(system_index.router)
 app.include_router(projections.router, prefix="/api")
 app.include_router(kpis_route.router, prefix="/api")
 app.include_router(broker_exceptions_route.router, prefix="/api")
+app.include_router(preflight_route.router, prefix="/api")
 
 
 # WebSocket for live updates (uses shared manager from websocket.py)

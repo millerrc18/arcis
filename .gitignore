@@ -68,6 +68,7 @@ models/
 # Frontend build
 frontend/dist/
 frontend/node_modules/
+node_modules/
 
 # Capacitor iOS build artifacts
 ios/App/Pods/
