@@ -9,7 +9,7 @@ All project rules, architecture, data sources, and constraints are in **MASTER.m
 - **Never commit secrets** — `.env`, `config/settings.local.yaml`, and `.mcp.json` are gitignored for a reason
 - **Training data quality is #1** — never sacrifice quality for speed
 - **Risk governor is sacred** — never bypass or weaken risk checks without explicit approval
-- **Test count must not drop** — CI enforces a minimum of 3008 tests (current sweep baseline as of 2026-04-25, T1.05 commit; +14 net from prior 2994 floor). Bump this number in CLAUDE.md whenever the sweep grows past the previous baseline.
+- **Test count must not drop** — CI enforces a minimum of 3038 tests (current sweep baseline as of 2026-04-25, T1.04 commit; +30 net from prior 3008 floor: +31 cap-reconciliation/config-guardrail tests, -1 obsolete TestGovernorCap test pinning pre-T1.04 bootcamp short-circuit). Bump this number in CLAUDE.md whenever the sweep grows past the previous baseline.
 - **Mock all external APIs in tests** — no network calls from pytest (Alpaca, Finnhub, yfinance, FRED, Ollama)
 - **Schema registry is the single source of truth** — all 67 tables are defined in `src/schema/registry.py` (authoritative count: `python -c "from src.schema.registry import TABLES; print(len(TABLES))"`). See "Database Schema Rules" below
 - **Test baseline before changes** — run `python -m pytest tests/ -q` at the start of any coding session and note the pass count. After changes, the pass count must not decrease and the failure count must not increase. Never dismiss test failures as "pre-existing" without investigating

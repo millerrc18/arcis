@@ -51,6 +51,48 @@ _ET = ZoneInfo("America/New_York")
 
 logger = logging.getLogger(__name__)
 
+# T1.04 — single source of truth for the open-position cap.
+#
+# Pre-T1.04 the cap was read in 3 different ways from 3 different config
+# subtrees — RiskGovernor.__init__ read only ``risk_governor.*``,
+# ``executor._governor_cap`` read only ``bootcamp/risk/shadow_trading``,
+# and ``live_trading.max_open_positions`` was ignored entirely. F-7 of
+# the 2026-04-27 trading-readiness audit collapses these into one
+# helper that returns the MIN of every present cap, so no entry path
+# can silently exceed the strictest configured limit.
+_CAP_NAMESPACES: tuple[tuple[str, str], ...] = (
+    ("risk", "max_open_positions"),
+    ("risk_governor", "max_open_positions"),
+    ("live_trading", "max_open_positions"),
+    ("bootcamp", "max_positions"),
+)
+_CAP_DEFAULT = 10
+
+
+def effective_position_cap(config: dict) -> int:
+    """Return the strictest open-position cap configured across 4 namespaces.
+
+    Reads ``risk.max_open_positions``, ``risk_governor.max_open_positions``,
+    ``live_trading.max_open_positions``, and ``bootcamp.max_positions``.
+    Returns the min of present positive-int values, or ``_CAP_DEFAULT``
+    (10) when nothing valid is configured. Non-int / non-positive values
+    are ignored rather than raising — config drift should never crash
+    the governor.
+    """
+    candidates: list[int] = []
+    for section, key in _CAP_NAMESPACES:
+        sub = config.get(section)
+        if not isinstance(sub, dict):
+            continue
+        value = sub.get(key)
+        if isinstance(value, bool):
+            # bool is an int subclass; explicitly reject
+            continue
+        if isinstance(value, int) and value > 0:
+            candidates.append(value)
+    return min(candidates) if candidates else _CAP_DEFAULT
+
+
 # Sprint 2 H4: emit once-per-process alert when the risk governor is
 # disabled, via logger.critical + Telegram. Without this, a config
 # mistake (enabled=False) silently approves every trade — bypassing
@@ -389,9 +431,16 @@ class RiskGovernor:
         self.max_daily_loss_pct = risk_cfg.get("max_daily_loss_pct", 0.03)
         # 10% single-position cap — no single name can dominate the book.
         self.max_position_pct = risk_cfg.get("max_position_pct", 0.10)
-        # 10 open positions max — keeps the portfolio manageable for a
-        # system that monitors bracket orders individually.
-        self.max_open_positions = risk_cfg.get("max_open_positions", 10)
+        # T1.04: open-position cap reconciled across 4 namespaces (risk /
+        # risk_governor / live_trading / bootcamp). The helper returns the
+        # min of present caps so no entry path silently exceeds the
+        # strictest limit. Logged at startup for operator audit.
+        self.max_open_positions = effective_position_cap(config)
+        logger.info(
+            "[RISK] effective open-position cap = %d (reconciled across "
+            "risk/risk_governor/live_trading/bootcamp)",
+            self.max_open_positions,
+        )
         # 30% sector cap — prevents over-concentration in one sector;
         # tightens to 15% when VIX > 25 (correlations spike in stress).
         self.max_sector_concentration_pct = risk_cfg.get("max_sector_pct", 0.30)

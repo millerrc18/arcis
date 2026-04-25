@@ -66,49 +66,60 @@ class TestGovernorCap:
         assert _governor_cap(cfg) == 5
 
     def test_falls_back_when_only_one_set(self):
-        assert _governor_cap({"shadow_trading": {"max_positions": 7}}) == 7
+        # T1.04: shadow_trading.max_positions removed from cap namespaces;
+        # live_trading.max_open_positions added. Only-one-set semantics
+        # preserved per remaining 4 namespaces.
+        assert _governor_cap({"live_trading": {"max_open_positions": 7}}) == 7
         assert _governor_cap({"risk": {"max_open_positions": 3}}) == 3
 
     def test_default_when_none_configured(self):
         assert _governor_cap({}) == 10
 
     def test_ignores_non_positive(self):
+        # T1.04: invalid risk_governor cap is ignored; valid live_trading cap wins.
         cfg = {"risk": {"max_open_positions": 0},
-               "shadow_trading": {"max_positions": 8}}
+               "live_trading": {"max_open_positions": 8}}
         assert _governor_cap(cfg) == 8
 
-    def test_bootcamp_enabled_uses_bootcamp_cap(self):
-        """Bootcamp override matches executor.open_shadow_trade and
-        risk.governor.check_trade behavior so all three surfaces agree."""
+    def test_bootcamp_folded_into_min_rule(self):
+        """T1.04: bootcamp early-return removed; min-rule applies even
+        when bootcamp.enabled=True so the strictest configured cap always
+        wins. Prevents an operator who tightens risk.max_open_positions
+        for live trading from silently inheriting the looser bootcamp
+        ceiling when they forgot to disable bootcamp."""
         cfg = {
             "bootcamp": {"enabled": True, "max_positions": 50},
             "risk": {"max_open_positions": 5},
-            "shadow_trading": {"max_positions": 10},
+            "risk_governor": {"max_open_positions": 50},
+            "live_trading": {"max_open_positions": 7},
         }
-        assert _governor_cap(cfg) == 50
+        assert _governor_cap(cfg) == 5
 
     def test_bootcamp_disabled_uses_strict_min(self):
         cfg = {
             "bootcamp": {"enabled": False, "max_positions": 50},
             "risk": {"max_open_positions": 5},
-            "shadow_trading": {"max_positions": 10},
+            "risk_governor": {"max_open_positions": 50},
         }
         assert _governor_cap(cfg) == 5
 
-    def test_bootcamp_enabled_default_is_50(self):
-        cfg = {"bootcamp": {"enabled": True}}
-        assert _governor_cap(cfg) == 50
+    def test_bootcamp_only_uses_bootcamp_cap(self):
+        """If bootcamp.max_positions is the only positive cap configured,
+        it determines the effective cap regardless of bootcamp.enabled
+        (the enabled flag no longer changes which namespaces are read)."""
+        assert _governor_cap({"bootcamp": {"enabled": True, "max_positions": 25}}) == 25
+        assert _governor_cap({"bootcamp": {"max_positions": 25}}) == 25
 
-    def test_bootcamp_enabled_with_invalid_cap_uses_default(self):
-        cfg = {"bootcamp": {"enabled": True, "max_positions": 0}}
-        assert _governor_cap(cfg) == 50
-        cfg = {"bootcamp": {"enabled": True, "max_positions": -1}}
-        assert _governor_cap(cfg) == 50
+    def test_bootcamp_invalid_cap_falls_back_to_default(self):
+        """T1.04: invalid bootcamp.max_positions is ignored; with no other
+        valid cap, the default 10 applies (no special bootcamp default)."""
+        assert _governor_cap({"bootcamp": {"enabled": True, "max_positions": 0}}) == 10
+        assert _governor_cap({"bootcamp": {"enabled": True, "max_positions": -1}}) == 10
 
     def test_bootcamp_missing_falls_through(self):
-        """No bootcamp key at all should behave like disabled."""
+        """No bootcamp key at all — strictest of the remaining caps wins."""
         cfg = {"risk": {"max_open_positions": 3},
-               "shadow_trading": {"max_positions": 10}}
+               "live_trading": {"max_open_positions": 10}}
         assert _governor_cap(cfg) == 3
 
 
