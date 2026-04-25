@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api'
 import LoadingSpinner from '../components/LoadingSpinner'
+import TimeoutCell from '../components/TimeoutCell'
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip as RTooltip, ResponsiveContainer, Cell, ReferenceLine, ComposedChart,
@@ -153,6 +154,7 @@ function RecentTradesTable({ trades, title, emptyMessage }) {
               <th className="py-2 px-2 text-right text-xs uppercase" style={{ color: 'var(--arcis-text-secondary)' }}>P&L $</th>
               <th className="py-2 px-2 text-right text-xs uppercase" style={{ color: 'var(--arcis-text-secondary)' }}>P&L %</th>
               <th className="py-2 px-2 text-right text-xs uppercase" style={{ color: 'var(--arcis-text-secondary)' }}>Hold</th>
+              <th className="py-2 px-2 text-left text-xs uppercase hidden md:table-cell" style={{ color: 'var(--arcis-text-secondary)' }}>Timeout</th>
               <th className="py-2 px-2 text-left text-xs uppercase" style={{ color: 'var(--arcis-text-secondary)' }}>Reason</th>
             </tr>
           </thead>
@@ -171,6 +173,10 @@ function RecentTradesTable({ trades, title, emptyMessage }) {
                   <td className="py-2 px-2 text-right" style={{ ...MONO, color: pnlColor(pnl) }}>{formatDollars(pnl)}</td>
                   <td className="py-2 px-2 text-right" style={{ ...MONO, color: pnlColor(pnl) }}>{formatPct(pnlPct)}</td>
                   <td className="py-2 px-2 text-right" style={MONO}>{duration}d</td>
+                  <td className="py-2 px-2 hidden md:table-cell">
+                    <TimeoutCell durationDays={t.duration_days} timeoutDays={t.timeout_days}
+                      llmTimeoutDays={t.llm_timeout_days} status={t.timeout_status} progressPct={t.timeout_progress_pct} />
+                  </td>
                   <td className="py-2 px-2 text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>{reason}</td>
                 </tr>
               )

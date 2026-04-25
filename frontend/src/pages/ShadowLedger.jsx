@@ -6,6 +6,7 @@ import LoadingSpinner from '../components/LoadingSpinner'
 import EmptyState from '../components/EmptyState'
 import Tooltip from '../components/Tooltip'
 import OpenPositionCard from '../components/OpenPositionCard'
+import TimeoutCell from '../components/TimeoutCell'
 import { TrendingUp, ChevronDown, ChevronRight, Search, ArrowUpDown } from 'lucide-react'
 import {
   XAxis, YAxis, Tooltip as RTooltip, ResponsiveContainer, Area, AreaChart,
@@ -560,6 +561,9 @@ export default function ShadowLedger() {
       render: (t) => <PnlPctValue value={t.pnl_pct} /> },
     { key: 'duration_days', label: 'Days', type: 'number',
       render: (t) => <span className="financial-data">{t.duration_days ?? '--'}</span> },
+    { key: 'timeout_status', label: 'Timeout', type: 'text', hideOnMobile: true,
+      render: (t) => <TimeoutCell durationDays={t.duration_days} timeoutDays={t.timeout_days}
+        llmTimeoutDays={t.llm_timeout_days} status={t.timeout_status} progressPct={t.timeout_progress_pct} /> },
     { key: 'setup_type', label: 'Strategy', type: 'text', hideOnMobile: true,
       render: (t) => <StrategyBadge type={t.setup_type} /> },
     { key: 'bracket', label: 'Bracket', type: 'text', hideOnMobile: true,
@@ -597,6 +601,9 @@ export default function ShadowLedger() {
         }}>{b}</span>
       } },
     { key: 'exit_reason', label: 'Exit', type: 'text', hideOnMobile: true },
+    { key: 'timeout_status', label: 'Timeout', type: 'text', hideOnMobile: true,
+      render: (t) => <TimeoutCell durationDays={t.duration_days} timeoutDays={t.timeout_days}
+        llmTimeoutDays={t.llm_timeout_days} status={t.timeout_status} progressPct={t.timeout_progress_pct} /> },
   ]
 
   const currentCols = tab === 'open' ? openCols : closedCols
