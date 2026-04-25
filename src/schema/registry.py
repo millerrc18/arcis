@@ -1655,6 +1655,11 @@ _register(TableDef(
         ColumnDef("ranker_only_pnl_pct_v1", "TEXT",
                   description="Pre-fix archive of ranker_only_pnl_pct (string-cast "
                               "for type flexibility). Paired with ranker_only_outcome_v1."),
+        ColumnDef("quarantined", "INTEGER", default="0",
+                  description="1 = compromised record, excluded from analytics. "
+                              "Mirrors shadow_trades.quarantined; propagated via "
+                              "scripts/propagate_quarantined.py on JOIN(recommendation_id). "
+                              "T1.05 added per audit-2026-04-27 §F-1."),
         ColumnDef("created_at", "TEXT", nullable=False),
     ],
     primary_key="attribution_id",
@@ -1663,6 +1668,7 @@ _register(TableDef(
         IndexDef("idx_attribution_created", ["created_at"]),
         IndexDef("idx_attribution_pair_type", ["pair_type"]),
         IndexDef("idx_attribution_resolution_version", ["resolution_version"]),
+        IndexDef("idx_attribution_quarantined", ["quarantined"]),
     ],
     foreign_keys=[
         ForeignKeyDef("recommendation_id", "recommendations", "recommendation_id"),
@@ -2202,6 +2208,13 @@ _register(TableDef(
                   description="1 if removed by R2 purge (straddles OOS boundary)"),
         ColumnDef("embargoed", "INTEGER", default="0",
                   description="1 if removed by R2 embargo (entry within embargo_days)"),
+        ColumnDef("quarantined", "INTEGER", default="0",
+                  description="1 = compromised record, excluded from analytics. "
+                              "MANUAL-ONLY for walkforward_trades: simulated trades "
+                              "do not share trade_id namespace with shadow_trades, so "
+                              "no automatic propagation. Set when historical data "
+                              "underlying a fold is later found suspect. "
+                              "T1.05 added per audit-2026-04-27 §F-1."),
         ColumnDef("sharpe_observed", "REAL",
                   description="Per-window Sharpe stamped on each trade for lookup"),
         ColumnDef("bootstrap_se", "REAL"),
@@ -2211,6 +2224,7 @@ _register(TableDef(
     indexes=[
         IndexDef("idx_wf_trades_run", ["run_id"]),
         IndexDef("idx_wf_trades_window", ["run_id", "window_index"]),
+        IndexDef("idx_wf_trades_quarantined", ["quarantined"]),
     ],
     sync_to_postgres=True,
     sync_mode="incremental",
