@@ -1603,6 +1603,11 @@ def check_and_manage_open_trades(
                         logger.warning("[EXECUTOR] MR timeout attribution logging failed: %s", e)
                 continue
 
+        # Capture signal price BEFORE bracket detection can overwrite current_price.
+        # B1 Risk R2: bracket detection sets current_price = leg_price (fill price);
+        # if signal_exit is assigned after that, slippage is trivially 0.
+        _signal_exit_pre_bracket = current_price
+
         # For bracket orders, check Alpaca for exit fills.
         # Strategy Decision #18: Bracket orders have server-side stop-loss and
         # take-profit legs that fire automatically. We check Alpaca's order status
@@ -1721,9 +1726,9 @@ def check_and_manage_open_trades(
                 })
                 continue
 
-            # Exit slippage tracking
-            signal_exit = current_price  # price that triggered exit
-            exit_slippage_bps = 0.0
+            # Exit slippage tracking — signal captured before bracket detection (B1 R2)
+            signal_exit = _signal_exit_pre_bracket if _signal_exit_pre_bracket > 0 else current_price
+            exit_slippage_bps = None
 
             if not bracket_exit:
                 # D3 sync: verify broker has a position with sufficient qty
@@ -1852,18 +1857,17 @@ def check_and_manage_open_trades(
                     fill_exit = exit_result.get("filled_avg_price") if isinstance(exit_result, dict) else None
                     if fill_exit is not None:
                         current_price = float(fill_exit)
-                        exit_slippage_bps = (
-                            (current_price - signal_exit) / signal_exit * 10000
-                            if signal_exit > 0
-                            else 0
-                        )
-                        logger.info(
-                            "[SLIPPAGE] %s exit: signal=$%.2f, fill=$%.2f, slippage=%.1f bps",
-                            ticker,
-                            signal_exit,
-                            current_price,
-                            exit_slippage_bps,
-                        )
+                        if signal_exit and signal_exit > 0:
+                            exit_slippage_bps = (
+                                (current_price - signal_exit) / signal_exit * 10000
+                            )
+                            logger.info(
+                                "[SLIPPAGE] %s exit: signal=$%.2f, fill=$%.2f, slippage=%.1f bps",
+                                ticker,
+                                signal_exit,
+                                current_price,
+                                exit_slippage_bps,
+                            )
                 elif str(exit_status or "").lower() == "partially_filled":
                     # Fix for #278: Handle partial fills explicitly.
                     # Record the partial fill but keep the trade open. The next
@@ -1965,15 +1969,23 @@ def check_and_manage_open_trades(
                                "exit_reason": exit_reason}},
             )
 
-            # Also update final MFE/MAE and duration on the closed trade
+            # Also update final MFE/MAE, duration, and exit slippage on the closed trade
             update_shadow_trade(
                 trade["trade_id"],
                 {
                     "max_favorable_excursion": mfe,
                     "max_adverse_excursion": mae,
                     "duration_days": days_open,
+                    "signal_exit_price": signal_exit if signal_exit and signal_exit > 0 else None,
+                    "exit_slippage_bps": exit_slippage_bps,
                 },
                 db_path,
+            )
+            logger.info(
+                "[SLIPPAGE] %s exit persisted: signal=$%.2f, slippage=%s bps",
+                ticker,
+                signal_exit or 0.0,
+                f"{exit_slippage_bps:.1f}" if exit_slippage_bps is not None else "NULL",
             )
 
             # Update journal recommendation and generate postmortem
