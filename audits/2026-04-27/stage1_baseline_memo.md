@@ -1,11 +1,3 @@
-<!--
-PLACEHOLDER MEMO — generated 2026-04-25 against an empty in-memory fixture
-to capture the template structure. The operator regenerates this memo against
-the prod DB (C:/arcis/data/ai_research_desk.sqlite3) by running:
-    python scripts/stage1_baseline_recompute.py
-…then signs off with `git commit -s audits/2026-04-27/stage1_baseline_memo.md`.
--->
-
 # Stage-1 Baseline Recompute Memo
 
 **Date:** 2026-04-27
@@ -14,9 +6,9 @@ the prod DB (C:/arcis/data/ai_research_desk.sqlite3) by running:
 
 ## Trade Counts
 
-- N total closed shadow_trades in window: **0**
-- N quarantined (excluded; pre-#651 cascade per T1.01): **0**
-- N fully-instrumented (per T1.08 four-column predicate): **0**
+- N total closed shadow_trades in window: **111**
+- N quarantined (excluded; pre-#651 cascade per T1.01): **62**
+- N fully-instrumented (per T1.08 four-column predicate): **35**
 
 ## Three Sharpe Figures (canonical, T1.03 / §F-2)
 
@@ -24,22 +16,22 @@ All Sharpe values are annualized (sqrt(252)), sample stdev (ddof=1).
 
 ### 1. raw_sharpe (no benchmark)
 
-- Point estimate: **undefined (n<2 or zero variance)**
+- Point estimate: **6.1384**
 - 95% bootstrap CI (IID, n_resamples=10000) on per-period mean return:
-  [undefined, undefined] (insufficient sample)
+  [0.1114, 2.2277] (point=1.2366, p=0.0302)
 
 ### 2. spy_relative_sharpe (vs SPY total return)
 
-- Point estimate: **undefined (n<2 or zero variance)**
+- Point estimate: **2.1048**
 - 95% bootstrap CI (IID) on per-period (pnl_pct - spy_pct) diff series:
-  [undefined, undefined] (insufficient sample)
+  [-0.8453, 1.8448] (point=0.5450, p=0.4326)
 - Per-period SPY return is `spy_return_over_hold` from the row (src.analytics.spy_benchmark; close-to-close auto-adjusted).
 
 ### 3. rf_adjusted_excess_sharpe (canonical, vs FRED 3-month T-bill)
 
-- Point estimate: **undefined (n<2 or zero variance)**
+- Point estimate: **6.1379**
 - 95% bootstrap CI (IID) on per-period (pnl_pct - rf) diff series:
-  [undefined, undefined] (insufficient sample)
+  [0.1113, 2.2276] (point=1.2365, p=0.0302)
 - **Inline rf constant (DA-9 fix; pending T2.10 FRED integration):**
   - rf_period (per-period, daily): `0.0001`
   - Window: `2026-04-23 (single trading day approximation)`
@@ -52,12 +44,10 @@ All Sharpe values are annualized (sqrt(252)), sample stdev (ddof=1).
 
 ## Power Assessment (T1.08, Bailey-LdP MinTRL)
 
-- N (fully-instrumented): **0**
+- N (fully-instrumented): **35**
 - MinTRL (target Sharpe = 0, alpha = 0.05): **4.8415**
-- Verdict: **UNDERPOWERED**
-- Detail: Stage-1 sample is underpowered; reported Sharpe is not statistically reliable. Consider deferring promotion until N >= MinTRL. (n=0, MinTRL=4.84, alpha=0.05)
-
-> Stage-1 sample is underpowered; reported Sharpe is not statistically reliable. Consider deferring promotion until N >= MinTRL.
+- Verdict: **POWERED**
+- Detail: Stage-1 sample is powered (n=35 >= 2*MinTRL=9.68, alpha=0.05).
 
 
 ## Methodology Version Hashes
@@ -68,7 +58,7 @@ All Sharpe values are annualized (sqrt(252)), sample stdev (ddof=1).
 
 ## Pre-#651 Row Exclusion
 
-- Quarantined rows excluded (pre-#651 cascade, T1.01): **0**
+- Quarantined rows excluded (pre-#651 cascade, T1.01): **62**
 - Cutoff: `2026-04-22T20:00:00-04:00` (per scripts/quarantine_pre_651.py).
 
 ## Stage-2 Promotion Bootstrap CI (placeholder)
