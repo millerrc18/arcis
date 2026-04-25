@@ -153,10 +153,12 @@ def test_backfill_zero_rows_is_noop():
 # T2 — New trade open stamped with INSTRUMENTATION_VERSION_CURRENT
 # ---------------------------------------------------------------------------
 
-def test_executor_constant_is_2():
-    """INSTRUMENTATION_VERSION_CURRENT must equal 2 (not 3) until B1+B3+B4+B8 land."""
+def test_executor_constant_is_3():
+    """INSTRUMENTATION_VERSION_CURRENT == 3 — flipped by Round 4 of Pass 2 once
+    B1 + B3 + B4 + B8 all landed. v3 means "post-Track-1.5: full instrumentation"
+    (exit slippage + Key Risk + LLM-set timeout + reconciled exit_reason)."""
     from src.shadow_trading.executor import INSTRUMENTATION_VERSION_CURRENT
-    assert INSTRUMENTATION_VERSION_CURRENT == 2
+    assert INSTRUMENTATION_VERSION_CURRENT == 3
 
 
 def test_executor_global_default_timeout_is_15():

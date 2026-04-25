@@ -161,6 +161,7 @@ def test_instrumentation_version_stamped_on_insert(tmp_path):
         ).fetchone()
 
     assert row is not None
-    assert row["instrumentation_version"] == 2, (
-        f"Expected instrumentation_version=2, got {row['instrumentation_version']}"
+    assert row["instrumentation_version"] == 3, (
+        f"Expected instrumentation_version=3 (post-B5-amend), got "
+        f"{row['instrumentation_version']}"
     )

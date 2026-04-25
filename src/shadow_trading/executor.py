@@ -65,8 +65,12 @@ except ImportError:  # pragma: no cover — only fires when alpaca-py absent
 logger = logging.getLogger(__name__)
 
 # Track 1.5 / B5 — instrumentation era sentinel.
-# TODO: bump to 3 after B1 + B3 + B4 + B8 land — see B5 design Risk R4
-INSTRUMENTATION_VERSION_CURRENT = 2
+# v3 = full instrumentation: B1 (exit slippage, e8ccf52) + B3 (exit_reason
+# taxonomy + reconciliation, 8b94b95) + B4 (Key Risk persistence, 8c854c0)
+# + B8 (LLM-set Expected Holding Period, 8c854c0) + this Round-1 schema
+# stamping (c976a0c). Trades opened with this constant set to 3 are
+# guaranteed to carry every Track 1.5 instrumentation field.
+INSTRUMENTATION_VERSION_CURRENT = 3
 
 # Track 1.5 / B8 — global fallback when LLM does not emit Expected Holding Period.
 GLOBAL_DEFAULT_TIMEOUT_DAYS = 15
