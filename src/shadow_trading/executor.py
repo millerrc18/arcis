@@ -63,6 +63,13 @@ except ImportError:  # pragma: no cover — only fires when alpaca-py absent
 
 logger = logging.getLogger(__name__)
 
+# Track 1.5 / B5 — instrumentation era sentinel.
+# TODO: bump to 3 after B1 + B3 + B4 + B8 land — see B5 design Risk R4
+INSTRUMENTATION_VERSION_CURRENT = 2
+
+# Track 1.5 / B8 — global fallback when LLM does not emit Expected Holding Period.
+GLOBAL_DEFAULT_TIMEOUT_DAYS = 15
+
 
 def _count_live_open_positions(db_path: str) -> int:
     """Count all non-quarantined open/exit_pending shadow trades regardless of source.
@@ -1019,6 +1026,12 @@ def open_shadow_trade(
         trade_data["entry_slippage_bps"] = round(slippage_bps, 1)
         logger.info("[SLIPPAGE] %s entry: signal=$%.2f, fill=$%.2f, slippage=%.1f bps",
                     ticker, entry_price, actual_fill, slippage_bps)
+
+    # Track 1.5 / B5 + B8 — open-path instrumentation stamps.
+    trade_data["instrumentation_version"] = INSTRUMENTATION_VERSION_CURRENT
+    llm_timeout = getattr(packet, "llm_timeout_days", None)
+    trade_data["llm_timeout_days"] = llm_timeout
+    trade_data["timeout_days"] = llm_timeout if llm_timeout is not None else GLOBAL_DEFAULT_TIMEOUT_DAYS
 
     trade_id = insert_shadow_trade(trade_data, db_path)
 
