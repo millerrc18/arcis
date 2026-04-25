@@ -112,22 +112,16 @@ def compute_window_stats(db_path: str = DB_PATH, days: int | None = None,
 
 
 def _trade_sharpe(excess: list[float]) -> float | None:
-    """Per-trade excess-return Sharpe (unannualized, informational only).
+    """Per-trade excess-return Sharpe — delegates to canonical raw_sharpe.
 
-    Matches the "trade-count-scaled Sharpe" convention used across the
-    dashboard — this is `mean(excess) / stdev(excess) * sqrt(n)` over
-    the supplied list. Phase 1→2 gate uses excess-Sharpe ≥ 0.5 at
-    t ≥ 2.0 over 150 OOS trades (SD#41 REVISED).
+    F-2 migration: was `mean / stdev * sqrt(n)` (PROD-FORMULA √n scaling).
+    Now uses the canonical 252-scaled raw Sharpe. The `len(excess) >= 10`
+    gate at the call site (compute_window_stats) is preserved upstream.
+    Phase 1→2 gate uses excess-Sharpe ≥ 0.5 at t ≥ 2.0 over 150 OOS trades
+    (SD#41 REVISED).
     """
-    if len(excess) < 2:
-        return None
-    n = len(excess)
-    mean = sum(excess) / n
-    variance = sum((x - mean) ** 2 for x in excess) / (n - 1)
-    stdev = variance ** 0.5
-    if stdev == 0:
-        return None
-    return (mean / stdev) * (n ** 0.5)
+    from src.analytics.canonical_sharpe import raw_sharpe
+    return raw_sharpe(excess)
 
 
 def compute_all_window_stats(db_path: str = DB_PATH) -> dict:
