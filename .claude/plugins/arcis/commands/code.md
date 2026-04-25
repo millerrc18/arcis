@@ -92,7 +92,7 @@ Or write to both directly. Without the mirror, the served HTML will load empty/s
 
 6. Open the dashboard:
    - If Playwright MCP tools are available: navigate to `skills/coding-team/dashboard/index.html`
-   - Otherwise: start a local HTTP server (`python -m http.server 8080` from the repo root) and surface the URL `http://localhost:8080/.claude/plugins/arcis/skills/coding-team/dashboard/` to the operator. The HTML's relative fetch only works when served via HTTP, not via `file://` (CORS).
+   - Otherwise: start a local HTTP server **on a non-conventional port with explicit IPv4 binding** to avoid silent collisions. `python -m http.server 8765 --bind 127.0.0.1` from the repo root is a good default — port 8080 is commonly bound by EnterpriseDB / Tomcat / other services, and Python's default IPv6 bind doesn't resolve through `localhost` on Windows when an IPv4 service shadows the port. Surface the URL `http://127.0.0.1:8765/.claude/plugins/arcis/skills/coding-team/dashboard/` (use the IP, not `localhost`, just to be safe). The HTML's relative fetch only works when served via HTTP, not via `file://` (CORS).
 
 ---
 
