@@ -76,7 +76,7 @@ export default function Monitoring() {
         </p>
         {!latest && !snapshotFetching && (
           <p className="text-xs mt-2 px-3 py-2 rounded" style={{ background: 'rgba(59, 130, 246, 0.1)', color: 'var(--arcis-accent)', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
-            Cloud mode — hardware metrics are collected locally and not synced to the dashboard. View on your local machine at localhost:8000.
+            Cloud mode — hardware metrics are collected locally and not synced to the dashboard. View on your local machine at {window.location.origin}.
           </p>
         )}
       </div>

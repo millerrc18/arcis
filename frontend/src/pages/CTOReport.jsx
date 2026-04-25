@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { api } from '../api'
+import { api, fetchApi } from '../api'
 import LoadingSpinner from '../components/LoadingSpinner'
 import EmptyState from '../components/EmptyState'
 import MetricCard from '../components/MetricCard'
@@ -85,6 +85,11 @@ export default function CTOReport() {
     queryFn: () => api.getCtoReport(days),
     refetchInterval: 120000,
   })
+  const { data: kpiData } = useQuery({
+    queryKey: ['kpis'],
+    queryFn: () => fetchApi('/kpis'),
+    refetchInterval: 120000,
+  })
 
   if (isLoading) return <LoadingSpinner />
   if (error) return (
@@ -166,6 +171,11 @@ export default function CTOReport() {
           <span className="text-sm font-medium" style={{ color: 'var(--arcis-text-primary)' }}>Phase 1 Gate Progress</span>
           <span className="text-sm financial-data" style={{ color: tradesClosed >= 50 ? 'var(--arcis-success)' : 'var(--arcis-accent)' }}>
             {tradesClosed}/50 trades
+            {kpiData?.n_trades != null && kpiData.n_trades !== tradesClosed && (
+              <span className="ml-1 text-xs" style={{ color: 'var(--arcis-text-muted)', fontWeight: 'normal' }}>
+                ({kpiData.n_trades} fully-instrumented)
+              </span>
+            )}
           </span>
         </div>
         <div className="h-3 rounded-full overflow-hidden" style={{ background: 'var(--arcis-border)' }}>

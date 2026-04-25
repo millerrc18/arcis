@@ -629,14 +629,14 @@ def stress_test_results():
         return {"results": [], "error": str(exc)}
 
 
-@router.get("/api/monitoring/snapshot")
+@router.get("/monitoring/snapshot")
 def monitoring_snapshot():
     """Capture and return a fresh system metrics snapshot."""
     from src.monitoring.system_metrics import collect_system_snapshot
     return collect_system_snapshot()
 
 
-@router.get("/api/monitoring/history")
+@router.get("/monitoring/history")
 def monitoring_history(hours: int = 24):
     """Get system metrics history."""
     import sqlite3

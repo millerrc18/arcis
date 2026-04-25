@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api, fetchApi } from '../api'
@@ -236,13 +236,14 @@ export default function Dashboard() {
 
   // Task 12c: fetch distinct desk values from DB at render time (spec line 1014).
   // Populates the dropdown with any research desks currently in shadow_trades.
-  useState(() => {
+  // I7 fix: was useState() initializer (non-reactive); replaced with useEffect.
+  useEffect(() => {
     api.getShadowDesks().then(desks => {
       if (Array.isArray(desks)) {
         setResearchDesks(desks.filter(d => d !== 'swing' && d !== 'all'))
       }
     }).catch(() => {})
-  })
+  }, [])
 
   const [toast, setToast] = useState(null)
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }

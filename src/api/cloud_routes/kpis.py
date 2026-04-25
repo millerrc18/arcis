@@ -49,8 +49,18 @@ def _fetch_closed_trades() -> list[dict]:
     return get_closed_shadow_trades(days=3650)
 
 
-def _fetch_spy_returns() -> list[float]:
-    return []
+def _fetch_spy_returns_for_trades(trades: list[dict]) -> list[float]:
+    """Extract per-trade SPY returns from the spy_return_over_hold column.
+
+    Filters out trades where spy_return_over_hold is None so the returned
+    list only contains trades with real SPY data. Returns [] when no trades
+    have SPY data (caller will produce status='unknown' for SPY-relative KPI).
+    """
+    return [
+        float(t["spy_return_over_hold"])
+        for t in trades
+        if t.get("spy_return_over_hold") is not None
+    ]
 
 
 def _sharpe_t_stat_and_ci(sharpe: float, n: int) -> tuple[float, float, float]:
@@ -250,10 +260,12 @@ def _compute_instrumentation_pct(trades: list[dict]) -> float | None:
 def get_kpis() -> dict:
     """Return all 5 canonical KPIs for the Dashboard hero strip."""
     raw_trades = _fetch_closed_trades()
-    spy_returns = _fetch_spy_returns()
     instrumented = filter_fully_instrumented(raw_trades)
     n_trades = len(instrumented)
     returns = [float(t.get("pnl_pct") or 0) / 100.0 for t in instrumented]
+    spy_with_data = [t for t in instrumented if t.get("spy_return_over_hold") is not None]
+    spy_returns = _fetch_spy_returns_for_trades(spy_with_data)
+    spy_aligned_returns = [float(t.get("pnl_pct") or 0) / 100.0 for t in spy_with_data]
 
     return {
         "n_trades": n_trades,
@@ -261,7 +273,7 @@ def get_kpis() -> dict:
         "as_of": datetime.now(timezone.utc).isoformat(),
         "instrumentation_pct": _compute_instrumentation_pct(raw_trades),
         "rf_adjusted_excess_sharpe": _compute_rf_adjusted_kpi(returns),
-        "spy_relative_sharpe": _compute_spy_relative_kpi(returns, spy_returns),
+        "spy_relative_sharpe": _compute_spy_relative_kpi(spy_aligned_returns, spy_returns),
         "win_rate": _compute_win_rate_kpi(instrumented),
         "stage_traffic_light": _compute_stage_traffic_light(returns),
         "promotion_gate": _compute_promotion_gate_kpi(n_trades, returns),

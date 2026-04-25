@@ -358,6 +358,9 @@ export default function TradeHistory() {
                   ? `CI [${attribution.excess_sharpe_ci_low.toFixed(2)}, ${attribution.excess_sharpe_ci_high.toFixed(2)}]`
                   : 'insufficient data'}
               </div>
+              <div className="text-xs mt-0.5" style={{ color: 'var(--arcis-text-muted)', fontStyle: 'italic' }}>
+                CI: normal approx (IID assumption — optimistic). Block-bootstrap rerun pending.
+              </div>
             </div>
             <div>
               <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>t-statistic</div>
