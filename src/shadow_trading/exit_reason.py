@@ -37,6 +37,8 @@ LEGACY_COERCIONS: dict[str, str] = {
     "atr_stop": "stop_loss",
     "late_fill_reconciled": "reconciled",
     "manual_alpaca_close_op_confirmed": "manual",
+    "exit_overshoot_detected": "error",
+    "qty_mismatch_partial_fill": "error",
 }
 
 
