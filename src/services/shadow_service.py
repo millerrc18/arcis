@@ -95,8 +95,12 @@ def get_shadow_status(config: dict) -> dict:
         acct = get_account_info()
         account_equity = acct.get("equity")
         account_buying_power = acct.get("buying_power")
-    except Exception:
-        pass
+    except Exception as _acct_err:
+        logger.warning(
+            "[BROKER_EXCEPTION] ticker=(all) op=fetch_account broker=alpaca_paper "
+            "recoverable=True exc=%s: %s",
+            type(_acct_err).__name__, _acct_err,
+        )
 
     return {
         "open_trades": trades,

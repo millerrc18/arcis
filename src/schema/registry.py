@@ -2271,3 +2271,36 @@ _register(TableDef(
     sync_mode="full",
     sync_time_column=None,
 ))
+
+# ---------------------------------------------------------------------------
+# Observability (Track 1.5 / B2)
+# ---------------------------------------------------------------------------
+
+_register(TableDef(
+    name="broker_exceptions",
+    description="Structured log of broker exceptions for operator triage and alerting.",
+    columns=[
+        ColumnDef("id", "INTEGER", nullable=False, autoincrement=True),
+        ColumnDef("ticker", "TEXT", nullable=False),
+        ColumnDef("operation", "TEXT", nullable=False),
+        ColumnDef("broker", "TEXT", nullable=False),
+        ColumnDef("timestamp", "TEXT", nullable=False),
+        ColumnDef("exception_class", "TEXT", nullable=False),
+        ColumnDef("exception_message", "TEXT", nullable=False),
+        ColumnDef("traceback", "TEXT", nullable=True),
+        ColumnDef("recoverable", "INTEGER", nullable=False),
+        ColumnDef("created_at", "TEXT", nullable=False),
+        ColumnDef("correlation_id", "TEXT", nullable=True,
+                  description="FK to shadow_trades.trade_id when applicable"),
+        ColumnDef("retry_count", "INTEGER", nullable=True),
+        ColumnDef("outcome", "TEXT", nullable=True,
+                  description="raised | persisted | caller_handled"),
+    ],
+    primary_key="id",
+    indexes=[
+        IndexDef("idx_broker_exceptions_broker_ts", ["broker", "timestamp"], unique=False),
+    ],
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_time_column="created_at",
+))

@@ -54,8 +54,12 @@ def generate_eod_recap(config: dict, send_email_flag: bool = False) -> dict:
         try:
             from src.packets.eod_recap import get_shadow_data_for_recap
             shadow_data = get_shadow_data_for_recap()
-        except Exception:
-            pass
+        except Exception as _recap_err:
+            logger.warning(
+                "[BROKER_EXCEPTION] ticker=(all) op=fetch_shadow_data broker=n/a "
+                "recoverable=True exc=%s: %s",
+                type(_recap_err).__name__, _recap_err,
+            )
 
     body = build_eod_recap(
         candidates["packet_worthy"], candidates["watchlist"],

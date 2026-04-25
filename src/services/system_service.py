@@ -172,8 +172,13 @@ def get_system_status(config: dict) -> dict:
         from src.trading.broker_factory import get_live_broker
         _broker = get_live_broker(config)
         ib_connected = _broker.is_connected()
-    except Exception:
+    except Exception as _broker_err:
         ib_connected = False
+        logger.warning(
+            "[BROKER_EXCEPTION] ticker=(all) op=get_live_broker broker=%s "
+            "recoverable=True exc=%s: %s",
+            live_broker, type(_broker_err).__name__, _broker_err,
+        )
 
     from src.version import VERSION as _ARCIS_VERSION
     return {

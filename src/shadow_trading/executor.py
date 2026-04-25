@@ -1458,7 +1458,16 @@ def check_and_manage_open_trades(
             }
         _alpaca_tickers = set(_alpaca_positions.keys())
     except Exception as e:
-        logger.debug("[EXECUTOR] Could not fetch positions for existence check: %s", e)
+        from src.shadow_trading.broker_exception_logger import log_and_persist
+        _broker_name = "alpaca_live" if source_filter == "live" else "alpaca_paper"
+        log_and_persist(
+            ticker="(all)",
+            operation="fetch_positions",
+            broker=_broker_name,
+            exc=e,
+            recoverable=True,
+            outcome="persisted",
+        )
 
     for trade in open_trades:
         # Retry exit for failed exits instead of skipping
