@@ -9,7 +9,7 @@ All project rules, architecture, data sources, and constraints are in **MASTER.m
 - **Never commit secrets** — `.env`, `config/settings.local.yaml`, and `.mcp.json` are gitignored for a reason
 - **Training data quality is #1** — never sacrifice quality for speed
 - **Risk governor is sacred** — never bypass or weaken risk checks without explicit approval
-- **Test count must not drop** — CI enforces a minimum of 3238 tests (post-Track-2-Cohort-1 Integrator sweep baseline as of 2026-04-25; +79 net from 3159 Track-1 floor across 6 Cohort-1 commits: T2.06 +13, T2.13 +2 net (+11 new file -9 superseded), T2.10 +15, T2.11 +18, T2.15 +6, T2.17 +25). Pre-existing failure: tests/test_repo_structure.py::test_no_function_over_60_lines (place_live_bracket from #651, unchanged). Bump this number in CLAUDE.md whenever the sweep grows past the previous baseline.
+- **Test count must not drop** — CI enforces a minimum of 3380 tests (post-Track-2-Cohort-2+3A Integrator sweep baseline as of 2026-04-25; +142 net from 3238 Cohort-1 floor across 11 task commits: T2.01 +9, T2.02 +11, T2.03 +9, T2.04 +23, T2.05 +9, T2.07 +18, T2.09 +12, T2.12a +15, T2.14a +17, T2.16a +18, T3.01 docs-only, plus +1 transitive from byte-identity fixture regen). Floor lineage: 3038 (pre-audit) → 3159 (Track 1) → 3238 (Cohort 1) → 3380 (Cohort 2 + 3A). Zero failures at this baseline (the pre-existing place_live_bracket >60-line violation is now grandfathered in `config/known_violations.json`). Bump this number in CLAUDE.md whenever the sweep grows past the previous baseline.
 - **Mock all external APIs in tests** — no network calls from pytest (Alpaca, Finnhub, yfinance, FRED, Ollama)
 - **Schema registry is the single source of truth** — all 67 tables are defined in `src/schema/registry.py` (authoritative count: `python -c "from src.schema.registry import TABLES; print(len(TABLES))"`). See "Database Schema Rules" below
 - **Test baseline before changes** — run `python -m pytest tests/ -q` at the start of any coding session and note the pass count. After changes, the pass count must not decrease and the failure count must not increase. Never dismiss test failures as "pre-existing" without investigating
@@ -168,3 +168,34 @@ python -m ruff format src/ tests/
   - Local API binds to `127.0.0.1` only — not exposed to network
 - **LLM**: Ollama local (halcyon-v1, Qwen3 8B fine-tuned)
 - **Config**: YAML (`config/settings.*.yaml`) + `.env` for secrets
+
+## Analytics & Methodology Modules (2026-04-27 audit)
+
+Two flavors: **wired** (called from runtime code paths) vs **shelf** (implemented + tested but no production caller yet — drawn from manually when evaluating a strategy).
+
+**Wired (live in runtime as of Mon 2026-04-27):**
+- `src/analytics/canonical_sharpe.py` — single source of truth for Sharpe (raw / SPY-relative / rf-adjusted excess). All other Sharpe computations call this.
+- `src/analytics/instrumentation_filter.py` — `is_fully_instrumented` predicate + Bailey-LdP MinTRL power assessment. Stage-1 baseline writer uses this; promotion gate uses MinTRL.
+- `src/risk/governor.py` — `effective_position_cap()` returns `min()` across 4 namespaces (`risk.*`, `risk_governor.*`, `live_trading.*`, `bootcamp.*`). Raises `GovernorInputMissingError` on missing required keys (no silent permissive defaults).
+- `src/scheduler/holidays.py` — uses `pandas_market_calendars` (NEW dep, see below) for NYSE calendar + half-day handling.
+
+**Shelf (NOT wired into production promotion path — see `docs/methodology-toolkit.md`):**
+- `src/methods/pbo.py` — Probability of Backtest Overfitting (Bailey-LdP 2014, CSCV)
+- `src/methods/cpcv.py` — Combinatorial Purged Cross-Validation + anchored walk-forward
+- `src/methods/block_bootstrap.py` — Stationary block bootstrap with Politis-White auto block-length
+- `src/methods/mc_permutation.py` — Monte Carlo label-shuffle permutation test
+- `src/methods/white_rc.py` — White's Reality Check (multi-strategy data-snooping test)
+- `src/methods/psr.py` — PSR / DSR / MinTRL (re-exports canonical impls + adds the gate-facing surface)
+- `src/methods/promotion_gate.py` — ≥4-of-5 voting gate orchestrating the 5 methods
+- `src/methods/factor_alpha_core.py` — Fama-French 3+momentum regression (Stage-3 diagnostic)
+- `src/allocation/risk_parity.py` — Inverse-vol allocator (T2.12b wiring deferred)
+- `src/cost_model/calibration.py` — Live-fill slippage/cost calibration writer (writes JSON; no backtest reads it yet)
+- `src/universe/pit.py` — Point-in-time SP100 + dividend haircut (24 callers still use survivorship-biased `get_sp100_universe()`)
+- `src/features/pullback_logistic.py` — Logistic-regression feature extractors (T2.14b model + T2.14c adapter deferred)
+- `src/data_ingestion/risk_free_rate.py` — FRED-backed rf-rate adapter (Stage-1 baseline still uses placeholder rf=0.0001 — wiring this in is the obvious follow-up)
+
+Reading order when invoking the toolkit: `docs/methodology-toolkit.md` (decision tree + worked example), then the module's own docstring + tests.
+
+## New Dependencies
+
+- `pandas_market_calendars>=4.0,<6.0` — added by T2.11. Required for `src/scheduler/holidays.py`. Run `pip install -r requirements.txt` after pulling — older venvs will hit `ModuleNotFoundError` at scheduler startup.
