@@ -148,6 +148,8 @@ def run_mr_scan(config: dict | None = None, dry_run: bool = False) -> dict:
             packet, feat, candidate.get("score", 0), "mr_oversold",
             model_version=model_ver,
             llm_conviction=getattr(packet, "llm_conviction", None),
+            llm_conviction_reason=getattr(packet, "llm_conviction_reason", None),
+            llm_timeout_days=getattr(packet, "llm_timeout_days", None),
         )
 
         # Open shadow trade (with rejection-reason capture, #511)

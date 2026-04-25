@@ -38,6 +38,11 @@ from src.universe.company_names import get_company_name
 
 logger = logging.getLogger(__name__)
 
+# B4: truncation ceiling for llm_conviction_reason (Key Risk: line).
+# WHY 4000: Key Risk is normally 1 sentence (40-120 chars). The ceiling is a
+# safety net for future model versions that might emit verbose reason text.
+_MAX_CONVICTION_REASON_CHARS = 4000
+
 # #154: context window overflow protection -- max tokens before truncation.
 # WHY 7000: Qwen3 8B has an 8192-token context window. The system prompt
 # consumes ~800 tokens and we need ~400 for the response. 7000 leaves
@@ -62,6 +67,14 @@ _INJECTION_INSTRUCTION_RE = re.compile(
 # analysis quality. Finnhub news summaries in particular can include full
 # article bodies that bloat the prompt past the context window limit (#154).
 _ENRICHMENT_CHAR_CAP = 500
+
+
+def _truncate_conviction_reason(text: str) -> str:
+    """Truncate conviction reason to _MAX_CONVICTION_REASON_CHARS with a marker."""
+    if len(text) <= _MAX_CONVICTION_REASON_CHARS:
+        return text
+    original_len = len(text)
+    return text[:_MAX_CONVICTION_REASON_CHARS] + f"... [truncated, original {original_len} chars]"
 
 
 def _sanitize_enrichment_text(text: str) -> str:
@@ -324,17 +337,31 @@ def _validate_llm_output(response: str, ticker: str) -> str | None:
     return response
 
 
-def _parse_llm_response(response: str) -> tuple[int | None, str | None, str | None]:
-    """Parse XML-tagged response into conviction, why_now, and deeper_analysis.
+def _parse_llm_response(response: str) -> tuple[
+    int | None, str | None, str | None, str | None, int | None
+]:
+    """Parse XML-tagged response into conviction, why_now, deeper_analysis,
+    conviction_reason (B4), and timeout_days (B8).
 
     Expected format:
         <why_now>...</why_now>
         <analysis>...</analysis>
-        <metadata>Conviction: N\\nDirection: ...\\nTime Horizon: ...\\nKey Risk: ...</metadata>
+        <metadata>
+        Conviction: N
+        Direction: LONG
+        Time Horizon: ...
+        Key Risk: [one sentence]
+        Expected Holding Period: N days
+        </metadata>
 
     Falls back to plain-text parsing if XML tags are not found (backward compat).
 
-    Returns (conviction, why_now, deeper_analysis) or (None, None, None) on failure.
+    Returns (conviction, why_now, deeper_analysis, conviction_reason, timeout_days).
+    All fields are None on failure; conviction defaults to 5 in the caller (#168).
+
+    B4: Key Risk: line → llm_conviction_reason (truncated at 4000 chars).
+    B8: Expected Holding Period: N days → llm_timeout_days (validated 1-60, int).
+        Out-of-range or non-integer → NULL + [LLM_TIMEOUT_INVALID] warning.
 
     #183 — This function has 5 conviction extraction strategies because Qwen3 8B
     is inconsistent about output format across temperature=0.7 runs. Each fallback
@@ -352,6 +379,8 @@ def _parse_llm_response(response: str) -> tuple[int | None, str | None, str | No
     conviction = None
     why_now = None
     deeper_analysis = None
+    conviction_reason = None
+    timeout_days = None
 
     # Diagnostic logging — raw response structure (#183)
     logger.info("[LLM] Raw response length: %d chars", len(response))
@@ -394,6 +423,31 @@ def _parse_llm_response(response: str) -> tuple[int | None, str | None, str | No
             if raw_conv < 1 or raw_conv > 10:
                 logger.warning("[LLM] Conviction %d outside 1-10 range — clamping", raw_conv)
             conviction = max(1, min(10, raw_conv))
+
+        # B4: Extract Key Risk line → conviction_reason (truncate at 4000 chars)
+        key_risk_match = re.search(r'Key Risk:\s*(.+)', metadata_text)
+        if key_risk_match:
+            conviction_reason = _truncate_conviction_reason(key_risk_match.group(1).strip())
+
+        # B8: Extract Expected Holding Period: N [days] → timeout_days (validate 1-60)
+        # Capture the full remainder of the line so "2 weeks" is not truncated to "2".
+        holding_match = re.search(r'Expected Holding Period:\s*(.+)', metadata_text)
+        if holding_match:
+            raw_hp = holding_match.group(1).strip()
+            # Strip trailing "days" suffix (case-insensitive) before int conversion
+            stripped_hp = re.sub(r'\s+days?\s*$', '', raw_hp, flags=re.IGNORECASE).strip()
+            try:
+                parsed_hp = int(stripped_hp)
+                if 1 <= parsed_hp <= 60:
+                    timeout_days = parsed_hp
+                else:
+                    logger.warning(
+                        "[LLM_TIMEOUT_INVALID] received=%r fallback=NULL", raw_hp
+                    )
+            except (ValueError, TypeError):
+                logger.warning(
+                    "[LLM_TIMEOUT_INVALID] received=%r fallback=NULL", raw_hp
+                )
 
     # Fallback to plain-text parsing for backward compatibility
     if why_now is None and "WHY NOW:" in response.upper():
@@ -496,9 +550,9 @@ def _parse_llm_response(response: str) -> tuple[int | None, str | None, str | No
 
     if not why_now or not deeper_analysis:
         logger.debug("[LLM] Raw response (parse failure): %s", response[:500])
-        return conviction, None, None
+        return conviction, None, None, None, None
 
-    return conviction, why_now, deeper_analysis
+    return conviction, why_now, deeper_analysis, conviction_reason, timeout_days
 
 
 def enhance_packet_with_llm(packet: TradePacket, features: dict,
@@ -595,7 +649,7 @@ Event Risk: {packet.event_risk}"""
         packet.llm_conviction = 5
         return packet
 
-    conviction, why_now, deeper_analysis = _parse_llm_response(response)
+    conviction, why_now, deeper_analysis, conviction_reason, timeout_days = _parse_llm_response(response)
 
     if why_now is None or deeper_analysis is None:
         logger.warning("[LLM] Failed to parse response — fallback to template for %s", packet.ticker,
@@ -632,6 +686,8 @@ Event Risk: {packet.event_risk}"""
     packet.why_now = why_now
     packet.deeper_analysis = deeper_analysis
     packet.llm_conviction = conviction
+    packet.llm_conviction_reason = conviction_reason
+    packet.llm_timeout_days = timeout_days
     logger.info("[LLM] Enhanced packet for %s (conviction: %s)", packet.ticker,
                 conviction if conviction else "n/a")
 

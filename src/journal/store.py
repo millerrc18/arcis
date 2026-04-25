@@ -108,6 +108,7 @@ def log_recommendation(
     enriched_prompt: str | None = None,
     llm_conviction: int | None = None,
     llm_conviction_reason: str | None = None,
+    llm_timeout_days: int | None = None,
 ) -> str:
     """Write a recommendation row to the journal and return the recommendation_id."""
     initialize_database(db_path)
@@ -170,6 +171,7 @@ def log_recommendation(
         "enriched_prompt": enriched_prompt,
         "llm_conviction": llm_conviction,
         "llm_conviction_reason": llm_conviction_reason,
+        "llm_timeout_days": llm_timeout_days,
         "market_regime": features.get("regime_label"),
     }
 

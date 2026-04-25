@@ -248,6 +248,8 @@ def run_scan(
                 model_version=model_ver,
                 enriched_prompt=enriched_prompt,
                 llm_conviction=getattr(packet, 'llm_conviction', None),
+                llm_conviction_reason=getattr(packet, 'llm_conviction_reason', None),
+                llm_timeout_days=getattr(packet, 'llm_timeout_days', None),
             )
 
         # Attribution Phase 2: log LLM decision after recommendation

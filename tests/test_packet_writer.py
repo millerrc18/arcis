@@ -9,7 +9,7 @@ class TestConvictionExtraction:
 
     def _parse(self, response):
         from src.llm.packet_writer import _parse_llm_response
-        conviction, why_now, analysis = _parse_llm_response(response)
+        conviction, why_now, analysis, *_ = _parse_llm_response(response)
         return conviction
 
     def test_stage1_xml_metadata(self):

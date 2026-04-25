@@ -15,7 +15,7 @@ The stock is pulling back into support with strong relative strength.
 DEEPER ANALYSIS:
 This is a solid setup with multiple confirming factors."""
 
-        conviction, why_now, deeper = _parse_llm_response(response)
+        conviction, why_now, deeper, *_ = _parse_llm_response(response)
         assert conviction == 8
         assert why_now is not None
         assert "pulling back" in why_now
@@ -32,7 +32,7 @@ Strong setup.
 DEEPER ANALYSIS:
 Great trade."""
 
-        conviction, why_now, deeper = _parse_llm_response(response)
+        conviction, why_now, deeper, *_ = _parse_llm_response(response)
         assert conviction == 10
 
     def test_parse_conviction_1(self):
@@ -46,7 +46,7 @@ Marginal opportunity.
 DEEPER ANALYSIS:
 Risky trade."""
 
-        conviction, why_now, deeper = _parse_llm_response(response)
+        conviction, why_now, deeper, *_ = _parse_llm_response(response)
         assert conviction == 1
 
     def test_missing_conviction_returns_none(self):
@@ -58,7 +58,7 @@ The stock is pulling back.
 DEEPER ANALYSIS:
 This is analysis."""
 
-        conviction, why_now, deeper = _parse_llm_response(response)
+        conviction, why_now, deeper, *_ = _parse_llm_response(response)
         assert conviction is None
         assert why_now is not None
         assert deeper is not None
@@ -74,7 +74,7 @@ Setup description.
 DEEPER ANALYSIS:
 Analysis text."""
 
-        conviction, why_now, deeper = _parse_llm_response(response)
+        conviction, why_now, deeper, *_ = _parse_llm_response(response)
         assert conviction == 10  # 15 is clamped to max 10
 
     def test_missing_sections_returns_none(self):
@@ -83,7 +83,7 @@ Analysis text."""
         response = """CONVICTION: 7 Good setup
 Just some random text without sections."""
 
-        conviction, why_now, deeper = _parse_llm_response(response)
+        conviction, why_now, deeper, *_ = _parse_llm_response(response)
         assert conviction == 7
         assert why_now is None
         assert deeper is None
