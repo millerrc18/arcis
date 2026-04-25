@@ -907,6 +907,11 @@
     },
     {
       "file": "src/shadow_trading/alpaca_adapter.py",
+      "function": "place_live_bracket",
+      "lines": 81
+    },
+    {
+      "file": "src/shadow_trading/alpaca_adapter.py",
       "function": "place_live_entry",
       "lines": 63
     },
@@ -944,6 +949,11 @@
       "file": "src/shadow_trading/executor.py",
       "function": "open_shadow_trade",
       "lines": 299
+    },
+    {
+      "file": "src/shadow_trading/executor.py",
+      "function": "open_shadow_trade_with_reason",
+      "lines": 62
     },
     {
       "file": "src/shadow_trading/metrics.py",

@@ -55,10 +55,26 @@ def factor_alpha(
         ValueError: if n_obs (after alignment) <= k+1 where k=4 factors,
             i.e. there are fewer than 6 usable observations.
     """
+    y, X, n = _align_and_design(returns, factors)
+    coeffs = _fit_ols(X, y)
+    ss_res = _ss_residual(X, y, coeffs)
+    return {
+        "alpha": float(coeffs[0]),
+        "alpha_t_stat": _alpha_t_stat(X, coeffs, ss_res, n),
+        "betas": {col: float(coeffs[i + 1]) for i, col in enumerate(_FACTOR_COLS)},
+        "r_squared": _r_squared(y, ss_res),
+        "n_obs": int(n),
+    }
+
+
+def _align_and_design(
+    returns: pd.Series,
+    factors: pd.DataFrame,
+) -> tuple[np.ndarray, np.ndarray, int]:
+    """Intersect indices, build the (T, k+1) design matrix with intercept."""
     common_idx = returns.index.intersection(factors.index)
     y = returns.loc[common_idx].values.astype(float)
     F = factors.loc[common_idx, _FACTOR_COLS].values.astype(float)
-
     n = len(y)
     if n <= _N_PARAMS:
         raise ValueError(
@@ -67,33 +83,37 @@ def factor_alpha(
             "Either more observations are required or the index intersection "
             "is too narrow."
         )
-
     X = np.column_stack([np.ones(n), F])
+    return y, X, n
 
+
+def _fit_ols(X: np.ndarray, y: np.ndarray) -> np.ndarray:
     coeffs, _, _, _ = np.linalg.lstsq(X, y, rcond=None)
+    return coeffs
 
-    alpha = float(coeffs[0])
-    betas = {col: float(coeffs[i + 1]) for i, col in enumerate(_FACTOR_COLS)}
 
-    y_hat = X @ coeffs
-    residuals = y - y_hat
-    ss_res = float(residuals @ residuals)
+def _ss_residual(X: np.ndarray, y: np.ndarray, coeffs: np.ndarray) -> float:
+    residuals = y - X @ coeffs
+    return float(residuals @ residuals)
+
+
+def _r_squared(y: np.ndarray, ss_res: float) -> float:
     y_mean = y.mean()
     ss_tot = float((y - y_mean) @ (y - y_mean))
-    r_squared = float(1.0 - ss_res / ss_tot) if ss_tot > 0.0 else 0.0
-    r_squared = max(0.0, min(1.0, r_squared))
+    if ss_tot <= 0.0:
+        return 0.0
+    return max(0.0, min(1.0, 1.0 - ss_res / ss_tot))
 
-    df_resid = n - _N_PARAMS
-    sigma2 = ss_res / df_resid
+
+def _alpha_t_stat(
+    X: np.ndarray,
+    coeffs: np.ndarray,
+    ss_res: float,
+    n: int,
+) -> float:
+    sigma2 = ss_res / (n - _N_PARAMS)
     xtx_inv = np.linalg.pinv(X.T @ X)
-    var_coeffs = sigma2 * xtx_inv
-    se_alpha = float(np.sqrt(max(var_coeffs[0, 0], 0.0)))
-    alpha_t_stat = float(alpha / se_alpha) if se_alpha > 0.0 else 0.0
-
-    return {
-        "alpha": alpha,
-        "alpha_t_stat": alpha_t_stat,
-        "betas": betas,
-        "r_squared": r_squared,
-        "n_obs": int(n),
-    }
+    se_alpha = float(np.sqrt(max(sigma2 * xtx_inv[0, 0], 0.0)))
+    if se_alpha <= 0.0:
+        return 0.0
+    return float(coeffs[0] / se_alpha)
