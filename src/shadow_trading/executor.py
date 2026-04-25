@@ -41,6 +41,7 @@ from src.shadow_trading._status_sql import (
     active_in_clause,
     terminal_in_clause,
 )
+from src.shadow_trading.broker_exception_logger import log_and_persist
 from src.shadow_trading.exit_reason import coerce_exit_reason
 from src.shadow_trading.models import ShadowTrade
 from alpaca.common.exceptions import APIError
@@ -252,6 +253,14 @@ def _check_paper_buying_power(entry_price: float, shares: int) -> bool:
         # Changed from fail-open after production incident where API blips
         # let trades through that exhausted buying power and created
         # 15 orphaned positions.
+        log_and_persist(
+            ticker="UNKNOWN",
+            operation="fetch_buying_power",
+            broker="alpaca_paper",
+            exc=exc,
+            recoverable=False,
+            outcome="persisted",
+        )
         logger.warning("[SHADOW] Buying power check failed: %s — blocking trade (fail-closed)", exc)
         return False
 
@@ -281,6 +290,14 @@ def _check_paper_buying_power_allocation(allocation_dollars: float) -> bool:
         effective_bp = buying_power - _scan_cycle_committed
         return allocation_dollars <= effective_bp
     except Exception as exc:
+        log_and_persist(
+            ticker="UNKNOWN",
+            operation="fetch_buying_power",
+            broker="alpaca_paper",
+            exc=exc,
+            recoverable=False,
+            outcome="persisted",
+        )
         logger.warning(
             "[SHADOW] Pre-LLM BP check failed: %s -- skipping LLM (fail-closed)",
             exc,
@@ -644,6 +661,14 @@ def open_shadow_trade(
             logger.warning("[SHADOW] Ghost position detected for %s on Alpaca — skipping entry", ticker)
             return None
     except Exception as e:
+        log_and_persist(
+            ticker=ticker,
+            operation="fetch_positions",
+            broker="alpaca_paper",
+            exc=e,
+            recoverable=True,
+            outcome="persisted",
+        )
         logger.warning("[SHADOW] Alpaca position check failed for %s: %s — proceeding with DB check only", ticker, e)
 
     # Parse packet values
@@ -839,6 +864,19 @@ def open_shadow_trade(
             _verify_and_update(trade_data)
 
     except Exception as e:
+        # B2.B: persist bracket failure but DO NOT re-raise — the fallback to
+        # market order below is deliberate resilience. Re-raising would abandon
+        # the trade entirely instead of entering with a standalone stop.
+        # Per B2 design Risk R1: this is the one site where persist + continue
+        # is correct policy. (All other sites use persist + re-raise.)
+        log_and_persist(
+            ticker=ticker,
+            operation="place_bracket_order",
+            broker="alpaca_paper",
+            exc=e,
+            recoverable=True,
+            outcome="persisted",
+        )
         logger.warning(f"[SHADOW] Bracket order failed for {ticker}: {e}, falling back to market")
         # Fix for #274: Bracket fallback — place market entry then IMMEDIATELY
         # submit a standalone stop-loss order. A naked entry without a broker-side
@@ -879,6 +917,14 @@ def open_shadow_trade(
                     trade_data["status"] = "failed"
                     trade_data["order_type"] = "failed_sdk_missing"
                 except Exception as close_err:
+                    log_and_persist(
+                        ticker=ticker,
+                        operation="place_exit",
+                        broker="alpaca_paper",
+                        exc=close_err,
+                        recoverable=False,
+                        outcome="persisted",
+                    )
                     logger.error(
                         "[SHADOW] EMERGENCY: Cannot close unprotected position %s: %s",
                         ticker, close_err,
@@ -910,6 +956,14 @@ def open_shadow_trade(
                     client.submit_order(stop_req)
                     logger.info("[SHADOW] Standalone stop placed for %s at $%.2f", ticker, stop_price)
                 except Exception as stop_err:
+                    log_and_persist(
+                        ticker=ticker,
+                        operation="place_stop_order",
+                        broker="alpaca_paper",
+                        exc=stop_err,
+                        recoverable=False,
+                        outcome="persisted",
+                    )
                     logger.error(
                         "[SHADOW] CRITICAL: Entry filled but stop-loss failed for %s: %s — CLOSING position",
                         ticker, stop_err,
@@ -919,6 +973,14 @@ def open_shadow_trade(
                         trade_data["status"] = "failed"
                         trade_data["order_type"] = "failed_no_stop"
                     except Exception as close_err:
+                        log_and_persist(
+                            ticker=ticker,
+                            operation="place_exit",
+                            broker="alpaca_paper",
+                            exc=close_err,
+                            recoverable=False,
+                            outcome="persisted",
+                        )
                         logger.error("[SHADOW] EMERGENCY: Cannot close unprotected position %s: %s", ticker, close_err)
                     try:
                         from src.notifications.telegram import send_telegram
@@ -951,10 +1013,26 @@ def open_shadow_trade(
                         trade_data["actual_entry_price"] = fill_price if fill_price else entry_price
                         trade_data["status"] = "open"
                     except Exception as retry_err:
+                        log_and_persist(
+                            ticker=ticker,
+                            operation="place_market_order",
+                            broker="alpaca_paper",
+                            exc=retry_err,
+                            recoverable=False,
+                            outcome="persisted",
+                        )
                         logger.error("[SHADOW] Retry also failed for %s: %s", ticker, retry_err)
                         trade_data["status"] = "failed"
                         trade_data["order_type"] = "failed_after_retry"
             except Exception as check_err:
+                log_and_persist(
+                    ticker=ticker,
+                    operation="fetch_positions",
+                    broker="alpaca_paper",
+                    exc=check_err,
+                    recoverable=False,
+                    outcome="persisted",
+                )
                 logger.error("[SHADOW] Cannot verify Alpaca for %s: %s", ticker, check_err)
                 trade_data["status"] = "submission_uncertain"
                 trade_data["order_type"] = "failed_network"
@@ -979,6 +1057,14 @@ def open_shadow_trade(
             trade_data["max_adverse_excursion"] = 0.0
         except Exception as e2:
             # Unknown error — code bug, not a broker issue
+            log_and_persist(
+                ticker=ticker,
+                operation="place_market_order",
+                broker="alpaca_paper",
+                exc=e2,
+                recoverable=False,
+                outcome="persisted",
+            )
             logger.error("[SHADOW] Unexpected error for %s: %s", ticker, e2)
             trade_data["actual_entry_price"] = entry_price
             trade_data["actual_entry_time"] = now.isoformat()
@@ -1311,6 +1397,14 @@ def _retry_exit(
                 from src.trading.broker_factory import get_live_broker as _glb_t5
                 _glb_t5(load_config()).cancel_order(pending_order_id)
             except Exception as _e_t5:
+                log_and_persist(
+                    ticker=ticker,
+                    operation="cancel_order",
+                    broker="alpaca_live",
+                    exc=_e_t5,
+                    recoverable=False,
+                    outcome="persisted",
+                )
                 logger.warning("[RETRY] Live cancel failed for %s: %s", ticker, _e_t5)
         else:
             cancel_result = cancel_paper_order(pending_order_id)
@@ -1393,6 +1487,14 @@ def _retry_exit(
             update_shadow_trade(trade["trade_id"], {"status": "exit_failed"}, db_path)
             logger.warning("[RETRY] Exit retry failed for %s (status=%s)", ticker, exit_status)
     except Exception as e:
+        log_and_persist(
+            ticker=ticker,
+            operation="place_exit",
+            broker="alpaca_paper",
+            exc=e,
+            recoverable=False,
+            outcome="persisted",
+        )
         update_shadow_trade(trade["trade_id"], {"status": "exit_failed"}, db_path)
         logger.error("[RETRY] Exit retry exception for %s: %s", ticker, e)
 
@@ -1814,6 +1916,14 @@ def check_and_manage_open_trades(
                             continue
                         time.sleep(0.5)
                     except Exception as e:
+                        log_and_persist(
+                            ticker=ticker,
+                            operation="cancel_order",
+                            broker="alpaca_paper",
+                            exc=e,
+                            recoverable=True,
+                            outcome="persisted",
+                        )
                         logger.warning("[EXECUTOR] Stale exit order cancellation failed: %s", e)
 
                 try:
@@ -1828,6 +1938,14 @@ def check_and_manage_open_trades(
                     # the counter; reconciler then flipped status back to open;
                     # next scan re-entered THIS path; counter never grew. CVS
                     # retried 33× on 4/21 without ever hitting MAX_EXIT_RETRIES.
+                    log_and_persist(
+                        ticker=ticker,
+                        operation="place_exit",
+                        broker="alpaca_paper",
+                        exc=e,
+                        recoverable=False,
+                        outcome="persisted",
+                    )
                     _next_retry = _next_exit_retry_count(trade)
                     _failed_status = "exit_abandoned" if _should_abandon_exit(_next_retry) else "exit_failed"
                     logger.error(
@@ -2465,6 +2583,14 @@ def open_live_trade(
         trade_data["max_adverse_excursion"] = 0.0
 
     except Exception as e:
+        log_and_persist(
+            ticker=ticker,
+            operation="place_bracket_order",
+            broker="alpaca_live",
+            exc=e,
+            recoverable=False,
+            outcome="persisted",
+        )
         logger.warning("[LIVE] Live order failed for %s: %s", ticker, e)
         return None  # Do not record a live trade that failed to submit
 
