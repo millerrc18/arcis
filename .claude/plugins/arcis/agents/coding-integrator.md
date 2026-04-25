@@ -2,7 +2,7 @@
 name: coding-integrator
 description: Final verification — full test suite, cross-file consistency, regression sweep, targeted fix dispatch
 model: opus
-maxTurns: 6
+maxTurns: 100
 allowed-tools:
   - Read
   - Edit

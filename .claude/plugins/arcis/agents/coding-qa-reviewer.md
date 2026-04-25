@@ -2,7 +2,7 @@
 name: coding-qa-reviewer
 description: Spec compliance reviewer — checks task requirements, test coverage, edge cases, and scope violations
 model: opus
-maxTurns: 4
+maxTurns: 100
 allowed-tools:
   - Read
   - Glob

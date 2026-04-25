@@ -2,7 +2,7 @@
 name: coding-documentarian
 description: Documentation updater — updates README, API docs, CHANGELOG based on change manifest and git diff
 model: sonnet
-maxTurns: 6
+maxTurns: 100
 allowed-tools:
   - Read
   - Edit

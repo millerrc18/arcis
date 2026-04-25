@@ -2,7 +2,7 @@
 name: coding-security-reviewer
 description: Security reviewer — checks OWASP top 10, injection vectors, auth/authz, secrets exposure, input validation
 model: opus
-maxTurns: 4
+maxTurns: 100
 allowed-tools:
   - Read
   - Glob

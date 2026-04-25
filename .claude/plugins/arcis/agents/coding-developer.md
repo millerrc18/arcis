@@ -2,7 +2,7 @@
 name: coding-developer
 description: TDD implementer — writes failing tests, implements minimal code, runs full test suite, commits, reports status honestly
 model: sonnet
-maxTurns: 12
+maxTurns: 100
 allowed-tools:
   - Read
   - Edit
