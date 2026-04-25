@@ -4,10 +4,10 @@ Called by: features.engine
 Calls: none
 Owns tables: setup_signals
 Config keys: none
-Tests: tests/test_setup_classifier.py
+Tests: tests/features/test_setup_classifier.py
 
 Uses 5 discriminative features (ADX, ATR/price ratio, volume profile,
-price vs MAs, RSI) to classify every scanned stock into one of 6
+price vs MAs, RSI) to classify scanned stocks into one of the live
 setup types. Each classification includes confidence and desk routing.
 
 Reference: Multi-Strategy Pattern Classification for Equity Trading research.
@@ -21,20 +21,20 @@ WHY rule-based classification instead of ML:
     learned classifier can be trained and compared against these rules as
     a champion-challenger experiment.
 
-WHY 6 setup types:
+WHY only 2 setup types after the F-6c trim:
     - pullback: the primary strategy -- trend continuation after retracement
-    - breakout: range expansion with volume confirmation
-    - momentum: existing trend acceleration (higher conviction, tighter stops)
     - mean_reversion: extreme oversold in non-trending stock
-    - range_bound: no trend, oscillating -- not tradeable, logged for reference
-    - breakdown: bearish equivalent of breakout -- not tradeable long, but
-      logged to avoid buying "pullbacks" that are actually breakdowns
+    The original 6-class taxonomy had four additional dead labels that no
+    consumer read (ranker._score_ticker does not consult setup_type, and
+    the engine only stamps the label). They were removed in T2.13 (audit
+    F-6c). When no rule matches, classify_setup returns setup_type=None
+    so engine.py:285 stamps None -- every consumer reads via .get(...)
+    defaults.
 
 WHY desk routing:
-    equity_swing handles pullback and mean_reversion (hold 3-10 days),
-    equity_momentum handles breakout and momentum (hold 1-5 days),
-    "none" means the setup is not actionable by any desk (range_bound,
-    breakdown). This routing feeds into the scan service's filtering logic.
+    equity_swing handles pullback and mean_reversion (hold 3-10 days).
+    "none" means the setup is not actionable by any desk. This routing
+    feeds into the scan service's filtering logic.
 """
 
 import logging
@@ -108,7 +108,8 @@ def _volume_profile(volume: pd.Series) -> str:
     pullback's volume signature, while 20-day is the baseline. A healthy
     pullback shows DECLINING volume (sellers exhausted), while distribution
     shows EXPANDING volume (institutions selling). This is one of the most
-    discriminative features for separating buyable pullbacks from breakdowns.
+    discriminative features for separating buyable pullbacks from
+    bearish-distribution patterns.
 
     WHY 1.5x/0.7x thresholds: these are standard technical analysis
     conventions for "significant" volume changes. Below 0.7x = drying up,
@@ -145,10 +146,10 @@ def classify_setup(features: dict, ohlcv: pd.DataFrame | None = None) -> dict:
 
     Returns:
         {
-            "setup_type": "pullback" | "breakout" | "momentum" | "mean_reversion" | "range_bound" | "breakdown",
+            "setup_type": "pullback" | "mean_reversion" | None,
             "confidence": 0.0-1.0,
             "features_used": {"adx": 32.5, ...},
-            "tradeable_by_desk": "equity_swing" | "equity_momentum" | "none"
+            "tradeable_by_desk": "equity_swing" | "none"
         }
     """
     # Extract or compute features
@@ -185,32 +186,21 @@ def classify_setup(features: dict, ohlcv: pd.DataFrame | None = None) -> dict:
         "price_vs_50ma": round(price_vs_50, 1),
     }
 
-    # Classification rules (ordered by specificity -- most restrictive first).
-    # WHY this order matters: a stock can match multiple patterns. A strong
-    # downtrend with RSI<25 matches both "breakdown" and "mean_reversion."
-    # By checking breakdown first (requires downtrend + ADX>25 + below 200MA
-    # + negative slope + RSI<35), we correctly classify bearish collapses.
-    # Mean reversion only fires when the stock is oversold WITHOUT strong
-    # directional momentum -- a different and less dangerous pattern.
-    setup_type = "range_bound"
+    # Default: no rule matches -> no classification.
+    # WHY None instead of a non-tradeable placeholder: T2.13 (audit F-6c)
+    # removed the four dead branches because no consumer reads them.
+    # Returning None makes the absence of a tradeable setup explicit;
+    # engine.py:285 stamps it verbatim and downstream consumers all use
+    # .get(...) defaults.
+    setup_type = None
     confidence = 0.5
     desk = "none"
-
-    # Breakdown: strong downtrend, expanding volume, below both MAs.
-    # WHY desk="none": breakdowns are logged for awareness (avoid buying
-    # "pullbacks" that are actually breakdowns) but are not tradeable long.
-    if (trend in ("strong_downtrend", "downtrend") and adx > 25
-            and price_vs_200 < 0 and sma200_slope == "negative"
-            and rsi < 35):
-        setup_type = "breakdown"
-        confidence = min(0.95, 0.6 + (adx - 25) / 50)
-        desk = "none"
 
     # Mean reversion: extreme oversold without strong trending.
     # WHY RSI<25 (not the common 30): RSI 25-30 in a downtrend is often
     # just "oversold and getting more oversold." Below 25 is the extreme
     # that historically produces snapback rallies even in weak markets.
-    elif rsi < 25 and price_vs_200 < 0 and vol_profile in ("expanding", "normal"):
+    if rsi < 25 and price_vs_200 < 0 and vol_profile in ("expanding", "normal"):
         setup_type = "mean_reversion"
         confidence = min(0.9, 0.5 + (25 - rsi) / 50)
         desk = "equity_swing"
@@ -231,35 +221,6 @@ def classify_setup(features: dict, ohlcv: pd.DataFrame | None = None) -> dict:
         setup_type = "pullback"
         confidence = min(0.95, 0.6 + (adx - 25) / 40)
         desk = "equity_swing"
-
-    # Breakout: low ADX (range-bound) transitioning to directional, with
-    # expanding volume confirming the breakout is real.
-    # WHY ADX<25: a breakout by definition starts from a non-trending state.
-    # If ADX is already >25, the stock is already trending (momentum, not breakout).
-    elif (adx < 25 and price_vs_50 > 0 and vol_profile == "expanding"
-          and 50 <= rsi <= 65):
-        setup_type = "breakout"
-        confidence = min(0.9, 0.5 + (0.3 if vol_profile == "expanding" else 0))
-        desk = "equity_momentum"
-
-    # Momentum: strong existing trend acceleration -- higher conviction but
-    # the easy move is behind us. Tighter stops than pullback setups.
-    # WHY ADX>30 (stricter than pullback's 25): momentum requires STRONG
-    # directional movement, not just "present." The higher bar prevents
-    # misclassifying weak trends as momentum.
-    elif (adx > 30 and price_vs_200 > 5 and price_vs_50 > 0
-          and 55 <= rsi <= 75):
-        setup_type = "momentum"
-        confidence = min(0.9, 0.5 + (adx - 30) / 40)
-        desk = "equity_momentum"
-
-    # Range bound: low ADX, oscillating RSI, no directional bias.
-    # WHY desk="none": range-bound stocks are not actionable for trend-
-    # following strategies. Logged for the signal zoo but not traded.
-    elif adx < 20 and 40 <= rsi <= 60:
-        setup_type = "range_bound"
-        confidence = 0.6
-        desk = "none"
 
     return {
         "setup_type": setup_type,
