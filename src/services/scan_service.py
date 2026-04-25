@@ -205,8 +205,17 @@ def run_scan(
             except Exception as e:
                 logger.debug("[ATTRIBUTION] Phase 1 failed for %s: %s", ticker, e)
 
+        # T1.06: scan_service drives the pullback desk. When no StrategySpec
+        # is provided, pass strategy_name="pullback" so template.py reads
+        # strategies.pullback.stop_atr_* instead of the hardcoded 2.0x
+        # fallback. When a spec IS provided, its own mechanical bracket
+        # config (exit.stop.atr_multiple) overrides via
+        # _resolve_strategy_brackets — the strategy_name fallback is unused.
+        # Audit F-6b.
         if strategy is None:
-            packet = build_packet_from_features(ticker, feat, config)
+            packet = build_packet_from_features(
+                ticker, feat, config, strategy_name="pullback"
+            )
         else:
             packet = build_packet_from_features(ticker, feat, config, strategy=strategy)
 

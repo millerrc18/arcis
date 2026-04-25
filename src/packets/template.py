@@ -68,6 +68,42 @@ def _resolve_strategy_position_multiplier(
     return 1.0
 
 
+_STRATEGY_NAME_ALIASES = {
+    "pullback": "pullback",
+    "mean_reversion": "mean_reversion",
+    "mr": "mean_reversion",
+    "meanreversion": "mean_reversion",
+}
+
+
+def _resolve_bracket_stop_multiplier(
+    config: dict,
+    strategy_name: str | None,
+) -> float:
+    """Resolve the stop ATR multiplier from strategies.{name} config.
+
+    Audit F-6b: pullback uses `stop_atr_multiplier` (settings.local.yaml:210),
+    mean_reversion uses `stop_atr_multiple` (line 221). Accept either key
+    with priority `_multiplier` → `_multiple` → default 2.0. Strategy
+    aliases (mr, meanreversion → mean_reversion) handled here.
+    """
+    if not strategy_name:
+        return 2.0
+    canonical = _STRATEGY_NAME_ALIASES.get(strategy_name.lower())
+    if canonical is None:
+        return 2.0
+    cfg = (config or {}).get("strategies", {}).get(canonical, {}) or {}
+    if "stop_atr_multiplier" in cfg:
+        val = cfg["stop_atr_multiplier"]
+    elif "stop_atr_multiple" in cfg:
+        val = cfg["stop_atr_multiple"]
+    else:
+        return 2.0
+    if isinstance(val, bool) or not isinstance(val, (int, float)):
+        return 2.0
+    return float(val)
+
+
 def _resolve_strategy_brackets(
     price: float,
     atr: float,
@@ -119,6 +155,7 @@ def build_packet_from_features(
     features: dict,
     config: dict,
     strategy: "StrategySpec" | None = None,
+    strategy_name: str | None = None,
 ) -> TradePacket | None:
     """Build a real TradePacket from computed features and config.
 
@@ -161,10 +198,18 @@ def build_packet_from_features(
         max_risk_dollars *= 0.5  # Reduce position size by 50% for earnings risk
     bracket_override = _resolve_strategy_brackets(price, atr, strategy)
     if bracket_override is None:
-        stop_distance = 2 * atr if atr > 0 else price * 0.03
+        # Audit F-6b (T1.06): stop multiplier comes from strategies.{name} config
+        # — pullback uses `stop_atr_multiplier`, MR uses `stop_atr_multiple`.
+        # Resolves via existing strategy_name kwarg or, when absent, a strategy
+        # spec's strategy_id; default 2.0 preserves prior behavior.
+        resolved_strategy_name = strategy_name
+        if resolved_strategy_name is None and strategy is not None:
+            resolved_strategy_name = getattr(strategy, "strategy_id", None)
+        stop_atr_mult = _resolve_bracket_stop_multiplier(config, resolved_strategy_name)
+        stop_distance = stop_atr_mult * atr if atr > 0 else price * 0.03
         stop_price = price - stop_distance
         target_prices = [price + 1.5 * atr, price + 3.0 * atr]
-        stop_descriptor = "2x ATR"
+        stop_descriptor = f"{stop_atr_mult:g}x ATR"
     else:
         stop_price, target_prices, stop_descriptor = bracket_override
         stop_distance = max(price - stop_price, 0.0)

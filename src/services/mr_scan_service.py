@@ -113,7 +113,12 @@ def run_mr_scan(config: dict | None = None, dry_run: bool = False) -> dict:
         from src.packets.template import build_packet_from_features
         from src.llm.packet_writer import enhance_packet_with_llm
 
-        packet = build_packet_from_features(ticker, feat, config)
+        # T1.06: pass strategy_name so template.py reads
+        # strategies.mean_reversion.stop_atr_multiple (2.5x) instead of the
+        # pullback-flavored hardcoded 2.0x default. Audit F-6b.
+        packet = build_packet_from_features(
+            ticker, feat, config, strategy_name="mean_reversion"
+        )
 
         # Sprint 2 K: pre-LLM BP check. Skip Ollama for un-fundable packets.
         # Defensive on packets that lack position_sizing (test mocks).
