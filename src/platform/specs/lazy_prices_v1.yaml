@@ -2,6 +2,16 @@ spec_version: 1
 strategy_id: lazy_prices_v1
 display_name: Lazy Prices (Cohen-Malloy-Nguyen 2020)
 
+# T2.15 — Stage-3 candidate formally shelved post-bootcamp per audit
+# spec §6.4 + F-Strategy-C. Revival is gated on the criteria block
+# below (sponsor ticket + OOS sessions + observed Sharpe floor). Spec
+# kept in place; plugin module removal is owned by T2.18.
+status: shelved
+revival_criteria:
+  min_oos_sessions: 60
+  min_observed_sharpe: 0.5
+  sponsor_ticket_required: true
+
 # R8(a): derived_from is a required field on every strategy spec. null is
 # the explicit declaration that this strategy was NOT derived from any
 # forensic audit, bootcamp backtest, shadow-trading cohort, or similar
