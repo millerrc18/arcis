@@ -313,6 +313,12 @@ export default function Dashboard() {
   const closedCount = ts.trades_closed || accountData?.total_closed || 0
   const hasTrades = closedCount >= 2
 
+  // G5: approaching-timeout count — derived from openTrades already fetched.
+  // Shows operator how many open positions are near or past their timeout.
+  const approachingTimeoutCount = (openTrades?.open_trades || [])
+    .filter(t => t.timeout_status === 'approaching' || t.timeout_status === 'overdue')
+    .length
+
   return (
     <div className="space-y-4 md:space-y-6">
       <div className="flex items-center justify-between">
@@ -438,6 +444,15 @@ export default function Dashboard() {
         </Tooltip>
         <MetricCard label="Model Version" value={status?.model_version || 'base'} delta={training ? `${training.dataset_total} examples` : null} />
       </div>
+
+      {/* G5: Approaching timeout count — shown when >0 so operator can spot at a glance */}
+      {approachingTimeoutCount > 0 && (
+        <div className="arcis-card" style={{ borderLeft: '3px solid var(--arcis-warning)' }}>
+          <span className="text-sm" style={{ color: 'var(--arcis-warning)' }}>
+            {approachingTimeoutCount} trade{approachingTimeoutCount !== 1 ? 's' : ''} approaching or past timeout — check ShadowLedger
+          </span>
+        </div>
+      )}
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">

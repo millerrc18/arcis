@@ -47,9 +47,9 @@ function DeltaBadge({ delta }) {
 export default function QuickStatsPanel({ data, isLoading }) {
   if (isLoading) {
     return (
-      <div className="bg-white dark:bg-slate-800 rounded shadow p-4 mb-4">
+      <div className="arcis-card mb-4">
         <h3 className="text-sm font-semibold mb-2">Quick Stats</h3>
-        <div className="text-xs text-gray-500">Loading...</div>
+        <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>Loading...</div>
       </div>
     );
   }
@@ -59,10 +59,10 @@ export default function QuickStatsPanel({ data, isLoading }) {
   const counts = data.counts || {};
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded shadow p-4 mb-4">
+    <div className="arcis-card mb-4">
       <div className="flex justify-between items-center mb-3">
         <h3 className="text-sm font-semibold">Quick Stats</h3>
-        <span className="text-xs text-gray-500">
+        <span className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>
           {counts.total || 0} capabilities · {counts.needs_review || 0} need review
         </span>
       </div>
@@ -76,14 +76,15 @@ export default function QuickStatsPanel({ data, isLoading }) {
           return (
             <div
               key={name}
-              className="border border-gray-200 dark:border-slate-700 rounded p-3"
+              className="rounded p-3"
+              style={{ border: '1px solid var(--arcis-border)' }}
             >
-              <div className="text-xs text-gray-500 mb-1">{name}</div>
+              <div className="text-xs mb-1" style={{ color: 'var(--arcis-text-muted)' }}>{name}</div>
               <div className="text-xl font-semibold flex items-baseline">
                 {unavailable ? (
-                  <span className="text-sm text-gray-400">unavailable</span>
+                  <span className="text-sm" style={{ color: 'var(--arcis-text-muted)' }}>unavailable</span>
                 ) : value == null ? (
-                  <span className="text-sm text-gray-400">—</span>
+                  <span className="text-sm" style={{ color: 'var(--arcis-text-muted)' }}>—</span>
                 ) : (
                   <>
                     <span>{value}</span>

@@ -207,15 +207,25 @@ function TradeDetail({ trade }) {
   ].filter(f => f.value != null)
 
   return (
-    <div className="grid grid-cols-3 md:grid-cols-5 gap-x-4 gap-y-2 text-xs p-3" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-primary)' }}>
-      {fields.map(f => (
-        <div key={f.label}>
-          <span style={{ color: 'var(--arcis-text-muted)' }}>{f.label}: </span>
-          <span className="financial-data" style={{ color: f.color || 'var(--arcis-text-primary)' }}>
-            {f.fmt(f.value)}
-          </span>
+    <div style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-primary)' }}>
+      <div className="grid grid-cols-3 md:grid-cols-5 gap-x-4 gap-y-2 text-xs p-3">
+        {fields.map(f => (
+          <div key={f.label}>
+            <span style={{ color: 'var(--arcis-text-muted)' }}>{f.label}: </span>
+            <span className="financial-data" style={{ color: f.color || 'var(--arcis-text-primary)' }}>
+              {f.fmt(f.value)}
+            </span>
+          </div>
+        ))}
+      </div>
+      {trade.llm_conviction_reason && (
+        <div className="px-3 pb-3 text-xs" style={{ borderTop: '1px solid var(--arcis-border)' }}>
+          <div className="mt-2 mb-1" style={{ color: 'var(--arcis-text-muted)' }}>LLM Reasoning:</div>
+          <div className="whitespace-pre-wrap" style={{ color: 'var(--arcis-text-secondary)', fontStyle: 'italic' }}>
+            "{trade.llm_conviction_reason}"
+          </div>
         </div>
-      ))}
+      )}
     </div>
   )
 }
