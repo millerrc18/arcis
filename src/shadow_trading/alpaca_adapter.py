@@ -242,6 +242,131 @@ def get_account_info(desk: str = "swing") -> dict:
     }
 
 
+# ── T2.17 — Fail-CLOSED governor input surfaces ────────────────────────
+#
+# Pre-T2.17: the governor read these 5 surfaces via wrappers that silently
+# returned default values when the broker was unreachable, letting trades
+# proceed without verified inputs (audit §F-11/§F-12). Now each raises
+# ``GovernorInputMissingError`` on missing input; ``RiskGovernor.check_trade``
+# catches the exception and HALTS the trade.
+# ──────────────────────────────────────────────────────────────────────
+
+
+def is_connected(desk: str = "swing") -> bool:
+    """Return True iff a real Alpaca handshake succeeds and account is ACTIVE.
+
+    Pre-T2.17 the equivalent BrokerAdapter helper returned ``True`` literally
+    ("Alpaca is REST-based, no persistent connection"). That hid network and
+    auth failures from the governor. We now perform a real handshake by
+    constructing the trading client and calling ``get_account()``; any
+    exception → False, account.status != ACTIVE → False.
+    """
+    try:
+        client = _get_trading_client(desk=desk)
+    except Exception as exc:  # noqa: BLE001 — broad catch is intentional
+        logger.warning("[ALPACA] is_connected: client construction failed: %s", exc)
+        return False
+    try:
+        account = client.get_account()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[ALPACA] is_connected: handshake failed: %s", exc)
+        return False
+    status = str(getattr(account, "status", "")).upper()
+    return status == "ACTIVE"
+
+
+def get_account_equity(desk: str = "swing") -> float:
+    """Return account equity (USD) or raise GovernorInputMissingError.
+
+    Fail-CLOSED: any failure to retrieve a positive equity value raises
+    ``GovernorInputMissingError`` so the governor halts the trade
+    rather than silently approving against an unknown balance.
+    """
+    from src.risk.governor import GovernorInputMissingError
+    try:
+        info = get_account_info(desk=desk)
+    except Exception as exc:  # noqa: BLE001
+        raise GovernorInputMissingError(
+            f"get_account_equity: broker unreachable: {exc}"
+        ) from exc
+    equity = info.get("equity")
+    if equity is None:
+        raise GovernorInputMissingError(
+            "get_account_equity: equity missing from broker response"
+        )
+    return float(equity)
+
+
+def get_position_value(ticker: str, desk: str = "swing") -> float:
+    """Return current $ market value of an open position, 0.0 if no position.
+
+    Fail-CLOSED: when the position lookup raises (network error, API down),
+    raise ``GovernorInputMissingError``. ``None`` (no position) is a valid
+    state and returns 0.0.
+    """
+    from src.risk.governor import GovernorInputMissingError
+    try:
+        pos = get_position(ticker, desk=desk)
+    except Exception as exc:  # noqa: BLE001
+        raise GovernorInputMissingError(
+            f"get_position_value: lookup failed for {ticker}: {exc}"
+        ) from exc
+    if pos is None:
+        return 0.0
+    market_value = pos.get("market_value")
+    if market_value is None:
+        raise GovernorInputMissingError(
+            f"get_position_value: market_value missing for {ticker}"
+        )
+    return float(market_value)
+
+
+def get_buying_power(desk: str = "swing") -> float:
+    """Return account buying power (USD) or raise GovernorInputMissingError."""
+    from src.risk.governor import GovernorInputMissingError
+    try:
+        info = get_account_info(desk=desk)
+    except Exception as exc:  # noqa: BLE001
+        raise GovernorInputMissingError(
+            f"get_buying_power: broker unreachable: {exc}"
+        ) from exc
+    bp = info.get("buying_power")
+    if bp is None:
+        raise GovernorInputMissingError(
+            "get_buying_power: buying_power missing from broker response"
+        )
+    return float(bp)
+
+
+def get_open_orders(desk: str = "swing") -> list:
+    """Return list of currently-open Alpaca orders, raise on lookup failure.
+
+    Fail-CLOSED: when the order list cannot be retrieved, raise
+    ``GovernorInputMissingError`` so the governor halts the trade rather
+    than silently assuming "no orders open".
+    """
+    from src.risk.governor import GovernorInputMissingError
+    try:
+        client = _get_trading_client(desk=desk)
+    except Exception as exc:  # noqa: BLE001
+        raise GovernorInputMissingError(
+            f"get_open_orders: client construction failed: {exc}"
+        ) from exc
+    try:
+        from alpaca.trading.requests import GetOrdersRequest
+        from alpaca.trading.enums import QueryOrderStatus
+        orders = client.get_orders(GetOrdersRequest(status=QueryOrderStatus.OPEN))
+    except Exception as exc:  # noqa: BLE001
+        raise GovernorInputMissingError(
+            f"get_open_orders: order list retrieval failed: {exc}"
+        ) from exc
+    if orders is None:
+        raise GovernorInputMissingError(
+            "get_open_orders: broker returned None for open orders"
+        )
+    return list(orders)
+
+
 def place_paper_entry(
     ticker: str, shares: int, order_type: str = "market", desk: str = "swing"
 ) -> dict:

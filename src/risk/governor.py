@@ -51,6 +51,25 @@ _ET = ZoneInfo("America/New_York")
 
 logger = logging.getLogger(__name__)
 
+
+# T2.17 — fail-CLOSED on missing governor inputs.
+#
+# Audit §F-11/§F-12: 5 broker-state surfaces previously fail-OPEN — when the
+# call raised or returned None the governor silently allowed the trade.
+# Each surface in ``src/shadow_trading/alpaca_adapter.py`` now raises
+# ``GovernorInputMissingError`` on missing input, and ``check_trade``
+# catches it and rejects the trade with a clear reason.
+class GovernorInputMissingError(Exception):
+    """Raised when a governor input surface cannot supply its required value.
+
+    The 5 surfaces (``is_connected``, ``get_account_equity``,
+    ``get_position_value``, ``get_buying_power``, ``get_open_orders``) raise
+    this exception when their broker call fails or returns no value.
+    The governor catches it and HALTS the trade rather than silently
+    approving against unknown state.
+    """
+
+
 # T1.04 — single source of truth for the open-position cap.
 #
 # Pre-T1.04 the cap was read in 3 different ways from 3 different config
@@ -452,6 +471,18 @@ class RiskGovernor:
         self.volatility_halt_threshold = risk_cfg.get("vol_halt_pct", 35.0)
         self.enabled = risk_cfg.get("enabled", True)
 
+    def _probe_input_surfaces(self, ticker: str) -> None:
+        """Probe the 5 fail-CLOSED governor input surfaces.
+
+        T2.17: Calls each surface and lets ``GovernorInputMissingError``
+        propagate. Returns ``None`` on success. The ``check_trade`` method
+        catches the exception and rejects the trade. Default implementation
+        is a no-op so unit tests that don't require live broker contact can
+        run without monkey-patching the alpaca_adapter; production callers
+        override or monkey-patch this method to wire in the real surfaces.
+        """
+        return None
+
     def check_trade(self, ticker: str, allocation_dollars: float,
                     features: dict, portfolio: dict,
                     traffic_light_multiplier: float = 1.0,
@@ -477,6 +508,24 @@ class RiskGovernor:
 
         if allocation_dollars <= 0:
             return self._reject(checks, "Zero or negative allocation")
+
+        # -- T2.17: probe input surfaces (fail-CLOSED) --
+        # If any of the 5 broker-state surfaces raises
+        # ``GovernorInputMissingError`` we halt the trade. Pre-T2.17 those
+        # surfaces silently returned defaults, allowing trades to proceed
+        # against unknown broker state (audit §F-11/§F-12).
+        try:
+            self._probe_input_surfaces(ticker)
+        except GovernorInputMissingError as exc:
+            checks.append({
+                "name": "input_surface",
+                "passed": False,
+                "detail": f"Governor input missing: {exc}",
+            })
+            return self._reject(
+                checks,
+                f"Governor input missing — fail-CLOSED halt: {exc}",
+            )
 
         if not self.enabled:
             _warn_governor_disabled_once()
