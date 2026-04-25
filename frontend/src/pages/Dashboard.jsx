@@ -304,7 +304,9 @@ export default function Dashboard() {
     { key: 'target_1', label: 'Target', type: 'currency' },
   ]
 
-  const kpis = ctoData?.headline_kpis || {}
+  // Round 8.B replaced the legacy headline_kpis hero block with <KPIStrip />
+  // which fetches /api/kpis directly. The old `const kpis = ctoData?.headline_kpis`
+  // assignment is removed — was a dead reference after the hero rebuild.
   const ts = ctoData?.trade_summary || {}
   const closedCount = ts.trades_closed || accountData?.total_closed || 0
   const hasTrades = closedCount >= 2

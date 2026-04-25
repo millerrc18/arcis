@@ -20,12 +20,22 @@ import math
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from src.analytics.canonical_sharpe import rf_adjusted_excess_sharpe, spy_relative_sharpe
 from src.analytics.instrumentation_filter import filter_fully_instrumented
 
 router = APIRouter()
+
+
+# #632 — verify_auth is injected at mount time from cloud_app.py via
+# FastAPI's dependency_overrides. Placeholder is a no-op so routes load
+# in test/dev mode; cloud_app overrides it with the real bearer-token
+# check in prod. Same pattern as walkforward.py / broker_exceptions.py.
+def verify_auth() -> None:  # noqa: D401  # placeholder, overridden in prod
+    """Default kpis auth dep — no-op until cloud_app overrides it."""
+    return None
+
 
 N_MINIMUM_TRL = 150
 _RF_PERIOD = 0.0001
@@ -236,7 +246,7 @@ def _compute_instrumentation_pct(trades: list[dict]) -> float | None:
 
 # ── Route ─────────────────────────────────────────────────────────────────────
 
-@router.get("/kpis")
+@router.get("/kpis", dependencies=[Depends(verify_auth)])
 def get_kpis() -> dict:
     """Return all 5 canonical KPIs for the Dashboard hero strip."""
     raw_trades = _fetch_closed_trades()
