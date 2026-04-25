@@ -84,6 +84,12 @@ Required fields: `role`, `model`, `task_id`, `turn`, `max_turns`. The HTML rende
 ```
 Valid `severity` values: `error` (red dot) | `warning` (yellow dot). Anything else renders as `warning`. Required fields: `task_id`, `severity`, `message`. Do NOT use alternate names like `id` / `title` / `context` — they will not render.
 
+`operator_questions[]` (optional but recommended) — each entry:
+```json
+{"question": "Should we skip Mon's deploy?", "context": "Stage-1 was non-significant; operator may want to redesign first.", "urgency": "high", "asked_at": "2026-04-25 evening"}
+```
+Surfaces pending operator decisions in a dedicated dashboard panel between the phase flow and task graph. The panel only renders if the array is non-empty. Required fields: `question`. Optional: `context` (1-3 sentence detail), `urgency` (`high`=red, `medium`=amber, `low`=blue), `asked_at` (free-form timestamp). Surface a question whenever you're blocked on operator input, AND remove the entry once they answer (operator visibility loop). This is the cheapest way to keep the operator aligned during long autonomous runs.
+
 **Mirroring requirement:** the HTML at `skills/coding-team/dashboard/index.html` fetches `../../../.arcis/coding-dashboard.json` (relative to its own location). When served from a local HTTP server rooted at the repo, that path resolves to `.claude/plugins/arcis/.arcis/coding-dashboard.json` — NOT to the `.arcis/coding-dashboard.json` at the repo root where this command writes. The PM must mirror the JSON to BOTH locations after every update:
 ```bash
 cp .arcis/coding-dashboard.json .claude/plugins/arcis/.arcis/coding-dashboard.json
