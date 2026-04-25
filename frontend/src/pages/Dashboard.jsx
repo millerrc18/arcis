@@ -6,6 +6,7 @@ import { IS_CLOUD } from '../config'
 import { hapticWarning, hapticSuccess } from '../native'
 import MetricCard from '../components/MetricCard'
 import KPIStrip from '../components/dashboard/KPIStrip'
+import BrokerExceptionsPanel from '../components/dashboard/BrokerExceptionsPanel'
 import DataTable from '../components/DataTable'
 import LoadingSpinner from '../components/LoadingSpinner'
 import PnlText from '../components/PnlText'
@@ -409,6 +410,9 @@ export default function Dashboard() {
 
       {/* 5-KPI hero strip — Track 1.5 / Round 8.B (resolves R1, S1, S2, G3, G6) */}
       <KPIStrip kpis={kpiData} />
+
+      {/* Broker exceptions panel — Track 1.5 / Round 8.C (closes G1) */}
+      <BrokerExceptionsPanel />
 
       {/* System status cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
