@@ -44,6 +44,7 @@ from src.shadow_trading._status_sql import (
 from src.shadow_trading.broker_exception_logger import log_and_persist
 from src.shadow_trading.exit_reason import coerce_exit_reason
 from src.shadow_trading.models import ShadowTrade
+from src.shadow_trading.qty_mismatch import parse_qty_mismatch, should_abort_retry
 from alpaca.common.exceptions import APIError
 
 # #436 — alpaca.trading.requests / alpaca.trading.enums are hoisted to
@@ -1487,16 +1488,53 @@ def _retry_exit(
             update_shadow_trade(trade["trade_id"], {"status": "exit_failed"}, db_path)
             logger.warning("[RETRY] Exit retry failed for %s (status=%s)", ticker, exit_status)
     except Exception as e:
-        log_and_persist(
-            ticker=ticker,
-            operation="place_exit",
-            broker="alpaca_paper",
-            exc=e,
-            recoverable=False,
-            outcome="persisted",
-        )
-        update_shadow_trade(trade["trade_id"], {"status": "exit_failed"}, db_path)
-        logger.error("[RETRY] Exit retry exception for %s: %s", ticker, e)
+        qty_pair = parse_qty_mismatch(str(e))
+        if qty_pair is not None:
+            requested, available = qty_pair
+            consecutive = retry_count + 1
+            persist_outcome = (
+                "alert_qty_mismatch" if should_abort_retry(consecutive) else "persisted"
+            )
+            log_and_persist(
+                ticker=ticker,
+                operation="place_exit",
+                broker="alpaca_paper",
+                exc=e,
+                recoverable=False,
+                retry_count=consecutive,
+                outcome=persist_outcome,
+            )
+            if should_abort_retry(consecutive):
+                logger.error(
+                    "[QTY_MISMATCH] %s requested=%d available=%d — aborting retry, "
+                    "marking exit_failed (qty_mismatch_partial_fill)",
+                    ticker, requested, available,
+                )
+                update_shadow_trade(
+                    trade["trade_id"],
+                    {
+                        "status": "exit_failed",
+                        "exit_reason": "qty_mismatch_partial_fill",
+                    },
+                    db_path,
+                )
+            else:
+                logger.warning(
+                    "[QTY_MISMATCH] %s requested=%d available=%d (consecutive=%d/%d)",
+                    ticker, requested, available, consecutive, 3,
+                )
+                update_shadow_trade(trade["trade_id"], {"status": "exit_failed"}, db_path)
+        else:
+            log_and_persist(
+                ticker=ticker,
+                operation="place_exit",
+                broker="alpaca_paper",
+                exc=e,
+                recoverable=False,
+                outcome="persisted",
+            )
+            update_shadow_trade(trade["trade_id"], {"status": "exit_failed"}, db_path)
+            logger.error("[RETRY] Exit retry exception for %s: %s", ticker, e)
 
 
 def check_and_manage_open_trades(
