@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '../api'
+import { api, fetchApi } from '../api'
 import { IS_CLOUD } from '../config'
 import { hapticWarning, hapticSuccess } from '../native'
 import MetricCard from '../components/MetricCard'
+import KPIStrip from '../components/dashboard/KPIStrip'
 import DataTable from '../components/DataTable'
 import LoadingSpinner from '../components/LoadingSpinner'
 import PnlText from '../components/PnlText'
@@ -229,6 +230,7 @@ export default function Dashboard() {
   const { data: buildScore } = useQuery({ queryKey: ['build-score'], queryFn: api.getBuildScore, refetchInterval: 120000 })
   const { data: scanMetrics } = useQuery({ queryKey: ['scan-metrics'], queryFn: () => api.getScanMetrics(50), refetchInterval: 60000 })
   const { data: systemIndex, isLoading: systemIndexLoading } = useQuery({ queryKey: ['system-index'], queryFn: api.getSystemIndex, refetchInterval: 60000 })
+  const { data: kpiData } = useQuery({ queryKey: ['kpis'], queryFn: () => fetchApi('/kpis'), refetchInterval: 30000 })
 
   // Task 12c: fetch distinct desk values from DB at render time (spec line 1014).
   // Populates the dropdown with any research desks currently in shadow_trades.
@@ -405,62 +407,8 @@ export default function Dashboard() {
       {/* Research Platform status card — renders only when strategies exist */}
       <PlatformStatusWidget />
 
-      {/* Headline KPIs */}
-      {/* Fix for #247 */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <div className="arcis-card text-center" style={{ padding: '12px' }}>
-          <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Sharpe ratio</div>
-          <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: hasTrades ? ((kpis.sharpe_ratio || 0) > 0.5 ? 'var(--arcis-success)' : (kpis.sharpe_ratio || 0) < 0 ? 'var(--danger)' : 'var(--arcis-text)') : 'var(--arcis-text)' }}>
-            {hasTrades ? (kpis.sharpe_ratio || 0).toFixed(2) : '--'}
-          </div>
-        </div>
-        <div className="arcis-card text-center" style={{ padding: '12px' }}>
-          <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Win rate</div>
-          <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: hasTrades ? ((kpis.win_rate || 0) > 0.45 ? 'var(--arcis-success)' : 'var(--danger)') : 'var(--arcis-text)' }}>
-            {hasTrades ? `${((kpis.win_rate || 0) * 100).toFixed(1)}%` : '--'}
-          </div>
-        </div>
-        <div className="arcis-card text-center" style={{ padding: '12px' }}>
-          <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Max drawdown</div>
-          <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: hasTrades ? ((kpis.max_drawdown_pct || 0) < 15 ? 'var(--arcis-success)' : 'var(--danger)') : 'var(--arcis-text)' }}>
-            {hasTrades ? `${(kpis.max_drawdown_pct || 0).toFixed(1)}%` : '--'}
-          </div>
-        </div>
-        <Tooltip content="Measures how well the model's confidence predictions match actual outcomes. Requires 50+ closed trades.">
-          <div className="arcis-card text-center" style={{ padding: '12px' }}>
-            <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Confidence cal.</div>
-            {/* #631-4 — Pre-fix the value slot showed "< 46/50 trades" which
-                read like a metric value. Now we show the score when it's
-                computed (>=50 trades) and otherwise present a dim progress
-                indicator that visually signals "pending" rather than "value". */}
-            {closedCount >= 50 ? (
-              <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text)' }}>
-                {(kpis.confidence_calibration || 0).toFixed(3)}
-              </div>
-            ) : (
-              <div className="text-xs" style={{ color: 'var(--arcis-text-muted)', fontStyle: 'italic' }}>
-                Pending — {closedCount}/50 trades
-              </div>
-            )}
-          </div>
-        </Tooltip>
-        <Tooltip content="Average quality score from Claude-graded rubric evaluation of trade reasoning.">
-          <div className="arcis-card text-center" style={{ padding: '12px' }}>
-            <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Rubric score</div>
-            {/* #631-5 — When unscored, show a dim italic placeholder so it
-                doesn't read as a live metric value at the same visual weight. */}
-            {kpis.avg_rubric_score != null ? (
-              <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text)' }}>
-                {kpis.avg_rubric_score.toFixed(1)}/5
-              </div>
-            ) : (
-              <div className="text-xs" style={{ color: 'var(--arcis-text-muted)', fontStyle: 'italic' }}>
-                Not scored yet
-              </div>
-            )}
-          </div>
-        </Tooltip>
-      </div>
+      {/* 5-KPI hero strip — Track 1.5 / Round 8.B (resolves R1, S1, S2, G3, G6) */}
+      <KPIStrip kpis={kpiData} />
 
       {/* System status cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
