@@ -297,12 +297,13 @@ _register(TableDef(
                   description="What the LLM said at recommendation time (1-60 days). "
                               "shadow_trades.timeout_days is the operative value "
                               "(= llm_timeout_days OR global default 15). Track 1.5 / B8."),
-        ColumnDef("instrumentation_version", "INTEGER", nullable=False, default="2",
+        ColumnDef("instrumentation_version", "INTEGER", nullable=False, default="3",
                   description="Era flag: 0=quarantined/pre-651, 1=pre-April-9 (no conviction), "
                               "2=April-9-to-Track-1.5 (conviction integer only), "
                               "3=post-Track-1.5 (B1+B3+B4+B8 fully populated). "
-                              "NOT NULL DEFAULT 2 until B1+B3+B4+B8 land (Track 1.5 / B5). "
-                              "TODO: bump default to 3 after B1+B3+B4+B8 — see B5 design Risk R4."),
+                              "DEFAULT 3 set 2026-04-25 (Round 4 B5-amend, ff69ad9) once "
+                              "B1+B3+B4+B8 all merged. Backfill of pre-existing rows is a "
+                              "no-op against the current empty DB; see B5 Pass 1 design."),
     ],
     primary_key="trade_id",
     indexes=[
