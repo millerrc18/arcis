@@ -145,6 +145,26 @@
       "estimated_complexity": "medium"
     },
     {
+      "id": "T1.08",
+      "name": "Fully-instrumented trade filter + statistical-power assessment",
+      "description": "Implement src/analytics/instrumentation_filter.py (NEW; sibling of canonical_sharpe.py + spy_benchmark.py) exposing: (1) is_fully_instrumented(row: dict) -> bool — predicate; True iff pnl_pct, actual_entry_time, actual_exit_time, excess_return are all non-NULL and non-empty. (2) filter_fully_instrumented(rows) -> list[dict] — applies predicate, preserves order. (3) assess_statistical_power(n: int, target_sharpe: float = 0.0, alpha: float = 0.05) -> PowerAssessment — Bailey-LdP MinTRL-based; returns dataclass with (n, mintrl_required, status: 'powered' | 'underpowered' | 'marginal', message). T1.02's memo writer MUST surface: total in-window trades, quarantined excluded count, fully-instrumented N, MinTRL for target Sharpe=0, explicit verdict text. If N < MinTRL: memo MUST contain literal phrase 'Stage-1 sample is underpowered; reported Sharpe is not statistically reliable. Consider deferring promotion until N >= MinTRL.' Operator-requested 2026-04-25 amendment (v3.1).",
+      "files_in_scope": [
+        "src/analytics/instrumentation_filter.py (NEW)",
+        "tests/analytics/test_instrumentation_filter.py (NEW)"
+      ],
+      "files_read_only": [
+        "src/schema/registry.py",
+        "src/journal/stats.py",
+        "src/platform/rigor/dsr.py"
+      ],
+      "depends_on": [
+        "T1.05"
+      ],
+      "test_strategy": "is_fully_instrumented: rows with all 4 required cols non-NULL pass; missing any col fails; empty-string treated as missing; None treated as missing. filter_fully_instrumented: mixed input returns only fully-instrumented, preserves input order. assess_statistical_power: known input pairs vs hand-computed Bailey-LdP MinTRL; boundary at exactly N==MinTRL (status='marginal'); N<MinTRL (status='underpowered'); N>=2*MinTRL (status='powered'). Integration: synthetic trade fixture with mixed instrumentation; filter+power chain produces expected verdict text.",
+      "scope_fence": "Do NOT compute Sharpe in this module (canonical_sharpe.py owns that). Do NOT modify shadow_trades schema (T1.05 already extended). Do NOT modify T1.02's memo writer here — provide functions only; T1.02 imports. Do NOT add a power assessment for non-zero target_sharpe gating (out of scope; that's T2.04's promotion gate).",
+      "estimated_complexity": "low"
+    },
+    {
       "id": "T1.02",
       "name": "Stage-1 honest baseline recompute + memo writer",
       "description": "Compute three Sharpe numbers (raw, SPY-relative, rf-adjusted canonical) over post-#651 quarantined-clean trade history. Use canonical_sharpe (T1.03). Politis-White block bootstrap inline (pending T2.02; flag dependency in memo) for 95% CIs. Emit audits/2026-04-27/stage1_baseline_memo.md (NEW) with \u00a79 item #9 mandatory contents. SPY-relative uses per-period SPY dividend yield (DA-9); if overflow, document constant haircut + window inline.",
@@ -162,9 +182,10 @@
       "depends_on": [
         "T1.01",
         "T1.05",
-        "T1.03"
+        "T1.03",
+        "T1.08"
       ],
-      "test_strategy": "Memo writer produces all required sections. Integration: against fixture, Sharpe matches hand-computed. Dividend haircut: per-period vs flat 1.4% within 5-15 bps.",
+      "test_strategy": "Memo writer produces all required sections including fully-instrumented N + MinTRL + power verdict (per T1.08). Integration: against fixture, Sharpe matches hand-computed. Dividend haircut: per-period vs flat 1.4% within 5-15 bps. Underpowered case: when N<MinTRL, memo contains the literal underpowered-warning phrase from T1.08.",
       "scope_fence": "Do NOT advance to Stage 2 methods. Do NOT auto-sign memo. Do NOT bypass canonical_sharpe.",
       "estimated_complexity": "medium"
     },
@@ -646,6 +667,7 @@
     ],
     [
       "T1.07",
+      "T1.08",
       "T1.02",
       "T2.01",
       "T2.02",

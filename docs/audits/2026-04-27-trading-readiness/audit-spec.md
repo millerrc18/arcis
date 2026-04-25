@@ -15,6 +15,8 @@ v3 path corrections vs v2 (fabrications removed):
 
 T1.04 restored: primary task = effective_position_cap helper across 4 namespaces; CI enabled-flag guardrail retained as side feature.
 
+**v3.1 amendment (2026-04-25, operator-requested):** T1.08 added — fully-instrumented trade filter for Stage-1 baseline + statistical-power assessment in memo. Stage-1 memo MUST surface (total in-window, quarantined excluded, fully-instrumented N, MinTRL for target Sharpe=0, powered/underpowered/marginal verdict). If N < MinTRL, the memo carries an explicit underpowered-warning phrase. T1.02 imports the filter + power helper from T1.08. T2.14a/b/c (pullback redesign) considered but kept as committed Track 2 work per architect's v3 review.
+
 ## 1. Executive Summary
 
 Five integrity issues degrade the live-paper signal: (1) pre-#651 trades polluting baseline, (2) **four** Sharpe formulas across ~12 call sites, (3) fail-OPEN safety surfaces, (4) bracket multipliers hardcoded in `src/packets/template.py:154-186` ignoring `strategies.{name}.stop_atr_*` config keys, (5) absent Alpaca startup probe.
@@ -25,7 +27,7 @@ Five integrity issues degrade the live-paper signal: (1) pre-#651 trades polluti
 
 ## 2. Three Tracks
 
-Track 1 (Mon-blocking): T1.01, T1.05, T1.03, T1.04, T1.06, T1.07, T1.02. Track 2 (multi-week): T2.01–T2.18. Track 3 (continuous): T3.01, T3.02.
+Track 1 (Mon-blocking): T1.01, T1.05, T1.03, T1.04, T1.06, T1.07, T1.08, T1.02. Track 2 (multi-week): T2.01–T2.18. Track 3 (continuous): T3.01, T3.02.
 
 ## 3. 3-Stage Roadmap
 
