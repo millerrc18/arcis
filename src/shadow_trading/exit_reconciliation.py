@@ -83,6 +83,44 @@ def _check_trade(row: sqlite3.Row) -> bool:
     return False
 
 
+def _init_by_reason_buckets() -> dict[str, dict]:
+    return {
+        "target_1": {"checked": 0, "anomalies": 0},
+        "target_2": {"checked": 0, "anomalies": 0},
+        "stop_loss": {"checked": 0, "anomalies": 0},
+        "timeout":   {"checked": 0, "anomalies": 0},
+        "reconciled": {"checked": 0},
+        "manual":    {"checked": 0},
+        "error":     {"checked": 0},
+        "unknown":   {"checked": 0},
+    }
+
+
+def _evaluate_rows(rows, by_reason: dict[str, dict]) -> list[str]:
+    """Run _check_trade on each row; mutate buckets; return flagged trade_ids."""
+    flagged: list[str] = []
+    for row in rows:
+        reason = row["exit_reason"] or "unknown"
+        bucket = by_reason.get(reason)
+        if bucket is None:
+            bucket = by_reason.get("unknown")
+            reason = "unknown"
+        if bucket is not None:
+            bucket["checked"] = bucket.get("checked", 0) + 1
+        if _check_trade(row):
+            flagged.append(row["trade_id"])
+            if "anomalies" in (bucket or {}):
+                bucket["anomalies"] += 1
+            logger.warning(
+                "[EXIT_RECONCILE_ANOMALY] trade_id=%s ticker=%s exit_reason=%s "
+                "exit_price=%s stop_price=%s target_1=%s target_2=%s",
+                row["trade_id"], row["ticker"], row["exit_reason"],
+                row["actual_exit_price"], row["stop_price"],
+                row["target_1"], row["target_2"],
+            )
+    return flagged
+
+
 def run_exit_reconciliation(
     db_path: str | None = None,
     conn: sqlite3.Connection | None = None,
@@ -98,46 +136,14 @@ def run_exit_reconciliation(
     owned = conn is None
     if owned:
         conn = connect_db(db_path or DB_PATH)
-
     try:
         rows = conn.execute(_QUERY).fetchall()
     finally:
         if owned:
             conn.close()
 
-    by_reason: dict[str, dict] = {
-        "target_1": {"checked": 0, "anomalies": 0},
-        "target_2": {"checked": 0, "anomalies": 0},
-        "stop_loss": {"checked": 0, "anomalies": 0},
-        "timeout":   {"checked": 0, "anomalies": 0},
-        "reconciled": {"checked": 0},
-        "manual":    {"checked": 0},
-        "error":     {"checked": 0},
-        "unknown":   {"checked": 0},
-    }
-
-    flagged: list[str] = []
-
-    for row in rows:
-        reason = row["exit_reason"] or "unknown"
-        bucket = by_reason.get(reason)
-        if bucket is None:
-            bucket = by_reason.get("unknown")
-            reason = "unknown"
-        if bucket is not None:
-            bucket["checked"] = bucket.get("checked", 0) + 1
-
-        if _check_trade(row):
-            flagged.append(row["trade_id"])
-            if "anomalies" in (bucket or {}):
-                bucket["anomalies"] += 1
-            logger.warning(
-                "[EXIT_RECONCILE_ANOMALY] trade_id=%s ticker=%s exit_reason=%s "
-                "exit_price=%s stop_price=%s target_1=%s target_2=%s",
-                row["trade_id"], row["ticker"], row["exit_reason"],
-                row["actual_exit_price"], row["stop_price"],
-                row["target_1"], row["target_2"],
-            )
+    by_reason = _init_by_reason_buckets()
+    flagged = _evaluate_rows(rows, by_reason)
 
     result = {
         "reconciliation_date": date.today().isoformat(),
@@ -147,13 +153,10 @@ def run_exit_reconciliation(
         "flagged_trade_ids": flagged,
         "by_reason": by_reason,
     }
-
     logger.info(
         "[RECON] anomaly_count=%d flagged=%s",
-        result["anomaly_count"],
-        result["flagged_trade_ids"],
+        result["anomaly_count"], result["flagged_trade_ids"],
     )
-
     _persist_result(result)
     return result
 

@@ -14,6 +14,26 @@ logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
 
+def _fetch_shadow_data_for_recap(config: dict):
+    """Fetch shadow_data for the recap; returns None on failure or when disabled.
+
+    Logs B2.A-style structured warning on broker exception. Caller proceeds
+    with shadow_data=None (recap still rendered).
+    """
+    if not config.get("shadow_trading", {}).get("enabled", False):
+        return None
+    try:
+        from src.packets.eod_recap import get_shadow_data_for_recap
+        return get_shadow_data_for_recap()
+    except Exception as _recap_err:
+        logger.warning(
+            "[BROKER_EXCEPTION] ticker=(all) op=fetch_shadow_data broker=n/a "
+            "recoverable=True exc=%s: %s",
+            type(_recap_err).__name__, _recap_err,
+        )
+        return None
+
+
 def generate_eod_recap(config: dict, send_email_flag: bool = False) -> dict:
     """Generate the end-of-day recap.
 
@@ -48,18 +68,7 @@ def generate_eod_recap(config: dict, send_email_flag: bool = False) -> dict:
     candidates = get_top_candidates(ranked)
 
     journal_entries = get_todays_recommendations()
-
-    shadow_data = None
-    if config.get("shadow_trading", {}).get("enabled", False):
-        try:
-            from src.packets.eod_recap import get_shadow_data_for_recap
-            shadow_data = get_shadow_data_for_recap()
-        except Exception as _recap_err:
-            logger.warning(
-                "[BROKER_EXCEPTION] ticker=(all) op=fetch_shadow_data broker=n/a "
-                "recoverable=True exc=%s: %s",
-                type(_recap_err).__name__, _recap_err,
-            )
+    shadow_data = _fetch_shadow_data_for_recap(config)
 
     body = build_eod_recap(
         candidates["packet_worthy"], candidates["watchlist"],
