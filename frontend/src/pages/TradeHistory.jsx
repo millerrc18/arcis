@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api'
 import LoadingSpinner from '../components/LoadingSpinner'
@@ -131,6 +131,41 @@ function StatCard({ label, value, subtitle, color, icon: Icon }) {
   )
 }
 
+function TradeHistoryExpandableRow({ trade: t, pnl, pnlPct, duration, reason }) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <>
+      <tr
+        className="cursor-pointer"
+        style={{ borderBottom: '1px solid var(--arcis-border)' }}
+        onClick={() => setExpanded(!expanded)}
+      >
+        <td className="py-2 px-2" style={MONO}>{t.ticker}</td>
+        <td className="py-2 px-2 text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>
+          {t.actual_exit_time ? new Date(t.actual_exit_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--'}
+        </td>
+        <td className="py-2 px-2 text-right" style={{ ...MONO, color: pnlColor(pnl) }}>{formatDollars(pnl)}</td>
+        <td className="py-2 px-2 text-right" style={{ ...MONO, color: pnlColor(pnl) }}>{formatPct(pnlPct)}</td>
+        <td className="py-2 px-2 text-right" style={MONO}>{duration}d</td>
+        <td className="py-2 px-2 hidden md:table-cell">
+          <TimeoutCell durationDays={t.duration_days} timeoutDays={t.timeout_days}
+            llmTimeoutDays={t.llm_timeout_days} status={t.timeout_status} progressPct={t.timeout_progress_pct} />
+        </td>
+        <td className="py-2 px-2 text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>{reason}</td>
+      </tr>
+      {expanded && t.llm_conviction_reason && (
+        <tr style={{ background: 'var(--arcis-bg-elevated)' }}>
+          <td colSpan={7} className="px-3 pb-3 pt-1 text-xs" style={{ borderBottom: '1px solid var(--arcis-border)' }}>
+            <div className="mb-1" style={{ color: 'var(--arcis-text-muted)' }}>LLM Reasoning:</div>
+            <div className="whitespace-pre-wrap" style={{ color: 'var(--arcis-text-secondary)', fontStyle: 'italic' }}>
+              "{t.llm_conviction_reason}"
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  )
+}
 function RecentTradesTable({ trades, title, emptyMessage }) {
   if (!trades || trades.length === 0) {
     return (
@@ -165,20 +200,8 @@ function RecentTradesTable({ trades, title, emptyMessage }) {
               const duration = t.duration_days || '--'
               const reason = (t.exit_reason || '--').replace(/_/g, ' ')
               return (
-                <tr key={t.trade_id || i} style={{ borderBottom: '1px solid var(--arcis-border)' }}>
-                  <td className="py-2 px-2" style={MONO}>{t.ticker}</td>
-                  <td className="py-2 px-2 text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>
-                    {t.actual_exit_time ? new Date(t.actual_exit_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--'}
-                  </td>
-                  <td className="py-2 px-2 text-right" style={{ ...MONO, color: pnlColor(pnl) }}>{formatDollars(pnl)}</td>
-                  <td className="py-2 px-2 text-right" style={{ ...MONO, color: pnlColor(pnl) }}>{formatPct(pnlPct)}</td>
-                  <td className="py-2 px-2 text-right" style={MONO}>{duration}d</td>
-                  <td className="py-2 px-2 hidden md:table-cell">
-                    <TimeoutCell durationDays={t.duration_days} timeoutDays={t.timeout_days}
-                      llmTimeoutDays={t.llm_timeout_days} status={t.timeout_status} progressPct={t.timeout_progress_pct} />
-                  </td>
-                  <td className="py-2 px-2 text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>{reason}</td>
-                </tr>
+                <TradeHistoryExpandableRow key={t.trade_id || i}
+                  trade={t} pnl={pnl} pnlPct={pnlPct} duration={duration} reason={reason} />
               )
             })}
           </tbody>

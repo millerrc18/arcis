@@ -427,8 +427,8 @@ export default function Dashboard() {
       {/* Preflight status card — Track 1.5 / Round 8.D (S4 preflight echo) */}
       <PreflightStatusCard />
 
-      {/* System status cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* System status cards — G5: 5th card always-visible Approaching Timeout */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         {/* R3 — Explicit data-source label so equity card / cumulative P&L divergence
             on first live trade is explainable. Equity reads Alpaca paper account balance;
             chart reads shadow_trades (quarantine-filtered). */}
@@ -440,19 +440,14 @@ export default function Dashboard() {
             denominator and includes pre-#651 cascade trades (not quarantine-filtered).
             When shadow_service returns null, show "—" with a tooltip explaining deferral. */}
         <Tooltip content="Win rate not yet computable; need ≥1 closed quarantine-filtered trade. Alpaca's win_rate is suppressed here — it uses a different denominator and includes pre-#651 cascade trades.">
-          <MetricCard label="Win Rate" value={closedData?.metrics?.win_rate != null ? `${(closedData.metrics.win_rate * 100).toFixed(1)}%` : '—'} />
+          <MetricCard label="Win Rate" value={closedData?.metrics?.win_rate != null ? `{(closedData.metrics.win_rate * 100).toFixed(1)}%` : '—'} />
         </Tooltip>
-        <MetricCard label="Model Version" value={status?.model_version || 'base'} delta={training ? `${training.dataset_total} examples` : null} />
+        <MetricCard label="Model Version" value={status?.model_version || 'base'} delta={training ? `{training.dataset_total} examples` : null} />
+        {/* G5: Always-visible 5th card — empty state shows 0 so first-time users see the feature */}
+        <Tooltip content="Trades at or approaching their configured timeout window. Click ShadowLedger to review.">
+          <MetricCard label="Approaching Timeout" value={approachingTimeoutCount} />
+        </Tooltip>
       </div>
-
-      {/* G5: Approaching timeout count — shown when >0 so operator can spot at a glance */}
-      {approachingTimeoutCount > 0 && (
-        <div className="arcis-card" style={{ borderLeft: '3px solid var(--arcis-warning)' }}>
-          <span className="text-sm" style={{ color: 'var(--arcis-warning)' }}>
-            {approachingTimeoutCount} trade{approachingTimeoutCount !== 1 ? 's' : ''} approaching or past timeout — check ShadowLedger
-          </span>
-        </div>
-      )}
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
