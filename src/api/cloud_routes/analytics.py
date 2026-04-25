@@ -921,10 +921,10 @@ def create_router(runtime, verify_auth):
                 "SELECT * FROM system_metrics WHERE timestamp > %s ORDER BY timestamp DESC LIMIT 500",
                 (cutoff,),
             )
-            return {"snapshots": [dict(r) for r in rows]}
+            return [dict(r) for r in rows]
         except Exception as exc:
             runtime.logger.error("[API] monitoring/history failed: %s", exc, exc_info=True)
-            return {"snapshots": [], "error": str(exc)}
+            return []
 
     @router.get("/api/monitoring/snapshot", dependencies=[Depends(verify_auth)])
     def monitoring_snapshot():

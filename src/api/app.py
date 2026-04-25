@@ -13,7 +13,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routes import system, scan, shadow, training, review, packets, docs, actions, health, council, notes, live, logs, ib_status
+from src.api.routes import system, scan, shadow, training, review, packets, docs, actions, health, council, notes, live, logs, ib_status, ib_shadow, strategy_detail, system_index, projections
 from src.api.websocket import manager
 
 
@@ -51,6 +51,10 @@ app.include_router(notes.router, prefix="/api")
 app.include_router(live.router, prefix="/api")
 app.include_router(logs.router, prefix="/api")
 app.include_router(ib_status.router, prefix="/api")
+app.include_router(ib_shadow.router, prefix="/api")
+app.include_router(strategy_detail.router, prefix="/api")
+app.include_router(system_index.router)
+app.include_router(projections.router, prefix="/api")
 
 
 # WebSocket for live updates (uses shared manager from websocket.py)
