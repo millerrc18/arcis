@@ -59,9 +59,40 @@ If neither is provided, the `REQUEST` text is the spec.
 }
 ```
 
+**Dashboard JSON entry-shape reference (MUST match the HTML's render functions in `skills/coding-team/dashboard/index.html`):**
+
+`tasks[]` — each entry:
+```json
+{"id": "T1.01", "name": "Pre-#651 quarantine sweep", "track": 1, "batch": 1, "status": "pending", "complexity": "medium"}
+```
+Valid `status` values: `pending` | `active` | `completed` | `blocked`.
+
+`active_agents[]` — each entry:
+```json
+{"role": "Developer", "model": "opus", "task_id": "T1.01", "turn": 25, "max_turns": 100}
+```
+Required fields: `role`, `model`, `task_id`, `turn`, `max_turns`. The HTML renders a progress bar from `turn / max_turns`. Do NOT use alternate names like `agent_type` / `agent_id` / `status` — they will not render.
+
+`pm_notes[]` — each entry:
+```json
+{"phase": "EXECUTE", "note": "Round 1 commit landed; dispatching Round 2 in parallel"}
+```
+
+`issues[]` — each entry:
+```json
+{"task_id": "ISSUE-A1", "severity": "warning", "message": "Short description, ~1-3 sentences"}
+```
+Valid `severity` values: `error` (red dot) | `warning` (yellow dot). Anything else renders as `warning`. Required fields: `task_id`, `severity`, `message`. Do NOT use alternate names like `id` / `title` / `context` — they will not render.
+
+**Mirroring requirement:** the HTML at `skills/coding-team/dashboard/index.html` fetches `../../../.arcis/coding-dashboard.json` (relative to its own location). When served from a local HTTP server rooted at the repo, that path resolves to `.claude/plugins/arcis/.arcis/coding-dashboard.json` — NOT to the `.arcis/coding-dashboard.json` at the repo root where this command writes. The PM must mirror the JSON to BOTH locations after every update:
+```bash
+cp .arcis/coding-dashboard.json .claude/plugins/arcis/.arcis/coding-dashboard.json
+```
+Or write to both directly. Without the mirror, the served HTML will load empty/stale content.
+
 6. Open the dashboard:
    - If Playwright MCP tools are available: navigate to `skills/coding-team/dashboard/index.html`
-   - Otherwise: print the dashboard file path for the user to open manually
+   - Otherwise: start a local HTTP server (`python -m http.server 8080` from the repo root) and surface the URL `http://localhost:8080/.claude/plugins/arcis/skills/coding-team/dashboard/` to the operator. The HTML's relative fetch only works when served via HTTP, not via `file://` (CORS).
 
 ---
 
@@ -376,4 +407,4 @@ Set `sentiment` based on current state:
 - `concerned` — multiple issues or a complex regression detected
 - `recovering` — issues were found and are being fixed
 
-To update the dashboard, write the updated JSON to `.arcis/coding-dashboard.json` using the Write tool.
+To update the dashboard, write the updated JSON to `.arcis/coding-dashboard.json` using the Write tool. **THEN mirror to `.claude/plugins/arcis/.arcis/coding-dashboard.json`** — the served HTML fetches the mirrored copy (its relative-path `../../../.arcis/...` resolves to the plugin-side location, not the repo-root one). Without the mirror the dashboard will not reflect updates. See the "Dashboard JSON entry-shape reference" earlier in this file for the required field names in `active_agents[]` and `issues[]`.
