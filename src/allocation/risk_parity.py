@@ -19,6 +19,7 @@ Edge-case behavior (documented choices)
 * NaN in any series     → propagates through std; callers should clean their
                           data before calling. No silent NaN-handling here.
 
+Called by: T2.12b allocator wiring (deferred — no current consumers).
 Calls: math (stdlib only — no numpy/pandas dependency).
 Owns tables: none.
 Config keys: none.

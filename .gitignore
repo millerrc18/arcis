@@ -88,3 +88,12 @@ scripts/test_merged_hf.py
 
 # Pipeline scratchpad (session-local)
 .tmp/
+
+# Operator's local scratch/debug files at repo root
+# (the leading-underscore pattern anchors to root only — does NOT
+# affect legitimate private modules like src/api/.../_command_ttl.py)
+/_*.py
+/_*.sql
+
+# Coding-team plugin dashboard + PR-body artifacts
+.arcis/

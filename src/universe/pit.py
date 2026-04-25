@@ -15,6 +15,12 @@ apply_dividend_haircut(returns, dividend_yield_pct, period_days)
     is a non-negative integer.
 
     Formula: adjusted = returns - dividend_yield_pct * (period_days / 365)
+
+Called by: future PIT-aware backtest paths (deferred — no current consumers; legacy callers still use src.universe.sp100.get_sp100_universe()).
+Calls: nothing external (pure-function utilities over a caller-supplied membership_table dict).
+Owns tables: none (production membership table wiring is a future task).
+Config keys: none.
+Tests: tests/universe/test_pit.py.
 """
 
 from typing import Optional
