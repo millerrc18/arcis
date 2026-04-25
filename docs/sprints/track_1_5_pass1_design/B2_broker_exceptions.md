@@ -339,9 +339,18 @@ This avoids duplicating the INSERT at every call site. The helper should be in `
 ### R2 — `executor.py:1442` DEBUG level is the memory defect surface point
 
 **Site:** `except Exception as e: logger.debug(...)` in `check_and_manage_open_trades`.
-**Risk:** This is where the `get_positions()` AttributeError (memory defect) is swallowed silently. The entire position list for a scan cycle is dropped. If positions cannot be fetched, open trades are managed without broker position context — which affects the ghost-position detection logic at line 1664.
-**Resolution:** Pass 2 upgrades this to WARNING, adds structured fields, and persists. Does NOT fix the underlying AttributeError — that is a separate sprint per the spec.
-**Operator judgment needed:** Should a positions-fetch failure cause the entire `check_and_manage_open_trades` call to halt (fail-closed) or continue without broker positions (current behavior)? The current behavior allows exits to proceed via price-polling even when broker positions are unavailable. This is probably correct for resilience but means the ghost-position alarm at line 1664 is silenced for the whole cycle. Recommend operator decides before Pass 2 implements.
+**Risk:** This is where the `get_positions()` AttributeError (memory defect) is swallowed silently. The entire position list for a scan cycle is dropped. If positions cannot be fetched, open trades are managed without broker position context — which affects the ghost-position detection logic at line 1664. There is reason to believe this is the upstream cause of A2's `[RECONCILE-PAPER] Closed stuck` cascade (4 of 5 weird trades passed through that code path with `pnl=$0`).
+
+**Resolution (Pass 2 — B2.A scope):** Upgrade DEBUG → WARNING, add structured fields, persist to `broker_exceptions`. **Does NOT change fail-open vs fail-closed behavior in Pass 2.** Does NOT fix the underlying AttributeError — that is a separate sprint per the spec.
+
+**Fail-open / fail-closed policy decision (operator-deferred per 2026-04-25 review):** The original Pass 1 design recommended choosing fail-open vs fail-closed in B2.C. Operator pushed back: the right question is "why does the fetch fail in the first place?" — the current fail-open behavior is invisible because it's logged at DEBUG. **Pass 2 just makes the failure visible (B2.A's structured logging).** Once `broker_exceptions` accumulates a week of data, we'll know which exception class fires (network blip vs Alpaca API outage vs auth issue vs the AttributeError code bug vs library drift) and the policy decision becomes data-driven. **The fail-open/closed decision is deferred to a follow-up ticket post-Pass-2** (titled "executor.py:1442 fail-policy revisit — informed by `broker_exceptions` data"). It is NOT in B2.C scope. B2.C focuses on CVS qty-mismatch instead.
+
+**Three policy options enumerated for the future ticket:**
+1. **Fail-open (status quo):** continue with empty positions dict. Tolerates transient blips; lets bad data corrupt downstream.
+2. **Fail-closed:** raise; skip the entire `for trade in open_trades` loop this tick. Loud surface; transient blips delay exits 15 min.
+3. **Fail-cached:** cache last-good positions with freshness check; fall back to fail-closed once cache expires. Correct but more moving parts.
+
+The future ticket picks based on what `broker_exceptions` data reveals.
 
 ### R3 — `system_service.py:175` bare except swallows the `get_live_broker()` TypeError
 

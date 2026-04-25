@@ -255,6 +255,8 @@ Query scope: `status='closed' AND actual_exit_time >= datetime('now', '-24 hours
 | `target_2` | `actual_exit_price >= target_2` (where `target_2 > 0`) | `actual_exit_price < target_2` AND `target_2 > 0` |
 | `stop_loss` | `actual_exit_price <= stop_price` (where `stop_price > 0`) | `actual_exit_price > stop_price * 1.01` (allow 1% slippage tolerance) |
 | `timeout` | `COALESCE(duration_days, ...) >= COALESCE(timeout_days, 15)` | Holding days materially less than `timeout_days` |
+
+> **B8 coordination (added 2026-04-25):** Post-B8, `shadow_trades.timeout_days` is reliably populated at trade-open time (executor stamps either the LLM's `llm_timeout_days` or the global default 15). The `COALESCE(timeout_days, 15)` fallback shown above is therefore a backward-compat shim for pre-B8 rows only. For post-B8 trades, the predicate effectively becomes `COALESCE(duration_days, ...) >= shadow_trades.timeout_days` (no fallback needed). This means the WMT/GOOG-style ambiguity ("did this trade time out at 8 days because the LLM said 8 days, or because of a calendar/market-day bug?") becomes answerable: the LLM's expected window is now persisted alongside the realized window. See `B8_llm_timeout_days.md` for the full design.
 | `reconciled` | No price check — count only | — |
 | `manual` | No price check — count only | — |
 | `error` | No price check — count only | — |
