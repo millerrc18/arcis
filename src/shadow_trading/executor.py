@@ -41,6 +41,7 @@ from src.shadow_trading._status_sql import (
     active_in_clause,
     terminal_in_clause,
 )
+from src.shadow_trading.exit_reason import coerce_exit_reason
 from src.shadow_trading.models import ShadowTrade
 from alpaca.common.exceptions import APIError
 
@@ -1239,7 +1240,7 @@ def _close_from_broker_fill(trade: dict, filled_order: dict, db_path: str) -> No
         trade["trade_id"],
         exit_price=fill_price,
         exit_time=exit_time,
-        exit_reason=trade.get("exit_reason") or "late_fill_reconciled",
+        exit_reason=coerce_exit_reason(trade.get("exit_reason") or "late_fill_reconciled", ticker=trade.get("ticker", "")),
         pnl_dollars=round(pnl_dollars, 2),
         pnl_pct=round(pnl_pct, 2),
         db_path=db_path,
@@ -1547,7 +1548,7 @@ def check_and_manage_open_trades(
                             trade["trade_id"],
                             exit_price=mr_exit_price,
                             exit_time=datetime.now(ZoneInfo("America/New_York")).isoformat(),
-                            exit_reason=mr_exit["exit_reason"],
+                            exit_reason=coerce_exit_reason(mr_exit["exit_reason"], ticker=ticker),
                             pnl_dollars=round(pnl, 2),
                             pnl_pct=round(pnl_pct, 2),
                             db_path=db_path,
@@ -1582,7 +1583,7 @@ def check_and_manage_open_trades(
                     trade["trade_id"],
                     exit_price=current_price,
                     exit_time=datetime.now(ZoneInfo("America/New_York")).isoformat(),
-                    exit_reason="mr_timeout",
+                    exit_reason=coerce_exit_reason("mr_timeout", ticker=ticker),
                     pnl_dollars=round(pnl, 2),
                     pnl_pct=round(pnl_pct, 2),
                     db_path=db_path,
@@ -1646,7 +1647,7 @@ def check_and_manage_open_trades(
                                     current_price = child_order.filled_avg_price
                                     bracket_exit = True
                                     # child_ids[0] = take_profit, child_ids[1] = stop_loss
-                                    exit_reason = "take_profit" if idx == 0 else "stop_loss"
+                                    exit_reason = coerce_exit_reason("take_profit" if idx == 0 else "stop_loss", ticker=ticker)
                                     break
                             except ValueError:
                                 continue
@@ -1671,9 +1672,9 @@ def check_and_manage_open_trades(
                                 bracket_exit = True
                                 leg_type = leg.get("order_type", "")
                                 if leg_type == "stop" or leg.get("stop_price"):
-                                    exit_reason = "stop_loss"
+                                    exit_reason = coerce_exit_reason("stop_loss", ticker=ticker)
                                 elif leg_type == "limit" or leg.get("limit_price"):
-                                    exit_reason = "take_profit"
+                                    exit_reason = coerce_exit_reason("take_profit", ticker=ticker)
                                 break
             except Exception as e:
                 logger.warning("[SHADOW] Bracket order status check failed for %s: %s — falling back to price polling", ticker, e)
@@ -1691,13 +1692,13 @@ def check_and_manage_open_trades(
             exit_reason = None
         if exit_reason is None:
             if current_price <= stop_price and stop_price > 0:
-                exit_reason = "stop_hit"
+                exit_reason = coerce_exit_reason("stop_hit", ticker=ticker)
             elif current_price >= target_2 and target_2 > 0:
-                exit_reason = "target_2_hit"
+                exit_reason = coerce_exit_reason("target_2_hit", ticker=ticker)
             elif current_price >= target_1 and target_1 > 0:
-                exit_reason = "target_1_hit"
+                exit_reason = coerce_exit_reason("target_1_hit", ticker=ticker)
             elif days_open >= timeout_days:
-                exit_reason = "timeout"
+                exit_reason = coerce_exit_reason("timeout", ticker=ticker)
 
         if exit_reason:
             # #345: If the entry order never filled, cancel it instead of selling
@@ -1829,7 +1830,7 @@ def check_and_manage_open_trades(
                         trade["trade_id"],
                         {
                             "status": _failed_status,
-                            "exit_reason": f"broker_exception:{type(e).__name__}",
+                            "exit_reason": coerce_exit_reason(f"broker_exception:{type(e).__name__}", ticker=ticker),
                             "exit_retry_count": _next_retry,
                         },
                         db_path,

@@ -101,6 +101,7 @@ def run_daily_audit():
     """Run the daily auditor agent."""
     from src.evaluation.auditor import run_daily_audit, check_escalation
     from src.email.notifier import send_email
+    from src.shadow_trading.exit_reconciliation import run_exit_reconciliation
 
     print("[WATCH] Running daily audit...")
     audit = run_daily_audit()
@@ -152,6 +153,11 @@ def run_daily_audit():
         pass
     except Exception as e:
         logger.debug("[AUDIT] Leakage check failed: %s", e)
+
+    try:
+        run_exit_reconciliation()
+    except Exception as e:
+        logger.warning("[AUDIT] Exit reconciliation failed: %s", e)
 
 
 def run_training_collection():
