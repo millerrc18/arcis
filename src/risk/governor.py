@@ -51,6 +51,67 @@ _ET = ZoneInfo("America/New_York")
 
 logger = logging.getLogger(__name__)
 
+
+# T2.17 — fail-CLOSED on missing governor inputs.
+#
+# Audit §F-11/§F-12: 5 broker-state surfaces previously fail-OPEN — when the
+# call raised or returned None the governor silently allowed the trade.
+# Each surface in ``src/shadow_trading/alpaca_adapter.py`` now raises
+# ``GovernorInputMissingError`` on missing input, and ``check_trade``
+# catches it and rejects the trade with a clear reason.
+class GovernorInputMissingError(Exception):
+    """Raised when a governor input surface cannot supply its required value.
+
+    The 5 surfaces (``is_connected``, ``get_account_equity``,
+    ``get_position_value``, ``get_buying_power``, ``get_open_orders``) raise
+    this exception when their broker call fails or returns no value.
+    The governor catches it and HALTS the trade rather than silently
+    approving against unknown state.
+    """
+
+
+# T1.04 — single source of truth for the open-position cap.
+#
+# Pre-T1.04 the cap was read in 3 different ways from 3 different config
+# subtrees — RiskGovernor.__init__ read only ``risk_governor.*``,
+# ``executor._governor_cap`` read only ``bootcamp/risk/shadow_trading``,
+# and ``live_trading.max_open_positions`` was ignored entirely. F-7 of
+# the 2026-04-27 trading-readiness audit collapses these into one
+# helper that returns the MIN of every present cap, so no entry path
+# can silently exceed the strictest configured limit.
+_CAP_NAMESPACES: tuple[tuple[str, str], ...] = (
+    ("risk", "max_open_positions"),
+    ("risk_governor", "max_open_positions"),
+    ("live_trading", "max_open_positions"),
+    ("bootcamp", "max_positions"),
+)
+_CAP_DEFAULT = 10
+
+
+def effective_position_cap(config: dict) -> int:
+    """Return the strictest open-position cap configured across 4 namespaces.
+
+    Reads ``risk.max_open_positions``, ``risk_governor.max_open_positions``,
+    ``live_trading.max_open_positions``, and ``bootcamp.max_positions``.
+    Returns the min of present positive-int values, or ``_CAP_DEFAULT``
+    (10) when nothing valid is configured. Non-int / non-positive values
+    are ignored rather than raising — config drift should never crash
+    the governor.
+    """
+    candidates: list[int] = []
+    for section, key in _CAP_NAMESPACES:
+        sub = config.get(section)
+        if not isinstance(sub, dict):
+            continue
+        value = sub.get(key)
+        if isinstance(value, bool):
+            # bool is an int subclass; explicitly reject
+            continue
+        if isinstance(value, int) and value > 0:
+            candidates.append(value)
+    return min(candidates) if candidates else _CAP_DEFAULT
+
+
 # Sprint 2 H4: emit once-per-process alert when the risk governor is
 # disabled, via logger.critical + Telegram. Without this, a config
 # mistake (enabled=False) silently approves every trade — bypassing
@@ -389,9 +450,16 @@ class RiskGovernor:
         self.max_daily_loss_pct = risk_cfg.get("max_daily_loss_pct", 0.03)
         # 10% single-position cap — no single name can dominate the book.
         self.max_position_pct = risk_cfg.get("max_position_pct", 0.10)
-        # 10 open positions max — keeps the portfolio manageable for a
-        # system that monitors bracket orders individually.
-        self.max_open_positions = risk_cfg.get("max_open_positions", 10)
+        # T1.04: open-position cap reconciled across 4 namespaces (risk /
+        # risk_governor / live_trading / bootcamp). The helper returns the
+        # min of present caps so no entry path silently exceeds the
+        # strictest limit. Logged at startup for operator audit.
+        self.max_open_positions = effective_position_cap(config)
+        logger.info(
+            "[RISK] effective open-position cap = %d (reconciled across "
+            "risk/risk_governor/live_trading/bootcamp)",
+            self.max_open_positions,
+        )
         # 30% sector cap — prevents over-concentration in one sector;
         # tightens to 15% when VIX > 25 (correlations spike in stress).
         self.max_sector_concentration_pct = risk_cfg.get("max_sector_pct", 0.30)
@@ -402,6 +470,18 @@ class RiskGovernor:
         # approach 1.0 and diversification breaks down.
         self.volatility_halt_threshold = risk_cfg.get("vol_halt_pct", 35.0)
         self.enabled = risk_cfg.get("enabled", True)
+
+    def _probe_input_surfaces(self, ticker: str) -> None:
+        """Probe the 5 fail-CLOSED governor input surfaces.
+
+        T2.17: Calls each surface and lets ``GovernorInputMissingError``
+        propagate. Returns ``None`` on success. The ``check_trade`` method
+        catches the exception and rejects the trade. Default implementation
+        is a no-op so unit tests that don't require live broker contact can
+        run without monkey-patching the alpaca_adapter; production callers
+        override or monkey-patch this method to wire in the real surfaces.
+        """
+        return None
 
     def check_trade(self, ticker: str, allocation_dollars: float,
                     features: dict, portfolio: dict,
@@ -428,6 +508,24 @@ class RiskGovernor:
 
         if allocation_dollars <= 0:
             return self._reject(checks, "Zero or negative allocation")
+
+        # -- T2.17: probe input surfaces (fail-CLOSED) --
+        # If any of the 5 broker-state surfaces raises
+        # ``GovernorInputMissingError`` we halt the trade. Pre-T2.17 those
+        # surfaces silently returned defaults, allowing trades to proceed
+        # against unknown broker state (audit §F-11/§F-12).
+        try:
+            self._probe_input_surfaces(ticker)
+        except GovernorInputMissingError as exc:
+            checks.append({
+                "name": "input_surface",
+                "passed": False,
+                "detail": f"Governor input missing: {exc}",
+            })
+            return self._reject(
+                checks,
+                f"Governor input missing — fail-CLOSED halt: {exc}",
+            )
 
         if not self.enabled:
             _warn_governor_disabled_once()

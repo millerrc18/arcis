@@ -32,9 +32,18 @@ def _std(values: list[float], ddof: int = 1) -> float:
 def compute_sharpe(
     returns: list[float], periods_per_year: int = 252
 ) -> float | None:
-    """Annualized Sharpe from per-observation returns. None if vol is zero."""
+    """Annualized Sharpe from per-observation returns. None if vol is zero.
+
+    F-2 migration: when periods_per_year == 252 (the default), delegates to
+    the canonical raw_sharpe. The `periods_per_year` parameter is preserved
+    for walkforward downstream (BacktestConfig may pass a different value
+    in non-daily backtests); in that path we fall back to the local formula.
+    """
     if not returns:
         return None
+    if periods_per_year == 252:
+        from src.analytics.canonical_sharpe import raw_sharpe
+        return raw_sharpe(returns)
     arr = np.asarray(returns, dtype=float)
     s = _std(list(arr))
     if s == 0.0:

@@ -42,3 +42,8 @@ llama-cpp-python>=0.2,<1.0; sys_platform != "win32"
 # src/llm/grammar_client.py. CPU-only wheel is fine for inference; install
 # the appropriate CUDA build manually if doing GPU training.
 torch>=2.1,<3.0
+
+# T2.11 — pandas_market_calendars: NYSE holiday + half-day calendar used by
+# src/scheduler/holidays.py. Replaced a hardcoded 2026 holiday set that would
+# have silently broken in 2027.
+pandas_market_calendars>=4.0,<6.0

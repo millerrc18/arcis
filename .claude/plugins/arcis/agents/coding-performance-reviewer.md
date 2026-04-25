@@ -2,7 +2,7 @@
 name: coding-performance-reviewer
 description: Performance reviewer — checks algorithmic complexity, N+1 queries, blocking I/O, concurrency issues, unnecessary allocations
 model: opus
-maxTurns: 4
+maxTurns: 100
 allowed-tools:
   - Read
   - Glob

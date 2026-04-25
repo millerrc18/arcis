@@ -1,40 +1,87 @@
-"""NYSE market holiday awareness.
+"""NYSE market holiday awareness, backed by pandas_market_calendars.
 
 Called by: scheduler.watch
-Calls: none
+Calls: pandas_market_calendars.get_calendar('NYSE')
 Owns tables: none
 Config keys: none
-Tests: tests/test_config_tech_debt.py
+Tests: tests/scheduler/test_holidays.py, tests/test_config_tech_debt.py
+
+History
+-------
+T2.11: Replaced the hardcoded 2026 NYSE_HOLIDAYS_2026 set (which would have
+silently failed in 2027) with pandas_market_calendars.get_calendar('NYSE').
+The module still exposes NYSE_HOLIDAYS_2026 for back-compat, but it is now
+derived from the live calendar at import time. Adds is_market_half_day() so
+callers can distinguish full closures (no trading) from early-close days
+(NYSE closes at 13:00 ET — e.g. day after Thanksgiving, Christmas Eve).
 """
 
 from datetime import date
+from functools import lru_cache
 
-# NYSE observed holidays for 2026.
-# Source: https://www.nyse.com/markets/hours-calendars
-NYSE_HOLIDAYS_2026 = {
-    date(2026, 1, 1),   # New Year's Day
-    date(2026, 1, 19),  # Martin Luther King Jr. Day
-    date(2026, 2, 16),  # Presidents' Day
-    date(2026, 4, 3),   # Good Friday
-    date(2026, 5, 25),  # Memorial Day
-    date(2026, 6, 19),  # Juneteenth — Fix for #270
-    date(2026, 7, 3),   # Independence Day (observed)
-    date(2026, 9, 7),   # Labor Day
-    date(2026, 11, 26), # Thanksgiving Day
-    date(2026, 12, 25), # Christmas Day
-}
+import pandas_market_calendars as mcal
+
+
+_NYSE = mcal.get_calendar("NYSE")
+
+
+@lru_cache(maxsize=8)
+def _holidays_for_year(year: int) -> frozenset[date]:
+    """Return the set of NYSE full-closure holidays for a given year."""
+    holidays = _NYSE.holidays().holidays  # numpy array of np.datetime64
+    return frozenset(
+        date(int(str(h)[:4]), int(str(h)[5:7]), int(str(h)[8:10]))
+        for h in holidays
+        if str(h).startswith(f"{year}-")
+    )
+
+
+@lru_cache(maxsize=8)
+def _half_days_for_year(year: int) -> frozenset[date]:
+    """Return the set of NYSE early-close ("half-day") trading days for a year.
+
+    NYSE early-close days close at 13:00 ET instead of the usual 16:00 ET.
+    Typical examples: day after Thanksgiving, Christmas Eve, day before
+    Independence Day (when 7/4 is mid-week).
+    """
+    sched = _NYSE.schedule(start_date=f"{year}-01-01", end_date=f"{year}-12-31")
+    closes_et = sched["market_close"].dt.tz_convert("America/New_York")
+    early = sched[closes_et.dt.hour < 16]
+    return frozenset(d.date() for d in early.index)
+
+
+def _resolve_check_date(date_str: str | None, check_date: date | None) -> date:
+    """Resolve which date to use, preserving the legacy precedence rule:
+    check_date > date_str > today()."""
+    if check_date is not None:
+        return check_date
+    if date_str:
+        return date.fromisoformat(date_str)
+    return date.today()
 
 
 def is_market_holiday(date_str: str | None = None, check_date: date | None = None) -> bool:
-    """Return True if the given date is an NYSE holiday.
+    """Return True if the given date is a full NYSE closure (not a half-day).
 
     Args:
         date_str: ISO date string (YYYY-MM-DD). If None, uses today.
         check_date: date object. Takes precedence over date_str.
     """
-    if check_date is None:
-        if date_str:
-            check_date = date.fromisoformat(date_str)
-        else:
-            check_date = date.today()
-    return check_date in NYSE_HOLIDAYS_2026
+    d = _resolve_check_date(date_str, check_date)
+    return d in _holidays_for_year(d.year)
+
+
+def is_market_half_day(date_str: str | None = None, check_date: date | None = None) -> bool:
+    """Return True if the given date is an NYSE early-close (half-day).
+
+    Half-days are partial trading days (13:00 ET close). Full holidays
+    are NOT half-days; this function returns False for them.
+    """
+    d = _resolve_check_date(date_str, check_date)
+    return d in _half_days_for_year(d.year)
+
+
+# Back-compat: tests/test_config_tech_debt.py::test_holidays_module_complete
+# imports this constant. It is now derived from pandas_market_calendars but
+# preserves the original 10-entry shape for 2026.
+NYSE_HOLIDAYS_2026: frozenset[date] = _holidays_for_year(2026)

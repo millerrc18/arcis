@@ -83,34 +83,24 @@ def _count_live_open_positions(db_path: str) -> int:
 
 
 def _governor_cap(config: dict) -> int:
-    """Return the effective open-position cap, respecting bootcamp overrides.
+    """Return the effective open-position cap.
 
-    Bootcamp mode intentionally raises the breadth ceiling to teach the
-    model portfolio diversification.  When ``bootcamp.enabled`` is True, the
-    cap comes from ``bootcamp.max_positions`` — matching the existing
-    ternaries at ``executor.open_shadow_trade`` (line 297-303) and
-    ``risk.governor.RiskGovernor.check_trade`` (line 500-502) so all three
-    governor surfaces agree on the effective limit.
+    Delegates to ``src.risk.governor.effective_position_cap`` so that the
+    in-process governor (``RiskGovernor.__init__``) and this executor-side
+    pre-flight check always agree on the strictest configured limit
+    across the 4 cap namespaces (risk / risk_governor / live_trading /
+    bootcamp).
 
-    When bootcamp is disabled, falls back to the stricter of
-    ``risk.max_open_positions`` and ``shadow_trading.max_positions`` so
-    neither alone can be bypassed.
-
-    The original #430 investigation (2026-04-13) showed 19 open positions
-    against an intuitive cap of 10 — the intended bootcamp ceiling of 50
-    was active but the hotfix's early helper ignored it, making the
-    effective cap drop to 5 post-merge and blocking all new entries.
+    T1.04: the bootcamp early-return that previously short-circuited to
+    ``bootcamp.max_positions`` was folded into the min-rule. Reason: an
+    operator who set ``risk.max_open_positions: 5`` for live-trading
+    safety and forgot to disable bootcamp would silently inherit the
+    looser bootcamp cap (50). Under the min-rule the strictest setting
+    always wins, which matches the 'deny by default' posture in §F-7
+    of the 2026-04-27 trading-readiness audit.
     """
-    bootcamp = config.get("bootcamp", {})
-    if bootcamp.get("enabled", False):
-        bc_cap = bootcamp.get("max_positions", 50)
-        if isinstance(bc_cap, int) and bc_cap > 0:
-            return bc_cap
-        return 50
-    risk_cap = config.get("risk", {}).get("max_open_positions")
-    shadow_cap = config.get("shadow_trading", {}).get("max_positions")
-    caps = [c for c in (risk_cap, shadow_cap) if isinstance(c, int) and c > 0]
-    return min(caps) if caps else 10
+    from src.risk.governor import effective_position_cap
+    return effective_position_cap(config)
 
 
 def _enforce_position_cap(config: dict, db_path: str, ticker: str, path: str = "SHADOW") -> bool:

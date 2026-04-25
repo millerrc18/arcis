@@ -1,25 +1,34 @@
 # Arcis
 
-![version](https://img.shields.io/badge/version-v0.25.0-blue?style=flat-square)
-![phase](https://img.shields.io/badge/phase-1%20diagnostic-orange?style=flat-square)
-![tests](https://img.shields.io/badge/tests-2%2C272%20passing-brightgreen?style=flat-square)
-![walkforward](https://img.shields.io/badge/walkforward--v1-three--state-amber?style=flat-square)
+![version](https://img.shields.io/badge/version-v0.26.0-blue?style=flat-square)
+![phase](https://img.shields.io/badge/phase-1%20honest%20baseline-orange?style=flat-square)
+![tests](https://img.shields.io/badge/tests-3%2C380%20passing-brightgreen?style=flat-square)
+![audit](https://img.shields.io/badge/audit--2026--04--27-signed-blue?style=flat-square)
 ![python](https://img.shields.io/badge/python-3.12-3776AB?style=flat-square&logo=python&logoColor=white)
 ![model](https://img.shields.io/badge/model-Qwen3%208B-purple?style=flat-square)
 ![license](https://img.shields.io/badge/license-BSL%201.1-yellow?style=flat-square)
-![issues](https://img.shields.io/github/issues/millerrc18/halcyon-lab?style=flat-square)
+![issues](https://img.shields.io/github/issues/millerrc18/arcis?style=flat-square)
 ![dashboard](https://img.shields.io/badge/dashboard-halcyonlab.app-00C7B7?style=flat-square&logo=render&logoColor=white)
 
 Systematic equity research platform built on fine-tuned LLMs and a 5-agent AI council. Arcis scans the S&P 100 universe for high-conviction pullback setups, generates trade packets with local inference, and executes bracket orders through Alpaca or Interactive Brokers — all governed by a hard risk stack, regime-aware sizing, and a score-gated dual-broker router.
 
 ## Current Status
 
-- **Phase 1 Diagnostic** — paper trading $100K, 85 closed trades. Per SD#41 REVISED: halt optimization, run diagnostics first (D1 done v0.19.0, D2 done v0.22.0, D3 done v0.20.0).
-- **Model**: `halcyon-v1.0.0` (Qwen3 8B, QLoRA fine-tuned); v2.0.0 retrain gated on excess-Sharpe validation
-- **Dashboard**: [halcyonlab.app](https://halcyonlab.app) (25 pages including Trade History with excess-Sharpe lead panel, mobile-responsive sidebar, dark/light toggle)
+- **Phase 1 Honest Baseline** (audit closed 2026-04-25; signed memo at [`audits/2026-04-27/stage1_baseline_memo.md`](audits/2026-04-27/stage1_baseline_memo.md), commit `d651160`). Bootcamp paper trading archived to `C:/arcis/data/archive/ai_research_desk_bootcamp_2026-04-24.sqlite3`; current DB is fresh post-archive. $100 live deploy gated by `scripts/preflight_monday.py` on Mon 2026-04-27.
+- **3-stage roadmap (audit-spec §3.1, supersedes SD#41 REVISED):** Stage 1 = honest signed baseline (DONE); Stage 2 = excess Sharpe ≥ 0.5 at p < 0.05 over 150 OOS via block bootstrap + ≥4-of-5 promotion gate; Stage 3 = > 1.0 at p < 0.05 over 300 OOS.
+- **Stage-1 numbers (n=35 fully-instrumented from archive):** rf-adjusted excess Sharpe 6.14 (literal verdict GREEN per §3.1 Decision Matrix); SPY-relative non-significant at p=0.43 (the diagnostic gate — strategy not yet differentiated from passive long-SPY).
+- **Model**: `halcyon-v1.0.0` (Qwen3 8B, QLoRA fine-tuned); v2.0.0 retrain gated on Stage-2 promotion
+- **Dashboard**: [halcyonlab.app](https://halcyonlab.app) (28 pages including Trade History with excess-Sharpe lead panel, mobile-responsive sidebar, dark/light toggle)
 - **IB integration**: cold-stored per SD#41 — code intact, `trading.ib_enabled=false` default. Reactivation is a single flag flip; all modules, tests, table, and dependency preserved.
-- **Phase 1→2 gate (SD#41 REVISED):** excess-return Sharpe ≥ 0.5 at t ≥ 2.0 over 150 OOS trades (raw Sharpe gate deprecated — was trivially passed by bull-market SPY beta).
-- **Current counts**: See [MASTER.md](MASTER.md) Section 2 for live metrics (tests, files, tables, etc.)
+- **Current counts**: 3,380 tests passing / 67 schema tables / 28 dashboard pages. See [MASTER.md](MASTER.md) Section 2 for full live metrics.
+
+## 2026-04-27 Audit Artifacts
+
+- [`docs/audits/2026-04-27-trading-readiness/SHIPPED.md`](docs/audits/2026-04-27-trading-readiness/SHIPPED.md) — what got delivered (26 commits, +342 net tests, +6 new module families)
+- [`docs/audits/2026-04-27-trading-readiness/audit-spec.md`](docs/audits/2026-04-27-trading-readiness/audit-spec.md) — original spec (sections 3.1, 9, F-1 through F-16)
+- [`audits/2026-04-27/stage1_baseline_memo.md`](audits/2026-04-27/stage1_baseline_memo.md) — signed memo (the artifact Mon's go/halt rests on)
+- [`audits/2026-04-27/devils_advocate_stage1.md`](audits/2026-04-27/devils_advocate_stage1.md) — pre-sign-off skeptic checklist (5 categories)
+- [`docs/methodology-toolkit.md`](docs/methodology-toolkit.md) — when to use CPCV / block bootstrap / MC perm / PSR-DSR-MinTRL / White RC / promotion gate
 
 ## Architecture
 
@@ -27,7 +36,7 @@ Systematic equity research platform built on fine-tuned LLMs and a 5-agent AI co
   <img src="docs/architecture.svg" alt="Arcis System Architecture" width="100%"/>
 </p>
 
-See [MASTER.md](MASTER.md) Section 4 for the schema summary (53 tables). Full DDL in `src/schema/registry.py`.
+See [MASTER.md](MASTER.md) Section 4 for the schema summary (67 tables). Full DDL in `src/schema/registry.py`.
 
 See [Interactive Architecture (5W detail)](https://halcyonlab.app/architecture.html) for the full system diagram with expandable component details.
 
