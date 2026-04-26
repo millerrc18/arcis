@@ -104,6 +104,129 @@ class TestGetKpisResponseShape:
         assert result["n_minimum_trl"] == 150
 
 
+# ── I4: n_total / n_spy split (PR #690 review item I4) ───────────────────────
+
+class TestNTotalNSpySplit:
+    """The KPI response must surface n_total (full instrumented set used by
+    rf_adjusted_excess_sharpe) and n_spy (subset with spy_return_over_hold
+    populated, used by spy_relative_sharpe) as DISTINCT fields so the
+    frontend can label each card with its own N."""
+
+    _MIXED_TRADES = [
+        # 4 fully-instrumented trades — 2 with SPY data, 2 without.
+        {
+            "pnl_pct": 1.5,
+            "spy_return_over_hold": 0.005,
+            "instrumentation_version": 3,
+            "actual_entry_time": "2026-03-01T10:00:00",
+            "actual_exit_time": "2026-03-05T15:00:00",
+            "excess_return": 0.012,
+        },
+        {
+            "pnl_pct": -0.8,
+            "spy_return_over_hold": 0.002,
+            "instrumentation_version": 3,
+            "actual_entry_time": "2026-03-02T10:00:00",
+            "actual_exit_time": "2026-03-06T15:00:00",
+            "excess_return": -0.005,
+        },
+        {
+            "pnl_pct": 2.1,
+            "spy_return_over_hold": None,  # missing SPY data — drops out of n_spy
+            "instrumentation_version": 3,
+            "actual_entry_time": "2026-03-03T10:00:00",
+            "actual_exit_time": "2026-03-07T15:00:00",
+            "excess_return": 0.018,
+        },
+        {
+            "pnl_pct": 0.9,
+            "spy_return_over_hold": None,  # missing SPY data — drops out of n_spy
+            "instrumentation_version": 3,
+            "actual_entry_time": "2026-03-04T10:00:00",
+            "actual_exit_time": "2026-03-08T15:00:00",
+            "excess_return": 0.005,
+        },
+    ]
+
+    def test_response_has_n_total_field(self):
+        with patch("src.api.cloud_routes.kpis._fetch_closed_trades", return_value=[]):
+            result = get_kpis()
+        assert "n_total" in result, (
+            "PR #690 I4: response must include n_total (the full instrumented "
+            "set used by rf_adjusted_excess_sharpe)."
+        )
+
+    def test_response_has_n_spy_field(self):
+        with patch("src.api.cloud_routes.kpis._fetch_closed_trades", return_value=[]):
+            result = get_kpis()
+        assert "n_spy" in result, (
+            "PR #690 I4: response must include n_spy (the SPY-data subset "
+            "used by spy_relative_sharpe)."
+        )
+
+    def test_n_total_equals_n_trades_full_instrumented_set(self):
+        """n_total should equal n_trades (the full set) — convenience alias
+        so frontend doesn't need to remember which key holds the rf-adjusted N."""
+        with patch(
+            "src.api.cloud_routes.kpis._fetch_closed_trades",
+            return_value=self._MIXED_TRADES,
+        ):
+            result = get_kpis()
+        assert result["n_total"] == result["n_trades"]
+        assert result["n_total"] == 4
+
+    def test_n_spy_only_counts_trades_with_spy_data(self):
+        """n_spy must reflect only trades with non-None spy_return_over_hold —
+        because spy_relative_sharpe is computed on that subset."""
+        with patch(
+            "src.api.cloud_routes.kpis._fetch_closed_trades",
+            return_value=self._MIXED_TRADES,
+        ):
+            result = get_kpis()
+        # 4 instrumented; 2 with SPY data
+        assert result["n_spy"] == 2
+
+    def test_n_spy_can_be_less_than_n_total(self):
+        """Core decision: n_spy < n_total when SPY data is missing on some
+        trades. Frontend must label each card with its own N to avoid the
+        misleading shared N=${n} caption (PR #690 review body)."""
+        with patch(
+            "src.api.cloud_routes.kpis._fetch_closed_trades",
+            return_value=self._MIXED_TRADES,
+        ):
+            result = get_kpis()
+        assert result["n_spy"] < result["n_total"], (
+            f"In the mixed fixture (2 trades with SPY, 2 without), n_spy "
+            f"must be strictly less than n_total. Got n_spy={result['n_spy']}, "
+            f"n_total={result['n_total']}."
+        )
+
+    def test_n_spy_equals_n_total_when_all_trades_have_spy_data(self):
+        all_with_spy = [
+            dict(t, spy_return_over_hold=0.005)
+            for t in self._MIXED_TRADES
+        ]
+        with patch(
+            "src.api.cloud_routes.kpis._fetch_closed_trades",
+            return_value=all_with_spy,
+        ):
+            result = get_kpis()
+        assert result["n_spy"] == result["n_total"] == 4
+
+    def test_n_spy_zero_when_no_trades_have_spy_data(self):
+        none_with_spy = [
+            dict(t, spy_return_over_hold=None)
+            for t in self._MIXED_TRADES
+        ]
+        with patch(
+            "src.api.cloud_routes.kpis._fetch_closed_trades",
+            return_value=none_with_spy,
+        ):
+            result = get_kpis()
+        assert result["n_spy"] == 0
+        assert result["n_total"] == 4
+
+
 # ── Empty-DB rendering tests ──────────────────────────────────────────────────
 
 class TestEmptyDbRendering:

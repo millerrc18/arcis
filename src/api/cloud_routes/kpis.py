@@ -382,6 +382,13 @@ def get_kpis() -> dict:
 
     return {
         "n_trades": n_trades,
+        # PR #690 I4: rf_adjusted_excess_sharpe is computed on ALL
+        # instrumented trades (n_total); spy_relative_sharpe is computed
+        # only on the subset that has spy_return_over_hold populated
+        # (n_spy). Frontend captions need to label each card with its
+        # own N — see frontend/src/components/dashboard/KPIStrip.jsx.
+        "n_total": n_trades,
+        "n_spy": len(spy_with_data),
         "n_minimum_trl": N_MINIMUM_TRL,
         "as_of": datetime.now(timezone.utc).isoformat(),
         "instrumentation_pct": _compute_instrumentation_pct(raw_trades),
