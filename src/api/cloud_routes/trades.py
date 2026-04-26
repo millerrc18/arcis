@@ -32,7 +32,7 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from src.services.shadow_service import _compute_timeout_status
+from src.services.shadow_service import compute_timeout_status
 
 
 # ── SD#41 / Sprint-3 Task-12c desk-filter helper ───────────────────────────
@@ -182,7 +182,7 @@ def create_router(runtime, verify_auth):
                     trade["current_price_est"] = None
 
             for trade in rows:
-                timeout_info = _compute_timeout_status(
+                timeout_info = compute_timeout_status(
                     trade.get("duration_days"), trade.get("timeout_days")
                 )
                 trade["timeout_progress_pct"] = timeout_info["timeout_progress_pct"]
@@ -239,7 +239,7 @@ def create_router(runtime, verify_auth):
                 "total_pnl": round(total_pnl, 2),
             }
             for row in rows:
-                timeout_info = _compute_timeout_status(
+                timeout_info = compute_timeout_status(
                     row.get("duration_days"), row.get("timeout_days")
                 )
                 row["timeout_progress_pct"] = timeout_info["timeout_progress_pct"]
@@ -394,14 +394,14 @@ def create_router(runtime, verify_auth):
                     except (TypeError, ValueError, ZeroDivisionError):
                         pass
             for trade in open_trades:
-                timeout_info = _compute_timeout_status(
+                timeout_info = compute_timeout_status(
                     trade.get("duration_days"), trade.get("timeout_days")
                 )
                 trade["timeout_progress_pct"] = timeout_info["timeout_progress_pct"]
                 trade["timeout_status"] = timeout_info["timeout_status"]
                 trade.setdefault("llm_timeout_days", trade.get("llm_timeout_days"))
             for trade in closed_trades:
-                timeout_info = _compute_timeout_status(
+                timeout_info = compute_timeout_status(
                     trade.get("duration_days"), trade.get("timeout_days")
                 )
                 trade["timeout_progress_pct"] = timeout_info["timeout_progress_pct"]
