@@ -32,15 +32,18 @@ export default function AuthGate({ children }) {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  // If not cloud mode, render children directly
-  if (!IS_CLOUD) return children
-
+  // Rules of Hooks: hooks must run unconditionally and in the same order on
+  // every render. Keep useEffect ABOVE any early return so hook count stays
+  // stable regardless of IS_CLOUD or authed state. (Sprint-0/F-AUTH; PR-690 B2.)
   useEffect(() => {
+    if (!IS_CLOUD) return
     if (isSessionValid()) {
       setAuthed(true)
     }
   }, [])
 
+  // Short-circuit AFTER all hooks have registered.
+  if (!IS_CLOUD) return children
   if (authed) return children
 
   async function handleSubmit(e) {
