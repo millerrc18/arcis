@@ -33,7 +33,7 @@ _QUERY = """
     SELECT trade_id, ticker, exit_reason,
            actual_exit_price, stop_price, target_1, target_2,
            duration_days, timeout_days,
-           actual_entry_time
+           actual_entry_time, direction
     FROM shadow_trades
     WHERE status = 'closed'
       AND actual_exit_time >= datetime('now', '-24 hours')
@@ -54,30 +54,81 @@ def _computed_days(actual_entry_time: str | None) -> int:
         return 0
 
 
+def _row_get(row: sqlite3.Row, key: str, default=None):
+    """Safe accessor for sqlite3.Row that may not contain the key.
+
+    sqlite3.Row supports __getitem__ but not .get(). Test fixtures sometimes
+    omit the `direction` column entirely (older schema), so we fall back to
+    the default when the key is absent.
+    """
+    try:
+        value = row[key]
+    except (IndexError, KeyError):
+        return default
+    return value if value is not None else default
+
+
 def _check_trade(row: sqlite3.Row) -> bool:
-    """Return True if the row is anomalous, False if clean or skipped."""
+    """Return True if the row is anomalous, False if clean or skipped.
+
+    Direction-aware (PR-690 O2): a long that "hit target_1" must have
+    exit_price >= target_1; a short must have exit_price <= target_1.
+    Stop_loss inverts symmetrically. Unknown directions are logged
+    and treated as non-anomalous (fail-safe).
+    """
     reason = row["exit_reason"] or "unknown"
     exit_price = row["actual_exit_price"]
+    direction = str(_row_get(row, "direction", "long") or "long").lower()
 
     if reason == "target_1":
         t1 = row["target_1"]
         if t1 is None:
             logger.warning("[RECONCILE_SKIP] trade_id=%s target_1=NULL", row["trade_id"])
             return False
-        return exit_price is not None and exit_price < t1
+        if exit_price is None:
+            return False
+        if direction == "long":
+            return exit_price < t1
+        if direction == "short":
+            return exit_price > t1
+        logger.warning(
+            "[EXIT_RECON_UNKNOWN_DIRECTION] trade_id=%s direction=%s reason=%s",
+            row["trade_id"], direction, reason,
+        )
+        return False
 
     if reason == "target_2":
         t2 = row["target_2"]
         if t2 is None or t2 <= 0:
             logger.warning("[RECONCILE_SKIP] trade_id=%s target_2=NULL/zero", row["trade_id"])
             return False
-        return exit_price is not None and exit_price < t2
+        if exit_price is None:
+            return False
+        if direction == "long":
+            return exit_price < t2
+        if direction == "short":
+            return exit_price > t2
+        logger.warning(
+            "[EXIT_RECON_UNKNOWN_DIRECTION] trade_id=%s direction=%s reason=%s",
+            row["trade_id"], direction, reason,
+        )
+        return False
 
     if reason == "stop_loss":
         sp = row["stop_price"]
         if sp is None or sp <= 0:
             return False
-        return exit_price is not None and exit_price > sp * (1 + _STOP_LOSS_SLIPPAGE_TOLERANCE)
+        if exit_price is None:
+            return False
+        if direction == "long":
+            return exit_price > sp * (1 + _STOP_LOSS_SLIPPAGE_TOLERANCE)
+        if direction == "short":
+            return exit_price < sp * (1 - _STOP_LOSS_SLIPPAGE_TOLERANCE)
+        logger.warning(
+            "[EXIT_RECON_UNKNOWN_DIRECTION] trade_id=%s direction=%s reason=%s",
+            row["trade_id"], direction, reason,
+        )
+        return False
 
     if reason == "timeout":
         td = row["timeout_days"] or 15

@@ -55,6 +55,7 @@ def _create_db() -> sqlite3.Connection:
             target_2 REAL,
             duration_days INTEGER,
             timeout_days INTEGER,
+            direction TEXT DEFAULT 'long',
             quarantined INTEGER DEFAULT 0
         )
     """)
@@ -77,6 +78,7 @@ def _insert(conn, trade_id, **kwargs):
         "target_2": 120.0,
         "duration_days": 1,
         "timeout_days": 15,
+        "direction": "long",
         "quarantined": 0,
     }
     defaults.update(kwargs)
@@ -185,12 +187,12 @@ def test_timeout_null_duration_uses_fallback():
         INSERT INTO shadow_trades
         (trade_id, ticker, status, exit_reason, actual_exit_time, actual_exit_price,
          actual_entry_time, actual_entry_price, entry_price, stop_price, target_1, target_2,
-         duration_days, timeout_days, quarantined)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         duration_days, timeout_days, direction, quarantined)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, ["tofb", "AAPL", "closed", "timeout",
           _now_iso(1), 100.0,
           _now_iso(24 * 20), 100.0, 100.0, 95.0, 110.0, 120.0,
-          None, 15, 0])
+          None, 15, "long", 0])
     conn.commit()
     result = _run(conn)
     assert "tofb" not in result["flagged_trade_ids"]
@@ -221,13 +223,13 @@ def test_null_bracket_skipped(caplog):
         INSERT INTO shadow_trades
         (trade_id, ticker, status, exit_reason, actual_exit_time, actual_exit_price,
          actual_entry_time, actual_entry_price, entry_price, stop_price, target_1, target_2,
-         duration_days, timeout_days, quarantined)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         duration_days, timeout_days, direction, quarantined)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, ["tnull", "AAPL", "closed", "target_1",
           _now_iso(1), 100.0,
           _now_iso(25), 100.0, 100.0, 95.0,
           None, 0.0,   # target_1=NULL
-          1, 15, 0])
+          1, 15, "long", 0])
     conn.commit()
     with caplog.at_level(logging.WARNING):
         result = _run(conn)
@@ -286,6 +288,153 @@ def test_quarantined_excluded():
 
 
 # ---------------------------------------------------------------------------
+# Direction handling — PR-690 O2
+# ---------------------------------------------------------------------------
+
+def test_short_trade_stop_loss_anomaly_inverts():
+    """For a short, stop_price is ABOVE entry. An exit BELOW stop_price by
+    >1% (stop * 0.99 = 100.98) is the broker-slippage anomaly that should fire.
+
+    Long-only logic (exit > stop * 1.01) would NOT have flagged this row;
+    direction-aware logic (exit < stop * 0.99) DOES.
+    """
+    conn = _create_db()
+    # short with stop=102, exit=95: exit is well below stop * 0.99 = 100.98
+    _insert(
+        conn, "shsl_anom",
+        direction="short",
+        exit_reason="stop_loss",
+        stop_price=102.0,
+        actual_exit_price=95.0,
+    )
+    result = _run(conn)
+    assert "shsl_anom" in result["flagged_trade_ids"]
+    assert result["by_reason"]["stop_loss"]["anomalies"] == 1
+
+
+def test_short_trade_stop_loss_clean_within_tolerance():
+    """Short with stop=100, exit=99.5: above the 1% lower bound (99.0),
+    so no anomaly even though exit < stop."""
+    conn = _create_db()
+    _insert(
+        conn, "shsl_clean",
+        direction="short",
+        exit_reason="stop_loss",
+        stop_price=100.0,
+        actual_exit_price=99.5,
+    )
+    result = _run(conn)
+    assert "shsl_clean" not in result["flagged_trade_ids"]
+    assert result["by_reason"]["stop_loss"]["anomalies"] == 0
+
+
+def test_short_trade_target_1_anomaly_inverts():
+    """For a short, target_1 is BELOW entry. Saying we hit target_1 but
+    exit_price > target_1 is the anomaly (we didn't actually reach it).
+
+    Long-only logic would have flagged this only if exit < t1; for a short
+    that case is the clean (target reached) path."""
+    conn = _create_db()
+    _insert(
+        conn, "sht1_anom",
+        direction="short",
+        exit_reason="target_1",
+        target_1=90.0,
+        actual_exit_price=95.0,  # didn't reach 90 from above
+    )
+    result = _run(conn)
+    assert "sht1_anom" in result["flagged_trade_ids"]
+    assert result["by_reason"]["target_1"]["anomalies"] == 1
+
+
+def test_short_trade_target_1_clean():
+    """Short with target_1=90, exit=88: hit the target from above, clean."""
+    conn = _create_db()
+    _insert(
+        conn, "sht1_clean",
+        direction="short",
+        exit_reason="target_1",
+        target_1=90.0,
+        actual_exit_price=88.0,
+    )
+    result = _run(conn)
+    assert "sht1_clean" not in result["flagged_trade_ids"]
+    assert result["by_reason"]["target_1"]["anomalies"] == 0
+
+
+def test_short_trade_target_2_anomaly_inverts():
+    """Symmetric to target_1 — short with target_2 below entry, exit
+    above target_2 means we didn't actually reach it."""
+    conn = _create_db()
+    _insert(
+        conn, "sht2_anom",
+        direction="short",
+        exit_reason="target_2",
+        target_2=80.0,
+        actual_exit_price=85.0,  # didn't reach 80 from above
+    )
+    result = _run(conn)
+    assert "sht2_anom" in result["flagged_trade_ids"]
+    assert result["by_reason"]["target_2"]["anomalies"] == 1
+
+
+def test_unknown_direction_logs_warning_returns_false(caplog):
+    """A row with direction='sideways' (unknown) for a price-based reason
+    must NOT flag (fail-safe) and MUST emit EXIT_RECON_UNKNOWN_DIRECTION."""
+    import logging as _logging
+    conn = _create_db()
+    # Price would have flagged as long-stop_loss anomaly (exit 105 > 96*1.01)
+    _insert(
+        conn, "udir",
+        direction="sideways",
+        exit_reason="stop_loss",
+        stop_price=96.0,
+        actual_exit_price=105.0,
+    )
+    with caplog.at_level(_logging.WARNING):
+        result = _run(conn)
+    assert "udir" not in result["flagged_trade_ids"]
+    assert "EXIT_RECON_UNKNOWN_DIRECTION" in caplog.text
+    assert "udir" in caplog.text
+
+
+def test_long_trade_stop_loss_anomaly_still_fires():
+    """Regression: explicit direction='long' must preserve the original
+    long-only anomaly behavior."""
+    conn = _create_db()
+    _insert(
+        conn, "lsl_anom",
+        direction="long",
+        exit_reason="stop_loss",
+        stop_price=96.0,
+        actual_exit_price=105.0,
+    )
+    result = _run(conn)
+    assert "lsl_anom" in result["flagged_trade_ids"]
+
+
+def test_default_direction_treated_as_long():
+    """Rows with direction NULL fall back to 'long' for backward compat
+    with the historical long-only fleet."""
+    conn = _create_db()
+    # Insert with direction=NULL explicitly
+    conn.execute("""
+        INSERT INTO shadow_trades
+        (trade_id, ticker, status, exit_reason, actual_exit_time, actual_exit_price,
+         actual_entry_time, actual_entry_price, entry_price, stop_price, target_1, target_2,
+         duration_days, timeout_days, direction, quarantined)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, ["nodir", "AAPL", "closed", "stop_loss",
+          _now_iso(1), 105.0,
+          _now_iso(25), 100.0, 100.0, 96.0, 110.0, 120.0,
+          1, 15, None, 0])
+    conn.commit()
+    result = _run(conn)
+    # 105 > 96*1.01=96.96 → flagged under long fallback
+    assert "nodir" in result["flagged_trade_ids"]
+
+
+# ---------------------------------------------------------------------------
 # Slippage tolerance constant — PR-690 O3
 # ---------------------------------------------------------------------------
 
@@ -305,5 +454,5 @@ def test_slippage_tolerance_constant_used():
     # No magic literals in the stop_loss branch.
     assert "* 1.01" not in src, "_check_trade must reference the constant, not 1.01"
     assert "* 0.99" not in src, "_check_trade must reference the constant, not 0.99"
-    # Constant is referenced at least once (long branch; O2 adds short branch).
-    assert src.count("_STOP_LOSS_SLIPPAGE_TOLERANCE") >= 1
+    # Constant is referenced at least twice (long + short branches, post-O2).
+    assert src.count("_STOP_LOSS_SLIPPAGE_TOLERANCE") >= 2
