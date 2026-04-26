@@ -244,28 +244,27 @@ def audit_history(days: int = 7):
     return results
 
 
-@router.get("/metric-history")
-def metric_history(days: int = 90):
-    """Get rolling metric snapshots computed from closed trade history."""
-    from src.journal.store import get_closed_shadow_trades
-    from datetime import datetime, timedelta
-    from zoneinfo import ZoneInfo
-    import math
+def _build_metric_snapshots(closed: list[dict]) -> list[dict]:
+    """Pure helper: build rolling metric snapshots from a sorted closed-trade list.
 
-    et = ZoneInfo("America/New_York")
-    closed = get_closed_shadow_trades(days=days)
+    F-2 / Sprint-0 wave-4a: rolling Sharpe is computed via the canonical
+    `compute_sharpe(periods_per_year=150)` (matches cto_report's trade-
+    frequency convention of ~150 trades/year). Returns 0 (not None) on
+    degenerate windows so the JSON snapshot always has a numeric Sharpe.
+
+    Extracted from `metric_history` so the rolling logic is unit-testable
+    without a DB fixture. The route handler is a thin wrapper that fetches
+    closed trades and calls this helper.
+    """
+    from src.analytics.canonical_sharpe import compute_sharpe
 
     if not closed:
         return []
 
-    # Sort by created_at ascending
-    closed.sort(key=lambda t: t.get("created_at", ""))
-
-    # Build rolling snapshots: for each trade, compute metrics up to that point
-    snapshots = []
+    snapshots: list[dict] = []
     cumulative_pnl = 0
     peak = 0
-    all_pnl_pcts = []
+    all_pnl_pcts: list[float] = []
     wins = 0
 
     for i, t in enumerate(closed):
@@ -283,13 +282,8 @@ def metric_history(days: int = 90):
         trade_count = i + 1
         win_rate = wins / trade_count
 
-        # Rolling Sharpe
-        if len(all_pnl_pcts) >= 2:
-            mean_r = sum(all_pnl_pcts) / len(all_pnl_pcts)
-            std_r = (sum((r - mean_r) ** 2 for r in all_pnl_pcts) / (len(all_pnl_pcts) - 1)) ** 0.5
-            sharpe = (mean_r / std_r) * math.sqrt(150) if std_r > 0 else 0
-        else:
-            sharpe = 0
+        sharpe_val = compute_sharpe(all_pnl_pcts, periods_per_year=150)
+        sharpe = 0 if sharpe_val is None else sharpe_val
 
         snapshots.append({
             "date": (t.get("created_at") or "")[:10],
@@ -302,6 +296,20 @@ def metric_history(days: int = 90):
         })
 
     return snapshots
+
+
+@router.get("/metric-history")
+def metric_history(days: int = 90):
+    """Get rolling metric snapshots computed from closed trade history."""
+    from src.journal.store import get_closed_shadow_trades
+
+    closed = get_closed_shadow_trades(days=days)
+    if not closed:
+        return []
+
+    # Sort by created_at ascending
+    closed.sort(key=lambda t: t.get("created_at", ""))
+    return _build_metric_snapshots(closed)
 
 
 @router.get("/data-collection-stats")

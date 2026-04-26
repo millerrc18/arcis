@@ -16,11 +16,24 @@ from scipy import stats
 
 
 def sharpe_ratio(returns: np.ndarray, risk_free: float = 0.0) -> float:
-    """Per-trade Sharpe ratio."""
+    """Per-trade Sharpe ratio (un-annualized).
+
+    F-2 / Sprint-0 wave-4a: routes through canonical compute_sharpe with
+    explicit `periods_per_year=1, ddof=0` to preserve the legacy contract
+    consumed by `gate_evaluator.evaluate_50_trade_gate` (the 50-trade gate
+    threshold of `Sharpe >= 0.15` GREEN is per-trade un-annualized; ddof=0
+    matches the historical numpy default `excess.std()`).
+
+    Q3 deferred: annualizing this surface would require recalibrating the
+    0.15 / 0.05 gate thresholds. That's out of scope for the
+    consolidation PR; tracked for a follow-up. The `excess.std() == 0`
+    short-circuit and `len(excess) == 0` zero-return are preserved so
+    the gate's numeric arithmetic does not fault on degenerate inputs.
+    """
+    from src.analytics.canonical_sharpe import compute_sharpe
     excess = returns - risk_free
-    if len(excess) == 0 or excess.std() == 0:
-        return 0.0
-    return float(excess.mean() / excess.std())
+    out = compute_sharpe(list(excess), periods_per_year=1, ddof=0)
+    return 0.0 if out is None else float(out)
 
 
 def sharpe_standard_error(sr: float, n: int, skew: float = 0.0,

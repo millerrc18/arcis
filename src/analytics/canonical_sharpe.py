@@ -3,26 +3,39 @@
 Audit spec §F-2 (CRITICAL): the codebase had six-plus duplicated Sharpe
 implementations across journal/, platform/, evaluation/, and api/ surfaces,
 each with subtle differences (annualization factor, ddof, gating). This
-module supplies the three canonical flavors — all 252-scaled, all using
-sample stdev (ddof=1) — and the legacy sites delegate here.
+module supplies the three canonical flavors — all 252-scaled by default,
+all using sample stdev (ddof=1) by default — and the legacy sites delegate
+here.
 
 Three flavors:
   raw_sharpe(returns)                 — straight per-period series
   spy_relative_sharpe(r, spy_r)       — diff-on-diff vs SPY benchmark
   rf_adjusted_excess_sharpe(r, rf)    — subtract a per-period rf rate
 
-All return None when the series is empty, has only one observation, or
-has zero variance. None is the project convention for "Sharpe undefined";
-callers that need a fallback (e.g. dashboard 0.0) wrap accordingly.
+Plus the parametric `compute_sharpe(returns, periods_per_year=252, ddof=1)`
+introduced for Sprint-0 wave-4a SHARPE-CONSOLIDATION-EVAL: legacy callers
+in cto_report (150 trades/yr), system rolling-Sharpe snapshots (150),
+model_monitor (per-trade), evaluation.statistics (per-trade gate, ddof=0),
+and simulation.engine (52 weekly, ddof=0) all delegate here. The
+`periods_per_year` parameter accommodates non-252 conventions; the `ddof`
+parameter accommodates legacy ddof=0 (population) callers that would
+silently change behavior on a ddof=1 swap (gate threshold preservation,
+np.std default parity).
 
-Called by: src.journal.stats, src.platform.metrics, eventually
-  src.api.cloud_routes.trades, src.evaluation.cto_report,
-  src.platform.rigor.cscv (rename only — kept scale-invariant).
+All return None when the series is empty, has too few observations
+(n <= ddof), or has zero variance. None is the project convention for
+"Sharpe undefined"; callers that need a numeric fallback (e.g. dashboard
+0.0, or model_monitor's regression-comparison arithmetic) wrap accordingly.
+
+Called by: src.journal.stats, src.platform.metrics, src.api.routes.system,
+  src.evaluation.cto_report, src.evaluation.model_monitor,
+  src.evaluation.statistics, src.simulation.engine.
 Calls: math (no numpy dep — keeps this module callable from pure-Python
   code paths like journal/stats.py).
 Owns tables: none.
 Config keys: none.
-Tests: tests/test_canonical_sharpe.py.
+Tests: tests/test_canonical_sharpe.py,
+  tests/evaluation/test_sharpe_canonical_routing.py.
 """
 from __future__ import annotations
 
@@ -32,17 +45,47 @@ from typing import Sequence
 PERIODS_PER_YEAR = 252
 
 
-def _annualized_sharpe(series: Sequence[float]) -> float | None:
-    """mean / stdev(ddof=1) * sqrt(252). None when undefined."""
+def _annualized_sharpe(
+    series: Sequence[float],
+    periods_per_year: int = PERIODS_PER_YEAR,
+    ddof: int = 1,
+) -> float | None:
+    """mean / stdev(ddof=ddof) * sqrt(periods_per_year). None when undefined.
+
+    Defaults match the historical canonical: ddof=1 (sample stdev) and
+    periods_per_year=252. Override `ddof` only for backward-compat with
+    callers that documented np.std default (ddof=0) behavior; override
+    `periods_per_year` for non-daily conventions (52 weekly, 150 trades/yr,
+    1 per-trade un-annualized).
+    """
     n = len(series)
-    if n < 2:
+    if n <= ddof:
         return None
     mean = sum(series) / n
-    var = sum((x - mean) ** 2 for x in series) / (n - 1)
+    var = sum((x - mean) ** 2 for x in series) / (n - ddof)
     sd = var ** 0.5
     if sd == 0.0:
         return None
-    return (mean / sd) * math.sqrt(PERIODS_PER_YEAR)
+    return (mean / sd) * math.sqrt(periods_per_year)
+
+
+def compute_sharpe(
+    returns: Sequence[float],
+    periods_per_year: int = PERIODS_PER_YEAR,
+    ddof: int = 1,
+) -> float | None:
+    """Annualized Sharpe = mean(returns)/std(returns, ddof=ddof) * sqrt(periods_per_year).
+
+    Public canonical entry-point used by the six legacy Sharpe sites
+    consolidated by Sprint-0 wave-4a. None when undefined (empty series,
+    n <= ddof, zero variance). Callers that contractually return a numeric
+    sentinel (e.g. 0.0) on degenerate inputs wrap the None at the call
+    site — canonical does not implicitly substitute.
+
+    Returns:
+        Annualized Sharpe, or None when undefined.
+    """
+    return _annualized_sharpe(list(returns), periods_per_year=periods_per_year, ddof=ddof)
 
 
 def raw_sharpe(returns: Sequence[float]) -> float | None:
@@ -68,3 +111,34 @@ def rf_adjusted_excess_sharpe(
     rf_period is a per-period (not annualized) risk-free rate."""
     diff = [r - rf_period for r in returns]
     return _annualized_sharpe(diff)
+
+
+def compute_sortino_mar(
+    returns: Sequence[float],
+    periods_per_year: int = PERIODS_PER_YEAR,
+    mar: float = 0.0,
+) -> float | None:
+    """Sortino with MAR threshold (default 0): mean / RMS(downside) * sqrt(periods_per_year).
+
+    Distinct from `src.platform.metrics.compute_sortino` (which uses
+    stdev-of-downside-subset divisor). This MAR-based variant matches the
+    legacy `cto_report._compute_fund_metrics` formula:
+
+        downside_dev = sqrt(sum(min(r, mar)^2) / len(downside_subset))
+        sortino = mean(r) / downside_dev * sqrt(periods_per_year)
+
+    Returns None when there are no downside observations or when the
+    downside RMS is zero. Callers that contractually return 0 / 'inf' on
+    these paths must wrap.
+    """
+    if not returns:
+        return None
+    downside = [r for r in returns if r < mar]
+    if not downside:
+        return None
+    # RMS of (r - mar) on downside-only subset; equivalent to RMS(r) when mar=0
+    downside_dev = (sum((r - mar) ** 2 for r in downside) / len(downside)) ** 0.5
+    if downside_dev == 0.0:
+        return None
+    mean_r = sum(returns) / len(returns)
+    return (mean_r / downside_dev) * math.sqrt(periods_per_year)

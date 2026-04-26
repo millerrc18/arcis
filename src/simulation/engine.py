@@ -419,10 +419,16 @@ def run_scenario(name: str, start: str, end: str, config: dict | None = None) ->
         dd = (peak - eq) / peak * 100 if peak > 0 else 0
         max_dd = max(max_dd, dd)
 
-    # Sharpe ratio (annualized from weekly-ish returns)
+    # Sharpe ratio (annualized from weekly returns).
+    # F-2 / Sprint-0 wave-4a: route through canonical compute_sharpe with
+    # `periods_per_year=52` (weekly) and `ddof=0` (preserves legacy
+    # `np.std` default — bumping to ddof=1 would silently change every
+    # historical simulation report). None → 0 to match legacy contract.
+    from src.analytics.canonical_sharpe import compute_sharpe
     if len(trades) > 1:
-        returns = np.array([t["pnl_pct"] for t in trades])
-        sharpe = float(np.mean(returns) / np.std(returns) * np.sqrt(52)) if np.std(returns) > 0 else 0
+        returns = [t["pnl_pct"] for t in trades]
+        sharpe_canonical = compute_sharpe(returns, periods_per_year=52, ddof=0)
+        sharpe = 0.0 if sharpe_canonical is None else float(sharpe_canonical)
     else:
         sharpe = 0.0
 
