@@ -25,7 +25,21 @@ from fastapi import APIRouter, Depends
 router = APIRouter()
 
 # Default audits directory relative to repo root.
-_REPO_ROOT = Path(__file__).resolve().parents[3]
+def _find_project_root() -> Path:
+    """Walk up from this file to find the repo root (has MASTER.md or CLAUDE.md).
+
+    More robust than ``Path(__file__).resolve().parents[3]`` — survives the file
+    being moved between package depths (Sprint 0 cluster-07). Mirrors
+    ``src/api/routes/docs.py::_find_project_root``.
+    """
+    p = Path(__file__).resolve()
+    for parent in [p, *p.parents]:
+        if (parent / "MASTER.md").exists() or (parent / "CLAUDE.md").exists():
+            return parent
+    return Path.cwd()
+
+
+_REPO_ROOT = _find_project_root()
 _AUDITS_DIR = _REPO_ROOT / "audits"
 
 _GENERATED_RE = re.compile(r"^Generated:\s*(.+)$", re.MULTILINE)
@@ -44,9 +58,12 @@ def verify_auth() -> None:
 def _find_latest_transcript(audits_dir: Path) -> Path | None:
     """Return the most recently written preflight_transcript.txt under audits_dir.
 
-    Walks one level of subdirectories (date-named dirs like 2026-04-27) sorted
-    descending so the most recent transcript wins. Returns None when no
-    transcript has been written yet.
+    Walks one level of subdirectories (date-named dirs like 2026-04-27) and
+    selects the transcript with the latest mtime. Sorting by mtime is more
+    robust than lexicographic sort: it survives non-zero-padded date
+    directories (e.g. ``2026-5-1`` vs ``2026-04-27``) and re-runs that
+    overwrite an older dir's transcript. Returns None when no transcript has
+    been written yet.
     """
     candidates: list[Path] = []
     for child in audits_dir.iterdir() if audits_dir.is_dir() else []:
@@ -58,7 +75,7 @@ def _find_latest_transcript(audits_dir: Path) -> Path | None:
             candidates.append(child)
     if not candidates:
         return None
-    return sorted(candidates, key=lambda p: str(p))[-1]
+    return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
 def _parse_transcript(text: str) -> dict[str, Any]:

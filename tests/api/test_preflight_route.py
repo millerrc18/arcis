@@ -87,6 +87,11 @@ class TestFindLatestTranscript:
         t2 = dir2 / "preflight_transcript.txt"
         t1.write_text("older", encoding="utf-8")
         t2.write_text("newer", encoding="utf-8")
+        # Selection is by mtime (PR #690 O6), so set explicit mtimes rather
+        # than relying on filesystem write-order timing (Windows FS can
+        # return identical mtimes for back-to-back writes).
+        os.utime(t1, (1_700_000_000, 1_700_000_000))
+        os.utime(t2, (1_700_000_100, 1_700_000_100))
         result = _find_latest_transcript(tmp_path)
         assert result == t2
 
@@ -96,6 +101,38 @@ class TestFindLatestTranscript:
         (subdir / "other_file.txt").write_text("not a transcript", encoding="utf-8")
         result = _find_latest_transcript(tmp_path)
         assert result is None
+
+    def test_returns_most_recently_modified_regardless_of_name(self, tmp_path):
+        """Ordering must be by mtime, not lexicographic name (PR #690 O6).
+
+        Three transcripts in name-ordered dirs but touched in a different order:
+        the latest mtime must win even when its name sorts first lexically.
+        Guards against the ``2026-5-1`` non-padded-month bug where lex sort
+        would pick the wrong (older) directory.
+        """
+        # Create three audit dirs whose names sort A < B < C lexically.
+        dir_a = tmp_path / "2026-04-27"  # newest by name
+        dir_b = tmp_path / "2026-04-26"
+        dir_c = tmp_path / "2026-04-25"  # oldest by name
+        for d in (dir_a, dir_b, dir_c):
+            d.mkdir()
+        ta = dir_a / "preflight_transcript.txt"
+        tb = dir_b / "preflight_transcript.txt"
+        tc = dir_c / "preflight_transcript.txt"
+        # Write in name-sort order so default mtimes match name order.
+        ta.write_text("a", encoding="utf-8")
+        tb.write_text("b", encoding="utf-8")
+        tc.write_text("c", encoding="utf-8")
+        # Now touch mtimes so the lex-smallest name (dir_c) is the most recent.
+        # Pick widely-spaced timestamps so flaky filesystem resolution can't blur them.
+        os.utime(ta, (1_700_000_000, 1_700_000_000))  # oldest by mtime, newest by name
+        os.utime(tb, (1_700_000_100, 1_700_000_100))
+        os.utime(tc, (1_700_000_200, 1_700_000_200))  # newest by mtime, oldest by name
+
+        result = _find_latest_transcript(tmp_path)
+        assert result == tc, (
+            f"expected mtime-newest ({tc.name}'s parent), got {result}"
+        )
 
 
 # ── _parse_transcript tests ───────────────────────────────────────────────────
