@@ -24,15 +24,31 @@ CALENDAR_PATH = Path("data/reference/market_event_calendar.csv")
 HIGH_IMPACT_EVENTS = {"FOMC", "CPI", "NFP", "GDP", "PCE"}
 
 
-@lru_cache(maxsize=1)
-def _load_event_calendar() -> list[dict]:
-    """Load the market event calendar CSV into memory.
+def _calendar_mtime() -> float:
+    """Return the calendar file's mtime, or 0.0 if missing.
 
-    Cached — only reads once per process lifetime (422 rows, trivial).
+    Used as part of the cache key so the LRU is automatically invalidated
+    when the underlying CSV is overwritten — no manual cache_clear() call
+    needed by the watch loop or operator.
+    """
+    try:
+        return CALENDAR_PATH.stat().st_mtime if CALENDAR_PATH.exists() else 0.0
+    except OSError:
+        return 0.0
+
+
+@lru_cache(maxsize=4)
+def _load_event_calendar_cached(_mtime: float) -> tuple:
+    """Internal mtime-keyed cache for the event calendar.
+
+    The _mtime arg is the cache key — when the CSV is rewritten its mtime
+    changes and a new entry is created. Returns a tuple (immutable) so
+    callers cannot mutate the cached list. maxsize=4 lets the LRU keep a
+    couple of recent versions during a rotation without unbounded growth.
     """
     if not CALENDAR_PATH.exists():
         logger.warning("[EVENTS] Calendar file not found: %s", CALENDAR_PATH)
-        return []
+        return tuple()
 
     events = []
     try:
@@ -50,19 +66,67 @@ def _load_event_calendar() -> list[dict]:
                     continue
     except Exception as e:
         logger.warning("[EVENTS] Failed to load calendar: %s", e)
-        return []
+        return tuple()
 
-    logger.info("[EVENTS] Loaded %d events from calendar", len(events))
-    return events
+    logger.info("[EVENTS] Loaded %d events from calendar (mtime=%s)",
+                len(events), _mtime)
+    return tuple(events)
 
 
-def get_upcoming_events(days: int = 3, reference_date: date | None = None) -> list[dict]:
+def _load_event_calendar() -> list[dict]:
+    """Load the market event calendar CSV into memory.
+
+    Sprint 0/Wave 5a (EVENT-PROXIMITY-PIT): the underlying cache is keyed
+    on the CSV file's mtime, so when the calendar is regenerated (e.g. by
+    a refresh script), the next call automatically picks up the new
+    contents. Previous lru_cache(maxsize=1) held the calendar for the
+    full process lifetime with no invalidation hook.
+
+    Returns a list copy so callers can safely append/sort.
+    """
+    return list(_load_event_calendar_cached(_calendar_mtime()))
+
+
+# Backward-compat shim: tests call `_load_event_calendar.cache_clear()`.
+def _cache_clear() -> None:
+    _load_event_calendar_cached.cache_clear()
+
+
+_load_event_calendar.cache_clear = _cache_clear  # type: ignore[attr-defined]
+
+
+def _coerce_reference(reference_date: date | str | None) -> date:
+    """Normalize reference_date to a date.
+
+    None falls back to date.today() (live-scan behavior). Sprint 0/Wave 5a
+    keeps backward-compat default while letting historical scans pass an
+    explicit cutoff to prevent today()-based leakage.
+    """
+    if reference_date is None:
+        return date.today()
+    if isinstance(reference_date, datetime):
+        return reference_date.date()
+    if isinstance(reference_date, date):
+        return reference_date
+    if isinstance(reference_date, str):
+        try:
+            return date.fromisoformat(reference_date[:10])
+        except (ValueError, TypeError):
+            return date.today()
+    return date.today()
+
+
+def get_upcoming_events(
+    days: int = 3,
+    reference_date: date | str | None = None,
+) -> list[dict]:
     """Get market events within N calendar days.
 
     Returns list of {date, event_type, description, days_away},
-    sorted by date ascending.
+    sorted by date ascending. reference_date acts as the PIT anchor —
+    None means "today" (live scan).
     """
-    ref = reference_date or date.today()
+    ref = _coerce_reference(reference_date)
     horizon = ref + timedelta(days=days)
     calendar = _load_event_calendar()
 
@@ -77,8 +141,10 @@ def get_upcoming_events(days: int = 3, reference_date: date | None = None) -> li
     return sorted(upcoming, key=lambda e: e["date"])
 
 
-def get_nearest_high_impact_event(days: int = 5,
-                                   reference_date: date | None = None) -> dict | None:
+def get_nearest_high_impact_event(
+    days: int = 5,
+    reference_date: date | str | None = None,
+) -> dict | None:
     """Get the nearest high-impact event (FOMC, CPI, NFP, GDP, PCE).
 
     Returns the closest event dict or None if nothing within the window.
@@ -90,7 +156,9 @@ def get_nearest_high_impact_event(days: int = 5,
     return None
 
 
-def should_reduce_position_size(reference_date: date | None = None) -> tuple[bool, str]:
+def should_reduce_position_size(
+    reference_date: date | str | None = None,
+) -> tuple[bool, str]:
     """Check if position size should be reduced due to imminent macro event.
 
     Returns (should_reduce, reason).
@@ -103,7 +171,9 @@ def should_reduce_position_size(reference_date: date | None = None) -> tuple[boo
     return False, ""
 
 
-def get_event_proximity_features(reference_date: date | None = None) -> dict:
+def get_event_proximity_features(
+    reference_date: date | str | None = None,
+) -> dict:
     """Get event proximity features for the feature engine.
 
     Returns dict with nearest event info for inclusion in feature dict.

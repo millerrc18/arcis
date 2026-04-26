@@ -47,17 +47,66 @@ WHY these specific features:
 from __future__ import annotations
 
 import logging
+from datetime import date, datetime
 from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from src.config import DB_PATH
 from src.features.indicators import _slope_direction
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from src.platform.strategy_spec import StrategySpec
+
+
+class FeatureComputationError(RuntimeError):
+    """Raised when a majority of shared enrichment paths fail.
+
+    Sprint 0/Wave 5a: feature computation must fail-CLOSED, not silently
+    return defaults. If 3+ of the 4 shared loaders (regime, options,
+    event_proximity, sector_profiles) fail in the same call, the engine
+    is in degraded state and downstream consumers must not get permissive
+    defaults that look like real signal.
+    """
+
+
+def _coerce_as_of(as_of: date | str | None) -> date | None:
+    """Normalize as_of input to a date, or None.
+
+    Accepts ISO date strings, date/datetime instances, or None.
+    """
+    if as_of is None:
+        return None
+    if isinstance(as_of, datetime):
+        return as_of.date()
+    if isinstance(as_of, date):
+        return as_of
+    if isinstance(as_of, str):
+        try:
+            return date.fromisoformat(as_of[:10])
+        except (ValueError, TypeError):
+            return None
+    return None
+
+
+def _slice_to_as_of(df: pd.DataFrame, as_of: date | None) -> pd.DataFrame:
+    """Slice a DataFrame to rows on or before as_of.
+
+    Returns the original frame when as_of is None (legacy/live behavior).
+    Used by compute_features so historical/backtest callers passing full
+    history don't leak future rows into iloc[-1] / rolling computations.
+    """
+    if as_of is None:
+        return df
+    if df is None or df.empty:
+        return df
+    cutoff = pd.Timestamp(as_of)
+    try:
+        return df[df.index <= cutoff]
+    except Exception:
+        # Fall back if index isn't comparable (e.g. non-datetime index).
+        return df
 
 
 def _classify_trend(price: float, sma50: float, sma200: float,
@@ -105,17 +154,36 @@ def _classify_relative_strength(rs_1m: float, rs_3m: float, rs_6m: float) -> str
     return "neutral"
 
 
-def compute_features(ticker: str, ohlcv: pd.DataFrame, spy: pd.DataFrame) -> dict:
+def compute_features(
+    ticker: str,
+    ohlcv: pd.DataFrame,
+    spy: pd.DataFrame,
+    as_of: date | str | None = None,
+) -> dict:
     """Compute all features for a single ticker.
 
     Args:
         ticker: The ticker symbol.
         ohlcv: DataFrame with Open, High, Low, Close, Volume columns.
         spy: SPY benchmark DataFrame with the same columns.
+        as_of: Point-in-time cutoff. When provided, both ohlcv and spy are
+            sliced to rows with index <= as_of BEFORE any computation,
+            preventing future-row leakage when callers pass full-history
+            frames (historical/backtest paths). Default None preserves the
+            legacy live-scan behavior where caller is responsible for
+            passing only past rows. Accepts a date, datetime, or ISO date
+            string.
 
     Returns:
         A flat dict of computed features.
     """
+    cutoff = _coerce_as_of(as_of)
+    if cutoff is not None:
+        # Sprint 0/Wave 5a PIT-FEATURES: slice BEFORE any computation so
+        # iloc[-1], rolling windows, and iloc[-50:] all see only past rows.
+        ohlcv = _slice_to_as_of(ohlcv, cutoff)
+        spy = _slice_to_as_of(spy, cutoff)
+
     close = ohlcv["Close"]
     high = ohlcv["High"]
     low = ohlcv["Low"]
@@ -209,7 +277,8 @@ def compute_features(ticker: str, ohlcv: pd.DataFrame, spy: pd.DataFrame) -> dic
 
 def compute_all_features(ohlcv_data: dict[str, pd.DataFrame],
                           spy: pd.DataFrame,
-                          strategy: "StrategySpec" | None = None) -> dict[str, dict]:
+                          strategy: "StrategySpec" | None = None,
+                          as_of: date | str | None = None) -> dict[str, dict]:
     """Compute features for all tickers in the OHLCV data dict.
 
     WHY 200-row minimum: SMA200 requires 200 data points. Stocks with less
@@ -221,28 +290,43 @@ def compute_all_features(ohlcv_data: dict[str, pd.DataFrame],
     options metrics come from a single DB query, event proximity is calendar-
     based. Computing them once avoids N redundant DB queries and API calls
     where N is the universe size (~200 tickers).
+
+    Args:
+        ohlcv_data: Map of ticker -> OHLCV DataFrame.
+        spy: SPY benchmark DataFrame.
+        strategy: Optional StrategySpec controlling enrichment chain.
+        as_of: Point-in-time cutoff propagated to compute_features +
+            earnings + event_proximity. None preserves live-scan behavior.
+
+    Sprint 0/Wave 5a (ENGINE-FAIL-LOUD): the 4 shared enrichment loaders
+    (regime, options, event_proximity, sector_profiles) are tracked. If
+    >50% (3 or 4 of 4) fail in the same call, FeatureComputationError is
+    raised — feature output that mostly comes from defaults must not be
+    treated as real signal. Per-ticker partial failures (setup_classifier,
+    sector lookup) are recorded as `_partial_failure_count` on the output
+    dict (only when >0, to preserve fixture hashes for tickers with zero
+    partials). The two large fan-out helpers (load_shared_enrichments and
+    enrich_ticker) live in engine_helpers.py.
     """
-    from src.features.earnings import get_next_earnings_date, check_earnings_overlap
-    from src.features.regime import compute_market_regime
+    from src.features.engine_helpers import enrich_ticker, load_shared_enrichments
 
     chain = _strategy_enrichment_chain(strategy)
     sector_enabled = chain is None or "sector" in chain
+    cutoff = _coerce_as_of(as_of)
 
-    # Compute market regime ONCE for all tickers
-    try:
-        regime = compute_market_regime(spy, ohlcv_data)
-    except Exception as e:
-        logger.warning("Failed to compute market regime: %s", e)
-        regime = {}
+    regime, options_data, event_features, sector_profiles, shared_path_failures = (
+        load_shared_enrichments(spy, ohlcv_data, sector_enabled, cutoff)
+    )
 
-    # Load options metrics ONCE for all tickers
-    options_data = _load_options_metrics()
-
-    # Load event proximity features ONCE
-    event_features = _load_event_proximity()
-
-    # Load sector profiles ONCE
-    sector_profiles = _load_sector_profiles() if sector_enabled else {}
+    if shared_path_failures > 4 // 2:
+        # >50% of the shared enrichment loaders failed; downstream output
+        # would be mostly defaults. Fail-CLOSED rather than emit silent
+        # permissive features. CLAUDE.md: "raise, never silent."
+        raise FeatureComputationError(
+            f"{shared_path_failures}/4 shared enrichment "
+            f"loaders failed (regime/options/event_proximity/sector_profiles); "
+            f"refusing to emit features dominated by defaults"
+        )
 
     results = {}
     for ticker, df in ohlcv_data.items():
@@ -250,50 +334,13 @@ def compute_all_features(ohlcv_data: dict[str, pd.DataFrame],
             logger.warning("%s has only %d rows (need 200+), skipping", ticker, len(df))
             continue
         try:
-            feat = compute_features(ticker, df, spy)
-
-            # Earnings lookup and event-risk classification
-            earnings_date = get_next_earnings_date(ticker)
-            earnings_info = check_earnings_overlap(earnings_date)
-            feat["earnings_date"] = earnings_info["earnings_date"]
-            feat["hold_overlaps_earnings"] = earnings_info["hold_overlaps_earnings"]
-            feat["days_to_earnings"] = earnings_info["days_to_earnings"]
-            feat["event_risk_level"] = earnings_info["event_risk_level"]
-
-            # Merge market regime into every ticker's features
-            feat.update(regime)
-
-            # Options metrics (9A)
-            if ticker in options_data:
-                feat.update(options_data[ticker])
-
-            # Event proximity (9B) — same for all tickers
-            feat.update(event_features)
-
-            # Sector conditioning (9C)
-            if sector_enabled:
-                _add_sector_features(feat, ticker, sector_profiles)
-
-            # Setup classification (Workstream 5) -- categorizes each stock
-            # into one of 6 setup types for the LLM prompt and signal zoo.
-            # WHY deferred import: setup_classifier has a dependency on
-            # features.indicators that would create a circular import if
-            # loaded at module level (engine -> setup_classifier -> indicators -> engine).
-            try:
-                from src.features.setup_classifier import classify_setup, log_setup_signal
-                classification = classify_setup(feat, df)
-                feat["setup_type"] = classification["setup_type"]
-                feat["setup_confidence"] = classification["confidence"]
-                feat["setup_desk"] = classification["tradeable_by_desk"]
-                log_setup_signal(ticker, classification, feat,
-                                 regime=regime.get("regime_label", ""))
-            except Exception as e:
-                logger.debug("Setup classification failed for %s: %s", ticker, e)
-                feat["setup_type"] = "unknown"
-                feat["setup_confidence"] = 0.0
-                feat["setup_desk"] = "none"
-
-            results[ticker] = feat
+            results[ticker] = enrich_ticker(
+                ticker, df, spy, cutoff,
+                regime, options_data, event_features, sector_profiles,
+                sector_enabled,
+            )
+        except FeatureComputationError:
+            raise
         except Exception as e:
             logger.warning("Failed to compute features for %s: %s", ticker, e)
     return results
@@ -312,81 +359,23 @@ def _strategy_enrichment_chain(strategy: "StrategySpec" | None) -> set[str] | No
     return {item for item in chain if isinstance(item, str) and item}
 
 
-def _load_options_metrics() -> dict[str, dict]:
-    """Load latest options metrics per ticker from the database."""
-    import sqlite3
-    # #590 — connect_db (busy_timeout=30s) prevents the "database is locked"
-    # cluster seen during overnight write bursts; raw sqlite3.connect did not
-    # apply the timeout.
-    from src.utils.db import connect_db
-    result = {}
-    try:
-        with connect_db(DB_PATH) as conn:
-            conn.row_factory = sqlite3.Row
-            # Fix for #256: use correct column names from schema registry
-            rows = conn.execute(
-                """SELECT ticker, iv_rank, put_call_volume_ratio, put_call_oi_ratio,
-                          iv_skew, unusual_volume_flag
-                   FROM options_metrics
-                   WHERE collected_at = (SELECT MAX(collected_at) FROM options_metrics)"""
-            ).fetchall()
-            for row in rows:
-                result[row["ticker"]] = {
-                    "iv_rank": row["iv_rank"],
-                    "put_call_vol_ratio": row["put_call_volume_ratio"],
-                    "put_call_oi_ratio": row["put_call_oi_ratio"],
-                    "iv_skew": row["iv_skew"],
-                    "unusual_options_activity": bool(row["unusual_volume_flag"]),
-                }
-    except Exception as e:
-        logger.debug("Options metrics not available: %s", e)
-    return result
+# Re-export loaders + sector helper from engine_helpers for backward-compat
+# with tests that patch `src.features.engine._load_*` and `_add_sector_features`.
+from src.features.engine_helpers import (  # noqa: E402  -- intentional late import
+    _add_sector_features,
+    _load_event_proximity,
+    _load_options_metrics,
+    _load_sector_profiles,
+)
 
-
-def _load_event_proximity() -> dict:
-    """Load event proximity features (shared across all tickers)."""
-    try:
-        from src.features.event_proximity import get_event_proximity_features
-        return get_event_proximity_features()
-    except Exception as e:
-        logger.debug("Event proximity not available: %s", e)
-        return {
-            "event_proximity_type": None,
-            "event_proximity_days": None,
-            "event_proximity_desc": None,
-            "events_within_3d": 0,
-        }
-
-
-def _load_sector_profiles() -> dict:
-    """Load sector profiles from JSON reference file."""
-    import json
-    from pathlib import Path
-
-    path = Path("data/reference/sector_profiles.json")
-    if not path.exists():
-        return {}
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except Exception as e:
-        logger.debug("Sector profiles not available: %s", e)
-        return {}
-
-
-def _add_sector_features(feat: dict, ticker: str, sector_profiles: dict):
-    """Add GICS sector and sector-specific context to feature dict."""
-    try:
-        from src.universe.sectors import SECTOR_MAP
-        sector = SECTOR_MAP.get(ticker, "Unknown")
-        feat["sector"] = sector
-
-        profile = sector_profiles.get(sector, {})
-        feat["sector_pullback_depth"] = profile.get("typical_pullback_depth", "n/a")
-        feat["sector_recovery_speed"] = profile.get("recovery_speed", "n/a")
-        feat["sector_key_factors"] = profile.get("key_factors", [])
-    except Exception:
-        feat["sector"] = "Unknown"
-        feat["sector_pullback_depth"] = "n/a"
-        feat["sector_recovery_speed"] = "n/a"
-        feat["sector_key_factors"] = []
+# These imports must be referenced so static analysis doesn't drop them; they
+# are part of the engine.py public surface for tests + helpers.
+__all__ = [
+    "FeatureComputationError",
+    "compute_all_features",
+    "compute_features",
+    "_add_sector_features",
+    "_load_event_proximity",
+    "_load_options_metrics",
+    "_load_sector_profiles",
+]

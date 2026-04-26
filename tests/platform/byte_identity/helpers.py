@@ -350,7 +350,9 @@ def historical_feature_patches(as_of_date: str):
         patch("src.features.engine._load_options_metrics", return_value={}),
         patch(
             "src.features.engine._load_event_proximity",
-            side_effect=lambda: get_event_proximity_features(reference_date=reference_date),
+            side_effect=lambda as_of=None: get_event_proximity_features(
+                reference_date=as_of if as_of is not None else reference_date
+            ),
         ),
         patch("src.features.earnings.get_next_earnings_date", return_value=None),
         patch("src.ranking.ranker.load_config", return_value=_BYTE_IDENTITY_CONFIG),
