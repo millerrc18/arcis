@@ -440,9 +440,9 @@ export default function Dashboard() {
             denominator and includes pre-#651 cascade trades (not quarantine-filtered).
             When shadow_service returns null, show "—" with a tooltip explaining deferral. */}
         <Tooltip content="Win rate not yet computable; need ≥1 closed quarantine-filtered trade. Alpaca's win_rate is suppressed here — it uses a different denominator and includes pre-#651 cascade trades.">
-          <MetricCard label="Win Rate" value={closedData?.metrics?.win_rate != null ? `{(closedData.metrics.win_rate * 100).toFixed(1)}%` : '—'} />
+          <MetricCard label="Win Rate" value={closedData?.metrics?.win_rate != null ? `${(closedData.metrics.win_rate * 100).toFixed(1)}%` : '—'} />
         </Tooltip>
-        <MetricCard label="Model Version" value={status?.model_version || 'base'} delta={training ? `{training.dataset_total} examples` : null} />
+        <MetricCard label="Model Version" value={status?.model_version || 'base'} delta={training ? `${training.dataset_total} examples` : null} />
         {/* G5: Always-visible 5th card — empty state shows 0 so first-time users see the feature */}
         <Tooltip content="Trades at or approaching their configured timeout window. Click ShadowLedger to review.">
           <MetricCard label="Approaching Timeout" value={approachingTimeoutCount} />
