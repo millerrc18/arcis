@@ -174,10 +174,16 @@ def get_system_status(config: dict) -> dict:
         ib_connected = _broker.is_connected()
     except Exception as _broker_err:
         ib_connected = False
-        logger.warning(
-            "[BROKER_EXCEPTION] ticker=(all) op=get_live_broker broker=%s "
-            "recoverable=True exc=%s: %s",
-            live_broker, type(_broker_err).__name__, _broker_err,
+        # Route through log_and_persist so the failure appears in
+        # BrokerExceptionsPanel (PR #690 O1). Live-broker probe failure is
+        # non-fatal for status — operator sees ib_connected=False.
+        from src.shadow_trading.broker_exception_logger import log_and_persist
+        log_and_persist(
+            ticker="(all)",
+            operation="get_live_broker",
+            broker=live_broker,
+            exc=_broker_err,
+            recoverable=True,
         )
 
     from src.version import VERSION as _ARCIS_VERSION

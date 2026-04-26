@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
 
-def _compute_timeout_status(duration_days, timeout_days) -> dict:
+def compute_timeout_status(duration_days, timeout_days) -> dict:
     """Return timeout progress_pct and status for a trade.
 
     Args:
@@ -60,7 +60,7 @@ def get_shadow_status(config: dict) -> dict:
             total_unrealized += pnl * float(t.get("planned_shares") or 1)
 
         op_timeout = t.get("timeout_days") or timeout
-        timeout_info = _compute_timeout_status(t.get("duration_days"), op_timeout)
+        timeout_info = compute_timeout_status(t.get("duration_days"), op_timeout)
         trades.append({
             "trade_id": t["trade_id"],
             "recommendation_id": t.get("recommendation_id"),
@@ -96,10 +96,16 @@ def get_shadow_status(config: dict) -> dict:
         account_equity = acct.get("equity")
         account_buying_power = acct.get("buying_power")
     except Exception as _acct_err:
-        logger.warning(
-            "[BROKER_EXCEPTION] ticker=(all) op=fetch_account broker=alpaca_paper "
-            "recoverable=True exc=%s: %s",
-            type(_acct_err).__name__, _acct_err,
+        # Route through log_and_persist so the failure appears in
+        # BrokerExceptionsPanel (PR #690 O1). Account-info probe failure is
+        # non-fatal — equity/buying_power surface as None.
+        from src.shadow_trading.broker_exception_logger import log_and_persist
+        log_and_persist(
+            ticker="(all)",
+            operation="fetch_account",
+            broker="alpaca_paper",
+            exc=_acct_err,
+            recoverable=True,
         )
 
     return {
@@ -125,7 +131,7 @@ def get_shadow_history(days: int = 30) -> dict:
     trades = []
     for t in closed:
         op_timeout = t.get("timeout_days") or 15
-        timeout_info = _compute_timeout_status(t.get("duration_days"), op_timeout)
+        timeout_info = compute_timeout_status(t.get("duration_days"), op_timeout)
         trades.append({
             "trade_id": t["trade_id"],
             "recommendation_id": t.get("recommendation_id"),

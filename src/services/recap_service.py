@@ -17,8 +17,9 @@ ET = ZoneInfo("America/New_York")
 def _fetch_shadow_data_for_recap(config: dict):
     """Fetch shadow_data for the recap; returns None on failure or when disabled.
 
-    Logs B2.A-style structured warning on broker exception. Caller proceeds
-    with shadow_data=None (recap still rendered).
+    Routes broker exceptions through ``log_and_persist`` so they appear in the
+    BrokerExceptionsPanel dashboard (PR #690 O1). Caller proceeds with
+    shadow_data=None (recap still rendered).
     """
     if not config.get("shadow_trading", {}).get("enabled", False):
         return None
@@ -26,10 +27,13 @@ def _fetch_shadow_data_for_recap(config: dict):
         from src.packets.eod_recap import get_shadow_data_for_recap
         return get_shadow_data_for_recap()
     except Exception as _recap_err:
-        logger.warning(
-            "[BROKER_EXCEPTION] ticker=(all) op=fetch_shadow_data broker=n/a "
-            "recoverable=True exc=%s: %s",
-            type(_recap_err).__name__, _recap_err,
+        from src.shadow_trading.broker_exception_logger import log_and_persist
+        log_and_persist(
+            ticker="(all)",
+            operation="fetch_shadow_data",
+            broker="n/a",
+            exc=_recap_err,
+            recoverable=True,
         )
         return None
 
