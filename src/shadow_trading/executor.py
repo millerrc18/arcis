@@ -1598,7 +1598,6 @@ def check_and_manage_open_trades(
             }
         _alpaca_tickers = set(_alpaca_positions.keys())
     except Exception as e:
-        from src.shadow_trading.broker_exception_logger import log_and_persist
         _broker_name = "alpaca_live" if source_filter == "live" else "alpaca_paper"
         log_and_persist(
             ticker="(all)",
