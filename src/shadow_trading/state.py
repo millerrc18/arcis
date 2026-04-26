@@ -6,10 +6,22 @@ canonical TERMINAL_STATUSES / ACTIVE_STATUSES constants from models.py
 rather than hardcoding status strings.
 
 Called by: src.platform.capability_registry.bootstrap (import-time side effect)
-Calls: src.config.DB_PATH, sqlite3
+Calls: src.config.DB_PATH, sqlite3, src.shadow_trading._status_sql
 Owns tables: none (reads shadow_trades)
 Config keys: none
-Tests: tests/shadow_trading/test_state.py
+Tests: tests/shadow_trading/test_state.py, tests/shadow_trading/test_status_in_clause_adoption.py
+
+Sprint 0 / Wave 1b STATUS-CONST: pre-fix this query hardcoded `status='open'`
+and `status='closed'` for the SUM CASE buckets, which undercounted any
+non-`closed` terminal status (rejected, failed, exit_abandoned,
+needs_manual_review) in `closed_n` and any non-`open` active status
+(pending, exit_pending, exit_failed, submission_uncertain) in `open_n`.
+
+Note on the public dict key `"closed"`: the bucket now counts ALL terminal
+statuses (per the canonical TERMINAL_STATUSES set), not literally
+`status='closed'`. The legacy public key is preserved to avoid breaking
+the capability registry / dashboard consumers; readers MUST treat it as
+"terminal trades" not "literally closed".
 """
 from __future__ import annotations
 
@@ -18,19 +30,28 @@ from datetime import date
 
 from src.config import DB_PATH
 from src.platform.capability_registry import register_state
+from src.shadow_trading._status_sql import active_in_clause, terminal_in_clause
 
 
 def _shadow_cohort_counts() -> dict:
-    """Return {open, closed, quarantined, total} counts as a single row."""
+    """Return {open, closed, quarantined, total} counts as a single row.
+
+    "open" counts trades with status in ACTIVE_STATUSES; "closed" counts
+    trades with status in TERMINAL_STATUSES. The public dict keys are kept
+    legacy-named for compatibility with /api/system/index consumers.
+    """
+    active_frag, active_params = active_in_clause()
+    terminal_frag, terminal_params = terminal_in_clause()
     conn = sqlite3.connect(DB_PATH)
     try:
         row = conn.execute(
             "SELECT "
-            "  SUM(CASE WHEN status='open' THEN 1 ELSE 0 END) AS open_n, "
-            "  SUM(CASE WHEN status='closed' THEN 1 ELSE 0 END) AS closed_n, "
+            f"  SUM(CASE WHEN status IN ({active_frag}) THEN 1 ELSE 0 END) AS open_n, "
+            f"  SUM(CASE WHEN status IN ({terminal_frag}) THEN 1 ELSE 0 END) AS closed_n, "
             "  SUM(CASE WHEN COALESCE(quarantined, 0) = 1 THEN 1 ELSE 0 END) AS quarantined_n, "
             "  COUNT(*) AS total_n "
             "FROM shadow_trades",
+            active_params + terminal_params,
         ).fetchone()
     except sqlite3.OperationalError as exc:
         return {"error": f"shadow_trades unavailable: {exc}"}
