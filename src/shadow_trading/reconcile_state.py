@@ -1,13 +1,19 @@
 """System health: reconcile_trades daemon (most-recent-activity proxy).
 
 No persistent "last reconcile" timestamp exists in the schema; the health
-signal uses MAX(updated_at) from shadow_trades where status='open' as a
-proxy for "the reconcile loop recently touched the open cohort." Stale
-means no touch in 30 minutes during market hours — surfaces staleness
-without needing a new table.
+signal uses MAX(updated_at) from shadow_trades over the active cohort
+(ACTIVE_STATUSES) as a proxy for "the reconcile loop recently touched
+the active cohort." Stale means no touch in 30 minutes during market
+hours — surfaces staleness without needing a new table.
+
+Sprint 0 / Wave 1b STATUS-CONST: pre-fix the proxy filtered on
+`status='open'`, which understated freshness when the loop's most-recent
+touch was on a non-open active row (e.g. resolving submission_uncertain
+or reverting exit_failed → open). Now uses the canonical ACTIVE_STATUSES
+set via active_in_clause().
 
 Called by: src.platform.capability_registry.bootstrap (import-time side effect)
-Calls: src.config.DB_PATH, sqlite3
+Calls: src.config.DB_PATH, sqlite3, src.shadow_trading._status_sql
 Owns tables: none (reads shadow_trades)
 Config keys: none
 Tests: tests/shadow_trading/test_reconcile_state.py
@@ -19,13 +25,16 @@ from datetime import date, datetime, timezone
 
 from src.config import DB_PATH
 from src.platform.capability_registry import register_system
+from src.shadow_trading._status_sql import active_in_clause
 
 
 def _most_recent_reconcile_touch() -> str | None:
+    active_frag, active_params = active_in_clause()
     conn = sqlite3.connect(DB_PATH)
     try:
         row = conn.execute(
-            "SELECT MAX(updated_at) FROM shadow_trades WHERE status = 'open'",
+            f"SELECT MAX(updated_at) FROM shadow_trades WHERE status IN ({active_frag})",
+            active_params,
         ).fetchone()
     except sqlite3.OperationalError:
         return None
