@@ -17,7 +17,8 @@ Endpoints:
 Training runs locally on the RTX 3060 via the VRAM handoff system
 (Ollama unloads -> PyTorch fine-tunes -> Ollama reloads).
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from src.api.local_auth import verify_local_token
 from src.services.training_service import (
     get_training_status, get_training_history, get_training_report,
     run_bootstrap, run_fine_tune_service, rollback_model_service,
@@ -41,12 +42,12 @@ def training_report():
     return {"report": get_training_report()}
 
 
-@router.post("/training/bootstrap")
+@router.post("/training/bootstrap", dependencies=[Depends(verify_local_token)])
 def bootstrap(count: int = 500):
     return run_bootstrap(count=count)
 
 
-@router.post("/training/train")
+@router.post("/training/train", dependencies=[Depends(verify_local_token)])
 def train():
     result = run_fine_tune_service()
     if result:
@@ -54,7 +55,7 @@ def train():
     return {"error": "Training failed"}
 
 
-@router.post("/training/rollback")
+@router.post("/training/rollback", dependencies=[Depends(verify_local_token)])
 def rollback():
     result = rollback_model_service()
     if result:

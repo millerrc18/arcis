@@ -25,9 +25,10 @@ import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from src.api.local_auth import verify_local_token
 from src.config import DB_PATH
 from src.utils.db import connect_db
 
@@ -96,7 +97,7 @@ def list_notes():
         return {"notes": [], "error": str(exc)}
 
 
-@router.post("/notes", status_code=201)
+@router.post("/notes", status_code=201, dependencies=[Depends(verify_local_token)])
 def create_note(payload: NoteCreatePayload):
     """Create a new note."""
     try:
@@ -130,7 +131,7 @@ def create_note(payload: NoteCreatePayload):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@router.put("/notes/{note_id}")
+@router.put("/notes/{note_id}", dependencies=[Depends(verify_local_token)])
 def update_note(note_id: str, payload: NoteUpdatePayload):
     """Update an existing note."""
     try:
@@ -185,7 +186,7 @@ def update_note(note_id: str, payload: NoteUpdatePayload):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@router.delete("/notes/{note_id}", status_code=204)
+@router.delete("/notes/{note_id}", status_code=204, dependencies=[Depends(verify_local_token)])
 def delete_note(note_id: str):
     """Delete a note by ID."""
     try:

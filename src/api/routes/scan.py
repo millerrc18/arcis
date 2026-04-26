@@ -17,7 +17,8 @@ The async version is POST /actions/scan (in actions.py) which runs in
 background. _latest_scan is in-memory only -- lost on restart. The
 persistent scan history is in scan_metrics table (see system.py routes).
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from src.api.local_auth import verify_local_token
 from src.config import load_config
 from src.services.scan_service import run_scan
 from src.services.watchlist_service import generate_morning_watchlist
@@ -28,7 +29,7 @@ router = APIRouter(tags=["scan"])
 _latest_scan = None
 
 
-@router.post("/scan")
+@router.post("/scan", dependencies=[Depends(verify_local_token)])
 def trigger_scan(dry_run: bool = False, email: bool = False):
     global _latest_scan
     config = load_config()
@@ -44,13 +45,13 @@ def get_latest_scan():
     return _latest_scan
 
 
-@router.post("/morning-watchlist")
+@router.post("/morning-watchlist", dependencies=[Depends(verify_local_token)])
 def morning_watchlist(email: bool = False):
     config = load_config()
     return generate_morning_watchlist(config, send_email_flag=email)
 
 
-@router.post("/eod-recap")
+@router.post("/eod-recap", dependencies=[Depends(verify_local_token)])
 def eod_recap(email: bool = False):
     config = load_config()
     return generate_eod_recap(config, send_email_flag=email)
