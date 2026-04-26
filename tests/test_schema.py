@@ -36,11 +36,16 @@ def test_register_adds_table():
 
 # ── Completeness tests ───────────────────────────────────────────
 
-EXPECTED_TABLE_COUNT = 40
+EXPECTED_TABLE_COUNT = 68
 
 
 def test_registry_has_all_tables():
-    """Registry must define at least the expected number of tables."""
+    """Registry must define at least the expected number of tables.
+
+    Floor lineage: 40 (pre-Sprint-0, wildly stale) -> 68 (current, Sprint-0
+    Wave 1e SCHEMA-FLOOR fix). Bump this whenever the registry grows; the
+    floor is a regression guard, not a moving target.
+    """
     assert len(TABLES) >= EXPECTED_TABLE_COUNT, (
         f"Registry has {len(TABLES)} tables, expected >= {EXPECTED_TABLE_COUNT}. "
         f"Missing tables need to be added to src/schema/registry.py"
@@ -50,6 +55,7 @@ def test_registry_has_all_tables():
 EXPECTED_TABLES = {
     # Trading Core
     "shadow_trades", "recommendations", "validation_results",
+    "broker_exceptions",
     # Training Pipeline
     "model_versions", "training_examples", "model_evaluations",
     "audit_reports", "metric_snapshots", "api_costs",
@@ -62,13 +68,28 @@ EXPECTED_TABLES = {
     "fed_communications", "analyst_estimates", "options_chains",
     "options_metrics", "cboe_ratios", "google_trends",
     "vix_term_structure", "macro_snapshots", "earnings_calendar",
+    "minute_bars",
     # Research
     "research_papers", "research_digests", "research_docs",
     # Signals
     "setup_signals", "traffic_light_state",
     # Evaluation & Metrics
     "scan_metrics", "schedule_metrics", "quality_drift_metrics",
-    "build_score_history",
+    "build_score_history", "system_metrics",
+    # Backtest / Walk-forward / Stress / Attribution
+    "backtest_results", "backtest_trades",
+    "walkforward_results", "walkforward_trades",
+    "attribution_trades", "simulation_results", "stress_test_results",
+    # Strategy lifecycle
+    "strategy_registry", "strategy_promotion_events", "trials_registry",
+    # Risk / Factor analytics
+    "correlation_matrices", "factor_loadings",
+    # Universe (point-in-time)
+    "sp100_historical_constituents",
+    # Operator state
+    "operator_view_state",
+    # Health / Freshness
+    "data_freshness", "daily_ib_health", "ib_shadow_log",
     # Infrastructure
     "activity_log", "log_entries", "sync_state",
     "command_results", "config_overrides", "pending_commands",
@@ -153,6 +174,33 @@ def test_all_expected_tables_present():
     """Every known table must be in the registry."""
     missing = EXPECTED_TABLES - set(TABLES.keys())
     assert not missing, f"Missing from registry: {missing}"
+
+
+def test_expected_tables_matches_registry_exactly():
+    """EXPECTED_TABLES must equal the set of registered table names — exactly.
+
+    Sprint 0 Wave 1e SCHEMA-FLOOR regression guard. Originally
+    EXPECTED_TABLES held 48 of 68 registered tables — `test_all_expected_tables_present`
+    only checks one direction (whitelist subset of registry), so 20 new
+    registry additions slipped in without triggering a whitelist update.
+
+    This test forces both directions: any new table added to the registry
+    MUST also be added to EXPECTED_TABLES (or this test fails CI). Likewise,
+    removing a table from the registry without removing it from
+    EXPECTED_TABLES will fail. Result: every schema change must update the
+    whitelist deliberately, so the floor cannot drift again.
+    """
+    expected = EXPECTED_TABLES
+    registered = {t.name for t in TABLES.values()}
+    assert expected == registered, (
+        f"EXPECTED_TABLES != registry.\n"
+        f"Missing from registry (in whitelist but not registered): "
+        f"{sorted(expected - registered)}\n"
+        f"Missing from whitelist (registered but not in whitelist): "
+        f"{sorted(registered - expected)}\n"
+        f"If you added/removed a table in src/schema/registry.py, update "
+        f"EXPECTED_TABLES in tests/test_schema.py to match."
+    )
 
 
 # ── Consistency tests ────────────────────────────────────────────

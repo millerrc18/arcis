@@ -15,8 +15,11 @@ def test_ensure_all_tables_creates_council_sync_tables(tmp_path, monkeypatch):
     """
     from src.schema.registry import TABLES
 
-    # Registry must have a healthy minimum of tables
-    assert len(TABLES) >= 40, f"Registry only has {len(TABLES)} tables, expected >= 40"
+    # Registry must have a healthy minimum of tables.
+    # Floor: 68 (Sprint 0 Wave 1e SCHEMA-FLOOR fix; was 40, wildly stale).
+    # Bump this whenever the registry grows; it is a regression guard, not a
+    # moving target.
+    assert len(TABLES) >= 68, f"Registry only has {len(TABLES)} tables, expected >= 68"
 
     # Spot-check: council and infrastructure tables must exist
     required_groups = {
