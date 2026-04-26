@@ -92,10 +92,11 @@ def projections_live():
         # canonical_sharpe.raw_sharpe — single source of truth per F-2/Track-1.5.
         # raw_sharpe returns None when undefined (n<2 or zero variance); we coerce
         # to 0.0 to preserve the response contract (numeric `sharpe` field).
-        # TODO(I1): when src.data_ingestion.risk_free_rate is wired across all 6
+        # TODO(#690): when src.data_ingestion.risk_free_rate is wired across all 6
         # rf-deferred sites (kpis.py, stage1_baseline_recompute.py, cpcv.py,
         # promotion_gate.py, mc_permutation.py, block_bootstrap.py) swap to
-        # rf_adjusted_excess_sharpe with a per-trade rf vector.
+        # rf_adjusted_excess_sharpe with a per-trade rf vector. Tracked as
+        # PR-690 review I1 follow-up.
         sharpe = raw_sharpe(pnl_pcts) or 0.0
 
         # PR #690 I6: pull live equity from Alpaca rather than hardcoded $100K.
