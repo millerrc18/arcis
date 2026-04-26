@@ -87,18 +87,24 @@ function RfAdjustedCard({ kpi, n }) {
   )
 }
 
-function SpyRelativeCard({ kpi, n }) {
+function SpyRelativeCard({ kpi, nSpy, nTotal }) {
   const v = kpi.value != null ? kpi.value.toFixed(2) : null
   const sub = kpi.p_value != null
     ? `p=${kpi.p_value.toFixed(2)}  CI lower=${(kpi.ci_lower ?? 0).toFixed(2)}`
     : null
+  // I4 — SPY-Relative is a smaller subset (only trades with spy_return_over_hold).
+  // Caption shows N=<n_spy> of <n_total> so operator can see this is a subset of
+  // the rf-Adj card's denominator, not the same N.
+  const caption = nTotal != null && nSpy !== nTotal
+    ? `N=${nSpy} of ${nTotal} instrumented | vs SPY benchmark`
+    : `N=${nSpy} | vs SPY benchmark`
   return (
     <KPICard
       title="SPY-Relative Sharpe"
       value={v}
       status={kpi.status}
       subLine={sub}
-      caption={`N=${n} | vs SPY benchmark`}
+      caption={caption}
     />
   )
 }
@@ -186,7 +192,13 @@ export default function KPIStrip({ kpis }) {
     )
   }
 
-  const n = kpis.n_trades ?? 0
+  // I4 — Backend may return separate denominators: n_total (fully-instrumented
+  // closed trades, used by rf-Adj/Win-Rate/Traffic-Light) and n_spy (subset
+  // with spy_return_over_hold, used by SPY-Relative). Fall back to n_trades
+  // when the backend has not yet split the fields, so the strip stays valid
+  // across the contract migration.
+  const nTotal = kpis.n_total ?? kpis.n_trades ?? 0
+  const nSpy = kpis.n_spy ?? nTotal
   const nMin = kpis.n_minimum_trl ?? 150
 
   return (
@@ -199,11 +211,11 @@ export default function KPIStrip({ kpis }) {
         }}
         className="kpi-strip"
       >
-        <RfAdjustedCard kpi={kpis.rf_adjusted_excess_sharpe} n={n} />
-        <SpyRelativeCard kpi={kpis.spy_relative_sharpe} n={n} />
-        <WinRateCard kpi={kpis.win_rate} n={n} />
-        <TrafficLightCard kpi={kpis.stage_traffic_light} n={n} />
-        <PromotionGateCard kpi={kpis.promotion_gate} nTrades={n} nMinTrl={nMin} />
+        <RfAdjustedCard kpi={kpis.rf_adjusted_excess_sharpe} n={nTotal} />
+        <SpyRelativeCard kpi={kpis.spy_relative_sharpe} nSpy={nSpy} nTotal={nTotal} />
+        <WinRateCard kpi={kpis.win_rate} n={nTotal} />
+        <TrafficLightCard kpi={kpis.stage_traffic_light} n={nTotal} />
+        <PromotionGateCard kpi={kpis.promotion_gate} nTrades={nTotal} nMinTrl={nMin} />
       </div>
       <InstrumentationBadge pct={kpis.instrumentation_pct} />
       <style>{`
