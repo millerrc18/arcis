@@ -213,11 +213,33 @@ def _sharpe_t_stat_and_ci(
     sharpe: float,
     n: int,
     returns: list[float] | None = None,
+    periods_per_year: float = _N_PER_YEAR,
 ) -> tuple[float, float, float]:
     """Return (t_stat, ci_lower, ci_upper) for a Sharpe value given n.
 
-    Uses the Jobson-Korkie SE approximation: SE = sqrt((1 + 0.5*S^2) / n).
-    When `returns` is supplied, the SE is multiplied by the Lo 2002
+    Uses the Jobson-Korkie / Lo 2002 SE approximation, ANNUALIZATION-CORRECTED:
+
+        SE(SR_ann) = sqrt((T + 0.5 * SR_ann^2) / N)
+
+    where T = periods_per_year (252 for daily). Sprint-0 Wave 4b
+    KPIS-SE-UNITS: prior to this fix, the code used the un-annualized
+    Jobson-Korkie form `sqrt((1 + 0.5*S^2)/N)` while passing in the
+    ANNUALIZED Sharpe — a units mismatch that under-estimated SE by a
+    factor of ~sqrt(T). The result was inflated t-statistics, deflated
+    p-values, and a GREEN/HOLD/HALT decision biased toward GREEN.
+
+    Derivation: for raw-frequency Sharpe SR_raw with IID returns, Lo
+    2002 gives Var(SR_raw) = (1 + 0.5 * SR_raw^2) / N. Annualized
+    Sharpe SR_ann = SR_raw * sqrt(T) ⇒
+        Var(SR_ann) = T * Var(SR_raw)
+                    = T * (1 + 0.5 * SR_raw^2) / N
+                    = (T + 0.5 * SR_ann^2) / N      [via SR_raw^2 = SR_ann^2 / T]
+        SE(SR_ann) = sqrt((T + 0.5 * SR_ann^2) / N)
+
+    This matches src/platform/rigor/walkforward_metrics.compute_parametric_se,
+    which has carried the correct annualized form since R6 inception.
+
+    When `returns` is supplied, the IID SE is multiplied by the Lo 2002
     autocorrelation-correction factor (q=4) so trades with overlapping
     holding periods don't get an optimistic IID p-value. PR #690 review
     item I3.
@@ -226,7 +248,8 @@ def _sharpe_t_stat_and_ci(
     """
     if n < 2:
         return float("nan"), float("nan"), float("nan")
-    se = math.sqrt((1.0 + 0.5 * sharpe ** 2) / n)
+    # Annualized-scale Lo 2002 SE: SE(SR_ann) = sqrt((T + 0.5 * SR_ann^2) / N)
+    se = math.sqrt((periods_per_year + 0.5 * sharpe ** 2) / n)
     if returns is not None and len(returns) >= 2:
         se *= _lo_2002_autocorr_factor(list(returns), q=4)
     t_stat = sharpe / se if se > 0 else float("nan")

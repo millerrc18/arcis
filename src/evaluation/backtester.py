@@ -13,7 +13,6 @@ a trained model's quality on unseen history.
 
 import json
 import logging
-import math
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -138,13 +137,17 @@ def backtest_model(model_name: str, months: int = 6,
     total_pnl_pct = ((current_equity - 1000) / 1000) * 100
 
     # Sharpe ratio
-    if daily_pnls and len(daily_pnls) > 1:
-        mean_return = sum(daily_pnls) / len(daily_pnls)
-        variance = sum((r - mean_return) ** 2 for r in daily_pnls) / (len(daily_pnls) - 1)
-        std_return = math.sqrt(variance) if variance > 0 else 1
-        sharpe = (mean_return / std_return) * math.sqrt(252) if std_return > 0 else 0
-    else:
-        sharpe = 0
+    # F-2 (Sprint 0/4b WALKFORWARD-CANONICAL): route through
+    # src.platform.metrics.compute_sharpe (which delegates to
+    # src.analytics.canonical_sharpe.raw_sharpe at periods_per_year=252)
+    # so all Sharpe computations flow through one source of truth.
+    # Mathematically equivalent to the prior parallel
+    # `mean/std(ddof=1) * sqrt(252)` formula; canonical returns None
+    # when Sharpe is undefined (single-obs / zero variance) and the
+    # backtester contract is 0 — so we map None -> 0.
+    from src.platform.metrics import compute_sharpe as _canonical_compute_sharpe
+    _sharpe_val = _canonical_compute_sharpe(list(daily_pnls), periods_per_year=252)
+    sharpe = _sharpe_val if _sharpe_val is not None else 0
 
     # Max drawdown
     peak = 1000
