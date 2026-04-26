@@ -1,10 +1,10 @@
 """Local API routes for revenue projection analytics.
 
 Called by: api.app
-Calls: src.utils.db.connect_db
+Calls: src.utils.db.connect_db, src.analytics.canonical_sharpe.raw_sharpe
 Owns tables: none (reads shadow_trades)
 Config keys: none
-Tests: tests/api/test_route_parity.py
+Tests: tests/api/test_route_parity.py, tests/api/test_projections.py
 
 Endpoints:
     GET /projections/live  - Live projection metrics (Sharpe, win rate, drawdown)
@@ -17,6 +17,7 @@ from contextlib import closing
 
 from fastapi import APIRouter
 
+from src.analytics.canonical_sharpe import raw_sharpe
 from src.config import DB_PATH
 from src.utils.db import connect_db
 
@@ -46,8 +47,15 @@ def projections_live():
         wins = [pnl for pnl in pnl_dollars if pnl > 0]
         losses = [pnl for pnl in pnl_dollars if pnl <= 0]
         avg_return = statistics.mean(pnl_pcts) if pnl_pcts else 0
-        std_return = statistics.stdev(pnl_pcts) if len(pnl_pcts) > 1 else 1
-        sharpe = avg_return / std_return if std_return > 0 else 0
+        # PR #690 B5: replace non-canonical (mean/std with no annualization) with
+        # canonical_sharpe.raw_sharpe — single source of truth per F-2/Track-1.5.
+        # raw_sharpe returns None when undefined (n<2 or zero variance); we coerce
+        # to 0.0 to preserve the response contract (numeric `sharpe` field).
+        # TODO(I1): when src.data_ingestion.risk_free_rate is wired across all 6
+        # rf-deferred sites (kpis.py, stage1_baseline_recompute.py, cpcv.py,
+        # promotion_gate.py, mc_permutation.py, block_bootstrap.py) swap to
+        # rf_adjusted_excess_sharpe with a per-trade rf vector.
+        sharpe = raw_sharpe(pnl_pcts) or 0.0
 
         cumulative = 100000
         peak = cumulative
