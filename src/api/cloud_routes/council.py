@@ -59,8 +59,13 @@ def create_router(runtime, verify_auth):
         except HTTPException:
             raise
         except Exception as exc:
-            runtime.logger.error("Council history error: %s", exc)
-            return []
+            # PR #690 O8: surface 500 instead of silent [] so the
+            # dashboard error boundary can fire (frontend can't tell
+            # "no sessions" from "fetch failed" if we return []).
+            runtime.logger.warning(
+                "[API] council/history failed: %s", exc, exc_info=True
+            )
+            raise HTTPException(status_code=500, detail=str(exc))
 
     @router.get("/api/council/session/{session_id}", dependencies=[Depends(verify_auth)])
     def council_session_detail(session_id: str):
@@ -104,8 +109,12 @@ def create_router(runtime, verify_auth):
         except HTTPException:
             raise
         except Exception as exc:
-            runtime.logger.error("Activity feed error: %s", exc)
-            return []
+            # PR #690 O8: surface 500 instead of silent [] so frontend
+            # error boundary can fire.
+            runtime.logger.warning(
+                "[API] activity/feed failed: %s", exc, exc_info=True
+            )
+            raise HTTPException(status_code=500, detail=str(exc))
 
     @router.post("/api/council/strategic", dependencies=[Depends(verify_auth)])
     def council_strategic():

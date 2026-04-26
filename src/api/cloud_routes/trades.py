@@ -519,9 +519,14 @@ def create_router(runtime, verify_auth):
                 "AND (exit_reason IS NOT NULL) AND COALESCE(quarantined, 0) = 0"
                 " ORDER BY actual_exit_time DESC LIMIT 20"
             )
+        except HTTPException:
+            raise
         except Exception as exc:
-            runtime.logger.error("[API] review_pending failed: %s", exc, exc_info=True)
-            return []
+            # PR #690 O8: surface 500 instead of silent [].
+            runtime.logger.warning(
+                "[API] review/pending failed: %s", exc, exc_info=True
+            )
+            raise HTTPException(status_code=500, detail=str(exc))
 
     @router.get("/api/review/scorecard", dependencies=[Depends(verify_auth)])
     def review_scorecard(weeks: int = 4):
