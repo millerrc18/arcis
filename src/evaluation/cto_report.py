@@ -237,14 +237,14 @@ def _compute_trade_summary(closed: list, open_trades: list, all_trades: list) ->
     max_loss = min(closed, key=lambda t: _num(t.get("pnl_pct"))) if closed else None
 
     # Sharpe ratio (annualized from per-trade returns)
-    import math
+    # F-2 / Sprint-0 wave-4a: route through canonical_sharpe.compute_sharpe.
+    # periods_per_year=150 preserves the legacy "150 trades/year" trade-
+    # frequency convention (~3 trades/week). Coerce None → 0 because
+    # downstream JSON consumers and `round(sharpe, 2)` expect numeric.
+    from src.analytics.canonical_sharpe import compute_sharpe
     pnl_pcts = [_num(t.get("pnl_pct")) for t in closed]
-    if len(pnl_pcts) >= 2:
-        mean_r = sum(pnl_pcts) / len(pnl_pcts)
-        std_r = (sum((r - mean_r) ** 2 for r in pnl_pcts) / (len(pnl_pcts) - 1)) ** 0.5
-        # Annualize assuming ~150 trades/year (roughly 3/week)
-        sharpe = (mean_r / std_r) * math.sqrt(150) if std_r > 0 else 0
-    else:
+    sharpe = compute_sharpe(pnl_pcts, periods_per_year=150)
+    if sharpe is None:
         sharpe = 0
 
     # Max drawdown (cumulative P&L peak-to-trough)
@@ -695,8 +695,6 @@ def _compute_fund_metrics(closed: list, trade_summary: dict) -> dict:
       - Monthly batting avg: % of months with positive P&L
       - Skewness: positive = more big winners than losers (desirable)
     """
-    import math
-
     pnl_pcts = [_num(t.get("pnl_pct")) for t in closed]
     pnl_dollars = [_num(t.get("pnl_dollars")) for t in closed]
     durations = [_num(t.get("duration_days")) for t in closed]
@@ -721,12 +719,18 @@ def _compute_fund_metrics(closed: list, trade_summary: dict) -> dict:
     # Sortino ratio — only penalizes downside volatility.
     # Better than Sharpe for asymmetric return distributions because
     # we WANT upside volatility (big winners) — only downside hurts.
+    # F-2 / Sprint-0 wave-4a: route through canonical compute_sortino_mar
+    # (MAR=0, RMS-of-downside divisor) — preserves the legacy formula at
+    # the canonical surface. periods_per_year=150 matches Sharpe parity.
+    # `inf` and 0 sentinels at the call site reproduce the legacy contract
+    # (no downside → +inf if profitable, else 0).
+    from src.analytics.canonical_sharpe import compute_sortino_mar
     downside = [r for r in pnl_pcts if r < 0]
-    if downside:
-        downside_dev = (sum(r ** 2 for r in downside) / len(downside)) ** 0.5
-        sortino = (mean_r / downside_dev) * math.sqrt(150) if downside_dev > 0 else 0
-    else:
+    if not downside:
         sortino = float('inf') if mean_r > 0 else 0
+    else:
+        sortino_canonical = compute_sortino_mar(pnl_pcts, periods_per_year=150, mar=0.0)
+        sortino = 0 if sortino_canonical is None else sortino_canonical
 
     # Calmar ratio — return / max drawdown
     max_dd_pct = trade_summary.get("max_drawdown_pct", 0)

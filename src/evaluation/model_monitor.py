@@ -58,14 +58,15 @@ def _compute_metrics(trades: list[dict]) -> dict:
     )
     expectancy = sum(pnl_dollars) / n if n else 0
 
-    # Trade-level Sharpe: mean(pnl_pct) / std(pnl_pct)
-    mean_pnl = sum(pnl_pcts) / n if n else 0
-    if n > 1:
-        variance = sum((p - mean_pnl) ** 2 for p in pnl_pcts) / (n - 1)
-        std_pnl = math.sqrt(variance) if variance > 0 else 0
-        sharpe = mean_pnl / std_pnl if std_pnl > 0 else 0.0
-    else:
-        sharpe = 0.0
+    # Trade-level Sharpe (annualized).
+    # F-2 / Sprint-0 wave-4a: route through canonical compute_sharpe with
+    # periods_per_year=150 (matches cto_report's "150 trades/year" trade-
+    # frequency convention so cross-model deltas are comparable). Coerce
+    # None → 0.0 because `_build_comparison` and `check_model_regression`
+    # do arithmetic on `sharpe_ratio` (None - 0.5 would TypeError).
+    from src.analytics.canonical_sharpe import compute_sharpe
+    sharpe_canonical = compute_sharpe(pnl_pcts, periods_per_year=150)
+    sharpe = 0.0 if sharpe_canonical is None else sharpe_canonical
 
     # Max drawdown from cumulative PnL%
     cumulative = 0.0
