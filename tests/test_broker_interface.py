@@ -255,12 +255,23 @@ class TestAlpacaLiveBracket651:
             "qty": 10,
             "legs": ["leg-tp", "leg-sl"],
         }
+        # Sprint 0 Wave 5c LIVE-VERIFY: AlpacaLiveBroker now polls
+        # verify_live_order_accepted post-submit. Patch it so the test
+        # remains a unit test of the routing logic (place_live_bracket
+        # vs place_live_entry) without requiring real Alpaca creds.
+        verify_payload = {
+            "verified": True, "status": "accepted", "attempts": 1,
+            "order": {"order_id": "alpaca-bracket-123", "status": "accepted"},
+        }
         with patch(
             "src.shadow_trading.alpaca_adapter.place_live_bracket",
             return_value=fake_order,
         ) as mock_bracket, patch(
             "src.shadow_trading.alpaca_adapter.place_live_entry"
-        ) as mock_entry:
+        ) as mock_entry, patch(
+            "src.shadow_trading.alpaca_adapter.verify_live_order_accepted",
+            return_value=verify_payload,
+        ):
             broker = AlpacaLiveBroker()
             result = broker.place_bracket_order(
                 ticker="SBUX",

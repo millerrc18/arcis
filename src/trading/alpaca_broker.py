@@ -3,17 +3,24 @@
 Called by: trading.broker_factory
 Calls: shadow_trading.alpaca_adapter (live trading functions only)
 Owns tables: none
-Tests: tests/test_broker_interface.py
+Tests: tests/test_broker_interface.py, tests/trading/test_alpaca_live_verification.py
 
 WHY a wrapper instead of rewriting: alpaca_adapter.py is 600+ lines of
 battle-tested code handling edge cases (fractional shares, GTC expiry,
 order rejection, notional orders). The wrapper is a thin translation layer —
 each method is 5-10 lines that call the existing function and normalize
-the return type. Zero behavior change.
+the return type.
 
 WHY keep the original alpaca_adapter.py: Paper trading continues calling it
 directly. This wrapper only exists for the live trading path through the
 broker factory.
+
+LIVE-VERIFY (Sprint 0 Wave 5c, 2026-04-26): Every submit_order callsite
+on the live path now invokes verify_live_order_accepted post-submit.
+Network blips during submission DO NOT mean Alpaca rejected the order
+(Issue #352). Pre-Wave-5c only the executor's paper-Alpaca branch ran
+verification (executor.py:864) — live paths submitted fire-and-forget,
+which on a real-money account is a capital-loss vector.
 """
 
 import logging
@@ -28,6 +35,27 @@ logger = logging.getLogger(__name__)
 
 class AlpacaLiveBroker(BrokerAdapter):
     """Wraps Alpaca live trading functions into the BrokerAdapter interface."""
+
+    def _verify_submitted(self, order_id: str, *, kind: str) -> dict | None:
+        """Post-submit verification on the live trading path.
+
+        Calls verify_live_order_accepted which polls Alpaca's order status
+        endpoint with exponential backoff. Raises OrderNotAcceptedError
+        (lets it propagate) when the broker reports terminal-reject.
+
+        kind is a short label (entry/exit/bracket/cancel) used purely for
+        log breadcrumbs.
+        """
+        if not order_id:
+            # close_position can return a synthetic placeholder — nothing to verify
+            return None
+        from src.shadow_trading.alpaca_adapter import verify_live_order_accepted
+        result = verify_live_order_accepted(order_id)
+        logger.info(
+            "[ALPACA-LIVE] %s order %s verified status=%s after %d attempt(s)",
+            kind, order_id, result.get("status"), result.get("attempts"),
+        )
+        return result
 
     def get_account(self) -> BrokerAccount:
         from src.shadow_trading.alpaca_adapter import get_live_account_info
@@ -68,13 +96,22 @@ class AlpacaLiveBroker(BrokerAdapter):
             stop_loss_price=stop_loss_price,
             limit_price=limit_price,
         )
+        order_id = str(order.get("order_id", ""))
+        # LIVE-VERIFY: confirm Alpaca actually accepted the bracket parent.
+        # Raises OrderNotAcceptedError on terminal-reject — propagates so
+        # the caller (executor) knows not to record a live-trade row for
+        # an order that never made it onto the broker.
+        verified = self._verify_submitted(order_id, kind="bracket")
+        status = str(order.get("status", "pending"))
+        if verified and verified.get("status"):
+            status = verified["status"]
         return BrokerOrder(
-            order_id=str(order.get("order_id", "")),
+            order_id=order_id,
             ticker=ticker,
             side="buy",
             quantity=quantity,
             order_type="bracket",
-            status=str(order.get("status", "pending")),
+            status=status,
             filled_avg_price=float(order["filled_avg_price"]) if order.get("filled_avg_price") else None,
             filled_qty=float(order.get("qty", 0) or 0),
             stop_price=stop_loss_price,
@@ -95,13 +132,20 @@ class AlpacaLiveBroker(BrokerAdapter):
         else:
             from src.shadow_trading.alpaca_adapter import place_live_exit
             order = place_live_exit(ticker, quantity)
+        order_id = str(order.get("order_id", ""))
+        # LIVE-VERIFY: market orders on the live path can fail at the
+        # broker after the SDK reports submitted. Poll until terminal.
+        verified = self._verify_submitted(order_id, kind=f"market-{side}")
+        status = str(order.get("status", "pending"))
+        if verified and verified.get("status"):
+            status = verified["status"]
         return BrokerOrder(
-            order_id=str(order.get("order_id", "")),
+            order_id=order_id,
             ticker=ticker,
             side=side,
             quantity=quantity,
             order_type="market",
-            status=str(order.get("status", "pending")),
+            status=status,
             filled_avg_price=float(order["filled_avg_price"]) if order.get("filled_avg_price") else None,
             filled_qty=float(order.get("qty", 0) or 0),
             broker="alpaca",
@@ -110,13 +154,24 @@ class AlpacaLiveBroker(BrokerAdapter):
     def place_exit(self, ticker: str, quantity: int = 0) -> BrokerOrder:
         from src.shadow_trading.alpaca_adapter import place_live_exit
         order = place_live_exit(ticker, quantity)
+        order_id = str(order.get("order_id", ""))
+        # LIVE-VERIFY: exits are capital-safety critical — a fire-and-
+        # forget submit means we'd never know if the broker rejected
+        # the close. Skip the synthetic placeholder from close_position.
+        if order_id and order_id != "close_position":
+            verified = self._verify_submitted(order_id, kind="exit")
+        else:
+            verified = None
+        status = str(order.get("status", "pending"))
+        if verified and verified.get("status"):
+            status = verified["status"]
         return BrokerOrder(
-            order_id=str(order.get("order_id", "")),
+            order_id=order_id,
             ticker=ticker,
             side="sell",
             quantity=quantity,
             order_type="market",
-            status=str(order.get("status", "pending")),
+            status=status,
             filled_avg_price=float(order["filled_avg_price"]) if order.get("filled_avg_price") else None,
             filled_qty=float(order.get("qty", 0) or 0),
             broker="alpaca",
@@ -129,9 +184,47 @@ class AlpacaLiveBroker(BrokerAdapter):
             from src.shadow_trading.alpaca_adapter import _get_live_trading_client
             client = _get_live_trading_client()
             client.cancel_order_by_id(order_id)
-            return True
         except Exception as e:
             logger.warning("[ALPACA-LIVE] Cancel failed for %s: %s", order_id, e)
+            return False
+        # LIVE-VERIFY: cancel may not have actually cancelled — broker
+        # could race a fill. Poll for terminal status. If the order ends
+        # up filled (raced our cancel) we treat the cancel as
+        # unsuccessful from the caller's intent perspective.
+        try:
+            from src.shadow_trading.alpaca_adapter import (
+                verify_live_order_accepted, OrderNotAcceptedError,
+            )
+            try:
+                result = verify_live_order_accepted(order_id)
+                # Cancel succeeded only if Alpaca shows the order in a
+                # cancelled-equivalent state. "filled" / "partially_filled"
+                # mean we lost the race and the order executed.
+                if result.get("status") in {"canceled", "expired"}:
+                    return True
+                logger.warning(
+                    "[ALPACA-LIVE] Cancel for %s not terminal: status=%s",
+                    order_id, result.get("status"),
+                )
+                return False
+            except OrderNotAcceptedError as exc:
+                # Terminal-reject states from verify (canceled/expired/
+                # rejected/suspended) all mean the order is no longer
+                # active on the broker — that IS a successful cancel
+                # from the user's intent perspective. "rejected" here
+                # is unusual but it still means inactive.
+                if exc.status in {"canceled", "expired", "rejected", "suspended"}:
+                    return True
+                logger.warning(
+                    "[ALPACA-LIVE] Cancel verification reports unexpected "
+                    "terminal state %r for %s", exc.status, order_id,
+                )
+                return False
+        except Exception as exc:
+            logger.warning(
+                "[ALPACA-LIVE] Cancel verification failed for %s: %s",
+                order_id, exc,
+            )
             return False
 
     def get_order_status(self, order_id: str) -> BrokerOrder:
