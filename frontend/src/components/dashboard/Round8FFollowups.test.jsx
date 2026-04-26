@@ -295,6 +295,74 @@ function mockTradeHistoryQueries(trades) {
   })
 }
 
+// ── PR-690 I7: anti-regression for Round-8.F backtick template-literal stripping ──
+//
+// The original Round-8.F commit (5d556bab) shipped Dashboard.jsx:443 + 445 with
+// `${...}` collapsed to `{...}` — broken JSX that rendered raw expression text
+// instead of interpolated values. The grep-based protection in the B1/B2 fix
+// commit catches the SOURCE-side anti-pattern, but doesn't catch the RENDER-side
+// regression. These tests assert that:
+//   1. The Win Rate card renders as a percentage string (not raw expression text)
+//   2. The Dashboard nowhere renders the literal token `closedData`, `toFixed(`,
+//      or `training.dataset_total` — these would only appear if a template literal
+//      regressed to literal-text in any current OR future MetricCard.
+
+function mockDashboardQueriesForI7(winRate, datasetTotal) {
+  useQuery.mockImplementation(({ queryKey }) => {
+    const key = queryKey?.[0]
+    if (key === 'shadow-open') return { data: { open_trades: [], open_count: 0 } }
+    if (key === 'shadow-closed') return { data: { trades: [], metrics: { win_rate: winRate } } }
+    if (key === 'status') return { data: { model_version: 'v1', market_open: false }, isLoading: false }
+    if (key === 'training-status') return { data: { dataset_total: datasetTotal } }
+    if (key === 'packets') return { data: [] }
+    if (key === 'halt-status') return { data: { halted: false } }
+    if (key === 'audit-latest') return { data: null }
+    if (key === 'cto-report') return { data: null }
+    if (key === 'config') return { data: { risk: { starting_capital: 100000 } } }
+    if (key === 'shadow-account') return { data: { equity: 100000 } }
+    if (key === 'build-score') return { data: null }
+    if (key === 'scan-metrics') return { data: null }
+    if (key === 'system-index') return { data: null, isLoading: false }
+    if (key === 'kpis') return { data: null }
+    return { data: undefined, isLoading: false }
+  })
+}
+
+describe('Dashboard B1+B2 anti-regression: template literals must interpolate, not render as raw text', () => {
+  it('Win Rate card renders as percentage string, not as raw template-literal source', () => {
+    mockDashboardQueriesForI7(0.425, 1234)
+    const { getAllByTestId } = wrap(<Dashboard />)
+    const cards = getAllByTestId('metric-card')
+    const winRateCard = cards.find(c => c.textContent.toLowerCase().includes('win rate'))
+    expect(winRateCard).toBeTruthy()
+    // Win rate of 0.425 should render as something like "42.5%"
+    expect(winRateCard.textContent).toMatch(/\d+(\.\d+)?%/)
+    // The Round-8.F regression rendered `{(closedData.metrics.win_rate * 100).toFixed(1)}%` as literal text.
+    // None of these tokens should appear in a working render:
+    expect(winRateCard.textContent).not.toContain('closedData')
+    expect(winRateCard.textContent).not.toContain('toFixed(')
+    expect(winRateCard.textContent).not.toContain('{(')
+  })
+
+  it('Dashboard container nowhere contains raw template-literal syntax (catches Win Rate + Model Version + future cards)', () => {
+    // Stronger anti-regression: any MetricCard with a stripped-`$` template
+    // literal would surface its source code in container.textContent. We match
+    // the EXACT broken syntax patterns rather than naked identifiers — e.g.
+    // `{(closedData` is the regression syntax (vs `${(closedData` working).
+    // Naked `closedData` would false-positive when adjacent text like
+    // "market closed" abuts a sibling element starting with "Data".
+    mockDashboardQueriesForI7(0.425, 1234)
+    const { container } = wrap(<Dashboard />)
+    const text = container.textContent
+    // Round-8.F regression syntax: `{(...).toFixed(...)}%` rendered as literal text
+    expect(text).not.toContain('{(closedData')
+    expect(text).not.toContain(').toFixed(')
+    // Round-8.F regression syntax: `{training.dataset_total} examples` rendered as literal text
+    expect(text).not.toContain('{training.dataset_total')
+    expect(text).not.toContain('{training.')
+  })
+})
+
 describe('TradeHistory G4-extension: llm_conviction_reason in expandable rows', () => {
   it('shows LLM Reasoning label when expanded row has llm_conviction_reason', () => {
     mockTradeHistoryQueries([_closedTradeWithReason])
