@@ -169,3 +169,88 @@ def test_is_market_holiday_no_args_returns_bool():
     # Without args, falls back to today(). Just confirm it returns a bool
     # without raising.
     assert isinstance(is_market_holiday(), bool)
+
+
+# ---------------------------------------------------------------------------
+# Sprint 0 Wave 2a (HALF-DAY, T10) — _is_market_open must respect half-days.
+# Pre-fix: _is_market_open ignored is_market_half_day, so the watch loop
+# scanned/traded 13:00-16:00 ET on early-close days.
+# ---------------------------------------------------------------------------
+
+
+def test_is_market_open_returns_false_after_1pm_on_half_day():
+    """On NYSE half-days (1pm ET close), _is_market_open must return False
+    after 13:00 ET. Pre-fix this returned True until 16:00 ET.
+
+    Reference half-day: 2026-11-27 (day after Thanksgiving) is a real NYSE
+    half-day per pandas_market_calendars.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from src.scheduler.watch import WatchLoop
+
+    wl = WatchLoop.__new__(WatchLoop)
+    wl.market_open_hour = 9
+    wl.market_open_minute = 30
+    wl.market_close_hour = 16
+
+    et = ZoneInfo("America/New_York")
+    # 13:30 ET on a real NYSE half-day
+    now = datetime(2026, 11, 27, 13, 30, tzinfo=et)
+    assert wl._is_market_open(now) is False
+
+
+def test_is_market_open_returns_true_before_1pm_on_half_day():
+    """Half-days are still open in the morning — only the 13:00-16:00
+    window should be blocked. Confirms we don't over-suppress."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from src.scheduler.watch import WatchLoop
+
+    wl = WatchLoop.__new__(WatchLoop)
+    wl.market_open_hour = 9
+    wl.market_open_minute = 30
+    wl.market_close_hour = 16
+
+    et = ZoneInfo("America/New_York")
+    # 11:00 ET on the same half-day — market still open
+    now = datetime(2026, 11, 27, 11, 0, tzinfo=et)
+    assert wl._is_market_open(now) is True
+
+
+def test_is_market_open_unaffected_on_regular_trading_day():
+    """Regression: a regular trading day must still be open at 13:30 ET."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from src.scheduler.watch import WatchLoop
+
+    wl = WatchLoop.__new__(WatchLoop)
+    wl.market_open_hour = 9
+    wl.market_open_minute = 30
+    wl.market_close_hour = 16
+
+    et = ZoneInfo("America/New_York")
+    # 2026-03-10 is a regular Tuesday (not holiday, not half-day)
+    now = datetime(2026, 3, 10, 13, 30, tzinfo=et)
+    assert wl._is_market_open(now) is True
+
+
+def test_is_market_open_returns_false_on_full_holiday():
+    """Regression: full closures still suppress the market regardless of time."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from src.scheduler.watch import WatchLoop
+
+    wl = WatchLoop.__new__(WatchLoop)
+    wl.market_open_hour = 9
+    wl.market_open_minute = 30
+    wl.market_close_hour = 16
+
+    et = ZoneInfo("America/New_York")
+    # 2026-11-26 is Thanksgiving (full closure)
+    now = datetime(2026, 11, 26, 11, 0, tzinfo=et)
+    assert wl._is_market_open(now) is False

@@ -353,13 +353,23 @@ class WatchLoop(HandlerRegistryMixin):
 
         WHY this matters: scans, position monitoring, and bracket checks only
         run during market hours. Overnight tasks run outside this window.
+
+        Sprint 0 Wave 2a (HALF-DAY, T10): on NYSE early-close days
+        (e.g., day after Thanksgiving, Christmas Eve), the market closes at
+        13:00 ET instead of 16:00 ET. Without this check, scans/trades
+        would fire 13:00-16:00 against a closed market.
         """
         if now.weekday() >= 5:  # Saturday=5, Sunday=6
             return False
-        # Holiday check (#149) — fail-open so we don't miss a trading day
+        # Holiday + half-day check (#149, Sprint-0/2a HALF-DAY) — fail-open so
+        # we don't miss a trading day if the holiday module errors.
         try:
-            from src.scheduler.holidays import is_market_holiday
+            from src.scheduler.holidays import is_market_holiday, is_market_half_day
             if is_market_holiday(check_date=now.date()):
+                return False
+            # Half-day: NYSE closes at 13:00 ET. After 13:00 the market is
+            # closed even though it would normally still be open.
+            if is_market_half_day(check_date=now.date()) and now.hour >= 13:
                 return False
         except Exception:
             pass  # If holiday module fails, assume market open — safer to scan unnecessarily
@@ -1442,43 +1452,23 @@ class WatchLoop(HandlerRegistryMixin):
                         logger.warning("[WATCH] notify_scoring_summary failed: %s", e)
 
                 # 4b. Daily system validation (4:30 PM ET)
+                # Sprint 0 Wave 2a (DONE-FLAG-A, T9): wrap in _safe_run so the
+                # done-flag is conditional on success and per-task backoff
+                # is wired in (matches the discipline of every other done-flag
+                # block and the CLAUDE.md "_safe_run returns bool" rule).
                 elif (hour == 16 and now.minute >= 30 and now.minute < 45
                       and not self._daily_validation_done):
-                    try:
-                        from src.evaluation.system_validator import (
-                            run_full_validation, save_validation_result,
-                        )
-                        from src.notifications.telegram import (
-                            notify_validation_summary, is_telegram_enabled,
-                        )
-                        result = run_full_validation()
-                        save_validation_result(result)
-                        if is_telegram_enabled():
-                            notify_validation_summary(result)
-                        logger.info(
-                            "[WATCH] Validation complete: %s (%dP/%dW/%dF)",
-                            result["overall_status"],
-                            result["checks_passed"],
-                            result["checks_warning"],
-                            result["checks_failed"],
-                        )
+                    if self._safe_run("daily validation", self._run_daily_validation):
                         self._daily_validation_done = True
-                    except Exception as e:
-                        logger.warning("[WATCH] Validation failed: %s", e)
 
                 # 4c. Daily build score snapshot (4:45 PM ET)
+                # Sprint 0 Wave 2a (DONE-FLAG-B, T9): wrap in _safe_run so the
+                # done-flag is conditional on success and per-task backoff
+                # is wired in.
                 if (hour == 16 and now.minute >= 45
                         and not self._daily_build_score_done):
-                    try:
-                        from src.evaluation.build_score import persist_build_score
-                        result = persist_build_score()
-                        logger.info(
-                            "[WATCH] Build score persisted: %.1f",
-                            result.get("build_score", 0),
-                        )
+                    if self._safe_run("daily build score", self._run_daily_build_score):
                         self._daily_build_score_done = True
-                    except Exception as e:
-                        logger.warning("[WATCH] Build score persistence failed: %s", e)
 
                 if (hour == 16 and now.minute >= 30 and now.minute < 35
                         and not self._postclose_bracket_check_done):
@@ -1573,17 +1563,15 @@ class WatchLoop(HandlerRegistryMixin):
                         self._simulation_done = True
 
                 # Action reminders (8 PM daily via Telegram)
+                # Sprint 0 Wave 2a (DONE-FLAG-C, T9): the done-flag was set
+                # OUTSIDE the try block, so any raise from check_action_reminders
+                # would still mark the day done and lock out retries until the
+                # next midnight reset. Now wrapped in _safe_run so the flag is
+                # only set on success and per-task backoff applies (matches
+                # the discipline of every other done-flag block).
                 if hour == 20 and not self._action_reminders_done:
-                    try:
-                        from src.notifications.telegram_commands import check_action_reminders
-                        from src.notifications.telegram import is_telegram_enabled
-                        if is_telegram_enabled():
-                            sent = check_action_reminders()
-                            if sent:
-                                logger.info("[WATCH] Action reminders sent: %s", sent)
-                    except Exception as e:
-                        logger.debug("[WATCH] Action reminders failed: %s", e)
-                    self._action_reminders_done = True
+                    if self._safe_run("action reminders", self._run_action_reminders):
+                        self._action_reminders_done = True
 
                 # 1L. Earnings proximity warning (8:00 AM weekdays)
                 if (hour == 8 and now.minute < 5 and now.weekday() < 5
@@ -1845,6 +1833,59 @@ class WatchLoop(HandlerRegistryMixin):
         """Run the daily auditor agent."""
         from src.scheduler.overnight import run_daily_audit
         run_daily_audit()
+
+    def _run_daily_validation(self):
+        """4:30 PM ET — Run full system validator and notify Telegram on result.
+
+        Sprint 0 Wave 2a (DONE-FLAG-A): extracted from inline try/except so the
+        block can use _safe_run discipline (per-task backoff + conditional
+        done-flag).
+        """
+        from src.evaluation.system_validator import (
+            run_full_validation, save_validation_result,
+        )
+        from src.notifications.telegram import (
+            notify_validation_summary, is_telegram_enabled,
+        )
+        result = run_full_validation()
+        save_validation_result(result)
+        if is_telegram_enabled():
+            notify_validation_summary(result)
+        logger.info(
+            "[WATCH] Validation complete: %s (%dP/%dW/%dF)",
+            result["overall_status"],
+            result["checks_passed"],
+            result["checks_warning"],
+            result["checks_failed"],
+        )
+
+    def _run_daily_build_score(self):
+        """4:45 PM ET — Persist the daily build-score snapshot.
+
+        Sprint 0 Wave 2a (DONE-FLAG-B): extracted from inline try/except so the
+        block can use _safe_run discipline.
+        """
+        from src.evaluation.build_score import persist_build_score
+        result = persist_build_score()
+        logger.info(
+            "[WATCH] Build score persisted: %.1f",
+            result.get("build_score", 0),
+        )
+
+    def _run_action_reminders(self):
+        """8 PM ET — Send daily Telegram action reminders.
+
+        Sprint 0 Wave 2a (DONE-FLAG-C): extracted from inline try/except so the
+        block can use _safe_run discipline. Pre-fix, the done-flag was set
+        OUTSIDE the try block, so any raise inside check_action_reminders
+        marked the day done anyway and locked out retries.
+        """
+        from src.notifications.telegram_commands import check_action_reminders
+        from src.notifications.telegram import is_telegram_enabled
+        if is_telegram_enabled():
+            sent = check_action_reminders()
+            if sent:
+                logger.info("[WATCH] Action reminders sent: %s", sent)
 
     def _run_training_collection(self):
         """Collect training data from closed trades."""
