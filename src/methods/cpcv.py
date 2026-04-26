@@ -62,6 +62,15 @@ _DEFAULT_K = 5
 _DEFAULT_EMBARGO = 10
 
 
+class EmbargoZeroError(ValueError):
+    """Raised when embargo collapses to zero leakage protection.
+
+    Sprint-0 Wave-5b PROMOTION-GATE-METHODOLOGY (operator Q6=A): silent
+    embargo decrement to 0 silently disables leakage protection. Callers
+    must treat this as a hard failure rather than a degraded run.
+    """
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -97,8 +106,26 @@ def _apply_embargo(
     test_idx: np.ndarray,
     embargo: int,
 ) -> np.ndarray:
-    """Remove from train_idx any index within `embargo` of any test index."""
+    """Remove from train_idx any index within `embargo` of any test index.
+
+    Sprint-0 Wave-5b PROMOTION-GATE-METHODOLOGY (operator Q6=A):
+    post-embargo, the resulting train_idx must be non-empty AND embargo > 0
+    when the caller is the promotion gate (which auto-shrinks embargo to fit
+    the series). The embargo==0 short-circuit retains the original CPCV API
+    contract for direct callers (they may legitimately request an unembargoed
+    run), but if embargo>0 was requested and the resulting train set is empty,
+    we raise EmbargoZeroError so the caller cannot silently proceed with no
+    leakage protection.
+    """
     if embargo == 0:
+        # Direct callers (not the promotion gate) may request embargo=0
+        # explicitly. Still verify that train_idx is not empty — empty
+        # train_idx would silently yield zero in-sample observations.
+        if len(train_idx) == 0:
+            raise EmbargoZeroError(
+                "Empty train_idx after embargo=0 — no observations remain "
+                "for in-sample fitting (the test fold consumed everything)."
+            )
         return train_idx
     test_set = set(test_idx.tolist())
     forbidden: set[int] = set()
@@ -106,7 +133,14 @@ def _apply_embargo(
         for off in range(-embargo, embargo + 1):
             forbidden.add(ti + off)
     mask = np.array([i not in forbidden for i in train_idx], dtype=bool)
-    return train_idx[mask]
+    out = train_idx[mask]
+    if len(out) == 0:
+        raise EmbargoZeroError(
+            f"Embargo of {embargo} consumed every train index — no leakage-safe "
+            f"in-sample observations remain (n_test={len(test_idx)}, "
+            f"n_train_pre_embargo={len(train_idx)})."
+        )
+    return out
 
 
 def _oos_sharpe(
