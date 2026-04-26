@@ -23,6 +23,12 @@ logger = logging.getLogger(__name__)
 
 _RECONCILE_LOG_DIR = Path(DB_PATH).parent / "reconciliation_log"
 
+# 1% — anomaly threshold for the exit price exceeding stop_price on a stop_loss
+# exit. Tracking distance is intentionally wider than typical broker slippage
+# so that this pass surfaces real reconciliation gaps rather than ordinary
+# fill noise. PR-690 review item O3.
+_STOP_LOSS_SLIPPAGE_TOLERANCE = 0.01
+
 _QUERY = """
     SELECT trade_id, ticker, exit_reason,
            actual_exit_price, stop_price, target_1, target_2,
@@ -71,7 +77,7 @@ def _check_trade(row: sqlite3.Row) -> bool:
         sp = row["stop_price"]
         if sp is None or sp <= 0:
             return False
-        return exit_price is not None and exit_price > sp * 1.01
+        return exit_price is not None and exit_price > sp * (1 + _STOP_LOSS_SLIPPAGE_TOLERANCE)
 
     if reason == "timeout":
         td = row["timeout_days"] or 15

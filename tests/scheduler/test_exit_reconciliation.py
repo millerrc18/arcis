@@ -283,3 +283,27 @@ def test_quarantined_excluded():
     result = _run(conn)
     assert "quar" not in result["flagged_trade_ids"]
     assert result["total_closed"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Slippage tolerance constant — PR-690 O3
+# ---------------------------------------------------------------------------
+
+def test_slippage_tolerance_constant_used():
+    """The slippage tolerance must be defined as a named module constant
+    (not a magic literal). This guards against regression to `* 1.01`."""
+    import inspect
+
+    from src.shadow_trading import exit_reconciliation as mod
+
+    assert hasattr(mod, "_STOP_LOSS_SLIPPAGE_TOLERANCE"), (
+        "Module must expose _STOP_LOSS_SLIPPAGE_TOLERANCE as a named constant"
+    )
+    assert mod._STOP_LOSS_SLIPPAGE_TOLERANCE == 0.01
+
+    src = inspect.getsource(mod._check_trade)
+    # No magic literals in the stop_loss branch.
+    assert "* 1.01" not in src, "_check_trade must reference the constant, not 1.01"
+    assert "* 0.99" not in src, "_check_trade must reference the constant, not 0.99"
+    # Constant is referenced at least once (long branch; O2 adds short branch).
+    assert src.count("_STOP_LOSS_SLIPPAGE_TOLERANCE") >= 1
