@@ -151,3 +151,125 @@ def test_projections_live_sharpe_uses_canonical_module(client, temp_db_with_trad
         "projections.py must call canonical_sharpe.raw_sharpe; if this fails, "
         "PR #690 B5 has regressed"
     )
+
+
+# ── PR #690 I6: drawdown baseline must come from Alpaca, not hardcoded ──────
+
+
+def test_projections_live_uses_alpaca_equity_when_available(
+    client, temp_db_with_trades,
+):
+    """I6: when get_account_info() returns equity, drawdown uses that equity.
+
+    Pre-PR-690-I6 the route hardcoded `cumulative = 100000`. The fix routes
+    through `_resolve_equity_baseline()` which calls Alpaca first; this test
+    pins the contract: a non-default equity (250_000) must propagate to
+    `startingEquity` and the source must be reported as 'alpaca_account'.
+    """
+    fake_account = {
+        "account_id": "TEST", "status": "ACTIVE",
+        "cash": 50_000.0, "buying_power": 500_000.0,
+        "equity": 250_000.0, "portfolio_value": 250_000.0,
+        "currency": "USD",
+    }
+    with patch(
+        "src.shadow_trading.alpaca_adapter.get_account_info",
+        return_value=fake_account,
+    ), patch("src.api.routes.projections.DB_PATH", temp_db_with_trades):
+        resp = client.get("/api/projections/live")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["equitySource"] == "alpaca_account", (
+        f"expected alpaca_account, got {data.get('equitySource')!r} — "
+        "the Alpaca-equity path was bypassed"
+    )
+    assert data["startingEquity"] == 250_000.0, (
+        f"startingEquity should be 250000.0 (Alpaca equity), got "
+        f"{data.get('startingEquity')} — drawdown is being computed against a "
+        f"different baseline than reported"
+    )
+
+
+def test_projections_live_falls_back_when_alpaca_unreachable(
+    client, temp_db_with_trades,
+):
+    """I6: when get_account_info() raises, fall back to normalized baseline.
+
+    Operator did not specify Alpaca-must-be-up; the safe pattern is graceful
+    fallback labelled distinctly so the dashboard never silently uses a
+    fictional equity. This test pins both the fallback value AND the label.
+    """
+    with patch(
+        "src.shadow_trading.alpaca_adapter.get_account_info",
+        side_effect=RuntimeError("Alpaca connection refused"),
+    ), patch("src.api.routes.projections.DB_PATH", temp_db_with_trades):
+        resp = client.get("/api/projections/live")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["equitySource"] == "normalized_baseline"
+    assert data["startingEquity"] == 100_000.0
+
+
+def test_projections_live_no_hardcoded_100k_in_module():
+    """I6 anti-regression: `100000` must not appear as a magic number in code.
+
+    The named constant `_NORMALIZED_BASELINE_EQUITY = 100_000.0` is allowed,
+    but bare `100000` (the form used pre-fix) must be gone from EXECUTABLE
+    statements. This guards against a future refactor accidentally re-inlining
+    the magic number — comments and docstrings that reference the historic
+    value are fine.
+    """
+    import ast
+
+    from src.api.routes import projections as proj_mod
+
+    src_path = inspect_module_source_path(proj_mod)
+    with open(src_path, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read(), filename=src_path)
+
+    offending: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Constant):
+            continue
+        if not isinstance(node.value, (int, float)):
+            continue
+        if node.value not in (100000, 100_000.0):
+            continue
+        # Allow ONLY the named-constant assignment.
+        parent_assign = _enclosing_assign_target(tree, node)
+        if parent_assign == "_NORMALIZED_BASELINE_EQUITY":
+            continue
+        offending.append((node.lineno, repr(node.value)))
+
+    assert not offending, (
+        f"bare 100000 / 100_000.0 magic number found in projections.py at "
+        f"{offending} — PR #690 I6 anti-pattern has been re-introduced. "
+        "Use _NORMALIZED_BASELINE_EQUITY constant instead."
+    )
+
+
+def inspect_module_source_path(mod) -> str:
+    import inspect
+    return inspect.getsourcefile(mod) or inspect.getfile(mod)
+
+
+def _enclosing_assign_target(tree, node) -> str | None:
+    """Return the assignment target name if `node` is the RHS of an Assign.
+
+    Walks the tree to locate the nearest Assign whose `value` subtree
+    contains `node`. Returns the first target's name if it's a plain Name,
+    else None.
+    """
+    import ast
+
+    for parent in ast.walk(tree):
+        if not isinstance(parent, ast.Assign):
+            continue
+        for sub in ast.walk(parent.value):
+            if sub is node:
+                if parent.targets and isinstance(parent.targets[0], ast.Name):
+                    return parent.targets[0].id
+                return None
+    return None

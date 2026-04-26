@@ -103,7 +103,13 @@ function rollingSharpe(trades, window = 20) {
     const mean = returns.reduce((s, r) => s + r, 0) / returns.length
     const variance = returns.reduce((s, r) => s + (r - mean) ** 2, 0) / (returns.length - 1)
     const std = Math.sqrt(variance)
-    // Annualize assuming ~150 trades/year
+    // Diagnostic-only annualization: √150 trade-count basis (NOT canonical).
+    // The canonical Sharpe (√252, rf-adjusted) lives on the Dashboard hero KPI
+    // strip (`/api/kpis` -> rf_adjusted_excess_sharpe in KPIStrip.jsx). This
+    // rolling-window chart deliberately uses √150 for shorter-window
+    // readability — the two numbers will differ by design. Per Decision 4
+    // (track-1.5-DECISIONS.md, PR #690 review item O11), this surface is
+    // labeled "Diagnostic — see hero KPI strip for canonical Sharpe."
     const sharpe = std > 0 ? (mean / std) * Math.sqrt(150) : 0
     result.push({
       idx: i + 1,
@@ -519,9 +525,22 @@ export default function TradeHistory() {
         </div>
 
         <div className="arcis-card">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-1 gap-2">
             <h3 className="text-sm uppercase tracking-wide" style={{ color: 'var(--arcis-text-secondary)' }}>Rolling 20-Trade Sharpe</h3>
-            <span className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>Annualized (√150 trades/yr)</span>
+            <span
+              className="text-xs"
+              style={{ color: 'var(--arcis-warning)', fontStyle: 'italic', textAlign: 'right' }}
+              title={'The hero KPI strip on the dashboard uses canonical Sharpe (√252, rf-adjusted). This rolling chart uses √150 trade-count annualization for shorter-window readability. Both numbers will differ by design.'}
+            >
+              Diagnostic — annualized √150; see hero KPI strip for canonical Sharpe
+            </span>
+          </div>
+          <div
+            className="text-[10px] mb-2"
+            style={{ color: 'var(--arcis-text-muted)' }}
+            title={'The hero KPI strip on the dashboard uses canonical Sharpe (√252, rf-adjusted). This rolling chart uses √150 trade-count annualization for shorter-window readability. Both numbers will differ by design.'}
+          >
+            Hover the label for formula details. Hero KPI strip (Dashboard) is canonical (√252 + rf-adjusted) and is the number used for go/no-go decisions.
           </div>
           <ResponsiveContainer width="100%" height={200}>
             <LineChart data={rolling20Sharpe}>
@@ -530,8 +549,8 @@ export default function TradeHistory() {
               <YAxis tick={{ fontSize: 10, fill: 'var(--arcis-text-muted)' }} />
               <RTooltip
                 contentStyle={{ background: 'var(--arcis-bg-elevated)', border: '1px solid var(--arcis-border)', borderRadius: 4, fontSize: 12 }}
-                formatter={(val) => [val?.toFixed(2) || '--', 'Sharpe']}
-                labelFormatter={(idx) => `Trade #${idx}`}
+                formatter={(val) => [val?.toFixed(2) || '--', 'Sharpe (diagnostic, √150)']}
+                labelFormatter={(idx) => `Trade #${idx} — see hero KPI strip for canonical`}
               />
               <ReferenceLine y={1.0} stroke="var(--arcis-success)" strokeDasharray="3 3" label={{ value: 'IB gate', fontSize: 10, fill: 'var(--arcis-success)' }} />
               <ReferenceLine y={0.15} stroke="var(--arcis-warning)" strokeDasharray="3 3" label={{ value: 'Phase 1', fontSize: 10, fill: 'var(--arcis-warning)' }} />
