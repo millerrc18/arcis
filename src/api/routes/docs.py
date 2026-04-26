@@ -4,7 +4,7 @@ Called by: api.app
 Calls: none
 Owns tables: none
 Config keys: none
-Tests: none
+Tests: tests/api/test_docs_mime_safety.py
 
 Endpoints:
     GET /docs          - List available docs with availability flags
@@ -15,11 +15,26 @@ The DOCS list is hardcoded because we want explicit control over display order
 and titles — auto-discovery would lose the curated categorization. The
 _find_project_root() walk is necessary because this file lives deep in the
 package tree and we need to resolve paths relative to the repo root.
+
+MIME safety (Sprint 0 cluster-07 Critical #4): the DOCS whitelist already
+contains binary entries (.pdf, .docx) for download-only research docs.
+``get_doc`` only returns text content, so it must reject non-text suffixes
+with HTTP 415 before attempting ``read_text`` — otherwise a binary file
+raises ``UnicodeDecodeError`` and propagates as a 500 with a path-leaking
+traceback. ``TEXT_DOC_SUFFIXES`` is the authoritative whitelist of suffixes
+whose contents are returnable as UTF-8 text.
 """
 from pathlib import Path
 from fastapi import APIRouter, HTTPException
 
 router = APIRouter(tags=["docs"])
+
+# Suffixes whose content can be safely read as UTF-8 text and returned to
+# the dashboard. Everything else (.pdf, .docx, images, archives) is binary
+# and must be rejected with HTTP 415.
+TEXT_DOC_SUFFIXES = frozenset({
+    ".md", ".txt", ".json", ".yaml", ".yml", ".py",
+})
 
 # Docs we serve, in display order
 DOCS = [
@@ -113,9 +128,31 @@ def get_doc(doc_id: str):
             fp = root / doc["path"]
             if not fp.exists():
                 raise HTTPException(404, f"Document not found: {doc['path']}")
+            # MIME safety (Sprint 0 cluster-07 Critical #4): reject non-text
+            # suffixes BEFORE attempting read_text. Several DOCS entries are
+            # .pdf / .docx for download-only docs; calling read_text on them
+            # raises UnicodeDecodeError and propagates as a 500 with a
+            # path-leaking traceback.
+            suffix = fp.suffix.lower()
+            if suffix not in TEXT_DOC_SUFFIXES:
+                raise HTTPException(
+                    415,
+                    f"Unsupported document type: {suffix or '(no extension)'} "
+                    f"is not a text format",
+                )
+            # Defensive backstop: even if a future text suffix is added that
+            # can hold binary-looking content, never leak the underlying
+            # UnicodeDecodeError traceback to the client.
+            try:
+                content = fp.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                raise HTTPException(
+                    415,
+                    f"Document content is not valid UTF-8 text: {doc['path']}",
+                )
             return {
                 "id": doc["id"],
                 "title": doc["title"],
-                "content": fp.read_text(encoding="utf-8"),
+                "content": content,
             }
     raise HTTPException(404, f"Unknown document: {doc_id}")
