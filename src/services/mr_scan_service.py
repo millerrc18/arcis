@@ -83,8 +83,13 @@ def run_mr_scan(config: dict | None = None, dry_run: bool = False) -> dict:
                     ).fetchone()
                     if r:
                         vix_val = float(r[0])
-            except Exception:
-                pass
+            except Exception as exc:
+                # PR #690 O5: was bare `pass` — surfaced as silent failure during
+                # operator's first-pass review. Log at WARNING so DB lock /
+                # missing column / malformed value are diagnosable. VIX remains
+                # optional (vix_val stays None) — outer enrichment block at
+                # line 91+ already covers the broader path.
+                logger.warning("[MR_VIX_LOOKUP_FAILED] %s", exc)
             attach_post_scan_features(
                 features_map, config=config, spy=spy_df, vix_value=vix_val,
             )
