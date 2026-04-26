@@ -92,11 +92,14 @@ def projections_live():
         # canonical_sharpe.raw_sharpe — single source of truth per F-2/Track-1.5.
         # raw_sharpe returns None when undefined (n<2 or zero variance); we coerce
         # to 0.0 to preserve the response contract (numeric `sharpe` field).
-        # TODO(#690): when src.data_ingestion.risk_free_rate is wired across all 6
-        # rf-deferred sites (kpis.py, stage1_baseline_recompute.py, cpcv.py,
-        # promotion_gate.py, mc_permutation.py, block_bootstrap.py) swap to
-        # rf_adjusted_excess_sharpe with a per-trade rf vector. Tracked as
-        # PR-690 review I1 follow-up.
+        # rf-wiring status (Sprint-0 Wave-3b RF-WIRING, 2026-04-26):
+        #   - kpis.py + stage1_baseline_recompute.py wired via PR #690 I1
+        #   - cpcv.py / block_bootstrap.py / mc_permutation.py / promotion_gate.py
+        #     wired via _with_fred_rf siblings + dates= keyword (Sprint-0 W3b)
+        #   - This /projections endpoint stays on raw_sharpe (no rf adjustment)
+        #     because the response is dashboard-cumulative, not strategy-promotion;
+        #     the rf adjustment swap would change the dashboard hero number and
+        #     belongs in a follow-up dashboard PR rather than the methods wiring.
         sharpe = raw_sharpe(pnl_pcts) or 0.0
 
         # PR #690 I6: pull live equity from Alpaca rather than hardcoded $100K.

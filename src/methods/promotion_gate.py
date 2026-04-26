@@ -2,7 +2,10 @@
 
 Authority: Arcis audit spec §F-12.
 
-Pure-function module — no I/O, no DB.
+Pure-function module — no I/O, no DB on the legacy code path. The Sprint-0
+Wave-3b RF-WIRING extension takes an optional `dates` argument and, when
+provided, fetches per-period rf via FRED (effectful — see
+src.methods._rf_vector); on failure it falls back to placeholder per-index.
 
 Called by: external research scripts (via import).
 Calls:
@@ -10,9 +13,12 @@ Calls:
   src.methods.block_bootstrap.block_bootstrap_ci,
   src.methods.mc_permutation.mc_permutation_pvalue,
   src.methods.psr.psr, src.methods.psr.dsr, src.methods.psr.mintrl,
-  src.methods.white_rc.white_rc.
+  src.methods.white_rc.white_rc,
+  src.methods._rf_vector.compute_per_period_rf_vector (Sprint-0 Wave-3b
+    RF-WIRING — only when `dates` is supplied to `promotion_gate`).
 Owns tables: none.
-Config keys: none.
+Config keys: none (FRED_API_KEY env honored transitively via the rf adapter
+  when `dates` is supplied).
 Tests: tests/methods/test_promotion_gate.py.
 
 Decision logic:
@@ -29,6 +35,10 @@ Input assumptions:
     annualized. Length must be >= 5 (minimum for PSR/DSR/MinTRL).
   - n_trials: cumulative number of strategies tried in the research process.
     Pass 1 for single-strategy case (no multi-test penalty).
+  - dates (optional): Sprint-0 Wave-3b RF-WIRING. When supplied (one
+    `datetime.date` per period, len == len(returns)), each method runs
+    against the rf-excess series (returns - per-trade FRED rf). When
+    omitted, the legacy rf=0.0 behaviour is preserved for backward compat.
   - For CPCV, the series must be long enough for the default k=5 folds +
     embargo=10; the runner shortens k automatically when the series is short.
   - For White's Reality Check, a 2-column matrix is constructed by pairing
@@ -40,6 +50,10 @@ Input assumptions:
 """
 from __future__ import annotations
 
+import datetime as _dt
+import logging
+from typing import Sequence
+
 import numpy as np
 
 from src.methods.cpcv import cpcv
@@ -47,6 +61,8 @@ from src.methods.block_bootstrap import block_bootstrap_ci
 from src.methods.mc_permutation import mc_permutation_pvalue
 from src.methods.psr import psr, dsr, mintrl
 from src.methods.white_rc import white_rc
+
+logger = logging.getLogger(__name__)
 
 _ALPHA = 0.05
 _MIN_VOTES_TO_PROMOTE = 4
@@ -205,10 +221,45 @@ def _decide(
     return {**base, "decision": decision}
 
 
+def _adjust_returns_via_fred(
+    arr: np.ndarray,
+    dates: Sequence[_dt.date],
+) -> tuple[np.ndarray, str]:
+    """Sprint-0 Wave-3b RF-WIRING: pre-subtract per-trade rf from `arr`.
+
+    Returns (excess_arr, rf_source) where rf_source is "fred_dtb3" if at
+    least one entry came from FRED, else "placeholder". Logs an info-level
+    line tagged `[PROMOTION_GATE_RF]` so operators can confirm wiring is
+    live in a given run.
+
+    Centralised here so all five method runners (cpcv, bootstrap, mc_perm,
+    psr/dsr, white_rc) consume an rf-adjusted input series — the runners
+    themselves continue to call rf_period=0.0 since the adjustment is now
+    baked into `arr`. This mirrors the kpis.py pattern where
+    `_compute_per_trade_rf` returns a vector and the callers subtract it
+    inline before invoking canonical_sharpe.
+    """
+    from src.methods._rf_vector import compute_per_period_rf_vector
+
+    if len(dates) != len(arr):
+        raise ValueError(
+            f"len(dates)={len(dates)} must equal len(returns)={len(arr)}"
+        )
+    rf_vec, used_fred = compute_per_period_rf_vector(list(dates))
+    rf_arr = np.asarray(rf_vec, dtype=float)
+    rf_source = "fred_dtb3" if used_fred else "placeholder"
+    logger.info(
+        "[PROMOTION_GATE_RF] rf_source=%s, n_periods=%d, mean_rf=%.6e",
+        rf_source, len(rf_arr), float(rf_arr.mean()) if len(rf_arr) else 0.0,
+    )
+    return arr - rf_arr, rf_source
+
+
 def promotion_gate(
     returns: list | np.ndarray,
     n_trials: int,
     alpha: float = _ALPHA,
+    dates: Sequence[_dt.date] | None = None,
 ) -> dict:
     """Evaluate a strategy via 5 methodology methods and return a promote/defer/reject decision.
 
@@ -223,15 +274,25 @@ def promotion_gate(
                   (used for DSR multi-testing correction). Pass 1 for a
                   single-strategy case.
         alpha:    Significance level. Default 0.05 (canonical; do not change).
+        dates:    Sprint-0 Wave-3b RF-WIRING. Optional list of per-period
+                  dates (one `datetime.date` per element of `returns`). When
+                  supplied, the gate fetches per-trade rf from FRED DTB3
+                  via src.methods._rf_vector.compute_per_period_rf_vector
+                  and runs every method against the rf-excess series. When
+                  omitted (legacy callers), all methods see raw `returns`
+                  with rf_period=0.0 — preserving the prior behaviour.
 
     Returns:
         dict with keys:
-          "decision": "promote" | "defer" | "reject"
-          "votes":    {method_name: pass_bool, ...}
-          "n_obs":    int — length of returns series
-          "mintrl":   int — minimum track record length at alpha
-          "details":  dict — per-method value/threshold + metadata
-          "reason":   str (present on "defer" only)
+          "decision":  "promote" | "defer" | "reject"
+          "votes":     {method_name: pass_bool, ...}
+          "n_obs":     int — length of returns series
+          "mintrl":    int — minimum track record length at alpha
+          "details":   dict — per-method value/threshold + metadata. Includes
+                       "rf_source": "fred_dtb3" | "placeholder" | "unwired"
+                       so callers can verify whether the FRED rf wiring
+                       actually fired.
+          "reason":    str (present on "defer" only)
 
     Decision rules (in priority order):
       1. If N < mintrl → "defer" (reason="insufficient_track_record")
@@ -239,12 +300,23 @@ def promotion_gate(
       3. If ≥4 of 5 method votes pass → "promote", else "reject"
     """
     arr = np.asarray(returns, dtype=float)
-    vote_mc_perm = _run_mc_perm(arr, alpha)
+    if dates is not None:
+        arr_for_methods, rf_source = _adjust_returns_via_fred(arr, dates)
+    else:
+        arr_for_methods = arr
+        rf_source = "unwired"
+
+    vote_mc_perm = _run_mc_perm(arr_for_methods, alpha)
     all_votes = [
-        _run_cpcv(arr, alpha),
-        _run_bootstrap(arr, alpha),
+        _run_cpcv(arr_for_methods, alpha),
+        _run_bootstrap(arr_for_methods, alpha),
         vote_mc_perm,
-        _run_psr(arr, n_trials, alpha),
-        _run_white_rc(arr, alpha),
+        _run_psr(arr_for_methods, n_trials, alpha),
+        _run_white_rc(arr_for_methods, alpha),
     ]
-    return _decide(all_votes, vote_mc_perm, arr, len(arr), mintrl(arr, alpha=alpha), alpha)
+    decision = _decide(
+        all_votes, vote_mc_perm, arr_for_methods,
+        len(arr_for_methods), mintrl(arr_for_methods, alpha=alpha), alpha,
+    )
+    decision["details"]["rf_source"] = rf_source
+    return decision

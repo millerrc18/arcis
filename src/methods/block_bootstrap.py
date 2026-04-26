@@ -6,17 +6,21 @@ Authority:
   Politis, D.N. & White, H. (2004). "Automatic Block-Length Selection for
     the Dependent Bootstrap." Econometric Reviews, 23(1), 53-70.
 
-Pure-function module — no I/O, no DB.
+Pure-function module — no I/O, no DB. (`block_bootstrap_ci_with_fred_rf`
+is the lone exception: it reaches FRED via the rf adapter; treat as effectful.)
 
 Called by: diagnostic writers (T2.04 promotion gate — wired separately).
-Calls: numpy.
+Calls: numpy. The Sprint-0 Wave-3b RF-WIRING `*_with_fred_rf` sibling
+  additionally calls src.methods._rf_vector.compute_per_period_rf_vector.
 Owns tables: none.
 Config keys: none.
 Tests: tests/methods/test_block_bootstrap.py.
 """
 from __future__ import annotations
 
+import datetime as _dt
 import math
+from typing import Sequence
 
 import numpy as np
 
@@ -152,3 +156,47 @@ def block_bootstrap_ci(
     lo = float(np.percentile(boot_sharpes, 100.0 * alpha / 2.0))
     hi = float(np.percentile(boot_sharpes, 100.0 * (1.0 - alpha / 2.0)))
     return (lo, hi)
+
+
+# ---------------------------------------------------------------------------
+# FRED-aware sibling helper (Sprint-0 Wave-3b RF-WIRING)
+# ---------------------------------------------------------------------------
+
+def block_bootstrap_ci_with_fred_rf(
+    returns: np.ndarray,
+    dates: Sequence[_dt.date],
+    n_resamples: int = _DEFAULT_N_RESAMPLES,
+    seed: int | None = None,
+) -> tuple[tuple[float, float], bool]:
+    """FRED-aware sibling of `block_bootstrap_ci`.
+
+    Pulls per-period rf via `src.methods._rf_vector.compute_per_period_rf_vector`,
+    pre-subtracts it from `returns`, and runs the standard `block_bootstrap_ci`
+    with rf_period=0.0 (since the rf adjustment is already baked into the
+    series).
+
+    Args:
+        returns:     1-D array of per-period returns (length T >= 30).
+        dates:       Per-period `datetime.date`s. Must have len == len(returns).
+        n_resamples: Number of bootstrap resamples. Default 10000.
+        seed:        Integer seed for reproducibility.
+
+    Returns:
+        ((lower, upper), used_fred). The CI tuple matches `block_bootstrap_ci`'s
+        return type; `used_fred` is True iff at least one rf entry came from FRED.
+
+    Raises:
+        ValueError: if len(dates) != len(returns) or len(returns) < 30.
+    """
+    from src.methods._rf_vector import compute_per_period_rf_vector
+
+    arr = np.asarray(returns, dtype=float)
+    if len(dates) != len(arr):
+        raise ValueError(
+            f"len(dates)={len(dates)} must equal len(returns)={len(arr)}"
+        )
+    rf_vec, used_fred = compute_per_period_rf_vector(list(dates))
+    rf_arr = np.asarray(rf_vec, dtype=float)
+    excess = arr - rf_arr
+    ci = block_bootstrap_ci(excess, rf_period=0.0, n_resamples=n_resamples, seed=seed)
+    return ci, used_fred
