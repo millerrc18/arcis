@@ -96,6 +96,25 @@ Operator-approved candidates (all 5):
 - Result has no deploy effect — we're in fix-mode regardless.
 - Operator reviews fix-mode-cleared status in dashboard, then advances to Sprint 1.
 
+## Decision 6: PR #690 KPI traffic-light thresholds — align to spec (option A, operator-chosen 2026-04-26)
+
+**Operator's PR #690 review finding B3:** `src/api/cloud_routes/kpis.py:_decision_matrix_state` used stricter thresholds (`t_stat >= 2.0`, `ci_lower > 0`, `S > 0`) than audit-spec §3.1 (`t_stat >= 1.5`, `ci_lower > -0.2`, `S >= 0`). The docstring claimed "§3.1 Decision Matrix" but the code silently applied tighter cutoffs. Net effect pre-fix: dashboard showed HOLD/HALT for borderline cases that audit-spec methodology calls GREEN.
+
+PM offered two options:
+
+- **A (operator-chosen):** Align code to spec — looser, matches audit-spec methodology
+- **B (PM's initial recommendation):** Keep stricter thresholds, document deviation rationale
+
+Operator chose **A**. Rationale: spec is the source of truth; if the gates need tightening, that's a methodology change requiring its own documented decision, not silent code-vs-spec drift. Stricter-than-spec at the dashboard level is an undocumented assumption that creates exactly the "what does this number mean?" confusion the 5-KPI strip rebuild was trying to retire.
+
+**Implementation:**
+
+- `kpis.py:_decision_matrix_state` thresholds aligned to spec (`S >= 0 AND t_stat >= 1.5 AND ci_lower > -0.2`).
+- Docstring updated to drop "stricter than" framing; cites audit-spec §3.1 + Decision 6.
+- I8 (operator's bundled finding): value-pinning tests added in `tests/api/test_kpis.py::TestStageTrafficLight` so any future silent re-drift fails CI immediately. Tests pin: at-floor GREEN, just-below HOLD, S=0 GREEN (new spec-aligned behavior), S<0 HALT, plus an explicit "pre-Decision-6 strict thresholds no longer reach GREEN" anti-regression test.
+
+**Net behavioral change:** Dashboard traffic light is more permissive at the boundary — borderline cases the spec calls GREEN are no longer downgraded to HOLD/HALT. Strategies that were on the edge under the old thresholds may now show GREEN on the cockpit. Correct behavior given §3.1 is the methodology source of truth and operator already deferred the Mon $100 deploy regardless.
+
 ## Risks I'm taking on
 
 1. **Deploy reversal**: if operator wakes up wanting to deploy anyway, my Decision 1 needs reversing fast. Mitigated by: PR not yet open, no irreversible state.

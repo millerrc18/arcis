@@ -283,10 +283,20 @@ def _kpi_status_win_rate(win_rate: float | None) -> str:
 
 
 def _decision_matrix_state(S: float, t_stat: float, ci_lower: float) -> str:
-    """§3.1 Decision Matrix: GREEN / HOLD / HALT."""
-    if S > 0 and t_stat >= 2.0 and ci_lower > 0:
+    """§3.1 Decision Matrix: GREEN / HOLD / HALT.
+
+    Thresholds aligned to audit-spec §3.1
+    (``docs/audits/2026-04-27-trading-readiness/audit-spec.md``):
+    GREEN requires ``S >= 0 AND t_stat >= 1.5 AND ci_lower > -0.2``.
+
+    Per Decision 6 in ``track-1.5-DECISIONS.md`` (operator-chosen
+    2026-04-26 in PR #690 review B3): the dashboard aligns to spec
+    rather than apply silently-stricter thresholds. If the gates need
+    tightening that's a methodology change, not a code-vs-spec drift.
+    """
+    if S >= 0 and t_stat >= 1.5 and ci_lower > -0.2:
         return "GREEN"
-    if S > 0:
+    if S >= 0:
         return "HOLD"
     return "HALT"
 

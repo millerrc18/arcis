@@ -20,6 +20,7 @@ from src.api.cloud_routes.kpis import (
     _compute_stage_traffic_light,
     _compute_promotion_gate_kpi,
     _compute_instrumentation_pct,
+    _decision_matrix_state,
     _fetch_spy_returns_for_trades,
     get_kpis,
 )
@@ -477,6 +478,45 @@ class TestStageTrafficLight:
         result = _compute_stage_traffic_light(returns=[], rf_period=0.0001)
         assert result["status"] == "unknown"
         assert result["decision_matrix_state"] == "HALT"
+
+    # ── PR-690 B3-A + I8: value-pinning tests for §3.1 thresholds ─────────
+    # Per Decision 6 in track-1.5-DECISIONS.md (operator-chosen 2026-04-26):
+    # thresholds are aligned to spec — GREEN requires
+    # S >= 0 AND t_stat >= 1.5 AND ci_lower > -0.2.
+    # These tests pin the spec values directly so any silent re-drift
+    # of the thresholds fails CI immediately (operator's I8 finding).
+
+    def test_green_at_spec_t_stat_floor(self):
+        """t_stat exactly at 1.5 (spec floor) with safe ci/S -> GREEN."""
+        assert _decision_matrix_state(S=0.5, t_stat=1.5, ci_lower=0.0) == "GREEN"
+
+    def test_hold_just_below_t_stat_floor(self):
+        """t_stat at 1.49 (just below spec floor) -> HOLD, not GREEN."""
+        assert _decision_matrix_state(S=0.5, t_stat=1.49, ci_lower=0.0) == "HOLD"
+
+    def test_green_at_spec_ci_lower_above_minus_0_2(self):
+        """ci_lower at -0.19 (above spec floor of -0.2) with t_stat>=1.5 -> GREEN."""
+        assert _decision_matrix_state(S=0.5, t_stat=1.5, ci_lower=-0.19) == "GREEN"
+
+    def test_hold_just_below_ci_lower_floor(self):
+        """ci_lower at -0.21 (below spec floor of -0.2) -> HOLD."""
+        assert _decision_matrix_state(S=0.5, t_stat=1.5, ci_lower=-0.21) == "HOLD"
+
+    def test_green_at_S_zero_per_spec(self):
+        """S exactly at 0 satisfies S >= 0 (spec) -> GREEN with passing t_stat/ci_lower.
+        Pre-Decision-6 strict thresholds (S > 0) would have called this HOLD."""
+        assert _decision_matrix_state(S=0.0, t_stat=2.0, ci_lower=0.5) == "GREEN"
+
+    def test_halt_when_S_negative(self):
+        """S < 0 short-circuits to HALT regardless of other thresholds."""
+        assert _decision_matrix_state(S=-0.001, t_stat=5.0, ci_lower=1.0) == "HALT"
+
+    def test_decision_6_anti_regression_strict_no_longer_blocks_green(self):
+        """Anti-regression for Decision 6: pre-fix code (t_stat >= 2.0 AND ci_lower > 0)
+        would have called this HOLD (t_stat=1.7 < 2.0, ci_lower=-0.1 < 0). Spec-aligned
+        thresholds (t_stat >= 1.5, ci_lower > -0.2) call this GREEN. If a future change
+        silently re-tightens thresholds this test fails — the protection Decision 6 buys."""
+        assert _decision_matrix_state(S=0.5, t_stat=1.7, ci_lower=-0.1) == "GREEN"
 
 
 class TestPromotionGateKpi:
