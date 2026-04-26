@@ -647,7 +647,7 @@ src/schema/registry.py          <- THE source of truth (53 TableDefs)
 
 ---
 
-## 5. Strategy Decisions (41 confirmed)
+## 5. Strategy Decisions (46 confirmed)
 
 1. Strategy #1 = Pullback-in-uptrend (LIVE)
 2. Strategy #2 = Mean Reversion / Connors RSI(2) -- PAPER-TRADING NOW. NOTE: Deep research (Scaling Levers) finds MR is the WORST diversifier for pullback (rho=0.35-0.50, shared "buy the dip" logic). Breakout/momentum (rho=0.10-0.25) should be evaluated as primary second LIVE strategy. MR remains valuable for Phase 1 data volume.

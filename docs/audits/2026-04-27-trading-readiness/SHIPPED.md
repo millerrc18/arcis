@@ -189,6 +189,74 @@ Depends on real Stage-2/3 results. Stage 2 evaluation requires 150 OOS trades (~
 
 ---
 
+## Track 1.5 -- Instrumentation Gap Closure (post-audit, 2026-04-25 PM dispatch)
+
+> **PM dispatched autonomously** after the operator stepped away Friday evening with the directive: "make these design decisions, document them, and ensure they are executed. Everything we do has to make the system better, not worse, but sometimes that means surfacing the hard truths first."
+
+### Headline
+
+14 rounds + 4 plugin/infra fixes + ~16 commits + ~250 new tests. All Critical + Important findings from both audit passes (Round 7 technical audit `0380193` and Round 7b strategic audit `df9a249`) cleared. Mon $100 deploy deferred per SD#46.
+
+### Per-Round Commit Table
+
+| Round | Commit | Description |
+|---|---|---|
+| B1 | `e8ccf52` | Persist `signal_exit_price` + `exit_slippage_bps` at close |
+| B2.A | `c3e5431` | `broker_exceptions` schema + 4 silent-swallow upgrades |
+| B2.B | `91d6806` | Structured logging for 15 broker partial-swallow sites |
+| B2.C | `2945ab4` | Bounded retry + qty-mismatch detection (CVS regression) |
+| B3 | `8b94b95` | `exit_reason` canonical taxonomy + nightly reconciliation |
+| B3 followup | `1a5e4d6` | Route 9 remaining `exit_reason` writers through coerce |
+| B4+B8 | `8c854c0` | Persist `key_risk_assessment` + `expected_holding_period_days` |
+| B5+B8 | `c976a0c` | Schema + executor stamping for `instrumentation_version` + `timeout_days` |
+| B5 amend | `ff69ad9` | Flip `INSTRUMENTATION_VERSION_CURRENT` 2 -> 3 |
+| B9 | `3a4568e` | Surface LLM-set per-trade timeout in dashboard ledgers |
+| B9 cleanup | `793304f` | Vitest infra + `arcis-pulse` keyframe |
+| Shadow default | `6c5a227` | Bump `shadow_trades.instrumentation_version` DEFAULT 2 -> 3 |
+| 8.A | `076e827` | Backend route Critical fixes (C1-C5) from Round 7 audit |
+| 8.B | `bb8085c` | 5-KPI hero strip -- operator's holy-grail dashboard rebuild |
+| 8.B cleanup | `3064d87` | `kpis.py` auth + `Dashboard.jsx` dead code cleanup |
+| 8.C | `b91626e` | `broker_exceptions` API + Dashboard panel (G1) |
+| 8.D | `f95cbc1` | R2 win-rate + R3 P&L source labels + S4 preflight echo |
+| function-split | `9783b7c` | Split two functions to restore 60-line CI guardrail |
+| 8.E | `818d3d2` | SPY data source + double-prefix + Important catch-all |
+| 9a | `7bbe9bb` | End-to-end integration test for full instrumentation pipeline |
+| PM decisions | `fb9db0c` | PM autonomous design decisions documented |
+| Pass 2 audit | `0380193` | Round 7 dashboard wiring audit (28 pages, 5 Critical findings) |
+| Pass 2 strategic | `df9a249` | Round 7b strategic audit -- gaps, redundancies, alignment findings |
+| plugin/infra | `bdfe03d` | Default port 8765 + explicit IPv4 bind for dashboard |
+| plugin/infra | `0c04165` | Document dashboard JSON schema + mirror requirement |
+| plugin/infra | `0342a35` | Add `operator_questions` panel to coding-team dashboard |
+| 9b (this) | docs commit | Full docs sweep + v0.27.0 retro versioning |
+
+### Decisions Surfaced
+
+All five PM decisions are in [`track-1.5-DECISIONS.md`](track-1.5-DECISIONS.md). Summary:
+
+1. **Decision 1 -- Mon $100 deploy: DEFER.** Stage-1 SPY-relative p=0.4326 is non-significant. Under the fix-now-before-trade principle, deploying a strategy we believe lacks alpha is mis-aligned with "make it better, not worse." Next deploy decision after Cohort 3 redesign.
+
+2. **Decision 2 -- Round 8 scope: fix all Critical + Important from both audits + 5-KPI strip.** Per fix-now principle. ~14 fixes dispatched in one wave.
+
+3. **Decision 3 -- Sprint queue post-Track-1.5:** (1) `sections_json` widening, (2) System Index audit, (3) Council impact, (4) Cohort 3 strategy redesign. Re-sequenceable by operator.
+
+4. **Decision 4 -- 5-KPI strip implementation.** All 5 operator-approved candidates implemented. Color rules documented. Single source of truth replacing three incompatible Sharpe surfaces.
+
+5. **Decision 5 -- Mon AM preflight protocol.** Runs unconditionally as system-health check; no deploy effect.
+
+### Hard Truths Kept
+
+1. Sharpe 6.14 is likely regime-tailwind -- small-sample + 30-day bullish window makes it uninterpretable as sustained alpha.
+2. Dashboard hero was showing a different Sharpe formula than the signed Stage-1 memo from the moment T1.03 shipped. Track 1.5 / Round 8.B closes that gap.
+3. MinTRL for declaring Sharpe > 0.5 at alpha=0.05 is 80-150 trades for retail equity strategies. We have 35 instrumented trades. We're far from there.
+4. Cohort 3 redesign might also not have alpha. Instrumentation gives us the tools to find out honestly; it doesn't promise the result.
+5. Track 1.5's value is not in producing alpha -- it's in giving the system the ability to honestly report when it doesn't have alpha.
+
+### Pass to
+
+**Track 1.5 PR** (feature/track-1.5-instrumentation-gaps) -- opened at end of Round 9b. Operator merges after morning review.
+
+---
+
 ## Reading order for the next person
 
 1. **This document** — get the high-level outcome
