@@ -256,3 +256,106 @@ class TestGetSummaryEndpoint:
         result = self._call([r1, r2, r3])
         assert result["by_operation"]["place_order"] == 2
         assert result["by_operation"]["cancel_order"] == 1
+
+
+# ── Connection-lifecycle regression tests (PR #690 B4) ───────────────────────
+# These tests guard against the original B4 leak where get_recent_exceptions
+# and get_summary opened conn = connect_db() but never closed it. With the
+# closing(...) wrapper, conn.close() must be invoked exactly once per call,
+# and crucially, even when the inner work raises.
+
+class TestConnectionClosed:
+    def _spy_conn(self, rows):
+        """Build an in-memory conn with a spy attached to .close()."""
+        real = _in_memory_conn_with_rows(rows)
+        spy = MagicMock(wraps=real)
+        # MagicMock(wraps=...) forwards attribute access to `real` but
+        # records calls. close() is what we want to assert on.
+        return spy, real
+
+    def test_get_recent_closes_connection_on_success(self):
+        spy, _real = self._spy_conn([_make_row(id_=1)])
+        with patch(
+            "src.api.cloud_routes.broker_exceptions.connect_db",
+            return_value=spy,
+        ):
+            get_recent_exceptions(limit=50, since_hours=24)
+        spy.close.assert_called_once()
+
+    def test_get_recent_closes_connection_on_exception(self):
+        """Even if _fetch_recent_exceptions raises, close() must still run."""
+        spy, _real = self._spy_conn([])
+        with patch(
+            "src.api.cloud_routes.broker_exceptions.connect_db",
+            return_value=spy,
+        ), patch(
+            "src.api.cloud_routes.broker_exceptions._fetch_recent_exceptions",
+            side_effect=RuntimeError("boom"),
+        ):
+            with pytest.raises(RuntimeError, match="boom"):
+                get_recent_exceptions(limit=50, since_hours=24)
+        spy.close.assert_called_once()
+
+    def test_get_summary_closes_connection_on_success(self):
+        spy, _real = self._spy_conn([])
+        with patch(
+            "src.api.cloud_routes.broker_exceptions.connect_db",
+            return_value=spy,
+        ):
+            get_summary()
+        spy.close.assert_called_once()
+
+    def test_get_summary_closes_connection_on_exception(self):
+        """If a query inside get_summary raises, conn.close() must still run."""
+        spy, real = self._spy_conn([])
+        # Force the first .execute() call to raise mid-aggregation.
+        original_execute = real.execute
+
+        def _raising_execute(sql, *args, **kwargs):
+            if "by_broker" in sql or "GROUP BY broker" in sql:
+                raise RuntimeError("query exploded")
+            return original_execute(sql, *args, **kwargs)
+
+        spy.execute.side_effect = _raising_execute
+        with patch(
+            "src.api.cloud_routes.broker_exceptions.connect_db",
+            return_value=spy,
+        ):
+            with pytest.raises(RuntimeError, match="query exploded"):
+                get_summary()
+        spy.close.assert_called_once()
+
+    def test_repeated_calls_do_not_leak_handles(self):
+        """N invocations should produce N close() calls (one per request).
+
+        Mirrors the dashboard's 60s auto-refresh — under the original bug the
+        close count would lag the call count and file handles would leak.
+        """
+        rows = [_make_row(id_=1)]
+        close_count = 0
+
+        def _factory():
+            nonlocal close_count
+            real = _in_memory_conn_with_rows(rows)
+            spy = MagicMock(wraps=real)
+            original_close = real.close
+
+            def _tracking_close():
+                nonlocal close_count
+                close_count += 1
+                return original_close()
+
+            spy.close.side_effect = _tracking_close
+            return spy
+
+        n_calls = 5
+        with patch(
+            "src.api.cloud_routes.broker_exceptions.connect_db",
+            side_effect=lambda *a, **kw: _factory(),
+        ):
+            for _ in range(n_calls):
+                get_recent_exceptions(limit=10, since_hours=24)
+        assert close_count == n_calls, (
+            f"Expected {n_calls} conn.close() calls, got {close_count} — "
+            "connection leak regression."
+        )

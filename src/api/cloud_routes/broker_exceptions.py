@@ -16,6 +16,7 @@ Routes:
 """
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Depends
@@ -62,9 +63,16 @@ def _fetch_recent_exceptions(
 
 @router.get("/broker-exceptions/recent", dependencies=[Depends(verify_auth)])
 def get_recent_exceptions(limit: int = 50, since_hours: int = 24) -> dict:
-    """Return recent broker exception rows, newest-first."""
-    conn = connect_db()
-    rows = _fetch_recent_exceptions(conn, limit=limit, since_hours=since_hours)
+    """Return recent broker exception rows, newest-first.
+
+    Connection lifecycle: `connect_db()` returns a raw sqlite3.Connection
+    (see src/utils/db.py:35); the caller is responsible for closing it.
+    `closing(...)` guarantees `.close()` even if `_fetch_recent_exceptions`
+    raises — important because the dashboard auto-refreshes this endpoint
+    every 60s and a leaked file handle per call would accumulate quickly.
+    """
+    with closing(connect_db()) as conn:
+        rows = _fetch_recent_exceptions(conn, limit=limit, since_hours=since_hours)
     return {
         "rows": rows,
         "count": len(rows),
@@ -75,37 +83,42 @@ def get_recent_exceptions(limit: int = 50, since_hours: int = 24) -> dict:
 
 @router.get("/broker-exceptions/summary", dependencies=[Depends(verify_auth)])
 def get_summary() -> dict:
-    """Return aggregate counts: by broker, by operation, 24h/7d totals, alert count."""
-    conn = connect_db()
+    """Return aggregate counts: by broker, by operation, 24h/7d totals, alert count.
+
+    Connection lifecycle: same rationale as get_recent_exceptions — wrap in
+    `closing(connect_db())` so the sqlite3.Connection always gets closed,
+    including on exceptions raised from inside the aggregation queries.
+    """
     now = datetime.now(timezone.utc)
     cutoff_24h = (now - timedelta(hours=24)).isoformat()
     cutoff_7d = (now - timedelta(days=7)).isoformat()
 
-    def _count(sql: str, params: tuple) -> int:
-        return conn.execute(sql, params).fetchone()[0]
+    with closing(connect_db()) as conn:
+        def _count(sql: str, params: tuple) -> int:
+            return conn.execute(sql, params).fetchone()[0]
 
-    total_24h = _count(
-        "SELECT COUNT(*) FROM broker_exceptions WHERE timestamp >= ?",
-        (cutoff_24h,),
-    )
-    total_7d = _count(
-        "SELECT COUNT(*) FROM broker_exceptions WHERE timestamp >= ?",
-        (cutoff_7d,),
-    )
-    alert_count = _count(
-        "SELECT COUNT(*) FROM broker_exceptions WHERE outcome = 'alert_qty_mismatch'",
-        (),
-    )
+        total_24h = _count(
+            "SELECT COUNT(*) FROM broker_exceptions WHERE timestamp >= ?",
+            (cutoff_24h,),
+        )
+        total_7d = _count(
+            "SELECT COUNT(*) FROM broker_exceptions WHERE timestamp >= ?",
+            (cutoff_7d,),
+        )
+        alert_count = _count(
+            "SELECT COUNT(*) FROM broker_exceptions WHERE outcome = 'alert_qty_mismatch'",
+            (),
+        )
 
-    broker_rows = conn.execute(
-        "SELECT broker, COUNT(*) FROM broker_exceptions GROUP BY broker",
-    ).fetchall()
-    by_broker = {r[0]: r[1] for r in broker_rows}
+        broker_rows = conn.execute(
+            "SELECT broker, COUNT(*) FROM broker_exceptions GROUP BY broker",
+        ).fetchall()
+        by_broker = {r[0]: r[1] for r in broker_rows}
 
-    op_rows = conn.execute(
-        "SELECT operation, COUNT(*) FROM broker_exceptions GROUP BY operation",
-    ).fetchall()
-    by_operation = {r[0]: r[1] for r in op_rows}
+        op_rows = conn.execute(
+            "SELECT operation, COUNT(*) FROM broker_exceptions GROUP BY operation",
+        ).fetchall()
+        by_operation = {r[0]: r[1] for r in op_rows}
 
     return {
         "total_24h": total_24h,
