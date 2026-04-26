@@ -17,22 +17,21 @@ def test_db_path_is_absolute():
 
 
 def test_db_path_resolves_to_repo_root():
-    """DB_PATH should resolve to <repo_root>/ai_research_desk.sqlite3 when
-    ARCIS_DB_PATH env var is not set. If ARCIS_DB_PATH IS set (e.g. via
-    .env file in CI or local dev), the override takes precedence — that's
-    intentional. The test asserts the fallback default is correctly anchored
-    to the repo root by checking the module-level _REPO_ROOT constant."""
+    """_REPO_ROOT must point to the repo root.
+
+    Sprint 0 Wave 1d (DB-STUB-CFG, 2026-04-26): the repo-root stub
+    fallback was removed per CLAUDE.md #642 — DB_PATH no longer falls
+    back to <repo_root>/ai_research_desk.sqlite3 when ARCIS_DB_PATH is
+    unset (it now hard-fails). This test now only verifies the
+    _REPO_ROOT computation, which is still useful for the error
+    message and for any other consumers that import it.
+    """
     from src.config import _REPO_ROOT
     repo_root = Path(__file__).resolve().parent.parent
     # _REPO_ROOT must point to the repo root (3 levels up from src/config/__init__.py)
     assert Path(_REPO_ROOT) == repo_root, (
         f"_REPO_ROOT {_REPO_ROOT!r} does not point to repo root {str(repo_root)!r}"
     )
-    # When no env override, the default must use _REPO_ROOT
-    if not os.environ.get("ARCIS_DB_PATH"):
-        expected = repo_root / "ai_research_desk.sqlite3"
-        assert Path(DB_PATH) == expected, \
-            f"DB_PATH {DB_PATH!r} != expected {str(expected)!r}"
 
 
 def test_db_path_env_override_still_works(monkeypatch):

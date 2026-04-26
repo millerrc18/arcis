@@ -13,7 +13,7 @@ import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from src.config import load_config
+from src.config import DB_PATH, load_config
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +75,11 @@ def run_mr_scan(config: dict | None = None, dry_run: bool = False) -> dict:
             vix_val = None
             try:
                 import sqlite3
-                _db = config.get("db_path", "data/ai_research_desk.sqlite3")
+                # Sprint 0 Wave 1d (DB-STUB-MR, cluster-02 Critical #2,
+                # 2026-04-26): dropped forbidden stub fallback to
+                # "data/ai_research_desk.sqlite3" per CLAUDE.md #642.
+                # Use canonical DB_PATH when config doesn't specify one.
+                _db = config.get("db_path") or DB_PATH
                 with sqlite3.connect(_db) as vc:
                     r = vc.execute(
                         "SELECT vix FROM vix_term_structure "
