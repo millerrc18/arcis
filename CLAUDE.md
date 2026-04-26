@@ -11,7 +11,7 @@ All project rules, architecture, data sources, and constraints are in **MASTER.m
 - **Risk governor is sacred** — never bypass or weaken risk checks without explicit approval
 - **Test count must not drop** — CI enforces a minimum of 3380 tests (post-Track-2-Cohort-2+3A Integrator sweep baseline as of 2026-04-25; +142 net from 3238 Cohort-1 floor across 11 task commits: T2.01 +9, T2.02 +11, T2.03 +9, T2.04 +23, T2.05 +9, T2.07 +18, T2.09 +12, T2.12a +15, T2.14a +17, T2.16a +18, T3.01 docs-only, plus +1 transitive from byte-identity fixture regen). Floor lineage: 3038 (pre-audit) → 3159 (Track 1) → 3238 (Cohort 1) → 3380 (Cohort 2 + 3A). Zero failures at this baseline (the pre-existing place_live_bracket >60-line violation is now grandfathered in `config/known_violations.json`). Bump this number in CLAUDE.md whenever the sweep grows past the previous baseline.
 - **Mock all external APIs in tests** — no network calls from pytest (Alpaca, Finnhub, yfinance, FRED, Ollama)
-- **Schema registry is the single source of truth** — all 67 tables are defined in `src/schema/registry.py` (authoritative count: `python -c "from src.schema.registry import TABLES; print(len(TABLES))"`). See "Database Schema Rules" below
+- **Schema registry is the single source of truth** — all 68 tables are defined in `src/schema/registry.py` (authoritative count: `python -c "from src.schema.registry import TABLES; print(len(TABLES))"`). See "Database Schema Rules" below
 - **Test baseline before changes** — run `python -m pytest tests/ -q` at the start of any coding session and note the pass count. After changes, the pass count must not decrease and the failure count must not increase. Never dismiss test failures as "pre-existing" without investigating
 
 ## Repo Layout (local dev)

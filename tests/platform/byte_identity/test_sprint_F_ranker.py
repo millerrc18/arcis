@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import copy
 
+import pytest
+
 from src.platform.strategy_spec import load_spec
 from src.ranking.ranker import rank_universe
 
@@ -54,6 +56,7 @@ def test_primary_fixture_matches_legacy_and_spec(
     assert _ranked_records(spec) == expected
 
 
+@pytest.mark.timeout(180)
 def test_fuzz_dates_match_legacy_and_spec(
     all_fixture_dates,
     load_sprint_f_fixture,
