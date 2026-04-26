@@ -147,15 +147,88 @@ def _fetch_spy_returns_for_trades(trades: list[dict]) -> list[float]:
     ]
 
 
-def _sharpe_t_stat_and_ci(sharpe: float, n: int) -> tuple[float, float, float]:
+def _sample_autocorrelation(series: list[float], k: int) -> float:
+    """Return the k-th sample autocorrelation of `series`.
+
+    rho_k = sum_{t=k+1..n} (x_t - mean)(x_{t-k} - mean) / sum (x_t - mean)^2
+
+    Returns 0.0 when n <= k or when the variance is zero (no information
+    to correct on; defaulting to 0 makes the Lo correction collapse back
+    to the IID Jobson-Korkie SE).
+    """
+    n = len(series)
+    if n <= k or k < 1:
+        return 0.0
+    mean = sum(series) / n
+    deviations = [x - mean for x in series]
+    denom = sum(d * d for d in deviations)
+    if denom == 0.0:
+        return 0.0
+    numerator = sum(deviations[t] * deviations[t - k] for t in range(k, n))
+    return numerator / denom
+
+
+def _lo_2002_autocorr_factor(series: list[float], q: int = 4) -> float:
+    """Lo 2002 autocorrelation-correction factor for Sharpe SE.
+
+    Andrew W. Lo, "The Statistics of Sharpe Ratios" (Financial Analysts
+    Journal, 2002): when per-period returns are autocorrelated (e.g.
+    overlapping holding periods), the Jobson-Korkie 1981 IID SE
+    understates the true sampling error. The correction is:
+
+        eta(q) = sqrt(1 + 2 * sum_{k=1}^{q} (1 - k/q) * rho_k)
+
+    where rho_k is the k-th sample autocorrelation. SE_corrected = SE_iid
+    * eta(q). The Bartlett-style triangular weighting (1 - k/q) damps
+    higher-lag corrections so a noisy rho_q doesn't blow up the SE.
+
+    For trade-level returns where many trades have overlapping holds,
+    rho_1 is the dominant correction; q=4 is standard in the literature
+    (long enough to catch the autocorrelation tail of typical equity
+    strategies, short enough to keep sample noise manageable).
+
+    Returns 1.0 when n <= 1 (no correction possible) or when the inside
+    of the sqrt would be < 0 (pathological negative-autocorrelation case
+    that would imply SE smaller than IID; we don't claim that — fall back
+    to IID).
+    """
+    n = len(series)
+    if n <= 1 or q < 1:
+        return 1.0
+    q_eff = min(q, n - 1)
+    inner = 0.0
+    for k in range(1, q_eff + 1):
+        weight = 1.0 - (k / q_eff) if q_eff > 0 else 0.0
+        rho_k = _sample_autocorrelation(series, k)
+        inner += weight * rho_k
+    factor_squared = 1.0 + 2.0 * inner
+    if factor_squared <= 0.0:
+        # Negative-autocorrelation case — Lo correction would make SE
+        # SMALLER, which we don't want to claim. Fall back to IID.
+        return 1.0
+    return math.sqrt(factor_squared)
+
+
+def _sharpe_t_stat_and_ci(
+    sharpe: float,
+    n: int,
+    returns: list[float] | None = None,
+) -> tuple[float, float, float]:
     """Return (t_stat, ci_lower, ci_upper) for a Sharpe value given n.
 
     Uses the Jobson-Korkie SE approximation: SE = sqrt((1 + 0.5*S^2) / n).
+    When `returns` is supplied, the SE is multiplied by the Lo 2002
+    autocorrelation-correction factor (q=4) so trades with overlapping
+    holding periods don't get an optimistic IID p-value. PR #690 review
+    item I3.
+
     CI is two-sided 95% (z=1.96). Returns (NaN, NaN, NaN) when n < 2.
     """
     if n < 2:
         return float("nan"), float("nan"), float("nan")
     se = math.sqrt((1.0 + 0.5 * sharpe ** 2) / n)
+    if returns is not None and len(returns) >= 2:
+        se *= _lo_2002_autocorr_factor(list(returns), q=4)
     t_stat = sharpe / se if se > 0 else float("nan")
     ci_lower = sharpe - 1.96 * se
     ci_upper = sharpe + 1.96 * se
@@ -243,12 +316,18 @@ def _compute_rf_adjusted_kpi(
                     "ci_upper": None, "status": "unknown"}
         excess = [r - rf for r, rf in zip(returns, rf_period)]
         S = rf_adjusted_excess_sharpe(excess, 0.0)
+        diff_series_for_lo = excess
     else:
         S = rf_adjusted_excess_sharpe(returns, rf_period)
+        diff_series_for_lo = [r - rf_period for r in returns]
     if S is None:
         return {"value": None, "p_value": None, "ci_lower": None, "ci_upper": None,
                 "status": "unknown"}
-    t_stat, ci_lower, ci_upper = _sharpe_t_stat_and_ci(S, n)
+    # PR #690 I3: pass the excess (rf-adjusted) diff series so the SE picks
+    # up the Lo 2002 autocorrelation correction.
+    t_stat, ci_lower, ci_upper = _sharpe_t_stat_and_ci(
+        S, n, returns=diff_series_for_lo,
+    )
     p = _sharpe_p_value(t_stat, n)
     return {
         "value": round(S, 4),
@@ -256,6 +335,8 @@ def _compute_rf_adjusted_kpi(
         "ci_lower": round(ci_lower, 4) if not math.isnan(ci_lower) else None,
         "ci_upper": round(ci_upper, 4) if not math.isnan(ci_upper) else None,
         "status": _kpi_status_rf_sharpe(S, p),
+        "se_assumes_iid": False,
+        "se_method": "lo_2002_autocorr_corrected_q4",
     }
 
 
@@ -270,7 +351,12 @@ def _compute_spy_relative_kpi(
     if S is None:
         return {"value": None, "p_value": None, "ci_lower": None, "ci_upper": None,
                 "status": "unknown"}
-    t_stat, ci_lower, ci_upper = _sharpe_t_stat_and_ci(S, n)
+    # PR #690 I3: SPY-relative Sharpe is computed on the (return - spy_return)
+    # diff series; that's the series whose autocorrelation matters for SE.
+    diff_series = [r - s for r, s in zip(returns, spy_returns)]
+    t_stat, ci_lower, ci_upper = _sharpe_t_stat_and_ci(
+        S, n, returns=diff_series,
+    )
     p = _sharpe_p_value(t_stat, n)
     return {
         "value": round(S, 4),
@@ -278,6 +364,8 @@ def _compute_spy_relative_kpi(
         "ci_lower": round(ci_lower, 4) if not math.isnan(ci_lower) else None,
         "ci_upper": round(ci_upper, 4) if not math.isnan(ci_upper) else None,
         "status": _kpi_status_spy_sharpe(S, p, ci_lower if not math.isnan(ci_lower) else None),
+        "se_assumes_iid": False,
+        "se_method": "lo_2002_autocorr_corrected_q4",
     }
 
 
@@ -312,12 +400,17 @@ def _compute_stage_traffic_light(
                     "ci_lower": None, "decision_matrix_state": "HALT"}
         excess = [r - rf for r, rf in zip(returns, rf_period)]
         S = rf_adjusted_excess_sharpe(excess, 0.0)
+        diff_series_for_lo = excess
     else:
         S = rf_adjusted_excess_sharpe(returns, rf_period)
+        diff_series_for_lo = [r - rf_period for r in returns]
     if S is None:
         return {"status": "unknown", "S": None, "t_stat": None,
                 "ci_lower": None, "decision_matrix_state": "HALT"}
-    t_stat, ci_lower, _ = _sharpe_t_stat_and_ci(S, n)
+    # PR #690 I3: Lo 2002 autocorrelation-corrected SE.
+    t_stat, ci_lower, _ = _sharpe_t_stat_and_ci(
+        S, n, returns=diff_series_for_lo,
+    )
     state = _decision_matrix_state(
         S, t_stat if not math.isnan(t_stat) else 0.0,
         ci_lower if not math.isnan(ci_lower) else float("-inf"),
