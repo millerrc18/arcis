@@ -527,19 +527,19 @@ def create_fresh_db(
                 raise last_exc
         # Create empty DB.
         sqlite3.connect(str(fresh_path)).close()
-        # Populate schema from the registry (67 tables).
+        # Populate schema from the registry (68 tables; was 67 pre-Track-1.5).
         create_all_tables(str(fresh_path))
     except Exception as exc:
         logger.error("Fresh DB creation failed: %s", exc)
         return False
 
-    # Verify: 67 tables in registry, all present in the DB, all empty.
+    # Verify: 68 tables in registry, all present in the DB, all empty.
     verify_conn: sqlite3.Connection | None = None
     try:
         expected_count = len(TABLES)
-        if expected_count != 67:
+        if expected_count != 68:  # bumped from 67 by Track 1.5 / B2.A which added broker_exceptions (c3e5431)
             logger.error(
-                "Registry table count drift: expected 67, got %d. "
+                "Registry table count drift: expected 68, got %d. "
                 "Update CLAUDE.md + this script's invariant.",
                 expected_count,
             )
@@ -575,7 +575,7 @@ def create_fresh_db(
     anchor_path = fresh_path.parent / "ARCHIVE_ANCHOR_2026-04-24.json"
     anchor = {
         "fresh_db_path": str(fresh_path.resolve()),
-        "schema_table_count": 67,
+        "schema_table_count": 68,
         "created_at": datetime.now(ET).isoformat(),
         "archive_ref_path": str(archive_ref_path.resolve()),
         "archive_sha": archive_sha,
