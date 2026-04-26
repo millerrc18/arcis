@@ -1206,6 +1206,18 @@ def open_shadow_trade(
 
     # #614 — Persist trade-open to activity_log for the dashboard feed.
     # Pre-fix the TRADE_OPENED constant existed but had zero writers.
+    #
+    # Sprint 0 / Wave 1c / EXEC-TRADEOPENED: the original payload referenced
+    # `shares` and `source_filter`, neither of which is in scope here. The
+    # local for share count is `planned_shares`; `source_filter` is a parameter
+    # of `check_and_manage_open_trades` (a DIFFERENT function). Pre-fix the
+    # NameError was silently swallowed by the catch handler below (DEBUG
+    # level), so the dashboard "trades opened" feed had been blind since
+    # this commit shipped. Now the payload uses the in-scope locals and the
+    # catch handler logs at WARNING — observability infra failures must not
+    # be invisible. We also forward the executor's db_path so callers running
+    # against a non-default DB (tests, multi-DB tooling) write to the right
+    # place.
     try:
         import json as _json_to
         from src.utils.activity_logger import TRADE_OPENED, log_activity
@@ -1214,13 +1226,14 @@ def open_shadow_trade(
             _json_to.dumps({
                 "trade_id": trade_id,
                 "ticker": ticker,
-                "shares": shares,
+                "shares": planned_shares,
                 "entry_price": entry_price,
-                "source": source_filter or "paper",
+                "source": trade_data.get("source", "paper"),
             }),
+            db_path=db_path,
         )
     except Exception as _e_to:
-        logger.debug("[EXECUTOR] activity_log TRADE_OPENED failed: %s", _e_to)
+        logger.warning("[EXECUTOR] activity_log TRADE_OPENED failed: %s", _e_to)
 
     return trade_id
 
