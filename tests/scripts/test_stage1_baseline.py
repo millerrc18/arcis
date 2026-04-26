@@ -179,7 +179,14 @@ def test_compute_baseline_excludes_partial_instrumentation(conn):
 
 
 def test_compute_baseline_three_sharpe_match_canonical(conn):
-    """The three Sharpe values match canonical_sharpe outputs on the same data."""
+    """The three Sharpe values match canonical_sharpe outputs on the same data.
+
+    FRED is patched to raise so the script falls back to RF_PERIOD_CONSTANT
+    per row — matches the historical behavior pre-T2.10. A separate test
+    (test_compute_baseline_uses_fred_when_available) covers the wired path.
+    """
+    from unittest.mock import patch
+
     from src.analytics.canonical_sharpe import (
         raw_sharpe,
         rf_adjusted_excess_sharpe,
@@ -192,7 +199,12 @@ def test_compute_baseline_three_sharpe_match_canonical(conn):
         _seed_clean_closed(conn, f"t-{i}", p, s, p - s * 100)
     conn.commit()
 
-    result = compute_baseline(conn)
+    # Force FRED fallback so the rf vector is uniformly RF_PERIOD_CONSTANT.
+    with patch(
+        "src.data_ingestion.risk_free_rate.get_rf_rate",
+        side_effect=KeyError("forced fallback for legacy test"),
+    ):
+        result = compute_baseline(conn)
 
     expected_raw = raw_sharpe(pnl_pcts)
     expected_spy = spy_relative_sharpe(pnl_pcts, [s * 100.0 for s in spy_rets])
@@ -201,6 +213,66 @@ def test_compute_baseline_three_sharpe_match_canonical(conn):
     assert result["raw_sharpe"] == pytest.approx(expected_raw)
     assert result["spy_relative_sharpe"] == pytest.approx(expected_spy)
     assert result["rf_adjusted_excess_sharpe"] == pytest.approx(expected_rf)
+    assert result["rf_source"] == "placeholder"
+
+
+def test_compute_baseline_uses_fred_when_available(conn):
+    """When FRED is reachable, rf_source flips to 'fred_dtb3' and the
+    rf-adjusted Sharpe reflects the real per-trade rf — different from the
+    constant-fallback path."""
+    from unittest.mock import patch
+
+    pnl_pcts = [1.0, 2.0, -1.0, 3.0, 0.5, 1.5, -0.5, 2.5, 1.0, 0.0]
+    spy_rets = [0.005, 0.01, -0.002, 0.012, 0.001, 0.006, 0.000, 0.008, 0.004, 0.000]
+    for i, (p, s) in enumerate(zip(pnl_pcts, spy_rets)):
+        _seed_clean_closed(conn, f"t-{i}", p, s, p - s * 100)
+    conn.commit()
+
+    # FRED success path: a different per-day rate than the placeholder.
+    with patch(
+        "src.data_ingestion.risk_free_rate.get_rf_rate",
+        return_value=0.0005,  # ~5x placeholder
+    ):
+        fred_result = compute_baseline(conn)
+    with patch(
+        "src.data_ingestion.risk_free_rate.get_rf_rate",
+        side_effect=KeyError("force placeholder"),
+    ):
+        placeholder_result = compute_baseline(conn)
+
+    assert fred_result["rf_source"] == "fred_dtb3"
+    assert placeholder_result["rf_source"] == "placeholder"
+    # The two Sharpe values must differ — proves FRED is actually wired.
+    assert fred_result["rf_adjusted_excess_sharpe"] != pytest.approx(
+        placeholder_result["rf_adjusted_excess_sharpe"], abs=1e-9
+    )
+
+
+def test_compute_baseline_logs_warning_on_fred_failure(conn, caplog):
+    """When FRED raises, a [STAGE1_RF_FALLBACK] WARNING fires per row."""
+    import logging
+    from unittest.mock import patch
+
+    _seed_clean_closed(conn, "t-1", 1.0, 0.005, 0.5)
+    _seed_clean_closed(conn, "t-2", 2.0, 0.005, 1.5)
+    conn.commit()
+
+    caplog.set_level(logging.WARNING, logger="scripts.stage1_baseline_recompute")
+    with patch(
+        "src.data_ingestion.risk_free_rate.get_rf_rate",
+        side_effect=ConnectionError("FRED unreachable"),
+    ):
+        result = compute_baseline(conn)
+
+    assert result["rf_source"] == "placeholder"
+    fallback_records = [
+        r for r in caplog.records
+        if r.levelno == logging.WARNING and "[STAGE1_RF_FALLBACK]" in r.getMessage()
+    ]
+    assert fallback_records, (
+        f"expected [STAGE1_RF_FALLBACK] WARNING; got "
+        f"{[r.getMessage() for r in caplog.records]}"
+    )
 
 
 def test_compute_baseline_includes_bootstrap_cis(conn):

@@ -9,21 +9,26 @@ Decision 4.
 
 Called by: api.app (router registered at /api/kpis)
 Calls: src.analytics.canonical_sharpe, src.analytics.instrumentation_filter,
-  src.journal.store
+  src.data_ingestion.risk_free_rate, src.journal.store
 Owns tables: none
 Config keys: none
 Tests: tests/api/test_kpis.py
 """
 from __future__ import annotations
 
+import datetime as _dt
+import logging
 import math
 from datetime import datetime, timezone
 from typing import Any
 
+import numpy as np
 from fastapi import APIRouter, Depends
 
 from src.analytics.canonical_sharpe import rf_adjusted_excess_sharpe, spy_relative_sharpe
 from src.analytics.instrumentation_filter import filter_fully_instrumented
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -38,6 +43,9 @@ def verify_auth() -> None:  # noqa: D401  # placeholder, overridden in prod
 
 
 N_MINIMUM_TRL = 150
+# Fallback per-trading-day rf rate used when FRED is unreachable.
+# (≈2.52% annualized / 252; mirrors scripts/stage1_baseline_recompute.py
+# RF_PERIOD_CONSTANT — keep them in lockstep.)
 _RF_PERIOD = 0.0001
 _N_PER_YEAR = 252.0
 
@@ -47,6 +55,82 @@ _N_PER_YEAR = 252.0
 def _fetch_closed_trades() -> list[dict]:
     from src.journal.store import get_closed_shadow_trades
     return get_closed_shadow_trades(days=3650)
+
+
+def _parse_iso_date(iso_str: str | None) -> _dt.date | None:
+    """Best-effort ISO -> date. Returns None on any parse failure.
+
+    shadow_trades stores actual_entry_time / actual_exit_time as ISO strings
+    (e.g. '2026-04-23T10:00:00-04:00'). We only need the date portion for
+    rf rate lookup; an unparseable string falls through to the placeholder.
+    """
+    if not iso_str or not isinstance(iso_str, str):
+        return None
+    try:
+        return _dt.date.fromisoformat(iso_str[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def _compute_per_trade_rf(trades: list[dict]) -> tuple[list[float], bool]:
+    """Return (per_trade_rf_vec, used_fred) for a list of trade dicts.
+
+    Per-trade rf = per_trading_day_rf(entry_date) * trading_days_in_hold.
+    Falls back to the flat `_RF_PERIOD` placeholder for any trade whose
+    FRED lookup or date parse fails (logged WARNING). The boolean flag
+    indicates whether AT LEAST one trade got a real FRED rate, which the
+    caller surfaces in the API response so the operator can see whether
+    the rf wiring is live for this query.
+
+    rf is annualized; canonical_sharpe._annualized_sharpe applies the
+    sqrt(252) factor on the per-period diff series, so we want a rf value
+    that matches the per-trade return scale — i.e. cumulative rf return
+    over the holding period. numpy.busday_count gives us trading days
+    inclusive of weekends/holidays (np uses Mon-Fri default, no NYSE
+    calendar — close enough for an SE-driving constant; the audit-spec
+    deferral is the proper NYSE calendar).
+    """
+    from src.data_collection.errors import CollectorConfigError
+    from src.data_ingestion.risk_free_rate import get_rf_rate
+
+    rfs: list[float] = []
+    used_fred = False
+    for t in trades:
+        entry = _parse_iso_date(t.get("actual_entry_time"))
+        exit_ = _parse_iso_date(t.get("actual_exit_time"))
+        if entry is None or exit_ is None:
+            rfs.append(_RF_PERIOD)
+            continue
+        # busday_count expects half-open [start, end). For a same-day trade
+        # we want at least one trading day of rf accrual.
+        end_excl = exit_ + _dt.timedelta(days=1) if exit_ >= entry else exit_
+        try:
+            hold_days = int(np.busday_count(entry, end_excl))
+        except (TypeError, ValueError):
+            hold_days = 1
+        hold_days = max(1, hold_days)
+        try:
+            per_day = get_rf_rate(entry)
+        except CollectorConfigError as exc:
+            logger.warning(
+                "[KPI_RF_FALLBACK] FRED API key missing — using placeholder "
+                "rf=%s (trade=%s): %s",
+                _RF_PERIOD, t.get("trade_id") or "?", exc,
+            )
+            rfs.append(_RF_PERIOD * hold_days)
+            continue
+        except Exception as exc:  # noqa: BLE001  — network/HTTP/KeyError fallthrough
+            logger.warning(
+                "[KPI_RF_FALLBACK] FRED fetch failed — using placeholder "
+                "rf=%s (trade=%s, entry=%s): %s",
+                _RF_PERIOD, t.get("trade_id") or "?", entry, exc,
+                exc_info=True,
+            )
+            rfs.append(_RF_PERIOD * hold_days)
+            continue
+        used_fred = True
+        rfs.append(per_day * hold_days)
+    return rfs, used_fred
 
 
 def _fetch_spy_returns_for_trades(trades: list[dict]) -> list[float]:
@@ -141,10 +225,26 @@ def _decision_to_css(state: str) -> str:
 # ── KPI compute functions ─────────────────────────────────────────────────────
 
 def _compute_rf_adjusted_kpi(
-    returns: list[float], rf_period: float = _RF_PERIOD,
+    returns: list[float],
+    rf_period: float | list[float] = _RF_PERIOD,
 ) -> dict[str, Any]:
+    """Compute the rf-adjusted excess Sharpe KPI.
+
+    `rf_period` accepts either:
+      - a scalar (legacy / fallback path; same value subtracted from every
+        return — preserves existing test surface), or
+      - a list[float] aligned 1:1 with `returns` (per-trade rf, T2.10 wiring
+        path; produced by `_compute_per_trade_rf`).
+    """
     n = len(returns)
-    S = rf_adjusted_excess_sharpe(returns, rf_period)
+    if isinstance(rf_period, (list, tuple)):
+        if len(rf_period) != n:
+            return {"value": None, "p_value": None, "ci_lower": None,
+                    "ci_upper": None, "status": "unknown"}
+        excess = [r - rf for r, rf in zip(returns, rf_period)]
+        S = rf_adjusted_excess_sharpe(excess, 0.0)
+    else:
+        S = rf_adjusted_excess_sharpe(returns, rf_period)
     if S is None:
         return {"value": None, "p_value": None, "ci_lower": None, "ci_upper": None,
                 "status": "unknown"}
@@ -199,13 +299,21 @@ def _compute_win_rate_kpi(trades: list[dict]) -> dict[str, Any]:
 
 
 def _compute_stage_traffic_light(
-    returns: list[float], rf_period: float = _RF_PERIOD,
+    returns: list[float],
+    rf_period: float | list[float] = _RF_PERIOD,
 ) -> dict[str, Any]:
     n = len(returns)
     if n < 2:
         return {"status": "unknown", "S": None, "t_stat": None,
                 "ci_lower": None, "decision_matrix_state": "HALT"}
-    S = rf_adjusted_excess_sharpe(returns, rf_period)
+    if isinstance(rf_period, (list, tuple)):
+        if len(rf_period) != n:
+            return {"status": "unknown", "S": None, "t_stat": None,
+                    "ci_lower": None, "decision_matrix_state": "HALT"}
+        excess = [r - rf for r, rf in zip(returns, rf_period)]
+        S = rf_adjusted_excess_sharpe(excess, 0.0)
+    else:
+        S = rf_adjusted_excess_sharpe(returns, rf_period)
     if S is None:
         return {"status": "unknown", "S": None, "t_stat": None,
                 "ci_lower": None, "decision_matrix_state": "HALT"}
@@ -267,14 +375,20 @@ def get_kpis() -> dict:
     spy_returns = _fetch_spy_returns_for_trades(spy_with_data)
     spy_aligned_returns = [float(t.get("pnl_pct") or 0) / 100.0 for t in spy_with_data]
 
+    # T2.10: per-trade rf from FRED DTB3. Falls back to _RF_PERIOD per trade
+    # on FRED failure (network down, missing key, KeyError) — see
+    # _compute_per_trade_rf for the WARNING log path.
+    rf_per_trade, rf_used_fred = _compute_per_trade_rf(instrumented)
+
     return {
         "n_trades": n_trades,
         "n_minimum_trl": N_MINIMUM_TRL,
         "as_of": datetime.now(timezone.utc).isoformat(),
         "instrumentation_pct": _compute_instrumentation_pct(raw_trades),
-        "rf_adjusted_excess_sharpe": _compute_rf_adjusted_kpi(returns),
+        "rf_adjusted_excess_sharpe": _compute_rf_adjusted_kpi(returns, rf_per_trade),
         "spy_relative_sharpe": _compute_spy_relative_kpi(spy_aligned_returns, spy_returns),
         "win_rate": _compute_win_rate_kpi(instrumented),
-        "stage_traffic_light": _compute_stage_traffic_light(returns),
+        "stage_traffic_light": _compute_stage_traffic_light(returns, rf_per_trade),
         "promotion_gate": _compute_promotion_gate_kpi(n_trades, returns),
+        "rf_source": "fred_dtb3" if rf_used_fred else "placeholder",
     }

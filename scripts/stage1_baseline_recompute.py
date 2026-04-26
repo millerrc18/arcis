@@ -14,30 +14,35 @@ The script ITSELF is read-only on the DB. The operator commits the memo with
 Three Sharpe figures (per §F-2 / T1.03):
   raw_sharpe                — pnl_pct series (no benchmark)
   spy_relative_sharpe       — pnl_pct minus per-period SPY return (in pct)
-  rf_adjusted_excess_sharpe — pnl_pct minus per-period rf rate (constant for
-                              now; T2.10 will swap in FRED 3-month T-bill)
+  rf_adjusted_excess_sharpe — pnl_pct minus per-period rf rate (FRED DTB3
+                              when reachable; falls back to RF_PERIOD_CONSTANT
+                              per-trade on FRED failure — T2.10 wired
+                              2026-04-26 per PR #690 review item I1)
 
 Bootstrap: existing IID bootstrap from src/diagnostics/bootstrap.py — block
 bootstrap (T2.02) is the Track-2 follow-up; the memo flags this dependency.
 
-Constant rf rate (DA-9 fix): see RF_PERIOD_CONSTANT and RF_PERIOD_WINDOW
-below — these are documented in the memo too.
+Constant rf rate fallback (DA-9): see RF_PERIOD_CONSTANT and RF_PERIOD_WINDOW
+below — used per-row when FRED is unreachable; documented in the memo.
 
 Called by: operator (CLI). Not imported by other modules.
 Calls: src.utils.db, src.analytics.canonical_sharpe, src.analytics.instrumentation_filter,
-       src.diagnostics.bootstrap.
+       src.data_ingestion.risk_free_rate, src.diagnostics.bootstrap.
 Owns tables: none.
-Config keys: none.
+Config keys: none (FRED_API_KEY env honored transitively via risk_free_rate).
 Tests: tests/scripts/test_stage1_baseline.py.
 """
 
 from __future__ import annotations
 
 import argparse
+import datetime as _dt
 import logging
 import sqlite3
 from pathlib import Path
 from typing import Iterable
+
+import numpy as np
 
 from src.analytics.canonical_sharpe import (
     raw_sharpe,
@@ -59,9 +64,12 @@ logger = logging.getLogger(__name__)
 # starts using block bootstrap, append/replace with the T2.02 commit.
 CANONICAL_SHARPE_SHA = "1928710"
 
-# Constant rf rate placeholder (DA-9 fix). Per-period (daily) Treasury bill
-# yield approximation. Annualized ~2.52% / 252 ~= 0.01% per trading day.
-# Replaced by FRED 3-month T-bill DTB3 series once T2.10 lands.
+# Constant rf rate fallback (DA-9). Per-period (daily) Treasury-bill yield
+# approximation. Annualized ~2.52% / 252 ~= 0.01% per trading day.
+# After T2.10 (PR #690 review item I1, 2026-04-26): the script wires FRED DTB3
+# per row via `_compute_per_trade_rf` and falls BACK to RF_PERIOD_CONSTANT only
+# when FRED is unreachable / API key absent / date unparseable. Kept in
+# lockstep with src/api/cloud_routes/kpis.py:_RF_PERIOD.
 RF_PERIOD_CONSTANT = 0.0001
 RF_PERIOD_WINDOW = "2026-04-23 (single trading day approximation)"
 
@@ -92,6 +100,76 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     return {k: row[k] for k in row.keys()}
 
 
+def _parse_iso_date(iso_str: str | None) -> _dt.date | None:
+    """Best-effort ISO -> date. Returns None on any parse failure.
+
+    shadow_trades stores actual_entry_time / actual_exit_time as ISO strings
+    (e.g. '2026-04-23T10:00:00-04:00'). We only need the date portion for
+    the FRED rf-rate lookup; an unparseable string falls through to the
+    placeholder constant.
+    """
+    if not iso_str or not isinstance(iso_str, str):
+        return None
+    try:
+        return _dt.date.fromisoformat(iso_str[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def _compute_per_trade_rf(trades: Iterable[dict]) -> tuple[list[float], bool]:
+    """Return (per_trade_rf_vec, used_fred) for an iterable of trade dicts.
+
+    Per-trade rf = per_trading_day_rf(entry_date) * trading_days_in_hold.
+    Falls back to flat `RF_PERIOD_CONSTANT` (multiplied by hold_days where
+    derivable, else 1) for any trade whose FRED lookup or date parse fails;
+    a WARNING is logged in that case. The boolean flag indicates whether
+    AT LEAST one trade got a real FRED rate, so the memo can mark the
+    rf source as "fred_dtb3" vs "placeholder".
+
+    Mirrors src/api/cloud_routes/kpis.py:_compute_per_trade_rf — keep in
+    lockstep so memo numbers match the live KPI panel.
+    """
+    from src.data_collection.errors import CollectorConfigError
+    from src.data_ingestion.risk_free_rate import get_rf_rate
+
+    rfs: list[float] = []
+    used_fred = False
+    for t in trades:
+        entry = _parse_iso_date(t.get("actual_entry_time"))
+        exit_ = _parse_iso_date(t.get("actual_exit_time"))
+        if entry is None or exit_ is None:
+            rfs.append(RF_PERIOD_CONSTANT)
+            continue
+        end_excl = exit_ + _dt.timedelta(days=1) if exit_ >= entry else exit_
+        try:
+            hold_days = int(np.busday_count(entry, end_excl))
+        except (TypeError, ValueError):
+            hold_days = 1
+        hold_days = max(1, hold_days)
+        try:
+            per_day = get_rf_rate(entry)
+        except CollectorConfigError as exc:
+            logger.warning(
+                "[STAGE1_RF_FALLBACK] FRED API key missing — using "
+                "placeholder rf=%s (trade=%s): %s",
+                RF_PERIOD_CONSTANT, t.get("trade_id") or "?", exc,
+            )
+            rfs.append(RF_PERIOD_CONSTANT * hold_days)
+            continue
+        except Exception as exc:  # noqa: BLE001  — network/HTTP/KeyError fallthrough
+            logger.warning(
+                "[STAGE1_RF_FALLBACK] FRED fetch failed — using placeholder "
+                "rf=%s (trade=%s, entry=%s): %s",
+                RF_PERIOD_CONSTANT, t.get("trade_id") or "?", entry, exc,
+                exc_info=True,
+            )
+            rfs.append(RF_PERIOD_CONSTANT * hold_days)
+            continue
+        used_fred = True
+        rfs.append(per_day * hold_days)
+    return rfs, used_fred
+
+
 def compute_baseline(conn: sqlite3.Connection) -> dict:
     """Compute the three Sharpe figures + bootstrap CIs + power assessment.
 
@@ -114,9 +192,20 @@ def compute_baseline(conn: sqlite3.Connection) -> dict:
     pnl_pcts = [float(r["pnl_pct"]) for r in instrumented]
     spy_pcts = [float(r["spy_return_over_hold"]) * 100.0 for r in instrumented]
 
+    # T2.10 / PR #690 I1: per-trade rf from FRED DTB3 (falls back to
+    # RF_PERIOD_CONSTANT per row on FRED failure). When FRED is unreachable
+    # for every row (offline / no API key) the rf vector is identical to the
+    # legacy `[RF_PERIOD_CONSTANT * 1] * n` and the Sharpe matches the prior
+    # constant-rf result.
+    rf_per_trade, rf_used_fred = _compute_per_trade_rf(instrumented)
+
     raw_sr = raw_sharpe(pnl_pcts)
     spy_rel_sr = spy_relative_sharpe(pnl_pcts, spy_pcts)
-    rf_sr = rf_adjusted_excess_sharpe(pnl_pcts, RF_PERIOD_CONSTANT)
+    if rf_per_trade and len(rf_per_trade) == len(pnl_pcts):
+        rf_excess = [p - rf for p, rf in zip(pnl_pcts, rf_per_trade)]
+        rf_sr = rf_adjusted_excess_sharpe(rf_excess, 0.0)
+    else:
+        rf_sr = rf_adjusted_excess_sharpe(pnl_pcts, RF_PERIOD_CONSTANT)
 
     # IID bootstrap on the per-period diff series (proxy for Sharpe CI).
     if n_fully_instrumented >= 2:
@@ -124,9 +213,14 @@ def compute_baseline(conn: sqlite3.Connection) -> dict:
         spy_ci = bootstrap_ci(
             [r - s for r, s in zip(pnl_pcts, spy_pcts)]
         )
-        rf_ci = bootstrap_ci(
-            [r - RF_PERIOD_CONSTANT for r in pnl_pcts]
-        )
+        if rf_per_trade and len(rf_per_trade) == len(pnl_pcts):
+            rf_ci = bootstrap_ci(
+                [p - rf for p, rf in zip(pnl_pcts, rf_per_trade)]
+            )
+        else:
+            rf_ci = bootstrap_ci(
+                [r - RF_PERIOD_CONSTANT for r in pnl_pcts]
+            )
     else:
         empty_ci = {
             "point_estimate": None,
@@ -151,6 +245,7 @@ def compute_baseline(conn: sqlite3.Connection) -> dict:
         "spy_relative_sharpe_ci": spy_ci,
         "rf_adjusted_excess_sharpe_ci": rf_ci,
         "power": power,
+        "rf_source": "fred_dtb3" if rf_used_fred else "placeholder",
     }
 
 
@@ -216,12 +311,18 @@ def build_memo(result: dict) -> str:
         f"- Point estimate: **{_format_sharpe(result['rf_adjusted_excess_sharpe'])}**",
         f"- 95% bootstrap CI (IID) on per-period (pnl_pct - rf) diff series:",
         f"  {_format_ci(result['rf_adjusted_excess_sharpe_ci'])}",
-        f"- **Inline rf constant (DA-9 fix; pending T2.10 FRED integration):**",
+        f"- **rf source for this run: `{result.get('rf_source', 'placeholder')}`**",
+        f"  - When `fred_dtb3`: per-trade rf = DTB3(entry_date) × hold_days "
+        f"(T2.10 wiring landed via PR #690 review item I1, 2026-04-26).",
+        f"  - When `placeholder`: fell back to RF_PERIOD_CONSTANT per row "
+        f"because FRED was unreachable / FRED_API_KEY missing / dates "
+        f"unparseable. WARNING is logged with `[STAGE1_RF_FALLBACK]`.",
+        f"- **Fallback constant (DA-9; documented in lockstep with kpis.py):**",
         f"  - rf_period (per-period, daily): `{RF_PERIOD_CONSTANT}`",
         f"  - Window: `{RF_PERIOD_WINDOW}`",
-        f"  - Source: placeholder constant — T2.10 will swap in the FRED 3-month "
-        f"T-bill (DTB3) series with proper per-day interpolation. Until then, "
-        f"this single-day approximation is the documented assumption.",
+        f"  - Source: 0.0001 ≈ 2.52% annualized / 252 trading days. T2.10 "
+        f"swaps in the FRED 3-month T-bill (DTB3) series; this constant is "
+        f"used only when FRED is unreachable.",
         "",
         "## Bootstrap Methodology",
         "",
@@ -244,7 +345,8 @@ def build_memo(result: dict) -> str:
         "",
         f"- Canonical Sharpe module SHA (T1.03): `{CANONICAL_SHARPE_SHA}`",
         f"- Block-bootstrap (T2.02) SHA: *pending — Track 2 dependency*",
-        f"- FRED rf-rate series version (T2.10): *pending — Track 2 dependency*",
+        f"- FRED rf-rate series (T2.10): wired via "
+        f"`src/data_ingestion/risk_free_rate.py` (DTB3, 2026-04-26 / PR #690 I1).",
         "",
         "## Pre-#651 Row Exclusion",
         "",

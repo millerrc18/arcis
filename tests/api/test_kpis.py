@@ -387,6 +387,147 @@ class TestSpyRelativeKpiWithRealData:
         assert result["spy_relative_sharpe"]["status"] == "unknown"
 
 
+# ── I1: FRED rf-rate wire-up tests (T2.10) ───────────────────────────────────
+
+class TestPerTradeRfWiring:
+    """Tests for _compute_per_trade_rf and the FRED-vs-placeholder fallback path
+    in get_kpis (PR #690 review item I1)."""
+
+    _TRADES_FOR_RF = [
+        {
+            "trade_id": f"t-{i}",
+            "pnl_pct": pnl,
+            "spy_return_over_hold": 0.005,
+            "instrumentation_version": 3,
+            "actual_entry_time": "2026-03-02T10:00:00",
+            "actual_exit_time": "2026-03-04T15:00:00",
+            "excess_return": pnl - 0.5,
+        }
+        for i, pnl in enumerate(
+            [1.2, -0.5, 2.3, 0.8, -0.3, 1.5, 1.9, -0.2, 1.1, 0.7,
+             -0.6, 1.8, 1.3, -0.1, 2.2, 0.9, 1.4, -0.4, 1.7, 0.6,
+             2.1, -0.8, 1.6, 1.0, -0.2, 2.0, 0.5, 1.3, -0.3, 1.8,
+             0.9, 1.4, 0.7, -0.1, 1.6]
+        )
+    ]
+
+    def test_fred_success_marks_rf_source_as_fred(self):
+        """When get_rf_rate returns a real per-day rate, response carries
+        rf_source='fred_dtb3' so the operator can see the wiring is live."""
+        with patch(
+            "src.api.cloud_routes.kpis._fetch_closed_trades",
+            return_value=self._TRADES_FOR_RF,
+        ):
+            with patch(
+                "src.data_ingestion.risk_free_rate.get_rf_rate",
+                return_value=0.000167,
+            ):
+                result = get_kpis()
+        assert result["rf_source"] == "fred_dtb3"
+
+    def test_fred_success_changes_sharpe_value(self):
+        """A non-zero FRED rf MUST move the rf-adjusted Sharpe vs the
+        placeholder; otherwise we'd be silently using the wrong rate."""
+        # Run with placeholder fallback (FRED throws KeyError).
+        with patch(
+            "src.api.cloud_routes.kpis._fetch_closed_trades",
+            return_value=self._TRADES_FOR_RF,
+        ):
+            with patch(
+                "src.data_ingestion.risk_free_rate.get_rf_rate",
+                side_effect=KeyError("no obs"),
+            ):
+                placeholder_result = get_kpis()
+        # Run with FRED returning a different per-day rate (~2x placeholder).
+        with patch(
+            "src.api.cloud_routes.kpis._fetch_closed_trades",
+            return_value=self._TRADES_FOR_RF,
+        ):
+            with patch(
+                "src.data_ingestion.risk_free_rate.get_rf_rate",
+                return_value=0.0005,
+            ):
+                fred_result = get_kpis()
+        placeholder_sharpe = placeholder_result["rf_adjusted_excess_sharpe"]["value"]
+        fred_sharpe = fred_result["rf_adjusted_excess_sharpe"]["value"]
+        assert placeholder_sharpe is not None and fred_sharpe is not None
+        assert placeholder_sharpe != fred_sharpe, (
+            f"rf wiring should change Sharpe — placeholder={placeholder_sharpe}, "
+            f"fred={fred_sharpe}"
+        )
+        assert placeholder_result["rf_source"] == "placeholder"
+        assert fred_result["rf_source"] == "fred_dtb3"
+
+    def test_fred_failure_falls_back_and_logs_warning(self, caplog):
+        """When FRED raises (network down / KeyError / config error), we
+        must (a) fall back to _RF_PERIOD per trade, (b) log a WARNING with
+        the [KPI_RF_FALLBACK] marker, and (c) flag rf_source='placeholder'."""
+        import logging
+        caplog.set_level(logging.WARNING, logger="src.api.cloud_routes.kpis")
+        with patch(
+            "src.api.cloud_routes.kpis._fetch_closed_trades",
+            return_value=self._TRADES_FOR_RF[:5],
+        ):
+            with patch(
+                "src.data_ingestion.risk_free_rate.get_rf_rate",
+                side_effect=ConnectionError("FRED unreachable"),
+            ):
+                result = get_kpis()
+        assert result["rf_source"] == "placeholder"
+        # KPI still computed (i.e. fallback worked, did not crash).
+        assert "rf_adjusted_excess_sharpe" in result
+        # WARNING fired at least once with the canonical marker.
+        warning_records = [
+            r for r in caplog.records
+            if r.levelno == logging.WARNING and "[KPI_RF_FALLBACK]" in r.getMessage()
+        ]
+        assert warning_records, (
+            f"expected at least one [KPI_RF_FALLBACK] WARNING; got "
+            f"{[r.getMessage() for r in caplog.records]}"
+        )
+
+    def test_missing_api_key_falls_back_and_logs(self, caplog):
+        """CollectorConfigError (missing FRED_API_KEY) must fall back the same way."""
+        import logging
+        from src.data_collection.errors import CollectorConfigError
+        caplog.set_level(logging.WARNING, logger="src.api.cloud_routes.kpis")
+        with patch(
+            "src.api.cloud_routes.kpis._fetch_closed_trades",
+            return_value=self._TRADES_FOR_RF[:5],
+        ):
+            with patch(
+                "src.data_ingestion.risk_free_rate.get_rf_rate",
+                side_effect=CollectorConfigError("FRED_API_KEY not configured"),
+            ):
+                result = get_kpis()
+        assert result["rf_source"] == "placeholder"
+        warning_records = [
+            r for r in caplog.records
+            if r.levelno == logging.WARNING and "[KPI_RF_FALLBACK]" in r.getMessage()
+        ]
+        assert warning_records
+
+    def test_unparseable_dates_use_placeholder(self):
+        """Trades with malformed entry/exit timestamps fall back to placeholder
+        without ever calling FRED (cannot derive a date)."""
+        bad_trades = [
+            dict(t, actual_entry_time="not-an-iso", actual_exit_time="also-bad")
+            for t in self._TRADES_FOR_RF[:5]
+        ]
+        with patch(
+            "src.api.cloud_routes.kpis._fetch_closed_trades",
+            return_value=bad_trades,
+        ):
+            with patch(
+                "src.data_ingestion.risk_free_rate.get_rf_rate",
+                side_effect=AssertionError("FRED should not be called for unparseable dates"),
+            ):
+                result = get_kpis()
+        # Sharpe still computed via placeholder.
+        assert "rf_adjusted_excess_sharpe" in result
+        assert result["rf_source"] == "placeholder"
+
+
 # ── Double-prefix regression test (Round 8.E) ────────────────────────────────
 
 class TestMonitoringRouteNoPrefixDouble:
