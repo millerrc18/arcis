@@ -25,6 +25,12 @@ CONTROLLED_VOCAB: frozenset[str] = frozenset({
     "reconciled_stale",
     "exit_overshoot_detected",
     "qty_mismatch_partial_fill",
+    # Sprint 0 / Wave 2b — promoted to first-class so prefix info isn't lost
+    # when the executor cancels an unfilled entry, accepts a partial exit
+    # fill, or marks a row after a broker-side exception.
+    "entry_unfilled",
+    "partial_exit",
+    "broker_exception",
     "error",
     "unknown",
 })

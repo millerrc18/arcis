@@ -16,7 +16,15 @@ from zoneinfo import ZoneInfo
 # Status lifecycle — exhaustive.
 # Terminal: trade is done, will not be retried or managed.
 # Active: trade is in-flight, may be retried or exited.
-TERMINAL_STATUSES = frozenset({"closed", "rejected", "failed", "exit_abandoned", "needs_manual_review"})
+#
+# Sprint 0 / Wave 2b — 'cancelled' is the status we apply when an exit
+# decision fires before the entry order has filled. The row is closed for
+# all practical purposes (no live position, no further management) so it
+# belongs in TERMINAL_STATUSES; before this fix it was in NEITHER set,
+# causing cohort and dashboard queries to silently drop these rows.
+# Operator decision Q5 (2026-04-26): preserve the distinction (Option A) —
+# do not collapse 'cancelled' to 'rejected'.
+TERMINAL_STATUSES = frozenset({"closed", "cancelled", "rejected", "failed", "exit_abandoned", "needs_manual_review"})
 ACTIVE_STATUSES = frozenset({"pending", "open", "exit_pending", "exit_failed", "submission_uncertain"})
 
 
