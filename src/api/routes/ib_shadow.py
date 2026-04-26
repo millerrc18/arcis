@@ -14,6 +14,7 @@ Endpoints:
 
 import logging
 import sqlite3
+from contextlib import closing
 
 from fastapi import APIRouter
 
@@ -27,7 +28,9 @@ logger = logging.getLogger(__name__)
 @router.get("/ib-shadow/summary")
 def ib_shadow_summary():
     try:
-        with connect_db(DB_PATH) as conn:
+        # PR #690 B4: closing() guarantees conn.close() — sqlite3 __exit__ only
+        # commits/rolls back, it does not release the file handle.
+        with closing(connect_db(DB_PATH)) as conn:
             conn.row_factory = sqlite3.Row
             row = conn.execute(
                 "SELECT COUNT(*) as total, "
@@ -66,7 +69,9 @@ def ib_shadow_summary():
 @router.get("/ib-shadow/log")
 def ib_shadow_log(limit: int = 50):
     try:
-        with connect_db(DB_PATH) as conn:
+        # PR #690 B4: closing() guarantees conn.close() — sqlite3 __exit__ only
+        # commits/rolls back, it does not release the file handle.
+        with closing(connect_db(DB_PATH)) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT shadow_id, created_at, ticker, quantity, entry_price, "
@@ -90,7 +95,9 @@ def ib_shadow_log(limit: int = 50):
 @router.get("/ib-shadow/health")
 def ib_shadow_health():
     try:
-        with connect_db(DB_PATH) as conn:
+        # PR #690 B4: closing() guarantees conn.close() — sqlite3 __exit__ only
+        # commits/rolls back, it does not release the file handle.
+        with closing(connect_db(DB_PATH)) as conn:
             conn.row_factory = sqlite3.Row
             row = conn.execute(
                 "SELECT COUNT(*) as total FROM ib_shadow_log"

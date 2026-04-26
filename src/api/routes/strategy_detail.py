@@ -12,6 +12,7 @@ Endpoints:
 
 import logging
 import sqlite3
+from contextlib import closing
 
 from fastapi import APIRouter
 
@@ -97,7 +98,9 @@ def _build_drawdown_series(trade_list):
 @router.get("/strategy-detail/{strategy_type}")
 def strategy_detail(strategy_type: str):
     try:
-        with connect_db(DB_PATH) as conn:
+        # PR #690 B4: closing() guarantees conn.close() — sqlite3 __exit__ only
+        # commits/rolls back, it does not release the file handle.
+        with closing(connect_db(DB_PATH)) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(_QUERY, (strategy_type,)).fetchall()
 

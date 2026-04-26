@@ -13,6 +13,7 @@ Endpoints:
 import logging
 import sqlite3
 import statistics
+from contextlib import closing
 
 from fastapi import APIRouter
 
@@ -26,7 +27,9 @@ logger = logging.getLogger(__name__)
 @router.get("/projections/live")
 def projections_live():
     try:
-        with connect_db(DB_PATH) as conn:
+        # PR #690 B4: closing() guarantees conn.close() — sqlite3 __exit__ only
+        # commits/rolls back, it does not release the file handle.
+        with closing(connect_db(DB_PATH)) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT pnl_dollars, pnl_pct FROM shadow_trades "
