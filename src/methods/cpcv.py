@@ -4,33 +4,54 @@ Authority: López de Prado 2018, §7.4.
 
 Called by: diagnostic writers (none wired as gate per F-12; wiring is T2.04).
 Calls: src.analytics.canonical_sharpe.rf_adjusted_excess_sharpe, numpy.
+  cpcv_with_fred_rf / cpcv_anchored_with_fred_rf additionally call
+  src.methods._rf_vector.compute_per_period_rf_vector (FRED DTB3 wiring,
+  Sprint-0 Wave-3b RF-WIRING).
 Owns tables: none.
 Config keys: none.
 Tests: tests/methods/test_cpcv.py.
 
-Pure functions — no I/O, no DB.
+Pure functions — no I/O, no DB (the *_with_fred_rf siblings DO perform
+network I/O via the FRED adapter; treat them as effectful).
 
-Two entry points:
+Four entry points:
   cpcv(returns, k, embargo, rf_period)
       K-fold purged CV with combinatorial test-fold selection and bilateral
-      embargo.  Returns per-fold OOS rf-adjusted Sharpe.
+      embargo.  Returns per-fold OOS rf-adjusted Sharpe. `rf_period` is a
+      scalar; legacy callers may pass 0.0 to skip rf adjustment.
 
   cpcv_anchored(returns, k, embargo, rf_period)
       Anchored walk-forward variant: each fold's training window is pinned to
       start at index 0 so the window grows monotonically.
 
-Both return a dict:
+  cpcv_with_fred_rf(returns, dates, k, embargo)
+      Sprint-0 Wave-3b RF-WIRING sibling: takes a list of per-period dates
+      (length must equal len(returns)), pulls the FRED DTB3 per-period rf
+      via src.methods._rf_vector.compute_per_period_rf_vector, pre-subtracts
+      it from `returns` so each fold's OOS Sharpe is computed against the
+      real time-varying rate. Returns the same dict shape as `cpcv` plus
+      a `used_fred` boolean so callers can distinguish a real-rf run from a
+      placeholder fallback.
+
+  cpcv_anchored_with_fred_rf(returns, dates, k, embargo)
+      Same FRED wiring layered onto the anchored walk-forward variant.
+
+The non-`*_with_fred_rf` entry points return:
   {
     "fold_sharpes": list[float | None],   # one per fold
     "fold_indices": list[tuple[np.ndarray, np.ndarray]],  # (train_idx, test_idx)
   }
+
+The `*_with_fred_rf` entry points additionally include `"used_fred": bool`.
 
 Raises ValueError on bad inputs.
 """
 
 from __future__ import annotations
 
+import datetime as _dt
 from itertools import combinations
+from typing import Sequence
 
 import numpy as np
 
@@ -195,3 +216,78 @@ def cpcv_anchored(
         fold_indices.append((train_idx, test_idx))
 
     return {"fold_sharpes": fold_sharpes, "fold_indices": fold_indices}
+
+
+# ---------------------------------------------------------------------------
+# FRED-aware sibling helpers (Sprint-0 Wave-3b RF-WIRING)
+#
+# These wrappers fetch a per-period rf vector from FRED DTB3 (with placeholder
+# fallback per-index on failure), pre-subtract it from `returns`, and call
+# the underlying scalar-rf function with rf_period=0.0 — keeping the legacy
+# function signatures unchanged while giving callers that know the trade
+# date range a one-line path to a real-rf run.
+# ---------------------------------------------------------------------------
+
+def _excess_returns_via_fred_rf(
+    returns: np.ndarray,
+    dates: Sequence[_dt.date],
+) -> tuple[np.ndarray, bool]:
+    """Return (returns - rf_vec, used_fred). Length-aligned to `returns`."""
+    from src.methods._rf_vector import compute_per_period_rf_vector
+
+    if len(dates) != len(returns):
+        raise ValueError(
+            f"len(dates)={len(dates)} must equal len(returns)={len(returns)}"
+        )
+    rf_vec, used_fred = compute_per_period_rf_vector(list(dates))
+    rf_arr = np.asarray(rf_vec, dtype=float)
+    return returns - rf_arr, used_fred
+
+
+def cpcv_with_fred_rf(
+    returns: np.ndarray,
+    dates: Sequence[_dt.date],
+    k: int = _DEFAULT_K,
+    embargo: int = _DEFAULT_EMBARGO,
+) -> dict:
+    """FRED-aware sibling of `cpcv`.
+
+    Pulls per-period rf via `src.methods._rf_vector.compute_per_period_rf_vector`,
+    pre-subtracts it from `returns`, and runs the standard `cpcv` with
+    rf_period=0.0 (since the rf adjustment is already baked into the series).
+
+    Args:
+        returns: 1-D array of per-period returns.
+        dates:   Per-period `datetime.date`s. Must have len == len(returns).
+        k:       Number of folds. Default 5.
+        embargo: Bilateral embargo. Default 10.
+
+    Returns:
+        dict with `fold_sharpes`, `fold_indices`, and `used_fred`.
+
+    Raises:
+        ValueError: if len(dates) != len(returns), or any cpcv input failure.
+    """
+    arr = np.asarray(returns, dtype=float)
+    excess, used_fred = _excess_returns_via_fred_rf(arr, dates)
+    result = cpcv(excess, k=k, embargo=embargo, rf_period=0.0)
+    result["used_fred"] = used_fred
+    return result
+
+
+def cpcv_anchored_with_fred_rf(
+    returns: np.ndarray,
+    dates: Sequence[_dt.date],
+    k: int = _DEFAULT_K,
+    embargo: int = _DEFAULT_EMBARGO,
+) -> dict:
+    """FRED-aware sibling of `cpcv_anchored`.
+
+    See `cpcv_with_fred_rf` for the wiring; the only difference is the
+    underlying call is `cpcv_anchored` rather than `cpcv`.
+    """
+    arr = np.asarray(returns, dtype=float)
+    excess, used_fred = _excess_returns_via_fred_rf(arr, dates)
+    result = cpcv_anchored(excess, k=k, embargo=embargo, rf_period=0.0)
+    result["used_fred"] = used_fred
+    return result
