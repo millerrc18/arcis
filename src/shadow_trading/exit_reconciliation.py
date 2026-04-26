@@ -18,6 +18,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from src.config import DB_PATH
+from src.shadow_trading._status_sql import terminal_in_clause
 
 logger = logging.getLogger(__name__)
 
@@ -29,16 +30,29 @@ _RECONCILE_LOG_DIR = Path(DB_PATH).parent / "reconciliation_log"
 # fill noise. PR-690 review item O3.
 _STOP_LOSS_SLIPPAGE_TOLERANCE = 0.01
 
-_QUERY = """
-    SELECT trade_id, ticker, exit_reason,
-           actual_exit_price, stop_price, target_1, target_2,
-           duration_days, timeout_days,
-           actual_entry_time, direction
-    FROM shadow_trades
-    WHERE status = 'closed'
-      AND actual_exit_time >= datetime('now', '-24 hours')
-      AND COALESCE(quarantined, 0) = 0
-"""
+
+def _build_query() -> tuple[str, tuple[str, ...]]:
+    """Build the per-call reconcile SQL + bind params.
+
+    Sprint 0 / Wave 1b STATUS-CONST: pre-fix this filtered on
+    `status = 'closed'`, which silently dropped non-canonical terminal
+    statuses (rejected, failed, exit_abandoned, needs_manual_review) and
+    therefore never reconciled their exit_reason. Now uses
+    terminal_in_clause() so the full TERMINAL_STATUSES vocabulary is
+    covered by the 24-hour window.
+    """
+    frag, params = terminal_in_clause()
+    sql = (
+        "SELECT trade_id, ticker, exit_reason, "
+        "actual_exit_price, stop_price, target_1, target_2, "
+        "duration_days, timeout_days, "
+        "actual_entry_time, direction "
+        "FROM shadow_trades "
+        f"WHERE status IN ({frag}) "
+        "AND actual_exit_time >= datetime('now', '-24 hours') "
+        "AND COALESCE(quarantined, 0) = 0"
+    )
+    return sql, params
 
 
 def _computed_days(actual_entry_time: str | None) -> int:
@@ -194,7 +208,8 @@ def run_exit_reconciliation(
     if owned:
         conn = connect_db(db_path or DB_PATH)
     try:
-        rows = conn.execute(_QUERY).fetchall()
+        sql, params = _build_query()
+        rows = conn.execute(sql, params).fetchall()
     finally:
         if owned:
             conn.close()

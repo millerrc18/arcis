@@ -182,6 +182,13 @@ def check_bracket_health(
 
     ensure_bracket_health_table(db_path)
 
+    # STATUS-NARROW: bracket health is meaningful only for trades whose
+    # broker-side legs SHOULD still be active. Broadening to ACTIVE_STATUSES
+    # would generate false alarms on `exit_pending` (bracket cancel
+    # initiated) and `submission_uncertain` (entry submission limbo), so
+    # this query intentionally stays on `status='open'`. Sprint 0 / Wave 1b
+    # STATUS-CONST: kept narrow per orphan-check parity (see reconcile.py
+    # for the same rationale on the live/paper stale checks).
     with connect_db(db_path) as conn:
         try:
             trades = conn.execute(
@@ -192,6 +199,10 @@ def check_bracket_health(
                 " AND COALESCE(quarantined, 0) = 0"
             ).fetchall()
         except Exception:
+            # STATUS-NARROW: same rationale as the primary query above —
+            # only `status='open'` trades have legs the broker should still
+            # be holding. This fallback exists for older schemas missing
+            # `planned_shares`; the status filter must stay equally narrow.
             trades = conn.execute(
                 "SELECT trade_id, ticker, alpaca_order_id "
                 "FROM shadow_trades "
