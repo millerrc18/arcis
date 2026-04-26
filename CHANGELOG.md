@@ -4,6 +4,25 @@
 
 - Added `scripts/archive_bootcamp_2026_04_24.py` — SD#42 Friday bootcamp cutover tooling. Preflight-gated VACUUM INTO archive + schema-only fresh-DB anchor + manifest enumerating 17 prod-only columns preserved. See `docs/archive/README.md` for operator choreography. Dry-run default; `--apply` required for live operation.
 
+## [v0.27.1] - 2026-04-26 — PR #690 review-finding sweep + Sprint 0 Wave 1a kickoff
+
+### Release summary
+
+PR #690 (Track 1.5 instrumentation) merged with 27 review findings landed as in-PR fixes (5 Blockers + 8 Important + 14 Observations). Sprint 0 Wave 1a kicked off post-merge to clear the dashboard cockpit issues that survived the PR-690 sweep — F-AUTH (Rules of Hooks compliance) + F-CHANGELOG (this entry; WhatsNewPanel was still advertising v0.25.0 as latest).
+
+### Fixed
+
+- **F-CHANGELOG (Sprint 0 Wave 1a / PR #690 review B3):** `frontend/src/components/system/WhatsNewPanel.jsx` was still listing v0.25.0 (2026-04-18) as the most recent entry, missing the entire Track 1.5 + Round 10 + PR #690 review-sweep work. RECENT_ENTRIES refreshed to mirror the canonical CHANGELOG (this file). Regression test added: `frontend/src/components/system/WhatsNewPanel.test.jsx` asserts the top entry is current and that the rendered date reflects the latest release. `src/version.py` bumped from v0.27.0 → v0.27.1.
+
+- **PR #690 in-PR review-finding sweep** (full list in PR #690 commit history, summarized):
+  - **B1–B5 Blockers:** exit_reconciliation direction-aware semantics + named tolerance constant (O2/O3); analytics monitor route raises 500 instead of silent empty array (O8); replaced `setdefault(key, dict.get(key))` no-op with explicit assignment (O10); publicized `compute_timeout_status` + `shadow_trades.quarantined NOT NULL` migration + integration negative-path tests (O4/O7/O9); 3 services routed `[BROKER_EXCEPTION]` → `log_and_persist` (O1-redo).
+  - **I1–I8 Important:** wired FRED DTB3 rf adapter into kpis + stage1 baseline (I1); promotion-gate exception logging + distinct caption (I2); Lo (2002) autocorrelation-corrected Sharpe SE (I3); split `n_spy` and `n_total` in KPI response (I4); regenerated sprint_F engine fixtures + dropped `--ignore` (I5); labeled TradeHistory rolling Sharpe as diagnostic + used Alpaca equity for projections drawdown baseline (O11/I6); Round-8.F backtick template-literal stripping anti-regression test (I7); KPI threshold pinning (I8) with decision-matrix thresholds aligned to audit-spec §3.1 (B3-A).
+  - **O1–O14 Observations:** packet_writer Key Risk regex semantics + truncation marker budget (O13); _find_latest_transcript sorts by mtime not lexicographic (O6); replaced projections.py non-canonical Sharpe with `canonical_sharpe.raw_sharpe` (B5); MR_VIX_LOOKUP_FAILED warning instead of bare pass on VIX swallow (O5); route-parity value-validation tests for kpis + projections (O14); 7 test failures from post-rewrite sweep resolved.
+
+### Decisions
+
+- **Decision 6 — KPI traffic-light thresholds anchored to audit-spec §3.1.** Pinning tests added in `tests/api/test_kpis.py` so Stage-1/Stage-2 boundaries cannot drift silently. Rationale + thresholds documented in PR #690 B3-A commit.
+
 ## [v0.27.0] - 2026-04-25 — Track 1.5 instrumentation gap closure (post-audit, PM-autonomous dispatch)
 
 ### Release summary
