@@ -190,7 +190,7 @@ export const api = {
   getIBShadowHealth: () => fetchApi("/ib-shadow/health"),
   // IB Gateway Status
   getIBStatus: () => fetchApi("/ib/status"),
-  // Diagnostic runs (v0.25.0)
+  // Diagnostic runs
   triggerRegimeDiagnostic: (opts = {}) =>
     fetchApi("/diagnostic-runs/regime", {
       method: "POST",
@@ -201,7 +201,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({}),
     }),
-  // v0.26.0 — training-data v1-citation audit
+  // training-data v1-citation audit
   triggerTrainingAudit: (opts = {}) =>
     fetchApi("/diagnostic-runs/training-audit", {
       method: "POST",
@@ -215,7 +215,7 @@ export const api = {
   getDiagnosticRunReport: (runId) =>
     fetchApi(`/diagnostic-runs/${runId}/report`),
   getDiagnosticRunPlots: (runId) => fetchApi(`/diagnostic-runs/${runId}/plots`),
-  // Capability Registry (Sprint 1B, v0.25.0)
+  // Capability Registry
   getSystemIndex: () => fetchApi("/system/index"),
   markReviewed: (name) =>
     fetchApi(`/system/index/${encodeURIComponent(name)}/mark-reviewed`, {
