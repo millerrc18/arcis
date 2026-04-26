@@ -40,7 +40,12 @@ def _seed_open_bracket(
     stop_price: float = 74.51,
     target_1: float = 81.12,
     created_at: str = "2026-04-13T09:44:20-04:00",
+    timeout_days: int = 8,
 ) -> None:
+    # Sprint 0 / Wave 2b — pin per-trade timeout_days to match this suite's
+    # intent (timeout fires at day 8). Otherwise insert_shadow_trade defaults
+    # the field to 15, which (post Bug-3 fix) wins over the config global
+    # passed in load_config and the timeout exit no longer fires at day 13.
     insert_shadow_trade(
         {
             "trade_id": trade_id,
@@ -60,6 +65,7 @@ def _seed_open_bracket(
             "alpaca_order_id": "f0a58eae-eed9-429a-a219-ba890e6a1370",
             "created_at": created_at,
             "updated_at": created_at,
+            "timeout_days": timeout_days,
         },
         db_path,
     )

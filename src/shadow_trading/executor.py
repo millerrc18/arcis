@@ -1571,7 +1571,7 @@ def check_and_manage_open_trades(
     _raw_timeout = shadow_cfg.get("timeout_days", 15)
     if isinstance(_raw_timeout, dict):
         _raw_timeout = _raw_timeout.get("default", 15)
-    timeout_days = int(_raw_timeout)
+    config_timeout_days = int(_raw_timeout)
 
     open_trades = get_open_shadow_trades(db_path)
     if source_filter:
@@ -1855,6 +1855,18 @@ def check_and_manage_open_trades(
         # Check exit conditions (bracket leg detection may have already set exit_reason)
         if not bracket_exit:
             exit_reason = None
+        # Sprint 0 / Wave 2b — per-trade timeout_days honored.
+        # Track 1.5 / B8 persists the LLM's Expected Holding Period on the
+        # row at line 1126. Before this fix the timeout comparison only used
+        # the config global (config_timeout_days), so the per-trade value
+        # was dead data. Fall back to config when the row carries None /
+        # unparseable / 0.
+        _trade_timeout_raw = trade.get("timeout_days")
+        try:
+            _trade_timeout_int = int(_trade_timeout_raw) if _trade_timeout_raw not in (None, "") else 0
+        except (TypeError, ValueError):
+            _trade_timeout_int = 0
+        effective_timeout_days = _trade_timeout_int if _trade_timeout_int > 0 else config_timeout_days
         if exit_reason is None:
             if current_price <= stop_price and stop_price > 0:
                 exit_reason = coerce_exit_reason("stop_hit", ticker=ticker)
@@ -1862,7 +1874,7 @@ def check_and_manage_open_trades(
                 exit_reason = coerce_exit_reason("target_2_hit", ticker=ticker)
             elif current_price >= target_1 and target_1 > 0:
                 exit_reason = coerce_exit_reason("target_1_hit", ticker=ticker)
-            elif days_open >= timeout_days:
+            elif days_open >= effective_timeout_days:
                 exit_reason = coerce_exit_reason("timeout", ticker=ticker)
 
         if exit_reason:
@@ -1881,7 +1893,10 @@ def check_and_manage_open_trades(
                     logger.warning("[EXIT] Failed to cancel entry order for %s: %s", ticker, cancel_err)
                 update_shadow_trade(
                     trade["trade_id"],
-                    {"status": "cancelled", "exit_reason": f"entry_unfilled_{exit_reason}"},
+                    {
+                        "status": "cancelled",
+                        "exit_reason": coerce_exit_reason("entry_unfilled", ticker=ticker),
+                    },
                     db_path,
                 )
                 actions.append({
@@ -2007,11 +2022,17 @@ def check_and_manage_open_trades(
                             "exit_retry_count": _next_retry,
                         }},
                     )
+                    # Sprint 0 / Wave 2b — exception type is already captured in
+                    # the structured [BROKER_EXCEPTION] log above; the
+                    # exit_reason field is controlled vocabulary, so we route
+                    # the canonical token through coerce instead of stuffing
+                    # the dynamic class name in (which previously coerced to
+                    # 'unknown' and lost the broker-vs-other distinction).
                     update_shadow_trade(
                         trade["trade_id"],
                         {
                             "status": _failed_status,
-                            "exit_reason": coerce_exit_reason(f"broker_exception:{type(e).__name__}", ticker=ticker),
+                            "exit_reason": coerce_exit_reason("broker_exception", ticker=ticker),
                             "exit_retry_count": _next_retry,
                         },
                         db_path,
@@ -2066,7 +2087,7 @@ def check_and_manage_open_trades(
                             trade["trade_id"],
                             {
                                 "status": "open",
-                                "exit_reason": f"partial_{exit_reason}",
+                                "exit_reason": coerce_exit_reason("partial_exit", ticker=ticker),
                                 "actual_shares": remaining,
                             },
                             db_path,
