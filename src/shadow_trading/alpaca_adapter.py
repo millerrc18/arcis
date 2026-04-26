@@ -139,6 +139,23 @@ def _get_alpaca_config() -> dict:
             "ALPACA_PAPER_TRADE is not 'true'. Refusing to connect to a live account."
         )
 
+    # Sprint 0 cluster-03 Critical #4 — fail loudly on missing credentials.
+    # Pre-fix: empty api_key / api_secret silently flowed through to
+    # TradingClient(api_key="", secret_key="") which fails with an opaque
+    # alpaca-py SDK error far from the misconfig source. The live path
+    # (_get_live_config below) already raises LiveTradingError on this
+    # condition; mirror that guard here for parity.
+    if not api_key:
+        raise PaperTradingError(
+            "Paper trading API key not configured. "
+            "Set ALPACA_API_KEY in .env or alpaca.api_key in config."
+        )
+    if not api_secret:
+        raise PaperTradingError(
+            "Paper trading API secret not configured. "
+            "Set ALPACA_API_SECRET in .env or alpaca.api_secret in config."
+        )
+
     return {
         "api_key": api_key,
         "api_secret": api_secret,
