@@ -358,6 +358,110 @@ class TestPromotionGateKpi:
         assert result["status"] == "blue"
 
 
+# ── I2: Promotion gate exception logging (PR #690 review item I2) ────────────
+
+class TestPromotionGateExceptionLogging:
+    """When the promotion_gate orchestrator raises (numpy convergence,
+    missing methods import, schema drift), the KPI endpoint must:
+      (a) log a [KPI_PROMOTION_GATE_ERROR] WARNING with exc_info=True,
+      (b) return status='error' (NOT 'blue' — that's the legitimate
+          "N too small" branch),
+      (c) return a distinct caption "Promotion gate error — see logs"
+          so the operator can tell the two paths apart on the cockpit.
+
+    Regression target: PR #690 review item I2 ("Bare except Exception
+    returns the SAME caption as the legitimate N too small case")."""
+
+    _N_AT_MINTRL = 150
+    _RETURNS_AT_MINTRL = [0.012, -0.005, 0.023] * 50  # 150 returns
+
+    def test_exception_yields_error_status_not_blue(self, caplog):
+        """status must be 'error' (NOT 'blue') so frontend can render an
+        error treatment instead of the legitimate 'still gathering data'
+        treatment."""
+        import logging
+        caplog.set_level(logging.WARNING, logger="src.api.cloud_routes.kpis")
+        with patch(
+            "src.methods.promotion_gate.promotion_gate",
+            side_effect=RuntimeError("synthetic gate explosion"),
+        ):
+            result = _compute_promotion_gate_kpi(
+                n_trades=self._N_AT_MINTRL,
+                returns=self._RETURNS_AT_MINTRL,
+            )
+        assert result["status"] == "error", (
+            f"Expected status='error' on promotion_gate exception "
+            f"(distinguished from the legitimate 'blue' for N-too-small). "
+            f"Got: {result}"
+        )
+
+    def test_exception_yields_distinct_caption(self):
+        """Caption must be visibly distinct from the 'MinTRL: gate not yet
+        evaluable' caption returned by the legitimate N-too-small branch."""
+        with patch(
+            "src.methods.promotion_gate.promotion_gate",
+            side_effect=RuntimeError("synthetic gate explosion"),
+        ):
+            result = _compute_promotion_gate_kpi(
+                n_trades=self._N_AT_MINTRL,
+                returns=self._RETURNS_AT_MINTRL,
+            )
+        assert "see logs" in result["caption"].lower()
+        assert "MinTRL" not in result["caption"], (
+            "The error caption must NOT mention MinTRL — that's the "
+            "legitimate 'still gathering data' caption that this case "
+            "previously aliased onto."
+        )
+
+    def test_exception_fires_warning_log_with_exc_info(self, caplog):
+        """A [KPI_PROMOTION_GATE_ERROR] WARNING must fire with the
+        exception traceback (exc_info=True) so the operator can debug."""
+        import logging
+        caplog.set_level(logging.WARNING, logger="src.api.cloud_routes.kpis")
+        with patch(
+            "src.methods.promotion_gate.promotion_gate",
+            side_effect=ValueError("synthetic gate explosion"),
+        ):
+            _compute_promotion_gate_kpi(
+                n_trades=self._N_AT_MINTRL,
+                returns=self._RETURNS_AT_MINTRL,
+            )
+        gate_error_records = [
+            r for r in caplog.records
+            if r.levelno == logging.WARNING and "[KPI_PROMOTION_GATE_ERROR]" in r.getMessage()
+        ]
+        assert gate_error_records, (
+            f"Expected at least one [KPI_PROMOTION_GATE_ERROR] WARNING; "
+            f"got {[r.getMessage() for r in caplog.records]}"
+        )
+        record = gate_error_records[0]
+        assert record.exc_info is not None, (
+            "Promotion gate WARNING must include exc_info=True so the "
+            "traceback is logged for debugging."
+        )
+
+    def test_exception_yields_votes_passed_null(self):
+        """When the gate errors out, votes_passed must be None — not 0
+        (which would be a misleadingly-precise 'gate said 0 of 5 passed')."""
+        with patch(
+            "src.methods.promotion_gate.promotion_gate",
+            side_effect=RuntimeError("synthetic gate explosion"),
+        ):
+            result = _compute_promotion_gate_kpi(
+                n_trades=self._N_AT_MINTRL,
+                returns=self._RETURNS_AT_MINTRL,
+            )
+        assert result["votes_passed"] is None
+        assert result["votes_total"] == 5
+
+    def test_no_exception_when_n_too_small_uses_blue_caption(self):
+        """Sanity: the legitimate "N too small" path STILL returns
+        status='blue' with the MinTRL caption — we haven't broken it."""
+        result = _compute_promotion_gate_kpi(n_trades=35, returns=_RETURNS_35)
+        assert result["status"] == "blue"
+        assert "MinTRL" in result["caption"]
+
+
 # ── Win rate calculation unit test ────────────────────────────────────────────
 
 class TestWinRateCalculation:

@@ -350,9 +350,18 @@ def _compute_promotion_gate_kpi(
         caption = f"{votes_passed}/5 methods passed"
         return {"votes_passed": votes_passed, "votes_total": 5, "status": status,
                 "caption": caption}
-    except Exception:
-        return {**base, "status": "blue",
-                "caption": f"MinTRL: gate not yet evaluable (N={n_trades}, need {N_MINIMUM_TRL})"}
+    except Exception as exc:  # noqa: BLE001  — surface, don't silently degrade
+        # PR #690 review item I2: previously this returned the SAME caption
+        # as the legitimate "N too small" branch, hiding real bugs in the
+        # promotion_gate machinery (5-method orchestrator failures, numpy
+        # convergence issues, schema drift). Log with exc_info and surface
+        # a DISTINCT status="error" so the operator can tell "evaluation
+        # blocked by sample size" apart from "evaluation crashed".
+        logger.warning(
+            "[KPI_PROMOTION_GATE_ERROR] %s", exc, exc_info=True,
+        )
+        return {**base, "status": "error",
+                "caption": "Promotion gate error — see logs"}
 
 
 def _compute_instrumentation_pct(trades: list[dict]) -> float | None:
