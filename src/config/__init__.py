@@ -43,17 +43,27 @@ from dotenv import load_dotenv
 # and watch.py, but load_dotenv() is idempotent — safe to call multiple times.
 load_dotenv()
 
-# Central database path constant — override via ARCIS_DB_PATH env var.
+# Central database path constant — must be set via ARCIS_DB_PATH env var.
 # This is the single source of truth for the SQLite path. Every module
 # imports DB_PATH from here rather than hardcoding the filename.
 #
-# Hotfix v0.24.0-alpha2.1: anchor to repo root via Path(__file__) so the
-# path is ABSOLUTE regardless of CWD. Relative paths caused different
-# processes (worktree vs repo-root) to open different SQLite files.
-# __file__ = src/config/__init__.py → .parent = src/config → .parent = src
-# → .parent = <repo_root>. Three levels up.
+# Sprint 0 Wave 1d (DB-STUB-CFG, T6, cluster-02 Critical #1, 2026-04-26):
+# Removed the repo-root stub fallback. CLAUDE.md mandate (#642) prohibits
+# writes to <halcyon-lab>/ai_research_desk.sqlite3 — that location is a
+# stub and was removed. The canonical path is C:/arcis/data/ai_research_desk.sqlite3
+# and must be supplied via the ARCIS_DB_PATH env var (loaded from .env by
+# the load_dotenv() call above). If the var is missing, fail fast rather
+# than silently writing to the forbidden stub location.
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-DB_PATH = os.environ.get("ARCIS_DB_PATH", str(_REPO_ROOT / "ai_research_desk.sqlite3"))
+_DB_PATH_ENV = os.environ.get("ARCIS_DB_PATH")
+if not _DB_PATH_ENV:
+    raise RuntimeError(
+        "ARCIS_DB_PATH not set; expected canonical "
+        "C:/arcis/data/ai_research_desk.sqlite3 (set in .env at repo root). "
+        "Stub fallback to halcyon-lab/ai_research_desk.sqlite3 was removed "
+        "per CLAUDE.md #642 (Sprint 0 Wave 1d / DB-STUB-CFG)."
+    )
+DB_PATH = _DB_PATH_ENV
 
 _config_cache: dict | None = None
 
