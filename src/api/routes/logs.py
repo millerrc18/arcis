@@ -26,9 +26,10 @@ import uuid
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from src.api.local_auth import verify_local_token
 from src.config import DB_PATH
 from src.utils.db import connect_db
 
@@ -84,7 +85,7 @@ def recent_logs(level: str = "INFO", limit: int = 100, source: str = None):
         return {"logs": [], "count": 0, "error": str(exc)}
 
 
-@router.post("/commands/submit")
+@router.post("/commands/submit", dependencies=[Depends(verify_local_token)])
 def submit_command(body: CommandSubmission):
     """Submit a command to the local command queue."""
     try:
@@ -173,7 +174,7 @@ def recent_commands(limit: int = 20):
         return {"commands": [], "count": 0, "error": str(exc)}
 
 
-@router.post("/commands/expire-stale")
+@router.post("/commands/expire-stale", dependencies=[Depends(verify_local_token)])
 def expire_stale_commands_endpoint():
     """Trigger an on-demand sweep that marks aged pending_commands rows as 'expired'.
 

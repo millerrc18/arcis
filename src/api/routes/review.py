@@ -20,7 +20,8 @@ ryan_approved, user_grade, and repeatable_setup fields feed back into the
 training pipeline -- high-quality reviews become training examples that
 teach the model what good setups look like.
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from src.api.local_auth import verify_local_token
 from src.services.review_service import (
     get_pending_reviews, get_recommendation, submit_review,
     mark_executed, get_scorecard, get_postmortems, get_postmortem_detail,
@@ -60,7 +61,7 @@ def review_detail(recommendation_id: str):
     return {"error": "Not found"}
 
 
-@router.post("/review/{recommendation_id}")
+@router.post("/review/{recommendation_id}", dependencies=[Depends(verify_local_token)])
 def submit_review_endpoint(recommendation_id: str, data: dict):
     review_data = {}
     if "ryan_approved" in data:
@@ -78,7 +79,7 @@ def submit_review_endpoint(recommendation_id: str, data: dict):
     return {"success": success}
 
 
-@router.post("/review/mark-executed/{ticker}")
+@router.post("/review/mark-executed/{ticker}", dependencies=[Depends(verify_local_token)])
 def mark_executed_endpoint(ticker: str):
     success = mark_executed(ticker)
     return {"success": success}

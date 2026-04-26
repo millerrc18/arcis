@@ -38,7 +38,8 @@ Endpoints:
 import logging
 from contextlib import closing
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
+from src.api.local_auth import verify_local_token
 from src.config import DB_PATH, load_config
 from src.services.system_service import get_system_status
 from src.utils.db import connect_db
@@ -157,7 +158,7 @@ def api_costs(days: int = 30):
     return get_cost_summary(days=days)
 
 
-@router.post("/halt-trading")
+@router.post("/halt-trading", dependencies=[Depends(verify_local_token)])
 def halt_trading():
     """Emergency halt — stops all new trade entry immediately.
 
@@ -170,7 +171,7 @@ def halt_trading():
     return {"status": "halted", "message": "All trading halted. No new positions will be opened."}
 
 
-@router.post("/resume-trading")
+@router.post("/resume-trading", dependencies=[Depends(verify_local_token)])
 def resume_trading():
     """Resume trading after a halt."""
     from src.risk.governor import _global_halt
@@ -367,7 +368,7 @@ def schedule_metrics(days: int = 30):
     }
 
 
-@router.put("/config")
+@router.put("/config", dependencies=[Depends(verify_local_token)])
 def update_config(updates: dict):
     import yaml
     from pathlib import Path
@@ -533,7 +534,7 @@ def get_settings():
     }
 
 
-@router.post("/settings")
+@router.post("/settings", dependencies=[Depends(verify_local_token)])
 def update_settings(body: dict):
     """Save a config override to config_overrides table."""
     import sqlite3 as _sqlite3
@@ -563,7 +564,7 @@ def update_settings(body: dict):
         return {"error": str(exc)}
 
 
-@router.delete("/settings/overrides")
+@router.delete("/settings/overrides", dependencies=[Depends(verify_local_token)])
 def clear_overrides():
     """Clear all dashboard overrides."""
     import sqlite3 as _sqlite3

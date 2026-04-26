@@ -18,7 +18,8 @@ The close endpoint handles both paper (instant close) and live (Alpaca broker
 exit order) trades. For live trades, it submits the exit order and either
 records the fill or marks the trade as exit_pending if not immediately filled.
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from src.api.local_auth import verify_local_token
 from src.config import load_config
 from src.services.shadow_service import get_shadow_status, get_shadow_history, get_shadow_account
 from src.shadow_trading.exit_reason import coerce_exit_reason
@@ -51,7 +52,7 @@ def metrics(days: int = 30):
     return result.get("metrics", {})
 
 
-@router.post("/shadow/close/{ticker}")
+@router.post("/shadow/close/{ticker}", dependencies=[Depends(verify_local_token)])
 def close_trade(ticker: str, reason: str = "manual"):
     from datetime import datetime
     from zoneinfo import ZoneInfo
