@@ -271,9 +271,14 @@ def test_kpis_value_validation_t_stat_and_ci(client):
     test catches "someone replaced the SE formula" but does NOT lock in
     a magic number that would silently rot if the canonical helper itself
     were updated.
+
+    Sprint-0 Wave 4b KPIS-SE-UNITS: SE is now annualization-corrected
+    (Lo 2002 change-of-variable). Expected SE form is now
+    sqrt((T + 0.5 * S^2) / N) where T = 252 — was sqrt((1 + 0.5 * S^2) / N)
+    pre-fix (units mismatch — pre-fix SE was understated by ~sqrt(252)).
     """
     import math
-    from src.api.cloud_routes.kpis import _lo_2002_autocorr_factor
+    from src.api.cloud_routes.kpis import _lo_2002_autocorr_factor, _N_PER_YEAR
 
     trades = _build_trades_for_kpis(_RETURNS_35_FOR_KPIS)
     with patch(
@@ -287,11 +292,13 @@ def test_kpis_value_validation_t_stat_and_ci(client):
     rf_kpi = resp.json()["rf_adjusted_excess_sharpe"]
     S = rf_kpi["value"]
     n = 35
-    # Jobson-Korkie IID SE * Lo (2002) autocorrelation factor (q=4) — matches
-    # kpis._sharpe_t_stat_and_ci with the rf-excess diff series.
+    # Lo (2002) annualization-corrected IID SE * autocorr factor (q=4) —
+    # matches kpis._sharpe_t_stat_and_ci with the rf-excess diff series.
     rf_per_trade = 0.0003  # _RF_PERIOD * 3 trading days
     diff_series = [r - rf_per_trade for r in _RETURNS_35_FOR_KPIS]
-    iid_se = math.sqrt((1.0 + 0.5 * S ** 2) / n)
+    # Wave-4b: annualization-corrected SE form (T + 0.5 S^2)/N rather than
+    # the un-annualized (1 + 0.5 S^2)/N — see KPIS-SE-UNITS task brief.
+    iid_se = math.sqrt((_N_PER_YEAR + 0.5 * S ** 2) / n)
     se = iid_se * _lo_2002_autocorr_factor(diff_series, q=4)
     expected_t = S / se
     expected_ci_lower = S - 1.96 * se

@@ -1,7 +1,7 @@
 """Per-window and regime-conditional metrics for walk-forward (R6).
 
 Called by: src.platform.rigor.walkforward_runner.
-Calls: numpy, src.diagnostics.bootstrap.bootstrap_ci.
+Calls: numpy, src.analytics.canonical_sharpe, src.diagnostics.bootstrap.bootstrap_ci.
 Owns tables: none.
 Config keys: none.
 Tests: tests/platform/rigor/test_walkforward_metrics.py.
@@ -17,6 +17,14 @@ Computes the raw values the runner needs to drive criterion 1–5 evaluation:
 We annualize with n=252 to match the existing project convention in
 src/api/cloud_routes/trades.py._sharpe_with_se (150 there is market-hours
 based for intraday; we use 252 for daily walk-forward trades).
+
+F-2 (Sprint 0/4b WALKFORWARD-CANONICAL): the per-window Sharpe + the
+inner-loop bootstrap Sharpe both used a parallel sqrt(252) implementation
+instead of routing through src.analytics.canonical_sharpe. The math was
+equivalent (same mean / stdev(ddof=1) * sqrt(252) shape) but the parallel
+formula is precisely what the F-2 audit closed: any future tweak to the
+canonical formula (e.g. ddof / annualization-factor change) would silently
+diverge here. Both call sites now delegate to canonical_sharpe.raw_sharpe.
 """
 
 from __future__ import annotations
@@ -27,9 +35,15 @@ from typing import Any, Iterable, Sequence
 
 import numpy as np
 
+from src.analytics.canonical_sharpe import (
+    PERIODS_PER_YEAR as CANONICAL_PERIODS_PER_YEAR,
+    raw_sharpe as _canonical_raw_sharpe,
+)
 from src.diagnostics.bootstrap import bootstrap_ci
 
-ANNUALIZATION_FACTOR = 252.0
+# Kept for backward-compat with tests / runner; the source of truth for
+# the value lives in src.analytics.canonical_sharpe.PERIODS_PER_YEAR.
+ANNUALIZATION_FACTOR = float(CANONICAL_PERIODS_PER_YEAR)
 
 # VIX bucket thresholds — match the dashboard/regime-diagnostic convention.
 VIX_LOW_MAX = 15.0
@@ -66,16 +80,22 @@ def _pnl_array(trades: Iterable[Any]) -> np.ndarray:
 
 
 def compute_sharpe(pnls: np.ndarray) -> float:
-    """Annualized per-trade Sharpe. Matches
-    src/api/cloud_routes/trades.py._sharpe_with_se structure but with
-    daily (252) annualization."""
+    """Annualized per-trade Sharpe (252-scaled).
+
+    F-2 (Sprint 0/4b WALKFORWARD-CANONICAL): delegates to
+    `src.analytics.canonical_sharpe.raw_sharpe` so all Sharpe computations
+    flow through a single source of truth. Mathematically identical to the
+    prior parallel implementation (`mean / std(ddof=1) * sqrt(252)`); the
+    routing closes the F-2 anti-pattern (any future change to the canonical
+    formula now propagates here automatically).
+
+    Walk-forward callers expect 0.0 (not None) when Sharpe is undefined —
+    we preserve that contract at the API surface.
+    """
     if pnls.size < 2:
         return 0.0
-    mean = float(np.mean(pnls))
-    std = float(np.std(pnls, ddof=1))
-    if std == 0.0:
-        return 0.0
-    return (mean / std) * math.sqrt(ANNUALIZATION_FACTOR)
+    s = _canonical_raw_sharpe([float(x) for x in pnls])
+    return 0.0 if s is None else s
 
 
 def compute_max_drawdown(pnls: np.ndarray) -> float:
@@ -126,6 +146,11 @@ def compute_bootstrap_se(
     under-estimates variability of Sharpe itself, particularly for
     heavy-tailed distributions where resamples perturb std sharply. The
     heavy-tail flag (R6) depends on catching exactly that perturbation.
+
+    F-2 (Sprint 0/4b WALKFORWARD-CANONICAL): each resample's Sharpe is now
+    computed via `compute_sharpe` (which routes through
+    `canonical_sharpe.raw_sharpe`) instead of the parallel inline
+    `mean / std * sqrt(252)` formula.
     """
     if pnls.size < 2:
         return float("inf")
@@ -134,13 +159,9 @@ def compute_bootstrap_se(
     boot_sharpes = np.empty(n_resamples)
     for i in range(n_resamples):
         sample = rng.choice(pnls, size=n, replace=True)
-        std = np.std(sample, ddof=1)
-        if std == 0.0:
-            boot_sharpes[i] = 0.0
-        else:
-            boot_sharpes[i] = (
-                np.mean(sample) / std * math.sqrt(ANNUALIZATION_FACTOR)
-            )
+        # Route through compute_sharpe → canonical_sharpe.raw_sharpe so any
+        # future formula tweak flows through one site only.
+        boot_sharpes[i] = compute_sharpe(sample)
     return float(np.std(boot_sharpes, ddof=1))
 
 
