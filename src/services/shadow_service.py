@@ -1,10 +1,10 @@
 """Shadow trading service.
 
-Called by: api.routes.shadow, cli.commands
+Called by: api.routes.shadow, api.cloud_routes.trades, cli.commands
 Calls: journal.store, shadow_trading.alpaca_adapter, shadow_trading.executor, shadow_trading.metrics
 Owns tables: none
 Config keys: shadow_trading
-Tests: tests/test_services.py
+Tests: tests/test_services.py, tests/api/test_trades_route_timeout.py
 """
 import logging
 from datetime import datetime
@@ -12,6 +12,30 @@ from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
+
+
+def compute_timeout_status(duration_days, timeout_days) -> dict:
+    """Return timeout progress_pct and status for a trade.
+
+    Args:
+        duration_days: Days the trade has been held (int or None).
+        timeout_days: Operative timeout threshold in days (int or None).
+
+    Returns:
+        Dict with keys timeout_progress_pct (float|None) and timeout_status (str).
+        Statuses: 'unknown' (any None), 'on_track' (<80%), 'approaching' (80–<100%),
+        'overdue' (>=100%). progress_pct is capped at 999.0.
+    """
+    if timeout_days is None or duration_days is None:
+        return {"timeout_progress_pct": None, "timeout_status": "unknown"}
+    pct = round(100.0 * duration_days / timeout_days, 1)
+    if pct >= 100.0:
+        status = "overdue"
+    elif pct >= 80.0:
+        status = "approaching"
+    else:
+        status = "on_track"
+    return {"timeout_progress_pct": min(pct, 999.0), "timeout_status": status}
 
 
 def get_shadow_status(config: dict) -> dict:
@@ -35,6 +59,8 @@ def get_shadow_status(config: dict) -> dict:
             pnl_pct = pnl / entry * 100
             total_unrealized += pnl * float(t.get("planned_shares") or 1)
 
+        op_timeout = t.get("timeout_days") or timeout
+        timeout_info = compute_timeout_status(t.get("duration_days"), op_timeout)
         trades.append({
             "trade_id": t["trade_id"],
             "recommendation_id": t.get("recommendation_id"),
@@ -52,7 +78,10 @@ def get_shadow_status(config: dict) -> dict:
             "max_favorable_excursion": t.get("max_favorable_excursion"),
             "max_adverse_excursion": t.get("max_adverse_excursion"),
             "duration_days": t.get("duration_days"),
-            "timeout_days": timeout,
+            "timeout_days": op_timeout,
+            "llm_timeout_days": t.get("llm_timeout_days"),
+            "timeout_progress_pct": timeout_info["timeout_progress_pct"],
+            "timeout_status": timeout_info["timeout_status"],
             "exit_reason": t.get("exit_reason"),
             "earnings_adjacent": bool(t.get("earnings_adjacent", 0)),
             "strategy_type": t.get("strategy_type", "pullback"),
@@ -66,8 +95,18 @@ def get_shadow_status(config: dict) -> dict:
         acct = get_account_info()
         account_equity = acct.get("equity")
         account_buying_power = acct.get("buying_power")
-    except Exception:
-        pass
+    except Exception as _acct_err:
+        # Route through log_and_persist so the failure appears in
+        # BrokerExceptionsPanel (PR #690 O1). Account-info probe failure is
+        # non-fatal — equity/buying_power surface as None.
+        from src.shadow_trading.broker_exception_logger import log_and_persist
+        log_and_persist(
+            ticker="(all)",
+            operation="fetch_account",
+            broker="alpaca_paper",
+            exc=_acct_err,
+            recoverable=True,
+        )
 
     return {
         "open_trades": trades,
@@ -91,6 +130,8 @@ def get_shadow_history(days: int = 30) -> dict:
 
     trades = []
     for t in closed:
+        op_timeout = t.get("timeout_days") or 15
+        timeout_info = compute_timeout_status(t.get("duration_days"), op_timeout)
         trades.append({
             "trade_id": t["trade_id"],
             "recommendation_id": t.get("recommendation_id"),
@@ -107,7 +148,10 @@ def get_shadow_history(days: int = 30) -> dict:
             "max_favorable_excursion": t.get("max_favorable_excursion"),
             "max_adverse_excursion": t.get("max_adverse_excursion"),
             "duration_days": t.get("duration_days"),
-            "timeout_days": 15,
+            "timeout_days": op_timeout,
+            "llm_timeout_days": t.get("llm_timeout_days"),
+            "timeout_progress_pct": timeout_info["timeout_progress_pct"],
+            "timeout_status": timeout_info["timeout_status"],
             "exit_reason": t.get("exit_reason"),
             "earnings_adjacent": bool(t.get("earnings_adjacent", 0)),
             "strategy_type": t.get("strategy_type", "pullback"),

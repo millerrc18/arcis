@@ -59,7 +59,7 @@ export default function Packets() {
         </div>
       </div>
 
-      {(!packets || packets.length === 0) ? (
+      {(!Array.isArray(packets) || packets.length === 0) ? (
         <EmptyState message="No packets in this period" />
       ) : (
         <div className="space-y-3">

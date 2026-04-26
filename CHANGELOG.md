@@ -4,6 +4,66 @@
 
 - Added `scripts/archive_bootcamp_2026_04_24.py` — SD#42 Friday bootcamp cutover tooling. Preflight-gated VACUUM INTO archive + schema-only fresh-DB anchor + manifest enumerating 17 prod-only columns preserved. See `docs/archive/README.md` for operator choreography. Dry-run default; `--apply` required for live operation.
 
+## [v0.27.0] - 2026-04-25 — Track 1.5 instrumentation gap closure (post-audit, PM-autonomous dispatch)
+
+### Release summary
+
+Post-audit instrumentation-gap-closure track dispatched autonomously by the PM after the 2026-04-27 Trading-Readiness Audit (v0.26.0 / v0.27.0) completed. 14 rounds + 4 plugin/infra fixes across ~16 commits. All Critical + Important findings from both audit passes cleared. ~250 new tests added.
+
+Full design decisions, hard truths, and deferred items: [`docs/audits/2026-04-27-trading-readiness/track-1.5-DECISIONS.md`](docs/audits/2026-04-27-trading-readiness/track-1.5-DECISIONS.md)
+
+### Added
+
+- **Track 1.5 instrumentation deliverables (B1–B9):**
+  - B1: `signal_exit_price` + `exit_slippage_bps` persisted at close (`executor.py` update path)
+  - B2.A: `broker_exceptions` schema table + 4 silent-swallow upgraded to writes
+  - B2.B: Structured logging for 15 broker partial-swallow sites in `executor.py`
+  - B2.C: Bounded retry + qty-mismatch detection (CVS regression closure)
+  - B3: `exit_reason` canonical taxonomy + nightly reconciliation script
+  - B4 + B8: `key_risk_assessment` + LLM-set `expected_holding_period_days` persisted at open
+  - B5 + B8: Schema + executor open-path stamping for `instrumentation_version` INTEGER sentinel + `timeout_days`; `INSTRUMENTATION_VERSION_CURRENT = 3` constant; `filter_to_version` helper (`src/analytics/instrumentation.py`)
+  - B6: End-to-end integration test for full instrumentation pipeline
+  - B9: `llm_timeout_days` surfaced in dashboard trade ledgers
+
+- **5-KPI hero strip** (`frontend/src/components/dashboard/KPIStrip.jsx` + `src/api/cloud_routes/kpis.py`): rf-adjusted excess Sharpe, SPY-relative Sharpe + p-value + CI, win rate, Stage-1/2 traffic light, promotion-gate vote count. Replaces Dashboard hero MetricCards.
+
+- **`broker_exceptions` panel** (`frontend/src/components/dashboard/BrokerExceptionsPanel.jsx` + `/api/broker-exceptions` endpoint): live-trade observability for all broker partial-swallows and exception writes. Critical gap from Round 7b G1 finding.
+
+- **Preflight gate UI echo** (Round 8 / S4): `scripts/preflight_monday.py` output now written back to Dashboard via a preflight result card. Prior state: output written to disk only, never read back.
+
+- **Vitest infra** (`frontend/src/` test harness) + `arcis-pulse` keyframe animation (B9 cleanup).
+
+- **`docs/instrumentation_versions.md`** (NEW): v0/v1/v2/v3 version-to-feature matrix per B5 design. Rationale for the INTEGER sentinel, analytics filter rules, cross-references to B5 design doc + executor stamping point + `filter_to_version` helper.
+
+- **3 new sprints queued** (post-Track-1.5): (1) v0.26.3 `sections_json` widening, (2) System Index visibility audit, (3) Council impact analysis. Cohort 3 strategy redesign (T2.14b/T2.14c/T2.16b) also queued as Sprint 4.
+
+### Changed
+
+- **Dashboard hero replaced with canonical KPIStrip** (R1 resolved): three incompatible Sharpe formulas across four surfaces collapsed to a single canonical strip. Dashboard hero and CTOReport previously used uncanonical `mean/stdev`; only TradeHistory attribution panel used T1.03. Now the strip is the single source of truth.
+
+- **Win-rate silent fallback removed** (R2 fixed): `Dashboard.jsx:469` previously fell back to Alpaca account API value when `shadow_service` returned null — different denominator, no quarantine filter, misleading number. Fallback removed; null → `"—"` displayed.
+
+- **P&L source labels added** (R3 fixed): Shadow Equity and cumulative P&L chart now carry explicit source annotations so operator can see when values come from different count bases.
+
+### Fixed
+
+- **5 Critical findings from Round 7 technical audit** (Round 8.A):
+  - C1 Monitoring history shape mismatch — backend `{snapshots: [...]}` vs frontend array expectation
+  - C2/C3/C4 Local-route parity — `/ib-shadow/*`, `/strategy-detail/{type}`, `/system/index` mirrored to local FastAPI
+  - C5 `RevenueProjection` live route added
+
+- **3 deferred audit items closed in Round 8.F** (cosmetic + Important-tier findings): SPY data source label, double-prefix bug, and remaining Important catch-all items from Round 7 + 7b.
+
+### Decisions
+
+- **Fix-everything-technically-before-trading principle** adopted as SD#46 (2026-04-25). Supersedes Mon $100 deploy from SD#41 REVISED until Cohort 3 redesign produces a strategy with positive expected alpha. Full reasoning in `track-1.5-DECISIONS.md` Decision 1. Memory artifact: `feedback_fix_before_trade.md`.
+
+- **5-KPI strip layout approved** with documented color rules per §3.1 Decision Matrix thresholds.
+
+- **Mon $100 live deploy DEFERRED** until post-Cohort-3 strategy redesign. Mon AM preflight still runs as system-health check, not deploy gate. Next deploy decision happens after Cohort 3 redesign (T2.14b/T2.14c/T2.16b) produces a strategy with reason to believe in its alpha signal.
+
+Full reasoning for all decisions: [`docs/audits/2026-04-27-trading-readiness/track-1.5-DECISIONS.md`](docs/audits/2026-04-27-trading-readiness/track-1.5-DECISIONS.md)
+
 ## [v0.26.0] - 2026-04-23 — v0.26.0 chain complete + triage bundle + overshoot root cause
 
 ### Release summary

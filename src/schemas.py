@@ -38,6 +38,7 @@ class TradePacket(BaseModel):
     rendered_text: Optional[str] = None
     llm_conviction: Optional[int] = None
     llm_conviction_reason: Optional[str] = None
+    llm_timeout_days: Optional[int] = None
 
 
 class RankedCandidate(BaseModel):

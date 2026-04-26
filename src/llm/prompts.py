@@ -53,6 +53,7 @@ Conviction: [1-10]
 Direction: LONG
 Time Horizon: [e.g., "5-10 trading days"]
 Key Risk: [one sentence naming the specific thesis-killer]
+Expected Holding Period: [integer 1-60; your honest estimate of how long the thesis takes to play out before timeout]
 </metadata>
 
 REMINDER: Your response must contain EXACTLY three XML tags: <why_now>, <analysis>, and <metadata>. Do NOT wrap them in markdown code fences. Do NOT add any text outside these tags.

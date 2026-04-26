@@ -183,7 +183,7 @@ class TestConvictionNoneDefault:
             "<analysis>Detailed analysis here</analysis>"
             "<metadata>Direction: Long\nTime Horizon: 2 weeks</metadata>"
         )
-        conviction, why_now, analysis = _parse_llm_response(response)
+        conviction, why_now, analysis, *_ = _parse_llm_response(response)
         assert conviction is None  # Parser returns None
 
         # Now test that enhance_packet_with_llm defaults it
@@ -208,7 +208,7 @@ class TestConvictionClampFlagging:
             "<metadata>Conviction: 15</metadata>"
         )
         with caplog.at_level(logging.WARNING):
-            conviction, _, _ = _parse_llm_response(response)
+            conviction, *_ = _parse_llm_response(response)
         assert conviction == 10
         assert any("15" in r.message and "outside" in r.message for r in caplog.records)
 
@@ -219,7 +219,7 @@ class TestConvictionClampFlagging:
             "<metadata>Conviction: 0</metadata>"
         )
         with caplog.at_level(logging.WARNING):
-            conviction, _, _ = _parse_llm_response(response)
+            conviction, *_ = _parse_llm_response(response)
         assert conviction == 1
         assert any("0" in r.message and "outside" in r.message for r in caplog.records)
 
@@ -230,7 +230,7 @@ class TestConvictionClampFlagging:
             "<metadata>Conviction: 7</metadata>"
         )
         with caplog.at_level(logging.WARNING):
-            conviction, _, _ = _parse_llm_response(response)
+            conviction, *_ = _parse_llm_response(response)
         assert conviction == 7
         assert not any("outside" in r.message for r in caplog.records)
 

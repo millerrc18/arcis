@@ -47,6 +47,7 @@ from src.shadow_trading.alpaca_adapter import (
     get_all_positions,
     get_live_positions,
 )
+from src.shadow_trading.exit_reason import coerce_exit_reason
 from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
@@ -326,7 +327,7 @@ def reconcile_live_trades(
                 trade_id=trade_id,
                 exit_price=exit_price,
                 exit_time=now.isoformat(),
-                exit_reason="reconciled_stale",
+                exit_reason=coerce_exit_reason("reconciled_stale", ticker=ticker),
                 pnl_dollars=pnl_dollars,
                 pnl_pct=pnl_pct,
                 db_path=db_path,
@@ -660,7 +661,7 @@ def reconcile_paper_trades(
                 trade_id=trade_id,
                 exit_price=exit_price,
                 exit_time=now.isoformat(),
-                exit_reason="reconciled_stale",
+                exit_reason=coerce_exit_reason("reconciled_stale", ticker=ticker),
                 pnl_dollars=pnl_dollars,
                 pnl_pct=pnl_pct,
                 db_path=db_path,
@@ -740,8 +741,10 @@ def reconcile_paper_trades(
                     with connect_db(db_path) as conn:
                         conn.execute(
                             "UPDATE shadow_trades SET status = 'needs_manual_review', "
-                            "exit_reason = 'exit_overshoot_detected', updated_at = ? "
-                            "WHERE trade_id = ?", (now.isoformat(), trade_id),
+                            "exit_reason = ?, updated_at = ? "
+                            "WHERE trade_id = ?",
+                            (coerce_exit_reason("exit_overshoot_detected", ticker=ticker),
+                             now.isoformat(), trade_id),
                         )
                     logger.error(
                         "[RECONCILE-PAPER] Exit overshoot on %s (alpaca_qty=%.0f) — "
@@ -761,8 +764,10 @@ def reconcile_paper_trades(
                     with connect_db(db_path) as conn:
                         conn.execute(
                             "UPDATE shadow_trades SET status = 'needs_manual_review', "
-                            "exit_reason = 'qty_mismatch_partial_fill', updated_at = ? "
-                            "WHERE trade_id = ?", (now.isoformat(), trade_id),
+                            "exit_reason = ?, updated_at = ? "
+                            "WHERE trade_id = ?",
+                            (coerce_exit_reason("qty_mismatch_partial_fill", ticker=ticker),
+                             now.isoformat(), trade_id),
                         )
                     logger.warning(
                         "[RECONCILE-PAPER] Qty mismatch on %s (alpaca_qty=%.0f, "
@@ -812,7 +817,8 @@ def reconcile_paper_trades(
 
                 close_shadow_trade(
                     trade_id=trade_id, exit_price=exit_px,
-                    exit_time=now.isoformat(), exit_reason=reason,
+                    exit_time=now.isoformat(),
+                    exit_reason=coerce_exit_reason(reason, ticker=ticker),
                     pnl_dollars=pnl_dollars or 0.0, pnl_pct=pnl_pct or 0.0, db_path=db_path,
                 )
                 resolved_closed.append(ticker)

@@ -1,0 +1,162 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`TimeoutCell > renders approaching status with amber color 1`] = `
+<div>
+  <div
+    style="min-width: 90px;"
+  >
+    <div
+      class="financial-data"
+      style="color: var(--arcis-warning); font-size: 0.8rem; line-height: 1.2;"
+    >
+      14
+       / 
+      15
+      d
+    </div>
+    <div
+      style="margin-top: 3px; height: 3px; border-radius: 1px; background: var(--arcis-bg-elevated); overflow: hidden;"
+    >
+      <div
+        style="width: 93.3%; height: 100%; background: var(--arcis-warning);"
+      />
+    </div>
+    <div
+      style="margin-top: 2px; font-size: 0.65rem; color: var(--arcis-text-muted);"
+    >
+      LLM: 
+      default
+    </div>
+  </div>
+</div>
+`;
+
+exports[`TimeoutCell > renders on_track status with green color 1`] = `
+<div>
+  <div
+    style="min-width: 90px;"
+  >
+    <div
+      class="financial-data"
+      style="color: var(--arcis-success); font-size: 0.8rem; line-height: 1.2;"
+    >
+      5
+       / 
+      15
+      d
+    </div>
+    <div
+      style="margin-top: 3px; height: 3px; border-radius: 1px; background: var(--arcis-bg-elevated); overflow: hidden;"
+    >
+      <div
+        style="width: 33.3%; height: 100%; background: var(--arcis-success);"
+      />
+    </div>
+    <div
+      style="margin-top: 2px; font-size: 0.65rem; color: var(--arcis-text-muted);"
+    >
+      LLM: 
+      default
+    </div>
+  </div>
+</div>
+`;
+
+exports[`TimeoutCell > renders overdue status with red color 1`] = `
+<div>
+  <div
+    style="min-width: 90px;"
+  >
+    <div
+      class="financial-data"
+      style="color: var(--arcis-danger); font-size: 0.8rem; line-height: 1.2;"
+    >
+      20
+       / 
+      15
+      d
+    </div>
+    <div
+      style="margin-top: 3px; height: 3px; border-radius: 1px; background: var(--arcis-bg-elevated); overflow: hidden;"
+    >
+      <div
+        style="width: 100%; height: 100%; background: var(--arcis-danger); animation: arcis-pulse 1.5s ease-in-out infinite;"
+      />
+    </div>
+    <div
+      style="margin-top: 2px; font-size: 0.65rem; color: var(--arcis-text-muted);"
+    >
+      LLM: 
+      default
+    </div>
+  </div>
+</div>
+`;
+
+exports[`TimeoutCell > renders unknown status with gray color when data is null 1`] = `
+<div>
+  <div
+    style="min-width: 90px;"
+  >
+    <div
+      class="financial-data"
+      style="color: var(--arcis-text-muted); font-size: 0.8rem; line-height: 1.2;"
+    >
+      --
+       / 
+      --
+      d
+    </div>
+    <div
+      style="margin-top: 3px; height: 3px; border-radius: 1px; background: var(--arcis-bg-elevated); overflow: hidden;"
+    >
+      <div
+        style="width: 0%; height: 100%; background: var(--arcis-text-muted);"
+      />
+    </div>
+    <div
+      style="margin-top: 2px; font-size: 0.65rem; color: var(--arcis-text-muted);"
+    >
+      LLM: 
+      default
+    </div>
+  </div>
+</div>
+`;
+
+exports[`TimeoutCell > shows warning icon when llmTimeoutDays differs from timeoutDays 1`] = `
+<div>
+  <div
+    style="min-width: 90px;"
+  >
+    <div
+      class="financial-data"
+      style="color: var(--arcis-success); font-size: 0.8rem; line-height: 1.2;"
+    >
+      8
+       / 
+      15
+      d
+      <span
+        style="margin-left: 4px; cursor: help;"
+        title="LLM proposed 25 days; out of bounds; using default 15."
+      >
+        ⚠
+      </span>
+    </div>
+    <div
+      style="margin-top: 3px; height: 3px; border-radius: 1px; background: var(--arcis-bg-elevated); overflow: hidden;"
+    >
+      <div
+        style="width: 53.3%; height: 100%; background: var(--arcis-success);"
+      />
+    </div>
+    <div
+      style="margin-top: 2px; font-size: 0.65rem; color: var(--arcis-text-muted);"
+    >
+      LLM: 
+      25
+    </div>
+  </div>
+</div>
+`;

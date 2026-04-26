@@ -179,10 +179,27 @@
       </div>`;
     }
 
+    function renderOperatorQuestions(questions) {
+      if (!questions || questions.length === 0) return '<div style="color:#484f58;font-size:12px;">No pending questions</div>';
+      return questions.map(q => {
+        const urgencyColor = q.urgency === 'high' ? '#f85149' : (q.urgency === 'medium' ? '#d29922' : '#58a6ff');
+        const urgencyLabel = (q.urgency || 'medium').toUpperCase();
+        return `<div class="issue-item" style="flex-direction:column;align-items:flex-start;padding:8px 0;border-bottom:1px solid #21262d;">
+          <div style="display:flex;align-items:center;gap:8px;width:100%;">
+            <span style="background:${urgencyColor};color:#0d1117;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:600;">${urgencyLabel}</span>
+            <span style="color:#c9d1d9;font-weight:600;">${q.question}</span>
+          </div>
+          ${q.context ? `<div style="color:#8b949e;font-size:11px;margin-top:4px;padding-left:0;">${q.context}</div>` : ''}
+          ${q.asked_at ? `<div style="color:#484f58;font-size:10px;margin-top:2px;">asked ${q.asked_at}</div>` : ''}
+        </div>`;
+      }).join('');
+    }
+
     function render(data) {
       const issueCount = (data.issues || []).reduce((acc, i) => {
         acc[i.severity] = (acc[i.severity] || 0) + 1; return acc;
       }, {});
+      const questionCount = (data.operator_questions || []).length;
 
       document.getElementById('app').innerHTML = `
         <div class="header">
@@ -190,6 +207,11 @@
           <div class="meta">Phase: ${data.phase || 'INTAKE'} &nbsp;|&nbsp; Elapsed: ${formatElapsed(data.elapsed_seconds || 0)}</div>
         </div>
         <div class="phase-flow">${renderPhaseFlow(data.phase || 'INTAKE')}</div>
+        ${questionCount > 0 ? `
+          <div class="panel" style="margin-bottom:16px;border-color:#1f6feb;">
+            <h2 style="color:#58a6ff;">⏳ Operator Questions Pending &nbsp; (${questionCount})</h2>
+            ${renderOperatorQuestions(data.operator_questions)}
+          </div>` : ''}
         <div class="grid">
           <div class="panel">
             <h2>Task Graph</h2>

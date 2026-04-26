@@ -1,7 +1,8 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api'
 import LoadingSpinner from '../components/LoadingSpinner'
+import TimeoutCell from '../components/TimeoutCell'
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip as RTooltip, ResponsiveContainer, Cell, ReferenceLine, ComposedChart,
@@ -102,7 +103,13 @@ function rollingSharpe(trades, window = 20) {
     const mean = returns.reduce((s, r) => s + r, 0) / returns.length
     const variance = returns.reduce((s, r) => s + (r - mean) ** 2, 0) / (returns.length - 1)
     const std = Math.sqrt(variance)
-    // Annualize assuming ~150 trades/year
+    // Diagnostic-only annualization: √150 trade-count basis (NOT canonical).
+    // The canonical Sharpe (√252, rf-adjusted) lives on the Dashboard hero KPI
+    // strip (`/api/kpis` -> rf_adjusted_excess_sharpe in KPIStrip.jsx). This
+    // rolling-window chart deliberately uses √150 for shorter-window
+    // readability — the two numbers will differ by design. Per Decision 4
+    // (track-1.5-DECISIONS.md, PR #690 review item O11), this surface is
+    // labeled "Diagnostic — see hero KPI strip for canonical Sharpe."
     const sharpe = std > 0 ? (mean / std) * Math.sqrt(150) : 0
     result.push({
       idx: i + 1,
@@ -130,6 +137,41 @@ function StatCard({ label, value, subtitle, color, icon: Icon }) {
   )
 }
 
+function TradeHistoryExpandableRow({ trade: t, pnl, pnlPct, duration, reason }) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <>
+      <tr
+        className="cursor-pointer"
+        style={{ borderBottom: '1px solid var(--arcis-border)' }}
+        onClick={() => setExpanded(!expanded)}
+      >
+        <td className="py-2 px-2" style={MONO}>{t.ticker}</td>
+        <td className="py-2 px-2 text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>
+          {t.actual_exit_time ? new Date(t.actual_exit_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--'}
+        </td>
+        <td className="py-2 px-2 text-right" style={{ ...MONO, color: pnlColor(pnl) }}>{formatDollars(pnl)}</td>
+        <td className="py-2 px-2 text-right" style={{ ...MONO, color: pnlColor(pnl) }}>{formatPct(pnlPct)}</td>
+        <td className="py-2 px-2 text-right" style={MONO}>{duration}d</td>
+        <td className="py-2 px-2 hidden md:table-cell">
+          <TimeoutCell durationDays={t.duration_days} timeoutDays={t.timeout_days}
+            llmTimeoutDays={t.llm_timeout_days} status={t.timeout_status} progressPct={t.timeout_progress_pct} />
+        </td>
+        <td className="py-2 px-2 text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>{reason}</td>
+      </tr>
+      {expanded && t.llm_conviction_reason && (
+        <tr style={{ background: 'var(--arcis-bg-elevated)' }}>
+          <td colSpan={7} className="px-3 pb-3 pt-1 text-xs" style={{ borderBottom: '1px solid var(--arcis-border)' }}>
+            <div className="mb-1" style={{ color: 'var(--arcis-text-muted)' }}>LLM Reasoning:</div>
+            <div className="whitespace-pre-wrap" style={{ color: 'var(--arcis-text-secondary)', fontStyle: 'italic' }}>
+              "{t.llm_conviction_reason}"
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  )
+}
 function RecentTradesTable({ trades, title, emptyMessage }) {
   if (!trades || trades.length === 0) {
     return (
@@ -153,6 +195,7 @@ function RecentTradesTable({ trades, title, emptyMessage }) {
               <th className="py-2 px-2 text-right text-xs uppercase" style={{ color: 'var(--arcis-text-secondary)' }}>P&L $</th>
               <th className="py-2 px-2 text-right text-xs uppercase" style={{ color: 'var(--arcis-text-secondary)' }}>P&L %</th>
               <th className="py-2 px-2 text-right text-xs uppercase" style={{ color: 'var(--arcis-text-secondary)' }}>Hold</th>
+              <th className="py-2 px-2 text-left text-xs uppercase hidden md:table-cell" style={{ color: 'var(--arcis-text-secondary)' }}>Timeout</th>
               <th className="py-2 px-2 text-left text-xs uppercase" style={{ color: 'var(--arcis-text-secondary)' }}>Reason</th>
             </tr>
           </thead>
@@ -163,16 +206,8 @@ function RecentTradesTable({ trades, title, emptyMessage }) {
               const duration = t.duration_days || '--'
               const reason = (t.exit_reason || '--').replace(/_/g, ' ')
               return (
-                <tr key={t.trade_id || i} style={{ borderBottom: '1px solid var(--arcis-border)' }}>
-                  <td className="py-2 px-2" style={MONO}>{t.ticker}</td>
-                  <td className="py-2 px-2 text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>
-                    {t.actual_exit_time ? new Date(t.actual_exit_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--'}
-                  </td>
-                  <td className="py-2 px-2 text-right" style={{ ...MONO, color: pnlColor(pnl) }}>{formatDollars(pnl)}</td>
-                  <td className="py-2 px-2 text-right" style={{ ...MONO, color: pnlColor(pnl) }}>{formatPct(pnlPct)}</td>
-                  <td className="py-2 px-2 text-right" style={MONO}>{duration}d</td>
-                  <td className="py-2 px-2 text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>{reason}</td>
-                </tr>
+                <TradeHistoryExpandableRow key={t.trade_id || i}
+                  trade={t} pnl={pnl} pnlPct={pnlPct} duration={duration} reason={reason} />
               )
             })}
           </tbody>
@@ -352,6 +387,9 @@ export default function TradeHistory() {
                   ? `CI [${attribution.excess_sharpe_ci_low.toFixed(2)}, ${attribution.excess_sharpe_ci_high.toFixed(2)}]`
                   : 'insufficient data'}
               </div>
+              <div className="text-xs mt-0.5" style={{ color: 'var(--arcis-text-muted)', fontStyle: 'italic' }}>
+                CI: normal approx (IID assumption — optimistic). Block-bootstrap rerun pending.
+              </div>
             </div>
             <div>
               <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>t-statistic</div>
@@ -487,9 +525,22 @@ export default function TradeHistory() {
         </div>
 
         <div className="arcis-card">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-1 gap-2">
             <h3 className="text-sm uppercase tracking-wide" style={{ color: 'var(--arcis-text-secondary)' }}>Rolling 20-Trade Sharpe</h3>
-            <span className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>Annualized (√150 trades/yr)</span>
+            <span
+              className="text-xs"
+              style={{ color: 'var(--arcis-warning)', fontStyle: 'italic', textAlign: 'right' }}
+              title={'The hero KPI strip on the dashboard uses canonical Sharpe (√252, rf-adjusted). This rolling chart uses √150 trade-count annualization for shorter-window readability. Both numbers will differ by design.'}
+            >
+              Diagnostic — annualized √150; see hero KPI strip for canonical Sharpe
+            </span>
+          </div>
+          <div
+            className="text-[10px] mb-2"
+            style={{ color: 'var(--arcis-text-muted)' }}
+            title={'The hero KPI strip on the dashboard uses canonical Sharpe (√252, rf-adjusted). This rolling chart uses √150 trade-count annualization for shorter-window readability. Both numbers will differ by design.'}
+          >
+            Hover the label for formula details. Hero KPI strip (Dashboard) is canonical (√252 + rf-adjusted) and is the number used for go/no-go decisions.
           </div>
           <ResponsiveContainer width="100%" height={200}>
             <LineChart data={rolling20Sharpe}>
@@ -498,8 +549,8 @@ export default function TradeHistory() {
               <YAxis tick={{ fontSize: 10, fill: 'var(--arcis-text-muted)' }} />
               <RTooltip
                 contentStyle={{ background: 'var(--arcis-bg-elevated)', border: '1px solid var(--arcis-border)', borderRadius: 4, fontSize: 12 }}
-                formatter={(val) => [val?.toFixed(2) || '--', 'Sharpe']}
-                labelFormatter={(idx) => `Trade #${idx}`}
+                formatter={(val) => [val?.toFixed(2) || '--', 'Sharpe (diagnostic, √150)']}
+                labelFormatter={(idx) => `Trade #${idx} — see hero KPI strip for canonical`}
               />
               <ReferenceLine y={1.0} stroke="var(--arcis-success)" strokeDasharray="3 3" label={{ value: 'IB gate', fontSize: 10, fill: 'var(--arcis-success)' }} />
               <ReferenceLine y={0.15} stroke="var(--arcis-warning)" strokeDasharray="3 3" label={{ value: 'Phase 1', fontSize: 10, fill: 'var(--arcis-warning)' }} />

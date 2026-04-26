@@ -26,18 +26,19 @@ export default function Diagnostics() {
   return (
     <div className="p-6">
       <h1 className="text-2xl font-semibold mb-1">Diagnostics</h1>
-      <p className="text-sm text-gray-500 mb-6">
+      <p className="text-sm mb-6" style={{ color: 'var(--arcis-text-muted)' }}>
         Kick off regime and forensic runs against the current closed-trade
         cohort. Runs persist in <code>diagnostic_runs</code>; reports and
         plots render inline below.
       </p>
 
       {errorMsg && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700 flex justify-between">
+        <div className="mb-4 p-3 rounded text-sm flex justify-between"
+          style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: 'var(--arcis-danger)' }}>
           <span>{errorMsg}</span>
           <button
             onClick={() => setErrorMsg(null)}
-            className="text-red-500 hover:text-red-700"
+            style={{ color: 'var(--arcis-danger)' }}
           >
             ×
           </button>
@@ -52,7 +53,7 @@ export default function Diagnostics() {
       <section className="mb-8">
         <h2 className="text-lg font-medium mb-2">Recent runs</h2>
         {isLoading ? (
-          <p className="text-sm text-gray-500">Loading…</p>
+          <p className="text-sm" style={{ color: 'var(--arcis-text-muted)' }}>Loading…</p>
         ) : (
           <DiagnosticRunTable
             runs={runs}
@@ -68,7 +69,8 @@ export default function Diagnostics() {
             <h2 className="text-lg font-medium">Run detail</h2>
             <button
               onClick={() => setSelectedId(null)}
-              className="text-xs text-gray-600 hover:text-gray-900"
+              className="text-xs"
+            style={{ color: 'var(--arcis-text-secondary)' }}
             >
               Close
             </button>

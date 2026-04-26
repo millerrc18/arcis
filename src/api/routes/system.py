@@ -36,6 +36,7 @@ Endpoints:
     GET  /simulation/results        - Simulation engine results (heatmap data)
 """
 import logging
+from contextlib import closing
 
 from fastapi import APIRouter, Query
 from src.config import DB_PATH, load_config
@@ -190,7 +191,10 @@ def latest_audit():
     from src.training.versioning import init_training_tables
     import sqlite3
     init_training_tables()
-    with connect_db(DB_PATH) as conn:  # #258: connect_db applies 30s busy_timeout
+    # PR #690 B4: `with connect_db(...) as conn:` triggers sqlite3.Connection
+    # __exit__ which commits/rollbacks the transaction but does NOT close
+    # the connection. Wrap in closing() so the file handle is released.
+    with closing(connect_db(DB_PATH)) as conn:  # #258: 30s busy_timeout
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             "SELECT * FROM audit_reports ORDER BY created_at DESC LIMIT 1"
@@ -218,7 +222,9 @@ def audit_history(days: int = 7):
     init_training_tables()
     et = ZoneInfo("America/New_York")
     cutoff = (datetime.now(et) - timedelta(days=days)).isoformat()
-    with connect_db(DB_PATH) as conn:  # #258: connect_db applies 30s busy_timeout
+    # PR #690 B4: closing() guarantees conn.close() — sqlite3 __exit__ only
+    # commits/rolls back, it does not release the file handle.
+    with closing(connect_db(DB_PATH)) as conn:  # #258: 30s busy_timeout
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT * FROM audit_reports WHERE created_at >= ? ORDER BY created_at DESC",
@@ -305,7 +311,9 @@ def data_collection_stats():
     db_path = DB_PATH
     stats = {}
 
-    with connect_db(db_path) as conn:  # #258: connect_db applies 30s busy_timeout
+    # PR #690 B4: closing() guarantees conn.close() — sqlite3 __exit__ only
+    # commits/rolls back, it does not release the file handle.
+    with closing(connect_db(db_path)) as conn:  # #258: 30s busy_timeout
         for table_name, sql in _DATA_COLLECTION_QUERIES.items():
             try:
                 row = conn.execute(sql).fetchone()
@@ -435,16 +443,19 @@ _TABLE_WHITELIST = [
 @router.get("/system/table-counts")
 def table_counts():
     """Return row counts for whitelisted tables (for DB Schema page)."""
-    import sqlite3
-    conn = connect_db(DB_PATH)  # #258: connect_db applies 30s busy_timeout
+    # PR #690 B4: bare conn.close() at end leaks the connection if any
+    # exception escapes the for-loop. The per-table try/except already
+    # swallows OperationalError, but a pathological case (e.g. database
+    # locked beyond the 30s busy_timeout) would surface here. Wrap in
+    # closing() so the connection is always released.
     counts = {}
-    for table in _TABLE_WHITELIST:
-        try:
-            row = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
-            counts[table] = row[0] if row else 0
-        except Exception:
-            counts[table] = -1
-    conn.close()
+    with closing(connect_db(DB_PATH)) as conn:  # #258: 30s busy_timeout
+        for table in _TABLE_WHITELIST:
+            try:
+                row = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
+                counts[table] = row[0] if row else 0
+            except Exception:
+                counts[table] = -1
     return counts
 
 
@@ -456,7 +467,9 @@ def activity_feed(
     """Activity feed matching cloud /api/activity/feed response shape."""
     import sqlite3 as _sqlite3
     try:
-        with connect_db(DB_PATH) as conn:
+        # PR #690 B4: closing() guarantees conn.close() — sqlite3 __exit__ only
+        # commits/rolls back, it does not release the file handle.
+        with closing(connect_db(DB_PATH)) as conn:
             conn.row_factory = _sqlite3.Row
             if event_type:
                 rows = conn.execute(
@@ -482,7 +495,9 @@ def get_settings():
     config = load_config()
     overrides = {}
     try:
-        with connect_db(DB_PATH) as conn:
+        # PR #690 B4: closing() guarantees conn.close() — sqlite3 __exit__ only
+        # commits/rolls back, it does not release the file handle.
+        with closing(connect_db(DB_PATH)) as conn:
             conn.row_factory = _sqlite3.Row
             rows = conn.execute(
                 "SELECT setting_key, setting_value, updated_at FROM config_overrides"
@@ -533,12 +548,15 @@ def update_settings(body: dict):
 
     now = datetime.now(ZoneInfo("America/New_York")).isoformat()
     try:
-        with connect_db(DB_PATH) as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO config_overrides "
-                "(setting_key, setting_value, updated_at) VALUES (?, ?, ?)",
-                (key, _json.dumps(value), now),
-            )
+        # PR #690 B4: closing() guarantees conn.close() — sqlite3 __exit__ only
+        # commits/rolls back, it does not release the file handle.
+        with closing(connect_db(DB_PATH)) as conn:
+            with conn:  # transaction commit on context exit
+                conn.execute(
+                    "INSERT OR REPLACE INTO config_overrides "
+                    "(setting_key, setting_value, updated_at) VALUES (?, ?, ?)",
+                    (key, _json.dumps(value), now),
+                )
         return {"status": "saved", "key": key}
     except Exception as exc:
         logger.error("[API] settings update failed: %s", exc)
@@ -550,8 +568,11 @@ def clear_overrides():
     """Clear all dashboard overrides."""
     import sqlite3 as _sqlite3
     try:
-        with connect_db(DB_PATH) as conn:
-            conn.execute("DELETE FROM config_overrides")
+        # PR #690 B4: closing() guarantees conn.close() — sqlite3 __exit__ only
+        # commits/rolls back, it does not release the file handle.
+        with closing(connect_db(DB_PATH)) as conn:
+            with conn:  # transaction commit on context exit
+                conn.execute("DELETE FROM config_overrides")
         return {"message": "All overrides cleared"}
     except Exception as exc:
         return {"error": str(exc)}
@@ -562,7 +583,9 @@ def scan_metrics(limit: int = Query(default=20, ge=1, le=200)):
     """Return scan metrics history."""
     import sqlite3 as _sqlite3
     try:
-        with connect_db(DB_PATH) as conn:
+        # PR #690 B4: closing() guarantees conn.close() — sqlite3 __exit__ only
+        # commits/rolls back, it does not release the file handle.
+        with closing(connect_db(DB_PATH)) as conn:
             conn.row_factory = _sqlite3.Row
             rows = conn.execute(
                 "SELECT * FROM scan_metrics ORDER BY created_at DESC LIMIT ?",
@@ -579,7 +602,9 @@ def training_history():
     """Alias for training/versions (cloud parity)."""
     import sqlite3 as _sqlite3
     try:
-        with connect_db(DB_PATH) as conn:
+        # PR #690 B4: closing() guarantees conn.close() — sqlite3 __exit__ only
+        # commits/rolls back, it does not release the file handle.
+        with closing(connect_db(DB_PATH)) as conn:
             conn.row_factory = _sqlite3.Row
             rows = conn.execute(
                 "SELECT * FROM model_versions ORDER BY created_at DESC"
@@ -607,7 +632,9 @@ def stress_test_results():
     import sqlite3 as _sqlite3
     import json
     try:
-        with connect_db(DB_PATH) as conn:
+        # PR #690 B4: closing() guarantees conn.close() — sqlite3 __exit__ only
+        # commits/rolls back, it does not release the file handle.
+        with closing(connect_db(DB_PATH)) as conn:
             conn.row_factory = _sqlite3.Row
             rows = conn.execute(
                 "SELECT * FROM stress_test_results ORDER BY created_at DESC"
@@ -629,19 +656,21 @@ def stress_test_results():
         return {"results": [], "error": str(exc)}
 
 
-@router.get("/api/monitoring/snapshot")
+@router.get("/monitoring/snapshot")
 def monitoring_snapshot():
     """Capture and return a fresh system metrics snapshot."""
     from src.monitoring.system_metrics import collect_system_snapshot
     return collect_system_snapshot()
 
 
-@router.get("/api/monitoring/history")
+@router.get("/monitoring/history")
 def monitoring_history(hours: int = 24):
     """Get system metrics history."""
     import sqlite3
     try:
-        with connect_db(DB_PATH) as conn:
+        # PR #690 B4: closing() guarantees conn.close() — sqlite3 __exit__ only
+        # commits/rolls back, it does not release the file handle.
+        with closing(connect_db(DB_PATH)) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT * FROM system_metrics "
@@ -661,7 +690,9 @@ def simulation_results():
     import sqlite3 as _sqlite3
     import json
     try:
-        with connect_db(DB_PATH) as conn:
+        # PR #690 B4: closing() guarantees conn.close() — sqlite3 __exit__ only
+        # commits/rolls back, it does not release the file handle.
+        with closing(connect_db(DB_PATH)) as conn:
             conn.row_factory = _sqlite3.Row
             rows = conn.execute(
                 "SELECT * FROM simulation_results ORDER BY created_at DESC"

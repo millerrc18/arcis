@@ -44,27 +44,27 @@ export default function SystemIndexPanel({ data, isLoading }) {
 
   if (isLoading) {
     return (
-      <div className="bg-white dark:bg-slate-800 rounded shadow p-4 mb-4">
+      <div className="arcis-card mb-4">
         <h3 className="text-sm font-semibold mb-2">System Index</h3>
-        <div className="text-xs text-gray-500">Loading capabilities...</div>
+        <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>Loading capabilities...</div>
       </div>
     );
   }
 
   if (allEntries.length === 0) {
     return (
-      <div className="bg-white dark:bg-slate-800 rounded shadow p-4 mb-4">
+      <div className="arcis-card mb-4">
         <h3 className="text-sm font-semibold mb-2">System Index</h3>
-        <div className="text-xs text-gray-500">No capabilities registered yet.</div>
+        <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>No capabilities registered yet.</div>
       </div>
     );
   }
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded shadow p-4 mb-4">
+    <div className="arcis-card mb-4">
       <div className="flex justify-between items-center mb-3">
         <h3 className="text-sm font-semibold">System Index</h3>
-        <span className="text-xs text-gray-500">
+        <span className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>
           {allEntries.length} capabilities across {sortedCategories.length} categories
         </span>
       </div>

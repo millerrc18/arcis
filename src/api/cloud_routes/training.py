@@ -239,8 +239,13 @@ def create_router(runtime, verify_auth):
         except HTTPException:
             raise
         except Exception as exc:
-            runtime.logger.error("Metrics history error: %s", exc)
-            return []
+            # PR #690 O8: Don't swallow into [] — surface 500 so the
+            # dashboard error boundary can fire (frontend can't tell
+            # "no metrics yet" from "fetch failed" if we return []).
+            runtime.logger.warning(
+                "[API] metrics/history failed: %s", exc, exc_info=True
+            )
+            raise HTTPException(status_code=500, detail=str(exc))
 
     @router.get("/api/schedule-metrics", dependencies=[Depends(verify_auth)])
     def schedule_metrics(days: int = 30):
@@ -254,8 +259,12 @@ def create_router(runtime, verify_auth):
         except HTTPException:
             raise
         except Exception as exc:
-            runtime.logger.error("Schedule metrics error: %s", exc)
-            return []
+            # PR #690 O8: surface 500 instead of silent [] so frontend
+            # error boundary fires.
+            runtime.logger.warning(
+                "[API] schedule-metrics failed: %s", exc, exc_info=True
+            )
+            raise HTTPException(status_code=500, detail=str(exc))
 
     @router.get("/api/earnings", dependencies=[Depends(verify_auth)])
     def earnings(days: int = 14):
@@ -326,9 +335,16 @@ def create_router(runtime, verify_auth):
                 }
                 for row in rows
             ]
+        except HTTPException:
+            raise
         except Exception as exc:
-            runtime.logger.error("Docs list error: %s", exc)
-            return []
+            # PR #690 O8: surface 500 instead of silent [] so frontend
+            # error boundary can fire (frontend can't tell "no docs" from
+            # "fetch failed" if we return []).
+            runtime.logger.warning(
+                "[API] docs list failed: %s", exc, exc_info=True
+            )
+            raise HTTPException(status_code=500, detail=str(exc))
 
     @router.get("/api/docs/{doc_id}", dependencies=[Depends(verify_auth)])
     def get_doc(doc_id: str):
@@ -365,9 +381,14 @@ def create_router(runtime, verify_auth):
                 "SELECT * FROM audit_reports WHERE created_at >= %s ORDER BY created_at DESC",
                 (cutoff,),
             )
+        except HTTPException:
+            raise
         except Exception as exc:
-            runtime.logger.error("[API] audit_history failed: %s", exc, exc_info=True)
-            return []
+            # PR #690 O8: surface 500 instead of silent [].
+            runtime.logger.warning(
+                "[API] audit/history failed: %s", exc, exc_info=True
+            )
+            raise HTTPException(status_code=500, detail=str(exc))
 
     @router.get("/api/training/report", dependencies=[Depends(verify_auth)])
     def training_report():
@@ -502,9 +523,14 @@ def create_router(runtime, verify_auth):
                 (min(limit, 100),),
             )
             return rows
+        except HTTPException:
+            raise
         except Exception as exc:
-            runtime.logger.error("[API] scan_metrics failed: %s", exc, exc_info=True)
-            return []
+            # PR #690 O8: surface 500 instead of silent [].
+            runtime.logger.warning(
+                "[API] scan/metrics failed: %s", exc, exc_info=True
+            )
+            raise HTTPException(status_code=500, detail=str(exc))
 
     @router.get("/api/training/history", dependencies=[Depends(verify_auth)])
     def training_history():

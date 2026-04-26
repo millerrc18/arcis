@@ -36,7 +36,7 @@ export default function PlatformStatusWidget() {
     .pop();
 
   return (
-    <div className="bg-white dark:bg-slate-800 rounded shadow p-4">
+    <div className="arcis-card">
       <h3 className="text-sm font-semibold mb-2">Research Platform</h3>
       <div className="flex gap-2 flex-wrap mb-2">
         {Object.entries(counts).map(([status, n]) =>

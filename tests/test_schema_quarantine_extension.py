@@ -41,7 +41,17 @@ def test_walkforward_trades_quarantined_column_shape():
 def test_shadow_trades_quarantined_unchanged():
     """Sanity check that the existing shadow_trades column is still present
     with its expected shape — guards against accidental regression on the
-    canonical column we're mirroring."""
+    canonical column we're mirroring.
+
+    PR-690 O7 (2026-04-26): pinned to nullable=False as well — every row
+    must explicitly carry a quarantined flag (no NULL fallback). Migration
+    to enforce this on existing DBs:
+      scripts/migrate_shadow_trades_quarantined_not_null_2026_04_26.py
+    """
     col = _column_def("shadow_trades", "quarantined")
     assert col.type == "INTEGER"
     assert col.default == "0"
+    assert col.nullable is False, (
+        "shadow_trades.quarantined must be NOT NULL "
+        "(pinned by PR-690 O7 to match attribution_trades / walkforward_trades)"
+    )

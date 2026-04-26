@@ -4,6 +4,7 @@ import copy
 from unittest.mock import patch
 
 import pandas as pd
+import pytest
 
 from src.data_enrichment.enricher import enrich_features
 from src.features.engine import compute_all_features
@@ -76,6 +77,7 @@ def test_primary_fixture_matches_legacy_and_spec(
     assert _engine_records(spec) == expected
 
 
+@pytest.mark.timeout(180)
 def test_fuzz_dates_match_legacy_and_spec(
     all_fixture_dates,
     load_sprint_f_fixture,

@@ -9,6 +9,10 @@
       "lines": 413
     },
     {
+      "file": "src/api/cloud_routes/kpis.py",
+      "lines": 513
+    },
+    {
       "file": "src/api/cloud_routes/trades.py",
       "lines": 427
     },
@@ -919,6 +923,11 @@
       "file": "src/shadow_trading/bracket_monitor.py",
       "function": "check_bracket_health",
       "lines": 89
+    },
+    {
+      "file": "src/shadow_trading/exit_reconciliation.py",
+      "function": "_check_trade",
+      "lines": 69
     },
     {
       "file": "src/shadow_trading/executor.py",

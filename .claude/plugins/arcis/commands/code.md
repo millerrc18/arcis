@@ -59,9 +59,46 @@ If neither is provided, the `REQUEST` text is the spec.
 }
 ```
 
+**Dashboard JSON entry-shape reference (MUST match the HTML's render functions in `skills/coding-team/dashboard/index.html`):**
+
+`tasks[]` — each entry:
+```json
+{"id": "T1.01", "name": "Pre-#651 quarantine sweep", "track": 1, "batch": 1, "status": "pending", "complexity": "medium"}
+```
+Valid `status` values: `pending` | `active` | `completed` | `blocked`.
+
+`active_agents[]` — each entry:
+```json
+{"role": "Developer", "model": "opus", "task_id": "T1.01", "turn": 25, "max_turns": 100}
+```
+Required fields: `role`, `model`, `task_id`, `turn`, `max_turns`. The HTML renders a progress bar from `turn / max_turns`. Do NOT use alternate names like `agent_type` / `agent_id` / `status` — they will not render.
+
+`pm_notes[]` — each entry:
+```json
+{"phase": "EXECUTE", "note": "Round 1 commit landed; dispatching Round 2 in parallel"}
+```
+
+`issues[]` — each entry:
+```json
+{"task_id": "ISSUE-A1", "severity": "warning", "message": "Short description, ~1-3 sentences"}
+```
+Valid `severity` values: `error` (red dot) | `warning` (yellow dot). Anything else renders as `warning`. Required fields: `task_id`, `severity`, `message`. Do NOT use alternate names like `id` / `title` / `context` — they will not render.
+
+`operator_questions[]` (optional but recommended) — each entry:
+```json
+{"question": "Should we skip Mon's deploy?", "context": "Stage-1 was non-significant; operator may want to redesign first.", "urgency": "high", "asked_at": "2026-04-25 evening"}
+```
+Surfaces pending operator decisions in a dedicated dashboard panel between the phase flow and task graph. The panel only renders if the array is non-empty. Required fields: `question`. Optional: `context` (1-3 sentence detail), `urgency` (`high`=red, `medium`=amber, `low`=blue), `asked_at` (free-form timestamp). Surface a question whenever you're blocked on operator input, AND remove the entry once they answer (operator visibility loop). This is the cheapest way to keep the operator aligned during long autonomous runs.
+
+**Mirroring requirement:** the HTML at `skills/coding-team/dashboard/index.html` fetches `../../../.arcis/coding-dashboard.json` (relative to its own location). When served from a local HTTP server rooted at the repo, that path resolves to `.claude/plugins/arcis/.arcis/coding-dashboard.json` — NOT to the `.arcis/coding-dashboard.json` at the repo root where this command writes. The PM must mirror the JSON to BOTH locations after every update:
+```bash
+cp .arcis/coding-dashboard.json .claude/plugins/arcis/.arcis/coding-dashboard.json
+```
+Or write to both directly. Without the mirror, the served HTML will load empty/stale content.
+
 6. Open the dashboard:
    - If Playwright MCP tools are available: navigate to `skills/coding-team/dashboard/index.html`
-   - Otherwise: print the dashboard file path for the user to open manually
+   - Otherwise: start a local HTTP server **on a non-conventional port with explicit IPv4 binding** to avoid silent collisions. `python -m http.server 8765 --bind 127.0.0.1` from the repo root is a good default — port 8080 is commonly bound by EnterpriseDB / Tomcat / other services, and Python's default IPv6 bind doesn't resolve through `localhost` on Windows when an IPv4 service shadows the port. Surface the URL `http://127.0.0.1:8765/.claude/plugins/arcis/skills/coding-team/dashboard/` (use the IP, not `localhost`, just to be safe). The HTML's relative fetch only works when served via HTTP, not via `file://` (CORS).
 
 ---
 
@@ -376,4 +413,4 @@ Set `sentiment` based on current state:
 - `concerned` — multiple issues or a complex regression detected
 - `recovering` — issues were found and are being fixed
 
-To update the dashboard, write the updated JSON to `.arcis/coding-dashboard.json` using the Write tool.
+To update the dashboard, write the updated JSON to `.arcis/coding-dashboard.json` using the Write tool. **THEN mirror to `.claude/plugins/arcis/.arcis/coding-dashboard.json`** — the served HTML fetches the mirrored copy (its relative-path `../../../.arcis/...` resolves to the plugin-side location, not the repo-root one). Without the mirror the dashboard will not reflect updates. See the "Dashboard JSON entry-shape reference" earlier in this file for the required field names in `active_agents[]` and `issues[]`.

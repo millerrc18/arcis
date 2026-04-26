@@ -21,6 +21,7 @@ records the fill or marks the trade as exit_pending if not immediately filled.
 from fastapi import APIRouter
 from src.config import load_config
 from src.services.shadow_service import get_shadow_status, get_shadow_history, get_shadow_account
+from src.shadow_trading.exit_reason import coerce_exit_reason
 
 router = APIRouter(tags=["shadow"])
 
@@ -66,6 +67,7 @@ def close_trade(ticker: str, reason: str = "manual"):
     )
 
     ticker = ticker.upper()
+    reason = coerce_exit_reason(reason, ticker=ticker)
     ET = ZoneInfo("America/New_York")
     open_trades_list = get_open_shadow_trades()
     trade = next((t for t in open_trades_list if t["ticker"] == ticker), None)

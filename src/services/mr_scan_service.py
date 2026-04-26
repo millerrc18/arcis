@@ -83,8 +83,13 @@ def run_mr_scan(config: dict | None = None, dry_run: bool = False) -> dict:
                     ).fetchone()
                     if r:
                         vix_val = float(r[0])
-            except Exception:
-                pass
+            except Exception as exc:
+                # PR #690 O5: was bare `pass` — surfaced as silent failure during
+                # operator's first-pass review. Log at WARNING so DB lock /
+                # missing column / malformed value are diagnosable. VIX remains
+                # optional (vix_val stays None) — outer enrichment block at
+                # line 91+ already covers the broader path.
+                logger.warning("[MR_VIX_LOOKUP_FAILED] %s", exc)
             attach_post_scan_features(
                 features_map, config=config, spy=spy_df, vix_value=vix_val,
             )
@@ -148,6 +153,8 @@ def run_mr_scan(config: dict | None = None, dry_run: bool = False) -> dict:
             packet, feat, candidate.get("score", 0), "mr_oversold",
             model_version=model_ver,
             llm_conviction=getattr(packet, "llm_conviction", None),
+            llm_conviction_reason=getattr(packet, "llm_conviction_reason", None),
+            llm_timeout_days=getattr(packet, "llm_timeout_days", None),
         )
 
         # Open shadow trade (with rejection-reason capture, #511)

@@ -9,32 +9,27 @@ import {
   getPlatformStrategyDetail,
 } from "../api.js";
 
-const STATUS_BADGES = {
-  proposed: "bg-gray-200 text-gray-700",
-  backtested: "bg-blue-100 text-blue-800",
-  shadow_trading: "bg-yellow-100 text-yellow-800",
-  production: "bg-green-100 text-green-800",
-  deprecated: "bg-red-100 text-red-800",
+const STATUS_BADGE_STYLES = {
+  proposed: { background: 'var(--arcis-bg-elevated)', color: 'var(--arcis-text-secondary)' },
+  backtested: { background: 'rgba(59,130,246,0.12)', color: 'var(--arcis-info)' },
+  shadow_trading: { background: 'rgba(245,158,11,0.12)', color: 'var(--arcis-warning)' },
+  production: { background: 'rgba(34,197,94,0.12)', color: 'var(--arcis-success)' },
+  deprecated: { background: 'rgba(239,68,68,0.12)', color: 'var(--arcis-danger)' },
 };
 
 function StatusBadge({ status }) {
+  const s = STATUS_BADGE_STYLES[status] ?? { background: 'var(--arcis-bg-elevated)', color: 'var(--arcis-text-secondary)' };
   return (
-    <span
-      className={`px-2 py-0.5 text-xs rounded ${
-        STATUS_BADGES[status] ?? "bg-gray-100 text-gray-600"
-      }`}
-    >
+    <span className="px-2 py-0.5 text-xs rounded" style={s}>
       {status}
     </span>
   );
 }
 
 function eventColor(toStatus) {
-  if (toStatus === "deprecated") return "text-red-700";
-  if (toStatus === "shadow_trading" || toStatus === "production") {
-    return "text-green-700";
-  }
-  return "text-gray-700";
+  if (toStatus === "deprecated") return 'var(--arcis-danger)';
+  if (toStatus === "shadow_trading" || toStatus === "production") return 'var(--arcis-success)';
+  return 'var(--arcis-text-secondary)';
 }
 
 export default function StrategyResearch() {
@@ -84,16 +79,16 @@ export default function StrategyResearch() {
       <section className="mb-8">
         <h2 className="text-lg font-medium mb-2">Strategies</h2>
         {isLoading ? (
-          <div className="text-gray-500">Loading…</div>
+          <div style={{ color: 'var(--arcis-text-secondary)' }}>Loading…</div>
         ) : strategies.length === 0 ? (
-          <p className="text-gray-500 p-4 bg-gray-50 rounded">
+          <p className="p-4 rounded" style={{ color: 'var(--arcis-text-secondary)', background: 'var(--arcis-bg-elevated)' }}>
             No strategies registered yet. Load one from{" "}
             <code>src/platform/specs/*.yaml</code> and run a backtest
             via <code>scripts/run_backtest.py</code>.
           </p>
         ) : (
           <table className="w-full text-sm">
-            <thead className="bg-gray-100">
+            <thead style={{ background: 'var(--arcis-bg-elevated)' }}>
               <tr>
                 <th className="text-left p-2">Name</th>
                 <th className="text-left p-2">Status</th>
@@ -108,7 +103,8 @@ export default function StrategyResearch() {
                 <tr
                   key={s.strategy_id}
                   onClick={() => setExpandedId(s.strategy_id)}
-                  className="cursor-pointer hover:bg-gray-50 border-t"
+                  className="cursor-pointer"
+                  style={{ borderTop: '1px solid var(--arcis-border)' }}
                 >
                   <td className="p-2 font-medium">{s.display_name}</td>
                   <td className="p-2">
@@ -123,7 +119,7 @@ export default function StrategyResearch() {
                       : "—"}
                   </td>
                   <td className="p-2">{s.last_n_trades ?? "—"}</td>
-                  <td className="p-2 text-xs text-gray-500">
+                  <td className="p-2 text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>
                     {s.last_backtest_at?.slice(0, 10) ?? "—"}
                   </td>
                 </tr>
@@ -135,10 +131,10 @@ export default function StrategyResearch() {
 
       {/* Section 2: Strategy detail */}
       {expandedId && detail && (
-        <section className="mb-8 border-l-4 border-blue-500 pl-4">
+        <section className="mb-8 pl-4" style={{ borderLeft: '4px solid var(--arcis-accent)' }}>
           <h2 className="text-lg font-medium mb-2">
             {detail.display_name}{" "}
-            <span className="text-xs text-gray-500 font-mono">
+            <span className="text-xs font-mono" style={{ color: 'var(--arcis-text-secondary)' }}>
               {detail.current_spec_hash?.slice(0, 12)}
             </span>
           </h2>
@@ -148,10 +144,10 @@ export default function StrategyResearch() {
 
           {detail.spec && (
             <details className="mb-4">
-              <summary className="cursor-pointer text-blue-600 text-sm">
+              <summary className="cursor-pointer text-sm" style={{ color: 'var(--arcis-accent)' }}>
                 YAML spec
               </summary>
-              <pre className="bg-gray-50 text-xs p-3 rounded overflow-auto max-h-80">
+              <pre className="text-xs p-3 rounded overflow-auto max-h-80" style={{ background: 'var(--arcis-bg-elevated)' }}>
                 {JSON.stringify(detail.spec, null, 2)}
               </pre>
             </details>
@@ -160,12 +156,12 @@ export default function StrategyResearch() {
           {/* Section 3: Backtest results grid */}
           <h3 className="font-medium mt-4 mb-2">Backtest history</h3>
           {backtests.length === 0 ? (
-            <p className="text-xs text-gray-500">
+            <p className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>
               No backtest results yet for this strategy.
             </p>
           ) : (
             <table className="w-full text-sm mb-4">
-              <thead className="bg-gray-100">
+              <thead style={{ background: 'var(--arcis-bg-elevated)' }}>
                 <tr>
                   <th className="text-left p-2">Date</th>
                   <th className="text-left p-2">Range</th>
@@ -181,7 +177,8 @@ export default function StrategyResearch() {
                   <tr
                     key={b.result_id}
                     onClick={() => setSelectedBacktest(b)}
-                    className="cursor-pointer hover:bg-gray-50 border-t"
+                    className="cursor-pointer"
+                    style={{ borderTop: '1px solid var(--arcis-border)' }}
                   >
                     <td className="p-2">{b.created_at?.slice(0, 10)}</td>
                     <td className="p-2 text-xs">
@@ -214,14 +211,15 @@ export default function StrategyResearch() {
 
           {/* Equity curve modal */}
           {selectedBacktest && (
-            <div className="mb-4 bg-gray-50 p-3 rounded">
+            <div className="mb-4 p-3 rounded" style={{ background: 'var(--arcis-bg-elevated)' }}>
               <div className="flex justify-between items-center mb-2">
                 <h3 className="font-medium">
                   Equity — {selectedBacktest.result_id.slice(0, 8)}
                 </h3>
                 <button
                   onClick={() => setSelectedBacktest(null)}
-                  className="text-xs text-gray-600 hover:text-gray-900"
+                  className="text-xs"
+                  style={{ color: 'var(--arcis-text-secondary)' }}
                 >
                   Close
                 </button>
@@ -236,24 +234,24 @@ export default function StrategyResearch() {
           {/* Section 4: Promotion events log */}
           <h3 className="font-medium mt-6 mb-2">Promotion events</h3>
           {events.length === 0 ? (
-            <p className="text-xs text-gray-500">
+            <p className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>
               No promotion events yet.
             </p>
           ) : (
             <ul className="text-sm space-y-1">
               {events.map((e) => (
-                <li key={e.event_id} className="p-2 bg-gray-50 rounded">
-                  <span className="text-xs text-gray-500">
+                <li key={e.event_id} className="p-2 rounded" style={{ background: 'var(--arcis-bg-elevated)' }}>
+                  <span className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>
                     {e.timestamp?.slice(0, 19).replace("T", " ")}
                   </span>
                   {" · "}
-                  <span className={eventColor(e.to_status)}>
+                  <span style={{ color: eventColor(e.to_status) }}>
                     {e.from_status ?? "∅"} → {e.to_status}
                   </span>
                   {" · "}
                   <span className="text-xs">{e.triggered_by}</span>
                   {e.justification_note && (
-                    <div className="text-xs text-gray-700 mt-1">
+                    <div className="text-xs mt-1" style={{ color: 'var(--arcis-text-secondary)' }}>
                       {e.justification_note}
                     </div>
                   )}

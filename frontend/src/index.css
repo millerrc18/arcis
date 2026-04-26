@@ -134,3 +134,9 @@ body {
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: var(--arcis-bg-primary); }
 ::-webkit-scrollbar-thumb { background: var(--arcis-border-hover); border-radius: 2px; }
+
+/* Track 1.5 / B9 — pulse animation for overdue trade timeout indicator */
+@keyframes arcis-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}

@@ -83,7 +83,7 @@ The pullback is well-defined with strong relative outperformance.
 confidence: 7/10
 
 The risk-reward ratio is favorable for this trade."""
-        conviction, _, _ = _parse_llm_response(response)
+        conviction, *_ = _parse_llm_response(response)
         assert conviction == 7
 
     def test_conviction_extraction_pattern_standalone_n10(self):
@@ -97,7 +97,7 @@ The trend remains intact with positive momentum.
 8/10
 
 Entry point is well-defined with clear stop level."""
-        conviction, _, _ = _parse_llm_response(response)
+        conviction, *_ = _parse_llm_response(response)
         assert conviction == 8
 
     def test_conviction_default_still_works(self):
@@ -105,7 +105,7 @@ Entry point is well-defined with clear stop level."""
         from src.llm.packet_writer import _parse_llm_response
 
         response = "Just random text with no score or conviction anywhere."
-        conviction, _, _ = _parse_llm_response(response)
+        conviction, *_ = _parse_llm_response(response)
         assert conviction is None
 
 

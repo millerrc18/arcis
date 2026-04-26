@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { api } from '../api'
+import { api, fetchApi } from '../api'
 import LoadingSpinner from '../components/LoadingSpinner'
 import EmptyState from '../components/EmptyState'
 import MetricCard from '../components/MetricCard'
 import MetricTrend from '../components/MetricTrend'
 
 {/* Fix for #247 */}
-function KpiCard({ label, value, target, good, minTrades, actualTrades }) {
+function KpiCard({ label, value, target, good, minTrades, actualTrades, diagnosticNote, diagnosticTitle }) {
   const needsMore = minTrades && actualTrades < minTrades
   return (
     <div className="arcis-card text-center">
@@ -29,6 +29,15 @@ function KpiCard({ label, value, target, good, minTrades, actualTrades }) {
             {value}
           </div>
           {target && <div className="text-xs mt-1" style={{ color: 'var(--arcis-text-secondary)' }}>{target}</div>}
+          {diagnosticNote && (
+            <div
+              className="text-[10px] mt-1"
+              style={{ color: 'var(--arcis-warning)', fontStyle: 'italic' }}
+              title={diagnosticTitle || diagnosticNote}
+            >
+              {diagnosticNote}
+            </div>
+          )}
         </>
       )}
     </div>
@@ -83,6 +92,11 @@ export default function CTOReport() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['cto-report', days],
     queryFn: () => api.getCtoReport(days),
+    refetchInterval: 120000,
+  })
+  const { data: kpiData } = useQuery({
+    queryKey: ['kpis'],
+    queryFn: () => fetchApi('/kpis'),
     refetchInterval: 120000,
   })
 
@@ -166,6 +180,11 @@ export default function CTOReport() {
           <span className="text-sm font-medium" style={{ color: 'var(--arcis-text-primary)' }}>Phase 1 Gate Progress</span>
           <span className="text-sm financial-data" style={{ color: tradesClosed >= 50 ? 'var(--arcis-success)' : 'var(--arcis-accent)' }}>
             {tradesClosed}/50 trades
+            {kpiData?.n_trades != null && kpiData.n_trades !== tradesClosed && (
+              <span className="ml-1 text-xs" style={{ color: 'var(--arcis-text-muted)', fontWeight: 'normal' }}>
+                ({kpiData.n_trades} fully-instrumented)
+              </span>
+            )}
           </span>
         </div>
         <div className="h-3 rounded-full overflow-hidden" style={{ background: 'var(--arcis-border)' }}>
@@ -190,6 +209,8 @@ export default function CTOReport() {
           value={sharpe.toFixed(2)}
           target="> 0.5 (P1) | > 1.0 (P3)"
           good={tradesClosed >= 5 ? (sharpe > 0.5 ? true : sharpe < 0 ? false : null) : null}
+          diagnosticNote="Diagnostic — √150; see hero KPI strip for canonical Sharpe"
+          diagnosticTitle="The hero KPI strip on the dashboard uses canonical Sharpe (√252, rf-adjusted, via /api/kpis -> rf_adjusted_excess_sharpe). This CTO Report headline number is computed in src/evaluation/cto_report.py with √150 trade-count annualization and is retained for diagnostic continuity. Both numbers will differ by design — go/no-go decisions reference the hero KPI strip."
         />
         <KpiCard
           label="Win rate"

@@ -15,6 +15,7 @@ from src.config import DB_PATH
 from src.email.notifier import send_email
 from src.journal.store import initialize_database
 from src.packets.template import build_demo_packet
+from src.shadow_trading.exit_reason import coerce_exit_reason
 
 logger = logging.getLogger(__name__)
 
@@ -228,7 +229,7 @@ def cmd_shadow_close(args):
         trade["trade_id"],
         exit_price=current,
         exit_time=now.isoformat(),
-        exit_reason=reason,
+        exit_reason=coerce_exit_reason(reason, ticker=ticker),
         pnl_dollars=pnl_dollars,
         pnl_pct=pnl_pct,
     )
@@ -365,7 +366,7 @@ def cmd_live_close(args):
     )
 
     ticker = args.ticker.upper()
-    reason = getattr(args, "reason", "manual")
+    reason = coerce_exit_reason(getattr(args, "reason", "manual"), ticker=ticker)
 
     open_trades = get_open_shadow_trades()
     trade = next(

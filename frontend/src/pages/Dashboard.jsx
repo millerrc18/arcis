@@ -1,10 +1,13 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '../api'
+import { api, fetchApi } from '../api'
 import { IS_CLOUD } from '../config'
 import { hapticWarning, hapticSuccess } from '../native'
 import MetricCard from '../components/MetricCard'
+import KPIStrip from '../components/dashboard/KPIStrip'
+import BrokerExceptionsPanel from '../components/dashboard/BrokerExceptionsPanel'
+import PreflightStatusCard from '../components/dashboard/PreflightStatusCard'
 import DataTable from '../components/DataTable'
 import LoadingSpinner from '../components/LoadingSpinner'
 import PnlText from '../components/PnlText'
@@ -229,16 +232,18 @@ export default function Dashboard() {
   const { data: buildScore } = useQuery({ queryKey: ['build-score'], queryFn: api.getBuildScore, refetchInterval: 120000 })
   const { data: scanMetrics } = useQuery({ queryKey: ['scan-metrics'], queryFn: () => api.getScanMetrics(50), refetchInterval: 60000 })
   const { data: systemIndex, isLoading: systemIndexLoading } = useQuery({ queryKey: ['system-index'], queryFn: api.getSystemIndex, refetchInterval: 60000 })
+  const { data: kpiData } = useQuery({ queryKey: ['kpis'], queryFn: () => fetchApi('/kpis'), refetchInterval: 30000 })
 
   // Task 12c: fetch distinct desk values from DB at render time (spec line 1014).
   // Populates the dropdown with any research desks currently in shadow_trades.
-  useState(() => {
+  // I7 fix: was useState() initializer (non-reactive); replaced with useEffect.
+  useEffect(() => {
     api.getShadowDesks().then(desks => {
       if (Array.isArray(desks)) {
         setResearchDesks(desks.filter(d => d !== 'swing' && d !== 'all'))
       }
     }).catch(() => {})
-  })
+  }, [])
 
   const [toast, setToast] = useState(null)
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
@@ -301,10 +306,18 @@ export default function Dashboard() {
     { key: 'target_1', label: 'Target', type: 'currency' },
   ]
 
-  const kpis = ctoData?.headline_kpis || {}
+  // Round 8.B replaced the legacy headline_kpis hero block with <KPIStrip />
+  // which fetches /api/kpis directly. The old `const kpis = ctoData?.headline_kpis`
+  // assignment is removed — was a dead reference after the hero rebuild.
   const ts = ctoData?.trade_summary || {}
   const closedCount = ts.trades_closed || accountData?.total_closed || 0
   const hasTrades = closedCount >= 2
+
+  // G5: approaching-timeout count — derived from openTrades already fetched.
+  // Shows operator how many open positions are near or past their timeout.
+  const approachingTimeoutCount = (openTrades?.open_trades || [])
+    .filter(t => t.timeout_status === 'approaching' || t.timeout_status === 'overdue')
+    .length
 
   return (
     <div className="space-y-4 md:space-y-6">
@@ -405,75 +418,44 @@ export default function Dashboard() {
       {/* Research Platform status card — renders only when strategies exist */}
       <PlatformStatusWidget />
 
-      {/* Headline KPIs */}
-      {/* Fix for #247 */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <div className="arcis-card text-center" style={{ padding: '12px' }}>
-          <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Sharpe ratio</div>
-          <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: hasTrades ? ((kpis.sharpe_ratio || 0) > 0.5 ? 'var(--arcis-success)' : (kpis.sharpe_ratio || 0) < 0 ? 'var(--danger)' : 'var(--arcis-text)') : 'var(--arcis-text)' }}>
-            {hasTrades ? (kpis.sharpe_ratio || 0).toFixed(2) : '--'}
-          </div>
-        </div>
-        <div className="arcis-card text-center" style={{ padding: '12px' }}>
-          <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Win rate</div>
-          <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: hasTrades ? ((kpis.win_rate || 0) > 0.45 ? 'var(--arcis-success)' : 'var(--danger)') : 'var(--arcis-text)' }}>
-            {hasTrades ? `${((kpis.win_rate || 0) * 100).toFixed(1)}%` : '--'}
-          </div>
-        </div>
-        <div className="arcis-card text-center" style={{ padding: '12px' }}>
-          <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Max drawdown</div>
-          <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: hasTrades ? ((kpis.max_drawdown_pct || 0) < 15 ? 'var(--arcis-success)' : 'var(--danger)') : 'var(--arcis-text)' }}>
-            {hasTrades ? `${(kpis.max_drawdown_pct || 0).toFixed(1)}%` : '--'}
-          </div>
-        </div>
-        <Tooltip content="Measures how well the model's confidence predictions match actual outcomes. Requires 50+ closed trades.">
-          <div className="arcis-card text-center" style={{ padding: '12px' }}>
-            <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Confidence cal.</div>
-            {/* #631-4 — Pre-fix the value slot showed "< 46/50 trades" which
-                read like a metric value. Now we show the score when it's
-                computed (>=50 trades) and otherwise present a dim progress
-                indicator that visually signals "pending" rather than "value". */}
-            {closedCount >= 50 ? (
-              <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text)' }}>
-                {(kpis.confidence_calibration || 0).toFixed(3)}
-              </div>
-            ) : (
-              <div className="text-xs" style={{ color: 'var(--arcis-text-muted)', fontStyle: 'italic' }}>
-                Pending — {closedCount}/50 trades
-              </div>
-            )}
-          </div>
-        </Tooltip>
-        <Tooltip content="Average quality score from Claude-graded rubric evaluation of trade reasoning.">
-          <div className="arcis-card text-center" style={{ padding: '12px' }}>
-            <div className="text-xs" style={{ color: 'var(--arcis-text-secondary)' }}>Rubric score</div>
-            {/* #631-5 — When unscored, show a dim italic placeholder so it
-                doesn't read as a live metric value at the same visual weight. */}
-            {kpis.avg_rubric_score != null ? (
-              <div className="text-xl font-medium" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-text)' }}>
-                {kpis.avg_rubric_score.toFixed(1)}/5
-              </div>
-            ) : (
-              <div className="text-xs" style={{ color: 'var(--arcis-text-muted)', fontStyle: 'italic' }}>
-                Not scored yet
-              </div>
-            )}
-          </div>
-        </Tooltip>
-      </div>
+      {/* 5-KPI hero strip — Track 1.5 / Round 8.B (resolves R1, S1, S2, G3, G6) */}
+      <KPIStrip kpis={kpiData} />
 
-      {/* System status cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard label="Shadow Equity" value={equity.toLocaleString(undefined, { minimumFractionDigits: 0 })} prefix="$" delta={equityDelta} />
+      {/* Broker exceptions panel — Track 1.5 / Round 8.C (closes G1) */}
+      <BrokerExceptionsPanel />
+
+      {/* Preflight status card — Track 1.5 / Round 8.D (S4 preflight echo) */}
+      <PreflightStatusCard />
+
+      {/* System status cards — G5: 5th card always-visible Approaching Timeout */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        {/* R3 — Explicit data-source label so equity card / cumulative P&L divergence
+            on first live trade is explainable. Equity reads Alpaca paper account balance;
+            chart reads shadow_trades (quarantine-filtered). */}
+        <Tooltip content="Source: Alpaca paper account balance. Note: this value will diverge from the cumulative P&L chart (shadow_trades canonical, quarantine-filtered) on first live trade.">
+          <MetricCard label="Shadow Equity" value={equity.toLocaleString(undefined, { minimumFractionDigits: 0 })} prefix="$" delta={equityDelta} />
+        </Tooltip>
         <MetricCard label="Open Trades" value={openTrades?.open_count || accountData?.open_positions || 0} />
-        <MetricCard label="Win Rate" value={closedData?.metrics?.win_rate != null ? `${(closedData.metrics.win_rate * 100).toFixed(1)}%` : accountData?.win_rate != null ? `${(accountData.win_rate * 100).toFixed(1)}%` : '--'} />
+        {/* R2 — Silent Alpaca fallback removed. Alpaca's win_rate uses a different
+            denominator and includes pre-#651 cascade trades (not quarantine-filtered).
+            When shadow_service returns null, show "—" with a tooltip explaining deferral. */}
+        <Tooltip content="Win rate not yet computable; need ≥1 closed quarantine-filtered trade. Alpaca's win_rate is suppressed here — it uses a different denominator and includes pre-#651 cascade trades.">
+          <MetricCard label="Win Rate" value={closedData?.metrics?.win_rate != null ? `${(closedData.metrics.win_rate * 100).toFixed(1)}%` : '—'} />
+        </Tooltip>
         <MetricCard label="Model Version" value={status?.model_version || 'base'} delta={training ? `${training.dataset_total} examples` : null} />
+        {/* G5: Always-visible 5th card — empty state shows 0 so first-time users see the feature */}
+        <Tooltip content="Trades at or approaching their configured timeout window. Click ShadowLedger to review.">
+          <MetricCard label="Approaching Timeout" value={approachingTimeoutCount} />
+        </Tooltip>
       </div>
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
         <div className="lg:col-span-3 arcis-card">
-          <h3 className="text-sm uppercase tracking-wide mb-4" style={{ color: 'var(--arcis-text-secondary)' }}>Cumulative P&L</h3>
+          <div className="flex items-baseline gap-3 mb-4">
+            <h3 className="text-sm uppercase tracking-wide" style={{ color: 'var(--arcis-text-secondary)' }}>Cumulative P&L</h3>
+            <span className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>shadow_trades canonical, quarantine-filtered</span>
+          </div>
           {chartData.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
               <AreaChart data={chartData}>

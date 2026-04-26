@@ -14,6 +14,30 @@ logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
 
+def _fetch_shadow_data_for_recap(config: dict):
+    """Fetch shadow_data for the recap; returns None on failure or when disabled.
+
+    Routes broker exceptions through ``log_and_persist`` so they appear in the
+    BrokerExceptionsPanel dashboard (PR #690 O1). Caller proceeds with
+    shadow_data=None (recap still rendered).
+    """
+    if not config.get("shadow_trading", {}).get("enabled", False):
+        return None
+    try:
+        from src.packets.eod_recap import get_shadow_data_for_recap
+        return get_shadow_data_for_recap()
+    except Exception as _recap_err:
+        from src.shadow_trading.broker_exception_logger import log_and_persist
+        log_and_persist(
+            ticker="(all)",
+            operation="fetch_shadow_data",
+            broker="n/a",
+            exc=_recap_err,
+            recoverable=True,
+        )
+        return None
+
+
 def generate_eod_recap(config: dict, send_email_flag: bool = False) -> dict:
     """Generate the end-of-day recap.
 
@@ -48,14 +72,7 @@ def generate_eod_recap(config: dict, send_email_flag: bool = False) -> dict:
     candidates = get_top_candidates(ranked)
 
     journal_entries = get_todays_recommendations()
-
-    shadow_data = None
-    if config.get("shadow_trading", {}).get("enabled", False):
-        try:
-            from src.packets.eod_recap import get_shadow_data_for_recap
-            shadow_data = get_shadow_data_for_recap()
-        except Exception:
-            pass
+    shadow_data = _fetch_shadow_data_for_recap(config)
 
     body = build_eod_recap(
         candidates["packet_worthy"], candidates["watchlist"],

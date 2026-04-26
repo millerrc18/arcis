@@ -32,6 +32,8 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from src.services.shadow_service import compute_timeout_status
+
 
 # ── SD#41 / Sprint-3 Task-12c desk-filter helper ───────────────────────────
 
@@ -179,6 +181,14 @@ def create_router(runtime, verify_auth):
                     trade["unrealized_pnl"] = None
                     trade["current_price_est"] = None
 
+            for trade in rows:
+                timeout_info = compute_timeout_status(
+                    trade.get("duration_days"), trade.get("timeout_days")
+                )
+                trade["timeout_progress_pct"] = timeout_info["timeout_progress_pct"]
+                trade["timeout_status"] = timeout_info["timeout_status"]
+                trade["llm_timeout_days"] = trade.get("llm_timeout_days")
+
             return {
                 "trades": rows,
                 "open_trades": rows,
@@ -228,6 +238,13 @@ def create_router(runtime, verify_auth):
                 "expectancy": round(total_pnl / len(rows), 2) if rows else 0,
                 "total_pnl": round(total_pnl, 2),
             }
+            for row in rows:
+                timeout_info = compute_timeout_status(
+                    row.get("duration_days"), row.get("timeout_days")
+                )
+                row["timeout_progress_pct"] = timeout_info["timeout_progress_pct"]
+                row["timeout_status"] = timeout_info["timeout_status"]
+                row["llm_timeout_days"] = row.get("llm_timeout_days")
             return {"trades": rows, "count": len(rows), "days": days, "metrics": metrics}
         except HTTPException:
             raise
@@ -331,8 +348,13 @@ def create_router(runtime, verify_auth):
         except HTTPException:
             raise
         except Exception as exc:
-            runtime.logger.error("Packets error: %s", exc)
-            return []
+            # PR #690 O8: surface 500 instead of silent [] so frontend
+            # error boundary can fire (frontend can't tell "no packets" from
+            # "fetch failed" if we return []).
+            runtime.logger.warning(
+                "[API] packets failed: %s", exc, exc_info=True
+            )
+            raise HTTPException(status_code=500, detail=str(exc))
 
     @router.get("/api/live/trades", dependencies=[Depends(verify_auth)])
     def live_trades():
@@ -376,6 +398,20 @@ def create_router(runtime, verify_auth):
                         trade["pnl_pct"] = round((current - entry_f) / entry_f * 100, 2) if entry_f else None
                     except (TypeError, ValueError, ZeroDivisionError):
                         pass
+            for trade in open_trades:
+                timeout_info = compute_timeout_status(
+                    trade.get("duration_days"), trade.get("timeout_days")
+                )
+                trade["timeout_progress_pct"] = timeout_info["timeout_progress_pct"]
+                trade["timeout_status"] = timeout_info["timeout_status"]
+                trade["llm_timeout_days"] = trade.get("llm_timeout_days")
+            for trade in closed_trades:
+                timeout_info = compute_timeout_status(
+                    trade.get("duration_days"), trade.get("timeout_days")
+                )
+                trade["timeout_progress_pct"] = timeout_info["timeout_progress_pct"]
+                trade["timeout_status"] = timeout_info["timeout_status"]
+                trade["llm_timeout_days"] = trade.get("llm_timeout_days")
             return {"open": open_trades, "closed": closed_trades}
         except Exception as exc:
             runtime.logger.error("Live trades error: %s", exc)
@@ -483,9 +519,14 @@ def create_router(runtime, verify_auth):
                 "AND (exit_reason IS NOT NULL) AND COALESCE(quarantined, 0) = 0"
                 " ORDER BY actual_exit_time DESC LIMIT 20"
             )
+        except HTTPException:
+            raise
         except Exception as exc:
-            runtime.logger.error("[API] review_pending failed: %s", exc, exc_info=True)
-            return []
+            # PR #690 O8: surface 500 instead of silent [].
+            runtime.logger.warning(
+                "[API] review/pending failed: %s", exc, exc_info=True
+            )
+            raise HTTPException(status_code=500, detail=str(exc))
 
     @router.get("/api/review/scorecard", dependencies=[Depends(verify_auth)])
     def review_scorecard(weeks: int = 4):
