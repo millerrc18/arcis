@@ -47,14 +47,102 @@ class TestB4KeyRiskParsing:
         assert conviction == 7
 
     def test_key_risk_truncation_at_4000_chars(self):
-        """B4 boundary: Key Risk > 4000 chars → truncated with marker."""
+        """B4 boundary: Key Risk > 4000 chars → truncated with marker.
+
+        PR-690 O13b: total length is now bounded by _MAX_CONVICTION_REASON_CHARS;
+        the body shrinks to make room for the marker.
+        """
+        from src.llm.packet_writer import (
+            _MAX_CONVICTION_REASON_CHARS, _TRUNCATION_MARKER_BUDGET,
+        )
         long_risk = "X" * 4500
         response = _make_response(key_risk=long_risk, include_holding_period=False)
         conviction, why_now, deeper_analysis, conviction_reason, timeout_days = _parse_llm_response(response)
         assert conviction_reason is not None
-        assert len(conviction_reason) > 4000
         assert "... [truncated, original 4500 chars]" in conviction_reason
-        assert conviction_reason.startswith("X" * 4000)
+        # PR-690 O13b: body uses budget = ceiling - marker_budget characters of 'X'
+        body_budget = _MAX_CONVICTION_REASON_CHARS - _TRUNCATION_MARKER_BUDGET
+        assert conviction_reason.startswith("X" * body_budget)
+
+    def test_truncation_respects_max_chars(self):
+        """PR-690 O13b: returned string length must be <= _MAX_CONVICTION_REASON_CHARS.
+
+        Previously the marker was appended to a body already at the ceiling, so
+        the stored value could exceed the documented limit by ~30 chars. The
+        fix reserves space for the marker so the ceiling is a hard maximum.
+        """
+        from src.llm.packet_writer import (
+            _MAX_CONVICTION_REASON_CHARS, _truncate_conviction_reason,
+        )
+        # Test multiple overflow magnitudes to confirm the invariant holds.
+        for n in (4001, 4500, 10_000, 100_000):
+            text = "Y" * n
+            result = _truncate_conviction_reason(text)
+            assert len(result) <= _MAX_CONVICTION_REASON_CHARS, (
+                f"len(result)={len(result)} exceeded ceiling "
+                f"{_MAX_CONVICTION_REASON_CHARS} for input of {n} chars"
+            )
+            assert "[truncated, original" in result
+            assert f"original {n} chars" in result
+
+    def test_truncation_below_ceiling_returns_unchanged(self):
+        """PR-690 O13b: text at or below the ceiling must pass through unmodified."""
+        from src.llm.packet_writer import (
+            _MAX_CONVICTION_REASON_CHARS, _truncate_conviction_reason,
+        )
+        for n in (0, 1, 100, _MAX_CONVICTION_REASON_CHARS - 1, _MAX_CONVICTION_REASON_CHARS):
+            text = "Z" * n
+            assert _truncate_conviction_reason(text) == text
+
+    def test_key_risk_multi_line_capture(self):
+        """PR-690 O13a: multi-line Key Risk is captured fully (was truncated at first newline).
+
+        Qwen3 occasionally wraps the Key Risk sentence across newlines despite
+        the prompt asking for one sentence. The pre-fix regex used '.' without
+        re.DOTALL so the second line was silently dropped, losing operator-
+        visible risk context. The fix uses DOTALL with whitespace normalization
+        so the captured text is preserved as a single visual line.
+        """
+        # Build a metadata block where Key Risk wraps across two lines but is
+        # bounded by a subsequent metadata field (Expected Holding Period).
+        wrapped_risk = (
+            "Earnings in 3 days could gap against position\n"
+            "and break the 50-day MA support structure"
+        )
+        response = (
+            "<why_now>The setup is constructive on contracting volume.</why_now>\n"
+            "<analysis>Paragraph one.\n\nParagraph two.</analysis>\n"
+            "<metadata>\n"
+            "Conviction: 7\n"
+            "Direction: LONG\n"
+            "Time Horizon: 5-10 trading days\n"
+            f"Key Risk: {wrapped_risk}\n"
+            "Expected Holding Period: 14 days\n"
+            "</metadata>"
+        )
+        conviction, why_now, deeper_analysis, conviction_reason, timeout_days = _parse_llm_response(response)
+        # Both fragments must appear; the newline is collapsed to a single space.
+        assert conviction_reason is not None
+        assert "Earnings in 3 days could gap against position" in conviction_reason
+        assert "break the 50-day MA support structure" in conviction_reason
+        assert "\n" not in conviction_reason, (
+            "Multi-line capture should be normalized to a single visual line "
+            "for inline display in the dashboard quote"
+        )
+        # The subsequent metadata field must NOT leak into conviction_reason.
+        assert "Expected Holding Period" not in conviction_reason
+        assert "14 days" not in conviction_reason
+        # And the holding period must still be parsed correctly downstream.
+        assert timeout_days == 14
+
+    def test_key_risk_single_line_unchanged(self):
+        """PR-690 O13a regression: single-line Key Risk capture still works."""
+        response = _make_response(
+            key_risk="Earnings in 3 days could gap against position.",
+            include_holding_period=False,
+        )
+        conviction, why_now, deeper_analysis, conviction_reason, timeout_days = _parse_llm_response(response)
+        assert conviction_reason == "Earnings in 3 days could gap against position."
 
     def test_existing_conviction_integer_parsing_unchanged(self):
         """Regression: existing Conviction: N parsing still works after B4+B8 changes."""

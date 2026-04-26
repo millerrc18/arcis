@@ -41,7 +41,19 @@ logger = logging.getLogger(__name__)
 # B4: truncation ceiling for llm_conviction_reason (Key Risk: line).
 # WHY 4000: Key Risk is normally 1 sentence (40-120 chars). The ceiling is a
 # safety net for future model versions that might emit verbose reason text.
+# PR-690 O13b: This is a HARD ceiling — _truncate_conviction_reason reserves
+# space for the truncation marker so the returned string never exceeds it.
 _MAX_CONVICTION_REASON_CHARS = 4000
+
+# PR-690 O13b: Truncation marker template + reserved budget. The marker is
+# appended only when text exceeds the ceiling; the body is shrunk by the
+# reserved budget so total length stays at or below _MAX_CONVICTION_REASON_CHARS.
+# WHY 60: a 19-digit original-length integer (covers ~10**18 chars, more than
+# any plausible LLM emission) plus the literal "... [truncated, original  chars]"
+# (32 chars) sums to 51; rounding up to 60 leaves headroom for any future
+# template tweak without recomputing the constant.
+_TRUNCATION_MARKER_TEMPLATE = "... [truncated, original {n} chars]"
+_TRUNCATION_MARKER_BUDGET = 60
 
 # #154: context window overflow protection -- max tokens before truncation.
 # WHY 7000: Qwen3 8B has an 8192-token context window. The system prompt
@@ -70,11 +82,24 @@ _ENRICHMENT_CHAR_CAP = 500
 
 
 def _truncate_conviction_reason(text: str) -> str:
-    """Truncate conviction reason to _MAX_CONVICTION_REASON_CHARS with a marker."""
+    """Truncate conviction reason so the result never exceeds _MAX_CONVICTION_REASON_CHARS.
+
+    When ``len(text) > _MAX_CONVICTION_REASON_CHARS``, the body is sliced to
+    ``_MAX_CONVICTION_REASON_CHARS - _TRUNCATION_MARKER_BUDGET`` characters and
+    a marker like ``"... [truncated, original 4523 chars]"`` is appended. The
+    returned string length is therefore guaranteed to be <= the ceiling.
+
+    PR-690 O13b: previously the marker was appended to a body already at the
+    ceiling, so the stored value could overrun by ~30 chars and the docstring
+    description ("truncated at 4000 chars") was misleading.
+    """
     if len(text) <= _MAX_CONVICTION_REASON_CHARS:
         return text
     original_len = len(text)
-    return text[:_MAX_CONVICTION_REASON_CHARS] + f"... [truncated, original {original_len} chars]"
+    body_budget = _MAX_CONVICTION_REASON_CHARS - _TRUNCATION_MARKER_BUDGET
+    body = text[:body_budget]
+    marker = _TRUNCATION_MARKER_TEMPLATE.format(n=original_len)
+    return body + marker
 
 
 def _sanitize_enrichment_text(text: str) -> str:
@@ -359,7 +384,8 @@ def _parse_llm_response(response: str) -> tuple[
     Returns (conviction, why_now, deeper_analysis, conviction_reason, timeout_days).
     All fields are None on failure; conviction defaults to 5 in the caller (#168).
 
-    B4: Key Risk: line → llm_conviction_reason (truncated at 4000 chars).
+    B4: Key Risk: line → llm_conviction_reason (multi-line capture via DOTALL,
+        whitespace-normalized, total length <= _MAX_CONVICTION_REASON_CHARS).
     B8: Expected Holding Period: N days → llm_timeout_days (validated 1-60, int).
         Out-of-range or non-integer → NULL + [LLM_TIMEOUT_INVALID] warning.
 
@@ -424,10 +450,27 @@ def _parse_llm_response(response: str) -> tuple[
                 logger.warning("[LLM] Conviction %d outside 1-10 range — clamping", raw_conv)
             conviction = max(1, min(10, raw_conv))
 
-        # B4: Extract Key Risk line → conviction_reason (truncate at 4000 chars)
-        key_risk_match = re.search(r'Key Risk:\s*(.+)', metadata_text)
+        # B4: Extract Key Risk line → conviction_reason (truncate at 4000 chars).
+        # PR-690 O13a: Use re.DOTALL so '.' matches newlines. The prompt
+        # (src/llm/prompts.py) instructs the model to emit Key Risk as ONE
+        # sentence, but Qwen3 occasionally wraps the sentence across newlines,
+        # which previously caused silent truncation at the first '\n'. We
+        # capture up to the next metadata field (Expected Holding Period) or
+        # end-of-block, then collapse internal whitespace so the dashboard's
+        # inline quote (frontend/src/pages/{TradeHistory,ShadowLedger}.jsx)
+        # renders cleanly on a single line. End-marker is anchored on a line
+        # boundary to avoid swallowing the next field.
+        key_risk_match = re.search(
+            r'Key Risk:\s*(.+?)(?=\n\s*(?:Expected Holding Period|Direction|Time Horizon|Conviction)\s*:|\Z)',
+            metadata_text,
+            re.DOTALL | re.IGNORECASE,
+        )
         if key_risk_match:
-            conviction_reason = _truncate_conviction_reason(key_risk_match.group(1).strip())
+            raw_risk = key_risk_match.group(1).strip()
+            # Collapse newlines and runs of whitespace into single spaces so
+            # multi-line capture is preserved as a single visual line.
+            normalized_risk = re.sub(r'\s+', ' ', raw_risk).strip()
+            conviction_reason = _truncate_conviction_reason(normalized_risk)
 
         # B8: Extract Expected Holding Period: N [days] → timeout_days (validate 1-60)
         # Capture the full remainder of the line so "2 weeks" is not truncated to "2".
