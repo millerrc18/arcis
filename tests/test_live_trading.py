@@ -326,6 +326,9 @@ class TestLiveSafetyGuards:
 # ── Live Trade Execution ─────────────────────────────────────────────
 
 class TestLiveTradeExecution:
+    @patch("src.shadow_trading.alpaca_adapter.verify_live_order_accepted",
+           return_value={"verified": True, "status": "accepted",
+                         "attempts": 1, "order": {}})
     @patch("src.shadow_trading.executor.load_config")
     @patch("src.shadow_trading.alpaca_adapter.get_live_account_info")
     @patch("src.shadow_trading.executor.get_open_shadow_trades")
@@ -334,6 +337,7 @@ class TestLiveTradeExecution:
     @patch("src.notifications.telegram.is_telegram_enabled", return_value=False)
     def test_successful_live_trade(self, mock_tg, mock_place, mock_price,
                                     mock_open_trades, mock_acct, mock_config,
+                                    mock_verify,
                                     live_config, mock_packet, mock_features, tmp_db):
         """Successful live trade should be recorded with source='live'."""
         mock_config.return_value = live_config
@@ -370,6 +374,10 @@ class TestLiveTradeExecution:
             ).fetchone()
         assert row["source"] == "live"
         assert row["alpaca_order_id"] == "live-order-123"
+        # LIVE-VERIFY: verify_live_order_accepted MUST have been called once
+        # by AlpacaLiveBroker.place_bracket_order on the live order id.
+        mock_verify.assert_called_once()
+        assert mock_verify.call_args.args[0] == "live-order-123"
 
     @patch("src.shadow_trading.executor.load_config")
     @patch("src.shadow_trading.alpaca_adapter.get_live_account_info")
@@ -410,8 +418,12 @@ class TestLiveRiskParameters:
     @patch("src.shadow_trading.executor.get_open_shadow_trades")
     @patch("src.shadow_trading.executor._get_current_price_safe")
     @patch("src.shadow_trading.alpaca_adapter.place_live_bracket")
+    @patch("src.shadow_trading.alpaca_adapter.verify_live_order_accepted",
+           return_value={"verified": True, "status": "accepted",
+                         "attempts": 1, "order": {}})
     @patch("src.notifications.telegram.is_telegram_enabled", return_value=False)
-    def test_atr_based_stop_and_target(self, mock_tg, mock_place, mock_price,
+    def test_atr_based_stop_and_target(self, mock_tg, mock_verify, mock_place,
+                                        mock_price,
                                         mock_open_trades, mock_acct, mock_config,
                                         live_config, mock_packet, mock_features, tmp_db):
         """Live trades should use ATR-based stop/target from live_trading.risk."""
@@ -558,8 +570,12 @@ class TestDualExecution:
     @patch("src.shadow_trading.executor.get_open_shadow_trades")
     @patch("src.shadow_trading.executor._get_current_price_safe")
     @patch("src.shadow_trading.alpaca_adapter.place_live_bracket")
+    @patch("src.shadow_trading.alpaca_adapter.verify_live_order_accepted",
+           return_value={"verified": True, "status": "accepted",
+                         "attempts": 1, "order": {}})
     @patch("src.notifications.telegram.is_telegram_enabled", return_value=False)
-    def test_paper_and_live_both_execute(self, mock_tg, mock_live_place, mock_price,
+    def test_paper_and_live_both_execute(self, mock_tg, mock_verify,
+                                          mock_live_place, mock_price,
                                           mock_open_trades, mock_paper_acct, mock_acct,
                                           mock_config,
                                           live_config, mock_packet, mock_features, tmp_db):
@@ -639,13 +655,29 @@ class TestDualExecution:
                                     {"ticker": "AAPL", "source": "paper"},
                                 ]
                                 with patch("src.shadow_trading.executor._get_current_price_safe", return_value=50.0):
-                                    with patch("src.shadow_trading.alpaca_adapter.place_live_entry") as mock_place:
+                                    with patch("src.shadow_trading.alpaca_adapter.place_live_entry") as mock_place, patch(
+                                        "src.shadow_trading.alpaca_adapter.place_live_bracket"
+                                    ) as mock_bracket, patch(
+                                        "src.shadow_trading.alpaca_adapter.verify_live_order_accepted",
+                                        return_value={"verified": True, "status": "accepted",
+                                                      "attempts": 1, "order": {}},
+                                    ):
                                         mock_place.return_value = {
                                             "order_id": "live-dup-test",
                                             "symbol": "AAPL", "qty": 1, "side": "buy",
                                             "type": "market", "status": "accepted",
                                             "filled_avg_price": 50.0,
                                             "filled_at": None, "created_at": None,
+                                        }
+                                        # Sprint 0 Wave 5c: open_live_trade goes through
+                                        # AlpacaLiveBroker.place_bracket_order which calls
+                                        # place_live_bracket — must be mocked too.
+                                        mock_bracket.return_value = {
+                                            "order_id": "live-dup-test",
+                                            "symbol": "AAPL", "qty": 1, "side": "buy",
+                                            "type": "market", "order_class": "bracket",
+                                            "status": "accepted", "filled_avg_price": 50.0,
+                                            "legs": [],
                                         }
                                         with patch("src.notifications.telegram.is_telegram_enabled",
                                                     return_value=False):

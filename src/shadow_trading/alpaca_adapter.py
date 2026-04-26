@@ -759,6 +759,149 @@ class LiveTradingError(Exception):
     """Raised when live trading operations fail."""
 
 
+class OrderNotAcceptedError(Exception):
+    """Raised when an order submitted via Alpaca live did NOT reach an
+    acceptable status (terminal-cancel, rejected, expired, suspended,
+    or persistent unknown after polling).
+
+    Sprint 0 Wave 5c LIVE-VERIFY: Network errors during submission do not
+    mean Alpaca rejected the order. Equally, a fire-and-forget submit
+    can race a broker-side rejection that the SDK never raised. Live
+    capital paths MUST observe the broker's authoritative status.
+    """
+
+    def __init__(self, order_id: str, status: str, attempts: int = 1,
+                 last_error: str | None = None):
+        self.order_id = order_id
+        self.status = status
+        self.attempts = attempts
+        self.last_error = last_error
+        msg = (
+            f"Order {order_id} not accepted: status={status!r} "
+            f"after {attempts} verification attempt(s)"
+        )
+        if last_error:
+            msg += f" (last_error={last_error})"
+        super().__init__(msg)
+
+
+def verify_live_order_accepted(
+    order_id: str,
+    *,
+    max_attempts: int = 5,
+    base_delay: float = 1.0,
+    max_delay: float = 8.0,
+    sleep_fn=None,
+) -> dict:
+    """Poll Alpaca live for terminal acceptance/rejection of an order.
+
+    Sprint 0 Wave 5c LIVE-VERIFY: AlpacaLiveBroker submits orders against
+    real money, but pre-Wave-5c never called any post-submit verification.
+    This polls the live trading client up to ``max_attempts`` times with
+    1s exponential backoff (1, 2, 4, 8, 8 — capped at ``max_delay``) and:
+
+    - returns the verified order dict (status in
+      {accepted, new, pending_new, filled, partially_filled, done_for_day})
+    - raises :class:`OrderNotAcceptedError` if a terminal-reject status is
+      seen (rejected, canceled, expired, suspended) — the broker has
+      definitively refused or killed the order
+    - raises :class:`OrderNotAcceptedError` if all attempts return
+      "unknown" / API errors — the order's fate is uncertain and a live
+      capital path must NOT silently proceed
+
+    The polling distinguishes "still pending" from "terminal" — Alpaca
+    can briefly show ``pending_new`` immediately after submission, so we
+    retry until either an accepted or rejected state is observed (or
+    attempts exhaust).
+
+    Args:
+        order_id: Live Alpaca order id returned by ``submit_order``.
+        max_attempts: How many times to poll (default 5).
+        base_delay: First retry delay in seconds (default 1.0).
+        max_delay: Cap on per-attempt sleep (default 8.0).
+        sleep_fn: Injectable sleep function for tests (default time.sleep).
+
+    Returns:
+        dict {"verified": True, "status": <str>, "attempts": <int>,
+              "order": <serialized order dict>}
+    """
+    import time as _time
+    if sleep_fn is None:
+        sleep_fn = _time.sleep
+
+    accepted_states = {"accepted", "new", "pending_new", "filled",
+                       "partially_filled", "done_for_day"}
+    rejected_states = {"rejected", "canceled", "expired", "suspended"}
+
+    last_status = "unknown"
+    last_error: str | None = None
+    last_order_payload: dict | None = None
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            client = _get_live_trading_client()
+            order = client.get_order_by_id(order_id)
+            status = str(order.status).lower().replace("orderstatus.", "")
+            last_status = status
+            last_order_payload = {
+                "order_id": str(getattr(order, "id", order_id)),
+                "symbol": str(getattr(order, "symbol", "")),
+                "status": status,
+                "qty": float(order.qty) if getattr(order, "qty", None) else 0.0,
+                "filled_qty": (
+                    float(order.filled_qty)
+                    if getattr(order, "filled_qty", None) else 0.0
+                ),
+                "filled_avg_price": (
+                    float(order.filled_avg_price)
+                    if getattr(order, "filled_avg_price", None) else None
+                ),
+            }
+            if status in accepted_states:
+                return {
+                    "verified": True,
+                    "status": status,
+                    "attempts": attempt,
+                    "order": last_order_payload,
+                }
+            if status in rejected_states:
+                logger.error(
+                    "[LIVE-VERIFY] Order %s in terminal-reject state %r "
+                    "after %d attempt(s)",
+                    order_id, status, attempt,
+                )
+                raise OrderNotAcceptedError(
+                    order_id=order_id,
+                    status=status,
+                    attempts=attempt,
+                )
+            # Otherwise: unexpected/unknown status — poll again
+            logger.warning(
+                "[LIVE-VERIFY] Order %s status=%r on attempt %d/%d; retrying",
+                order_id, status, attempt, max_attempts,
+            )
+        except OrderNotAcceptedError:
+            raise
+        except Exception as exc:
+            last_error = str(exc)
+            logger.warning(
+                "[LIVE-VERIFY] Could not verify order %s (attempt %d/%d): %s",
+                order_id, attempt, max_attempts, exc,
+            )
+
+        if attempt < max_attempts:
+            delay = min(base_delay * (2 ** (attempt - 1)), max_delay)
+            sleep_fn(delay)
+
+    # All attempts exhausted without seeing an accepted status
+    raise OrderNotAcceptedError(
+        order_id=order_id,
+        status=last_status,
+        attempts=max_attempts,
+        last_error=last_error,
+    )
+
+
 def _get_live_config() -> dict:
     """Load live trading config from settings."""
     config = load_config()
