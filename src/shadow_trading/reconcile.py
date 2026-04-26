@@ -300,12 +300,18 @@ def reconcile_live_trades(
             # Task 7: Cancel IB/broker orders before closing stale live trades.
             # Without this, GTC bracket orders remain live on the IB side after
             # the local record is marked closed.
+            #
+            # RECONCILE-NAMEERR (Sprint 0 Wave 1c): the prior implementation
+            # included a dead `for _oid in [... for s in [stale_entry]]:` block
+            # that referenced an out-of-scope variable (`stale_entry` is the
+            # paper loop var; live's loop var is `ticker`). That NameError
+            # was silently swallowed by the surrounding except, so the
+            # cancel-before-close logic NEVER executed on live stale closes —
+            # GTC bracket orders leaked on the broker side. Removed.
             try:
                 from src.trading.broker_factory import get_live_broker as _glb_t7
-                _broker_t7 = _glb_t7(load_config())
-                for _oid in [s.get("alpaca_order_id") if isinstance(s, dict) else None
-                             for s in [stale_entry]]:
-                    pass  # stale_entry is {"ticker", "trade_id"} — order IDs are in the DB
+                from src.config import load_config as _lc_t7
+                _broker_t7 = _glb_t7(_lc_t7())
                 # Fetch the actual order IDs from the trade row
                 with connect_db(db_path) as _conn_t7:
                     _trade_t7 = _conn_t7.execute(
@@ -321,7 +327,13 @@ def reconcile_live_trades(
                         for _child_id in _json_t7.loads(_trade_t7["ib_child_order_ids"]):
                             _broker_t7.cancel_order(_child_id)
             except Exception as _cancel_err:
-                logger.warning("[RECONCILE] Live order cancel failed for %s: %s", ticker, _cancel_err)
+                logger.warning(
+                    "[RECONCILE-LIVE] Pre-close broker cancel failed for "
+                    "ticker=%s trade_id=%s: %s — proceeding with local close, "
+                    "but broker-side bracket orders may remain open and "
+                    "require manual cancellation",
+                    ticker, trade_id, _cancel_err,
+                )
 
             close_shadow_trade(
                 trade_id=trade_id,
