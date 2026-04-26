@@ -187,7 +187,7 @@ def create_router(runtime, verify_auth):
                 )
                 trade["timeout_progress_pct"] = timeout_info["timeout_progress_pct"]
                 trade["timeout_status"] = timeout_info["timeout_status"]
-                trade.setdefault("llm_timeout_days", trade.get("llm_timeout_days"))
+                trade["llm_timeout_days"] = trade.get("llm_timeout_days")
 
             return {
                 "trades": rows,
@@ -244,7 +244,7 @@ def create_router(runtime, verify_auth):
                 )
                 row["timeout_progress_pct"] = timeout_info["timeout_progress_pct"]
                 row["timeout_status"] = timeout_info["timeout_status"]
-                row.setdefault("llm_timeout_days", row.get("llm_timeout_days"))
+                row["llm_timeout_days"] = row.get("llm_timeout_days")
             return {"trades": rows, "count": len(rows), "days": days, "metrics": metrics}
         except HTTPException:
             raise
@@ -348,8 +348,13 @@ def create_router(runtime, verify_auth):
         except HTTPException:
             raise
         except Exception as exc:
-            runtime.logger.error("Packets error: %s", exc)
-            return []
+            # PR #690 O8: surface 500 instead of silent [] so frontend
+            # error boundary can fire (frontend can't tell "no packets" from
+            # "fetch failed" if we return []).
+            runtime.logger.warning(
+                "[API] packets failed: %s", exc, exc_info=True
+            )
+            raise HTTPException(status_code=500, detail=str(exc))
 
     @router.get("/api/live/trades", dependencies=[Depends(verify_auth)])
     def live_trades():
@@ -399,14 +404,14 @@ def create_router(runtime, verify_auth):
                 )
                 trade["timeout_progress_pct"] = timeout_info["timeout_progress_pct"]
                 trade["timeout_status"] = timeout_info["timeout_status"]
-                trade.setdefault("llm_timeout_days", trade.get("llm_timeout_days"))
+                trade["llm_timeout_days"] = trade.get("llm_timeout_days")
             for trade in closed_trades:
                 timeout_info = compute_timeout_status(
                     trade.get("duration_days"), trade.get("timeout_days")
                 )
                 trade["timeout_progress_pct"] = timeout_info["timeout_progress_pct"]
                 trade["timeout_status"] = timeout_info["timeout_status"]
-                trade.setdefault("llm_timeout_days", trade.get("llm_timeout_days"))
+                trade["llm_timeout_days"] = trade.get("llm_timeout_days")
             return {"open": open_trades, "closed": closed_trades}
         except Exception as exc:
             runtime.logger.error("Live trades error: %s", exc)
