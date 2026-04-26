@@ -22,6 +22,9 @@ CONTROLLED_VOCAB: frozenset[str] = frozenset({
     "timeout",
     "manual",
     "reconciled",
+    "reconciled_stale",
+    "exit_overshoot_detected",
+    "qty_mismatch_partial_fill",
     "error",
     "unknown",
 })
@@ -31,14 +34,11 @@ LEGACY_COERCIONS: dict[str, str] = {
     "target_2_hit": "target_2",
     "stop_hit": "stop_loss",
     "take_profit": "target_1",
-    "reconciled_stale": "reconciled",
     "mr_timeout": "timeout",
     "rsi_exit": "target_1",
     "atr_stop": "stop_loss",
     "late_fill_reconciled": "reconciled",
     "manual_alpaca_close_op_confirmed": "manual",
-    "exit_overshoot_detected": "error",
-    "qty_mismatch_partial_fill": "error",
 }
 
 

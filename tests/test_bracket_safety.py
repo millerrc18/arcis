@@ -192,4 +192,4 @@ class TestStopVsTakeProfitLeg:
             check_and_manage_open_trades()
             if mock_close.called:
                 _, kwargs = mock_close.call_args
-                assert kwargs.get("exit_reason") == "take_profit"
+                assert kwargs.get("exit_reason") == "target_1"  # Coerced to canonical 'target_1' by B3 LEGACY_COERCIONS — see docs/sprints/track_1_5_pass1_design/B3_exit_reason_taxonomy.md

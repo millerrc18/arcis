@@ -78,7 +78,7 @@ def test_legacy_synonym_take_profit(caplog):
 def test_legacy_synonym_reconciled_stale(caplog):
     with caplog.at_level(logging.WARNING):
         result = _coerce("reconciled_stale")
-    assert result == "reconciled"
+    assert result == "reconciled_stale"
     assert "EXIT_REASON_INVALID" not in caplog.text
 
 
@@ -152,3 +152,28 @@ def test_none_string_returns_unknown(caplog):
         result = _coerce(None)
     assert result == "unknown"
     assert "EXIT_REASON_INVALID" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Promoted first-class vocab values (pass-through, no warning)
+# ---------------------------------------------------------------------------
+
+def test_reconciled_stale_passes_through(caplog):
+    with caplog.at_level(logging.WARNING):
+        result = _coerce("reconciled_stale")
+    assert result == "reconciled_stale"
+    assert "EXIT_REASON_INVALID" not in caplog.text
+
+
+def test_exit_overshoot_detected_passes_through(caplog):
+    with caplog.at_level(logging.WARNING):
+        result = _coerce("exit_overshoot_detected")
+    assert result == "exit_overshoot_detected"
+    assert "EXIT_REASON_INVALID" not in caplog.text
+
+
+def test_qty_mismatch_partial_fill_passes_through(caplog):
+    with caplog.at_level(logging.WARNING):
+        result = _coerce("qty_mismatch_partial_fill")
+    assert result == "qty_mismatch_partial_fill"
+    assert "EXIT_REASON_INVALID" not in caplog.text
