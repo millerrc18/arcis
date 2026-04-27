@@ -655,23 +655,13 @@ class TestDualExecution:
                                     {"ticker": "AAPL", "source": "paper"},
                                 ]
                                 with patch("src.shadow_trading.executor._get_current_price_safe", return_value=50.0):
-                                    with patch("src.shadow_trading.alpaca_adapter.place_live_entry") as mock_place, patch(
+                                    with patch(
                                         "src.shadow_trading.alpaca_adapter.place_live_bracket"
                                     ) as mock_bracket, patch(
                                         "src.shadow_trading.alpaca_adapter.verify_live_order_accepted",
                                         return_value={"verified": True, "status": "accepted",
                                                       "attempts": 1, "order": {}},
                                     ):
-                                        mock_place.return_value = {
-                                            "order_id": "live-dup-test",
-                                            "symbol": "AAPL", "qty": 1, "side": "buy",
-                                            "type": "market", "status": "accepted",
-                                            "filled_avg_price": 50.0,
-                                            "filled_at": None, "created_at": None,
-                                        }
-                                        # Sprint 0 Wave 5c: open_live_trade goes through
-                                        # AlpacaLiveBroker.place_bracket_order which calls
-                                        # place_live_bracket — must be mocked too.
                                         mock_bracket.return_value = {
                                             "order_id": "live-dup-test",
                                             "symbol": "AAPL", "qty": 1, "side": "buy",

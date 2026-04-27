@@ -258,31 +258,34 @@ def test_site6_emergency_close_sdk_missing_persists():
 
     with patch("src.shadow_trading.executor.log_and_persist") as mock_lap:
         with patch("src.shadow_trading.alpaca_adapter.place_bracket_order", side_effect=RuntimeError("bracket failed")):
-            with patch("src.shadow_trading.alpaca_adapter.place_paper_exit", side_effect=RuntimeError("close failed")):
-                with patch("src.shadow_trading.alpaca_adapter.get_all_positions", return_value=[]):
-                    with patch("src.shadow_trading.executor.load_config", return_value=_base_config()):
-                        with patch("src.shadow_trading.executor._enforce_position_cap", return_value=True):
-                            with patch("src.shadow_trading.executor.get_open_shadow_trades", return_value=[]):
-                                with patch("src.shadow_trading.executor.get_open_shadow_trade_for_ticker", return_value=None):
-                                    with patch("src.shadow_trading.executor._check_paper_buying_power", return_value=True):
-                                        with patch("src.llm.validator.validate_llm_output", return_value=(True, "")):
-                                            with patch("src.risk.governor.RiskGovernor") as MockGov:
-                                                MockGov.return_value.check_trade.return_value = {
-                                                    "approved": True,
-                                                    "effective_allocation_dollars": 2000.0,
-                                                }
-                                                with patch("src.risk.governor.get_portfolio_state", return_value={}):
-                                                    with patch("src.risk.governor.drawdown_adjusted_risk", return_value=0.02):
-                                                        with patch("src.risk.governor.get_effective_risk_pct", return_value=(0.02, "tier1")):
-                                                            with patch("src.shadow_trading.executor._select_paper_broker", return_value=("alpaca", None)):
-                                                                with patch("src.shadow_trading.executor.insert_shadow_trade", return_value="t-6"):
-                                                                    # Force _ALPACA_BRACKET_AVAILABLE = False
-                                                                    with patch.object(executor, "_ALPACA_BRACKET_AVAILABLE", False):
-                                                                        executor.open_shadow_trade(
-                                                                            recommendation_id="rec-6",
-                                                                            packet=mock_packet,
-                                                                            features={"traffic_light_multiplier": 0.9},
-                                                                        )
+            with patch("src.shadow_trading.alpaca_adapter.place_paper_entry",
+                       return_value={"order_id": "e-6", "filled_avg_price": 200.0}):
+                with patch("src.shadow_trading.alpaca_adapter.place_paper_exit", side_effect=RuntimeError("close failed")):
+                    with patch("src.shadow_trading.alpaca_adapter.get_all_positions", return_value=[]):
+                        with patch("src.shadow_trading.executor.load_config", return_value=_base_config()):
+                            with patch("src.shadow_trading.executor._enforce_position_cap", return_value=True):
+                                with patch("src.shadow_trading.executor.get_open_shadow_trades", return_value=[]):
+                                    with patch("src.shadow_trading.executor.get_open_shadow_trade_for_ticker", return_value=None):
+                                        with patch("src.shadow_trading.executor._check_paper_buying_power", return_value=True):
+                                            with patch("src.llm.validator.validate_llm_output", return_value=(True, "")):
+                                                with patch("src.risk.governor.RiskGovernor") as MockGov:
+                                                    MockGov.return_value.check_trade.return_value = {
+                                                        "approved": True,
+                                                        "effective_allocation_dollars": 2000.0,
+                                                    }
+                                                    with patch("src.risk.governor.get_portfolio_state", return_value={}):
+                                                        with patch("src.risk.governor.drawdown_adjusted_risk", return_value=0.02):
+                                                            with patch("src.risk.governor.get_effective_risk_pct", return_value=(0.02, "tier1")):
+                                                                with patch("src.shadow_trading.executor._select_paper_broker", return_value=("alpaca", None)):
+                                                                    with patch("src.shadow_trading.executor.insert_shadow_trade", return_value="t-6"):
+                                                                        with patch("src.shadow_trading.executor._verify_and_update"):
+                                                                            # Force _ALPACA_BRACKET_AVAILABLE = False
+                                                                            with patch.object(executor, "_ALPACA_BRACKET_AVAILABLE", False):
+                                                                                executor.open_shadow_trade(
+                                                                                    recommendation_id="rec-6",
+                                                                                    packet=mock_packet,
+                                                                                    features={"traffic_light_multiplier": 0.9},
+                                                                                )
 
     ops = [
         (c.kwargs.get("operation") or (c.args[1] if len(c.args) > 1 else None))

@@ -653,16 +653,16 @@ def test_full_pipeline_when_broker_exception_during_exit(tmp_path):
         f"expected status in {{exit_failed, exit_abandoned}}, got "
         f"{row['status']!r}"
     )
-    # 'broker_exception:APIError' is not in CONTROLLED_VOCAB so coerce_exit_reason
-    # falls back to 'unknown' — that's the canonical sentinel for unrecognized
-    # exit reasons under B3.
+    # Wave 2b promoted 'broker_exception' to first-class CONTROLLED_VOCAB so
+    # coerce_exit_reason("broker_exception") returns "broker_exception" (not
+    # "unknown"). The old comment was written before that promotion.
     assert row["exit_reason"] in CONTROLLED_VOCAB, (
         f"O4#4 (B3): exit_reason={row['exit_reason']!r} not in "
         f"EXIT_REASON_VOCAB"
     )
-    assert row["exit_reason"] == "unknown", (
-        f"O4#4: exit_reason should coerce to 'unknown' (broker_exception:APIError "
-        f"is not a controlled vocab member); got {row['exit_reason']!r}"
+    assert row["exit_reason"] == "broker_exception", (
+        f"O4#4: exit_reason should be 'broker_exception' (Wave 2b first-class "
+        f"vocab token for broker-side exceptions); got {row['exit_reason']!r}"
     )
     assert (row["exit_retry_count"] or 0) >= 1, (
         f"O4#4: exit_retry_count must be incremented on broker exception "

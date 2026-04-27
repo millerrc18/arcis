@@ -970,16 +970,15 @@ class TestTrainingQuality:
 class TestScanMetrics:
     """Tests for /api/scan/metrics."""
 
-    @patch("src.api.cloud_app._query_one")
-    def test_scan_metrics(self, mock_one, client):
-        # PR #690 O8 contract change: route uses runtime.query (cloud_routes/training.py)
-        # not cloud_app._query_one, so this mock at cloud_app layer doesn't intercept.
-        # Connection fails first inside get_pg → 503 before any query runs in test env.
-        # Matches the `in (200, 503)` pattern at line 708; mock-layer mismatch is
-        # follow-up debt to address when the real DB is reachable in CI.
-        mock_one.return_value = {"llm_success": 5, "llm_total": 6}
+    @patch("src.api.cloud_app._query")
+    def test_scan_metrics(self, mock_query, client):
+        mock_query.return_value = [{"llm_success": 5, "llm_total": 6, "scan_number": 1}]
         r = client.get("/api/scan/metrics")
-        assert r.status_code in (200, 503)
+        assert r.status_code == 200
+        data = r.json()
+        assert isinstance(data, list)
+        assert data[0]["llm_success"] == 5
+        assert data[0]["llm_total"] == 6
 
 
 class TestProjectionsLive:
