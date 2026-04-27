@@ -10,8 +10,8 @@ Canonical list of test failures that exist on `main` and are not regressions fro
 
 | Test | Reason | Tracker | Disclosed in |
 |------|--------|---------|--------------|
-| `tests/test_broker_interface.py::TestAlpacaLiveBracket651` | Newly-discovered during Sprint 0.C C.3 full sweep; not previously tracked | (TODO: file Sprint 0.D tracker) | PR #753 review |
-| `tests/test_ib_production.py::TestErrorCodes` | Newly-discovered during Sprint 0.C C.3 full sweep; not previously tracked | (TODO: file Sprint 0.D tracker) | PR #753 review |
+| `tests/test_broker_interface.py::TestAlpacaLiveBracket651` | Newly-discovered during Sprint 0.C C.3 full sweep; not previously tracked | #760 | PR #753 review |
+| `tests/test_ib_production.py::TestErrorCodes` | Newly-discovered during Sprint 0.C C.3 full sweep; not previously tracked | #760 | PR #753 review |
 
 ---
 
