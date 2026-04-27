@@ -176,6 +176,24 @@ def run_scan(
     trades_closed = 0
     packets_emailed = 0
 
+    # #627 — Pre-LLM portfolio snapshot for sector concentration pre-filter.
+    # Fetched once before the loop so we don't call get_portfolio_state() per-candidate.
+    # Tests can inject via config["_pre_llm_portfolio_snapshot"] to avoid Alpaca calls.
+    _pre_llm_portfolio = config.get("_pre_llm_portfolio_snapshot")
+    if _pre_llm_portfolio is None:
+        try:
+            from src.risk.governor import get_portfolio_state
+            _pre_llm_portfolio = get_portfolio_state()
+        except Exception as _pf_err:
+            logger.debug("[SCAN] Pre-LLM portfolio snapshot unavailable: %s", _pf_err)
+            _pre_llm_portfolio = {}
+    _pre_llm_sector_exposure = (_pre_llm_portfolio or {}).get("sector_exposure", {})
+    _pre_llm_equity = (_pre_llm_portfolio or {}).get("equity", 0)
+    _risk_cfg = config.get("risk", {})
+    _sector_cap = float(_risk_cfg.get("max_sector_pct", 0.30))
+    _pre_llm_filtered_sector = 0
+    _pre_llm_filtered_event = 0
+
     packet_worthy_results = []
 
     for candidate in packet_worthy_raw:
@@ -185,6 +203,34 @@ def run_scan(
 
         # Capture signal price for IS tracking
         feat["signal_price"] = float(feat.get("current_price", 0))
+
+        # #627 — Pre-LLM filter: event risk hard block (multiplier=0 means earnings imminent).
+        # The governor will reject this anyway; skip the ~17s LLM call.
+        _event_mult = feat.get("event_risk_multiplier", 1.0)
+        if _event_mult is not None and float(_event_mult) <= 0:
+            logger.info(
+                "[SCAN] Pre-LLM filter: %s skipped — event risk hard block "
+                "(event_risk_multiplier=%.2f)", ticker, float(_event_mult),
+            )
+            _pre_llm_filtered_event += 1
+            continue
+
+        # #627 — Pre-LLM filter: sector concentration check.
+        # If the sector is already at or above the cap, the governor will reject this trade.
+        # Avoid the LLM call for a trade we know will be blocked.
+        if _pre_llm_equity > 0:
+            from src.universe.sectors import SECTOR_MAP
+            _ticker_sector = feat.get("sector") or feat.get("realized_sector") or SECTOR_MAP.get(ticker, "Unknown")
+            _current_sector_pct = _pre_llm_sector_exposure.get(_ticker_sector, 0)
+            if _current_sector_pct >= _sector_cap:
+                logger.info(
+                    "[SCAN] Pre-LLM filter: %s skipped — %s sector already at %.0f%% "
+                    "(cap %.0f%%)", ticker, _ticker_sector,
+                    _current_sector_pct * 100, _sector_cap * 100,
+                )
+                _pre_llm_filtered_sector += 1
+                continue
+
 
         # Attribution Phase 1: log ranker-only snapshot before LLM
         attribution_id = None
@@ -330,6 +376,15 @@ def run_scan(
                 )
             except Exception as exc:
                 logger.warning("[SCAN] Ticker event-risk Telegram alert failed for %s: %s", ticker, exc)
+
+    # #627 — Log pre-LLM filter summary
+    if _pre_llm_filtered_sector > 0 or _pre_llm_filtered_event > 0:
+        logger.info(
+            "[SCAN] Pre-LLM filter saved %d LLM calls: sector=%d, event_risk=%d",
+            _pre_llm_filtered_sector + _pre_llm_filtered_event,
+            _pre_llm_filtered_sector,
+            _pre_llm_filtered_event,
+        )
 
     if shadow_enabled:
         from src.shadow_trading.executor import check_and_manage_open_trades

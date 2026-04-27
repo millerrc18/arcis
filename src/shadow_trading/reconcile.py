@@ -52,6 +52,13 @@ from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 
+# #628 — Dedup guard for the IB cold-storage INFO log.
+# reconcile_paper_trades() runs every ~13 minutes (111×/day). When an IB
+# trade is cold-stored, the "[RECONCILE] N IB position(s) tracked but
+# trading.ib_enabled=false" message fires every cycle. Storing today's
+# ET date-string here limits that to once-per-calendar-day per process.
+_ib_cold_storage_warned_dates: set[str] = set()
+
 
 def _backfill_trade_data(ticker, entry_price, qty, allocation, source, now):
     """Build a trade_data dict for backfilling an orphaned position.
@@ -553,10 +560,15 @@ def reconcile_paper_trades(
     # signal — the same pattern that burned us in the 2026-04-13 outage.
     ib_trade_count = sum(1 for rec in tracked_map.values() if rec.get("broker") == "ib")
     if not ib_globally_enabled and ib_trade_count > 0:
-        logger.info(
-            "[RECONCILE] %d IB position(s) tracked but trading.ib_enabled=false (SD#41). "
-            "Letting brackets resolve naturally.", ib_trade_count,
-        )
+        # #628 — Deduplicate to once-per-calendar-day. Without this the same
+        # message fires 111×/day for every stuck IB cold-storage trade.
+        _today_et = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
+        if _today_et not in _ib_cold_storage_warned_dates:
+            _ib_cold_storage_warned_dates.add(_today_et)
+            logger.info(
+                "[RECONCILE] %d IB position(s) tracked but trading.ib_enabled=false (SD#41). "
+                "Letting brackets resolve naturally.", ib_trade_count,
+            )
     if ib_enabled and not ib_fetch_ok and ib_trade_count > 0:
         logger.warning(
             "[RECONCILE-PAPER] Skipping stale closure for %d IB-broker trades "

@@ -739,3 +739,94 @@ def test_paper_reconcile_ib_setup_exception_does_not_abort_reconcile(mock_positi
     assert "alpaca_count" in result, (
         "Result dict must contain alpaca_count key when IB setup raises"
     )
+
+
+# ── #628 — RECONCILE log spam dedup ─────────────────────────────────────────
+
+
+@patch("src.shadow_trading.reconcile.get_all_positions", return_value=[])
+def test_ib_cold_storage_log_emitted_once_per_day(mock_positions, db_path, caplog):
+    """#628 — RECONCILE IB cold-storage message must deduplicate to once-per-day.
+
+    The reconciler runs every ~13 minutes (111×/day). When an IB trade is
+    cold-stored, it must NOT emit the same INFO log 111 times. The fix adds
+    a date-keyed dedup guard so the message fires at most once per calendar day.
+    """
+    import logging
+    import sqlite3
+    from src.shadow_trading import reconcile as reconcile_mod
+
+    # Reset the dedup state before the test
+    reconcile_mod._ib_cold_storage_warned_dates.clear()
+
+    # Insert a stuck IB trade
+    insert_shadow_trade(
+        {
+            "ticker": "TGT",
+            "status": "open",
+            "source": "paper",
+            "broker": "ib",
+            "direction": "long",
+            "entry_price": 95.0,
+            "planned_shares": 76,
+            "created_at": "2026-04-13T09:30:00",
+            "updated_at": "2026-04-13T09:30:00",
+        },
+        db_path,
+    )
+
+    with patch("src.config.load_config", return_value={"trading": {"ib_enabled": False}}):
+        with caplog.at_level(logging.INFO, logger="src.shadow_trading.reconcile"):
+            # Call reconcile 5 times (simulating 5 scan cycles within the same day)
+            for _ in range(5):
+                caplog.clear()
+                reconcile_paper_trades(db_path=db_path, dry_run=True)
+
+    # The RECONCILE IB cold-storage message must appear at most once across all cycles
+    cold_storage_records = [
+        r for r in caplog.records
+        if "IB position(s) tracked" in r.message and "ib_enabled=false" in r.message
+    ]
+    assert len(cold_storage_records) == 0, (
+        f"Expected 0 cold-storage messages in final caplog after dedup, "
+        f"got {len(cold_storage_records)}: {[r.message for r in cold_storage_records]}"
+    )
+
+
+@patch("src.shadow_trading.reconcile.get_all_positions", return_value=[])
+def test_ib_cold_storage_log_fires_on_first_call(mock_positions, db_path, caplog):
+    """#628 — First call of the day SHOULD log the IB cold-storage message."""
+    import logging
+    import sqlite3
+    from src.shadow_trading import reconcile as reconcile_mod
+
+    # Reset dedup state
+    reconcile_mod._ib_cold_storage_warned_dates.clear()
+
+    insert_shadow_trade(
+        {
+            "ticker": "TGT",
+            "status": "open",
+            "source": "paper",
+            "broker": "ib",
+            "direction": "long",
+            "entry_price": 95.0,
+            "planned_shares": 76,
+            "created_at": "2026-04-13T09:30:00",
+            "updated_at": "2026-04-13T09:30:00",
+        },
+        db_path,
+    )
+
+    with patch("src.config.load_config", return_value={"trading": {"ib_enabled": False}}):
+        with caplog.at_level(logging.INFO, logger="src.shadow_trading.reconcile"):
+            reconcile_paper_trades(db_path=db_path, dry_run=True)
+
+    cold_storage_records = [
+        r for r in caplog.records
+        if "IB position(s) tracked" in r.message and "ib_enabled=false" in r.message
+    ]
+    assert len(cold_storage_records) == 1, (
+        f"Expected exactly 1 cold-storage message on first call of day, "
+        f"got {len(cold_storage_records)}"
+    )

@@ -631,6 +631,20 @@ class RiskGovernor:
             "detail": f"${allocation_dollars:.0f} = {position_pct:.1%} of ${equity:.0f} (limit: {self.max_position_pct:.0%})",
         })
         if not size_ok:
+            # #649 — Emit WARNING when account is underfunded so operator can
+            # distinguish "no signals today" from "account too small to trade".
+            # Threshold: equity < $1000 means the min_actionable allocation
+            # ($equity * max_position_pct) is so small that essentially every
+            # real stock trade will be rejected.
+            _UNDERFUNDED_FLOOR = 1000.0
+            if equity < _UNDERFUNDED_FLOOR:
+                min_actionable = equity * self.max_position_pct
+                logger.warning(
+                    "[RISK] Account underfunded — ALL trades blocked: "
+                    "equity=$%.2f, min_actionable_allocation=$%.2f "
+                    "(%.0f%% cap). Fund account or accept dormancy.",
+                    equity, min_actionable, self.max_position_pct * 100,
+                )
             return self._reject(checks, f"Position size: ${allocation_dollars:.0f} is {position_pct:.1%} of equity, exceeds {self.max_position_pct:.0%} limit")
 
         # -- Check 4: Maximum open positions --

@@ -95,3 +95,34 @@ def test_single_trade():
     assert result["wins"] == 1
     assert result["win_rate"] == 100.0
     assert result["expectancy"] == 7.5
+
+
+def test_expectancy_fallback_logs_warning_on_import_error(caplog):
+    """#744 — bare except must log a WARNING when evaluation.metrics is unavailable."""
+    import logging
+    import sys
+
+    saved = sys.modules.pop("src.evaluation.metrics", None)
+    sys.modules["src.evaluation.metrics"] = None  # block the import
+
+    try:
+        import importlib
+        import src.shadow_trading.metrics as _m
+        importlib.reload(_m)
+
+        with caplog.at_level(logging.WARNING, logger="src.shadow_trading.metrics"):
+            result = _m.compute_shadow_metrics([_make_trade(10), _make_trade(-5)])
+
+        assert result["expectancy"] is not None
+        assert any("unavailable" in r.message or "expectancy" in r.message.lower()
+                   for r in caplog.records
+                   if r.levelno >= logging.WARNING), (
+            "Expected a WARNING log when evaluation.metrics is unavailable"
+        )
+    finally:
+        sys.modules.pop("src.evaluation.metrics", None)
+        if saved is not None:
+            sys.modules["src.evaluation.metrics"] = saved
+        import importlib
+        import src.shadow_trading.metrics as _m2
+        importlib.reload(_m2)
