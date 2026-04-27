@@ -220,6 +220,48 @@ class TestPostgresUpsert:
 
         mock_conn.rollback.assert_called_once()
 
+    def test_upsert_full_mode_keeps_id(self):
+        """#797 regression: full-mode tables (singleton like traffic_light_state)
+        must NOT strip 'id' from INSERT. Postgres has plain INTEGER NOT NULL on
+        these columns (no SERIAL/IDENTITY), so stripping produces NULL violations.
+        """
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        columns = ["id", "current_regime", "updated_at"]
+        rows = [{"id": 1, "current_regime": "GREEN", "updated_at": "2026-04-27T17:00:00"}]
+
+        count = _upsert_to_postgres(
+            mock_conn, "traffic_light_state", "id", columns, rows, mode="full",
+        )
+
+        assert count == 1
+        # The INSERT statement must include the 'id' column (not stripped)
+        executed_sql = mock_cursor.execute.call_args_list[0][0][0]
+        assert "id" in executed_sql.split("(", 1)[1].split(")", 1)[0]
+        # And the value tuple must include the id value
+        executed_params = mock_cursor.execute.call_args_list[0][0][1]
+        assert 1 in executed_params
+
+    def test_upsert_incremental_mode_strips_id(self):
+        """Incremental mode preserves the original strip-id behavior — SQLite rowid
+        and Postgres SERIAL diverge, so id must be excluded for auto-generation."""
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        columns = ["id", "ticker", "created_at"]
+        rows = [{"id": 42, "ticker": "AAPL", "created_at": "2026-04-27T10:00:00"}]
+
+        _upsert_to_postgres(
+            mock_conn, "log_entries", "id", columns, rows, mode="incremental",
+        )
+
+        executed_sql = mock_cursor.execute.call_args_list[0][0][0]
+        col_section = executed_sql.split("(", 1)[1].split(")", 1)[0]
+        assert "id" not in [c.strip() for c in col_section.split(",")]
+
     def test_replace_latest_in_postgres(self):
         mock_conn = MagicMock()
         mock_cursor = MagicMock()

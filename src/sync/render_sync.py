@@ -327,6 +327,7 @@ def _upsert_to_postgres(
     columns: list[str],
     rows: list[dict],
     conflict_col: str | None = None,
+    mode: str = "incremental",
 ) -> int:
     """Upsert rows into Postgres using ON CONFLICT. Returns count of upserted rows.
 
@@ -334,6 +335,12 @@ def _upsert_to_postgres(
         conflict_col: Override the ON CONFLICT target (e.g., for tables with
             UNIQUE constraints that differ from the PK, like edgar_filings
             which has a UNIQUE accession_number).
+        mode: Sync mode for the calling table ("incremental"|"latest_only"|"full").
+            Gates whether the integer 'id' column gets stripped from INSERT to
+            let Postgres SERIAL auto-generate. Full-mode tables (singleton/
+            fixed-key replacements like traffic_light_state) keep their id —
+            stripping it produces NULL violations because Postgres has plain
+            INTEGER NOT NULL with no SERIAL/IDENTITY default (#797).
 
     Two code paths:
     1. Tables with SERIAL 'id' pk and no conflict_col: uses ON CONFLICT DO
@@ -396,7 +403,15 @@ def _upsert_to_postgres(
     # Fix #244: Only strip 'id' for INTEGER/SERIAL pks. Tables with TEXT ids
     # (e.g. research_docs with UUID ids) must keep their id column — Postgres
     # cannot auto-generate a TEXT primary key.
-    strip_id = pk == "id" and rows and not isinstance(rows[0].get("id"), str)
+    # Fix #797: never strip in full mode. Full-mode tables (e.g.
+    # traffic_light_state) are singleton/fixed-key replacements where the id
+    # IS the natural key and Postgres has no SERIAL/IDENTITY default.
+    strip_id = (
+        pk == "id"
+        and rows
+        and not isinstance(rows[0].get("id"), str)
+        and mode != "full"
+    )
     insert_cols = [c for c in columns if c != "id"] if strip_id else columns
 
     if not conflict_col and strip_id:
@@ -576,14 +591,18 @@ def sync_table(
         rows, columns = _fetch_council_votes_for_new_sessions(since, db_path)
         if not rows:
             return 0
-        return _upsert_to_postgres(pg_conn, table_name, pk, columns, rows, conflict_col)
+        return _upsert_to_postgres(
+            pg_conn, table_name, pk, columns, rows, conflict_col, mode=mode,
+        )
 
     if mode == "incremental":
         since = get_last_synced_at(table_name, db_path)
         rows, columns = _fetch_incremental_rows(table_name, time_col, since, db_path)
         if not rows:
             return 0
-        count = _upsert_to_postgres(pg_conn, table_name, pk, columns, rows, conflict_col)
+        count = _upsert_to_postgres(
+            pg_conn, table_name, pk, columns, rows, conflict_col, mode=mode,
+        )
         # Update sync state to latest time_col value
         latest_ts = max(r.get(time_col, "") for r in rows)
         if latest_ts:
@@ -606,7 +625,9 @@ def sync_table(
         rows, columns = _fetch_full_rows(table_name, db_path)
         if not rows:
             return 0
-        return _upsert_to_postgres(pg_conn, table_name, pk, columns, rows, conflict_col)
+        return _upsert_to_postgres(
+            pg_conn, table_name, pk, columns, rows, conflict_col, mode=mode,
+        )
 
     raise ValueError(f"Unknown sync mode for {table_name}: {mode}")
 
