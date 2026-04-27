@@ -45,6 +45,7 @@ from src.shadow_trading.broker_exception_logger import log_and_persist
 from src.shadow_trading.exit_reason import coerce_exit_reason
 from src.shadow_trading.models import ShadowTrade
 from src.shadow_trading.qty_mismatch import parse_qty_mismatch, should_abort_retry
+from src.notifications.telegram import send_telegram
 from alpaca.common.exceptions import APIError
 
 # #436 — alpaca.trading.requests / alpaca.trading.enums are hoisted to
@@ -65,6 +66,12 @@ except ImportError:  # pragma: no cover — only fires when alpaca-py absent
     _ALPACA_BRACKET_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
+
+# #756 — TTL cache for yfinance sector lookups in _check_sector_exposure.
+# Keyed by ticker; value is (sector_str, expiry_timestamp).
+# TTL of 3600s (1 hour) prevents repeated outbound calls per scan cycle.
+_sector_cache: dict[str, tuple[str, float]] = {}
+_SECTOR_CACHE_TTL_S = 3600
 
 # Track 1.5 / B5 — instrumentation era sentinel.
 # v3 = full instrumentation: B1 (exit slippage, e8ccf52) + B3 (exit_reason
@@ -1556,6 +1563,12 @@ def _retry_exit(
                 )
                 update_shadow_trade(trade["trade_id"], {"status": "exit_failed"}, db_path)
         else:
+            # Invariant (#758): exit_retry_count was already incremented at the
+            # "Increment retry counter" block above (before the try/except). Any
+            # exception from _submit_exit_order reaches this branch only after
+            # that increment, so the counter correctly reflects this attempt.
+            # If reconcile resets exit_failed → open, the next scan will see
+            # retry_count = N+1 and will continue toward MAX_EXIT_RETRIES.
             log_and_persist(
                 ticker=ticker,
                 operation="place_exit",
@@ -2007,7 +2020,12 @@ def check_and_manage_open_trades(
                             recoverable=True,
                             outcome="persisted",
                         )
-                        logger.warning("[EXECUTOR] Stale exit order cancellation failed: %s", e)
+                        logger.error(
+                            "[EXECUTOR] Stale exit order cancellation failed for %s "
+                            "(order_id=%s): %s — proceeding to new exit submission; "
+                            "stale order may still be live at broker",
+                            ticker, _pending_oid, e,
+                        )
 
                 try:
                     exit_result = _submit_exit_order(trade, shares)
@@ -2409,7 +2427,25 @@ def open_live_trade(
         logger.error("[LIVE][RISK] Governor import failed for %s — REJECTING live trade", packet.ticker)
         return None
     except Exception as e:
-        logger.error("[LIVE][RISK] Governor check failed for %s: %s — REJECTING live trade", packet.ticker, e)
+        from src.risk.governor import GovernorInputMissingError
+        if isinstance(e, GovernorInputMissingError):
+            logger.critical(
+                "[LIVE][RISK] GovernorInputMissingError for %s: %s — REJECTING live trade",
+                packet.ticker, e,
+            )
+            try:
+                send_telegram(
+                    f"🚨 CRITICAL: GovernorInputMissingError for {packet.ticker}\n"
+                    f"Required risk key missing — live trade REJECTED.\n"
+                    f"Detail: {e}"
+                )
+            except Exception as _tg_err:
+                logger.warning("[LIVE][RISK] Telegram alert failed: %s", _tg_err)
+        else:
+            logger.error(
+                "[LIVE][RISK] Governor check failed for %s: %s — REJECTING live trade",
+                packet.ticker, e,
+            )
         return None
 
     # Safety guard: Must have LLM commentary (not template fallback)
@@ -2529,7 +2565,10 @@ def open_live_trade(
         logger.error("[LIVE] Daily loss guard failed for %s — REJECTING trade: %s", packet.ticker, e)
         return None
 
-    # Position limit check (live-specific)
+    # Position limit + duplicate check (live-specific) — single DB call for both.
+    # #759: DB errors here must fire a Telegram critical alert; a locked DB blocks
+    # ALL new live entries without operator awareness if only an ERROR log is emitted.
+    ticker = packet.ticker
     max_positions = live_cfg.get("max_open_positions", 2)
     try:
         open_live_trades = [
@@ -2539,27 +2578,28 @@ def open_live_trade(
         if len(open_live_trades) >= max_positions:
             logger.info("[LIVE] At live position limit (%d), skipping", max_positions)
             return None
+        if any(t["ticker"] == ticker for t in open_live_trades):
+            logger.info("[LIVE] Already have live trade for %s, skipping", ticker)
+            return None
     except Exception as e:
-        logger.error("[LIVE] Position limit check failed for %s — REJECTING trade: %s", packet.ticker, e)
+        logger.error(
+            "[LIVE] DB error in position/dup check for %s — REJECTING trade: %s",
+            ticker, e,
+        )
+        try:
+            send_telegram(
+                f"🚨 CRITICAL: Live trade DB error for {ticker}\n"
+                f"Position/duplicate check failed — live trade REJECTED.\n"
+                f"All new live entries blocked until DB recovers.\n"
+                f"Detail: {e}"
+            )
+        except Exception as _tg_err:
+            logger.warning("[LIVE] Telegram alert failed: %s", _tg_err)
         return None
 
     # Hard governor cap (#hotfix 2026-04-13): DB-level count + combined caps,
     # so paper + live combined can never exceed the stricter configured limit.
     if not _enforce_position_cap(config, db_path, packet.ticker, path="LIVE"):
-        return None
-
-    # Duplicate check (live-specific)
-    ticker = packet.ticker
-    try:
-        open_live_trades = [
-            t for t in get_open_shadow_trades(db_path)
-            if t.get("source") == "live"
-        ]
-        if any(t["ticker"] == ticker for t in open_live_trades):
-            logger.info("[LIVE] Already have live trade for %s, skipping", ticker)
-            return None
-    except Exception as e:
-        logger.error("[LIVE] Duplicate check failed for %s — REJECTING trade: %s", ticker, e)
         return None
 
     # Use live-specific risk parameters
@@ -2895,7 +2935,7 @@ def _check_close_milestones(db_path: str = DB_PATH) -> None:
                 )
 
     except Exception as e:
-        logger.debug("[MILESTONE] Close milestone check failed: %s", e)
+        logger.warning("[MILESTONE] Close milestone check failed: %s", e)
 
 
 def _check_loss_streak(db_path: str = DB_PATH) -> None:
@@ -2966,7 +3006,7 @@ def _check_loss_streak(db_path: str = DB_PATH) -> None:
                     historical_max_streak=max_streak,
                 )
     except Exception as e:
-        logger.debug("[STREAK] Loss streak check failed: %s", e)
+        logger.warning("[STREAK] Loss streak check failed: %s", e)
 
 
 def _check_sector_exposure(db_path: str = DB_PATH) -> None:
@@ -2999,12 +3039,18 @@ def _check_sector_exposure(db_path: str = DB_PATH) -> None:
                 ).fetchone()
                 # Use setup_type as a proxy; in practice, sector info would come from features
                 sector = "Unknown"
-                try:
-                    import yfinance as yf
-                    info = yf.Ticker(ticker).info
-                    sector = info.get("sector", "Unknown")
-                except Exception as e:
-                    logger.debug("[EXPOSURE] yfinance sector lookup failed for %s: %s", ticker, e)
+                _now = time.time()
+                _cached = _sector_cache.get(ticker)
+                if _cached and _cached[1] > _now:
+                    sector = _cached[0]
+                else:
+                    try:
+                        import yfinance as yf
+                        info = yf.Ticker(ticker).info
+                        sector = info.get("sector", "Unknown")
+                        _sector_cache[ticker] = (sector, _now + _SECTOR_CACHE_TTL_S)
+                    except Exception as e:
+                        logger.debug("[EXPOSURE] yfinance sector lookup failed for %s: %s", ticker, e)
                 sectors.setdefault(sector, []).append(ticker)
 
         total_positions = len(open_trades)
