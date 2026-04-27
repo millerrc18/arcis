@@ -317,10 +317,10 @@ class TestAlpacaLiveBracket651:
         fake_client.submit_order.return_value = fake_order
 
         with patch(
-            "src.shadow_trading.alpaca_adapter._get_live_config",
+            "src.shadow_trading.alpaca_adapter_live._get_live_config",
             return_value={"enabled": True, "api_key": "k", "api_secret": "s"},
         ), patch(
-            "src.shadow_trading.alpaca_adapter._get_live_trading_client",
+            "src.shadow_trading.alpaca_adapter_live._get_live_trading_client",
             return_value=fake_client,
         ):
             place_live_bracket(
@@ -360,10 +360,10 @@ class TestAlpacaLiveBracket651:
         fake_client.submit_order.return_value = fake_order
 
         with patch(
-            "src.shadow_trading.alpaca_adapter._get_live_config",
+            "src.shadow_trading.alpaca_adapter_live._get_live_config",
             return_value={"enabled": True, "api_key": "k", "api_secret": "s"},
         ), patch(
-            "src.shadow_trading.alpaca_adapter._get_live_trading_client",
+            "src.shadow_trading.alpaca_adapter_live._get_live_trading_client",
             return_value=fake_client,
         ):
             place_live_bracket(
@@ -395,7 +395,9 @@ class TestAlpacaLiveBracket651:
         from src.shadow_trading import alpaca_adapter
 
         paper_src = inspect.getsource(alpaca_adapter.place_bracket_order)
-        live_src = inspect.getsource(alpaca_adapter.place_live_bracket)
+        # Live bracket request construction is in _build_live_bracket_request
+        # (delegated out of place_live_bracket for single-responsibility).
+        live_src = inspect.getsource(alpaca_adapter._build_live_bracket_request)
 
         # Both must use OrderClass.BRACKET — that's the safety contract
         assert "OrderClass.BRACKET" in paper_src

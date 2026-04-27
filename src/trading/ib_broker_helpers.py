@@ -13,6 +13,7 @@ to keep ib_broker.py under the 400-line file-size guardrail.
 import logging
 
 logger = logging.getLogger(__name__)
+_ib_logger = logging.getLogger("src.trading.ib_broker")
 
 _IB_ERROR_CODES = {
     110: "price_out_of_range",
@@ -28,11 +29,11 @@ def handle_ib_error(code: int, msg: str, ticker: str = "") -> None:
     """Log and classify IB error codes."""
     classification = _IB_ERROR_CODES.get(code, "unknown")
     if code in (200, 201):
-        logger.error("[IB] %s error for %s (code %d): %s",
-                    classification, ticker, code, msg)
+        _ib_logger.error("[IB] %s error for %s (code %d): %s",
+                         classification, ticker, code, msg)
     else:
-        logger.warning("[IB] %s for %s (code %d): %s",
-                      classification, ticker, code, msg)
+        _ib_logger.warning("[IB] %s for %s (code %d): %s",
+                           classification, ticker, code, msg)
 
 
 def verify_bracket_integrity(ib) -> list[str]:
