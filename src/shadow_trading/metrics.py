@@ -7,6 +7,10 @@ Config keys: none
 Tests: tests/test_shadow_metrics.py
 """
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def compute_shadow_metrics(trades: list[dict]) -> dict:
     """Compute performance metrics from a list of closed shadow trades.
@@ -51,7 +55,12 @@ def compute_shadow_metrics(trades: list[dict]) -> dict:
     try:
         from src.evaluation.metrics import expectancy as calc_expectancy
         expectancy = calc_expectancy(pnls)
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "[METRICS] evaluation.metrics.expectancy unavailable (%s) "
+            "— falling back to simple average",
+            exc,
+        )
         expectancy = total_pnl / total if total > 0 else 0.0
 
     # Max drawdown (cumulative)
