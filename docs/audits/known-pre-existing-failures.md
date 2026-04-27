@@ -8,10 +8,7 @@ Canonical list of test failures that exist on `main` and are not regressions fro
 
 ## Currently failing on main (last verified: 2026-04-27 post-Sprint-0.C merge)
 
-| Test | Reason | Tracker | Disclosed in |
-|------|--------|---------|--------------|
-| `tests/test_broker_interface.py::TestAlpacaLiveBracket651` | Newly-discovered during Sprint 0.C C.3 full sweep; not previously tracked | #760 | PR #753 review |
-| `tests/test_ib_production.py::TestErrorCodes` | Newly-discovered during Sprint 0.C C.3 full sweep; not previously tracked | #760 | PR #753 review |
+_(none — all previously tracked failures cleared in Sprint 0.D)_
 
 ---
 
@@ -19,6 +16,8 @@ Canonical list of test failures that exist on `main` and are not regressions fro
 
 | Test | Cleared by | Notes |
 |------|-----------|-------|
+| `tests/test_ib_production.py::TestErrorCodes::test_handle_ib_error_classifies_codes` | Sprint 0.D PR #764 (D.2 test triage) | `ib_broker_helpers.py` post-PR-#739 split emitted logs under `src.trading.ib_broker_helpers`; added `_ib_logger = logging.getLogger("src.trading.ib_broker")` (PR #735 pattern) |
+| `tests/test_broker_interface.py::TestAlpacaLiveBracket651` (3 tests) | Sprint 0.D PR #764 (D.2 test triage) | Tests patched `alpaca_adapter.*` but `place_live_bracket` resolves `_get_live_config`/`_get_live_trading_client` from `alpaca_adapter_live` module scope; `test_paper_and_live_bracket_use_same_alpaca_api` inspected `place_live_bracket` but `OrderClass.BRACKET` lives in `_build_live_bracket_request`. Fixed patch targets and source inspection. |
 | `tests/integration/test_track_1_5_full_pipeline.py::test_full_pipeline_when_broker_exception_during_exit` | Sprint 0.B PR #743 (B2.6 test triage) | Stale `'unknown'` assertion; Wave 2b promoted `'broker_exception'` to first-class CONTROLLED_VOCAB |
 | `tests/shadow_trading/test_broker_partial_swallow_upgrades.py::test_site6_emergency_close_sdk_missing_persists` | Sprint 0.B PR #743 (B2.6 test triage) | Added missing `place_paper_entry` + `_verify_and_update` mocks so execution reaches the SDK-missing branch |
 | `tests/test_repo_structure.py::test_no_file_over_400_lines` (`promotion_gate.py` 573 lines) | Sprint 0.B PR #735 | Real refactor, no grandfather entry |
