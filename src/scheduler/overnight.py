@@ -809,9 +809,7 @@ def run_data_collection(db_path: str = DB_PATH,
         from src.notifications.telegram import notify_collection_failure, is_telegram_enabled
         if is_telegram_enabled():
             for name, result in results.items():
-                is_error = (isinstance(result, str) and "error" in result.lower()) or \
-                           (isinstance(result, dict) and "error" in str(result).lower())
-                if is_error:
+                if _is_collector_error(result):
                     collector_failures[name] = collector_failures.get(name, 0) + 1
                     if collector_failures[name] >= 3:
                         other_status = {

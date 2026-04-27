@@ -72,22 +72,9 @@ class FeatureComputationError(RuntimeError):
 
 
 def _coerce_as_of(as_of: date | str | None) -> date | None:
-    """Normalize as_of input to a date, or None.
-
-    Accepts ISO date strings, date/datetime instances, or None.
-    """
-    if as_of is None:
-        return None
-    if isinstance(as_of, datetime):
-        return as_of.date()
-    if isinstance(as_of, date):
-        return as_of
-    if isinstance(as_of, str):
-        try:
-            return date.fromisoformat(as_of[:10])
-        except (ValueError, TypeError):
-            return None
-    return None
+    """Delegate to src.utils.dates.coerce_as_of. Canonical impl lives there."""
+    from src.utils.dates import coerce_as_of
+    return coerce_as_of(as_of)
 
 
 def _slice_to_as_of(df: pd.DataFrame, as_of: date | None) -> pd.DataFrame:
@@ -318,13 +305,15 @@ def compute_all_features(ohlcv_data: dict[str, pd.DataFrame],
         load_shared_enrichments(spy, ohlcv_data, sector_enabled, cutoff)
     )
 
-    if shared_path_failures > 4 // 2:
+    n_loaders = 4 if sector_enabled else 3
+    if shared_path_failures > n_loaders // 2:
         # >50% of the shared enrichment loaders failed; downstream output
         # would be mostly defaults. Fail-CLOSED rather than emit silent
         # permissive features. CLAUDE.md: "raise, never silent."
         raise FeatureComputationError(
-            f"{shared_path_failures}/4 shared enrichment "
-            f"loaders failed (regime/options/event_proximity/sector_profiles); "
+            f"{shared_path_failures}/{n_loaders} shared enrichment "
+            f"loaders failed (regime/options/event_proximity"
+            f"{'/sector_profiles' if sector_enabled else ''}); "
             f"refusing to emit features dominated by defaults"
         )
 
