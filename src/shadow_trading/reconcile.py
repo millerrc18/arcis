@@ -364,7 +364,7 @@ def reconcile_live_trades(
                                 from datetime import datetime as _dt
                                 _created = _dt.fromisoformat(_cr["created_at"].replace("Z", "+00:00"))
                                 _days = max(0, (now - _created).days)
-                    except Exception:
+                    except (ValueError, TypeError):
                         pass
                     notify_trade_closed(ticker, pnl_dollars, pnl_pct, "reconciled_stale", _days)
             except Exception as _tg_err:
@@ -484,8 +484,11 @@ def reconcile_paper_trades(
                     "will NOT be closed this cycle (prevents false stale-close "
                     "during broker outage): %s", ib_err,
                 )
-    except Exception:
-        pass
+    except Exception as _ib_setup_err:
+        logger.warning(
+            "[RECONCILE-PAPER] IB setup failed — IB positions will not be "
+            "reconciled this cycle: %s", _ib_setup_err,
+        )
 
     et = ZoneInfo("America/New_York")
     now = datetime.now(et)

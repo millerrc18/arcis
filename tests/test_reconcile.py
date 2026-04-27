@@ -685,3 +685,57 @@ def test_uncertain_trade_not_resolved_in_dry_run(mock_positions, db_path):
         ).fetchone()
     assert row["status"] == "submission_uncertain"
 
+
+# ── B2.1 / #714 — IB setup bare except: pass regression-lock ────────────────
+
+
+@patch(
+    "src.shadow_trading.reconcile.get_all_positions",
+    return_value=[],
+)
+def test_paper_reconcile_ib_setup_exception_logs_warning(mock_positions, db_path, caplog):
+    """#714 — outer IB-setup bare except: pass must now log at WARNING level.
+
+    Before the B2.1 fix, load_config() raising (e.g. FileNotFoundError, yaml
+    parse error, broken import) was silently swallowed — the reconciler ran
+    with ib_enabled=False and ib_fetch_ok=False but left no trace in the logs.
+    After the fix the block emits a WARNING so operators can diagnose IB
+    reconciliation gaps.
+    """
+    import logging
+
+    with patch(
+        "src.config.load_config",
+        side_effect=FileNotFoundError("settings.yaml missing"),
+    ):
+        with caplog.at_level(logging.WARNING, logger="src.shadow_trading.reconcile"):
+            reconcile_paper_trades(db_path=db_path, dry_run=True)
+
+    assert any(
+        "IB setup failed" in r.message and r.levelno >= logging.WARNING
+        for r in caplog.records
+    ), (
+        "Expected a WARNING log containing 'IB setup failed' when load_config() "
+        "raises — bare except: pass is silently swallowing IB setup errors"
+    )
+
+
+@patch(
+    "src.shadow_trading.reconcile.get_all_positions",
+    return_value=[],
+)
+def test_paper_reconcile_ib_setup_exception_does_not_abort_reconcile(mock_positions, db_path):
+    """#714 — IB setup failure must not abort the rest of reconciliation.
+
+    The reconciler must still return a result dict when load_config() raises.
+    """
+    with patch(
+        "src.config.load_config",
+        side_effect=RuntimeError("config completely broken"),
+    ):
+        result = reconcile_paper_trades(db_path=db_path, dry_run=True)
+
+    assert isinstance(result, dict), "reconcile_paper_trades must return a dict even when IB setup fails"
+    assert "alpaca_count" in result, (
+        "Result dict must contain alpaca_count key when IB setup raises"
+    )
