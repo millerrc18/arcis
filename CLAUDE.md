@@ -169,9 +169,31 @@ git reflog
 git checkout -b recovery/<name> <sha>
 ```
 
-### Pre-Commit Scope Check (Deferred)
+### Pre-Commit Scope Check
 
-A pre-commit hook that compares the committed file list against the agent's expected scope would catch cross-agent contamination before it lands. This is out of scope for this PR. See issue #699 deliverables (1) and (2) for the dispatching-tooling work.
+`scripts/hooks/check_agent_scope.sh` is the scope-check pre-commit hook scaffold (#699 deliverable 2). It reads `.claude/agent-scope.json` (written by the PM at dispatch time) and fails the commit if any staged file is outside the declared scope. Install per worktree:
+
+```bash
+cp scripts/hooks/check_agent_scope.sh .git/hooks/pre-commit
+chmod +x .git/hooks/pre-commit
+```
+
+Bypass: `SCOPE_CHECK_BYPASS=1 git commit ...` — use for legitimate cross-scope commits (e.g. PM integration commits).
+
+`agent-scope.json` format:
+```json
+{ "agent_id": "developer-1", "files_in_scope": ["src/foo.py", "tests/test_foo.py"] }
+```
+
+The PM MUST write `.claude/agent-scope.json` before dispatching each parallel agent. The hook is a no-op if the file doesn't exist (safe for single-agent and non-agent commits).
+
+### test_repo_structure.py Disclosure (Sprint Dispatch Requirement)
+
+Every coding agent MUST run `python -m pytest tests/test_repo_structure.py -v` as part of its verification step and include the output in its strict-rigor receipt (#731). Any new violations must be:
+1. Fixed in the same PR via real refactor (preferred), OR
+2. Added to `config/known_violations.json` with operator-visible rationale
+
+Violations may NOT be silently shipped. PR #717 merged with a 573-line file without disclosure; PR #720 review caught a 64-line function only because the reviewer ran the test independently. This requirement closes that gap.
 
 ## Data Collection Rules
 
