@@ -148,6 +148,21 @@ def _mock_alpaca_sdk(monkeypatch):
         monkeypatch.setitem(sys.modules, mod_name, mod_obj)
 
 
+@pytest.fixture(autouse=True)
+def _isolate_local_api_token_env(monkeypatch):
+    """Hermetic test env: clear ARCIS_LOCAL_API_TOKEN.
+
+    Operator .env files in local dev set ARCIS_LOCAL_API_TOKEN to exercise
+    verify_local_token (opt-in via #576). Without this fixture, TestClient
+    requests against gated endpoints (/api/notes, /api/scan, /api/training,
+    /api/review, /api/commands, /api/settings, etc.) get 401 because pytest
+    inherits the operator's env. Tests that need the env var (e.g.,
+    test_phase_d_auth_and_safety, test_helper_coverage_backfill) still
+    work — their monkeypatch.setenv overrides this delenv at function scope.
+    """
+    monkeypatch.delenv("ARCIS_LOCAL_API_TOKEN", raising=False)
+
+
 @pytest.fixture
 def schema_db(tmp_path):
     """Temp database with ALL schema tables created.

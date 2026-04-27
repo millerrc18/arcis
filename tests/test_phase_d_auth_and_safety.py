@@ -158,3 +158,21 @@ class TestWatchSignalHandlerAudit:
                     f"#622 — watch.py:{i + 1} signal.signal() not wrapped in "
                     f"try/except ValueError. Worker-thread starts will raise."
                 )
+
+
+# ── PR #711 fallout — hermetic env fixture regression lock ──
+
+class TestHermeticEnvIsolation:
+    def test_arcis_local_api_token_isolated(self):
+        """Regression: tests must run with ARCIS_LOCAL_API_TOKEN unset by default.
+
+        PR #711 broke 18 tests because pytest inherited the operator's .env
+        where ARCIS_LOCAL_API_TOKEN was set. Adding the autouse fixture in
+        tests/conftest.py made test runs hermetic. This test locks that.
+        """
+        import os
+        assert os.environ.get("ARCIS_LOCAL_API_TOKEN", "") == "", (
+            "ARCIS_LOCAL_API_TOKEN must be unset during test runs (autouse fixture "
+            "in tests/conftest.py should clear it). If this assertion fires, the "
+            "autouse fixture has been removed or shadowed."
+        )
