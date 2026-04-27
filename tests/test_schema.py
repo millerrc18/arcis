@@ -346,3 +346,134 @@ def test_stats_queries_reference_valid_columns():
                 errors.append(f"{table_name}: query references '{col}' but schema has {sorted(schema_cols)}")
 
     assert errors == [], "Stats queries reference non-existent columns:\n" + "\n".join(errors)
+
+
+# ── #673 — sync_state in-flight detection columns ────────────────
+
+def test_sync_state_has_inflight_columns():
+    """sync_state must have in_flight_since and completed_at for quiescence detection.
+
+    Sprint C.6 (#673): extends the 2-column sync_state table with in-flight
+    tracking so external scripts can detect whether a sync cycle is running
+    without needing to inspect the threading.Lock internals.
+    """
+    assert "sync_state" in TABLES
+    td = TABLES["sync_state"]
+    names = [c.name for c in td.columns]
+    assert "in_flight_since" in names, "sync_state missing in_flight_since column"
+    assert "completed_at" in names, "sync_state missing completed_at column"
+    assert "status" in names, "sync_state missing status column"
+    in_flight = next(c for c in td.columns if c.name == "in_flight_since")
+    assert in_flight.type == "TEXT"
+    completed = next(c for c in td.columns if c.name == "completed_at")
+    assert completed.type == "TEXT"
+    status_col = next(c for c in td.columns if c.name == "status")
+    assert status_col.type == "TEXT"
+    assert status_col.default == "idle"
+
+
+def test_sync_state_not_synced_to_postgres():
+    """sync_state must NOT sync to Postgres (that would be circular)."""
+    assert "sync_state" in TABLES
+    td = TABLES["sync_state"]
+    assert td.sync_to_postgres is False, (
+        "sync_state must not sync to Postgres — that would be circular"
+    )
+
+
+# ── #674 — 17-column prod-registry reconciliation ────────────────
+
+def test_canary_evaluations_has_verdict_perplexity():
+    """canary_evaluations must have verdict and perplexity.
+
+    Sprint C.6 (#674): these columns are queried by cloud_routes/analytics.py
+    and evaluation/system_validator.py in production.
+    """
+    assert "canary_evaluations" in TABLES
+    td = TABLES["canary_evaluations"]
+    names = [c.name for c in td.columns]
+    assert "verdict" in names, "canary_evaluations missing verdict column"
+    assert "perplexity" in names, "canary_evaluations missing perplexity column"
+    verdict = next(c for c in td.columns if c.name == "verdict")
+    assert verdict.type == "TEXT"
+    perplexity = next(c for c in td.columns if c.name == "perplexity")
+    assert perplexity.type == "REAL"
+
+
+def test_quality_drift_metrics_has_reconciled_columns():
+    """quality_drift_metrics must have metric_date, avg_score, pass_rate, id.
+
+    Sprint C.6 (#674): system_validator.py queries metric_date, avg_score,
+    pass_rate — these columns exist in prod but not the registry.
+    """
+    assert "quality_drift_metrics" in TABLES
+    td = TABLES["quality_drift_metrics"]
+    names = [c.name for c in td.columns]
+    for col in ("metric_date", "avg_score", "pass_rate", "score_std", "template_fallback_rate"):
+        assert col in names, f"quality_drift_metrics missing {col}"
+    avg_score = next(c for c in td.columns if c.name == "avg_score")
+    assert avg_score.type == "REAL"
+    pass_rate = next(c for c in td.columns if c.name == "pass_rate")
+    assert pass_rate.type == "REAL"
+    metric_date = next(c for c in td.columns if c.name == "metric_date")
+    assert metric_date.type == "TEXT"
+
+
+def test_recommendations_has_setup_confidence():
+    """recommendations must have setup_confidence.
+
+    Sprint C.6 (#674): prod DB has this column; features/engine_helpers.py
+    and scheduler/universe_scanner.py write it. Not yet in registry.
+    """
+    assert "recommendations" in TABLES
+    td = TABLES["recommendations"]
+    names = [c.name for c in td.columns]
+    assert "setup_confidence" in names, "recommendations missing setup_confidence"
+    sc = next(c for c in td.columns if c.name == "setup_confidence")
+    assert sc.type == "REAL"
+
+
+def test_setup_signals_has_features_json_and_scan_date():
+    """setup_signals must have features_json and scan_date.
+
+    Sprint C.6 (#674): cloud_routes/trades.py calls parse_json_fields(row,
+    ['features_json']) — expects the column to exist.
+    """
+    assert "setup_signals" in TABLES
+    td = TABLES["setup_signals"]
+    names = [c.name for c in td.columns]
+    assert "features_json" in names, "setup_signals missing features_json"
+    assert "scan_date" in names, "setup_signals missing scan_date"
+    fj = next(c for c in td.columns if c.name == "features_json")
+    assert fj.type == "TEXT"
+
+
+def test_training_examples_has_reconciled_columns():
+    """training_examples must have outcome, regime_label, trade_date, model_version.
+
+    Sprint C.6 (#674): cloud_routes/training.py queries outcome; analytics.py
+    queries regime_label — live code paths depend on these columns.
+    """
+    assert "training_examples" in TABLES
+    td = TABLES["training_examples"]
+    names = [c.name for c in td.columns]
+    for col in ("outcome", "regime_label", "trade_date", "model_version"):
+        assert col in names, f"training_examples missing {col}"
+    outcome = next(c for c in td.columns if c.name == "outcome")
+    assert outcome.type == "TEXT"
+    regime_label = next(c for c in td.columns if c.name == "regime_label")
+    assert regime_label.type == "TEXT"
+
+
+def test_api_costs_has_estimated_cost():
+    """api_costs must have estimated_cost.
+
+    Sprint C.6 (#674): cloud_routes/core.py queries
+    COALESCE(cost_dollars, estimated_cost, 0) — must exist in registry.
+    """
+    assert "api_costs" in TABLES
+    td = TABLES["api_costs"]
+    names = [c.name for c in td.columns]
+    assert "estimated_cost" in names, "api_costs missing estimated_cost"
+    ec = next(c for c in td.columns if c.name == "estimated_cost")
+    assert ec.type == "REAL"

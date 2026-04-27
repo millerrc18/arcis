@@ -23,6 +23,11 @@ from src.sync.render_sync import (
     set_last_synced_at,
     start_render_sync,
     sync_table,
+    mark_sync_in_flight,
+    mark_sync_completed,
+    mark_sync_failed,
+    get_sync_flight_status,
+    SyncInFlightError,
 )
 
 
@@ -405,6 +410,73 @@ class TestStartRenderSync:
         assert not thread._stop_event.is_set()
         thread.stop()
         assert thread._stop_event.is_set()
+
+
+# ── #673 — sync_state in-flight detection ───────────────────────────
+
+class TestSyncFlightState:
+    """Tests for sync in-flight detection functions (Sprint C.6 / #673)."""
+
+    def test_mark_sync_in_flight_sets_status(self, tmp_path):
+        db_path = str(tmp_path / "test.sqlite3")
+        _init_sync_state(db_path)
+        mark_sync_in_flight("test-host", db_path)
+        status = get_sync_flight_status("test-host", db_path)
+        assert status is not None
+        assert status["status"] == "in_progress"
+        assert status["in_flight_since"] is not None
+        assert status["completed_at"] is None
+
+    def test_mark_sync_completed_clears_inflight(self, tmp_path):
+        db_path = str(tmp_path / "test.sqlite3")
+        _init_sync_state(db_path)
+        mark_sync_in_flight("test-host", db_path)
+        mark_sync_completed("test-host", db_path)
+        status = get_sync_flight_status("test-host", db_path)
+        assert status["status"] == "completed"
+        assert status["completed_at"] is not None
+        assert status["in_flight_since"] is None
+
+    def test_mark_sync_failed_records_error(self, tmp_path):
+        db_path = str(tmp_path / "test.sqlite3")
+        _init_sync_state(db_path)
+        mark_sync_in_flight("test-host", db_path)
+        mark_sync_failed("test-host", "connection refused", db_path)
+        status = get_sync_flight_status("test-host", db_path)
+        assert status["status"] == "failed"
+        assert status["error_message"] == "connection refused"
+        assert status["in_flight_since"] is None
+
+    def test_second_sync_raises_when_first_inflight(self, tmp_path):
+        db_path = str(tmp_path / "test.sqlite3")
+        _init_sync_state(db_path)
+        mark_sync_in_flight("test-host", db_path)
+        with pytest.raises(SyncInFlightError):
+            mark_sync_in_flight("test-host", db_path)
+
+    def test_second_sync_allowed_with_force_flag(self, tmp_path):
+        db_path = str(tmp_path / "test.sqlite3")
+        _init_sync_state(db_path)
+        mark_sync_in_flight("test-host", db_path)
+        mark_sync_in_flight("test-host", db_path, force=True)
+        status = get_sync_flight_status("test-host", db_path)
+        assert status["status"] == "in_progress"
+
+    def test_different_hosts_dont_block_each_other(self, tmp_path):
+        db_path = str(tmp_path / "test.sqlite3")
+        _init_sync_state(db_path)
+        mark_sync_in_flight("host-A", db_path)
+        mark_sync_in_flight("host-B", db_path)
+        status_a = get_sync_flight_status("host-A", db_path)
+        status_b = get_sync_flight_status("host-B", db_path)
+        assert status_a["status"] == "in_progress"
+        assert status_b["status"] == "in_progress"
+
+    def test_no_row_returns_none(self, tmp_path):
+        db_path = str(tmp_path / "test.sqlite3")
+        _init_sync_state(db_path)
+        status = get_sync_flight_status("nonexistent-host", db_path)
+        assert status is None
 
 
 # ── SYNC_TABLES configuration tests ─────────────────────────────────

@@ -162,6 +162,9 @@ _register(TableDef(
         ColumnDef("llm_timeout_days", "INTEGER",
                   description="LLM's estimated holding window in days (1-60). "
                               "NULL if not emitted or out of range. Track 1.5 / B8."),
+        ColumnDef("setup_confidence", "REAL",
+                  description="#674: confidence score from setup classifier; written by "
+                              "features/engine_helpers.py and scheduler/universe_scanner.py"),
         # updated_at lets the render-sync incremental cursor pick up
         # backfills/patches to existing recommendation rows (e.g. when
         # market_regime is populated retroactively). Without this, only
@@ -485,6 +488,16 @@ _register(TableDef(
                   description="1 = excluded from training, reversible via SQL"),
         ColumnDef("quarantine_reason", "TEXT",
                   description="Fixed taxonomy code; NULL iff quarantined=0"),
+        ColumnDef("outcome", "TEXT",
+                  description="#674: outcome label ('win'/'loss'); queried by "
+                              "cloud_routes/training.py outcome counts"),
+        ColumnDef("regime_label", "TEXT",
+                  description="#674: market regime label for this example; queried by "
+                              "cloud_routes/analytics.py COUNT(DISTINCT regime_label)"),
+        ColumnDef("trade_date", "TEXT",
+                  description="#674: date of the underlying trade (YYYY-MM-DD)"),
+        ColumnDef("model_version", "TEXT",
+                  description="#674: model version that generated this example"),
     ],
     primary_key="example_id",
     sync_to_postgres=True,
@@ -570,6 +583,9 @@ _register(TableDef(
         ColumnDef("output_tokens", "INTEGER", nullable=False),
         ColumnDef("cost_dollars", "REAL", nullable=False,
                    description="Legacy: was 'estimated_cost' in some modules"),
+        ColumnDef("estimated_cost", "REAL",
+                  description="#674: prod-only alias for cost_dollars; "
+                              "cloud_routes/core.py uses COALESCE(cost_dollars, estimated_cost)"),
     ],
     primary_key="cost_id",
     sync_to_postgres=True,
@@ -618,6 +634,12 @@ _register(TableDef(
         ColumnDef("vocab_size", "INTEGER"),
         ColumnDef("degradation_detected", "INTEGER", default="0"),
         ColumnDef("details", "TEXT"),
+        ColumnDef("verdict", "TEXT",
+                  description="#674: pass/fail/warn verdict; queried by cloud_routes/analytics.py "
+                              "and evaluation/system_validator.py"),
+        ColumnDef("perplexity", "REAL",
+                  description="#674: perplexity score from canary evaluation; "
+                              "queried by cloud_routes/analytics.py"),
     ],
     primary_key="eval_id",
     sync_to_postgres=True,
@@ -1248,6 +1270,11 @@ _register(TableDef(
         ColumnDef("actual_return_10d", "REAL"),
         ColumnDef("actual_return_20d", "REAL"),
         ColumnDef("was_traded", "INTEGER", default="0"),
+        ColumnDef("features_json", "TEXT",
+                  description="#674: JSON snapshot of the full feature vector; "
+                              "cloud_routes/trades.py calls parse_json_fields on this column"),
+        ColumnDef("scan_date", "TEXT",
+                  description="#674: date of the scan that produced this signal (YYYY-MM-DD)"),
     ],
     primary_key="signal_id",
     sync_to_postgres=True,
@@ -1348,6 +1375,21 @@ _register(TableDef(
         ColumnDef("avg_length", "REAL"),
         ColumnDef("degradation_flag", "INTEGER", default="0"),
         ColumnDef("details", "TEXT"),
+        ColumnDef("avg_score", "REAL",
+                  description="#674: average quality score for this drift cycle; "
+                              "queried by evaluation/system_validator.py"),
+        ColumnDef("id", "INTEGER",
+                  description="#674: autoincrement surrogate key from prod DB"),
+        ColumnDef("metric_date", "TEXT",
+                  description="#674: date of the metric cycle (YYYY-MM-DD); "
+                              "queried by evaluation/system_validator.py"),
+        ColumnDef("pass_rate", "REAL",
+                  description="#674: fraction of examples passing quality gate; "
+                              "queried by evaluation/system_validator.py"),
+        ColumnDef("score_std", "REAL",
+                  description="#674: standard deviation of quality scores in this cycle"),
+        ColumnDef("template_fallback_rate", "REAL",
+                  description="#674: rate at which the template fallback path was used"),
     ],
     primary_key="metric_id",
     sync_to_postgres=True,
@@ -1430,14 +1472,23 @@ _register(TableDef(
     sync_pk="log_id",
 ))
 
-# sync_state: Cursor tracking for render_sync. One row per table with the
-# last_synced_at timestamp. NOT synced to Postgres (that would be circular).
+# sync_state: Cursor tracking for render_sync. One row per table (last_synced_at)
+# plus one row per host for in-flight detection (#673). NOT synced to Postgres
+# (that would be circular). In-flight columns: in_flight_since (set when a sync
+# cycle begins), completed_at (set when it ends), status ('idle'/'in_progress'/
+# 'completed'/'failed'), error_message (set on failure), host (machine identity).
+# The host row is separate from the per-table rows (table_name == host for those).
 _register(TableDef(
     name="sync_state",
-    description="Tracks last sync timestamp per table for incremental sync",
+    description="Tracks last sync timestamp per table and in-flight state per host",
     columns=[
         ColumnDef("table_name", "TEXT", nullable=False),
         ColumnDef("last_synced_at", "TEXT", nullable=False),
+        ColumnDef("in_flight_since", "TEXT"),
+        ColumnDef("completed_at", "TEXT"),
+        ColumnDef("status", "TEXT", default="idle"),
+        ColumnDef("error_message", "TEXT"),
+        ColumnDef("host", "TEXT"),
     ],
     primary_key="table_name",
     sync_to_postgres=False,
