@@ -82,13 +82,50 @@ def _row_get(row: sqlite3.Row, key: str, default=None):
     return value if value is not None else default
 
 
+def _check_long_stop_loss(
+    row: sqlite3.Row, exit_price: float, sp: float, tolerance: float,
+) -> bool:
+    """Return True when a long stop_loss exit is anomalous.
+
+    Anomalous: exit_price > stop_price * (1 + tolerance) — the fill
+    was above the stop level (unexpected for a long stop-loss).
+    """
+    return exit_price > sp * (1 + tolerance)
+
+
+def _check_short_stop_loss(
+    row: sqlite3.Row, exit_price: float, sp: float, tolerance: float,
+) -> bool:
+    """Return True when a short stop_loss exit is anomalous.
+
+    Anomalous: exit_price < stop_price * (1 - tolerance) — the fill
+    was below the stop level (unexpected for a short stop-loss).
+    """
+    return exit_price < sp * (1 - tolerance)
+
+
+def _check_direction_target(
+    row: sqlite3.Row, exit_price: float, target: float,
+    direction: str, reason: str,
+) -> bool:
+    """Return anomaly flag for target_1 / target_2 exits by direction."""
+    if direction == "long":
+        return exit_price < target
+    if direction == "short":
+        return exit_price > target
+    logger.warning(
+        "[EXIT_RECON_UNKNOWN_DIRECTION] trade_id=%s direction=%s reason=%s",
+        row["trade_id"], direction, reason,
+    )
+    return False
+
+
 def _check_trade(row: sqlite3.Row) -> bool:
     """Return True if the row is anomalous, False if clean or skipped.
 
-    Direction-aware (PR-690 O2): a long that "hit target_1" must have
-    exit_price >= target_1; a short must have exit_price <= target_1.
-    Stop_loss inverts symmetrically. Unknown directions are logged
-    and treated as non-anomalous (fail-safe).
+    Direction-aware (PR-690 O2): delegates stop-loss direction checks to
+    _check_long_stop_loss / _check_short_stop_loss and target checks to
+    _check_direction_target. Unknown directions are non-anomalous (fail-safe).
     """
     reason = row["exit_reason"] or "unknown"
     exit_price = row["actual_exit_price"]
@@ -101,15 +138,7 @@ def _check_trade(row: sqlite3.Row) -> bool:
             return False
         if exit_price is None:
             return False
-        if direction == "long":
-            return exit_price < t1
-        if direction == "short":
-            return exit_price > t1
-        logger.warning(
-            "[EXIT_RECON_UNKNOWN_DIRECTION] trade_id=%s direction=%s reason=%s",
-            row["trade_id"], direction, reason,
-        )
-        return False
+        return _check_direction_target(row, exit_price, t1, direction, reason)
 
     if reason == "target_2":
         t2 = row["target_2"]
@@ -118,26 +147,16 @@ def _check_trade(row: sqlite3.Row) -> bool:
             return False
         if exit_price is None:
             return False
-        if direction == "long":
-            return exit_price < t2
-        if direction == "short":
-            return exit_price > t2
-        logger.warning(
-            "[EXIT_RECON_UNKNOWN_DIRECTION] trade_id=%s direction=%s reason=%s",
-            row["trade_id"], direction, reason,
-        )
-        return False
+        return _check_direction_target(row, exit_price, t2, direction, reason)
 
     if reason == "stop_loss":
         sp = row["stop_price"]
-        if sp is None or sp <= 0:
-            return False
-        if exit_price is None:
+        if sp is None or sp <= 0 or exit_price is None:
             return False
         if direction == "long":
-            return exit_price > sp * (1 + _STOP_LOSS_SLIPPAGE_TOLERANCE)
+            return _check_long_stop_loss(row, exit_price, sp, _STOP_LOSS_SLIPPAGE_TOLERANCE)
         if direction == "short":
-            return exit_price < sp * (1 - _STOP_LOSS_SLIPPAGE_TOLERANCE)
+            return _check_short_stop_loss(row, exit_price, sp, _STOP_LOSS_SLIPPAGE_TOLERANCE)
         logger.warning(
             "[EXIT_RECON_UNKNOWN_DIRECTION] trade_id=%s direction=%s reason=%s",
             row["trade_id"], direction, reason,

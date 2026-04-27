@@ -9,10 +9,6 @@
       "lines": 413
     },
     {
-      "file": "src/api/cloud_routes/kpis.py",
-      "lines": 513
-    },
-    {
       "file": "src/api/cloud_routes/trades.py",
       "lines": 427
     },
@@ -575,11 +571,6 @@
       "lines": 73
     },
     {
-      "file": "src/features/engine.py",
-      "function": "compute_features",
-      "lines": 95
-    },
-    {
       "file": "src/features/regime.py",
       "function": "classify_regime",
       "lines": 61
@@ -911,11 +902,6 @@
     },
     {
       "file": "src/shadow_trading/alpaca_adapter.py",
-      "function": "place_live_bracket",
-      "lines": 81
-    },
-    {
-      "file": "src/shadow_trading/alpaca_adapter.py",
       "function": "place_live_entry",
       "lines": 63
     },
@@ -923,11 +909,6 @@
       "file": "src/shadow_trading/bracket_monitor.py",
       "function": "check_bracket_health",
       "lines": 89
-    },
-    {
-      "file": "src/shadow_trading/exit_reconciliation.py",
-      "function": "_check_trade",
-      "lines": 69
     },
     {
       "file": "src/shadow_trading/executor.py",

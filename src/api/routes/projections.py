@@ -66,6 +66,36 @@ def _resolve_equity_baseline() -> tuple[float, str]:
     return _NORMALIZED_BASELINE_EQUITY, "normalized_baseline"
 
 
+def _compute_projections_metrics(rows, starting_equity: float, equity_source: str) -> dict:
+    """Compute projection metrics from closed-trade rows and equity baseline."""
+    pnl_pcts = [float(r["pnl_pct"] or 0) for r in rows]
+    pnl_dollars = [float(r["pnl_dollars"] or 0) for r in rows]
+    wins = [pnl for pnl in pnl_dollars if pnl > 0]
+    losses = [pnl for pnl in pnl_dollars if pnl <= 0]
+    avg_return = statistics.mean(pnl_pcts) if pnl_pcts else 0
+    sharpe = raw_sharpe(pnl_pcts) or 0.0
+    cumulative = starting_equity
+    peak = cumulative
+    max_dd = 0
+    for pnl in pnl_dollars:
+        cumulative += pnl
+        peak = max(peak, cumulative)
+        dd = (peak - cumulative) / peak * 100 if peak > 0 else 0
+        max_dd = max(max_dd, dd)
+    pf = abs(sum(wins) / sum(losses)) if losses and sum(losses) != 0 else 0
+    return {
+        "trades": len(rows),
+        "winRate": round(len(wins) / len(rows), 3),
+        "sharpe": round(sharpe, 3),
+        "profitFactor": round(pf, 2),
+        "maxDD": round(max_dd, 1),
+        "netPnl": round(sum(pnl_dollars), 2),
+        "avgReturn": round(avg_return, 3),
+        "equitySource": equity_source,
+        "startingEquity": round(starting_equity, 2),
+    }
+
+
 @router.get("/projections/live")
 def projections_live():
     try:
@@ -79,55 +109,11 @@ def projections_live():
                 "AND COALESCE(quarantined, 0) = 0 "
                 "ORDER BY actual_exit_time ASC"
             ).fetchall()
-
         if not rows:
             return {"trades": 0}
-
-        pnl_pcts = [float(r["pnl_pct"] or 0) for r in rows]
-        pnl_dollars = [float(r["pnl_dollars"] or 0) for r in rows]
-        wins = [pnl for pnl in pnl_dollars if pnl > 0]
-        losses = [pnl for pnl in pnl_dollars if pnl <= 0]
-        avg_return = statistics.mean(pnl_pcts) if pnl_pcts else 0
-        # PR #690 B5: replace non-canonical (mean/std with no annualization) with
-        # canonical_sharpe.raw_sharpe — single source of truth per F-2/Track-1.5.
-        # raw_sharpe returns None when undefined (n<2 or zero variance); we coerce
-        # to 0.0 to preserve the response contract (numeric `sharpe` field).
-        # rf-wiring status (Sprint-0 Wave-3b RF-WIRING, 2026-04-26):
-        #   - kpis.py + stage1_baseline_recompute.py wired via PR #690 I1
-        #   - cpcv.py / block_bootstrap.py / mc_permutation.py / promotion_gate.py
-        #     wired via _with_fred_rf siblings + dates= keyword (Sprint-0 W3b)
-        #   - This /projections endpoint stays on raw_sharpe (no rf adjustment)
-        #     because the response is dashboard-cumulative, not strategy-promotion;
-        #     the rf adjustment swap would change the dashboard hero number and
-        #     belongs in a follow-up dashboard PR rather than the methods wiring.
-        sharpe = raw_sharpe(pnl_pcts) or 0.0
-
         # PR #690 I6: pull live equity from Alpaca rather than hardcoded $100K.
-        # `equitySource` is surfaced in the response so the dashboard / operator
-        # can tell whether the drawdown is computed against live equity or the
-        # normalized fallback constant.
         starting_equity, equity_source = _resolve_equity_baseline()
-        cumulative = starting_equity
-        peak = cumulative
-        max_dd = 0
-        for pnl in pnl_dollars:
-            cumulative += pnl
-            peak = max(peak, cumulative)
-            dd = (peak - cumulative) / peak * 100 if peak > 0 else 0
-            max_dd = max(max_dd, dd)
-
-        pf = abs(sum(wins) / sum(losses)) if losses and sum(losses) != 0 else 0
-        return {
-            "trades": len(rows),
-            "winRate": round(len(wins) / len(rows), 3),
-            "sharpe": round(sharpe, 3),
-            "profitFactor": round(pf, 2),
-            "maxDD": round(max_dd, 1),
-            "netPnl": round(sum(pnl_dollars), 2),
-            "avgReturn": round(avg_return, 3),
-            "equitySource": equity_source,
-            "startingEquity": round(starting_equity, 2),
-        }
+        return _compute_projections_metrics(rows, starting_equity, equity_source)
     except Exception as exc:
         logger.error("[API] projections/live failed: %s", exc)
         return {"trades": 0, "error": str(exc)}
