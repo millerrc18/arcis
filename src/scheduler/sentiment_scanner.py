@@ -70,14 +70,5 @@ def run_sentiment_refresh(config: dict, db_path: str = DB_PATH) -> dict:
         logger.warning("[SENTIMENT] Regime refresh failed: %s", e)
         summary["errors"] += 1
 
-    # News sentiment refresh via Finnhub
-    try:
-        from src.data_enrichment.enricher import _fetch_finnhub_news
-        summary["refreshed"].append("news")
-        logger.info("[SENTIMENT] News sentiment refreshed")
-        _record_staleness("news", "_universe", db_path)
-    except Exception as e:
-        logger.debug("[SENTIMENT] News refresh skipped: %s", e)
-
     logger.info("[SENTIMENT] Tier 3 refresh complete: %s", summary["refreshed"])
     return summary
