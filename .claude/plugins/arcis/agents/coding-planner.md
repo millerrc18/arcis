@@ -49,6 +49,11 @@ You receive the following via DYNAMIC CONTEXT:
    - Which tasks can run in parallel? (No shared files, no structural dependencies)
    - Which tasks must wait for others? (Needs a file/function/model that another task creates)
    - Group independent tasks into parallel batches in `execution_order`
+   - **Anti-theatrical-parallelism rule**: parallelism only helps when both tasks can do meaningful work concurrently. Tasks that are *tests of deliverable X* must be **sequenced after X**, not parallel-tracked, because:
+     1. The test task can't actually start until X's commit lands (it imports X's API), and
+     2. No downstream task depends on the tests existing, so parallel-tracking saves zero wall-clock time, and
+     3. Cherry-picking a sibling-track test commit into the integration chain at PR time costs more PM cycles than the "parallelism" ever saved.
+     **Sprint 1.A.0 incident**: T1.04 (scraper tests) was parallel-tracked off T1.01 (scraper) — but T1.04 needed T1.01's commit to be importable, and nothing depended on T1.04 finishing. Net result: PM had to cherry-pick T1.04 onto the T1.06 chain at integration. If two tasks can't *truly* execute concurrently (i.e., both make progress at the same wall-clock instant), put them in sequential batches, not the same parallel batch.
 
 4. **Define scope fences.** For each task, write explicit "do NOT" instructions:
    - What files are off-limits
@@ -79,6 +84,7 @@ You must produce:
 - MUST include `depends_on` for every task (empty array `[]` if no dependencies).
 - MUST include `test_strategy` for every task, even if the test strategy is "No new tests — verify existing tests still pass."
 - MUST identify schema/migration tasks and structure them as the first task in their dependency chain — never as a task that runs in parallel with its consumers.
+- MUST NOT place a "tests of X" task in the same parallel batch as X (or in any earlier batch). Tests-of-X always come in a batch *after* X's batch, even if no other task depends on the tests. Parallel-tracking tests is theatrical — the test task can't import X until X commits, so wall-clock savings are zero, and the sibling-branch later requires a cherry-pick at integration. (Sprint 1.A.0 T1.04 incident.)
 
 ---
 

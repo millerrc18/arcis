@@ -40,7 +40,19 @@ If neither is provided, the `REQUEST` text is the spec.
    - `Cargo.toml` → `cargo test`
    - Default: ask the user
 4. Record the current git SHA as `PRE_IMPLEMENTATION_SHA` for the Integrator.
-5. Initialize the dashboard status file at `.arcis/coding-dashboard.json`:
+5. **Commit the spec as deliverable 0.** Before dispatching Planner, the spec.md MUST be committed to a base branch so PR provenance is preserved permanently:
+   ```bash
+   # If --spec was provided, the spec already lives at SPEC_PATH (likely under docs/audits/<sprint-id>/spec.md)
+   git switch -c sprint/<sprint-id>/base origin/main
+   git add <SPEC_PATH>
+   git commit -m "spec(<sprint-id>): commit specification as deliverable 0 for PR provenance"
+   git push -u origin sprint/<sprint-id>/base
+   ```
+   This branch becomes the **base for all Developer worktrees** in this sprint, replacing `origin/main` as the dispatch base. The unified PR opens against `main` and includes the spec commit as its first commit, so anyone reading the merged history six months later can answer "what did the spec say at integration time?" by reading the diff. (Sprint 1.A.0 incident: spec lived only in operator's local untracked working tree; Integrator had to reference it by dispatch context only.)
+   
+   If `--spec` was NOT provided (i.e., the request came inline as REQUEST text), write the REQUEST verbatim to `docs/audits/<sprint-id>/spec.md`, then commit and push as above.
+
+6. Initialize the dashboard status file at `.arcis/coding-dashboard.json`:
 
 ```json
 {
@@ -96,7 +108,7 @@ cp .arcis/coding-dashboard.json .claude/plugins/arcis/.arcis/coding-dashboard.js
 ```
 Or write to both directly. Without the mirror, the served HTML will load empty/stale content.
 
-6. Open the dashboard:
+7. Open the dashboard:
    - If Playwright MCP tools are available: navigate to `skills/coding-team/dashboard/index.html`
    - Otherwise: start a local HTTP server **on a non-conventional port with explicit IPv4 binding** to avoid silent collisions. `python -m http.server 8765 --bind 127.0.0.1` from the repo root is a good default — port 8080 is commonly bound by EnterpriseDB / Tomcat / other services, and Python's default IPv6 bind doesn't resolve through `localhost` on Windows when an IPv4 service shadows the port. Surface the URL `http://127.0.0.1:8765/.claude/plugins/arcis/skills/coding-team/dashboard/` (use the IP, not `localhost`, just to be safe). The HTML's relative fetch only works when served via HTTP, not via `file://` (CORS).
 

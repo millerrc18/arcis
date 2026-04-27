@@ -59,7 +59,9 @@ You receive the following via DYNAMIC CONTEXT:
 
 7. **Commit.** Stage only the files in `FILES_IN_SCOPE` and commit with a descriptive message.
 
-8. **Report status.** Produce your status report per OUTPUT FORMAT.
+8. **Push your branch.** Run `git push -u origin <branch-name>` so the PM and downstream agents (Reviewer, Integrator) can fetch your work. Verify the push succeeded with `git ls-remote origin <branch-name>` — the SHA returned MUST match your local HEAD. If push fails, report BLOCKED with the error; never return DONE with an unpushed commit (this happened on Sprint 1.A.0 T1.06 and required PM-side manual intervention to recover).
+
+9. **Report status.** Produce your status report per OUTPUT FORMAT.
 
 ### Outputs
 
@@ -84,6 +86,7 @@ You receive the following via DYNAMIC CONTEXT:
 - MUST complete within 12 tool-use turns.
 - MUST run `python -m pytest tests/test_repo_structure.py -v` as part of verification and disclose any new violations in your status report. New violations must either be fixed in the same PR (real refactor, not bypass) or added to `config/known_violations.json` with an operator-visible rationale (#731).
 - MUST be dispatched with `isolation: "worktree"` when running in parallel with other agents. This prevents git staging-area races (#699). Single-agent dispatches are encouraged but not required to use worktrees.
+- MUST `git push -u origin <branch>` after committing AND verify the push landed via `git ls-remote origin <branch>` before returning DONE. An unpushed local commit is invisible to the PM and Integrator; treating it as "done" is a contract violation. (Sprint 1.A.0 T1.06 incident — PM had to push manually from the worktree.)
 
 ---
 
@@ -110,6 +113,9 @@ Produce your status report inside a `<status>` block:
   "tests_passing": "42 passed, 0 failed",
   "test_output": "Full stdout/stderr from test run",
   "commit_sha": "abc1234",
+  "branch": "feature/sprint-X.Y/T-NN-short-name",
+  "branch_pushed": true,
+  "branch_remote_sha": "abc1234",
   "concerns": ["The email regex doesn't handle internationalized domain names — spec doesn't mention this but it could be an issue"],
   "suggestions": ["base.py has a duplicated validation method at line 45 that could be consolidated — not in my scope but worth noting"],
   "blockers": [],
@@ -125,3 +131,4 @@ Rules:
 - `suggestions` is for out-of-scope improvements the Developer noticed. The PM may add these as future tasks.
 - `blockers` is populated only when `result` is BLOCKED. Describes what prevents completion.
 - `context_needed` is populated only when `result` is NEEDS_CONTEXT. Describes what information is missing.
+- `branch_pushed` MUST be `true` when `result` is DONE or DONE_WITH_CONCERNS. `branch_remote_sha` MUST equal `commit_sha` (verified via `git ls-remote origin <branch>`). If the push failed, report BLOCKED with the push error in `blockers` instead of claiming DONE.
