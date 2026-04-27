@@ -99,18 +99,47 @@ def get_sp100_at(
 ) -> list:
     """Return the SP100 universe as it was on as_of_date.
 
+    Dual-mode:
+
+    Production path (membership_table is None, the default):
+        Loads the membership table from data/reference/sp100_history.json via
+        load_sp100_membership_table().  Validates that as_of_date falls within
+        the covered range; raises UniverseDataMissing for out-of-range dates or
+        if the data file is absent.
+
+    Test-fixture path (membership_table is an explicit dict, including {}):
+        Uses the caller-supplied table exactly as provided.  The loader is never
+        called.  UniverseDataMissing is never raised.
+        Empty membership_table={} still returns [] (preserves existing test semantics).
+
     Args:
         as_of_date: ISO-format date string, e.g. "2024-01-01".
-        membership_table: Dict mapping ISO-date strings to lists of tickers.
-            Uses the most-recent snapshot whose key is <= as_of_date.
-            Pass an empty dict to get an empty result (no snapshot available).
+        membership_table: Explicit dict mapping ISO-date strings to lists of
+            tickers (test-fixture path), or None to load from
+            data/reference/sp100_history.json (production path).
 
     Returns:
         Alphabetically sorted list of ticker strings for that date.
         Returns [] if no snapshot exists on or before as_of_date.
+
+    Raises:
+        UniverseDataMissing: (production path only) if the data file is absent,
+            or if as_of_date is before the earliest or after the latest covered date.
+        ValueError: if as_of_date is not a valid ISO-format date string.
     """
     if membership_table is None:
-        membership_table = {}
+        membership_table = load_sp100_membership_table()
+        earliest, latest = get_data_range()
+        as_of = date.fromisoformat(as_of_date)
+        if as_of < earliest:
+            raise UniverseDataMissing(
+                f"as_of={as_of_date} is before earliest covered date {earliest.isoformat()}"
+            )
+        if as_of > latest:
+            raise UniverseDataMissing(
+                f"as_of={as_of_date} is after latest covered date {latest.isoformat()};"
+                f" refresh data via scripts/build_sp100_history.py"
+            )
 
     if not membership_table:
         return []
