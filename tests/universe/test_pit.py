@@ -1,7 +1,17 @@
 """Tests for point-in-time universe and dividend-haircut functions."""
 
+import json
+from datetime import date
+from unittest.mock import MagicMock
+
 import pytest
-from src.universe.pit import get_sp100_at, apply_dividend_haircut
+from src.universe.pit import (
+    UniverseDataMissing,
+    get_data_range,
+    get_sp100_at,
+    apply_dividend_haircut,
+    load_sp100_membership_table,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -122,3 +132,133 @@ def test_apply_dividend_haircut_zero_period_days():
         period_days=0,
     )
     assert result == pytest.approx(0.05)
+
+
+# Production-loader tests (Sprint 1.A.0)
+
+@pytest.fixture
+def _clear_pit_cache():
+    from src.universe.pit import load_sp100_membership_table
+    load_sp100_membership_table.cache_clear()
+    yield
+    load_sp100_membership_table.cache_clear()
+
+
+def test_load_sp100_membership_table_smoke(tmp_path, monkeypatch, _clear_pit_cache):
+    data = {'2024-01-01': ['AAPL', 'MSFT'], '2024-07-01': ['AAPL', 'MSFT', 'NVDA']}
+    p = tmp_path / 'sp100_history.json'
+    p.write_text(json.dumps(data), encoding='utf-8')
+    monkeypatch.setattr('src.universe.pit._SP100_HISTORY_PATH', p)
+
+    first = load_sp100_membership_table()
+    assert first == data
+
+    second = load_sp100_membership_table()
+    assert second is first
+
+
+def test_load_sp100_membership_table_raises_when_file_missing(tmp_path, monkeypatch, _clear_pit_cache):
+    missing = tmp_path / 'nonexistent.json'
+    monkeypatch.setattr('src.universe.pit._SP100_HISTORY_PATH', missing)
+
+    with pytest.raises(UniverseDataMissing, match='scripts/build_sp100_history.py'):
+        load_sp100_membership_table()
+
+
+def test_load_sp100_membership_table_caches_via_lru_cache(tmp_path, monkeypatch, _clear_pit_cache):
+    data_v1 = {'2024-01-01': ['AAPL', 'MSFT']}
+    data_v2 = {'2024-01-01': ['AAPL', 'MSFT'], '2024-07-01': ['NVDA']}
+    p = tmp_path / 'sp100_history.json'
+    p.write_text(json.dumps(data_v1), encoding='utf-8')
+    monkeypatch.setattr('src.universe.pit._SP100_HISTORY_PATH', p)
+
+    first = load_sp100_membership_table()
+    assert first == data_v1
+
+    p.write_text(json.dumps(data_v2), encoding='utf-8')
+    cached = load_sp100_membership_table()
+    assert cached == data_v1
+
+    load_sp100_membership_table.cache_clear()
+    refreshed = load_sp100_membership_table()
+    assert refreshed == data_v2
+
+
+def test_get_data_range_returns_iso_date_tuple(tmp_path, monkeypatch, _clear_pit_cache):
+    data = {
+        '2024-01-01': ['AAPL'],
+        '2024-07-01': ['AAPL', 'MSFT'],
+        '2025-01-01': ['AAPL', 'MSFT', 'NVDA'],
+    }
+    p = tmp_path / 'sp100_history.json'
+    p.write_text(json.dumps(data), encoding='utf-8')
+    monkeypatch.setattr('src.universe.pit._SP100_HISTORY_PATH', p)
+
+    earliest, latest = get_data_range()
+    assert earliest == date(2024, 1, 1)
+    assert latest == date(2025, 1, 1)
+    assert isinstance(earliest, date)
+    assert isinstance(latest, date)
+
+
+def test_get_data_range_raises_when_file_missing(tmp_path, monkeypatch, _clear_pit_cache):
+    missing = tmp_path / 'nonexistent.json'
+    monkeypatch.setattr('src.universe.pit._SP100_HISTORY_PATH', missing)
+
+    with pytest.raises(UniverseDataMissing):
+        get_data_range()
+
+
+def test_get_sp100_at_production_path_uses_loader_when_membership_table_is_None(
+    tmp_path, monkeypatch, _clear_pit_cache
+):
+    data = {'2024-01-01': ['AAPL', 'MSFT'], '2024-07-01': ['AAPL', 'MSFT', 'NVDA']}
+    p = tmp_path / 'sp100_history.json'
+    p.write_text(json.dumps(data), encoding='utf-8')
+    monkeypatch.setattr('src.universe.pit._SP100_HISTORY_PATH', p)
+
+    result = get_sp100_at('2024-06-15')
+    assert result == sorted(data['2024-01-01'])
+
+
+def test_get_sp100_at_raises_when_as_of_before_coverage(tmp_path, monkeypatch, _clear_pit_cache):
+    data = {'2024-01-01': ['AAPL'], '2025-01-01': ['AAPL', 'MSFT']}
+    p = tmp_path / 'sp100_history.json'
+    p.write_text(json.dumps(data), encoding='utf-8')
+    monkeypatch.setattr('src.universe.pit._SP100_HISTORY_PATH', p)
+
+    with pytest.raises(UniverseDataMissing, match='before earliest') as exc_info:
+        get_sp100_at('2020-01-01')
+    assert '2024-01-01' in str(exc_info.value)
+
+
+def test_get_sp100_at_raises_when_as_of_after_coverage(tmp_path, monkeypatch, _clear_pit_cache):
+    data = {'2024-01-01': ['AAPL'], '2025-01-01': ['AAPL', 'MSFT']}
+    p = tmp_path / 'sp100_history.json'
+    p.write_text(json.dumps(data), encoding='utf-8')
+    monkeypatch.setattr('src.universe.pit._SP100_HISTORY_PATH', p)
+
+    with pytest.raises(UniverseDataMissing, match='after latest') as exc_info:
+        get_sp100_at('2030-01-01')
+    assert 'scripts/build_sp100_history.py' in str(exc_info.value)
+
+
+def test_get_sp100_at_patch_compat_with_explicit_membership_table_does_not_call_loader(
+    monkeypatch,
+):
+    mock_loader = MagicMock()
+    monkeypatch.setattr('src.universe.pit.load_sp100_membership_table', mock_loader)
+
+    result = get_sp100_at('2024-01-01', membership_table=MEMBERSHIP_TABLE)
+    assert result == ['AAPL', 'GOOG', 'MSFT', 'NVDA']
+    mock_loader.assert_not_called()
+
+
+def test_get_sp100_at_explicit_empty_dict_still_returns_empty_list():
+    result = get_sp100_at('2024-01-01', membership_table={})
+    assert result == []
+
+
+def test_get_sp100_at_out_of_range_does_not_raise_when_using_explicit_table():
+    result = get_sp100_at('2030-01-01', membership_table=MEMBERSHIP_TABLE)
+    assert result == sorted(MEMBERSHIP_TABLE['2025-01-01'])
