@@ -38,6 +38,7 @@ from src.data_collection.edgar_collector import (
     MAX_TEXT_BYTES,
 )
 from src.universe.sp100 import get_sp100_universe
+from src.utils.db import connect_db
 
 logging.basicConfig(
     level=logging.INFO,
@@ -172,7 +173,7 @@ def phase1_discover(
     total_discovered = 0
     total_inserted = 0
 
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
 
     for i, ticker in enumerate(tickers, 1):
         cik = _get_cik(ticker)
@@ -317,8 +318,7 @@ def phase2_fetch(
     limit: int | None = None,
 ) -> dict:
     """Phase 2: Fetch full text for filings missing sections_json."""
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = connect_db(db_path)
 
     q = """SELECT cik, accession_number, form_type, ticker, filing_date
            FROM edgar_filings
@@ -386,7 +386,7 @@ def write_audit_report(
         "docs", "audits", f"edgar-backfill-{today}.md",
     )
 
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
 
     # Coverage by year
     year_stats = {}

@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.config import DB_PATH
 from src.data_collection.edgar_collector import _fetch_filing_text
+from src.utils.db import connect_db
 
 RATE_LIMIT_SEC = 1 / 3  # 3 requests per second
 
@@ -33,8 +34,7 @@ def main() -> int:
                    help="Count rows that would be processed; do not fetch.")
     args = p.parse_args()
 
-    conn = sqlite3.connect(args.db_path)
-    conn.row_factory = sqlite3.Row
+    conn = connect_db(args.db_path)
     q = "SELECT cik, accession_number FROM edgar_filings WHERE full_text IS NULL"
     if args.limit:
         q += f" LIMIT {args.limit}"

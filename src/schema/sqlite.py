@@ -11,6 +11,7 @@ import logging
 import sqlite3
 
 from src.schema.registry import TABLES, ColumnDef, TableDef
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,7 @@ def create_all_tables(db_path: str) -> None:
     the gaps, so indexes are retried after column migration.
     """
     deferred_indexes: list[tuple[str, str]] = []
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         for table in TABLES.values():
             sql = generate_create_sql(table)
             # Split CREATE TABLE from CREATE INDEX to handle schema drift
@@ -120,7 +121,7 @@ def ensure_columns(db_path: str) -> list[str]:
     Returns list of 'table.column' strings for columns added.
     """
     added = []
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         for table in TABLES.values():
             try:
                 existing = {

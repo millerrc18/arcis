@@ -18,9 +18,13 @@ _ALLOWLIST: list[tuple[str, int, str]] = [
     ("src/scheduler/watch.py", 1059, "backup API: src conn for sqlite3.backup() — needs raw pair"),
     ("src/scheduler/watch.py", 1060, "backup API: dst conn for sqlite3.backup() — needs raw pair"),
     # schema/sqlite.py: retry-index path opens a short-lived raw conn inside a low-level
-    # schema bootstrap function where the caller controls the import path.
-    # This is the only place in the module that can't use connect_db due to ordering.
-    ("src/schema/sqlite.py", 165, "schema bootstrap retry-index path — low-level bootstrap; connect_db circular import risk"),
+    # schema bootstrap function. The conn.close() call pattern is intentional for this
+    # immediate-commit-and-close index-creation path; connect_db context manager would
+    # suppress the OperationalError on __exit__ differently.
+    ("src/schema/sqlite.py", 166, "schema bootstrap retry-index path — short-lived raw conn for index CREATE IF NOT EXISTS"),
+    # src/features/engine_helpers.py:61 is a comment explaining why connect_db is used
+    # (referencing the old raw sqlite3.connect pattern for historical context).
+    ("src/features/engine_helpers.py", 61, "comment text referencing old sqlite3.connect pattern — not a live call"),
     # scripts/archive_bootcamp_2026_04_24.py: uses URI mode (mode=ro, mode=rw) which
     # connect_db does not support. Read-only and URI-format connections are intentional.
     ("scripts/archive_bootcamp_2026_04_24.py", 187, "URI mode=ro — connect_db does not support uri=True"),
@@ -32,6 +36,17 @@ _ALLOWLIST: list[tuple[str, int, str]] = [
     # scripts/recover_from_postgres.py: line 207 is a string literal inside print()
     # showing the operator how to verify manual recovery — not a live call site.
     ("scripts/recover_from_postgres.py", 207, "string literal in print() — operator help text, not a live call"),
+    # src/sync/render_sync.py: all sqlite3.connect calls use explicit timeout=10 (intentional
+    # 10s cap for the sync daemon — shorter than connect_db's 30s default to avoid
+    # blocking the background sync thread during write bursts). The _sqlite_conn helper
+    # wraps this pattern; direct calls inside fetch/push helpers follow #258 design.
+    ("src/sync/render_sync.py", 81, "sync daemon helper: intentional 10s timeout to avoid blocking background thread"),
+    ("src/sync/render_sync.py", 142, "#258: intentional 10s busy timeout for sync fetch helper"),
+    ("src/sync/render_sync.py", 167, "#258: intentional 10s busy timeout for sync fetch helper"),
+    ("src/sync/render_sync.py", 195, "#258: intentional 10s busy timeout for sync fetch helper"),
+    ("src/sync/render_sync.py", 213, "#258: intentional 10s busy timeout for sync fetch helper"),
+    ("src/sync/render_sync.py", 574, "#258: intentional 10s busy timeout for sync pull_commands helper"),
+    ("src/sync/render_sync.py", 623, "#258: intentional 10s busy timeout for sync pull_commands helper"),
     # scripts/statusline.py: intentionally uses a short 2s timeout for a non-blocking
     # terminal status bar display. connect_db default is 30s which would block the shell.
     ("scripts/statusline.py", 154, "intentional 2s timeout for non-blocking terminal status bar"),

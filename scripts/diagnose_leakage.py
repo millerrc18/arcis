@@ -25,6 +25,9 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from src.utils.db import connect_db  # noqa: E402
+
 DB_CANDIDATES = ["ai_research_desk.sqlite3", "data/halcyon.db", "data/arcis.db"]
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -39,8 +42,7 @@ if not DB_PATH:
     print("ERROR: No database found")
     sys.exit(1)
 
-conn = sqlite3.connect(DB_PATH)
-conn.row_factory = sqlite3.Row
+conn = connect_db(DB_PATH)
 
 print("=" * 60)
 print("  LEAKAGE DIAGNOSTIC")

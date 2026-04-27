@@ -50,6 +50,8 @@ DEFAULT_BASELINE_PATH = ROOT / "config" / "daily_repo_audit_baseline.json"
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from src.utils.db import connect_db  # noqa: E402
+
 
 @dataclass(frozen=True)
 class TaskSpec:
@@ -208,7 +210,7 @@ def _live_close_broker_truth_probe() -> tuple[bool, str]:
     try:
         initialize_database(str(db_path))
         now = _utc_now().isoformat()
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.execute(
                 """
                 INSERT INTO shadow_trades (
@@ -256,7 +258,7 @@ def _live_close_broker_truth_probe() -> tuple[bool, str]:
         ):
             check_and_manage_open_trades(db_path=str(db_path), source_filter="live")
 
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             status = conn.execute(
                 "SELECT status FROM shadow_trades WHERE trade_id = ?", ("trade-1",)
             ).fetchone()[0]
@@ -367,7 +369,7 @@ def _paper_entry_requires_broker_probe() -> tuple[bool, str]:
         ):
             trade_id = open_shadow_trade("rec-1", packet, features, db_path=str(db_path))
 
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             open_count = conn.execute(
                 "SELECT COUNT(*) FROM shadow_trades WHERE status = 'open'"
             ).fetchone()[0]
@@ -399,7 +401,7 @@ def _council_schema_probe() -> tuple[bool, str]:
         initialize_database(str(db_path))
 
         now = _utc_now()
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.execute(
                 """
                 INSERT INTO recommendations (

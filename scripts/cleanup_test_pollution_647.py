@@ -26,6 +26,9 @@ import sqlite3
 import sys
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from src.utils.db import connect_db
+
 # #647 (PR #648) merged at 2026-04-24T11:57:33Z. Anything older than this
 # AND matching a known test signature is safe to delete. Use ET ISO format
 # matching activity_log.created_at column convention.
@@ -108,7 +111,7 @@ def main():
     total_to_delete = 0
     sql_per_event = []
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         for event_type, sigs in SIGNATURES.items():
             placeholders = ",".join("?" * len(sigs))
             params = (*sigs, args.cutoff)

@@ -36,6 +36,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH, load_config
+from src.utils.db import connect_db
 from src.training.versioning import (
     get_active_model_version,
     get_next_semver,
@@ -414,9 +415,7 @@ def export_training_data(
     except Exception as e:
         logger.warning("[TRAINING] Failed to classify examples: %s", e)
 
-    import sqlite3 as _sqlite3
-    with _sqlite3.connect(db_path) as conn:
-        conn.row_factory = _sqlite3.Row
+    with connect_db(db_path) as conn:
         rows = conn.execute(
             "SELECT example_id, instruction, input_text, output_text, created_at, "
             "quality_score, curriculum_stage, quality_score_auto, source "
