@@ -241,6 +241,151 @@ def test_scan_strategy_without_attribution_hooks_skips_logging(
     mock_after.assert_not_called()
 
 
+# -------------------------------------------------------------------
+# #627 — pre-LLM filter tests
+# -------------------------------------------------------------------
+
+
+@patch("src.universe.company_names.get_company_name", return_value="Apple Inc.")
+@patch("src.training.versioning.get_active_model_name", return_value="model_v3")
+@patch("src.packets.template.render_packet", return_value="RENDERED")
+@patch("src.llm.packet_writer._build_feature_prompt", return_value="prompt text")
+@patch("src.llm.packet_writer.enhance_packet_with_llm")
+@patch("src.packets.template.build_packet_from_features")
+@patch("src.shadow_trading.executor._check_paper_buying_power_allocation", return_value=True)
+@patch("src.ranking.ranker.get_top_candidates")
+@patch("src.ranking.ranker.rank_universe", return_value=[])
+@patch("src.features.engine.compute_all_features", return_value={})
+@patch("src.data_ingestion.market_data.fetch_spy_benchmark", return_value=_make_spy_df())
+@patch("src.data_ingestion.market_data.fetch_ohlcv", return_value={"BK": pd.DataFrame()})
+@patch("src.universe.sp100.get_sp100_universe", return_value=["BK"])
+def test_event_risk_hard_block_skips_llm(
+    mock_uni, mock_ohlcv, mock_spy, mock_feat, mock_rank, mock_top,
+    mock_bp, mock_build, mock_enhance, mock_prompt, mock_render, mock_model, mock_name
+):
+    """#627 — candidate with event_risk_multiplier=0 must not call enhance_packet_with_llm."""
+    mock_top.return_value = {
+        "packet_worthy": [
+            {
+                "ticker": "BK",
+                "score": 88,
+                "qualification": "packet_worthy",
+                "features": {
+                    "trend_state": "uptrend",
+                    "sector": "Financials",
+                    "event_risk_multiplier": 0.0,
+                    "current_price": 100.0,
+                },
+                "earnings_risk": True,
+            }
+        ],
+        "watchlist": [],
+    }
+
+    def _build_side(ticker, *a, **kw):
+        return SimpleNamespace(
+            ticker=ticker,
+            entry_zone="$100.00",
+            stop_invalidation="$95.00",
+            targets="$110.00",
+            position_sizing=SimpleNamespace(allocation_dollars=5000.0),
+            llm_conviction=None,
+        )
+
+    mock_build.side_effect = _build_side
+    mock_enhance.return_value = _make_packet()
+
+    from src.services.scan_service import run_scan
+    result = run_scan(_scan_config(), dry_run=True)
+
+    mock_enhance.assert_not_called(), "LLM must not be called for event-risk hard-block candidates"
+
+
+@patch("src.universe.company_names.get_company_name", return_value="Apple Inc.")
+@patch("src.training.versioning.get_active_model_name", return_value="model_v3")
+@patch("src.packets.template.render_packet", return_value="RENDERED")
+@patch("src.llm.packet_writer._build_feature_prompt", return_value="prompt text")
+@patch("src.llm.packet_writer.enhance_packet_with_llm")
+@patch("src.packets.template.build_packet_from_features")
+@patch("src.shadow_trading.executor._check_paper_buying_power_allocation", return_value=True)
+@patch("src.ranking.ranker.get_top_candidates")
+@patch("src.ranking.ranker.rank_universe", return_value=[])
+@patch("src.features.engine.compute_all_features", return_value={})
+@patch("src.data_ingestion.market_data.fetch_spy_benchmark", return_value=_make_spy_df())
+@patch("src.data_ingestion.market_data.fetch_ohlcv", return_value={"BK": pd.DataFrame(), "AAPL": pd.DataFrame()})
+@patch("src.universe.sp100.get_sp100_universe", return_value=["BK", "AAPL"])
+def test_sector_concentration_pre_filter_skips_llm(
+    mock_uni, mock_ohlcv, mock_spy, mock_feat, mock_rank, mock_top,
+    mock_bp, mock_build, mock_enhance, mock_prompt, mock_render, mock_model, mock_name
+):
+    """#627 — candidate that would breach sector cap must not call enhance_packet_with_llm.
+
+    Financials at 32% of portfolio + this trade would breach 30% cap.
+    BK (Financials) should be pre-filtered; AAPL (Technology) should proceed to LLM.
+    """
+    mock_top.return_value = {
+        "packet_worthy": [
+            {
+                "ticker": "BK",
+                "score": 88,
+                "qualification": "packet_worthy",
+                "features": {
+                    "trend_state": "uptrend",
+                    "sector": "Financials",
+                    "event_risk_multiplier": 1.0,
+                    "current_price": 100.0,
+                },
+                "earnings_risk": False,
+            },
+            {
+                "ticker": "AAPL",
+                "score": 85,
+                "qualification": "packet_worthy",
+                "features": {
+                    "trend_state": "uptrend",
+                    "sector": "Technology",
+                    "event_risk_multiplier": 1.0,
+                    "current_price": 150.0,
+                },
+                "earnings_risk": False,
+            },
+        ],
+        "watchlist": [],
+    }
+
+    def _build_side(ticker, *a, **kw):
+        pkt = SimpleNamespace(
+            ticker=ticker,
+            entry_zone="$100.00",
+            stop_invalidation="$95.00",
+            targets="$110.00",
+            position_sizing=SimpleNamespace(allocation_dollars=5000.0),
+            llm_conviction=None,
+        )
+        return pkt
+
+    mock_build.side_effect = _build_side
+    mock_enhance.side_effect = lambda pkt, *a, **kw: pkt
+
+    from src.services.scan_service import run_scan
+
+    config = dict(_scan_config())
+    config["risk"] = {
+        "max_sector_pct": 0.30,
+        "starting_capital": 15000,
+    }
+    config["_pre_llm_portfolio_snapshot"] = {
+        "equity": 15000.0,
+        "sector_exposure": {"Financials": 0.32},
+    }
+
+    result = run_scan(config, dry_run=True)
+
+    called_tickers = [c.args[0].ticker for c in mock_enhance.call_args_list]
+    assert "BK" not in called_tickers, "Financials over cap — BK must be pre-filtered before LLM"
+    assert "AAPL" in called_tickers, "AAPL (Technology) should reach LLM"
+
+
 # ===================================================================
 # 2. shadow_service
 # ===================================================================
