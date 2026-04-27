@@ -6,14 +6,12 @@ Canonical list of test failures that exist on `main` and are not regressions fro
 
 ---
 
-## Currently failing on main (last verified: pending Sprint 0.C C.4+C.5+C.6 merge)
+## Currently failing on main (last verified: 2026-04-27 post-Sprint-0.C merge)
 
 | Test | Reason | Tracker | Disclosed in |
 |------|--------|---------|--------------|
-| `tests/integration/test_track_1_5_full_pipeline.py::test_full_pipeline_when_broker_exception_during_exit` | Paper-path emergency-close test — addressed by Sprint 0.B PR #743 | #706 (CLOSED) | PR #717, #718, #719, #720, #724, #729, #738, #739, #740, #741 reviews |
-| `tests/shadow_trading/test_broker_partial_swallow_upgrades.py::test_site6_emergency_close_sdk_missing_persists` | Paper-path emergency-close test — addressed by Sprint 0.B PR #743 | #706 (CLOSED) | Same as above |
-
-**Note:** Both failures above were resolved in Sprint 0.B PR #743 (test triage); confirm cleared after that PR's merge.
+| `tests/test_broker_interface.py::TestAlpacaLiveBracket651` | Newly-discovered during Sprint 0.C C.3 full sweep; not previously tracked | (TODO: file Sprint 0.D tracker) | PR #753 review |
+| `tests/test_ib_production.py::TestErrorCodes` | Newly-discovered during Sprint 0.C C.3 full sweep; not previously tracked | (TODO: file Sprint 0.D tracker) | PR #753 review |
 
 ---
 
@@ -21,11 +19,14 @@ Canonical list of test failures that exist on `main` and are not regressions fro
 
 | Test | Cleared by | Notes |
 |------|-----------|-------|
+| `tests/integration/test_track_1_5_full_pipeline.py::test_full_pipeline_when_broker_exception_during_exit` | Sprint 0.B PR #743 (B2.6 test triage) | Stale `'unknown'` assertion; Wave 2b promoted `'broker_exception'` to first-class CONTROLLED_VOCAB |
+| `tests/shadow_trading/test_broker_partial_swallow_upgrades.py::test_site6_emergency_close_sdk_missing_persists` | Sprint 0.B PR #743 (B2.6 test triage) | Added missing `place_paper_entry` + `_verify_and_update` mocks so execution reaches the SDK-missing branch |
 | `tests/test_repo_structure.py::test_no_file_over_400_lines` (`promotion_gate.py` 573 lines) | Sprint 0.B PR #735 | Real refactor, no grandfather entry |
 | `tests/test_repo_structure.py::test_no_file_over_400_lines` (`ib_broker.py` 507 lines) | Sprint 0.B PR #739 | Same pattern, mirrored #735 split |
 | `tests/test_repo_structure.py::test_no_function_over_60_lines` (`_run_cpcv` 87 lines) | Sprint 0.B PR #735 | Function-level extraction |
 | `tests/test_repo_structure.py::test_no_function_over_60_lines` (`verify_live_order_accepted` 114 lines) | Sprint 0.B PR #739 | Sub-helpers extracted |
 | `tests/test_local_routes.py::TestSettings::test_post_settings` and 17 sibling auth-fallout tests | Sprint 0.B PR #729 | Hermetic env fixture for `ARCIS_LOCAL_API_TOKEN` |
+| `tests/trading/test_alpaca_live_verification.py` (9 tests) | Sprint 0.C PR #750 (C.2 alpaca split + patch-compat fix) | `_poll_order_status` switched to call-time orchestrator-namespace resolve (PR #735 pattern) |
 
 ---
 
