@@ -48,14 +48,11 @@ IB_STATUS_MAP = {
     "apicancelled": "cancelled",
 }
 
-_IB_ERROR_CODES = {
-    110: "price_out_of_range",
-    135: "unknown_order_id",
-    200: "unknown_contract",
-    201: "order_rejected",
-    202: "order_cancelled",
-    10147: "order_not_active",
-}
+from src.trading.ib_broker_helpers import (  # noqa: E402
+    _IB_ERROR_CODES,
+    handle_ib_error as _handle_ib_error_impl,
+    verify_bracket_integrity as _verify_bracket_integrity_impl,
+)
 
 
 class IBBroker(BrokerAdapter):
@@ -123,33 +120,13 @@ class IBBroker(BrokerAdapter):
 
     def _verify_bracket_integrity(self) -> list[str]:
         """After reconnect, verify all positions have active stop orders.
-        Returns list of tickers with missing protection."""
-        unprotected = []
-        positions = self._ib.positions()
-        open_trades = self._ib.openTrades()
-        # Build set of tickers with active stop orders
-        protected_tickers = set()
-        for trade in open_trades:
-            if (trade.order.orderType in ("STP", "STP LMT") and
-                    trade.order.action == "SELL" and
-                    trade.orderStatus.status in ("PreSubmitted", "Submitted")):
-                protected_tickers.add(trade.contract.symbol)
-        for pos in positions:
-            if pos.position > 0 and pos.contract.symbol not in protected_tickers:
-                unprotected.append(pos.contract.symbol)
-                logger.warning("[IB] UNPROTECTED POSITION: %s (%d shares, no active stop)",
-                              pos.contract.symbol, int(pos.position))
-        return unprotected
+        Delegates to ib_broker_helpers.verify_bracket_integrity."""
+        return _verify_bracket_integrity_impl(self._ib)
 
     def _handle_ib_error(self, code: int, msg: str, ticker: str = "") -> None:
-        """Log and classify IB error codes."""
-        classification = _IB_ERROR_CODES.get(code, "unknown")
-        if code in (200, 201):
-            logger.error("[IB] %s error for %s (code %d): %s",
-                        classification, ticker, code, msg)
-        else:
-            logger.warning("[IB] %s for %s (code %d): %s",
-                          classification, ticker, code, msg)
+        """Log and classify IB error codes.
+        Delegates to ib_broker_helpers.handle_ib_error."""
+        _handle_ib_error_impl(code, msg, ticker)
 
     def get_account(self) -> BrokerAccount:
         self._ensure_connected()
@@ -282,105 +259,15 @@ class IBBroker(BrokerAdapter):
     def _cancel_bracket_children_for_ticker(
         self, ticker: str, *, ack_timeout: float = 5.0,
     ) -> list[str]:
-        """Cancel any active bracket-child sell orders for ``ticker`` and
-        WAIT for the broker to acknowledge each cancel.
+        """Cancel active bracket-child sell orders for ``ticker`` and wait for ack.
 
-        Sprint 0 Wave 5c IB-CANCEL-BEFORE-CLOSE (CLAUDE.md "Cancel before
-        close"). When IBBroker.place_bracket_order submits an OCA group
-        of [parent BUY, take-profit SELL, stop-loss SELL], the two child
-        SELL orders sit on the broker waiting for the parent to fill.
-        After the parent fills, the children become active protective
-        exits. If we then submit a market SELL via place_exit without
-        cancelling those children first, three SELL orders race:
-
-        - the new market exit
-        - the stop-loss (STP/STP LMT)
-        - the take-profit (LMT)
-
-        Best case: one fills, ocaType=3 cancels the others. Worst case:
-        two fill (the OCA group is broker-side, not atomic) and we
-        oversell — which on a long position means going short.
-
-        The Alpaca side mirrors this with cancel_orders_for_ticker on
-        the reconcile path (src/shadow_trading/reconcile.py:591,645).
-        IB lacked the equivalent until Wave 5c.
-
-        Returns the list of order_ids that were cancelled. Raises
-        ConnectionError on cancel-ack timeout — the caller MUST NOT
-        proceed to submit the exit if this raises.
+        Delegates to ib_broker_helpers.cancel_bracket_children_for_ticker.
+        See that function for full docstring / design rationale.
         """
-        # Identify protective SELL children for this ticker. We treat any
-        # active SELL order on the contract (regardless of orderType) as
-        # potentially racing the exit — bracket children are STP/STP LMT/
-        # LMT, but a previously-converted standalone protective stop is
-        # the same hazard.
-        to_cancel = []
-        for trade in self._ib.openTrades():
-            if (trade.contract.symbol == ticker
-                    and trade.order.action == "SELL"
-                    and trade.orderStatus.status in (
-                        "PreSubmitted", "Submitted", "PendingSubmit",
-                    )):
-                to_cancel.append(trade)
-        if not to_cancel:
-            return []
-
-        cancelled_ids = []
-        for trade in to_cancel:
-            try:
-                self._ib.cancelOrder(trade.order)
-                cancelled_ids.append(str(trade.order.orderId))
-                logger.info(
-                    "[IB] CANCEL-BEFORE-CLOSE: requesting cancel of "
-                    "%s order %s for %s (status=%s)",
-                    trade.order.orderType, trade.order.orderId, ticker,
-                    trade.orderStatus.status,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "[IB] CANCEL-BEFORE-CLOSE: cancelOrder raised for "
-                    "%s order %s: %s",
-                    ticker, trade.order.orderId, exc,
-                )
-
-        # WAIT for cancel acknowledgement. Sleep on the IB event loop
-        # so order-status updates can arrive. Poll openTrades each tick
-        # until every cancelled order is either no longer open OR shows
-        # a terminal status (Cancelled / ApiCancelled / Inactive /
-        # Filled). Filled is its own race — if the bracket child filled
-        # before our cancel landed, the OCA group will already have
-        # cancelled the other; we still don't submit the new exit
-        # because the position is already closed.
-        terminal = {"cancelled", "apicancelled", "inactive", "filled"}
-        deadline = ack_timeout
-        elapsed = 0.0
-        step = 0.5
-        cancelled_set = set(cancelled_ids)
-        while elapsed < deadline and cancelled_set:
-            self._ib.sleep(step)
-            elapsed += step
-            still_open = set()
-            for trade in self._ib.openTrades():
-                tid = str(trade.order.orderId)
-                if tid in cancelled_set:
-                    status = str(trade.orderStatus.status).lower()
-                    if status not in terminal:
-                        still_open.add(tid)
-            cancelled_set = still_open
-
-        if cancelled_set:
-            raise ConnectionError(
-                f"IB cancel-before-close timeout for {ticker}: "
-                f"orders still open after {deadline}s: "
-                f"{sorted(cancelled_set)}"
-            )
-
-        logger.info(
-            "[IB] CANCEL-BEFORE-CLOSE: %d bracket child cancel(s) "
-            "acknowledged for %s before exit submit",
-            len(cancelled_ids), ticker,
+        from src.trading.ib_broker_helpers import cancel_bracket_children_for_ticker
+        return cancel_bracket_children_for_ticker(
+            self._ib, ticker, ack_timeout=ack_timeout,
         )
-        return cancelled_ids
 
     def place_exit(self, ticker: str, quantity: int = 0) -> BrokerOrder:
         """Close position. quantity=0 closes all shares.
