@@ -831,6 +831,13 @@ class WatchLoop(HandlerRegistryMixin):
             logger.warning("[WATCH] notify_scan_result failed: %s", e)
 
         if not self._first_scan_done:
+            # Fire-once marker: set BEFORE the notification attempt so that a
+            # notification failure does NOT cause the summary to re-send on the
+            # next scan. This is intentionally different from the canonical
+            # `if self._safe_run(...): self._flag_done = True` pattern used for
+            # retry-discipline (22 other sites). Here, the scan has already
+            # succeeded — this flag gates a one-time informational summary, not
+            # a task that should retry on failure. (#709 audit: correct-as-is)
             self._first_scan_done = True
             try:
                 from src.notifications.telegram import notify_first_scan_summary, is_telegram_enabled

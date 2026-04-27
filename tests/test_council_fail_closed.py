@@ -11,6 +11,7 @@ were modified by a fake council vote during an external service outage.
 
 from __future__ import annotations
 
+import os
 from unittest.mock import patch
 
 import pytest
@@ -26,6 +27,7 @@ class TestClaudeAuthErrorRaisesForUnrecoverable:
     so the caller can move on to the next item.
     """
 
+    @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-test-fake-key"})
     def test_credit_balance_too_low_raises_typed_exception(self):
         from src.training.claude_client import (
             ClaudeAuthError,
@@ -43,6 +45,7 @@ class TestClaudeAuthErrorRaisesForUnrecoverable:
             with pytest.raises(ClaudeAuthError):
                 generate_training_example("system", "user", purpose="test")
 
+    @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-test-fake-key"})
     def test_authentication_error_raises_typed_exception(self):
         from src.training.claude_client import (
             ClaudeAuthError,
@@ -59,6 +62,7 @@ class TestClaudeAuthErrorRaisesForUnrecoverable:
             with pytest.raises(ClaudeAuthError):
                 generate_training_example("system", "user", purpose="test")
 
+    @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-ant-test-fake-key"})
     def test_other_errors_still_return_none_for_backward_compat(self):
         from src.training.claude_client import generate_training_example
 

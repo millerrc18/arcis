@@ -50,7 +50,7 @@ def fetch_cached_ohlcv(ticker: str, start: str, end: str,
 
     try:
         data = yf.download(to_yfinance_ticker(ticker), start=start, end=end,
-                           progress=False, auto_adjust=True)
+                           progress=False)
         if data is not None and not data.empty:
             if isinstance(data.columns, pd.MultiIndex):
                 data.columns = data.columns.get_level_values(0)
