@@ -575,11 +575,6 @@
       "lines": 73
     },
     {
-      "file": "src/features/engine.py",
-      "function": "compute_features",
-      "lines": 95
-    },
-    {
       "file": "src/features/regime.py",
       "function": "classify_regime",
       "lines": 61
