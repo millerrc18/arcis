@@ -82,6 +82,8 @@ You receive the following via DYNAMIC CONTEXT:
 - MUST read the current state of any file listed in `CHANGE_MANIFEST` before modifying it — never work from stale context.
 - MUST report concerns honestly. If something seems wrong, use DONE_WITH_CONCERNS, not DONE.
 - MUST complete within 12 tool-use turns.
+- MUST run `python -m pytest tests/test_repo_structure.py -v` as part of verification and disclose any new violations in your status report. New violations must either be fixed in the same PR (real refactor, not bypass) or added to `config/known_violations.json` with an operator-visible rationale (#731).
+- MUST be dispatched with `isolation: "worktree"` when running in parallel with other agents. This prevents git staging-area races (#699). Single-agent dispatches are encouraged but not required to use worktrees.
 
 ---
 

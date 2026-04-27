@@ -7,58 +7,13 @@ Config keys: alpaca, api_key, api_secret, base_url, bootcamp, bot_token, chat_id
 Tests: tests/test_services.py
 """
 import logging
-import os
 import sqlite3
-import subprocess
-from functools import lru_cache
 from pathlib import Path
 
 from src.config import DB_PATH
 from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
-
-_VERSION_FALLBACK = "v0.16.12"
-
-
-@lru_cache(maxsize=1)
-def get_app_version() -> str:
-    """Return the app version from env, VERSION file, or git, with fallback.
-
-    Render deployments set ``ARCIS_VERSION`` in their env; local dev reads a
-    ``VERSION`` file at the repo root if present; otherwise ``git describe``
-    returns the most recent tag. Cached because it only changes on redeploy.
-    """
-    env = os.environ.get("ARCIS_VERSION")
-    if env:
-        return env.strip()
-
-    version_file = Path(__file__).resolve().parents[2] / "VERSION"
-    if version_file.exists():
-        try:
-            text = version_file.read_text(encoding="utf-8").strip()
-            if text:
-                return text
-        except OSError as exc:
-            logger.debug("VERSION file unreadable: %s", exc)
-
-    try:
-        result = subprocess.run(
-            ["git", "describe", "--tags", "--abbrev=0"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            timeout=2.0,
-            check=False,
-            cwd=str(Path(__file__).resolve().parents[2]),
-        )
-        tag = (result.stdout or "").strip()
-        if tag:
-            return tag
-    except (OSError, subprocess.SubprocessError) as exc:
-        logger.debug("git describe failed: %s", exc)
-
-    return _VERSION_FALLBACK
 
 
 def get_system_status(config: dict) -> dict:

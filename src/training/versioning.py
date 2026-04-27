@@ -124,6 +124,18 @@ def register_model_version(
              holdout_score, holdout_details),
         )
         conn.commit()
+
+    try:
+        import json as _json
+        from src.utils.activity_logger import log_activity
+        log_activity(
+            "model_register",
+            _json.dumps({"version_name": version_name, "status": status}),
+            db_path=db_path,
+        )
+    except Exception as exc:
+        logger.debug("[VERSIONING] activity_log write failed during register: %s", exc)
+
     return version_id
 
 
@@ -152,6 +164,18 @@ def promote_evaluation_model(db_path: str = DB_PATH) -> dict | None:
         conn.execute("UPDATE model_versions SET status = 'active' WHERE version_id = ?",
                      (eval_model["version_id"],))
         conn.commit()
+
+    try:
+        import json as _json
+        from src.utils.activity_logger import log_activity
+        log_activity(
+            "model_promote",
+            _json.dumps({"promoted_version": eval_model["version_name"]}),
+            db_path=db_path,
+        )
+    except Exception as exc:
+        logger.debug("[VERSIONING] activity_log write failed during promote: %s", exc)
+
     return dict(eval_model)
 
 
@@ -168,6 +192,18 @@ def reject_evaluation_model(db_path: str = DB_PATH) -> dict | None:
         conn.execute("UPDATE model_versions SET status = 'rejected' WHERE version_id = ?",
                      (eval_model["version_id"],))
         conn.commit()
+
+    try:
+        import json as _json
+        from src.utils.activity_logger import log_activity
+        log_activity(
+            "model_reject",
+            _json.dumps({"rejected_version": eval_model["version_name"]}),
+            db_path=db_path,
+        )
+    except Exception as exc:
+        logger.debug("[VERSIONING] activity_log write failed during reject: %s", exc)
+
     return dict(eval_model)
 
 

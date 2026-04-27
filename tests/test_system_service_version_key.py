@@ -86,3 +86,19 @@ def test_no_duplicate_version_key_in_source():
         f"return dict. Found {len(occurrences)} occurrences — the duplicate "
         f"key bug (issue #688) has been re-introduced. Occurrences: {occurrences}"
     )
+
+
+def test_get_app_version_removed_from_system_service():
+    """Regression lock: get_app_version() is dead code — it has no production
+    callers in system_service.py after the #688 fix removed the duplicate
+    key. This test ensures the function is not re-introduced as a caller.
+    """
+    import inspect
+    from src.services import system_service
+    src = inspect.getsource(system_service)
+
+    assert "get_app_version" not in src, (
+        "get_app_version() was called or re-declared in system_service.py. "
+        "This function has no production callers after the #688 fix. "
+        "Use src.version.VERSION directly."
+    )
