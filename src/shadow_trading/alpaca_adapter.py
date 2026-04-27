@@ -785,6 +785,99 @@ class OrderNotAcceptedError(Exception):
         super().__init__(msg)
 
 
+_LIVE_VERIFY_ACCEPTED = {"accepted", "new", "pending_new", "filled",
+                         "partially_filled", "done_for_day"}
+_LIVE_VERIFY_REJECTED = {"rejected", "canceled", "expired", "suspended"}
+
+
+def _poll_order_status(order_id: str) -> tuple[str, dict]:
+    """Fetch live order status and build a normalized payload dict.
+
+    Returns (status_str, payload_dict). Raises on client/network errors
+    so the caller can count them as polling failures.
+    """
+    client = _get_live_trading_client()
+    order = client.get_order_by_id(order_id)
+    status = str(order.status).lower().replace("orderstatus.", "")
+    payload = {
+        "order_id": str(getattr(order, "id", order_id)),
+        "symbol": str(getattr(order, "symbol", "")),
+        "status": status,
+        "qty": float(order.qty) if getattr(order, "qty", None) else 0.0,
+        "filled_qty": (
+            float(order.filled_qty)
+            if getattr(order, "filled_qty", None) else 0.0
+        ),
+        "filled_avg_price": (
+            float(order.filled_avg_price)
+            if getattr(order, "filled_avg_price", None) else None
+        ),
+    }
+    return status, payload
+
+
+def _classify_order_status(status: str) -> str:
+    """Map a raw Alpaca order status string to 'accepted', 'rejected', or 'pending'.
+
+    Returns 'accepted' when status is in the accepted terminal set,
+    'rejected' when status is in the rejected terminal set, or
+    'pending' for any other/unknown status.
+    """
+    if status in _LIVE_VERIFY_ACCEPTED:
+        return "accepted"
+    if status in _LIVE_VERIFY_REJECTED:
+        return "rejected"
+    return "pending"
+
+
+def _calculate_backoff(attempt: int, base_delay: float, max_delay: float) -> float:
+    """Return the exponential backoff delay for the given attempt number (1-based).
+
+    delay = min(base_delay * 2^(attempt-1), max_delay)
+    """
+    return min(base_delay * (2 ** (attempt - 1)), max_delay)
+
+
+def _handle_poll_attempt(
+    order_id: str, attempt: int, max_attempts: int,
+) -> tuple[dict | None, str, str | None]:
+    """Execute one poll attempt; return (result_or_None, last_status, last_error).
+
+    Returns (result_dict, status, None) when the order reached an accepted state.
+    Raises OrderNotAcceptedError when a terminal-reject is observed.
+    Returns (None, status, None) when status is pending/unknown — caller retries.
+    Returns (None, 'unknown', error_str) when the API call itself fails.
+    """
+    try:
+        status, payload = _poll_order_status(order_id)
+        classification = _classify_order_status(status)
+        if classification == "accepted":
+            return (
+                {"verified": True, "status": status,
+                 "attempts": attempt, "order": payload},
+                status, None,
+            )
+        if classification == "rejected":
+            logger.error(
+                "[LIVE-VERIFY] Order %s in terminal-reject state %r after %d attempt(s)",
+                order_id, status, attempt,
+            )
+            raise OrderNotAcceptedError(order_id=order_id, status=status, attempts=attempt)
+        logger.warning(
+            "[LIVE-VERIFY] Order %s status=%r on attempt %d/%d; retrying",
+            order_id, status, attempt, max_attempts,
+        )
+        return None, status, None
+    except OrderNotAcceptedError:
+        raise
+    except Exception as exc:
+        logger.warning(
+            "[LIVE-VERIFY] Could not verify order %s (attempt %d/%d): %s",
+            order_id, attempt, max_attempts, exc,
+        )
+        return None, "unknown", str(exc)
+
+
 def verify_live_order_accepted(
     order_id: str,
     *,
@@ -793,107 +886,29 @@ def verify_live_order_accepted(
     max_delay: float = 8.0,
     sleep_fn=None,
 ) -> dict:
-    """Poll Alpaca live for terminal acceptance/rejection of an order.
+    """Poll Alpaca live for terminal acceptance/rejection of a live order.
 
-    Sprint 0 Wave 5c LIVE-VERIFY: AlpacaLiveBroker submits orders against
-    real money, but pre-Wave-5c never called any post-submit verification.
-    This polls the live trading client up to ``max_attempts`` times with
-    1s exponential backoff (1, 2, 4, 8, 8 — capped at ``max_delay``) and:
-
-    - returns the verified order dict (status in
-      {accepted, new, pending_new, filled, partially_filled, done_for_day})
-    - raises :class:`OrderNotAcceptedError` if a terminal-reject status is
-      seen (rejected, canceled, expired, suspended) — the broker has
-      definitively refused or killed the order
-    - raises :class:`OrderNotAcceptedError` if all attempts return
-      "unknown" / API errors — the order's fate is uncertain and a live
-      capital path must NOT silently proceed
-
-    The polling distinguishes "still pending" from "terminal" — Alpaca
-    can briefly show ``pending_new`` immediately after submission, so we
-    retry until either an accepted or rejected state is observed (or
-    attempts exhaust).
-
-    Args:
-        order_id: Live Alpaca order id returned by ``submit_order``.
-        max_attempts: How many times to poll (default 5).
-        base_delay: First retry delay in seconds (default 1.0).
-        max_delay: Cap on per-attempt sleep (default 8.0).
-        sleep_fn: Injectable sleep function for tests (default time.sleep).
-
-    Returns:
-        dict {"verified": True, "status": <str>, "attempts": <int>,
-              "order": <serialized order dict>}
+    Sprint 0 Wave 5c LIVE-VERIFY. Raises OrderNotAcceptedError on terminal-reject
+    or exhausted attempts. Returns {"verified": True, "status", "attempts", "order"}.
+    Sub-helpers: _poll_order_status, _classify_order_status, _calculate_backoff,
+    _handle_poll_attempt.
     """
     import time as _time
     if sleep_fn is None:
         sleep_fn = _time.sleep
 
-    accepted_states = {"accepted", "new", "pending_new", "filled",
-                       "partially_filled", "done_for_day"}
-    rejected_states = {"rejected", "canceled", "expired", "suspended"}
-
     last_status = "unknown"
     last_error: str | None = None
-    last_order_payload: dict | None = None
 
     for attempt in range(1, max_attempts + 1):
-        try:
-            client = _get_live_trading_client()
-            order = client.get_order_by_id(order_id)
-            status = str(order.status).lower().replace("orderstatus.", "")
-            last_status = status
-            last_order_payload = {
-                "order_id": str(getattr(order, "id", order_id)),
-                "symbol": str(getattr(order, "symbol", "")),
-                "status": status,
-                "qty": float(order.qty) if getattr(order, "qty", None) else 0.0,
-                "filled_qty": (
-                    float(order.filled_qty)
-                    if getattr(order, "filled_qty", None) else 0.0
-                ),
-                "filled_avg_price": (
-                    float(order.filled_avg_price)
-                    if getattr(order, "filled_avg_price", None) else None
-                ),
-            }
-            if status in accepted_states:
-                return {
-                    "verified": True,
-                    "status": status,
-                    "attempts": attempt,
-                    "order": last_order_payload,
-                }
-            if status in rejected_states:
-                logger.error(
-                    "[LIVE-VERIFY] Order %s in terminal-reject state %r "
-                    "after %d attempt(s)",
-                    order_id, status, attempt,
-                )
-                raise OrderNotAcceptedError(
-                    order_id=order_id,
-                    status=status,
-                    attempts=attempt,
-                )
-            # Otherwise: unexpected/unknown status — poll again
-            logger.warning(
-                "[LIVE-VERIFY] Order %s status=%r on attempt %d/%d; retrying",
-                order_id, status, attempt, max_attempts,
-            )
-        except OrderNotAcceptedError:
-            raise
-        except Exception as exc:
-            last_error = str(exc)
-            logger.warning(
-                "[LIVE-VERIFY] Could not verify order %s (attempt %d/%d): %s",
-                order_id, attempt, max_attempts, exc,
-            )
-
+        result, last_status, err = _handle_poll_attempt(order_id, attempt, max_attempts)
+        if result is not None:
+            return result
+        if err is not None:
+            last_error = err
         if attempt < max_attempts:
-            delay = min(base_delay * (2 ** (attempt - 1)), max_delay)
-            sleep_fn(delay)
+            sleep_fn(_calculate_backoff(attempt, base_delay, max_delay))
 
-    # All attempts exhausted without seeing an accepted status
     raise OrderNotAcceptedError(
         order_id=order_id,
         status=last_status,
