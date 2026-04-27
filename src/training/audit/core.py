@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Sequence
 
+from src.utils.db import connect_db
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_PASSES: Sequence[str] = ("A", "B", "C")
