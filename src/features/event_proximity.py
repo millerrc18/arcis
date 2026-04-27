@@ -96,24 +96,9 @@ _load_event_calendar.cache_clear = _cache_clear  # type: ignore[attr-defined]
 
 
 def _coerce_reference(reference_date: date | str | None) -> date:
-    """Normalize reference_date to a date.
-
-    None falls back to date.today() (live-scan behavior). Sprint 0/Wave 5a
-    keeps backward-compat default while letting historical scans pass an
-    explicit cutoff to prevent today()-based leakage.
-    """
-    if reference_date is None:
-        return date.today()
-    if isinstance(reference_date, datetime):
-        return reference_date.date()
-    if isinstance(reference_date, date):
-        return reference_date
-    if isinstance(reference_date, str):
-        try:
-            return date.fromisoformat(reference_date[:10])
-        except (ValueError, TypeError):
-            return date.today()
-    return date.today()
+    """Delegate to src.utils.dates.coerce_as_of(default_today=True). Canonical impl lives there."""
+    from src.utils.dates import coerce_as_of
+    return coerce_as_of(reference_date, default_today=True)
 
 
 def get_upcoming_events(

@@ -17,19 +17,9 @@ logger = logging.getLogger(__name__)
 
 
 def _coerce_as_of(as_of: date | str | None) -> date | None:
-    """Normalize as_of input to a date, or None."""
-    if as_of is None:
-        return None
-    if isinstance(as_of, datetime):
-        return as_of.date()
-    if isinstance(as_of, date):
-        return as_of
-    if isinstance(as_of, str):
-        try:
-            return date.fromisoformat(as_of[:10])
-        except (ValueError, TypeError):
-            return None
-    return None
+    """Delegate to src.utils.dates.coerce_as_of. Canonical impl lives there."""
+    from src.utils.dates import coerce_as_of
+    return coerce_as_of(as_of)
 
 
 def _parse_yfinance_calendar(cal) -> str | None:

@@ -27,15 +27,41 @@ All return None when the series is empty, has too few observations
 "Sharpe undefined"; callers that need a numeric fallback (e.g. dashboard
 0.0, or model_monitor's regression-comparison arithmetic) wrap accordingly.
 
+## Sortino flavors — which to use
+
+This module provides `compute_sortino_mar` (Sprint-0 wave-4a, PR #718).
+The codebase also has `src.platform.metrics.compute_sortino`. They differ
+in the downside-deviation divisor:
+
+  compute_sortino_mar(returns, mar=0)          [this module]
+    Divisor: RMS of (r - mar) over the downside subset only, i.e.
+      sqrt(sum(min(r, mar)^2) / len(downside)).
+    Use when: matching the legacy cto_report._compute_fund_metrics formula
+      or any MAR-gated Sortino where the threshold is non-zero. This is the
+      canonical form for cto_report / fund-level periodic reporting.
+
+  src.platform.metrics.compute_sortino(returns)
+    Divisor: sample stdev (ddof=1) of the downside subset only, i.e.
+      stdev([r for r in returns if r < 0]).
+    Use when: per-trade risk-adjusted stats, model evaluation gates, or
+      any context that expects a sample-stdev-of-negatives divisor rather
+      than RMS. This is the canonical form for per-trade platform.metrics
+      callers.
+
+Cross-references: `src.platform.metrics.compute_sortino`,
+  `src.analytics.canonical_sharpe.compute_sortino_mar`.
+
 Called by: src.journal.stats, src.platform.metrics, src.api.routes.system,
   src.evaluation.cto_report, src.evaluation.model_monitor,
-  src.evaluation.statistics, src.simulation.engine.
+  src.evaluation.statistics, src.simulation.engine,
+  src.api.cloud_routes.analytics.
 Calls: math (no numpy dep — keeps this module callable from pure-Python
   code paths like journal/stats.py).
 Owns tables: none.
 Config keys: none.
 Tests: tests/test_canonical_sharpe.py,
-  tests/evaluation/test_sharpe_canonical_routing.py.
+  tests/evaluation/test_sharpe_canonical_routing.py,
+  tests/test_b2_5_methodology.py.
 """
 from __future__ import annotations
 

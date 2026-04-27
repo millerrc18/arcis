@@ -23,8 +23,6 @@ dimension computation functions are defined at module level (not inside
 create_router) so they can be unit-tested independently.
 """
 
-import statistics
-
 from fastapi import APIRouter, Depends, HTTPException
 
 
@@ -41,14 +39,13 @@ def _compute_performance_score(closed_trades: list[dict]) -> tuple[float, dict]:
     if closed_count < 2:
         return 0, {"status": "Insufficient data", "trade_count": closed_count, "target": 50}
 
+    from src.analytics.canonical_sharpe import compute_sharpe
     pnls = [float(trade.get("pnl_pct", 0) or 0) for trade in closed_trades]
     pnl_dollars = [float(trade.get("pnl_dollars", 0) or 0) for trade in closed_trades]
     wins = [pnl for pnl in pnls if pnl > 0]
     losses = [pnl for pnl in pnls if pnl <= 0]
     win_rate = len(wins) / closed_count
-    mean_pnl = sum(pnls) / len(pnls)
-    std_pnl = max((sum((pnl - mean_pnl) ** 2 for pnl in pnls) / len(pnls)) ** 0.5, 0.001)
-    sharpe = mean_pnl / std_pnl
+    sharpe = compute_sharpe(pnls, periods_per_year=1, ddof=1) or 0.0
     profit_factor = (sum(wins) / abs(sum(losses))) if losses and sum(losses) != 0 else None
 
     running = 0
@@ -170,15 +167,14 @@ def _compute_max_consecutive(closed_trades: list[dict], direction: str = "loss")
 
 def _compute_trade_summary(closed_recent: list[dict], open_count: int) -> dict:
     """Compute CTO trade-summary KPIs."""
+    from src.analytics.canonical_sharpe import compute_sharpe
     pnls = [float(trade.get("pnl_pct", 0) or 0) for trade in closed_recent]
     wins = [pnl for pnl in pnls if pnl > 0]
     losses = [pnl for pnl in pnls if pnl <= 0]
     total_pnl = sum(float(trade.get("pnl_dollars", 0) or 0) for trade in closed_recent)
     sharpe = 0
     if len(pnls) >= 2:
-        avg_return = statistics.mean(pnls)
-        std_return = statistics.stdev(pnls)
-        sharpe = round(avg_return / std_return, 3) if std_return > 0 else 0
+        sharpe = round(compute_sharpe(pnls, periods_per_year=1, ddof=1) or 0.0, 3)
 
     gross_wins = sum(wins) if wins else 0
     gross_losses = abs(sum(losses)) if losses else 0
