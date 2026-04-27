@@ -9,10 +9,6 @@
       "lines": 413
     },
     {
-      "file": "src/api/cloud_routes/kpis.py",
-      "lines": 513
-    },
-    {
       "file": "src/api/cloud_routes/trades.py",
       "lines": 427
     },
