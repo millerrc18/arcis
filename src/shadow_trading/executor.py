@@ -2925,7 +2925,7 @@ def _check_close_milestones(db_path: str = DB_PATH) -> None:
                 )
 
     except Exception as e:
-        logger.debug("[MILESTONE] Close milestone check failed: %s", e)
+        logger.warning("[MILESTONE] Close milestone check failed: %s", e)
 
 
 def _check_loss_streak(db_path: str = DB_PATH) -> None:
@@ -2996,7 +2996,7 @@ def _check_loss_streak(db_path: str = DB_PATH) -> None:
                     historical_max_streak=max_streak,
                 )
     except Exception as e:
-        logger.debug("[STREAK] Loss streak check failed: %s", e)
+        logger.warning("[STREAK] Loss streak check failed: %s", e)
 
 
 def _check_sector_exposure(db_path: str = DB_PATH) -> None:
