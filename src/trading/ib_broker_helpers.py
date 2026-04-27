@@ -57,52 +57,60 @@ def verify_bracket_integrity(ib) -> list[str]:
     return unprotected
 
 
+def _find_active_sell_children(ib, ticker: str) -> list:
+    """Return open SELL trades for ``ticker`` that could race an exit order."""
+    return [
+        trade for trade in ib.openTrades()
+        if (trade.contract.symbol == ticker
+            and trade.order.action == "SELL"
+            and trade.orderStatus.status in (
+                "PreSubmitted", "Submitted", "PendingSubmit",
+            ))
+    ]
+
+
+def _await_cancel_acks(ib, cancelled_ids: list[str], ticker: str,
+                       ack_timeout: float) -> None:
+    """Poll IB until all ``cancelled_ids`` reach a terminal state or timeout.
+
+    Raises ConnectionError if any order is still open after ``ack_timeout``.
+    Terminal states: cancelled, apicancelled, inactive, filled.
+    """
+    terminal = {"cancelled", "apicancelled", "inactive", "filled"}
+    elapsed = 0.0
+    step = 0.5
+    pending = set(cancelled_ids)
+    while elapsed < ack_timeout and pending:
+        ib.sleep(step)
+        elapsed += step
+        still_open = set()
+        for trade in ib.openTrades():
+            tid = str(trade.order.orderId)
+            if tid in pending:
+                if str(trade.orderStatus.status).lower() not in terminal:
+                    still_open.add(tid)
+        pending = still_open
+    if pending:
+        raise ConnectionError(
+            f"IB cancel-before-close timeout for {ticker}: "
+            f"orders still open after {ack_timeout}s: {sorted(pending)}"
+        )
+
+
 def cancel_bracket_children_for_ticker(
     ib,
     ticker: str,
     *,
     ack_timeout: float = 5.0,
 ) -> list[str]:
-    """Cancel any active bracket-child sell orders for ``ticker`` and
-    WAIT for the broker to acknowledge each cancel.
+    """Cancel active bracket-child sell orders for ``ticker`` and wait for acks.
 
-    Sprint 0 Wave 5c IB-CANCEL-BEFORE-CLOSE (CLAUDE.md "Cancel before
-    close"). When IBBroker.place_bracket_order submits an OCA group
-    of [parent BUY, take-profit SELL, stop-loss SELL], the two child
-    SELL orders sit on the broker waiting for the parent to fill.
-    After the parent fills, the children become active protective
-    exits. If we then submit a market SELL via place_exit without
-    cancelling those children first, three SELL orders race:
-
-    - the new market exit
-    - the stop-loss (STP/STP LMT)
-    - the take-profit (LMT)
-
-    Best case: one fills, ocaType=3 cancels the others. Worst case:
-    two fill (the OCA group is broker-side, not atomic) and we
-    oversell — which on a long position means going short.
-
-    The Alpaca side mirrors this with cancel_orders_for_ticker on
-    the reconcile path (src/shadow_trading/reconcile.py:591,645).
-    IB lacked the equivalent until Wave 5c.
-
-    Args:
-        ib: Connected IB instance (ib_async.IB).
-        ticker: Ticker symbol to cancel sell children for.
-        ack_timeout: Seconds to wait for cancel acknowledgements.
-
-    Returns the list of order_ids that were cancelled. Raises
-    ConnectionError on cancel-ack timeout — the caller MUST NOT
-    proceed to submit the exit if this raises.
+    Sprint 0 Wave 5c IB-CANCEL-BEFORE-CLOSE. Finds active SELL children,
+    requests cancels, then waits for broker acknowledgement via
+    _await_cancel_acks. Raises ConnectionError on ack timeout.
+    Returns list of cancelled order_ids.
     """
-    to_cancel = []
-    for trade in ib.openTrades():
-        if (trade.contract.symbol == ticker
-                and trade.order.action == "SELL"
-                and trade.orderStatus.status in (
-                    "PreSubmitted", "Submitted", "PendingSubmit",
-                )):
-            to_cancel.append(trade)
+    to_cancel = _find_active_sell_children(ib, ticker)
     if not to_cancel:
         return []
 
@@ -124,30 +132,7 @@ def cancel_bracket_children_for_ticker(
                 ticker, trade.order.orderId, exc,
             )
 
-    terminal = {"cancelled", "apicancelled", "inactive", "filled"}
-    deadline = ack_timeout
-    elapsed = 0.0
-    step = 0.5
-    cancelled_set = set(cancelled_ids)
-    while elapsed < deadline and cancelled_set:
-        ib.sleep(step)
-        elapsed += step
-        still_open = set()
-        for trade in ib.openTrades():
-            tid = str(trade.order.orderId)
-            if tid in cancelled_set:
-                status = str(trade.orderStatus.status).lower()
-                if status not in terminal:
-                    still_open.add(tid)
-        cancelled_set = still_open
-
-    if cancelled_set:
-        raise ConnectionError(
-            f"IB cancel-before-close timeout for {ticker}: "
-            f"orders still open after {deadline}s: "
-            f"{sorted(cancelled_set)}"
-        )
-
+    _await_cancel_acks(ib, cancelled_ids, ticker, ack_timeout)
     logger.info(
         "[IB] CANCEL-BEFORE-CLOSE: %d bracket child cancel(s) "
         "acknowledged for %s before exit submit",
