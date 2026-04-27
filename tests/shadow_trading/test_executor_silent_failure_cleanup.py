@@ -339,7 +339,7 @@ class TestBC4MilestoneStreakDBErrorLevel:
         with (
             patch("src.notifications.telegram.is_telegram_enabled", return_value=True),
             patch(
-                "src.utils.db.connect_db",
+                "src.shadow_trading.executor.connect_db",
                 side_effect=_sqlite3.OperationalError("database is locked"),
             ),
             caplog.at_level(logging.DEBUG, logger="src.shadow_trading.executor"),
@@ -367,7 +367,7 @@ class TestBC4MilestoneStreakDBErrorLevel:
         with (
             patch("src.notifications.telegram.is_telegram_enabled", return_value=True),
             patch(
-                "src.utils.db.connect_db",
+                "src.shadow_trading.executor.connect_db",
                 side_effect=_sqlite3.OperationalError("database is locked"),
             ),
             caplog.at_level(logging.DEBUG, logger="src.shadow_trading.executor"),
@@ -521,17 +521,33 @@ class TestNI34LiveTradeDBErrorTelegramAlert:
             "traffic_light_multiplier": 1.0,
         }
 
+    def _mock_live_broker(self, live_cfg):
+        """Return a mock live broker that passes the capital guard."""
+        mock_acct = SimpleNamespace(
+            equity=live_cfg["live_trading"]["starting_capital"],
+            cash=live_cfg["live_trading"]["starting_capital"],
+            buying_power=live_cfg["live_trading"]["starting_capital"],
+            portfolio_value=live_cfg["live_trading"]["starting_capital"],
+        )
+        mock_broker = MagicMock()
+        mock_broker.get_account.return_value = mock_acct
+        mock_broker.get_open_orders.return_value = []
+        return mock_broker
+
     def test_position_check_db_error_fires_telegram_alert(
         self, live_cfg, mock_packet, mock_features
     ):
         """DB error in the position-limit check must send a Telegram alert — fix #759."""
         import sqlite3 as _sqlite3
 
+        mock_broker = self._mock_live_broker(live_cfg)
+
         with (
             patch("src.shadow_trading.executor.load_config", return_value=live_cfg),
             patch("src.shadow_trading.executor._get_current_price_safe", return_value=50.0),
             patch("src.shadow_trading.executor._resolve_event_risk_multiplier", return_value=1.0),
             patch("src.llm.validator.validate_llm_output", return_value=(True, "")),
+            patch("src.trading.broker_factory.get_live_broker", return_value=mock_broker),
             patch(
                 "src.shadow_trading.executor.get_open_shadow_trades",
                 side_effect=_sqlite3.OperationalError("database is locked"),
@@ -555,11 +571,14 @@ class TestNI34LiveTradeDBErrorTelegramAlert:
         """The DB-error Telegram message must identify the ticker — fix #759."""
         import sqlite3 as _sqlite3
 
+        mock_broker = self._mock_live_broker(live_cfg)
+
         with (
             patch("src.shadow_trading.executor.load_config", return_value=live_cfg),
             patch("src.shadow_trading.executor._get_current_price_safe", return_value=50.0),
             patch("src.shadow_trading.executor._resolve_event_risk_multiplier", return_value=1.0),
             patch("src.llm.validator.validate_llm_output", return_value=(True, "")),
+            patch("src.trading.broker_factory.get_live_broker", return_value=mock_broker),
             patch(
                 "src.shadow_trading.executor.get_open_shadow_trades",
                 side_effect=_sqlite3.OperationalError("database is locked"),

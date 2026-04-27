@@ -2565,7 +2565,10 @@ def open_live_trade(
         logger.error("[LIVE] Daily loss guard failed for %s — REJECTING trade: %s", packet.ticker, e)
         return None
 
-    # Position limit check (live-specific)
+    # Position limit + duplicate check (live-specific) — single DB call for both.
+    # #759: DB errors here must fire a Telegram critical alert; a locked DB blocks
+    # ALL new live entries without operator awareness if only an ERROR log is emitted.
+    ticker = packet.ticker
     max_positions = live_cfg.get("max_open_positions", 2)
     try:
         open_live_trades = [
@@ -2575,27 +2578,28 @@ def open_live_trade(
         if len(open_live_trades) >= max_positions:
             logger.info("[LIVE] At live position limit (%d), skipping", max_positions)
             return None
+        if any(t["ticker"] == ticker for t in open_live_trades):
+            logger.info("[LIVE] Already have live trade for %s, skipping", ticker)
+            return None
     except Exception as e:
-        logger.error("[LIVE] Position limit check failed for %s — REJECTING trade: %s", packet.ticker, e)
+        logger.error(
+            "[LIVE] DB error in position/dup check for %s — REJECTING trade: %s",
+            ticker, e,
+        )
+        try:
+            send_telegram(
+                f"🚨 CRITICAL: Live trade DB error for {ticker}\n"
+                f"Position/duplicate check failed — live trade REJECTED.\n"
+                f"All new live entries blocked until DB recovers.\n"
+                f"Detail: {e}"
+            )
+        except Exception as _tg_err:
+            logger.warning("[LIVE] Telegram alert failed: %s", _tg_err)
         return None
 
     # Hard governor cap (#hotfix 2026-04-13): DB-level count + combined caps,
     # so paper + live combined can never exceed the stricter configured limit.
     if not _enforce_position_cap(config, db_path, packet.ticker, path="LIVE"):
-        return None
-
-    # Duplicate check (live-specific)
-    ticker = packet.ticker
-    try:
-        open_live_trades = [
-            t for t in get_open_shadow_trades(db_path)
-            if t.get("source") == "live"
-        ]
-        if any(t["ticker"] == ticker for t in open_live_trades):
-            logger.info("[LIVE] Already have live trade for %s, skipping", ticker)
-            return None
-    except Exception as e:
-        logger.error("[LIVE] Duplicate check failed for %s — REJECTING trade: %s", ticker, e)
         return None
 
     # Use live-specific risk parameters
