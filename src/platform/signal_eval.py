@@ -19,6 +19,7 @@ import sqlite3
 from datetime import datetime, timedelta
 
 from src.platform.strategy_spec import StrategySpec
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 
