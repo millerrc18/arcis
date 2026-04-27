@@ -45,6 +45,7 @@ from src.shadow_trading.broker_exception_logger import log_and_persist
 from src.shadow_trading.exit_reason import coerce_exit_reason
 from src.shadow_trading.models import ShadowTrade
 from src.shadow_trading.qty_mismatch import parse_qty_mismatch, should_abort_retry
+from src.notifications.telegram import send_telegram
 from alpaca.common.exceptions import APIError
 
 # #436 — alpaca.trading.requests / alpaca.trading.enums are hoisted to
@@ -2409,7 +2410,25 @@ def open_live_trade(
         logger.error("[LIVE][RISK] Governor import failed for %s — REJECTING live trade", packet.ticker)
         return None
     except Exception as e:
-        logger.error("[LIVE][RISK] Governor check failed for %s: %s — REJECTING live trade", packet.ticker, e)
+        from src.risk.governor import GovernorInputMissingError
+        if isinstance(e, GovernorInputMissingError):
+            logger.critical(
+                "[LIVE][RISK] GovernorInputMissingError for %s: %s — REJECTING live trade",
+                packet.ticker, e,
+            )
+            try:
+                send_telegram(
+                    f"🚨 CRITICAL: GovernorInputMissingError for {packet.ticker}\n"
+                    f"Required risk key missing — live trade REJECTED.\n"
+                    f"Detail: {e}"
+                )
+            except Exception as _tg_err:
+                logger.warning("[LIVE][RISK] Telegram alert failed: %s", _tg_err)
+        else:
+            logger.error(
+                "[LIVE][RISK] Governor check failed for %s: %s — REJECTING live trade",
+                packet.ticker, e,
+            )
         return None
 
     # Safety guard: Must have LLM commentary (not template fallback)
