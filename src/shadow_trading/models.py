@@ -24,7 +24,7 @@ from zoneinfo import ZoneInfo
 # causing cohort and dashboard queries to silently drop these rows.
 # Operator decision Q5 (2026-04-26): preserve the distinction (Option A) —
 # do not collapse 'cancelled' to 'rejected'.
-TERMINAL_STATUSES = frozenset({"closed", "cancelled", "rejected", "failed", "exit_abandoned", "needs_manual_review"})
+TERMINAL_STATUSES = frozenset({"closed", "cancelled", "rejected", "failed", "exit_abandoned", "needs_manual_review", "quarantined"})
 ACTIVE_STATUSES = frozenset({"pending", "open", "exit_pending", "exit_failed", "submission_uncertain"})
 
 

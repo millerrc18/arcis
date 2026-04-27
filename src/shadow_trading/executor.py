@@ -96,6 +96,27 @@ def _count_live_open_positions(db_path: str) -> int:
     return int(row[0] or 0)
 
 
+def quarantine_trade(trade_id: str, reason: str, db_path: str = DB_PATH) -> None:
+    """Atomically quarantine a shadow trade.
+
+    Sets status='quarantined', quarantined=1, exit_reason=reason, and updated_at
+    in a single UPDATE so all downstream consumers (position counters, analytics,
+    reconciler duplicate checks) see a consistent terminal state.
+
+    #626 — standardized atomic quarantine replaces ad-hoc exit_reason text edits
+    that left quarantined=0, causing the trade to still count against position limits.
+    """
+    now_str = datetime.now(ZoneInfo("America/New_York")).isoformat()
+    with connect_db(db_path) as conn:
+        conn.execute(
+            "UPDATE shadow_trades SET status='quarantined', quarantined=1, "
+            "exit_reason=?, updated_at=? WHERE trade_id=?",
+            (reason, now_str, trade_id),
+        )
+        conn.commit()
+    logger.info("[QUARANTINE] Trade %s quarantined: %s", trade_id[:8], reason)
+
+
 def _governor_cap(config: dict) -> int:
     """Return the effective open-position cap.
 
