@@ -57,8 +57,23 @@ def _desk_clause(desk: str | None) -> tuple[str, list]:
 
 # ── SD#41 D1 sharpe-attribution helpers ────────────────────────────────
 
-def _sharpe_with_se(values: list, n_per_year: float = 150.0):
-    """Return (sharpe, standard_error) for a list of returns, or (None, None)."""
+def _sharpe_with_se(
+    values: list,
+    periods_per_year: float = 150.0,
+) -> tuple[float | None, float | None]:
+    """Return (sharpe_annualized, standard_error_annualized) per Lo (2002).
+
+    For IID returns, Lo (2002) gives Var(SR_per) ≈ (1 + 0.5 * SR_per²) / N.
+    Annualizing SR_ann = SR_per * sqrt(T) requires Var(SR_ann) = T * Var(SR_per),
+    which is the (T + 0.5 * SR_ann²) / N form below.
+
+    Pre-#723, this used the un-annualized form `(1 + 0.5 * SR² / len(values)) ** 0.5`,
+    under-stating SE by ~sqrt(T) for typical T=150 → ~12.2x. Affected
+    excess_sharpe_ci bounds in /api/trades responses.
+
+    See also: walkforward_metrics.compute_parametric_se (R6+).
+    See also: kpis.py:_sharpe_t_stat_and_ci (post-#720).
+    """
     if len(values) < 2:
         return None, None
     mean = sum(values) / len(values)
@@ -66,9 +81,9 @@ def _sharpe_with_se(values: list, n_per_year: float = 150.0):
     std = var ** 0.5
     if std == 0:
         return 0.0, 0.0
-    sr = (mean / std) * (n_per_year ** 0.5)
-    se = ((1 + 0.5 * sr ** 2) / len(values)) ** 0.5
-    return sr, se
+    sr_ann = (mean / std) * (periods_per_year ** 0.5)
+    se_ann = ((periods_per_year + 0.5 * sr_ann ** 2) / len(values)) ** 0.5
+    return sr_ann, se_ann
 
 
 def _interpret_t_stat(t: float) -> str:
