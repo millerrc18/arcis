@@ -67,6 +67,12 @@ except ImportError:  # pragma: no cover — only fires when alpaca-py absent
 
 logger = logging.getLogger(__name__)
 
+# #756 — TTL cache for yfinance sector lookups in _check_sector_exposure.
+# Keyed by ticker; value is (sector_str, expiry_timestamp).
+# TTL of 3600s (1 hour) prevents repeated outbound calls per scan cycle.
+_sector_cache: dict[str, tuple[str, float]] = {}
+_SECTOR_CACHE_TTL_S = 3600
+
 # Track 1.5 / B5 — instrumentation era sentinel.
 # v3 = full instrumentation: B1 (exit slippage, e8ccf52) + B3 (exit_reason
 # taxonomy + reconciliation, 8b94b95) + B4 (Key Risk persistence, 8c854c0)
@@ -3023,12 +3029,18 @@ def _check_sector_exposure(db_path: str = DB_PATH) -> None:
                 ).fetchone()
                 # Use setup_type as a proxy; in practice, sector info would come from features
                 sector = "Unknown"
-                try:
-                    import yfinance as yf
-                    info = yf.Ticker(ticker).info
-                    sector = info.get("sector", "Unknown")
-                except Exception as e:
-                    logger.debug("[EXPOSURE] yfinance sector lookup failed for %s: %s", ticker, e)
+                _now = time.time()
+                _cached = _sector_cache.get(ticker)
+                if _cached and _cached[1] > _now:
+                    sector = _cached[0]
+                else:
+                    try:
+                        import yfinance as yf
+                        info = yf.Ticker(ticker).info
+                        sector = info.get("sector", "Unknown")
+                        _sector_cache[ticker] = (sector, _now + _SECTOR_CACHE_TTL_S)
+                    except Exception as e:
+                        logger.debug("[EXPOSURE] yfinance sector lookup failed for %s: %s", ticker, e)
                 sectors.setdefault(sector, []).append(ticker)
 
         total_positions = len(open_trades)
