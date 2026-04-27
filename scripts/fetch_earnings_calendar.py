@@ -185,16 +185,50 @@ def get_earnings_within_days(
     ticker: str,
     days: int = 3,
     db_path: str = DB_PATH,
+    as_of=None,
 ) -> dict | None:
     """Check if a ticker has earnings within N days.
 
     Returns dict with earnings info if within window, None otherwise.
     Used by the risk governor and scan pipeline.
+
+    Args:
+        ticker: Ticker symbol.
+        days: Forward window in calendar days.
+        db_path: SQLite path override (mostly for tests).
+        as_of: Point-in-time anchor (date, datetime, or ISO string). When
+            provided, the lookup window is [as_of, as_of+days] and
+            days_away is computed against as_of. None preserves live-scan
+            behavior anchored to today (US/Eastern). Sprint 0/Wave 5a.
     """
+    from datetime import date as _date
     initialize_database(db_path)
-    now = datetime.now(ET)
-    cutoff = (now + timedelta(days=days)).strftime("%Y-%m-%d")
-    today = now.strftime("%Y-%m-%d")
+
+    # Normalize as_of into a date.
+    if as_of is None:
+        anchor_dt = datetime.now(ET).replace(tzinfo=None)
+        anchor_date = anchor_dt.date()
+    else:
+        if isinstance(as_of, str):
+            try:
+                anchor_date = _date.fromisoformat(as_of[:10])
+            except (ValueError, TypeError):
+                anchor_dt = datetime.now(ET).replace(tzinfo=None)
+                anchor_date = anchor_dt.date()
+            else:
+                anchor_dt = datetime.combine(anchor_date, datetime.min.time())
+        elif isinstance(as_of, datetime):
+            anchor_dt = as_of.replace(tzinfo=None) if as_of.tzinfo else as_of
+            anchor_date = anchor_dt.date()
+        elif isinstance(as_of, _date):
+            anchor_date = as_of
+            anchor_dt = datetime.combine(anchor_date, datetime.min.time())
+        else:
+            anchor_dt = datetime.now(ET).replace(tzinfo=None)
+            anchor_date = anchor_dt.date()
+
+    today = anchor_date.strftime("%Y-%m-%d")
+    cutoff = (anchor_date + timedelta(days=days)).strftime("%Y-%m-%d")
 
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
@@ -207,7 +241,7 @@ def get_earnings_within_days(
 
     if row:
         ed = datetime.strptime(row["earnings_date"], "%Y-%m-%d")
-        days_away = (ed - now.replace(tzinfo=None)).days
+        days_away = (ed - anchor_dt).days
         return {
             "ticker": ticker,
             "earnings_date": row["earnings_date"],
