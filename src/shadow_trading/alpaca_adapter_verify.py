@@ -47,9 +47,14 @@ def _poll_order_status(order_id: str) -> tuple[str, dict]:
 
     Returns (status_str, payload_dict). Raises on client/network errors
     so the caller can count them as polling failures.
+
+    Uses orchestrator-namespace late binding for patch-compat: existing tests
+    patch `src.shadow_trading.alpaca_adapter._get_live_trading_client`. The
+    orchestrator re-exports the symbol from `_live`; resolving via `_orch.`
+    at call time lets the patch reach the helper. (PR #735 pattern.)
     """
-    from src.shadow_trading.alpaca_adapter_live import _get_live_trading_client
-    client = _get_live_trading_client()
+    from src.shadow_trading import alpaca_adapter as _orch
+    client = _orch._get_live_trading_client()
     order = client.get_order_by_id(order_id)
     status = str(order.status).lower().replace("orderstatus.", "")
     payload = {
