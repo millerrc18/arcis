@@ -271,3 +271,9 @@ All five PM decisions are in [`track-1.5-DECISIONS.md`](track-1.5-DECISIONS.md).
 ## Sign-off provenance
 
 The Stage-1 baseline memo was signed by the operator at commit `d651160` with `Signed-off-by: Ryan Miller <millerrc18@gmail.com>`. Per audit-spec §3.1, this is the artifact that authorizes Mon's deployment decision tree. The signed memo is immutable in git history; any future revision is a new commit, not an amendment.
+
+---
+
+## Ops Practice: Worktree-Per-Agent Dispatch (Sprint 0.B PR #699)
+
+The worktree-per-agent dispatch pattern was formalized in Sprint 0.B PR #699 (partial — docs deliverable only). The practice requires `isolation: "worktree"` for all parallel coding-team agent dispatches. This was motivated by the staging-area races in Sprint 0 Waves 2, 4, and 5 (PRs #690, #717–#720, #724) and the `.env`-absent hermetic failure in PR #711 → #729. See `CLAUDE.md` section "Parallel Agent Dispatch — Worktree Discipline" for the full rule + recovery patterns.
