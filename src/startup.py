@@ -22,6 +22,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -137,7 +138,7 @@ def persist_startup_result(result: StartupResult, db_path: str = DB_PATH) -> str
 def get_previous_startup_status(db_path: str = DB_PATH) -> str | None:
     """Get the overall_status from the most recent startup validation result."""
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             row = conn.execute(
                 "SELECT overall_status FROM validation_results "
                 "WHERE results_json LIKE '%\"trigger\": \"startup\"%' "

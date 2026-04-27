@@ -18,6 +18,7 @@ from pathlib import Path
 
 from src.config import DB_PATH
 from src.startup import CheckResult
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +148,7 @@ def check_schema(config: dict, db_path: str = DB_PATH) -> list[CheckResult]:
     try:
         issues = validate_sqlite(db_path)
         if not issues:
-            with sqlite3.connect(db_path) as conn:
+            with connect_db(db_path) as conn:
                 count = conn.execute(
                     "SELECT COUNT(*) FROM sqlite_master WHERE type='table'"
                 ).fetchone()[0]
@@ -160,7 +161,7 @@ def check_schema(config: dict, db_path: str = DB_PATH) -> list[CheckResult]:
 
         actions = fix_issues(issues, db_path)
         remaining = validate_sqlite(db_path)
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             count = conn.execute(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table'"
             ).fetchone()[0]

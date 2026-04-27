@@ -631,23 +631,20 @@ def open_shadow_trade(
     # don't happen in practice. A true fix would keep the transaction open or
     # use INSERT ... WHERE NOT EXISTS, but that requires restructuring the
     # entire trade-creation flow.
-    import sqlite3 as _sqlite3
     try:
-        _dup_conn = _sqlite3.connect(db_path)
-        _dup_conn.execute("BEGIN IMMEDIATE")
-        _a_frag_dup, _a_params_dup = active_in_clause()
-        _dup_row = _dup_conn.execute(
-            f"SELECT trade_id FROM shadow_trades WHERE ticker = ? AND status IN ({_a_frag_dup})"
-            " AND COALESCE(quarantined, 0) = 0 LIMIT 1",
-            (ticker, *_a_params_dup),
-        ).fetchone()
-        if _dup_row:
-            _dup_conn.rollback()
-            _dup_conn.close()
-            logger.info("[SHADOW] Already have open trade for %s, skipping (atomic check)", ticker)
-            return None
-        _dup_conn.rollback()  # #276: lock released before insert — see comment above
-        _dup_conn.close()
+        with connect_db(db_path) as _dup_conn:
+            _dup_conn.execute("BEGIN IMMEDIATE")
+            _a_frag_dup, _a_params_dup = active_in_clause()
+            _dup_row = _dup_conn.execute(
+                f"SELECT trade_id FROM shadow_trades WHERE ticker = ? AND status IN ({_a_frag_dup})"
+                " AND COALESCE(quarantined, 0) = 0 LIMIT 1",
+                (ticker, *_a_params_dup),
+            ).fetchone()
+            if _dup_row:
+                _dup_conn.rollback()
+                logger.info("[SHADOW] Already have open trade for %s, skipping (atomic check)", ticker)
+                return None
+            _dup_conn.rollback()  # #276: lock released before insert — see comment above
     except Exception as _dup_err:
         logger.warning("[SHADOW] Atomic duplicate check failed for %s: %s — falling back", ticker, _dup_err)
         existing = get_open_shadow_trade_for_ticker(ticker, db_path)

@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo
 
 from src.attribution.logger import simulate_mechanical_outcome
 from src.config import DB_PATH
+from src.utils.db import connect_db
 from src.features.indicators import compute_atr
 from src.simulation.cache import (
     _add_days,
@@ -497,7 +498,7 @@ def store_result(result: dict, run_id: str, seed: int, config: dict,
     tl_val = validate_traffic_light(result["scenario"], tl_states)
 
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO simulation_results "
                 "(result_id, run_id, scenario, regime_label, start_date, end_date, "
