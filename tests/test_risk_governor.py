@@ -409,3 +409,129 @@ class TestTierTransition:
         _add_closed_trade(db, -3000)
         result = check_tier_transition(config, str(db))
         assert result is None
+
+
+class TestUnderfundedWarning:
+    """#649 — Governor must emit WARNING when underfunded account blocks all trades."""
+
+    def _underfunded_portfolio(self):
+        return {
+            "equity": 105.86,
+            "cash": 105.86,
+            "open_positions": [],
+            "open_count": 0,
+            "sector_exposure": {},
+            "daily_pnl": 0,
+            "daily_pnl_pct": 0,
+        }
+
+    def test_underfunded_emits_warning(self, tmp_path, monkeypatch, caplog):
+        """Governor emits WARNING with balance + min_actionable when equity is below floor."""
+        import logging
+        from src.risk.governor import RiskGovernor
+        from src.risk import governor as gov_module
+
+        monkeypatch.setattr(gov_module, "_HALT_FILE", str(tmp_path / "test_halt"))
+
+        config = {
+            "risk_governor": {
+                "enabled": True,
+                "max_position_pct": 0.10,
+                "max_open_positions": 10,
+                "max_daily_loss_pct": 0.03,
+                "max_sector_pct": 0.30,
+                "max_correlated": 3,
+                "vol_halt_pct": 35.0,
+            }
+        }
+        gov = RiskGovernor(config)
+        portfolio = self._underfunded_portfolio()
+
+        with caplog.at_level(logging.WARNING, logger="src.risk.governor"):
+            result = gov.check_trade("AAPL", 500.0, {}, portfolio)
+
+        assert result["approved"] is False
+        warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        underfunded_msgs = [m for m in warning_messages if "underfunded" in m.lower()]
+        assert underfunded_msgs, (
+            f"Expected WARNING containing 'underfunded' but got: {warning_messages}"
+        )
+        # Must include equity and min_actionable in the log
+        assert any("105" in m for m in underfunded_msgs), (
+            "Expected equity value in underfunded warning"
+        )
+
+    def test_underfunded_includes_min_actionable(self, tmp_path, monkeypatch, caplog):
+        """WARNING log must include the minimum actionable allocation amount."""
+        import logging
+        from src.risk.governor import RiskGovernor
+        from src.risk import governor as gov_module
+
+        monkeypatch.setattr(gov_module, "_HALT_FILE", str(tmp_path / "test_halt"))
+
+        config = {
+            "risk_governor": {
+                "enabled": True,
+                "max_position_pct": 0.10,
+                "max_open_positions": 10,
+                "max_daily_loss_pct": 0.03,
+                "max_sector_pct": 0.30,
+                "max_correlated": 3,
+                "vol_halt_pct": 35.0,
+            }
+        }
+        gov = RiskGovernor(config)
+        # equity=200, max_position_pct=10% → min_actionable=$20
+        portfolio = self._underfunded_portfolio()
+        portfolio["equity"] = 200.0
+
+        with caplog.at_level(logging.WARNING, logger="src.risk.governor"):
+            gov.check_trade("AAPL", 500.0, {}, portfolio)
+
+        warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        underfunded_msgs = [m for m in warning_messages if "underfunded" in m.lower()]
+        assert underfunded_msgs, "Expected underfunded WARNING"
+        # min_actionable = 200 * 0.10 = 20.0
+        assert any("20" in m for m in underfunded_msgs), (
+            "Expected min_actionable ($20) in underfunded warning"
+        )
+
+    def test_well_funded_account_no_underfunded_warning(self, tmp_path, monkeypatch, caplog):
+        """Normal equity ($5000) rejected for size does NOT emit underfunded warning."""
+        import logging
+        from src.risk.governor import RiskGovernor
+        from src.risk import governor as gov_module
+
+        monkeypatch.setattr(gov_module, "_HALT_FILE", str(tmp_path / "test_halt"))
+
+        config = {
+            "risk_governor": {
+                "enabled": True,
+                "max_position_pct": 0.10,
+                "max_open_positions": 10,
+                "max_daily_loss_pct": 0.03,
+                "max_sector_pct": 0.30,
+                "max_correlated": 3,
+                "vol_halt_pct": 35.0,
+            }
+        }
+        gov = RiskGovernor(config)
+        portfolio = {
+            "equity": 5000.0,
+            "cash": 5000.0,
+            "open_positions": [],
+            "open_count": 0,
+            "sector_exposure": {},
+            "daily_pnl": 0,
+            "daily_pnl_pct": 0,
+        }
+
+        with caplog.at_level(logging.WARNING, logger="src.risk.governor"):
+            result = gov.check_trade("AAPL", 600.0, {}, portfolio)  # 12% > 10%
+
+        assert result["approved"] is False
+        warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        underfunded_msgs = [m for m in warning_messages if "underfunded" in m.lower()]
+        assert not underfunded_msgs, (
+            f"Should not emit underfunded warning for normal equity: {underfunded_msgs}"
+        )
