@@ -14,6 +14,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +144,7 @@ def get_system_status(config: dict) -> dict:
     try:
         db_path = Path(DB_PATH)
         if db_path.exists():
-            with sqlite3.connect(str(db_path)) as conn:
+            with connect_db(str(db_path)) as conn:
                 journal_recs = conn.execute("SELECT COUNT(*) FROM recommendations").fetchone()[0]
                 journal_trades = conn.execute("SELECT COUNT(*) FROM shadow_trades WHERE COALESCE(quarantined, 0) = 0").fetchone()[0]
     except Exception as e:

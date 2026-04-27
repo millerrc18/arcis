@@ -19,6 +19,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH, load_config
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -133,7 +134,7 @@ def build_premarket_digest(db_path: str = DB_PATH) -> tuple[str, str]:
     """Pre-market brief: portfolio status, overnight events, today's plan."""
     now = datetime.now(ET)
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
 
         open_trades = _safe_fetchall(
@@ -209,7 +210,7 @@ def build_midday_digest(db_path: str = DB_PATH) -> tuple[str, str]:
     now = datetime.now(ET)
     today = now.strftime("%Y-%m-%d")
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
 
         opened_today = _safe_fetchall(
@@ -282,7 +283,7 @@ def build_eod_digest(db_path: str = DB_PATH) -> tuple[str, str]:
     now = datetime.now(ET)
     today = now.strftime("%Y-%m-%d")
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
 
         opened = _safe_fetchall(conn, "SELECT ticker, entry_price, planned_shares, source FROM shadow_trades WHERE date(created_at) = ? AND COALESCE(quarantined, 0) = 0", (today,))
@@ -345,7 +346,7 @@ def build_evening_digest(db_path: str = DB_PATH) -> tuple[str, str]:
     now = datetime.now(ET)
     today = now.strftime("%Y-%m-%d")
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
 
         total_examples = _safe_fetchone(conn, "SELECT COUNT(*) as c FROM training_examples")

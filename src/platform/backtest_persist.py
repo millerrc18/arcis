@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from src.utils.db import connect_db
 import uuid
 from datetime import datetime, timezone
 
@@ -41,7 +42,7 @@ def persist_backtest_result(
     result_id = str(uuid.uuid4())
     created_at = datetime.now(timezone.utc).isoformat()
     m = result.metrics
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
     try:
         conn.execute(
             """INSERT INTO backtest_results

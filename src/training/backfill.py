@@ -23,6 +23,7 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 from src.llm.prompts import BLINDED_ANALYSIS_PROMPT, QUALITY_ENHANCEMENT_PROMPT
 from src.training.claude_client import generate_training_example
 from src.training.ingestion_gate import (
@@ -80,7 +81,7 @@ def _get_trading_days(spy_df: pd.DataFrame, start_date: str, end_date: str) -> l
 
 def _example_exists(db_path: str, ticker: str, scan_date: str) -> bool:
     """Check if a backfill example already exists for this ticker + date."""
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         row = conn.execute(
             """SELECT 1 FROM training_examples
                WHERE source = 'historical_backfill'
@@ -286,7 +287,7 @@ def run_historical_backfill(
         })
         trade_outcome = json.dumps(outcome)
 
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.execute(
                 """INSERT INTO training_examples
                    (example_id, created_at, source, ticker, recommendation_id,

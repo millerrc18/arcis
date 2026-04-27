@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 from src.council.constants import (
     DECISION_THRESHOLDS,
     DIRECTION_MAP,
@@ -50,7 +51,7 @@ def compute_dynamic_weights(db_path: str = DB_PATH,
     cutoff = (datetime.now(ET) - timedelta(weeks=VALUE_TRACKER_WINDOW_WEEKS)).isoformat()
 
     try:
-        with closing(sqlite3.connect(db_path)) as conn:
+        with closing(connect_db(db_path)) as conn:
             conn.row_factory = sqlite3.Row
             # #386 follow-up: Aggregate net PnL per day FIRST, then join to
             # council votes. This prevents many-to-many inflation where a

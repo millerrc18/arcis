@@ -32,6 +32,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 from src.data_collection.research_sources import (
     RELEVANCE_KEYWORDS,
     crawl_ai_blogs,
@@ -70,7 +71,7 @@ ABSTRACT: {abstract}
 def is_duplicate(external_id: str, db_path: str) -> bool:
     """Check if paper already exists in database."""
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             return conn.execute(
                 'SELECT 1 FROM research_papers WHERE external_id = ?', (external_id,)
             ).fetchone() is not None
@@ -115,7 +116,7 @@ def _store_paper(paper: dict, score: float, reason: str,
     """Store a paper in the research_papers table."""
     now = datetime.now(TZ).isoformat()
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.execute(
                 """INSERT OR IGNORE INTO research_papers
                    (source, external_id, title, authors, abstract, url,

@@ -24,13 +24,14 @@ import sqlite3
 from datetime import date, datetime, timezone
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 from src.platform.capability_registry import register_system
 from src.shadow_trading._status_sql import active_in_clause
 
 
 def _most_recent_reconcile_touch() -> str | None:
     active_frag, active_params = active_in_clause()
-    conn = sqlite3.connect(DB_PATH)
+    conn = connect_db(DB_PATH)
     try:
         row = conn.execute(
             f"SELECT MAX(updated_at) FROM shadow_trades WHERE status IN ({active_frag})",

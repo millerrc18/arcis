@@ -22,6 +22,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -274,7 +275,7 @@ def store_metrics(
     metric_id = str(uuid.uuid4())
     now = datetime.now(ET).isoformat()
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.execute(
             """INSERT INTO quality_drift_metrics
                (metric_id, created_at, cycle_number, model_version,
@@ -305,7 +306,7 @@ def get_previous_metrics(
     """Retrieve the most recent quality drift metrics from the database."""
     init_quality_drift_tables(db_path)
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             """SELECT * FROM quality_drift_metrics

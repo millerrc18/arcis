@@ -40,6 +40,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 from src.utils.type_safety import safe_numeric
 
 logger = logging.getLogger(__name__)
@@ -573,7 +574,7 @@ def _compute_training_status(days: int, db_path: str) -> dict:
     # Annie Duke quadrant distribution from source tags
     try:
         import sqlite3 as _sqlite3
-        with _sqlite3.connect(db_path, timeout=10) as conn:  # #258: busy timeout
+        with connect_db(db_path) as conn:  # timeout upgraded to 30s via connect_db
             conn.row_factory = _sqlite3.Row
             rows = conn.execute(
                 "SELECT source, quality_score_auto FROM training_examples "

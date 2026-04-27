@@ -55,6 +55,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 from src.council.constants import PARAMETER_DEFAULTS, RATE_LIMITS
 from src.council.protocol import (
     aggregate_votes,
@@ -287,7 +288,7 @@ class CouncilEngine:
         created_at: str,
     ) -> None:
         """Insert the council session shell row before running any rounds."""
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             conn.execute(
                 """INSERT INTO council_sessions
                    (session_id, session_type, trigger_reason, created_at, rounds_completed)
@@ -316,7 +317,7 @@ class CouncilEngine:
             db_path=self.db_path,
             custom_question=custom_question,
         )
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             _store_votes(conn, session_id, 1, round1)
             conn.execute(
                 "UPDATE council_sessions SET rounds_completed = 1 WHERE session_id = ?",
@@ -363,7 +364,7 @@ class CouncilEngine:
                     session_id=session_id,
                     db_path=self.db_path,
                 )
-                with sqlite3.connect(self.db_path) as conn:
+                with connect_db(self.db_path) as conn:
                     _store_votes(conn, session_id, 2, round2)
                     conn.execute(
                         "UPDATE council_sessions SET rounds_completed = 2 WHERE session_id = ?",
@@ -475,7 +476,7 @@ class CouncilEngine:
             if not (prediction and isinstance(prediction, dict) and prediction.get("claim")):
                 continue
             try:
-                with sqlite3.connect(self.db_path) as conn:
+                with connect_db(self.db_path) as conn:
                     conn.execute(
                         "INSERT INTO council_calibrations "
                         "(calibration_id, session_id, agent_name, prediction, "
@@ -585,7 +586,7 @@ class CouncilEngine:
         is stored as JSON in result_json for richer programmatic access.
         """
         old_tally = tally_votes(final_assessments)
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             conn.execute(
                 """UPDATE council_sessions
                    SET consensus = ?,
@@ -634,7 +635,7 @@ class CouncilEngine:
         score = aggregation["aggregated_score"] if aggregation else 0.0
         contested = not aggregation["consensus_reached"] if aggregation else True
 
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             conn.execute(
                 """UPDATE council_sessions
                    SET consensus = ?,
@@ -659,7 +660,7 @@ class CouncilEngine:
 
     def get_session(self, session_id: str) -> dict | None:
         """Retrieve a council session and its votes."""
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             session = conn.execute(
                 "SELECT * FROM council_sessions WHERE session_id = ?",
@@ -686,7 +687,7 @@ class CouncilEngine:
 
     def get_recent_sessions(self, limit: int = 10) -> list[dict]:
         """Retrieve the most recent council sessions."""
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT * FROM council_sessions ORDER BY created_at DESC LIMIT ?",

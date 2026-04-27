@@ -27,6 +27,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -74,7 +75,7 @@ def log_activity(event_type: str, detail: str, metadata: dict | None = None,
             )
     try:
         now = datetime.now(ET).isoformat()
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.execute(
                 "INSERT INTO activity_log (event_type, detail, created_at) "
                 "VALUES (?, ?, ?)",

@@ -30,6 +30,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 from src.utils.retry import retry_with_backoff
 
 logger = logging.getLogger(__name__)
@@ -57,7 +58,7 @@ def _get_tickers_to_collect(
 ) -> list[str]:
     """Pick tickers not collected in the past 5 days. Rotates through universe."""
     cutoff = (datetime.now(ET) - timedelta(days=5)).strftime("%Y-%m-%d")
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         rows = conn.execute(
             "SELECT DISTINCT ticker FROM analyst_estimates WHERE date >= ?",
             (cutoff,),
@@ -95,7 +96,7 @@ def collect_analyst_estimates(
     estimates_stored = 0
     errors = 0
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         for ticker in to_collect:
             try:
                 # Fetch recommendations

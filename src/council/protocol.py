@@ -15,6 +15,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 from src.council.aggregation import aggregate_votes, tally_votes
 from src.council.constants import (
     PARAMETER_DEFAULTS,
@@ -222,7 +223,7 @@ def _store_debug_log(
     try:
         import hashlib
 
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.execute(
                 "INSERT OR IGNORE INTO council_debug_log "
                 "(debug_id, session_id, agent_name, round, system_prompt_hash, "

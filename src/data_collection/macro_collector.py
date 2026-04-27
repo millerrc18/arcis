@@ -36,6 +36,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -167,7 +168,7 @@ def collect_macro_snapshots(db_path: str = DB_PATH) -> dict:
     series_collected = 0
     notable_changes = []
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         for series_id, series_name in FRED_SERIES.items():
             try:
                 value = _fetch_latest(series_id, api_key)

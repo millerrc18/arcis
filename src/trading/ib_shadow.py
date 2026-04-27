@@ -24,6 +24,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -128,7 +129,7 @@ class IBShadowLogger:
 
         # Step 5: Store to database (always, even on failure)
         try:
-            with sqlite3.connect(db_path) as conn:
+            with connect_db(db_path) as conn:
                 conn.execute(
                     """INSERT INTO ib_shadow_log
                        (shadow_id, created_at, trade_id, ticker, action, quantity,

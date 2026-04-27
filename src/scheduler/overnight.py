@@ -16,6 +16,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 
@@ -217,9 +218,8 @@ def run_saturday_reports(db_path: str = DB_PATH):
             # Compute week-over-week training metrics
             _retrain_total = counts.get("total", 0)
             try:
-                import sqlite3 as _sq
                 from datetime import timedelta as _td
-                with _sq.connect(db_path) as _rc:
+                with connect_db(db_path) as _rc:
                     _week_ago = (datetime.now(ET) - _td(days=7)).isoformat()
                     _new_wk = _rc.execute(
                         "SELECT COUNT(*) FROM training_examples WHERE created_at > ?",
@@ -506,11 +506,11 @@ def run_attribution_resolution_and_notify(db_path: str = DB_PATH) -> int:
     can see how many rows are still waiting for their 8-day window.
     """
     from src.attribution.logger import resolve_pending_outcomes
-    import sqlite3 as _sqlite3
+    
 
     resolved = resolve_pending_outcomes(db_path)
     try:
-        with _sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             pending_remaining = conn.execute(
                 "SELECT COUNT(*) FROM attribution_trades "
                 "WHERE ranker_only_outcome = 'pending'"
@@ -833,8 +833,7 @@ def run_data_collection(db_path: str = DB_PATH,
         try:
             from src.notifications.telegram import notify_research_papers, is_telegram_enabled
             if is_telegram_enabled():
-                import sqlite3 as _sq
-                with _sq.connect(db_path) as _cn:
+                with connect_db(db_path) as _cn:
                     top = _cn.execute(
                         "SELECT title, relevance_score FROM research_papers ORDER BY collected_at DESC LIMIT 1"
                     ).fetchone()

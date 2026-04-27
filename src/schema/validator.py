@@ -10,6 +10,7 @@ Tests: tests/test_schema.py
 import json
 import logging
 import sqlite3
+from src.utils.db import connect_db
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -34,7 +35,7 @@ class SchemaIssue:
 def validate_sqlite(db_path: str) -> list[SchemaIssue]:
     """Compare local SQLite schema against registry."""
     issues = []
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
 
     existing_tables = {
         row[0]

@@ -17,6 +17,7 @@ import base64
 import json
 import logging
 import sqlite3
+from src.utils.db import connect_db
 import subprocess
 import sys
 import uuid
@@ -109,7 +110,7 @@ def _mark_failed(
     db_path: str, run_id: str, exit_code: int, stderr_tail: str,
 ) -> dict:
     """Finalize a failed run and return its result dict."""
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         _update_run_status(
             conn, run_id, status="failed", completed_at=_now_iso(),
             exit_code=exit_code, stderr_tail=stderr_tail,
@@ -127,7 +128,7 @@ def _finalize_success(
     summary = report_parser(report_markdown)
     summary_json = json.dumps(summary)
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         plot_count = _insert_plots(conn, run_id, Path(plot_dir))
         _update_run_status(
             conn, run_id, status="completed",
@@ -163,7 +164,7 @@ def run_diagnostic(
     Lifecycle: queued (seeded by API) -> running -> completed | failed.
     Returns a summary dict suitable for command_results.result_json.
     """
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         _update_run_status(conn, run_id, status="running",
                            started_at=_now_iso())
         conn.commit()

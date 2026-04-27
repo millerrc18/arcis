@@ -21,6 +21,7 @@ from src.training.ingestion_gate import (
     validate_training_example,
 )
 from src.config import DB_PATH
+from src.utils.db import connect_db
 from src.training.versioning import init_training_tables
 
 logger = logging.getLogger(__name__)
@@ -183,7 +184,7 @@ def classify_all_examples(db_path: str = DB_PATH) -> dict:
     # Ensure columns exist
     _ensure_curriculum_columns(db_path)
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT example_id, input_text, output_text, feature_snapshot, source "
@@ -196,7 +197,7 @@ def classify_all_examples(db_path: str = DB_PATH) -> dict:
     difficulty_counts = {"easy": 0, "medium": 0, "hard": 0}
     stage_counts = {"structure": 0, "evidence": 0, "decision": 0}
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         for row in rows:
             example = dict(row)
             difficulty = classify_difficulty(example)
@@ -226,7 +227,7 @@ def find_contrastive_pairs(db_path: str = DB_PATH) -> list[tuple[dict, dict]]:
     """
     init_training_tables(db_path)
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT example_id, input_text, output_text, ticker, feature_snapshot "
@@ -324,7 +325,7 @@ def generate_contrastive_training_data(max_pairs: int = 50,
 
         # Store as training examples
         now = datetime.now(ET).isoformat()
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             for commentary, orig in [(winner_commentary, winner), (loser_commentary, loser)]:
                 attempted += 1
                 is_valid, rejection_reason = validate_training_example(commentary, db_path)

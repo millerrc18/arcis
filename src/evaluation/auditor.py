@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH, load_config
+from src.utils.db import connect_db
 from src.training.versioning import init_training_tables
 
 logger = logging.getLogger(__name__)
@@ -147,7 +148,7 @@ def run_daily_audit(db_path: str = DB_PATH) -> dict:
     created_at = now.isoformat()
     audit_date = now.strftime("%Y-%m-%d")
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.execute(
             """INSERT INTO audit_reports
                (audit_id, created_at, audit_date, overall_assessment, summary,
@@ -180,7 +181,7 @@ def run_weekly_audit(days: int = 7, db_path: str = DB_PATH) -> dict:
 
     # Get daily audits from the week
     cutoff = (datetime.now(ET) - timedelta(days=days)).isoformat()
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         daily_audits = conn.execute(
             "SELECT audit_date, overall_assessment, summary, flags FROM audit_reports "
@@ -224,7 +225,7 @@ def run_weekly_audit(days: int = 7, db_path: str = DB_PATH) -> dict:
     # Store as audit report
     audit_id = str(uuid.uuid4())
     now = datetime.now(ET)
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.execute(
             """INSERT INTO audit_reports
                (audit_id, created_at, audit_date, overall_assessment, summary,
@@ -261,7 +262,7 @@ def check_escalation(audit: dict, db_path: str = DB_PATH) -> list[dict]:
     bootcamp_mode = False
     try:
         import sqlite3
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             row = conn.execute("SELECT COUNT(*) as c FROM shadow_trades WHERE status = 'closed' AND COALESCE(quarantined, 0) = 0").fetchone()
             closed_count = row[0] if row else 0
             bootcamp_mode = closed_count < 50

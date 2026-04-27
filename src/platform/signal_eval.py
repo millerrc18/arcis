@@ -145,7 +145,7 @@ def _query_event_rows(spec: StrategySpec, cfg) -> list[dict]:
 
     rows: list[dict] = []
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
             placeholders_t = ",".join("?" for _ in tickers)
             placeholders_f = ",".join("?" for _ in form_types)
@@ -352,7 +352,7 @@ def _query_event_rows_for_date(
     window_end = as_of.strftime("%Y-%m-%d")
     rows: list[dict] = []
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
             ph_t = ",".join("?" for _ in tickers)
             if form_types:
@@ -382,7 +382,7 @@ def _load_open_tickers_for_desk(desk: str, db_path: str) -> set[str]:
     Returns empty set on any error (table may not exist yet — safe to skip dedup).
     """
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             rows = conn.execute(
                 "SELECT DISTINCT ticker FROM shadow_trades "
                 "WHERE desk = ? AND actual_exit_time IS NULL",

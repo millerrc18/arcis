@@ -20,6 +20,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -53,7 +54,7 @@ def compute_earnings_signals(
     }
 
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
             now = datetime.now(ET)
 

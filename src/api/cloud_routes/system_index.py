@@ -28,6 +28,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 from src.platform.capability_registry import (
     BaseEntry,
     ensure_bootstrapped,
@@ -54,7 +55,7 @@ def _utc_now_iso() -> str:
 
 
 def _open_sqlite() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = connect_db(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 

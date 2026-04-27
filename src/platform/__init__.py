@@ -59,7 +59,7 @@ def _query_strategy_registry_state() -> dict:
 
     from src.config import DB_PATH
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = connect_db(DB_PATH)
     try:
         rows = conn.execute(
             "SELECT current_status, COUNT(*) AS n "

@@ -28,6 +28,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -181,7 +182,7 @@ def collect_cboe_ratios(db_path: str = DB_PATH) -> dict:
             errors=3, total=3,
         )
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         avg_20d = _get_20d_avg(conn, today_str)
         vs_avg = None
         if data.get("equity_pc_ratio") and avg_20d and avg_20d > 0:

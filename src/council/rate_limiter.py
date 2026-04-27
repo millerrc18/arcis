@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 from src.council.constants import PARAMETER_BOUNDS, PARAMETER_DEFAULTS, RATE_LIMITS
 
 logger = logging.getLogger(__name__)
@@ -31,7 +32,7 @@ def _weekly_baseline(param: str, db_path: str) -> float:
     """Return the effective council value from roughly one week ago, if present."""
     baseline = PARAMETER_DEFAULTS.get(param, 1.0)
     week_ago = (datetime.now(ET) - timedelta(days=7)).isoformat()
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         row = conn.execute(
             "SELECT applied_value FROM council_parameter_log "
             "WHERE parameter_name = ? AND attribution_start <= ? "

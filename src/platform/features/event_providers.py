@@ -13,6 +13,7 @@ import os
 import sqlite3
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 
 def _db_path() -> str:
@@ -42,7 +43,7 @@ def find_filing_events(
         f"  AND filing_date BETWEEN ? AND ? "
         f"ORDER BY filing_date"
     )
-    conn = sqlite3.connect(db)
+    conn = connect_db(db)
     conn.row_factory = sqlite3.Row
     try:
         rows = conn.execute(

@@ -15,6 +15,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -60,7 +61,7 @@ def check_performance_drift(db_path: str = DB_PATH) -> dict:
     import sqlite3
 
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT pnl_pct FROM shadow_trades WHERE status = 'closed' "

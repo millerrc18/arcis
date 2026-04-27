@@ -27,6 +27,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 from src.training.quality_drift import (
     compute_all_metrics,
     check_degradation,
@@ -267,7 +268,7 @@ class CanaryMonitor:
 
     def _get_previous_eval(self) -> dict | None:
         """Retrieve the most recent canary evaluation from the database."""
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             row = conn.execute(
                 "SELECT * FROM canary_evaluations ORDER BY created_at DESC LIMIT 1"
@@ -277,7 +278,7 @@ class CanaryMonitor:
     def _store_eval(self, result: dict) -> None:
         """Store canary evaluation results to the database."""
         now = datetime.now(ET).isoformat()
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             conn.execute(
                 """INSERT INTO canary_evaluations
                    (eval_id, created_at, model_version, avg_score, score_delta_pct,
@@ -330,7 +331,7 @@ class CanaryMonitor:
 
         Returns list of evaluation dicts, newest first.
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT * FROM canary_evaluations ORDER BY created_at DESC LIMIT ?",

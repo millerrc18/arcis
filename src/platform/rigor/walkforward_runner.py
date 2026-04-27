@@ -35,6 +35,7 @@ import hashlib
 import json
 import logging
 import sqlite3
+from src.utils.db import connect_db
 import subprocess
 import uuid
 from dataclasses import dataclass, asdict
@@ -301,7 +302,7 @@ def persist_run_result(
     overall_max_dd = max(
         (m.max_drawdown_pct for m in result.window_metrics), default=0.0,
     )
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
     try:
         conn.execute(
             "INSERT OR REPLACE INTO walkforward_results ("

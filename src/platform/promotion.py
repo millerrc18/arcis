@@ -34,6 +34,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 STATUSES = {"proposed", "backtested", "shadow_trading", "production", "deprecated"}
 
@@ -60,7 +61,7 @@ def _now_iso() -> str:
 def _get_strategy_status(
     strategy_id: str, db_path: str = DB_PATH,
 ) -> str | None:
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
     try:
         row = conn.execute(
             "SELECT current_status FROM strategy_registry "
@@ -83,7 +84,7 @@ def _fetch_backtest_pnl_series(
     import pandas as pd
 
     evidence: dict = {}
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
     try:
         br_row = conn.execute(
             """SELECT result_id, max_drawdown_pct, total_trades
@@ -103,7 +104,7 @@ def _fetch_backtest_pnl_series(
     evidence["max_drawdown_pct"] = max_dd
     evidence["n_trades"] = n_trades
 
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
     try:
         trade_rows = conn.execute(
             "SELECT pnl_pct FROM backtest_trades WHERE result_id = ?",
@@ -171,7 +172,7 @@ def _fetch_latest_walkforward_outcome(
     None if no walkforward_results row exists. The table may be missing on
     older databases; we tolerate that and return None.
     """
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
     try:
         try:
             row = conn.execute(
@@ -270,7 +271,7 @@ def _evaluate_shadow_trading_gate(
     # wf_pass is None → no walkforward_results row; fall back to legacy gate.
 
     # Read pbo + oos_efficiency from the same backtest row (NULL-defaulting).
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
     try:
         row = conn.execute(
             "SELECT pbo, oos_efficiency FROM backtest_results "
@@ -413,7 +414,7 @@ def promote(
         )
 
     from_status = _get_strategy_status(strategy_id, db_path)
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
     try:
         conn.execute(
             """UPDATE strategy_registry
@@ -441,7 +442,7 @@ def demote(
             f"demote requires reason >= {GATE_DEMOTION_REASON_MIN_CHARS} chars"
         )
     from_status = _get_strategy_status(strategy_id, db_path)
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
     try:
         conn.execute(
             """UPDATE strategy_registry
@@ -462,7 +463,7 @@ def pause(strategy_id: str, db_path: str = DB_PATH) -> None:
     """Emergency halt: move strategy back to 'backtested'. Does NOT
     close open positions (use demote() for that)."""
     from_status = _get_strategy_status(strategy_id, db_path)
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
     try:
         conn.execute(
             """UPDATE strategy_registry
@@ -488,7 +489,7 @@ def get_strategies_by_status(
     if db_path is None:
         db_path = DB_PATH
     placeholders = ",".join("?" * len(statuses))
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
     try:
         rows = conn.execute(
             f"SELECT strategy_id FROM strategy_registry "
@@ -509,7 +510,7 @@ def register_strategy(
 ) -> None:
     """Create a new row in strategy_registry at status='proposed'."""
     now = _now_iso()
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
     try:
         conn.execute(
             """INSERT INTO strategy_registry

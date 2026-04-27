@@ -14,6 +14,7 @@ Tests: tests/diagnostics/test_regime_diagnostic.py
 from __future__ import annotations
 
 import sqlite3
+from src.utils.db import connect_db
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -41,7 +42,7 @@ def load_closed_trades(
     db_path: str, *, exclude_quarantined: bool = False,
 ) -> list[dict]:
     """Load closed trades with exit and pnl from shadow_trades."""
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
     conn.row_factory = sqlite3.Row
     where = "actual_exit_time IS NOT NULL AND pnl_pct IS NOT NULL"
     if exclude_quarantined:

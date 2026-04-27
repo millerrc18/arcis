@@ -24,6 +24,7 @@ from typing import Any
 import numpy as np
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 # Documented fallback when variance estimator has insufficient sample.
 # Per Bailey-Lopez de Prado 2014, typical V for a diversified strategy
@@ -36,7 +37,7 @@ def get_current_n_eff(db_path: str = DB_PATH) -> int:
     """Return the global count of trials recorded in trials_registry.
     This is the N used in DSR's E[max SR] formula — every backtest
     counts, including parameter sweeps."""
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
     try:
         row = conn.execute(
             "SELECT COUNT(*) FROM trials_registry"
@@ -62,7 +63,7 @@ def record_trial(
     """Record one trial to trials_registry. Returns trial_id (uuid)."""
     trial_id = str(uuid.uuid4())
     created_at = datetime.now(timezone.utc).isoformat()
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
     try:
         conn.execute(
             """INSERT INTO trials_registry
@@ -91,7 +92,7 @@ def get_variance_for_strategy_family(
     exist globally, use their empirical variance; otherwise fall back
     to 0.02/250 (documented constant).
     """
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
     try:
         rows = conn.execute(
             "SELECT sr_raw FROM trials_registry WHERE sr_raw IS NOT NULL"

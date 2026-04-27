@@ -53,7 +53,7 @@ def _fetch_training_examples(db_path: str) -> list[dict]:
     row. Returns a list of plain dicts so the logic layer doesn't
     depend on sqlite3.Row semantics.
     """
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT example_id, recommendation_id, source, ticker, "
@@ -72,7 +72,7 @@ def _fetch_attribution_map(db_path: str) -> dict[str, dict]:
     recommendation_id by taking the row with the highest lexicographic
     resolution_version (most recent resolution wins).
     """
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT recommendation_id, ranker_only_outcome AS v2_outcome, "
@@ -165,7 +165,7 @@ def _write_quarantines(
     if not quarantines:
         return 0
     count = 0
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         for example_id, reason in quarantines.items():
             cur = conn.execute(
                 "UPDATE training_examples "

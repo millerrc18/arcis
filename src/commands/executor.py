@@ -22,6 +22,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -64,7 +65,7 @@ def _store_result(
     now = datetime.now(ET).isoformat()
 
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.execute(
                 "INSERT INTO command_results "
                 "(result_id, command_id, status, result_json, error_message, "
@@ -171,7 +172,7 @@ def _handle_get_logs(payload: dict, config: dict) -> dict:
     limit = min(payload.get("limit", 100), 500)
 
     try:
-        with sqlite3.connect(LOCAL_DB) as conn:
+        with connect_db(LOCAL_DB) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT * FROM log_entries WHERE log_level >= ? "

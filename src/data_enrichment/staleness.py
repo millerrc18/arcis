@@ -16,6 +16,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -36,7 +37,7 @@ def record_fetch(source: str, ticker: str, db_path: str = DB_PATH) -> None:
     """Record that data was fetched for a source+ticker at current time."""
     now = datetime.now(ET).isoformat()
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO data_freshness "
                 "(source, ticker, last_fetched_at, status, created_at) "
@@ -57,7 +58,7 @@ def check_staleness(source: str, ticker: str,
     thresholds = STALENESS_THRESHOLDS.get(source, STALENESS_THRESHOLDS["price"])
 
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
             row = conn.execute(
                 "SELECT last_fetched_at FROM data_freshness "
@@ -91,7 +92,7 @@ def get_staleness_report(db_path: str = DB_PATH) -> dict:
     """
     report = {}
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT source, ticker, last_fetched_at FROM data_freshness"
@@ -120,7 +121,7 @@ def get_stale_tickers(source: str, threshold: str = "warning",
     """
     stale = []
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT ticker FROM data_freshness WHERE source = ?",

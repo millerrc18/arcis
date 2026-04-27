@@ -26,6 +26,7 @@ import warnings
 import numpy as np
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ def calibrate_from_swing_history(db_path: str = DB_PATH) -> dict:
     Falls back to hardcoded 3 bps when fewer than 10 swing trades exist
     (sample too small to calibrate).
     """
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
     try:
         rows = conn.execute(
             """SELECT entry_slippage_bps, exit_slippage_bps

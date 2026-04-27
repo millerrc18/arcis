@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from src.utils.db import connect_db
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -130,7 +131,7 @@ def check_book_drawdown_circuit_breaker(
     if db_path is None:
         return True, 0.0
     try:
-        conn = sqlite3.connect(db_path)
+        conn = connect_db(db_path)
         rows = conn.execute(
             "SELECT pnl_pct FROM shadow_trades "
             "WHERE actual_exit_time IS NOT NULL "

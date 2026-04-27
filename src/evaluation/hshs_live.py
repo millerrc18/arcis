@@ -42,6 +42,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 from src.evaluation.hshs import DIMENSION_KEYS, compute_hshs_score
 
 logger = logging.getLogger(__name__)
@@ -368,7 +369,7 @@ def compute_hshs(db_path: str = DEFAULT_DB_PATH) -> dict:
 
     dimensions: dict[str, float] = {}
 
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
     conn.row_factory = sqlite3.Row
     try:
         for key in DIMENSION_KEYS:

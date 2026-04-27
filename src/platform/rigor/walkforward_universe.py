@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import csv
 import sqlite3
+from src.utils.db import connect_db
 from datetime import date
 from pathlib import Path
 
@@ -73,7 +74,7 @@ def populate_constituents_table(
     """Load CSV into sp100_historical_constituents. Idempotent via
     INSERT OR REPLACE on composite (ticker, added_date). Returns row count."""
     rows = load_constituents_from_csv(csv_path)
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
     try:
         for r in rows:
             conn.execute(
@@ -110,7 +111,7 @@ def resolve_universe_as_of(
     except ValueError as e:
         raise ValueError(f"as_of_date not ISO yyyy-mm-dd: {as_of_date!r}") from e
 
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
     try:
         rows = conn.execute(
             "SELECT ticker FROM sp100_historical_constituents "
