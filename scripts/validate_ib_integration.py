@@ -23,6 +23,7 @@ import sqlite3
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 # ---------------------------------------------------------------------------
 # Result tracking
@@ -207,7 +208,7 @@ def main() -> int:
     print(f"=== IB INTEGRATION VALIDATION ===")
     print(f"Database: {db_path}\n")
 
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
     cur = conn.cursor()
 
     try:

@@ -52,6 +52,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.attribution.logger import simulate_mechanical_outcome
 from src.config import DB_PATH
 from src.features.indicators import compute_atr
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -367,7 +368,7 @@ def run_scenario(name: str, start: str, end: str) -> dict:
 def store_result(result: dict, db_path: str = DB_PATH) -> None:
     """Store stress test result in database."""
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO stress_test_results "
                 "(result_id, scenario, start_date, end_date, total_trades, "

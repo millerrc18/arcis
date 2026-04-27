@@ -42,6 +42,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.config import DB_PATH
 from src.journal.store import initialize_database
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -132,7 +133,7 @@ def fetch_earnings_dates(
                     time_str = "TBD"
 
             # Upsert into database
-            with sqlite3.connect(db_path) as conn:
+            with connect_db(db_path) as conn:
                 conn.execute(
                     """INSERT INTO earnings_calendar
                     (ticker, earnings_date, earnings_time, confirmed, collected_at)
@@ -230,7 +231,7 @@ def get_earnings_within_days(
     today = anchor_date.strftime("%Y-%m-%d")
     cutoff = (anchor_date + timedelta(days=days)).strftime("%Y-%m-%d")
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         row = conn.execute(
             """SELECT * FROM earnings_calendar
@@ -264,7 +265,7 @@ def get_all_upcoming_earnings(
     cutoff = (now + timedelta(days=days)).strftime("%Y-%m-%d")
     today = now.strftime("%Y-%m-%d")
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             """SELECT * FROM earnings_calendar

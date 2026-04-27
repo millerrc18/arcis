@@ -61,6 +61,11 @@ _ALLOWLIST: list[tuple[str, int, str]] = [
     # scripts/archive_bootcamp_2026_04_24.py line 508: comment text inside a docstring
     # that mentions sqlite3.connect as part of documentation — not a live call.
     ("scripts/archive_bootcamp_2026_04_24.py", 508, "comment/docstring text mentioning sqlite3.connect — not a live call"),
+    # scripts/recover_from_postgres.py: uses raw connect then immediately sets WAL mode
+    # (PRAGMA journal_mode=WAL) and a conservative 5s busy_timeout for the recovery
+    # import loop. The 5s timeout is intentionally shorter than connect_db's 30s to
+    # avoid blocking during the long sequential row-by-row import from Postgres.
+    ("scripts/recover_from_postgres.py", 96, "recovery script: WAL mode setup + intentional 5s busy_timeout (shorter than connect_db 30s) for long Postgres import loop"),
 ]
 
 

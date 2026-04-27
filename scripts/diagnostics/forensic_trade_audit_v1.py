@@ -30,6 +30,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from src.utils.db import connect_db  # noqa: E402
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -103,8 +106,7 @@ class AuditResults:
 # ── Data Pipeline ───────────────────────────────────────────────────
 def load_trades(db_path: str) -> list[Trade]:
     """Load all closed trades from the database."""
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = connect_db(db_path)
     cur = conn.execute("""
         SELECT t.trade_id, t.ticker,
                CAST(t.pnl_pct AS REAL) as pnl_pct,
@@ -158,8 +160,7 @@ def enrich_with_minute_bars(trades: list[Trade], db_path: str) -> int:
 
     Returns count of trades enriched.
     """
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = connect_db(db_path)
     enriched = 0
     for trade in trades:
         if not trade.entry_time:

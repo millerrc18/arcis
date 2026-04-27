@@ -21,8 +21,12 @@ from __future__ import annotations
 
 import argparse
 import sqlite3
+import sys
 from datetime import datetime, UTC
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from src.utils.db import connect_db
 
 
 def format_default(value: object) -> str:
@@ -32,8 +36,7 @@ def format_default(value: object) -> str:
 
 
 def collect_schema(db_path: Path) -> tuple[list[dict], dict[str, list[dict]]]:
-    with sqlite3.connect(db_path) as conn:
-        conn.row_factory = sqlite3.Row
+    with connect_db(str(db_path)) as conn:
         tables = conn.execute(
             """
             SELECT name, type, sql
@@ -77,8 +80,7 @@ def render_schema(db_path: Path) -> str:
         "",
     ]
 
-    with sqlite3.connect(db_path) as conn:
-        conn.row_factory = sqlite3.Row
+    with connect_db(str(db_path)) as conn:
         for table in tables:
             name = table["name"]
             obj_type = table["type"]

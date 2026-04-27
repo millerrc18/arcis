@@ -30,6 +30,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 DEFAULT_DB = DB_PATH
 
@@ -111,7 +112,7 @@ def main():
     print(f"DB size: {Path(db_path).stat().st_size / 1024:.0f} KB")
     print()
 
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
 
     # 1. Create missing tables first so ALTER TABLE has targets.
     # Order matters: column migrations reference tables that may not exist yet.

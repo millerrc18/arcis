@@ -14,6 +14,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from dotenv import load_dotenv
+from src.utils.db import connect_db
 
 load_dotenv()
 
@@ -22,7 +23,7 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 # ── Fix 1-2: SQLite model name + status ──────────────────────────
 print("=== SQLite fixes ===")
-with sqlite3.connect(DB_PATH) as conn:
+with connect_db(DB_PATH) as conn:
     changed = conn.execute(
         "UPDATE model_versions SET version_name='arcis:v1.0.0', status='active' "
         "WHERE version_name='halcyon-v1.0.0'"

@@ -22,11 +22,15 @@ Usage: python scripts/post_close_check.py
 """
 
 import json
+import os
 import sqlite3
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from src.utils.db import connect_db
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ET = ZoneInfo("America/New_York")
@@ -45,8 +49,7 @@ if not DB_PATH:
     print("ERROR: No database found")
     sys.exit(1)
 
-conn = sqlite3.connect(DB_PATH)
-conn.row_factory = sqlite3.Row
+conn = connect_db(DB_PATH)
 
 today = datetime.now(ET).strftime("%Y-%m-%d")
 passes = 0

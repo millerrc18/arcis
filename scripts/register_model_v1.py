@@ -33,6 +33,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 from src.training.versioning import (
     get_active_model_version,
     get_next_semver,
@@ -77,8 +78,7 @@ def main():
 
     if active:
         # Rename in DB
-        import sqlite3
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.execute(
                 "UPDATE model_versions SET version_name = ? WHERE version_id = ?",
                 (version_name, active["version_id"]),
