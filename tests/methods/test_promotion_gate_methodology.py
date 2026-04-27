@@ -407,3 +407,32 @@ class TestGateDecisionWithAbstentions:
         assert result["votes"]["mc_perm"] is not None
         assert result["votes"]["white_rc"] is not None
         assert result["details"]["n_abstentions"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Sprint-0.B/B1 split-preservation tests (#730)
+# ---------------------------------------------------------------------------
+
+
+def test_promotion_gate_public_api_unchanged():
+    """Regression: ensure the public import shape survives the helpers split."""
+    from src.methods.promotion_gate import promotion_gate
+    assert callable(promotion_gate)
+
+
+def test_promotion_gate_helpers_module_exists():
+    """Helpers module must exist post-#730 split."""
+    from src.methods import promotion_gate_helpers
+    assert hasattr(promotion_gate_helpers, "_run_cpcv")
+    assert hasattr(promotion_gate_helpers, "_run_bootstrap")
+    assert hasattr(promotion_gate_helpers, "_run_mc_perm")
+    assert hasattr(promotion_gate_helpers, "_run_psr")
+    assert hasattr(promotion_gate_helpers, "_run_white_rc")
+
+
+def test_promotion_gate_under_400_lines():
+    """Regression-lock: #730 split must keep promotion_gate.py under 400 lines."""
+    from pathlib import Path
+    f = Path(__file__).resolve().parent.parent.parent / "src" / "methods" / "promotion_gate.py"
+    n = sum(1 for _ in f.read_text(encoding="utf-8").splitlines())
+    assert n < 400, f"promotion_gate.py is {n} lines, exceeds 400-line guardrail"
