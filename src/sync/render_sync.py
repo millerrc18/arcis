@@ -129,6 +129,92 @@ def set_last_synced_at(table_name: str, ts: str, db_path: str = LOCAL_DB) -> Non
             return
 
 
+# ── In-flight sync detection (#673) ──────────────────────────────────────────
+# Each host gets one row in sync_state keyed by host name.
+# The per-table cursor rows (keyed by table name) are unaffected.
+
+class SyncInFlightError(RuntimeError):
+    """Raised when mark_sync_in_flight is called while a sync is already running.
+
+    Pass force=True to override (use only when the previous in-flight row is
+    known stale — e.g. after a crash with no completed_at written).
+    """
+
+
+def mark_sync_in_flight(host: str, db_path: str = LOCAL_DB, force: bool = False) -> None:
+    """Record that a sync cycle is starting on this host.
+
+    Raises SyncInFlightError if another in-progress row already exists for
+    this host, unless force=True.
+    """
+    now = datetime.now(ET).isoformat()
+    with _sqlite_conn(db_path) as conn:
+        existing = conn.execute(
+            "SELECT status FROM sync_state WHERE table_name = ?",
+            (host,),
+        ).fetchone()
+        if existing and existing[0] == "in_progress" and not force:
+            raise SyncInFlightError(
+                f"Sync already in progress on host '{host}'. "
+                "Use force=True to override if the row is known stale."
+            )
+        conn.execute(
+            "INSERT INTO sync_state "
+            "  (table_name, last_synced_at, in_flight_since, completed_at, status, error_message, host) "
+            "VALUES (?, '', ?, NULL, 'in_progress', NULL, ?) "
+            "ON CONFLICT(table_name) DO UPDATE SET "
+            "  in_flight_since = excluded.in_flight_since, "
+            "  completed_at    = NULL, "
+            "  status          = 'in_progress', "
+            "  error_message   = NULL, "
+            "  host            = excluded.host",
+            (host, now, host),
+        )
+        conn.commit()
+
+
+def mark_sync_completed(host: str, db_path: str = LOCAL_DB) -> None:
+    """Record that a sync cycle completed successfully on this host."""
+    now = datetime.now(ET).isoformat()
+    with _sqlite_conn(db_path) as conn:
+        conn.execute(
+            "UPDATE sync_state SET "
+            "  in_flight_since = NULL, "
+            "  completed_at = ?, "
+            "  status = 'completed', "
+            "  error_message = NULL "
+            "WHERE table_name = ?",
+            (now, host),
+        )
+        conn.commit()
+
+
+def mark_sync_failed(host: str, error: str, db_path: str = LOCAL_DB) -> None:
+    """Record that a sync cycle failed on this host."""
+    with _sqlite_conn(db_path) as conn:
+        conn.execute(
+            "UPDATE sync_state SET "
+            "  in_flight_since = NULL, "
+            "  status = 'failed', "
+            "  error_message = ? "
+            "WHERE table_name = ?",
+            (error, host),
+        )
+        conn.commit()
+
+
+def get_sync_flight_status(host: str, db_path: str = LOCAL_DB) -> dict | None:
+    """Return the in-flight status row for this host, or None if no row exists."""
+    with _sqlite_conn(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT table_name, in_flight_since, completed_at, status, error_message, host "
+            "FROM sync_state WHERE table_name = ?",
+            (host,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
 # ── Core sync logic ─────────────────────────────────────────────────
 
 def _fetch_incremental_rows(
