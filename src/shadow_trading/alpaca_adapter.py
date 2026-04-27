@@ -27,9 +27,6 @@ Tests: tests/test_bracket_orders.py, tests/test_executor_import.py, tests/test_l
 import enum
 import logging
 import os
-import re
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from src.config import load_config
 
@@ -59,14 +56,9 @@ def _strip_enum(val) -> str | None:
     """
     if val is None:
         return None
-    # Primary path: extract .value directly from Enum instances. This
-    # yields the alpaca-py lowercase value ('filled', 'pending_new',
-    # 'canceled', etc.) regardless of how Python's enum.__str__ behaves.
     if isinstance(val, enum.Enum):
         v = val.value
         return v if isinstance(v, str) else str(v)
-    # Fallback: plain strings — split on "." for the enum-prefixed form
-    # and return the segment unchanged (CURRENT behavior). See docstring.
     s = str(val)
     return s.split(".")[-1] if "." in s else s
 
@@ -85,7 +77,6 @@ def _serialize_order(order, fallback_qty: int | float = 0) -> dict:
         "order_id": str(order.id),
         "symbol": str(order.symbol),
         "qty": float(order.qty) if getattr(order, "qty", None) else fallback_qty,
-        # Fix for #248: strip enum prefix so "OrderSide.buy" → "buy"
         "side": _strip_enum(order.side) if getattr(order, "side", None) else None,
         "type": _strip_enum(order.type) if getattr(order, "type", None) else None,
         "status": _strip_enum(order.status) if getattr(order, "status", None) else None,
@@ -124,14 +115,10 @@ def _get_alpaca_config() -> dict:
     alpaca_cfg = config.get("alpaca", {})
     shadow_cfg = config.get("shadow_trading", {})
 
-    # Allow env vars to override config file
     api_key = os.environ.get("ALPACA_API_KEY", alpaca_cfg.get("api_key", ""))
     api_secret = os.environ.get("ALPACA_API_SECRET", alpaca_cfg.get("api_secret", ""))
     base_url = os.environ.get("ALPACA_BASE_URL", alpaca_cfg.get("base_url", "https://paper-api.alpaca.markets"))
 
-    # SAFETY: Verify paper mode — this is the critical guardrail that prevents
-    # the paper trading path from accidentally connecting to a live account.
-    # Two independent checks: URL must contain "paper" OR env var must be "true".
     paper_env = os.environ.get("ALPACA_PAPER_TRADE", "true").lower()
     if "paper" not in base_url.lower() and paper_env != "true":
         raise PaperTradingError(
@@ -139,12 +126,6 @@ def _get_alpaca_config() -> dict:
             "ALPACA_PAPER_TRADE is not 'true'. Refusing to connect to a live account."
         )
 
-    # Sprint 0 cluster-03 Critical #4 — fail loudly on missing credentials.
-    # Pre-fix: empty api_key / api_secret silently flowed through to
-    # TradingClient(api_key="", secret_key="") which fails with an opaque
-    # alpaca-py SDK error far from the misconfig source. The live path
-    # (_get_live_config below) already raises LiveTradingError on this
-    # condition; mirror that guard here for parity.
     if not api_key:
         raise PaperTradingError(
             "Paper trading API key not configured. "
@@ -184,10 +165,6 @@ def _get_trading_client(desk: str | None = None):
     through src.shadow_trading.alpaca_clients.get_client for per-desk
     routing. If desk is None or 'swing', uses the legacy swing-config
     path for full backward compatibility with existing swing code.
-
-    Args:
-        desk: Named desk to route through (e.g. 'swing', 'research_xxx').
-              None and 'swing' both use the legacy _get_alpaca_config path.
     """
     if desk is not None and desk != "swing":
         from src.shadow_trading.alpaca_clients import get_client
@@ -202,17 +179,8 @@ def _get_trading_client(desk: str | None = None):
 
 
 def _get_data_client(desk: str | None = None):
-    """Create and return an Alpaca StockHistoricalDataClient.
-
-    desk kwarg accepted for parallel signature with _get_trading_client;
-    data client reuses the desk's trading-credentials (market data API
-    uses the same api_key/secret). None or 'swing' → legacy path.
-
-    Args:
-        desk: Named desk to route through. None and 'swing' use legacy config.
-    """
+    """Create and return an Alpaca StockHistoricalDataClient."""
     if desk is not None and desk != "swing":
-        # Research desk — resolve credentials through desks.{desk}.*
         import os as _os
         desks_cfg = load_config().get("desks", {})
         dc = desks_cfg.get(desk, {})
@@ -240,12 +208,7 @@ def _get_data_client(desk: str | None = None):
 
 
 def get_account_info(desk: str = "swing") -> dict:
-    """Get paper account info: balance, buying power, equity, portfolio value.
-
-    Args:
-        desk: Named desk to route through (default 'swing').
-              Routes to per-desk Alpaca client via _get_trading_client(desk=desk).
-    """
+    """Get paper account info: balance, buying power, equity, portfolio value."""
     client = _get_trading_client(desk=desk)
     account = client.get_account()
     return {
@@ -259,28 +222,11 @@ def get_account_info(desk: str = "swing") -> dict:
     }
 
 
-# ── T2.17 — Fail-CLOSED governor input surfaces ────────────────────────
-#
-# Pre-T2.17: the governor read these 5 surfaces via wrappers that silently
-# returned default values when the broker was unreachable, letting trades
-# proceed without verified inputs (audit §F-11/§F-12). Now each raises
-# ``GovernorInputMissingError`` on missing input; ``RiskGovernor.check_trade``
-# catches the exception and HALTS the trade.
-# ──────────────────────────────────────────────────────────────────────
-
-
 def is_connected(desk: str = "swing") -> bool:
-    """Return True iff a real Alpaca handshake succeeds and account is ACTIVE.
-
-    Pre-T2.17 the equivalent BrokerAdapter helper returned ``True`` literally
-    ("Alpaca is REST-based, no persistent connection"). That hid network and
-    auth failures from the governor. We now perform a real handshake by
-    constructing the trading client and calling ``get_account()``; any
-    exception → False, account.status != ACTIVE → False.
-    """
+    """Return True iff a real Alpaca handshake succeeds and account is ACTIVE."""
     try:
         client = _get_trading_client(desk=desk)
-    except Exception as exc:  # noqa: BLE001 — broad catch is intentional
+    except Exception as exc:  # noqa: BLE001
         logger.warning("[ALPACA] is_connected: client construction failed: %s", exc)
         return False
     try:
@@ -292,35 +238,8 @@ def is_connected(desk: str = "swing") -> bool:
     return status == "ACTIVE"
 
 
-def get_account_equity(desk: str = "swing") -> float:
-    """Return account equity (USD) or raise GovernorInputMissingError.
-
-    Fail-CLOSED: any failure to retrieve a positive equity value raises
-    ``GovernorInputMissingError`` so the governor halts the trade
-    rather than silently approving against an unknown balance.
-    """
-    from src.risk.governor import GovernorInputMissingError
-    try:
-        info = get_account_info(desk=desk)
-    except Exception as exc:  # noqa: BLE001
-        raise GovernorInputMissingError(
-            f"get_account_equity: broker unreachable: {exc}"
-        ) from exc
-    equity = info.get("equity")
-    if equity is None:
-        raise GovernorInputMissingError(
-            "get_account_equity: equity missing from broker response"
-        )
-    return float(equity)
-
-
 def get_position_value(ticker: str, desk: str = "swing") -> float:
-    """Return current $ market value of an open position, 0.0 if no position.
-
-    Fail-CLOSED: when the position lookup raises (network error, API down),
-    raise ``GovernorInputMissingError``. ``None`` (no position) is a valid
-    state and returns 0.0.
-    """
+    """Return current $ market value of an open position, 0.0 if no position."""
     from src.risk.governor import GovernorInputMissingError
     try:
         pos = get_position(ticker, desk=desk)
@@ -338,877 +257,91 @@ def get_position_value(ticker: str, desk: str = "swing") -> float:
     return float(market_value)
 
 
-def get_buying_power(desk: str = "swing") -> float:
-    """Return account buying power (USD) or raise GovernorInputMissingError."""
-    from src.risk.governor import GovernorInputMissingError
-    try:
-        info = get_account_info(desk=desk)
-    except Exception as exc:  # noqa: BLE001
-        raise GovernorInputMissingError(
-            f"get_buying_power: broker unreachable: {exc}"
-        ) from exc
-    bp = info.get("buying_power")
-    if bp is None:
-        raise GovernorInputMissingError(
-            "get_buying_power: buying_power missing from broker response"
-        )
-    return float(bp)
-
-
-def get_open_orders(desk: str = "swing") -> list:
-    """Return list of currently-open Alpaca orders, raise on lookup failure.
-
-    Fail-CLOSED: when the order list cannot be retrieved, raise
-    ``GovernorInputMissingError`` so the governor halts the trade rather
-    than silently assuming "no orders open".
-    """
-    from src.risk.governor import GovernorInputMissingError
-    try:
-        client = _get_trading_client(desk=desk)
-    except Exception as exc:  # noqa: BLE001
-        raise GovernorInputMissingError(
-            f"get_open_orders: client construction failed: {exc}"
-        ) from exc
-    try:
-        from alpaca.trading.requests import GetOrdersRequest
-        from alpaca.trading.enums import QueryOrderStatus
-        orders = client.get_orders(GetOrdersRequest(status=QueryOrderStatus.OPEN))
-    except Exception as exc:  # noqa: BLE001
-        raise GovernorInputMissingError(
-            f"get_open_orders: order list retrieval failed: {exc}"
-        ) from exc
-    if orders is None:
-        raise GovernorInputMissingError(
-            "get_open_orders: broker returned None for open orders"
-        )
-    return list(orders)
-
-
-def place_paper_entry(
-    ticker: str, shares: int, order_type: str = "market", desk: str = "swing"
-) -> dict:
-    """Place a paper buy order. Returns order details dict.
-
-    Args:
-        desk: Named desk to route through (default 'swing').
-    """
-    _check_enabled()
-
-    logger.info("[SHADOW] Placing paper BUY: %d shares of %s", shares, ticker)
-
-    client = _get_trading_client(desk=desk)
-
-    from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
-    from alpaca.trading.enums import OrderSide, TimeInForce
-
-    if order_type == "market":
-        request = MarketOrderRequest(
-            symbol=ticker,
-            qty=shares,
-            side=OrderSide.BUY,
-            time_in_force=TimeInForce.DAY,
-        )
-    else:
-        raise PaperTradingError(f"Unsupported order type: {order_type}")
-
-    order = client.submit_order(request)
-
-    return {
-        "order_id": str(order.id),
-        "symbol": str(order.symbol),
-        "qty": float(order.qty) if order.qty else shares,
-        "side": str(order.side),
-        "type": str(order.type),
-        "status": str(order.status),
-        "filled_avg_price": float(order.filled_avg_price) if order.filled_avg_price else None,
-        "filled_at": str(order.filled_at) if order.filled_at else None,
-        "created_at": str(order.created_at) if order.created_at else None,
-    }
-
-
-def place_paper_exit(
-    ticker: str, shares: int, order_type: str = "market", desk: str = "swing"
-) -> dict:
-    """Place a paper sell order. Returns order details dict.
-
-    Args:
-        desk: Named desk to route through (default 'swing').
-    """
-    _check_enabled()
-
-    logger.info("[SHADOW] Placing paper SELL: %d shares of %s", shares, ticker)
-
-    client = _get_trading_client(desk=desk)
-
-    from alpaca.trading.requests import MarketOrderRequest
-    from alpaca.trading.enums import OrderSide, TimeInForce
-
-    request = MarketOrderRequest(
-        symbol=ticker,
-        qty=shares,
-        side=OrderSide.SELL,
-        time_in_force=TimeInForce.DAY,
-    )
-
-    order = client.submit_order(request)
-
-    return {
-        "order_id": str(order.id),
-        "symbol": str(order.symbol),
-        "qty": float(order.qty) if order.qty else shares,
-        "side": str(order.side),
-        "type": str(order.type),
-        "status": str(order.status),
-        "filled_avg_price": float(order.filled_avg_price) if order.filled_avg_price else None,
-        "filled_at": str(order.filled_at) if order.filled_at else None,
-    }
-
-
-def place_bracket_order(
-    ticker: str,
-    shares: int,
-    take_profit_price: float,
-    stop_loss_price: float,
-    limit_price: float | None = None,
-    desk: str = "swing",
-) -> dict:
-    """Place a bracket order: entry + take-profit + stop-loss as one atomic order.
-
-    Strategy Decision #18: Mechanical bracket exits with 2.0 ATR multiplier.
-    When the entry fills, Alpaca automatically places:
-    - A limit sell at take_profit_price (target_1 from the packet)
-    - A stop sell at stop_loss_price (from packet stop_invalidation)
-    When one exit triggers, the other auto-cancels (OCO semantics).
-
-    WHY GTC (Good Till Cancel): Bracket exits must persist across trading
-    sessions. DAY orders would expire at close, leaving positions unprotected
-    overnight. GTC keeps the stop-loss active until it fills or is canceled.
-
-    WHY limit_price option: For less-liquid names, a limit entry prevents
-    paying an unreasonable spread on market open.
-
-    Args:
-        desk: Named desk to route through (default 'swing').
-    """
-    _check_enabled()
-
-    # Fix for #263: removed duplicate log line
-    logger.info("[SHADOW] Placing BRACKET order: %d shares of %s "
-                "(TP=$%.2f, SL=$%.2f)", shares, ticker,
-                take_profit_price, stop_loss_price)
-
-    client = _get_trading_client(desk=desk)
-
-    from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
-    from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass
-
-    if limit_price:
-        request = LimitOrderRequest(
-            symbol=ticker,
-            qty=shares,
-            side=OrderSide.BUY,
-            time_in_force=TimeInForce.GTC,
-            order_class=OrderClass.BRACKET,
-            limit_price=round(limit_price, 2),
-            take_profit={"limit_price": round(take_profit_price, 2)},
-            stop_loss={"stop_price": round(stop_loss_price, 2)},
-        )
-    else:
-        request = MarketOrderRequest(
-            symbol=ticker,
-            qty=shares,
-            side=OrderSide.BUY,
-            time_in_force=TimeInForce.GTC,
-            order_class=OrderClass.BRACKET,
-            take_profit={"limit_price": round(take_profit_price, 2)},
-            stop_loss={"stop_price": round(stop_loss_price, 2)},
-        )
-
-    order = client.submit_order(request)
-
-    return {
-        "order_id": str(order.id),
-        "symbol": str(order.symbol),
-        "qty": float(order.qty) if order.qty else shares,
-        "side": str(order.side),
-        "type": str(order.type),
-        "order_class": "bracket",
-        "status": str(order.status),
-        "filled_avg_price": float(order.filled_avg_price) if order.filled_avg_price else None,
-        "legs": [str(leg.id) for leg in order.legs] if order.legs else [],
-    }
-
-
-def get_position(ticker: str, desk: str = "swing") -> dict | None:
-    """Get current position details for a ticker, or None if no position.
-
-    Args:
-        desk: Named desk to route through (default 'swing').
-    """
-    client = _get_trading_client(desk=desk)
-    try:
-        pos = client.get_open_position(ticker)
-        return {
-            "symbol": str(pos.symbol),
-            "qty": float(pos.qty),
-            "avg_entry_price": float(pos.avg_entry_price),
-            "current_price": float(pos.current_price),
-            "market_value": float(pos.market_value),
-            "unrealized_pl": float(pos.unrealized_pl),
-            "unrealized_plpc": float(pos.unrealized_plpc),
-        }
-    except Exception as exc:
-        logger.warning("[ALPACA] Failed to get position for %s: %s", ticker, exc)
-        return None
-
-
-def get_all_positions(desk: str = "swing") -> list[dict]:
-    """Get all open positions.
-
-    Args:
-        desk: Named desk to route through (default 'swing').
-    """
-    client = _get_trading_client(desk=desk)
-    positions = client.get_all_positions()
-    return [
-        {
-            "symbol": str(pos.symbol),
-            "qty": float(pos.qty),
-            "avg_entry_price": float(pos.avg_entry_price),
-            "current_price": float(pos.current_price),
-            "market_value": float(pos.market_value),
-            "unrealized_pl": float(pos.unrealized_pl),
-            "unrealized_plpc": float(pos.unrealized_plpc),
-        }
-        for pos in positions
-    ]
-
-
-def get_current_price(ticker: str, desk: str = "swing") -> float | None:
-    """Get the latest trade price for a ticker. Retries on network/DNS errors.
-
-    WHY 3 retries with exponential backoff (0s, 1s, 2s): Alpaca's data API
-    occasionally returns DNS errors or 503s during high-volume periods.
-    The executor calls this for every open position every scan cycle, so
-    transient failures are common and worth retrying.
-
-    GOTCHA: Only retries ConnectionError/OSError (network issues). Other
-    exceptions (e.g., invalid ticker) fail immediately to avoid wasting time.
-
-    Args:
-        desk: Named desk to route through (default 'swing').
-    """
-    for attempt in range(3):
-        try:
-            client = _get_data_client(desk=desk)
-            from alpaca.data.requests import StockLatestTradeRequest
-            request = StockLatestTradeRequest(symbol_or_symbols=ticker)
-            trades = client.get_stock_latest_trade(request)
-            if ticker in trades:
-                return float(trades[ticker].price)
-            return None
-        except (ConnectionError, OSError) as e:
-            if attempt < 2:
-                import time as _time
-                _time.sleep(2 ** attempt)  # 0s, 1s, 2s backoff
-                continue
-            logger.warning("Failed to get current price for %s after 3 retries: %s", ticker, e)
-            return None
-        except Exception as e:
-            logger.warning("Failed to get current price for %s: %s", ticker, e)
-            return None
-
-
-def get_order_status(order_id: str, desk: str = "swing") -> dict:
-    """Check the status of an order.
-
-    Args:
-        desk: Named desk to route through (default 'swing').
-    """
-    client = _get_trading_client(desk=desk)
-    order = client.get_order_by_id(order_id)
-    return _serialize_order(order)
-
-
-def verify_order_accepted(order_id: str, desk: str = "swing") -> dict:
-    """Verify an order was accepted by Alpaca after submission.
-
-    Fix #352: fire-and-forget submission can miss acceptances when
-    the SDK raises an exception after Alpaca has already accepted.
-
-    Returns:
-        {"verified": True/False/None, "status": str, "error": str|None}
-        - True: order confirmed accepted/filled/partially_filled
-        - False: order confirmed rejected/canceled
-        - None: verification failed (API error) — status uncertain
-
-    Args:
-        desk: Named desk to route through (default 'swing').
-    """
-    try:
-        client = _get_trading_client(desk=desk)
-        order = client.get_order_by_id(order_id)
-        status = str(order.status)
-        accepted_states = {"accepted", "new", "pending_new", "filled",
-                           "partially_filled", "done_for_day"}
-        rejected_states = {"rejected", "canceled", "expired", "suspended"}
-        if status in accepted_states:
-            return {"verified": True, "status": status, "error": None}
-        elif status in rejected_states:
-            return {"verified": False, "status": status, "error": None}
-        else:
-            return {"verified": None, "status": status, "error": "unexpected_status"}
-    except Exception as exc:
-        logger.warning("[VERIFY] Could not verify order %s: %s", order_id, exc)
-        return {"verified": None, "status": "unknown", "error": str(exc)}
-
-
-_TERMINAL_STATE_RE = re.compile(r"already in \\?\"?([a-z_]+)\\?\"? state", re.IGNORECASE)
-
-
-def cancel_paper_order(order_id: str, desk: str = "swing") -> dict:
-    """Cancel a pending paper order by ID.
-
-    Returns a dict: ``{cancelled: bool, terminal_state: str|None, error: str|None}``.
-
-    When Alpaca responds "order is already in 'filled' state" (code 42210000),
-    the order raced the cancel and filled at the broker — we extract the
-    terminal state so callers can detect the background fill and avoid
-    resubmitting a duplicate order. That race was the root cause of the
-    2026-04-14 NVDA/GOOGL exit-loop short-position accumulation.
-
-    Args:
-        desk: Named desk to route through (default 'swing').
-    """
-    try:
-        client = _get_trading_client(desk=desk)
-        client.cancel_order_by_id(order_id)
-        return {"cancelled": True, "terminal_state": None, "error": None}
-    except Exception as e:
-        terminal_state = None
-        m = _TERMINAL_STATE_RE.search(str(e))
-        if m:
-            terminal_state = m.group(1).lower()
-        logger.debug("[CANCEL] Could not cancel order %s: %s", order_id, e)
-        return {"cancelled": False, "terminal_state": terminal_state, "error": str(e)}
-
-
-def cancel_orders_for_ticker(ticker: str, desk: str = "swing") -> int:
-    """Cancel all open orders for a specific ticker.
-
-    Fix #356: Required before closing a position — pending orders lock
-    shares as 'held_for_orders', preventing close_position from working.
-
-    Returns the number of orders cancelled.
-
-    Args:
-        desk: Named desk to route through (default 'swing').
-    """
-    from alpaca.trading.requests import GetOrdersRequest
-    from alpaca.trading.enums import QueryOrderStatus
-    try:
-        client = _get_trading_client(desk=desk)
-        orders = client.get_orders(GetOrdersRequest(
-            status=QueryOrderStatus.OPEN,
-            symbols=[ticker],
-        ))
-        for order in orders:
-            try:
-                client.cancel_order_by_id(order.id)
-            except Exception as e:
-                logger.debug("[CANCEL] Failed to cancel order %s for %s: %s",
-                               order.id, ticker, e)
-        if orders:
-            logger.info("[CANCEL] Cancelled %d open orders for %s", len(orders), ticker)
-        return len(orders)
-    except Exception as e:
-        logger.debug("[CANCEL] Could not list orders for %s: %s", ticker, e)
-        return 0
-
-
-def cancel_all_orders(desk: str = "swing") -> dict:
-    """Cancel all pending Alpaca orders.  Returns ``{'cancelled': N}``.
-
-    Args:
-        desk: Named desk to route through (default 'swing').
-    """
-    try:
-        client = _get_trading_client(desk=desk)
-        cancelled = client.cancel_orders()
-        count = len(cancelled) if cancelled else 0
-        logger.info("[CANCEL] Cancelled %d pending orders", count)
-        return {"cancelled": count}
-    except Exception as e:
-        logger.debug("[CANCEL] Could not cancel all orders: %s", e)
-        return {"cancelled": 0, "error": str(e)}
-
-
-# ── Live Trading Adapter ──────────────────────────────────────────────
-#
-# Separate client creation for live (real-money) Alpaca account.
-# Uses live_trading config section, NOT the paper alpaca section.
-# No paper-safety checks — this deliberately connects to a live account.
-#
-# WHY separate from paper: Different API keys, different risk parameters,
-# different ordering modes (notional vs qty). Keeping them separate prevents
-# accidentally using paper credentials for live or vice versa.
-# ──────────────────────────────────────────────────────────────────────
-
-
-class LiveTradingError(Exception):
-    """Raised when live trading operations fail."""
-
-
-class OrderNotAcceptedError(Exception):
-    """Raised when an order submitted via Alpaca live did NOT reach an
-    acceptable status (terminal-cancel, rejected, expired, suspended,
-    or persistent unknown after polling).
-
-    Sprint 0 Wave 5c LIVE-VERIFY: Network errors during submission do not
-    mean Alpaca rejected the order. Equally, a fire-and-forget submit
-    can race a broker-side rejection that the SDK never raised. Live
-    capital paths MUST observe the broker's authoritative status.
-    """
-
-    def __init__(self, order_id: str, status: str, attempts: int = 1,
-                 last_error: str | None = None):
-        self.order_id = order_id
-        self.status = status
-        self.attempts = attempts
-        self.last_error = last_error
-        msg = (
-            f"Order {order_id} not accepted: status={status!r} "
-            f"after {attempts} verification attempt(s)"
-        )
-        if last_error:
-            msg += f" (last_error={last_error})"
-        super().__init__(msg)
-
-
-_LIVE_VERIFY_ACCEPTED = {"accepted", "new", "pending_new", "filled",
-                         "partially_filled", "done_for_day"}
-_LIVE_VERIFY_REJECTED = {"rejected", "canceled", "expired", "suspended"}
-
-
-def _poll_order_status(order_id: str) -> tuple[str, dict]:
-    """Fetch live order status and build a normalized payload dict.
-
-    Returns (status_str, payload_dict). Raises on client/network errors
-    so the caller can count them as polling failures.
-    """
-    client = _get_live_trading_client()
-    order = client.get_order_by_id(order_id)
-    status = str(order.status).lower().replace("orderstatus.", "")
-    payload = {
-        "order_id": str(getattr(order, "id", order_id)),
-        "symbol": str(getattr(order, "symbol", "")),
-        "status": status,
-        "qty": float(order.qty) if getattr(order, "qty", None) else 0.0,
-        "filled_qty": (
-            float(order.filled_qty)
-            if getattr(order, "filled_qty", None) else 0.0
-        ),
-        "filled_avg_price": (
-            float(order.filled_avg_price)
-            if getattr(order, "filled_avg_price", None) else None
-        ),
-    }
-    return status, payload
-
-
-def _classify_order_status(status: str) -> str:
-    """Map a raw Alpaca order status string to 'accepted', 'rejected', or 'pending'.
-
-    Returns 'accepted' when status is in the accepted terminal set,
-    'rejected' when status is in the rejected terminal set, or
-    'pending' for any other/unknown status.
-    """
-    if status in _LIVE_VERIFY_ACCEPTED:
-        return "accepted"
-    if status in _LIVE_VERIFY_REJECTED:
-        return "rejected"
-    return "pending"
-
-
-def _calculate_backoff(attempt: int, base_delay: float, max_delay: float) -> float:
-    """Return the exponential backoff delay for the given attempt number (1-based).
-
-    delay = min(base_delay * 2^(attempt-1), max_delay)
-    """
-    return min(base_delay * (2 ** (attempt - 1)), max_delay)
-
-
-def _handle_poll_attempt(
-    order_id: str, attempt: int, max_attempts: int,
-) -> tuple[dict | None, str, str | None]:
-    """Execute one poll attempt; return (result_or_None, last_status, last_error).
-
-    Returns (result_dict, status, None) when the order reached an accepted state.
-    Raises OrderNotAcceptedError when a terminal-reject is observed.
-    Returns (None, status, None) when status is pending/unknown — caller retries.
-    Returns (None, 'unknown', error_str) when the API call itself fails.
-    """
-    try:
-        status, payload = _poll_order_status(order_id)
-        classification = _classify_order_status(status)
-        if classification == "accepted":
-            return (
-                {"verified": True, "status": status,
-                 "attempts": attempt, "order": payload},
-                status, None,
-            )
-        if classification == "rejected":
-            logger.error(
-                "[LIVE-VERIFY] Order %s in terminal-reject state %r after %d attempt(s)",
-                order_id, status, attempt,
-            )
-            raise OrderNotAcceptedError(order_id=order_id, status=status, attempts=attempt)
-        logger.warning(
-            "[LIVE-VERIFY] Order %s status=%r on attempt %d/%d; retrying",
-            order_id, status, attempt, max_attempts,
-        )
-        return None, status, None
-    except OrderNotAcceptedError:
-        raise
-    except Exception as exc:
-        logger.warning(
-            "[LIVE-VERIFY] Could not verify order %s (attempt %d/%d): %s",
-            order_id, attempt, max_attempts, exc,
-        )
-        return None, "unknown", str(exc)
-
-
-def verify_live_order_accepted(
-    order_id: str,
-    *,
-    max_attempts: int = 5,
-    base_delay: float = 1.0,
-    max_delay: float = 8.0,
-    sleep_fn=None,
-) -> dict:
-    """Poll Alpaca live for terminal acceptance/rejection of a live order.
-
-    Sprint 0 Wave 5c LIVE-VERIFY. Raises OrderNotAcceptedError on terminal-reject
-    or exhausted attempts. Returns {"verified": True, "status", "attempts", "order"}.
-    Sub-helpers: _poll_order_status, _classify_order_status, _calculate_backoff,
-    _handle_poll_attempt.
-    """
-    import time as _time
-    if sleep_fn is None:
-        sleep_fn = _time.sleep
-
-    last_status = "unknown"
-    last_error: str | None = None
-
-    for attempt in range(1, max_attempts + 1):
-        result, last_status, err = _handle_poll_attempt(order_id, attempt, max_attempts)
-        if result is not None:
-            return result
-        if err is not None:
-            last_error = err
-        if attempt < max_attempts:
-            sleep_fn(_calculate_backoff(attempt, base_delay, max_delay))
-
-    raise OrderNotAcceptedError(
-        order_id=order_id,
-        status=last_status,
-        attempts=max_attempts,
-        last_error=last_error,
-    )
-
-
-def _get_live_config() -> dict:
-    """Load live trading config from settings."""
-    config = load_config()
-    live_cfg = config.get("live_trading", {})
-
-    api_key = os.environ.get("ALPACA_LIVE_API_KEY", live_cfg.get("api_key", ""))
-    api_secret = os.environ.get("ALPACA_LIVE_SECRET_KEY", live_cfg.get("secret_key", ""))
-
-    if not api_key or not api_secret:
-        raise LiveTradingError(
-            "Live trading API credentials not configured. "
-            "Set live_trading.api_key and live_trading.secret_key in config."
-        )
-
-    return {
-        "api_key": api_key,
-        "api_secret": api_secret,
-        "enabled": live_cfg.get("enabled", False),
-        "starting_capital": live_cfg.get("starting_capital", 100),
-        "max_open_positions": live_cfg.get("max_open_positions", 2),
-    }
-
-
-def _get_live_trading_client():
-    """Create and return an Alpaca TradingClient for LIVE trading."""
-    cfg = _get_live_config()
-    from alpaca.trading.client import TradingClient
-    return TradingClient(
-        api_key=cfg["api_key"],
-        secret_key=cfg["api_secret"],
-        paper=False,  # LIVE account
-    )
-
-
-def get_live_account_info(desk: str = "swing") -> dict:
-    """Get live account info: balance, buying power, equity.
-
-    Args:
-        desk: Must be 'swing' — live trading is swing-only. Parameter accepted
-              for API consistency; non-swing desks should not call this function.
-    """
-    client = _get_live_trading_client()
-    account = client.get_account()
-    return {
-        "account_id": str(account.id),
-        "status": str(account.status),
-        "cash": float(account.cash),
-        "buying_power": float(account.buying_power),
-        "equity": float(account.equity),
-        "portfolio_value": float(account.portfolio_value),
-        "currency": str(account.currency),
-    }
-
-
-def place_live_entry(
-    ticker: str, shares: int, notional: float | None = None, desk: str = "swing"
-) -> dict:
-    """Place a LIVE market buy order. Returns order details dict.
-
-    COMPLIANCE GUARDRAIL: live trading is swing-only. Raises ValueError if
-    desk != 'swing' — research desks must use paper trading only.
-
-    Args:
-        ticker: Stock symbol
-        shares: Number of whole shares (used if notional is None)
-        notional: Dollar amount to invest (enables fractional shares).
-                  If provided, overrides shares parameter.
-        desk: Must be 'swing' — live trading restricted to swing desk.
-
-    WHY notional ordering: Live account starts with small capital ($100).
-    Whole-share ordering can't buy stocks above $100/share. Notional lets
-    us invest exact dollar amounts and get fractional shares automatically.
-    Strategy Decision #6: Equal weight (1/N) until 200+ trades.
-    """
-    if desk != "swing":
-        raise ValueError(
-            f"live trading only supports swing desk; got desk={desk!r}. "
-            "Research strategies must use paper trading only."
-        )
-    cfg = _get_live_config()
-    if not cfg["enabled"]:
-        raise LiveTradingError("Live trading is disabled in config.")
-
-    client = _get_live_trading_client()
-
-    from alpaca.trading.requests import MarketOrderRequest
-    from alpaca.trading.enums import OrderSide, TimeInForce
-
-    if notional and notional > 1.0:
-        logger.info("[LIVE] Placing LIVE BUY: $%.2f notional of %s", notional, ticker)
-        request = MarketOrderRequest(
-            symbol=ticker,
-            notional=round(notional, 2),
-            side=OrderSide.BUY,
-            time_in_force=TimeInForce.DAY,
-        )
-    else:
-        logger.info("[LIVE] Placing LIVE BUY: %d shares of %s", shares, ticker)
-        request = MarketOrderRequest(
-            symbol=ticker,
-            qty=shares,
-            side=OrderSide.BUY,
-            time_in_force=TimeInForce.DAY,
-        )
-
-    order = client.submit_order(request)
-
-    return {
-        "order_id": str(order.id),
-        "symbol": str(order.symbol),
-        "qty": float(order.qty) if order.qty else shares,
-        "side": str(order.side),
-        "type": str(order.type),
-        "status": str(order.status),
-        "filled_avg_price": float(order.filled_avg_price) if order.filled_avg_price else None,
-        "filled_at": str(order.filled_at) if order.filled_at else None,
-        "created_at": str(order.created_at) if order.created_at else None,
-    }
-
-
-def _build_live_bracket_request(
-    ticker: str, shares: int,
-    take_profit_price: float, stop_loss_price: float,
-    limit_price: float | None,
-):
-    """Construct the Alpaca order request for a live bracket order.
-
-    Returns a LimitOrderRequest when limit_price is provided (slippage
-    protection), else a MarketOrderRequest. Both use GTC + BRACKET class
-    so stop and take-profit legs persist across sessions.
-    """
-    from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
-    from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass
-    tp = {"limit_price": round(take_profit_price, 2)}
-    sl = {"stop_price": round(stop_loss_price, 2)}
-    if limit_price:
-        return LimitOrderRequest(
-            symbol=ticker, qty=shares, side=OrderSide.BUY,
-            time_in_force=TimeInForce.GTC, order_class=OrderClass.BRACKET,
-            limit_price=round(limit_price, 2), take_profit=tp, stop_loss=sl,
-        )
-    return MarketOrderRequest(
-        symbol=ticker, qty=shares, side=OrderSide.BUY,
-        time_in_force=TimeInForce.GTC, order_class=OrderClass.BRACKET,
-        take_profit=tp, stop_loss=sl,
-    )
-
-
-def place_live_bracket(
-    ticker: str,
-    shares: int,
-    take_profit_price: float,
-    stop_loss_price: float,
-    limit_price: float | None = None,
-) -> dict:
-    """Place a LIVE bracket order: entry + take-profit + stop-loss as one atomic order.
-
-    Mirrors place_bracket_order (paper) but routes through the live trading
-    client. WHY GTC: bracket exits must persist across sessions. WHY limit_price
-    option: live entries are real money — slippage protection on illiquid names.
-    See SBUX incident (2026-04-10) for history of why bracket is essential.
-    Request construction delegated to _build_live_bracket_request.
-    """
-    cfg = _get_live_config()
-    if not cfg["enabled"]:
-        raise LiveTradingError("Live trading is disabled in config.")
-
-    logger.info(
-        "[LIVE] Placing BRACKET order: %d shares of %s "
-        "(TP=$%.2f, SL=$%.2f%s)",
-        shares, ticker, take_profit_price, stop_loss_price,
-        f", LMT=${limit_price:.2f}" if limit_price else "",
-    )
-
-    client = _get_live_trading_client()
-    request = _build_live_bracket_request(
-        ticker, shares, take_profit_price, stop_loss_price, limit_price,
-    )
-    order = client.submit_order(request)
-
-    return {
-        "order_id": str(order.id),
-        "symbol": str(order.symbol),
-        "qty": float(order.qty) if order.qty else shares,
-        "side": str(order.side),
-        "type": str(order.type),
-        "order_class": "bracket",
-        "status": str(order.status),
-        "filled_avg_price": float(order.filled_avg_price) if order.filled_avg_price else None,
-        "legs": [str(leg.id) for leg in order.legs] if order.legs else [],
-    }
-
-
-def place_live_exit(ticker: str, shares: int | float = 0) -> dict:
-    """Place a LIVE market sell order. Returns order details dict.
-
-    If shares is 0 or not provided, closes the entire position via
-    Alpaca's close_position API (handles fractional shares automatically).
-
-    WHY close_position instead of market sell: With fractional shares from
-    notional ordering, we may hold e.g., 0.847 shares. A qty-based sell
-    can't express fractional amounts, but close_position liquidates the
-    exact position regardless of share count.
-    """
-    cfg = _get_live_config()
-    if not cfg["enabled"]:
-        raise LiveTradingError("Live trading is disabled in config.")
-
-    client = _get_live_trading_client()
-
-    # Use close_position for clean fractional exits
-    if shares <= 0:
-        logger.info("[LIVE] Closing entire position for %s", ticker)
-        try:
-            order = client.close_position(ticker)
-            return {
-                "order_id": str(order.id) if hasattr(order, 'id') else "close_position",
-                "symbol": ticker,
-                "qty": float(order.qty) if hasattr(order, 'qty') and order.qty else 0,
-                "side": "sell",
-                "type": "market",
-                "status": str(order.status) if hasattr(order, 'status') else "closed",
-                "filled_avg_price": float(order.filled_avg_price) if hasattr(order, 'filled_avg_price') and order.filled_avg_price else None,
-                "filled_at": str(order.filled_at) if hasattr(order, 'filled_at') and order.filled_at else None,
-            }
-        except Exception as e:
-            logger.warning("[LIVE] close_position failed for %s: %s, trying market sell", ticker, e)
-
-    logger.info("[LIVE] Placing LIVE SELL: %s shares of %s", shares, ticker)
-
-    from alpaca.trading.requests import MarketOrderRequest
-    from alpaca.trading.enums import OrderSide, TimeInForce
-
-    request = MarketOrderRequest(
-        symbol=ticker,
-        qty=float(shares),
-        side=OrderSide.SELL,
-        time_in_force=TimeInForce.DAY,
-    )
-
-    order = client.submit_order(request)
-
-    return {
-        "order_id": str(order.id),
-        "symbol": str(order.symbol),
-        "qty": float(order.qty) if order.qty else shares,
-        "side": str(order.side),
-        "type": str(order.type),
-        "status": str(order.status),
-        "filled_avg_price": float(order.filled_avg_price) if order.filled_avg_price else None,
-        "filled_at": str(order.filled_at) if order.filled_at else None,
-    }
-
-
-def get_live_positions(desk: str = "swing") -> list[dict]:
-    """Get all open live positions.
-
-    Args:
-        desk: Must be 'swing' — live trading is swing-only. Parameter accepted
-              for API consistency; non-swing desks should not call this function.
-    """
-    client = _get_live_trading_client()
-    positions = client.get_all_positions()
-    return [
-        {
-            "symbol": str(pos.symbol),
-            "qty": float(pos.qty),
-            "avg_entry_price": float(pos.avg_entry_price),
-            "current_price": float(pos.current_price),
-            "market_value": float(pos.market_value),
-            "unrealized_pl": float(pos.unrealized_pl),
-            "unrealized_plpc": float(pos.unrealized_plpc),
-        }
-        for pos in positions
-    ]
-
-
-def get_live_order_status(order_id: str) -> dict:
-    """Check the status of a live order."""
-    client = _get_live_trading_client()
-    order = client.get_order_by_id(order_id)
-    return {
-        "order_id": str(order.id),
-        "symbol": str(order.symbol),
-        "status": str(order.status),
-        "filled_qty": str(order.filled_qty) if order.filled_qty else "0",
-        "filled_avg_price": float(order.filled_avg_price) if order.filled_avg_price else None,
-        "filled_at": str(order.filled_at) if order.filled_at else None,
-    }
-
-
-# ── Capability Registry registration (Sprint 1B) ───────────────────────
+# ── Re-exports from helper modules (patch-compat + public API) ────────────
+
+from src.shadow_trading.alpaca_adapter_paper import (  # noqa: E402
+    place_paper_entry,
+    place_paper_exit,
+    place_bracket_order,
+    get_position,
+    get_all_positions,
+    get_current_price,
+    get_order_status,
+    verify_order_accepted,
+    cancel_paper_order,
+    cancel_orders_for_ticker,
+    cancel_all_orders,
+    get_account_equity,
+    get_buying_power,
+    get_open_orders,
+)
+
+from src.shadow_trading.alpaca_adapter_live import (  # noqa: E402
+    LiveTradingError,
+    _get_live_config,
+    _get_live_trading_client,
+    get_live_account_info,
+    place_live_entry,
+    place_live_bracket,
+    _build_live_bracket_request,
+    place_live_exit,
+    get_live_positions,
+    get_live_order_status,
+)
+
+from src.shadow_trading.alpaca_adapter_verify import (  # noqa: E402
+    OrderNotAcceptedError,
+    _poll_order_status,
+    _classify_order_status,
+    _calculate_backoff,
+    _handle_poll_attempt,
+    verify_live_order_accepted,
+)
+
+
+# ── Public broker class facades ───────────────────────────────────────────
+
+class AlpacaPaperBroker:
+    """Facade exposing paper-trading operations as a class interface."""
+
+    @staticmethod
+    def place_entry(ticker: str, shares: int, order_type: str = "market",
+                    desk: str = "swing") -> dict:
+        return place_paper_entry(ticker, shares, order_type=order_type, desk=desk)
+
+    @staticmethod
+    def place_exit(ticker: str, shares: int, order_type: str = "market",
+                   desk: str = "swing") -> dict:
+        return place_paper_exit(ticker, shares, order_type=order_type, desk=desk)
+
+    @staticmethod
+    def place_bracket(ticker: str, shares: int, take_profit_price: float,
+                      stop_loss_price: float, limit_price: float | None = None,
+                      desk: str = "swing") -> dict:
+        return place_bracket_order(ticker, shares, take_profit_price,
+                                   stop_loss_price, limit_price=limit_price, desk=desk)
+
+
+class AlpacaLiveBroker:
+    """Facade exposing live-trading operations as a class interface."""
+
+    @staticmethod
+    def place_entry(ticker: str, shares: int, notional: float | None = None,
+                    desk: str = "swing") -> dict:
+        return place_live_entry(ticker, shares, notional=notional, desk=desk)
+
+    @staticmethod
+    def place_exit(ticker: str, shares: int | float = 0) -> dict:
+        return place_live_exit(ticker, shares)
+
+    @staticmethod
+    def place_bracket(ticker: str, shares: int, take_profit_price: float,
+                      stop_loss_price: float, limit_price: float | None = None) -> dict:
+        return place_live_bracket(ticker, shares, take_profit_price,
+                                  stop_loss_price, limit_price=limit_price)
+
+
+# ── Capability Registry registration (Sprint 1B) ─────────────────────────
 
 from datetime import date as _date  # noqa: E402
 
@@ -1216,11 +349,7 @@ from src.platform.capability_registry import register_state  # noqa: E402
 
 
 def _alpaca_account_summary() -> dict:
-    """Thin wrapper around get_account_info for the registry.
-
-    Failures bubble up as exceptions; the endpoint's timeout/exception
-    handler converts them to {status: unavailable}.
-    """
+    """Thin wrapper around get_account_info for the registry."""
     info = get_account_info(desk="swing")
     return {
         "value": {

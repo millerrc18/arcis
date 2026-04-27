@@ -105,10 +105,6 @@
       "lines": 1380
     },
     {
-      "file": "src/shadow_trading/alpaca_adapter.py",
-      "lines": 526
-    },
-    {
       "file": "src/shadow_trading/executor.py",
       "lines": 1271
     },
@@ -896,12 +892,12 @@
       "lines": 82
     },
     {
-      "file": "src/shadow_trading/alpaca_adapter.py",
+      "file": "src/shadow_trading/alpaca_adapter_paper.py",
       "function": "place_bracket_order",
-      "lines": 68
+      "lines": 73
     },
     {
-      "file": "src/shadow_trading/alpaca_adapter.py",
+      "file": "src/shadow_trading/alpaca_adapter_live.py",
       "function": "place_live_entry",
       "lines": 63
     },
