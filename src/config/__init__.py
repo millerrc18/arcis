@@ -56,14 +56,21 @@ load_dotenv()
 # than silently writing to the forbidden stub location.
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 _DB_PATH_ENV = os.environ.get("ARCIS_DB_PATH")
-if not _DB_PATH_ENV:
+_DATABASE_URL = os.environ.get("DATABASE_URL")
+# Postgres-only deploys (Render) set DATABASE_URL but not ARCIS_DB_PATH —
+# the SQLite path is irrelevant in that environment. Fail-fast only when
+# BOTH are missing (genuine misconfiguration). Callers that read DB_PATH
+# must guard with `if DB_PATH:` for cross-deploy safety.
+if not _DB_PATH_ENV and not _DATABASE_URL:
     raise RuntimeError(
-        "ARCIS_DB_PATH not set; expected canonical "
-        "C:/arcis/data/ai_research_desk.sqlite3 (set in .env at repo root). "
-        "Stub fallback to halcyon-lab/ai_research_desk.sqlite3 was removed "
-        "per CLAUDE.md #642 (Sprint 0 Wave 1d / DB-STUB-CFG)."
+        "ARCIS_DB_PATH not set and DATABASE_URL not set; one is required. "
+        "For local SQLite, set ARCIS_DB_PATH (canonical: "
+        "C:/arcis/data/ai_research_desk.sqlite3 in .env at repo root). "
+        "For Postgres deploys (Render), DATABASE_URL is auto-set by the "
+        "platform. Stub fallback to halcyon-lab/ai_research_desk.sqlite3 "
+        "was removed per CLAUDE.md #642 (Sprint 0 Wave 1d / DB-STUB-CFG)."
     )
-DB_PATH = _DB_PATH_ENV
+DB_PATH: str | None = _DB_PATH_ENV  # None on Postgres-only deploys
 
 _config_cache: dict | None = None
 
