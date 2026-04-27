@@ -19,6 +19,7 @@ import sqlite3
 import numpy as np
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,7 @@ def evaluate_50_trade_gate(db_path: str = DB_PATH) -> dict:
     )
 
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT pnl_dollars, pnl_pct FROM shadow_trades "

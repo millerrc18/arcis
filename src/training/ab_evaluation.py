@@ -14,6 +14,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH, load_config
+from src.utils.db import connect_db
 from src.training.versioning import init_training_tables
 
 logger = logging.getLogger(__name__)
@@ -89,7 +90,7 @@ def run_shadow_evaluation(new_model: str, current_model: str,
     created_at = datetime.now(ET).isoformat()
 
     init_training_tables(db_path)
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.execute(
             """INSERT INTO model_evaluations
                (evaluation_id, created_at, recommendation_id, ticker, input_text,
@@ -142,7 +143,7 @@ def check_promotion_ready(new_model: str, min_evaluations: int = 20,
     """
     init_training_tables(db_path)
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT * FROM model_evaluations WHERE new_model = ? ORDER BY created_at DESC",

@@ -29,6 +29,7 @@ import sqlite3
 from datetime import date
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 from src.platform.capability_registry import register_state
 from src.shadow_trading._status_sql import active_in_clause, terminal_in_clause
 
@@ -42,7 +43,7 @@ def _shadow_cohort_counts() -> dict:
     """
     active_frag, active_params = active_in_clause()
     terminal_frag, terminal_params = terminal_in_clause()
-    conn = sqlite3.connect(DB_PATH)
+    conn = connect_db(DB_PATH)
     try:
         row = conn.execute(
             "SELECT "

@@ -15,6 +15,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 from src.training.versioning import init_training_tables
 
 logger = logging.getLogger(__name__)
@@ -46,7 +47,7 @@ def generate_preference_pairs(n_pairs: int = 100,
     from src.training.quality_filter import score_training_example
 
     # Get training examples to use as inputs
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT example_id, ticker, input_text, output_text, instruction "
@@ -101,7 +102,7 @@ def generate_preference_pairs(n_pairs: int = 100,
 
         # Store the pair
         pair_id = str(uuid.uuid4())
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.execute(
                 "INSERT INTO preference_pairs "
                 "(pair_id, created_at, ticker, input_text, chosen_output, rejected_output, "
@@ -130,7 +131,7 @@ def export_preference_pairs(output_dir: str = "training_data",
     """
     _ensure_preference_table(db_path)
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT input_text, chosen_output, rejected_output FROM preference_pairs"
@@ -161,6 +162,6 @@ def export_preference_pairs(output_dir: str = "training_data",
 def get_preference_pair_count(db_path: str = DB_PATH) -> int:
     """Return the count of preference pairs in the database."""
     _ensure_preference_table(db_path)
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         row = conn.execute("SELECT COUNT(*) FROM preference_pairs").fetchone()
     return row[0] if row else 0

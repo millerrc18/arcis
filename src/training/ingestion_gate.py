@@ -10,6 +10,7 @@ Tests: tests/test_ingestion_gate.py, tests/test_leakage_detector.py
 import logging
 import re
 import sqlite3
+from src.utils.db import connect_db
 from collections import Counter
 
 logger = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ def _detect_duplicate(text: str, db_path: str) -> bool:
         return False
 
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             rows = conn.execute(
                 "SELECT output_text FROM training_examples "
                 "WHERE output_text IS NOT NULL ORDER BY created_at DESC LIMIT 500"

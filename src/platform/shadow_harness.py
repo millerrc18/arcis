@@ -26,6 +26,7 @@ import uuid
 from datetime import datetime, timezone
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 from src.platform.strategy_spec import StrategySpec
 from src.platform.risk.exposure_limits import check_pre_trade_limits
 from src.shadow_trading.alpaca_adapter import (
@@ -93,7 +94,7 @@ class ShadowHarness:
 
     def get_open_positions(self) -> list[dict]:
         """Return open shadow_trades rows tagged with this strategy's desk."""
-        conn = sqlite3.connect(self.db_path)
+        conn = connect_db(self.db_path)
         conn.row_factory = sqlite3.Row
         try:
             rows = conn.execute(
@@ -233,7 +234,7 @@ class ShadowHarness:
         )
         trade_id = str(uuid.uuid4())
         now_iso = datetime.now(timezone.utc).isoformat()
-        conn = sqlite3.connect(self.db_path)
+        conn = connect_db(self.db_path)
         try:
             conn.execute(
                 """INSERT INTO shadow_trades

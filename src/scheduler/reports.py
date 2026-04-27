@@ -15,6 +15,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 from src.shadow_trading._status_sql import (
     active_in_clause,
     terminal_in_clause,
@@ -114,9 +115,8 @@ def run_saturday_reports():
             # Compute week-over-week training metrics
             _retrain_total = counts.get("total", 0)
             try:
-                import sqlite3 as _sq
                 from datetime import timedelta as _td
-                with _sq.connect(DB_PATH) as _rc:
+                with connect_db(DB_PATH) as _rc:
                     _week_ago = (datetime.now(ET) - _td(days=7)).isoformat()
                     _new_wk = _rc.execute(
                         "SELECT COUNT(*) FROM training_examples WHERE created_at > ?",
@@ -181,7 +181,7 @@ def send_premarket_brief():
         return
 
     try:
-        with sqlite3.connect(DB_PATH) as conn:
+        with connect_db(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
 
             # VIX from vix_term_structure (latest)
@@ -312,7 +312,7 @@ def send_eod_report():
 
     try:
         today_str = datetime.now(ET).strftime("%Y-%m-%d")
-        with sqlite3.connect(DB_PATH) as conn:
+        with connect_db(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
 
             _a_frag, _a_params = active_in_clause()
@@ -449,7 +449,7 @@ def send_data_asset_report():
 
     try:
         today_str = datetime.now(ET).strftime("%Y-%m-%d")
-        with sqlite3.connect(DB_PATH) as conn:
+        with connect_db(DB_PATH) as conn:
             training_total = conn.execute(
                 "SELECT COUNT(*) FROM training_examples"
             ).fetchone()[0]
@@ -512,7 +512,7 @@ def check_vix_regime_alert(last_vix_alert_level: float | None) -> float | None:
         return last_vix_alert_level
 
     try:
-        with sqlite3.connect(DB_PATH) as conn:
+        with connect_db(DB_PATH) as conn:
             row = conn.execute(
                 "SELECT vix FROM vix_term_structure ORDER BY collected_at DESC LIMIT 1"
             ).fetchone()
@@ -577,7 +577,7 @@ def send_weekly_digest():
         period_start = week_ago.strftime("%b %d")
         week_ago_str = week_ago.strftime("%Y-%m-%d")
 
-        with sqlite3.connect(DB_PATH) as conn:
+        with connect_db(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
 
             # Trades this week
@@ -740,7 +740,7 @@ def check_earnings_proximity():
         return
 
     try:
-        with sqlite3.connect(DB_PATH) as conn:
+        with connect_db(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
 
             _a_frag, _a_params = active_in_clause()
@@ -790,12 +790,11 @@ def check_earnings_proximity():
 
 def save_daily_metric_snapshot(db_path: str = DB_PATH):
     """Save daily metric snapshot at EOD for MetricTrend chart."""
-    import sqlite3
     try:
         from src.training.versioning import save_metric_snapshot
         _t_frag, _t_params = terminal_in_clause()
         _a_frag, _a_params = active_in_clause()
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             closed = conn.execute(
                 f"SELECT pnl_pct, pnl_dollars FROM shadow_trades WHERE status IN ({_t_frag})"
                 " AND COALESCE(quarantined, 0) = 0",

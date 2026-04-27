@@ -32,6 +32,7 @@ from src.analytics.spy_benchmark import (
     spy_return_over_range,
 )
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
@@ -47,8 +48,7 @@ def backfill(dry_run: bool = False, force: bool = False) -> dict:
     updated = skipped_existing = skipped_no_spy = 0
     unknown_sectors = []
 
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.row_factory = sqlite3.Row
+    with connect_db(DB_PATH) as conn:
         rows = conn.execute(
             "SELECT trade_id, ticker, actual_entry_time, actual_exit_time, "
             "pnl_pct, spy_return_over_hold, excess_return, realized_sector "

@@ -34,6 +34,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 
 def clean_output(text: str) -> str:
@@ -85,7 +86,7 @@ def main():
 
     db_path = DB_PATH
     try:
-        conn = sqlite3.connect(db_path)
+        conn = connect_db(db_path)
     except Exception as e:
         print(f"Cannot connect to {db_path}: {e}")
         sys.exit(1)

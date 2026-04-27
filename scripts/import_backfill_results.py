@@ -18,6 +18,7 @@ import sqlite3
 import sys
 import uuid
 from datetime import datetime
+
 from zoneinfo import ZoneInfo
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -26,6 +27,7 @@ logger = logging.getLogger(__name__)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 from src.training.ingestion_gate import validate_training_example
 from src.training.versioning import init_training_tables
 
@@ -229,7 +231,7 @@ def main():
         example_id = str(uuid.uuid4())
         created_at = datetime.now(ET).isoformat()
 
-        with sqlite3.connect(args.db_path) as conn:
+        with connect_db(args.db_path) as conn:
             conn.execute(
                 """INSERT INTO training_examples
                    (example_id, created_at, source, ticker, recommendation_id,

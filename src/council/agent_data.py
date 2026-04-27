@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -20,7 +21,7 @@ ET = ZoneInfo("America/New_York")
 
 def _query_db(query: str, params: tuple = (), db_path: str = DB_PATH) -> list[dict]:
     """Execute a read query and return rows as list of dicts."""
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         cursor = conn.execute(query, params)
         return [dict(row) for row in cursor.fetchall()]
@@ -30,7 +31,7 @@ def gather_tactical_data(db_path: str = DB_PATH) -> str:
     """Gather market microstructure and short-term data for Tactical Operator."""
     parts = []
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
 
             try:
@@ -120,7 +121,7 @@ def gather_strategic_data(db_path: str = DB_PATH) -> str:
     """Gather portfolio strategy and phase gate data for Strategic Architect."""
     parts = []
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
 
             try:
@@ -195,7 +196,7 @@ def gather_risk_data(db_path: str = DB_PATH) -> str:
     """Gather risk and concentration data for Red Team."""
     parts = []
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
 
             try:
@@ -277,7 +278,7 @@ def gather_innovation_data(db_path: str = DB_PATH) -> str:
     """Gather ML pipeline and training data for Innovation Engine."""
     parts = []
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
 
             now = datetime.now(ET)
@@ -367,7 +368,7 @@ def gather_macro_data(db_path: str = DB_PATH) -> str:
     """Gather macroeconomic and regime data for Macro Navigator."""
     parts = []
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
 
             try:

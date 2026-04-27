@@ -21,6 +21,7 @@ import sqlite3
 from contextlib import closing
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +129,7 @@ def get_model_performance(db_path: str = DB_PATH) -> dict:
 
     Returns dict with models[], comparison, canary_comparison.
     """
-    with closing(sqlite3.connect(db_path)) as conn:
+    with closing(connect_db(db_path)) as conn:
         conn.row_factory = sqlite3.Row
 
         # Get all model versions metadata

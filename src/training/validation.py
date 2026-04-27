@@ -13,6 +13,7 @@ import sqlite3
 from collections import Counter
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 from src.training.versioning import init_training_tables
 
 logger = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ def validate_training_dataset(db_path: str = DB_PATH) -> dict:
     """
     init_training_tables(db_path)
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT example_id, ticker, input_text, output_text, created_at, source, "

@@ -47,6 +47,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.attribution.logger import resolve_pending_outcomes  # noqa: E402
 from src.config import DB_PATH  # noqa: E402
+from src.utils.db import connect_db  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
@@ -77,7 +78,7 @@ def reresolve(dry_run: bool = False) -> dict:
     Returns a summary dict with pre_tagged / snapshotted / reset /
     reresolved / tagged counts.
     """
-    with sqlite3.connect(DB_PATH) as conn:
+    with connect_db(DB_PATH) as conn:
         # Bug 1 fix — back-tag NULL resolution_version rows before anything else.
         n_pre_tag = _tag_null_as_v1(conn)
         conn.commit()
@@ -124,7 +125,7 @@ def reresolve(dry_run: bool = False) -> dict:
     # Tag the newly-resolved rows as v2_fixed. Any that failed to resolve
     # (yfinance empty/delisted) remain resolution_version='v1_multiindex_bug'
     # with outcome='pending' — eligible for retry on next run.
-    with sqlite3.connect(DB_PATH) as conn:
+    with connect_db(DB_PATH) as conn:
         n_tagged = conn.execute(
             """
             UPDATE attribution_trades SET resolution_version='v2_fixed'

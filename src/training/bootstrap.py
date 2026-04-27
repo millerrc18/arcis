@@ -17,6 +17,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH, load_config
+from src.utils.db import connect_db
 from src.llm.prompts import TRAINING_EXAMPLE_PROMPT
 from src.training.claude_client import generate_training_example
 from src.training.ingestion_gate import (
@@ -147,7 +148,7 @@ MFE: ${mfe:.2f} | MAE: ${mae:.2f}"""
         example_id = str(uuid.uuid4())
         created_at = datetime.now(ET).isoformat()
 
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.execute(
                 """INSERT INTO training_examples
                    (example_id, created_at, source, ticker, recommendation_id,

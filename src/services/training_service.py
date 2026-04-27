@@ -23,7 +23,7 @@ def _training_corpus_counts() -> dict:
 
     from src.config import DB_PATH
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = connect_db(DB_PATH)
     try:
         outcome_rows = conn.execute(
             "SELECT UPPER(COALESCE(outcome_type, 'UNKNOWN')) AS outcome, COUNT(*) AS n "
@@ -104,7 +104,7 @@ def get_training_status() -> dict:
     outcome_counts: dict[str, int] = {}
     source_counts: dict[str, int] = {}
     try:
-        with sqlite3.connect(DB_PATH) as conn:
+        with connect_db(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             for row in conn.execute(
                 "SELECT UPPER(COALESCE(outcome_type, 'UNKNOWN')) AS o, COUNT(*) AS n "

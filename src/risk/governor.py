@@ -43,6 +43,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH, load_config
+from src.utils.db import connect_db
 from src.shadow_trading._status_sql import terminal_in_clause
 
 # All risk timestamps use Eastern Time because US equity markets
@@ -291,7 +292,7 @@ def compute_current_drawdown(db_path: str = DB_PATH,
     import sqlite3
     try:
         _frag, _params = terminal_in_clause()
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             rows = conn.execute(
                 f"SELECT pnl_dollars FROM shadow_trades WHERE status IN ({_frag}) "
                 "AND pnl_dollars IS NOT NULL AND COALESCE(quarantined, 0) = 0"
@@ -348,7 +349,7 @@ def get_current_equity(config: dict | None = None,
     try:
         import sqlite3
         _frag, _params = terminal_in_clause()
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             row = conn.execute(
                 "SELECT COALESCE(SUM(pnl_dollars), 0) "
                 f"FROM shadow_trades WHERE status IN ({_frag}) "
@@ -403,7 +404,7 @@ def check_tier_transition(config: dict, db_path: str = DB_PATH) -> dict | None:
     equity = get_current_equity(config, db_path)
 
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             row = conn.execute(
                 "SELECT detail FROM activity_log "
                 "WHERE event_type = 'tier_check' ORDER BY created_at DESC LIMIT 1"

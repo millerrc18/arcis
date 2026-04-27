@@ -32,6 +32,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH, load_config
+from src.utils.db import connect_db
 from src.llm.prompts import QUALITY_ENHANCEMENT_PROMPT
 from src.training.claude_client import ClaudeAuthError, generate_training_example
 from src.training.ingestion_gate import (
@@ -259,7 +260,7 @@ def _emit_contrastive_example(
         )
         return False
     contrastive_id = str(uuid.uuid4())
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.execute(
             """INSERT INTO training_examples
                (example_id, created_at, source, ticker, recommendation_id,
@@ -305,7 +306,7 @@ def collect_training_examples_from_closed_trades_detailed(
 
     # WHY DESC order: process most recent closed trades first so that if the
     # batch halts early (quality gate), we still get the freshest data.
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute("""
             SELECT st.*, r.*
@@ -458,7 +459,7 @@ def collect_training_examples_from_closed_trades_detailed(
         example_id = str(uuid.uuid4())
         created_at = datetime.now(ET).isoformat()
 
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.execute(
                 """INSERT INTO training_examples
                    (example_id, created_at, source, ticker, recommendation_id,

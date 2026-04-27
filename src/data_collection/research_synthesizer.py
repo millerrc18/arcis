@@ -29,6 +29,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH, load_config
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -76,7 +77,7 @@ def run_weekly_synthesis(db_path: str = DB_PATH) -> dict:
 
     # Get high-relevance papers from this week
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT title, authors, abstract, url, source, relevance_score, relevance_reason "
@@ -160,7 +161,7 @@ def run_weekly_synthesis(db_path: str = DB_PATH) -> dict:
 
     # Store digest
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.execute(
                 """INSERT INTO research_digests
                    (week_start, week_end, papers_reviewed, actionable_count,

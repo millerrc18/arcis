@@ -25,9 +25,13 @@ Usage:
 import os
 import re
 import sqlite3
+import sys
 import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from src.utils.db import connect_db
 
 ET = ZoneInfo("America/New_York")
 
@@ -43,7 +47,7 @@ def import_outputs(inputs_file, outputs_file, db_path="ai_research_desk.sqlite3"
     # Split by the EXAMPLE header, ignoring the first empty split if it exists
     examples = [e.strip() for e in re.split(r'===\s*EXAMPLE\s*\d+.*===', output_text) if e.strip()]
 
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
     imported = 0
 
     for rec_id, output in zip(rec_ids, examples):

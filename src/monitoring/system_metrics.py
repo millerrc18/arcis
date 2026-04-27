@@ -21,6 +21,7 @@ import psutil
 import requests
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -142,7 +143,7 @@ def _store_snapshot(snapshot: dict, db_path: str = DB_PATH) -> None:
     col_names = ", ".join(cols)
     values = tuple(snapshot.get(c) for c in cols)
 
-    with sqlite3.connect(db_path, timeout=10) as conn:
+    with connect_db(db_path) as conn:  # timeout upgraded to 30s via connect_db per CLAUDE.md
         conn.execute(
             f"INSERT OR REPLACE INTO system_metrics ({col_names}) VALUES ({placeholders})",
             values,

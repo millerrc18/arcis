@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from src.utils.db import connect_db
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity as _sk_cos
@@ -172,7 +173,7 @@ def cosine_similarity_yoy(
     v0.24.0-alpha2.1: backfill_edgar_fulltext.py populates full_text but
     does not derive sections_json from it).
     """
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
     try:
         # Check once whether full_text column exists (test fixtures may omit it)
         use_full_text = _has_full_text_column(conn)

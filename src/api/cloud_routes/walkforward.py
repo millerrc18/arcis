@@ -28,6 +28,7 @@ import sqlite3
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ def _read_rows(sql: str, params: tuple = ()) -> list[dict]:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
                 cur.execute(pg_sql, params)
                 return [dict(r) for r in cur.fetchall()]
-    conn = sqlite3.connect(DB_PATH)
+    conn = connect_db(DB_PATH)
     conn.row_factory = sqlite3.Row
     try:
         return [dict(r) for r in conn.execute(sql, params).fetchall()]

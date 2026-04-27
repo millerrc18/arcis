@@ -42,6 +42,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH, load_config
+from src.utils.db import connect_db
 from src.utils.secret_redact import (
     _TOKEN_PATTERNS,
     sanitize_error as _sanitize_error,
@@ -151,7 +152,7 @@ def _check_database(db_path: str) -> list[dict]:
                               f"Database size: {size_mb:.1f} MB"))
 
     try:
-        conn = sqlite3.connect(db_path, timeout=10)  # #258: busy timeout
+        conn = connect_db(db_path)  # timeout upgraded to 30s via connect_db per CLAUDE.md
         conn.row_factory = sqlite3.Row
     except Exception as e:
         checks.append(_check("db_connection", "fail", f"Cannot connect: {e}"))
@@ -320,7 +321,7 @@ def _check_trading(db_path: str, config: dict) -> list[dict]:
     shadow_cfg = config.get("shadow_trading", {})
     timeout_days = shadow_cfg.get("timeout_days", 10)
     try:
-        conn = sqlite3.connect(db_path, timeout=10)  # #258: busy timeout
+        conn = connect_db(db_path)  # timeout upgraded to 30s via connect_db per CLAUDE.md
         conn.row_factory = sqlite3.Row
         cutoff = (datetime.now(ET) - timedelta(days=timeout_days)).isoformat()
         zombies = conn.execute(
@@ -375,7 +376,7 @@ def _check_trading(db_path: str, config: dict) -> list[dict]:
 
     # Open position count
     try:
-        conn = sqlite3.connect(db_path, timeout=10)  # #258: busy timeout
+        conn = connect_db(db_path)  # timeout upgraded to 30s via connect_db per CLAUDE.md
         open_count = conn.execute(
             "SELECT COUNT(*) FROM shadow_trades WHERE status='open'"
             " AND COALESCE(quarantined, 0) = 0"
@@ -409,7 +410,7 @@ def _check_training(db_path: str, config: dict) -> list[dict]:
     training_cfg = config.get("training", {})
 
     try:
-        conn = sqlite3.connect(db_path, timeout=10)  # #258: busy timeout
+        conn = connect_db(db_path)  # timeout upgraded to 30s via connect_db per CLAUDE.md
         conn.row_factory = sqlite3.Row
 
         # Training examples count + format
@@ -628,7 +629,7 @@ def _check_collectors(db_path: str, config: dict) -> list[dict]:
     checks = []
 
     try:
-        conn = sqlite3.connect(db_path, timeout=10)  # #258: busy timeout
+        conn = connect_db(db_path)  # timeout upgraded to 30s via connect_db per CLAUDE.md
         conn.row_factory = sqlite3.Row
 
         for table, time_col in COLLECTOR_TABLES.items():
@@ -757,7 +758,7 @@ def _check_scheduler(db_path: str, config: dict) -> list[dict]:
     checks = []
 
     try:
-        conn = sqlite3.connect(db_path, timeout=10)  # #258: busy timeout
+        conn = connect_db(db_path)  # timeout upgraded to 30s via connect_db per CLAUDE.md
         conn.row_factory = sqlite3.Row
 
         # Last scan timestamp
@@ -1032,7 +1033,7 @@ def save_validation_result(result: dict, db_path: str = DB_PATH) -> str:
     # is still the original — API routes (e.g., api/routes/system.py) that
     # surface results to the dashboard are tracked as a separate follow-up.
     safe_payload = _sanitize_text(json.dumps(result))
-    conn = sqlite3.connect(db_path, timeout=10)  # #258: busy timeout
+    conn = connect_db(db_path)  # timeout upgraded to 30s via connect_db per CLAUDE.md
     try:
         conn.execute(
             "INSERT INTO validation_results VALUES (?, ?, ?, ?, ?, ?, ?)",

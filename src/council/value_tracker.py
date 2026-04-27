@@ -27,6 +27,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 from src.council.constants import PARAMETER_DEFAULTS
 
 logger = logging.getLogger(__name__)
@@ -57,7 +58,7 @@ def get_current_parameters(db_path: str = DB_PATH) -> dict:
     init_value_tables(db_path)
     params = PARAMETER_DEFAULTS.copy()
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT parameter_name, current_value FROM council_parameter_state"
@@ -89,7 +90,7 @@ def log_parameter_change(
 
     try:
         init_value_tables(db_path)
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             # Close previous attribution window
             conn.execute(
                 "UPDATE council_parameter_log SET attribution_end = ? "
@@ -229,7 +230,7 @@ def get_agent_track_records(db_path: str = DB_PATH,
 
     try:
         init_value_tables(db_path)
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 """
@@ -292,7 +293,7 @@ def compute_attribution(db_path: str = DB_PATH) -> dict:
 
     try:
         init_value_tables(db_path)
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
 
             # Find closed windows without computed attribution
@@ -357,7 +358,7 @@ def get_rolling_value_summary(days: int = 30, db_path: str = DB_PATH) -> dict:
 
     try:
         init_value_tables(db_path)
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
 
             # Aggregate computed windows

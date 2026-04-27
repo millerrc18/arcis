@@ -31,6 +31,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -87,7 +88,7 @@ def collect_google_trends(
                 logger.debug("[TRENDS] No data returned for batch %s", batch)
                 continue
 
-            with sqlite3.connect(db_path) as conn:
+            with connect_db(db_path) as conn:
                 for term in batch:
                     if term not in interest.columns:
                         continue

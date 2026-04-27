@@ -30,6 +30,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 from src.utils.retry import retry_with_backoff
 
 logger = logging.getLogger(__name__)
@@ -81,7 +82,7 @@ def collect_insider_transactions(
     transactions_stored = 0
     errors = 0
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         for ticker in tickers:
             try:
                 resp = retry_with_backoff(

@@ -14,6 +14,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -60,7 +61,7 @@ def log_activity(
     )
 
     try:
-        with sqlite3.connect(DB_PATH) as conn:
+        with connect_db(DB_PATH) as conn:
             conn.execute(
                 "INSERT INTO activity_log (event_type, detail, created_at) "
                 "VALUES (?, ?, ?)",
@@ -85,7 +86,7 @@ def get_recent_activity(
     """
     _ensure_table()
     try:
-        with sqlite3.connect(DB_PATH) as conn:
+        with connect_db(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             if category:
                 rows = conn.execute(

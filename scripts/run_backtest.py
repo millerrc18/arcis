@@ -13,6 +13,7 @@ import subprocess
 import sys
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 from src.platform.backtest_engine import BacktestConfig, run_backtest
 from src.platform.backtest_persist import persist_backtest_result
 from src.platform.strategy_spec import load_spec
@@ -26,7 +27,7 @@ def _get_survivorship_haircut_bps(
     Falls back to 75 when the strategy has not been registered yet (e.g.,
     first-time backtest before registration).
     """
-    conn = sqlite3.connect(db_path)
+    conn = connect_db(db_path)
     try:
         row = conn.execute(
             "SELECT survivorship_haircut_bps FROM strategy_registry "

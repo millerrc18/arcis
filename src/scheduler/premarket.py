@@ -24,6 +24,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH, load_config
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -49,7 +50,7 @@ class PreMarketPipeline:
 
         # Compute regime indicators from stored data
         try:
-            with sqlite3.connect(self.db_path) as conn:
+            with connect_db(self.db_path) as conn:
                 conn.row_factory = sqlite3.Row
                 # VIX term structure slope
                 vix_row = conn.execute(
@@ -115,7 +116,7 @@ class PreMarketPipeline:
         init_training_tables(self.db_path)
 
         # Check existing regime distribution
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT source, COUNT(*) as cnt FROM training_examples GROUP BY source"
@@ -124,7 +125,7 @@ class PreMarketPipeline:
         total = sum(source_counts.values())
 
         # Count unscored examples
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             try:
                 unscored = conn.execute(
                     "SELECT COUNT(*) FROM training_examples "

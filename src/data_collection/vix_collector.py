@@ -29,6 +29,7 @@ from zoneinfo import ZoneInfo
 import yfinance as yf
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -81,7 +82,7 @@ def collect_vix_term_structure(db_path: str = DB_PATH) -> dict:
     else:
         ts_label = "unknown"
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.execute(
             """INSERT INTO vix_term_structure
             (collected_at, collected_date, vix, vix9d, vix3m, vix1y,

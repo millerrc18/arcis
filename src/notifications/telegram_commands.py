@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from src.config import DB_PATH, load_config
+from src.utils.db import connect_db
 from src.notifications.telegram import send_telegram, is_telegram_enabled
 
 logger = logging.getLogger(__name__)
@@ -117,7 +118,7 @@ def check_action_reminders(db_path: str = DB_PATH) -> list[str]:
     now = datetime.now(ET)
 
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
 
             # 1. Phase gate milestones
@@ -349,7 +350,7 @@ def _cmd_trades() -> str:
     """List open trades with paper/live split."""
     import sqlite3
     try:
-        with sqlite3.connect(DB_PATH) as conn:
+        with connect_db(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 """SELECT ticker, entry_price, pnl_pct, pnl_dollars, created_at,
@@ -409,7 +410,7 @@ def _cmd_pnl() -> str:
     """Current P&L summary with paper/live split."""
     import sqlite3
     try:
-        with sqlite3.connect(DB_PATH) as conn:
+        with connect_db(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
 
             # Overall stats
@@ -479,7 +480,7 @@ def _cmd_last_scan() -> str:
     """Last scan result."""
     import sqlite3
     try:
-        with sqlite3.connect(DB_PATH) as conn:
+        with connect_db(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 """SELECT ticker, priority_score, created_at
@@ -548,7 +549,7 @@ def _cmd_scoring() -> str:
     """Scoring backlog status."""
     import sqlite3
     try:
-        with sqlite3.connect(DB_PATH) as conn:
+        with connect_db(DB_PATH) as conn:
             total = conn.execute(
                 "SELECT COUNT(*) FROM training_examples"
             ).fetchone()[0]

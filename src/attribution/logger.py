@@ -14,6 +14,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -40,7 +41,7 @@ def log_attribution_before_llm(
     now = datetime.now(ET).isoformat()
 
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.execute(
                 "INSERT INTO attribution_trades "
                 "(attribution_id, recommendation_id, ticker, scan_timestamp, "
@@ -71,7 +72,7 @@ def log_attribution_after_llm(
     llm_action: 'taken', 'rejected', 'parse_failed', 'conviction_none'
     """
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             fields = ["llm_action = ?"]
             values = [llm_action]
 
@@ -124,7 +125,7 @@ def link_trade_outcome(
     Returns True if a row was updated.
     """
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             cursor = conn.execute(
                 "UPDATE attribution_trades SET llm_portfolio_outcome = ?, "
                 "llm_portfolio_pnl_pct = ? WHERE recommendation_id = ?",
@@ -236,7 +237,7 @@ def resolve_pending_outcomes(db_path: str = DB_PATH) -> int:
     """
     resolved = 0
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
             pending = conn.execute(
                 "SELECT attribution_id, ticker, ranker_only_entry, "
@@ -263,7 +264,7 @@ def _win_rate(wins: int, resolved: int) -> float | None:
 def get_attribution_stats(db_path: str = DB_PATH) -> dict:
     """Get attribution statistics for the dashboard."""
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
             total = conn.execute("SELECT COUNT(*) FROM attribution_trades").fetchone()[0]
 
@@ -328,7 +329,7 @@ from src.platform.capability_registry import register_system  # noqa: E402
 )
 def attribution_resolver_health() -> dict:
     try:
-        with sqlite3.connect(DB_PATH) as conn:
+        with connect_db(DB_PATH) as conn:
             row = conn.execute(
                 "SELECT MAX(created_at) FROM attribution_trades",
             ).fetchone()

@@ -18,6 +18,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -67,7 +68,7 @@ def _set_nested(d: dict, key_path: str, value) -> None:
 def get_overrides(db_path: str = LOCAL_DB) -> dict[str, str]:
     """Read all config overrides from SQLite."""
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute("SELECT setting_key, setting_value FROM config_overrides").fetchall()
             return {row["setting_key"]: row["setting_value"] for row in rows}
@@ -119,7 +120,7 @@ def apply_override(
     now = datetime.now(ET).isoformat()
 
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             # Get previous value
             row = conn.execute(
                 "SELECT setting_value FROM config_overrides WHERE setting_key = ?",
@@ -154,7 +155,7 @@ def apply_override(
 def clear_all_overrides(db_path: str = LOCAL_DB) -> dict:
     """Remove all dashboard overrides, reverting to YAML defaults."""
     try:
-        with sqlite3.connect(db_path) as conn:
+        with connect_db(db_path) as conn:
             count = conn.execute("SELECT COUNT(*) FROM config_overrides").fetchone()[0]
             conn.execute("DELETE FROM config_overrides")
             conn.commit()

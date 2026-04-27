@@ -25,6 +25,7 @@ import sqlite3
 import sys
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("sync_quarantine")
@@ -49,8 +50,7 @@ def _resolve_database_url() -> str:
 
 
 def _fetch_local_quarantined(db_path: str) -> list[str]:
-    with sqlite3.connect(db_path) as conn:
-        conn.row_factory = sqlite3.Row
+    with connect_db(db_path) as conn:
         rows = conn.execute(
             "SELECT trade_id FROM shadow_trades WHERE COALESCE(quarantined, 0) = 1"
         ).fetchall()

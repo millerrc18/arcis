@@ -14,6 +14,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH, load_config
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +81,7 @@ def run_mr_scan(config: dict | None = None, dry_run: bool = False) -> dict:
                 # "data/ai_research_desk.sqlite3" per CLAUDE.md #642.
                 # Use canonical DB_PATH when config doesn't specify one.
                 _db = config.get("db_path") or DB_PATH
-                with sqlite3.connect(_db) as vc:
+                with connect_db(_db) as vc:
                     r = vc.execute(
                         "SELECT vix FROM vix_term_structure "
                         "ORDER BY collected_date DESC LIMIT 1"

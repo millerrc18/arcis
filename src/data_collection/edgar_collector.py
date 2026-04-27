@@ -31,6 +31,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 from src.data_collection.edgar_historical import (  # noqa: F401 — re-exported
     _lookup_primary_document,
     _lookup_primary_document_via_index as _lookup_primary_document_via_index,
@@ -285,7 +286,7 @@ def collect_new_filings(
     collected_at = now.isoformat()
 
     # Determine since_date from last collection or lookback
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         row = conn.execute("SELECT MAX(filing_date) FROM edgar_filings").fetchone()
         if row and row[0]:
             since_date = row[0]
@@ -296,7 +297,7 @@ def collect_new_filings(
     tickers_processed = 0
     filings_stored = 0
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         for ticker in tickers:
             try:
                 cik = _get_cik(ticker)

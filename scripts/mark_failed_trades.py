@@ -23,11 +23,12 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 
 def main():
     dry_run = "--dry-run" in sys.argv
-    with sqlite3.connect(DB_PATH) as conn:
+    with connect_db(DB_PATH) as conn:
         count = conn.execute(
             "SELECT COUNT(*) FROM shadow_trades WHERE status = 'failed'"
         ).fetchone()[0]

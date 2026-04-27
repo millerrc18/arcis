@@ -40,6 +40,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.config import DB_PATH  # noqa: E402
 from src.universe.sp100 import get_sp100_universe, to_yfinance_ticker  # noqa: E402
+from src.utils.db import connect_db  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
@@ -144,7 +145,7 @@ def collect(
     total_bars = 0
     empty_ticker_days = 0
 
-    with sqlite3.connect(DB_PATH) as conn:
+    with connect_db(DB_PATH) as conn:
         for target in target_dates:
             logger.info("[1MIN] Collecting %s across %d tickers",
                         target.date(), len(universe))

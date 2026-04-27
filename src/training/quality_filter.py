@@ -16,6 +16,7 @@ import re
 import sqlite3
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 from src.training.versioning import init_training_tables
 
 logger = logging.getLogger(__name__)
@@ -188,7 +189,7 @@ def score_all_unscored(db_path: str = DB_PATH) -> dict:
     """Score all training examples without quality_score_auto. Returns summary stats."""
     init_training_tables(db_path)
 
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT example_id, input_text, output_text, source "
@@ -214,7 +215,7 @@ def score_all_unscored(db_path: str = DB_PATH) -> dict:
         scores = score_training_example(row["input_text"], row["output_text"], outcome)
         if scores and "weighted_overall" in scores:
             overall = scores["weighted_overall"]
-            with sqlite3.connect(db_path) as conn:
+            with connect_db(db_path) as conn:
                 conn.execute(
                     "UPDATE training_examples SET quality_score_auto = ? WHERE example_id = ?",
                     (overall, row["example_id"]),

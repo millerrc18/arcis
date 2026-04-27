@@ -35,6 +35,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 os.chdir(REPO_ROOT)
 sys.path.insert(0, str(REPO_ROOT))
 
+from src.utils.db import connect_db
+
 # Find the database
 DB_CANDIDATES = ["ai_research_desk.sqlite3", "data/halcyon.db", "data/arcis.db"]
 DB_PATH = None
@@ -57,8 +59,7 @@ if not DB_PATH:
         print(f"  {p} -- {'exists' if p.exists() else 'missing'} ({p.stat().st_size if p.exists() else 0} bytes)")
     sys.exit(1)
 
-conn = sqlite3.connect(DB_PATH)
-conn.row_factory = sqlite3.Row
+conn = connect_db(DB_PATH)
 
 # List all tables so we know what's available
 tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()]

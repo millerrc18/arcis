@@ -36,6 +36,7 @@ from zoneinfo import ZoneInfo
 import yfinance as yf
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 from src.universe.sp100 import to_yfinance_ticker
 
 logger = logging.getLogger(__name__)
@@ -133,7 +134,7 @@ def collect_options_chains(
                         ))
 
             if rows:
-                with sqlite3.connect(db_path) as conn:
+                with connect_db(db_path) as conn:
                     conn.executemany(
                         """INSERT INTO options_chains
                         (collected_at, ticker, expiration, strike, option_type,

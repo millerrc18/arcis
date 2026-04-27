@@ -19,12 +19,17 @@ Usage:
     python scripts/export_chatgpt_inputs.py --count 20
 """
 
-import sqlite3
+import os
 import random
+import sqlite3
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from src.utils.db import connect_db  # noqa: E402
 
 def export_inputs(db_path="ai_research_desk.sqlite3", count=20, output="chatgpt_batch.txt"):
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+    conn = connect_db(db_path)
 
     # Get closed trades that DON'T already have training examples.
     # The NOT IN subquery prevents duplicate generation — once a trade

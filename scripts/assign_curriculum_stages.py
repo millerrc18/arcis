@@ -26,6 +26,7 @@ import sqlite3
 import sys
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 
 def detect_enrichment(text: str) -> dict:
@@ -54,7 +55,7 @@ def detect_enrichment(text: str) -> dict:
 def main():
     db_path = DB_PATH
     try:
-        conn = sqlite3.connect(db_path)
+        conn = connect_db(db_path)
     except Exception as e:
         print(f"Cannot connect to {db_path}: {e}")
         sys.exit(1)

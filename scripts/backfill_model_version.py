@@ -23,6 +23,7 @@ import sqlite3
 import sys
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("backfill_model_version")
@@ -31,7 +32,7 @@ DEFAULT_VERSION = "halcyon-v1.0.0"
 
 
 def _backfill_sqlite(db_path: str, version: str, dry_run: bool) -> int:
-    with sqlite3.connect(db_path) as conn:
+    with connect_db(db_path) as conn:
         count = conn.execute(
             "SELECT COUNT(*) FROM recommendations WHERE model_version IS NULL"
         ).fetchone()[0]
