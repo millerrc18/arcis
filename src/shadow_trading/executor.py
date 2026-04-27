@@ -2008,7 +2008,12 @@ def check_and_manage_open_trades(
                             recoverable=True,
                             outcome="persisted",
                         )
-                        logger.warning("[EXECUTOR] Stale exit order cancellation failed: %s", e)
+                        logger.error(
+                            "[EXECUTOR] Stale exit order cancellation failed for %s "
+                            "(order_id=%s): %s — proceeding to new exit submission; "
+                            "stale order may still be live at broker",
+                            ticker, _pending_oid, e,
+                        )
 
                 try:
                     exit_result = _submit_exit_order(trade, shares)
