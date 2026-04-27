@@ -32,8 +32,12 @@ def _drop_dotenv_arcis_db_path(monkeypatch):
     directories looking for .env files. To force the hard-fail branch, we
     must (a) clear the env var in the OS, AND (b) prevent load_dotenv from
     re-populating it. We do (b) by monkeypatching dotenv.load_dotenv to a no-op.
+
+    Also clears DATABASE_URL since post-#768 the hard-fail branch only fires
+    when BOTH ARCIS_DB_PATH and DATABASE_URL are missing.
     """
     monkeypatch.delenv("ARCIS_DB_PATH", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     import dotenv
     monkeypatch.setattr(dotenv, "load_dotenv", lambda *a, **k: False)
     # Also patch the binding inside src.config in case it's already imported
@@ -41,13 +45,15 @@ def _drop_dotenv_arcis_db_path(monkeypatch):
     # module attribute we just neutered.
 
 
-def test_db_path_raises_or_uses_canonical_when_env_missing(monkeypatch):
-    """src.config import must hard-fail when ARCIS_DB_PATH is missing.
+def test_db_path_raises_when_both_env_vars_missing(monkeypatch):
+    """src.config import must hard-fail when BOTH ARCIS_DB_PATH and
+    DATABASE_URL are missing.
 
-    This regression locks in the Option A fix: rather than silently falling
-    back to the forbidden stub <repo_root>/ai_research_desk.sqlite3, the
-    config module raises RuntimeError with a clear pointer to the canonical
-    path so the operator (or CI) can correct the setup.
+    Locks the post-#768 conditional require: the module raises RuntimeError
+    only when neither SQLite (ARCIS_DB_PATH) nor Postgres (DATABASE_URL) is
+    configured. Either alone is sufficient. This is the genuine
+    misconfiguration case — operator hasn't told the system which storage
+    backend to use.
     """
     _drop_dotenv_arcis_db_path(monkeypatch)
 
@@ -61,8 +67,35 @@ def test_db_path_raises_or_uses_canonical_when_env_missing(monkeypatch):
     assert "ARCIS_DB_PATH" in msg, (
         f"RuntimeError must mention ARCIS_DB_PATH; got: {msg!r}"
     )
+    assert "DATABASE_URL" in msg, (
+        f"RuntimeError must mention DATABASE_URL alternative; got: {msg!r}"
+    )
     assert "C:/arcis/data/ai_research_desk.sqlite3" in msg, (
         f"RuntimeError must point to the canonical path; got: {msg!r}"
+    )
+
+
+def test_db_path_optional_when_database_url_set(monkeypatch):
+    """src.config import must succeed when DATABASE_URL is set even if
+    ARCIS_DB_PATH is missing (Postgres-only deploys, e.g. Render).
+
+    Locks the post-#768 conditional require. DB_PATH will be None on these
+    deploys; callers that need SQLite must guard with `if DB_PATH:`.
+
+    Pre-#768 this test would FAIL because the module raised unconditionally
+    when ARCIS_DB_PATH was missing, blocking Render deploys.
+    """
+    _drop_dotenv_arcis_db_path(monkeypatch)
+    monkeypatch.setenv(
+        "DATABASE_URL",
+        "postgresql://user:pass@host:5432/dbname"
+    )
+    monkeypatch.delitem(sys.modules, "src.config", raising=False)
+
+    cfg = importlib.import_module("src.config")
+    assert cfg.DB_PATH is None, (
+        "DB_PATH must be None on Postgres-only deploys; "
+        f"got: {cfg.DB_PATH!r}"
     )
 
 
@@ -119,7 +152,8 @@ def test_no_stub_fallback_in_config_module():
     Asserts the legacy pattern
         os.environ.get("ARCIS_DB_PATH", str(_REPO_ROOT / "ai_research_desk.sqlite3"))
     has been removed in favor of an explicit hard-fail (RuntimeError) when
-    the env var is missing.
+    BOTH ARCIS_DB_PATH and DATABASE_URL are missing (post-#768 conditional
+    require).
     """
     repo_root = Path(__file__).resolve().parent.parent.parent
     target = repo_root / "src" / "config" / "__init__.py"
@@ -134,10 +168,19 @@ def test_no_stub_fallback_in_config_module():
     match = forbidden.search(source)
     assert match is None, (
         f"Forbidden stub fallback survived in {target}:\n  {match.group(0)!r}\n"
-        "Replace with an explicit RuntimeError when ARCIS_DB_PATH is unset."
+        "Replace with an explicit RuntimeError when both env vars are unset."
     )
 
-    # Positive assertion: the hard-fail RuntimeError is present.
-    assert "raise RuntimeError" in source and "ARCIS_DB_PATH not set" in source, (
-        f"{target} must hard-fail with RuntimeError when ARCIS_DB_PATH is missing"
+    # Positive assertion: the conditional hard-fail (post-#768) is present.
+    # Must check BOTH env vars before raising, so Postgres-only deploys
+    # (Render, where DATABASE_URL is set but ARCIS_DB_PATH is not) succeed.
+    assert "raise RuntimeError" in source and "ARCIS_DB_PATH" in source, (
+        f"{target} must hard-fail with RuntimeError when ARCIS_DB_PATH "
+        "is missing"
+    )
+    assert "DATABASE_URL" in source and "not _DATABASE_URL" in source, (
+        f"{target} must check DATABASE_URL alongside ARCIS_DB_PATH so "
+        "Postgres-only deploys (Render) can proceed without ARCIS_DB_PATH "
+        "set. Pre-#768 this check was missing and Render deploys failed at "
+        "module-load time."
     )
