@@ -211,5 +211,4 @@ def get_system_status(config: dict) -> dict:
         "bootcamp_phase": bootcamp_phase,
         "ib_connected": ib_connected,
         "live_broker": live_broker,
-        "version": get_app_version(),
     }
