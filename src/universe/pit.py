@@ -26,7 +26,7 @@ apply_dividend_haircut(returns, dividend_yield_pct, period_days)
 
     Formula: adjusted = returns - dividend_yield_pct * (period_days / 365)
 
-Called by: future PIT-aware backtest paths (deferred — no current consumers; legacy callers still use src.universe.sp100.get_sp100_universe()).
+Called by: production PIT-aware backtest paths. 24 legacy callers still use src.universe.sp100.get_sp100_universe() (migration to this module is deferred to Sprint 1.A.1).
 Calls: nothing external (pure-function utilities over a caller-supplied membership_table dict).
 Owns tables: data/reference/sp100_history.json (regenerated via scripts/build_sp100_history.py).
 Config keys: none.

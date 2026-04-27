@@ -9,7 +9,7 @@ All project rules, architecture, data sources, and constraints are in **MASTER.m
 - **Never commit secrets** — `.env`, `config/settings.local.yaml`, and `.mcp.json` are gitignored for a reason
 - **Training data quality is #1** — never sacrifice quality for speed
 - **Risk governor is sacred** — never bypass or weaken risk checks without explicit approval
-- **Test count must not drop** — CI enforces a minimum of 3651 tests (post-PR-690 I5 sweep baseline as of 2026-04-26; +271 net from 3380 Cohort-2+3A floor across Track 1.5 Pass 2 + Round 10 work + PR-690 I5 sprint_F engine fixture regen: B1/B2.A/B2.B/B2.C/B3/B4/B5/B6/B7/B8/B9/B10 instrumentation rounds + 8.A-8.F dashboard fixes + 5-KPI hero strip + Round-10 Fix-A/B/C/D zero-failures cleanup + PR-690 I5 fixture regen drops `--ignore`). Floor lineage: 3038 (pre-audit) → 3159 (Track 1) → 3238 (Cohort 1) → 3380 (Cohort 2 + 3A) → 3646 (Track 1.5 + Round 10, with `--ignore=test_sprint_F_engine.py`) → 3651 (PR-690 I5: dropped `--ignore` after engine fixture regen, +5 tests). **Zero failures, zero errors at this baseline** (full sweep: `python -m pytest tests/ -q --timeout=60` — no longer needs `--ignore` after I5 fixture regen). Bump this number in CLAUDE.md whenever the sweep grows past the previous baseline.
+- **Test count must not drop** — CI enforces a minimum of 3671 tests (post-Sprint-1.A.0 baseline as of 2026-04-27; +20 net from 3651 across T1.04 Wikipedia scraper tests +9 + T1.05 PIT loader tests +11). Floor lineage: 3038 (pre-audit) → 3159 (Track 1) → 3238 (Cohort 1) → 3380 (Cohort 2 + 3A) → 3646 (Track 1.5 + Round 10, with `--ignore=test_sprint_F_engine.py`) → 3651 (PR-690 I5: dropped `--ignore` after engine fixture regen, +5 tests) → 3671 (Sprint 1.A.0: Wikipedia scraper tests +9 + PIT loader tests +11). **Zero failures, zero errors at this baseline** (full sweep: `python -m pytest tests/ -q --timeout=60` — no longer needs `--ignore` after I5 fixture regen). Bump this number in CLAUDE.md whenever the sweep grows past the previous baseline.
 - **Mock all external APIs in tests** — no network calls from pytest (Alpaca, Finnhub, yfinance, FRED, Ollama)
 - **Schema registry is the single source of truth** — all 68 tables are defined in `src/schema/registry.py` (authoritative count: `python -c "from src.schema.registry import TABLES; print(len(TABLES))"`). See "Database Schema Rules" below
 - **Test baseline before changes** — run `python -m pytest tests/ -q` at the start of any coding session and note the pass count. After changes, the pass count must not decrease and the failure count must not increase. Never dismiss test failures as "pre-existing" without investigating
@@ -242,6 +242,7 @@ Two flavors: **wired** (called from runtime code paths) vs **shelf** (implemente
 - `src/analytics/instrumentation_filter.py` — `is_fully_instrumented` predicate + Bailey-LdP MinTRL power assessment. Stage-1 baseline writer uses this; promotion gate uses MinTRL.
 - `src/risk/governor.py` — `effective_position_cap()` returns `min()` across 4 namespaces (`risk.*`, `risk_governor.*`, `live_trading.*`, `bootcamp.*`). Raises `GovernorInputMissingError` on missing required keys (no silent permissive defaults).
 - `src/scheduler/holidays.py` — uses `pandas_market_calendars` (NEW dep, see below) for NYSE calendar + half-day handling.
+- `src/universe/pit.py` — Point-in-time SP100 lookup. `load_sp100_membership_table()` loads `data/reference/sp100_history.json` (Wikipedia-sourced, regenerated via `scripts/build_sp100_history.py`). `get_sp100_at(as_of, membership_table=None)` — production path uses loader; tests can inject a fixture table. `get_data_range()` returns `(earliest, latest)` covered dates. `UniverseDataMissing` raised for out-of-range `as_of` or missing JSON. 24 T10 callers still pending migration in Sprint 1.A.1.
 
 **Shelf (NOT wired into production promotion path — see `docs/methodology-toolkit.md`):**
 - `src/methods/pbo.py` — Probability of Backtest Overfitting (Bailey-LdP 2014, CSCV)
@@ -254,7 +255,6 @@ Two flavors: **wired** (called from runtime code paths) vs **shelf** (implemente
 - `src/methods/factor_alpha_core.py` — Fama-French 3+momentum regression (Stage-3 diagnostic)
 - `src/allocation/risk_parity.py` — Inverse-vol allocator (T2.12b wiring deferred)
 - `src/cost_model/calibration.py` — Live-fill slippage/cost calibration writer (writes JSON; no backtest reads it yet)
-- `src/universe/pit.py` — Point-in-time SP100 + dividend haircut (24 callers still use survivorship-biased `get_sp100_universe()`)
 - `src/features/pullback_logistic.py` — Logistic-regression feature extractors (T2.14b model + T2.14c adapter deferred)
 - `src/data_ingestion/risk_free_rate.py` — FRED-backed rf-rate adapter (Stage-1 baseline still uses placeholder rf=0.0001 — wiring this in is the obvious follow-up)
 
