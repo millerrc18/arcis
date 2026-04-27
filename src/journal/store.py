@@ -24,6 +24,8 @@ _logger = logging.getLogger(__name__)
 
 _SQL_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
+_TABLES_INITIALIZED: set[str] = set()
+
 
 def _filter_to_schema(table_name: str, data: dict) -> dict:
     """Drop keys not declared in the schema registry for this table.
@@ -84,6 +86,9 @@ def _coerce_to_schema(table_name: str, data: dict) -> dict:
 
 def initialize_database(db_path: str = DB_PATH) -> None:
     """Create journal tables and run column migrations via the schema registry."""
+    global _TABLES_INITIALIZED
+    if db_path in _TABLES_INITIALIZED:
+        return
     from src.schema.sqlite import create_all_tables, ensure_columns
     create_all_tables(db_path)
     ensure_columns(db_path)
@@ -96,6 +101,7 @@ def initialize_database(db_path: str = DB_PATH) -> None:
             "WHERE status = 'closed' AND actual_exit_time IS NULL"
         )
         conn.commit()
+    _TABLES_INITIALIZED.add(db_path)
 
 
 def log_recommendation(

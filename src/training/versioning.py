@@ -19,11 +19,18 @@ from src.utils.db import connect_db
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
+_TABLES_INITIALIZED: set[str] = set()
+
+
 def init_training_tables(db_path: str = DB_PATH) -> None:
     """Create training tables and run column migrations via the schema registry."""
+    global _TABLES_INITIALIZED
+    if db_path in _TABLES_INITIALIZED:
+        return
     from src.schema.sqlite import create_all_tables, ensure_columns
     create_all_tables(db_path)
     ensure_columns(db_path)
+    _TABLES_INITIALIZED.add(db_path)
 
 
 def save_metric_snapshot(metrics: dict, db_path: str = DB_PATH) -> None:

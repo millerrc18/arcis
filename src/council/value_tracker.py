@@ -38,13 +38,19 @@ ET = ZoneInfo("America/New_York")
 # FIX #5: Only position_sizing_multiplier has a clean counterfactual
 ATTRIBUTABLE_PARAMETERS = {"position_sizing_multiplier"}
 
+_TABLES_INITIALIZED: set[str] = set()
+
 
 def init_value_tables(db_path: str = DB_PATH) -> None:
     """Create value tracking tables and run column migrations via the schema registry."""
+    global _TABLES_INITIALIZED
+    if db_path in _TABLES_INITIALIZED:
+        return
     try:
         from src.schema.sqlite import create_all_tables, ensure_columns
         create_all_tables(db_path)
         ensure_columns(db_path)
+        _TABLES_INITIALIZED.add(db_path)
     except Exception as e:
         logger.warning("[VALUE] Table creation failed: %s", e)
 
