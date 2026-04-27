@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block title %}Analytics - MarketPulse{% endblock %}
+{% block page_title %}Analytics Workbench{% endblock %}
+
+{% block content %}
+<div class="space-y-4">
+    <!-- Controls -->
+    <div class="bg-white dark:bg-slate-800 rounded-lg shadow p-4">
+        <form hx-post="/api/run-analysis" hx-target="#analysis-result" hx-swap="innerHTML">
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-3 items-end">
+                <!-- Analysis type -->
+                <div>
+                    <label for="analysis-type" class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Analysis</label>
+                    <select id="analysis-type" name="analysis_type"
+                            hx-get="/api/analysis-form" hx-target="#dynamic-form" hx-swap="innerHTML"
+                            class="w-full rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700
+                                   text-sm text-gray-900 dark:text-slate-200 px-3 py-2 focus:ring-sky-500 focus:border-sky-500">
+                        {% for val, label in analysis_types %}
+                        <option value="{{ val }}">{{ label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Ticker(s) -->
+                <div>
+                    <label for="ticker-input" class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Ticker(s)</label>
+                    <input type="text" id="ticker-input" name="ticker" placeholder="AAPL or AAPL,MSFT"
+                           list="ticker-list"
+                           class="w-full rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700
+                                  text-sm text-gray-900 dark:text-slate-200 px-3 py-2 focus:ring-sky-500 focus:border-sky-500">
+                    <datalist id="ticker-list">
+                        {% for t in cached_tickers %}
+                        <option value="{{ t }}">
+                        {% endfor %}
+                    </datalist>
+                </div>
+
+                <!-- Date range -->
+                <div>
+                    <label for="from-date" class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">From</label>
+                    <input type="date" id="from-date" name="from_date" value="{{ default_from }}"
+                           class="w-full rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700
+                                  text-sm text-gray-900 dark:text-slate-200 px-3 py-2 focus:ring-sky-500 focus:border-sky-500">
+                </div>
+                <div>
+                    <label for="to-date" class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">To</label>
+                    <input type="date" id="to-date" name="to_date" value="{{ default_to }}"
+                           class="w-full rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700
+                                  text-sm text-gray-900 dark:text-slate-200 px-3 py-2 focus:ring-sky-500 focus:border-sky-500">
+                </div>
+
+                <!-- Run button -->
+                <div>
+                    <button type="submit"
+                            class="w-full bg-sky-500 hover:bg-sky-600 text-white text-sm font-medium rounded-md px-4 py-2
+                                   transition-colors">
+                        Run Analysis
+                    </button>
+                </div>
+            </div>
+
+            <!-- Dynamic form fields (HTMX swap target) -->
+            <div id="dynamic-form" class="mt-3"></div>
+        </form>
+    </div>
+
+    <!-- Results area (HTMX swap target) -->
+    <div class="bg-white dark:bg-slate-800 rounded-lg shadow p-4">
+        <div id="analysis-result">
+            <p class="text-sm text-gray-500 dark:text-slate-400 text-center py-12">
+                Select an analysis type and click Run Analysis.
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}

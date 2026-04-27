@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}Sectors - MarketPulse{% endblock %}
+{% block page_title %}Sector Analysis{% endblock %}
+
+{% block content %}
+<div class="space-y-4">
+    <!-- Controls -->
+    <div class="bg-white dark:bg-slate-800 rounded-lg shadow p-4">
+        <form hx-post="/api/sector-data" hx-target="#sector-results" hx-swap="innerHTML">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 items-end">
+                <div>
+                    <label for="index-select" class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Index</label>
+                    <select id="index-select" name="index_name"
+                            class="w-full rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700
+                                   text-sm text-gray-900 dark:text-slate-200 px-3 py-2 focus:ring-sky-500 focus:border-sky-500">
+                        <option value="">Select index...</option>
+                        {% for short, full in indices %}
+                        <option value="{{ short }}">{{ full }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label for="from-date" class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">From</label>
+                    <input type="date" id="from-date" name="from_date" value="{{ default_from }}"
+                           class="w-full rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700
+                                  text-sm text-gray-900 dark:text-slate-200 px-3 py-2 focus:ring-sky-500 focus:border-sky-500">
+                </div>
+                <div>
+                    <label for="to-date" class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">To</label>
+                    <input type="date" id="to-date" name="to_date" value="{{ default_to }}"
+                           class="w-full rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700
+                                  text-sm text-gray-900 dark:text-slate-200 px-3 py-2 focus:ring-sky-500 focus:border-sky-500">
+                </div>
+                <div>
+                    <button type="submit"
+                            class="w-full bg-sky-500 hover:bg-sky-600 text-white text-sm font-medium rounded-md px-4 py-2
+                                   transition-colors">
+                        Analyze
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <!-- Results -->
+    <div id="sector-results">
+        <p class="text-sm text-gray-500 dark:text-slate-400 text-center py-12">
+            Select an index and date range to view sector analysis.
+        </p>
+    </div>
+</div>
+{% endblock %}

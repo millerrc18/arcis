@@ -1,0 +1,30 @@
+/* MarketPulse dashboard -- custom overrides beyond Tailwind CDN */
+
+/* Ensure Plotly charts respect container width */
+.js-plotly-plot {
+    width: 100% !important;
+}
+
+/* Hide Alpine.js elements until framework initializes */
+[x-cloak] {
+    display: none !important;
+}
+
+/* Smooth sidebar transitions */
+.sidebar-transition {
+    transition: width 200ms ease-in-out;
+}
+
+/* Ticker marquee animation */
+@keyframes marquee {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+}
+
+.animate-marquee {
+    animation: marquee 30s linear infinite;
+}
+
+.animate-marquee:hover {
+    animation-play-state: paused;
+}

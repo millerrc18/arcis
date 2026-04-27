@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}Price Charts - MarketPulse{% endblock %}
+{% block page_title %}Price Charts{% endblock %}
+
+{% block content %}
+<div class="space-y-4">
+    <!-- Controls -->
+    <div class="bg-white dark:bg-slate-800 rounded-lg shadow p-4">
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-3 items-end">
+            <!-- Ticker -->
+            {% include "partials/ticker_selector.html" %}
+
+            <!-- Date range -->
+            <div>
+                <label for="from-date" class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">From</label>
+                <input type="date" id="from-date" name="from_date" value="{{ default_from }}"
+                       class="w-full rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700
+                              text-sm text-gray-900 dark:text-slate-200 px-3 py-2 focus:ring-sky-500 focus:border-sky-500">
+            </div>
+            <div>
+                <label for="to-date" class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">To</label>
+                <input type="date" id="to-date" name="to_date" value="{{ default_to }}"
+                       class="w-full rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700
+                              text-sm text-gray-900 dark:text-slate-200 px-3 py-2 focus:ring-sky-500 focus:border-sky-500">
+            </div>
+
+            <!-- Timespan -->
+            <div>
+                <label for="timespan" class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Timespan</label>
+                <select id="timespan" name="timespan"
+                        class="w-full rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700
+                               text-sm text-gray-900 dark:text-slate-200 px-3 py-2 focus:ring-sky-500 focus:border-sky-500">
+                    <option value="1min">1 min</option>
+                    <option value="5min">5 min</option>
+                    <option value="15min">15 min</option>
+                    <option value="1hour">1 hour</option>
+                    <option value="1day" selected>1 day</option>
+                </select>
+            </div>
+
+            <!-- Chart type -->
+            <div>
+                <label for="chart-type" class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Type</label>
+                <select id="chart-type" name="chart_type"
+                        class="w-full rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700
+                               text-sm text-gray-900 dark:text-slate-200 px-3 py-2 focus:ring-sky-500 focus:border-sky-500">
+                    <option value="candlestick">Candlestick</option>
+                    <option value="line">Line</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chart area (HTMX target) -->
+    <div class="bg-white dark:bg-slate-800 rounded-lg shadow p-4">
+        <div id="chart-container"
+             hx-get="/api/chart-data"
+             hx-include="#ticker-select, #from-date, #to-date, #timespan, #chart-type"
+             hx-trigger="change from:#ticker-select, change from:#from-date, change from:#to-date, change from:#timespan, change from:#chart-type"
+             hx-target="#chart-container"
+             hx-swap="innerHTML">
+            <p class="text-sm text-gray-500 dark:text-slate-400 text-center py-12">
+                Select a ticker and date range to view the chart.
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}

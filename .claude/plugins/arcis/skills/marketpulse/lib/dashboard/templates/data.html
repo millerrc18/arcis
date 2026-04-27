@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+
+{% block title %}Data Management - MarketPulse{% endblock %}
+{% block page_title %}Data Management{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+
+    <!-- Pull Form -->
+    <div class="bg-white dark:bg-slate-800 rounded-lg shadow p-6">
+        <h2 class="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4">Pull Market Data</h2>
+        <form hx-post="/api/pull" hx-target="#job-table-body" hx-swap="afterbegin"
+              hx-indicator="#pull-spinner"
+              class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+
+            <!-- Tickers Input -->
+            <div class="lg:col-span-2">
+                <label for="pull-tickers" class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">
+                    Tickers (comma-separated or index name)
+                </label>
+                <input type="text" id="pull-tickers" name="tickers" placeholder="AAPL, MSFT, GOOG or SP500"
+                       class="w-full rounded-md border border-gray-300 dark:border-slate-600
+                              bg-white dark:bg-slate-700 text-sm text-gray-900 dark:text-slate-200
+                              px-3 py-2 focus:ring-sky-500 focus:border-sky-500">
+            </div>
+
+            {% include "partials/date_picker.html" %}
+
+            <!-- Timespan -->
+            <div>
+                <label for="pull-timespan" class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">
+                    Timespan
+                </label>
+                <select id="pull-timespan" name="timespan"
+                        class="w-full rounded-md border border-gray-300 dark:border-slate-600
+                               bg-white dark:bg-slate-700 text-sm text-gray-900 dark:text-slate-200
+                               px-3 py-2 focus:ring-sky-500 focus:border-sky-500">
+                    <option value="1min">1 Minute</option>
+                    <option value="5min">5 Minutes</option>
+                    <option value="15min">15 Minutes</option>
+                    <option value="1hour">1 Hour</option>
+                    <option value="1day" selected>1 Day</option>
+                </select>
+            </div>
+
+            <!-- Pull Button -->
+            <div class="flex items-end">
+                <button type="submit"
+                        class="w-full bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium
+                               py-2 px-4 rounded-md transition-colors">
+                    Pull Data
+                </button>
+            </div>
+        </form>
+        <div id="pull-spinner" class="htmx-indicator text-center py-2">
+            <span class="text-sm text-gray-500 dark:text-slate-400">Starting pull...</span>
+        </div>
+    </div>
+
+    <!-- Job Tracking Table -->
+    <div class="bg-white dark:bg-slate-800 rounded-lg shadow p-6">
+        <h2 class="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4">Recent Jobs</h2>
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200 dark:divide-slate-700">
+                <thead>
+                    <tr>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase">Job ID</th>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase">Tickers</th>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase">Status</th>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase">Current</th>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase">Elapsed</th>
+                    </tr>
+                </thead>
+                <tbody id="job-table-body">
+                    {% if not jobs %}
+                    <tr>
+                        <td colspan="5" class="px-4 py-8 text-sm text-gray-500 dark:text-slate-400 text-center">
+                            No jobs yet. Use the form above to pull data.
+                        </td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Cache Status -->
+    <div class="bg-white dark:bg-slate-800 rounded-lg shadow p-6">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-slate-100">Cache Status</h2>
+            <div class="flex gap-2">
+                <a href="/api/export/excel"
+                   class="text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-md transition-colors">
+                    Export Excel
+                </a>
+                <a href="/api/export/csv"
+                   class="text-xs bg-gray-600 hover:bg-gray-700 text-white px-3 py-1.5 rounded-md transition-colors">
+                    Export CSV
+                </a>
+                <a href="/api/export/parquet"
+                   class="text-xs bg-purple-600 hover:bg-purple-700 text-white px-3 py-1.5 rounded-md transition-colors">
+                    Export Parquet
+                </a>
+            </div>
+        </div>
+
+        <!-- Summary Stats -->
+        <div class="grid grid-cols-3 gap-4 mb-6">
+            <div class="text-center p-3 bg-gray-50 dark:bg-slate-700 rounded-lg">
+                <p class="text-2xl font-bold text-gray-900 dark:text-slate-100">
+                    {{ cache_status.total_tickers | default(0) }}
+                </p>
+                <p class="text-xs text-gray-500 dark:text-slate-400">Tickers</p>
+            </div>
+            <div class="text-center p-3 bg-gray-50 dark:bg-slate-700 rounded-lg">
+                <p class="text-2xl font-bold text-gray-900 dark:text-slate-100">
+                    {{ "{:,}".format(cache_status.total_bars | default(0)) }}
+                </p>
+                <p class="text-xs text-gray-500 dark:text-slate-400">Total Bars</p>
+            </div>
+            <div class="text-center p-3 bg-gray-50 dark:bg-slate-700 rounded-lg">
+                <p class="text-2xl font-bold text-gray-900 dark:text-slate-100">
+                    {{ cache_status.total_partitions | default(0) }}
+                </p>
+                <p class="text-xs text-gray-500 dark:text-slate-400">Partitions</p>
+            </div>
+        </div>
+
+        <!-- Per-Ticker Table -->
+        {% if ticker_details %}
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200 dark:divide-slate-700">
+                <thead>
+                    <tr>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase">Ticker</th>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase">Timespan</th>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase">First Bar</th>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase">Last Bar</th>
+                        <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 dark:text-slate-400 uppercase">Bar Count</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for td in ticker_details %}
+                    <tr class="border-b border-gray-200 dark:border-slate-700">
+                        <td class="px-4 py-2 text-sm font-medium text-gray-900 dark:text-slate-200">{{ td.ticker }}</td>
+                        <td class="px-4 py-2 text-sm text-gray-500 dark:text-slate-400">{{ td.timespan }}</td>
+                        <td class="px-4 py-2 text-sm text-gray-500 dark:text-slate-400">{{ td.first_bar }}</td>
+                        <td class="px-4 py-2 text-sm text-gray-500 dark:text-slate-400">{{ td.last_bar }}</td>
+                        <td class="px-4 py-2 text-sm text-gray-500 dark:text-slate-400 text-right">{{ td.bar_count }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-sm text-gray-500 dark:text-slate-400 text-center py-4">
+            No cached data. Pull some data to see details here.
+        </p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

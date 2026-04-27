@@ -32,6 +32,7 @@ The following tools are available via the `marketpulse` MCP server (prefixed `mc
 - `mp_event_impact` -- Analyze price/volume impact around a specific event date
 - `mp_export_data` -- Export cached bar data to Excel, CSV, or Parquet
 - `mp_generate_report` -- Generate a pre-built analysis report (daily, period, correlation, event study)
+- `mp_serve_dashboard` -- Start the interactive web dashboard (overview, charts, analytics, sectors, events, data management)
 
 ## Data Notes
 

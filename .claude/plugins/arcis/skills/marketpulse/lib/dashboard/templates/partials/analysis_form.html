@@ -1,0 +1,30 @@
+{# Dynamic form fields that change per analysis type.
+
+   Expected context variables:
+   - analysis_type: str
+   - single_ticker: bool -- true if analysis needs exactly 1 ticker
+   - needs_multi: bool -- true if analysis benefits from multiple tickers
+#}
+
+{% if single_ticker %}
+<p class="text-xs text-gray-500 dark:text-slate-400 mt-1">
+    This analysis requires a single ticker. Enter one ticker above.
+</p>
+{% elif needs_multi %}
+<p class="text-xs text-gray-500 dark:text-slate-400 mt-1">
+    Enter multiple tickers separated by commas for correlation analysis.
+</p>
+{% endif %}
+
+{% if analysis_type == "volatility" %}
+<div class="mt-2">
+    <label for="timespan" class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">Timespan</label>
+    <select id="timespan" name="timespan"
+            class="rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700
+                   text-sm text-gray-900 dark:text-slate-200 px-3 py-2 focus:ring-sky-500 focus:border-sky-500">
+        <option value="1day" selected>1 day</option>
+        <option value="1hour">1 hour</option>
+        <option value="1min">1 min</option>
+    </select>
+</div>
+{% endif %}

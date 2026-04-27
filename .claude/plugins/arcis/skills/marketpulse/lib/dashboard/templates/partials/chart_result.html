@@ -1,0 +1,29 @@
+{# HTMX partial: renders a Plotly chart into a target div.
+
+   Expected context variables:
+   - chart_id: str -- div id for Plotly
+   - chart_data: dict -- JSON-serializable data for the JS chart function
+   - chart_type: str -- which charts.js function to call (candlestick, heatmap, line, grouped_bar, mini_bar)
+   - chart_opts: dict|None -- optional extra options for the chart function
+#}
+
+<div id="{{ chart_id }}" style="width: 100%; min-height: 400px;"></div>
+
+<script>
+(function() {
+    const data = {{ chart_data | tojson }};
+    const opts = {{ (chart_opts or {}) | tojson }};
+
+    {% if chart_type == "candlestick" %}
+    createCandlestick('{{ chart_id }}', data, opts);
+    {% elif chart_type == "heatmap" %}
+    createHeatmap('{{ chart_id }}', data, opts);
+    {% elif chart_type == "line" %}
+    createLineChart('{{ chart_id }}', data, opts);
+    {% elif chart_type == "grouped_bar" %}
+    createGroupedBar('{{ chart_id }}', data.categories, data.series, opts);
+    {% elif chart_type == "mini_bar" %}
+    createMiniBar('{{ chart_id }}', data.labels, data.values);
+    {% endif %}
+})();
+</script>

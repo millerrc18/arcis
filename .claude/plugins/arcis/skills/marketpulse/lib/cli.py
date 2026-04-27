@@ -24,6 +24,7 @@ Commands
 - ``report period``        -- Generate a period analysis report.
 - ``report correlation``   -- Generate a correlation analysis report.
 - ``report event``         -- Generate an event study report.
+- ``serve``                -- Start the MarketPulse web dashboard.
 
 Usage::
 
@@ -175,6 +176,32 @@ def _parse_date(value: str, label: str) -> date:
             "Use YYYY-MM-DD format (e.g. 2022-06-01).",
         )
         raise typer.Exit(code=1)
+
+
+# ---------------------------------------------------------------------------
+# serve command
+# ---------------------------------------------------------------------------
+
+
+@app.command("serve")
+def serve_dashboard(
+    port: int = typer.Option(8050, "--port", help="Port to listen on."),
+    host: str = typer.Option("127.0.0.1", "--host", help="Host to bind to."),
+    reload: bool = typer.Option(False, "--reload", help="Enable auto-reload for development."),
+) -> None:
+    """Start the MarketPulse web dashboard."""
+    import uvicorn
+
+    console.print(f"[bold sky_blue1]MarketPulse Dashboard[/bold sky_blue1] starting on http://{host}:{port}")
+    console.print("Press Ctrl+C to stop.\n")
+
+    uvicorn.run(
+        "skills.marketpulse.lib.dashboard.app:app",
+        host=host,
+        port=port,
+        reload=reload,
+        log_level="info",
+    )
 
 
 async def _init_db_async() -> None:

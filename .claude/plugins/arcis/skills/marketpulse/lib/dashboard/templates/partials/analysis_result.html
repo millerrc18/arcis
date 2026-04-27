@@ -1,0 +1,72 @@
+{# HTMX partial: analysis results with optional chart and data table.
+
+   Expected context variables:
+   - chart_data: dict|list|None -- Plotly data (None = no chart)
+   - chart_type: str|None -- "line", "heatmap", "grouped_bar"
+   - table_headers: list[str]
+   - table_rows: list[dict]
+   - analysis_type: str
+#}
+
+{% if chart_data %}
+<div class="mb-4">
+    {% if chart_type == "heatmap" %}
+    <div id="analysis-chart" style="width: 100%; min-height: 400px;"></div>
+    <script>
+    (function() {
+        const data = {{ chart_data | tojson }};
+        createHeatmap('analysis-chart', data, {title: '{{ analysis_type }}'});
+    })();
+    </script>
+    {% elif chart_type == "line" %}
+    <div id="analysis-chart" style="width: 100%; min-height: 400px;"></div>
+    <script>
+    (function() {
+        const series = {{ chart_data | tojson }};
+        createLineChart('analysis-chart', series, {title: '{{ analysis_type }}'});
+    })();
+    </script>
+    {% elif chart_type == "grouped_bar" %}
+    <div id="analysis-chart" style="width: 100%; min-height: 400px;"></div>
+    <script>
+    (function() {
+        const data = {{ chart_data | tojson }};
+        createGroupedBar('analysis-chart', data.categories, data.series, {title: '{{ analysis_type }}'});
+    })();
+    </script>
+    {% endif %}
+</div>
+{% endif %}
+
+{% if table_rows %}
+<div class="overflow-x-auto">
+    <table class="min-w-full text-sm">
+        <thead>
+            <tr class="border-b border-gray-200 dark:border-slate-700">
+                {% for h in table_headers %}
+                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wider">
+                    {{ h }}
+                </th>
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200 dark:divide-slate-700">
+            {% for row in table_rows[:100] %}
+            <tr class="hover:bg-gray-50 dark:hover:bg-slate-700/50">
+                {% for h in table_headers %}
+                <td class="px-3 py-2 text-gray-900 dark:text-slate-200 whitespace-nowrap">
+                    {% set val = row[h] if row[h] is not none else "" %}
+                    {% if val is number %}{{ "%.4f" | format(val) }}{% else %}{{ val }}{% endif %}
+                </td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% if table_rows | length > 100 %}
+    <p class="text-xs text-gray-500 dark:text-slate-400 mt-2">Showing first 100 of {{ table_rows | length }} rows.</p>
+    {% endif %}
+</div>
+{% elif not chart_data %}
+<p class="text-sm text-gray-500 dark:text-slate-400 text-center py-4">No results.</p>
+{% endif %}

@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}MarketPulse - Overview{% endblock %}
+{% block page_title %}Market Overview{% endblock %}
+
+{% block content %}
+<!-- Stat cards -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    {% for stat in stats %}
+    <div class="bg-white dark:bg-slate-800 rounded-lg p-4 shadow-sm border border-gray-200 dark:border-slate-700">
+        <div class="text-xs font-medium text-gray-500 dark:text-slate-400 uppercase tracking-wide">{{ stat.label }}</div>
+        <div class="text-2xl font-bold text-gray-900 dark:text-slate-100 mt-1">{{ stat.value }}</div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Top Movers -->
+{% if movers %}
+<div class="bg-white dark:bg-slate-800 rounded-lg p-4 shadow-sm border border-gray-200 dark:border-slate-700 mb-6">
+    <h2 class="text-sm font-semibold text-gray-700 dark:text-slate-300 mb-3">Top Movers</h2>
+    <div class="flex flex-wrap gap-2">
+        {% for m in movers.gainers %}
+        <span class="inline-flex items-center px-2.5 py-1 rounded text-xs font-medium bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+            {{ m.ticker }} {{ m.return_display }}
+        </span>
+        {% endfor %}
+        {% for m in movers.losers %}
+        <span class="inline-flex items-center px-2.5 py-1 rounded text-xs font-medium bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800">
+            {{ m.ticker }} {{ m.return_display }}
+        </span>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Charts row -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <!-- Volume Distribution -->
+    <div class="bg-white dark:bg-slate-800 rounded-lg p-4 shadow-sm border border-gray-200 dark:border-slate-700">
+        <h2 class="text-sm font-semibold text-gray-700 dark:text-slate-300 mb-3">Volume Distribution</h2>
+        <div id="volume-chart" style="height: 120px;"></div>
+    </div>
+
+    <!-- Sector Performance -->
+    {% if sector_data %}
+    <div class="bg-white dark:bg-slate-800 rounded-lg p-4 shadow-sm border border-gray-200 dark:border-slate-700">
+        <h2 class="text-sm font-semibold text-gray-700 dark:text-slate-300 mb-3">Sector Performance</h2>
+        <div class="space-y-1.5">
+            {% for sector in sector_data %}
+            <div class="flex justify-between text-sm">
+                <span class="text-gray-600 dark:text-slate-400">{{ sector.sector }}</span>
+                <span class="{{ 'text-emerald-500' if sector.avg_return >= 0 else 'text-red-400' }}">
+                    {{ "+" if sector.avg_return >= 0 else "" }}{{ "%.2f" | format(sector.avg_return * 100) }}%
+                </span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% else %}
+    <div class="bg-white dark:bg-slate-800 rounded-lg p-4 shadow-sm border border-gray-200 dark:border-slate-700">
+        <h2 class="text-sm font-semibold text-gray-700 dark:text-slate-300 mb-3">Sector Performance</h2>
+        <p class="text-sm text-gray-500 dark:text-slate-400">Pull index data (e.g. SP500) to see sector performance.</p>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Empty state when no data -->
+{% if not stats or stats[0].value == "0" %}
+<div class="mt-8 text-center">
+    <p class="text-gray-500 dark:text-slate-400 text-sm">No cached data yet.</p>
+    <a href="/data" class="text-sky-500 hover:text-sky-400 text-sm font-medium">Pull some data to get started &rarr;</a>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if volume_chart %}
+<script>
+(function() {
+    const vol = {{ volume_chart | tojson }};
+    createMiniBar('volume-chart', vol.labels, vol.values);
+})();
+</script>
+{% endif %}
+{% endblock %}

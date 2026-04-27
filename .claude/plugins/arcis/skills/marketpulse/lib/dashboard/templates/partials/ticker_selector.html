@@ -1,0 +1,30 @@
+{# Reusable ticker selector dropdown.
+
+   Expected context variables:
+   - cached_tickers: list[str] -- available ticker symbols from cache
+   - selected_ticker: str|None -- currently selected ticker (for pre-selection)
+   - element_id: str -- HTML id for the select element (default: "ticker-select")
+   - multiple: bool -- allow multi-select (default: false)
+#}
+
+{% set el_id = element_id | default("ticker-select") %}
+{% set multi = multiple | default(false) %}
+
+<div>
+    <label for="{{ el_id }}" class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">
+        Ticker{{ "s" if multi else "" }}
+    </label>
+    <select id="{{ el_id }}" name="ticker"
+            class="w-full rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700
+                   text-sm text-gray-900 dark:text-slate-200 px-3 py-2 focus:ring-sky-500 focus:border-sky-500"
+            {% if multi %}multiple size="5"{% endif %}>
+        {% if not multi %}
+        <option value="">Select ticker...</option>
+        {% endif %}
+        {% for ticker in cached_tickers | default([]) %}
+        <option value="{{ ticker }}" {{ "selected" if ticker == selected_ticker else "" }}>
+            {{ ticker }}
+        </option>
+        {% endfor %}
+    </select>
+</div>

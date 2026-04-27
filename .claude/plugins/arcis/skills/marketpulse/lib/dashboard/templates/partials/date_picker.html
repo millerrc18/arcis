@@ -1,0 +1,28 @@
+{# Reusable date range picker partial.
+
+   Expected context variables:
+   - from_date: str|None -- pre-filled start date (YYYY-MM-DD)
+   - to_date: str|None -- pre-filled end date (YYYY-MM-DD)
+   - from_id: str -- HTML id for start input (default: "from-date")
+   - to_id: str -- HTML id for end input (default: "to-date")
+#}
+
+{% set fid = from_id | default("from-date") %}
+{% set tid = to_id | default("to-date") %}
+
+<div class="grid grid-cols-2 gap-3">
+    <div>
+        <label for="{{ fid }}" class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">From</label>
+        <input type="date" id="{{ fid }}" name="from_date"
+               value="{{ from_date or '' }}"
+               class="w-full rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700
+                      text-sm text-gray-900 dark:text-slate-200 px-3 py-2 focus:ring-sky-500 focus:border-sky-500">
+    </div>
+    <div>
+        <label for="{{ tid }}" class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">To</label>
+        <input type="date" id="{{ tid }}" name="to_date"
+               value="{{ to_date or '' }}"
+               class="w-full rounded-md border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700
+                      text-sm text-gray-900 dark:text-slate-200 px-3 py-2 focus:ring-sky-500 focus:border-sky-500">
+    </div>
+</div>

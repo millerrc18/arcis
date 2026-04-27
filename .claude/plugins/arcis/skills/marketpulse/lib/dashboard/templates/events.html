@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+
+{% block title %}Events - MarketPulse{% endblock %}
+{% block page_title %}Event Detection & Impact{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+
+    <!-- Detection Panel -->
+    <div class="bg-white dark:bg-slate-800 rounded-lg shadow p-6">
+        <h2 class="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4">Detect Events</h2>
+        <form hx-get="/api/detect-events" hx-target="#detection-results" hx-indicator="#detect-spinner"
+              class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+
+            <!-- Event Type -->
+            <div>
+                <label for="event-type" class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">
+                    Event Type
+                </label>
+                <select id="event-type" name="event_type"
+                        class="w-full rounded-md border border-gray-300 dark:border-slate-600
+                               bg-white dark:bg-slate-700 text-sm text-gray-900 dark:text-slate-200
+                               px-3 py-2 focus:ring-sky-500 focus:border-sky-500">
+                    <option value="volume_spikes">Volume Spikes</option>
+                    <option value="price_gaps">Price Gaps</option>
+                    <option value="anomaly_detection">Anomaly Detection</option>
+                </select>
+            </div>
+
+            <!-- Ticker(s) -->
+            <div>
+                <label for="detect-tickers" class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">
+                    Tickers
+                </label>
+                <select id="detect-tickers" name="tickers" multiple size="4"
+                        class="w-full rounded-md border border-gray-300 dark:border-slate-600
+                               bg-white dark:bg-slate-700 text-sm text-gray-900 dark:text-slate-200
+                               px-3 py-2 focus:ring-sky-500 focus:border-sky-500">
+                    {% for ticker in cached_tickers | default([]) %}
+                    <option value="{{ ticker }}">{{ ticker }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Threshold -->
+            <div>
+                <label for="threshold" class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">
+                    Threshold (std devs)
+                </label>
+                <input type="number" id="threshold" name="threshold" value="2.0" step="0.1" min="0.5" max="10"
+                       class="w-full rounded-md border border-gray-300 dark:border-slate-600
+                              bg-white dark:bg-slate-700 text-sm text-gray-900 dark:text-slate-200
+                              px-3 py-2 focus:ring-sky-500 focus:border-sky-500">
+            </div>
+
+            {% include "partials/date_picker.html" %}
+
+            <!-- Detect Button -->
+            <div class="flex items-end">
+                <button type="submit"
+                        class="w-full bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium
+                               py-2 px-4 rounded-md transition-colors">
+                    Detect Events
+                </button>
+            </div>
+        </form>
+        <div id="detect-spinner" class="htmx-indicator text-center py-4">
+            <span class="text-sm text-gray-500 dark:text-slate-400">Scanning...</span>
+        </div>
+    </div>
+
+    <!-- Detection Results -->
+    <div id="detection-results">
+        <p class="text-sm text-gray-500 dark:text-slate-400 text-center py-8">
+            Configure detection parameters above and click "Detect Events".
+        </p>
+    </div>
+
+    <!-- Impact Analysis Panel -->
+    <div class="bg-white dark:bg-slate-800 rounded-lg shadow p-6">
+        <h2 class="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4">Event Impact Analysis</h2>
+        <form hx-get="/api/event-impact" hx-target="#impact-results" hx-indicator="#impact-spinner"
+              class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+
+            <!-- Ticker -->
+            {% include "partials/ticker_selector.html" %}
+
+            <!-- Event Date -->
+            <div>
+                <label for="event-date" class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">
+                    Event Date
+                </label>
+                <input type="date" id="event-date" name="event_date"
+                       class="w-full rounded-md border border-gray-300 dark:border-slate-600
+                              bg-white dark:bg-slate-700 text-sm text-gray-900 dark:text-slate-200
+                              px-3 py-2 focus:ring-sky-500 focus:border-sky-500">
+            </div>
+
+            <!-- Pre/Post Days -->
+            <div>
+                <label for="pre-days" class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">
+                    Pre Days
+                </label>
+                <input type="number" id="pre-days" name="pre_days" value="5" min="1" max="30"
+                       class="w-full rounded-md border border-gray-300 dark:border-slate-600
+                              bg-white dark:bg-slate-700 text-sm text-gray-900 dark:text-slate-200
+                              px-3 py-2 focus:ring-sky-500 focus:border-sky-500">
+            </div>
+            <div>
+                <label for="post-days" class="block text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">
+                    Post Days
+                </label>
+                <input type="number" id="post-days" name="post_days" value="5" min="1" max="30"
+                       class="w-full rounded-md border border-gray-300 dark:border-slate-600
+                              bg-white dark:bg-slate-700 text-sm text-gray-900 dark:text-slate-200
+                              px-3 py-2 focus:ring-sky-500 focus:border-sky-500">
+            </div>
+
+            <!-- Analyze Button -->
+            <div class="flex items-end lg:col-span-4">
+                <button type="submit"
+                        class="bg-sky-600 hover:bg-sky-700 text-white text-sm font-medium
+                               py-2 px-6 rounded-md transition-colors">
+                    Analyze Impact
+                </button>
+            </div>
+        </form>
+        <div id="impact-spinner" class="htmx-indicator text-center py-4">
+            <span class="text-sm text-gray-500 dark:text-slate-400">Analyzing...</span>
+        </div>
+    </div>
+
+    <!-- Impact Results -->
+    <div id="impact-results">
+        <p class="text-sm text-gray-500 dark:text-slate-400 text-center py-8">
+            Select a ticker and event date to analyze impact.
+        </p>
+    </div>
+</div>
+{% endblock %}
