@@ -1563,6 +1563,12 @@ def _retry_exit(
                 )
                 update_shadow_trade(trade["trade_id"], {"status": "exit_failed"}, db_path)
         else:
+            # Invariant (#758): exit_retry_count was already incremented at the
+            # "Increment retry counter" block above (before the try/except). Any
+            # exception from _submit_exit_order reaches this branch only after
+            # that increment, so the counter correctly reflects this attempt.
+            # If reconcile resets exit_failed → open, the next scan will see
+            # retry_count = N+1 and will continue toward MAX_EXIT_RETRIES.
             log_and_persist(
                 ticker=ticker,
                 operation="place_exit",
