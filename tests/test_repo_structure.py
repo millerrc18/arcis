@@ -19,13 +19,41 @@ KNOWN = json.loads(Path("config/known_violations.json").read_text(encoding="utf-
 
 # Pre-compute lookup sets from known violations JSON
 _KNOWN_FILES = {v["file"] for v in KNOWN.get("oversized_files", [])}
+# Map file path -> recorded line count for tolerance checking (closes #745)
+_KNOWN_FILE_COUNTS = {v["file"]: v["lines"] for v in KNOWN.get("oversized_files", [])}
 _KNOWN_FUNCTIONS = {
     f"{v['file']}:{v['function']}" for v in KNOWN.get("oversized_functions", [])
 }
+# Map "file:function" -> recorded line count for tolerance checking (closes #745)
+_KNOWN_FUNCTION_COUNTS = {
+    f"{v['file']}:{v['function']}": v["lines"]
+    for v in KNOWN.get("oversized_functions", [])
+}
 _KNOWN_DOCSTRINGS = set(KNOWN.get("missing_docstring_headers", []))
+
+# Tolerance for grandfathered size growth: max(+50 lines, +10% of recorded).
+# Rationale: +50 catches minor churn on small files; +10% scales gracefully for
+# large files (a 2000-line file shouldn't get a flat +50 allowance). Using the
+# larger of the two avoids hair-trigger failures on minor edits while still
+# detecting material growth. If a file legitimately exceeds this band, update
+# its entry in config/known_violations.json with a comment explaining why.
+_GRANDFATHERED_TOLERANCE_FLAT = 50
+_GRANDFATHERED_TOLERANCE_PCT = 0.10
+
+
+def _file_tolerance(recorded: int) -> int:
+    return max(_GRANDFATHERED_TOLERANCE_FLAT, int(recorded * _GRANDFATHERED_TOLERANCE_PCT))
 
 
 def test_no_file_over_400_lines():
+    """Files over 400 lines must be grandfathered.
+
+    Hardening (closes #745): grandfathered files are additionally checked
+    against recorded_count + tolerance to catch silent growth. Tolerance is
+    max(+50 lines, +10% of recorded). If a grandfathered file has grown past
+    its tolerance band, either split it, update its entry in
+    config/known_violations.json, or add an operator-deferral comment.
+    """
     for p in Path("src").rglob("*.py"):
         if p.name == "__init__.py":
             continue
@@ -33,12 +61,30 @@ def test_no_file_over_400_lines():
         if lines > 400:
             normalized = str(p).replace("\\", "/")
             if normalized in _KNOWN_FILES:
-                warnings.warn(f"GRANDFATHERED: {p} ({lines} lines)")
+                recorded = _KNOWN_FILE_COUNTS[normalized]
+                tolerance = _file_tolerance(recorded)
+                if lines > recorded + tolerance:
+                    assert False, (
+                        f"GRANDFATHERED {normalized} grew from {recorded} to {lines} "
+                        f"lines (>{recorded + tolerance} tolerance). "
+                        f"Either split, update entry in config/known_violations.json, "
+                        f"or add operator-deferral with rationale."
+                    )
+                else:
+                    warnings.warn(f"GRANDFATHERED: {p} ({lines} lines)")
             else:
                 assert False, f"NEW VIOLATION: {p} is {lines} lines (max 400)"
 
 
 def test_no_function_over_60_lines():
+    """Functions over 60 lines must be grandfathered.
+
+    Hardening (closes #745): grandfathered functions are additionally checked
+    against recorded_count + tolerance to catch silent growth. Tolerance is
+    max(+50 lines, +10% of recorded). If a grandfathered function has grown past
+    its tolerance band, either split it, update its entry in
+    config/known_violations.json, or add an operator-deferral comment.
+    """
     for p in Path("src").rglob("*.py"):
         if p.name == "__init__.py":
             continue
@@ -52,7 +98,17 @@ def test_no_function_over_60_lines():
                 if length > 60:
                     key = f"{str(p).replace(chr(92), '/')}:{node.name}"
                     if key in _KNOWN_FUNCTIONS:
-                        warnings.warn(f"GRANDFATHERED: {key} ({length} lines)")
+                        recorded = _KNOWN_FUNCTION_COUNTS[key]
+                        tolerance = _file_tolerance(recorded)
+                        if length > recorded + tolerance:
+                            assert False, (
+                                f"GRANDFATHERED {key} grew from {recorded} to {length} "
+                                f"lines (>{recorded + tolerance} tolerance). "
+                                f"Either split, update entry in config/known_violations.json, "
+                                f"or add operator-deferral with rationale."
+                            )
+                        else:
+                            warnings.warn(f"GRANDFATHERED: {key} ({length} lines)")
                     else:
                         assert False, f"NEW VIOLATION: {key} is {length} lines (max 60)"
 
