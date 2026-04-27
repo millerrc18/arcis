@@ -22,6 +22,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import connect_db
 from src.training.quality_filter import QUALITY_JUDGE_PROMPT
 from src.training.versioning import init_training_tables
 
@@ -87,7 +88,7 @@ class GuardedScorer:
         """Query training examples that haven't been auto-scored."""
         init_training_tables(self.db_path)
 
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT example_id, input_text, output_text, source "
@@ -163,7 +164,7 @@ class GuardedScorer:
         from datetime import datetime
         from zoneinfo import ZoneInfo
         now = datetime.now(ZoneInfo("America/New_York")).isoformat()
-        with sqlite3.connect(self.db_path) as conn:
+        with connect_db(self.db_path) as conn:
             conn.execute(
                 "UPDATE training_examples SET quality_score_auto = ?, updated_at = ? "
                 "WHERE example_id = ?",

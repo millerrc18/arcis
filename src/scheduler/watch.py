@@ -45,6 +45,7 @@ from src.config import DB_PATH, load_config
 from src.llm.client import is_llm_available
 from src.scheduler.handler_registry import HandlerRegistryMixin
 from src.scheduler.scorer import GuardedScorer
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +80,7 @@ class DBLogHandler(logging.Handler):
             elif record.exc_info and record.exc_info[1]:
                 details = str(record.exc_info[1])[:5000]
 
-            with sqlite3.connect(self.db_path) as conn:
+            with connect_db(self.db_path) as conn:
                 conn.execute(
                     "INSERT INTO log_entries "
                     "(log_id, log_level, source, message, details_json, created_at) "
@@ -494,7 +495,7 @@ class WatchLoop(HandlerRegistryMixin):
             "last_audit": "N/A", "audit_age": "",
         }
         try:
-            with sqlite3.connect(DB_PATH) as conn:
+            with connect_db(DB_PATH) as conn:
                 conn.row_factory = sqlite3.Row
                 paper = conn.execute(
                     "SELECT COUNT(*) FROM shadow_trades WHERE status='open' AND source='paper'"
@@ -870,12 +871,11 @@ class WatchLoop(HandlerRegistryMixin):
                              conviction_parsed: int = 0, conviction_total: int = 0):
         """Write a row to scan_metrics for every scan cycle (success or failure)."""
         try:
-            import sqlite3 as _sq
             if not hasattr(self, '_scan_number'):
                 self._scan_number = 0
             self._scan_number += 1
             now = datetime.now(ET)
-            with _sq.connect(DB_PATH) as conn:
+            with connect_db(DB_PATH) as conn:
                 conn.execute(
                     "INSERT INTO scan_metrics "
                     "(id, scan_number, scan_time, universe_count, features_count, "
@@ -1001,9 +1001,8 @@ class WatchLoop(HandlerRegistryMixin):
     @staticmethod
     def _configure_database():
         """Configure SQLite for production use."""
-        import sqlite3
         try:
-            conn = sqlite3.connect(DB_PATH)
+            conn = connect_db(DB_PATH)
 
             # Integrity check — abort before any writes if DB is corrupted
             result = conn.execute("PRAGMA integrity_check").fetchone()[0]
@@ -1034,9 +1033,8 @@ class WatchLoop(HandlerRegistryMixin):
     @staticmethod
     def _check_row_counts():
         """Sanity-check that critical tables aren't unexpectedly empty."""
-        import sqlite3
         try:
-            conn = sqlite3.connect(DB_PATH)
+            conn = connect_db(DB_PATH)
             count = conn.execute("SELECT COUNT(*) FROM shadow_trades").fetchone()[0]
             conn.close()
             if count == 0:
@@ -1051,7 +1049,6 @@ class WatchLoop(HandlerRegistryMixin):
 
     def _backup_database(self):
         """Create a daily backup of the SQLite database using the Online Backup API."""
-        import sqlite3
         from pathlib import Path
 
         backup_dir = Path("backups")
@@ -1411,8 +1408,7 @@ class WatchLoop(HandlerRegistryMixin):
                         try:
                             from src.notifications.telegram import notify_daily_summary, is_telegram_enabled
                             if is_telegram_enabled():
-                                import sqlite3
-                                with sqlite3.connect(DB_PATH) as _conn:
+                                with connect_db(DB_PATH) as _conn:
                                     _conn.row_factory = sqlite3.Row
                                     _today = datetime.now(ET).strftime("%Y-%m-%d")
                                     _open = _conn.execute(
@@ -1449,8 +1445,7 @@ class WatchLoop(HandlerRegistryMixin):
                     try:
                         from src.notifications.telegram import notify_scoring_summary, is_telegram_enabled
                         if is_telegram_enabled() and self._daily_scored > 0:
-                            import sqlite3
-                            with sqlite3.connect(DB_PATH) as conn:
+                            with connect_db(DB_PATH) as conn:
                                 backlog = conn.execute(
                                     "SELECT COUNT(*) FROM training_examples WHERE quality_score_auto IS NULL"
                                 ).fetchone()[0]
@@ -2061,11 +2056,10 @@ class WatchLoop(HandlerRegistryMixin):
 
     def _model_version_changed(self) -> bool:
         """Check if model version changed since last stress test."""
-        import sqlite3
         try:
             from src.training.versioning import get_active_model_name
             current = get_active_model_name()
-            with sqlite3.connect(DB_PATH) as conn:
+            with connect_db(DB_PATH) as conn:
                 row = conn.execute(
                     "SELECT model_version FROM stress_test_results "
                     "ORDER BY created_at DESC LIMIT 1"
