@@ -131,6 +131,48 @@ python -m ruff check src/ tests/ --fix
 python -m ruff format src/ tests/
 ```
 
+## Parallel Agent Dispatch — Worktree Discipline
+
+### The Rule
+
+Every parallel coding-team agent dispatch MUST use `isolation: "worktree"`. Single-agent dispatches don't strictly require it but are encouraged.
+
+### Why
+
+Without worktree isolation, parallel agents share a working tree. Their staging areas race. When one agent runs `git add` while another is mid-commit, the index on disk is partially written. Recovery via `git reset --soft HEAD~1` causes commit-message/content mismatches because HEAD has moved but the index reflects a mix of both agents' staged changes.
+
+**Documented incidents:**
+- **PR #690 review N3** (`939e648`, `ccca7e2`) — two agents in Wave 2 overwrote each other's tree during an index race. Resulted in a bundled commit and required `git filter-branch` to rewrite 4 misattributed messages.
+- **Sprint 0 Waves 4+5 stash-pop class** (PRs #717, #718, #719, #720, #724) — 4 of 5 agents in each wave hit stash-pop failures during concurrent ops. Recovery was clean via `git fsck --lost-found` dangling commits, but the pattern is consistent and predictable.
+- **PR #711 → #729** — worktree-isolated agent shipped green code (tests passed in worktree) that 401'd 18 tests on the operator's machine post-merge because the worktree didn't carry `.env`.
+
+### Worktree Limitations Operators Must Know
+
+1. **`.env` is gitignored and NOT carried into worktrees.** Code that reads env vars (auth tokens, feature flags, `ARCIS_DB_PATH`) will behave differently in a worktree versus the operator's machine. Mitigate via hermetic test fixtures that don't rely on `.env` — see PR #729 pattern (`tests/conftest.py` clears `ARCIS_LOCAL_API_TOKEN` per-test).
+2. **Worktrees inherit the parent commit but not the parent's untracked files.** Generated files, local caches, and any file in `.gitignore` are absent in a fresh worktree. Tests that depend on these files must create them in fixtures.
+3. **Each worktree is a separate working directory with its own index.** This is the whole point — it prevents staging-area races — but it also means `git stash` in one worktree does not affect another.
+
+### Recovery Patterns for the Stash-Pop / Lost-Work Class
+
+If an agent loses work during a stash-pop failure or interrupted commit:
+
+```bash
+# Find dangling commits (work that was committed but lost from any branch)
+git fsck --lost-found
+# Dangling commits appear in .git/lost-found/commit/ — inspect with:
+git show <sha>
+
+# Find recent HEADs across all operations
+git reflog
+
+# Restore a specific lost commit to a new branch
+git checkout -b recovery/<name> <sha>
+```
+
+### Pre-Commit Scope Check (Deferred)
+
+A pre-commit hook that compares the committed file list against the agent's expected scope would catch cross-agent contamination before it lands. This is out of scope for this PR. See issue #699 deliverables (1) and (2) for the dispatching-tooling work.
+
 ## Data Collection Rules
 
 - **Collectors must raise on missing config** — use `CollectorConfigError` from `src/data_collection/errors.py` when a required API key is absent. Never return a success dict with an `error` field silently.
