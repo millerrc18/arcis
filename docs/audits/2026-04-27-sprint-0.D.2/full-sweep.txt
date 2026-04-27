@@ -1,0 +1,80 @@
+  C:\arcis\halcyon-lab\.claude\worktrees\agent-ae0414e31727d8ee6\tests\test_repo_structure.py:111: UserWarning: GRANDFATHERED: src/scheduler/watch.py:_run_sync_body (617 lines)
+    warnings.warn(f"GRANDFATHERED: {key} ({length} lines)")
+
+tests/test_repo_structure.py::test_no_function_over_60_lines
+  C:\arcis\halcyon-lab\.claude\worktrees\agent-ae0414e31727d8ee6\tests\test_repo_structure.py:111: UserWarning: GRANDFATHERED: src/services/mr_scan_service.py:run_mr_scan (169 lines)
+    warnings.warn(f"GRANDFATHERED: {key} ({length} lines)")
+
+tests/test_repo_structure.py::test_all_modules_have_standard_docstring
+  C:\arcis\halcyon-lab\.claude\worktrees\agent-ae0414e31727d8ee6\tests\test_repo_structure.py:134: UserWarning: GRANDFATHERED: src\notifications\telegram_commands.py missing standard docstring
+    warnings.warn(f"GRANDFATHERED: {p} missing standard docstring")
+
+tests/test_repo_structure.py::test_all_modules_have_standard_docstring
+  C:\arcis\halcyon-lab\.claude\worktrees\agent-ae0414e31727d8ee6\tests\test_repo_structure.py:134: UserWarning: GRANDFATHERED: src\scheduler\overnight.py missing standard docstring
+    warnings.warn(f"GRANDFATHERED: {p} missing standard docstring")
+
+tests/test_repo_structure.py::test_all_modules_have_standard_docstring
+  C:\arcis\halcyon-lab\.claude\worktrees\agent-ae0414e31727d8ee6\tests\test_repo_structure.py:134: UserWarning: GRANDFATHERED: src\scheduler\reports.py missing standard docstring
+    warnings.warn(f"GRANDFATHERED: {p} missing standard docstring")
+
+tests/test_repo_structure.py::test_all_modules_have_standard_docstring
+  C:\arcis\halcyon-lab\.claude\worktrees\agent-ae0414e31727d8ee6\tests\test_repo_structure.py:134: UserWarning: GRANDFATHERED: src\services\mr_scan_service.py missing standard docstring
+    warnings.warn(f"GRANDFATHERED: {p} missing standard docstring")
+
+tests/test_repo_structure.py::test_all_modules_have_standard_docstring
+  C:\arcis\halcyon-lab\.claude\worktrees\agent-ae0414e31727d8ee6\tests\test_repo_structure.py:134: UserWarning: GRANDFATHERED: src\simulation\engine.py missing standard docstring
+    warnings.warn(f"GRANDFATHERED: {p} missing standard docstring")
+
+tests/test_repo_structure.py::test_all_modules_have_standard_docstring
+  C:\arcis\halcyon-lab\.claude\worktrees\agent-ae0414e31727d8ee6\tests\test_repo_structure.py:134: UserWarning: GRANDFATHERED: src\simulation\monte_carlo.py missing standard docstring
+    warnings.warn(f"GRANDFATHERED: {p} missing standard docstring")
+
+tests/test_repo_structure.py::test_all_modules_have_standard_docstring
+  C:\arcis\halcyon-lab\.claude\worktrees\agent-ae0414e31727d8ee6\tests\test_repo_structure.py:134: UserWarning: GRANDFATHERED: src\trading\alpaca_broker.py missing standard docstring
+    warnings.warn(f"GRANDFATHERED: {p} missing standard docstring")
+
+tests/test_repo_structure.py::test_all_modules_have_standard_docstring
+  C:\arcis\halcyon-lab\.claude\worktrees\agent-ae0414e31727d8ee6\tests\test_repo_structure.py:134: UserWarning: GRANDFATHERED: src\trading\broker_factory.py missing standard docstring
+    warnings.warn(f"GRANDFATHERED: {p} missing standard docstring")
+
+tests/test_repo_structure.py::test_all_modules_have_standard_docstring
+  C:\arcis\halcyon-lab\.claude\worktrees\agent-ae0414e31727d8ee6\tests\test_repo_structure.py:134: UserWarning: GRANDFATHERED: src\utils\type_safety.py missing standard docstring
+    warnings.warn(f"GRANDFATHERED: {p} missing standard docstring")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/audits/test_training_audit_cli.py::test_cli_end_to_end_dry_run_prints_summary_json
+FAILED tests/audits/test_training_audit_cli.py::test_cli_write_mode_updates_db
+FAILED tests/audits/test_training_audit_cli.py::test_cli_reruns_produce_identical_summaries
+FAILED tests/platform/test_backtest_engine.py::test_backtest_matches_hand_computed_example_event_driven
+FAILED tests/platform/test_find_candidates.py::test_find_candidates_returns_nonempty_on_signal_match
+FAILED tests/platform/test_sector_filter.py::test_sector_filter_keeps_only_defensive
+FAILED tests/platform/test_sector_filter.py::test_no_sector_filter_returns_all
+FAILED tests/platform/test_sector_filter.py::test_sector_filter_multiple_sectors
+FAILED tests/platform/test_signal_eval_python_plugin.py::test_python_plugin_dedupes_open_positions
+FAILED tests/platform/test_signal_eval_scheduled.py::test_scheduled_dedupes_open_positions
+FAILED tests/shadow_trading/test_broker_partial_swallow_upgrades.py::test_site7_stop_loss_failure_persists
+FAILED tests/shadow_trading/test_reconcile_dispatch_db_path.py::test_get_strategies_by_status_resolves_none_to_config
+FAILED tests/shadow_trading/test_reconcile_dispatch_db_path.py::test_get_strategies_by_status_preserves_explicit_path
+FAILED tests/test_broker_interface.py::TestAlpacaLiveBracket651::test_place_live_bracket_submits_alpaca_bracket_request
+FAILED tests/test_broker_interface.py::TestAlpacaLiveBracket651::test_place_live_bracket_with_limit_uses_limit_request
+FAILED tests/test_broker_interface.py::TestAlpacaLiveBracket651::test_paper_and_live_bracket_use_same_alpaca_api
+FAILED tests/test_connect_db_complete_coverage.py::test_no_raw_sqlite3_connect_outside_allowlist
+FAILED tests/test_ib_production.py::TestErrorCodes::test_handle_ib_error_classifies_codes
+FAILED tests/test_live_trading.py::TestLiveAdapter::test_get_live_config_requires_credentials
+FAILED tests/test_live_trading.py::TestLiveAdapter::test_live_trading_client_uses_paper_false
+FAILED tests/test_log_levels.py::test_log_call_uses_expected_level[shadow_trading/alpaca_adapter.py-[CANCEL] Could not cancel order-debug]
+FAILED tests/test_log_levels.py::test_log_call_uses_expected_level[shadow_trading/alpaca_adapter.py-[CANCEL] Failed to cancel order-debug]
+FAILED tests/test_log_levels.py::test_log_call_uses_expected_level[shadow_trading/alpaca_adapter.py-[CANCEL] Could not cancel all orders-debug]
+FAILED tests/test_log_levels.py::test_log_call_uses_expected_level[shadow_trading/alpaca_adapter.py-[CANCEL] Could not list orders-debug]
+FAILED tests/test_repo_structure.py::test_no_file_over_400_lines - AssertionE...
+FAILED tests/test_repo_structure.py::test_no_function_over_60_lines - Asserti...
+FAILED tests/test_services.py::test_scan_with_packet_worthy_dry_run - assert ...
+FAILED tests/test_services.py::test_scan_strategy_wires_strategy_and_attribution_hooks
+FAILED tests/test_services.py::test_scan_strategy_without_attribution_hooks_skips_logging
+FAILED tests/training/test_audit_integration.py::test_dry_run_does_not_mutate_db
+FAILED tests/training/test_audit_integration.py::test_write_mode_flags_quarantined_rows
+FAILED tests/training/test_audit_integration.py::test_dry_run_is_reproducible_rerun_identical_summary
+FAILED tests/training/test_audit_integration.py::test_single_pass_runs_in_isolation
+FAILED tests/training/test_audit_integration.py::test_summary_has_taxonomy_conformant_reason_codes
+34 failed, 4034 passed, 11 skipped, 1771 warnings in 1319.97s (0:21:59)
