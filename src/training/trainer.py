@@ -420,7 +420,9 @@ def export_training_data(
         rows = conn.execute(
             "SELECT example_id, instruction, input_text, output_text, created_at, "
             "quality_score, curriculum_stage, quality_score_auto, source "
-            "FROM training_examples ORDER BY created_at ASC"
+            "FROM training_examples "
+            "WHERE COALESCE(quarantined, 0) = 0 "
+            "ORDER BY created_at ASC"
         ).fetchall()
 
     if not rows:
@@ -1007,3 +1009,36 @@ def check_model_performance(db_path: str = DB_PATH) -> dict:
         }
 
     return {"action": "none", "status": "performing well"}
+
+
+def quarantine_stuck_outcome_templates(db_path: str = DB_PATH) -> int:
+    """Quarantine all outcome_template_* rows with empty output_text (#625).
+
+    The deferred-batch fill process for these placeholder rows never ran,
+    leaving 75 rows that the trainer defensively filters every cycle.  This
+    function marks them quarantined=1 so the trainer's DB-level WHERE clause
+    never fetches them, eliminating the recurring filtered-75 warning.
+
+    Idempotent: rows already quarantined are not re-counted.
+
+    Returns:
+        Number of rows newly quarantined (0 if all already quarantined).
+    """
+    import sqlite3 as _sqlite3
+    with _sqlite3.connect(db_path) as conn:
+        cursor = conn.execute(
+            "UPDATE training_examples "
+            "SET quarantined = 1, quarantine_reason = 'OUTCOME_TEMPLATE_FILLER_UNSCHEDULED' "
+            "WHERE source LIKE 'outcome_template_%' "
+            "AND (output_text IS NULL OR TRIM(output_text) = '') "
+            "AND COALESCE(quarantined, 0) = 0"
+        )
+        affected = cursor.rowcount
+        conn.commit()
+    if affected:
+        logger.info(
+            "[TRAINING] Quarantined %d stuck outcome_template_* rows "
+            "(reason: OUTCOME_TEMPLATE_FILLER_UNSCHEDULED)",
+            affected,
+        )
+    return affected

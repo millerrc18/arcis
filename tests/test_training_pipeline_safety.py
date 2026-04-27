@@ -2,7 +2,8 @@
 
 Covers: #110 feature snapshot sanitization, #111 canary exclusion,
 #113 leakage detector minimum sample size, #114 temporal split order,
-#115 small dataset handling, #116 partial close detection.
+#115 small dataset handling, #116 partial close detection,
+#625 quarantined row filter + outcome_template quarantine migration.
 """
 
 import json
@@ -235,3 +236,106 @@ def test_partial_examples_excluded_from_export(tmp_path):
     result, total = export_training_data(output_dir=output_dir, db_path=db_path)
     # Total includes all 7, but training+holdout should only include 5
     assert result["training"] + result["holdout"] <= 5
+
+
+# ── #625: Quarantined row filter + outcome_template migration ─────────────
+
+def test_quarantined_rows_excluded_from_export(tmp_path):
+    """Rows with quarantined=1 must not appear in exported training data (#625).
+
+    The DB-level WHERE COALESCE(quarantined, 0) = 0 filter means quarantined
+    rows never even enter the Python-side filtering pipeline.
+    """
+    db_path = str(tmp_path / "test.db")
+    init_test_db(db_path, ["training_examples", "model_versions"])
+    with sqlite3.connect(db_path) as conn:
+        now = datetime.now().isoformat()
+        # 5 normal examples
+        for i in range(5):
+            conn.execute(
+                "INSERT INTO training_examples "
+                "(example_id, created_at, source, instruction, input_text, output_text, quarantined) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (f"normal-{i}", now, "blinded_win", "instr", "input", "output", 0),
+            )
+        # 3 quarantined examples (should be invisible to trainer)
+        for i in range(3):
+            conn.execute(
+                "INSERT INTO training_examples "
+                "(example_id, created_at, source, instruction, input_text, output_text, quarantined, quarantine_reason) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (f"quar-{i}", now, "outcome_template_primary_timeout",
+                 "instr", "input", "", 1, "OUTCOME_TEMPLATE_FILLER_UNSCHEDULED"),
+            )
+
+    from src.training.trainer import export_training_data
+    output_dir = str(tmp_path / "output")
+    result, total = export_training_data(output_dir=output_dir, db_path=db_path)
+    # DB-level filter must exclude quarantined rows; total = rows fetched before Python filters
+    assert total == 5
+
+
+def test_quarantine_stuck_outcome_templates_sets_flag(tmp_path):
+    """quarantine_stuck_outcome_templates() must set quarantined=1 on all
+    outcome_template_* rows whose output_text is NULL or empty (#625).
+    """
+    db_path = str(tmp_path / "test.db")
+    init_test_db(db_path, ["training_examples"])
+    with sqlite3.connect(db_path) as conn:
+        now = datetime.now().isoformat()
+        # 5 stuck outcome_template rows
+        for i in range(5):
+            conn.execute(
+                "INSERT INTO training_examples "
+                "(example_id, created_at, source, instruction, input_text, output_text) "
+                "VALUES (?,?,?,?,?,?)",
+                (f"tmpl-{i}", now, f"outcome_template_primary_timeout",
+                 "instr", "input", ""),
+            )
+        # 2 normal rows — must NOT be quarantined
+        for i in range(2):
+            conn.execute(
+                "INSERT INTO training_examples "
+                "(example_id, created_at, source, instruction, input_text, output_text) "
+                "VALUES (?,?,?,?,?,?)",
+                (f"normal-{i}", now, "blinded_win", "instr", "input", "output"),
+            )
+
+    from src.training.trainer import quarantine_stuck_outcome_templates
+    quarantined_count = quarantine_stuck_outcome_templates(db_path)
+
+    assert quarantined_count == 5
+    with sqlite3.connect(db_path) as conn:
+        stuck = conn.execute(
+            "SELECT COUNT(*) FROM training_examples "
+            "WHERE source LIKE 'outcome_template_%' AND quarantined = 1"
+        ).fetchone()[0]
+        assert stuck == 5
+        # Normal rows untouched
+        normal_quarantined = conn.execute(
+            "SELECT COUNT(*) FROM training_examples "
+            "WHERE source = 'blinded_win' AND quarantined = 1"
+        ).fetchone()[0]
+        assert normal_quarantined == 0
+
+
+def test_quarantine_stuck_outcome_templates_idempotent(tmp_path):
+    """Running quarantine_stuck_outcome_templates() twice must not double-count (#625)."""
+    db_path = str(tmp_path / "test.db")
+    init_test_db(db_path, ["training_examples"])
+    with sqlite3.connect(db_path) as conn:
+        now = datetime.now().isoformat()
+        for i in range(3):
+            conn.execute(
+                "INSERT INTO training_examples "
+                "(example_id, created_at, source, instruction, input_text, output_text) "
+                "VALUES (?,?,?,?,?,?)",
+                (f"tmpl-{i}", now, "outcome_template_primary_win", "instr", "input", ""),
+            )
+
+    from src.training.trainer import quarantine_stuck_outcome_templates
+    first = quarantine_stuck_outcome_templates(db_path)
+    second = quarantine_stuck_outcome_templates(db_path)
+
+    assert first == 3
+    assert second == 0  # Already quarantined; idempotent returns 0 new quarantines
