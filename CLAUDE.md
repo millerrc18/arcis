@@ -243,6 +243,7 @@ Two flavors: **wired** (called from runtime code paths) vs **shelf** (implemente
 - `src/risk/governor.py` — `effective_position_cap()` returns `min()` across 4 namespaces (`risk.*`, `risk_governor.*`, `live_trading.*`, `bootcamp.*`). Raises `GovernorInputMissingError` on missing required keys (no silent permissive defaults).
 - `src/scheduler/holidays.py` — uses `pandas_market_calendars` (NEW dep, see below) for NYSE calendar + half-day handling.
 - `src/universe/pit.py` — Point-in-time SP100 lookup. `load_sp100_membership_table()` loads `data/reference/sp100_history.json` (Wikipedia-sourced, regenerated via `scripts/build_sp100_history.py`). `get_sp100_at(as_of, membership_table=None)` — production path uses loader; tests can inject a fixture table. `get_data_range()` returns `(earliest, latest)` covered dates. `get_all_historical_tickers()` returns the sorted union of every ticker that has ever appeared in any snapshot (used by text-masking sites that need a superset rather than point-in-time). `UniverseDataMissing` raised for out-of-range `as_of` or missing JSON. **T10 migration complete (Sprint 1.A.1):** backtest/sim/training-backfill sites use `get_sp100_at(<as_of>)`; text-masking sites use `get_all_historical_tickers()`. Live-runtime callers (scheduler/services/cli/api/llm/platform/commands/training-bootstrap) intentionally retain `get_sp100_universe()` — enforced by `tests/test_pit_universe_discipline.py` allowlist. **Sprint 1.A.x corp-action handling complete (#803):** the JSON now contains historically-correct tickers — pre-2018 snapshots use PCLN (not BKNG), pre-2020-04 snapshots use UTX+RTN (not RTX), etc. Tier A coverage: PCLN→BKNG, KRFT→KHC, UTX+RTN→RTX, EMC removal, YHOO removal. Tier B (FB→META, etc.) tracked as follow-up under #803.
+- `src/cost_model/calibration.py` — Live-fill slippage/cost calibration writer + reader. `get_calibrated_cost_model()` is called by `backtest_model()` at init; `median_round_trip_cost_bps` is deducted per trade. Falls back to zero cost with a warning if JSON absent. **Wired as of Sprint 1.B (#79).**
 
 **Shelf (NOT wired into production promotion path — see `docs/methodology-toolkit.md`):**
 - `src/methods/pbo.py` — Probability of Backtest Overfitting (Bailey-LdP 2014, CSCV)
@@ -254,7 +255,6 @@ Two flavors: **wired** (called from runtime code paths) vs **shelf** (implemente
 - `src/methods/promotion_gate.py` — ≥4-of-5 voting gate orchestrating the 5 methods
 - `src/methods/factor_alpha_core.py` — Fama-French 3+momentum regression (Stage-3 diagnostic)
 - `src/allocation/risk_parity.py` — Inverse-vol allocator (T2.12b wiring deferred)
-- `src/cost_model/calibration.py` — Live-fill slippage/cost calibration writer (writes JSON; no backtest reads it yet)
 - `src/features/pullback_logistic.py` — Logistic-regression feature extractors (T2.14b model + T2.14c adapter deferred)
 - `src/data_ingestion/risk_free_rate.py` — FRED-backed rf-rate adapter (Stage-1 baseline still uses placeholder rf=0.0001 — wiring this in is the obvious follow-up)
 

@@ -2,7 +2,16 @@
 
 > Quick reference for the statistical-rigor modules added by the 2026-04-27 audit.
 > All modules live under `src/methods/` and `src/analytics/` and are pure-function (no I/O, no DB).
-> They are NOT yet wired into the production promotion path — this is a "shelf" you draw from when evaluating a strategy.
+> Most are NOT yet wired into the production promotion path — this is a "shelf" you draw from when evaluating a strategy.
+> Exceptions are listed in the **Wired** section below.
+
+## Wired (production callers exist)
+
+| Module | Wired as of | Description |
+|---|---|---|
+| `src/cost_model/calibration.py` | Sprint 1.B (#79) | `get_calibrated_cost_model()` is called at `backtest_model()` init; calibrated `median_round_trip_cost_bps` is deducted from each trade's `pnl_pct`. Falls back to zero-cost with a warning log if the JSON is absent. |
+
+---
 
 ## Pre-conditions
 

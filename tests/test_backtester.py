@@ -277,3 +277,106 @@ def test_compare_models_a_wins(mock_bt):
     ]
     result = compare_models("A", "B")
     assert result["winner"] == "A"
+
+
+# ── calibration wiring tests (#79) ──
+
+_CALIBRATION_FIXTURE = {
+    "total_count": 50,
+    "median_entry_slippage_bps": 5.0,
+    "p95_entry_slippage_bps": 12.0,
+    "median_exit_slippage_bps": 4.0,
+    "median_round_trip_cost_bps": 9.0,
+    "count_by_ticker": {"AAPL": 25, "MSFT": 25},
+    "last_calibrated_at": "2026-04-28T00:00:00+00:00",
+}
+
+
+@patch("src.config.load_config", return_value=_mock_config())
+@patch("src.universe.pit.get_sp100_at", return_value=["AAPL", "MSFT"])
+@patch("src.data_ingestion.market_data.fetch_ohlcv", return_value=_make_ohlcv())
+@patch("src.data_ingestion.market_data.fetch_spy_benchmark", return_value=_make_spy())
+@patch("src.training.historical_data.slice_to_date", return_value=(_make_ohlcv(), _make_spy()))
+@patch("src.training.historical_scanner.compute_outcome",
+       return_value={"pnl_pct": 3.5, "exit_reason": "target_1", "duration_days": 5})
+@patch("src.features.engine.compute_all_features", return_value=_make_features())
+@patch("src.ranking.ranker.rank_universe", return_value=[{"ticker": "AAPL", "score": 85}])
+@patch("src.ranking.ranker.get_top_candidates", return_value=_make_candidates())
+@patch("src.packets.template.build_packet_from_features", return_value=_make_packet())
+@patch("src.shadow_trading.executor._parse_price", side_effect=lambda x: float(x.replace("$", "").replace(",", "")))
+@patch("src.cost_model.calibration.get_calibrated_cost_model", return_value=_CALIBRATION_FIXTURE)
+def test_backtest_with_calibration_has_lower_pnl(
+    mock_cal, mock_parse, mock_build, mock_top, mock_rank,
+    mock_feat, mock_compute_outcome, mock_slice, mock_spy, mock_ohlcv, mock_universe, mock_config,
+):
+    """With calibration loaded, PnL must be lower than without (costs deducted)."""
+    from src.evaluation.backtester import backtest_model
+    result_with = backtest_model("test_model_calibrated", months=6)
+    assert result_with.get("trades_generated", 0) > 0
+    assert result_with.get("calibration_applied") is True
+
+
+@patch("src.config.load_config", return_value=_mock_config())
+@patch("src.universe.pit.get_sp100_at", return_value=["AAPL", "MSFT"])
+@patch("src.data_ingestion.market_data.fetch_ohlcv", return_value=_make_ohlcv())
+@patch("src.data_ingestion.market_data.fetch_spy_benchmark", return_value=_make_spy())
+@patch("src.training.historical_data.slice_to_date", return_value=(_make_ohlcv(), _make_spy()))
+@patch("src.training.historical_scanner.compute_outcome",
+       return_value={"pnl_pct": 3.5, "exit_reason": "target_1", "duration_days": 5})
+@patch("src.features.engine.compute_all_features", return_value=_make_features())
+@patch("src.ranking.ranker.rank_universe", return_value=[{"ticker": "AAPL", "score": 85}])
+@patch("src.ranking.ranker.get_top_candidates", return_value=_make_candidates())
+@patch("src.packets.template.build_packet_from_features", return_value=_make_packet())
+@patch("src.shadow_trading.executor._parse_price", side_effect=lambda x: float(x.replace("$", "").replace(",", "")))
+@patch("src.cost_model.calibration.get_calibrated_cost_model", return_value=None)
+def test_backtest_without_calibration_no_cost_applied(
+    mock_cal, mock_parse, mock_build, mock_top, mock_rank,
+    mock_feat, mock_compute_outcome, mock_slice, mock_spy, mock_ohlcv, mock_universe, mock_config,
+):
+    """Without calibration (None returned), backtest runs and calibration_applied is False."""
+    from src.evaluation.backtester import backtest_model
+    result = backtest_model("test_model_no_cal", months=6)
+    assert result.get("trades_generated", 0) > 0
+    assert result.get("calibration_applied") is False
+
+
+def test_backtest_calibration_pnl_delta_matches_expected():
+    """PnL delta between calibrated and uncalibrated: calibrated run must have lower total_pnl_pct."""
+    from contextlib import ExitStack
+    from src.evaluation.backtester import backtest_model
+
+    common_patches = [
+        patch("src.config.load_config", return_value=_mock_config()),
+        patch("src.universe.pit.get_sp100_at", return_value=["AAPL", "MSFT"]),
+        patch("src.data_ingestion.market_data.fetch_ohlcv", return_value=_make_ohlcv()),
+        patch("src.data_ingestion.market_data.fetch_spy_benchmark", return_value=_make_spy()),
+        patch("src.training.historical_data.slice_to_date", return_value=(_make_ohlcv(), _make_spy())),
+        patch("src.training.historical_scanner.compute_outcome",
+              return_value={"pnl_pct": 3.5, "exit_reason": "target_1", "duration_days": 5}),
+        patch("src.features.engine.compute_all_features", return_value=_make_features()),
+        patch("src.ranking.ranker.rank_universe", return_value=[{"ticker": "AAPL", "score": 85}]),
+        patch("src.ranking.ranker.get_top_candidates", return_value=_make_candidates()),
+        patch("src.packets.template.build_packet_from_features", return_value=_make_packet()),
+        patch("src.shadow_trading.executor._parse_price",
+              side_effect=lambda x: float(x.replace("$", "").replace(",", ""))),
+    ]
+
+    with ExitStack() as stack:
+        for p in common_patches:
+            stack.enter_context(p)
+        stack.enter_context(
+            patch("src.cost_model.calibration.get_calibrated_cost_model", return_value=_CALIBRATION_FIXTURE)
+        )
+        result_cal = backtest_model("model_cal", months=6)
+
+    with ExitStack() as stack:
+        for p in common_patches:
+            stack.enter_context(p)
+        stack.enter_context(
+            patch("src.cost_model.calibration.get_calibrated_cost_model", return_value=None)
+        )
+        result_no_cal = backtest_model("model_no_cal", months=6)
+
+    assert result_cal.get("calibration_applied") is True
+    assert result_no_cal.get("calibration_applied") is False
+    assert result_cal["total_pnl_pct"] < result_no_cal["total_pnl_pct"]
