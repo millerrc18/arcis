@@ -477,3 +477,71 @@ def test_api_costs_has_estimated_cost():
     assert "estimated_cost" in names, "api_costs missing estimated_cost"
     ec = next(c for c in td.columns if c.name == "estimated_cost")
     assert ec.type == "REAL"
+
+
+# ── #73 — sync_reconcile field ────────────────────────────────────
+
+def test_sync_reconcile_field_default_is_false():
+    """A fresh TableDef without explicit sync_reconcile yields False (#73)."""
+    td = TableDef(
+        name="_test_reconcile_default",
+        description="Test",
+        columns=[ColumnDef("id", "TEXT", nullable=False)],
+        primary_key="id",
+    )
+    assert td.sync_reconcile is False
+
+
+_MUST_BE_TRUE = {
+    "recommendations",
+    "shadow_trades",
+    "diagnostic_runs",
+    "attribution_trades",
+    "stress_test_results",
+    "simulation_results",
+    "minute_bars",
+    "walkforward_results",
+    "walkforward_trades",
+    "research_docs",
+    "setup_signals",
+    "build_score_history",
+    "log_entries",
+    "command_results",
+    "training_examples",
+    "validation_results",
+    "audit_reports",
+    "metric_snapshots",
+    "api_costs",
+    "council_sessions",
+    "council_votes",
+    "council_calibrations",
+    "council_debug_log",
+    "council_parameter_log",
+}
+
+
+def test_sync_reconcile_true_for_today_reconciled_tables():
+    """Each of the 24 tables reconciled today must have sync_reconcile=True (#73)."""
+    for name in _MUST_BE_TRUE:
+        assert name in TABLES, f"{name} not in registry"
+        assert TABLES[name].sync_reconcile is True, (
+            f"TABLES['{name}'].sync_reconcile should be True"
+        )
+
+
+def test_sync_reconcile_false_for_bidirectional_full_latest_only():
+    """Skipped/ineligible tables must have sync_reconcile=False (#73)."""
+    for name in (
+        "pending_commands",
+        "config_overrides",
+        "user_notes",
+        "model_versions",
+        "options_chains",
+        "scan_metrics",
+        "activity_log",
+        "broker_exceptions",
+    ):
+        assert name in TABLES, f"{name} not in registry"
+        assert TABLES[name].sync_reconcile is False, (
+            f"TABLES['{name}'].sync_reconcile should be False"
+        )

@@ -186,6 +186,18 @@ def test_sync_config_has_required_keys():
             assert "time_col" in entry, f"{name} (mode={entry['mode']}) missing 'time_col'"
 
 
+def test_generate_sync_tables_exposes_sync_reconcile():
+    """generate_sync_tables() output must include sync_reconcile in every entry (#73)."""
+    config = generate_sync_tables()
+    assert len(config) > 0, "generate_sync_tables returned empty config"
+    sample_name, sample_entry = next(iter(config.items()))
+    assert "sync_reconcile" in sample_entry, (
+        f"Entry for '{sample_name}' missing 'sync_reconcile' key"
+    )
+    for name, entry in config.items():
+        assert "sync_reconcile" in entry, f"Entry for '{name}' missing 'sync_reconcile' key"
+
+
 # ── Validator tests ──────────────────────────────────────────────
 
 from src.schema.validator import validate_sqlite, SchemaIssue, validate_codebase

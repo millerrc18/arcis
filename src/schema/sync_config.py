@@ -32,7 +32,7 @@ def generate_sync_tables() -> dict[str, dict]:
     for name, table in TABLES.items():
         if not table.sync_to_postgres:
             continue
-        entry: dict = {"mode": table.sync_mode}
+        entry: dict = {"mode": table.sync_mode, "sync_reconcile": table.sync_reconcile}
         is_composite = (
             isinstance(table.primary_key, list) and len(table.primary_key) > 1
         )
