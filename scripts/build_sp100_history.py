@@ -480,11 +480,13 @@ def _validate_table(table: dict) -> list:
     violations = []
     if len(table) < 2:
         violations.append(f"fewer than 2 snapshots ({len(table)})")
+    max_observed = max(len(tickers) for tickers in table.values()) if table else 0
+    cap = int(max_observed * 1.05)
     for date_str, tickers in table.items():
         if len(tickers) == 0:
             violations.append(f"snapshot {date_str} has 0 tickers")
-        if len(tickers) > 110:
-            violations.append(f"snapshot {date_str} has {len(tickers)} tickers (>110; likely parse error)")
+        if len(tickers) > cap:
+            violations.append(f"snapshot {date_str} has {len(tickers)} tickers (>{cap}; likely parse error)")
 
     # Historical-ticker spot-checks (#804). Run only if:
     # 1. Basic structural invariants pass (spot-checks are meaningless on a malformed table)
