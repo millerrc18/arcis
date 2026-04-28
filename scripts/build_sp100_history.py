@@ -92,11 +92,14 @@ _CURATED_CHANGES = [
     {"date": "2020-12-21", "added": "TSLA", "removed": "OXY"},
     # 2021
     {"date": "2021-03-22", "added": "NVDA", "removed": "WBA"},
-    # 2022 — NOTE: "removed": "EMRG" is a suspected typo (possibly "EMR");
-    # web search could not confirm EMR was removed on this date (EMR was still
-    # listed as S&P 100 constituent in Nov 2022 per search results).  Left as-is
-    # pending operator verification (#805-follow-up).
-    {"date": "2022-03-21", "added": "DXCM", "removed": "EMRG"},
+    # 2022 — Original entry had "removed": "EMRG" which is not a real ticker.
+    # Per Sprint 1.A.x T2 web-search investigation: EMR (Emerson Electric) was
+    # still listed as S&P 100 constituent in Nov 2022, so the original entry is
+    # a phantom (T2 left it as-is; T3 cleared it because it caused a 106-ticker
+    # invariant violation post backwards-walk through merger/acquisition events).
+    # Replaced with empty-removed (DXCM was added without paired removal — index
+    # size drift acceptable). Real DXCM addition date verified via S&P press release.
+    {"date": "2022-03-21", "added": "DXCM", "removed": ""},
     # 2023
     {"date": "2023-09-18", "added": "ABNB", "removed": "ATVI"},
     # 2024
@@ -379,6 +382,60 @@ def build_history_table(current: list, changes: list) -> dict:
     return result
 
 
+# Historical-ticker spot-check assertions (closes #804).
+#
+# Each entry: (snapshot_date_str, ticker, expected_present)
+# The validator finds the snapshot covering snapshot_date_str (== or earlier-most)
+# and asserts (ticker in snapshot) == expected_present. Catches BKNG-in-2015 class
+# of bugs at JSON-build time so future curated-list edits can't silently regress.
+#
+# Driven by Sprint 1.A.x corp-action handling (#803). When adding a new corp-action
+# event to _CURATED_CHANGES, also add at least one spot-check above and one below
+# the event date so validator catches a missed reverse-application.
+_HISTORICAL_TICKER_CHECKS: list[tuple[str, str, bool]] = [
+    # PCLN → BKNG rename (2018-02-27)
+    ("2015-03-19", "PCLN", True),    # pre-rename: PCLN should be present
+    ("2015-03-19", "BKNG", False),   # pre-rename: BKNG should NOT be present
+    ("2018-06-18", "BKNG", True),    # post-rename: BKNG should be present
+    # KRFT → KHC merger-rename (2015-07-06)
+    ("2015-03-19", "KRFT", True),    # pre-rename: KRFT should be present
+    ("2015-03-19", "KHC", False),    # pre-rename: KHC should NOT be present
+    ("2015-09-18", "KHC", True),     # post-rename: KHC should be present
+    # UTX + RTN → RTX merger (2020-04-03)
+    ("2015-09-18", "UTX", True),     # pre-merger: UTX should be present
+    ("2015-09-18", "RTN", True),     # pre-merger: RTN should be present
+    ("2015-09-18", "RTX", False),    # pre-merger: RTX should NOT be present
+    ("2020-12-21", "RTX", True),     # post-merger: RTX should be present
+    ("2020-12-21", "UTX", False),    # post-merger: UTX should NOT be present
+    ("2020-12-21", "RTN", False),    # post-merger: RTN should NOT be present
+    # EMC removal-via-acquisition (2016-09-07)
+    ("2015-03-19", "EMC", True),     # pre-removal: EMC should be present
+    ("2018-06-18", "EMC", False),    # post-removal: EMC should NOT be present
+    # YHOO removal-via-acquisition (2017-06-13)
+    ("2015-03-19", "YHOO", True),    # pre-removal: YHOO should be present
+    ("2018-06-18", "YHOO", False),   # post-removal: YHOO should NOT be present
+]
+
+
+def _spot_check_ticker_at(table: dict, snapshot_date: str, ticker: str, expected: bool) -> str | None:
+    """Return a violation string if the spot-check fails, else None.
+
+    Finds the snapshot covering snapshot_date (the latest key <= snapshot_date)
+    and verifies ticker presence matches expected.
+    """
+    eligible = [k for k in table.keys() if k <= snapshot_date]
+    if not eligible:
+        return f"spot-check ({snapshot_date}, {ticker}, {expected}): no snapshot covers this date"
+    cover_date = max(eligible)
+    actual = ticker in table[cover_date]
+    if actual != expected:
+        return (
+            f"spot-check ({snapshot_date}, {ticker}, expected={expected}): "
+            f"snapshot {cover_date} has {ticker}={actual} (mismatch)"
+        )
+    return None
+
+
 def _validate_table(table: dict) -> list:
     """Return a list of invariant violation strings (empty list means OK)."""
     violations = []
@@ -389,6 +446,22 @@ def _validate_table(table: dict) -> list:
             violations.append(f"snapshot {date_str} has 0 tickers")
         if len(tickers) > 105:
             violations.append(f"snapshot {date_str} has {len(tickers)} tickers (>105; likely parse error)")
+
+    # Historical-ticker spot-checks (#804). Run only if:
+    # 1. Basic structural invariants pass (spot-checks are meaningless on a malformed table)
+    # 2. Today's snapshot is production-scale (>= 50 tickers). Synthetic test fixtures use
+    #    3-10 tickers and their snapshots cannot satisfy the historical spot-checks (BKNG,
+    #    RTX, etc. simply aren't in the fixture's universe). Production SP100 has ~100.
+    sorted_keys = sorted(table.keys())
+    today_size = len(table[sorted_keys[-1]]) if sorted_keys else 0
+    is_production_scale = today_size >= 50
+
+    if not violations and is_production_scale:
+        for snapshot_date, ticker, expected in _HISTORICAL_TICKER_CHECKS:
+            v = _spot_check_ticker_at(table, snapshot_date, ticker, expected)
+            if v is not None:
+                violations.append(v)
+
     return violations
 
 
