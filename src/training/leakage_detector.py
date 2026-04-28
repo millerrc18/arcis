@@ -82,11 +82,16 @@ def check_outcome_leakage(db_path: str = DB_PATH) -> dict:
     # Mask ticker names and company names to prevent ticker-level correlation
     # from registering as outcome leakage.
     try:
-        from src.universe.sp100 import get_sp100_universe
+        from src.universe.pit import get_all_historical_tickers
         from src.universe.company_names import COMPANY_NAMES
         import re
 
-        tickers = set(t.lower() for t in get_sp100_universe())
+        # T10: text-masking needs the SUPERSET of every ticker that has
+        # ever been an SP100 member (e.g., to redact PCLN/BKNG, KRFT/KHC,
+        # UTX/RTN/RTX in historical training text). Point-in-time at any
+        # specific date would miss historically-removed tickers. Hence
+        # get_all_historical_tickers() rather than get_sp100_at(today).
+        tickers = set(t.lower() for t in get_all_historical_tickers())
         company_words = set()
         for name in COMPANY_NAMES.values():
             for word in name.lower().split():
