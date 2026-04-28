@@ -83,8 +83,28 @@ def _make_packet():
 
 # ── backtest_model tests ──
 
+
+def test_backtest_uses_pit_not_survivorship():
+    """T3 migration: backtester must call get_sp100_at, NOT get_sp100_universe."""
+    import ast
+    import inspect
+    from src.evaluation import backtester as _bt_module
+    source = inspect.getsource(_bt_module)
+    tree = ast.parse(source)
+    imported_names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.module == "src.universe.sp100":
+                for alias in node.names:
+                    imported_names.add(alias.name)
+    assert "get_sp100_universe" not in imported_names, (
+        "backtester must NOT import get_sp100_universe (survivorship-biased); "
+        "migrate to src.universe.pit.get_sp100_at"
+    )
+
+
 @patch("src.config.load_config", return_value=_mock_config())
-@patch("src.universe.sp100.get_sp100_universe", return_value=["AAPL", "MSFT"])
+@patch("src.universe.pit.get_sp100_at", return_value=["AAPL", "MSFT"])
 @patch("src.data_ingestion.market_data.fetch_ohlcv", return_value=_make_ohlcv())
 @patch("src.data_ingestion.market_data.fetch_spy_benchmark", return_value=_make_spy())
 @patch("src.features.engine.compute_all_features", return_value=_make_features())
@@ -115,7 +135,7 @@ def test_backtest_model_normal(
 
 
 @patch("src.config.load_config", return_value=_mock_config())
-@patch("src.universe.sp100.get_sp100_universe", return_value=["AAPL"])
+@patch("src.universe.pit.get_sp100_at", return_value=["AAPL"])
 @patch("src.data_ingestion.market_data.fetch_ohlcv", return_value=_make_ohlcv())
 @patch("src.data_ingestion.market_data.fetch_spy_benchmark", return_value=_make_spy())
 @patch("src.features.engine.compute_all_features", return_value=_make_features())
@@ -134,7 +154,7 @@ def test_backtest_model_empty_candidates(
 
 
 @patch("src.config.load_config", return_value=_mock_config())
-@patch("src.universe.sp100.get_sp100_universe", return_value=["AAPL"])
+@patch("src.universe.pit.get_sp100_at", return_value=["AAPL"])
 @patch("src.data_ingestion.market_data.fetch_ohlcv", side_effect=Exception("API down"))
 def test_backtest_model_data_fetch_error(mock_ohlcv, mock_universe, mock_config):
     from src.evaluation.backtester import backtest_model
@@ -143,7 +163,7 @@ def test_backtest_model_data_fetch_error(mock_ohlcv, mock_universe, mock_config)
 
 
 @patch("src.config.load_config", return_value=_mock_config())
-@patch("src.universe.sp100.get_sp100_universe", return_value=["AAPL"])
+@patch("src.universe.pit.get_sp100_at", return_value=["AAPL"])
 @patch("src.data_ingestion.market_data.fetch_ohlcv", return_value={"AAPL": pd.DataFrame()})
 @patch("src.data_ingestion.market_data.fetch_spy_benchmark", return_value=pd.DataFrame())
 def test_backtest_model_empty_spy(mock_spy, mock_ohlcv, mock_universe, mock_config):

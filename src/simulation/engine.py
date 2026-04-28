@@ -5,7 +5,7 @@ The script remains a thin CLI wrapper around these functions.
 
 Called by: scheduler.watch, scripts/simulation_engine.py
 Calls: simulation.cache, simulation.monte_carlo, attribution.logger,
-       features.indicators, universe.sp100
+       features.indicators, universe.pit
 Owns tables: simulation_results
 """
 
@@ -28,7 +28,7 @@ from src.simulation.cache import (
     _subtract_days,
     fetch_cached_ohlcv,
 )
-from src.universe.sp100 import get_sp100_universe
+from src.universe.pit import get_sp100_at
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -269,9 +269,8 @@ def run_scenario(name: str, start: str, end: str, config: dict | None = None) ->
                     for d, v in zip(close_col.index, close_col)}
         print(f"  VIX data: {len(vix_data)} days")
 
-    # Get universe
-    universe = get_sp100_universe()
-    print(f"  Universe: {len(universe)} tickers")
+    # One-time diagnostic: universe size at scenario start date
+    print(f"  Universe at {start}: {len(get_sp100_at(start))} tickers")
 
     # Track results
     trades = []
@@ -283,6 +282,7 @@ def run_scenario(name: str, start: str, end: str, config: dict | None = None) ->
 
     for day_idx in range(0, len(trading_days), scan_interval):
         day = trading_days[day_idx]
+        universe = get_sp100_at(day)  # PIT membership at this iteration's date
         if day_idx % 20 == 0:
             print(f"  Processing: {day} ({day_idx}/{len(trading_days)} days)")
 

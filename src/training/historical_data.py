@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 
-from src.universe.sp100 import get_sp100_universe
+from src.universe.pit import get_sp100_at
 
 logger = logging.getLogger(__name__)
 
@@ -56,14 +56,14 @@ def fetch_historical_universe(lookback_years: int = 2) -> dict:
 
     import yfinance as yf
 
-    universe = get_sp100_universe()
-    all_tickers = universe + ["SPY"]
-    n = len(all_tickers)
-
     end_date = datetime.now()
     start_date = end_date - timedelta(days=lookback_years * 365)
     start_str = start_date.strftime("%Y-%m-%d")
     end_str = end_date.strftime("%Y-%m-%d")
+
+    universe = get_sp100_at(start_date.date().isoformat())  # T10: as_of source: start_date at historical_data.py:64
+    all_tickers = universe + ["SPY"]
+    n = len(all_tickers)
 
     logger.info("[BACKFILL] Downloading %d years of data for %d tickers...", lookback_years, n)
     logger.info("[BACKFILL] Downloading %d tickers, %s to %s", n, start_str, end_str)

@@ -152,6 +152,23 @@ def get_sp100_at(
     return sorted(membership_table[snapshot_key])
 
 
+@lru_cache(maxsize=1)
+def get_all_historical_tickers() -> list[str]:
+    """Return sorted unique union of every ticker that ever appeared in the SP100 membership table.
+
+    Useful for text-masking and leakage-detection use cases where you need to know
+    every ticker that has ever been an SP100 member (e.g., to redact ticker mentions
+    in training text). For point-in-time membership at a specific date, use get_sp100_at().
+
+    Raises UniverseDataMissing if the JSON file is absent.
+    """
+    table = load_sp100_membership_table()
+    all_tickers: set[str] = set()
+    for tickers in table.values():
+        all_tickers.update(tickers)
+    return sorted(all_tickers)
+
+
 def apply_dividend_haircut(
     returns: float,
     dividend_yield_pct: float,

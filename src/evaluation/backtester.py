@@ -1,7 +1,7 @@
 """Walk-forward model backtesting framework.
 
 Called by: cli.commands
-Calls: config, data_ingestion.market_data, features.engine, packets.template, ranking.ranker, shadow_trading.executor, training.backfill, universe.sp100
+Calls: config, data_ingestion.market_data, features.engine, packets.template, ranking.ranker, shadow_trading.executor, training.backfill, universe.pit
 Owns tables: none
 Config keys: none
 Tests: tests/test_backtester.py
@@ -40,9 +40,8 @@ def backtest_model(model_name: str, months: int = 6,
     end_date = datetime.now() - timedelta(days=20)
     start_date = end_date - timedelta(days=months * 30)
 
-    # Fetch full historical data
-    from src.universe.sp100 import get_sp100_universe
-    universe = get_sp100_universe()
+    from src.universe.pit import get_sp100_at
+    universe = get_sp100_at(start_date.date().isoformat())  # T10: as_of source: start_date at line 41
 
     try:
         ohlcv = fetch_ohlcv(universe, period=f"{months * 30 + 60}d")

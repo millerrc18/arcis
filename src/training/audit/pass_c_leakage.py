@@ -54,10 +54,13 @@ def _mask_entity_names(text: str) -> str:
     """
     try:
         from src.universe.company_names import COMPANY_NAMES
-        from src.universe.sp100 import get_sp100_universe
+        from src.universe.pit import get_all_historical_tickers
     except Exception:
         return text
-    tickers = set(t.lower() for t in get_sp100_universe())
+    # T10: text-masking needs the SUPERSET of every ticker that has ever
+    # been an SP100 member (PCLN/BKNG, KRFT/KHC, UTX/RTN/RTX, etc.).
+    # Point-in-time at today would miss historically-removed tickers.
+    tickers = set(t.lower() for t in get_all_historical_tickers())
     company_words: set[str] = set()
     for name in COMPANY_NAMES.values():
         for word in name.lower().split():
