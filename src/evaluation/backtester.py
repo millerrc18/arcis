@@ -31,11 +31,24 @@ def backtest_model(model_name: str, months: int = 6,
     3. Parse conviction, track simulated portfolio
     4. Compute portfolio-level metrics
     """
+    from src.cost_model.calibration import get_calibrated_cost_model
     from src.data_ingestion.market_data import fetch_ohlcv, fetch_spy_benchmark
     from src.features.engine import compute_all_features
     from src.ranking.ranker import rank_universe, get_top_candidates
     from src.training.historical_data import slice_to_date
     from src.training.historical_scanner import compute_outcome
+
+    cost_model = get_calibrated_cost_model()
+    if cost_model is None:
+        logger.warning(
+            "No calibrated cost model found at default path — "
+            "falling back to raw pnl_pct (no slippage/commission deduction)"
+        )
+        calibration_applied = False
+        round_trip_cost_pct = 0.0
+    else:
+        calibration_applied = True
+        round_trip_cost_pct = (cost_model.get("median_round_trip_cost_bps") or 0.0) / 100.0
 
     config = load_config()
     end_date = datetime.now() - timedelta(days=20)
@@ -109,7 +122,7 @@ def backtest_model(model_name: str, months: int = 6,
                     if outcome is None:
                         continue
 
-                    pnl_pct = outcome.get("pnl_pct", 0)
+                    pnl_pct = outcome.get("pnl_pct", 0) - round_trip_cost_pct
                     trades.append({
                         "date": date_str,
                         "ticker": ticker,
@@ -139,7 +152,8 @@ def backtest_model(model_name: str, months: int = 6,
         equity_curve.append({"date": date_str, "equity": round(current_equity, 2)})
 
     if not trades:
-        return {"model": model_name, "trades_generated": 0, "error": "No qualifying trades found"}
+        return {"model": model_name, "trades_generated": 0, "error": "No qualifying trades found",
+                "calibration_applied": calibration_applied}
 
     # Compute metrics
     winners = [t for t in trades if t["pnl_pct"] > 0]
@@ -245,6 +259,7 @@ def backtest_model(model_name: str, months: int = 6,
         "trade_gap_days": avg_trade_gap,
         "by_regime": regime_summary,
         "equity_curve": equity_curve[:50],
+        "calibration_applied": calibration_applied,
     }
 
 
