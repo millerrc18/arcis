@@ -125,10 +125,18 @@ def create_router(runtime, verify_auth):
             )
             avg_quality = round(avg_row["avg"], 2) if avg_row and avg_row["avg"] else None
 
-            # Outcome counts
+            # Outcome counts — COALESCE across the post-migration schema.
+            # Tier 1.F of #807 dashboard audit (#54): the legacy `outcome`
+            # column is 0/1844 NULL after the schema migration that added
+            # `trade_outcome` (canonical going forward) and `outcome_type`.
+            # Without COALESCE this returned an empty distribution and the
+            # Training page rendered "Outcome data pending migration"
+            # indefinitely.
             outcome_rows = runtime.query(
-                "SELECT outcome, COUNT(*) as count FROM training_examples "
-                "WHERE outcome IS NOT NULL GROUP BY outcome"
+                "SELECT COALESCE(trade_outcome, outcome_type, outcome) as outcome, "
+                "COUNT(*) as count FROM training_examples "
+                "WHERE COALESCE(trade_outcome, outcome_type, outcome) IS NOT NULL "
+                "GROUP BY 1"
             )
             outcome_counts = {r["outcome"]: r["count"] for r in outcome_rows} if outcome_rows else None
 

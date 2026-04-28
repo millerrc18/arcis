@@ -38,6 +38,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from src.api.cloud_routes.analytics import create_router as create_analytics_router
+from src.api.cloud_routes.commands import create_router as create_commands_router
 from src.api.cloud_routes.core import create_router as create_core_router
 from src.api.cloud_routes.council import create_router as create_council_router
 from src.api.cloud_routes.diagnostics import create_router as create_diagnostics_router
@@ -298,6 +299,7 @@ for factory in (
     create_ib_shadow_router,
     create_diagnostics_router,
     create_system_index_router,
+    create_commands_router,
 ):
     app.include_router(factory(_runtime, verify_auth))
 
