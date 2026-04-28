@@ -25,8 +25,13 @@ Known limitations:
     - Wikipedia SP100 page (as of 2026-04) has no machine-readable change-history
       table; change records come from the curated list in this script.
     - Coverage starts from the earliest dated row in the curated list (2015-03-20).
-    - Ticker class changes (e.g. GOOG→GOOGL) are treated as add/remove pairs; no
-      attempt is made to merge share classes.
+    - Type-tagged events (rename, merger, spinoff, removal-via-acquisition) are now
+      supported via the optional "type" field on _CURATED_CHANGES records.  Records
+      without a "type" field default to the legacy add/remove behaviour.
+    - Tier A corporate-action coverage: PCLN→BKNG (2018-02-27), KRFT→KHC
+      (2015-07-06), UTX+RTN→RTX merger (2020-04-03), EMC removal-via-acquisition
+      (2016-09-07), YHOO removal-via-acquisition (2017-06-13).
+    - Tier B events (e.g. FB→META) are tracked under #803 follow-up.
     - The current-constituents Wikipedia table may briefly exceed 100 tickers
       during index transitions; such snapshots are flagged but retained.
 
@@ -56,28 +61,51 @@ _DATE_FORMATS = ("%B %d, %Y", "%b %d, %Y", "%Y-%m-%d")
 # Curated SP100 component changes.
 # Source: S&P Dow Jones Indices press releases (spglobal.com/spdji).
 # Mirrored from scripts/scrape_sp_changes.py::get_sp100_known_changes().
-# Each record: {"date": "YYYY-MM-DD", "added": "TICKER", "removed": "TICKER"}
-# Use empty string "" for add-only or remove-only events.
+#
+# Record shapes:
+#   {"date": "YYYY-MM-DD", "added": "TICKER", "removed": "TICKER"}  — legacy add/remove
+#   {"date": "YYYY-MM-DD", "type": "rename", "from": "OLD", "to": "NEW"}
+#   {"date": "YYYY-MM-DD", "type": "merger", "from": ["TKR_A", "TKR_B"], "to": "MERGED"}
+#   {"date": "YYYY-MM-DD", "type": "spinoff", "from": "PARENT", "to": ["CHILD_A", ...]}
+#   {"date": "YYYY-MM-DD", "type": "removal-via-acquisition", "from": "TICKER"}
+# Use empty string "" for add-only or remove-only events in legacy records.
+# EXAMPLE — each supported record shape (copy-paste into _CURATED_CHANGES as needed):
+#   {"date": "YYYY-MM-DD", "added": "TICKER", "removed": "TICKER"}      # legacy add/remove (empty "" for add-only or remove-only)
+#   {"date": "2018-02-27", "type": "rename", "from": "PCLN", "to": "BKNG"}
+#   {"date": "2020-04-03", "type": "merger", "from": ["UTX", "RTN"], "to": "RTX"}
+#   {"date": "YYYY-MM-DD", "type": "spinoff", "from": "PARENT", "to": ["CHILD_A", "CHILD_B"]}
+#   {"date": "2016-09-07", "type": "removal-via-acquisition", "from": "EMC"}
 _CURATED_CHANGES = [
     # 2015
     {"date": "2015-03-20", "added": "CMCSA", "removed": "ACE"},
+    {"date": "2015-07-06", "type": "rename", "from": "KRFT", "to": "KHC"},
     {"date": "2015-09-18", "added": "PYPL", "removed": "EBAY"},
     # 2016
     {"date": "2016-03-18", "added": "", "removed": "BKR"},
     {"date": "2016-09-06", "added": "CHTR", "removed": ""},
+    {"date": "2016-09-07", "type": "removal-via-acquisition", "from": "EMC"},
     # 2017
-    {"date": "2017-03-20", "added": "AVGO", "removed": "TWX"},
+    {"date": "2017-03-20", "added": "AVGO", "removed": ""},
+    {"date": "2017-06-13", "type": "removal-via-acquisition", "from": "YHOO"},
     {"date": "2017-06-19", "added": "LOW", "removed": ""},
     # 2018
+    {"date": "2018-02-27", "type": "rename", "from": "PCLN", "to": "BKNG"},
     {"date": "2018-06-18", "added": "NFLX", "removed": "TWX"},
     # 2019
     {"date": "2019-06-03", "added": "SBUX", "removed": "GE"},
     # 2020
+    {"date": "2020-04-03", "type": "merger", "from": ["UTX", "RTN"], "to": "RTX"},
     {"date": "2020-12-21", "added": "TSLA", "removed": "OXY"},
     # 2021
     {"date": "2021-03-22", "added": "NVDA", "removed": "WBA"},
-    # 2022
-    {"date": "2022-03-21", "added": "DXCM", "removed": "EMRG"},
+    # 2022 — Original entry had "removed": "EMRG" which is not a real ticker.
+    # Per Sprint 1.A.x T2 web-search investigation: EMR (Emerson Electric) was
+    # still listed as S&P 100 constituent in Nov 2022, so the original entry is
+    # a phantom (T2 left it as-is; T3 cleared it because it caused a 106-ticker
+    # invariant violation post backwards-walk through merger/acquisition events).
+    # Replaced with empty-removed (DXCM was added without paired removal — index
+    # size drift acceptable). Real DXCM addition date verified via S&P press release.
+    {"date": "2022-03-21", "added": "DXCM", "removed": ""},
     # 2023
     {"date": "2023-09-18", "added": "ABNB", "removed": "ATVI"},
     # 2024
@@ -305,9 +333,11 @@ def build_history_table(current: list, changes: list) -> dict:
 
     Args:
         current: Sorted list of ticker strings representing today's SP100.
-        changes: List of dicts with keys 'date', 'added', 'removed'; sorted
-                 ascending by date (as returned by parse_change_history or
-                 _CURATED_CHANGES).
+        changes: List of dicts; each has 'date' plus either the legacy
+                 'added'/'removed' keys or a 'type' field (rename, merger,
+                 spinoff, removal-via-acquisition).  Sorted ascending by date.
+                 Type-tagged events are dispatched in the reverse-apply loop
+                 via ``event_type = record.get("type", "add_remove")``.
 
     Returns:
         Dict mapping ISO date strings to sorted ticker lists.  sort_keys=True
@@ -319,15 +349,34 @@ def build_history_table(current: list, changes: list) -> dict:
 
     for record in reversed(changes):
         change_date = record["date"]
-        added = record.get("added", "")
-        removed = record.get("removed", "")
 
         result[change_date] = sorted(snapshot)
 
-        if added and added in snapshot:
-            snapshot.discard(added)
-        if removed and removed not in snapshot:
-            snapshot.add(removed)
+        event_type = record.get("type", "add_remove")
+        if event_type == "add_remove":
+            added = record.get("added", "")
+            removed = record.get("removed", "")
+            if added and added in snapshot:
+                snapshot.discard(added)
+            if removed and removed not in snapshot:
+                snapshot.add(removed)
+        elif event_type == "rename":
+            to_ticker = record["to"]
+            from_ticker = record["from"]
+            snapshot.discard(to_ticker)
+            snapshot.add(from_ticker)
+        elif event_type == "merger":
+            snapshot.discard(record["to"])
+            for t in record["from"]:
+                snapshot.add(t)
+        elif event_type == "spinoff":
+            for t in record["to"]:
+                snapshot.discard(t)
+            snapshot.add(record["from"])
+        elif event_type == "removal-via-acquisition":
+            snapshot.add(record["from"])
+        else:
+            raise ValueError(f"Unknown event type: {event_type!r} on {change_date}")
 
     if changes:
         earliest_date = changes[0]["date"]
@@ -341,6 +390,60 @@ def build_history_table(current: list, changes: list) -> dict:
     return result
 
 
+# Historical-ticker spot-check assertions (closes #804).
+#
+# Each entry: (snapshot_date_str, ticker, expected_present)
+# The validator finds the snapshot covering snapshot_date_str (== or earlier-most)
+# and asserts (ticker in snapshot) == expected_present. Catches BKNG-in-2015 class
+# of bugs at JSON-build time so future curated-list edits can't silently regress.
+#
+# Driven by Sprint 1.A.x corp-action handling (#803). When adding a new corp-action
+# event to _CURATED_CHANGES, also add at least one spot-check above and one below
+# the event date so validator catches a missed reverse-application.
+_HISTORICAL_TICKER_CHECKS: list[tuple[str, str, bool]] = [
+    # PCLN → BKNG rename (2018-02-27)
+    ("2015-03-19", "PCLN", True),    # pre-rename: PCLN should be present
+    ("2015-03-19", "BKNG", False),   # pre-rename: BKNG should NOT be present
+    ("2018-06-18", "BKNG", True),    # post-rename: BKNG should be present
+    # KRFT → KHC merger-rename (2015-07-06)
+    ("2015-03-19", "KRFT", True),    # pre-rename: KRFT should be present
+    ("2015-03-19", "KHC", False),    # pre-rename: KHC should NOT be present
+    ("2015-09-18", "KHC", True),     # post-rename: KHC should be present
+    # UTX + RTN → RTX merger (2020-04-03)
+    ("2015-09-18", "UTX", True),     # pre-merger: UTX should be present
+    ("2015-09-18", "RTN", True),     # pre-merger: RTN should be present
+    ("2015-09-18", "RTX", False),    # pre-merger: RTX should NOT be present
+    ("2020-12-21", "RTX", True),     # post-merger: RTX should be present
+    ("2020-12-21", "UTX", False),    # post-merger: UTX should NOT be present
+    ("2020-12-21", "RTN", False),    # post-merger: RTN should NOT be present
+    # EMC removal-via-acquisition (2016-09-07)
+    ("2015-03-19", "EMC", True),     # pre-removal: EMC should be present
+    ("2018-06-18", "EMC", False),    # post-removal: EMC should NOT be present
+    # YHOO removal-via-acquisition (2017-06-13)
+    ("2015-03-19", "YHOO", True),    # pre-removal: YHOO should be present
+    ("2018-06-18", "YHOO", False),   # post-removal: YHOO should NOT be present
+]
+
+
+def _spot_check_ticker_at(table: dict, snapshot_date: str, ticker: str, expected: bool) -> str | None:
+    """Return a violation string if the spot-check fails, else None.
+
+    Finds the snapshot covering snapshot_date (the latest key <= snapshot_date)
+    and verifies ticker presence matches expected.
+    """
+    eligible = [k for k in table.keys() if k <= snapshot_date]
+    if not eligible:
+        return f"spot-check ({snapshot_date}, {ticker}, {expected}): no snapshot covers this date"
+    cover_date = max(eligible)
+    actual = ticker in table[cover_date]
+    if actual != expected:
+        return (
+            f"spot-check ({snapshot_date}, {ticker}, expected={expected}): "
+            f"snapshot {cover_date} has {ticker}={actual} (mismatch)"
+        )
+    return None
+
+
 def _validate_table(table: dict) -> list:
     """Return a list of invariant violation strings (empty list means OK)."""
     violations = []
@@ -349,8 +452,24 @@ def _validate_table(table: dict) -> list:
     for date_str, tickers in table.items():
         if len(tickers) == 0:
             violations.append(f"snapshot {date_str} has 0 tickers")
-        if len(tickers) > 110:
-            violations.append(f"snapshot {date_str} has {len(tickers)} tickers (>110; likely parse error)")
+        if len(tickers) > 105:
+            violations.append(f"snapshot {date_str} has {len(tickers)} tickers (>105; likely parse error)")
+
+    # Historical-ticker spot-checks (#804). Run only if:
+    # 1. Basic structural invariants pass (spot-checks are meaningless on a malformed table)
+    # 2. Today's snapshot is production-scale (>= 50 tickers). Synthetic test fixtures use
+    #    3-10 tickers and their snapshots cannot satisfy the historical spot-checks (BKNG,
+    #    RTX, etc. simply aren't in the fixture's universe). Production SP100 has ~100.
+    sorted_keys = sorted(table.keys())
+    today_size = len(table[sorted_keys[-1]]) if sorted_keys else 0
+    is_production_scale = today_size >= 50
+
+    if not violations and is_production_scale:
+        for snapshot_date, ticker, expected in _HISTORICAL_TICKER_CHECKS:
+            v = _spot_check_ticker_at(table, snapshot_date, ticker, expected)
+            if v is not None:
+                violations.append(v)
+
     return violations
 
 

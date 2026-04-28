@@ -329,3 +329,30 @@ def test_get_all_historical_tickers_caches_via_lru_cache(tmp_path, monkeypatch, 
     first = get_all_historical_tickers()
     second = get_all_historical_tickers()
     assert first is second
+
+
+def test_get_all_historical_tickers_includes_renamed_tickers():
+    """After Sprint 1.A.x corp-action handling, the union helper must return historical tickers
+    (PCLN, KRFT, UTX, RTN, EMC, YHOO) in addition to current tickers (BKNG, KHC, RTX).
+
+    This is a regression-lock against losing the corp-action coverage if a future
+    edit to scripts/build_sp100_history.py reverses the type-tagged event handling.
+    Reads the production JSON file at data/reference/sp100_history.json — NOT a
+    monkeypatched fixture. If the JSON regen is missing, this test will fail loudly.
+    """
+    from src.universe.pit import get_all_historical_tickers, load_sp100_membership_table
+    # Clear cache so the test reads the actual on-disk file
+    get_all_historical_tickers.cache_clear()
+    load_sp100_membership_table.cache_clear()
+
+    union = get_all_historical_tickers()
+
+    # Historical tickers that should be in the union (Tier A coverage)
+    historical = ["PCLN", "KRFT", "UTX", "RTN", "EMC", "YHOO"]
+    for ticker in historical:
+        assert ticker in union, f"{ticker} missing from get_all_historical_tickers() — Sprint 1.A.x regression"
+
+    # Current tickers should also be present
+    current = ["BKNG", "KHC", "RTX"]
+    for ticker in current:
+        assert ticker in union, f"{ticker} missing from get_all_historical_tickers()"
