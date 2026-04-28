@@ -961,6 +961,34 @@ def cmd_config_diff(args):
             print(f"  - {k}")
 
 
+def cmd_run_promotion_gate(args):
+    """Run the promotion gate against an existing model version by name."""
+    import sqlite3 as _sqlite3
+    from src.training.trainer import run_promotion_gate_for_version  # noqa: F401 (needed for patch)
+
+    version_name = args.version_name
+    n_trials = getattr(args, "n_trials", 1)
+
+    with connect_db(DB_PATH) as conn:
+        conn.row_factory = _sqlite3.Row
+        row = conn.execute(
+            "SELECT version_id, version_name FROM model_versions WHERE version_name = ?",
+            (version_name,),
+        ).fetchone()
+
+    if not row:
+        print(f"Version not found: {version_name}")
+        return
+
+    result = run_promotion_gate_for_version(
+        version_id=row["version_id"],
+        version_name=row["version_name"],
+        db_path=DB_PATH,
+        n_trials=n_trials,
+    )
+    print(f"Promotion gate result: decision={result['decision']} status={result['status']}")
+
+
 def cmd_train_pipeline(args):
     """Run the complete training pipeline end-to-end."""
     from src.training.curriculum import classify_all_examples

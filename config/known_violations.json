@@ -22,7 +22,7 @@
     },
     {
       "file": "src/cli/commands.py",
-      "lines": 1415
+      "lines": 1444
     },
     {
       "file": "src/council/agent_data.py",
@@ -138,7 +138,7 @@
     },
     {
       "file": "src/training/trainer.py",
-      "lines": 1009
+      "lines": 1176
     },
     {
       "file": "src/training/versioning.py",
@@ -624,7 +624,7 @@
     {
       "file": "src/main.py",
       "function": "build_parser",
-      "lines": 189
+      "lines": 197
     },
     {
       "file": "src/notifications/telegram.py",
@@ -1109,7 +1109,12 @@
     {
       "file": "src/training/trainer.py",
       "function": "run_fine_tune",
-      "lines": 210
+      "lines": 223
+    },
+    {
+      "file": "src/training/trainer.py",
+      "function": "run_promotion_gate_for_version",
+      "lines": 66
     },
     {
       "file": "src/training/validation.py",

@@ -11,6 +11,7 @@
 |---|---|---|
 | `src/cost_model/calibration.py` | Sprint 1.B (#79) | `get_calibrated_cost_model()` is called at `backtest_model()` init; calibrated `median_round_trip_cost_bps` is deducted from each trade's `pnl_pct`. Falls back to zero-cost with a warning log if the JSON is absent. |
 | `src/data_ingestion/risk_free_rate.py` | Sprint 1.B (#80) | FRED DGS3MO/DTB3 rf-rate adapter. Wired into `src/evaluation/backtester.py` via `rf_source='fred'` (default). Provides per-trade daily decimal rf: `(annualized_pct / 100) / 252`. Tests mock FRED HTTP; no live network calls in CI. |
+| `src/methods/promotion_gate.py` | Sprint 1.B (#49) | 4-of-5 voting gate (PSR + PBO + MC permutation + White RC + IS-vs-OOS). Fires automatically after every `run_fine_tune()` call; decision recorded in `model_versions.status`. Available via `python -m src.main run-promotion-gate <version_name>`. See §4.6 of `docs/research/pre-registration-stage1.md` for the binding pre-registration. |
 
 ---
 
@@ -102,9 +103,10 @@ Question I'm trying to answer                       → Use this method
 
 **MinTRL gotcha:** The default `target_sharpe=0` is the LOOSEST possible MinTRL. To declare "Sharpe > 1.0", MinTRL is much higher. T1.08's instrumentation filter uses target=0 because Stage-1 only asks "can we even report this?" not "is it good?"
 
-### Promotion gate (≥4-of-5)
+### Promotion gate (≥4-of-5) — WIRED into post-train flow as of Sprint 1.B (#49)
 
 **Module:** `src/methods/promotion_gate.py` (commit `29efa3c`)
+**Wired:** Fires automatically after every `run_fine_tune()`. Decision recorded in `model_versions.status` (`'promoted'` / `'rejected_by_gate'` / `'pending_review'`). Operator-demand re-run: `python -m src.main run-promotion-gate <version_name>`.
 **What it does:** Runs the 5 statistical tests (CPCV, block bootstrap, MC perm, PSR/DSR, White RC) and returns a single decision.
 
 ```python
