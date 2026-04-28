@@ -355,6 +355,27 @@ Handle Integrator results:
 - PASS_WITH_GAPS: Note gaps in report, proceed
 - FAIL: Integrator dispatches fix Developers internally. If still failing after fixes, escalate to user.
 
+**Stale-base check before opening PR (mandatory):** before `gh pr create` runs in PHASE 7, the PM MUST verify the integration branch's merge-base with `origin/main` matches the current `origin/main` HEAD. Procedure:
+
+```bash
+git fetch origin main
+INTEGRATION_BRANCH=<your-integration-branch>
+MERGE_BASE=$(git merge-base "$INTEGRATION_BRANCH" origin/main)
+MAIN_HEAD=$(git rev-parse origin/main)
+if [ "$MERGE_BASE" != "$MAIN_HEAD" ]; then
+    # Integration branch is stale — rebase before opening PR
+    git switch "$INTEGRATION_BRANCH"
+    git rebase origin/main
+    # Verify the post-rebase diff is what you expect (e.g., still N files changed, no surprise revert hunks)
+    git diff origin/main..HEAD --stat
+    git push --force-with-lease origin "$INTEGRATION_BRANCH"
+fi
+```
+
+**Why this gate exists:** Sprint 1.A.0 incidents PR #769 and PR #816 both shipped with stale-base branches that would have silently reverted intervening main merges if merged. Both were caught at operator review, but the structural hazard is real and recurring (twice within 24h on 2026-04-27/28). This check catches the failure at PR-creation time rather than at review time.
+
+**Sanity criteria after rebase**: the post-rebase diff vs `origin/main` should contain ONLY the files this sprint touches. If new files appear in the diff that the sprint did not touch, STOP — the rebase produced unexpected hunks (likely a conflict-resolution went wrong), surface to operator before pushing.
+
 Update dashboard: `phase: "INTEGRATE"`.
 
 ---

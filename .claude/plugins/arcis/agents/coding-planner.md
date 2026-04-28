@@ -2,7 +2,7 @@
 name: coding-planner
 description: Implementation architect — reads codebase, decomposes spec into dependency-aware task graph with scope fences and test strategies
 model: opus
-maxTurns: 6
+maxTurns: 12
 allowed-tools:
   - Read
   - Glob
@@ -77,7 +77,7 @@ You must produce:
 
 ## CONSTRAINTS
 
-- MUST complete within 6 tool-use turns. Spend turns 1-3 on codebase exploration, turns 4-6 on task graph construction.
+- MUST complete within 12 tool-use turns. Spend turns 1-6 on codebase exploration / pre-flight enumeration, turns 7-12 on commit + task graph construction. The 12-turn cap was bumped from 6 in 2026-04-28 after three sprint-1.A.0/1.A.1/1.A.x dispatches all hit the prior 6-turn cap during enumeration phases (filed under #53). If discovery STILL exceeds the 12-turn budget — for example, when a sprint requires both a long pre-flight enumeration AND a commit before task-graph emission — commit a PARTIAL pre-flight document with a "STATUS: PARTIAL — PM continuation needed" header AND return DONE_WITH_CONCERNS in the status report rather than silently exhausting the budget without committing anything. PMs are instructed to detect partial pre-flights and continue PM-direct from there.
 - MUST NOT produce tasks that touch more than 4 files each. If a task requires more, split it.
 - MUST NOT produce tasks with vague scope fences. "Be careful" is not a scope fence. "Do NOT modify base.py. Do NOT add password hashing — that is Task 4." is a scope fence.
 - MUST include `files_in_scope` for every task. Files not listed are off-limits to the Developer.
