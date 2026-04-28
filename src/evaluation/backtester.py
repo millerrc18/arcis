@@ -47,7 +47,10 @@ def backtest_model(model_name: str, months: int = 6,
     try:
         ohlcv = fetch_ohlcv(universe, period=f"{months * 30 + 60}d")
         spy = fetch_spy_benchmark(period=f"{months * 30 + 60}d")
-    except Exception as e:
+    except (ConnectionError, TimeoutError) as e:
+        # Network-layer failures (transient): return an error dict so the caller
+        # can decide whether to retry. All other exceptions (KeyError on missing
+        # config, RuntimeError from a code bug, etc.) re-raise so they are visible.
         return {"error": f"Data fetch failed: {e}"}
 
     if spy.empty:
@@ -124,8 +127,13 @@ def backtest_model(model_name: str, months: int = 6,
                     current_equity += equity_change
                     daily_pnls.append(pnl_pct)
 
-        except Exception as e:
-            logger.debug("Backtest day %s error: %s", date_str, e)
+        except (ConnectionError, TimeoutError) as e:
+            # Recoverable: transient network errors fetching intraday or benchmark
+            # data for a single day. Skip this iteration and continue the backtest.
+            # KeyError is NOT caught here — a missing dict key indicates a code bug
+            # (e.g. mismatched feature schema) and must fail loudly so it is fixed,
+            # not silently masked as a "missed trading day."
+            logger.warning("Backtest day %s recoverable error: %s", date_str, e)
             continue
 
         equity_curve.append({"date": date_str, "equity": round(current_equity, 2)})

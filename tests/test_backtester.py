@@ -185,11 +185,55 @@ def test_slice_to_date_contract_matches_backtester_caller():
 
 @patch("src.config.load_config", return_value=_mock_config())
 @patch("src.universe.pit.get_sp100_at", return_value=["AAPL"])
-@patch("src.data_ingestion.market_data.fetch_ohlcv", side_effect=Exception("API down"))
+@patch("src.data_ingestion.market_data.fetch_ohlcv", side_effect=ConnectionError("network down"))
 def test_backtest_model_data_fetch_error(mock_ohlcv, mock_universe, mock_config):
+    """Recoverable network error in data fetch returns an error dict (not raised)."""
     from src.evaluation.backtester import backtest_model
     result = backtest_model("broken_model", months=1)
     assert "error" in result
+
+
+@patch("src.config.load_config", return_value=_mock_config())
+@patch("src.universe.pit.get_sp100_at", return_value=["AAPL"])
+@patch("src.data_ingestion.market_data.fetch_ohlcv", side_effect=RuntimeError("unexpected code bug"))
+def test_backtest_model_data_fetch_unrecoverable_raises(mock_ohlcv, mock_universe, mock_config):
+    """Unrecoverable exception in data fetch must propagate, not be swallowed."""
+    from src.evaluation.backtester import backtest_model
+    with pytest.raises(RuntimeError, match="unexpected code bug"):
+        backtest_model("broken_model", months=1)
+
+
+@patch("src.config.load_config", return_value=_mock_config())
+@patch("src.universe.pit.get_sp100_at", return_value=["AAPL", "MSFT"])
+@patch("src.data_ingestion.market_data.fetch_ohlcv", return_value=_make_ohlcv())
+@patch("src.data_ingestion.market_data.fetch_spy_benchmark", return_value=_make_spy())
+@patch("src.training.historical_data.slice_to_date", return_value=(_make_ohlcv(), _make_spy()))
+@patch("src.features.engine.compute_all_features", side_effect=RuntimeError("feature pipeline broken"))
+def test_backtest_model_unexpected_exception_propagates(
+    mock_feat, mock_slice, mock_spy, mock_ohlcv, mock_universe, mock_config,
+):
+    """RuntimeError in per-iteration computation must propagate — not be silently swallowed."""
+    from src.evaluation.backtester import backtest_model
+    with pytest.raises(RuntimeError, match="feature pipeline broken"):
+        backtest_model("test_model_v1", months=1)
+
+
+@patch("src.config.load_config", return_value=_mock_config())
+@patch("src.universe.pit.get_sp100_at", return_value=["AAPL", "MSFT"])
+@patch("src.data_ingestion.market_data.fetch_ohlcv", return_value=_make_ohlcv())
+@patch("src.data_ingestion.market_data.fetch_spy_benchmark", return_value=_make_spy())
+@patch("src.training.historical_data.slice_to_date", return_value=(_make_ohlcv(), _make_spy()))
+@patch("src.features.engine.compute_all_features", side_effect=ConnectionError("market data feed dropped"))
+def test_backtest_model_recoverable_exception_logs_and_continues(
+    mock_feat, mock_slice, mock_spy, mock_ohlcv, mock_universe, mock_config,
+):
+    """ConnectionError in per-iteration step logs WARNING and continues (no trades, not a crash)."""
+    import logging
+    from src.evaluation.backtester import backtest_model
+    with patch("src.evaluation.backtester.logger") as mock_logger:
+        result = backtest_model("test_model_v1", months=1)
+    assert mock_logger.warning.called, "expected WARNING to be logged for ConnectionError"
+    assert "error" in result or result.get("trades_generated", 0) == 0
 
 
 @patch("src.config.load_config", return_value=_mock_config())
