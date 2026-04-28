@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 
 def backtest_model(model_name: str, months: int = 6,
                    db_path: str = DB_PATH,
+                   train_start: str | None = None,
+                   train_end: str | None = None,
+                   test_start: str | None = None,
+                   test_end: str | None = None,
                    rf_source: str = "fred") -> dict:
     """Run a walk-forward backtest of a trained model on historical data.
 
@@ -52,15 +56,28 @@ def backtest_model(model_name: str, months: int = 6,
         round_trip_cost_pct = (cost_model.get("median_round_trip_cost_bps") or 0.0) / 100.0
 
     config = load_config()
-    end_date = datetime.now() - timedelta(days=20)
-    start_date = end_date - timedelta(days=months * 30)
+
+    # PR #831 review fix: when the walk-forward harness passes test_start/test_end,
+    # use those dates instead of the today-based fallback. The harness assumes the
+    # model is already trained on the train window (train_start/train_end are
+    # accepted for symmetry but not actively used here — that's a methodological
+    # invariant the harness enforces by selecting which model_name to test).
+    if test_start and test_end:
+        start_date = datetime.fromisoformat(test_start)
+        end_date = datetime.fromisoformat(test_end)
+    else:
+        end_date = datetime.now() - timedelta(days=20)
+        start_date = end_date - timedelta(days=months * 30)
+
+    window_days = max((end_date - start_date).days, 1)
+    fetch_period_days = window_days + 60  # buffer for slice_to_date's 200-row minimum
 
     from src.universe.pit import get_sp100_at
-    universe = get_sp100_at(start_date.date().isoformat())  # T10: as_of source: start_date at line 41
+    universe = get_sp100_at(start_date.date().isoformat())  # T10: as_of source: start_date
 
     try:
-        ohlcv = fetch_ohlcv(universe, period=f"{months * 30 + 60}d")
-        spy = fetch_spy_benchmark(period=f"{months * 30 + 60}d")
+        ohlcv = fetch_ohlcv(universe, period=f"{fetch_period_days}d")
+        spy = fetch_spy_benchmark(period=f"{fetch_period_days}d")
     except (ConnectionError, TimeoutError) as e:
         # Network-layer failures (transient): return an error dict so the caller
         # can decide whether to retry. All other exceptions (KeyError on missing

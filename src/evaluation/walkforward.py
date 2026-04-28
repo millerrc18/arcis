@@ -1,0 +1,310 @@
+"""Walk-forward harness — anchored expanding × N folds × embargo.
+
+CLI entrypoint and fold-driver implementing pre-registration §3 methodology.
+
+Called by: CLI (python -m src.evaluation.walkforward)
+Calls: src.evaluation.backtester.backtest_model, src.scheduler.holidays,
+       src.universe.pit (for coverage range)
+Owns tables: none
+Config keys: none
+Tests: tests/evaluation/test_walkforward.py
+
+Pre-registration §3 (committed 2026-04-28):
+  §3.1  Anchored expanding window — train_start fixed; train_end advances per fold
+  §3.2  N successive folds over the test period
+  §3.3  8 folds × ~4 months from 2023-09 (default)
+  §3.4  21 trading-day embargo between train_end and test_start
+  §3.5  Folds with <15 trades flagged underpowered; excluded from primary aggregate
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import sys
+from datetime import date, timedelta
+from typing import Any
+
+import pandas_market_calendars as mcal
+
+from src.evaluation.backtester import backtest_model
+from src.scheduler.holidays import is_market_holiday
+
+# ─── constants ────────────────────────────────────────────────────────────────
+
+_UNDERPOWERED_THRESHOLD = 15
+_DEFAULT_FOLD_COUNT = 8
+_DEFAULT_EMBARGO_DAYS = 21
+_DEFAULT_ANCHOR = "2023-09-01"
+_COVERAGE_START = "2015-03-19"
+
+_NYSE = mcal.get_calendar("NYSE")
+
+
+# ─── trading-day utilities ────────────────────────────────────────────────────
+
+def _is_trading_day(d: date) -> bool:
+    return d.weekday() < 5 and not is_market_holiday(check_date=d)
+
+
+def _next_trading_day(d: date) -> date:
+    """Return d if it's a trading day, otherwise advance to the next one."""
+    candidate = d
+    while not _is_trading_day(candidate):
+        candidate += timedelta(days=1)
+    return candidate
+
+
+def _prev_trading_day(d: date) -> date:
+    """Return d if it's a trading day, otherwise retreat to the previous one."""
+    candidate = d
+    while not _is_trading_day(candidate):
+        candidate -= timedelta(days=1)
+    return candidate
+
+
+def _subtract_trading_days(d: date, n: int) -> date:
+    """Move d backwards by exactly n trading days."""
+    cursor = d
+    count = 0
+    while count < n:
+        cursor -= timedelta(days=1)
+        if _is_trading_day(cursor):
+            count += 1
+    return cursor
+
+
+# ─── single-fold boundary helper ─────────────────────────────────────────────
+
+def _single_fold_boundary(
+    fold_idx: int,
+    anchor_date: date,
+    train_anchor: date,
+    fold_calendar_days: int,
+    embargo_days: int,
+) -> dict[str, Any]:
+    """Compute one fold's boundary dict (train_start/end, test_start/end)."""
+    test_start_raw = anchor_date + timedelta(days=fold_idx * fold_calendar_days)
+    test_end_raw = anchor_date + timedelta(days=(fold_idx + 1) * fold_calendar_days)
+
+    test_start = _next_trading_day(test_start_raw)
+    test_end = _prev_trading_day(test_end_raw)
+
+    train_end = _subtract_trading_days(test_start, embargo_days)
+    if train_end < train_anchor:
+        train_end = train_anchor
+
+    return {
+        "fold_idx": fold_idx,
+        "train_start": train_anchor.isoformat(),
+        "train_end": train_end.isoformat(),
+        "test_start": test_start.isoformat(),
+        "test_end": test_end.isoformat(),
+    }
+
+
+# ─── fold-boundary computation ────────────────────────────────────────────────
+
+def compute_fold_boundaries(
+    anchor: str = _DEFAULT_ANCHOR,
+    fold_count: int = _DEFAULT_FOLD_COUNT,
+    embargo_days: int = _DEFAULT_EMBARGO_DAYS,
+) -> list[dict[str, Any]]:
+    """Compute anchored-expanding walk-forward fold boundaries (pre-reg §3).
+
+    Returns list of fold dicts with fold_idx, train_start, train_end,
+    test_start, test_end (all ISO date strings).
+    """
+    anchor_date = date.fromisoformat(anchor)
+    train_anchor = _next_trading_day(date.fromisoformat(_COVERAGE_START))
+    coverage_end = date.today()
+
+    total_test_days = (coverage_end - anchor_date).days
+    if total_test_days <= 0:
+        raise ValueError(f"anchor {anchor} is on or after coverage_end {coverage_end}")
+
+    fold_calendar_days = math.ceil(total_test_days / fold_count)
+    return [
+        _single_fold_boundary(i, anchor_date, train_anchor, fold_calendar_days, embargo_days)
+        for i in range(fold_count)
+    ]
+
+
+# ─── underpowered flag ────────────────────────────────────────────────────────
+
+def _apply_underpowered_flag(trades_count: int) -> bool:
+    """Return True if the fold has fewer than 15 trades (per pre-reg §3.5)."""
+    return trades_count < _UNDERPOWERED_THRESHOLD
+
+
+# ─── per-fold metrics ─────────────────────────────────────────────────────────
+
+def _compute_fold_sharpe(trades: list[dict]) -> float:
+    """Compute annualized Sharpe from per-trade pnl_pct values."""
+    from src.analytics.canonical_sharpe import compute_sharpe
+    pnls = [t.get("pnl_pct", 0.0) for t in trades]
+    if not pnls:
+        return 0.0
+    result = compute_sharpe(pnls, periods_per_year=252)
+    return result if result is not None else 0.0
+
+
+def _compute_fold_return_total(trades: list[dict]) -> float:
+    """Sum of pnl_pct across all trades in the fold."""
+    return sum(t.get("pnl_pct", 0.0) for t in trades)
+
+
+def _primary_t_stat(pnls: list[float], sharpe: float) -> float:
+    """Compute t-stat = (mean/stdev) * sqrt(n) from the raw pnl series."""
+    n = len(pnls)
+    if n <= 1 or sharpe == 0.0:
+        return 0.0
+    mean_r = sum(pnls) / n
+    var_r = sum((r - mean_r) ** 2 for r in pnls) / (n - 1)
+    std_r = var_r ** 0.5
+    return ((mean_r / std_r) * math.sqrt(n)) if std_r > 0 else 0.0
+
+
+# ─── aggregate computation ────────────────────────────────────────────────────
+
+def compute_aggregate(folds: list[dict]) -> dict:
+    """Compute aggregate metrics, excluding underpowered folds from primary stats.
+
+    Returns dict: primary_sharpe, primary_t_stat, primary_trades_count,
+    underpowered_footnote.
+    """
+    from src.analytics.canonical_sharpe import compute_sharpe
+
+    powered = [f for f in folds if not f["underpowered"]]
+    underpowered = [f for f in folds if f["underpowered"]]
+
+    pnls = [t.get("pnl_pct", 0.0) for f in powered for t in f.get("trades", [])]
+    primary_trades_count = sum(f["trades_count"] for f in powered)
+
+    if pnls:
+        val = compute_sharpe(pnls, periods_per_year=252)
+        primary_sharpe = val if val is not None else 0.0
+    else:
+        primary_sharpe = 0.0
+
+    primary_t_stat = _primary_t_stat(pnls, primary_sharpe)
+
+    return {
+        "primary_sharpe": round(primary_sharpe, 4),
+        "primary_t_stat": round(primary_t_stat, 4),
+        "primary_trades_count": primary_trades_count,
+        "underpowered_footnote": {
+            "underpowered_fold_count": len(underpowered),
+            "underpowered_trades_count": sum(f["trades_count"] for f in underpowered),
+        },
+    }
+
+
+# ─── per-fold runner ──────────────────────────────────────────────────────────
+
+def _run_fold(model: str, boundary: dict) -> dict:
+    """Call backtest_model for one fold and assemble the fold result dict."""
+    train_start = boundary["train_start"]
+    train_end = boundary["train_end"]
+    test_start = boundary["test_start"]
+    test_end = boundary["test_end"]
+
+    test_start_d = date.fromisoformat(test_start)
+    test_end_d = date.fromisoformat(test_end)
+    approx_months = max(1, math.ceil((test_end_d - test_start_d).days / 30))
+
+    bt = backtest_model(
+        model, months=approx_months,
+        train_start=train_start, train_end=train_end,
+        test_start=test_start, test_end=test_end,
+    )
+
+    trades = bt.get("trades", [])
+    trades_count = len(trades) if trades else bt.get("trades_generated", 0)
+    underpowered = _apply_underpowered_flag(trades_count)
+    fold_sharpe = _compute_fold_sharpe(trades) if trades else bt.get("sharpe_ratio", 0.0)
+    fold_return = _compute_fold_return_total(trades) if trades else bt.get("total_pnl_pct", 0.0)
+
+    return {
+        "fold_idx": boundary["fold_idx"],
+        "train_start": train_start,
+        "train_end": train_end,
+        "test_start": test_start,
+        "test_end": test_end,
+        "trades_count": trades_count,
+        "underpowered": underpowered,
+        "trades": trades,
+        "fold_sharpe": round(fold_sharpe, 4),
+        "fold_return_total": round(fold_return, 4),
+    }
+
+
+# ─── main driver ──────────────────────────────────────────────────────────────
+
+def run_walkforward(
+    model: str,
+    anchor: str = _DEFAULT_ANCHOR,
+    fold_count: int = _DEFAULT_FOLD_COUNT,
+    embargo_days: int = _DEFAULT_EMBARGO_DAYS,
+    output_json: str | None = None,
+) -> dict:
+    """Run the walk-forward harness (pre-reg §3).
+
+    Calls backtest_model once per fold, applies underpowered flag, and
+    aggregates primary metrics over powered folds only.
+    """
+    boundaries = compute_fold_boundaries(anchor, fold_count, embargo_days)
+    completed_folds = [_run_fold(model, b) for b in boundaries]
+    aggregate = compute_aggregate(completed_folds)
+
+    result = {
+        "anchor_date": anchor,
+        "fold_count": fold_count,
+        "embargo_days": embargo_days,
+        "folds": completed_folds,
+        "aggregate": aggregate,
+    }
+
+    if output_json:
+        with open(output_json, "w", encoding="utf-8") as fh:
+            json.dump(result, fh, indent=2, default=str)
+
+    return result
+
+
+# ─── CLI ─────────────────────────────────────────────────────────────────────
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="python -m src.evaluation.walkforward",
+        description=(
+            "Walk-forward harness — anchored expanding × N folds × embargo. "
+            "Implements pre-registration §3 Stage 1 methodology."
+        ),
+    )
+    parser.add_argument("--model", default="arcis:v1.0.0",
+                        help="Model identifier (default: arcis:v1.0.0)")
+    parser.add_argument("--anchor", default=_DEFAULT_ANCHOR,
+                        help=f"Start of test period ISO date (default: {_DEFAULT_ANCHOR})")
+    parser.add_argument("--folds", type=int, default=_DEFAULT_FOLD_COUNT, dest="folds",
+                        help=f"Number of test folds (default: {_DEFAULT_FOLD_COUNT})")
+    parser.add_argument("--embargo", type=int, default=_DEFAULT_EMBARGO_DAYS,
+                        help=f"Trading-day embargo (default: {_DEFAULT_EMBARGO_DAYS})")
+    parser.add_argument("--output-json", default=None, metavar="PATH",
+                        help="Write JSON output to this path")
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    result = run_walkforward(
+        model=args.model, anchor=args.anchor,
+        fold_count=args.folds, embargo_days=args.embargo,
+        output_json=args.output_json,
+    )
+    print(json.dumps(result, indent=2, default=str))
+
+
+if __name__ == "__main__":
+    main()
