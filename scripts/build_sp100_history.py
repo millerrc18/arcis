@@ -25,8 +25,13 @@ Known limitations:
     - Wikipedia SP100 page (as of 2026-04) has no machine-readable change-history
       table; change records come from the curated list in this script.
     - Coverage starts from the earliest dated row in the curated list (2015-03-20).
-    - Ticker class changes (e.g. GOOG→GOOGL) are treated as add/remove pairs; no
-      attempt is made to merge share classes.
+    - Type-tagged events (rename, merger, spinoff, removal-via-acquisition) are now
+      supported via the optional "type" field on _CURATED_CHANGES records.  Records
+      without a "type" field default to the legacy add/remove behaviour.
+    - Tier A corporate-action coverage: PCLN→BKNG (2018-02-27), KRFT→KHC
+      (2015-07-06), UTX+RTN→RTX merger (2020-04-03), EMC removal-via-acquisition
+      (2016-09-07), YHOO removal-via-acquisition (2017-06-13).
+    - Tier B events (e.g. FB→META) are tracked under #803 follow-up.
     - The current-constituents Wikipedia table may briefly exceed 100 tickers
       during index transitions; such snapshots are flagged but retained.
 
@@ -56,27 +61,41 @@ _DATE_FORMATS = ("%B %d, %Y", "%b %d, %Y", "%Y-%m-%d")
 # Curated SP100 component changes.
 # Source: S&P Dow Jones Indices press releases (spglobal.com/spdji).
 # Mirrored from scripts/scrape_sp_changes.py::get_sp100_known_changes().
-# Each record: {"date": "YYYY-MM-DD", "added": "TICKER", "removed": "TICKER"}
-# Use empty string "" for add-only or remove-only events.
+#
+# Record shapes:
+#   {"date": "YYYY-MM-DD", "added": "TICKER", "removed": "TICKER"}  — legacy add/remove
+#   {"date": "YYYY-MM-DD", "type": "rename", "from": "OLD", "to": "NEW"}
+#   {"date": "YYYY-MM-DD", "type": "merger", "from": ["TKR_A", "TKR_B"], "to": "MERGED"}
+#   {"date": "YYYY-MM-DD", "type": "spinoff", "from": "PARENT", "to": ["CHILD_A", ...]}
+#   {"date": "YYYY-MM-DD", "type": "removal-via-acquisition", "from": "TICKER"}
+# Use empty string "" for add-only or remove-only events in legacy records.
 _CURATED_CHANGES = [
     # 2015
     {"date": "2015-03-20", "added": "CMCSA", "removed": "ACE"},
+    {"date": "2015-07-06", "type": "rename", "from": "KRFT", "to": "KHC"},
     {"date": "2015-09-18", "added": "PYPL", "removed": "EBAY"},
     # 2016
     {"date": "2016-03-18", "added": "", "removed": "BKR"},
     {"date": "2016-09-06", "added": "CHTR", "removed": ""},
+    {"date": "2016-09-07", "type": "removal-via-acquisition", "from": "EMC"},
     # 2017
-    {"date": "2017-03-20", "added": "AVGO", "removed": "TWX"},
+    {"date": "2017-03-20", "added": "AVGO", "removed": ""},
+    {"date": "2017-06-13", "type": "removal-via-acquisition", "from": "YHOO"},
     {"date": "2017-06-19", "added": "LOW", "removed": ""},
     # 2018
+    {"date": "2018-02-27", "type": "rename", "from": "PCLN", "to": "BKNG"},
     {"date": "2018-06-18", "added": "NFLX", "removed": "TWX"},
     # 2019
     {"date": "2019-06-03", "added": "SBUX", "removed": "GE"},
     # 2020
+    {"date": "2020-04-03", "type": "merger", "from": ["UTX", "RTN"], "to": "RTX"},
     {"date": "2020-12-21", "added": "TSLA", "removed": "OXY"},
     # 2021
     {"date": "2021-03-22", "added": "NVDA", "removed": "WBA"},
-    # 2022
+    # 2022 — NOTE: "removed": "EMRG" is a suspected typo (possibly "EMR");
+    # web search could not confirm EMR was removed on this date (EMR was still
+    # listed as S&P 100 constituent in Nov 2022 per search results).  Left as-is
+    # pending operator verification (#805-follow-up).
     {"date": "2022-03-21", "added": "DXCM", "removed": "EMRG"},
     # 2023
     {"date": "2023-09-18", "added": "ABNB", "removed": "ATVI"},
@@ -305,9 +324,9 @@ def build_history_table(current: list, changes: list) -> dict:
 
     Args:
         current: Sorted list of ticker strings representing today's SP100.
-        changes: List of dicts with keys 'date', 'added', 'removed'; sorted
-                 ascending by date (as returned by parse_change_history or
-                 _CURATED_CHANGES).
+        changes: List of dicts; each has 'date' plus either the legacy
+                 'added'/'removed' keys or a 'type' field (rename, merger,
+                 spinoff, removal-via-acquisition).  Sorted ascending by date.
 
     Returns:
         Dict mapping ISO date strings to sorted ticker lists.  sort_keys=True
@@ -319,15 +338,34 @@ def build_history_table(current: list, changes: list) -> dict:
 
     for record in reversed(changes):
         change_date = record["date"]
-        added = record.get("added", "")
-        removed = record.get("removed", "")
 
         result[change_date] = sorted(snapshot)
 
-        if added and added in snapshot:
-            snapshot.discard(added)
-        if removed and removed not in snapshot:
-            snapshot.add(removed)
+        event_type = record.get("type", "add_remove")
+        if event_type == "add_remove":
+            added = record.get("added", "")
+            removed = record.get("removed", "")
+            if added and added in snapshot:
+                snapshot.discard(added)
+            if removed and removed not in snapshot:
+                snapshot.add(removed)
+        elif event_type == "rename":
+            to_ticker = record["to"]
+            from_ticker = record["from"]
+            snapshot.discard(to_ticker)
+            snapshot.add(from_ticker)
+        elif event_type == "merger":
+            snapshot.discard(record["to"])
+            for t in record["from"]:
+                snapshot.add(t)
+        elif event_type == "spinoff":
+            for t in record["to"]:
+                snapshot.discard(t)
+            snapshot.add(record["from"])
+        elif event_type == "removal-via-acquisition":
+            snapshot.add(record["from"])
+        else:
+            raise ValueError(f"Unknown event type: {event_type!r} on {change_date}")
 
     if changes:
         earliest_date = changes[0]["date"]
@@ -349,8 +387,8 @@ def _validate_table(table: dict) -> list:
     for date_str, tickers in table.items():
         if len(tickers) == 0:
             violations.append(f"snapshot {date_str} has 0 tickers")
-        if len(tickers) > 110:
-            violations.append(f"snapshot {date_str} has {len(tickers)} tickers (>110; likely parse error)")
+        if len(tickers) > 105:
+            violations.append(f"snapshot {date_str} has {len(tickers)} tickers (>105; likely parse error)")
     return violations
 
 
