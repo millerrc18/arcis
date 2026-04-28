@@ -49,6 +49,21 @@ from src.api.cloud_routes.training import create_router as create_training_route
 from src.api.cloud_routes import platform as _platform_module
 from src.sync.render_sync import SYNC_TABLES
 
+# Populate the four capability registries via decorator side-effects (#807, dashboard Tier 1.B).
+# Each `import` here triggers @register_action / @register_state / @register_system /
+# @register_decision decorators in the module body, which is the only way the registries
+# learn about their entries. Without these explicit imports, the system_index endpoint
+# returns empty registries to the dashboard. Sprint 1.A.x follow-up (#TBD) will refactor
+# this to a per-registry bootstrap() pattern; this is the stopgap.
+import src.platform  # noqa: E402,F401  — populates ActionRegistry, StateRegistry
+import src.diagnostics  # noqa: E402,F401  — populates ActionRegistry
+import src.attribution.logger  # noqa: E402,F401  — populates SystemRegistry
+import src.services.bootcamp_state  # noqa: E402,F401  — populates StateRegistry
+import src.services.training_service  # noqa: E402,F401  — populates StateRegistry
+import src.llm.ollama_state  # noqa: E402,F401  — populates StateRegistry
+import src.data_ingestion.backfill_registration  # noqa: E402,F401  — populates ActionRegistry
+import src.platform.capability_registry.audit_registration  # noqa: E402,F401  — populates SystemRegistry
+
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 DIAGNOSTIC_TABLES = tuple(SYNC_TABLES.keys())
