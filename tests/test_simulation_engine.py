@@ -346,8 +346,8 @@ class TestRunScenario:
 
         with patch("src.simulation.engine.fetch_cached_ohlcv") as mock_fetch:
             mock_fetch.return_value = mock_df
-            with patch("src.simulation.engine.get_sp100_universe") as mock_uni:
-                mock_uni.return_value = ["AAPL", "MSFT", "GOOGL", "AMZN", "META"]
+            with patch("src.simulation.engine.get_sp100_at") as mock_pit:
+                mock_pit.return_value = ["AAPL", "MSFT", "GOOGL", "AMZN", "META"]
 
                 result = run_scenario("test", "2023-01-01", "2023-03-31")
 
@@ -361,3 +361,31 @@ class TestRunScenario:
                 assert "benchmark_pnl_pct" in result
                 assert "tl_states" in result
                 assert isinstance(result["equity_curve"], list)
+
+    def test_run_scenario_uses_pit_per_day(self):
+        """Verify run_scenario calls get_sp100_at once per scan iteration, not get_sp100_universe."""
+        from src.simulation.engine import run_scenario
+
+        dates = pd.date_range("2023-01-01", periods=30, freq="B")
+        mock_df = pd.DataFrame({
+            "Open": np.ones(30) * 100,
+            "High": np.ones(30) * 105,
+            "Low": np.ones(30) * 95,
+            "Close": np.ones(30) * 100,
+            "Volume": np.ones(30, dtype=int) * 1000000,
+        }, index=dates)
+
+        with patch("src.simulation.engine.fetch_cached_ohlcv") as mock_fetch:
+            mock_fetch.return_value = mock_df
+            with patch("src.simulation.engine.get_sp100_at") as mock_pit:
+                mock_pit.return_value = ["AAPL", "MSFT"]
+                # scan_interval=5 over 30 business days → 6 iterations
+                run_scenario("test", "2023-01-01", "2023-02-10",
+                             config={"scan_interval_days": 5})
+                # get_sp100_at must be called at least once (per-day loop)
+                assert mock_pit.call_count >= 1
+                # Each call receives an ISO date string
+                for call_args in mock_pit.call_args_list:
+                    as_of_arg = call_args[0][0]
+                    assert len(as_of_arg) == 10  # "YYYY-MM-DD"
+                    assert as_of_arg[4] == "-" and as_of_arg[7] == "-"
