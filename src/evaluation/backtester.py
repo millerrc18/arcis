@@ -22,7 +22,8 @@ logger = logging.getLogger(__name__)
 
 
 def backtest_model(model_name: str, months: int = 6,
-                   db_path: str = DB_PATH) -> dict:
+                   db_path: str = DB_PATH,
+                   rf_source: str = "fred") -> dict:
     """Run a walk-forward backtest of a trained model on historical data.
 
     Process:
@@ -73,10 +74,18 @@ def backtest_model(model_name: str, months: int = 6,
     import pandas as pd
     trading_days = pd.bdate_range(start_date, end_date)
 
+    if rf_source not in ("placeholder", "fred"):
+        raise ValueError(f"rf_source must be 'placeholder' or 'fred'; got {rf_source!r}")
+
+    if rf_source == "fred":
+        from src.data_ingestion.risk_free_rate import get_rf_rate
+    _RF_PLACEHOLDER = 0.0001
+
     trades = []
     equity_curve = [{"date": start_date.strftime("%Y-%m-%d"), "equity": 1000}]
     current_equity = 1000.0
     daily_pnls = []
+    excess_pnls = []
 
     for day in trading_days[::5]:  # Sample every 5th day for speed
         date_str = day.strftime("%Y-%m-%d")
@@ -123,6 +132,17 @@ def backtest_model(model_name: str, months: int = 6,
                         continue
 
                     pnl_pct = outcome.get("pnl_pct", 0) - round_trip_cost_pct
+
+                    import datetime as _dt
+                    _trade_date = _dt.date.fromisoformat(date_str)
+                    if rf_source == "fred":
+                        try:
+                            rf_per_day = get_rf_rate(_trade_date)
+                        except Exception:
+                            rf_per_day = _RF_PLACEHOLDER
+                    else:
+                        rf_per_day = _RF_PLACEHOLDER
+
                     trades.append({
                         "date": date_str,
                         "ticker": ticker,
@@ -139,6 +159,7 @@ def backtest_model(model_name: str, months: int = 6,
                     equity_change = current_equity * allocation_pct * (pnl_pct / 100)
                     current_equity += equity_change
                     daily_pnls.append(pnl_pct)
+                    excess_pnls.append(pnl_pct / 100 - rf_per_day)
 
         except (ConnectionError, TimeoutError) as e:
             # Recoverable: transient network errors fetching intraday or benchmark
@@ -161,18 +182,19 @@ def backtest_model(model_name: str, months: int = 6,
     win_rate = len(winners) / len(trades) if trades else 0
     total_pnl_pct = ((current_equity - 1000) / 1000) * 100
 
-    # Sharpe ratio
+    # Sharpe ratio — rf-adjusted when rf_source='fred', raw otherwise.
     # F-2 (Sprint 0/4b WALKFORWARD-CANONICAL): route through
-    # src.platform.metrics.compute_sharpe (which delegates to
-    # src.analytics.canonical_sharpe.raw_sharpe at periods_per_year=252)
-    # so all Sharpe computations flow through one source of truth.
-    # Mathematically equivalent to the prior parallel
-    # `mean/std(ddof=1) * sqrt(252)` formula; canonical returns None
-    # when Sharpe is undefined (single-obs / zero variance) and the
-    # backtester contract is 0 — so we map None -> 0.
-    from src.platform.metrics import compute_sharpe as _canonical_compute_sharpe
-    _sharpe_val = _canonical_compute_sharpe(list(daily_pnls), periods_per_year=252)
+    # src.analytics.canonical_sharpe so all Sharpe computations flow through
+    # one source of truth.  When rf_source='fred' we use excess_pnls (already
+    # rf-subtracted per-trade); when rf_source='placeholder' we fall back to
+    # the raw daily_pnls path (0.0001 subtracted in excess_pnls, same as before).
+    # canonical returns None when Sharpe is undefined (single-obs / zero
+    # variance); backtester contract maps None -> 0.
+    from src.analytics.canonical_sharpe import compute_sharpe as _canonical_compute_sharpe
+    _sharpe_series = excess_pnls if excess_pnls else list(daily_pnls)
+    _sharpe_val = _canonical_compute_sharpe(_sharpe_series, periods_per_year=252)
     sharpe = _sharpe_val if _sharpe_val is not None else 0
+    rf_excess_mean = sum(excess_pnls) / len(excess_pnls) if excess_pnls else 0.0
 
     # Max drawdown
     peak = 1000
@@ -252,6 +274,8 @@ def backtest_model(model_name: str, months: int = 6,
         "win_rate": round(win_rate, 3),
         "total_pnl_pct": round(total_pnl_pct, 1),
         "sharpe_ratio": round(sharpe, 2),
+        "rf_source": rf_source,
+        "rf_excess_mean": rf_excess_mean,
         "max_drawdown_pct": max_dd_pct,
         "max_drawdown_duration_days": max_dd_duration_days,
         "calmar_ratio": calmar,

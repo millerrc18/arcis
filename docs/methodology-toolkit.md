@@ -2,6 +2,7 @@
 
 > Quick reference for the statistical-rigor modules added by the 2026-04-27 audit.
 > All modules live under `src/methods/` and `src/analytics/` and are pure-function (no I/O, no DB).
+<<<<<<< HEAD
 > Most are NOT yet wired into the production promotion path — this is a "shelf" you draw from when evaluating a strategy.
 > Exceptions are listed in the **Wired** section below.
 
@@ -10,6 +11,13 @@
 | Module | Wired as of | Description |
 |---|---|---|
 | `src/cost_model/calibration.py` | Sprint 1.B (#79) | `get_calibrated_cost_model()` is called at `backtest_model()` init; calibrated `median_round_trip_cost_bps` is deducted from each trade's `pnl_pct`. Falls back to zero-cost with a warning log if the JSON is absent. |
+=======
+> The shelf modules are NOT yet wired into the production promotion path — draw from them when evaluating a strategy.
+
+## Wired data-ingestion modules (called from backtester as of Sprint 1.B Wave C)
+
+- `src/data_ingestion/risk_free_rate.py` — FRED DGS3MO/DTB3 rf-rate adapter. Wired into `src/evaluation/backtester.py` via `rf_source='fred'` (default). Provides per-trade daily decimal rf: `(annualized_pct / 100) / 252`. Tests mock FRED HTTP; no live network calls in CI.
+>>>>>>> 9ae7c0f (feat(evaluation): wire FRED-backed risk-free rate (#80 Sprint 1.B Wave C))
 
 ---
 
