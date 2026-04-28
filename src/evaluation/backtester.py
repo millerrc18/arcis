@@ -66,8 +66,11 @@ def backtest_model(model_name: str, months: int = 6,
         date_str = day.strftime("%Y-%m-%d")
 
         try:
-            sliced = slice_to_date(ohlcv, date_str)
-            spy_sliced = spy[spy.index <= date_str] if not spy.empty else spy
+            # slice_to_date expects {"tickers": {...}, "spy": df} and returns
+            # (ohlcv_dict, spy_sliced) — match its contract here. Prior code passed
+            # the flat ohlcv dict and bound a single var, raising KeyError('spy')
+            # on every iteration which the silent except below swallowed → trades=0.
+            sliced, spy_sliced = slice_to_date({"tickers": ohlcv, "spy": spy}, date_str)
 
             if not sliced or spy_sliced.empty:
                 continue
