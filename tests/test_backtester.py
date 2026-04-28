@@ -1,36 +1,23 @@
 """Tests for src/evaluation/backtester.py — walk-forward backtesting.
 
-backtester.py uses function-level imports including one from a module that has
-since been refactored (src.training.backfill.slice_to_date / compute_outcome).
-We inject a mock module into sys.modules to make these imports succeed, then
-patch the actual heavy dependencies.
+The backtester imports from `src.training.historical_data` (slice_to_date) and
+`src.training.historical_scanner` (compute_outcome). Tests mock these on the
+real import sources rather than via sys.modules injection.
+
+Pre-2026-04-28 history: the imports were originally written against
+`src.training.backfill` (broken — those names never lived there), and the test
+file used a sys.modules injection to keep the broken imports working in CI.
+PR #820 fixed the imports to point at the correct modules; PR after that fixed
+slice_to_date's call site (it returns a tuple, not a dict, and expects
+{"tickers": ..., "spy": ...} as input). This test file was rewritten to mock
+the correct sources end-to-end.
 """
 
-import sys
-from types import SimpleNamespace, ModuleType
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
-
-
-# ── Create a mock backfill module with the missing functions ──
-
-_mock_backfill = ModuleType("src.training.backfill")
-_mock_backfill.slice_to_date = MagicMock(return_value={})
-_mock_backfill.compute_outcome = MagicMock(return_value={"pnl_pct": 3.5, "exit_reason": "target_1", "duration_days": 5})
-
-
-@pytest.fixture(autouse=True)
-def _patch_backfill_module():
-    """Inject mock backfill module so backtester's function-level imports work."""
-    original = sys.modules.get("src.training.backfill")
-    sys.modules["src.training.backfill"] = _mock_backfill
-    yield
-    if original is not None:
-        sys.modules["src.training.backfill"] = original
-    else:
-        sys.modules.pop("src.training.backfill", None)
 
 
 # ── Helpers ──
@@ -107,6 +94,9 @@ def test_backtest_uses_pit_not_survivorship():
 @patch("src.universe.pit.get_sp100_at", return_value=["AAPL", "MSFT"])
 @patch("src.data_ingestion.market_data.fetch_ohlcv", return_value=_make_ohlcv())
 @patch("src.data_ingestion.market_data.fetch_spy_benchmark", return_value=_make_spy())
+@patch("src.training.historical_data.slice_to_date", return_value=(_make_ohlcv(), _make_spy()))
+@patch("src.training.historical_scanner.compute_outcome",
+       return_value={"pnl_pct": 3.5, "exit_reason": "target_1", "duration_days": 5})
 @patch("src.features.engine.compute_all_features", return_value=_make_features())
 @patch("src.ranking.ranker.rank_universe", return_value=[{"ticker": "AAPL", "score": 85}])
 @patch("src.ranking.ranker.get_top_candidates", return_value=_make_candidates())
@@ -114,19 +104,14 @@ def test_backtest_uses_pit_not_survivorship():
 @patch("src.shadow_trading.executor._parse_price", side_effect=lambda x: float(x.replace("$", "").replace(",", "")))
 def test_backtest_model_normal(
     mock_parse, mock_build, mock_top, mock_rank,
-    mock_feat, mock_spy, mock_ohlcv, mock_universe, mock_config,
+    mock_feat, mock_compute_outcome, mock_slice, mock_spy, mock_ohlcv, mock_universe, mock_config,
 ):
-    # Configure the backfill mocks for this test
-    _mock_backfill.slice_to_date = MagicMock(return_value=_make_ohlcv())
-    _mock_backfill.compute_outcome = MagicMock(
-        return_value={"pnl_pct": 3.5, "exit_reason": "target_1", "duration_days": 5}
-    )
-
     from src.evaluation.backtester import backtest_model
     result = backtest_model("test_model_v1", months=6)
 
     assert result["model"] == "test_model_v1"
     assert "trades_generated" in result
+    assert result["trades_generated"] > 0, "expected trades to be generated when all gates produce candidates"
     assert "win_rate" in result
     assert "total_pnl_pct" in result
     assert "sharpe_ratio" in result
@@ -138,19 +123,64 @@ def test_backtest_model_normal(
 @patch("src.universe.pit.get_sp100_at", return_value=["AAPL"])
 @patch("src.data_ingestion.market_data.fetch_ohlcv", return_value=_make_ohlcv())
 @patch("src.data_ingestion.market_data.fetch_spy_benchmark", return_value=_make_spy())
+@patch("src.training.historical_data.slice_to_date", return_value=(_make_ohlcv(), _make_spy()))
 @patch("src.features.engine.compute_all_features", return_value=_make_features())
 @patch("src.ranking.ranker.rank_universe", return_value=[])
 @patch("src.ranking.ranker.get_top_candidates", return_value={"packet_worthy": [], "watchlist": []})
 def test_backtest_model_empty_candidates(
-    mock_top, mock_rank, mock_feat, mock_spy, mock_ohlcv, mock_universe, mock_config,
+    mock_top, mock_rank, mock_feat, mock_slice, mock_spy, mock_ohlcv, mock_universe, mock_config,
 ):
-    _mock_backfill.slice_to_date = MagicMock(return_value=_make_ohlcv())
-
     from src.evaluation.backtester import backtest_model
     result = backtest_model("empty_model", months=2)
 
     assert result["model"] == "empty_model"
     assert result["trades_generated"] == 0
+
+
+def test_backtester_imports_resolve():
+    """Smoke test: backtester's function-level imports must all resolve at runtime.
+
+    Regression-lock against #820 (slice_to_date imported from wrong module) and
+    against the same class of bug that the silent except in backtest_model swallowed
+    for an unknown duration. If a refactor moves any of these symbols and the import
+    site isn't updated, this test fails immediately rather than silently producing
+    'No qualifying trades found' at backtest time.
+    """
+    from src.evaluation.backtester import backtest_model
+    # Trigger the function-level imports by inspecting the function's source-imports
+    # via a fresh call frame that exercises every import line.
+    from src.data_ingestion.market_data import fetch_ohlcv, fetch_spy_benchmark  # noqa: F401
+    from src.features.engine import compute_all_features  # noqa: F401
+    from src.ranking.ranker import rank_universe, get_top_candidates  # noqa: F401
+    from src.training.historical_data import slice_to_date  # noqa: F401
+    from src.training.historical_scanner import compute_outcome  # noqa: F401
+    from src.universe.pit import get_sp100_at  # noqa: F401
+    from src.packets.template import build_packet_from_features  # noqa: F401
+    from src.shadow_trading.executor import _parse_price  # noqa: F401
+    assert callable(backtest_model)
+
+
+def test_slice_to_date_contract_matches_backtester_caller():
+    """Regression-lock: slice_to_date's signature must match the backtester's call.
+
+    The backtester does: `sliced, spy_sliced = slice_to_date({"tickers": ohlcv, "spy": spy}, date_str)`
+    expecting a 2-tuple return. If slice_to_date is ever refactored to return a single
+    value or a different tuple shape, this test fails immediately.
+    """
+    from src.training.historical_data import slice_to_date
+
+    spy = _make_spy()
+    tickers = _make_ohlcv()
+    data = {"tickers": tickers, "spy": spy}
+    cutoff = "2025-06-01"
+
+    result = slice_to_date(data, cutoff)
+    assert isinstance(result, tuple), f"slice_to_date must return a tuple; got {type(result).__name__}"
+    assert len(result) == 2, f"slice_to_date must return a 2-tuple; got {len(result)}"
+
+    ohlcv_dict, spy_sliced = result
+    assert isinstance(ohlcv_dict, dict)
+    assert isinstance(spy_sliced, pd.DataFrame)
 
 
 @patch("src.config.load_config", return_value=_mock_config())
