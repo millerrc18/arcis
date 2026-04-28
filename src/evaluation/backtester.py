@@ -34,7 +34,8 @@ def backtest_model(model_name: str, months: int = 6,
     from src.data_ingestion.market_data import fetch_ohlcv, fetch_spy_benchmark
     from src.features.engine import compute_all_features
     from src.ranking.ranker import rank_universe, get_top_candidates
-    from src.training.backfill import slice_to_date, compute_outcome
+    from src.training.historical_data import slice_to_date
+    from src.training.historical_scanner import compute_outcome
 
     config = load_config()
     end_date = datetime.now() - timedelta(days=20)
