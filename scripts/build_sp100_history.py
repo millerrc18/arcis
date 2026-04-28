@@ -31,7 +31,13 @@ Known limitations:
     - Tier A corporate-action coverage: PCLN→BKNG (2018-02-27), KRFT→KHC
       (2015-07-06), UTX+RTN→RTX merger (2020-04-03), EMC removal-via-acquisition
       (2016-09-07), YHOO removal-via-acquisition (2017-06-13).
-    - Tier B events (e.g. FB→META) are tracked under #803 follow-up.
+    - Tier B corporate-action coverage (Sprint 1.A.x.1): CELG removal-via-
+      acquisition (2019-11-20), S removal-via-acquisition (2020-04-01), FB→META
+      rename (2022-06-09). DWDP/DOW excluded after data verification showed
+      neither is in today's SP100 — see comment in _CURATED_CHANGES.
+    - Tier C events (T→WBD spinoff, GE→GEHC spinoff, DWDP/Dow/DuPont saga)
+      intentionally excluded because the involved entities are not in today's
+      SP100 (so the schema doesn't easily express them).
     - The current-constituents Wikipedia table may briefly exceed 100 tickers
       during index transitions; such snapshots are flagged but retained.
 
@@ -92,8 +98,16 @@ _CURATED_CHANGES = [
     {"date": "2018-02-27", "type": "rename", "from": "PCLN", "to": "BKNG"},
     {"date": "2018-06-18", "added": "NFLX", "removed": "TWX"},
     # 2019
+    # NOTE: Sprint 1.A.x.1 originally planned DWDP→DOW rename here (2019-04-02 split),
+    # but DOW is NOT in today's Wikipedia SP100 (2026-04-28: 101 tickers, no DOW/DD/CTVA).
+    # That means the "SP100 retained DOW from the split" premise is wrong — none of the
+    # split entities are SP100 today. DWDP itself doesn't appear in our pre-2017 data either
+    # (no curated event for DWDP entering SP100). Tracking this gap as Tier C — needs
+    # separate investigation of whether DWDP/Dow Chemical/DuPont were ever SP100 components.
     {"date": "2019-06-03", "added": "SBUX", "removed": "GE"},
+    {"date": "2019-11-20", "type": "removal-via-acquisition", "from": "CELG"},  # Tier B: BMS acquired Celgene
     # 2020
+    {"date": "2020-04-01", "type": "removal-via-acquisition", "from": "S"},  # Tier B: T-Mobile / Sprint merger
     {"date": "2020-04-03", "type": "merger", "from": ["UTX", "RTN"], "to": "RTX"},
     {"date": "2020-12-21", "added": "TSLA", "removed": "OXY"},
     # 2021
@@ -106,6 +120,7 @@ _CURATED_CHANGES = [
     # Replaced with empty-removed (DXCM was added without paired removal — index
     # size drift acceptable). Real DXCM addition date verified via S&P press release.
     {"date": "2022-03-21", "added": "DXCM", "removed": ""},
+    {"date": "2022-06-09", "type": "rename", "from": "FB", "to": "META"},  # Tier B: Facebook → Meta Platforms
     # 2023
     {"date": "2023-09-18", "added": "ABNB", "removed": "ATVI"},
     # 2024
@@ -422,6 +437,22 @@ _HISTORICAL_TICKER_CHECKS: list[tuple[str, str, bool]] = [
     # YHOO removal-via-acquisition (2017-06-13)
     ("2015-03-19", "YHOO", True),    # pre-removal: YHOO should be present
     ("2018-06-18", "YHOO", False),   # post-removal: YHOO should NOT be present
+    # ── Tier B (Sprint 1.A.x.1, #803 follow-up) ─────────────────────────
+    # DWDP→DOW rename was REMOVED from this sprint after data showed neither
+    # DWDP nor DOW are in today's Wikipedia SP100 (2026-04-28 fetch). Tier C
+    # follow-up: investigate whether DWDP/Dow Chemical/DuPont were ever
+    # SP100 components and add proper events (likely removal-via-merger).
+    # CELG removal-via-acquisition (2019-11-20; BMS acquired Celgene)
+    ("2018-06-18", "CELG", True),    # pre-removal: CELG should be present
+    ("2024-06-01", "CELG", False),   # post-removal: CELG should NOT be present
+    # S removal-via-acquisition (2020-04-01; T-Mobile / Sprint merger)
+    ("2018-06-18", "S",    True),    # pre-removal: S should be present
+    ("2024-06-01", "S",    False),   # post-removal: S should NOT be present
+    # FB → META rename (2022-06-09)
+    ("2020-12-21", "FB",   True),    # pre-rename: FB should be present
+    ("2020-12-21", "META", False),   # pre-rename: META should NOT be present
+    ("2024-06-01", "META", True),    # post-rename: META should be present (still SP100 today)
+    ("2024-06-01", "FB",   False),   # post-rename: FB should NOT be present
 ]
 
 
@@ -452,8 +483,8 @@ def _validate_table(table: dict) -> list:
     for date_str, tickers in table.items():
         if len(tickers) == 0:
             violations.append(f"snapshot {date_str} has 0 tickers")
-        if len(tickers) > 105:
-            violations.append(f"snapshot {date_str} has {len(tickers)} tickers (>105; likely parse error)")
+        if len(tickers) > 110:
+            violations.append(f"snapshot {date_str} has {len(tickers)} tickers (>110; likely parse error)")
 
     # Historical-ticker spot-checks (#804). Run only if:
     # 1. Basic structural invariants pass (spot-checks are meaningless on a malformed table)

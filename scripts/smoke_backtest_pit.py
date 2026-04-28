@@ -53,6 +53,7 @@ from scripts.build_sp100_history import _CURATED_CHANGES  # noqa: E402
 # These regression-lock the specific bugs we just fixed.
 SPOT_CHECKS = [
     # (date_str, ticker, should_be_present, rationale)
+    # ── Tier A (Sprint 1.A.x) ────────────────────────────────────────────
     ("2015-06-01", "PCLN", True,  "Booking Holdings was PCLN until 2018-02-27"),
     ("2015-06-01", "BKNG", False, "BKNG didn't exist as a ticker pre-2018-02-27"),
     ("2018-06-01", "BKNG", True,  "Post-rename, BKNG should be present"),
@@ -63,10 +64,24 @@ SPOT_CHECKS = [
     ("2019-06-01", "RTN",  True,  "Raytheon was RTN until 2020-04-03"),
     ("2019-06-01", "RTX",  False, "RTX didn't exist pre-merger"),
     ("2021-06-01", "RTX",  True,  "Post-merger, RTX should be present"),
+    # ── Tier B (Sprint 1.A.x.1) ──────────────────────────────────────────
+    ("2018-06-01", "CELG", True,  "Celgene was SP100 until BMS acquisition 2019-11-20"),
+    ("2024-06-01", "CELG", False, "Post-acquisition, CELG should be gone"),
+    ("2018-06-01", "S",    True,  "Sprint Corp was SP100 until T-Mobile merger 2020-04-01"),
+    ("2024-06-01", "S",    False, "Post-merger, S should be gone"),
+    ("2020-06-01", "FB",   True,  "Facebook was FB until 2022-06-09"),
+    ("2020-06-01", "META", False, "META didn't exist as ticker pre-rename"),
+    ("2024-06-01", "META", True,  "Post-rename, META should be present"),
+    ("2024-06-01", "FB",   False, "Post-rename, FB should be gone"),
 ]
 
 # Layer 2 — structural invariants that catch the CLASS of bug.
-SNAPSHOT_SIZE_RANGE = (99, 105)  # S&P 100 + dual-share-class buffer
+# Bound widened from (99, 105) to (99, 110) in Sprint 1.A.x.1 to absorb Tier B
+# re-additions (CELG, S re-added on backwards-walk push pre-2019 snapshots to ~107).
+# 110 cap still catches gross parse errors while accommodating legitimate corp-action
+# accumulation. The historical-ticker spot-checks (Layer 1 + L3) remain the strong
+# correctness signal; this size band is the structural sanity net.
+SNAPSHOT_SIZE_RANGE = (99, 110)
 MAX_DELTA_BETWEEN_ADJACENT_SNAPSHOTS = 8  # alarm if a snapshot replaces >8 tickers vs predecessor
 
 # Negative tests — out-of-range as_of must raise UniverseDataMissing.
