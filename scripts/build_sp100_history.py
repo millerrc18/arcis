@@ -69,6 +69,12 @@ _DATE_FORMATS = ("%B %d, %Y", "%b %d, %Y", "%Y-%m-%d")
 #   {"date": "YYYY-MM-DD", "type": "spinoff", "from": "PARENT", "to": ["CHILD_A", ...]}
 #   {"date": "YYYY-MM-DD", "type": "removal-via-acquisition", "from": "TICKER"}
 # Use empty string "" for add-only or remove-only events in legacy records.
+# EXAMPLE — each supported record shape (copy-paste into _CURATED_CHANGES as needed):
+#   {"date": "YYYY-MM-DD", "added": "TICKER", "removed": "TICKER"}      # legacy add/remove (empty "" for add-only or remove-only)
+#   {"date": "2018-02-27", "type": "rename", "from": "PCLN", "to": "BKNG"}
+#   {"date": "2020-04-03", "type": "merger", "from": ["UTX", "RTN"], "to": "RTX"}
+#   {"date": "YYYY-MM-DD", "type": "spinoff", "from": "PARENT", "to": ["CHILD_A", "CHILD_B"]}
+#   {"date": "2016-09-07", "type": "removal-via-acquisition", "from": "EMC"}
 _CURATED_CHANGES = [
     # 2015
     {"date": "2015-03-20", "added": "CMCSA", "removed": "ACE"},
@@ -330,6 +336,8 @@ def build_history_table(current: list, changes: list) -> dict:
         changes: List of dicts; each has 'date' plus either the legacy
                  'added'/'removed' keys or a 'type' field (rename, merger,
                  spinoff, removal-via-acquisition).  Sorted ascending by date.
+                 Type-tagged events are dispatched in the reverse-apply loop
+                 via ``event_type = record.get("type", "add_remove")``.
 
     Returns:
         Dict mapping ISO date strings to sorted ticker lists.  sort_keys=True
