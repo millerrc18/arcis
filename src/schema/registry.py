@@ -80,6 +80,10 @@ class TableDef:
     # where the PK is an autoincrement INTEGER but uniqueness is on another column
     # (e.g., edgar_filings uses accession_number for dedup, not the integer id).
     sync_conflict_col: str | None = None
+    # Whether the reconcile pass may DELETE Postgres rows absent from SQLite (#73).
+    # Replaces the fragile runtime SQLite probe in reconcile.py is_eligible().
+    # #72 will consume this field to build its eligibility check.
+    sync_reconcile: bool = False
 
 
 TABLES: dict[str, TableDef] = {}
@@ -181,6 +185,7 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="updated_at",
     sync_pk="recommendation_id",
+    sync_reconcile=True,
 ))
 
 # shadow_trades: Every paper and live trade from entry to exit.
@@ -328,6 +333,7 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="updated_at",
     sync_pk="trade_id",
+    sync_reconcile=True,
 ))
 
 # ib_shadow_log: Shadow log of IB validation results for each Alpaca trade.
@@ -365,6 +371,7 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="created_at",
     sync_pk="shadow_id",
+    sync_reconcile=True,
 ))
 
 # daily_ib_health: Daily IB Gateway health metrics for 30-day stability gate.
@@ -408,6 +415,7 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="created_at",
     sync_pk="result_id",
+    sync_reconcile=True,
 ))
 
 # ---------------------------------------------------------------------------
@@ -504,6 +512,7 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="created_at",
     sync_pk="example_id",
+    sync_reconcile=True,
 ))
 
 # model_evaluations: Champion-challenger A/B test results.
@@ -551,6 +560,7 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="created_at",
     sync_pk="audit_id",
+    sync_reconcile=True,
 ))
 
 _register(TableDef(
@@ -567,6 +577,7 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="created_at",
     sync_pk="snapshot_id",
+    sync_reconcile=True,
 ))
 
 # api_costs: Token-level cost tracking for Ollama/external LLM calls.
@@ -592,6 +603,7 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="created_at",
     sync_pk="cost_id",
+    sync_reconcile=True,
 ))
 
 # preference_pairs: DPO (Direct Preference Optimization) training data.
@@ -646,6 +658,7 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="created_at",
     sync_pk="eval_id",
+    sync_reconcile=True,
 ))
 
 # ---------------------------------------------------------------------------
@@ -680,6 +693,7 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="created_at",
     sync_pk="session_id",
+    sync_reconcile=True,
 ))
 
 _register(TableDef(
@@ -712,6 +726,7 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column=None,
     sync_pk="vote_id",
+    sync_reconcile=True,
 ))
 
 _register(TableDef(
@@ -736,6 +751,7 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="created_at",
     sync_pk="calibration_id",
+    sync_reconcile=True,
 ))
 
 _register(TableDef(
@@ -765,6 +781,7 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="created_at",
     sync_pk="debug_id",
+    sync_reconcile=True,
 ))
 
 # council_parameter_log: Tracks when the council adjusts risk parameters
@@ -799,6 +816,7 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="created_at",
     sync_pk="log_id",
+    sync_reconcile=True,
 ))
 
 _register(TableDef(
@@ -1238,6 +1256,7 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="updated_at",
     sync_pk="id",
+    sync_reconcile=True,
 ))
 
 # ---------------------------------------------------------------------------
@@ -1281,6 +1300,7 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="created_at",
     sync_pk="signal_id",
+    sync_reconcile=True,
 ))
 
 # traffic_light_state: Singleton row (id=1) holding the current market regime.
@@ -1396,6 +1416,7 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="created_at",
     sync_pk="metric_id",
+    sync_reconcile=True,
 ))
 
 # build_score_history: Daily composite score (0-100) measuring overall system
@@ -1423,6 +1444,7 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="created_at",
     sync_pk="score_id",
+    sync_reconcile=True,
 ))
 
 # ---------------------------------------------------------------------------
@@ -1470,6 +1492,7 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="created_at",
     sync_pk="log_id",
+    sync_reconcile=True,
 ))
 
 # sync_state: Cursor tracking for render_sync. One row per table (last_synced_at)
@@ -1511,6 +1534,7 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="created_at",
     sync_pk="result_id",
+    sync_reconcile=True,
 ))
 
 _register(TableDef(
@@ -1604,6 +1628,7 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="updated_at",
     sync_pk="run_id",
+    sync_reconcile=True,
 ))
 
 # diagnostic_run_plots: one row per PNG plot, base64-encoded.
@@ -1631,6 +1656,7 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="created_at",
     sync_pk="plot_id",
+    sync_reconcile=True,
 ))
 
 
@@ -1745,6 +1771,7 @@ _register(TableDef(
     sync_to_postgres=True,
     sync_mode="incremental",
     sync_time_column="created_at",
+    sync_reconcile=True,
 ))
 
 # ---------------------------------------------------------------------------
@@ -1809,6 +1836,7 @@ _register(TableDef(
     sync_to_postgres=True,
     sync_mode="incremental",
     sync_time_column="created_at",
+    sync_reconcile=True,
 ))
 
 # ---------------------------------------------------------------------------
@@ -1873,6 +1901,7 @@ _register(TableDef(
     sync_to_postgres=True,
     sync_mode="incremental",
     sync_time_column="created_at",
+    sync_reconcile=True,
 ))
 
 # ---------------------------------------------------------------------------
@@ -1909,6 +1938,7 @@ _register(TableDef(
     sync_to_postgres=True,
     sync_mode="incremental",
     sync_time_column="timestamp",
+    sync_reconcile=True,
 ))
 
 
@@ -1985,6 +2015,7 @@ _register(TableDef(
     sync_to_postgres=True,
     sync_mode="incremental",
     sync_time_column="created_at",
+    sync_reconcile=True,
 ))
 
 _register(TableDef(
@@ -2015,6 +2046,7 @@ _register(TableDef(
     sync_to_postgres=True,
     sync_mode="incremental",
     sync_time_column="entry_date",
+    sync_reconcile=True,
 ))
 
 _register(TableDef(
@@ -2091,6 +2123,7 @@ _register(TableDef(
     sync_to_postgres=True,
     sync_mode="incremental",
     sync_time_column="created_at",
+    sync_reconcile=True,
 ))
 
 _register(TableDef(
@@ -2115,6 +2148,7 @@ _register(TableDef(
     sync_to_postgres=True,
     sync_mode="incremental",
     sync_time_column="date",
+    sync_reconcile=True,
 ))
 
 _register(TableDef(
@@ -2140,6 +2174,7 @@ _register(TableDef(
     sync_to_postgres=True,
     sync_mode="incremental",
     sync_time_column="date",
+    sync_reconcile=True,
 ))
 
 # ---------------------------------------------------------------------------
@@ -2247,6 +2282,7 @@ _register(TableDef(
     sync_to_postgres=True,
     sync_mode="incremental",
     sync_time_column="created_at",
+    sync_reconcile=True,
 ))
 
 _register(TableDef(
@@ -2298,6 +2334,7 @@ _register(TableDef(
     sync_to_postgres=True,
     sync_mode="incremental",
     sync_time_column="entry_date",
+    sync_reconcile=True,
 ))
 
 _register(TableDef(
