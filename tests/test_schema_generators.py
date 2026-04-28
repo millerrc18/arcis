@@ -198,6 +198,38 @@ def test_generate_sync_tables_exposes_sync_reconcile():
         assert "sync_reconcile" in entry, f"Entry for '{name}' missing 'sync_reconcile' key"
 
 
+# ── #798 — scan_metrics UNIQUE constraint runtime test ────────────
+
+def test_scan_metrics_unique_constraint_raises_on_duplicate(tmp_db):
+    """Duplicate (scan_number, scan_time) insert must raise IntegrityError (#798).
+
+    Creates a fresh in-memory SQLite DB from the registry, inserts one
+    scan_metrics row, then asserts a second insert with the same
+    (scan_number, scan_time) raises sqlite3.IntegrityError.
+    """
+    create_all_tables(tmp_db)
+    conn = sqlite3.connect(tmp_db)
+    conn.execute(
+        "INSERT INTO scan_metrics "
+        "(id, scan_number, scan_time, universe_count, features_count, "
+        "scored_count, packet_worthy, risk_passed, paper_traded, "
+        "live_traded, llm_success, llm_total, llm_fallback, "
+        "avg_conviction, duration_seconds, created_at) "
+        "VALUES (1, 1, '10:00', 100, 95, 90, 5, 4, 3, 0, 4, 5, 0, 0.75, 12.5, '2026-01-01T10:00:00')"
+    )
+    conn.commit()
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO scan_metrics "
+            "(id, scan_number, scan_time, universe_count, features_count, "
+            "scored_count, packet_worthy, risk_passed, paper_traded, "
+            "live_traded, llm_success, llm_total, llm_fallback, "
+            "avg_conviction, duration_seconds, created_at) "
+            "VALUES (2, 1, '10:00', 100, 95, 90, 5, 4, 3, 0, 4, 5, 0, 0.75, 12.5, '2026-01-01T10:00:01')"
+        )
+    conn.close()
+
+
 # ── Validator tests ──────────────────────────────────────────────
 
 from src.schema.validator import validate_sqlite, SchemaIssue, validate_codebase
