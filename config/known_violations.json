@@ -122,7 +122,8 @@
     },
     {
       "file": "src/sync/render_sync.py",
-      "lines": 932
+      "lines": 1112,
+      "rationale": "#72: periodic reconcile wiring added ~173 lines to render_sync.py (run_sync_cycle reconcile block + RenderSyncThread._maybe_run_reconcile method + reconcile_every_n_cycles gate in run())"
     },
     {
       "file": "src/training/backfill.py",
@@ -988,8 +989,14 @@
     },
     {
       "file": "src/sync/render_sync.py",
+      "function": "run",
+      "lines": 62,
+      "rationale": "#72: periodic reconcile wiring added is_reconcile_cycle gate (4 lines) to existing 54-line run() — minimal growth, refactor deferred"
+    },
+    {
+      "file": "src/sync/render_sync.py",
       "function": "run_sync_cycle",
-      "lines": 68
+      "lines": 106
     },
     {
       "file": "src/trading/ib_broker.py",
