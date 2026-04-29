@@ -30,6 +30,7 @@ def compute_earnings_signals(
     ticker: str,
     db_path: str = DB_PATH,
     as_of: str | None = None,
+    warnings: list[str] | None = None,
 ) -> dict:
     """Compute all 5 PEAD enrichment signals for a ticker.
 
@@ -44,6 +45,9 @@ def compute_earnings_signals(
             NOTE: depends on #860 (table-level PIT audit) — this fix corrects the
             query semantics; #860 audits whether `earnings_calendar` /
             `analyst_estimates` are populated PIT-cleanly upstream.
+        warnings: Optional list to collect coverage/PIT warnings (#99).
+            Mutated in place. Categories emitted: ``earnings_signal_invalid_as_of``,
+            ``earnings_signal_db_error``.
 
     Returns dict with:
     - earnings_proximity_days: int or None
@@ -73,6 +77,8 @@ def compute_earnings_signals(
             anchor_dt = datetime.fromisoformat(as_of).replace(tzinfo=ET)
         except (ValueError, TypeError) as e:
             logger.warning("[EARNINGS] Invalid as_of value %r for %s: %s", as_of, ticker, e)
+            if warnings is not None:
+                warnings.append(f"earnings_signal_invalid_as_of:{ticker}:{as_of}")
             return result
         anchor_iso = anchor_dt.date().isoformat()
     else:
@@ -189,6 +195,9 @@ def compute_earnings_signals(
 
     except Exception as e:
         logger.warning("[EARNINGS] Signal computation failed for %s: %s", ticker, e)
+        if warnings is not None:
+            anchor = as_of if as_of is not None else "runtime"
+            warnings.append(f"earnings_signal_db_error:{ticker}:{anchor}")
         return result
 
     # Compute signal strength

@@ -204,17 +204,18 @@ def fetch_fundamental_snapshot(
     ticker: str,
     cache_hours: int = 24,
     as_of: str | None = None,
+    warnings: list[str] | None = None,
 ) -> dict | None:
     """Fetch the most recent fundamental data from SEC EDGAR XBRL API.
 
     Returns dict with revenue, income, margins, EPS, etc., or None if unavailable.
-
-    When ``as_of`` is None (runtime), returns the latest fundamentals as
-    sorted by period end date. When ``as_of`` is set (PIT/backtest), filters
-    XBRL entries by ``filed <= as_of`` BEFORE sorting — so the LLM only sees
-    data that was actually available on ``as_of`` (no leakage from filings
-    submitted after the historical decision date). Closes #856.
+    When ``as_of`` is set (PIT/backtest), XBRL entries are filtered by
+    ``filed <= as_of`` BEFORE sorting (#856). ``warnings`` (#99) is an
+    optional list mutated in place; categories emitted:
+    ``fundamentals_no_cik``, ``fundamentals_fetch_failed``,
+    ``fundamentals_no_data``.
     """
+    anchor = as_of if as_of is not None else "runtime"
     # Check cache (cache key encodes as_of so PIT and runtime caches don't collide)
     cached = _load_cached(ticker, cache_hours, as_of=as_of)
     if cached:
@@ -224,6 +225,8 @@ def fetch_fundamental_snapshot(
     cik = _get_cik(ticker)
     if not cik:
         logger.debug("No CIK found for %s", ticker)
+        if warnings is not None:
+            warnings.append(f"fundamentals_no_cik:{ticker}:{anchor}")
         return None
 
     try:
@@ -318,11 +321,18 @@ def fetch_fundamental_snapshot(
             "data_as_of_quarter": period_end,
         }
 
+        # When every quantitative field is None, surface ``fundamentals_no_data``
+        # so the corpus manifest tracks Section 4 empty-default fallbacks (#99).
+        if warnings is not None and revenue_ttm is None and net_income_ttm is None and eps_val is None:
+            warnings.append(f"fundamentals_no_data:{ticker}:{anchor}")
+
         _save_cache(ticker, result, as_of=as_of)
         return result
 
     except Exception as e:
         logger.warning("Failed to fetch fundamentals for %s: %s", ticker, e)
+        if warnings is not None:
+            warnings.append(f"fundamentals_fetch_failed:{ticker}:{anchor}")
         return None
 
 

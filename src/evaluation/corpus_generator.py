@@ -40,15 +40,14 @@ Section status mapping written to manifest (per addendum §A2):
 - Section 9 (events) — ``best-effort`` (addendum-2 §B1.2 — operator repopulates earnings_calendar)
 - Section 11 (cross-asset) — ``placeholder`` (addendum-2 §B1.3 — no live producer)
 
-One follow-up out of scope per dispatch:
+Both Phase 4 follow-up trackers are now closed:
 
-- ``enrichment_pit_warnings`` is stored as ``()`` because individual
-  ``fetch_*`` functions in ``src/data_enrichment/`` don't currently emit a
-  warnings list. Tracker filed.
-
-``parser_strategy_succeeded`` is read from ``packet.parser_strategy_succeeded``
-(set by ``packet_writer._parse_llm_response``) per #98 — closed by Sprint 1.C
-Phase 4 follow-up.
+- ``parser_strategy_succeeded`` is read from ``packet.parser_strategy_succeeded``
+  (set by ``packet_writer._parse_llm_response``) per #98.
+- ``enrichment_pit_warnings`` is collected per decision via
+  ``enrich_features(warnings_out=...)`` and aggregated into manifest
+  ``coverage_limit_hits`` keyed by warning category (e.g.
+  ``news_coverage_gap``, ``macro_no_api_key``) per #99.
 """
 from __future__ import annotations
 
@@ -169,6 +168,7 @@ def _existing_decision_keys(corpus_id: str) -> set[tuple[str, str]]:
 
 def _dry_run_entry(
     *, as_of: str, ticker: str, model_version: str, prompt_sha256: str,
+    enrichment_warnings: tuple[str, ...] = (),
 ) -> CorpusEntry:
     """Build a placeholder CorpusEntry for the dry-run path.
 
@@ -187,13 +187,14 @@ def _dry_run_entry(
         parse_failed=0,
         parser_strategy_succeeded=None,
         prompt_section_omitted=_OMITTED_SECTIONS,
-        enrichment_pit_warnings=(),
+        enrichment_pit_warnings=enrichment_warnings,
         generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
     )
 
 
 def _packet_to_entry(
     *, as_of: str, ticker: str, model_version: str, prompt_sha256: str, packet: Any,
+    enrichment_warnings: tuple[str, ...] = (),
 ) -> CorpusEntry:
     """Convert an enhanced packet into a CorpusEntry."""
     response_text = ""
@@ -213,7 +214,7 @@ def _packet_to_entry(
         parse_failed=1 if bool(getattr(packet, "llm_conviction_parse_failed", False)) else 0,
         parser_strategy_succeeded=_strategy_label(packet),  # #98
         prompt_section_omitted=_OMITTED_SECTIONS,
-        enrichment_pit_warnings=(),  # see module docstring follow-up tracker
+        enrichment_pit_warnings=enrichment_warnings,
         generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
     )
 
@@ -242,7 +243,14 @@ def _generate_one_entry(
     # path. Sprint 1.C Phase 2 fixes (#854-#859) wired sections 4, 5, 6, 7,
     # 10 to honor as_of; sections 1, 2 are intrinsically PIT-clean; sections
     # 3, 8, 9, 11 are documented exceptions per §A2.
-    enrich_features({ticker: feat}, config, as_of=as_of)
+    # #99: collect per-decision warnings (coverage gaps, stale fallbacks,
+    # PIT compromises) so they can be recorded on the CorpusEntry and
+    # aggregated into manifest.coverage_limit_hits.
+    enrichment_warnings: list[str] = []
+    enrich_features(
+        {ticker: feat}, config, as_of=as_of, warnings_out=enrichment_warnings,
+    )
+    enrichment_warnings_tuple = tuple(enrichment_warnings)
 
     # Build the prompt EXACTLY as runtime does — addendum §A1.3 freezes
     # this format. Sections 8 + 11 emit ``n/a`` placeholders naturally
@@ -255,6 +263,7 @@ def _generate_one_entry(
         return _dry_run_entry(
             as_of=as_of, ticker=ticker, model_version=model_version,
             prompt_sha256=prompt_sha256,
+            enrichment_warnings=enrichment_warnings_tuple,
         )
 
     packet = build_packet_from_features(ticker, feat, config)
@@ -265,7 +274,55 @@ def _generate_one_entry(
     return _packet_to_entry(
         as_of=as_of, ticker=ticker, model_version=model_version,
         prompt_sha256=prompt_sha256, packet=enhanced,
+        enrichment_warnings=enrichment_warnings_tuple,
     )
+
+
+def _aggregate_warning_prefixes(
+    warnings: Iterable[str],
+    counts: dict[str, int] | None = None,
+) -> dict[str, int]:
+    """Aggregate warning strings by their `<prefix>:...` category (#99).
+
+    Each warning has the shape ``<source>_<category>:<scope>:<as_of>``
+    (e.g. ``news_coverage_gap:AAPL:2024-06-15``). The prefix used for
+    aggregation is the substring before the first ``:`` — this maps to
+    a single coverage category recorded in
+    ``CorpusManifest.coverage_limit_hits``.
+
+    ``counts`` may be None (returns a fresh dict) or an existing dict
+    that will be mutated in place and returned.
+    """
+    if counts is None:
+        counts = {}
+    for w in warnings:
+        if not w:
+            continue
+        prefix, _, _ = w.partition(":")
+        if not prefix:
+            continue
+        counts[prefix] = counts.get(prefix, 0) + 1
+    return counts
+
+
+def _recount_from_disk(corpus_id: str) -> tuple[int, int, dict[str, int]]:
+    """Re-aggregate (total, parse_failures, coverage_hits) from disk (#99).
+
+    Used by the resume path so manifest totals reflect both already-present
+    entries from earlier crashed runs and entries written in the current
+    run. Mirrors the in-loop aggregation in :func:`_stream_entries`.
+    """
+    total = 0
+    failures = 0
+    hits: dict[str, int] = {}
+    for entry in iter_entries(corpus_id):
+        total += 1
+        if entry.parse_failed == 1:
+            failures += 1
+        _aggregate_warning_prefixes(
+            entry.enrichment_pit_warnings, counts=hits,
+        )
+    return total, failures, hits
 
 
 def _stream_entries(
@@ -277,12 +334,12 @@ def _stream_entries(
     config: dict,
     dry_run: bool,
     resume: bool,
-) -> tuple[int, int]:
-    """Stream-write entries.jsonl. Returns (total_written, parse_failure_count).
+) -> tuple[int, int, dict[str, int]]:
+    """Stream-write entries.jsonl.
 
-    Honors resume by reading existing keys from disk and skipping; opens
-    entries.jsonl in append mode when keys already present, otherwise
-    overwrites (clean run).
+    Returns ``(total_written, parse_failure_count, coverage_limit_hits)``.
+    Resume path re-aggregates from disk via :func:`_recount_from_disk` so
+    the manifest reflects the full corpus.
     """
     root = corpus_dir(corpus_id)
     root.mkdir(parents=True, exist_ok=True)
@@ -300,6 +357,7 @@ def _stream_entries(
 
     total = 0
     parse_failure_count = 0
+    coverage_limit_hits: dict[str, int] = {}
     with entries_path.open(open_mode, encoding="utf-8") as fh:
         for as_of, ticker in decision_points:
             if (as_of, ticker) in skip_keys:
@@ -318,17 +376,13 @@ def _stream_entries(
             total += 1
             if entry.parse_failed == 1:
                 parse_failure_count += 1
+            _aggregate_warning_prefixes(
+                entry.enrichment_pit_warnings, counts=coverage_limit_hits,
+            )
 
     if resume and skip_keys:
-        # Re-count from disk so manifest totals include resumed entries.
-        on_disk_total = 0
-        on_disk_failures = 0
-        for entry in iter_entries(corpus_id):
-            on_disk_total += 1
-            if entry.parse_failed == 1:
-                on_disk_failures += 1
-        return on_disk_total, on_disk_failures
-    return total, parse_failure_count
+        return _recount_from_disk(corpus_id)
+    return total, parse_failure_count, coverage_limit_hits
 
 
 def _build_and_write_manifest(
@@ -340,6 +394,7 @@ def _build_and_write_manifest(
     window_end: str,
     total: int,
     parse_failure_count: int,
+    coverage_limit_hits: dict[str, int] | None = None,
 ) -> CorpusManifest:
     """Build the CorpusManifest + write manifest.json. Returns the manifest."""
     parse_failure_rate = parse_failure_count / total if total else 0.0
@@ -356,7 +411,7 @@ def _build_and_write_manifest(
         parse_failure_count=parse_failure_count,
         parse_failure_rate=parse_failure_rate,
         section_pit_status=section_status,
-        coverage_limit_hits={},  # see follow-up: no fetcher emits warnings yet
+        coverage_limit_hits=dict(coverage_limit_hits or {}),
         admissibility=admissibility,
     )
     root = corpus_dir(corpus_id)
@@ -394,7 +449,7 @@ def generate_corpus(
             "is bound to one model version. Pass model_version='arcis:v1.0.0' "
             "(or whichever single version is under test)."
         )
-    total, parse_failure_count = _stream_entries(
+    total, parse_failure_count, coverage_limit_hits = _stream_entries(
         corpus_id=corpus_id,
         decision_points=decision_points,
         features_by_date=features_by_date,
@@ -411,5 +466,6 @@ def generate_corpus(
         window_end=window_end,
         total=total,
         parse_failure_count=parse_failure_count,
+        coverage_limit_hits=coverage_limit_hits,
     )
     return corpus_dir(corpus_id)

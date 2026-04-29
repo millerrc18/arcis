@@ -206,6 +206,7 @@ def fetch_macro_context(
     fred_api_key: str | None = None,
     cache_hours: int = 24,
     as_of: str | None = None,
+    warnings: list[str] | None = None,
 ) -> dict:
     """Fetch macroeconomic context from FRED API.
 
@@ -221,6 +222,9 @@ def fetch_macro_context(
             sees data that was available at that historical date — required
             for PIT-clean backtests / corpus generation. Cache key includes
             ``as_of`` so PIT and runtime data don't collide on disk.
+        warnings: Optional list to collect coverage/PIT warnings (#99).
+            Mutated in place. Categories emitted: ``macro_no_api_key``,
+            ``macro_series_unavailable``, ``macro_fetch_failed``.
     """
     # Check cache (separate cache entries for as_of vs. runtime)
     cached = _load_cached(cache_hours, as_of=as_of)
@@ -242,6 +246,9 @@ def fetch_macro_context(
 
     if not fred_api_key:
         logger.info("[MACRO] No FRED API key configured, using defaults")
+        if warnings is not None:
+            anchor = as_of if as_of is not None else "runtime"
+            warnings.append(f"macro_no_api_key:global:{anchor}")
         return defaults
 
     try:
@@ -265,6 +272,23 @@ def fetch_macro_context(
         if treasury_10y is not None and treasury_2y is not None:
             yield_spread = round(treasury_10y - treasury_2y, 2)
 
+        # Per-series unavailability — emit one warning naming the missing series.
+        if warnings is not None:
+            anchor = as_of if as_of is not None else "runtime"
+            missing: list[str] = []
+            if fed_rate is None:
+                missing.append("FEDFUNDS")
+            if treasury_10y is None:
+                missing.append("DGS10")
+            if treasury_2y is None:
+                missing.append("DGS2")
+            if cpi_yoy is None:
+                missing.append("CPIAUCSL")
+            if unemployment is None:
+                missing.append("UNRATE")
+            for series in missing:
+                warnings.append(f"macro_series_unavailable:{series}:{anchor}")
+
         # Classify
         fed_stance = _classify_fed_stance(fed_rate)
         yield_signal = _classify_yield_curve(yield_spread)
@@ -287,6 +311,9 @@ def fetch_macro_context(
 
     except Exception as e:
         logger.warning("[MACRO] Failed to fetch macro context: %s", e)
+        if warnings is not None:
+            anchor = as_of if as_of is not None else "runtime"
+            warnings.append(f"macro_fetch_failed:global:{anchor}")
         return defaults
 
 
