@@ -177,7 +177,19 @@ def _compute_features_for_window(
     Returns ``{as_of: {ticker: feature_dict}}``. This is the heavy lifting
     of corpus generation — the LLM-side cost is dominated by this side
     when running the full Stage 1 window.
+
+    Sprint 1.C.4.5 / #104 — Bug B fix. Previously this used
+    ``fetch_ohlcv(period="3y")`` which yfinance anchors to today's date,
+    so for fold 1 (test_start=2023-09-01) the slice returned only ~88
+    trading days — below slice_to_date's 200-row gate, causing every ticker
+    to be filtered out and features_by_date to be empty. Now we anchor the
+    fetch to (earliest_as_of - 280 calendar days) through (latest_as_of)
+    so slice_to_date's 200-trading-day minimum is satisfied for the very
+    first as_of cutoff. PIT cleanliness is still enforced at slice_to_date
+    time (df.index <= cutoff).
     """
+    from datetime import date as _date, timedelta as _timedelta
+
     from src.data_ingestion.market_data import fetch_ohlcv, fetch_spy_benchmark
     from src.features.engine import compute_all_features
     from src.training.historical_data import slice_to_date
@@ -186,12 +198,15 @@ def _compute_features_for_window(
     if not decision_points:
         return by_date
 
-    # Fetch a generous OHLCV window covering the full corpus span — features
-    # need ~200 trailing rows per as_of for moving averages.
     universe = sorted({t for _, t in decision_points})
     spans = sorted({d for d, _ in decision_points})
-    ohlcv = fetch_ohlcv(universe, period="3y")
-    spy = fetch_spy_benchmark(period="3y")
+    earliest_as_of = _date.fromisoformat(spans[0])
+    latest_as_of = _date.fromisoformat(spans[-1])
+    fetch_start = (earliest_as_of - _timedelta(days=280)).isoformat()
+    fetch_end = latest_as_of.isoformat()
+
+    ohlcv = fetch_ohlcv(universe, start=fetch_start, end=fetch_end)
+    spy = fetch_spy_benchmark(start=fetch_start, end=fetch_end)
 
     for as_of in spans:
         sliced, spy_sliced = slice_to_date({"tickers": ohlcv, "spy": spy}, as_of)
@@ -230,7 +245,14 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("[CORPUS] %d decision points enumerated", len(decision_points))
 
     features_by_date: dict[str, dict[str, dict]] = {}
-    if not args.dry_run and decision_points:
+    if decision_points:
+        # Sprint 1.C.4.5 / #104 — Bug A fix. Previously this guard skipped
+        # feature computation under --dry-run, but corpus_generator's
+        # _generate_one_entry calls _build_feature_prompt(feat, ticker) on
+        # every path (including dry-run) to compute prompt_sha256. Without
+        # features, feat is None and every dry-run entry is silently skipped.
+        # The "dry" in dry-run means "no LLM call" (per _dry_run_entry
+        # placeholder), not "no feature pipeline".
         logger.info("[CORPUS] Computing features for %d unique dates", len({d for d, _ in decision_points}))
         features_by_date = _compute_features_for_window(decision_points)
 

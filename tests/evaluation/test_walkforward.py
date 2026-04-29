@@ -581,3 +581,176 @@ class TestRunWalkforwardCorpus:
         # Each backtest_model call receives corpus_id=None
         for call in mock_bt.call_args_list:
             assert call.kwargs.get("corpus_id") is None
+
+
+# ─── Bug C 8-fold integration smoke (Sprint 1.C.4.5 / #104) ──────────────────
+#
+# When the backtester correctly anchors fetch_period_days to test_start (Bug C
+# fix), every fold — not just the most recent — must be able to produce trades
+# for synthetic OHLCV that covers the entire walk-forward window.
+
+
+def _make_synthetic_5y_ohlcv_for_walkforward(
+    tickers, *, start="2014-01-01", end="2026-04-29"
+):
+    """Build a long synthetic OHLCV series spanning the full walk-forward
+    coverage (anchor train_start ~2015-03-19 through ~present).
+    """
+    import pandas as _pd
+
+    dates = _pd.bdate_range(start, end)
+    base_close = 100.0
+    closes = [base_close * (1.0 + 0.0003) ** i for i in range(len(dates))]
+    result = {}
+    for ticker in tickers:
+        df = _pd.DataFrame(
+            {
+                "Open": closes,
+                "High": [c * 1.01 for c in closes],
+                "Low": [c * 0.99 for c in closes],
+                "Close": closes,
+                "Volume": [1_000_000] * len(dates),
+            },
+            index=dates,
+        )
+        result[ticker] = df
+    return result
+
+
+def _make_period_aware_fetch(synthetic_data, *, today=None):
+    """Mock fetch_ohlcv with yfinance period= semantics (today - period_days)
+    and Path-1 start=/end= semantics. Mirrors the helper in test_backtester.py
+    but kept local to avoid a cross-test-file shared-helper coupling.
+    """
+    import pandas as _pd
+
+    if today is None:
+        today = _pd.Timestamp("2026-04-29")
+    today = _pd.Timestamp(today)
+
+    def fetch(tickers, period="1y", start=None, end=None):
+        if start is not None or end is not None:
+            start_ts = _pd.Timestamp(start) if start else synthetic_data[next(iter(synthetic_data))].index.min()
+            end_ts = _pd.Timestamp(end) if end else today
+            return {
+                t: synthetic_data[t][(synthetic_data[t].index >= start_ts) & (synthetic_data[t].index <= end_ts)]
+                for t in tickers if t in synthetic_data
+            }
+        if period.endswith("d"):
+            period_days = int(period[:-1])
+        elif period.endswith("y"):
+            period_days = int(period[:-1]) * 365
+        else:
+            period_days = 365
+        start_ts = today - _pd.Timedelta(days=period_days)
+        return {
+            t: synthetic_data[t][(synthetic_data[t].index >= start_ts) & (synthetic_data[t].index <= today)]
+            for t in tickers if t in synthetic_data
+        }
+    return fetch
+
+
+def _make_period_aware_spy(synthetic_spy, *, today=None):
+    import pandas as _pd
+    if today is None:
+        today = _pd.Timestamp("2026-04-29")
+    today = _pd.Timestamp(today)
+
+    def fetch_spy(period="1y", start=None, end=None):
+        if start is not None or end is not None:
+            start_ts = _pd.Timestamp(start) if start else synthetic_spy.index.min()
+            end_ts = _pd.Timestamp(end) if end else today
+            return synthetic_spy[(synthetic_spy.index >= start_ts) & (synthetic_spy.index <= end_ts)]
+        if period.endswith("d"):
+            period_days = int(period[:-1])
+        elif period.endswith("y"):
+            period_days = int(period[:-1]) * 365
+        else:
+            period_days = 365
+        start_ts = today - _pd.Timedelta(days=period_days)
+        return synthetic_spy[(synthetic_spy.index >= start_ts) & (synthetic_spy.index <= today)]
+    return fetch_spy
+
+
+def test_all_folds_produce_trades():
+    """Bug C integration smoke: every fold in an 8-fold walk-forward must
+    produce trades when the underlying synthetic OHLCV covers the full
+    window. Pre-fix, fold 1-7 silently return 0 trades because
+    fetch_period_days anchors at today; only fold 8 (which overlaps with the
+    fetch window) has data. Post-fix, every fold sees data.
+
+    We mock at the fetch boundary (fetch_ohlcv, fetch_spy_benchmark) only,
+    then drive the real backtest_model + walkforward harness. compute_outcome
+    is forced to a fixed positive return so we don't have to model the full
+    OHLCV-to-pnl pipeline.
+    """
+    from unittest.mock import patch as _patch
+    import pandas as _pd
+
+    tickers = ["AAPL", "MSFT"]
+    synth_ohlcv = _make_synthetic_5y_ohlcv_for_walkforward(tickers)
+    synth_spy = _make_synthetic_5y_ohlcv_for_walkforward(["SPY"])["SPY"]
+
+    fetch_side = _make_period_aware_fetch(synth_ohlcv)
+    fetch_spy_side = _make_period_aware_spy(synth_spy)
+
+    candidates_payload = {
+        "packet_worthy": [
+            {"ticker": "AAPL", "score": 85,
+             "features": {"trend_state": "uptrend", "regime_label": "bull"}},
+        ],
+        "watchlist": [],
+    }
+    features_payload = {
+        "AAPL": {"trend_state": "uptrend", "regime_label": "bull",
+                 "current_price": 150},
+        "MSFT": {"trend_state": "uptrend", "regime_label": "bull",
+                 "current_price": 300},
+    }
+    from types import SimpleNamespace as _SN
+    packet_payload = _SN(
+        entry_zone="$150.00", stop_invalidation="$145.00",
+        targets="$160.00 / $170.00", llm_conviction=None,
+    )
+
+    with _patch("src.config.load_config",
+                return_value={"shadow_trading": {"enabled": False}}), \
+         _patch("src.universe.pit.get_sp100_at", return_value=tickers), \
+         _patch("src.data_ingestion.market_data.fetch_ohlcv",
+                side_effect=fetch_side), \
+         _patch("src.data_ingestion.market_data.fetch_spy_benchmark",
+                side_effect=fetch_spy_side), \
+         _patch("src.features.engine.compute_all_features",
+                return_value=features_payload), \
+         _patch("src.ranking.ranker.rank_universe",
+                return_value=[{"ticker": "AAPL", "score": 85}]), \
+         _patch("src.ranking.ranker.get_top_candidates",
+                return_value=candidates_payload), \
+         _patch("src.packets.template.build_packet_from_features",
+                return_value=packet_payload), \
+         _patch("src.shadow_trading.executor._parse_price",
+                side_effect=lambda x: float(x.replace("$", "").replace(",", ""))), \
+         _patch("src.training.historical_scanner.compute_outcome",
+                return_value={"pnl_pct": 3.5, "exit_reason": "target_1",
+                              "duration_days": 5}), \
+         _patch("src.cost_model.calibration.get_calibrated_cost_model",
+                return_value=None):
+        from src.evaluation.walkforward import run_walkforward
+        result = run_walkforward(
+            "test_model", anchor="2023-09-01",
+            fold_count=8, embargo_days=21,
+        )
+
+    assert len(result["folds"]) == 8
+
+    # Every fold should have at least 1 trade (not just fold 8).
+    # Pre-fix, only fold 8 (test span overlaps yfinance's last-N-days fetch)
+    # had data. The integration smoke proves all 8 folds now see data.
+    folds_with_zero_trades = [
+        f["fold_idx"] for f in result["folds"] if f["trades_count"] == 0
+    ]
+    assert not folds_with_zero_trades, (
+        f"Bug C: {len(folds_with_zero_trades)} of 8 folds produced 0 trades "
+        f"(fold_idx={folds_with_zero_trades}). "
+        f"Expected every fold to see data when fetch is anchored to test_start."
+    )
