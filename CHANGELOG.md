@@ -2,7 +2,141 @@
 
 ## [Unreleased]
 
-- Added `scripts/archive_bootcamp_2026_04_24.py` — SD#42 Friday bootcamp cutover tooling. Preflight-gated VACUUM INTO archive + schema-only fresh-DB anchor + manifest enumerating 17 prod-only columns preserved. See `docs/archive/README.md` for operator choreography. Dry-run default; `--apply` required for live operation.
+_Pending PRs (open, not yet merged): #850 parse-failed flag (Sprint 1.C Phase 1d, in flight) + 8 PIT follow-ups #854-#861 not started. Continue under v0.32.x patch line until next minor cut._
+
+## [v0.32.0] - 2026-04-29 — Sprint 1.C Phase 1 + Phase 2: attribution discipline + LLM-prompt PIT audit
+
+### Release summary
+
+Sprint 1.C kicked off with operator option C ("wire LLM-scoring into backtester first, then build deterministic-ranker shadow"). Phase 1 closed three measurement-quality bugs in attribution data surfaced by the §4 attribution_readout in PR #845. Phase 2 audited all 11 sections of the LLM prompt assembly path against PIT semantics — the binding finding that gates Phase 4 corpus generation. Pre-reg §3.1 Stage 1 start date may need revision from 2014 to ~2022 due to insider/news Finnhub coverage limits surfaced by the audit.
+
+### Added
+
+- **Attribution canonical action validator** (`src/attribution/logger.py`) — `_CANONICAL_LLM_ACTIONS` frozenset + `ValueError` on non-canonical input. Caller-side bugs surface immediately at write time. (#846 / PR #849)
+- **`scripts/diagnostics/attribution_readout.py` band correctness** — bands rescaled from 0-49/50-69/70-84/85+ (modeled on ranker_score 0-100) to 1-3/4-6/7-8/9-10 matching the canonical 1-10 conviction scale. Surfaced 7-8 band as the cleanest signal currently available (avg pnl 1.56% on n=32, not contaminated by conviction=5 parse-failures). (#847 / PR #851)
+- **Coverage-drop postmortem** — `audits/attribution-coverage-drop-postmortem-2026-04-29.md`. The audit's "117 H1 vs 3 H2" headline reframed: not a coverage break but a model-version transition (`halcyon-v1.0.0` → `arcis:v1.0.0`) on Apr 13 compounded with parse-failure pollution. (#848 / PR #852)
+- **LLM-prompt PIT-cleanliness audit** — `docs/research/llm-prompt-pit-audit.md`. 11 prompt sections traced against PIT semantics. Sections 1-2 clean; 4/5/7/10/11 PIT-broken (HIGH severity); 6 wireable; 3 needs operator policy; 8/9 unclear. Six operator decisions surfaced. (#94 / PR #853)
+- **8 PIT follow-up trackers filed** (#854-#861) for the must-fix sections + sub-investigations + sector-PIT-policy doc.
+- **#850 follow-up tracker filed** for conviction=5 parse-failure pollution (gates Phase 4 corpus generation).
+
+### Fixed
+
+- **`src/services/scan_service.py:305`** wrote non-canonical `"buy"`/`"skip"` labels for 227 rows (80 + 147) silently excluded from §4 t-test. Canonicalized to mirror `universe_scanner.py:248-253` semantics: `taken` if rec_id+conviction, `conviction_none` if rec_id+no-conviction, `rejected` otherwise. (#846 / PR #849)
+
+### Decisions
+
+- **Sprint 1.C option C locked in** — wire LLM-scoring into backtester first, then build deterministic-ranker shadow. Pre-computed corpus strategy chosen over live-LLM-call.
+- **Phase 1d added** — #850 parse-failure flag (option B: schema add, non-destructive) added as Phase 1d after #847 surfaced the parse-failure pollution. In flight at v0.32.0 cut.
+- **Pre-reg §3.1 revision likely** — Stage 1 start date may need to advance from 2014 to ~2022 per audit findings (Finnhub coverage limits on Sections 5+6). Phase 3 addendum will lock the final decision.
+
+## [v0.31.0] - 2026-04-28 — Sprint 1.B Wave A/B/C: walk-forward harness + methodology wiring
+
+### Release summary
+
+Sprint 1.B closed the gap between the methodology toolkit shelf (built across PR-690 / Track 1.5) and production wiring. Walk-forward harness, cost-model calibration, FRED-backed risk-free rate, promotion-gate post-train flow, subgroup-analysis harness all wired. Pre-registration document drafted (Stage 1 walk-forward validation discipline). Pre-push hook (#59) closed the stale-base hazard class after 5 incidents in 5 days.
+
+### Added
+
+- **Walk-forward harness** (`src/evaluation/walkforward.py`) — anchored expanding × 8 folds × 21-day embargo. Underpowered-fold flag (<15 trades) excludes from primary aggregate per pre-reg §3.5. (#78 / PR #831)
+- **Cost-model calibration wiring** — backtester reads `data/calibration/cost_model.json`; per-trade `median_round_trip_cost_bps` deducted at entry. Falls back to zero cost with warning if absent. (#79 / PR #834)
+- **FRED-backed risk-free rate** — `src/data_ingestion/risk_free_rate.py` wired into backtester via per-trade `get_rf_rate()` lookup. Replaces placeholder `rf=0.0001`. (#80 / PR #835)
+- **Promotion-gate post-train flow** — `src/methods/promotion_gate.py` wired into training/post-train; ≥4-of-5 voting gate now runs on every promotion candidate. (#49 Sprint 1.B Wave B / PR #836)
+- **Subgroup-analysis harness** (`src/evaluation/subgroup_analysis.py`) — pre-reg §6 exploratory subgroups (regime/year/sector/LLM-conviction) with per-partition metrics (trade_count, mean_return, win_rate, Sharpe via canonical raw_sharpe, max_drawdown_pct). 24 tests. (#81 / PR #845)
+- **Pre-registration document** (`docs/research/pre-registration-stage1.md`) — binding methodology contract per §5.3 (forbids post-hoc fixes once Stage 1 begins). (#63 / PR #822)
+- **Pre-push git hook** (`scripts/hooks/pre-push`) — refuses pushes from branches behind origin/main. Closes stale-base hazard class (5 incidents: #769, #816, #829, #840, #841). Bypass: `git push --no-verify`. (#59 / PR #842)
+- **Backtester import smoke test** + **kill_switch test isolation** + **scan_metrics UNIQUE constraint** (#52, #62, #64 — bundled patches).
+
+### Fixed
+
+- **`src/evaluation/backtester.py` silent except** narrowed to `(ConnectionError, TimeoutError)` (#67 / PR #830).
+- **`backtester.slice_to_date` import** restored (closes 0-trades mystery, #64 / PR #823).
+- **Validator hardcoded snapshot-size cap** replaced with data-driven `max_observed × 1.05` (#65 / PR #837).
+- **`diagnostic_runs` stale-job watchdog** at watch-loop startup (#56 / Tier 1.D / PR #840).
+- **`docs/methodology-toolkit.md`** conflict markers shipped to main by #835 squash-merge — hotfix (PR #839).
+
+### Decisions
+
+- **Pre-registration § committed**: §1 deterministic-ranker shadow as secondary diagnostic; §3.5 underpowered-fold filter <15 trades; §6 four exploratory subgroups; §8.1 exploratory not pass/fail.
+- **Per-trade allocation_pct=0.05** anchors the backtester equity curve; subgroup harness mirrors this for max-drawdown computation.
+
+## [v0.30.0] - 2026-04-28 — Reconcile track + dashboard sprint (Tier 1.A-1.F)
+
+### Release summary
+
+Two parallel tracks closed: (1) Render Postgres delete-replication reconcile track (#68-#74) addressing 623,360 ghost rows accumulated across 25 tables from prior SQLite-archive cycles, and (2) dashboard sprint resolving operator's 2026-04-27 audit Tier 1.A-1.F findings (old-data display, empty registries, API failures + CORS, stuck training audit, "Clear stale" 404, "outcome data pending migration"). One-time manual reconcile (Pass 1 + 2 + 3) executed with operator approval.
+
+### Added
+
+- **Delete-replication reconcile module** (`src/sync/reconcile.py`) — `is_eligible()`, `topo_sort_reconcile_tables()`, `assert_no_ghost_rows()`, `reconcile_all()`. Snapshot-Postgres-first (race-window discipline). (#68-#74 series)
+- **`TableDef.sync_reconcile: bool`** registry-driven allowlist (33 tables flagged). Pass 1+2+3 reconciled tables + "Clean (no diff)" eligibles. (#73 / PR #829)
+- **Periodic reconcile in `RenderSyncThread`** — `_maybe_run_reconcile()` helper with `reconcile_every_n_cycles=30` default; integrated into `run_sync_cycle` end-of-cycle. (#72 / PR #832)
+- **`src/schema/sync_config._topo_sort_tables()`** — Kahn's BFS with cycle detection via `len(result) != len(names)`; dual-source FK lookup (TableDef.foreign_keys or fallback to TABLES registry). (#76 / PR #826)
+- **Dashboard cloud routes wired** — kpis, broker_exceptions, preflight orphan route imports added to `src/api/cloud_app.py`. CORS env-var documented. (Tier 1.C / PR #833)
+- **Dashboard `/api/commands/expire-stale`** + **COALESCE outcome query** — closes Tier 1.E ("Clear stale" 404) + Tier 1.F (training outcome data pending migration). (PR #827)
+- **Dashboard registry imports** in `cloud_app.py` to populate runtime registries on startup. (Tier 1.D / PR #816)
+
+### Fixed
+
+- **One-time manual reconcile** — 623,360 ghost rows deleted across 25 tables in three passes, with per-table verification protocol (BEFORE snapshot → execute → AFTER snapshot → verify Postgres delta == expected, SQLite unchanged, no remaining ghosts). pg_dump backups taken before each pass.
+- **FK violation on `council_sessions`** during reconcile resolved by reordering deletes (children first).
+- **Group B (~938K rows in `mode=latest_only` tables)** identified and **deferred to #75** for reconcile.py extension.
+- **`fix(p0)` connect_db imports** missing across multiple sites (#767, #783 / PR #793).
+
+### Deferred / follow-ups
+
+- **#75** — extend reconcile.py to handle `mode=latest_only` + composite-key delete-replication (Group B cleanup).
+- **#85** — split `RenderSyncThread.run()` (60-line cap follow-up).
+- **#86** — integration test for periodic reconcile gating.
+- **#87** — Cloud Postgres equivalents for broker_exceptions / preflight / kpis (currently SQLite-only via `connect_db()` — won't work on Render cloud).
+
+## [v0.29.0] - 2026-04-27 — Sprint 1.A.x: point-in-time SP100 universe discipline
+
+### Release summary
+
+The single biggest training-data quality lift since v0.27.1. Migrated backtest, simulation, and training-backfill sites from "current S&P 100 membership" to point-in-time-correct historical universe lookups. Wikipedia-sourced JSON membership table with curated corp-action history (Tier A: PCLN→BKNG, KRFT→KHC, UTX+RTN→RTX, EMC removal, YHOO removal). Tier B (CELG, S, FB→META) added immediately after Tier A. T10 survivorship migration enforced by lint test.
+
+### Added
+
+- **`data/reference/sp100_history.json`** — Wikipedia-scraped historical SP100 membership snapshots back to ~2015. Loaded by `src/universe/pit.py::load_sp100_membership_table()`. (Sprint 1.A.0 / PR #802)
+- **`src/universe/pit.py`** — canonical PIT lookup module: `get_sp100_at(as_of, membership_table=None)`, `get_data_range()`, `get_all_historical_tickers()`. `UniverseDataMissing` raised for out-of-range or missing JSON. (Sprint 1.A.0 / PR #802)
+- **`scripts/build_sp100_history.py`** — regenerates the JSON via Wikipedia scraper + curated changes. (Sprint 1.A.0 / PR #802)
+- **T10 survivorship migration** — backtest/sim/training-backfill sites now use `get_sp100_at(<as_of>)`; text-masking sites use `get_all_historical_tickers()`. Live-runtime callers (scheduler/services/cli/api/llm/platform/commands/training-bootstrap) intentionally retain `get_sp100_universe()`. (Sprint 1.A.1 / PR #813)
+- **Tier A corp-action handling** — PCLN→BKNG, KRFT→KHC, UTX+RTN→RTX, EMC removal, YHOO removal in `_CURATED_CHANGES`. (#803 / PR #818)
+- **Tier B corp-action handling** — CELG, S, FB→META. (#803 follow-up / PR #821)
+- **`tests/test_pit_universe_discipline.py`** — allowlist + lint test enforcing T10 migration.
+- **Smoke backtest tool** (`scripts/smoke_backtest.py`) — operator-runnable PIT validation.
+- **Test baseline** lifted from 3671 → 3682 (T10 regression-locks +11). CI floor bumped in `CLAUDE.md`.
+
+### Fixed
+
+- **Render Postgres compat** — `ARCIS_DB_PATH` made optional when `DATABASE_URL` is set (#768 / PR #782).
+- **Schema-verify infinite loop** at watch-loop startup (#766 hotfix).
+- **`src/api/cloud_app.py`** missing registry-populating imports (#807 / PR #816).
+
+## [v0.28.0] - 2026-04-26 — Sprint 0 wave-system + 0.B-0.D consolidation
+
+### Release summary
+
+Post-Track-1.5 + post-PR-690 sweep. 14 wave-style PRs (Sprint 0 Wave 1a-5c) closed dashboard cockpit, status-constants, exit vocabulary lifecycle, watch-loop discipline, schema floor, local-auth surface, FRED rf wiring v2, walkforward KPIs SE, Sharpe consolidation, promotion-gate methodology, live-order verification, PIT features. Followed by Sprint 0.B-0.D triage closing ~30 silent-failure / code-hygiene / connect-db / size / method-violation findings from Round-7/7b technical audit. PM-autonomous parallel agent dispatch with worktree isolation discipline (formalized in this release after #690 N3 stash-pop incidents).
+
+### Added
+
+- **14 Sprint 0 Wave-X parallel-dispatch PRs** (#700-#724): frontend cockpit, status constants, shadow-trade lifecycle bugs, DB-stub paths, schema floor, watch-loop discipline, exit-vocabulary lifecycle, local-auth surface, docs+MIME+API-secret, FRED-rf-v2, Sharpe consolidation eval, promotion-gate methodology, live-order verification, PIT features. Each carried strict-rigor receipts; 5/5 stash-pop class incidents documented + recovered via `git fsck --lost-found`.
+- **Worktree-per-agent dispatch pattern formalized** — `CLAUDE.md` "Parallel Agent Dispatch — Worktree Discipline" section + recovery patterns + `.env`/untracked-files limitations doc. Closes #699. (PR #734)
+- **Sprint 0.B-0.D batches**: silent-failure cleanup (B2.1), code-hygiene (B2.2), connect-db wiring (B2.3 + C.1), size refactors (B2.4 + C.2 alpaca-split), method-violation fixes (B2.5), test-triage (B2.6 + C.3 + D.2), schema-infra (C.6 sync_state in-flight), code-bugs (C.5), process+versioning audit trail (C.4), connect_db hotfixes (#793).
+- **`src/version.py`** — single source of truth for app version; `get_app_version()` cleanup. (#660 closure / Sprint 0.C C.4)
+
+### Fixed
+
+- **Render-sync `mode=full` tables** — never strip `id` column (closes #797 / PR #800).
+- **PR #690 in-PR review-finding sweep continuation** — additional N3 / O-tier findings landed via the wave system.
+- **Coding-skill discipline** — Planner maxTurns 6→12 + stale-base check before PR-create (#53 follow-up / PR #817). Lessons-learned baked into anti-fallacy playbook (#749).
+
+### Decisions
+
+- **`feedback_strict_rigor_no_handwave.md`** — operator stated "rather take a full day than hand wave" (2026-04-26). Encoded as PM memory.
+- **`feedback_autopilot_origin_check.md`** — every wakeup: `git fetch origin` + `gh pr list` BEFORE dispatching, to avoid racing operator on parallel work.
+- **`feedback_worktree_env_drift.md`** — agent worktrees don't carry `.env`; tests with env-var-driven deps may pass in worktree but break post-merge.
 
 ## [v0.27.1] - 2026-04-26 — PR #690 review-finding sweep + Sprint 0 Wave 1a kickoff
 
