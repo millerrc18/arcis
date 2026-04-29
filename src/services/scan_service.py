@@ -298,15 +298,29 @@ def run_scan(
                 llm_timeout_days=getattr(packet, 'llm_timeout_days', None),
             )
 
-        # Attribution Phase 2: log LLM decision after recommendation
+        # Attribution Phase 2: log LLM decision after recommendation.
+        #
+        # #846 fix: previously wrote non-canonical "buy"/"skip" labels which
+        # were silently excluded from the §4 selection-alpha t-test in the
+        # attribution_readout audit. Mirror universe_scanner.py:248-253
+        # semantics:
+        #   - rec_id + conviction present → "taken"
+        #   - rec_id + no conviction      → "conviction_none"
+        #   - no rec_id (dry_run path)    → "rejected"
         if attribution_id and log_after_llm:
             try:
                 from src.attribution.logger import log_attribution_after_llm
-                llm_action = "buy" if rec_id else "skip"
+                conviction = getattr(packet, 'llm_conviction', None)
+                if rec_id and conviction is not None:
+                    llm_action = "taken"
+                elif rec_id and conviction is None:
+                    llm_action = "conviction_none"
+                else:
+                    llm_action = "rejected"
                 log_attribution_after_llm(
                     attribution_id=attribution_id,
                     llm_action=llm_action,
-                    llm_conviction=getattr(packet, 'llm_conviction', None),
+                    llm_conviction=conviction,
                     recommendation_id=rec_id,
                 )
             except Exception as e:

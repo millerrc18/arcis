@@ -23,6 +23,18 @@ _ALLOWED_ATTRIBUTION_COLUMNS = {
     "llm_action", "llm_conviction", "recommendation_id", "pair_type",
 }
 
+# Canonical llm_action values. Anything else is a contract violation —
+# rejected at the writer so non-canonical labels can't reach the table.
+# Surfaced by audits/attribution-readout-2026-04-28.md (#846): the bootcamp
+# archive accumulated 80 `buy` + 147 `skip` rows from `scan_service.py`
+# writing non-canonical labels, silently excluded from §4 t-test analysis.
+_CANONICAL_LLM_ACTIONS = frozenset({
+    "taken",
+    "rejected",
+    "parse_failed",
+    "conviction_none",
+})
+
 
 def log_attribution_before_llm(
     ticker: str,
@@ -70,7 +82,17 @@ def log_attribution_after_llm(
     """Phase 2: Update attribution row AFTER LLM processing.
 
     llm_action: 'taken', 'rejected', 'parse_failed', 'conviction_none'
+
+    Raises ValueError if llm_action is not one of the canonical values.
+    Caller-side bug (non-canonical label) must surface immediately rather
+    than silently corrupting the attribution table — this guard is the
+    structural fix for #846.
     """
+    if llm_action not in _CANONICAL_LLM_ACTIONS:
+        raise ValueError(
+            f"llm_action={llm_action!r} is not canonical. "
+            f"Allowed: {sorted(_CANONICAL_LLM_ACTIONS)}"
+        )
     try:
         with connect_db(db_path) as conn:
             fields = ["llm_action = ?"]
