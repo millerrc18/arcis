@@ -62,6 +62,7 @@ def enrich_features(
     features: dict[str, dict],
     config: dict,
     strategy: "StrategySpec" | None = None,
+    as_of: str | None = None,
 ) -> dict[str, dict]:
     """Add fundamental, insider, and macro data to all ticker feature dicts.
 
@@ -72,6 +73,13 @@ def enrich_features(
         features: Output of compute_all_features() — dict of ticker -> feature dict
         config: Application config
         strategy: Optional StrategySpec for Sprint F chain dispatch.
+        as_of: Optional ISO date string (``YYYY-MM-DD``). When set, enrichment
+            uses point-in-time historical lookups instead of "now" data —
+            required for backfill / backtest paths so the LLM doesn't see
+            future data through enrichment fields. When None (the runtime
+            default), behavior is unchanged. Phase 1 of the Sprint 1.C PIT
+            audit fixes — currently routes Section 6 (news) only;
+            Sections 4/5/7/10/11 will plumb their own ``as_of`` via #855-#859.
 
     Returns:
         Same dict with enrichment fields added in place.
@@ -157,18 +165,32 @@ def enrich_features(
                 logger.debug("[ENRICHMENT] Insiders failed for %s: %s", ticker, e)
 
         # News data
+        # #854 / Sprint 1.C Phase 2: when as_of is set, route to
+        # fetch_historical_news (TEMPORAL COMPLIANCE) instead of
+        # fetch_recent_news ("now" data leak for historical decisions).
+        # The PIT-clean function already exists in news.py:200; this is
+        # just the wiring.
         if news_enabled:
             try:
                 from src.data_enrichment.news import (
+                    fetch_historical_news,
                     fetch_recent_news,
                     format_news_summary,
                 )
                 _rate_limit("finnhub")
-                news_data = fetch_recent_news(
-                    ticker,
-                    finnhub_api_key=finnhub_key,
-                    cache_hours=min(cache_hours, 6),
-                )
+                if as_of is not None:
+                    news_data = fetch_historical_news(
+                        ticker,
+                        as_of_date=as_of,
+                        finnhub_api_key=finnhub_key,
+                        cache_hours=min(cache_hours, 24),
+                    )
+                else:
+                    news_data = fetch_recent_news(
+                        ticker,
+                        finnhub_api_key=finnhub_key,
+                        cache_hours=min(cache_hours, 6),
+                    )
                 feat["news_summary"] = format_news_summary(news_data)
                 feat["news_sentiment"] = (news_data or {}).get("news_sentiment", "no_news")
             except Exception as e:
