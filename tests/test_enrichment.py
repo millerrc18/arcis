@@ -282,3 +282,194 @@ class TestEnrichFeaturesAsOfRouting:
         assert "fundamental_summary" in result["AAPL"]
         assert "insider_summary" in result["AAPL"]
         assert "news_summary" in result["AAPL"]
+
+
+class TestInsidersAsOfRouting:
+    """Tests for the as_of parameter routing in fetch_insider_activity (#857).
+
+    Verifies that:
+    - Default (as_of=None) preserves runtime behavior (lookback from "now",
+      no from/to passed to the Finnhub query).
+    - as_of='YYYY-MM-DD' computes from_date = as_of - lookback_days and
+      passes both to Finnhub as `from`/`to` query params (TEMPORAL COMPLIANCE).
+    - The cache key differs between as_of=None and as_of=set so PIT and
+      "now" data don't collide.
+    - The enricher routes its as_of through to fetch_insider_activity.
+
+    This locks the routing contract that Sprint 1.C Phase 4 corpus
+    generation depends on.
+    """
+
+    def test_default_no_as_of_preserves_current_behavior(self):
+        """When as_of is None, Finnhub call must NOT include from/to (runtime path)."""
+        from src.data_enrichment import insiders
+
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.json = MagicMock(return_value={"data": []})
+
+        with (
+            patch("src.data_enrichment.insiders.retry_with_backoff", return_value=mock_resp) as retry,
+            patch("src.data_enrichment.insiders._load_cached", return_value=None),
+            patch("src.data_enrichment.insiders._save_cache"),
+            patch("src.data_enrichment.insiders.time.sleep"),
+        ):
+            insiders.fetch_insider_activity(
+                "AAPL",
+                lookback_days=90,
+                finnhub_api_key="stub-key",
+                cache_hours=24,
+            )
+            # The lambda passed to retry_with_backoff calls requests.get with the
+            # constructed params. Inspect the closure by patching requests.get directly.
+            assert retry.called
+
+        # Now patch requests.get to capture params — the runtime path must not
+        # include from/to (those are only added when as_of is set).
+        captured = {}
+
+        def fake_get(url, params=None, headers=None, timeout=None):
+            captured["params"] = params
+            r = MagicMock()
+            r.raise_for_status = MagicMock()
+            r.json = MagicMock(return_value={"data": []})
+            return r
+
+        with (
+            patch("src.data_enrichment.insiders._load_cached", return_value=None),
+            patch("src.data_enrichment.insiders._save_cache"),
+            patch("src.data_enrichment.insiders.time.sleep"),
+            patch("src.data_enrichment.insiders.requests.get", side_effect=fake_get),
+        ):
+            insiders.fetch_insider_activity(
+                "AAPL",
+                lookback_days=90,
+                finnhub_api_key="stub-key",
+                cache_hours=24,
+            )
+
+        assert captured["params"]["symbol"] == "AAPL"
+        assert "from" not in captured["params"]
+        assert "to" not in captured["params"]
+
+    def test_as_of_passes_from_to_to_finnhub(self):
+        """as_of='2024-06-15' with default lookback_days=90 must send from='2024-03-17', to='2024-06-15'."""
+        from src.data_enrichment import insiders
+
+        captured = {}
+
+        def fake_get(url, params=None, headers=None, timeout=None):
+            captured["params"] = params
+            captured["url"] = url
+            r = MagicMock()
+            r.raise_for_status = MagicMock()
+            r.json = MagicMock(return_value={"data": []})
+            return r
+
+        with (
+            patch("src.data_enrichment.insiders._load_cached", return_value=None),
+            patch("src.data_enrichment.insiders._save_cache"),
+            patch("src.data_enrichment.insiders.time.sleep"),
+            patch("src.data_enrichment.insiders.requests.get", side_effect=fake_get),
+        ):
+            insiders.fetch_insider_activity(
+                "AAPL",
+                lookback_days=90,
+                finnhub_api_key="stub-key",
+                cache_hours=24,
+                as_of="2024-06-15",
+            )
+
+        # 2024-06-15 minus 90 days = 2024-03-17
+        assert captured["params"]["symbol"] == "AAPL"
+        assert captured["params"]["from"] == "2024-03-17"
+        assert captured["params"]["to"] == "2024-06-15"
+
+    def test_as_of_filters_transactions_to_window(self):
+        """When as_of is set, only transactions in [as_of-lookback, as_of] should be counted."""
+        from src.data_enrichment import insiders
+
+        # Three transactions: one before window, one inside, one after as_of
+        api_data = {
+            "data": [
+                {
+                    "transactionDate": "2023-12-01",  # well before as_of - 90d
+                    "transactionType": "P - Purchase",
+                    "share": 100,
+                    "transactionPrice": 10.0,
+                    "name": "Old Insider",
+                },
+                {
+                    "transactionDate": "2024-04-15",  # inside [2024-03-17, 2024-06-15]
+                    "transactionType": "P - Purchase",
+                    "share": 200,
+                    "transactionPrice": 20.0,
+                    "name": "Inside Insider",
+                },
+                {
+                    "transactionDate": "2024-08-01",  # AFTER as_of (future leak!)
+                    "transactionType": "S - Sale",
+                    "share": 500,
+                    "transactionPrice": 30.0,
+                    "name": "Future Insider",
+                },
+            ]
+        }
+
+        def fake_get(url, params=None, headers=None, timeout=None):
+            r = MagicMock()
+            r.raise_for_status = MagicMock()
+            r.json = MagicMock(return_value=api_data)
+            return r
+
+        with (
+            patch("src.data_enrichment.insiders._load_cached", return_value=None),
+            patch("src.data_enrichment.insiders._save_cache"),
+            patch("src.data_enrichment.insiders.time.sleep"),
+            patch("src.data_enrichment.insiders.requests.get", side_effect=fake_get),
+        ):
+            result = insiders.fetch_insider_activity(
+                "AAPL",
+                lookback_days=90,
+                finnhub_api_key="stub-key",
+                cache_hours=24,
+                as_of="2024-06-15",
+            )
+
+        assert result is not None
+        # Only the "Inside Insider" transaction should be counted —
+        # neither the pre-window 2023-12-01 nor the post-as_of 2024-08-01.
+        assert result["insider_buys_90d"] == 1
+        assert result["insider_sells_90d"] == 0
+
+    def test_as_of_cache_key_distinct_from_runtime(self):
+        """The cache key must include as_of so PIT and "now" caches don't collide."""
+        from src.data_enrichment.insiders import _get_cache_path
+
+        runtime_path = _get_cache_path("AAPL")
+        pit_path = _get_cache_path("AAPL", as_of_date="2024-06-15")
+        assert runtime_path != pit_path
+        assert "2024-06-15" in str(pit_path)
+
+    def test_enricher_routes_as_of_to_insiders(self):
+        """enrich_features(as_of=...) must pass as_of through to fetch_insider_activity."""
+        from src.data_enrichment.enricher import enrich_features
+
+        features = {"AAPL": {"current_price": 185.0, "ticker": "AAPL"}}
+        config = {"data_enrichment": {"enabled": True, "finnhub_api_key": "stub-key"}}
+
+        with (
+            patch("src.data_enrichment.enricher._rate_limit"),
+            patch("src.data_enrichment.macro.fetch_macro_context", return_value={}),
+            patch("src.data_enrichment.fundamentals.fetch_fundamental_snapshot", return_value=None),
+            patch(
+                "src.data_enrichment.insiders.fetch_insider_activity",
+                return_value=None,
+            ) as insider_fetch,
+            patch("src.data_enrichment.news.fetch_historical_news", return_value=None),
+        ):
+            enrich_features(features, config, as_of="2024-06-15")
+
+        assert insider_fetch.called
+        kwargs = insider_fetch.call_args.kwargs
+        assert kwargs.get("as_of") == "2024-06-15"

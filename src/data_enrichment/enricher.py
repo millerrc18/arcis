@@ -77,9 +77,10 @@ def enrich_features(
             uses point-in-time historical lookups instead of "now" data —
             required for backfill / backtest paths so the LLM doesn't see
             future data through enrichment fields. When None (the runtime
-            default), behavior is unchanged. Phase 1 of the Sprint 1.C PIT
-            audit fixes — currently routes Section 6 (news) only;
-            Sections 4/5/7/10/11 will plumb their own ``as_of`` via #855-#859.
+            default), behavior is unchanged. Sprint 1.C PIT audit fixes —
+            currently routes Section 5 (insiders, #857) and Section 6
+            (news, #854); Sections 4/7/10/11 will plumb their own ``as_of``
+            via #855/#856/#858/#859.
 
     Returns:
         Same dict with enrichment fields added in place.
@@ -143,6 +144,9 @@ def enrich_features(
             logger.debug("[ENRICHMENT] Fundamentals failed for %s: %s", ticker, e)
 
         # Insider data
+        # #857 / Sprint 1.C Phase 2: when as_of is set, route insider fetch
+        # to the PIT-aware path (window = [as_of - lookback, as_of] + cache
+        # keyed by as_of). When as_of is None, runtime behavior unchanged.
         if insider_enabled:
             try:
                 from src.data_enrichment.insiders import (
@@ -155,6 +159,7 @@ def enrich_features(
                     lookback_days=lookback_days,
                     finnhub_api_key=finnhub_key,
                     cache_hours=cache_hours,
+                    as_of=as_of,
                 )
                 feat["insider_summary"] = format_insider_summary(insider_data)
                 if insider_data is None:
