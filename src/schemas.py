@@ -39,6 +39,17 @@ class TradePacket(BaseModel):
     llm_conviction: Optional[int] = None
     llm_conviction_reason: Optional[str] = None
     llm_timeout_days: Optional[int] = None
+    # Set by enhance_packet_with_llm:
+    #   - llm_conviction_parse_failed: True at the 4 conviction-fallback sites
+    #     in _parse_llm_response, False on successful parse (#850 / parse-failed flag).
+    #   - parser_strategy_succeeded: stable identifier of which conviction-parse
+    #     strategy fired ("metadata_block", "plain_conviction", etc.), or None
+    #     if all 8 strategies missed (#98 / parser strategy instrumentation).
+    # Both fields must be declared here because TradePacket has
+    # validate_assignment=True — setting an undeclared attribute raises
+    # ValidationError(no_such_attribute) at runtime.
+    llm_conviction_parse_failed: Optional[bool] = None
+    parser_strategy_succeeded: Optional[str] = None
 
 
 class RankedCandidate(BaseModel):
