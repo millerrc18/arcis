@@ -197,7 +197,7 @@ def _compute_features_for_window(
         sliced, spy_sliced = slice_to_date({"tickers": ohlcv, "spy": spy}, as_of)
         if not sliced or spy_sliced.empty:
             continue
-        by_date[as_of] = compute_all_features(sliced, spy_sliced)
+        by_date[as_of] = compute_all_features(sliced, spy_sliced, as_of=as_of)
     return by_date
 
 

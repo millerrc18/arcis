@@ -163,7 +163,7 @@ def backtest_model(model_name: str, months: int = 6,
             if not sliced or spy_sliced.empty:
                 continue
 
-            features = compute_all_features(sliced, spy_sliced)
+            features = compute_all_features(sliced, spy_sliced, as_of=date_str)
             ranked = rank_universe(features)
             candidates = get_top_candidates(ranked)
 
