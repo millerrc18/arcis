@@ -322,6 +322,7 @@ def run_scan(
                     llm_action=llm_action,
                     llm_conviction=conviction,
                     recommendation_id=rec_id,
+                    parse_failed=getattr(packet, 'llm_conviction_parse_failed', False),
                 )
             except Exception as e:
                 logger.debug("[ATTRIBUTION] Phase 2 failed for %s: %s", ticker, e)

@@ -629,6 +629,8 @@ def enhance_packet_with_llm(packet: TradePacket, features: dict,
         logger.info("[LLM] Disabled in config — fallback to template for %s", packet.ticker)
         return packet
 
+    packet.llm_conviction_parse_failed = False
+
     prompt = _build_feature_prompt(features, packet.ticker)
 
     # Append trade parameters (not part of the 11 data sections)
@@ -690,6 +692,7 @@ Event Risk: {packet.event_risk}"""
         logger.warning("[LLM] Response rejected by validation — fallback to template for %s",
                        packet.ticker)
         packet.llm_conviction = 5
+        packet.llm_conviction_parse_failed = True
         return packet
 
     conviction, why_now, deeper_analysis, conviction_reason, timeout_days = _parse_llm_response(response)
@@ -699,6 +702,7 @@ Event Risk: {packet.event_risk}"""
                        extra={"ctx": {"event": "parse_failure", "ticker": packet.ticker}})
         # #318: set conviction before returning so it never leaks as None
         packet.llm_conviction = conviction if conviction is not None else 5
+        packet.llm_conviction_parse_failed = True
         return packet
 
     # #168: if conviction is None after all 5 parsing strategies, default to 5.
@@ -708,6 +712,7 @@ Event Risk: {packet.event_risk}"""
     # In live trading this default should be reconsidered (likely reject).
     if conviction is None:
         conviction = 5
+        packet.llm_conviction_parse_failed = True
         _raw_preview = repr(response[:500]) if response else "EMPTY"
         logger.warning(
             "[LLM] Conviction is None for %s — defaulting to %d. "
@@ -724,6 +729,8 @@ Event Risk: {packet.event_risk}"""
                 response or "EMPTY", encoding="utf-8")
         except Exception:
             pass
+    else:
+        packet.llm_conviction_parse_failed = False
 
     # Only update prose fields — never touch deterministic fields
     packet.why_now = why_now

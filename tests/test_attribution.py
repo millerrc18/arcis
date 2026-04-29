@@ -336,3 +336,91 @@ class TestAttributionFailureIsolation:
         from src.attribution.logger import link_trade_outcome
         result = link_trade_outcome("any-rec", "win", 5.0, db_path="/nonexistent/path.db")
         assert result is False
+
+
+# ── parse_failed column (#850) ───────────────────────────────────────────────
+
+
+class TestParseFailed:
+    """Tests for the parse_failed boolean column on attribution_trades (#850).
+
+    Verifies that log_attribution_after_llm accepts and persists the
+    parse_failed flag, distinguishing parser-failure conviction=5 rows from
+    real medium-conviction takes.
+    """
+
+    def _setup_pending_row(self, db_path, attr_id="pf-attr-001"):
+        """Insert a pending attribution row for parse_failed tests."""
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "INSERT INTO attribution_trades "
+                "(attribution_id, ticker, scan_timestamp, ranker_score, "
+                "llm_action, ranker_only_entry, ranker_only_stop, "
+                "ranker_only_target, ranker_only_outcome, created_at) "
+                "VALUES (?, 'AAPL', '2026-04-28T10:00:00', 80.0, "
+                "'pending', 150.0, 145.0, 160.0, 'pending', '2026-04-28T10:00:00')",
+                (attr_id,),
+            )
+            conn.commit()
+
+    def test_parse_failed_true_persisted(self, db_path):
+        """Writer persists parse_failed=True (1 in SQLite INTEGER column)."""
+        from src.attribution.logger import log_attribution_after_llm
+
+        self._setup_pending_row(db_path, "pf-true-001")
+        log_attribution_after_llm(
+            "pf-true-001",
+            llm_action="taken",
+            llm_conviction=5,
+            parse_failed=True,
+            db_path=db_path,
+        )
+
+        row = _get_row(db_path, "pf-true-001")
+        assert row["parse_failed"] == 1
+
+    def test_parse_failed_false_persisted(self, db_path):
+        """Writer persists parse_failed=False (0) — the default clean-parse case."""
+        from src.attribution.logger import log_attribution_after_llm
+
+        self._setup_pending_row(db_path, "pf-false-001")
+        log_attribution_after_llm(
+            "pf-false-001",
+            llm_action="taken",
+            llm_conviction=7,
+            parse_failed=False,
+            db_path=db_path,
+        )
+
+        row = _get_row(db_path, "pf-false-001")
+        assert row["parse_failed"] == 0
+
+    def test_parse_failed_default_is_false(self, db_path):
+        """parse_failed defaults to False when omitted — no breaking change."""
+        from src.attribution.logger import log_attribution_after_llm
+
+        self._setup_pending_row(db_path, "pf-default-001")
+        log_attribution_after_llm(
+            "pf-default-001",
+            llm_action="taken",
+            llm_conviction=8,
+            db_path=db_path,
+        )
+
+        row = _get_row(db_path, "pf-default-001")
+        assert row["parse_failed"] == 0
+
+    def test_non_canonical_action_still_rejected_with_parse_failed(self, db_path):
+        """Validator still rejects non-canonical actions even when parse_failed is passed."""
+        import pytest as _pytest
+        from src.attribution.logger import log_attribution_after_llm
+
+        self._setup_pending_row(db_path, "pf-invalid-001")
+        with _pytest.raises(ValueError, match="not canonical"):
+            log_attribution_after_llm(
+                "pf-invalid-001",
+                llm_action="buy",
+                llm_conviction=5,
+                parse_failed=True,
+                db_path=db_path,
+            )
