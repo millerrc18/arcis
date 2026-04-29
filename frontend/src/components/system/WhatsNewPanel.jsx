@@ -10,9 +10,57 @@
 
 // Mirror of the most recent CHANGELOG.md entries. Three most recent versions,
 // most-recent first. When you cut a release, update CHANGELOG.md AND this
-// array AND src/version.py in the same commit. Sprint 0 Wave 1a F-CHANGELOG
-// (PR #690 review B3) — refresh after months-old v0.25.0 was still showing.
+// array AND src/version.py in the same commit (per docs/versioning-policy.md).
+// Sprint 0 Wave 1a F-CHANGELOG (PR #690 review B3) flagged this — refresh
+// after stale v0.25.0 was rendering. Refreshed at v0.32.0 retroactive cut.
 const RECENT_ENTRIES = [
+  {
+    version: "v0.32.0",
+    date: "2026-04-29",
+    changes: [
+      "Sprint 1.C Phase 1 attribution discipline (#846/#847/#848) — canonical llm_action validator + conviction-band scale fix + coverage-drop postmortem",
+      "Sprint 1.C Phase 2 LLM-prompt PIT audit (#94) — 11 prompt sections audited; 5 PIT-broken HIGH severity; Stage 1 start may need 2014→2022 revision",
+      "8 PIT follow-up trackers filed (#854-#861) for Phase 4 corpus prerequisites",
+    ],
+  },
+  {
+    version: "v0.31.0",
+    date: "2026-04-28",
+    changes: [
+      "Walk-forward harness (#78) — anchored expanding × 8 folds × 21-day embargo; underpowered-fold filter <15 trades",
+      "Methodology wiring: cost-model calibration (#79) + FRED rf-rate (#80) + promotion gate (#49) + subgroup analysis harness (#81)",
+      "Pre-registration document (#63) — binding methodology contract per §5.3",
+      "Pre-push git hook (#59) — refuses pushes from branches behind origin/main; closes stale-base hazard class (5 incidents)",
+    ],
+  },
+  {
+    version: "v0.30.0",
+    date: "2026-04-28",
+    changes: [
+      "Reconcile track (#68-#74): 623,360 ghost rows deleted across 25 tables in three passes (Render Postgres delete-replication gap)",
+      "Dashboard sprint Tier 1.A-1.F (#54): orphan cloud routes wired, CORS env var documented, /api/commands/expire-stale + COALESCE outcome query, registry imports on startup",
+      "TableDef.sync_reconcile registry-driven allowlist (#73); periodic reconcile in run_sync_cycle (#72)",
+    ],
+  },
+  {
+    version: "v0.29.0",
+    date: "2026-04-27",
+    changes: [
+      "Sprint 1.A.x point-in-time SP100 universe (#794-#821): Wikipedia scraper + JSON backfill + curated corp-action history",
+      "Tier A: PCLN→BKNG, KRFT→KHC, UTX+RTN→RTX, EMC removal, YHOO removal. Tier B: CELG, S, FB→META",
+      "T10 survivorship migration: backtest/sim/training-backfill use get_sp100_at(<as_of>); live runtime retains get_sp100_universe()",
+      "Test baseline lifted 3671→3682 (T10 regression-locks +11)",
+    ],
+  },
+  {
+    version: "v0.28.0",
+    date: "2026-04-26",
+    changes: [
+      "Sprint 0 wave-system: 14 parallel-dispatch PRs (#700-#724) — frontend cockpit, status constants, watch-loop discipline, schema floor, FRED rf v2, walkforward KPIs SE, Sharpe consolidation, promotion-gate methodology, live-order verification, PIT features",
+      "Sprint 0.B-0.D triage: ~30 silent-failure / code-hygiene / connect-db / size / method findings closed",
+      "Worktree-per-agent dispatch pattern formalized in CLAUDE.md (#699)",
+    ],
+  },
   {
     version: "v0.27.1",
     date: "2026-04-26",
@@ -20,26 +68,6 @@ const RECENT_ENTRIES = [
       "PR #690 review sweep merged — 27 findings closed (5 Blockers + 8 Important + 14 Observations)",
       "Sprint 0 Wave 1a frontend cockpit: F-AUTH (Rules of Hooks) + F-CHANGELOG refresh",
       "Decision 6: KPI traffic-light thresholds aligned to audit-spec §3.1",
-    ],
-  },
-  {
-    version: "v0.27.0",
-    date: "2026-04-25",
-    changes: [
-      "Track 1.5 instrumentation gap closure (B1–B9): exit slippage, broker_exceptions, exit_reason taxonomy, LLM Key Risk + timeout persistence, instrumentation_version sentinel",
-      "Round 8.A–F dashboard fixes: 5-KPI hero strip + broker_exceptions panel + preflight UI echo",
-      "Round 10 zero-failures cleanup (Fix-A/B/C/D, anti-gaming verified)",
-      "SD#46 fix-everything-technically-before-trading principle adopted; Mon $100 deploy deferred post-Cohort-3",
-    ],
-  },
-  {
-    version: "v0.26.0",
-    date: "2026-04-23",
-    changes: [
-      "Exit-overshoot cancel-race fix (#608/#609/#610, PR #636) — _handle_pre_exit_cancel routes to _close_from_broker_fill on cancel-fill race",
-      "CVS retry loop + phantom exits (PR #595): D2 reconcile branch + D3 executor qty sync + _strip_enum normalization",
-      "Council fail-closed (#612, PR #636): ClaudeAuthError + CouncilUnavailableError replace silent fake 5-0 consensus",
-      "Triage bundle: 29 issues closed across 4 tiers; src/version.py single source of truth (#631-15)",
     ],
   },
 ];

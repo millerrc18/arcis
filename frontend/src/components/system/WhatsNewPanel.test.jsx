@@ -24,40 +24,36 @@ describe('WhatsNewPanel regression — current release surfaced', () => {
     expect(container.firstChild).not.toBeNull()
   })
 
-  it('most recent version listed is v0.27.1, not the stale v0.25.0', () => {
+  it('lead version matches src/version.py (currently v0.32.0)', () => {
+    // When you cut a release, update this test to the new VERSION value
+    // alongside src/version.py + CHANGELOG.md + WhatsNewPanel.jsx.
+    // Per docs/versioning-policy.md, all four must move together.
     const { container } = render(<WhatsNewPanel />)
-    // Pull all version strings in render order. The first one must be the
-    // current release, not the months-old entry the operator complained about.
-    const text = container.textContent
-    const firstV0271 = text.indexOf('v0.27.1')
-    const firstV025 = text.indexOf('v0.25.0')
-    expect(firstV0271).toBeGreaterThanOrEqual(0)
-    // If v0.25.0 is rendered at all, it must come AFTER v0.27.1 (i.e. it
-    // is a historical reference, not the lead). Strict: the lead version
-    // is v0.27.1 and it must appear before any v0.25.0 (regardless of
-    // whether v0.25.0 is in the trim window or not).
-    if (firstV025 >= 0) {
-      expect(firstV0271).toBeLessThan(firstV025)
-    }
-  })
-
-  it('renders today\'s release date 2026-04-26', () => {
-    const { container } = render(<WhatsNewPanel />)
-    expect(container.textContent).toContain('2026-04-26')
-  })
-
-  it('does NOT show v0.25.0 as the lead entry (the regression we are locking)', () => {
-    const { container } = render(<WhatsNewPanel />)
-    // The very first version label rendered must NOT be v0.25.0.
-    // Find the first version-prefixed token.
     const match = container.textContent.match(/v0\.\d+\.\d+/)
     expect(match).not.toBeNull()
-    expect(match[0]).not.toBe('v0.25.0')
+    expect(match[0]).toBe('v0.32.0')
   })
 
-  it('mentions PR #690 in the lead entry (anchor for Sprint 0 Wave 1a)', () => {
+  it('lead entry surfaces the most recent release date (2026-04-29)', () => {
     const { container } = render(<WhatsNewPanel />)
-    expect(container.textContent).toMatch(/PR #690/)
+    expect(container.textContent).toContain('2026-04-29')
+  })
+
+  it('does NOT regress to a stale lead version', () => {
+    // Locks the original Sprint 0 Wave 1a F-CHANGELOG regression class:
+    // the panel had been advertising v0.25.0 (2026-04-18) as latest while
+    // Track 1.5 + Round 8/10 + PR #690 had already shipped. Don't let
+    // any old version slip back to the top.
+    const { container } = render(<WhatsNewPanel />)
+    const match = container.textContent.match(/v0\.\d+\.\d+/)
+    expect(match).not.toBeNull()
+    const stale = ['v0.25.0', 'v0.26.0', 'v0.27.0', 'v0.27.1', 'v0.28.0', 'v0.29.0', 'v0.30.0', 'v0.31.0']
+    expect(stale).not.toContain(match[0])
+  })
+
+  it('lead entry references current sprint context (Sprint 1.C)', () => {
+    const { container } = render(<WhatsNewPanel />)
+    expect(container.textContent).toMatch(/Sprint 1\.C/)
   })
 
   it('renders the "What\'s New" heading + CHANGELOG.md footer', () => {
