@@ -77,9 +77,10 @@ def enrich_features(
             uses point-in-time historical lookups instead of "now" data —
             required for backfill / backtest paths so the LLM doesn't see
             future data through enrichment fields. When None (the runtime
-            default), behavior is unchanged. Phase 1 of the Sprint 1.C PIT
-            audit fixes — currently routes Section 6 (news) only;
-            Sections 4/5/7/10/11 will plumb their own ``as_of`` via #855-#859.
+            default), behavior is unchanged. Sprint 1.C Phase 2 PIT-fix
+            wiring: routes Section 6 (news, #854) and Section 7 (macro,
+            #855); Sections 4/5/10/11 will plumb their own ``as_of`` via
+            #856-#859.
 
     Returns:
         Same dict with enrichment fields added in place.
@@ -105,11 +106,18 @@ def enrich_features(
         _alert_missing_key("FRED_API_KEY")
 
     # 1. Fetch macro context ONCE (shared across all tickers)
+    # #855 / Sprint 1.C Phase 2: when as_of is set, route to PIT FRED
+    # lookup (observation_end=as_of) so the LLM doesn't see future macro
+    # data through the prompt. When None, behavior unchanged.
     macro_summary = "No macro data available"
     if macro_enabled:
         try:
             from src.data_enrichment.macro import fetch_macro_context, format_macro_summary
-            macro_data = fetch_macro_context(fred_api_key=fred_key, cache_hours=cache_hours)
+            macro_data = fetch_macro_context(
+                fred_api_key=fred_key,
+                cache_hours=cache_hours,
+                as_of=as_of,
+            )
             macro_summary = format_macro_summary(macro_data)
         except Exception as e:
             logger.warning("[ENRICHMENT] Failed to fetch macro context: %s", e)

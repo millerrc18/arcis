@@ -35,18 +35,24 @@ SERIES = {
 }
 
 
-def _get_cache_path() -> Path:
+def _get_cache_path(as_of: str | None = None) -> Path:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    if as_of is not None:
+        return CACHE_DIR / f"macro_context_{as_of}.pkl"
     return CACHE_DIR / "macro_context.pkl"
 
 
-def _load_cached(cache_hours: int = 24) -> dict | None:
-    path = _get_cache_path()
+def _load_cached(cache_hours: int = 24, as_of: str | None = None) -> dict | None:
+    path = _get_cache_path(as_of=as_of)
     if not path.exists():
         return None
     try:
         with open(path, "rb") as f:
             data = pickle.load(f)
+        # PIT cache is immutable — historical FRED values don't change.
+        # Skip the freshness check when as_of is set.
+        if as_of is not None:
+            return data
         if datetime.now() - data.get("_cached_at", datetime.min) < timedelta(hours=cache_hours):
             return data
     except Exception:
@@ -54,9 +60,9 @@ def _load_cached(cache_hours: int = 24) -> dict | None:
     return None
 
 
-def _save_cache(data: dict) -> None:
+def _save_cache(data: dict, as_of: str | None = None) -> None:
     data["_cached_at"] = datetime.now()
-    path = _get_cache_path()
+    path = _get_cache_path(as_of=as_of)
     try:
         with open(path, "wb") as f:
             pickle.dump(data, f)
@@ -64,8 +70,18 @@ def _save_cache(data: dict) -> None:
         pass
 
 
-def _fetch_series(series_id: str, api_key: str, limit: int = 1) -> float | None:
-    """Fetch the latest value from a FRED series."""
+def _fetch_series(
+    series_id: str,
+    api_key: str,
+    limit: int = 1,
+    as_of: str | None = None,
+) -> float | None:
+    """Fetch the latest value from a FRED series.
+
+    When ``as_of`` is set (ISO ``YYYY-MM-DD``), passes ``observation_end=as_of``
+    to FRED so the most-recent observation returned is the one available
+    at that historical date — required for PIT-clean backtests.
+    """
     params = {
         "series_id": series_id,
         "api_key": api_key,
@@ -73,6 +89,8 @@ def _fetch_series(series_id: str, api_key: str, limit: int = 1) -> float | None:
         "limit": limit,
         "file_type": "json",
     }
+    if as_of is not None:
+        params["observation_end"] = as_of
     resp = retry_with_backoff(
         lambda: requests.get(FRED_BASE, params=params, timeout=15),
         max_retries=3, base_delay=2.0,
@@ -94,8 +112,13 @@ def _fetch_series(series_id: str, api_key: str, limit: int = 1) -> float | None:
     return None
 
 
-def _fetch_cpi_yoy(api_key: str) -> float | None:
-    """Compute YoY CPI from last 13 monthly values."""
+def _fetch_cpi_yoy(api_key: str, as_of: str | None = None) -> float | None:
+    """Compute YoY CPI from last 13 monthly values.
+
+    When ``as_of`` is set (ISO ``YYYY-MM-DD``), passes ``observation_end=as_of``
+    so the 13-month window ends at that historical date — required for
+    PIT-clean backtests.
+    """
     params = {
         "series_id": "CPIAUCSL",
         "api_key": api_key,
@@ -103,6 +126,8 @@ def _fetch_cpi_yoy(api_key: str) -> float | None:
         "limit": 13,
         "file_type": "json",
     }
+    if as_of is not None:
+        params["observation_end"] = as_of
     resp = retry_with_backoff(
         lambda: requests.get(FRED_BASE, params=params, timeout=15),
         max_retries=3, base_delay=2.0,
@@ -177,14 +202,28 @@ def _classify_economic_regime(
     return "mid_cycle"
 
 
-def fetch_macro_context(fred_api_key: str | None = None, cache_hours: int = 24) -> dict:
-    """Fetch current macroeconomic context from FRED API.
+def fetch_macro_context(
+    fred_api_key: str | None = None,
+    cache_hours: int = 24,
+    as_of: str | None = None,
+) -> dict:
+    """Fetch macroeconomic context from FRED API.
 
     Returns dict with Fed rate, yield curve, CPI, unemployment, and regime classification.
     Returns sensible defaults if FRED is unavailable.
+
+    Args:
+        fred_api_key: FRED API key. If absent, returns defaults.
+        cache_hours: Cache TTL for runtime ("now") fetches. Ignored when
+            ``as_of`` is set since PIT data is immutable.
+        as_of: Optional ISO date string (``YYYY-MM-DD``). When set, every
+            FRED call is sent ``observation_end=as_of`` so the LLM only
+            sees data that was available at that historical date — required
+            for PIT-clean backtests / corpus generation. Cache key includes
+            ``as_of`` so PIT and runtime data don't collide on disk.
     """
-    # Check cache
-    cached = _load_cached(cache_hours)
+    # Check cache (separate cache entries for as_of vs. runtime)
+    cached = _load_cached(cache_hours, as_of=as_of)
     if cached:
         return {k: v for k, v in cached.items() if not k.startswith("_")}
 
@@ -207,19 +246,19 @@ def fetch_macro_context(fred_api_key: str | None = None, cache_hours: int = 24) 
 
     try:
         # Fetch each series
-        fed_rate = _fetch_series("FEDFUNDS", fred_api_key)
+        fed_rate = _fetch_series("FEDFUNDS", fred_api_key, as_of=as_of)
         time.sleep(0.1)
 
-        treasury_10y = _fetch_series("DGS10", fred_api_key)
+        treasury_10y = _fetch_series("DGS10", fred_api_key, as_of=as_of)
         time.sleep(0.1)
 
-        treasury_2y = _fetch_series("DGS2", fred_api_key)
+        treasury_2y = _fetch_series("DGS2", fred_api_key, as_of=as_of)
         time.sleep(0.1)
 
-        cpi_yoy = _fetch_cpi_yoy(fred_api_key)
+        cpi_yoy = _fetch_cpi_yoy(fred_api_key, as_of=as_of)
         time.sleep(0.1)
 
-        unemployment = _fetch_series("UNRATE", fred_api_key)
+        unemployment = _fetch_series("UNRATE", fred_api_key, as_of=as_of)
 
         # Compute spread
         yield_spread = None
@@ -243,7 +282,7 @@ def fetch_macro_context(fred_api_key: str | None = None, cache_hours: int = 24) 
             "last_fomc_date": None,
         }
 
-        _save_cache(result)
+        _save_cache(result, as_of=as_of)
         return result
 
     except Exception as e:
