@@ -1,7 +1,7 @@
 {
-  "run_count": 40,
+  "run_count": 41,
   "current_focus_index": 2,
-  "file_index": 191,
+  "file_index": 206,
   "file_list": [
     "requirements.txt",
     "frontend/package.json",
@@ -234,7 +234,7 @@
     "src/utils/secret_redact.py",
     "src/utils/type_safety.py"
   ],
-  "last_run": "2026-04-28T15:42:00.000000+00:00",
+  "last_run": "2026-04-29T12:00:00.000000+00:00",
   "low_findings": [
     {
       "run": 40,
@@ -259,6 +259,36 @@
       "file": "src/shadow_trading/bracket_monitor.py",
       "lines": "200-212",
       "detail": "except Exception: without logging on fallback query path — silently catches non-schema errors"
+    },
+    {
+      "run": 41,
+      "file": "src/trading/ib_shadow.py",
+      "line": 22,
+      "detail": "sqlite3 imported at module level but unused — all DB access goes through connect_db from src.utils.db"
+    },
+    {
+      "run": 41,
+      "file": "src/training/backfill.py",
+      "line": 14,
+      "detail": "sqlite3 imported at module level but unused — all DB access goes through connect_db from src.utils.db"
+    },
+    {
+      "run": 41,
+      "file": "src/training/bootstrap.py",
+      "line": 14,
+      "detail": "sqlite3 imported at module level but unused — all DB access goes through connect_db from src.utils.db"
+    },
+    {
+      "run": 41,
+      "file": "src/sync/render_sync.py",
+      "lines": "504-507",
+      "detail": "Redundant local re-imports of src.config.DB_PATH, sqlite3, and time as _sync_db, _sync_sql, _sync_time inside _replace_latest_in_postgres — already imported at module level"
+    },
+    {
+      "run": 41,
+      "file": "src/sync/render_sync.py",
+      "lines": "1064-1067",
+      "detail": "bare except Exception: pass on Telegram send_telegram() in sync error handler — swallows ImportError and all dependency issues silently"
     }
   ]
 }
