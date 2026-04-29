@@ -282,3 +282,212 @@ class TestEnrichFeaturesAsOfRouting:
         assert "fundamental_summary" in result["AAPL"]
         assert "insider_summary" in result["AAPL"]
         assert "news_summary" in result["AAPL"]
+
+
+class TestFundamentalsAsOfRouting:
+    """Tests for the as_of parameter in fundamentals.py PIT routing (#856).
+
+    Verifies that:
+    - Default (as_of=None) preserves current sort-by-end behavior
+    - as_of='YYYY-MM-DD' filters by `filed <= as_of` BEFORE sorting
+    - as_of returns the most recent entry by `filed` desc, not by `end` desc
+    - Cache key differs between as_of=None and as_of=set
+    - enricher.py passes as_of through to fetch_fundamental_snapshot
+
+    XBRL filings have BOTH `end` (period covered) AND `filed` (filing date).
+    For a historical lookup at date T, you need entries with `filed <= T`
+    (data was actually available by T), not `end <= T` (period had ended
+    by T but the report may not have been filed yet).
+    """
+
+    @staticmethod
+    def _xbrl_concept_data() -> dict:
+        """Synthetic XBRL response with the bug-vs-fix divergence baked in.
+
+        At as_of='2024-12-31':
+        - Sort by `end` desc:   returns Q4 (end=2024-12-31, filed=2025-02-15) — leaks future data
+        - Sort by `filed` desc with filter `filed <= 2024-12-31`: returns Q3
+          (end=2024-09-30, filed=2024-11-15) — the most recent entry actually
+          available by 2024-12-31.
+        """
+        return {
+            "units": {
+                "USD": [
+                    {"val": 100, "end": "2024-03-31", "filed": "2024-05-15", "form": "10-Q"},
+                    {"val": 110, "end": "2024-06-30", "filed": "2024-08-15", "form": "10-Q"},
+                    {"val": 120, "end": "2024-09-30", "filed": "2024-11-15", "form": "10-Q"},
+                    {"val": 130, "end": "2024-12-31", "filed": "2025-02-15", "form": "10-Q"},
+                ]
+            }
+        }
+
+    def test_get_latest_value_default_sorts_by_end(self):
+        """Without as_of, current behavior is preserved: sort by end desc."""
+        from src.data_enrichment.fundamentals import _get_latest_value
+
+        data = self._xbrl_concept_data()
+        val, filed, end = _get_latest_value(data, ["10-Q", "10-K"])
+        assert val == 130
+        assert filed == "2025-02-15"
+        assert end == "2024-12-31"
+
+    def test_get_latest_value_as_of_filters_by_filed(self):
+        """With as_of, entries with filed > as_of are excluded BEFORE sorting."""
+        from src.data_enrichment.fundamentals import _get_latest_value
+
+        data = self._xbrl_concept_data()
+        val, filed, end = _get_latest_value(
+            data, ["10-Q", "10-K"], as_of="2024-12-31"
+        )
+        # Q4 (filed 2025-02-15) must be excluded — was not yet available at 2024-12-31
+        # Q3 (filed 2024-11-15, end 2024-09-30) is the most recent visible filing
+        assert val == 120
+        assert filed == "2024-11-15"
+        assert end == "2024-09-30"
+
+    def test_get_latest_value_as_of_sorts_by_filed_desc(self):
+        """The bug-vs-fix test: at as_of='2024-12-31' sort-by-end returns Q4
+        (which leaks future), but sort-by-filed-with-filter returns Q3.
+        """
+        from src.data_enrichment.fundamentals import _get_latest_value
+
+        data = self._xbrl_concept_data()
+        # With as_of, Q4 (end=2024-12-31 — looks "valid" by end alone) must NOT
+        # be returned because filed=2025-02-15 is after as_of.
+        val, filed, end = _get_latest_value(
+            data, ["10-Q", "10-K"], as_of="2024-12-31"
+        )
+        assert filed != "2025-02-15", (
+            "PIT violation: Q4 with filed=2025-02-15 leaked into as_of=2024-12-31"
+        )
+        assert val == 120
+
+    def test_get_latest_value_as_of_excludes_all_future(self):
+        """If as_of precedes every filed date, returns (None, None, None)."""
+        from src.data_enrichment.fundamentals import _get_latest_value
+
+        data = self._xbrl_concept_data()
+        val, filed, end = _get_latest_value(
+            data, ["10-Q", "10-K"], as_of="2023-01-01"
+        )
+        assert val is None
+        assert filed is None
+        assert end is None
+
+    def test_get_ttm_value_default_sorts_by_end(self):
+        """Without as_of, TTM uses last 4 by end desc (current behavior)."""
+        from src.data_enrichment.fundamentals import _get_ttm_value
+
+        data = self._xbrl_concept_data()
+        ttm = _get_ttm_value(data)
+        # All 4 quarters: 100 + 110 + 120 + 130 = 460
+        assert ttm == 460
+
+    def test_get_ttm_value_as_of_filters_by_filed(self):
+        """With as_of, TTM filters out entries with filed > as_of, then takes last 4."""
+        from src.data_enrichment.fundamentals import _get_ttm_value
+
+        # Add more history so we can verify last-4-by-filed-desc semantics
+        data = {
+            "units": {
+                "USD": [
+                    {"val": 80, "end": "2023-09-30", "filed": "2023-11-15", "form": "10-Q"},
+                    {"val": 90, "end": "2023-12-31", "filed": "2024-02-15", "form": "10-Q"},
+                    {"val": 100, "end": "2024-03-31", "filed": "2024-05-15", "form": "10-Q"},
+                    {"val": 110, "end": "2024-06-30", "filed": "2024-08-15", "form": "10-Q"},
+                    {"val": 120, "end": "2024-09-30", "filed": "2024-11-15", "form": "10-Q"},
+                    {"val": 130, "end": "2024-12-31", "filed": "2025-02-15", "form": "10-Q"},
+                ]
+            }
+        }
+        # at as_of=2024-12-31, Q4 (filed=2025-02-15) is excluded.
+        # Visible: Q3 2023, Q4 2023, Q1 2024, Q2 2024, Q3 2024 (5 total)
+        # Last 4 by filed desc: Q3 2024 (120) + Q2 2024 (110) + Q1 2024 (100) + Q4 2023 (90) = 420
+        ttm = _get_ttm_value(data, as_of="2024-12-31")
+        assert ttm == 420
+
+    def test_fetch_fundamental_snapshot_accepts_as_of(self):
+        """The public function gains an as_of parameter."""
+        import inspect
+        from src.data_enrichment.fundamentals import fetch_fundamental_snapshot
+
+        sig = inspect.signature(fetch_fundamental_snapshot)
+        assert "as_of" in sig.parameters
+        assert sig.parameters["as_of"].default is None
+
+    def test_fetch_fundamental_snapshot_cache_key_differs_with_as_of(self):
+        """Cache must NOT collide between as_of=None and as_of='YYYY-MM-DD'.
+
+        Returning the as_of=None cached "now" data when as_of is set would
+        defeat the entire PIT fix.
+        """
+        from src.data_enrichment.fundamentals import _get_cache_path
+
+        path_no_as_of = _get_cache_path("AAPL")
+        path_with_as_of = _get_cache_path("AAPL", as_of="2024-06-15")
+        assert path_no_as_of != path_with_as_of, (
+            "Cache key must encode as_of so PIT and runtime caches don't collide"
+        )
+
+    def test_enricher_passes_as_of_to_fundamentals(self):
+        """enricher.py routes as_of through to fetch_fundamental_snapshot."""
+        from src.data_enrichment.enricher import enrich_features
+
+        features = {"AAPL": {"current_price": 185.0, "ticker": "AAPL"}}
+        config = {"data_enrichment": {"enabled": True}}
+        stub_news = {
+            "headline_count": 0,
+            "headlines": [],
+            "summary": "stub",
+            "news_sentiment": "neutral",
+            "last_news_date": None,
+        }
+
+        with (
+            patch("src.data_enrichment.enricher._rate_limit"),
+            patch("src.data_enrichment.macro.fetch_macro_context", return_value={}),
+            patch(
+                "src.data_enrichment.fundamentals.fetch_fundamental_snapshot",
+                return_value=None,
+            ) as fund_fetch,
+            patch("src.data_enrichment.insiders.fetch_insider_activity", return_value=None),
+            patch("src.data_enrichment.news.fetch_historical_news", return_value=stub_news),
+        ):
+            enrich_features(features, config, as_of="2024-06-15")
+
+        assert fund_fetch.called, "fetch_fundamental_snapshot must be called"
+        kwargs = fund_fetch.call_args.kwargs
+        assert kwargs.get("as_of") == "2024-06-15", (
+            "enricher must pass as_of through to fetch_fundamental_snapshot"
+        )
+
+    def test_enricher_default_does_not_pass_as_of(self):
+        """Runtime path: enricher does not pass as_of (or passes None)."""
+        from src.data_enrichment.enricher import enrich_features
+
+        features = {"AAPL": {"current_price": 185.0, "ticker": "AAPL"}}
+        config = {"data_enrichment": {"enabled": True}}
+        stub_news = {
+            "headline_count": 0,
+            "headlines": [],
+            "summary": "stub",
+            "news_sentiment": "neutral",
+            "last_news_date": None,
+        }
+
+        with (
+            patch("src.data_enrichment.enricher._rate_limit"),
+            patch("src.data_enrichment.macro.fetch_macro_context", return_value={}),
+            patch(
+                "src.data_enrichment.fundamentals.fetch_fundamental_snapshot",
+                return_value=None,
+            ) as fund_fetch,
+            patch("src.data_enrichment.insiders.fetch_insider_activity", return_value=None),
+            patch("src.data_enrichment.news.fetch_recent_news", return_value=stub_news),
+        ):
+            enrich_features(features, config)  # no as_of
+
+        assert fund_fetch.called
+        kwargs = fund_fetch.call_args.kwargs
+        # Either omitted entirely or explicitly None — both preserve current behavior
+        assert kwargs.get("as_of") is None

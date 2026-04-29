@@ -126,12 +126,19 @@ def enrich_features(
             feat["macro_summary"] = macro_summary
 
         # Fundamental data
+        # #856 / Sprint 1.C Phase 2: when as_of is set, route to the
+        # PIT-aware path so XBRL entries are filtered by `filed <= as_of`
+        # (the data was actually available by as_of) instead of the legacy
+        # `end <= as_of` (period ended by as_of, but filing may not have
+        # happened yet).
         try:
             from src.data_enrichment.fundamentals import (
                 fetch_fundamental_snapshot,
                 format_fundamental_summary,
             )
-            fund_data = fetch_fundamental_snapshot(ticker, cache_hours=cache_hours)
+            fund_data = fetch_fundamental_snapshot(
+                ticker, cache_hours=cache_hours, as_of=as_of
+            )
             price = feat.get("current_price")
             feat["fundamental_summary"] = format_fundamental_summary(fund_data, price)
             if fund_data is None:
