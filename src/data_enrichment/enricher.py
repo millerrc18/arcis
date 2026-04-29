@@ -159,6 +159,9 @@ def enrich_features(
             logger.debug("[ENRICHMENT] Fundamentals failed for %s: %s", ticker, e)
 
         # Insider data
+        # #857 / Sprint 1.C Phase 2: when as_of is set, route insider fetch
+        # to the PIT-aware path (window = [as_of - lookback, as_of] + cache
+        # keyed by as_of). When as_of is None, runtime behavior unchanged.
         if insider_enabled:
             try:
                 from src.data_enrichment.insiders import (
@@ -171,6 +174,7 @@ def enrich_features(
                     lookback_days=lookback_days,
                     finnhub_api_key=finnhub_key,
                     cache_hours=cache_hours,
+                    as_of=as_of,
                 )
                 feat["insider_summary"] = format_insider_summary(insider_data)
                 if insider_data is None:

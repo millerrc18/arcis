@@ -26,13 +26,14 @@ logger = logging.getLogger(__name__)
 CACHE_DIR = Path(".cache/insiders")
 
 
-def _get_cache_path(ticker: str) -> Path:
+def _get_cache_path(ticker: str, as_of_date: str | None = None) -> Path:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    return CACHE_DIR / f"{ticker}_insiders.pkl"
+    suffix = f"_{as_of_date}" if as_of_date else ""
+    return CACHE_DIR / f"{ticker}_insiders{suffix}.pkl"
 
 
-def _load_cached(ticker: str, cache_hours: int = 24) -> dict | None:
-    path = _get_cache_path(ticker)
+def _load_cached(ticker: str, cache_hours: int = 24, as_of_date: str | None = None) -> dict | None:
+    path = _get_cache_path(ticker, as_of_date)
     if not path.exists():
         return None
     try:
@@ -45,9 +46,9 @@ def _load_cached(ticker: str, cache_hours: int = 24) -> dict | None:
     return None
 
 
-def _save_cache(ticker: str, data: dict) -> None:
+def _save_cache(ticker: str, data: dict, as_of_date: str | None = None) -> None:
     data["_cached_at"] = datetime.now()
-    path = _get_cache_path(ticker)
+    path = _get_cache_path(ticker, as_of_date)
     try:
         with open(path, "wb") as f:
             pickle.dump(data, f)
@@ -55,11 +56,36 @@ def _save_cache(ticker: str, data: dict) -> None:
         pass
 
 
-def _fetch_from_finnhub(ticker: str, api_key: str, lookback_days: int = 90) -> dict | None:
-    """Fetch insider transactions from Finnhub API."""
+def _fetch_from_finnhub(
+    ticker: str,
+    api_key: str,
+    lookback_days: int = 90,
+    as_of: str | None = None,
+) -> dict | None:
+    """Fetch insider transactions from Finnhub API.
+
+    When ``as_of`` is None: uses lookback_days from "now" (runtime path).
+    When ``as_of`` is set: uses [as_of - lookback_days, as_of] window
+    (TEMPORAL COMPLIANCE for backtest / training-corpus paths).
+    """
     url = "https://finnhub.io/api/v1/stock/insider-transactions"
-    params = {"symbol": ticker}
+    params: dict[str, str] = {"symbol": ticker}
     headers = {"X-Finnhub-Token": api_key}
+
+    # Compute window. When as_of is set, pass from/to to Finnhub so the API
+    # itself bounds the response and the client-side filter aligns with PIT.
+    if as_of is not None:
+        try:
+            end_dt = datetime.strptime(as_of, "%Y-%m-%d")
+        except (ValueError, TypeError):
+            return None
+        start_dt = end_dt - timedelta(days=lookback_days)
+        params["from"] = start_dt.strftime("%Y-%m-%d")
+        params["to"] = end_dt.strftime("%Y-%m-%d")
+        cutoff = start_dt
+    else:
+        end_dt = datetime.now()
+        cutoff = end_dt - timedelta(days=lookback_days)
 
     resp = retry_with_backoff(
         lambda: requests.get(url, params=params, headers=headers, timeout=15),
@@ -80,14 +106,18 @@ def _fetch_from_finnhub(ticker: str, api_key: str, lookback_days: int = 90) -> d
     if not transactions:
         return None
 
-    cutoff = datetime.now() - timedelta(days=lookback_days)
     recent = []
     for tx in transactions:
         tx_date_str = tx.get("transactionDate", "")
         try:
             tx_date = datetime.strptime(tx_date_str, "%Y-%m-%d")
-            if tx_date >= cutoff:
-                recent.append(tx)
+            if tx_date < cutoff:
+                continue
+            # When as_of is set, also exclude post-as_of transactions
+            # (defense-in-depth — Finnhub honors `to` but we double-check).
+            if as_of is not None and tx_date > end_dt:
+                continue
+            recent.append(tx)
         except (ValueError, TypeError):
             continue
 
@@ -164,14 +194,31 @@ def fetch_insider_activity(
     lookback_days: int = 90,
     finnhub_api_key: str | None = None,
     cache_hours: int = 24,
+    as_of: str | None = None,
 ) -> dict | None:
     """Fetch recent insider trading activity.
 
     Returns dict with insider buys/sells, net shares, sentiment, and notable transactions.
     Returns None if data is unavailable.
+
+    Args:
+        ticker: Stock symbol.
+        lookback_days: Window length in days.
+        finnhub_api_key: Finnhub API key (falls back to ``FINNHUB_API_KEY`` env).
+        cache_hours: Cache TTL.
+        as_of: Optional ISO date string (``YYYY-MM-DD``). When set, the lookup
+            uses ``[as_of - lookback_days, as_of]`` and the cache key is
+            namespaced by ``as_of`` so PIT and "now" data don't collide
+            (#857 — Sprint 1.C Phase 2 PIT fix). When None (the runtime
+            default), behavior is unchanged.
+
+    Coverage limit: Finnhub free-tier insider history goes back ~2-3 years.
+    Stage 1 OOS window starts 2023-09 (pre-reg addendum 1 §A4) which is
+    inside coverage; earliest folds may be sparse.
     """
-    # Check cache
-    cached = _load_cached(ticker, cache_hours)
+    # Check cache (PIT-aware: as_of-keyed when set so backfills don't collide
+    # with runtime cache).
+    cached = _load_cached(ticker, cache_hours, as_of_date=as_of)
     if cached:
         result = {k: v for k, v in cached.items() if not k.startswith("_")}
         return result if result else None
@@ -181,11 +228,11 @@ def fetch_insider_activity(
     # Try Finnhub (.env fallback when caller doesn't provide key)
     finnhub_api_key = finnhub_api_key or os.environ.get("FINNHUB_API_KEY")
     if finnhub_api_key:
-        result = _fetch_from_finnhub(ticker, finnhub_api_key, lookback_days)
+        result = _fetch_from_finnhub(ticker, finnhub_api_key, lookback_days, as_of=as_of)
         time.sleep(1.0)  # Rate limit
 
     if result is not None:
-        _save_cache(ticker, result)
+        _save_cache(ticker, result, as_of_date=as_of)
         return result
 
     return None

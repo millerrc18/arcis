@@ -472,6 +472,9 @@ class TestEarningsSignalsAsOfRouting:
             enrich_features(features, config)
 
         assert captured["as_of"] is None
+
+
+
 class TestFundamentalsAsOfRouting:
     """Tests for the as_of parameter in fundamentals.py PIT routing (#856).
 
@@ -679,3 +682,88 @@ class TestFundamentalsAsOfRouting:
         kwargs = fund_fetch.call_args.kwargs
         # Either omitted entirely or explicitly None — both preserve current behavior
         assert kwargs.get("as_of") is None
+
+
+class TestInsidersAsOfRouting:
+    """Tests for the as_of parameter routing in fetch_insider_activity (#857)."""
+
+    def test_default_no_as_of_omits_from_to(self):
+        from src.data_enrichment import insiders
+
+        captured = {}
+
+        def fake_get(url, params=None, headers=None, timeout=None):
+            captured["params"] = params
+            r = MagicMock()
+            r.raise_for_status = MagicMock()
+            r.json = MagicMock(return_value={"data": []})
+            return r
+
+        with (
+            patch("src.data_enrichment.insiders._load_cached", return_value=None),
+            patch("src.data_enrichment.insiders._save_cache"),
+            patch("src.data_enrichment.insiders.time.sleep"),
+            patch("src.data_enrichment.insiders.requests.get", side_effect=fake_get),
+        ):
+            insiders.fetch_insider_activity(
+                "AAPL", lookback_days=90, finnhub_api_key="stub-key", cache_hours=24,
+            )
+
+        assert captured["params"]["symbol"] == "AAPL"
+        assert "from" not in captured["params"]
+        assert "to" not in captured["params"]
+
+    def test_as_of_passes_from_to_to_finnhub(self):
+        from src.data_enrichment import insiders
+
+        captured = {}
+
+        def fake_get(url, params=None, headers=None, timeout=None):
+            captured["params"] = params
+            r = MagicMock()
+            r.raise_for_status = MagicMock()
+            r.json = MagicMock(return_value={"data": []})
+            return r
+
+        with (
+            patch("src.data_enrichment.insiders._load_cached", return_value=None),
+            patch("src.data_enrichment.insiders._save_cache"),
+            patch("src.data_enrichment.insiders.time.sleep"),
+            patch("src.data_enrichment.insiders.requests.get", side_effect=fake_get),
+        ):
+            insiders.fetch_insider_activity(
+                "AAPL", lookback_days=90, finnhub_api_key="stub-key",
+                cache_hours=24, as_of="2024-06-15",
+            )
+
+        assert captured["params"]["from"] == "2024-03-17"
+        assert captured["params"]["to"] == "2024-06-15"
+
+    def test_as_of_cache_key_distinct_from_runtime(self):
+        from src.data_enrichment.insiders import _get_cache_path
+
+        runtime_path = _get_cache_path("AAPL")
+        pit_path = _get_cache_path("AAPL", as_of_date="2024-06-15")
+        assert runtime_path != pit_path
+        assert "2024-06-15" in str(pit_path)
+
+    def test_enricher_routes_as_of_to_insiders(self):
+        from src.data_enrichment.enricher import enrich_features
+
+        features = {"AAPL": {"current_price": 185.0, "ticker": "AAPL"}}
+        config = {"data_enrichment": {"enabled": True, "finnhub_api_key": "stub-key"}}
+
+        with (
+            patch("src.data_enrichment.enricher._rate_limit"),
+            patch("src.data_enrichment.macro.fetch_macro_context", return_value={}),
+            patch("src.data_enrichment.fundamentals.fetch_fundamental_snapshot", return_value=None),
+            patch(
+                "src.data_enrichment.insiders.fetch_insider_activity",
+                return_value=None,
+            ) as insider_fetch,
+            patch("src.data_enrichment.news.fetch_historical_news", return_value=None),
+        ):
+            enrich_features(features, config, as_of="2024-06-15")
+
+        assert insider_fetch.called
+        assert insider_fetch.call_args.kwargs.get("as_of") == "2024-06-15"
