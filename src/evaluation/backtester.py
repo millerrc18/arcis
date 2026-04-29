@@ -26,17 +26,17 @@ def _resolve_corpus_decision(
     corpus_id: str | None,
     date_str: str,
     ticker: str,
+    *,
+    shadow: bool = False,
 ) -> tuple[bool, "object | None"]:
     """Return (should_trade, corpus_entry) for a (date, ticker) candidate.
 
-    Pre-reg §A3 reproducibility: when corpus_id is set, the corpus is the
-    binding source — no live-LLM fallback. Per §A1.4 parse_failed=1 entries
-    are pre-filtered out of corpus_entries; per §A1.5 only llm_action='taken'
-    entries enter the primary metric.
-
-    Returns:
-        (True, entry) — candidate proceeds, conviction comes from `entry`
-        (False, None) — candidate skipped (corpus inactive, missing entry, or non-'taken')
+    Pre-reg §A3 reproducibility: corpus is the binding source — no live-LLM
+    fallback. Per §A1.4 parse_failed=1 entries are pre-filtered upstream by
+    load_entries_by_decision(parse_clean_only=True) — that filter is binding
+    for both primary AND shadow per §A1.6 fair-comparison rule. Per §A1.5
+    only llm_action='taken' enters the primary metric. Per §A1.6 the shadow
+    strips the llm_action filter — every parse-clean entry trades.
     """
     if corpus_id is None:
         return True, None
@@ -47,6 +47,8 @@ def _resolve_corpus_decision(
             date_str, ticker, corpus_id,
         )
         return False, None
+    if shadow:
+        return True, entry
     if entry.llm_action != "taken":
         return False, None
     return True, entry
@@ -59,18 +61,19 @@ def backtest_model(model_name: str, months: int = 6,
                    test_start: str | None = None,
                    test_end: str | None = None,
                    rf_source: str = "fred",
-                   corpus_id: str | None = None) -> dict:
+                   corpus_id: str | None = None,
+                   shadow: bool = False) -> dict:
     """Run a walk-forward backtest of a trained model on historical data.
 
-    Process:
-    1. Load historical data
-    2. For each trading day: compute features, run ranker, get model output
-    3. Parse conviction, track simulated portfolio
-    4. Compute portfolio-level metrics
+    Process: load data → per-day compute features → run ranker → get model
+    output → parse conviction → track simulated portfolio → compute metrics.
 
     When ``corpus_id`` is set, LLM scores are read from the pre-generated
-    corpus (#96.1) instead of live; see _resolve_corpus_decision for the
-    binding pre-reg §A1.4 / §A1.5 / §A3 row-filter semantics.
+    corpus (#96.1); see _resolve_corpus_decision for the binding pre-reg
+    §A1.4 / §A1.5 / §A1.6 / §A3 row-filter semantics. When ``shadow`` is
+    True (#82, pre-reg §A1.6), the LLM filter is stripped: corpus_id+shadow
+    takes every parse-clean entry; corpus_id=None+shadow takes every ranker
+    candidate. shadow=False preserves all existing behavior.
     """
     from src.cost_model.calibration import get_calibrated_cost_model
     from src.data_ingestion.market_data import fetch_ohlcv, fetch_spy_benchmark
@@ -170,7 +173,7 @@ def backtest_model(model_name: str, months: int = 6,
                 feat = cand["features"]
 
                 should_trade, corpus_entry = _resolve_corpus_decision(
-                    corpus_entries, corpus_id, date_str, ticker
+                    corpus_entries, corpus_id, date_str, ticker, shadow=shadow,
                 )
                 if not should_trade:
                     continue
