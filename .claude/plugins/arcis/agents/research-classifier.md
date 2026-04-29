@@ -2,7 +2,7 @@
 name: research-classifier
 description: ITAR/CUI/EAR safety gate — evaluates query sensitivity before external API calls
 model: opus
-maxTurns: 3
+maxTurns: 100
 allowed-tools: []
 ---
 

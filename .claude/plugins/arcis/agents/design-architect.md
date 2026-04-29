@@ -2,7 +2,7 @@
 name: design-architect
 description: Produces grounded design specs and implementation plans from codebase analysis and structured requirements
 model: opus
-maxTurns: 10
+maxTurns: 100
 allowed-tools:
   - Read
   - Glob

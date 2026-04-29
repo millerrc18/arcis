@@ -2,7 +2,7 @@
 name: roast-prosecutor
 description: Adversarial critic — finds every flaw, gap, weakness, and logical fallacy in an artifact; produces structured indictment
 model: opus
-maxTurns: 8
+maxTurns: 100
 allowed-tools:
   - Read
   - Glob
