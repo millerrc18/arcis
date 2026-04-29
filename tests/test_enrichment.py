@@ -428,3 +428,47 @@ class TestMacroAsOfRouting:
         kwargs = macro.call_args.kwargs
         # Either explicit None, or omitted entirely (function default is None)
         assert kwargs.get("as_of") is None
+
+
+class TestEarningsSignalsAsOfRouting:
+    """Sprint 1.C Phase 2 / #859 — verify enricher plumbs as_of into compute_earnings_signals."""
+
+    def test_enricher_passes_as_of_to_earnings_signals(self):
+        """When as_of is provided to enrich_features, it must reach compute_earnings_signals."""
+        from src.data_enrichment.enricher import enrich_features
+
+        features = {"AAPL": {"current_price": 185.0, "ticker": "AAPL"}}
+        config = {"data_enrichment": {"enabled": True}}
+
+        captured = {}
+
+        def fake_earnings_signals(ticker, **kwargs):
+            captured["ticker"] = ticker
+            captured["as_of"] = kwargs.get("as_of")
+            return {"include_in_prompt": False}
+
+        with patch("src.data_enrichment.earnings_signals.compute_earnings_signals",
+                   side_effect=fake_earnings_signals):
+            enrich_features(features, config, as_of="2024-06-15")
+
+        assert captured["as_of"] == "2024-06-15"
+        assert captured["ticker"] == "AAPL"
+
+    def test_enricher_default_as_of_is_none(self):
+        """When as_of is omitted, compute_earnings_signals receives as_of=None."""
+        from src.data_enrichment.enricher import enrich_features
+
+        features = {"AAPL": {"current_price": 185.0, "ticker": "AAPL"}}
+        config = {"data_enrichment": {"enabled": True}}
+
+        captured = {}
+
+        def fake_earnings_signals(ticker, **kwargs):
+            captured["as_of"] = kwargs.get("as_of")
+            return {"include_in_prompt": False}
+
+        with patch("src.data_enrichment.earnings_signals.compute_earnings_signals",
+                   side_effect=fake_earnings_signals):
+            enrich_features(features, config)
+
+        assert captured["as_of"] is None

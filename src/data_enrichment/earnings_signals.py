@@ -29,8 +29,21 @@ ET = ZoneInfo("America/New_York")
 def compute_earnings_signals(
     ticker: str,
     db_path: str = DB_PATH,
+    as_of: str | None = None,
 ) -> dict:
     """Compute all 5 PEAD enrichment signals for a ticker.
+
+    Args:
+        ticker: Ticker symbol.
+        db_path: SQLite DB path. Defaults to runtime DB.
+        as_of: Optional ISO date string (``YYYY-MM-DD``). When set, all temporal
+            comparisons use this date instead of ``datetime.now()`` — required for
+            backfill / backtest paths so the LLM doesn't see future data through
+            earnings signals. When None (the runtime default), behavior is unchanged.
+            Sprint 1.C Phase 2 PIT audit fix #859.
+            NOTE: depends on #860 (table-level PIT audit) — this fix corrects the
+            query semantics; #860 audits whether `earnings_calendar` /
+            `analyst_estimates` are populated PIT-cleanly upstream.
 
     Returns dict with:
     - earnings_proximity_days: int or None
@@ -53,17 +66,39 @@ def compute_earnings_signals(
         "include_in_prompt": False,
     }
 
+    # Resolve the temporal anchor. When as_of is None, use "now" (legacy behavior).
+    # When as_of is provided, parse it and route every query through it for PIT compliance.
+    if as_of is not None:
+        try:
+            anchor_dt = datetime.fromisoformat(as_of).replace(tzinfo=ET)
+        except (ValueError, TypeError) as e:
+            logger.warning("[EARNINGS] Invalid as_of value %r for %s: %s", as_of, ticker, e)
+            return result
+        anchor_iso = anchor_dt.date().isoformat()
+    else:
+        anchor_dt = datetime.now(ET)
+        anchor_iso = None  # signals "use 'now' semantics for SQL"
+
+    # PIT (#859): when as_of is set, append a `collected_at <= ?` filter and
+    # an extra bound param to every analyst_estimates query. When None, the
+    # filter is empty and the legacy behavior ("latest row regardless of when
+    # collected") is preserved.
+    pit_filter = " AND collected_at <= ?" if anchor_iso is not None else ""
+    pit_extra: tuple = (anchor_iso,) if anchor_iso is not None else ()
+
     try:
         with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
-            now = datetime.now(ET)
+            now = anchor_dt
+            # earnings_calendar uses date(?) bind to honor the same anchor.
+            anchor_date_str = now.date().isoformat()
 
             # 1. Earnings proximity
             try:
                 row = conn.execute(
                     "SELECT MIN(earnings_date) as next_date FROM earnings_calendar "
-                    "WHERE ticker = ? AND earnings_date >= date('now')",
-                    (ticker,),
+                    "WHERE ticker = ? AND earnings_date >= date(?)",
+                    (ticker, anchor_date_str),
                 ).fetchone()
                 if row and row["next_date"]:
                     next_dt = datetime.fromisoformat(row["next_date"])
@@ -77,9 +112,10 @@ def compute_earnings_signals(
             try:
                 row = conn.execute(
                     "SELECT actual, estimate, surprise FROM analyst_estimates "
-                    "WHERE ticker = ? AND metric = 'EPS' AND actual IS NOT NULL "
-                    "ORDER BY date DESC LIMIT 1",
-                    (ticker,),
+                    "WHERE ticker = ? AND metric = 'EPS' AND actual IS NOT NULL"
+                    + pit_filter +
+                    " ORDER BY date DESC LIMIT 1",
+                    (ticker,) + pit_extra,
                 ).fetchone()
                 if row and row["estimate"] and row["estimate"] != 0:
                     surprise = row["surprise"] if row["surprise"] is not None else (
@@ -101,15 +137,17 @@ def compute_earnings_signals(
             try:
                 eps_row = conn.execute(
                     "SELECT actual, estimate FROM analyst_estimates "
-                    "WHERE ticker = ? AND metric = 'EPS' AND actual IS NOT NULL "
-                    "ORDER BY date DESC LIMIT 1",
-                    (ticker,),
+                    "WHERE ticker = ? AND metric = 'EPS' AND actual IS NOT NULL"
+                    + pit_filter +
+                    " ORDER BY date DESC LIMIT 1",
+                    (ticker,) + pit_extra,
                 ).fetchone()
                 rev_row = conn.execute(
                     "SELECT actual, estimate FROM analyst_estimates "
-                    "WHERE ticker = ? AND metric = 'Revenue' AND actual IS NOT NULL "
-                    "ORDER BY date DESC LIMIT 1",
-                    (ticker,),
+                    "WHERE ticker = ? AND metric = 'Revenue' AND actual IS NOT NULL"
+                    + pit_filter +
+                    " ORDER BY date DESC LIMIT 1",
+                    (ticker,) + pit_extra,
                 ).fetchone()
                 if eps_row and rev_row and eps_row["estimate"] and rev_row["estimate"]:
                     rev_beat = float(rev_row["actual"] or 0) > float(rev_row["estimate"] or 0)
@@ -123,9 +161,10 @@ def compute_earnings_signals(
             try:
                 rows = conn.execute(
                     "SELECT estimate, collected_at FROM analyst_estimates "
-                    "WHERE ticker = ? AND metric = 'EPS' AND estimate IS NOT NULL "
-                    "ORDER BY collected_at DESC LIMIT 10",
-                    (ticker,),
+                    "WHERE ticker = ? AND metric = 'EPS' AND estimate IS NOT NULL"
+                    + pit_filter +
+                    " ORDER BY collected_at DESC LIMIT 10",
+                    (ticker,) + pit_extra,
                 ).fetchall()
                 if rows and len(rows) >= 2:
                     latest = float(rows[0]["estimate"])
