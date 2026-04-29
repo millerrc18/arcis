@@ -2,7 +2,7 @@
 name: design-feasibility-reviewer
 description: Validates design specs against the real codebase — checks that assumed interfaces, files, and patterns actually exist
 model: opus
-maxTurns: 4
+maxTurns: 100
 allowed-tools:
   - Read
   - Glob

@@ -2,7 +2,7 @@
 name: research-specialist
 description: Focused sub-domain researcher — investigates a specific sub-topic delegated by a Domain Lead
 model: sonnet
-maxTurns: 8
+maxTurns: 100
 allowed-tools:
   - Agent
   - Write

@@ -2,7 +2,7 @@
 name: research-domain-lead
 description: Autonomous domain researcher — trial search, complexity assessment, selective decomposition, research, specialist dispatch, synthesis
 model: opus
-maxTurns: 10
+maxTurns: 100
 allowed-tools:
   - Agent
   - Write

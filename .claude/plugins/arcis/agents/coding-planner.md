@@ -2,7 +2,7 @@
 name: coding-planner
 description: Implementation architect — reads codebase, decomposes spec into dependency-aware task graph with scope fences and test strategies
 model: opus
-maxTurns: 12
+maxTurns: 100
 allowed-tools:
   - Read
   - Glob

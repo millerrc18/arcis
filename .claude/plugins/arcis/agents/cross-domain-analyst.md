@@ -2,7 +2,7 @@
 name: research-cross-domain-analyst
 description: Inter-domain pattern finder — identifies contradictions, connections, emergent patterns, and gaps across domain reports
 model: opus
-maxTurns: 4
+maxTurns: 100
 allowed-tools:
   - Write
 ---

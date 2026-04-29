@@ -2,7 +2,7 @@
 name: design-codebase-analyst
 description: Adaptive-depth codebase explorer — surface scans for architecture, deep dives for integration points and patterns
 model: opus
-maxTurns: 10
+maxTurns: 100
 allowed-tools:
   - Read
   - Glob

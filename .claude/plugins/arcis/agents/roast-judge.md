@@ -2,7 +2,7 @@
 name: roast-judge
 description: Arbiter — weighs Prosecutor indictment against Defense brief, produces severity-ranked verdict with rulings per charge
 model: opus
-maxTurns: 4
+maxTurns: 100
 allowed-tools: []
 ---
 

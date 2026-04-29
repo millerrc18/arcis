@@ -2,7 +2,7 @@
 name: design-devils-advocate
 description: Adversarial stress-test of design specs — finds ambiguities, missing edge cases, unstated assumptions, and scope risks
 model: opus
-maxTurns: 4
+maxTurns: 100
 allowed-tools: []
 ---
 

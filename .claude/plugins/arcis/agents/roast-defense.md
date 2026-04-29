@@ -2,7 +2,7 @@
 name: roast-defense
 description: Steelman advocate — finds genuine strengths, anticipates weaknesses, and pre-builds contextual defenses
 model: opus
-maxTurns: 8
+maxTurns: 100
 allowed-tools:
   - Read
   - Glob
