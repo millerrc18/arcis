@@ -49,8 +49,52 @@ _DEFAULT_EVENT_FEATURES = {
 # ---------------------------------------------------------------------------
 
 
-def _load_options_metrics() -> dict[str, dict]:
-    """Load latest options metrics per ticker from the database.
+# Per-ticker LATEST query (not global MAX(collected_at)): an inner
+# subquery picks max(collected_date) per ticker (filtered by as_of when
+# set); the outer join brings back the full row. SQL design from the
+# #858 audit doc. Drops the global-MAX bug AND adds PIT routing in one shot.
+_OPTIONS_METRICS_PIT_SQL = (
+    "SELECT t.ticker, t.iv_rank, t.iv_percentile, "
+    "       t.put_call_volume_ratio, t.put_call_oi_ratio, "
+    "       t.atm_iv_30d, t.iv_skew, t.unusual_volume_flag "
+    "FROM options_metrics t "
+    "INNER JOIN ("
+    "    SELECT ticker, MAX(collected_date) AS max_date "
+    "    FROM options_metrics "
+    "    WHERE (? IS NULL OR collected_date <= ?) "
+    "    GROUP BY ticker"
+    ") latest "
+    "ON t.ticker = latest.ticker AND t.collected_date = latest.max_date"
+)
+
+
+def _options_row_to_dict(row: sqlite3.Row) -> dict:
+    """Map a row from _OPTIONS_METRICS_PIT_SQL to the prompt-facing dict.
+
+    Schema column ``iv_skew`` is aliased to ``iv_skew_25d`` so the LLM
+    prompt's Section 8 template + ``_interpret_skew`` populate (these
+    have rendered 'n/a' since v0.0). ``iv_percentile`` + ``atm_iv_30d``
+    were silently dropped pre-#858; both restored.
+    """
+    return {
+        "iv_rank": row["iv_rank"],
+        "iv_percentile": row["iv_percentile"],
+        "atm_iv_30d": row["atm_iv_30d"],
+        "put_call_vol_ratio": row["put_call_volume_ratio"],
+        "put_call_oi_ratio": row["put_call_oi_ratio"],
+        "iv_skew_25d": row["iv_skew"],
+        "unusual_options_activity": bool(row["unusual_volume_flag"]),
+    }
+
+
+def _load_options_metrics(as_of: str | None = None) -> dict[str, dict]:
+    """Load options metrics per ticker from the database.
+
+    When ``as_of`` is None (live runtime), returns the most recent snapshot
+    per ticker from the entire table. When ``as_of`` is set (ISO
+    ``YYYY-MM-DD``), filters to ``collected_date <= as_of`` for PIT
+    routing — the historical decision point sees only data that was
+    actually available at that date. Closes #858.
 
     Returns empty dict when the options_metrics table has no rows
     (legitimate empty-state, not a failure). Raises when the DB is
@@ -58,26 +102,14 @@ def _load_options_metrics() -> dict[str, dict]:
     shared-enrichment failure contributing to the >50% fail-loud threshold.
     """
     # #590 — connect_db (busy_timeout=30s) prevents the "database is locked"
-    # cluster seen during overnight write bursts; raw sqlite3.connect did not
-    # apply the timeout.
+    # cluster seen during overnight write bursts.
     from src.utils.db import connect_db
     result = {}
     with connect_db(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
-        rows = conn.execute(
-            """SELECT ticker, iv_rank, put_call_volume_ratio, put_call_oi_ratio,
-                      iv_skew, unusual_volume_flag
-               FROM options_metrics
-               WHERE collected_at = (SELECT MAX(collected_at) FROM options_metrics)"""
-        ).fetchall()
+        rows = conn.execute(_OPTIONS_METRICS_PIT_SQL, (as_of, as_of)).fetchall()
         for row in rows:
-            result[row["ticker"]] = {
-                "iv_rank": row["iv_rank"],
-                "put_call_vol_ratio": row["put_call_volume_ratio"],
-                "put_call_oi_ratio": row["put_call_oi_ratio"],
-                "iv_skew": row["iv_skew"],
-                "unusual_options_activity": bool(row["unusual_volume_flag"]),
-            }
+            result[row["ticker"]] = _options_row_to_dict(row)
     return result
 
 
@@ -165,7 +197,13 @@ def load_shared_enrichments(
         failures += 1
 
     try:
-        options_data = engine._load_options_metrics()
+        # #858 / Sprint 1.C pre-Stage-1 robustness: when cutoff is set,
+        # route the options-metrics loader to PIT mode (collected_date <=
+        # as_of) so historical decision points don't see future options
+        # data. Live-scan callers pass cutoff=None, preserving runtime
+        # behavior.
+        options_as_of = cutoff.isoformat() if cutoff is not None else None
+        options_data = engine._load_options_metrics(as_of=options_as_of)
     except Exception as e:
         logger.warning("Failed to load options metrics: %s", e)
         options_data = {}
