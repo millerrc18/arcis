@@ -1357,6 +1357,9 @@ _register(TableDef(
         ColumnDef("created_at", "TEXT"),
     ],
     primary_key="id",
+    indexes=[
+        IndexDef("idx_scan_metrics_unique", ["scan_number", "scan_time"], unique=True),
+    ],
     sync_to_postgres=True,
     sync_mode="incremental",
     sync_time_column="created_at",

@@ -545,3 +545,24 @@ def test_sync_reconcile_false_for_bidirectional_full_latest_only():
         assert TABLES[name].sync_reconcile is False, (
             f"TABLES['{name}'].sync_reconcile should be False"
         )
+
+
+# ── #798 — scan_metrics UNIQUE constraint ─────────────────────────
+
+def test_scan_metrics_has_unique_index_on_scan_number_scan_time():
+    """scan_metrics must have a UNIQUE index on (scan_number, scan_time) (#798).
+
+    Duplicate (scan_number, scan_time) rows confuse the dashboard. This
+    regression guard ensures the registry-level constraint is never removed.
+    """
+    assert "scan_metrics" in TABLES
+    td = TABLES["scan_metrics"]
+    unique_indexes = [
+        idx for idx in td.indexes
+        if idx.unique and "scan_number" in idx.columns and "scan_time" in idx.columns
+    ]
+    assert unique_indexes, (
+        "scan_metrics must have a UNIQUE index covering (scan_number, scan_time). "
+        "Add IndexDef('idx_scan_metrics_unique', ['scan_number', 'scan_time'], unique=True) "
+        "to the scan_metrics TableDef in src/schema/registry.py"
+    )
