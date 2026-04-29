@@ -282,3 +282,149 @@ class TestEnrichFeaturesAsOfRouting:
         assert "fundamental_summary" in result["AAPL"]
         assert "insider_summary" in result["AAPL"]
         assert "news_summary" in result["AAPL"]
+
+
+class TestMacroAsOfRouting:
+    """Tests for the as_of parameter on fetch_macro_context (#855).
+
+    Verifies that:
+    - Default (as_of=None) preserves current FRED 'now' behavior
+    - as_of='YYYY-MM-DD' passes observation_end=as_of to FRED API calls
+      (FRED supports PIT lookups natively via observation_end)
+    - Cache keys differ between as_of=None and as_of=set so PIT data
+      and "now" data don't collide on disk
+    - enrich_features routes its as_of value through to fetch_macro_context
+
+    This locks the FRED PIT-routing contract that Sprint 1.C Phase 4
+    corpus generation depends on for Section 7 of the LLM prompt.
+    """
+
+    def test_default_as_of_uses_current_fred_behavior(self):
+        """Without as_of, _fetch_series should NOT pass observation_end."""
+        from src.data_enrichment.macro import _fetch_series
+
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"observations": [{"value": "5.25"}]}
+        mock_resp.raise_for_status.return_value = None
+
+        with patch("src.data_enrichment.macro.requests.get", return_value=mock_resp) as get:
+            result = _fetch_series("FEDFUNDS", "stub-key")
+
+        assert result == 5.25
+        kwargs = get.call_args.kwargs
+        params = kwargs.get("params", {})
+        assert "observation_end" not in params, (
+            "Runtime path must NOT send observation_end to FRED"
+        )
+
+    def test_as_of_passes_observation_end_to_fred(self):
+        """When as_of is set, _fetch_series should pass observation_end to FRED."""
+        from src.data_enrichment.macro import _fetch_series
+
+        mock_resp = MagicMock()
+        mock_resp.json.return_value = {"observations": [{"value": "2.50"}]}
+        mock_resp.raise_for_status.return_value = None
+
+        with patch("src.data_enrichment.macro.requests.get", return_value=mock_resp) as get:
+            result = _fetch_series("FEDFUNDS", "stub-key", as_of="2024-06-15")
+
+        assert result == 2.50
+        kwargs = get.call_args.kwargs
+        params = kwargs.get("params", {})
+        assert params.get("observation_end") == "2024-06-15", (
+            "Backtest path must send observation_end=as_of to FRED for PIT lookup"
+        )
+
+    def test_fetch_macro_context_propagates_as_of(self):
+        """fetch_macro_context should forward as_of to every _fetch_series call."""
+        from src.data_enrichment.macro import fetch_macro_context
+
+        with (
+            patch("src.data_enrichment.macro._load_cached", return_value=None),
+            patch("src.data_enrichment.macro._save_cache"),
+            patch("src.data_enrichment.macro._fetch_series", return_value=4.0) as series,
+            patch("src.data_enrichment.macro._fetch_cpi_yoy", return_value=2.5) as cpi,
+            patch("src.data_enrichment.macro.time.sleep"),
+        ):
+            result = fetch_macro_context(fred_api_key="stub-key", as_of="2024-06-15")
+
+        assert isinstance(result, dict)
+        assert result.get("fed_funds_rate") == 4.0
+        # Every _fetch_series call should have received as_of
+        for call in series.call_args_list:
+            assert call.kwargs.get("as_of") == "2024-06-15", (
+                f"_fetch_series called without as_of: {call}"
+            )
+        # CPI YoY helper should also receive as_of
+        cpi_kwargs = cpi.call_args.kwargs
+        assert cpi_kwargs.get("as_of") == "2024-06-15"
+
+    def test_cache_key_differs_between_as_of_modes(self):
+        """Cache key for as_of=None must differ from as_of='YYYY-MM-DD' so
+        PIT data and 'now' data don't collide on disk."""
+        from src.data_enrichment.macro import _get_cache_path
+
+        path_now = _get_cache_path()
+        path_pit = _get_cache_path(as_of="2024-06-15")
+
+        assert path_now != path_pit, (
+            "PIT cache path must differ from runtime cache path"
+        )
+        assert "2024-06-15" in str(path_pit), (
+            "PIT cache filename should encode as_of for traceability"
+        )
+
+    def test_enricher_passes_as_of_to_macro(self):
+        """enrich_features must route its as_of through to fetch_macro_context."""
+        from src.data_enrichment.enricher import enrich_features
+
+        features = {"AAPL": {"current_price": 185.0, "ticker": "AAPL"}}
+        config = {"data_enrichment": {"enabled": True}}
+
+        with (
+            patch("src.data_enrichment.enricher._rate_limit"),
+            patch(
+                "src.data_enrichment.macro.fetch_macro_context",
+                return_value={"fed_stance": "neutral"},
+            ) as macro,
+            patch("src.data_enrichment.fundamentals.fetch_fundamental_snapshot", return_value=None),
+            patch("src.data_enrichment.insiders.fetch_insider_activity", return_value=None),
+            patch("src.data_enrichment.news.fetch_historical_news", return_value={
+                "headline_count": 0, "headlines": [], "summary": "stub",
+                "news_sentiment": "neutral", "last_news_date": None,
+            }),
+        ):
+            enrich_features(features, config, as_of="2024-06-15")
+
+        assert macro.called
+        kwargs = macro.call_args.kwargs
+        assert kwargs.get("as_of") == "2024-06-15", (
+            "enrich_features must forward as_of to fetch_macro_context"
+        )
+
+    def test_enricher_default_does_not_pass_as_of_to_macro(self):
+        """Without as_of, fetch_macro_context should be called with as_of=None."""
+        from src.data_enrichment.enricher import enrich_features
+
+        features = {"AAPL": {"current_price": 185.0, "ticker": "AAPL"}}
+        config = {"data_enrichment": {"enabled": True, "finnhub_api_key": "stub"}}
+
+        with (
+            patch("src.data_enrichment.enricher._rate_limit"),
+            patch(
+                "src.data_enrichment.macro.fetch_macro_context",
+                return_value={"fed_stance": "neutral"},
+            ) as macro,
+            patch("src.data_enrichment.fundamentals.fetch_fundamental_snapshot", return_value=None),
+            patch("src.data_enrichment.insiders.fetch_insider_activity", return_value=None),
+            patch("src.data_enrichment.news.fetch_recent_news", return_value={
+                "headline_count": 0, "headlines": [], "summary": "stub",
+                "news_sentiment": "neutral", "last_news_date": None,
+            }),
+        ):
+            enrich_features(features, config)  # no as_of
+
+        assert macro.called
+        kwargs = macro.call_args.kwargs
+        # Either explicit None, or omitted entirely (function default is None)
+        assert kwargs.get("as_of") is None
