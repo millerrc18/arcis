@@ -2416,3 +2416,40 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="created_at",
 ))
+
+# #87 — preflight_runs: writer (scripts/preflight_monday.py, follow-up PR)
+# lands one row per pre-flight run; the cloud route reads it on Render so
+# the dashboard stops returning overall_status='unknown' indefinitely. Sync
+# mode is 'latest_only' because the dashboard only cares about the most
+# recent run; older runs stay in SQLite history but aren't replicated.
+_register(TableDef(
+    name="preflight_runs",
+    description="Cloud-synced surface for the §9 pre-flight checklist; the writer "
+                "lands one row per scripts/preflight_monday.py invocation so the "
+                "Render dashboard can echo overall_status without depending on "
+                "the operator's local audits/ filesystem.",
+    columns=[
+        ColumnDef("run_id", "TEXT", nullable=False,
+                  description="ISO timestamp of the run, used as the unique key."),
+        ColumnDef("last_run_at", "TEXT", nullable=False,
+                  description="Timestamp the script reports in the transcript header."),
+        ColumnDef("overall_status", "TEXT", nullable=False,
+                  description="green | yellow | red | unknown — derived from n_fail."),
+        ColumnDef("n_pass", "INTEGER", nullable=False, default="0"),
+        ColumnDef("n_fail", "INTEGER", nullable=False, default="0"),
+        ColumnDef("items_json", "TEXT", nullable=False, default="[]",
+                  description="JSON array of {name, status} per check item."),
+        ColumnDef("transcript_path", "TEXT", nullable=True,
+                  description="Filesystem path to the human-readable transcript "
+                              "on the operator's machine; informational only."),
+        ColumnDef("created_at", "TEXT", nullable=False,
+                  description="Insert timestamp for sync cursor."),
+    ],
+    primary_key="run_id",
+    indexes=[
+        IndexDef("idx_preflight_runs_created_at", ["created_at"]),
+    ],
+    sync_to_postgres=True,
+    sync_mode="latest_only",
+    sync_time_column="created_at",
+))

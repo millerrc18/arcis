@@ -12,7 +12,7 @@ import os
 import textwrap
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -21,6 +21,15 @@ from src.api.cloud_routes.preflight import (
     _parse_transcript,
     get_preflight_latest,
 )
+
+
+# #87 — clear DATABASE_URL so existing tests stay on the filesystem path. The
+# operator's `.env` (loaded via dotenv discovery) sets DATABASE_URL even in
+# worktrees; without this fixture the new Postgres branch would intercept
+# legacy tests and silently change their behavior.
+@pytest.fixture(autouse=True)
+def _clear_database_url(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -236,3 +245,158 @@ class TestGetPreflightLatest:
         assert set(result.keys()) >= {
             "last_run_at", "overall_status", "items", "transcript_path", "n_pass", "n_fail"
         }
+
+
+# ── #87: Postgres routing for preflight latest ───────────────────────────────
+# On Render the audits/ directory does not exist (it lives on the operator's
+# local filesystem), so the cloud route returned overall_status='unknown'
+# permanently. Fix: when DATABASE_URL is set, read from the preflight_runs
+# table so the dashboard can show the most recent local-machine run that was
+# synced to Postgres.
+
+class TestPostgresRouting:
+    def test_reads_from_postgres_when_database_url_set(self, monkeypatch):
+        from src.api.cloud_routes import preflight as pf
+        monkeypatch.setenv("DATABASE_URL", "postgresql://fake:fake@host/db")
+
+        captured = {}
+
+        class _FakeCursor:
+            def execute(self, sql, params=None):
+                captured["sql"] = sql
+                captured["params"] = params
+
+            def fetchone(self):
+                return {
+                    "last_run_at": "2026-04-25T08:00:00-04:00",
+                    "overall_status": "yellow",
+                    "n_pass": 9,
+                    "n_fail": 1,
+                    "items_json": '[{"name":"x","status":"pass"}]',
+                    "transcript_path": "/repo/audits/2026-04-25/preflight_transcript.txt",
+                }
+
+            def fetchall(self):
+                return []
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        class _FakeConn:
+            def cursor(self, cursor_factory=None):
+                return _FakeCursor()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        fake_psycopg2 = MagicMock()
+        fake_psycopg2.connect.return_value = _FakeConn()
+        fake_extras = MagicMock()
+        monkeypatch.setitem(__import__("sys").modules, "psycopg2", fake_psycopg2)
+        monkeypatch.setitem(__import__("sys").modules, "psycopg2.extras", fake_extras)
+
+        # Even if a transcript exists on disk in the worktree, the DB must win
+        # because that is the synced cloud source-of-truth.
+        with patch(
+            "src.api.cloud_routes.preflight._find_latest_transcript",
+            return_value=Path("/should/not/be/read.txt"),
+        ):
+            result = pf.get_preflight_latest()
+
+        fake_psycopg2.connect.assert_called_once()
+        assert result["last_run_at"] == "2026-04-25T08:00:00-04:00"
+        assert result["overall_status"] == "yellow"
+        assert result["n_pass"] == 9
+        assert result["n_fail"] == 1
+        assert isinstance(result["items"], list)
+        assert result["items"][0]["name"] == "x"
+
+    def test_returns_unknown_when_postgres_table_empty(self, monkeypatch):
+        """If preflight_runs has no rows yet (writer not deployed), return
+        the same empty-state dict the file path would have. No fabricated
+        defaults — the dashboard surfaces 'preflight has not been run yet'
+        as a graceful state, not a stale-data lie."""
+        from src.api.cloud_routes import preflight as pf
+        monkeypatch.setenv("DATABASE_URL", "postgresql://fake:fake@host/db")
+
+        class _FakeCursor:
+            def execute(self, sql, params=None):
+                pass
+
+            def fetchone(self):
+                return None
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        class _FakeConn:
+            def cursor(self, cursor_factory=None):
+                return _FakeCursor()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        fake_psycopg2 = MagicMock()
+        fake_psycopg2.connect.return_value = _FakeConn()
+        fake_extras = MagicMock()
+        monkeypatch.setitem(__import__("sys").modules, "psycopg2", fake_psycopg2)
+        monkeypatch.setitem(__import__("sys").modules, "psycopg2.extras", fake_extras)
+
+        result = pf.get_preflight_latest()
+        assert result["last_run_at"] is None
+        assert result["overall_status"] == "unknown"
+        assert result["items"] == []
+
+    def test_reads_filesystem_when_database_url_unset(self, monkeypatch, tmp_path):
+        """Local dev: DATABASE_URL absent → fall back to the audits/
+        filesystem reader. Operator parity preserved."""
+        from src.api.cloud_routes import preflight as pf
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        transcript_file = tmp_path / "preflight_transcript.txt"
+        transcript_file.write_text(SAMPLE_TRANSCRIPT, encoding="utf-8")
+        with patch(
+            "src.api.cloud_routes.preflight._find_latest_transcript",
+            return_value=transcript_file,
+        ):
+            result = pf.get_preflight_latest()
+        assert result["last_run_at"] == "2026-04-25T08:00:00-04:00"
+        assert result["overall_status"] == "yellow"
+
+
+class TestPreflightRunsTableRegistered:
+    """Lock that the preflight_runs table is registered with sync_to_postgres
+    so the writer (scripts/preflight_monday.py, follow-up PR) has a synced
+    target to land rows in. Without this lock, the cloud route can never
+    return populated data."""
+
+    def test_preflight_runs_in_registry(self):
+        from src.schema.registry import TABLES
+        assert "preflight_runs" in TABLES
+
+    def test_preflight_runs_syncs_to_postgres(self):
+        from src.schema.registry import TABLES
+        t = TABLES["preflight_runs"]
+        assert t.sync_to_postgres is True
+        assert t.sync_mode in {"incremental", "latest_only", "full"}
+
+    def test_preflight_runs_has_required_columns(self):
+        from src.schema.registry import TABLES
+        cols = {c.name for c in TABLES["preflight_runs"].columns}
+        required = {
+            "run_id", "last_run_at", "overall_status", "n_pass", "n_fail",
+            "items_json", "transcript_path", "created_at",
+        }
+        missing = required - cols
+        assert not missing, f"preflight_runs missing columns: {missing}"
