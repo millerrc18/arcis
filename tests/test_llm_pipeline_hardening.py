@@ -351,3 +351,47 @@ class TestConfigurableTimeout:
         }):
             cfg = _get_llm_config()
             assert cfg["timeout_seconds"] == 450
+
+
+# ---------------------------------------------------------------------------
+# TradePacket schema fields used by enhance_packet_with_llm (#850 + #98)
+# ---------------------------------------------------------------------------
+class TestTradePacketLLMFields:
+    """Regression-locks for the two LLM-side fields that enhance_packet_with_llm
+    sets on packet at runtime.
+
+    TradePacket has ``model_config = ConfigDict(validate_assignment=True)``,
+    which means setting an attribute that isn't declared as a field raises
+    ``ValidationError(no_such_attribute)``. Both #850 (parse-failed flag) and
+    #98 (parser_strategy_succeeded) added code that sets these attributes,
+    but the corresponding Pydantic fields were missing — the bug only
+    surfaced when the gate #9 first-fold smoke ran ``enhance_packet_with_llm``
+    end-to-end against a real TradePacket instance (the #850 + #98 unit tests
+    used SimpleNamespace mocks that bypass validate_assignment entirely).
+    """
+
+    def test_can_set_llm_conviction_parse_failed(self):
+        """packet.llm_conviction_parse_failed = True/False must succeed."""
+        packet = _make_trade_packet()
+        packet.llm_conviction_parse_failed = True
+        assert packet.llm_conviction_parse_failed is True
+        packet.llm_conviction_parse_failed = False
+        assert packet.llm_conviction_parse_failed is False
+
+    def test_can_set_parser_strategy_succeeded(self):
+        """packet.parser_strategy_succeeded = '<id>' must succeed for all 8 IDs."""
+        packet = _make_trade_packet()
+        for strategy in ("metadata_block", "plain_conviction", "conviction_tag",
+                         "conviction_score", "markdown_bold", "catchall",
+                         "confidence_label", "bare_score"):
+            packet.parser_strategy_succeeded = strategy
+            assert packet.parser_strategy_succeeded == strategy
+        # None is also valid (no strategy matched)
+        packet.parser_strategy_succeeded = None
+        assert packet.parser_strategy_succeeded is None
+
+    def test_default_values_are_none(self):
+        """Both fields default to None on a freshly-constructed packet."""
+        packet = _make_trade_packet()
+        assert packet.llm_conviction_parse_failed is None
+        assert packet.parser_strategy_succeeded is None
