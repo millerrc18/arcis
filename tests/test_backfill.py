@@ -95,6 +95,39 @@ class TestSliceToDate:
             # Should have data starting from Jan 2024
             assert ohlcv_dict["AAPL"].index.min() == data["tickers"]["AAPL"].index.min()
 
+    def test_raises_clear_error_on_empty_spy(self):
+        """Empty SPY DataFrame must raise a clear ValueError, not TypeError.
+
+        Regression-lock: when fetch_spy_benchmark hits a yfinance timeout it
+        returns an empty DataFrame whose index is RangeIndex (integer), not
+        DatetimeIndex. The naive ``spy_full.index <= cutoff`` then raises
+        ``TypeError: '<=' not supported between instances of 'numpy.ndarray'
+        and 'Timestamp'`` which obscures the real problem (failed network
+        fetch). slice_to_date should detect the empty case up front and raise
+        a ValueError pointing at the likely cause.
+
+        Reproduces the gate #9 first-fold smoke crash on 2026-04-29.
+        """
+        data = {
+            "spy": pd.DataFrame(),  # empty — simulating a yfinance timeout
+            "tickers": {"AAPL": _make_ohlcv(300)},
+        }
+
+        with pytest.raises(ValueError, match="SPY benchmark DataFrame is empty"):
+            slice_to_date(data, "2024-06-15")
+
+    def test_empty_spy_error_mentions_as_of_and_yfinance(self):
+        """The empty-SPY ValueError must mention the as_of date and the
+        likely yfinance-timeout cause so the operator can diagnose without
+        reading the source.
+        """
+        data = {"spy": pd.DataFrame(), "tickers": {}}
+        with pytest.raises(ValueError) as exc_info:
+            slice_to_date(data, "2024-06-15")
+        msg = str(exc_info.value)
+        assert "2024-06-15" in msg
+        assert "yfinance" in msg.lower()
+
 
 # ── Outcome computation tests ────────────────────────────────────────
 
