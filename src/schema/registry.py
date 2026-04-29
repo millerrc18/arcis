@@ -2415,6 +2415,7 @@ _register(TableDef(
     sync_to_postgres=True,
     sync_mode="incremental",
     sync_time_column="created_at",
+    sync_reconcile=True,
 ))
 
 # #87 — preflight_runs: writer (scripts/preflight_monday.py, follow-up PR)
@@ -2452,4 +2453,5 @@ _register(TableDef(
     sync_to_postgres=True,
     sync_mode="latest_only",
     sync_time_column="created_at",
+    sync_reconcile=True,
 ))
