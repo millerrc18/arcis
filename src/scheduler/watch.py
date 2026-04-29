@@ -113,6 +113,51 @@ def _is_likely_sleep_gap(elapsed_min: float, scan_interval_min: int) -> bool:
     return elapsed_min > 1.5 * scan_interval_min
 
 
+def sweep_stale_diagnostic_runs(db_path: str, stale_after_hours: int = 24) -> int:
+    """Mark stale diagnostic_runs rows as failed at watch-loop startup.
+
+    Finds rows with status IN ('queued', 'running') whose created_at is older
+    than stale_after_hours and transitions them to status='failed'. Uses
+    'failed' (not a new 'stale' value) because the schema only allows
+    'queued' | 'running' | 'completed' | 'failed' and we must not add a new
+    value without a schema migration.
+
+    Sets:
+      - status = 'failed'
+      - stderr_tail = watchdog message (includes timestamp and threshold)
+      - completed_at = now (ET)
+      - updated_at = now (ET)
+
+    The cutoff is computed in UTC so that ISO string comparison in SQLite is
+    consistent regardless of whether stored created_at values carry +00:00 or
+    a local offset (lexicographic comparison of same-offset strings is correct).
+
+    Returns count of rows transitioned.
+    """
+    from datetime import timedelta, timezone as _tz
+    now_et = datetime.now(ET)
+    now_utc = datetime.now(_tz.utc)
+    cutoff = (now_utc - timedelta(hours=stale_after_hours)).isoformat()
+    message = (
+        f"Watchdog at watch-loop startup {now_et.isoformat()}: "
+        f"stale-queued for >{stale_after_hours}h, no worker pickup"
+    )
+    now_iso = now_et.isoformat()
+    with connect_db(db_path) as conn:
+        cursor = conn.execute(
+            """UPDATE diagnostic_runs
+               SET status = 'failed',
+                   stderr_tail = ?,
+                   completed_at = ?,
+                   updated_at = ?
+               WHERE status IN ('queued', 'running')
+                 AND created_at < ?""",
+            (message, now_iso, now_iso, cutoff),
+        )
+        conn.commit()
+        return cursor.rowcount
+
+
 class WatchLoop(HandlerRegistryMixin):
     """Automated daily cadence loop for the AI Research Desk."""
 
@@ -1192,6 +1237,16 @@ class WatchLoop(HandlerRegistryMixin):
 
         # Sanity-check critical table row counts
         self._check_row_counts()
+
+        # Watchdog: clear any diagnostic_runs rows stuck in queued/running (#56)
+        try:
+            swept = sweep_stale_diagnostic_runs(DB_PATH)
+            if swept:
+                logger.warning("[WATCH] Watchdog swept %d stale diagnostic_run(s) to failed", swept)
+            else:
+                logger.info("[WATCH] Watchdog: no stale diagnostic_runs found")
+        except Exception as exc:
+            logger.warning("[WATCH] Stale diagnostic_runs sweep failed: %s", exc)
 
         # Phase B: register handlers for the extracted overnight schedule.
         # Inline time-window blocks below still fire for non-extracted tasks;
