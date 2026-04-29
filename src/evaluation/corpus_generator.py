@@ -16,12 +16,12 @@ The contract (pre-reg addendum 1 §A1 + §A3):
 - §A1.1 — model_version is REQUIRED at call time. None or empty rejected.
 - §A1.2 — temperature MUST be 0 in the LLM client config (caller's config).
 - §A1.3 — prompt format is FROZEN at v0.32.0. We use ``_build_feature_prompt``
-  exactly as-is. Sections 8 (options) and 11 (cross-asset) have no live
-  producer; their feature dict keys are absent so ``_build_feature_prompt``
+  exactly as-is. Section 11 (cross-asset) has no live producer per addendum-2
+  §B1.3 — the feature dict keys are absent so ``_build_feature_prompt``
   emits ``n/a`` placeholders at the same character offset. We RECORD this
-  as ``prompt_section_omitted=(8, 11)`` on every entry and as
-  ``section_pit_status[8]="placeholder"`` + ``[11]="placeholder"`` in the
-  manifest.
+  as ``prompt_section_omitted=(11,)`` on every entry and as
+  ``section_pit_status[11]="placeholder"`` in the manifest. Section 8 is
+  PIT-clean post-#858 fix (PR #883) — no longer omitted.
 - §A1.4 — parse_failed reads from ``packet.llm_conviction_parse_failed``.
 - §A2.1 — PIT plumbing: each decision point's ``as_of`` is forwarded to
   ``enrich_features(features, config, as_of=<as_of>)`` so the historical
@@ -36,9 +36,9 @@ Section status mapping written to manifest (per addendum §A2):
 - Section 2 (regime) — ``clean``
 - Section 3 (sector) — ``accepted-stale`` (#861, accepted per §A2.2)
 - Sections 4, 5, 6, 7, 10 — ``fixed`` (Sprint 1.C Phase 2 fixes #854-#859 wired)
-- Section 8 (options) — ``placeholder`` (no live producer, §A2.2)
-- Section 9 (events) — ``best-effort`` (#860 audit pending, §A2.2)
-- Section 11 (cross-asset) — ``placeholder`` (no live producer, §A2.2)
+- Section 8 (options) — ``fixed`` (addendum-2 §B1.1 — #858 fix in PR #883)
+- Section 9 (events) — ``best-effort`` (addendum-2 §B1.2 — operator repopulates earnings_calendar)
+- Section 11 (cross-asset) — ``placeholder`` (addendum-2 §B1.3 — no live producer)
 
 Two follow-ups out of scope per dispatch:
 
@@ -74,12 +74,14 @@ from src.packets.template import build_packet_from_features
 logger = logging.getLogger(__name__)
 
 
-# Per addendum §A1.3 + §A2.2 — sections without a live producer are recorded
-# as omitted on every entry; the runtime prompt assembly emits ``n/a``
-# placeholders at the same character offset.
-_OMITTED_SECTIONS: tuple[int, ...] = (8, 11)
+# Per addendum 1 §A1.3 + addendum 2 §B1 — only sections without a live
+# producer are recorded as omitted on every entry. Section 8 was reclassified
+# to "fixed" by addendum-2 §B1.1 once the #858 Option A loader fix landed
+# (PR #883), so it's no longer in this tuple. Section 11 remains placeholder
+# per §B1.3 (no live producer; #870 follow-up not blocking Stage 1).
+_OMITTED_SECTIONS: tuple[int, ...] = (11,)
 
-# Per addendum §A2 — corpus generator is the writer of section_pit_status.
+# Per addendum §A2 / §B1 — corpus generator is the writer of section_pit_status.
 # Drift between this constant and the audit doc is caught at corpus
 # admissibility time.
 _SECTION_PIT_STATUS: dict[int, str] = {
@@ -90,10 +92,10 @@ _SECTION_PIT_STATUS: dict[int, str] = {
     5: "fixed",          # §A2.1 — #857
     6: "fixed",          # §A2.1 — #854
     7: "fixed",          # §A2.1 — #855
-    8: "placeholder",    # §A2.2 — no live producer
-    9: "best-effort",    # §A2.2 — #860 audit pending
+    8: "fixed",          # addendum-2 §B1.1 — #858 Option A (PR #883)
+    9: "best-effort",    # addendum-2 §B1.2 — operator repopulates earnings_calendar
     10: "fixed",         # §A2.1 — #859
-    11: "placeholder",   # §A2.2 — no live producer
+    11: "placeholder",   # addendum-2 §B1.3 — no live producer (#870 follow-up)
 }
 
 

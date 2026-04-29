@@ -230,11 +230,13 @@ class TestGenerateCorpusCore:
         # No call should have been made with as_of=None — that would be PIT violation
         assert None not in captured_as_of
 
-    def test_section_8_and_11_recorded_as_omitted_per_addendum(self, tmp_corpus_root):
-        """Per §A1.3 + §A2.2: sections 8 + 11 have no live producer; recorded as omitted.
+    def test_section_status_reflects_addendum_2_classifications(self, tmp_corpus_root):
+        """Per addendum 2 §B1: section 8 reclassified to "fixed" via #858 fix (PR #883).
+        Section 11 remains placeholder (no live producer; #870 follow-up).
 
-        Manifest's section_pit_status reflects this: 8="placeholder", 11="placeholder".
-        Each entry's prompt_section_omitted contains 8 and 11.
+        Manifest's section_pit_status reflects: 8="fixed", 11="placeholder".
+        prompt_section_omitted contains ONLY 11 (8 is no longer omitted because
+        the #858 loader fix populates the prompt fields with PIT-clean data).
         """
         from src.evaluation.corpus_generator import generate_corpus
 
@@ -260,11 +262,13 @@ class TestGenerateCorpusCore:
             )
 
         manifest = load_manifest("test-sec-004")
-        assert manifest.section_pit_status[8] == "placeholder"
+        assert manifest.section_pit_status[8] == "fixed"
         assert manifest.section_pit_status[11] == "placeholder"
 
         entries = list(iter_entries("test-sec-004"))
-        assert 8 in entries[0].prompt_section_omitted
+        assert 8 not in entries[0].prompt_section_omitted, (
+            "Section 8 should NOT be omitted post-#858 fix (PR #883)"
+        )
         assert 11 in entries[0].prompt_section_omitted
 
     def test_admissibility_in_manifest_matches_computed_value(self, tmp_corpus_root):
