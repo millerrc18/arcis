@@ -125,12 +125,15 @@ def backtest_model(model_name: str, months: int = 6,
     # so slice_to_date returned 0 rows for every iteration → fold 1-7 produced
     # 0 trades (only fold 8 overlapped with the recent fetch window).
     #
-    # Fix: anchor the fetch to test_start. We pull (test_start - 280 calendar
+    # Fix: anchor the fetch to test_start. We pull (test_start - 365 calendar
     # days) through test_end so that slice_to_date's 200-trading-day minimum
-    # (~280 calendar days) is satisfied for the test_start cutoff. PIT
-    # cleanliness is still enforced at slice_to_date time (df.index <= cutoff);
-    # fetching wider data is methodologically fine per pre-reg addendum 1 §A1.
-    fetch_start = (start_date - timedelta(days=280)).date().isoformat()
+    # is comfortably satisfied for the test_start cutoff. 365 calendar days ≈
+    # 250 trading days after weekends + US market holidays. The earlier
+    # 280-day buffer was at the edge (~192 trading days) and tipped under for
+    # short windows. PIT cleanliness is still enforced at slice_to_date time
+    # (df.index <= cutoff); fetching wider data is methodologically fine per
+    # pre-reg addendum 1 §A1.
+    fetch_start = (start_date - timedelta(days=365)).date().isoformat()
     fetch_end = end_date.date().isoformat()
 
     try:

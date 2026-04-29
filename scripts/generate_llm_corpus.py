@@ -182,11 +182,15 @@ def _compute_features_for_window(
     ``fetch_ohlcv(period="3y")`` which yfinance anchors to today's date,
     so for fold 1 (test_start=2023-09-01) the slice returned only ~88
     trading days — below slice_to_date's 200-row gate, causing every ticker
-    to be filtered out and features_by_date to be empty. Now we anchor the
-    fetch to (earliest_as_of - 280 calendar days) through (latest_as_of)
-    so slice_to_date's 200-trading-day minimum is satisfied for the very
-    first as_of cutoff. PIT cleanliness is still enforced at slice_to_date
-    time (df.index <= cutoff).
+    to be filtered out and features_by_date to be empty.
+
+    We anchor the fetch to (earliest_as_of - 365 calendar days) through
+    (latest_as_of) so slice_to_date's 200-trading-day minimum is satisfied
+    for the very first as_of cutoff. 365 calendar days ≈ 250 trading days
+    after weekends + holidays — comfortably above the 200-row gate. The
+    earlier 280-day buffer was at the edge (~192 trading days due to US
+    market holidays) and tipped under for the smoke window. PIT cleanliness
+    is still enforced at slice_to_date time (df.index <= cutoff).
     """
     from datetime import date as _date, timedelta as _timedelta
 
@@ -202,7 +206,7 @@ def _compute_features_for_window(
     spans = sorted({d for d, _ in decision_points})
     earliest_as_of = _date.fromisoformat(spans[0])
     latest_as_of = _date.fromisoformat(spans[-1])
-    fetch_start = (earliest_as_of - _timedelta(days=280)).isoformat()
+    fetch_start = (earliest_as_of - _timedelta(days=365)).isoformat()
     fetch_end = latest_as_of.isoformat()
 
     ohlcv = fetch_ohlcv(universe, start=fetch_start, end=fetch_end)
