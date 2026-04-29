@@ -192,3 +192,93 @@ class TestEnricherHandlesFailures:
         result = enrich_features(features, config)
         assert "AAPL" in result
         assert "macro_summary" in result["AAPL"]
+
+
+class TestEnrichFeaturesAsOfRouting:
+    """Tests for the as_of parameter routing in enrich_features (#854).
+
+    Verifies that:
+    - Default (as_of=None) routes news fetch to fetch_recent_news (runtime)
+    - as_of='YYYY-MM-DD' routes to fetch_historical_news (TEMPORAL COMPLIANCE)
+    - The same feat dict shape is produced either way
+
+    This locks the routing contract that Sprint 1.C Phase 4 corpus
+    generation depends on.
+    """
+
+    @staticmethod
+    def _stub_news() -> dict:
+        return {
+            "headline_count": 0,
+            "headlines": [],
+            "summary": "stub for routing test",
+            "news_sentiment": "neutral",
+            "last_news_date": None,
+        }
+
+    def test_default_routes_to_fetch_recent_news(self):
+        from src.data_enrichment.enricher import enrich_features
+
+        features = {"AAPL": {"current_price": 185.0, "ticker": "AAPL"}}
+        config = {"data_enrichment": {"enabled": True, "finnhub_api_key": "stub-key"}}
+
+        with (
+            patch("src.data_enrichment.enricher._rate_limit"),
+            patch("src.data_enrichment.macro.fetch_macro_context", return_value={}),
+            patch("src.data_enrichment.fundamentals.fetch_fundamental_snapshot", return_value=None),
+            patch("src.data_enrichment.insiders.fetch_insider_activity", return_value=None),
+            patch("src.data_enrichment.news.fetch_recent_news", return_value=self._stub_news()) as recent,
+            patch("src.data_enrichment.news.fetch_historical_news") as historical,
+        ):
+            result = enrich_features(features, config)  # no as_of
+
+        assert recent.called, "Runtime path should call fetch_recent_news"
+        assert not historical.called, "Runtime path must NOT call fetch_historical_news"
+        assert "news_summary" in result["AAPL"]
+
+    def test_as_of_routes_to_fetch_historical_news(self):
+        from src.data_enrichment.enricher import enrich_features
+
+        features = {"AAPL": {"current_price": 185.0, "ticker": "AAPL"}}
+        config = {"data_enrichment": {"enabled": True, "finnhub_api_key": "stub-key"}}
+
+        with (
+            patch("src.data_enrichment.enricher._rate_limit"),
+            patch("src.data_enrichment.macro.fetch_macro_context", return_value={}),
+            patch("src.data_enrichment.fundamentals.fetch_fundamental_snapshot", return_value=None),
+            patch("src.data_enrichment.insiders.fetch_insider_activity", return_value=None),
+            patch("src.data_enrichment.news.fetch_recent_news") as recent,
+            patch(
+                "src.data_enrichment.news.fetch_historical_news",
+                return_value=self._stub_news(),
+            ) as historical,
+        ):
+            result = enrich_features(features, config, as_of="2024-06-15")
+
+        assert historical.called, "Backtest path should call fetch_historical_news"
+        assert not recent.called, "Backtest path must NOT call fetch_recent_news"
+        # Confirm as_of was passed through
+        kwargs = historical.call_args.kwargs
+        assert kwargs.get("as_of_date") == "2024-06-15"
+        assert "news_summary" in result["AAPL"]
+
+    def test_as_of_does_not_break_other_sections(self):
+        """Backtest path is additive — non-news sections still populate."""
+        from src.data_enrichment.enricher import enrich_features
+
+        features = {"AAPL": {"current_price": 185.0, "ticker": "AAPL"}}
+        config = {"data_enrichment": {"enabled": True}}
+
+        with (
+            patch("src.data_enrichment.enricher._rate_limit"),
+            patch("src.data_enrichment.macro.fetch_macro_context", return_value={"fed_stance": "neutral"}),
+            patch("src.data_enrichment.fundamentals.fetch_fundamental_snapshot", return_value=None),
+            patch("src.data_enrichment.insiders.fetch_insider_activity", return_value=None),
+            patch("src.data_enrichment.news.fetch_historical_news", return_value=self._stub_news()),
+        ):
+            result = enrich_features(features, config, as_of="2024-06-15")
+
+        assert "macro_summary" in result["AAPL"]
+        assert "fundamental_summary" in result["AAPL"]
+        assert "insider_summary" in result["AAPL"]
+        assert "news_summary" in result["AAPL"]
