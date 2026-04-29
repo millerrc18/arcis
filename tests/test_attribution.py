@@ -121,6 +121,25 @@ class TestLogAfterLLM:
                 f"got '{row['pair_type']}'"
             )
 
+    def test_rejects_non_canonical_action(self, db_path):
+        """Writer must raise on non-canonical llm_action (#846 regression).
+
+        Bootcamp archive accumulated 80 'buy' + 147 'skip' rows because
+        scan_service.py wrote non-canonical labels. The §4 t-test in
+        attribution_readout silently excluded them. This guard makes the
+        bug surface at write time instead of contaminating the table.
+        """
+        import pytest as _pytest
+
+        from src.attribution.logger import log_attribution_after_llm
+
+        self._setup_pending_row(db_path)
+        for bad in ("buy", "skip", "BUY", "Taken", "", "unknown"):
+            with _pytest.raises(ValueError, match="not canonical"):
+                log_attribution_after_llm(
+                    "test-attr-001", llm_action=bad, db_path=db_path,
+                )
+
 
 # ── simulate_mechanical_outcome ──────────────────────────────────────
 
@@ -281,7 +300,7 @@ class TestLinkTradeOutcome:
     def test_links_outcome_to_attribution(self, db_path):
         from src.attribution.logger import log_attribution_before_llm, log_attribution_after_llm, link_trade_outcome
         attr_id = log_attribution_before_llm("AAPL", 85.0, 150.0, 147.0, 154.0, db_path=db_path)
-        log_attribution_after_llm(attr_id, "buy", llm_conviction=7, recommendation_id="rec-123", db_path=db_path)
+        log_attribution_after_llm(attr_id, "taken", llm_conviction=7, recommendation_id="rec-123", db_path=db_path)
         result = link_trade_outcome("rec-123", "win", 3.5, db_path=db_path)
         assert result is True
         row = _get_row(db_path, attr_id)
@@ -296,7 +315,7 @@ class TestLinkTradeOutcome:
     def test_handles_loss_outcome(self, db_path):
         from src.attribution.logger import log_attribution_before_llm, log_attribution_after_llm, link_trade_outcome
         attr_id = log_attribution_before_llm("MSFT", 70.0, 300.0, 294.0, 309.0, db_path=db_path)
-        log_attribution_after_llm(attr_id, "buy", llm_conviction=5, recommendation_id="rec-456", db_path=db_path)
+        log_attribution_after_llm(attr_id, "taken", llm_conviction=5, recommendation_id="rec-456", db_path=db_path)
         result = link_trade_outcome("rec-456", "loss", -4.2, db_path=db_path)
         assert result is True
         row = _get_row(db_path, attr_id)
