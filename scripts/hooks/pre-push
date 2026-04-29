@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# Pre-push hook — refuses pushes from branches behind origin/main (#59).
+#
+# WHY: stale-base hazard. If a branch was cut from main pre-merges and pushed
+# without rebase, GitHub's squash-merge silently reverts intervening work
+# because the diff against current main shows those intervening commits as
+# DELETIONS. Five incidents in this repo over five days triggered the
+# structural fix:
+#   #769 (would have reverted schema-loop hotfix #766)
+#   #816 (would have reverted PIT migration #813)
+#   #829 (would have reverted #826 + #827)
+#   #840 (would have reverted ~5 prior PRs)
+#   #841 (would have deleted 2,063 lines from prior PRs)
+#
+# Each was caught at REVIEW time by an attentive operator. This hook moves the
+# check to PUSH time so PRs never open in the wrong shape.
+#
+# BYPASS: `git push --no-verify`  (git's standard mechanism)
+# Use only for true emergency hotfixes where a stale-base PR is intentional.
+#
+# INSTALL (one-time per clone):
+#   git config core.hooksPath scripts/hooks
+#
+# After install, this fires on every `git push` from any worktree. Worktrees
+# share .git/hooks/ by default, so a single config command covers all worktrees.
+
+set -e
+
+remote_name="${1:-origin}"
+
+# Pushing to a non-origin remote (e.g., a fork) — out of scope; allow.
+if [ "$remote_name" != "origin" ]; then
+    exit 0
+fi
+
+# Refresh origin/main. If we can't reach origin (offline, network blip,
+# token expired), refuse rather than allowing a possibly-stale push through.
+# Operator can always `git push --no-verify` if they have a justified reason.
+#
+# PRE_PUSH_SKIP_FETCH=1 — escape hatch for two cases:
+#   1. Operator is offline but knows their branch is current (just-rebased).
+#   2. Test fixtures pre-populate origin/main and don't want the hook re-fetching.
+# In both cases, the staleness check still runs against the local refs/remotes/origin/main.
+if [ "${PRE_PUSH_SKIP_FETCH:-}" = "1" ]; then
+    :  # skip fetch; rely on existing refs/remotes/origin/main
+elif ! git fetch "$remote_name" main --quiet 2>/dev/null; then
+    cat >&2 <<EOF
+
+pre-push: REFUSED — could not fetch ${remote_name}/main to verify base freshness.
+
+Possible causes:
+  - Offline / network blip
+  - Auth token expired (e.g., wincredman issue)
+  - Remote 'main' branch renamed
+
+Resolution:
+  git fetch ${remote_name} main      # diagnose the underlying issue
+  git push                           # retry once fetch works
+
+Emergency bypass:
+  git push --no-verify
+
+EOF
+    exit 1
+fi
+
+# Compute how many commits HEAD is behind origin/main.
+# `git rev-list --count A..B` returns commits in B that aren't in A.
+# So HEAD..origin/main = commits in origin/main not in HEAD = "behind count".
+behind_count=$(git rev-list --count HEAD..${remote_name}/main 2>/dev/null || echo 0)
+
+if [ "$behind_count" -gt 0 ]; then
+    current_branch=$(git rev-parse --abbrev-ref HEAD)
+    cat >&2 <<EOF
+
+pre-push: REFUSED — branch '${current_branch}' is ${behind_count} commits behind ${remote_name}/main.
+
+Stale-base hazard: pushing now would create a PR whose squash-merge silently
+reverts those ${behind_count} commits, deleting prior work from main.
+
+This is the structural enforcement for the 5 incidents that occurred before
+this hook existed (#769, #816, #829, #840, #841 — each caught at review time).
+
+Resolution:
+  git fetch ${remote_name} main
+  git rebase ${remote_name}/main
+  # resolve any conflicts, re-run your tests
+  git push                           # this hook will then pass
+
+Emergency bypass (true hotfix scenarios only):
+  git push --no-verify
+
+EOF
+    exit 1
+fi
+
+exit 0
