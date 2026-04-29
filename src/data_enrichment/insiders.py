@@ -61,12 +61,17 @@ def _fetch_from_finnhub(
     api_key: str,
     lookback_days: int = 90,
     as_of: str | None = None,
+    warnings: list[str] | None = None,
 ) -> dict | None:
     """Fetch insider transactions from Finnhub API.
 
     When ``as_of`` is None: uses lookback_days from "now" (runtime path).
     When ``as_of`` is set: uses [as_of - lookback_days, as_of] window
     (TEMPORAL COMPLIANCE for backtest / training-corpus paths).
+
+    ``warnings`` (#99): Optional list mutated in place when the Finnhub
+    request fails or as_of is unparseable. Categories: ``insiders_invalid_as_of``,
+    ``insiders_fetch_failed``.
     """
     url = "https://finnhub.io/api/v1/stock/insider-transactions"
     params: dict[str, str] = {"symbol": ticker}
@@ -78,6 +83,8 @@ def _fetch_from_finnhub(
         try:
             end_dt = datetime.strptime(as_of, "%Y-%m-%d")
         except (ValueError, TypeError):
+            if warnings is not None:
+                warnings.append(f"insiders_invalid_as_of:{ticker}:{as_of}")
             return None
         start_dt = end_dt - timedelta(days=lookback_days)
         params["from"] = start_dt.strftime("%Y-%m-%d")
@@ -94,12 +101,18 @@ def _fetch_from_finnhub(
     )
     if resp is None:
         logger.debug("Finnhub request failed for %s after retries", ticker)
+        if warnings is not None:
+            anchor = as_of if as_of is not None else "runtime"
+            warnings.append(f"insiders_fetch_failed:{ticker}:{anchor}")
         return None
     try:
         resp.raise_for_status()
         data = resp.json()
     except Exception as e:
         logger.debug("Finnhub request failed for %s: %s", ticker, e)
+        if warnings is not None:
+            anchor = as_of if as_of is not None else "runtime"
+            warnings.append(f"insiders_fetch_failed:{ticker}:{anchor}")
         return None
 
     transactions = data.get("data", [])
@@ -195,6 +208,7 @@ def fetch_insider_activity(
     finnhub_api_key: str | None = None,
     cache_hours: int = 24,
     as_of: str | None = None,
+    warnings: list[str] | None = None,
 ) -> dict | None:
     """Fetch recent insider trading activity.
 
@@ -211,6 +225,9 @@ def fetch_insider_activity(
             namespaced by ``as_of`` so PIT and "now" data don't collide
             (#857 — Sprint 1.C Phase 2 PIT fix). When None (the runtime
             default), behavior is unchanged.
+        warnings: Optional list to collect coverage/PIT warnings (#99).
+            Mutated in place. Categories emitted: ``insiders_no_api_key``,
+            ``insiders_invalid_as_of``, ``insiders_fetch_failed``.
 
     Coverage limit: Finnhub free-tier insider history goes back ~2-3 years.
     Stage 1 OOS window starts 2023-09 (pre-reg addendum 1 §A4) which is
@@ -228,8 +245,14 @@ def fetch_insider_activity(
     # Try Finnhub (.env fallback when caller doesn't provide key)
     finnhub_api_key = finnhub_api_key or os.environ.get("FINNHUB_API_KEY")
     if finnhub_api_key:
-        result = _fetch_from_finnhub(ticker, finnhub_api_key, lookback_days, as_of=as_of)
+        result = _fetch_from_finnhub(
+            ticker, finnhub_api_key, lookback_days, as_of=as_of, warnings=warnings,
+        )
         time.sleep(1.0)  # Rate limit
+    else:
+        if warnings is not None:
+            anchor = as_of if as_of is not None else "runtime"
+            warnings.append(f"insiders_no_api_key:{ticker}:{anchor}")
 
     if result is not None:
         _save_cache(ticker, result, as_of_date=as_of)

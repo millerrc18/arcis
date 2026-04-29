@@ -63,28 +63,20 @@ def enrich_features(
     config: dict,
     strategy: "StrategySpec" | None = None,
     as_of: str | None = None,
+    warnings_out: list[str] | None = None,
 ) -> dict[str, dict]:
     """Add fundamental, insider, and macro data to all ticker feature dicts.
 
     Fetches data with caching and rate limiting. Never crashes —
     returns features unchanged if enrichment fails.
 
-    Args:
-        features: Output of compute_all_features() — dict of ticker -> feature dict
-        config: Application config
-        strategy: Optional StrategySpec for Sprint F chain dispatch.
-        as_of: Optional ISO date string (``YYYY-MM-DD``). When set, enrichment
-            uses point-in-time historical lookups instead of "now" data —
-            required for backfill / backtest paths so the LLM doesn't see
-            future data through enrichment fields. When None (the runtime
-            default), behavior is unchanged. Sprint 1.C Phase 2 PIT-fix
-            wiring: routes Section 4 (fundamentals, #856), Section 5
-            (insiders, #857), Section 6 (news, #854), Section 7 (macro,
-            #855), and Section 10 (earnings_signals, #859). Section 11
-            has no live producer (#870 pending).
-
-    Returns:
-        Same dict with enrichment fields added in place.
+    ``as_of`` (Sprint 1.C Phase 2 PIT wiring #854-#859) routes sections
+    4/5/6/7/10 to point-in-time historical lookups when set; section 11
+    has no live producer (#870 pending). ``warnings_out`` (#99) is an
+    optional list forwarded to every fetcher's ``warnings`` arg so the
+    corpus generator can record per-decision warnings on the
+    ``CorpusEntry`` and aggregate prefixes into
+    ``CorpusManifest.coverage_limit_hits``.
     """
     enrichment_cfg = config.get("data_enrichment", {})
     if not enrichment_cfg.get("enabled", True):
@@ -118,6 +110,7 @@ def enrich_features(
                 fred_api_key=fred_key,
                 cache_hours=cache_hours,
                 as_of=as_of,
+                warnings=warnings_out,
             )
             macro_summary = format_macro_summary(macro_data)
         except Exception as e:
@@ -147,6 +140,7 @@ def enrich_features(
             )
             fund_data = fetch_fundamental_snapshot(
                 ticker, cache_hours=cache_hours, as_of=as_of,
+                warnings=warnings_out,
             )
             price = feat.get("current_price")
             feat["fundamental_summary"] = format_fundamental_summary(fund_data, price)
@@ -175,6 +169,7 @@ def enrich_features(
                     finnhub_api_key=finnhub_key,
                     cache_hours=cache_hours,
                     as_of=as_of,
+                    warnings=warnings_out,
                 )
                 feat["insider_summary"] = format_insider_summary(insider_data)
                 if insider_data is None:
@@ -204,12 +199,14 @@ def enrich_features(
                         as_of_date=as_of,
                         finnhub_api_key=finnhub_key,
                         cache_hours=min(cache_hours, 24),
+                        warnings=warnings_out,
                     )
                 else:
                     news_data = fetch_recent_news(
                         ticker,
                         finnhub_api_key=finnhub_key,
                         cache_hours=min(cache_hours, 6),
+                        warnings=warnings_out,
                     )
                 feat["news_summary"] = format_news_summary(news_data)
                 feat["news_sentiment"] = (news_data or {}).get("news_sentiment", "no_news")
@@ -225,7 +222,7 @@ def enrich_features(
         # points don't see future earnings dates / analyst revisions.
         try:
             from src.data_enrichment.earnings_signals import compute_earnings_signals
-            earnings = compute_earnings_signals(ticker, as_of=as_of)
+            earnings = compute_earnings_signals(ticker, as_of=as_of, warnings=warnings_out)
             feat["earnings_signals"] = earnings
             if earnings.get("include_in_prompt"):
                 logger.debug("[ENRICHMENT] Earnings context for %s (proximity: %s days, strength: %s)",

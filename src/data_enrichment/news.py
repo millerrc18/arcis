@@ -93,11 +93,21 @@ def _classify_sentiment(headlines: list[dict]) -> tuple[str, int, int, int]:
 
 def fetch_recent_news(ticker: str, lookback_days: int = 7,
                       finnhub_api_key: str | None = None,
-                      cache_hours: int = 6) -> dict | None:
+                      cache_hours: int = 6,
+                      warnings: list[str] | None = None) -> dict | None:
     """Fetch recent news headlines for a ticker from Finnhub.
 
     Uses Finnhub Company News API (free tier: 60 calls/min).
     Returns only headlines and timestamps — NOT full article text.
+
+    Args:
+        ticker: Stock symbol.
+        lookback_days: Window length in days.
+        finnhub_api_key: Finnhub API key (falls back to FINNHUB_API_KEY env).
+        cache_hours: Cache TTL.
+        warnings: Optional list to collect coverage/PIT warnings (#99).
+            Mutated in place — caller owns the list. Categories emitted:
+            ``news_no_api_key``, ``news_coverage_gap``, ``news_fetch_failed``.
 
     Returns:
         {
@@ -118,6 +128,8 @@ def fetch_recent_news(ticker: str, lookback_days: int = 7,
 
     finnhub_api_key = finnhub_api_key or os.environ.get("FINNHUB_API_KEY")
     if not finnhub_api_key:
+        if warnings is not None:
+            warnings.append(f"news_no_api_key:{ticker}:runtime")
         return None
 
     end_date = datetime.now()
@@ -138,18 +150,24 @@ def fetch_recent_news(ticker: str, lookback_days: int = 7,
     )
     if resp is None:
         logger.debug("Finnhub news request failed for %s after retries", ticker)
+        if warnings is not None:
+            warnings.append(f"news_fetch_failed:{ticker}:runtime")
         return None
     try:
         resp.raise_for_status()
         articles = resp.json()
     except Exception as e:
         logger.debug("Finnhub news request failed for %s: %s", ticker, e)
+        if warnings is not None:
+            warnings.append(f"news_fetch_failed:{ticker}:runtime")
         return None
 
     # Rate limit -- shared with insider fetcher (Finnhub 60/min)
     time.sleep(1.0)
 
     if not articles:
+        if warnings is not None:
+            warnings.append(f"news_coverage_gap:{ticker}:runtime")
         result = {
             "headline_count": 0,
             "headlines": [],
@@ -199,11 +217,22 @@ def fetch_recent_news(ticker: str, lookback_days: int = 7,
 
 def fetch_historical_news(ticker: str, as_of_date: str, lookback_days: int = 7,
                           finnhub_api_key: str | None = None,
-                          cache_hours: int = 24) -> dict | None:
+                          cache_hours: int = 24,
+                          warnings: list[str] | None = None) -> dict | None:
     """Fetch news headlines available on a specific historical date.
 
     TEMPORAL COMPLIANCE: Only returns news published BEFORE as_of_date.
     For backfill use — ensures training data has point-in-time news context.
+
+    Args:
+        ticker: Stock symbol.
+        as_of_date: ISO ``YYYY-MM-DD`` historical anchor.
+        lookback_days: Window length in days.
+        finnhub_api_key: Finnhub API key.
+        cache_hours: Cache TTL.
+        warnings: Optional list to collect coverage/PIT warnings (#99).
+            Mutated in place. Categories emitted: ``news_no_api_key``,
+            ``news_invalid_as_of``, ``news_coverage_gap``, ``news_fetch_failed``.
     """
     cached = _load_cached(ticker, cache_hours, as_of_date=as_of_date)
     if cached:
@@ -212,11 +241,15 @@ def fetch_historical_news(ticker: str, as_of_date: str, lookback_days: int = 7,
 
     finnhub_api_key = finnhub_api_key or os.environ.get("FINNHUB_API_KEY")
     if not finnhub_api_key:
+        if warnings is not None:
+            warnings.append(f"news_no_api_key:{ticker}:{as_of_date}")
         return None
 
     try:
         end_dt = datetime.strptime(as_of_date, "%Y-%m-%d")
     except (ValueError, TypeError):
+        if warnings is not None:
+            warnings.append(f"news_invalid_as_of:{ticker}:{as_of_date}")
         return None
 
     start_dt = end_dt - timedelta(days=lookback_days)
@@ -237,6 +270,8 @@ def fetch_historical_news(ticker: str, as_of_date: str, lookback_days: int = 7,
     if resp is None:
         logger.debug("Finnhub historical news request failed for %s on %s after retries",
                      ticker, as_of_date)
+        if warnings is not None:
+            warnings.append(f"news_fetch_failed:{ticker}:{as_of_date}")
         return None
     try:
         resp.raise_for_status()
@@ -244,11 +279,15 @@ def fetch_historical_news(ticker: str, as_of_date: str, lookback_days: int = 7,
     except Exception as e:
         logger.debug("Finnhub historical news request failed for %s on %s: %s",
                      ticker, as_of_date, e)
+        if warnings is not None:
+            warnings.append(f"news_fetch_failed:{ticker}:{as_of_date}")
         return None
 
     time.sleep(1.0)
 
     if not articles:
+        if warnings is not None:
+            warnings.append(f"news_coverage_gap:{ticker}:{as_of_date}")
         result = {
             "headline_count": 0,
             "headlines": [],
