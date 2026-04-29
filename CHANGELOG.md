@@ -2,7 +2,10 @@
 
 ## [Unreleased]
 
-_Pending PRs (open, not yet merged): #850 parse-failed flag (Sprint 1.C Phase 1d, in flight) + 8 PIT follow-ups #854-#861 not started. Continue under v0.32.x patch line until next minor cut._
+- **#850 parse-failed flag** (Sprint 1.C Phase 1d) — additive `parse_failed INTEGER DEFAULT 0` column on `attribution_trades`. `src/llm/packet_writer.py` sets `packet.llm_conviction_parse_failed = True` at the 4 conviction-fallback sites + `False` on successful parse. `src/attribution/logger.py::log_attribution_after_llm` accepts `parse_failed: bool = False`, persisted as 0/1. `scan_service.py` + `universe_scanner.py` (both Phase 2 + rejected-overwrite call sites) pass the flag via `getattr(packet, 'llm_conviction_parse_failed', False)`. `scripts/diagnostics/attribution_readout.py` v2 — §3 conviction-band table + §4 selection-alpha t-test now filter `AND COALESCE(parse_failed, 0) = 0` for parse-clean reads; pollution count surfaced separately. 4 new tests in `TestParseFailed`. PM-rescued from a stalled background agent that had completed the work but timed out on full test sweep.
+- 8 PIT follow-ups #854-#861 filed (Sprint 1.C Phase 2 fix sequencing) — not yet started.
+
+_Next minor cut (v0.33.0) will land when #850 + at least one PIT follow-up close. Patch cuts (v0.32.x) reserved for hotfixes._
 
 ## [v0.32.0] - 2026-04-29 — Sprint 1.C Phase 1 + Phase 2: attribution discipline + LLM-prompt PIT audit
 

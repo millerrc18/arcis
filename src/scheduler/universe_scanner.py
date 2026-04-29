@@ -248,7 +248,10 @@ def run_universe_scan(ctx: ScanContext) -> ScanResult:
                 from src.attribution.logger import log_attribution_after_llm
                 conviction = getattr(packet, 'llm_conviction', None)
                 action = "taken" if conviction is not None else "conviction_none"
-                log_attribution_after_llm(attr_id, action, conviction, rec_id)
+                log_attribution_after_llm(
+                    attr_id, action, conviction, rec_id,
+                    parse_failed=getattr(packet, 'llm_conviction_parse_failed', False),
+                )
             except Exception as e:
                 logger.warning("[SCAN] Attribution Phase 2 failed: %s", e)
         print(f"  -> Logged {ticker}: {rec_id}")
@@ -270,7 +273,10 @@ def run_universe_scan(ctx: ScanContext) -> ScanResult:
         if attr_id and not trade_id:
             try:
                 from src.attribution.logger import log_attribution_after_llm
-                log_attribution_after_llm(attr_id, "rejected")
+                log_attribution_after_llm(
+                    attr_id, "rejected",
+                    parse_failed=getattr(packet, 'llm_conviction_parse_failed', False),
+                )
             except Exception as e:
                 logger.warning("[SCAN] Attribution rejected-mark failed: %s", e)
 

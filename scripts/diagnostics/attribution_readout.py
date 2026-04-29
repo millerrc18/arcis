@@ -1,8 +1,15 @@
-"""Attribution Readout v1 -- read-only diagnostic of attribution_trades.
+"""Attribution Readout v2 -- read-only diagnostic of attribution_trades.
 
 Produces a descriptive markdown report on selection alpha (LLM-taken vs
 LLM-rejected ranker-only counterfactuals). Read-only via mode=ro URI.
 Usage: python scripts/diagnostics/attribution_readout.py [--db PATH --out PATH]
+
+Parse-failure filter (#850): §3 and §4 now apply
+``AND COALESCE(parse_failed, 0) = 0`` so conviction=5 parse-failure rows
+are excluded from conviction-band and selection-alpha analysis.  A separate
+"parse-failure pollution" count is shown at the end of §3.  The unfiltered
+data remains visible in §1 (llm_action distribution) and §2 (outcome
+breakdown by action).
 """
 
 from __future__ import annotations
@@ -128,10 +135,11 @@ def _band(c) -> str:
 
 
 def section_3_conviction_bands(con: sqlite3.Connection) -> str:
+    parse_clean_filter = "AND COALESCE(parse_failed, 0) = 0"
     rows = list(con.execute(f"""
         SELECT llm_conviction, ranker_only_outcome, ranker_only_pnl_pct
         FROM attribution_trades
-        WHERE llm_action='taken' AND {NUMERICAL_FILTER}
+        WHERE llm_action='taken' AND {NUMERICAL_FILTER} {parse_clean_filter}
     """))
     bands: dict[str, dict] = defaultdict(lambda: {"n": 0, "wins": 0, "pnls": []})
     for c, outcome, pnl in rows:
@@ -144,22 +152,31 @@ def section_3_conviction_bands(con: sqlite3.Connection) -> str:
         b = bands.get(label, {"n": 0, "wins": 0, "pnls": []})
         avg_pnl = mean(b["pnls"]) if b["pnls"] else None
         body.append([label, b["n"], b["wins"], avg_pnl])
-    # Caveat — conviction=5 is the parser's parse-failure fallback (set
-    # in src/llm/packet_writer.py:692,701,710 when the LLM response can't
-    # be parsed). Any concentration in the 4-6 band may include real medium
-    # AND parse-failure pollution. Disambiguating requires a separate
-    # parse_failed column or NULL-on-failure semantics — see follow-up.
+    # Count excluded parse-failure rows for transparency
+    excluded_row = con.execute(f"""
+        SELECT COUNT(*)
+        FROM attribution_trades
+        WHERE llm_action='taken' AND {NUMERICAL_FILTER}
+          AND COALESCE(parse_failed, 0) = 1
+    """).fetchone()
+    excluded_n = excluded_row[0] if excluded_row else 0
     return "\n".join([
         "## 3. Conviction-banded analysis (LLM `taken` only)\n",
-        "_Filter: resolved + pnl_pct present + not `v1_multiindex_bug` + llm_action='taken'._\n",
-        "_Scale: 1-10 (per `src/llm/packet_writer.py` clamp). Caveat: conviction=5 is the parser's parse-failure fallback — the 4-6 band conflates real medium conviction with parse-failure pollution._\n",
+        "_Filter: resolved + pnl_pct present + not `v1_multiindex_bug` + llm_action='taken' + **parse_failed=0** (#850)._\n",
+        "_Scale: 1-10 (per `src/llm/packet_writer.py` clamp). Parse-failure rows (conviction=5 set by fallback, not extracted from model) are excluded — see pollution count below._\n",
         table_md(["band", "n", "ranker-only wins", "avg ranker-only pnl_pct"], body),
+        f"\n**Parse-failure pollution excluded from table above:** {excluded_n} rows "
+        f"(`parse_failed=1`, conviction=5 fallback). "
+        f"These rows have `llm_action='taken'` but the conviction value was not extracted "
+        f"from the LLM response — they are parse failures, not medium-conviction takes.",
     ])
 
 
 def _selection_alpha(con: sqlite3.Connection, where_extra: str = "") -> dict:
+    parse_clean = "AND COALESCE(parse_failed, 0) = 0"
     sql = (f"SELECT llm_action, ranker_only_pnl_pct FROM attribution_trades "
-           f"WHERE {NUMERICAL_FILTER} AND llm_action IN ('taken','rejected') {where_extra}")
+           f"WHERE {NUMERICAL_FILTER} AND llm_action IN ('taken','rejected') "
+           f"{parse_clean} {where_extra}")
     pnls: dict[str, list[float]] = defaultdict(list)
     for action, pnl in con.execute(sql):
         pnls[action].append(pnl)
@@ -187,7 +204,8 @@ def section_4_selection_alpha(con: sqlite3.Connection) -> str:
     res = _selection_alpha(con)
     return "\n".join([
         "## 4. Selection alpha test\n",
-        "_Compare ranker_only_pnl_pct of llm_action='taken' vs 'rejected'._\n",
+        "_Compare ranker_only_pnl_pct of llm_action='taken' vs 'rejected'. "
+        "**parse_failed=0 filter applied** (#850) — parse-failure conviction=5 rows excluded._\n",
         table_md(["metric", "value"], [[k, v] for k, v in res.items()]),
         "\nTest: Welch's two-sample t-test (unequal variances), two-sided.",
         "Interpretation guide (operator-side, NOT a verdict from this script):",

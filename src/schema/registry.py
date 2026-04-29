@@ -1758,6 +1758,13 @@ _register(TableDef(
                               "Mirrors shadow_trades.quarantined; propagated via "
                               "scripts/propagate_quarantined.py on JOIN(recommendation_id). "
                               "T1.05 added per audit-2026-04-27 §F-1."),
+        ColumnDef("parse_failed", "INTEGER", default=0,
+                  description="1 = LLM conviction=5 was set by a parse-failure fallback "
+                              "(src/llm/packet_writer.py) rather than extracted from the "
+                              "model's response. 0 = conviction was successfully parsed. "
+                              "Additive flag (#850): preserves the existing conviction=5 "
+                              "sentinel logic while enabling clean disambiguation of "
+                              "parse-failure rows from real medium-conviction takes."),
         ColumnDef("created_at", "TEXT", nullable=False),
     ],
     primary_key="attribution_id",

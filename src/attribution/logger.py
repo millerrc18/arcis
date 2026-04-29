@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
 _ALLOWED_ATTRIBUTION_COLUMNS = {
-    "llm_action", "llm_conviction", "recommendation_id", "pair_type",
+    "llm_action", "llm_conviction", "recommendation_id", "pair_type", "parse_failed",
 }
 
 # Canonical llm_action values. Anything else is a contract violation —
@@ -72,21 +72,29 @@ def log_attribution_before_llm(
     return attribution_id
 
 
+_PAIR_TYPE = {
+    "taken": "both_taken",
+    "rejected": "llm_rejected",
+    "parse_failed": "llm_rejected",
+    "conviction_none": "llm_rejected",
+}
+
+
 def log_attribution_after_llm(
     attribution_id: str,
     llm_action: str,
     llm_conviction: int | None = None,
     recommendation_id: str | None = None,
+    parse_failed: bool = False,
     db_path: str = DB_PATH,
 ) -> None:
     """Phase 2: Update attribution row AFTER LLM processing.
 
     llm_action: 'taken', 'rejected', 'parse_failed', 'conviction_none'
-
-    Raises ValueError if llm_action is not one of the canonical values.
-    Caller-side bug (non-canonical label) must surface immediately rather
-    than silently corrupting the attribution table — this guard is the
-    structural fix for #846.
+    parse_failed: True when conviction=5 came from a parse-failure fallback
+        in packet_writer.py, not from the model response. Stored INTEGER 0/1
+        in attribution_trades.parse_failed (#850).
+    Raises ValueError if llm_action is not canonical (#846 guard).
     """
     if llm_action not in _CANONICAL_LLM_ACTIONS:
         raise ValueError(
@@ -97,31 +105,19 @@ def log_attribution_after_llm(
         with connect_db(db_path) as conn:
             fields = ["llm_action = ?"]
             values = [llm_action]
-
             if llm_conviction is not None:
                 fields.append("llm_conviction = ?")
                 values.append(llm_conviction)
-
             if recommendation_id:
                 fields.append("recommendation_id = ?")
                 values.append(recommendation_id)
-
-            # Determine pair_type
-            if llm_action == "taken":
-                pair_type = "both_taken"
-            elif llm_action == "rejected":
-                pair_type = "llm_rejected"
-            elif llm_action in ("parse_failed", "conviction_none"):
-                pair_type = "llm_rejected"
-            else:
-                pair_type = "unknown"
             fields.append("pair_type = ?")
-            values.append(pair_type)
-
+            values.append(_PAIR_TYPE.get(llm_action, "unknown"))
+            fields.append("parse_failed = ?")
+            values.append(1 if parse_failed else 0)
             col_names = {f.split(" = ")[0].strip() for f in fields}
             if not col_names.issubset(_ALLOWED_ATTRIBUTION_COLUMNS):
                 raise ValueError(f"Invalid columns in attribution update: {col_names - _ALLOWED_ATTRIBUTION_COLUMNS}")
-
             values.append(attribution_id)
             conn.execute(
                 f"UPDATE attribution_trades SET {', '.join(fields)} "
