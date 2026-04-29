@@ -148,6 +148,19 @@ def slice_to_date(data: dict, as_of_date: str) -> tuple[dict, pd.DataFrame]:
 
     # Slice SPY
     spy_full = data["spy"]
+    if spy_full.empty:
+        # An empty DataFrame has a RangeIndex (Int64), not a DatetimeIndex,
+        # so `spy_full.index <= cutoff` raises TypeError ('numpy.ndarray' vs
+        # 'Timestamp'). Surface a useful error instead of the cryptic comparison
+        # crash. The most common cause is fetch_spy_benchmark hitting a yfinance
+        # timeout — the caller should retry or fail loudly rather than slicing
+        # an empty benchmark.
+        raise ValueError(
+            f"slice_to_date: SPY benchmark DataFrame is empty (as_of={as_of_date}). "
+            "This typically means fetch_spy_benchmark hit a yfinance timeout. "
+            "Retry the fetch or surface the failure — slicing empty benchmark "
+            "data is meaningless for the downstream feature pipeline."
+        )
     spy_sliced = spy_full[spy_full.index <= cutoff]
 
     # Slice each ticker
