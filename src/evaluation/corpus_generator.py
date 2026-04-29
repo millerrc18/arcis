@@ -74,12 +74,14 @@ from src.packets.template import build_packet_from_features
 logger = logging.getLogger(__name__)
 
 
-# Per addendum §A1.3 + §A2.2 — sections without a live producer are recorded
-# as omitted on every entry; the runtime prompt assembly emits ``n/a``
-# placeholders at the same character offset.
-_OMITTED_SECTIONS: tuple[int, ...] = (8, 11)
+# Per addendum 1 §A1.3 + addendum 2 §B1 — only sections without a live
+# producer are recorded as omitted on every entry. Section 8 was reclassified
+# to "fixed" by addendum-2 §B1.1 once the #858 Option A loader fix landed
+# (PR #883), so it's no longer in this tuple. Section 11 remains placeholder
+# per §B1.3 (no live producer; #870 follow-up not blocking Stage 1).
+_OMITTED_SECTIONS: tuple[int, ...] = (11,)
 
-# Per addendum §A2 — corpus generator is the writer of section_pit_status.
+# Per addendum §A2 / §B1 — corpus generator is the writer of section_pit_status.
 # Drift between this constant and the audit doc is caught at corpus
 # admissibility time.
 _SECTION_PIT_STATUS: dict[int, str] = {
@@ -90,10 +92,10 @@ _SECTION_PIT_STATUS: dict[int, str] = {
     5: "fixed",          # §A2.1 — #857
     6: "fixed",          # §A2.1 — #854
     7: "fixed",          # §A2.1 — #855
-    8: "placeholder",    # §A2.2 — no live producer
-    9: "best-effort",    # §A2.2 — #860 audit pending
+    8: "fixed",          # addendum-2 §B1.1 — #858 Option A (PR #883)
+    9: "best-effort",    # addendum-2 §B1.2 — operator repopulates earnings_calendar
     10: "fixed",         # §A2.1 — #859
-    11: "placeholder",   # §A2.2 — no live producer
+    11: "placeholder",   # addendum-2 §B1.3 — no live producer (#870 follow-up)
 }
 
 
