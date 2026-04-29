@@ -827,8 +827,19 @@ def _ensure_pg_connection(conn, database_url: str):
     return _connect_pg_with_retry(database_url)
 
 
-def run_sync_cycle(database_url: str, db_path: str = LOCAL_DB) -> dict:
-    """Run one full sync cycle across all tables. Returns summary dict."""
+def run_sync_cycle(
+    database_url: str,
+    db_path: str = LOCAL_DB,
+    _reconcile_cycle: bool = False,
+) -> dict:
+    """Run one full sync cycle across all tables. Returns summary dict.
+
+    Args:
+        database_url: Render Postgres connection string.
+        db_path: Path to local SQLite database.
+        _reconcile_cycle: When True, run reconcile_all after expire_stale_commands.
+            Used by RenderSyncThread on every Nth cycle to remove ghost rows.
+    """
     try:
         import psycopg2  # noqa: F401
     except ImportError:
@@ -895,6 +906,33 @@ def run_sync_cycle(database_url: str, db_path: str = LOCAL_DB) -> dict:
         logger.error("expire_stale_commands failed: %s", exc)
         summary["errors"].append(f"expire_stale_commands: {exc}")
 
+    # Periodic ghost-row reconcile — runs on every Nth cycle (see
+    # RenderSyncThread.reconcile_every_n_cycles). Opens its own PG
+    # connection because the sync connection is already closed above.
+    if _reconcile_cycle:
+        try:
+            from src.sync.reconcile import reconcile_all
+            reconcile_pg_conn = _connect_pg_with_retry(database_url)
+            try:
+                result = reconcile_all(reconcile_pg_conn, db_path)
+                deleted = result.get("ghost_rows_deleted", 0)
+                if deleted > 0:
+                    logger.info(
+                        "[RECONCILE] Deleted %d ghost rows across %d tables",
+                        deleted,
+                        result.get("tables_checked", 0),
+                    )
+                for err in result.get("errors", []):
+                    summary["errors"].append(f"reconcile: {err}")
+            finally:
+                try:
+                    reconcile_pg_conn.close()
+                except Exception:
+                    pass
+        except Exception as exc:
+            logger.error("reconcile cycle failed: %s", exc)
+            summary["errors"].append(f"reconcile: {exc}")
+
     return summary
 
 
@@ -915,6 +953,7 @@ class RenderSyncThread(threading.Thread):
         interval_seconds: int = 120,
         db_path: str = LOCAL_DB,
         on_commands_pulled: callable = None,
+        reconcile_every_n_cycles: int = 30,
     ):
         super().__init__(daemon=True, name="render-sync")
         self.database_url = database_url
@@ -926,6 +965,7 @@ class RenderSyncThread(threading.Thread):
         self.sync_last_success: float = 0.0
         self.sync_consecutive_errors: int = 0
         self._cycle_count: int = 0
+        self.reconcile_every_n_cycles: int = reconcile_every_n_cycles
 
     def stop(self) -> None:
         """Signal the thread to stop."""
@@ -943,6 +983,31 @@ class RenderSyncThread(threading.Thread):
             "stale": stale,
         }
 
+    def _maybe_run_reconcile(self, pg_conn) -> None:
+        """Run reconcile_all if _cycle_count is a multiple of reconcile_every_n_cycles.
+
+        Failures are logged but do NOT propagate — reconcile errors must never
+        crash the sync thread.
+
+        Args:
+            pg_conn: Unused — reconcile opens its own connection via
+                run_sync_cycle's _reconcile_cycle path. Kept for API symmetry
+                so callers can pass the open conn without needing to check.
+        """
+        if self.reconcile_every_n_cycles <= 0:
+            return
+        if self._cycle_count % self.reconcile_every_n_cycles != 0:
+            return
+        try:
+            from src.sync.reconcile import reconcile_all
+            reconcile_all(pg_conn, self.db_path)
+        except Exception as exc:
+            logger.error(
+                "[RECONCILE] reconcile_all failed on cycle %d: %s",
+                self._cycle_count,
+                exc,
+            )
+
     def run(self) -> None:
         """Main loop: sync, sleep, repeat."""
         logger.info(
@@ -954,7 +1019,15 @@ class RenderSyncThread(threading.Thread):
                 self._stop_event.wait(self.interval_seconds)
                 continue
             try:
-                summary = run_sync_cycle(self.database_url, self.db_path)
+                is_reconcile_cycle = (
+                    self.reconcile_every_n_cycles > 0
+                    and (self._cycle_count + 1) % self.reconcile_every_n_cycles == 0
+                )
+                summary = run_sync_cycle(
+                    self.database_url,
+                    self.db_path,
+                    _reconcile_cycle=is_reconcile_cycle,
+                )
                 self.sync_last_success = time.time()
                 self.sync_consecutive_errors = 0
                 self._cycle_count += 1
