@@ -169,23 +169,23 @@ git reflog
 git checkout -b recovery/<name> <sha>
 ```
 
-### Pre-Commit Scope Check
+### Git Hooks (one-time install)
 
-`scripts/hooks/check_agent_scope.sh` is the scope-check pre-commit hook scaffold (#699 deliverable 2). It reads `.claude/agent-scope.json` (written by the PM at dispatch time) and fails the commit if any staged file is outside the declared scope. Install per worktree:
+The repo ships two git hooks under `scripts/hooks/`. Activate both with:
 
 ```bash
-cp scripts/hooks/check_agent_scope.sh .git/hooks/pre-commit
-chmod +x .git/hooks/pre-commit
+bash scripts/install-hooks.sh
 ```
 
-Bypass: `SCOPE_CHECK_BYPASS=1 git commit ...` — use for legitimate cross-scope commits (e.g. PM integration commits).
+This runs `git config core.hooksPath scripts/hooks` — pointing git at the version-controlled hooks dir. Worktrees share the parent clone's `.git/config`, so this install propagates to all worktrees automatically.
 
-`agent-scope.json` format:
+**`pre-commit`** (#699 / scope-check) — reads `.claude/agent-scope.json` and fails the commit if any staged file is outside the declared scope. Bypass: `SCOPE_CHECK_BYPASS=1 git commit ...`. agent-scope.json format:
 ```json
 { "agent_id": "developer-1", "files_in_scope": ["src/foo.py", "tests/test_foo.py"] }
 ```
+The PM MUST write `.claude/agent-scope.json` before dispatching each parallel agent. The hook is a no-op if the file doesn't exist.
 
-The PM MUST write `.claude/agent-scope.json` before dispatching each parallel agent. The hook is a no-op if the file doesn't exist (safe for single-agent and non-agent commits).
+**`pre-push`** (#59 / stale-base refusal) — refuses pushes from branches behind `origin/main`. Closes the stale-base hazard class (5 incidents in 5 days before this hook existed: #769, #816, #829, #840, #841 — each would have silently reverted prior work via squash-merge). Bypass: `git push --no-verify` (git's standard mechanism, for true emergency hotfixes only). Offline rebased operators can also `PRE_PUSH_SKIP_FETCH=1 git push` to skip the network refresh while still running the staleness check against existing `refs/remotes/origin/main`.
 
 ### test_repo_structure.py Disclosure (Sprint Dispatch Requirement)
 
