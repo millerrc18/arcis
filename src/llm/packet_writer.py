@@ -362,6 +362,84 @@ def _validate_llm_output(response: str, ticker: str) -> str | None:
     return response
 
 
+def _detect_conviction_strategy(response: str) -> str | None:
+    """Return the stable identifier of the conviction-parse strategy that
+    `_parse_llm_response` would use for this raw response, or None if all
+    strategies miss. Sprint 1.C Phase 4 follow-up #98.
+
+    Mirrors the cascade in `_parse_llm_response` exactly — same order, same
+    cleaning, same regexes. Run as a separate post-hoc pass so the parser's
+    5-tuple return shape stays stable for the dozens of existing callers and
+    test sites.
+
+    Strategy identifiers (the dataset contract — must not change once written):
+
+      metadata_block    — XML <metadata>Conviction: N</metadata>
+      plain_conviction  — Plain "CONVICTION: N" (legacy pre-XML format)
+      conviction_tag    — <conviction>N</conviction> tag
+      conviction_score  — "Conviction: N/10" / "Conviction Score: N"
+      markdown_bold     — **Conviction:** N (markdown bold)
+      catchall          — Stage 6 (#309): any digit within 20 chars of "conviction"
+      confidence_label  — Stage 7 (#329): "confidence: N" / "conviction level: N"
+      bare_score        — Stage 8 (#329): standalone "N/10" on a line
+    """
+    if not response:
+        return None
+
+    # Same cleaning as _parse_llm_response — strip markdown fences and the
+    # section-header regurgitation. Drift between the two cleaners would cause
+    # the strategy label to disagree with the actual conviction extraction.
+    cleaned = re.sub(r'^```(?:xml)?\s*\n?', '', response.strip(), flags=re.MULTILINE)
+    cleaned = re.sub(r'\n?```\s*$', '', cleaned.strip(), flags=re.MULTILINE)
+    cleaned = re.sub(r'^={2,}\s*[A-Z][A-Z /&]+\s*={2,}\s*$', '', cleaned, flags=re.MULTILINE)
+    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned).strip()
+
+    # Strategy 1: metadata_block — only fires when the conviction is INSIDE
+    # the <metadata> block. We must scope the match to that substring or a
+    # `<metadata>...Conviction: N...</metadata>` would also satisfy the more
+    # permissive later regexes and we'd mislabel which one fired.
+    md_match = re.search(r'<metadata>(.*?)</metadata>', cleaned, re.DOTALL | re.IGNORECASE)
+    if md_match:
+        if re.search(r'Conviction:\s*\d+', md_match.group(1)):
+            return "metadata_block"
+
+    # Strategy 2: plain_conviction
+    if "CONVICTION:" in cleaned.upper() and re.search(r'CONVICTION:\s*\d+', cleaned, re.IGNORECASE):
+        return "plain_conviction"
+
+    # Strategy 3: conviction_tag
+    if re.search(r'<conviction[^>]*>\s*\d+', cleaned, re.IGNORECASE):
+        return "conviction_tag"
+
+    # Strategy 4: conviction_score
+    if re.search(r'conviction\s*(?:score)?[:\s]+\d+(?:/10)?', cleaned, re.IGNORECASE):
+        return "conviction_score"
+
+    # Strategy 5: markdown_bold
+    if re.search(r'\*\*conviction\*\*[:\s]+\d+', cleaned, re.IGNORECASE):
+        return "markdown_bold"
+
+    # Strategy 6: catchall — guarded by 1<=N<=10 to mirror the parser's filter
+    catchall = re.search(r'(?i)conviction\D{0,20}(\d{1,2})', cleaned)
+    if catchall and 1 <= int(catchall.group(1)) <= 10:
+        return "catchall"
+
+    # Strategy 7: confidence_label — guarded by 1<=N<=10
+    conf_match = re.search(
+        r'(?:confidence|conviction)\s*(?:level)?[:\s]+(\d+)\s*(?:/\s*10)?',
+        cleaned, re.IGNORECASE,
+    )
+    if conf_match and 1 <= int(conf_match.group(1)) <= 10:
+        return "confidence_label"
+
+    # Strategy 8: bare_score — guarded by 1<=N<=10
+    line_match = re.search(r'^(\d+)\s*/\s*10\s*$', cleaned, re.MULTILINE)
+    if line_match and 1 <= int(line_match.group(1)) <= 10:
+        return "bare_score"
+
+    return None
+
+
 def _parse_llm_response(response: str) -> tuple[
     int | None, str | None, str | None, str | None, int | None
 ]:
@@ -384,20 +462,33 @@ def _parse_llm_response(response: str) -> tuple[
     Returns (conviction, why_now, deeper_analysis, conviction_reason, timeout_days).
     All fields are None on failure; conviction defaults to 5 in the caller (#168).
 
+    Which conviction-parse strategy fired is NOT returned here — call
+    ``_detect_conviction_strategy(response)`` separately for that label
+    (Sprint 1.C Phase 4 follow-up #98). Splitting the two keeps this function's
+    5-tuple return shape stable for the dozens of existing call/test sites.
+
     B4: Key Risk: line → llm_conviction_reason (multi-line capture via DOTALL,
         whitespace-normalized, total length <= _MAX_CONVICTION_REASON_CHARS).
     B8: Expected Holding Period: N days → llm_timeout_days (validated 1-60, int).
         Out-of-range or non-integer → NULL + [LLM_TIMEOUT_INVALID] warning.
 
-    #183 — This function has 5 conviction extraction strategies because Qwen3 8B
+    #183 — This function has 8 conviction extraction strategies because Qwen3 8B
     is inconsistent about output format across temperature=0.7 runs. Each fallback
-    was added after a production incident where conviction parsed as None:
-      1. XML <metadata>Conviction: N</metadata> -- preferred, most structured
-      2. Plain text "CONVICTION: N" -- legacy format from pre-XML prompt era
-      3. <conviction>N</conviction> tag -- Qwen sometimes invents this tag
-      4. "Conviction: 7/10" or "Conviction Score: 7" -- markdown-style
-      5. **Conviction:** 7 -- markdown bold format
-    If all 5 fail, #168 sets conviction=5 in the caller (neutral default for
+    was added after a production incident where conviction parsed as None. The
+    strategy identifiers (defined in ``_CONVICTION_STRATEGY_LABELS``) are STABLE
+    — they're recorded on each CorpusEntry via `parser_strategy_succeeded` and
+    consumed by Stage 1 walk-forward analysis.
+
+      1. metadata_block   — XML <metadata>Conviction: N</metadata>
+      2. plain_conviction — Plain text "CONVICTION: N" (legacy pre-XML format)
+      3. conviction_tag   — <conviction>N</conviction> tag (Qwen invents this)
+      4. conviction_score — "Conviction: 7/10" or "Conviction Score: 7"
+      5. markdown_bold    — **Conviction:** 7
+      6. catchall         — Stage 6 (#309): any digit within 20 chars of "conviction"
+      7. confidence_label — Stage 7 (#329): "confidence: N" or "conviction level: N"
+      8. bare_score       — Stage 8 (#329): standalone "N/10" on a line
+
+    If all 8 fail, #168 sets conviction=5 in the caller (neutral default for
     paper trading where a missing conviction should not block the trade).
     """
     import re
@@ -696,6 +787,12 @@ Event Risk: {packet.event_risk}"""
         return packet
 
     conviction, why_now, deeper_analysis, conviction_reason, timeout_days = _parse_llm_response(response)
+
+    # #98: surface which conviction-parse strategy fired (or None) so the
+    # corpus generator can record it on each CorpusEntry. The label is
+    # produced by an independent post-hoc cascade so `_parse_llm_response`'s
+    # 5-tuple return shape stays stable for the dozens of existing callers.
+    packet.parser_strategy_succeeded = _detect_conviction_strategy(response)
 
     if why_now is None or deeper_analysis is None:
         logger.warning("[LLM] Failed to parse response — fallback to template for %s", packet.ticker,
