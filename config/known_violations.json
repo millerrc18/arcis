@@ -445,7 +445,8 @@
     {
       "file": "src/evaluation/backtester.py",
       "function": "backtest_model",
-      "lines": 213
+      "lines": 305,
+      "rationale": "Sprint 1.C Phase 4 #96.3 added optional corpus_id parameter + per-candidate corpus lookup; the most disruptive corpus-decision logic was extracted into _resolve_corpus_decision helper. Pre-existing 280-line size already exceeded the previous recorded 213 (recorded count was stale before this PR); this entry now reflects the post-#96.3 size. Real refactor of the per-day candidate loop is deferred — splitting that loop touches too much existing logic and is out of scope for #96.3."
     },
     {
       "file": "src/evaluation/cto_report.py",

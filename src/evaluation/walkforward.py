@@ -202,7 +202,7 @@ def compute_aggregate(folds: list[dict]) -> dict:
 
 # ─── per-fold runner ──────────────────────────────────────────────────────────
 
-def _run_fold(model: str, boundary: dict) -> dict:
+def _run_fold(model: str, boundary: dict, corpus_id: str | None = None) -> dict:
     """Call backtest_model for one fold and assemble the fold result dict."""
     train_start = boundary["train_start"]
     train_end = boundary["train_end"]
@@ -217,6 +217,7 @@ def _run_fold(model: str, boundary: dict) -> dict:
         model, months=approx_months,
         train_start=train_start, train_end=train_end,
         test_start=test_start, test_end=test_end,
+        corpus_id=corpus_id,
     )
 
     trades = bt.get("trades", [])
@@ -239,6 +240,42 @@ def _run_fold(model: str, boundary: dict) -> dict:
     }
 
 
+# ─── corpus admissibility + window coverage gate (pre-reg §A3) ───────────────
+
+def _gate_corpus_or_raise(corpus_id: str, boundaries: list[dict]) -> tuple[str, int]:
+    """Load corpus manifest, validate admissibility + window coverage, return provenance.
+
+    Pre-reg §A3 — admissibility gate fires BEFORE any fold runs so the harness
+    never wastes fold work on a corpus that can't ground a primary-metric
+    claim. Manifest window must also cover every fold's test range or raise.
+
+    Returns:
+        (manifest_admissibility, parse_failure_count) — for the result dict.
+
+    Raises:
+        RuntimeError if not admissible OR if any fold falls outside corpus window.
+    """
+    from src.evaluation.corpus import load_manifest
+    manifest = load_manifest(corpus_id)
+    if not manifest.is_admissible():
+        raise RuntimeError(
+            f"Corpus {corpus_id} is not admissible: {manifest.admissibility}"
+        )
+    manifest_start = date.fromisoformat(manifest.walkforward_window_start)
+    manifest_end = date.fromisoformat(manifest.walkforward_window_end)
+    for b in boundaries:
+        test_start_d = date.fromisoformat(b["test_start"])
+        test_end_d = date.fromisoformat(b["test_end"])
+        if test_start_d < manifest_start or test_end_d > manifest_end:
+            raise RuntimeError(
+                f"Corpus {corpus_id} window "
+                f"[{manifest.walkforward_window_start}, {manifest.walkforward_window_end}] "
+                f"does not cover fold {b['fold_idx']} test range "
+                f"[{b['test_start']}, {b['test_end']}]"
+            )
+    return manifest.admissibility, manifest.parse_failure_count
+
+
 # ─── main driver ──────────────────────────────────────────────────────────────
 
 def run_walkforward(
@@ -247,14 +284,27 @@ def run_walkforward(
     fold_count: int = _DEFAULT_FOLD_COUNT,
     embargo_days: int = _DEFAULT_EMBARGO_DAYS,
     output_json: str | None = None,
+    corpus_id: str | None = None,
 ) -> dict:
     """Run the walk-forward harness (pre-reg §3).
 
     Calls backtest_model once per fold, applies underpowered flag, and
     aggregates primary metrics over powered folds only.
+
+    When ``corpus_id`` is set, the manifest is loaded once and validated via
+    _gate_corpus_or_raise (pre-reg §A3 admissibility + window coverage).
+    Result dict gains ``corpus_id``, ``manifest_admissibility``, and
+    ``parse_failed_excluded`` for downstream provenance.
     """
     boundaries = compute_fold_boundaries(anchor, fold_count, embargo_days)
-    completed_folds = [_run_fold(model, b) for b in boundaries]
+    manifest_admissibility: str | None = None
+    parse_failed_excluded = 0
+    if corpus_id is not None:
+        manifest_admissibility, parse_failed_excluded = _gate_corpus_or_raise(
+            corpus_id, boundaries
+        )
+
+    completed_folds = [_run_fold(model, b, corpus_id=corpus_id) for b in boundaries]
     aggregate = compute_aggregate(completed_folds)
 
     result = {
@@ -263,6 +313,9 @@ def run_walkforward(
         "embargo_days": embargo_days,
         "folds": completed_folds,
         "aggregate": aggregate,
+        "corpus_id": corpus_id,
+        "manifest_admissibility": manifest_admissibility,
+        "parse_failed_excluded": parse_failed_excluded,
     }
 
     if output_json:
@@ -292,6 +345,9 @@ def _build_parser() -> argparse.ArgumentParser:
                         help=f"Trading-day embargo (default: {_DEFAULT_EMBARGO_DAYS})")
     parser.add_argument("--output-json", default=None, metavar="PATH",
                         help="Write JSON output to this path")
+    parser.add_argument("--corpus-id", default=None, dest="corpus_id", metavar="ID",
+                        help="LLM-scoring corpus directory name under ARCIS_CORPUS_ROOT "
+                             "(if set, scores are read from corpus instead of live LLM)")
     return parser
 
 
@@ -302,6 +358,7 @@ def main(argv: list[str] | None = None) -> None:
         model=args.model, anchor=args.anchor,
         fold_count=args.folds, embargo_days=args.embargo,
         output_json=args.output_json,
+        corpus_id=args.corpus_id,
     )
     print(json.dumps(result, indent=2, default=str))
 

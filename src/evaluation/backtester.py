@@ -21,13 +21,45 @@ from src.config import DB_PATH, load_config
 logger = logging.getLogger(__name__)
 
 
+def _resolve_corpus_decision(
+    corpus_entries: dict,
+    corpus_id: str | None,
+    date_str: str,
+    ticker: str,
+) -> tuple[bool, "object | None"]:
+    """Return (should_trade, corpus_entry) for a (date, ticker) candidate.
+
+    Pre-reg §A3 reproducibility: when corpus_id is set, the corpus is the
+    binding source — no live-LLM fallback. Per §A1.4 parse_failed=1 entries
+    are pre-filtered out of corpus_entries; per §A1.5 only llm_action='taken'
+    entries enter the primary metric.
+
+    Returns:
+        (True, entry) — candidate proceeds, conviction comes from `entry`
+        (False, None) — candidate skipped (corpus inactive, missing entry, or non-'taken')
+    """
+    if corpus_id is None:
+        return True, None
+    entry = corpus_entries.get((date_str, ticker))
+    if entry is None:
+        logger.warning(
+            "Corpus miss for (%s, %s) in corpus_id=%s — skipped (no live-LLM fallback)",
+            date_str, ticker, corpus_id,
+        )
+        return False, None
+    if entry.llm_action != "taken":
+        return False, None
+    return True, entry
+
+
 def backtest_model(model_name: str, months: int = 6,
                    db_path: str = DB_PATH,
                    train_start: str | None = None,
                    train_end: str | None = None,
                    test_start: str | None = None,
                    test_end: str | None = None,
-                   rf_source: str = "fred") -> dict:
+                   rf_source: str = "fred",
+                   corpus_id: str | None = None) -> dict:
     """Run a walk-forward backtest of a trained model on historical data.
 
     Process:
@@ -35,6 +67,10 @@ def backtest_model(model_name: str, months: int = 6,
     2. For each trading day: compute features, run ranker, get model output
     3. Parse conviction, track simulated portfolio
     4. Compute portfolio-level metrics
+
+    When ``corpus_id`` is set, LLM scores are read from the pre-generated
+    corpus (#96.1) instead of live; see _resolve_corpus_decision for the
+    binding pre-reg §A1.4 / §A1.5 / §A3 row-filter semantics.
     """
     from src.cost_model.calibration import get_calibrated_cost_model
     from src.data_ingestion.market_data import fetch_ohlcv, fetch_spy_benchmark
@@ -42,6 +78,13 @@ def backtest_model(model_name: str, months: int = 6,
     from src.ranking.ranker import rank_universe, get_top_candidates
     from src.training.historical_data import slice_to_date
     from src.training.historical_scanner import compute_outcome
+
+    # Pre-load the corpus index when corpus_id is set. Default
+    # parse_clean_only=True per pre-reg §A1.4 binding row filter.
+    corpus_entries: dict[tuple[str, str], "object"] = {}
+    if corpus_id is not None:
+        from src.evaluation.corpus import load_entries_by_decision
+        corpus_entries = load_entries_by_decision(corpus_id, parse_clean_only=True)
 
     cost_model = get_calibrated_cost_model()
     if cost_model is None:
@@ -126,6 +169,12 @@ def backtest_model(model_name: str, months: int = 6,
                 score = cand["score"]
                 feat = cand["features"]
 
+                should_trade, corpus_entry = _resolve_corpus_decision(
+                    corpus_entries, corpus_id, date_str, ticker
+                )
+                if not should_trade:
+                    continue
+
                 # Compute outcome
                 if ticker in ohlcv:
                     from src.packets.template import build_packet_from_features
@@ -160,7 +209,7 @@ def backtest_model(model_name: str, months: int = 6,
                     else:
                         rf_per_day = _RF_PLACEHOLDER
 
-                    trades.append({
+                    trade_record = {
                         "date": date_str,
                         "ticker": ticker,
                         "score": score,
@@ -169,7 +218,13 @@ def backtest_model(model_name: str, months: int = 6,
                         "pnl_pct": pnl_pct,
                         "duration": outcome.get("duration_days", 0),
                         "regime": feat.get("regime_label", "unknown"),
-                    })
+                    }
+                    if corpus_entry is not None:
+                        # Per pre-reg §A3.1 round-trip integrity — record the
+                        # corpus's llm_conviction so #81 subgroup analysis can
+                        # partition by conviction tier.
+                        trade_record["llm_conviction"] = corpus_entry.llm_conviction
+                    trades.append(trade_record)
 
                     # Update equity
                     allocation_pct = 0.05  # 5% per trade
@@ -288,6 +343,7 @@ def backtest_model(model_name: str, months: int = 6,
         "model": model_name,
         "test_period": {"start": start_date.strftime("%Y-%m-%d"), "end": end_date.strftime("%Y-%m-%d")},
         "trades_generated": len(trades),
+        "trades": trades,
         "win_rate": round(win_rate, 3),
         "total_pnl_pct": round(total_pnl_pct, 1),
         "sharpe_ratio": round(sharpe, 2),
