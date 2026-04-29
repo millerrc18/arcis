@@ -369,3 +369,215 @@ class TestCLI:
         assert "--folds" in result.stdout
         assert "--embargo" in result.stdout
         assert "--model" in result.stdout
+
+
+# ─── Corpus-consumption integration tests (#96.4 Sprint 1.C Phase 4) ─────────
+
+
+class TestRunWalkforwardCorpus:
+    """run_walkforward(corpus_id=...) integration tests.
+
+    Locks pre-reg §A3 admissibility gate semantics + result-dict contract:
+    - admissible manifest succeeds, propagates corpus_id to each fold
+    - non-admissible manifest raises BEFORE any fold runs (don't waste fold work)
+    - manifest window must cover requested fold range or raise
+    - result dict gains corpus_id, manifest_admissibility, parse_failed_excluded
+    - corpus_id=None preserves original runtime behavior
+    """
+
+    def _build_corpus(
+        self,
+        tmp_path,
+        monkeypatch,
+        *,
+        corpus_id: str = "wf-test-corpus",
+        admissibility: str = "PASS",
+        window_start: str = "2015-03-19",
+        window_end: str = "2026-12-31",
+        parse_failure_count: int = 0,
+        total: int = 100,
+    ):
+        from src.evaluation.corpus import (
+            CorpusEntry,
+            CorpusManifest,
+            write_corpus,
+        )
+
+        root = tmp_path / "corpus_root"
+        root.mkdir(exist_ok=True)
+        monkeypatch.setenv("ARCIS_CORPUS_ROOT", str(root))
+
+        # Single benign entry — the run_walkforward path delegates trade
+        # production to backtest_model (which is mocked in these tests).
+        # Manifest properties are what drive the admissibility / window gates.
+        entry = CorpusEntry(
+            as_of="2024-06-15",
+            ticker="AAPL",
+            model_version="arcis:v1.0.0",
+            prompt_sha256="a" * 64,
+            response="Conviction: 7",
+            llm_action="taken",
+            llm_conviction=7,
+            parse_failed=0,
+            parser_strategy_succeeded="metadata_block",
+            generated_at="2026-04-29T12:00:00Z",
+        )
+
+        section = {1: "clean", 2: "clean", 4: "fixed", 5: "fixed", 6: "fixed",
+                   7: "fixed", 8: "placeholder", 9: "best-effort", 10: "fixed",
+                   11: "placeholder"}
+        manifest = CorpusManifest(
+            corpus_id=corpus_id,
+            generated_at="2026-04-29T12:00:00Z",
+            code_sha="abc123def456",
+            model_version="arcis:v1.0.0",
+            walkforward_window_start=window_start,
+            walkforward_window_end=window_end,
+            total_decision_points=total,
+            parse_failure_count=parse_failure_count,
+            parse_failure_rate=parse_failure_count / total if total else 0.0,
+            section_pit_status=section,
+            coverage_limit_hits={},
+            admissibility=admissibility,
+        )
+        write_corpus(corpus_id, [entry], manifest)
+        return corpus_id
+
+    @patch("src.evaluation.walkforward.backtest_model")
+    def test_admissible_corpus_succeeds(self, mock_bt, tmp_path, monkeypatch):
+        """run_walkforward(corpus_id=...) with admissible manifest succeeds."""
+        from src.evaluation.walkforward import run_walkforward
+
+        mock_bt.return_value = _make_backtest_result(20)
+        corpus_id = self._build_corpus(tmp_path, monkeypatch)
+
+        result = run_walkforward(
+            "arcis:v1.0.0", anchor="2023-09-01",
+            fold_count=8, embargo_days=21,
+            corpus_id=corpus_id,
+        )
+
+        assert "folds" in result
+        assert len(result["folds"]) == 8
+
+    @patch("src.evaluation.walkforward.backtest_model")
+    def test_inadmissible_corpus_raises_before_folds_run(
+        self, mock_bt, tmp_path, monkeypatch
+    ):
+        """Pre-reg §A3 admissibility gate: non-admissible manifest blocks the harness.
+
+        Critically, the gate fires BEFORE any backtest_model call so we don't
+        waste fold work on a corpus that can't ground a primary-metric claim.
+        """
+        from src.evaluation.walkforward import run_walkforward
+
+        mock_bt.return_value = _make_backtest_result(20)
+        corpus_id = self._build_corpus(
+            tmp_path, monkeypatch,
+            corpus_id="wf-inadmissible",
+            admissibility="FAIL: parse_failure_rate=0.0700 exceeds §A1.4 ceiling of 0.05",
+        )
+
+        with pytest.raises(RuntimeError, match="not admissible"):
+            run_walkforward(
+                "arcis:v1.0.0", anchor="2023-09-01",
+                fold_count=8, embargo_days=21,
+                corpus_id=corpus_id,
+            )
+
+        # Critical: gate must fire BEFORE folds run
+        assert mock_bt.call_count == 0, (
+            f"Expected 0 backtest_model calls for inadmissible corpus, "
+            f"got {mock_bt.call_count} (admissibility gate not blocking)"
+        )
+
+    @patch("src.evaluation.walkforward.backtest_model")
+    def test_window_too_narrow_raises(self, mock_bt, tmp_path, monkeypatch):
+        """Manifest window must cover requested fold range or RuntimeError."""
+        from src.evaluation.walkforward import run_walkforward
+
+        mock_bt.return_value = _make_backtest_result(20)
+        # Manifest window ends 2024-01-01 — but folds run through 2026
+        corpus_id = self._build_corpus(
+            tmp_path, monkeypatch,
+            corpus_id="wf-narrow-window",
+            window_start="2023-09-01",
+            window_end="2024-01-01",
+        )
+
+        with pytest.raises(RuntimeError, match="window"):
+            run_walkforward(
+                "arcis:v1.0.0", anchor="2023-09-01",
+                fold_count=8, embargo_days=21,
+                corpus_id=corpus_id,
+            )
+
+    @patch("src.evaluation.walkforward.backtest_model")
+    def test_result_dict_includes_corpus_provenance(
+        self, mock_bt, tmp_path, monkeypatch
+    ):
+        """Result dict gains corpus_id, manifest_admissibility, parse_failed_excluded."""
+        from src.evaluation.walkforward import run_walkforward
+
+        mock_bt.return_value = _make_backtest_result(20)
+        corpus_id = self._build_corpus(
+            tmp_path, monkeypatch,
+            corpus_id="wf-provenance",
+            parse_failure_count=3,
+            total=100,
+        )
+
+        result = run_walkforward(
+            "arcis:v1.0.0", anchor="2023-09-01",
+            fold_count=4, embargo_days=21,
+            corpus_id=corpus_id,
+        )
+
+        assert result["corpus_id"] == "wf-provenance"
+        assert result["manifest_admissibility"] == "PASS"
+        # parse_failed_excluded = parse_failure_count from the manifest
+        assert result["parse_failed_excluded"] == 3
+
+    @patch("src.evaluation.walkforward.backtest_model")
+    def test_corpus_id_propagated_to_each_fold(
+        self, mock_bt, tmp_path, monkeypatch
+    ):
+        """Each backtest_model call receives the corpus_id kwarg."""
+        from src.evaluation.walkforward import run_walkforward
+
+        mock_bt.return_value = _make_backtest_result(20)
+        corpus_id = self._build_corpus(
+            tmp_path, monkeypatch,
+            corpus_id="wf-propagate",
+        )
+
+        run_walkforward(
+            "arcis:v1.0.0", anchor="2023-09-01",
+            fold_count=4, embargo_days=21,
+            corpus_id=corpus_id,
+        )
+
+        for call in mock_bt.call_args_list:
+            assert call.kwargs.get("corpus_id") == "wf-propagate", (
+                f"backtest_model call missing or wrong corpus_id: {call.kwargs}"
+            )
+
+    @patch("src.evaluation.walkforward.backtest_model")
+    def test_corpus_id_none_preserves_runtime_behavior(self, mock_bt):
+        """When corpus_id is omitted, no admissibility gate, no result keys, runtime unchanged."""
+        from src.evaluation.walkforward import run_walkforward
+
+        mock_bt.return_value = _make_backtest_result(20)
+
+        result = run_walkforward(
+            "arcis:v1.0.0", anchor="2023-09-01",
+            fold_count=4, embargo_days=21,
+        )
+
+        # Original behavior preserved; provenance fields default to None / 0
+        assert result["corpus_id"] is None
+        assert result["manifest_admissibility"] is None
+        assert result["parse_failed_excluded"] == 0
+        # Each backtest_model call receives corpus_id=None
+        for call in mock_bt.call_args_list:
+            assert call.kwargs.get("corpus_id") is None
