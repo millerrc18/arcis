@@ -78,9 +78,10 @@ def enrich_features(
             required for backfill / backtest paths so the LLM doesn't see
             future data through enrichment fields. When None (the runtime
             default), behavior is unchanged. Sprint 1.C Phase 2 PIT-fix
-            wiring: routes Section 6 (news, #854) and Section 7 (macro,
-            #855); Sections 4/5/10/11 will plumb their own ``as_of`` via
-            #856-#859.
+            wiring: routes Section 6 (news, #854), Section 7 (macro,
+            #855), and Section 10 (earnings_signals, #859); Sections 4/5
+            plumb their own ``as_of`` via #856/#857. Section 11 has no
+            live producer (#870 decision pending).
 
     Returns:
         Same dict with enrichment fields added in place.
@@ -207,9 +208,13 @@ def enrich_features(
                 logger.debug("[ENRICHMENT] News failed for %s: %s", ticker, e)
 
         # Earnings signals (PEAD enrichment)
+        # #859 / Sprint 1.C Phase 2: when as_of is set, route the
+        # earnings_calendar + analyst_estimates queries through PIT semantics
+        # (date(?) bind + collected_at <= as_of filter) so historical decision
+        # points don't see future earnings dates / analyst revisions.
         try:
             from src.data_enrichment.earnings_signals import compute_earnings_signals
-            earnings = compute_earnings_signals(ticker)
+            earnings = compute_earnings_signals(ticker, as_of=as_of)
             feat["earnings_signals"] = earnings
             if earnings.get("include_in_prompt"):
                 logger.debug("[ENRICHMENT] Earnings context for %s (proximity: %s days, strength: %s)",
