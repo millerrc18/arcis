@@ -106,15 +106,25 @@ def section_2_outcome_by_action(con: sqlite3.Connection) -> str:
 
 
 def _band(c) -> str:
+    """Bucket a conviction value on the canonical 1-10 scale (#847).
+
+    Earlier versions banded 0-49 / 50-69 / 70-84 / 85+, modeled on the
+    ranker_score scale (0-100). But llm_conviction is parsed on a 1-10
+    scale by src/llm/packet_writer.py:451 (clamped via max(1, min(10, .))),
+    so all real values trivially fell into the 0-49 bucket — making the
+    band table appear fully degenerate when it was actually a scale
+    mismatch. The 1-10 band cuts mirror the LLM's prompt vocabulary
+    (low / medium / high / very-high conviction).
+    """
     if c is None:
         return "null"
-    if c < 50:
-        return "0-49"
-    if c < 70:
-        return "50-69"
-    if c < 85:
-        return "70-84"
-    return "85+"
+    if c <= 3:
+        return "1-3 (low)"
+    if c <= 6:
+        return "4-6 (medium)"
+    if c <= 8:
+        return "7-8 (high)"
+    return "9-10 (very high)"
 
 
 def section_3_conviction_bands(con: sqlite3.Connection) -> str:
@@ -130,13 +140,19 @@ def section_3_conviction_bands(con: sqlite3.Connection) -> str:
         b["wins"] += int(outcome == "win")
         b["pnls"].append(pnl)
     body = []
-    for label in ["null", "0-49", "50-69", "70-84", "85+"]:
+    for label in ["null", "1-3 (low)", "4-6 (medium)", "7-8 (high)", "9-10 (very high)"]:
         b = bands.get(label, {"n": 0, "wins": 0, "pnls": []})
         avg_pnl = mean(b["pnls"]) if b["pnls"] else None
         body.append([label, b["n"], b["wins"], avg_pnl])
+    # Caveat — conviction=5 is the parser's parse-failure fallback (set
+    # in src/llm/packet_writer.py:692,701,710 when the LLM response can't
+    # be parsed). Any concentration in the 4-6 band may include real medium
+    # AND parse-failure pollution. Disambiguating requires a separate
+    # parse_failed column or NULL-on-failure semantics — see follow-up.
     return "\n".join([
         "## 3. Conviction-banded analysis (LLM `taken` only)\n",
         "_Filter: resolved + pnl_pct present + not `v1_multiindex_bug` + llm_action='taken'._\n",
+        "_Scale: 1-10 (per `src/llm/packet_writer.py` clamp). Caveat: conviction=5 is the parser's parse-failure fallback — the 4-6 band conflates real medium conviction with parse-failure pollution._\n",
         table_md(["band", "n", "ranker-only wins", "avg ranker-only pnl_pct"], body),
     ])
 
