@@ -48,6 +48,9 @@ from src.api.cloud_routes.trades import create_router as create_trades_router
 from src.api.cloud_routes.ib_shadow import create_router as create_ib_shadow_router
 from src.api.cloud_routes.training import create_router as create_training_router
 from src.api.cloud_routes import platform as _platform_module
+from src.api.cloud_routes import kpis as kpis_route
+from src.api.cloud_routes import broker_exceptions as broker_exceptions_route
+from src.api.cloud_routes import preflight as preflight_route
 from src.sync.render_sync import SYNC_TABLES
 
 # Populate the four capability registries via decorator side-effects (#807, dashboard Tier 1.B).
@@ -302,6 +305,10 @@ for factory in (
     create_commands_router,
 ):
     app.include_router(factory(_runtime, verify_auth))
+
+app.include_router(kpis_route.router, prefix="/api")
+app.include_router(broker_exceptions_route.router, prefix="/api")
+app.include_router(preflight_route.router, prefix="/api")
 
 # Platform routes: SQLite-backed. POST endpoints require verify_auth (#598).
 # We override the placeholder verify_auth in the platform module with the real
