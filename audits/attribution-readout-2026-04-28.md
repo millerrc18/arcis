@@ -51,13 +51,15 @@ _Filter: resolved (win/loss/timeout), pnl_pct present, not `v1_multiindex_bug`._
 
 _Filter: resolved + pnl_pct present + not `v1_multiindex_bug` + llm_action='taken'._
 
+_Scale: 1-10 (per `src/llm/packet_writer.py` clamp). Caveat: conviction=5 is the parser's parse-failure fallback — the 4-6 band conflates real medium conviction with parse-failure pollution._
+
 | band | n | ranker-only wins | avg ranker-only pnl_pct |
 | --- | --- | --- | --- |
 | null | 0 | 0 | — |
-| 0-49 | 120 | 40 | 0.5947 |
-| 50-69 | 0 | 0 | — |
-| 70-84 | 0 | 0 | — |
-| 85+ | 0 | 0 | — |
+| 1-3 (low) | 3 | 2 | 2.6533 |
+| 4-6 (medium) | 77 | 22 | 0.1710 |
+| 7-8 (high) | 32 | 15 | 1.5647 |
+| 9-10 (very high) | 8 | 1 | 0.0200 |
 
 ## 4. Selection alpha test
 
