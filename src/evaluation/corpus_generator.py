@@ -40,14 +40,15 @@ Section status mapping written to manifest (per addendum §A2):
 - Section 9 (events) — ``best-effort`` (addendum-2 §B1.2 — operator repopulates earnings_calendar)
 - Section 11 (cross-asset) — ``placeholder`` (addendum-2 §B1.3 — no live producer)
 
-Two follow-ups out of scope per dispatch:
+One follow-up out of scope per dispatch:
 
-- ``parser_strategy_succeeded`` field is stored as ``None`` because
-  ``packet_writer._parse_llm_response`` doesn't currently track which of the
-  6 conviction-parse strategies succeeded. Tracker filed.
 - ``enrichment_pit_warnings`` is stored as ``()`` because individual
   ``fetch_*`` functions in ``src/data_enrichment/`` don't currently emit a
   warnings list. Tracker filed.
+
+``parser_strategy_succeeded`` is read from ``packet.parser_strategy_succeeded``
+(set by ``packet_writer._parse_llm_response``) per #98 — closed by Sprint 1.C
+Phase 4 follow-up.
 """
 from __future__ import annotations
 
@@ -139,6 +140,18 @@ def _clamp_conviction(value: Any) -> int:
     return ivalue
 
 
+def _strategy_label(packet: Any) -> str | None:
+    """Read packet.parser_strategy_succeeded with a string-or-None coercion (#98).
+
+    Defensive guard: only ``str`` is accepted. Non-string values (including
+    auto-mocked attributes that surface during testing) collapse to ``None`` so
+    the CorpusEntry contract — ``parser_strategy_succeeded: str | None`` — is
+    never violated and JSONL serialization never blows up downstream.
+    """
+    value = getattr(packet, "parser_strategy_succeeded", None)
+    return value if isinstance(value, str) else None
+
+
 def _existing_decision_keys(corpus_id: str) -> set[tuple[str, str]]:
     """Return the (as_of, ticker) keys already present in entries.jsonl.
 
@@ -198,7 +211,7 @@ def _packet_to_entry(
         llm_action=_resolve_llm_action(packet),
         llm_conviction=_clamp_conviction(getattr(packet, "llm_conviction", None)),
         parse_failed=1 if bool(getattr(packet, "llm_conviction_parse_failed", False)) else 0,
-        parser_strategy_succeeded=None,  # see module docstring follow-up tracker
+        parser_strategy_succeeded=_strategy_label(packet),  # #98
         prompt_section_omitted=_OMITTED_SECTIONS,
         enrichment_pit_warnings=(),  # see module docstring follow-up tracker
         generated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
