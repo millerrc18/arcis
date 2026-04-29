@@ -78,10 +78,10 @@ def enrich_features(
             required for backfill / backtest paths so the LLM doesn't see
             future data through enrichment fields. When None (the runtime
             default), behavior is unchanged. Sprint 1.C Phase 2 PIT-fix
-            wiring: routes Section 6 (news, #854), Section 7 (macro,
-            #855), and Section 10 (earnings_signals, #859); Sections 4/5
-            plumb their own ``as_of`` via #856/#857. Section 11 has no
-            live producer (#870 decision pending).
+            wiring: routes Section 4 (fundamentals, #856), Section 5
+            (insiders, #857), Section 6 (news, #854), Section 7 (macro,
+            #855), and Section 10 (earnings_signals, #859). Section 11
+            has no live producer (#870 pending).
 
     Returns:
         Same dict with enrichment fields added in place.
@@ -135,12 +135,19 @@ def enrich_features(
             feat["macro_summary"] = macro_summary
 
         # Fundamental data
+        # #856 / Sprint 1.C Phase 2: when as_of is set, route SEC XBRL
+        # lookup to PIT mode — filter entries by `filed <= as_of` BEFORE
+        # sorting, then sort by `filed` desc (period-end secondary). This
+        # closes the audit's #1 high-severity finding (sort by `end` not
+        # `filed`). When as_of is None, runtime behavior unchanged.
         try:
             from src.data_enrichment.fundamentals import (
                 fetch_fundamental_snapshot,
                 format_fundamental_summary,
             )
-            fund_data = fetch_fundamental_snapshot(ticker, cache_hours=cache_hours)
+            fund_data = fetch_fundamental_snapshot(
+                ticker, cache_hours=cache_hours, as_of=as_of,
+            )
             price = feat.get("current_price")
             feat["fundamental_summary"] = format_fundamental_summary(fund_data, price)
             if fund_data is None:
