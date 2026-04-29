@@ -1181,6 +1181,15 @@ _register(TableDef(
         ColumnDef("collected_at", "TEXT", nullable=False),
     ],
     primary_key="id",
+    indexes=[
+        # Required by scripts/fetch_earnings_calendar.py:138 which uses
+        # `ON CONFLICT(ticker, earnings_date) DO UPDATE`. Without this
+        # constraint the upsert raises OperationalError and gets silently
+        # caught by the bare `except Exception` → 100% silent failure of
+        # the populator (audit #860, PR #880 flagged this as a fragile
+        # schema gap; operator's 2026-04-29 run reproduced the breakage).
+        IndexDef("idx_earnings_calendar_unique", ["ticker", "earnings_date"], unique=True),
+    ],
     sync_to_postgres=True,
     sync_mode="incremental",
     sync_time_column="collected_at",

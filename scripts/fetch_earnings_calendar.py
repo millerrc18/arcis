@@ -165,7 +165,14 @@ def fetch_earnings_dates(
             logger.info("[EARNINGS] %s: %s (%s)", ticker, date_str, time_str or "TBD")
 
         except Exception as e:
-            logger.debug("[EARNINGS] Error fetching %s: %s", ticker, e)
+            # Surfaced at WARNING (not DEBUG) after the audit-2026-04-29
+            # silent-100%-failure incident: when the schema lacked the
+            # UNIQUE(ticker, earnings_date) index, every ON CONFLICT raise
+            # was swallowed at DEBUG and the operator saw "errors: 101"
+            # with no diagnostic. The schema gap is fixed; keeping the
+            # log level at WARNING means future breakage stays visible.
+            logger.warning("[EARNINGS] Error fetching %s: %s: %s",
+                           ticker, type(e).__name__, e)
             errors += 1
 
         # Rate limit
