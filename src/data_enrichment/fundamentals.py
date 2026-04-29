@@ -33,13 +33,18 @@ SEC_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 _cik_cache: dict[str, str] = {}
 
 
-def _get_cache_path(ticker: str) -> Path:
+def _get_cache_path(ticker: str, as_of: str | None = None) -> Path:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    return CACHE_DIR / f"{ticker}_fundamentals.pkl"
+    # #856 — encode as_of in the cache filename so PIT-bound and runtime
+    # caches don't collide. as_of=None (runtime) keeps the historical filename
+    # for cache-compat with pre-#856 entries.
+    if as_of is None:
+        return CACHE_DIR / f"{ticker}_fundamentals.pkl"
+    return CACHE_DIR / f"{ticker}_fundamentals_asof_{as_of}.pkl"
 
 
-def _load_cached(ticker: str, cache_hours: int = 24) -> dict | None:
-    path = _get_cache_path(ticker)
+def _load_cached(ticker: str, cache_hours: int = 24, as_of: str | None = None) -> dict | None:
+    path = _get_cache_path(ticker, as_of=as_of)
     if not path.exists():
         return None
     try:
@@ -52,9 +57,9 @@ def _load_cached(ticker: str, cache_hours: int = 24) -> dict | None:
     return None
 
 
-def _save_cache(ticker: str, data: dict) -> None:
+def _save_cache(ticker: str, data: dict, as_of: str | None = None) -> None:
     data["_cached_at"] = datetime.now()
-    path = _get_cache_path(ticker)
+    path = _get_cache_path(ticker, as_of=as_of)
     try:
         with open(path, "wb") as f:
             pickle.dump(data, f)
@@ -113,10 +118,20 @@ def _fetch_concept(cik: str, concept: str) -> dict | None:
         return None
 
 
-def _get_latest_value(concept_data: dict | None, form_filter: list[str] | None = None) -> tuple[float | None, str | None, str | None]:
+def _get_latest_value(
+    concept_data: dict | None,
+    form_filter: list[str] | None = None,
+    as_of: str | None = None,
+) -> tuple[float | None, str | None, str | None]:
     """Extract the most recent value from an XBRL concept response.
 
     Returns (value, filing_date, period_end).
+
+    When ``as_of`` is None (runtime), entries are sorted by ``end`` desc
+    (legacy behavior). When ``as_of`` is set (PIT/backtest), entries are
+    first filtered by ``filed <= as_of`` (the data was actually available
+    by ``as_of``), then sorted by ``filed`` desc with ``end`` desc as the
+    secondary key. Closes #856.
     """
     if not concept_data:
         return None, None, None
@@ -128,18 +143,33 @@ def _get_latest_value(concept_data: dict | None, form_filter: list[str] | None =
             entries = units[unit_key]
             if form_filter:
                 entries = [e for e in entries if e.get("form") in form_filter]
+            if as_of is not None:
+                # PIT filter: only include filings actually available by as_of.
+                entries = [e for e in entries if e.get("filed", "") <= as_of]
             if not entries:
                 continue
-            # Sort by end date descending
-            entries.sort(key=lambda x: x.get("end", ""), reverse=True)
+            if as_of is not None:
+                # Sort by filed desc primary, end desc secondary.
+                entries.sort(
+                    key=lambda x: (x.get("filed", ""), x.get("end", "")),
+                    reverse=True,
+                )
+            else:
+                # Legacy: sort by end date descending.
+                entries.sort(key=lambda x: x.get("end", ""), reverse=True)
             latest = entries[0]
             return latest.get("val"), latest.get("filed"), latest.get("end")
 
     return None, None, None
 
 
-def _get_ttm_value(concept_data: dict | None) -> float | None:
-    """Get trailing-twelve-month value by summing last 4 quarterly filings."""
+def _get_ttm_value(concept_data: dict | None, as_of: str | None = None) -> float | None:
+    """Get trailing-twelve-month value by summing last 4 quarterly filings.
+
+    When ``as_of`` is None (runtime), takes the last 4 by ``end`` desc.
+    When ``as_of`` is set (PIT/backtest), filters to ``filed <= as_of``
+    first, then takes the last 4 by ``filed`` desc. Closes #856.
+    """
     if not concept_data:
         return None
 
@@ -150,8 +180,17 @@ def _get_ttm_value(concept_data: dict | None) -> float | None:
         entries = units[unit_key]
         # Filter to 10-Q and 10-K quarterly data
         quarterly = [e for e in entries if e.get("form") in ("10-Q", "10-K")]
-        # Sort by end date descending
-        quarterly.sort(key=lambda x: x.get("end", ""), reverse=True)
+        if as_of is not None:
+            quarterly = [e for e in quarterly if e.get("filed", "") <= as_of]
+        if as_of is not None:
+            # Sort by filed desc primary, end desc secondary.
+            quarterly.sort(
+                key=lambda x: (x.get("filed", ""), x.get("end", "")),
+                reverse=True,
+            )
+        else:
+            # Legacy: sort by end date descending.
+            quarterly.sort(key=lambda x: x.get("end", ""), reverse=True)
         # Take last 4 quarters
         if len(quarterly) >= 4:
             return sum(e.get("val", 0) for e in quarterly[:4])
@@ -161,13 +200,23 @@ def _get_ttm_value(concept_data: dict | None) -> float | None:
     return None
 
 
-def fetch_fundamental_snapshot(ticker: str, cache_hours: int = 24) -> dict | None:
+def fetch_fundamental_snapshot(
+    ticker: str,
+    cache_hours: int = 24,
+    as_of: str | None = None,
+) -> dict | None:
     """Fetch the most recent fundamental data from SEC EDGAR XBRL API.
 
     Returns dict with revenue, income, margins, EPS, etc., or None if unavailable.
+
+    When ``as_of`` is None (runtime), returns the latest fundamentals as
+    sorted by period end date. When ``as_of`` is set (PIT/backtest), filters
+    XBRL entries by ``filed <= as_of`` BEFORE sorting — so the LLM only sees
+    data that was actually available on ``as_of`` (no leakage from filings
+    submitted after the historical decision date). Closes #856.
     """
-    # Check cache
-    cached = _load_cached(ticker, cache_hours)
+    # Check cache (cache key encodes as_of so PIT and runtime caches don't collide)
+    cached = _load_cached(ticker, cache_hours, as_of=as_of)
     if cached:
         result = {k: v for k, v in cached.items() if not k.startswith("_")}
         return result if result else None
@@ -194,14 +243,14 @@ def fetch_fundamental_snapshot(ticker: str, cache_hours: int = 24) -> dict | Non
         time.sleep(0.1)
 
         # Extract values
-        revenue_ttm = _get_ttm_value(revenue_data)
-        net_income_ttm = _get_ttm_value(net_income_data)
-        eps_val, _, _ = _get_latest_value(eps_data, ["10-Q", "10-K"])
+        revenue_ttm = _get_ttm_value(revenue_data, as_of=as_of)
+        net_income_ttm = _get_ttm_value(net_income_data, as_of=as_of)
+        eps_val, _, _ = _get_latest_value(eps_data, ["10-Q", "10-K"], as_of=as_of)
 
         # Get filing date and period info
-        _, filing_date, period_end = _get_latest_value(revenue_data, ["10-Q", "10-K"])
+        _, filing_date, period_end = _get_latest_value(revenue_data, ["10-Q", "10-K"], as_of=as_of)
         if not filing_date:
-            _, filing_date, period_end = _get_latest_value(net_income_data, ["10-Q", "10-K"])
+            _, filing_date, period_end = _get_latest_value(net_income_data, ["10-Q", "10-K"], as_of=as_of)
 
         # Compute YoY revenue growth
         revenue_yoy = None
@@ -210,7 +259,14 @@ def fetch_fundamental_snapshot(ticker: str, cache_hours: int = 24) -> dict | Non
             for unit_key in ["USD"]:
                 if unit_key in units:
                     entries = [e for e in units[unit_key] if e.get("form") in ("10-Q", "10-K")]
-                    entries.sort(key=lambda x: x.get("end", ""), reverse=True)
+                    if as_of is not None:
+                        entries = [e for e in entries if e.get("filed", "") <= as_of]
+                        entries.sort(
+                            key=lambda x: (x.get("filed", ""), x.get("end", "")),
+                            reverse=True,
+                        )
+                    else:
+                        entries.sort(key=lambda x: x.get("end", ""), reverse=True)
                     if len(entries) >= 8:
                         prior_ttm = sum(e.get("val", 0) for e in entries[4:8])
                         if prior_ttm > 0:
@@ -226,7 +282,7 @@ def fetch_fundamental_snapshot(ticker: str, cache_hours: int = 24) -> dict | Non
             # Gross margin — try GrossProfit concept
             gross_data = _fetch_concept(cik, "GrossProfit")
             time.sleep(0.1)
-            gross_val = _get_ttm_value(gross_data)
+            gross_val = _get_ttm_value(gross_data, as_of=as_of)
             if gross_val:
                 gross_margin = round(gross_val / revenue_ttm, 3)
 
@@ -237,7 +293,14 @@ def fetch_fundamental_snapshot(ticker: str, cache_hours: int = 24) -> dict | Non
             for unit_key in ["USD"]:
                 if unit_key in units:
                     entries = [e for e in units[unit_key] if e.get("form") in ("10-Q", "10-K")]
-                    entries.sort(key=lambda x: x.get("end", ""), reverse=True)
+                    if as_of is not None:
+                        entries = [e for e in entries if e.get("filed", "") <= as_of]
+                        entries.sort(
+                            key=lambda x: (x.get("filed", ""), x.get("end", "")),
+                            reverse=True,
+                        )
+                    else:
+                        entries.sort(key=lambda x: x.get("end", ""), reverse=True)
                     if entries:
                         filing_type = entries[0].get("form")
                     break
@@ -255,7 +318,7 @@ def fetch_fundamental_snapshot(ticker: str, cache_hours: int = 24) -> dict | Non
             "data_as_of_quarter": period_end,
         }
 
-        _save_cache(ticker, result)
+        _save_cache(ticker, result, as_of=as_of)
         return result
 
     except Exception as e:
