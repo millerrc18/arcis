@@ -115,15 +115,27 @@ def backtest_model(model_name: str, months: int = 6,
         end_date = datetime.now() - timedelta(days=20)
         start_date = end_date - timedelta(days=months * 30)
 
-    window_days = max((end_date - start_date).days, 1)
-    fetch_period_days = window_days + 60  # buffer for slice_to_date's 200-row minimum
-
     from src.universe.pit import get_sp100_at
     universe = get_sp100_at(start_date.date().isoformat())  # T10: as_of source: start_date
 
+    # Sprint 1.C.4.5 / #104 — Bug C fix. Previously this used
+    # ``fetch_ohlcv(period=f"{window_days+60}d")`` which is anchored to TODAY by
+    # yfinance's ``period`` semantics. For an old fold (e.g., test_start=2023-09-01)
+    # that fetched data from 2025-10-29 onwards, 789 days AFTER the test span,
+    # so slice_to_date returned 0 rows for every iteration → fold 1-7 produced
+    # 0 trades (only fold 8 overlapped with the recent fetch window).
+    #
+    # Fix: anchor the fetch to test_start. We pull (test_start - 280 calendar
+    # days) through test_end so that slice_to_date's 200-trading-day minimum
+    # (~280 calendar days) is satisfied for the test_start cutoff. PIT
+    # cleanliness is still enforced at slice_to_date time (df.index <= cutoff);
+    # fetching wider data is methodologically fine per pre-reg addendum 1 §A1.
+    fetch_start = (start_date - timedelta(days=280)).date().isoformat()
+    fetch_end = end_date.date().isoformat()
+
     try:
-        ohlcv = fetch_ohlcv(universe, period=f"{fetch_period_days}d")
-        spy = fetch_spy_benchmark(period=f"{fetch_period_days}d")
+        ohlcv = fetch_ohlcv(universe, start=fetch_start, end=fetch_end)
+        spy = fetch_spy_benchmark(start=fetch_start, end=fetch_end)
     except (ConnectionError, TimeoutError) as e:
         # Network-layer failures (transient): return an error dict so the caller
         # can decide whether to retry. All other exceptions (KeyError on missing

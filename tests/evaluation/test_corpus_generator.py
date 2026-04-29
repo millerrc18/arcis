@@ -527,3 +527,94 @@ class TestCLI:
         assert "--window-end" in result.stdout
         assert "--dry-run" in result.stdout
         assert "--resume" in result.stdout
+
+
+# ── Bug A regression test (Sprint 1.C.4.5 / #104) ──
+#
+# Bug: scripts/generate_llm_corpus.py:232-235 has a guard
+#     if not args.dry_run and decision_points:
+#         features_by_date = _compute_features_for_window(decision_points)
+# which means dry-run never computes features. But corpus_generator's
+# _generate_one_entry calls _build_feature_prompt(feat, ticker) on EVERY path
+# (including dry_run) to compute prompt_sha256. Without features, feat is None
+# and every dry-run entry is silently skipped → 0 entries written.
+#
+# The fix is in scripts/generate_llm_corpus.py — drop the `not args.dry_run`
+# guard. This test exercises the actual bug surface: invoke the script's
+# main() with --dry-run + past dates and assert entries get written.
+
+
+class TestDryRunWithPastDates:
+    """Bug A regression-lock — dry-run script must produce entries for past dates."""
+
+    def test_dry_run_writes_entries_for_past_window(self, tmp_corpus_root):
+        """Script main() + --dry-run + past dates → entries written.
+
+        This exercises Bug A at the actual call surface — the CLI script.
+        Pre-fix, the script skipped feature computation under --dry-run,
+        which meant features_by_date={} and corpus_generator
+        _generate_one_entry's `feat = features_for_date.get(ticker)` returned
+        None for every entry → every entry skipped → 0 entries.
+
+        We mock _enumerate_decision_points (no real PIT lookup) and the
+        underlying market_data + features pipeline so the test is hermetic.
+        """
+        import sys
+        from unittest.mock import patch as _patch
+
+        # Past dates spanning a multi-day window — same shape as Stage-1 fold 1
+        past_decision_points = [
+            ("2023-09-15", "AAPL"),
+            ("2023-09-15", "MSFT"),
+            ("2023-10-02", "AAPL"),
+        ]
+        features_payload = _make_features()
+        features_by_date = {
+            "2023-09-15": features_payload,
+            "2023-10-02": features_payload,
+        }
+
+        with _patch(
+            "scripts.generate_llm_corpus._enumerate_decision_points",
+            return_value=past_decision_points,
+        ), _patch(
+            "scripts.generate_llm_corpus._compute_features_for_window",
+            return_value=features_by_date,
+        ), _patch(
+            "scripts.generate_llm_corpus._resolve_code_sha", return_value="testsha",
+        ), _patch(
+            "src.evaluation.corpus_generator.enrich_features",
+            side_effect=lambda features, config, as_of=None, **_: features,
+        ), _patch(
+            "src.evaluation.corpus_generator.build_packet_from_features",
+            side_effect=lambda ticker, feat, config: _make_stub_packet(ticker=ticker),
+        ):
+            from scripts.generate_llm_corpus import main as _script_main
+            rc = _script_main([
+                "--corpus-id", "test-bug-a-dry-run-past",
+                "--window-start", "2023-09-01",
+                "--window-end", "2023-12-31",
+                "--dry-run",
+            ])
+            assert rc == 0
+
+        manifest = load_manifest("test-bug-a-dry-run-past")
+        assert manifest.total_decision_points > 0, (
+            f"Bug A: --dry-run produced 0 entries for past dates. "
+            f"Got manifest.total_decision_points={manifest.total_decision_points}. "
+            f"This is the script's `if not args.dry_run and decision_points:` "
+            f"guard suppressing _compute_features_for_window when --dry-run is "
+            f"set; the corpus generator's _generate_one_entry then sees "
+            f"features_for_date={{}} and silently skips every entry."
+        )
+        # All 3 decision points should have produced dry-run entries
+        assert manifest.total_decision_points == 3, (
+            f"Expected 3 dry-run entries for 3 decision points with features, "
+            f"got {manifest.total_decision_points}"
+        )
+
+        # Entries must be loadable
+        entries = list(iter_entries("test-bug-a-dry-run-past"))
+        assert len(entries) == 3
+        keys = {(e.as_of, e.ticker) for e in entries}
+        assert keys == {("2023-09-15", "AAPL"), ("2023-09-15", "MSFT"), ("2023-10-02", "AAPL")}
