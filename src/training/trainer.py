@@ -37,6 +37,7 @@ from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH, load_config
 from src.utils.db import connect_db
+from src.methods.promotion_gate import promotion_gate
 from src.training.versioning import (
     get_active_model_version,
     get_next_semver,
@@ -930,11 +931,143 @@ def run_fine_tune(db_path: str = DB_PATH) -> dict | None:
 
     print(f"[TRAINING] Fine-tune complete. Registered {version_name} ({example_count} examples)")
 
+    # Step 8: Run promotion gate (pre-reg §4.6 — wired Sprint 1.B #49).
+    # Non-critical: a gate failure or exception never blocks the trainer
+    # from returning the new version record.
+    try:
+        run_promotion_gate_for_version(
+            version_id=version_id,
+            version_name=version_name,
+            db_path=db_path,
+        )
+    except Exception as exc:
+        logger.warning("[TRAINING] Promotion gate failed (non-critical): %s", exc)
+        print(f"[TRAINING] Promotion gate failed (non-critical): {exc}")
+
     return {
         "version_id": version_id,
         "version_name": version_name,
         "examples_count": example_count,
         "holdout_score": holdout_score,
+    }
+
+
+def _resolve_returns_for_gate(db_path: str = DB_PATH) -> list[float]:
+    """Fetch closed shadow trade excess returns for the promotion gate.
+
+    Returns a list of per-trade excess returns (pnl_pct / 100.0 minus
+    placeholder rf) from the shadow_trades table. Returns [] when no
+    qualifying rows are found so the gate can skip gracefully.
+    """
+    try:
+        from src.journal.store import initialize_database
+        initialize_database(db_path)
+        with connect_db(db_path) as conn:
+            rows = conn.execute(
+                """SELECT pnl_pct FROM shadow_trades
+                   WHERE status IN ('closed','stopped_out','target_hit','manually_closed')
+                     AND pnl_pct IS NOT NULL
+                     AND COALESCE(quarantined, 0) = 0
+                   ORDER BY actual_exit_time ASC"""
+            ).fetchall()
+        if not rows:
+            return []
+        rf_placeholder = 0.0001
+        return [float(r[0]) / 100.0 - rf_placeholder for r in rows]
+    except Exception as exc:
+        logger.warning("[PROMOTION_GATE] _resolve_returns_for_gate failed: %s", exc)
+        return []
+
+
+def _apply_gate_decision(decision: str, version_id: str, db_path: str = DB_PATH) -> None:
+    """Write the gate decision back to model_versions.status."""
+    status_map = {
+        "promote": "promoted",
+        "reject": "rejected_by_gate",
+        "defer": "pending_review",
+    }
+    new_status = status_map.get(decision)
+    if new_status is None:
+        logger.warning("[PROMOTION_GATE] Unknown decision %r — status not updated", decision)
+        return
+    with connect_db(db_path) as conn:
+        conn.execute(
+            "UPDATE model_versions SET status = ? WHERE version_id = ?",
+            (new_status, version_id),
+        )
+        conn.commit()
+    logger.info(
+        "[PROMOTION_GATE] version_id=%s decision=%s → status=%s",
+        version_id, decision, new_status,
+    )
+
+
+def run_promotion_gate_for_version(
+    version_id: str,
+    version_name: str,
+    db_path: str = DB_PATH,
+    n_trials: int = 1,
+) -> dict:
+    """Run the promotion gate for an existing model version and record the result.
+
+    Fetches shadow trade returns, runs the 5-method vote, and updates
+    model_versions.status to 'promoted' / 'rejected_by_gate' / 'pending_review'.
+    When no returns are available the gate is skipped (status unchanged).
+
+    Returns a dict with keys: version_id, version_name, decision, status.
+    """
+    returns = _resolve_returns_for_gate(db_path)
+    if not returns:
+        logger.info(
+            "[PROMOTION_GATE] No qualifying returns for version %s — gate skipped",
+            version_name,
+        )
+        print(f"[PROMOTION_GATE] No qualifying returns for {version_name} — gate skipped")
+        with connect_db(db_path) as conn:
+            row = conn.execute(
+                "SELECT status FROM model_versions WHERE version_id = ?", (version_id,)
+            ).fetchone()
+        current_status = row[0] if row else "unknown"
+        return {
+            "version_id": version_id,
+            "version_name": version_name,
+            "decision": "skipped",
+            "status": current_status,
+        }
+
+    print(f"[PROMOTION_GATE] Running gate for {version_name} ({len(returns)} trade returns) ...")
+    result = promotion_gate(returns, n_trials=n_trials)
+    decision = result.get("decision", "reject")
+    _apply_gate_decision(decision, version_id, db_path)
+
+    try:
+        import json as _json
+        from src.utils.activity_logger import log_activity
+        log_activity(
+            "promotion_gate",
+            _json.dumps({
+                "version_name": version_name,
+                "decision": decision,
+                "n_obs": result.get("n_obs"),
+                "n_pass": result.get("details", {}).get("n_pass"),
+            }),
+            db_path=db_path,
+        )
+    except Exception as exc:
+        logger.debug("[PROMOTION_GATE] activity_log write failed: %s", exc)
+
+    status_map = {"promote": "promoted", "reject": "rejected_by_gate", "defer": "pending_review"}
+    final_status = status_map.get(decision, decision)
+    print(
+        f"[PROMOTION_GATE] {version_name}: decision={decision} → status={final_status} "
+        f"(n_obs={result.get('n_obs')}, n_pass={result.get('details', {}).get('n_pass')})"
+    )
+    return {
+        "version_id": version_id,
+        "version_name": version_name,
+        "decision": decision,
+        "status": final_status,
+        "gate_result": result,
     }
 
 

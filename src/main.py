@@ -69,6 +69,7 @@ from src.cli.commands import (
     cmd_review,
     cmd_review_bootcamp,
     cmd_review_scorecard,
+    cmd_run_promotion_gate,
     cmd_scan,
     cmd_score_training,
     cmd_send_test_email,
@@ -192,6 +193,14 @@ def build_parser() -> argparse.ArgumentParser:
     train_pipeline = subparsers.add_parser("train-pipeline", help="Run complete training pipeline (score → leakage → classify → train)")
     train_pipeline.add_argument("--force", action="store_true", help="Continue even if leakage detected")
     train_pipeline.set_defaults(func=cmd_train_pipeline)
+
+    run_promotion_gate = subparsers.add_parser(
+        "run-promotion-gate",
+        help="Run the 5-method promotion gate against an existing model version (pre-reg §4.6)",
+    )
+    run_promotion_gate.add_argument("version_name", help="Model version name (e.g. halcyon-v1.0.0)")
+    run_promotion_gate.add_argument("--n-trials", type=int, default=1, help="Number of strategy trials (for DSR deflation)")
+    run_promotion_gate.set_defaults(func=cmd_run_promotion_gate)
 
     subparsers.add_parser("classify-training-data").set_defaults(func=cmd_classify_training)
     subparsers.add_parser("score-training-data").set_defaults(func=cmd_score_training)
