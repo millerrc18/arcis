@@ -2,25 +2,34 @@
 
 Called by: api.cloud_routes.kpis
 Calls: src.analytics.canonical_sharpe, src.data_ingestion.risk_free_rate,
-  src.methods.promotion_gate
+  src.methods.promotion_gate; src.journal.store.get_closed_shadow_trades
+  (local SQLite path); psycopg2 (Render Postgres path).
 Owns tables: none
-Config keys: none
+Config keys: DATABASE_URL env var (Postgres routing)
 Tests: tests/api/test_kpis.py
 
 Extracted from kpis.py during Sprint 0.B Wave B2.4 (issue #696) to bring
 kpis.py under the 400-line file-size guardrail. Contains all numeric/compute
 functions; kpis.py keeps only the FastAPI router surface.
+
+#87: _fetch_closed_trades is dual-mode. On Render (DATABASE_URL set) it
+queries Postgres directly so the cloud dashboard sees synced shadow_trades
+rows. Locally (DATABASE_URL unset) it goes through journal.store, which
+opens a SQLite connection. Without this branch the cloud KPI strip read
+from an empty SQLite file on Render and the dashboard showed n_trades=0.
 """
 from __future__ import annotations
 
 import datetime as _dt
 import logging
 import math
+import os
 from typing import Any
 
 import numpy as np
 
 from src.analytics.canonical_sharpe import rf_adjusted_excess_sharpe, spy_relative_sharpe
+from src.journal.store import get_closed_shadow_trades
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +38,40 @@ _RF_PERIOD = 0.0001
 _N_PER_YEAR = 252.0
 
 
+def _fetch_closed_trades_from_postgres(database_url: str, days: int) -> list[dict]:
+    """Read closed shadow_trades rows from Render Postgres.
+
+    Mirrors the SQL in journal.store.get_closed_shadow_trades but issues it
+    against Postgres with `%s` placeholders. Returns plain dicts so callers
+    don't need a sqlite3.Row → dict conversion step.
+    """
+    from datetime import datetime, timedelta, timezone
+    import psycopg2
+    import psycopg2.extras
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    sql = (
+        "SELECT * FROM shadow_trades WHERE status = 'closed' "
+        "AND actual_exit_time >= %s "
+        "AND COALESCE(quarantined, 0) = 0 "
+        "ORDER BY actual_exit_time DESC"
+    )
+    with psycopg2.connect(database_url) as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(sql, (cutoff,))
+            return [dict(r) for r in cur.fetchall()]
+
+
 def _fetch_closed_trades() -> list[dict]:
-    from src.journal.store import get_closed_shadow_trades
+    """Return closed shadow_trades rows from the last 10 years.
+
+    Cloud (Render): DATABASE_URL set → reads Postgres directly. Local dev:
+    DATABASE_URL unset → goes through journal.store (SQLite). Both branches
+    return the same row shape so downstream KPI compute helpers stay
+    backend-agnostic.
+    """
+    database_url = os.environ.get("DATABASE_URL", "")
+    if database_url:
+        return _fetch_closed_trades_from_postgres(database_url, days=3650)
     return get_closed_shadow_trades(days=3650)
 
 

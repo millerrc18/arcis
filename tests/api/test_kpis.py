@@ -9,7 +9,7 @@ Tests: Track 1.5 / Round 8.B backend tests; Round 8.E SPY wire-up
 from __future__ import annotations
 
 import math
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -965,3 +965,154 @@ class TestMonitoringRouteNoPrefixDouble:
             assert not route.path.startswith("/api/"), (
                 f"Route '{route.path}' has double /api prefix"
             )
+
+
+# ── #87: Postgres routing for _fetch_closed_trades ───────────────────────────
+# When DATABASE_URL is set (Render), _fetch_closed_trades MUST query Postgres
+# directly rather than going through journal.store.get_closed_shadow_trades
+# (which always opens a SQLite connection). Without this routing the cloud
+# dashboard reads from an empty SQLite DB on Render.
+
+class TestFetchClosedTradesPostgresRouting:
+    def test_uses_psycopg2_when_database_url_set(self, monkeypatch):
+        from src.api.cloud_routes import kpis_compute as kc
+        monkeypatch.setenv("DATABASE_URL", "postgresql://fake:fake@host/db")
+
+        captured = {}
+
+        class _FakeCursor:
+            def execute(self, sql, params=None):
+                captured["sql"] = sql
+                captured["params"] = params
+
+            def fetchall(self):
+                return [
+                    {
+                        "trade_id": "t-1",
+                        "ticker": "AAPL",
+                        "pnl_pct": 1.2,
+                        "spy_return_over_hold": 0.005,
+                        "instrumentation_version": 3,
+                        "actual_entry_time": "2026-03-01T10:00:00",
+                        "actual_exit_time": "2026-03-04T15:00:00",
+                        "excess_return": 0.7,
+                    },
+                ]
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        class _FakeConn:
+            def cursor(self, cursor_factory=None):
+                return _FakeCursor()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        fake_psycopg2 = MagicMock()
+        fake_psycopg2.connect.return_value = _FakeConn()
+        fake_extras = MagicMock()
+        monkeypatch.setitem(__import__("sys").modules, "psycopg2", fake_psycopg2)
+        monkeypatch.setitem(__import__("sys").modules, "psycopg2.extras", fake_extras)
+
+        # Patch the SQLite path so we can detect if it was incorrectly invoked.
+        sqlite_called = MagicMock()
+        with patch(
+            "src.api.cloud_routes.kpis_compute.get_closed_shadow_trades",
+            side_effect=sqlite_called,
+        ):
+            rows = kc._fetch_closed_trades()
+        sqlite_called.assert_not_called()
+        fake_psycopg2.connect.assert_called_once_with("postgresql://fake:fake@host/db")
+        assert "?" not in captured["sql"]  # placeholder rewrite
+        assert "shadow_trades" in captured["sql"]
+        assert len(rows) == 1
+        assert rows[0]["trade_id"] == "t-1"
+
+    def test_falls_back_to_sqlite_when_database_url_unset(self, monkeypatch):
+        from src.api.cloud_routes import kpis_compute as kc
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+
+        sentinel_rows = [
+            {
+                "trade_id": "t-local",
+                "ticker": "AAPL",
+                "pnl_pct": 1.0,
+                "spy_return_over_hold": 0.005,
+                "instrumentation_version": 3,
+                "actual_entry_time": "2026-03-01T10:00:00",
+                "actual_exit_time": "2026-03-04T15:00:00",
+                "excess_return": 0.5,
+            }
+        ]
+        with patch(
+            "src.api.cloud_routes.kpis_compute.get_closed_shadow_trades",
+            return_value=sentinel_rows,
+        ) as sqlite_fn:
+            rows = kc._fetch_closed_trades()
+        sqlite_fn.assert_called_once_with(days=3650)
+        assert rows == sentinel_rows
+
+    def test_get_kpis_uses_postgres_data_on_render(self, monkeypatch):
+        """End-to-end: with DATABASE_URL set, get_kpis pulls from Postgres
+        and surfaces those rows in n_trades."""
+        from src.api.cloud_routes import kpis as kpis_mod
+        monkeypatch.setenv("DATABASE_URL", "postgresql://fake:fake@host/db")
+
+        pg_rows = [
+            {
+                "trade_id": f"t-{i}",
+                "ticker": "AAPL",
+                "pnl_pct": 1.0,
+                "spy_return_over_hold": 0.005,
+                "instrumentation_version": 3,
+                "actual_entry_time": "2026-03-01T10:00:00",
+                "actual_exit_time": "2026-03-04T15:00:00",
+                "excess_return": 0.5,
+            }
+            for i in range(3)
+        ]
+
+        class _FakeCursor:
+            def execute(self, sql, params=None):
+                pass
+
+            def fetchall(self):
+                return pg_rows
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        class _FakeConn:
+            def cursor(self, cursor_factory=None):
+                return _FakeCursor()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        fake_psycopg2 = MagicMock()
+        fake_psycopg2.connect.return_value = _FakeConn()
+        fake_extras = MagicMock()
+        monkeypatch.setitem(__import__("sys").modules, "psycopg2", fake_psycopg2)
+        monkeypatch.setitem(__import__("sys").modules, "psycopg2.extras", fake_extras)
+
+        # Block the SQLite path so a regression returning empty shows up as
+        # n_trades=0 instead of being masked by the local DB.
+        with patch(
+            "src.api.cloud_routes.kpis_compute.get_closed_shadow_trades",
+            return_value=[],
+        ):
+            result = kpis_mod.get_kpis()
+        assert result["n_trades"] == 3
