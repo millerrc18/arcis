@@ -202,8 +202,19 @@ def compute_aggregate(folds: list[dict]) -> dict:
 
 # ─── per-fold runner ──────────────────────────────────────────────────────────
 
-def _run_fold(model: str, boundary: dict, corpus_id: str | None = None) -> dict:
-    """Call backtest_model for one fold and assemble the fold result dict."""
+def _run_fold(
+    model: str,
+    boundary: dict,
+    corpus_id: str | None = None,
+    *,
+    shadow: bool = False,
+) -> dict:
+    """Call backtest_model for one fold and assemble the fold result dict.
+
+    When ``shadow=True`` (#82, pre-reg §A1.6 deterministic-ranker shadow),
+    the per-fold backtest_model call is invoked with the shadow path
+    (LLM filter stripped). Used by run_walkforward(with_shadow=True).
+    """
     train_start = boundary["train_start"]
     train_end = boundary["train_end"]
     test_start = boundary["test_start"]
@@ -218,6 +229,7 @@ def _run_fold(model: str, boundary: dict, corpus_id: str | None = None) -> dict:
         train_start=train_start, train_end=train_end,
         test_start=test_start, test_end=test_end,
         corpus_id=corpus_id,
+        shadow=shadow,
     )
 
     trades = bt.get("trades", [])
@@ -278,6 +290,53 @@ def _gate_corpus_or_raise(corpus_id: str, boundaries: list[dict]) -> tuple[str, 
 
 # ─── main driver ──────────────────────────────────────────────────────────────
 
+def _compute_shadow_delta(primary: dict, shadow: dict) -> dict:
+    """Compose §A1.6 delta dict: primary minus shadow on each headline axis."""
+    def _powered_pnl(folds: list[dict]) -> float:
+        return sum(f.get("fold_return_total", 0.0)
+                   for f in folds if not f.get("underpowered", False))
+    p_s = primary["aggregate"].get("primary_sharpe", 0.0)
+    s_s = shadow["aggregate"].get("primary_sharpe", 0.0)
+    p_p = _powered_pnl(primary["folds"])
+    s_p = _powered_pnl(shadow["folds"])
+    p_n = primary["aggregate"].get("primary_trades_count", 0)
+    s_n = shadow["aggregate"].get("primary_trades_count", 0)
+    return {
+        "primary_excess_sharpe": p_s, "shadow_excess_sharpe": s_s,
+        "delta_excess_sharpe": p_s - s_s,
+        "primary_total_pnl_pct": p_p, "shadow_total_pnl_pct": s_p,
+        "delta_total_pnl_pct": p_p - s_p,
+        "primary_n_trades": p_n, "shadow_n_trades": s_n,
+    }
+
+
+def _build_flat_result(folds: list[dict], **prov) -> dict:
+    """Wrap completed folds in the flat run_walkforward shape."""
+    return {
+        "anchor_date": prov["anchor"], "fold_count": prov["fold_count"],
+        "embargo_days": prov["embargo_days"], "folds": folds,
+        "aggregate": compute_aggregate(folds),
+        "corpus_id": prov["corpus_id"],
+        "manifest_admissibility": prov["manifest_admissibility"],
+        "parse_failed_excluded": prov["parse_failed_excluded"],
+    }
+
+
+def _assemble_with_shadow_result(model: str, boundaries: list[dict], **prov) -> dict:
+    """Run primary + shadow + compose delta (#82, §A1.6 — same boundaries)."""
+    cid = prov["corpus_id"]
+    p_folds = [_run_fold(model, b, corpus_id=cid, shadow=False) for b in boundaries]
+    s_folds = [_run_fold(model, b, corpus_id=cid, shadow=True) for b in boundaries]
+    primary = _build_flat_result(p_folds, **prov)
+    shadow = _build_flat_result(s_folds, **prov)
+    return {
+        "primary": primary, "shadow": shadow,
+        "delta": _compute_shadow_delta(primary, shadow),
+        "corpus_id": cid,
+        "manifest_admissibility": prov["manifest_admissibility"],
+    }
+
+
 def run_walkforward(
     model: str,
     anchor: str = _DEFAULT_ANCHOR,
@@ -285,6 +344,7 @@ def run_walkforward(
     embargo_days: int = _DEFAULT_EMBARGO_DAYS,
     output_json: str | None = None,
     corpus_id: str | None = None,
+    with_shadow: bool = False,
 ) -> dict:
     """Run the walk-forward harness (pre-reg §3).
 
@@ -295,6 +355,12 @@ def run_walkforward(
     _gate_corpus_or_raise (pre-reg §A3 admissibility + window coverage).
     Result dict gains ``corpus_id``, ``manifest_admissibility``, and
     ``parse_failed_excluded`` for downstream provenance.
+
+    When ``with_shadow=True`` (#82, §6 + §A1.6): runs BOTH primary AND
+    deterministic-ranker shadow over the SAME fold boundaries with the SAME
+    corpus, returns ``{"primary": ..., "shadow": ..., "delta": ..., ...}``.
+    When False (default): preserves the existing flat shape for #81 +
+    every other consumer (regression-locked).
     """
     boundaries = compute_fold_boundaries(anchor, fold_count, embargo_days)
     manifest_admissibility: str | None = None
@@ -303,25 +369,19 @@ def run_walkforward(
         manifest_admissibility, parse_failed_excluded = _gate_corpus_or_raise(
             corpus_id, boundaries
         )
-
-    completed_folds = [_run_fold(model, b, corpus_id=corpus_id) for b in boundaries]
-    aggregate = compute_aggregate(completed_folds)
-
-    result = {
-        "anchor_date": anchor,
-        "fold_count": fold_count,
-        "embargo_days": embargo_days,
-        "folds": completed_folds,
-        "aggregate": aggregate,
-        "corpus_id": corpus_id,
-        "manifest_admissibility": manifest_admissibility,
-        "parse_failed_excluded": parse_failed_excluded,
-    }
-
+    provenance = dict(
+        anchor=anchor, fold_count=fold_count, embargo_days=embargo_days,
+        corpus_id=corpus_id, manifest_admissibility=manifest_admissibility,
+        parse_failed_excluded=parse_failed_excluded,
+    )
+    if with_shadow:
+        result = _assemble_with_shadow_result(model, boundaries, **provenance)
+    else:
+        completed = [_run_fold(model, b, corpus_id=corpus_id) for b in boundaries]
+        result = _build_flat_result(completed, **provenance)
     if output_json:
         with open(output_json, "w", encoding="utf-8") as fh:
             json.dump(result, fh, indent=2, default=str)
-
     return result
 
 
@@ -348,6 +408,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--corpus-id", default=None, dest="corpus_id", metavar="ID",
                         help="LLM-scoring corpus directory name under ARCIS_CORPUS_ROOT "
                              "(if set, scores are read from corpus instead of live LLM)")
+    parser.add_argument("--with-shadow", action="store_true", dest="with_shadow",
+                        help="Run deterministic-ranker shadow portfolio in parallel "
+                             "(#82, §6 + §A1.6 — emits primary + shadow + delta)")
     return parser
 
 
@@ -359,6 +422,7 @@ def main(argv: list[str] | None = None) -> None:
         fold_count=args.folds, embargo_days=args.embargo,
         output_json=args.output_json,
         corpus_id=args.corpus_id,
+        with_shadow=args.with_shadow,
     )
     print(json.dumps(result, indent=2, default=str))
 
