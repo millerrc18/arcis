@@ -143,7 +143,7 @@ def _strip_think_blocks(text: str) -> str:
 
 
 def generate(prompt: str, system_prompt: str, temperature: float | None = None,
-             max_tokens: int | None = None) -> str | None:
+             max_tokens: int | None = None, batch_mode: bool = False) -> str | None:
     """Generate text using Ollama's OpenAI-compatible API.
 
     Args:
@@ -151,6 +151,11 @@ def generate(prompt: str, system_prompt: str, temperature: float | None = None,
         system_prompt: The system message.
         temperature: Override temperature (default from config).
         max_tokens: Override max tokens (default from config).
+        batch_mode: When True, skip the 2s post-call cooldown that exists for
+            #388 (Ollama overload protection during scan cycles). The corpus
+            runner sets this so the per-call cooldown doesn't compound across
+            ThreadPoolExecutor workers; the live-scan path leaves it False
+            so the #388 protection still fires.
 
     Returns:
         Generated text with think blocks stripped, or None on failure.
@@ -202,7 +207,13 @@ def generate(prompt: str, system_prompt: str, temperature: float | None = None,
         # #388: Brief cooldown between calls to prevent Ollama overload
         # during batch processing (scan cycles hit 10-20 tickers in sequence).
         # 2s is enough for Ollama to release KV cache from the prior request.
-        time.sleep(2)
+        # #108 Lever 1: corpus-runner callers pass batch_mode=True to skip this
+        # cooldown — N-way parallel dispatch already smooths the request rate,
+        # and stacking the 2s sleep on every parallel worker would erase a
+        # large fraction of the parallelism speedup. Live-scan callers leave
+        # batch_mode=False so #388 protection still fires.
+        if not batch_mode:
+            time.sleep(2)
         return content
     except Exception as e:
         _consecutive_failures += 1

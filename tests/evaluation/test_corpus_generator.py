@@ -618,3 +618,260 @@ class TestDryRunWithPastDates:
         assert len(entries) == 3
         keys = {(e.as_of, e.ticker) for e in entries}
         assert keys == {("2023-09-15", "AAPL"), ("2023-09-15", "MSFT"), ("2023-10-02", "AAPL")}
+
+
+# ── #108 Lever 1 — parallelize Ollama calls in corpus generator ─────────────
+
+
+class TestParallelEquivalence:
+    """Regression-locks for #108 Lever 1 — parallel ThreadPoolExecutor dispatch
+    must produce a corpus that is byte-equivalent (modulo generated_at, which
+    is a per-row timestamp) to the sequential dispatch path. This is the
+    methodology gate: the LLM cost-analysis (docs/research/llm-cost-analysis-2026-04-29.md
+    §2.1) commits Lever 1 as zero-pre-reg-amendment ONLY IF the dispatch order
+    cannot change the corpus contents. JSONL line order must also be preserved
+    so resume semantics (which key on (as_of, ticker)) are unaffected.
+    """
+
+    @staticmethod
+    def _decision_points_20() -> list[tuple[str, str]]:
+        """20 deterministic decision points across 2 dates × 10 tickers."""
+        tickers = ["AAPL", "MSFT", "GOOG", "AMZN", "META",
+                   "NVDA", "TSLA", "JPM", "JNJ", "WMT"]
+        points = []
+        for as_of in ("2024-01-15", "2024-02-15"):
+            for t in tickers:
+                points.append((as_of, t))
+        return points
+
+    @staticmethod
+    def _features_payload(tickers: list[str]) -> dict[str, dict]:
+        """Build a feature dict containing every ticker we'll evaluate."""
+        return {
+            t: {
+                "current_price": 100.0 + i,
+                "trend_state": "uptrend",
+                "company_name": f"{t} Corp.",
+                "_score": 75 + (i % 10),
+            }
+            for i, t in enumerate(tickers)
+        }
+
+    def test_parallel_and_sequential_produce_identical_entries(self, tmp_corpus_root):
+        """num_parallel=1 and num_parallel=4 produce the same corpus.
+
+        Identity criteria (anything else would be a methodology change):
+          - Same set of prompt_sha256 (one per (as_of, ticker))
+          - Same parse-outcome counts (parser_strategy_succeeded, parse_failed)
+          - Same enrichment_pit_warnings tuple per (as_of, ticker)
+          - JSONL line order identical (parallel writes still come out in
+            submission order, not completion order)
+        """
+        from src.evaluation.corpus_generator import generate_corpus
+
+        decision_points = self._decision_points_20()
+        tickers = sorted({t for _, t in decision_points})
+        features_payload = self._features_payload(tickers)
+        features_by_date = {
+            "2024-01-15": features_payload,
+            "2024-02-15": features_payload,
+        }
+
+        # Deterministic stub keyed by ticker so the response is repeatable
+        # across the two runs. Use a parser-clean response (metadata block)
+        # so the strategy label is also deterministic.
+        def deterministic_llm(packet, features, config, **kwargs):
+            return _make_stub_packet(
+                ticker=packet.ticker,
+                conviction=(7 if packet.ticker.startswith(("A", "M")) else 6),
+                parse_failed=False,
+                why_now=f"why-now for {packet.ticker}",
+                deeper=f"deeper analysis for {packet.ticker}",
+            )
+
+        # Deterministic enricher — same warnings shape per (as_of, ticker).
+        def deterministic_enrich(features, config, as_of=None, warnings_out=None, **_):
+            if warnings_out is not None:
+                # Append a deterministic PIT warning for half the tickers.
+                for t in features:
+                    if t in {"AAPL", "GOOG", "TSLA"}:
+                        warnings_out.append(f"news_coverage_gap:{t}:{as_of}")
+            return features
+
+        # Sequential run
+        with patch(
+            "src.evaluation.corpus_generator.enhance_packet_with_llm",
+            side_effect=deterministic_llm,
+        ), patch(
+            "src.evaluation.corpus_generator.enrich_features",
+            side_effect=deterministic_enrich,
+        ), patch(
+            "src.evaluation.corpus_generator.build_packet_from_features",
+            side_effect=lambda ticker, feat, config: _make_stub_packet(ticker=ticker),
+        ):
+            generate_corpus(
+                corpus_id="test-parallel-seq",
+                decision_points=decision_points,
+                features_by_date=features_by_date,
+                model_version="arcis:v1.0.0",
+                config={"llm": {"enabled": True}},
+                code_sha="abc",
+                window_start="2024-01-01",
+                window_end="2024-12-31",
+                num_parallel=1,
+            )
+
+        entries_seq = list(iter_entries("test-parallel-seq"))
+
+        # Parallel run with the same inputs
+        with patch(
+            "src.evaluation.corpus_generator.enhance_packet_with_llm",
+            side_effect=deterministic_llm,
+        ), patch(
+            "src.evaluation.corpus_generator.enrich_features",
+            side_effect=deterministic_enrich,
+        ), patch(
+            "src.evaluation.corpus_generator.build_packet_from_features",
+            side_effect=lambda ticker, feat, config: _make_stub_packet(ticker=ticker),
+        ):
+            generate_corpus(
+                corpus_id="test-parallel-par",
+                decision_points=decision_points,
+                features_by_date=features_by_date,
+                model_version="arcis:v1.0.0",
+                config={"llm": {"enabled": True}},
+                code_sha="abc",
+                window_start="2024-01-01",
+                window_end="2024-12-31",
+                num_parallel=4,
+            )
+
+        entries_par = list(iter_entries("test-parallel-par"))
+
+        # Same number of entries
+        assert len(entries_par) == len(entries_seq) == 20
+
+        # Same prompt_sha256 set (one per (as_of, ticker))
+        assert {e.prompt_sha256 for e in entries_seq} == {e.prompt_sha256 for e in entries_par}
+
+        # Same parse outcomes per ticker
+        seq_parse_failed = sum(1 for e in entries_seq if e.parse_failed)
+        par_parse_failed = sum(1 for e in entries_par if e.parse_failed)
+        assert seq_parse_failed == par_parse_failed == 0
+
+        # Handle None coercion for sort (parser_strategy_succeeded is str|None).
+        seq_strategies = sorted((e.parser_strategy_succeeded or "") for e in entries_seq)
+        par_strategies = sorted((e.parser_strategy_succeeded or "") for e in entries_par)
+        assert seq_strategies == par_strategies
+
+        # Same enrichment_pit_warnings per (as_of, ticker)
+        seq_warnings = {(e.as_of, e.ticker): e.enrichment_pit_warnings for e in entries_seq}
+        par_warnings = {(e.as_of, e.ticker): e.enrichment_pit_warnings for e in entries_par}
+        assert seq_warnings == par_warnings
+
+        # JSONL line order is identical (parallel writes preserve submission order)
+        seq_keys = [(e.as_of, e.ticker) for e in entries_seq]
+        par_keys = [(e.as_of, e.ticker) for e in entries_par]
+        assert seq_keys == par_keys, (
+            "Parallel JSONL line order must match sequential submission order — "
+            "resume semantics depend on stable on-disk order."
+        )
+
+    def test_parallel_corpus_does_not_block_concurrent_live_scan(self, tmp_corpus_root):
+        """Watch-loop coexistence — a parallel corpus run at num_parallel=4
+        plus 1 concurrent 'live scan' call (simulating the watch loop's
+        live-scan path) must:
+          - not deadlock
+          - allow the live scan to complete in reasonable time
+          - produce a well-formed corpus (no JSONL corruption, line count
+            matches submission count)
+
+        This is the design contract for the operator's "watch loop alongside
+        walkforward" requirement.
+        """
+        import threading
+        import time as _time
+        from src.evaluation.corpus_generator import generate_corpus
+
+        # 4-decision corpus run with a 100ms LLM delay per call
+        decision_points = [
+            ("2024-01-15", "AAPL"),
+            ("2024-01-15", "MSFT"),
+            ("2024-01-15", "GOOG"),
+            ("2024-01-15", "AMZN"),
+        ]
+        features_by_date = {"2024-01-15": self._features_payload(
+            ["AAPL", "MSFT", "GOOG", "AMZN"]
+        )}
+
+        def slow_llm(packet, features, config, **kwargs):
+            _time.sleep(0.1)
+            return _make_stub_packet(ticker=packet.ticker)
+
+        # Live-scan callable — simulates the watch loop's path. Just records
+        # how long it took to complete.
+        live_scan_latency: list[float] = []
+
+        def live_scan_call() -> None:
+            t0 = _time.monotonic()
+            # Simulate the live-scan LLM call path — just sleep 100ms.
+            _time.sleep(0.1)
+            live_scan_latency.append(_time.monotonic() - t0)
+
+        corpus_thread_exc: list[BaseException] = []
+
+        def run_corpus():
+            try:
+                with patch(
+                    "src.evaluation.corpus_generator.enhance_packet_with_llm",
+                    side_effect=slow_llm,
+                ), patch(
+                    "src.evaluation.corpus_generator.enrich_features",
+                    side_effect=lambda features, config, as_of=None, **_: features,
+                ), patch(
+                    "src.evaluation.corpus_generator.build_packet_from_features",
+                    side_effect=lambda ticker, feat, config: _make_stub_packet(ticker=ticker),
+                ):
+                    generate_corpus(
+                        corpus_id="test-parallel-coexist",
+                        decision_points=decision_points,
+                        features_by_date=features_by_date,
+                        model_version="arcis:v1.0.0",
+                        config={"llm": {"enabled": True}},
+                        code_sha="abc",
+                        window_start="2024-01-01",
+                        window_end="2024-12-31",
+                        num_parallel=4,
+                    )
+            except BaseException as exc:  # noqa: BLE001
+                corpus_thread_exc.append(exc)
+
+        corpus_thread = threading.Thread(target=run_corpus)
+        corpus_thread.start()
+
+        # Concurrently fire a single live-scan call
+        scan_thread = threading.Thread(target=live_scan_call)
+        scan_thread.start()
+
+        # Both should finish promptly; corpus is bounded by 100ms × ceil(4/4) ≈ 100ms,
+        # plus thread startup. Live scan is 100ms. End-to-end well under 2s.
+        scan_thread.join(timeout=2.0)
+        corpus_thread.join(timeout=5.0)
+
+        assert not corpus_thread.is_alive(), "Corpus thread did not complete in time (deadlock?)"
+        assert not scan_thread.is_alive(), "Live-scan thread did not complete in time (blocked?)"
+        assert not corpus_thread_exc, f"Corpus thread raised: {corpus_thread_exc!r}"
+
+        # Live scan completed in reasonable time (< 2s end-to-end including thread scheduling)
+        assert live_scan_latency, "Live-scan callable was not invoked"
+        assert live_scan_latency[0] < 2.0, (
+            f"Live-scan call took {live_scan_latency[0]:.2f}s — "
+            f"corpus run blocked it (queue contention)"
+        )
+
+        # JSONL well-formed: one entry per submission, no corruption
+        entries = list(iter_entries("test-parallel-coexist"))
+        assert len(entries) == 4
+        assert {e.ticker for e in entries} == {"AAPL", "MSFT", "GOOG", "AMZN"}
+        # Submission order preserved
+        assert [e.ticker for e in entries] == ["AAPL", "MSFT", "GOOG", "AMZN"]

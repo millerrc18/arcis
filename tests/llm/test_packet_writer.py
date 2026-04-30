@@ -343,3 +343,154 @@ class TestCorpusGeneratorReadsAttribute:
             model_version="arcis:v1.0.0", prompt_sha256="c" * 64,
         )
         assert entry.parser_strategy_succeeded is None
+
+
+# ── #108 Lever 1 — batch_mode plumbing ──────────────────────────────────────
+
+
+class TestBatchModePlumbing:
+    """#108 Lever 1 — batch_mode kwarg threading from corpus runner through
+    enhance_packet_with_llm to the underlying generate() call. The 2s sleep
+    in src/llm/client.py:205 (added for #388 to prevent Ollama overload during
+    scan cycles) is gated on batch_mode: corpus runs (which naturally smooth
+    request rate via parallelism) skip it; live-scan callers (default) keep it.
+    """
+
+    def _make_packet(self) -> SimpleNamespace:
+        return SimpleNamespace(
+            ticker="AAPL",
+            company_name="Apple Inc.",
+            confidence=7,
+            entry_zone="$100",
+            stop_invalidation="$95",
+            targets="$110",
+            event_risk="Low",
+            position_sizing=SimpleNamespace(
+                allocation_dollars=5000.0, allocation_pct=5.0,
+                estimated_risk_dollars=250.0,
+            ),
+            why_now="",
+            deeper_analysis="",
+            llm_conviction=None,
+            llm_conviction_reason=None,
+            llm_timeout_days=None,
+            llm_conviction_parse_failed=False,
+            parser_strategy_succeeded=None,
+        )
+
+    def test_enhance_packet_threads_batch_mode_through_to_generate(self, monkeypatch):
+        """When enhance_packet_with_llm(..., batch_mode=True) is called, the
+        underlying client.generate() must receive batch_mode=True as a kwarg.
+        """
+        from src.llm import packet_writer
+
+        captured_kwargs: list[dict] = []
+
+        def fake_generate(prompt, system_prompt, **kwargs):
+            captured_kwargs.append(dict(kwargs))
+            return (
+                "<why_now>x</why_now><analysis>y\n\nz</analysis>"
+                "<metadata>Conviction: 7</metadata>"
+            )
+
+        monkeypatch.setattr(packet_writer, "is_llm_available", lambda: True)
+        monkeypatch.setattr(packet_writer, "generate", fake_generate)
+
+        packet = self._make_packet()
+        packet_writer.enhance_packet_with_llm(
+            packet, {"current_price": 150.0, "_score": 80},
+            {"llm": {"enabled": True}},
+            batch_mode=True,
+        )
+
+        assert captured_kwargs, "generate() was never called"
+        assert captured_kwargs[0].get("batch_mode") is True
+
+    def test_enhance_packet_default_batch_mode_is_false(self, monkeypatch):
+        """Default callers (live scan path) must not opt into batch mode."""
+        from src.llm import packet_writer
+
+        captured_kwargs: list[dict] = []
+
+        def fake_generate(prompt, system_prompt, **kwargs):
+            captured_kwargs.append(dict(kwargs))
+            return (
+                "<why_now>x</why_now><analysis>y\n\nz</analysis>"
+                "<metadata>Conviction: 7</metadata>"
+            )
+
+        monkeypatch.setattr(packet_writer, "is_llm_available", lambda: True)
+        monkeypatch.setattr(packet_writer, "generate", fake_generate)
+
+        packet = self._make_packet()
+        packet_writer.enhance_packet_with_llm(
+            packet, {"current_price": 150.0, "_score": 80},
+            {"llm": {"enabled": True}},
+        )
+
+        assert captured_kwargs, "generate() was never called"
+        # Default must be False (or absent — both mean live-scan behavior).
+        assert captured_kwargs[0].get("batch_mode", False) is False
+
+    def test_client_generate_skips_sleep_in_batch_mode(self, monkeypatch):
+        """src/llm/client.py:205 ``time.sleep(2)`` must be skipped when
+        generate(batch_mode=True). This is the #108 Lever 1 mechanism that
+        lets the corpus runner avoid the per-call 2s cooldown without
+        affecting the runtime scan path (#388)."""
+        from src.llm import client
+
+        sleep_calls: list[float] = []
+
+        def fake_sleep(seconds):
+            sleep_calls.append(seconds)
+
+        # Mock requests.post to return a successful response
+        from unittest.mock import MagicMock
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "choices": [{"message": {"content": "Hello world"}}]
+        }
+        mock_resp.raise_for_status = MagicMock()
+
+        monkeypatch.setattr(client, "_consecutive_failures", 0)
+        monkeypatch.setattr(client.time, "sleep", fake_sleep)
+        monkeypatch.setattr(client.requests, "post", lambda *a, **kw: mock_resp)
+
+        result = client.generate("hi", "system", batch_mode=True)
+        assert result == "Hello world"
+        # The 2.0 second sleep must NOT have fired in batch_mode
+        assert 2 not in sleep_calls, (
+            f"batch_mode=True must skip the 2s cooldown (#108 Lever 1). "
+            f"Got sleep_calls={sleep_calls!r}"
+        )
+
+    def test_client_generate_sleeps_when_not_batch_mode(self, monkeypatch):
+        """Default (batch_mode=False) generate() still fires the 2s cooldown.
+        Preserves #388 behavior for the live-scan path."""
+        from src.llm import client
+
+        sleep_calls: list[float] = []
+
+        def fake_sleep(seconds):
+            sleep_calls.append(seconds)
+
+        from unittest.mock import MagicMock
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "choices": [{"message": {"content": "Hello world"}}]
+        }
+        mock_resp.raise_for_status = MagicMock()
+
+        monkeypatch.setattr(client, "_consecutive_failures", 0)
+        monkeypatch.setattr(client.time, "sleep", fake_sleep)
+        monkeypatch.setattr(client.requests, "post", lambda *a, **kw: mock_resp)
+
+        result = client.generate("hi", "system")
+        assert result == "Hello world"
+        # 2s cooldown MUST have fired in default mode (#388 behavior preserved)
+        assert 2 in sleep_calls, (
+            f"Default mode must still fire the 2s cooldown (#388). "
+            f"Got sleep_calls={sleep_calls!r}"
+        )
