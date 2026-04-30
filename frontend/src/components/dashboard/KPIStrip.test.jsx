@@ -115,4 +115,20 @@ describe('KPIStrip', () => {
     expect(container).toMatchSnapshot()
     expect(container.textContent).toContain('Loading')
   })
+
+  it('renders explicit error state when KPI query fails', () => {
+    const { container } = render(<KPIStrip kpis={null} error />)
+    expect(container.textContent).toContain('KPI data unavailable')
+  })
+
+  it('tolerates partial KPI payloads without crashing', () => {
+    const partial = {
+      n_trades: 7,
+      promotion_gate: { status: 'blue', caption: 'waiting on more trades' },
+    }
+    const { container } = render(<KPIStrip kpis={partial} />)
+    expect(container.textContent).toContain('Promotion Gate')
+    expect(container.textContent).toContain('waiting on more trades')
+    expect(container.textContent).toContain('rf-Adj Excess Sharpe')
+  })
 })

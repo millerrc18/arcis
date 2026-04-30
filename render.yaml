@@ -32,6 +32,8 @@ services:
         sync: false
       - key: API_SECRET
         sync: false # Set manually in Render dashboard
+      - key: CORS_ORIGINS
+        value: https://halcyonlab.app,https://halcyonlab.onrender.com
       - key: PYTHON_VERSION
         value: "3.11.6"
     healthCheckPath: /healthz

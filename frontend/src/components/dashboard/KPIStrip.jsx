@@ -14,6 +14,62 @@ const STATUS_COLOR = {
   unknown: 'var(--arcis-text-muted)',
 }
 
+const DEFAULT_KPIS = {
+  rf_adjusted_excess_sharpe: {
+    value: null,
+    p_value: null,
+    ci_lower: null,
+    ci_upper: null,
+    status: 'unknown',
+  },
+  spy_relative_sharpe: {
+    value: null,
+    p_value: null,
+    ci_lower: null,
+    ci_upper: null,
+    status: 'unknown',
+  },
+  win_rate: {
+    value: null,
+    n_wins: 0,
+    n_losses: 0,
+    status: 'unknown',
+  },
+  stage_traffic_light: {
+    status: 'unknown',
+    S: null,
+    t_stat: null,
+    ci_lower: null,
+    decision_matrix_state: 'HALT',
+  },
+  promotion_gate: {
+    votes_passed: null,
+    votes_total: 5,
+    status: 'blue',
+    caption: 'KPI data unavailable',
+  },
+}
+
+function isRecord(value) {
+  return value != null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function withDefaults(value, defaults) {
+  return isRecord(value) ? { ...defaults, ...value } : { ...defaults }
+}
+
+function normalizeKpis(kpis) {
+  if (!isRecord(kpis)) return null
+  return {
+    ...kpis,
+    rf_adjusted_excess_sharpe: withDefaults(kpis.rf_adjusted_excess_sharpe, DEFAULT_KPIS.rf_adjusted_excess_sharpe),
+    spy_relative_sharpe: withDefaults(kpis.spy_relative_sharpe, DEFAULT_KPIS.spy_relative_sharpe),
+    win_rate: withDefaults(kpis.win_rate, DEFAULT_KPIS.win_rate),
+    stage_traffic_light: withDefaults(kpis.stage_traffic_light, DEFAULT_KPIS.stage_traffic_light),
+    promotion_gate: withDefaults(kpis.promotion_gate, DEFAULT_KPIS.promotion_gate),
+  }
+}
+
 function StatusPill({ status, label }) {
   const color = STATUS_COLOR[status] || STATUS_COLOR.unknown
   return (
@@ -183,8 +239,20 @@ function InstrumentationBadge({ pct }) {
   )
 }
 
-export default function KPIStrip({ kpis }) {
-  if (!kpis) {
+export default function KPIStrip({ kpis, error = false, loading = false }) {
+  const safeKpis = normalizeKpis(kpis)
+
+  if (error) {
+    return (
+      <div className="arcis-card" style={{ padding: 20, textAlign: 'center' }}>
+        <span style={{ color: 'var(--arcis-warning)', fontSize: 13 }}>
+          KPI data unavailable right now
+        </span>
+      </div>
+    )
+  }
+
+  if (loading || !safeKpis) {
     return (
       <div className="arcis-card" style={{ padding: 20, textAlign: 'center' }}>
         <span style={{ color: 'var(--arcis-text-muted)', fontSize: 13 }}>Loading KPIs...</span>
@@ -197,9 +265,9 @@ export default function KPIStrip({ kpis }) {
   // with spy_return_over_hold, used by SPY-Relative). Fall back to n_trades
   // when the backend has not yet split the fields, so the strip stays valid
   // across the contract migration.
-  const nTotal = kpis.n_total ?? kpis.n_trades ?? 0
-  const nSpy = kpis.n_spy ?? nTotal
-  const nMin = kpis.n_minimum_trl ?? 150
+  const nTotal = safeKpis.n_total ?? safeKpis.n_trades ?? 0
+  const nSpy = safeKpis.n_spy ?? nTotal
+  const nMin = safeKpis.n_minimum_trl ?? 150
 
   return (
     <div>
@@ -211,13 +279,13 @@ export default function KPIStrip({ kpis }) {
         }}
         className="kpi-strip"
       >
-        <RfAdjustedCard kpi={kpis.rf_adjusted_excess_sharpe} n={nTotal} />
-        <SpyRelativeCard kpi={kpis.spy_relative_sharpe} nSpy={nSpy} nTotal={nTotal} />
-        <WinRateCard kpi={kpis.win_rate} n={nTotal} />
-        <TrafficLightCard kpi={kpis.stage_traffic_light} n={nTotal} />
-        <PromotionGateCard kpi={kpis.promotion_gate} nTrades={nTotal} nMinTrl={nMin} />
+        <RfAdjustedCard kpi={safeKpis.rf_adjusted_excess_sharpe} n={nTotal} />
+        <SpyRelativeCard kpi={safeKpis.spy_relative_sharpe} nSpy={nSpy} nTotal={nTotal} />
+        <WinRateCard kpi={safeKpis.win_rate} n={nTotal} />
+        <TrafficLightCard kpi={safeKpis.stage_traffic_light} n={nTotal} />
+        <PromotionGateCard kpi={safeKpis.promotion_gate} nTrades={nTotal} nMinTrl={nMin} />
       </div>
-      <InstrumentationBadge pct={kpis.instrumentation_pct} />
+      <InstrumentationBadge pct={safeKpis.instrumentation_pct} />
       <style>{`
         @media (max-width: 767px) {
           .kpi-strip { grid-template-columns: 1fr !important; }

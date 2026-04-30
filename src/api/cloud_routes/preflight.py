@@ -25,6 +25,7 @@ ships, the cloud route's empty-state behavior is unchanged.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from pathlib import Path
@@ -33,6 +34,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # Default audits directory relative to repo root.
 def _find_project_root() -> Path:
@@ -145,6 +147,20 @@ def _empty_state() -> dict[str, Any]:
     }
 
 
+def _is_missing_preflight_schema(exc: Exception) -> bool:
+    """True when Postgres is missing the preflight table/column.
+
+    Render can legitimately lag the local SQLite/schema registry during rollout.
+    In that state the dashboard should surface the same empty-state message as
+    "no preflight run yet", not a hard 500.
+    """
+    pgcode = getattr(exc, "pgcode", None)
+    return pgcode in {"42P01", "42703"} or type(exc).__name__ in {
+        "UndefinedTable",
+        "UndefinedColumn",
+    }
+
+
 def _read_latest_from_postgres(database_url: str) -> dict[str, Any] | None:
     """Read the most recent preflight_runs row from Render Postgres.
 
@@ -159,10 +175,20 @@ def _read_latest_from_postgres(database_url: str) -> dict[str, Any] | None:
         "items_json, transcript_path "
         "FROM preflight_runs ORDER BY created_at DESC LIMIT 1"
     )
-    with psycopg2.connect(database_url) as conn:
-        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(sql)
-            row = cur.fetchone()
+    try:
+        with psycopg2.connect(database_url) as conn:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(sql)
+                row = cur.fetchone()
+    except Exception as exc:  # noqa: BLE001
+        if _is_missing_preflight_schema(exc):
+            logger.warning(
+                "[PREFLIGHT] preflight_runs not available in Render Postgres yet; "
+                "returning empty state instead of 500: %s",
+                exc,
+            )
+            return None
+        raise
     if row is None:
         return None
     items_json = row.get("items_json") or "[]"

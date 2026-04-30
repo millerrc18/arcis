@@ -92,13 +92,16 @@ except Exception:
 
 API_SECRET = os.environ.get("API_SECRET", "")
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
-# CORS origins are configured via env var on Render. The default restricts
-# to our Render domain. In dev, set CORS_ORIGINS=http://localhost:5173 to
-# allow Vite dev server access. See #208 for wildcard CORS discussion.
+# CORS origins are configured via env var on Render. Default to both the
+# current custom domain and the legacy Render hostname so production keeps
+# working even if the env var is absent during bootstrap/redeploy. In dev,
+# set CORS_ORIGINS=http://localhost:5173 to allow Vite dev server access.
+# See #208 for wildcard CORS discussion.
 CORS_ORIGINS = [
     o.strip()
     for o in os.environ.get(
-        "CORS_ORIGINS", "https://halcyonlab.onrender.com"
+        "CORS_ORIGINS",
+        "https://halcyonlab.app,https://halcyonlab.onrender.com",
     ).split(",")
     if o.strip()
 ]
@@ -306,8 +309,14 @@ for factory in (
 ):
     app.include_router(factory(_runtime, verify_auth))
 
+# #632 — these routes use the same placeholder verify_auth pattern as platform
+# and walkforward, so override them with the real cloud bearer-token check
+# before mounting.
+app.dependency_overrides[kpis_route.verify_auth] = verify_auth
 app.include_router(kpis_route.router, prefix="/api")
+app.dependency_overrides[broker_exceptions_route.verify_auth] = verify_auth
 app.include_router(broker_exceptions_route.router, prefix="/api")
+app.dependency_overrides[preflight_route.verify_auth] = verify_auth
 app.include_router(preflight_route.router, prefix="/api")
 
 # Platform routes: SQLite-backed. POST endpoints require verify_auth (#598).

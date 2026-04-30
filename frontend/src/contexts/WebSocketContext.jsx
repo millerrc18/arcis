@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react'
+import { IS_CLOUD } from '../config'
 
 const MAX_EVENTS = 100
 const INITIAL_DELAY = 3000
@@ -23,6 +24,11 @@ export function WebSocketProvider({ children }) {
   const clearEvents = useCallback(() => setEvents([]), [])
 
   useEffect(() => {
+    if (IS_CLOUD) {
+      console.debug('[WS] Disabled in cloud mode — static dashboard has no same-origin websocket endpoint')
+      return undefined
+    }
+
     function connect() {
       // Stop retrying after MAX_RETRIES — WebSocket endpoint likely doesn't exist
       if (retriesRef.current >= MAX_RETRIES) {

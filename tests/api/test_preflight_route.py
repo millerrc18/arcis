@@ -359,6 +359,45 @@ class TestPostgresRouting:
         assert result["overall_status"] == "unknown"
         assert result["items"] == []
 
+    def test_returns_unknown_when_preflight_table_missing(self, monkeypatch):
+        """Render may lag the latest schema; missing preflight_runs must not 500."""
+        from src.api.cloud_routes import preflight as pf
+        monkeypatch.setenv("DATABASE_URL", "postgresql://fake:fake@host/db")
+
+        class _UndefinedTable(Exception):
+            pgcode = "42P01"
+
+        class _FakeCursor:
+            def execute(self, sql, params=None):
+                raise _UndefinedTable("relation preflight_runs does not exist")
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        class _FakeConn:
+            def cursor(self, cursor_factory=None):
+                return _FakeCursor()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        fake_psycopg2 = MagicMock()
+        fake_psycopg2.connect.return_value = _FakeConn()
+        fake_extras = MagicMock()
+        monkeypatch.setitem(__import__("sys").modules, "psycopg2", fake_psycopg2)
+        monkeypatch.setitem(__import__("sys").modules, "psycopg2.extras", fake_extras)
+
+        result = pf.get_preflight_latest()
+        assert result["last_run_at"] is None
+        assert result["overall_status"] == "unknown"
+        assert result["items"] == []
+
     def test_reads_filesystem_when_database_url_unset(self, monkeypatch, tmp_path):
         """Local dev: DATABASE_URL absent → fall back to the audits/
         filesystem reader. Operator parity preserved."""

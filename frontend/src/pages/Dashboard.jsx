@@ -232,7 +232,11 @@ export default function Dashboard() {
   const { data: buildScore } = useQuery({ queryKey: ['build-score'], queryFn: api.getBuildScore, refetchInterval: 120000 })
   const { data: scanMetrics } = useQuery({ queryKey: ['scan-metrics'], queryFn: () => api.getScanMetrics(50), refetchInterval: 60000 })
   const { data: systemIndex, isLoading: systemIndexLoading } = useQuery({ queryKey: ['system-index'], queryFn: api.getSystemIndex, refetchInterval: 60000 })
-  const { data: kpiData } = useQuery({ queryKey: ['kpis'], queryFn: () => fetchApi('/kpis'), refetchInterval: 30000 })
+  const {
+    data: kpiData,
+    isLoading: kpiLoading,
+    isError: kpiError,
+  } = useQuery({ queryKey: ['kpis'], queryFn: () => fetchApi('/kpis'), refetchInterval: 30000 })
 
   // Task 12c: fetch distinct desk values from DB at render time (spec line 1014).
   // Populates the dropdown with any research desks currently in shadow_trades.
@@ -419,7 +423,7 @@ export default function Dashboard() {
       <PlatformStatusWidget />
 
       {/* 5-KPI hero strip — Track 1.5 / Round 8.B (resolves R1, S1, S2, G3, G6) */}
-      <KPIStrip kpis={kpiData} />
+      <KPIStrip kpis={kpiData} loading={kpiLoading} error={kpiError} />
 
       {/* Broker exceptions panel — Track 1.5 / Round 8.C (closes G1) */}
       <BrokerExceptionsPanel />
