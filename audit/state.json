@@ -1,7 +1,7 @@
 {
-  "run_count": 41,
+  "run_count": 42,
   "current_focus_index": 2,
-  "file_index": 206,
+  "file_index": 221,
   "file_list": [
     "requirements.txt",
     "frontend/package.json",
@@ -234,7 +234,7 @@
     "src/utils/secret_redact.py",
     "src/utils/type_safety.py"
   ],
-  "last_run": "2026-04-29T12:00:00.000000+00:00",
+  "last_run": "2026-04-30T12:00:00.000000+00:00",
   "low_findings": [
     {
       "run": 40,
@@ -289,6 +289,30 @@
       "file": "src/sync/render_sync.py",
       "lines": "1064-1067",
       "detail": "bare except Exception: pass on Telegram send_telegram() in sync error handler — swallows ImportError and all dependency issues silently"
+    },
+    {
+      "run": 42,
+      "file": "src/training/outcome_prompts.py",
+      "line": 33,
+      "detail": "from copy import deepcopy — imported but never used anywhere in the file"
+    },
+    {
+      "run": 42,
+      "file": "src/training/quality_drift.py",
+      "line": 10,
+      "detail": "import json — imported at module level but never used in the file"
+    },
+    {
+      "run": 42,
+      "file": "src/training/trainer.py",
+      "line": 1159,
+      "detail": "import sqlite3 as _sqlite3 — re-imports sqlite3 under alias inside quarantine_stuck_outcome_templates; sqlite3 already imported at module level (line 14)"
+    },
+    {
+      "run": 42,
+      "file": "src/training/ingestion_gate.py",
+      "line": 64,
+      "detail": "except Exception as exc: catches overly broad exception for sklearn import check — should use except ImportError to avoid hiding non-import dependency errors"
     }
   ]
 }
