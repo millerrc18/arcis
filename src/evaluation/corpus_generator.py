@@ -55,6 +55,7 @@ import concurrent.futures
 import hashlib
 import logging
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -313,6 +314,61 @@ def _aggregate_warning_prefixes(
     return counts
 
 
+# Stage-1 progress reporting cadence (#108 follow-up).
+# A 12.5-day Stage-1 corpus run needs visibility for the operator without
+# drowning in per-decision logs. Emit a progress line every N entries OR
+# every M seconds, whichever fires first — slow periods (Ollama queueing,
+# network hiccups) still get a heartbeat at most M seconds late, fast
+# periods don't spam.
+_PROGRESS_EVERY_N = 100
+_PROGRESS_EVERY_SEC = 600  # 10 minutes
+
+
+def _format_eta(seconds_remaining: float) -> str:
+    """Format remaining wall-clock as 's' / 'm' / 'h' / 'd' depending on scale."""
+    if seconds_remaining < 60:
+        return f"{int(seconds_remaining)}s"
+    if seconds_remaining < 3600:
+        return f"{int(seconds_remaining / 60)}m"
+    if seconds_remaining < 86400:
+        h = int(seconds_remaining // 3600)
+        m = int((seconds_remaining % 3600) // 60)
+        return f"{h}h{m:02d}m"
+    return f"{seconds_remaining / 86400:.2f}d"
+
+
+def _log_progress(
+    *,
+    written: int,
+    total: int,
+    parse_failures: int,
+    coverage_hits: dict[str, int],
+    start_time: float,
+) -> None:
+    """Emit a single-line progress report for the corpus run.
+
+    Called every ``_PROGRESS_EVERY_N`` entries OR ``_PROGRESS_EVERY_SEC``
+    seconds, whichever fires first. Format is intentionally dense so a
+    multi-day run can be tailed and parsed by eye.
+    """
+    now = time.time()
+    elapsed = max(now - start_time, 1e-6)  # avoid divide-by-zero
+    rate = elapsed / max(written, 1)  # sec/entry
+    remaining = max(total - written, 0) * rate
+    parse_rate = (parse_failures / written * 100.0) if written else 0.0
+    eta = _format_eta(remaining)
+    eta_clock = datetime.fromtimestamp(now + remaining, timezone.utc).isoformat(timespec="minutes")
+    pct = (written / total * 100.0) if total else 0.0
+    top_warnings = sorted(coverage_hits.items(), key=lambda kv: -kv[1])[:3]
+    warnings_str = ", ".join(f"{k}={v}" for k, v in top_warnings) or "none"
+    logger.info(
+        "[CORPUS] progress: %d/%d (%.1f%%) | rate=%.1fs/entry | ETA=%s (~%s) | "
+        "parse_fail=%d (%.2f%%) | top warnings: %s",
+        written, total, pct, rate, eta, eta_clock,
+        parse_failures, parse_rate, warnings_str,
+    )
+
+
 def _recount_from_disk(corpus_id: str) -> tuple[int, int, dict[str, int]]:
     """Re-aggregate (total, parse_failures, coverage_hits) from disk (#99).
 
@@ -393,6 +449,35 @@ def _stream_entries(
     # only batched caller so the 2s #388 cooldown is gated on this flag.
     batch_mode = num_parallel > 1
 
+    # Progress reporting state (#108 follow-up). Multi-day runs need
+    # heartbeat visibility — see _log_progress() and the _PROGRESS_*
+    # cadence constants above.
+    total_to_write = len(submitted)
+    start_time = time.time()
+    last_progress_count = 0
+    last_progress_time = start_time
+    if total_to_write > 0:
+        logger.info(
+            "[CORPUS] starting run: %d decision points to write, num_parallel=%d, "
+            "progress logged every %d entries or %ds (whichever first)",
+            total_to_write, num_parallel, _PROGRESS_EVERY_N, _PROGRESS_EVERY_SEC,
+        )
+
+    def _maybe_emit_progress() -> None:
+        nonlocal last_progress_count, last_progress_time
+        now = time.time()
+        if (total - last_progress_count >= _PROGRESS_EVERY_N
+                or now - last_progress_time >= _PROGRESS_EVERY_SEC):
+            _log_progress(
+                written=total,
+                total=total_to_write,
+                parse_failures=parse_failure_count,
+                coverage_hits=coverage_limit_hits,
+                start_time=start_time,
+            )
+            last_progress_count = total
+            last_progress_time = now
+
     with entries_path.open(open_mode, encoding="utf-8") as fh:
         if num_parallel == 1:
             # Sequential dispatch — preserve original behavior byte-for-byte.
@@ -423,6 +508,7 @@ def _stream_entries(
                 _aggregate_warning_prefixes(
                     entry.enrichment_pit_warnings, counts=coverage_limit_hits,
                 )
+                _maybe_emit_progress()
         else:
             # Parallel dispatch — collect futures in submission order, write
             # results in submission order to preserve on-disk JSONL layout.
@@ -459,6 +545,22 @@ def _stream_entries(
                     _aggregate_warning_prefixes(
                         entry.enrichment_pit_warnings, counts=coverage_limit_hits,
                     )
+                    _maybe_emit_progress()
+
+    # Final completion summary — bookends the periodic _log_progress
+    # heartbeats. Always emitted (regardless of whether the cadence
+    # thresholds fired during the run) so even short runs get one line.
+    if total_to_write > 0:
+        wall = time.time() - start_time
+        mean_per_entry = wall / max(total, 1)
+        logger.info(
+            "[CORPUS] run complete: %d entries written in %s (mean %.1fs/entry); "
+            "parse_fail=%d (%.2f%%); coverage_hits=%s",
+            total, _format_eta(wall), mean_per_entry,
+            parse_failure_count,
+            (parse_failure_count / total * 100.0) if total else 0.0,
+            dict(coverage_limit_hits) or "none",
+        )
 
     if resume and skip_keys:
         return _recount_from_disk(corpus_id)
