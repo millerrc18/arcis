@@ -108,6 +108,19 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--num-parallel", type=int, default=4,
+        help=(
+            "Number of concurrent Ollama calls (#108 Lever 1). Default 4 "
+            "matches Ollama's default OLLAMA_NUM_PARALLEL=4 on a 12GB "
+            "RTX 3060 with arcis:v1.0.0 (~9.3GB VRAM). Set to 1 to restore "
+            "sequential dispatch. Watch-loop coexistence: when also running "
+            "the live scan watch loop, use --num-parallel 3 to leave 1 slot "
+            "for live scans, OR set OLLAMA_NUM_PARALLEL=5 externally to give "
+            "live scans a dedicated server-side slot (model 9.3GB + 5*~150MB "
+            "KV cache ~ 10GB of 12GB VRAM — fits)."
+        ),
+    )
+    parser.add_argument(
         "--log-level", default="INFO",
         help="Logging level (DEBUG, INFO, WARNING, ERROR).",
     )
@@ -262,6 +275,9 @@ def main(argv: list[str] | None = None) -> int:
 
     code_sha = _resolve_code_sha()
 
+    if args.num_parallel < 1:
+        parser.error(f"--num-parallel must be >= 1, got {args.num_parallel}")
+
     result_path = generate_corpus(
         corpus_id=args.corpus_id,
         decision_points=decision_points,
@@ -273,6 +289,7 @@ def main(argv: list[str] | None = None) -> int:
         window_end=args.window_end,
         dry_run=args.dry_run,
         resume=args.resume,
+        num_parallel=args.num_parallel,
     )
     logger.info("[CORPUS] Wrote corpus to %s", result_path)
     return 0

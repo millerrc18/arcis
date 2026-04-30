@@ -690,7 +690,7 @@ def _parse_llm_response(response: str) -> tuple[
 
 
 def enhance_packet_with_llm(packet: TradePacket, features: dict,
-                            config: dict) -> TradePacket:
+                            config: dict, batch_mode: bool = False) -> TradePacket:
     """Enhance a trade packet with LLM-written prose.
 
     If LLM is disabled or unavailable, returns the packet unchanged.
@@ -711,6 +711,12 @@ def enhance_packet_with_llm(packet: TradePacket, features: dict,
         packet: The trade packet built from features.
         features: The raw feature dict for this ticker.
         config: Application config dict.
+        batch_mode: When True, the underlying client.generate() call skips
+            the 2s post-call cooldown (#388). Set by the corpus runner under
+            #108 Lever 1 — parallel ThreadPoolExecutor dispatch already smooths
+            request rate, and the 2s cooldown stacked across N workers would
+            erase the parallelism speedup. Live-scan callers leave this False
+            so the #388 cooldown still fires.
 
     Returns:
         The packet, potentially with enhanced why_now and deeper_analysis.
@@ -764,14 +770,14 @@ Event Risk: {packet.event_risk}"""
             logger.warning("[LLM] Ollama not reachable — fallback to template for %s", packet.ticker)
             return packet
         logger.info("[LLM] Using Ollama path for %s", packet.ticker)
-        response = generate(prompt, PACKET_SYSTEM_PROMPT)
+        response = generate(prompt, PACKET_SYSTEM_PROMPT, batch_mode=batch_mode)
 
     if response is None:
         # Retry with condensed prompt (technical + trade params only, no enrichment)
         logger.info("[LLM] Full prompt timed out for %s, retrying with condensed prompt",
                     packet.ticker)
         condensed = _build_condensed_prompt(packet, features)
-        response = generate(condensed, PACKET_SYSTEM_PROMPT)
+        response = generate(condensed, PACKET_SYSTEM_PROMPT, batch_mode=batch_mode)
 
     if response is None:
         logger.warning("[LLM] Generation failed — fallback to template for %s", packet.ticker)

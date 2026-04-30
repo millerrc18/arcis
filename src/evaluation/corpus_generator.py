@@ -51,8 +51,10 @@ Both Phase 4 follow-up trackers are now closed:
 """
 from __future__ import annotations
 
+import concurrent.futures
 import hashlib
 import logging
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -227,6 +229,7 @@ def _generate_one_entry(
     model_version: str,
     config: dict,
     dry_run: bool,
+    batch_mode: bool = False,
 ) -> CorpusEntry | None:
     """Build a single CorpusEntry for one (as_of, ticker) decision point.
 
@@ -270,7 +273,12 @@ def _generate_one_entry(
     if packet is None:
         logger.debug("[CORPUS] %s %s: build_packet returned None — skipping", as_of, ticker)
         return None
-    enhanced = enhance_packet_with_llm(packet, feat, config)
+    # Only pass batch_mode when it's True so existing call-sites + test mocks
+    # (which historically take only positional args) keep working unchanged.
+    if batch_mode:
+        enhanced = enhance_packet_with_llm(packet, feat, config, batch_mode=True)
+    else:
+        enhanced = enhance_packet_with_llm(packet, feat, config)
     return _packet_to_entry(
         as_of=as_of, ticker=ticker, model_version=model_version,
         prompt_sha256=prompt_sha256, packet=enhanced,
@@ -334,12 +342,23 @@ def _stream_entries(
     config: dict,
     dry_run: bool,
     resume: bool,
+    num_parallel: int = 1,
 ) -> tuple[int, int, dict[str, int]]:
     """Stream-write entries.jsonl.
 
     Returns ``(total_written, parse_failure_count, coverage_limit_hits)``.
     Resume path re-aggregates from disk via :func:`_recount_from_disk` so
     the manifest reflects the full corpus.
+
+    #108 Lever 1: when ``num_parallel > 1``, decision points are dispatched
+    via a ``ThreadPoolExecutor(max_workers=num_parallel)``. JSONL writes are
+    serialized in submission order — futures are collected into an ordered
+    list and written in (decision-point) order, NOT completion order, so
+    the on-disk layout is byte-equivalent to the sequential path and the
+    resume path's (as_of, ticker) keys remain stable. Per-future exceptions
+    are logged at WARNING (type-name + message) and the entry is dropped;
+    the resume path will retry on the next run. ``num_parallel=1`` (default)
+    preserves the original single-threaded loop semantics.
     """
     root = corpus_dir(corpus_id)
     root.mkdir(parents=True, exist_ok=True)
@@ -355,30 +374,91 @@ def _stream_entries(
                 "[CORPUS] Resume: %d entries already present, will skip", len(skip_keys)
             )
 
+    if num_parallel < 1:
+        raise ValueError(f"num_parallel must be >= 1, got {num_parallel}")
+
+    # Materialize decision points to a list so we can sequentially submit and
+    # write in submission order regardless of dispatch mode.
+    submitted: list[tuple[str, str]] = [
+        (as_of, ticker)
+        for as_of, ticker in decision_points
+        if (as_of, ticker) not in skip_keys
+    ]
+
     total = 0
     parse_failure_count = 0
     coverage_limit_hits: dict[str, int] = {}
+    write_lock = threading.Lock()
+    # batch_mode is True when num_parallel > 1 — the corpus runner is the
+    # only batched caller so the 2s #388 cooldown is gated on this flag.
+    batch_mode = num_parallel > 1
+
     with entries_path.open(open_mode, encoding="utf-8") as fh:
-        for as_of, ticker in decision_points:
-            if (as_of, ticker) in skip_keys:
-                continue
-            entry = _generate_one_entry(
-                as_of=as_of,
-                ticker=ticker,
-                features_for_date=features_by_date.get(as_of, {}),
-                model_version=model_version,
-                config=config,
-                dry_run=dry_run,
-            )
-            if entry is None:
-                continue
-            fh.write(entry.to_json_line() + "\n")
-            total += 1
-            if entry.parse_failed == 1:
-                parse_failure_count += 1
-            _aggregate_warning_prefixes(
-                entry.enrichment_pit_warnings, counts=coverage_limit_hits,
-            )
+        if num_parallel == 1:
+            # Sequential dispatch — preserve original behavior byte-for-byte.
+            for as_of, ticker in submitted:
+                try:
+                    entry = _generate_one_entry(
+                        as_of=as_of,
+                        ticker=ticker,
+                        features_for_date=features_by_date.get(as_of, {}),
+                        model_version=model_version,
+                        config=config,
+                        dry_run=dry_run,
+                        batch_mode=batch_mode,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning(
+                        "[CORPUS] %s %s: %s: %s — dropping entry",
+                        as_of, ticker, type(exc).__name__, exc,
+                    )
+                    continue
+                if entry is None:
+                    continue
+                with write_lock:
+                    fh.write(entry.to_json_line() + "\n")
+                total += 1
+                if entry.parse_failed == 1:
+                    parse_failure_count += 1
+                _aggregate_warning_prefixes(
+                    entry.enrichment_pit_warnings, counts=coverage_limit_hits,
+                )
+        else:
+            # Parallel dispatch — collect futures in submission order, write
+            # results in submission order to preserve on-disk JSONL layout.
+            with concurrent.futures.ThreadPoolExecutor(max_workers=num_parallel) as executor:
+                futures: list[tuple[str, str, concurrent.futures.Future]] = [
+                    (as_of, ticker, executor.submit(
+                        _generate_one_entry,
+                        as_of=as_of,
+                        ticker=ticker,
+                        features_for_date=features_by_date.get(as_of, {}),
+                        model_version=model_version,
+                        config=config,
+                        dry_run=dry_run,
+                        batch_mode=batch_mode,
+                    ))
+                    for as_of, ticker in submitted
+                ]
+                for as_of, ticker, fut in futures:
+                    try:
+                        entry = fut.result()
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning(
+                            "[CORPUS] %s %s: %s: %s — dropping entry",
+                            as_of, ticker, type(exc).__name__, exc,
+                        )
+                        continue
+                    if entry is None:
+                        continue
+                    with write_lock:
+                        fh.write(entry.to_json_line() + "\n")
+                    total += 1
+                    if entry.parse_failed == 1:
+                        parse_failure_count += 1
+                    _aggregate_warning_prefixes(
+                        entry.enrichment_pit_warnings, counts=coverage_limit_hits,
+                    )
 
     if resume and skip_keys:
         return _recount_from_disk(corpus_id)
@@ -435,11 +515,20 @@ def generate_corpus(
     window_end: str,
     dry_run: bool = False,
     resume: bool = False,
+    num_parallel: int = 1,
 ) -> Path:
     """Generate an LLM-scoring corpus for Stage 1 walk-forward.
 
     See module docstring for the full contract. ``model_version`` MUST be
     a non-empty string per pre-reg §A1.1 — None or empty raises ValueError.
+
+    #108 Lever 1: ``num_parallel`` controls the per-fold ThreadPoolExecutor
+    width. Default 1 = sequential (original behavior). Higher values fan
+    LLM calls across N concurrent workers and skip the per-call 2s cooldown
+    (#388) since N-way parallelism already smooths the request rate. Values
+    above 4 risk Ollama-side queueing on commodity GPUs (RTX 3060 12GB) —
+    see ``docs/research/llm-cost-analysis-2026-04-29.md`` §1.2.7 for the
+    measured tail-latency curve.
 
     Returns the path to the corpus directory (entries.jsonl + manifest.json).
     """
@@ -457,6 +546,7 @@ def generate_corpus(
         config=config,
         dry_run=dry_run,
         resume=resume,
+        num_parallel=num_parallel,
     )
     _build_and_write_manifest(
         corpus_id=corpus_id,
