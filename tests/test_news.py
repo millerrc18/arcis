@@ -122,3 +122,45 @@ def test_fetch_recent_news_empty_response(mock_get):
     assert result is not None
     assert result["headline_count"] == 0
     assert result["news_sentiment"] == "no_news"
+
+
+@patch("src.data_enrichment.news.requests.get")
+def test_fetch_news_sentiment_success(mock_get):
+    from src.data_enrichment.news import fetch_news_sentiment
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "companyNewsScore": 0.74,
+        "sectorAverageNewsScore": 0.51,
+        "sectorAverageBullishPercent": 0.42,
+        "buzz": {"articlesInLastWeek": 12},
+        "sentiment": {"bullishPercent": 0.71, "bearishPercent": 0.09},
+    }
+    mock_resp.raise_for_status.return_value = None
+    mock_get.return_value = mock_resp
+
+    result = fetch_news_sentiment("AAPL", finnhub_api_key="test_key", cache_hours=0)
+    assert result is not None
+    assert result["news_sentiment"] == "positive"
+    assert result["articles_in_last_week"] == 12
+    assert "Finnhub sentiment: positive" in result["summary"]
+
+
+@patch("src.data_enrichment.news.requests.get")
+def test_fetch_news_sentiment_handles_403(mock_get):
+    from src.data_enrichment.news import fetch_news_sentiment
+
+    warnings = []
+    mock_resp = MagicMock()
+    mock_resp.status_code = 403
+    mock_get.return_value = mock_resp
+
+    result = fetch_news_sentiment(
+        "AAPL",
+        finnhub_api_key="test_key",
+        cache_hours=0,
+        warnings=warnings,
+    )
+    assert result is None
+    assert warnings == ["news_sentiment_unavailable:AAPL:runtime"]

@@ -193,6 +193,51 @@ class TestEnricherHandlesFailures:
         assert "AAPL" in result
         assert "macro_summary" in result["AAPL"]
 
+    def test_runtime_news_sentiment_uses_premium_when_plan_supports_it(self):
+        from src.data_enrichment.enricher import enrich_features
+
+        features = {"AAPL": {"current_price": 185.0, "ticker": "AAPL"}}
+        config = {"data_enrichment": {"enabled": True, "finnhub_api_key": "stub-key", "finnhub_plan": "fundamental-1"}}
+        recent_news = {
+            "headline_count": 2,
+            "headlines": [],
+            "summary": "2 articles in last 7 days. Sentiment: neutral.",
+            "news_sentiment": "neutral",
+            "last_news_date": "2026-04-30",
+        }
+        premium_news = {
+            "news_sentiment": "positive",
+            "summary": "Finnhub sentiment: positive (score 0.74, bullish 71%, bearish 9%, 12 articles/week).",
+        }
+
+        with (
+            patch("src.data_enrichment.enricher._rate_limit"),
+            patch("src.data_enrichment.macro.fetch_macro_context", return_value={}),
+            patch("src.data_enrichment.fundamentals.fetch_fundamental_snapshot", return_value=None),
+            patch("src.data_enrichment.insiders.fetch_insider_activity", return_value=None),
+            patch("src.data_enrichment.news.fetch_recent_news", return_value=recent_news.copy()),
+            patch("src.data_enrichment.news.fetch_news_sentiment", return_value=premium_news) as premium_fetch,
+        ):
+            result = enrich_features(features, config)
+
+        assert premium_fetch.called
+        assert result["AAPL"]["news_sentiment"] == "positive"
+
+
+class TestFinnhubPlan:
+    def test_env_overrides_config(self, monkeypatch):
+        from src.data_enrichment.finnhub_plan import get_finnhub_plan
+
+        monkeypatch.setenv("FINNHUB_PLAN", "free")
+        plan = get_finnhub_plan({"data_enrichment": {"finnhub_plan": "fundamental-1"}})
+        assert plan == "free"
+
+    def test_feature_matrix_distinguishes_free_and_premium(self):
+        from src.data_enrichment.finnhub_plan import finnhub_plan_supports
+
+        assert not finnhub_plan_supports("news_sentiment", {"data_enrichment": {"finnhub_plan": "free"}})
+        assert finnhub_plan_supports("news_sentiment", {"data_enrichment": {"finnhub_plan": "fundamental-1"}})
+
 
 class TestEnrichFeaturesAsOfRouting:
     """Tests for the as_of parameter routing in enrich_features (#854).

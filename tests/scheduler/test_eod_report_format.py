@@ -48,6 +48,19 @@ def _seed_closed_trade(conn, ticker: str, pnl_dollars: str, pnl_pct: str,
     )
 
 
+def _seed_rejected_trade(conn, ticker: str, today_iso: str, source: str = "paper") -> None:
+    """Insert a rejected trade that should not count as a realized loss."""
+    import uuid
+    conn.execute(
+        "INSERT INTO shadow_trades "
+        "(trade_id, ticker, direction, status, pnl_dollars, pnl_pct, "
+        "actual_exit_time, source, created_at, updated_at, quarantined) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (str(uuid.uuid4()), ticker, "long", "rejected",
+         "-999.00", "-10.00", today_iso, source, today_iso, today_iso, 0),
+    )
+
+
 def _seed_vix(conn, vix: float = 18.0) -> None:
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc)
@@ -138,3 +151,29 @@ def test_notify_eod_report_format_accepts_float_inputs():
             risk_rejected=2, risk_qualified=10,
         )
     assert result is True
+
+
+def test_send_eod_report_ignores_rejected_trades_in_win_rate(tmp_db, monkeypatch):
+    """Rejected terminal trades must not render as realized losses in Telegram."""
+    from datetime import datetime
+
+    import src.scheduler.reports as reports
+
+    monkeypatch.setattr(reports, "DB_PATH", tmp_db)
+    today_iso = datetime.now(reports.ET).strftime("%Y-%m-%dT%H:%M:%S")
+
+    with sqlite3.connect(tmp_db) as conn:
+        _seed_closed_trade(conn, "AAPL", "50.00", "2.00", today_iso, "paper")
+        _seed_rejected_trade(conn, "MSFT", today_iso, "paper")
+        _seed_vix(conn, 18.5)
+        conn.commit()
+
+    with patch(
+        "src.notifications.telegram.is_telegram_enabled", return_value=True,
+    ), patch(
+        "src.notifications.telegram.send_telegram", return_value=True,
+    ) as mock_send:
+        reports.send_eod_report()
+
+    msg = mock_send.call_args.args[0]
+    assert "(1W / 0L)" in msg

@@ -8,6 +8,7 @@ Called by: scheduler.watch (WatchLoop delegates here)
 """
 
 import csv
+import json
 import logging
 import sqlite3
 from datetime import datetime, timedelta
@@ -24,6 +25,85 @@ from src.shadow_trading._status_sql import (
 logger = logging.getLogger(__name__)
 
 ET = ZoneInfo("America/New_York")
+
+
+def _expected_scan_interval_minutes() -> int:
+    """Load the configured scan interval, defaulting to 30 minutes."""
+    try:
+        from src.config import load_config
+
+        cfg = load_config()
+        return int((cfg.get("automation") or {}).get("scan_interval_minutes", 30) or 30)
+    except Exception:
+        return 30
+
+
+def _compute_max_scan_delay_seconds(conn, metric_date: str) -> float:
+    """Return the max delay beyond the configured scan cadence for the date."""
+    rows = conn.execute(
+        "SELECT created_at FROM scan_metrics WHERE created_at LIKE ? ORDER BY created_at ASC",
+        (f"{metric_date}%",),
+    ).fetchall()
+    if len(rows) < 2:
+        return 0.0
+
+    expected_gap = max(_expected_scan_interval_minutes() * 60, 1)
+    last_dt = None
+    max_delay = 0.0
+    for row in rows:
+        dt = datetime.fromisoformat(row["created_at"])
+        if last_dt is not None:
+            delay = max(0.0, (dt - last_dt).total_seconds() - expected_gap)
+            max_delay = max(max_delay, delay)
+        last_dt = dt
+    return round(max_delay, 1)
+
+
+def _latest_vram_handoff_ok(conn) -> bool:
+    """Best-effort recent VRAM handoff status.
+
+    Returns True when no handoff rows exist yet so the new metric
+    instrumentation does not cause a false-red first day after deploy.
+    """
+    cutoff = (datetime.now(ET) - timedelta(days=3)).strftime("%Y-%m-%d")
+    rows = conn.execute(
+        "SELECT metric_name, metric_value, metric_date, id FROM schedule_metrics "
+        "WHERE metric_date >= ? AND metric_name IN (?, ?) "
+        "ORDER BY metric_date DESC, id DESC",
+        (
+            cutoff,
+            "vram_handoff_inference_ok",
+            "vram_handoff_training_ok",
+        ),
+    ).fetchall()
+    if not rows:
+        return True
+
+    latest_by_name: dict[str, bool] = {}
+    for row in rows:
+        name = row["metric_name"]
+        if name not in latest_by_name:
+            latest_by_name[name] = float(row["metric_value"] or 0) > 0
+    return all(latest_by_name.values())
+
+
+def _collect_schedule_health(db_path: str = DB_PATH) -> dict[str, float | int | bool]:
+    """Gather the live schedule-health values used in Telegram."""
+    from src.monitoring.system_metrics import collect_system_snapshot
+
+    snapshot = collect_system_snapshot(db_path)
+    today_str = datetime.now(ET).strftime("%Y-%m-%d")
+    with connect_db(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        scan_delay_max = _compute_max_scan_delay_seconds(conn, today_str)
+        handoff_ok = _latest_vram_handoff_ok(conn)
+
+    return {
+        "gpu_util": float(snapshot.get("gpu_util_pct") or 0.0),
+        "scan_delay_max": float(scan_delay_max),
+        "handoff_ok": bool(handoff_ok),
+        "temp_max": int(round(float(snapshot.get("gpu_temp_c") or 0.0))),
+    }
 
 
 # ── 0. Morning Watchlist ───────────────────────────────────────────
@@ -316,7 +396,6 @@ def send_eod_report():
             conn.row_factory = sqlite3.Row
 
             _a_frag, _a_params = active_in_clause()
-            _t_frag, _t_params = terminal_in_clause()
 
             # Paper open
             paper_open_row = conn.execute(
@@ -329,9 +408,9 @@ def send_eod_report():
             # Paper closed today
             paper_closed_row = conn.execute(
                 "SELECT COUNT(*) as cnt, COALESCE(SUM(pnl_dollars),0) as pnl "
-                f"FROM shadow_trades WHERE status IN ({_t_frag}) AND COALESCE(source,'paper')='paper' "
+                "FROM shadow_trades WHERE status = 'closed' AND COALESCE(source,'paper')='paper' "
                 "AND actual_exit_time LIKE ? AND COALESCE(quarantined, 0) = 0",
-                (*_t_params, f"{today_str}%"),
+                (f"{today_str}%",),
             ).fetchone()
 
             # Live open
@@ -345,17 +424,16 @@ def send_eod_report():
             # Live closed today
             live_closed_row = conn.execute(
                 "SELECT COUNT(*) as cnt, COALESCE(SUM(pnl_dollars),0) as pnl "
-                f"FROM shadow_trades WHERE status IN ({_t_frag}) AND source='live' "
+                "FROM shadow_trades WHERE status = 'closed' AND source='live' "
                 "AND actual_exit_time LIKE ? AND COALESCE(quarantined, 0) = 0",
-                (*_t_params, f"{today_str}%"),
+                (f"{today_str}%",),
             ).fetchone()
 
             # All-time win rate
             all_closed = conn.execute(
                 "SELECT COUNT(*) as total, "
                 "SUM(CASE WHEN pnl_dollars > 0 THEN 1 ELSE 0 END) as wins "
-                f"FROM shadow_trades WHERE status IN ({_t_frag}) AND COALESCE(quarantined, 0) = 0",
-                _t_params,
+                "FROM shadow_trades WHERE status = 'closed' AND COALESCE(quarantined, 0) = 0",
             ).fetchone()
             wins = all_closed["wins"] or 0
             total = all_closed["total"] or 0
@@ -365,15 +443,15 @@ def send_eod_report():
             # Best/worst today
             best = conn.execute(
                 "SELECT ticker, pnl_pct FROM shadow_trades "
-                f"WHERE status IN ({_t_frag}) AND actual_exit_time LIKE ? AND COALESCE(quarantined, 0) = 0 "
+                "WHERE status = 'closed' AND actual_exit_time LIKE ? AND COALESCE(quarantined, 0) = 0 "
                 "ORDER BY pnl_pct DESC LIMIT 1",
-                (*_t_params, f"{today_str}%"),
+                (f"{today_str}%",),
             ).fetchone()
             worst = conn.execute(
                 "SELECT ticker, pnl_pct FROM shadow_trades "
-                f"WHERE status IN ({_t_frag}) AND actual_exit_time LIKE ? AND COALESCE(quarantined, 0) = 0 "
+                "WHERE status = 'closed' AND actual_exit_time LIKE ? AND COALESCE(quarantined, 0) = 0 "
                 "ORDER BY pnl_pct ASC LIMIT 1",
-                (*_t_params, f"{today_str}%"),
+                (f"{today_str}%",),
             ).fetchone()
 
             # VIX
@@ -850,11 +928,12 @@ def save_daily_metric_snapshot(db_path: str = DB_PATH):
         try:
             from src.notifications.telegram import notify_schedule_health, is_telegram_enabled
             if is_telegram_enabled():
+                health = _collect_schedule_health(DB_PATH)
                 notify_schedule_health(
-                    gpu_util=0.0,  # Not tracked at this level
-                    scan_delay_max=0.0,
-                    handoff_ok=True,
-                    temp_max=0,
+                    gpu_util=float(health["gpu_util"]),
+                    scan_delay_max=float(health["scan_delay_max"]),
+                    handoff_ok=bool(health["handoff_ok"]),
+                    temp_max=int(health["temp_max"]),
                 )
         except Exception as e:
             logger.warning("[WATCH] notify_schedule_health failed: %s", e)

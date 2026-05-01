@@ -87,11 +87,15 @@ def enrich_features(
     macro_enabled = chain is None or "macro" in chain
     insider_enabled = chain is None or "insider" in chain
     news_enabled = chain is None or "news" in chain
+    from src.data_enrichment.finnhub_plan import finnhub_plan_supports
 
     cache_hours = enrichment_cfg.get("cache_hours", 24)
     finnhub_key = os.environ.get("FINNHUB_API_KEY") or enrichment_cfg.get("finnhub_api_key")
     fred_key = os.environ.get("FRED_API_KEY") or enrichment_cfg.get("fred_api_key")
     lookback_days = enrichment_cfg.get("insider_lookback_days", 90)
+    use_premium_news_sentiment = (
+        as_of is None and finnhub_plan_supports("news_sentiment", config)
+    )
 
     if not finnhub_key:
         _alert_missing_key("FINNHUB_API_KEY")
@@ -189,6 +193,7 @@ def enrich_features(
             try:
                 from src.data_enrichment.news import (
                     fetch_historical_news,
+                    fetch_news_sentiment,
                     fetch_recent_news,
                     format_news_summary,
                 )
@@ -208,6 +213,25 @@ def enrich_features(
                         cache_hours=min(cache_hours, 6),
                         warnings=warnings_out,
                     )
+                    if news_data and use_premium_news_sentiment:
+                        premium_sentiment = fetch_news_sentiment(
+                            ticker,
+                            finnhub_api_key=finnhub_key,
+                            cache_hours=min(cache_hours, 6),
+                            warnings=warnings_out,
+                        )
+                        if premium_sentiment:
+                            news_data["headline_sentiment"] = news_data.get("news_sentiment")
+                            news_data["news_sentiment"] = premium_sentiment["news_sentiment"]
+                            news_data["news_sentiment_source"] = "finnhub"
+                            news_data["finnhub_news_sentiment"] = premium_sentiment
+                            summary = news_data.get("summary", "")
+                            premium_summary = premium_sentiment.get("summary", "")
+                            if premium_summary:
+                                news_data["summary"] = (
+                                    f"{summary} {premium_summary}".strip()
+                                    if summary else premium_summary
+                                )
                 feat["news_summary"] = format_news_summary(news_data)
                 feat["news_sentiment"] = (news_data or {}).get("news_sentiment", "no_news")
             except Exception as e:

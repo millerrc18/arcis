@@ -30,6 +30,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from src.config import DB_PATH
+from src.data_enrichment.finnhub_plan import finnhub_plan_supports
 from src.utils.db import connect_db
 from src.utils.retry import retry_with_backoff
 
@@ -119,30 +120,30 @@ def collect_analyst_estimates(
 
                 time.sleep(0.5)  # Rate limit between calls
 
-                # Fetch price targets — BAND-AID for #291: /stock/price-target
-                # requires Finnhub premium ($49/mo). Skip gracefully on 403 so
-                # recommendations (free endpoint) still get stored. Price target
-                # fields will be NULL until we either upgrade or switch to yfinance.
+                # Price-target access varies by Finnhub plan; the operator wants
+                # a clean free vs premium toggle, so we only attempt it when the
+                # configured plan explicitly supports the endpoint.
                 pt = {}
-                try:
-                    pt_resp = retry_with_backoff(
-                        lambda: requests.get(
-                            f"{FINNHUB_BASE}/stock/price-target",
-                            params={"symbol": ticker},
-                            headers=finnhub_headers,
-                            timeout=15,
-                        ),
-                        max_retries=1, base_delay=1.0,
-                        exceptions=(requests.RequestException, ConnectionError, OSError),
-                    )
-                    if pt_resp is not None and pt_resp.status_code == 200:
-                        pt = pt_resp.json()
-                    elif pt_resp is not None and pt_resp.status_code == 403:
-                        if ticker == to_collect[0]:  # Log once, not 102 times
-                            logger.warning("[ANALYST] price-target endpoint returned 403 "
-                                           "(premium required, #291) — storing recommendations only")
-                except Exception:
-                    pass  # Price targets are nice-to-have, not critical
+                if finnhub_plan_supports("price_target"):
+                    try:
+                        pt_resp = retry_with_backoff(
+                            lambda: requests.get(
+                                f"{FINNHUB_BASE}/stock/price-target",
+                                params={"symbol": ticker},
+                                headers=finnhub_headers,
+                                timeout=15,
+                            ),
+                            max_retries=1, base_delay=1.0,
+                            exceptions=(requests.RequestException, ConnectionError, OSError),
+                        )
+                        if pt_resp is not None and pt_resp.status_code == 200:
+                            pt = pt_resp.json()
+                        elif pt_resp is not None and pt_resp.status_code == 403:
+                            if ticker == to_collect[0]:  # Log once, not 102 times
+                                logger.warning("[ANALYST] price-target endpoint returned 403 "
+                                               "(plan access mismatch) — storing recommendations only")
+                    except Exception:
+                        pass  # Price targets are nice-to-have, not critical
 
                 # Use latest recommendation entry
                 latest_rec = recs[0] if recs else {}

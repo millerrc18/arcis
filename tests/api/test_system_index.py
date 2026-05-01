@@ -260,6 +260,114 @@ def test_mark_reviewed_round_trip(client):
     assert state["last_reviewed_date_override"] == body["last_reviewed_date_override"]
 
 
+def test_cloud_runtime_fallback_builds_live_state_payload(monkeypatch):
+    monkeypatch.setattr("src.api.cloud_routes.system_index.DB_PATH", None)
+    monkeypatch.setattr(
+        "src.platform.capability_registry.bootstrap.CAPABILITY_MODULES", tuple()
+    )
+    monkeypatch.setattr(
+        "src.config.load_config",
+        lambda: {"bootcamp": {"enabled": False, "email_mode": "digest"}},
+    )
+    reset_for_tests()
+    saved = (dict(ACTIONS), dict(STATES), dict(SYSTEMS), dict(DECISIONS))
+    clear_registries_for_tests()
+
+    @register_state(name="shadow_trade_cohort", refresh_hint="real-time", **BASE_META)
+    def shadow_trade_cohort():
+        return {"error": "should not hit sqlite query function"}
+
+    @register_state(name="training_corpus", refresh_hint="real-time", **BASE_META)
+    def training_corpus():
+        return {"error": "should not hit sqlite query function"}
+
+    @register_state(name="strategy_registry_state", refresh_hint="real-time", **BASE_META)
+    def strategy_registry_state():
+        return {"error": "should not hit sqlite query function"}
+
+    @register_state(name="bootcamp_mode", refresh_hint="deploy-time", **BASE_META)
+    def bootcamp_mode():
+        return {"error": "should not hit sqlite query function"}
+
+    @register_system(name="demo_system", expected_runtime="always", **BASE_META)
+    def health():
+        return {"status": "ok", "detail": "fine"}
+
+    def query(sql: str, params: tuple = ()):
+        if "FROM strategy_registry GROUP BY current_status" in sql:
+            return [{"current_status": "shadow_live", "n": 2}]
+        if "FROM training_examples GROUP BY UPPER(COALESCE(outcome_type, 'UNKNOWN'))" in sql:
+            return [{"outcome": "WIN", "n": 3}]
+        if "FROM training_examples GROUP BY COALESCE(source, 'unknown')" in sql:
+            return [{"source": "shadow", "n": 3}]
+        return []
+
+    def query_one(sql: str, params: tuple = ()):
+        if "FROM shadow_trades" in sql:
+            return {"open_n": 4, "closed_n": 7, "quarantined_n": 1, "total_n": 11}
+        if "SELECT COUNT(*) AS c FROM training_examples" in sql:
+            return {"c": 3}
+        return None
+
+    app = FastAPI()
+
+    def _noop_auth() -> None:
+        return None
+
+    runtime = SimpleNamespace(query=query, query_one=query_one)
+    app.include_router(create_router(runtime, _noop_auth))
+    client = TestClient(app)
+
+    try:
+        response = client.get("/api/system/index")
+        assert response.status_code == 200
+        body = response.json()
+        states = {entry["name"]: entry for entry in body["states"]}
+        assert body["counts"]["total"] == 5
+        assert states["shadow_trade_cohort"]["live"]["status"] == "ok"
+        assert states["shadow_trade_cohort"]["live"]["result"]["value"]["total"] == 11
+        assert states["training_corpus"]["live"]["result"]["value"]["by_outcome"] == {"WIN": 3}
+        assert states["strategy_registry_state"]["live"]["result"]["value"]["by_status"] == {"shadow_live": 2}
+        assert states["bootcamp_mode"]["live"]["result"]["value"]["email_mode"] == "digest"
+        assert states["shadow_trade_cohort"]["delta_since_last_view"] is None
+    finally:
+        clear_registries_for_tests()
+        ACTIONS.update(saved[0])
+        STATES.update(saved[1])
+        SYSTEMS.update(saved[2])
+        DECISIONS.update(saved[3])
+
+
+def test_mark_reviewed_returns_503_when_local_state_unavailable(monkeypatch):
+    monkeypatch.setattr("src.api.cloud_routes.system_index.DB_PATH", None)
+    monkeypatch.setattr(
+        "src.platform.capability_registry.bootstrap.CAPABILITY_MODULES", tuple()
+    )
+    reset_for_tests()
+    saved = (dict(ACTIONS), dict(STATES), dict(SYSTEMS), dict(DECISIONS))
+    clear_registries_for_tests()
+    _register_synthetic()
+
+    app = FastAPI()
+
+    def _noop_auth() -> None:
+        return None
+
+    runtime = SimpleNamespace(query=lambda *args, **kwargs: [], query_one=lambda *args, **kwargs: None)
+    app.include_router(create_router(runtime, _noop_auth))
+    client = TestClient(app)
+
+    try:
+        resp = client.post("/api/system/index/demo_state/mark-reviewed")
+        assert resp.status_code == 503
+    finally:
+        clear_registries_for_tests()
+        ACTIONS.update(saved[0])
+        STATES.update(saved[1])
+        SYSTEMS.update(saved[2])
+        DECISIONS.update(saved[3])
+
+
 def test_mark_reviewed_nonexistent_name_returns_404(client):
     _register_synthetic()
     resp = client.post("/api/system/index/not_a_real_capability/mark-reviewed")
