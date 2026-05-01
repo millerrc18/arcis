@@ -358,7 +358,12 @@ training:
 data_enrichment:
   enabled: true
   finnhub_api_key: "your-finnhub-api-key"  # → .env: FINNHUB_API_KEY
-                                           # Free tier: 60 calls/min. Get at finnhub.io.
+                                           # Finnhub plan toggle lives below.
+  finnhub_plan: "auto"                     # one of: auto, free, fundamental-1
+                                           # Also overridable via FINNHUB_PLAN in .env.
+                                           # `free` disables premium-only enrichments.
+                                           # `fundamental-1` enables the paid features
+                                           # currently wired in code (e.g. news sentiment).
   fred_api_key: "your-fred-api-key"        # → .env: FRED_API_KEY
                                            # Free. Get at fred.stlouisfed.org/docs/api.
   cache_hours: 24              # How long to cache enrichment data before re-fetching.

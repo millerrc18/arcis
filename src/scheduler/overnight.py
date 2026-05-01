@@ -876,6 +876,16 @@ def run_evening_handoff(vram_manager=None):
 
     vm = VRAMManager()
     if vm.handoff_to_training():
+        try:
+            from src.scheduler.metrics import upsert_daily_metric
+
+            upsert_daily_metric(
+                "vram_handoff_training_ok",
+                1.0,
+                '{"direction":"training","detail":"overnight training handoff succeeded"}',
+            )
+        except Exception as metric_err:
+            logger.debug("[WATCH] vram_handoff_training_ok metric failed: %s", metric_err)
         vm.launch_training_subprocess(
             "overnight",
             ["-m", "scripts.overnight_train"],
@@ -889,6 +899,16 @@ def run_evening_handoff(vram_manager=None):
             logger.warning("[WATCH] notify_vram_handoff failed: %s", e)
         return vm
     else:
+        try:
+            from src.scheduler.metrics import upsert_daily_metric
+
+            upsert_daily_metric(
+                "vram_handoff_training_ok",
+                0.0,
+                '{"direction":"training","detail":"handoff failed; staying in inference mode"}',
+            )
+        except Exception as metric_err:
+            logger.debug("[WATCH] vram_handoff_training_ok metric failed: %s", metric_err)
         print("[WATCH] VRAM handoff FAILED -- staying in inference mode")
         try:
             from src.notifications.telegram import notify_vram_handoff, is_telegram_enabled
@@ -914,6 +934,16 @@ def run_morning_handoff(vram_manager=None):
 
     vm = vram_manager or VRAMManager()
     if vm.handoff_to_inference():
+        try:
+            from src.scheduler.metrics import upsert_daily_metric
+
+            upsert_daily_metric(
+                "vram_handoff_inference_ok",
+                1.0,
+                '{"direction":"inference","detail":"morning inference handoff succeeded"}',
+            )
+        except Exception as metric_err:
+            logger.debug("[WATCH] vram_handoff_inference_ok metric failed: %s", metric_err)
         stop_flag.unlink(missing_ok=True)
         print("[WATCH] Morning handoff complete -- Ollama loaded and warm")
         try:
@@ -923,6 +953,16 @@ def run_morning_handoff(vram_manager=None):
         except Exception as e:
             logger.warning("[WATCH] notify_vram_handoff failed: %s", e)
     else:
+        try:
+            from src.scheduler.metrics import upsert_daily_metric
+
+            upsert_daily_metric(
+                "vram_handoff_inference_ok",
+                0.0,
+                '{"direction":"inference","detail":"handoff failed; attempting restart"}',
+            )
+        except Exception as metric_err:
+            logger.debug("[WATCH] vram_handoff_inference_ok metric failed: %s", metric_err)
         print("[WATCH] Morning handoff FAILED -- attempting Ollama restart")
         try:
             from src.notifications.telegram import notify_vram_handoff, is_telegram_enabled

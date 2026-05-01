@@ -38,11 +38,23 @@ def _make_packet():
     )
 
 
+def _make_features():
+    return {
+        "AAPL": {
+            "ticker": "AAPL",
+            "current_price": 150.0,
+            "trend_state": "uptrend",
+            "atr_14": 5.0,
+        },
+    }
+
+
 def _scan_config():
     return {
         "shadow_trading": {"enabled": False},
         "email": {},
         "llm": {"enabled": False},
+        "_pre_llm_portfolio_snapshot": {},
     }
 
 
@@ -108,133 +120,135 @@ def test_scan_empty_spy_aborts(mock_uni, mock_ohlcv, mock_spy, mock_model):
     assert result["packets_generated"] == 0
 
 
-@patch("src.universe.company_names.get_company_name", return_value="Apple Inc.")
-@patch("src.training.versioning.get_active_model_name", return_value="model_v3")
-@patch("src.packets.template.render_packet", return_value="RENDERED")
-@patch("src.llm.packet_writer._build_feature_prompt", return_value="prompt text")
-@patch("src.llm.packet_writer.enhance_packet_with_llm", return_value=_make_packet())
-@patch("src.packets.template.build_packet_from_features", return_value=_make_packet())
-@patch("src.ranking.ranker.get_top_candidates", return_value={
-    "packet_worthy": [{"ticker": "AAPL", "score": 90, "qualification": "packet_worthy",
-                        "features": {"trend_state": "uptrend"}, "earnings_risk": False}],
-    "watchlist": [],
-})
-@patch("src.ranking.ranker.rank_universe", return_value=[])
-@patch("src.features.engine.compute_all_features", return_value={})
-@patch("src.data_ingestion.market_data.fetch_spy_benchmark", return_value=_make_spy_df())
-@patch("src.data_ingestion.market_data.fetch_ohlcv", return_value={"AAPL": pd.DataFrame()})
-@patch("src.universe.sp100.get_sp100_universe", return_value=["AAPL"])
-def test_scan_with_packet_worthy_dry_run(mock_uni, mock_ohlcv, mock_spy, mock_feat,
-                                          mock_rank, mock_top, mock_build, mock_enhance,
-                                          mock_prompt, mock_render, mock_model, mock_name):
+def test_scan_with_packet_worthy_dry_run():
     from src.services.scan_service import run_scan
 
-    result = run_scan(_scan_config(), dry_run=True)
+    with (
+        patch("src.universe.company_names.get_company_name", return_value="Apple Inc."),
+        patch("src.training.versioning.get_active_model_name", return_value="model_v3"),
+        patch("src.packets.template.render_packet", return_value="RENDERED"),
+        patch("src.llm.packet_writer._build_feature_prompt", return_value="prompt text"),
+        patch("src.llm.packet_writer.enhance_packet_with_llm", return_value=_make_packet()),
+        patch("src.packets.template.build_packet_from_features", return_value=_make_packet()),
+        patch("src.features.enrichment.attach_post_scan_features"),
+        patch("src.data_enrichment.enricher.enrich_features", return_value=_make_features()),
+        patch(
+            "src.ranking.ranker.get_top_candidates",
+            return_value={
+                "packet_worthy": [
+                    {
+                        "ticker": "AAPL",
+                        "score": 90,
+                        "qualification": "packet_worthy",
+                        "features": {"trend_state": "uptrend", "current_price": 150.0},
+                        "earnings_risk": False,
+                    }
+                ],
+                "watchlist": [],
+            },
+        ),
+        patch("src.ranking.ranker.rank_universe", return_value=[]),
+        patch("src.features.engine.compute_all_features", return_value=_make_features()),
+        patch("src.data_ingestion.market_data.fetch_spy_benchmark", return_value=_make_spy_df()),
+        patch("src.data_ingestion.market_data.fetch_ohlcv", return_value={"AAPL": pd.DataFrame()}),
+        patch("src.universe.sp100.get_sp100_universe", return_value=["AAPL"]),
+    ):
+        result = run_scan(_scan_config(), dry_run=True)
 
     assert result["packets_generated"] == 1
     assert result["packet_worthy"][0]["ticker"] == "AAPL"
     assert result["packets_emailed"] == 0  # dry_run so no email
 
 
-@patch("src.universe.company_names.get_company_name", return_value="Apple Inc.")
-@patch("src.training.versioning.get_active_model_name", return_value="model_v3")
-@patch("src.packets.template.render_packet", return_value="RENDERED")
-@patch("src.llm.packet_writer._build_feature_prompt", return_value="prompt text")
-@patch("src.llm.packet_writer.enhance_packet_with_llm", return_value=_make_packet())
-@patch("src.packets.template.build_packet_from_features", return_value=_make_packet())
-@patch("src.attribution.logger.log_attribution_after_llm")
-@patch("src.attribution.logger.log_attribution_before_llm", return_value="attr-1")
-@patch("src.ranking.ranker.get_top_candidates", return_value={
-    "packet_worthy": [{"ticker": "AAPL", "score": 90, "qualification": "packet_worthy",
-                        "features": {"trend_state": "uptrend"}, "earnings_risk": False}],
-    "watchlist": [],
-})
-@patch("src.ranking.ranker.rank_universe", return_value=[])
-@patch("src.features.enrichment.attach_post_scan_features")
-@patch("src.data_enrichment.enricher.enrich_features", return_value={})
-@patch("src.features.engine.compute_all_features", return_value={})
-@patch("src.data_ingestion.market_data.fetch_spy_benchmark", return_value=_make_spy_df())
-@patch("src.data_ingestion.market_data.fetch_ohlcv", return_value={"AAPL": pd.DataFrame()})
-@patch("src.universe.sp100.get_sp100_universe", return_value=["AAPL"])
-def test_scan_strategy_wires_strategy_and_attribution_hooks(
-    mock_uni,
-    mock_ohlcv,
-    mock_spy,
-    mock_feat,
-    mock_enrich,
-    mock_post_scan,
-    mock_rank,
-    mock_top,
-    mock_before,
-    mock_after,
-    mock_build,
-    mock_enhance,
-    mock_prompt,
-    mock_render,
-    mock_model,
-    mock_name,
-):
+def test_scan_strategy_wires_strategy_and_attribution_hooks():
     from src.services.scan_service import run_scan
 
     strategy = _scan_strategy(raw={"hooks": {"attribution": ["log_before_llm", "log_after_llm"]}})
-    result = run_scan(_scan_config(), dry_run=True, strategy=strategy)
+    with (
+        patch("src.universe.company_names.get_company_name", return_value="Apple Inc."),
+        patch("src.training.versioning.get_active_model_name", return_value="model_v3"),
+        patch("src.packets.template.render_packet", return_value="RENDERED"),
+        patch("src.llm.packet_writer._build_feature_prompt", return_value="prompt text"),
+        patch("src.llm.packet_writer.enhance_packet_with_llm", return_value=_make_packet()),
+        patch("src.packets.template.build_packet_from_features", return_value=_make_packet()) as mock_build,
+        patch("src.attribution.logger.log_attribution_after_llm") as mock_after,
+        patch("src.attribution.logger.log_attribution_before_llm", return_value="attr-1") as mock_before,
+        patch(
+            "src.ranking.ranker.get_top_candidates",
+            return_value={
+                "packet_worthy": [
+                    {
+                        "ticker": "AAPL",
+                        "score": 90,
+                        "qualification": "packet_worthy",
+                        "features": {"trend_state": "uptrend", "current_price": 150.0},
+                        "earnings_risk": False,
+                    }
+                ],
+                "watchlist": [],
+            },
+        ),
+        patch("src.ranking.ranker.rank_universe", return_value=[]) as mock_rank,
+        patch("src.features.enrichment.attach_post_scan_features") as mock_post_scan,
+        patch("src.data_enrichment.enricher.enrich_features", return_value=_make_features()) as mock_enrich,
+        patch("src.features.engine.compute_all_features", return_value=_make_features()) as mock_feat,
+        patch("src.data_ingestion.market_data.fetch_spy_benchmark", return_value=_make_spy_df()) as mock_spy,
+        patch("src.data_ingestion.market_data.fetch_ohlcv", return_value={"AAPL": pd.DataFrame()}),
+        patch("src.universe.sp100.get_sp100_universe", return_value=["AAPL"]),
+    ):
+        result = run_scan(_scan_config(), dry_run=True, strategy=strategy)
 
     assert result["packets_generated"] == 1
     feat_args, feat_kwargs = mock_feat.call_args
     assert feat_kwargs == {"strategy": strategy}
     assert list(feat_args[0]) == ["AAPL"]
     assert feat_args[1].equals(mock_spy.return_value)
-    mock_enrich.assert_called_once_with({}, _scan_config(), strategy=strategy)
+    mock_enrich.assert_called_once_with(_make_features(), _scan_config(), strategy=strategy)
     mock_post_scan.assert_called_once()
     assert mock_post_scan.call_args.kwargs.get("strategy") == strategy
-    mock_rank.assert_called_once_with({}, strategy=strategy)
-    mock_build.assert_called_once_with("AAPL", {"trend_state": "uptrend", "_score": 90, "signal_price": 0.0}, _scan_config(), strategy=strategy)
+    mock_rank.assert_called_once_with(_make_features(), strategy=strategy)
+    mock_build.assert_called_once_with("AAPL", {"trend_state": "uptrend", "current_price": 150.0, "_score": 90, "signal_price": 150.0}, _scan_config(), strategy=strategy)
     mock_before.assert_called_once()
     mock_after.assert_called_once()
 
 
-@patch("src.universe.company_names.get_company_name", return_value="Apple Inc.")
-@patch("src.training.versioning.get_active_model_name", return_value="model_v3")
-@patch("src.packets.template.render_packet", return_value="RENDERED")
-@patch("src.llm.packet_writer._build_feature_prompt", return_value="prompt text")
-@patch("src.llm.packet_writer.enhance_packet_with_llm", return_value=_make_packet())
-@patch("src.packets.template.build_packet_from_features", return_value=_make_packet())
-@patch("src.attribution.logger.log_attribution_after_llm")
-@patch("src.attribution.logger.log_attribution_before_llm", return_value="attr-1")
-@patch("src.ranking.ranker.get_top_candidates", return_value={
-    "packet_worthy": [{"ticker": "AAPL", "score": 90, "qualification": "packet_worthy",
-                        "features": {"trend_state": "uptrend"}, "earnings_risk": False}],
-    "watchlist": [],
-})
-@patch("src.ranking.ranker.rank_universe", return_value=[])
-@patch("src.features.enrichment.attach_post_scan_features")
-@patch("src.data_enrichment.enricher.enrich_features", return_value={})
-@patch("src.features.engine.compute_all_features", return_value={})
-@patch("src.data_ingestion.market_data.fetch_spy_benchmark", return_value=_make_spy_df())
-@patch("src.data_ingestion.market_data.fetch_ohlcv", return_value={"AAPL": pd.DataFrame()})
-@patch("src.universe.sp100.get_sp100_universe", return_value=["AAPL"])
-def test_scan_strategy_without_attribution_hooks_skips_logging(
-    mock_uni,
-    mock_ohlcv,
-    mock_spy,
-    mock_feat,
-    mock_enrich,
-    mock_post_scan,
-    mock_rank,
-    mock_top,
-    mock_before,
-    mock_after,
-    mock_build,
-    mock_enhance,
-    mock_prompt,
-    mock_render,
-    mock_model,
-    mock_name,
-):
+def test_scan_strategy_without_attribution_hooks_skips_logging():
     from src.services.scan_service import run_scan
 
     strategy = _scan_strategy()
-    result = run_scan(_scan_config(), dry_run=True, strategy=strategy)
+    with (
+        patch("src.universe.company_names.get_company_name", return_value="Apple Inc."),
+        patch("src.training.versioning.get_active_model_name", return_value="model_v3"),
+        patch("src.packets.template.render_packet", return_value="RENDERED"),
+        patch("src.llm.packet_writer._build_feature_prompt", return_value="prompt text"),
+        patch("src.llm.packet_writer.enhance_packet_with_llm", return_value=_make_packet()),
+        patch("src.packets.template.build_packet_from_features", return_value=_make_packet()),
+        patch("src.attribution.logger.log_attribution_after_llm") as mock_after,
+        patch("src.attribution.logger.log_attribution_before_llm", return_value="attr-1") as mock_before,
+        patch(
+            "src.ranking.ranker.get_top_candidates",
+            return_value={
+                "packet_worthy": [
+                    {
+                        "ticker": "AAPL",
+                        "score": 90,
+                        "qualification": "packet_worthy",
+                        "features": {"trend_state": "uptrend", "current_price": 150.0},
+                        "earnings_risk": False,
+                    }
+                ],
+                "watchlist": [],
+            },
+        ),
+        patch("src.ranking.ranker.rank_universe", return_value=[]),
+        patch("src.features.enrichment.attach_post_scan_features"),
+        patch("src.data_enrichment.enricher.enrich_features", return_value=_make_features()),
+        patch("src.features.engine.compute_all_features", return_value=_make_features()),
+        patch("src.data_ingestion.market_data.fetch_spy_benchmark", return_value=_make_spy_df()),
+        patch("src.data_ingestion.market_data.fetch_ohlcv", return_value={"AAPL": pd.DataFrame()}),
+        patch("src.universe.sp100.get_sp100_universe", return_value=["AAPL"]),
+    ):
+        result = run_scan(_scan_config(), dry_run=True, strategy=strategy)
 
     assert result["packets_generated"] == 1
     mock_before.assert_not_called()

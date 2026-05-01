@@ -230,8 +230,15 @@ export default function Dashboard() {
   const { data: configData } = useQuery({ queryKey: ['config'], queryFn: api.getConfig, refetchInterval: 300000 })
   const { data: accountData } = useQuery({ queryKey: ['shadow-account', deskFilter], queryFn: () => api.getAccount(deskFilter), refetchInterval: 60000 })
   const { data: buildScore } = useQuery({ queryKey: ['build-score'], queryFn: api.getBuildScore, refetchInterval: 120000 })
-  const { data: scanMetrics } = useQuery({ queryKey: ['scan-metrics'], queryFn: () => api.getScanMetrics(50), refetchInterval: 60000 })
-  const { data: systemIndex, isLoading: systemIndexLoading } = useQuery({ queryKey: ['system-index'], queryFn: api.getSystemIndex, refetchInterval: 60000 })
+  const {
+    data: scanMetrics,
+    isError: scanMetricsError,
+  } = useQuery({ queryKey: ['scan-metrics'], queryFn: () => api.getScanMetrics(50), refetchInterval: 60000 })
+  const {
+    data: systemIndex,
+    isLoading: systemIndexLoading,
+    isError: systemIndexError,
+  } = useQuery({ queryKey: ['system-index'], queryFn: api.getSystemIndex, refetchInterval: 60000 })
   const {
     data: kpiData,
     isLoading: kpiLoading,
@@ -372,8 +379,8 @@ export default function Dashboard() {
       <BuildScoreHero data={buildScore} />
 
       {/* System Index panels — capability_registry v1 (Sprint 1B) */}
-      <QuickStatsPanel data={systemIndex} isLoading={systemIndexLoading} />
-      <SystemIndexPanel data={systemIndex} isLoading={systemIndexLoading} />
+      <QuickStatsPanel data={systemIndex} isLoading={systemIndexLoading} isError={systemIndexError} />
+      <SystemIndexPanel data={systemIndex} isLoading={systemIndexLoading} isError={systemIndexError} />
       <WhatsNewPanel />
 
       {/* Actions */}
@@ -560,7 +567,7 @@ export default function Dashboard() {
       )}
 
       {/* Scan Metrics */}
-      {scanMetrics && Array.isArray(scanMetrics) && scanMetrics.length > 0 && (() => {
+      {Array.isArray(scanMetrics) && scanMetrics.length > 0 && (() => {
         const today = new Date().toISOString().slice(0, 10)
         const todayScans = scanMetrics.filter(m => (m.created_at || m.scan_date || '').slice(0, 10) === today)
         const totalToday = todayScans.length
@@ -614,6 +621,22 @@ export default function Dashboard() {
           </div>
         )
       })()}
+      {!Array.isArray(scanMetrics) && scanMetricsError && (
+        <div className="arcis-card">
+          <h3 className="text-sm uppercase tracking-wide mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>Scan Metrics</h3>
+          <div className="text-sm" style={{ color: 'var(--arcis-text-muted)' }}>
+            Scan metrics are temporarily unavailable from the API.
+          </div>
+        </div>
+      )}
+      {Array.isArray(scanMetrics) && scanMetrics.length === 0 && (
+        <div className="arcis-card">
+          <h3 className="text-sm uppercase tracking-wide mb-3" style={{ color: 'var(--arcis-text-secondary)' }}>Scan Metrics</h3>
+          <div className="text-sm" style={{ color: 'var(--arcis-text-muted)' }}>
+            No scan metrics have been recorded yet.
+          </div>
+        </div>
+      )}
     </div>
   )
 }

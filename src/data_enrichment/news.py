@@ -62,6 +62,35 @@ def _save_cache(ticker: str, data: dict, as_of_date: str | None = None) -> None:
         pass
 
 
+def _get_sentiment_cache_path(ticker: str) -> Path:
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    return CACHE_DIR / f"{ticker}_news_sentiment.pkl"
+
+
+def _load_sentiment_cached(ticker: str, cache_hours: int = 6) -> dict | None:
+    path = _get_sentiment_cache_path(ticker)
+    if not path.exists():
+        return None
+    try:
+        with open(path, "rb") as f:
+            data = pickle.load(f)
+        if datetime.now() - data.get("_cached_at", datetime.min) < timedelta(hours=cache_hours):
+            return data
+    except Exception:
+        pass
+    return None
+
+
+def _save_sentiment_cache(ticker: str, data: dict) -> None:
+    data["_cached_at"] = datetime.now()
+    path = _get_sentiment_cache_path(ticker)
+    try:
+        with open(path, "wb") as f:
+            pickle.dump(data, f)
+    except Exception:
+        pass
+
+
 def _classify_sentiment(headlines: list[dict]) -> tuple[str, int, int, int]:
     """Classify overall sentiment from headlines. Returns (label, pos, neg, neutral)."""
     pos = 0
@@ -334,6 +363,86 @@ def fetch_historical_news(ticker: str, as_of_date: str, lookback_days: int = 7,
     }
 
     _save_cache(ticker, result, as_of_date=as_of_date)
+    return result
+
+
+def fetch_news_sentiment(
+    ticker: str,
+    finnhub_api_key: str | None = None,
+    cache_hours: int = 6,
+    warnings: list[str] | None = None,
+) -> dict | None:
+    """Fetch Finnhub's premium news sentiment for runtime enrichment.
+
+    Runtime only: the endpoint does not expose an as-of parameter, so callers
+    must not use it for historical / PIT backfill paths.
+    """
+    cached = _load_sentiment_cached(ticker, cache_hours)
+    if cached:
+        result = {k: v for k, v in cached.items() if not k.startswith("_")}
+        return result if result else None
+
+    finnhub_api_key = finnhub_api_key or os.environ.get("FINNHUB_API_KEY")
+    if not finnhub_api_key:
+        return None
+
+    url = "https://finnhub.io/api/v1/news-sentiment"
+    headers = {"X-Finnhub-Token": finnhub_api_key}
+
+    resp = retry_with_backoff(
+        lambda: requests.get(url, params={"symbol": ticker}, headers=headers, timeout=15),
+        max_retries=2,
+        base_delay=1.0,
+        exceptions=(requests.RequestException, ConnectionError, OSError),
+    )
+    if resp is None:
+        if warnings is not None:
+            warnings.append(f"news_sentiment_fetch_failed:{ticker}:runtime")
+        return None
+
+    try:
+        if resp.status_code == 403:
+            if warnings is not None:
+                warnings.append(f"news_sentiment_unavailable:{ticker}:runtime")
+            return None
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        logger.debug("Finnhub news sentiment request failed for %s: %s", ticker, exc)
+        if warnings is not None:
+            warnings.append(f"news_sentiment_fetch_failed:{ticker}:runtime")
+        return None
+
+    sentiment = data.get("sentiment") or {}
+    bullish_pct = float(sentiment.get("bullishPercent", 0) or 0)
+    bearish_pct = float(sentiment.get("bearishPercent", 0) or 0)
+    company_score = float(data.get("companyNewsScore", 0) or 0)
+    buzz = (data.get("buzz") or {}).get("articlesInLastWeek", 0) or 0
+
+    if bullish_pct >= 0.67 and company_score >= 0.6:
+        label = "positive"
+    elif bearish_pct >= 0.67 and company_score <= 0.4:
+        label = "negative"
+    elif bullish_pct > 0 and bearish_pct > 0:
+        label = "mixed"
+    else:
+        label = "neutral"
+
+    result = {
+        "news_sentiment": label,
+        "company_news_score": company_score,
+        "bullish_percent": bullish_pct,
+        "bearish_percent": bearish_pct,
+        "articles_in_last_week": int(buzz),
+        "sector_average_news_score": float(data.get("sectorAverageNewsScore", 0) or 0),
+        "sector_average_bullish_percent": float(data.get("sectorAverageBullishPercent", 0) or 0),
+        "summary": (
+            f"Finnhub sentiment: {label} "
+            f"(score {company_score:.2f}, bullish {bullish_pct:.0%}, "
+            f"bearish {bearish_pct:.0%}, {int(buzz)} articles/week)."
+        ),
+    }
+    _save_sentiment_cache(ticker, result)
     return result
 
 

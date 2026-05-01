@@ -1,4 +1,4 @@
-const CACHE_NAME = 'arcis-dashboard-v2';
+const CACHE_NAME = 'arcis-dashboard-v3';
 const SHELL_ASSETS = [
   '/',
   '/index.html',

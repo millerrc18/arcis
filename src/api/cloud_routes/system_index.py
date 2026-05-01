@@ -203,6 +203,130 @@ def _enrich_system(entry, conn: sqlite3.Connection) -> dict[str, Any]:
     return payload
 
 
+def _cloud_shadow_trade_cohort(runtime) -> dict[str, Any]:
+    from src.shadow_trading._status_sql import active_in_clause, terminal_in_clause
+
+    active_frag, active_params = active_in_clause()
+    terminal_frag, terminal_params = terminal_in_clause()
+    row = runtime.query_one(
+        "SELECT "
+        f"SUM(CASE WHEN status IN ({active_frag}) THEN 1 ELSE 0 END) AS open_n, "
+        f"SUM(CASE WHEN status IN ({terminal_frag}) THEN 1 ELSE 0 END) AS closed_n, "
+        "SUM(CASE WHEN COALESCE(quarantined, 0) = 1 THEN 1 ELSE 0 END) AS quarantined_n, "
+        "COUNT(*) AS total_n "
+        "FROM shadow_trades",
+        active_params + terminal_params,
+    ) or {}
+    return {
+        "value": {
+            "open": int(row.get("open_n") or 0),
+            "closed": int(row.get("closed_n") or 0),
+            "quarantined": int(row.get("quarantined_n") or 0),
+            "total": int(row.get("total_n") or 0),
+        },
+    }
+
+
+def _cloud_strategy_registry_state(runtime) -> dict[str, Any]:
+    rows = runtime.query(
+        "SELECT current_status, COUNT(*) AS n "
+        "FROM strategy_registry GROUP BY current_status"
+    )
+    by_status = {
+        (row.get("current_status") or "unknown"): int(row.get("n") or 0)
+        for row in rows
+    }
+    return {"value": {"total": sum(by_status.values()), "by_status": by_status}}
+
+
+def _cloud_training_corpus(runtime) -> dict[str, Any]:
+    outcome_rows = runtime.query(
+        "SELECT UPPER(COALESCE(outcome_type, 'UNKNOWN')) AS outcome, "
+        "COUNT(*) AS n FROM training_examples "
+        "GROUP BY UPPER(COALESCE(outcome_type, 'UNKNOWN'))"
+    )
+    source_rows = runtime.query(
+        "SELECT COALESCE(source, 'unknown') AS source, COUNT(*) AS n "
+        "FROM training_examples GROUP BY COALESCE(source, 'unknown')"
+    )
+    total_row = runtime.query_one("SELECT COUNT(*) AS c FROM training_examples") or {}
+    return {
+        "value": {
+            "total": int(total_row.get("c") or 0),
+            "by_outcome": {
+                row.get("outcome") or "UNKNOWN": int(row.get("n") or 0)
+                for row in outcome_rows
+            },
+            "by_source": {
+                row.get("source") or "unknown": int(row.get("n") or 0)
+                for row in source_rows
+            },
+        },
+    }
+
+
+def _cloud_bootcamp_mode() -> dict[str, Any]:
+    try:
+        from src.config import load_config
+
+        cfg = load_config()
+        bootcamp = (cfg.get("bootcamp") or {}) if cfg else {}
+    except Exception:
+        bootcamp = {}
+    return {
+        "value": {
+            "enabled": bool(bootcamp.get("enabled", False)),
+            "phase": int(bootcamp.get("phase", 0)) if bootcamp.get("enabled") else None,
+            "qualification_threshold": int(bootcamp.get("qualification_threshold", 0) or 0),
+            "email_mode": bootcamp.get("email_mode", "digest"),
+        },
+    }
+
+
+_CLOUD_STATE_RESOLVERS = {
+    "shadow_trade_cohort": _cloud_shadow_trade_cohort,
+    "strategy_registry_state": _cloud_strategy_registry_state,
+    "training_corpus": _cloud_training_corpus,
+    "bootcamp_mode": lambda runtime: _cloud_bootcamp_mode(),
+}
+
+
+def _has_cloud_runtime(runtime) -> bool:
+    return (
+        hasattr(runtime, "query")
+        and callable(getattr(runtime, "query"))
+        and hasattr(runtime, "query_one")
+        and callable(getattr(runtime, "query_one"))
+    )
+
+
+def _cloud_call_state(entry, runtime) -> dict[str, Any]:
+    resolver = _CLOUD_STATE_RESOLVERS.get(entry.name)
+    if resolver is None:
+        return _call_with_timeout(entry.query_function, name=entry.name)
+    try:
+        return {"status": "ok", "result": resolver(runtime)}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[SYSTEM_INDEX] cloud resolver '%s' raised: %r", entry.name, exc)
+        return {"status": "unavailable", "error": str(exc)}
+
+
+def _enrich_state_cloud(entry, runtime) -> dict[str, Any]:
+    payload = _base_payload(entry)
+    payload["live"] = _cloud_call_state(entry, runtime)
+    payload["delta_since_last_view"] = None
+    payload["last_reviewed_date_override"] = None
+    payload["last_viewed_at"] = None
+    return payload
+
+
+def _enrich_system_cloud(entry) -> dict[str, Any]:
+    payload = _base_payload(entry)
+    payload["health"] = _call_with_timeout(entry.health_check_function, name=entry.name)
+    payload["last_reviewed_date_override"] = None
+    return payload
+
+
 def _compute_counts(actions, states, systems, decisions) -> dict[str, Any]:
     from datetime import timedelta
     stale_threshold = date.today() - timedelta(days=180)
@@ -253,12 +377,24 @@ def _build_live_payload(conn, actions, states, systems, decisions) -> dict[str, 
     }
 
 
+def _build_cloud_payload(runtime, actions, states, systems, decisions) -> dict[str, Any]:
+    """Cloud payload shape when local SQLite is unavailable."""
+    return {
+        "generated_at": _utc_now_iso(),
+        "actions": [_enrich_action(a) for a in actions],
+        "states": [_enrich_state_cloud(s, runtime) for s in states],
+        "systems": [_enrich_system_cloud(s) for s in systems],
+        "decisions": [_enrich_decision(d) for d in decisions],
+        "counts": _compute_counts(actions, states, systems, decisions),
+    }
+
+
 def create_router(runtime, verify_auth) -> APIRouter:
     """Build the /api/system/index router.
 
-    `runtime` is the cloud_app SimpleNamespace (unused for this endpoint —
-    we read SQLite directly for both state queries and view-state reads).
-    Included as a signature match for cloud_app's router-factory list.
+    `runtime` is the cloud_app SimpleNamespace. Local mode uses SQLite for
+    view-state persistence; cloud mode falls back to runtime/Postgres-backed
+    resolvers when local SQLite is unavailable.
     """
     router = APIRouter()
 
@@ -274,6 +410,13 @@ def create_router(runtime, verify_auth) -> APIRouter:
             conn = _open_sqlite()
         except sqlite3.Error as exc:
             logger.warning("[SYSTEM_INDEX] unable to open local SQLite: %r", exc)
+            if _has_cloud_runtime(runtime):
+                return _build_cloud_payload(runtime, actions, states, systems, decisions)
+            return _build_offline_payload(actions, states, systems, decisions)
+        except TypeError as exc:
+            logger.warning("[SYSTEM_INDEX] local SQLite unavailable: %r", exc)
+            if _has_cloud_runtime(runtime):
+                return _build_cloud_payload(runtime, actions, states, systems, decisions)
             return _build_offline_payload(actions, states, systems, decisions)
 
         try:
@@ -307,6 +450,9 @@ def create_router(runtime, verify_auth) -> APIRouter:
                 conn.close()
         except sqlite3.Error as exc:
             logger.error("[SYSTEM_INDEX] mark-reviewed SQLite error for %s: %r", entry_name, exc)
+            raise HTTPException(status_code=503, detail="local state unavailable") from exc
+        except TypeError as exc:
+            logger.error("[SYSTEM_INDEX] mark-reviewed local state unavailable for %s: %r", entry_name, exc)
             raise HTTPException(status_code=503, detail="local state unavailable") from exc
 
     return router

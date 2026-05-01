@@ -44,12 +44,22 @@ function DeltaBadge({ delta }) {
   return <span className={`ml-2 text-xs ${color}`}>{sign}{delta}</span>;
 }
 
-export default function QuickStatsPanel({ data, isLoading }) {
+export default function QuickStatsPanel({ data, isLoading, isError }) {
   if (isLoading) {
     return (
       <div className="arcis-card mb-4">
         <h3 className="text-sm font-semibold mb-2">Quick Stats</h3>
         <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>Loading...</div>
+      </div>
+    );
+  }
+  if (isError) {
+    return (
+      <div className="arcis-card mb-4">
+        <h3 className="text-sm font-semibold mb-2">Quick Stats</h3>
+        <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>
+          Temporarily unavailable. The system index API did not return a valid payload.
+        </div>
       </div>
     );
   }

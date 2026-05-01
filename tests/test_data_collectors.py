@@ -281,6 +281,7 @@ class TestAnalystEstimates:
                    "targetMedian": 195.0, "lastUpdated": "2026-03-20"}
 
         with patch("src.data_collection.analyst_collector._get_finnhub_key", return_value="key"), \
+             patch("src.data_collection.analyst_collector.finnhub_plan_supports", return_value=True), \
              patch("src.data_collection.analyst_collector.requests.get") as mock_get, \
              patch("src.data_collection.analyst_collector.time.sleep"):
             mock_resp_rec = MagicMock()
@@ -297,6 +298,26 @@ class TestAnalystEstimates:
 
         assert result["tickers_processed"] == 1
         assert result["estimates_stored"] == 1
+
+    def test_collect_skips_price_target_when_plan_does_not_support_it(self, tmp_db):
+        from src.data_collection.analyst_collector import collect_analyst_estimates
+
+        rec_data = [{"buy": 20, "hold": 5, "sell": 1, "strongBuy": 10, "strongSell": 0}]
+
+        with patch("src.data_collection.analyst_collector._get_finnhub_key", return_value="key"), \
+             patch("src.data_collection.analyst_collector.finnhub_plan_supports", return_value=False), \
+             patch("src.data_collection.analyst_collector.requests.get") as mock_get, \
+             patch("src.data_collection.analyst_collector.time.sleep"):
+            mock_resp_rec = MagicMock()
+            mock_resp_rec.json.return_value = rec_data
+            mock_resp_rec.raise_for_status.return_value = None
+            mock_get.return_value = mock_resp_rec
+
+            result = collect_analyst_estimates(["AAPL"], batch_size=5, db_path=tmp_db)
+
+        assert result["tickers_processed"] == 1
+        assert result["estimates_stored"] == 1
+        assert mock_get.call_count == 1
 
     def test_no_api_key(self, tmp_db):
         from src.data_collection.analyst_collector import collect_analyst_estimates

@@ -24,7 +24,7 @@ function groupByCategory(entries) {
   return groups;
 }
 
-export default function SystemIndexPanel({ data, isLoading }) {
+export default function SystemIndexPanel({ data, isLoading, isError }) {
   const [selected, setSelected] = useState(null);
 
   const allEntries = useMemo(() => {
@@ -47,6 +47,17 @@ export default function SystemIndexPanel({ data, isLoading }) {
       <div className="arcis-card mb-4">
         <h3 className="text-sm font-semibold mb-2">System Index</h3>
         <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>Loading capabilities...</div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="arcis-card mb-4">
+        <h3 className="text-sm font-semibold mb-2">System Index</h3>
+        <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>
+          Capability registry temporarily unavailable. Refresh after the API recovers.
+        </div>
       </div>
     );
   }
