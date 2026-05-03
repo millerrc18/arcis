@@ -29,7 +29,10 @@ import logging
 import os
 from typing import Optional
 
-import requests
+try:
+    import requests
+except ImportError:
+    requests = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +71,11 @@ def _fetch_dtb3_observations(api_key: str, on_or_before: dt.date) -> list[dict]:
 
     A modest limit handles weekends/holidays via the prior-banking-day fallback.
     """
+    if requests is None:
+        raise ImportError(
+            "requests is required for FRED fetch but is not installed. "
+            "Add requests>=2.31,<3.0 to requirements-cloud.txt."
+        )
     resp = requests.get(
         FRED_BASE,
         params={
