@@ -11,3 +11,9 @@ jsonschema>=4.0,<5.0
 # numpy — required by src/api/cloud_routes/kpis.py (PR-690 I3: Lo (2002)
 # autocorrelation-corrected Sharpe SE uses np.corrcoef + np.array slicing).
 numpy>=1.24,<3.0
+# requests — required transitively by src/api/cloud_routes/kpis.py via
+# src.api.cloud_routes.kpis_compute._compute_per_trade_rf, which imports
+# get_rf_rate from src.data_ingestion.risk_free_rate (FRED fetch path).
+# Missing → /api/kpis crashed with ModuleNotFoundError on every call.
+# Recurrence of the jsonschema/numpy bug class.
+requests>=2.31,<3.0

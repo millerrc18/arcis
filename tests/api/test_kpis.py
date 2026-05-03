@@ -1116,3 +1116,91 @@ class TestFetchClosedTradesPostgresRouting:
         ):
             result = kpis_mod.get_kpis()
         assert result["n_trades"] == 3
+
+
+# ── Regression: requests missing from cloud deps (production 500 fix) ─────────
+
+class TestRequestsLazyImportFallback:
+    """Regression tests for the ModuleNotFoundError: No module named 'requests'
+    crash on Render. Root cause: risk_free_rate.py had a module-level
+    'import requests' that fired when _compute_per_trade_rf imported get_rf_rate,
+    crashing before the CollectorConfigError try/except could fire.
+
+    Fix (defense-in-depth):
+      (a) requests is now a soft import (try/except ImportError → requests=None)
+          so the module loads even when requests is absent from the environment.
+      (b) _fetch_dtb3_observations checks 'if requests is None' and raises
+          ImportError, which the broad 'except Exception' in _compute_per_trade_rf
+          catches and falls back to the placeholder rate."""
+
+    _TRADES_FOR_RF = [
+        {
+            "trade_id": f"t-{i}",
+            "pnl_pct": pnl,
+            "spy_return_over_hold": 0.005,
+            "instrumentation_version": 3,
+            "actual_entry_time": "2026-03-02T10:00:00",
+            "actual_exit_time": "2026-03-04T15:00:00",
+            "excess_return": pnl - 0.5,
+        }
+        for i, pnl in enumerate(
+            [1.2, -0.5, 2.3, 0.8, -0.3]
+        )
+    ]
+
+    def test_risk_free_rate_importable_when_requests_is_none(self, monkeypatch):
+        """risk_free_rate module must remain importable even when requests is None
+        (simulating requests absent from the environment). The soft-import pattern
+        (try/except ImportError → requests=None) ensures this."""
+        import src.data_ingestion.risk_free_rate as rfr
+        # Simulate requests being absent by setting the module attribute to None.
+        monkeypatch.setattr(rfr, "requests", None)
+        # Module is already imported; verify it has the expected attribute.
+        assert hasattr(rfr, "get_rf_rate"), "get_rf_rate must be present"
+        # requests attribute must be None (not raise AttributeError).
+        assert rfr.requests is None
+
+    def test_compute_per_trade_rf_falls_back_when_requests_unavailable(
+        self, monkeypatch, caplog
+    ):
+        """When requests is unavailable (simulated by setting requests=None on
+        the module), _compute_per_trade_rf must return (placeholder_rfs,
+        used_fred=False) — NOT raise ModuleNotFoundError or ImportError.
+
+        This covers the exact production crash path:
+          _compute_per_trade_rf → get_rf_rate → _fetch_dtb3_observations
+          → 'if requests is None: raise ImportError'
+          → caught by broad 'except Exception' → placeholder fallback."""
+        import src.data_ingestion.risk_free_rate as rfr
+        from src.api.cloud_routes import kpis_compute as kc
+
+        # Clear the per-process cache so cached values from earlier test runs
+        # don't cause get_rf_rate to return early (bypassing _fetch_dtb3_observations).
+        rfr._cache_clear()
+        monkeypatch.setattr(rfr, "requests", None)
+
+        import logging
+        caplog.set_level(logging.WARNING, logger="src.api.cloud_routes.kpis_compute")
+
+        # Must not raise; must return placeholder fallback.
+        rfs, used_fred = kc._compute_per_trade_rf(self._TRADES_FOR_RF)
+
+        assert used_fred is False, "used_fred must be False when FRED is unreachable"
+        assert len(rfs) == len(self._TRADES_FOR_RF), (
+            f"Must return one rf value per trade; got {len(rfs)} for "
+            f"{len(self._TRADES_FOR_RF)} trades"
+        )
+        for rf in rfs:
+            assert isinstance(rf, float), f"Each rf must be a float; got {type(rf)}"
+
+    def test_fetch_dtb3_raises_import_error_when_requests_is_none(self, monkeypatch):
+        """_fetch_dtb3_observations must raise ImportError when requests=None,
+        so _compute_per_trade_rf's 'except Exception' branch can fire instead
+        of the crash propagating to the route handler."""
+        import datetime as dt
+        import src.data_ingestion.risk_free_rate as rfr
+
+        monkeypatch.setattr(rfr, "requests", None)
+
+        with pytest.raises(ImportError, match="requests is required"):
+            rfr._fetch_dtb3_observations("fake_key", dt.date(2026, 3, 1))
