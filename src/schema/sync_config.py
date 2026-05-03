@@ -29,9 +29,11 @@ def generate_sync_tables() -> dict[str, dict]:
     ON CONFLICT specification".
     """
     config = {}
-    for name, table in TABLES.items():
-        if not table.sync_to_postgres:
-            continue
+    sync_tables = {
+        name: table for name, table in TABLES.items() if table.sync_to_postgres
+    }
+    for name in _topo_sort_tables(sync_tables):
+        table = sync_tables[name]
         entry: dict = {"mode": table.sync_mode, "sync_reconcile": table.sync_reconcile}
         is_composite = (
             isinstance(table.primary_key, list) and len(table.primary_key) > 1

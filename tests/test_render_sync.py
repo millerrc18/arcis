@@ -279,6 +279,48 @@ class TestPostgresUpsert:
         assert mock_cursor.execute.call_count == 4
         mock_conn.commit.assert_called_once()
 
+    def test_upsert_uses_registry_numeric_coercion(self):
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        columns = ["trade_id", "planned_shares", "duration_days", "updated_at"]
+        rows = [{
+            "trade_id": "t1",
+            "planned_shares": "0.30",
+            "duration_days": "7.0",
+            "updated_at": "2026-05-03T10:00:00",
+        }]
+
+        _upsert_to_postgres(
+            mock_conn, "shadow_trades", "trade_id", columns, rows, mode="incremental",
+        )
+
+        executed_params = mock_cursor.execute.call_args_list[0][0][1]
+        assert 0.3 in executed_params
+        assert 7 in executed_params
+
+    def test_upsert_drops_columns_not_in_registry(self):
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        columns = ["trade_id", "ticker", "status", "mystery_col"]
+        rows = [{
+            "trade_id": "t1",
+            "ticker": "AAPL",
+            "status": "open",
+            "mystery_col": "ignored",
+        }]
+
+        _upsert_to_postgres(
+            mock_conn, "shadow_trades", "trade_id", columns, rows, mode="incremental",
+        )
+
+        executed_sql = mock_cursor.execute.call_args_list[0][0][0]
+        col_section = executed_sql.split("(", 1)[1].split(")", 1)[0]
+        assert "mystery_col" not in [c.strip() for c in col_section.split(",")]
+
 
 # ── Sync table tests ─────────────────────────────────────────────────
 
@@ -395,6 +437,72 @@ class TestRunSyncCycle:
             SYNC_TABLES["shadow_trades"] = original_config
 
         assert any("shadow_trades:" in err for err in summary["errors"])
+
+    def test_sync_cycle_marks_host_completed_on_success(self, test_db):
+        _init_sync_state(test_db)
+        mock_psycopg2 = MagicMock()
+        mock_conn = MagicMock()
+        mock_psycopg2.connect.return_value = mock_conn
+
+        original_tables = dict(SYNC_TABLES)
+        SYNC_TABLES.clear()
+        SYNC_TABLES["shadow_trades"] = {
+            "mode": "incremental",
+            "time_col": "updated_at",
+            "pk": "trade_id",
+        }
+
+        try:
+            with patch.dict("sys.modules", {"psycopg2": mock_psycopg2}), \
+                patch("src.sync.render_sync._sync_host_name", return_value="host-success"), \
+                patch("src.schema.postgres.create_all_tables", return_value=[]), \
+                patch("src.schema.postgres.ensure_columns", return_value=[]), \
+                patch("src.sync.render_sync.pull_commands", return_value=[]), \
+                patch("src.sync.render_sync.expire_stale_commands", return_value=0), \
+                patch("src.sync.render_sync.sync_table", return_value=1):
+                summary = run_sync_cycle("postgresql://test@localhost/db", test_db)
+        finally:
+            SYNC_TABLES.clear()
+            SYNC_TABLES.update(original_tables)
+
+        status = get_sync_flight_status("host-success", test_db)
+        assert summary["errors"] == []
+        assert status is not None
+        assert status["status"] == "completed"
+        assert status["completed_at"] is not None
+
+    def test_sync_cycle_marks_host_failed_on_error(self, test_db):
+        _init_sync_state(test_db)
+        mock_psycopg2 = MagicMock()
+        mock_conn = MagicMock()
+        mock_psycopg2.connect.return_value = mock_conn
+
+        original_tables = dict(SYNC_TABLES)
+        SYNC_TABLES.clear()
+        SYNC_TABLES["shadow_trades"] = {
+            "mode": "incremental",
+            "time_col": "updated_at",
+            "pk": "trade_id",
+        }
+
+        try:
+            with patch.dict("sys.modules", {"psycopg2": mock_psycopg2}), \
+                patch("src.sync.render_sync._sync_host_name", return_value="host-failed"), \
+                patch("src.schema.postgres.create_all_tables", return_value=[]), \
+                patch("src.schema.postgres.ensure_columns", return_value=[]), \
+                patch("src.sync.render_sync.pull_commands", return_value=[]), \
+                patch("src.sync.render_sync.expire_stale_commands", return_value=0), \
+                patch("src.sync.render_sync.sync_table", side_effect=Exception("boom")):
+                summary = run_sync_cycle("postgresql://test@localhost/db", test_db)
+        finally:
+            SYNC_TABLES.clear()
+            SYNC_TABLES.update(original_tables)
+
+        status = get_sync_flight_status("host-failed", test_db)
+        assert any("shadow_trades: boom" in err for err in summary["errors"])
+        assert status is not None
+        assert status["status"] == "failed"
+        assert "shadow_trades: boom" in status["error_message"]
 
 
 # ── Config and start tests ───────────────────────────────────────────

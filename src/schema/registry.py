@@ -935,6 +935,7 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="collected_at",
     sync_pk="id",
+    sync_conflict_col="ticker, settlement_date",
 ))
 
 _register(TableDef(
@@ -966,6 +967,7 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="collected_at",
     sync_pk="id",
+    sync_conflict_col="comm_type, date, title",
 ))
 
 _register(TableDef(
@@ -1003,6 +1005,7 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="collected_at",
     sync_pk="id",
+    sync_conflict_col="ticker, date, source",
 ))
 
 _register(TableDef(
@@ -1194,6 +1197,7 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="collected_at",
     sync_pk="id",
+    sync_conflict_col="ticker, earnings_date",
 ))
 
 # ---------------------------------------------------------------------------
@@ -1367,12 +1371,17 @@ _register(TableDef(
     ],
     primary_key="id",
     indexes=[
-        IndexDef("idx_scan_metrics_unique", ["scan_number", "scan_time"], unique=True),
+        # #798 follow-up: scan_number resets across sessions/days, so
+        # (scan_number, scan_time) is not globally unique over retained history.
+        # created_at is the stable per-scan identity used by sync/dashboard
+        # ordering, and it lets Postgres dedupe repeat syncs safely.
+        IndexDef("idx_scan_metrics_unique", ["created_at"], unique=True),
     ],
     sync_to_postgres=True,
     sync_mode="incremental",
     sync_time_column="created_at",
     sync_pk="id",
+    sync_conflict_col="created_at",
 ))
 
 _register(TableDef(

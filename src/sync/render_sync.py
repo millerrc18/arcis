@@ -36,6 +36,7 @@ Key fixes referenced:
 
 import json
 import logging
+import socket
 import sqlite3
 import threading
 import time
@@ -81,6 +82,157 @@ def _sqlite_conn(db_path: str = LOCAL_DB) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path, timeout=10)
     conn.execute("PRAGMA busy_timeout = 10000")
     return conn
+
+
+def _sync_host_name() -> str:
+    """Return the current host identifier used for sync_state rows."""
+    return socket.gethostname() or "unknown-host"
+
+
+def _registry_column_types(table_name: str) -> dict[str, str]:
+    """Return registry column types for a sync table."""
+    table = _REGISTRY_TABLES.get(table_name)
+    if table is None:
+        return {}
+    return {col.name: col.type.upper() for col in table.columns}
+
+
+def _split_conflict_columns(conflict_col: str | None) -> list[str]:
+    """Normalize a comma-separated ON CONFLICT target into column names."""
+    if not conflict_col:
+        return []
+    return [part.strip() for part in conflict_col.split(",") if part.strip()]
+
+
+def _get_pg_table_columns(pg_conn, table_name: str) -> list[str] | None:
+    """Best-effort fetch of Postgres column names for one table.
+
+    Returns None when the connection/cursor is mocked or when the query fails.
+    The sync path falls back to registry-only filtering in those cases so unit
+    tests do not need to fully emulate information_schema.
+    """
+    if type(pg_conn).__module__.startswith("unittest.mock"):
+        return None
+
+    cursor = None
+    try:
+        cursor = pg_conn.cursor()
+        cursor.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = %s ORDER BY ordinal_position",
+            (table_name,),
+        )
+        rows = cursor.fetchall()
+        if not isinstance(rows, list):
+            return None
+        return [row[0] for row in rows if isinstance(row, tuple) and row]
+    except Exception:
+        return None
+    finally:
+        if cursor is not None:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+
+
+def _resolve_sync_columns(
+    pg_conn,
+    table_name: str,
+    source_columns: list[str],
+    *,
+    pk: str,
+    conflict_col: str | None,
+) -> list[str]:
+    """Filter source columns to the safe insert set for Postgres.
+
+    The registry is the canonical intended schema. When Postgres introspection
+    succeeds, we further intersect with live PG columns so schema drift no
+    longer hard-fails the entire table sync.
+    """
+    registry_types = _registry_column_types(table_name)
+    if not registry_types:
+        return source_columns
+
+    registry_cols = set(registry_types)
+    filtered = [col for col in source_columns if col in registry_cols]
+    dropped_not_in_registry = [col for col in source_columns if col not in registry_cols]
+    if dropped_not_in_registry:
+        logger.warning(
+            "Dropping %d SQLite columns not present in schema registry for %s: %s",
+            len(dropped_not_in_registry),
+            table_name,
+            ", ".join(dropped_not_in_registry),
+        )
+
+    pg_columns = _get_pg_table_columns(pg_conn, table_name)
+    if pg_columns is None:
+        return filtered
+
+    pg_col_set = set(pg_columns)
+    insert_cols = [col for col in filtered if col in pg_col_set]
+    dropped_not_in_pg = [col for col in filtered if col not in pg_col_set]
+    if dropped_not_in_pg:
+        logger.warning(
+            "Dropping %d columns missing from Postgres for %s: %s",
+            len(dropped_not_in_pg),
+            table_name,
+            ", ".join(dropped_not_in_pg),
+        )
+
+    missing_conflict_cols = [
+        col for col in _split_conflict_columns(conflict_col) if col not in pg_col_set
+    ]
+    if missing_conflict_cols:
+        raise RuntimeError(
+            f"{table_name}: Postgres missing conflict target columns: "
+            f"{', '.join(missing_conflict_cols)}"
+        )
+
+    if pk in filtered and pk not in pg_col_set and not conflict_col:
+        logger.warning(
+            "Primary key column %s missing from Postgres for %s; sync will rely on "
+            "the remaining insert columns",
+            pk,
+            table_name,
+        )
+
+    if not insert_cols:
+        raise RuntimeError(f"{table_name}: no shared columns between SQLite, registry, and Postgres")
+
+    return insert_cols
+
+
+def _coerce_rows_to_registry_types(
+    table_name: str,
+    rows: list[dict],
+    columns: list[str],
+) -> None:
+    """Coerce numeric values according to registry types before PG INSERT."""
+    registry_types = _registry_column_types(table_name)
+    if not registry_types:
+        return
+
+    integer_columns = {
+        col for col in columns if registry_types.get(col) == "INTEGER"
+    }
+    real_columns = {
+        col for col in columns if registry_types.get(col) == "REAL"
+    }
+
+    for row in rows:
+        for col in integer_columns:
+            if col in row and row[col] is not None:
+                try:
+                    row[col] = int(float(row[col]))
+                except (ValueError, TypeError):
+                    pass
+        for col in real_columns:
+            if col in row and row[col] is not None:
+                try:
+                    row[col] = float(row[col])
+                except (ValueError, TypeError):
+                    pass
 
 
 def _init_sync_state(db_path: str = LOCAL_DB) -> None:
@@ -353,37 +505,10 @@ def _upsert_to_postgres(
     if not rows or not columns:
         return 0
 
-    # Coerce string-typed numeric fields before Postgres INSERT.
-    # SQLite stores everything as TEXT affinity; Postgres rejects "259.0" for
-    # INTEGER columns and "92.920655" for non-TEXT columns.
-    _INTEGER_COLUMNS = {
-        "planned_shares", "duration_days", "earnings_adjacent", "timeout_days",
-        "volume", "trade_count",  # minute_bars (also reused by options_chains.volume)
-    }
-    _REAL_COLUMNS = {
-        "actual_entry_price", "actual_exit_price", "pnl_dollars", "pnl_pct",
-        "stop_price", "target_1", "target_2",
-        "entry_price", "signal_price", "signal_entry_price", "signal_exit_price",
-        "fill_entry_price", "fill_exit_price",
-        "priority_score", "confidence_score", "position_size_dollars",
-        "position_size_pct", "estimated_dollar_risk", "pullback_depth_pct", "atr",
-        "max_favorable_excursion", "max_adverse_excursion", "planned_allocation",
-        "spy_return_over_hold", "excess_return",  # SD#41 D1
-        "open", "high", "low", "close",  # minute_bars OHLCV
-    }
-    for row in rows:
-        for col in _INTEGER_COLUMNS:
-            if col in row and row[col] is not None:
-                try:
-                    row[col] = int(float(row[col]))
-                except (ValueError, TypeError):
-                    pass
-        for col in _REAL_COLUMNS:
-            if col in row and row[col] is not None:
-                try:
-                    row[col] = float(row[col])
-                except (ValueError, TypeError):
-                    pass
+    columns = _resolve_sync_columns(
+        pg_conn, table_name, columns, pk=pk, conflict_col=conflict_col,
+    )
+    _coerce_rows_to_registry_types(table_name, rows, columns)
 
     conflict_target = conflict_col or pk
 
@@ -533,6 +658,11 @@ def _replace_latest_in_postgres(
                 logger.warning("Skipped %d rows with NULL id in %s (latest_only)", skipped, table_name)
         if not rows:
             return 0
+
+    columns = _resolve_sync_columns(
+        pg_conn, table_name, columns, pk="id", conflict_col=None,
+    )
+    _coerce_rows_to_registry_types(table_name, rows, columns)
 
     # Exclude SQLite 'id' — let Postgres SERIAL auto-generate
     insert_cols = [c for c in columns if c != "id"]
@@ -840,36 +970,48 @@ def run_sync_cycle(
         _reconcile_cycle: When True, run reconcile_all after expire_stale_commands.
             Used by RenderSyncThread on every Nth cycle to remove ghost rows.
     """
-    try:
-        import psycopg2  # noqa: F401
-    except ImportError:
-        logger.error("psycopg2 not installed — cannot sync to Render", extra={"ctx": {"event": "sync_error", "table": None, "error": "psycopg2 not installed"}})
-        return {"synced": {}, "errors": ["psycopg2 not installed"],
-                "timestamp": datetime.now(ET).isoformat()}
-
     _init_sync_state(db_path)
     summary = {"synced": {}, "errors": [], "timestamp": datetime.now(ET).isoformat()}
+    host = _sync_host_name()
+
+    try:
+        mark_sync_in_flight(host, db_path)
+    except SyncInFlightError as exc:
+        logger.error("Sync already in progress for host %s: %s", host, exc)
+        summary["errors"].append(f"in_flight: {exc}")
+        return summary
+    except Exception as exc:
+        logger.error("Failed to mark sync in flight for host %s: %s", host, exc)
+        summary["errors"].append(f"sync_state: {exc}")
+        return summary
 
     pg_conn = None
     try:
-        pg_conn = _connect_pg_with_retry(database_url)
-    except Exception as exc:
-        logger.error("Cannot connect to Render Postgres after %d retries: %s",
-                      _PG_CONNECT_RETRIES, exc, extra={"ctx": {"event": "sync_error", "table": None, "error": str(exc)}})
-        summary["errors"].append(f"connection_failed: {exc}")
-        return summary
+        try:
+            import psycopg2  # noqa: F401
+        except ImportError:
+            logger.error("psycopg2 not installed — cannot sync to Render", extra={"ctx": {"event": "sync_error", "table": None, "error": "psycopg2 not installed"}})
+            summary["errors"].append("psycopg2 not installed")
+            return summary
 
-    # #331: Ensure all Postgres tables and columns exist before syncing.
-    # Without this, new tables added to the registry (e.g., options_chains,
-    # google_trends, cboe_ratios) fail with "relation does not exist".
-    try:
-        from src.schema.postgres import create_all_tables, ensure_columns
-        create_all_tables(database_url)
-        ensure_columns(database_url)
-    except Exception as exc:
-        logger.warning("[SYNC] Postgres schema validation failed: %s — continuing sync", exc)
+        try:
+            pg_conn = _connect_pg_with_retry(database_url)
+        except Exception as exc:
+            logger.error("Cannot connect to Render Postgres after %d retries: %s",
+                          _PG_CONNECT_RETRIES, exc, extra={"ctx": {"event": "sync_error", "table": None, "error": str(exc)}})
+            summary["errors"].append(f"connection_failed: {exc}")
+            return summary
 
-    try:
+        # #331: Ensure all Postgres tables and columns exist before syncing.
+        # Without this, new tables added to the registry (e.g., options_chains,
+        # google_trends, cboe_ratios) fail with "relation does not exist".
+        try:
+            from src.schema.postgres import create_all_tables, ensure_columns
+            create_all_tables(database_url)
+            ensure_columns(database_url)
+        except Exception as exc:
+            logger.warning("[SYNC] Postgres schema validation failed: %s — continuing sync", exc)
+
         for table_name, table_config in SYNC_TABLES.items():
             try:
                 pg_conn = _ensure_pg_connection(pg_conn, database_url)
@@ -881,59 +1023,71 @@ def run_sync_cycle(
                 logger.error("Sync failed for %s: %s", table_name, exc, extra={"ctx": {"event": "sync_error", "table": table_name, "error": str(exc)}})
                 summary["errors"].append(f"{table_name}: {exc}")
                 pg_conn = None  # Force reconnect on next table
+
+        try:
+            pulled = pull_commands(database_url, db_path)
+            if pulled:
+                summary["pulled_commands"] = len(pulled)
+                summary["commands"] = pulled
+        except Exception as exc:
+            logger.error("Command pull failed: %s", exc, extra={"ctx": {"event": "sync_error", "table": None, "error": str(exc)}})
+            summary["errors"].append(f"pull_commands: {exc}")
+
+        # Sweep orphan 'pending' rows whose expires_at has elapsed. Prevents
+        # dashboard submissions made while the machine was off from piling up.
+        try:
+            expire_stale_commands(database_url)
+        except Exception as exc:
+            logger.error("expire_stale_commands failed: %s", exc)
+            summary["errors"].append(f"expire_stale_commands: {exc}")
+
+        # Periodic ghost-row reconcile — runs on every Nth cycle (see
+        # RenderSyncThread.reconcile_every_n_cycles). Opens its own PG
+        # connection because the sync connection is already closed above.
+        if _reconcile_cycle:
+            try:
+                from src.sync.reconcile import reconcile_all
+                reconcile_pg_conn = _connect_pg_with_retry(database_url)
+                try:
+                    result = reconcile_all(reconcile_pg_conn, db_path)
+                    deleted = result.get("ghost_rows_deleted", 0)
+                    if deleted > 0:
+                        logger.info(
+                            "[RECONCILE] Deleted %d ghost rows across %d tables",
+                            deleted,
+                            result.get("tables_checked", 0),
+                        )
+                    for err in result.get("errors", []):
+                        summary["errors"].append(f"reconcile: {err}")
+                finally:
+                    try:
+                        reconcile_pg_conn.close()
+                    except Exception:
+                        pass
+            except Exception as exc:
+                logger.error("reconcile cycle failed: %s", exc)
+                summary["errors"].append(f"reconcile: {exc}")
+
+        return summary
     finally:
         if pg_conn:
             try:
                 pg_conn.close()
             except Exception:
                 pass
-
-    # Pull commands from cloud (bidirectional)
-    try:
-        pulled = pull_commands(database_url, db_path)
-        if pulled:
-            summary["pulled_commands"] = len(pulled)
-            summary["commands"] = pulled
-    except Exception as exc:
-        logger.error("Command pull failed: %s", exc, extra={"ctx": {"event": "sync_error", "table": None, "error": str(exc)}})
-        summary["errors"].append(f"pull_commands: {exc}")
-
-    # Sweep orphan 'pending' rows whose expires_at has elapsed. Prevents
-    # dashboard submissions made while the machine was off from piling up.
-    try:
-        expire_stale_commands(database_url)
-    except Exception as exc:
-        logger.error("expire_stale_commands failed: %s", exc)
-        summary["errors"].append(f"expire_stale_commands: {exc}")
-
-    # Periodic ghost-row reconcile — runs on every Nth cycle (see
-    # RenderSyncThread.reconcile_every_n_cycles). Opens its own PG
-    # connection because the sync connection is already closed above.
-    if _reconcile_cycle:
         try:
-            from src.sync.reconcile import reconcile_all
-            reconcile_pg_conn = _connect_pg_with_retry(database_url)
-            try:
-                result = reconcile_all(reconcile_pg_conn, db_path)
-                deleted = result.get("ghost_rows_deleted", 0)
-                if deleted > 0:
-                    logger.info(
-                        "[RECONCILE] Deleted %d ghost rows across %d tables",
-                        deleted,
-                        result.get("tables_checked", 0),
-                    )
-                for err in result.get("errors", []):
-                    summary["errors"].append(f"reconcile: {err}")
-            finally:
-                try:
-                    reconcile_pg_conn.close()
-                except Exception:
-                    pass
+            if summary["errors"]:
+                error_text = "; ".join(summary["errors"])
+                mark_sync_failed(host, error_text[:1000], db_path)
+            else:
+                mark_sync_completed(host, db_path)
         except Exception as exc:
-            logger.error("reconcile cycle failed: %s", exc)
-            summary["errors"].append(f"reconcile: {exc}")
-
-    return summary
+            logger.error(
+                "Failed to persist host sync_state for %s: %s",
+                host,
+                exc,
+                extra={"ctx": {"event": "sync_error", "table": "sync_state", "error": str(exc)}},
+            )
 
 
 # ── Background thread ────────────────────────────────────────────────

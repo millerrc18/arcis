@@ -87,3 +87,13 @@ def test_single_column_pk_does_not_get_conflict_col():
                 assert "conflict_col" not in cfg[name], (
                     f"{name}: single-column PK must not emit conflict_col"
                 )
+
+
+def test_explicit_natural_key_conflict_cols_are_exposed():
+    """Surrogate-id tables with separate UNIQUE natural keys must expose the
+    intended conflict target explicitly so sync updates the stable row."""
+    cfg = generate_sync_tables()
+    assert cfg["analyst_estimates"]["conflict_col"] == "ticker, date, source"
+    assert cfg["earnings_calendar"]["conflict_col"] == "ticker, earnings_date"
+    assert cfg["fed_communications"]["conflict_col"] == "comm_type, date, title"
+    assert cfg["short_interest"]["conflict_col"] == "ticker, settlement_date"
