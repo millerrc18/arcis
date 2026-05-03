@@ -1165,11 +1165,13 @@ _register(TableDef(
         IndexDef("idx_macro_snapshots_series", ["series_id", "collected_date"]),
     ],
     sync_to_postgres=True,
-    sync_mode="latest_only",
-    sync_time_column="collected_date",
+    # Preserve full historical macro series in Postgres. Re-runs on the same
+    # day should update the existing (series_id, collected_date) row rather
+    # than deleting prior dates or accumulating same-day duplicates.
+    sync_mode="incremental",
+    sync_time_column="collected_at",
     sync_pk="id",
-    # #332: Add conflict key to prevent duplicate key errors on re-sync
-    sync_conflict_col="series_id",
+    sync_conflict_col="series_id, collected_date",
 ))
 
 _register(TableDef(

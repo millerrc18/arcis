@@ -96,4 +96,5 @@ def test_explicit_natural_key_conflict_cols_are_exposed():
     assert cfg["analyst_estimates"]["conflict_col"] == "ticker, date, source"
     assert cfg["earnings_calendar"]["conflict_col"] == "ticker, earnings_date"
     assert cfg["fed_communications"]["conflict_col"] == "comm_type, date, title"
+    assert cfg["macro_snapshots"]["conflict_col"] == "series_id, collected_date"
     assert cfg["short_interest"]["conflict_col"] == "ticker, settlement_date"

@@ -107,6 +107,16 @@ def test_generate_sync_tables_orders_fk_parents_first():
     assert ordered.index("diagnostic_runs") < ordered.index("diagnostic_run_plots")
 
 
+def test_macro_snapshots_sync_config_preserves_history():
+    """macro_snapshots should sync historical rows incrementally, not latest-only."""
+    from src.schema.sync_config import generate_sync_tables
+
+    cfg = generate_sync_tables()["macro_snapshots"]
+    assert cfg["mode"] == "incremental"
+    assert cfg["time_col"] == "collected_at"
+    assert cfg["conflict_col"] == "series_id, collected_date"
+
+
 # ---------------------------------------------------------------------------
 # Test 2: no-FK set returns deterministic order
 # ---------------------------------------------------------------------------

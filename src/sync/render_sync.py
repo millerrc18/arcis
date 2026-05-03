@@ -511,6 +511,7 @@ def _upsert_to_postgres(
     _coerce_rows_to_registry_types(table_name, rows, columns)
 
     conflict_target = conflict_col or pk
+    conflict_columns = set(_split_conflict_columns(conflict_target)) or {pk}
 
     # Filter out rows with NULL primary key — these would fail Postgres NOT NULL
     # constraint and indicate incomplete data in SQLite (#243).
@@ -564,7 +565,7 @@ def _upsert_to_postgres(
     col_list = ", ".join(insert_cols)
     placeholders = ", ".join(["%s"] * len(insert_cols))
     update_set = ", ".join(
-        f"{col} = EXCLUDED.{col}" for col in insert_cols if col != conflict_target
+        f"{col} = EXCLUDED.{col}" for col in insert_cols if col not in conflict_columns
     )
 
     sql = (

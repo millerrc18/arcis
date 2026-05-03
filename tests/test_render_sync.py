@@ -321,6 +321,36 @@ class TestPostgresUpsert:
         col_section = executed_sql.split("(", 1)[1].split(")", 1)[0]
         assert "mystery_col" not in [c.strip() for c in col_section.split(",")]
 
+    def test_upsert_excludes_each_conflict_column_from_update_set(self):
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value = mock_cursor
+
+        columns = ["id", "collected_at", "collected_date", "series_id", "series_name", "value"]
+        rows = [{
+            "id": 10,
+            "collected_at": "2026-05-03T08:30:00-04:00",
+            "collected_date": "2026-05-03",
+            "series_id": "CPIAUCSL",
+            "series_name": "CPI All Urban Consumers",
+            "value": 312.5,
+        }]
+
+        _upsert_to_postgres(
+            mock_conn,
+            "macro_snapshots",
+            "id",
+            columns,
+            rows,
+            conflict_col="series_id, collected_date",
+            mode="incremental",
+        )
+
+        executed_sql = mock_cursor.execute.call_args_list[0][0][0]
+        assert 'ON CONFLICT (series_id, collected_date)' in executed_sql
+        assert 'series_id = EXCLUDED.series_id' not in executed_sql
+        assert 'collected_date = EXCLUDED.collected_date' not in executed_sql
+
 
 # ── Sync table tests ─────────────────────────────────────────────────
 
@@ -675,7 +705,9 @@ class TestSyncTablesConfig:
         ]
         assert "options_metrics" in latest_only
         assert "vix_term_structure" in latest_only
-        assert "macro_snapshots" in latest_only
+        assert "macro_snapshots" not in latest_only
+        assert SYNC_TABLES["macro_snapshots"]["mode"] == "incremental"
+        assert SYNC_TABLES["macro_snapshots"]["time_col"] == "collected_at"
 
 
 # ── Per-table reconnection tests (#199) ──────────────────────────────

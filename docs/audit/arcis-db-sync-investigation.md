@@ -27,16 +27,9 @@ The 2026-05-03 rebaseline keeps only issues that still survive a live registry v
 
 ### Remaining Live Drift
 
-| Category | Current live drift |
-| --- | --- |
-| Postgres type mismatch | `shadow_trades.planned_shares` is `integer` in PG but `REAL` in the registry |
-| Postgres type mismatch | `shadow_trades.actual_shares` is `integer` in PG but `REAL` in the registry |
-| Legacy Postgres PK | `api_costs` still uses `id` in PG; registry expects `cost_id` |
-| Legacy Postgres PK | `canary_evaluations` still uses `id` in PG; registry expects `eval_id` |
-| Legacy Postgres PK | `quality_drift_metrics` still uses `id` in PG; registry expects `metric_id` |
-| Legacy Postgres PK | `setup_signals` still uses `id` in PG; registry expects `signal_id` |
-| Legacy Postgres PK | `training_examples` still uses `id` in PG; registry expects `example_id` |
-| Legacy Postgres conflict target | `macro_snapshots` still conflicts on `id` in PG; registry expects `series_id` |
+The read-only report generated after the 2026-05-03 Postgres migration shows no
+remaining synced-table type mismatches and no remaining PK / conflict-target
+mismatches.
 
 ## What Is No Longer Current
 
@@ -55,40 +48,35 @@ These repo-level fixes are now in place:
 - Numeric coercion now follows registry types, so `planned_shares` is no longer coerced as an integer in sync code.
 - Host sync lifecycle is now persisted in local `sync_state` via `mark_sync_in_flight()`, `mark_sync_completed()`, and `mark_sync_failed()`.
 - Sync table ordering now uses FK-safe topological ordering from `generate_sync_tables()`.
-- Explicit natural-key conflict targets now exist for `analyst_estimates`, `earnings_calendar`, `fed_communications`, and `short_interest`.
+- Explicit natural-key conflict targets now exist for `analyst_estimates`, `earnings_calendar`, `fed_communications`, `macro_snapshots`, and `short_interest`.
+- `macro_snapshots` now syncs as retained history with `conflict_col="series_id, collected_date"` instead of latest-only replacement semantics.
 
 ## Live Smoke Result
 
-The live smoke run was narrowed to the risk tables surfaced by the tri-diff:
+The post-migration report at `docs/audit/arcis-db-sync-rebaseline_2026-05-03.md`
+shows:
 
-- `api_costs`
-- `canary_evaluations`
-- `macro_snapshots`
-- `quality_drift_metrics`
-- `setup_signals`
-- `training_examples`
-- `shadow_trades`
+- no synced missing tables
+- no synced missing columns
+- no type mismatches
+- no PK / conflict-target mismatches
 
-Result on 2026-05-03:
-
-- first failing table: none
-- errors: none
-- schema auto-heal additions: none
-- table activity observed during smoke: `macro_snapshots=31`
+The smoke section in that artifact is not a schema failure. It was blocked by a
+stale `SWIFT-PC` host row in local `sync_state` left by an overlapping audit
+process.
 
 Interpretation:
 
-- The current sync code no longer fails immediately on stale-column drift.
-- Zero smoke errors does not mean every remaining mismatch is harmless; it means only `macro_snapshots` had live row activity during this smoke, so the other drift paths were not exercised by fresh data.
+- The schema drift investigation is effectively closed.
+- Any remaining `in_flight` smoke failures should be treated as operational lock
+  cleanup, not as evidence of SQLite -> Postgres drift.
 
 ## Action List
 
-1. Migrate Postgres `shadow_trades.planned_shares` and `shadow_trades.actual_shares` from `integer` to `REAL`.
-2. Resolve legacy Postgres key drift on `api_costs`, `canary_evaluations`, `quality_drift_metrics`, `setup_signals`, and `training_examples`.
-3. Align `macro_snapshots` so the live conflict target matches the registry expectation of `series_id`.
-4. Leave `config_overrides` and `sync_state` out of the sync severity count; document them as local-only tables that also exist in Postgres for operational reasons.
-5. Fix quoted numeric defaults in `src/schema/postgres.py`, but keep that separate from the current sync-breaker count.
-6. Handle Access linked-table refresh and relinking as a separate viewer-maintenance task, not a sync remediation step.
+1. Rerun one clean smoke or normal watch-loop sync cycle after confirming no stale `audit_db_sync.py` process is holding the `SWIFT-PC` host row.
+2. Leave `config_overrides` and `sync_state` out of the sync severity count; they are local-only tables that also exist in Postgres for operational reasons.
+3. Fix quoted numeric defaults in `src/schema/postgres.py`, but keep that separate from the now-resolved live sync-drift incident.
+4. Handle Access linked-table refresh and relinking as a separate viewer-maintenance task, not a sync remediation step.
 
 ## Operational Note
 

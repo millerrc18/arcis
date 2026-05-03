@@ -22,47 +22,29 @@
 | `SELECT *` stale-column insert failures | NOT REPRODUCED | Sync code now filters through registry and live PG columns before insert |
 | Composite-PK conflict handling | FIXED IN REPO | FK-safe ordering and composite conflict coverage are now tested |
 | Access `LONGCHAR` findings | ACCESS-ONLY | Still relevant for the viewer, not a current `psycopg2` sync blocker |
-| Remaining live drift | CONFIRMED | Limited to two PG type mismatches and six PG key/conflict mismatches |
+| Remaining live drift | CLEARED | The post-migration read-only report shows no remaining type, PK, or conflict-target mismatches |
 
 ## Remaining Confirmed Drift
 
-### Type mismatches
+None in the current read-only report. The 2026-05-03 migration normalized:
 
-- `shadow_trades.planned_shares`: registry `REAL`, Postgres `integer`
-- `shadow_trades.actual_shares`: registry `REAL`, Postgres `integer`
-
-### PK / conflict mismatches
-
-- `api_costs`: registry expects `cost_id`, Postgres PK is `id`
-- `canary_evaluations`: registry expects `eval_id`, Postgres PK is `id`
-- `quality_drift_metrics`: registry expects `metric_id`, Postgres PK is `id`
-- `setup_signals`: registry expects `signal_id`, Postgres PK is `id`
-- `training_examples`: registry expects `example_id`, Postgres PK is `id`
-- `macro_snapshots`: registry expects conflict target `series_id`, Postgres still conflicts on `id`
+- `shadow_trades.planned_shares` / `actual_shares` to `REAL`
+- legacy Postgres PKs on `api_costs`, `canary_evaluations`, `quality_drift_metrics`, `setup_signals`, and `training_examples`
+- `macro_snapshots` to retained-history sync semantics with `(series_id, collected_date)` as the natural conflict target
 
 ## Live Smoke Result
 
 The smoke scope was intentionally narrowed to the current risk tables:
 
-- `api_costs`
-- `canary_evaluations`
-- `macro_snapshots`
-- `quality_drift_metrics`
-- `setup_signals`
-- `training_examples`
-- `shadow_trades`
-
 Observed result on 2026-05-03:
 
-- errors: none
-- first failing table: none
-- schema auto-heal additions from `create_all_tables()` / `ensure_columns()`: none
-- row activity during smoke: `macro_snapshots=31`
+- read-only tri-diff: clean
+- smoke section in the generated artifact: blocked by `in_flight` host lock on `SWIFT-PC`
 
 Interpretation:
 
-- The sync path no longer immediately fails on schema drift.
-- The smoke only exercised one risk table with fresh rows, so dormant drift on the other six tables still needs schema cleanup or targeted table-level verification.
+- The schema work appears complete.
+- The remaining smoke issue is operational: a stale host row from an overlapping audit process, not a live DB-shape mismatch.
 
 ## Earlier Claims That Are Now Stale
 
@@ -73,4 +55,4 @@ Interpretation:
 
 ## Conclusion
 
-The sync problem set is materially smaller than the original docs suggested. The current repo fixes have removed the broad `SELECT *` insertion failure mode and restored host-level sync-state visibility. What remains is a short list of live Postgres schema mismatches that should be migrated deliberately, plus separate Access viewer cleanup that should not be counted as sync failure.
+The sync problem set was materially smaller than the original docs suggested, and the remaining live Postgres drift has now been migrated away. The repo fixes removed the broad `SELECT *` insertion failure mode, restored host-level sync-state visibility, and aligned `macro_snapshots` with preserved historical sync semantics. What remains is operational cleanup around stale `sync_state` host locks plus separate Access viewer maintenance that should not be counted as sync failure.
