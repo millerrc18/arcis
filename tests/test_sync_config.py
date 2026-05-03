@@ -95,6 +95,28 @@ def test_topo_sort_handles_council_chain():
     )
 
 
+def test_generate_sync_tables_orders_fk_parents_first():
+    """generate_sync_tables() must preserve FK-safe order for real sync runs."""
+    from src.schema.sync_config import generate_sync_tables
+
+    ordered = list(generate_sync_tables())
+
+    assert ordered.index("recommendations") < ordered.index("shadow_trades")
+    assert ordered.index("recommendations") < ordered.index("attribution_trades")
+    assert ordered.index("council_sessions") < ordered.index("council_votes")
+    assert ordered.index("diagnostic_runs") < ordered.index("diagnostic_run_plots")
+
+
+def test_macro_snapshots_sync_config_preserves_history():
+    """macro_snapshots should sync historical rows incrementally, not latest-only."""
+    from src.schema.sync_config import generate_sync_tables
+
+    cfg = generate_sync_tables()["macro_snapshots"]
+    assert cfg["mode"] == "incremental"
+    assert cfg["time_col"] == "collected_at"
+    assert cfg["conflict_col"] == "series_id, collected_date"
+
+
 # ---------------------------------------------------------------------------
 # Test 2: no-FK set returns deterministic order
 # ---------------------------------------------------------------------------
