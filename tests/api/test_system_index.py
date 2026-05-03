@@ -409,3 +409,164 @@ def test_counts_track_stale(client):
 
     body = client.get("/api/system/index").json()
     assert body["counts"]["needs_review"] == 1
+
+
+# --- Gap 1 regression: non-sqlite3.Error on _open_sqlite falls back gracefully ---
+
+def test_oserror_on_open_sqlite_falls_back_to_cloud_payload(monkeypatch):
+    """OSError during _open_sqlite (e.g. Windows path on Linux) must fall back to cloud
+    payload rather than propagating as HTTP 500."""
+    monkeypatch.setattr(
+        "src.platform.capability_registry.bootstrap.CAPABILITY_MODULES", tuple()
+    )
+    reset_for_tests()
+    saved = (dict(ACTIONS), dict(STATES), dict(SYSTEMS), dict(DECISIONS))
+    clear_registries_for_tests()
+
+    @register_state(name="demo_state", refresh_hint="real-time", **BASE_META)
+    def st():
+        return {"value": 1}
+
+    def _raise_oserror():
+        raise OSError("simulated linux/windows-path mismatch")
+
+    monkeypatch.setattr("src.api.cloud_routes.system_index._open_sqlite", _raise_oserror)
+
+    app = FastAPI()
+
+    def _noop_auth() -> None:
+        return None
+
+    runtime = SimpleNamespace(
+        query=lambda *a, **kw: [],
+        query_one=lambda *a, **kw: None,
+    )
+    app.include_router(create_router(runtime, _noop_auth))
+    tc = TestClient(app)
+
+    try:
+        response = tc.get("/api/system/index")
+        assert response.status_code == 200
+        body = response.json()
+        assert "states" in body
+        assert "counts" in body
+        # Cloud payload: delta_since_last_view is None (no SQLite view state)
+        state = next(s for s in body["states"] if s["name"] == "demo_state")
+        assert state["delta_since_last_view"] is None
+    finally:
+        clear_registries_for_tests()
+        ACTIONS.update(saved[0])
+        STATES.update(saved[1])
+        SYSTEMS.update(saved[2])
+        DECISIONS.update(saved[3])
+
+
+def test_oserror_on_open_sqlite_offline_fallback_when_no_cloud_runtime(monkeypatch):
+    """OSError during _open_sqlite with no cloud runtime falls back to offline payload."""
+    monkeypatch.setattr(
+        "src.platform.capability_registry.bootstrap.CAPABILITY_MODULES", tuple()
+    )
+    reset_for_tests()
+    saved = (dict(ACTIONS), dict(STATES), dict(SYSTEMS), dict(DECISIONS))
+    clear_registries_for_tests()
+
+    @register_state(name="demo_state", refresh_hint="real-time", **BASE_META)
+    def st():
+        return {"value": 1}
+
+    def _raise_oserror():
+        raise OSError("simulated linux/windows-path mismatch")
+
+    monkeypatch.setattr("src.api.cloud_routes.system_index._open_sqlite", _raise_oserror)
+
+    app = FastAPI()
+
+    def _noop_auth() -> None:
+        return None
+
+    runtime = SimpleNamespace()  # no query/query_one — not a cloud runtime
+    app.include_router(create_router(runtime, _noop_auth))
+    tc = TestClient(app)
+
+    try:
+        response = tc.get("/api/system/index")
+        assert response.status_code == 200
+        body = response.json()
+        state = next(s for s in body["states"] if s["name"] == "demo_state")
+        assert state["live"]["status"] == "unavailable"
+        assert state["live"]["error"] == "sqlite_unavailable"
+    finally:
+        clear_registries_for_tests()
+        ACTIONS.update(saved[0])
+        STATES.update(saved[1])
+        SYSTEMS.update(saved[2])
+        DECISIONS.update(saved[3])
+
+
+# --- Gap 2 regression: exception inside _build_live_payload falls back gracefully ---
+
+def test_operational_error_in_build_live_payload_falls_back_to_cloud(monkeypatch):
+    """sqlite3.OperationalError('no such table: operator_view_state') raised inside
+    _build_live_payload (e.g. empty newly-created SQLite file) must fall back to cloud
+    payload, not propagate as HTTP 500."""
+    import sqlite3 as _sqlite3
+
+    monkeypatch.setattr(
+        "src.platform.capability_registry.bootstrap.CAPABILITY_MODULES", tuple()
+    )
+    reset_for_tests()
+    saved = (dict(ACTIONS), dict(STATES), dict(SYSTEMS), dict(DECISIONS))
+    clear_registries_for_tests()
+
+    @register_state(name="demo_state", refresh_hint="real-time", **BASE_META)
+    def st():
+        return {"value": 1}
+
+    monkeypatch.setattr(
+        "src.api.cloud_routes.system_index._read_view_state",
+        lambda *a, **kw: (_ for _ in ()).throw(
+            _sqlite3.OperationalError("no such table: operator_view_state")
+        ),
+    )
+
+    app = FastAPI()
+
+    def _noop_auth() -> None:
+        return None
+
+    runtime = SimpleNamespace(
+        query=lambda *a, **kw: [],
+        query_one=lambda *a, **kw: None,
+    )
+
+    # Use isolated_db so _open_sqlite succeeds (we want to test the gap-2 path)
+    import tempfile
+    import os
+    from src.schema.registry import TABLES
+    from src.schema.sqlite import generate_create_sql
+    import sqlite3 as _sq3
+
+    with tempfile.TemporaryDirectory() as tmp:
+        db_file = os.path.join(tmp, "test.sqlite3")
+        conn = _sq3.connect(db_file)
+        try:
+            conn.executescript(generate_create_sql(TABLES["operator_view_state"]))
+            conn.commit()
+        finally:
+            conn.close()
+        monkeypatch.setattr("src.api.cloud_routes.system_index.DB_PATH", db_file)
+        app.include_router(create_router(runtime, _noop_auth))
+        tc = TestClient(app)
+        try:
+            response = tc.get("/api/system/index")
+            assert response.status_code == 200
+            body = response.json()
+            assert "states" in body
+            state = next(s for s in body["states"] if s["name"] == "demo_state")
+            assert state["delta_since_last_view"] is None
+        finally:
+            clear_registries_for_tests()
+            ACTIONS.update(saved[0])
+            STATES.update(saved[1])
+            SYSTEMS.update(saved[2])
+            DECISIONS.update(saved[3])

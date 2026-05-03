@@ -408,19 +408,19 @@ def create_router(runtime, verify_auth) -> APIRouter:
 
         try:
             conn = _open_sqlite()
-        except sqlite3.Error as exc:
-            logger.warning("[SYSTEM_INDEX] unable to open local SQLite: %r", exc)
-            if _has_cloud_runtime(runtime):
-                return _build_cloud_payload(runtime, actions, states, systems, decisions)
-            return _build_offline_payload(actions, states, systems, decisions)
-        except TypeError as exc:
-            logger.warning("[SYSTEM_INDEX] local SQLite unavailable: %r", exc)
+        except Exception as exc:
+            logger.warning("[SYSTEM_INDEX] unable to open local SQLite (%s): %r", type(exc).__name__, exc)
             if _has_cloud_runtime(runtime):
                 return _build_cloud_payload(runtime, actions, states, systems, decisions)
             return _build_offline_payload(actions, states, systems, decisions)
 
         try:
             return _build_live_payload(conn, actions, states, systems, decisions)
+        except Exception as exc:
+            logger.warning("[SYSTEM_INDEX] _build_live_payload raised (%s): %r", type(exc).__name__, exc)
+            if _has_cloud_runtime(runtime):
+                return _build_cloud_payload(runtime, actions, states, systems, decisions)
+            return _build_offline_payload(actions, states, systems, decisions)
         finally:
             conn.close()
 
@@ -448,11 +448,8 @@ def create_router(runtime, verify_auth) -> APIRouter:
                 }
             finally:
                 conn.close()
-        except sqlite3.Error as exc:
-            logger.error("[SYSTEM_INDEX] mark-reviewed SQLite error for %s: %r", entry_name, exc)
-            raise HTTPException(status_code=503, detail="local state unavailable") from exc
-        except TypeError as exc:
-            logger.error("[SYSTEM_INDEX] mark-reviewed local state unavailable for %s: %r", entry_name, exc)
+        except Exception as exc:
+            logger.error("[SYSTEM_INDEX] mark-reviewed local state unavailable for %s (%s): %r", entry_name, type(exc).__name__, exc)
             raise HTTPException(status_code=503, detail="local state unavailable") from exc
 
     return router
