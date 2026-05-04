@@ -33,6 +33,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.services.shadow_service import compute_timeout_status
+from src.shadow_trading.exit_reason import outcome_stats_filter_sql
 
 
 # ── SD#41 / Sprint-3 Task-12c desk-filter helper ───────────────────────────
@@ -163,7 +164,8 @@ def create_router(runtime, verify_auth):
             )
             closed_pnl_row = runtime.query_one(
                 f"SELECT COALESCE(SUM(pnl_dollars), 0) as total FROM shadow_trades WHERE status = 'closed'"
-                f" AND COALESCE(quarantined, 0) = 0 AND {desk_frag}",
+                f" AND COALESCE(quarantined, 0) = 0 AND {desk_frag}"
+                f" {outcome_stats_filter_sql()}",
                 tuple(desk_params),
             )
             closed_pnl = closed_pnl_row["total"] if closed_pnl_row else 0
@@ -304,7 +306,8 @@ def create_router(runtime, verify_auth):
             rows = runtime.query(
                 f"SELECT pnl_dollars, pnl_pct FROM shadow_trades "
                 f"WHERE status = 'closed' AND actual_exit_time >= %s"
-                f" AND COALESCE(quarantined, 0) = 0 AND {desk_frag}",
+                f" AND COALESCE(quarantined, 0) = 0 AND {desk_frag}"
+                f" {outcome_stats_filter_sql()}",
                 (cutoff, *desk_params),
             )
             if not rows:
@@ -440,6 +443,7 @@ def create_router(runtime, verify_auth):
             closed = runtime.query(
                 "SELECT pnl_dollars, pnl_pct FROM shadow_trades WHERE source = 'live' AND status = 'closed'"
                 " AND COALESCE(quarantined, 0) = 0"
+                f" {outcome_stats_filter_sql()}"
             )
             open_count = runtime.query_one(
                 "SELECT COUNT(*) as c FROM shadow_trades WHERE source = 'live' AND status = 'open'"
@@ -473,7 +477,8 @@ def create_router(runtime, verify_auth):
             )
             closed_trades = runtime.query(
                 f"SELECT pnl_dollars, pnl_pct FROM shadow_trades WHERE status = 'closed'"
-                f" AND COALESCE(quarantined, 0) = 0 AND {desk_frag}",
+                f" AND COALESCE(quarantined, 0) = 0 AND {desk_frag}"
+                f" {outcome_stats_filter_sql()}",
                 tuple(desk_params),
             )
             closed_pnl = sum(trade.get("pnl_dollars", 0) or 0 for trade in closed_trades)
@@ -594,6 +599,7 @@ def create_router(runtime, verify_auth):
                 "SELECT pnl_dollars, pnl_pct FROM shadow_trades "
                 "WHERE status = 'closed' AND pnl_pct IS NOT NULL "
                 "AND COALESCE(quarantined, 0) = 0 "
+                f"{outcome_stats_filter_sql()} "
                 "ORDER BY actual_exit_time ASC"
             )
             if not closed:

@@ -38,6 +38,8 @@ from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from src.shadow_trading.exit_reason import outcome_stats_filter_sql
+
 _DATA_COLLECTION_QUERIES = {
     "options_chains": (
         "SELECT COUNT(*) AS total_records, MAX(collected_at) AS latest_collection, "
@@ -575,6 +577,7 @@ def create_router(runtime, verify_auth):
                 "LEFT JOIN recommendations r ON st.recommendation_id = r.recommendation_id "
                 "WHERE st.status = 'closed' AND st.pnl_dollars IS NOT NULL "
                 "AND COALESCE(st.quarantined, 0) = 0 "
+                f"{outcome_stats_filter_sql().replace('exit_reason', 'st.exit_reason')} "
                 "ORDER BY st.actual_exit_time ASC"
             ) or []
 

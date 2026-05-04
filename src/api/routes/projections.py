@@ -20,6 +20,7 @@ from fastapi import APIRouter
 
 from src.analytics.canonical_sharpe import raw_sharpe
 from src.config import DB_PATH
+from src.shadow_trading.exit_reason import outcome_stats_filter_sql
 from src.utils.db import connect_db
 
 router = APIRouter(tags=["projections"])
@@ -107,6 +108,7 @@ def projections_live():
                 "SELECT pnl_dollars, pnl_pct FROM shadow_trades "
                 "WHERE status = 'closed' AND pnl_pct IS NOT NULL "
                 "AND COALESCE(quarantined, 0) = 0 "
+                f"{outcome_stats_filter_sql()} "
                 "ORDER BY actual_exit_time ASC"
             ).fetchall()
         if not rows:
