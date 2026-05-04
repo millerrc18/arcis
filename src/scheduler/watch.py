@@ -45,6 +45,7 @@ from src.config import DB_PATH, load_config
 from src.llm.client import is_llm_available
 from src.scheduler.handler_registry import HandlerRegistryMixin
 from src.scheduler.scorer import GuardedScorer
+from src.shadow_trading.alpaca_adapter import fetch_latest_quotes
 from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
@@ -720,6 +721,7 @@ class WatchLoop(HandlerRegistryMixin):
         from src.email.notifier import send_email
 
         now = datetime.now(ET)
+        scan_started_at = time.time()
         _scan_num = getattr(self, "_scan_number", 0) + 1
         ctx = ScanContext(config=self.config, scan_id=f"s-{_scan_num:04d}")
         result = run_universe_scan(ctx)
@@ -728,7 +730,9 @@ class WatchLoop(HandlerRegistryMixin):
         if result.aborted:
             self._record_scan_metrics(
                 universe_count=result.universe_count, features_count=0,
-                packet_worthy=0, llm_success=0, llm_total=0)
+                packet_worthy=0, llm_success=0, llm_total=0,
+                avg_conviction=0.0,
+                duration_seconds=time.time() - scan_started_at)
             return
 
         # Empty scan (no packet-worthy) — record and return
@@ -736,7 +740,9 @@ class WatchLoop(HandlerRegistryMixin):
             self._record_scan_metrics(
                 universe_count=result.universe_count,
                 features_count=result.features_count,
-                packet_worthy=0, llm_success=0, llm_total=0)
+                packet_worthy=0, llm_success=0, llm_total=0,
+                avg_conviction=0.0,
+                duration_seconds=time.time() - scan_started_at)
             return
 
         self._trades_managed_today += result.packet_worthy_count
@@ -776,6 +782,13 @@ class WatchLoop(HandlerRegistryMixin):
         self._post_scan_notifications(result)
 
         # ── Scan metrics ──
+        # avg_conviction: mean of llm_conviction from packets if available.
+        # TODO: wire real per-packet conviction list from result when
+        # universe_scanner.ScanResult exposes it (source: src/scheduler/universe_scanner.py).
+        # Proxy: conviction_parsed/conviction_total gives parse rate, not mean conviction.
+        _avg_conviction = 0.0
+        if result.conviction_total > 0:
+            _avg_conviction = result.conviction_parsed / result.conviction_total
         self._record_scan_metrics(
             universe_count=result.universe_count,
             features_count=result.features_count,
@@ -783,7 +796,9 @@ class WatchLoop(HandlerRegistryMixin):
             llm_success=result.packet_worthy_count,
             llm_total=result.packet_worthy_count,
             conviction_parsed=result.conviction_parsed,
-            conviction_total=result.conviction_total)
+            conviction_total=result.conviction_total,
+            avg_conviction=_avg_conviction,
+            duration_seconds=time.time() - scan_started_at)
 
     def _run_mr_scan(self):
         """Run mean reversion scan after main scan."""
@@ -913,7 +928,8 @@ class WatchLoop(HandlerRegistryMixin):
     def _record_scan_metrics(self, *, universe_count: int = 0,
                              features_count: int = 0, packet_worthy: int = 0,
                              llm_success: int = 0, llm_total: int = 0,
-                             conviction_parsed: int = 0, conviction_total: int = 0):
+                             conviction_parsed: int = 0, conviction_total: int = 0,
+                             avg_conviction: float = 0.0, duration_seconds: float = 0.0):
         """Write a row to scan_metrics for every scan cycle (success or failure)."""
         try:
             if not hasattr(self, '_scan_number'):
@@ -931,7 +947,7 @@ class WatchLoop(HandlerRegistryMixin):
                     (self._scan_number, self._scan_number, now.strftime("%H:%M"), universe_count,
                      features_count, features_count, packet_worthy,
                      packet_worthy, packet_worthy, 0, llm_success, llm_total,
-                     0, 0.0, 0.0, now.isoformat()),
+                     0, avg_conviction, duration_seconds, now.isoformat()),
                 )
                 conn.commit()
             # Structured cycle summary for AI agent review (#314)
@@ -970,6 +986,48 @@ class WatchLoop(HandlerRegistryMixin):
                 collect_system_snapshot(DB_PATH)
             except Exception as e:
                 logger.debug("[WATCH] System metrics collection failed: %s", e)
+
+    def _refresh_live_prices(self):
+        """Fetch current quotes for all open shadow trades and UPSERT to live_prices."""
+        try:
+            with connect_db(DB_PATH) as conn:
+                rows = conn.execute(
+                    "SELECT DISTINCT ticker FROM shadow_trades WHERE status = 'open'"
+                ).fetchall()
+            tickers = [r[0] for r in rows if r[0]]
+        except Exception as e:
+            logger.warning("[WATCH] _refresh_live_prices: failed to query open trades: %s", e)
+            return
+
+        if not tickers:
+            logger.debug("[WATCH] _refresh_live_prices: no open trades, skipping")
+            return
+
+        try:
+            quotes = fetch_latest_quotes(tickers)
+        except Exception as e:
+            logger.warning("[WATCH] _refresh_live_prices: quote fetch failed: %s", e)
+            return
+
+        if not quotes:
+            logger.warning("[WATCH] _refresh_live_prices: no quotes returned for %d tickers", len(tickers))
+            return
+
+        try:
+            with connect_db(DB_PATH) as conn:
+                for ticker, q in quotes.items():
+                    conn.execute(
+                        "INSERT INTO live_prices (ticker, price, bid, ask, as_of, source) "
+                        "VALUES (?, ?, ?, ?, ?, ?) "
+                        "ON CONFLICT(ticker) DO UPDATE SET "
+                        "price=excluded.price, bid=excluded.bid, ask=excluded.ask, "
+                        "as_of=excluded.as_of, source=excluded.source",
+                        (ticker, q["price"], q.get("bid"), q.get("ask"), q["as_of"], "alpaca"),
+                    )
+                conn.commit()
+            logger.info("[WATCH] Refreshed live_prices for %d tickers (alpaca)", len(quotes))
+        except Exception as e:
+            logger.warning("[WATCH] _refresh_live_prices: UPSERT failed: %s", e)
 
     def _run_eod_recap(self):
         """Execute the EOD recap pipeline."""

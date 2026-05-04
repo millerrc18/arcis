@@ -169,8 +169,9 @@ def create_router(runtime, verify_auth):
             closed_pnl = closed_pnl_row["total"] if closed_pnl_row else 0
             equity = 100000 + (closed_pnl or 0)
 
-            # Fix for #253: compute unrealized P&L per open trade.
-            # Use latest setup_signals.theoretical_entry as price proxy.
+            # Fix for #253 (updated Fix 2): compute unrealized P&L per open trade.
+            # Read current price from live_prices table (refreshed each scan cycle)
+            # instead of the stale setup_signals.theoretical_entry proxy.
             total_unrealized = 0.0
             for trade in rows:
                 ticker = trade.get("ticker")
@@ -179,15 +180,15 @@ def create_router(runtime, verify_auth):
                 if not ticker or not entry or not shares:
                     trade["unrealized_pnl"] = None
                     trade["current_price_est"] = None
+                    trade["current_price_as_of"] = None
                     continue
-                # Get most recent signal price for this ticker
                 price_row = runtime.query_one(
-                    "SELECT theoretical_entry FROM setup_signals "
-                    "WHERE ticker = %s ORDER BY created_at DESC LIMIT 1",
+                    "SELECT price, as_of FROM live_prices WHERE ticker = %s",
                     (ticker,),
                 )
-                if price_row and price_row.get("theoretical_entry"):
-                    current = float(price_row["theoretical_entry"])
+                if price_row and price_row.get("price"):
+                    current = float(price_row["price"])
+                    trade["current_price_as_of"] = price_row.get("as_of")
                     pnl = round((current - entry) * shares, 2)
                     trade["unrealized_pnl"] = pnl
                     trade["current_price_est"] = round(current, 2)
@@ -195,6 +196,7 @@ def create_router(runtime, verify_auth):
                 else:
                     trade["unrealized_pnl"] = None
                     trade["current_price_est"] = None
+                    trade["current_price_as_of"] = None
 
             for trade in rows:
                 timeout_info = compute_timeout_status(

@@ -2466,3 +2466,30 @@ _register(TableDef(
     sync_time_column="created_at",
     sync_reconcile=True,
 ))
+
+# ---------------------------------------------------------------------------
+# Live Prices (Fix 2 — accurate shadow/open P&L)
+# Written by: scheduler.watch._refresh_live_prices (once per scan cycle).
+# Read by: api.cloud_routes.trades.shadow_open (instead of stale
+#          setup_signals.theoretical_entry proxy).
+# One row per ticker — UPSERT on conflict so only the current quote survives.
+# ---------------------------------------------------------------------------
+
+_register(TableDef(
+    name="live_prices",
+    description="Current market quotes per ticker; refreshed each scan cycle via Alpaca",
+    columns=[
+        ColumnDef("ticker", "TEXT", nullable=False),
+        ColumnDef("price", "REAL", nullable=False),
+        ColumnDef("bid", "REAL", nullable=True),
+        ColumnDef("ask", "REAL", nullable=True),
+        ColumnDef("as_of", "TEXT", nullable=False),
+        ColumnDef("source", "TEXT", nullable=False),
+    ],
+    primary_key="ticker",
+    sync_to_postgres=True,
+    sync_mode="latest_only",
+    sync_time_column=None,
+    sync_conflict_col="ticker",
+    sync_reconcile=True,
+))

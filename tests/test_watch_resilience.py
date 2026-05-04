@@ -148,3 +148,121 @@ class TestScanOverlap:
         """WatchLoop has _scan_in_progress flag, initially False."""
         assert hasattr(watch_loop, "_scan_in_progress")
         assert watch_loop._scan_in_progress is False
+
+
+class TestScanMetricsWriter:
+    """Tests for _record_scan_metrics Fix 1 — avg_conviction and duration_seconds."""
+
+    def test_avg_conviction_written_not_hardcoded(self, watch_loop):
+        """_record_scan_metrics writes the passed avg_conviction, not 0.0."""
+        import sqlite3
+        db_conn = sqlite3.connect(":memory:")
+        db_conn.row_factory = sqlite3.Row
+        db_conn.execute(
+            "CREATE TABLE scan_metrics ("
+            "id INTEGER PRIMARY KEY, scan_number INTEGER, scan_time TEXT, "
+            "universe_count INTEGER, features_count INTEGER, scored_count INTEGER, "
+            "packet_worthy INTEGER, risk_passed INTEGER, paper_traded INTEGER, "
+            "live_traded INTEGER, llm_success INTEGER, llm_total INTEGER, "
+            "llm_fallback INTEGER, avg_conviction REAL, duration_seconds REAL, "
+            "created_at TEXT"
+            ")"
+        )
+        db_conn.commit()
+
+        with patch("src.scheduler.watch.connect_db") as mock_connect:
+            mock_connect.return_value.__enter__ = lambda s: db_conn
+            mock_connect.return_value.__exit__ = MagicMock(return_value=False)
+            watch_loop._record_scan_metrics(
+                universe_count=10,
+                features_count=5,
+                packet_worthy=3,
+                llm_success=3,
+                llm_total=3,
+                avg_conviction=0.75,
+                duration_seconds=12.5,
+            )
+
+        row = db_conn.execute(
+            "SELECT avg_conviction, duration_seconds FROM scan_metrics"
+        ).fetchone()
+        assert row is not None
+        assert row["avg_conviction"] == 0.75
+        assert row["duration_seconds"] == 12.5
+
+    def test_duration_seconds_from_elapsed(self, watch_loop):
+        """Callers compute duration_seconds from time.time() diff (mock-verified)."""
+        import sqlite3
+        db_conn = sqlite3.connect(":memory:")
+        db_conn.row_factory = sqlite3.Row
+        db_conn.execute(
+            "CREATE TABLE scan_metrics ("
+            "id INTEGER PRIMARY KEY, scan_number INTEGER, scan_time TEXT, "
+            "universe_count INTEGER, features_count INTEGER, scored_count INTEGER, "
+            "packet_worthy INTEGER, risk_passed INTEGER, paper_traded INTEGER, "
+            "live_traded INTEGER, llm_success INTEGER, llm_total INTEGER, "
+            "llm_fallback INTEGER, avg_conviction REAL, duration_seconds REAL, "
+            "created_at TEXT"
+            ")"
+        )
+        db_conn.commit()
+
+        fake_start = 1000.0
+        fake_end = 1042.7
+
+        with patch("src.scheduler.watch.connect_db") as mock_connect, \
+             patch("time.time", side_effect=[fake_start, fake_end]):
+            mock_connect.return_value.__enter__ = lambda s: db_conn
+            mock_connect.return_value.__exit__ = MagicMock(return_value=False)
+            scan_started_at = time.time()
+            elapsed = time.time() - scan_started_at
+            watch_loop._record_scan_metrics(
+                universe_count=5,
+                features_count=2,
+                packet_worthy=1,
+                llm_success=1,
+                llm_total=1,
+                avg_conviction=0.0,
+                duration_seconds=elapsed,
+            )
+
+        row = db_conn.execute(
+            "SELECT duration_seconds FROM scan_metrics"
+        ).fetchone()
+        assert row is not None
+        assert abs(row["duration_seconds"] - (fake_end - fake_start)) < 0.001
+
+    def test_defaults_to_zero_when_not_passed(self, watch_loop):
+        """avg_conviction and duration_seconds default to 0.0 if not supplied."""
+        import sqlite3
+        db_conn = sqlite3.connect(":memory:")
+        db_conn.row_factory = sqlite3.Row
+        db_conn.execute(
+            "CREATE TABLE scan_metrics ("
+            "id INTEGER PRIMARY KEY, scan_number INTEGER, scan_time TEXT, "
+            "universe_count INTEGER, features_count INTEGER, scored_count INTEGER, "
+            "packet_worthy INTEGER, risk_passed INTEGER, paper_traded INTEGER, "
+            "live_traded INTEGER, llm_success INTEGER, llm_total INTEGER, "
+            "llm_fallback INTEGER, avg_conviction REAL, duration_seconds REAL, "
+            "created_at TEXT"
+            ")"
+        )
+        db_conn.commit()
+
+        with patch("src.scheduler.watch.connect_db") as mock_connect:
+            mock_connect.return_value.__enter__ = lambda s: db_conn
+            mock_connect.return_value.__exit__ = MagicMock(return_value=False)
+            watch_loop._record_scan_metrics(
+                universe_count=10,
+                features_count=5,
+                packet_worthy=0,
+                llm_success=0,
+                llm_total=0,
+            )
+
+        row = db_conn.execute(
+            "SELECT avg_conviction, duration_seconds FROM scan_metrics"
+        ).fetchone()
+        assert row is not None
+        assert row["avg_conviction"] == 0.0
+        assert row["duration_seconds"] == 0.0
