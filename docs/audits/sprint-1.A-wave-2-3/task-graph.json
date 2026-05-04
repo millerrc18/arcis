@@ -1,0 +1,64 @@
+{
+  "sprint_id": "sprint-1.A-wave-2-3",
+  "produced_by": "arcis:coding-planner",
+  "produced_at": "2026-05-04",
+  "base_sha": "20ab3d8",
+  "spec_commit": "d183078",
+  "status": "plan_approved_pending_execution",
+  "tasks": [
+    {
+      "id": "T-A2",
+      "name": "Extract _resolve_sync_columns helpers (60-line guardrail)",
+      "files_in_scope": ["src/sync/render_sync.py", "tests/test_render_sync.py"],
+      "files_read_only": ["src/schema/registry.py", "src/schema/sync_config.py", "docs/audits/sprint-1.A-wave-2-3/spec.md"],
+      "depends_on": [],
+      "estimated_complexity": "medium",
+      "extraction_plan": [
+        "_filter_columns_by_registry(table_name, source_columns) -> list[str]",
+        "_filter_columns_by_pg(pg_conn, table_name, filtered) -> tuple[list[str], set[str] | None]",
+        "_validate_conflict_columns(table_name, pk, conflict_col, filtered, pg_col_set, insert_cols) -> None"
+      ],
+      "outer_function_target": "<= 25 lines, delegates to 3 helpers, preserves all warnings/exceptions/return values",
+      "test_strategy_summary": "Add TestResolveSyncColumnsHelpers class to tests/test_render_sync.py with >=6 tests, mirroring PR #916's TestRenderSyncThreadHelpers pattern. Verify existing test_render_sync.py stays green.",
+      "scope_fence_summary": "ONLY src/sync/render_sync.py + tests/test_render_sync.py. NO CHANGELOG (refactor, no behavior change). NO touches to other oversize functions in same file."
+    },
+    {
+      "id": "T-B2",
+      "name": "Wire subtract_trading_days into corpus generator fetch anchor",
+      "files_in_scope": ["scripts/generate_llm_corpus.py", "tests/evaluation/test_corpus_generator.py", "CHANGELOG.md"],
+      "files_read_only": ["src/scheduler/holidays.py", "tests/scheduler/test_holidays.py", "docs/audits/sprint-1.A-wave-2-3/spec.md"],
+      "depends_on": [],
+      "estimated_complexity": "low",
+      "patch_site": "scripts/generate_llm_corpus.py:222 (_compute_features_for_window)",
+      "patch_diff": "fetch_start = (earliest_as_of - _timedelta(days=365)).isoformat()  ->  fetch_start = subtract_trading_days(earliest_as_of, 200).isoformat()",
+      "import_style": "function-local (matches existing convention at lines 208-212)",
+      "test_strategy_summary": "test_compute_features_for_window_uses_trading_day_anchor (anchor-lock at 2025-07-16) + test_compute_features_for_window_anchor_differs_from_calendar_buffer. Mock all yfinance + market data; no network.",
+      "scope_fence_summary": "ONLY corpus_generator + test + CHANGELOG. NO changes to backtester, holidays.py, registry."
+    },
+    {
+      "id": "T-B3",
+      "name": "Wire subtract_trading_days into backtester fetch anchor",
+      "files_in_scope": ["src/evaluation/backtester.py", "tests/test_backtester.py", "CHANGELOG.md"],
+      "files_read_only": ["src/scheduler/holidays.py", "tests/scheduler/test_holidays.py", "scripts/generate_llm_corpus.py", "tests/evaluation/test_corpus_generator.py", "docs/audits/sprint-1.A-wave-2-3/spec.md"],
+      "depends_on": ["T-B2"],
+      "estimated_complexity": "medium",
+      "patch_site": "src/evaluation/backtester.py:136 (backtest_model)",
+      "patch_diff": "fetch_start = (start_date - timedelta(days=365)).date().isoformat()  ->  fetch_start = subtract_trading_days(start_date.date(), 200).isoformat()",
+      "import_style": "module-level (matches existing convention)",
+      "test_strategy_summary": "test_backtester_fetch_uses_trading_day_anchor (anchor-lock 2025-07-16) + test_backtester_anchor_differs_from_calendar_buffer. Mock yfinance + calibration + config + PIT + RF rate. Surgical to fetch-anchor assertion only.",
+      "scope_fence_summary": "ONLY backtester + test + CHANGELOG. Worktree starts from SHA at which T-B2 lands."
+    }
+  ],
+  "execution_order": [["T-A2", "T-B2"], ["T-B3"]],
+  "test_count_baseline": 3682,
+  "test_count_target_post_sprint": 3692,
+  "cross_cutting_constraints": [
+    "Worktree isolation MANDATORY for parallel agents (T-A2 + T-B2)",
+    "Per-agent .claude/agent-scope.json file written before dispatch",
+    "Every PR updates CHANGELOG.md under [Unreleased] (B.2 + B.3 only; A.2 is refactor-no-behavior-change so excluded)",
+    "Run pytest tests/test_repo_structure.py per CLAUDE.md disclosure rule",
+    "If registry touched: run python -m src.main validate-schema + tests/test_schema.py end-to-end (per rigor-reviewer rubric C2.2)"
+  ],
+  "rationale_for_T_B3_gating": "Both T-B3 and T-B2 touch CHANGELOG.md (merge-conflict prevention) AND T-B3 mirrors T-B2 exactly — having T-B2 land first gives T-B3 a working reference implementation. Backtester has more side dependencies (calibration JSON, RF rate, PIT, config) than corpus_generator, so the operator can verify the simpler corpus-generator change in isolation first.",
+  "operator_authorization_required_before_execution": "Operator paused execution at PLAN approval checkpoint (2026-05-04). To resume: re-invoke arcis:coding-team with `--plan docs/audits/sprint-1.A-wave-2-3/task-graph.json`, OR re-dispatch from this saved state via the same mechanism."
+}
