@@ -8,6 +8,8 @@ from unittest.mock import MagicMock, patch, call
 import pytest
 
 from tests.conftest import init_test_db
+import logging
+
 from src.sync.render_sync import (
     SYNC_TABLES,
     RenderSyncThread,
@@ -15,6 +17,9 @@ from src.sync.render_sync import (
     _fetch_full_rows,
     _fetch_incremental_rows,
     _fetch_latest_rows,
+    _filter_columns_by_registry,
+    _filter_columns_by_pg,
+    _validate_conflict_columns,
     _init_sync_state,
     _upsert_to_postgres,
     _replace_latest_in_postgres,
@@ -901,3 +906,102 @@ class TestRenderSyncThreadHelpers:
         ):
             thread._handle_cycle_exception(ValueError("test error"))
         assert thread.sync_consecutive_errors == 1
+
+
+# ── _resolve_sync_columns helper tests (T-A2 / #85 follow-up) ────────
+
+class TestResolveSyncColumnsHelpers:
+    """Unit tests for private helpers extracted from _resolve_sync_columns."""
+
+    # ── _filter_columns_by_registry ──────────────────────────────────
+
+    def test_filter_columns_by_registry_table_not_in_registry(self):
+        """When the table has no registry entry, source_columns are returned unchanged."""
+        source = ["col_a", "col_b", "col_c"]
+        result = _filter_columns_by_registry("no_such_table_xyz", source)
+        assert result == source
+
+    def test_filter_columns_by_registry_drops_unknown_columns(self, caplog):
+        """Registry-filtered columns are dropped and a WARNING is logged."""
+        with caplog.at_level(logging.WARNING, logger="src.sync.render_sync"):
+            result = _filter_columns_by_registry(
+                "shadow_trades",
+                ["trade_id", "ticker", "mystery_col"],
+            )
+        assert "mystery_col" not in result
+        assert "trade_id" in result
+        assert "ticker" in result
+        assert any("mystery_col" in r.message for r in caplog.records)
+
+    # ── _filter_columns_by_pg ─────────────────────────────────────────
+
+    def test_filter_columns_by_pg_returns_none_pg_col_set_when_pg_conn_is_mock(self):
+        """When pg_conn is a unittest.mock object, returns (filtered, None)."""
+        mock_conn = MagicMock()
+        filtered = ["trade_id", "ticker"]
+        cols, pg_col_set = _filter_columns_by_pg(mock_conn, "shadow_trades", filtered)
+        assert cols == filtered
+        assert pg_col_set is None
+
+    def test_filter_columns_by_pg_intersects_and_logs_dropped(self, caplog):
+        """When PG introspection succeeds, returns intersection and logs dropped cols."""
+        with patch(
+            "src.sync.render_sync._get_pg_table_columns",
+            return_value=["trade_id", "ticker", "status"],
+        ):
+            mock_conn = MagicMock()
+            mock_conn.__class__.__module__ = "psycopg2"
+            filtered = ["trade_id", "ticker", "status", "local_only_col"]
+            with caplog.at_level(logging.WARNING, logger="src.sync.render_sync"):
+                insert_cols, pg_col_set = _filter_columns_by_pg(
+                    mock_conn, "shadow_trades", filtered
+                )
+        assert "local_only_col" not in insert_cols
+        assert "trade_id" in insert_cols
+        assert pg_col_set == {"trade_id", "ticker", "status"}
+        assert any("local_only_col" in r.message for r in caplog.records)
+
+    # ── _validate_conflict_columns ────────────────────────────────────
+
+    def test_validate_conflict_columns_raises_on_missing_conflict_target(self):
+        """Missing conflict-target columns raise RuntimeError with 'missing conflict target columns'."""
+        pg_col_set = {"trade_id", "ticker"}
+        with pytest.raises(RuntimeError, match="missing conflict target columns"):
+            _validate_conflict_columns(
+                table_name="shadow_trades",
+                pk="trade_id",
+                conflict_col="nonexistent_col",
+                filtered=["trade_id", "ticker"],
+                pg_col_set=pg_col_set,
+                insert_cols=["trade_id", "ticker"],
+            )
+
+    def test_validate_conflict_columns_raises_on_empty_insert_cols(self):
+        """Empty insert_cols raises RuntimeError with 'no shared columns'."""
+        pg_col_set = {"trade_id", "ticker"}
+        with pytest.raises(RuntimeError, match="no shared columns between SQLite, registry, and Postgres"):
+            _validate_conflict_columns(
+                table_name="shadow_trades",
+                pk="trade_id",
+                conflict_col=None,
+                filtered=["trade_id"],
+                pg_col_set=pg_col_set,
+                insert_cols=[],
+            )
+
+    def test_validate_conflict_columns_pk_missing_from_pg_emits_warning(self, caplog):
+        """pk missing from pg_col_set (no conflict_col) emits 'Primary key column ... missing' warning."""
+        pg_col_set = {"ticker", "status"}
+        with caplog.at_level(logging.WARNING, logger="src.sync.render_sync"):
+            _validate_conflict_columns(
+                table_name="shadow_trades",
+                pk="trade_id",
+                conflict_col=None,
+                filtered=["trade_id", "ticker"],
+                pg_col_set=pg_col_set,
+                insert_cols=["ticker"],
+            )
+        assert any(
+            "Primary key column" in r.message and "trade_id" in r.message
+            for r in caplog.records
+        )
