@@ -676,3 +676,117 @@ def test_backtest_model_produces_trades_for_old_test_window():
         f"{len(result.get('trades', []))}. Bug C: fetch_period_days anchors at "
         f"today-N days, not test_start - N days, so old folds never see data."
     )
+
+
+# ── B.3 trading-day anchor regression tests (#106 follow-up) ─────────────────
+#
+# Sprint 1.C.4.5 / #104 — Bug C fix: backtester now anchors fetch_start to
+# subtract_trading_days(start_date.date(), 200) instead of the prior
+# 365-calendar-day proxy. 200 trading days is the binding pre-reg semantic
+# for slice_to_date's 200-row gate. The prior calendar-day proxy was subject
+# to holiday-count drift (the 280-day buffer hit ~192 trading days for short
+# windows and tipped under the gate); the trading-day anchor removes that
+# hazard entirely. B.3 from PR #911 plan. Mirrors #922 (corpus generator).
+
+
+def test_backtester_fetch_uses_trading_day_anchor(monkeypatch):
+    """fetch_ohlcv and fetch_spy_benchmark receive start='2025-07-16' for
+    test_start='2026-05-01' (hardcoded calendar lock matching
+    test_subtract_trading_days_two_hundred_anchor:
+        subtract_trading_days(date(2026, 5, 1), 200) == date(2025, 7, 16)).
+
+    Also asserts start != '2025-05-01' (the prior 365-calendar-day result
+    for the same anchor date) to prove the trading-day path is taken.
+    """
+    from unittest.mock import patch as _patch
+
+    captured_starts: list[str] = []
+
+    def fake_fetch_ohlcv(universe, start=None, end=None, **kwargs):
+        if start is not None:
+            captured_starts.append(("ohlcv", start))
+        return {}
+
+    def fake_fetch_spy_benchmark(start=None, end=None, **kwargs):
+        if start is not None:
+            captured_starts.append(("spy", start))
+        return pd.DataFrame()
+
+    with _patch("src.config.load_config", return_value=_mock_config()), \
+         _patch("src.universe.pit.get_sp100_at", return_value=["AAPL"]), \
+         _patch("src.data_ingestion.market_data.fetch_ohlcv", side_effect=fake_fetch_ohlcv), \
+         _patch("src.data_ingestion.market_data.fetch_spy_benchmark", side_effect=fake_fetch_spy_benchmark), \
+         _patch("src.cost_model.calibration.get_calibrated_cost_model", return_value=None):
+        from src.evaluation.backtester import backtest_model
+        backtest_model(
+            "test_model",
+            test_start="2026-05-01",
+            test_end="2026-05-15",
+            months=1,
+            rf_source="placeholder",
+        )
+
+    ohlcv_starts = [s for tag, s in captured_starts if tag == "ohlcv"]
+    spy_starts = [s for tag, s in captured_starts if tag == "spy"]
+
+    assert ohlcv_starts, "fetch_ohlcv was not called with start="
+    assert spy_starts, "fetch_spy_benchmark was not called with start="
+
+    # Hardcoded calendar lock: subtract_trading_days(date(2026, 5, 1), 200) == 2025-07-16
+    assert ohlcv_starts[0] == "2025-07-16", (
+        f"Expected trading-day anchor 2025-07-16, got {ohlcv_starts[0]!r}. "
+        "B.3: backtester must use subtract_trading_days(start_date.date(), 200)."
+    )
+    assert spy_starts[0] == "2025-07-16", (
+        f"Expected trading-day anchor 2025-07-16 for SPY, got {spy_starts[0]!r}."
+    )
+
+    # Guard: must NOT be the prior 365-calendar-day result for this anchor.
+    # 2026-05-01 - 365 days = 2025-05-01 — that would indicate regression.
+    assert ohlcv_starts[0] != "2025-05-01", (
+        "fetch_ohlcv start= is '2025-05-01', which is the prior 365-calendar-day "
+        "result. The trading-day path is not being taken."
+    )
+
+
+def test_backtester_anchor_differs_from_calendar_buffer():
+    """For test_start='2024-12-01', the trading-day anchor differs from
+    (date(2024, 12, 1) - timedelta(days=365)).isoformat().
+
+    Guards against silent regression to calendar-day behavior.
+    """
+    from datetime import date, timedelta
+    from unittest.mock import patch as _patch
+
+    captured_start: list[str] = []
+
+    def fake_fetch_ohlcv(universe, start=None, end=None, **kwargs):
+        if start is not None:
+            captured_start.append(start)
+        return {}
+
+    def fake_fetch_spy_benchmark(start=None, end=None, **kwargs):
+        return pd.DataFrame()
+
+    with _patch("src.config.load_config", return_value=_mock_config()), \
+         _patch("src.universe.pit.get_sp100_at", return_value=["AAPL"]), \
+         _patch("src.data_ingestion.market_data.fetch_ohlcv", side_effect=fake_fetch_ohlcv), \
+         _patch("src.data_ingestion.market_data.fetch_spy_benchmark", side_effect=fake_fetch_spy_benchmark), \
+         _patch("src.cost_model.calibration.get_calibrated_cost_model", return_value=None):
+        from src.evaluation.backtester import backtest_model
+        backtest_model(
+            "test_model",
+            test_start="2024-12-01",
+            test_end="2024-12-15",
+            months=1,
+            rf_source="placeholder",
+        )
+
+    assert captured_start, "fetch_ohlcv was not called"
+
+    calendar_day_result = (date(2024, 12, 1) - timedelta(days=365)).isoformat()
+    assert captured_start[0] != calendar_day_result, (
+        f"fetch_ohlcv start= is {captured_start[0]!r}, which equals the "
+        f"365-calendar-day buffer result {calendar_day_result!r}. "
+        "This indicates regression to calendar-day behavior."
+    )
