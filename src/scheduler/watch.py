@@ -45,7 +45,6 @@ from src.config import DB_PATH, load_config
 from src.llm.client import is_llm_available
 from src.scheduler.handler_registry import HandlerRegistryMixin
 from src.scheduler.scorer import GuardedScorer
-from src.shadow_trading.alpaca_adapter import fetch_latest_quotes
 from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
@@ -726,8 +725,11 @@ class WatchLoop(HandlerRegistryMixin):
         ctx = ScanContext(config=self.config, scan_id=f"s-{_scan_num:04d}")
         result = run_universe_scan(ctx)
 
-        # Aborted scan (e.g., no SPY data) — just record metrics
+        # Aborted scan (e.g., no SPY data) — just record metrics. Still
+        # refresh live_prices: open positions from prior scans need fresh
+        # quotes even when today's scan can't run (PR #910 review).
         if result.aborted:
+            self._refresh_live_prices()
             self._record_scan_metrics(
                 universe_count=result.universe_count, features_count=0,
                 packet_worthy=0, llm_success=0, llm_total=0,
@@ -735,8 +737,10 @@ class WatchLoop(HandlerRegistryMixin):
                 duration_seconds=time.time() - scan_started_at)
             return
 
-        # Empty scan (no packet-worthy) — record and return
+        # Empty scan (no packet-worthy) — record and return. Same reasoning
+        # as aborted: refresh live_prices for prior open positions.
         if result.packet_worthy_count == 0:
+            self._refresh_live_prices()
             self._record_scan_metrics(
                 universe_count=result.universe_count,
                 features_count=result.features_count,
@@ -780,6 +784,13 @@ class WatchLoop(HandlerRegistryMixin):
 
         # ── Telegram: scan-level notifications (uses self._scan_number) ──
         self._post_scan_notifications(result)
+
+        # ── Refresh live_prices for open positions (PR #910 review) ──
+        # Runs after the scan so packets-just-opened are included in the
+        # ticker set queried by _refresh_live_prices. Outside the early-
+        # return paths above so prior-day open positions still get fresh
+        # quotes on aborted/empty scans too.
+        self._refresh_live_prices()
 
         # ── Scan metrics ──
         # avg_conviction: mean of llm_conviction from packets if available.
@@ -988,7 +999,14 @@ class WatchLoop(HandlerRegistryMixin):
                 logger.debug("[WATCH] System metrics collection failed: %s", e)
 
     def _refresh_live_prices(self):
-        """Fetch current quotes for all open shadow trades and UPSERT to live_prices."""
+        """Fetch current quotes for all open shadow trades and UPSERT to live_prices.
+
+        Lazy-imports `fetch_latest_quotes` to keep the hard dependency on the
+        Alpaca SDK contained to the function that actually uses it (matches
+        the pattern at line 592 for `get_account_info`). PR #910 review note.
+        """
+        from src.shadow_trading.alpaca_adapter import fetch_latest_quotes
+
         try:
             with connect_db(DB_PATH) as conn:
                 rows = conn.execute(

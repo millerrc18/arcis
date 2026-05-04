@@ -144,7 +144,7 @@ class TestRefreshLivePrices:
                    return_value=quotes, create=True) as fetch_mock:
             mock_connect.return_value.__enter__ = lambda s: db_conn
             mock_connect.return_value.__exit__ = MagicMock(return_value=False)
-            with patch("src.scheduler.watch.fetch_latest_quotes", return_value=quotes):
+            with patch("src.shadow_trading.alpaca_adapter.fetch_latest_quotes", return_value=quotes):
                 watch_loop._refresh_live_prices()
 
         row = db_conn.execute(
@@ -176,9 +176,9 @@ class TestRefreshLivePrices:
         with patch("src.scheduler.watch.connect_db") as mock_connect:
             mock_connect.return_value.__enter__ = lambda s: db_conn
             mock_connect.return_value.__exit__ = MagicMock(return_value=False)
-            with patch("src.scheduler.watch.fetch_latest_quotes", return_value=first_quotes):
+            with patch("src.shadow_trading.alpaca_adapter.fetch_latest_quotes", return_value=first_quotes):
                 watch_loop._refresh_live_prices()
-            with patch("src.scheduler.watch.fetch_latest_quotes", return_value=second_quotes):
+            with patch("src.shadow_trading.alpaca_adapter.fetch_latest_quotes", return_value=second_quotes):
                 watch_loop._refresh_live_prices()
 
         rows = db_conn.execute("SELECT price FROM live_prices WHERE ticker = 'MSFT'").fetchall()
@@ -202,7 +202,7 @@ class TestRefreshLivePrices:
         db_conn.commit()
 
         with patch("src.scheduler.watch.connect_db") as mock_connect, \
-             patch("src.scheduler.watch.fetch_latest_quotes",
+             patch("src.shadow_trading.alpaca_adapter.fetch_latest_quotes",
                    side_effect=RuntimeError("Alpaca API down")):
             mock_connect.return_value.__enter__ = lambda s: db_conn
             mock_connect.return_value.__exit__ = MagicMock(return_value=False)

@@ -266,3 +266,68 @@ class TestScanMetricsWriter:
         assert row is not None
         assert row["avg_conviction"] == 0.0
         assert row["duration_seconds"] == 0.0
+
+
+class TestScanCycleInvokesRefreshLivePrices:
+    """PR #910 review fix — integration test that locks _refresh_live_prices wiring.
+
+    The helper was originally orphaned: defined but never invoked from _run_scan.
+    These tests assert the call lands on every code path (aborted, empty, success)
+    so prior open positions get fresh quotes regardless of today's scan outcome.
+    """
+
+    def _make_result(self, *, aborted=False, packet_worthy_count=0, universe_count=100,
+                     features_count=100, conviction_parsed=0, conviction_total=0):
+        result = MagicMock()
+        result.aborted = aborted
+        result.packet_worthy_count = packet_worthy_count
+        result.universe_count = universe_count
+        result.features_count = features_count
+        result.conviction_parsed = conviction_parsed
+        result.conviction_total = conviction_total
+        return result
+
+    def test_scan_cycle_aborted_path_invokes_refresh(self, watch_loop):
+        """Aborted scan path still refreshes live_prices (open positions need quotes)."""
+        called = []
+        watch_loop._refresh_live_prices = lambda: called.append("refresh")
+        watch_loop._record_scan_metrics = lambda **kwargs: called.append("metrics")
+
+        with patch("src.scheduler.universe_scanner.run_universe_scan",
+                   return_value=self._make_result(aborted=True)):
+            watch_loop._run_scan()
+
+        assert "refresh" in called, "_run_scan aborted path must invoke _refresh_live_prices"
+        # Refresh must precede metrics so the dashboard's most recent scan
+        # cycle reflects the just-refreshed prices.
+        assert called.index("refresh") < called.index("metrics")
+
+    def test_scan_cycle_empty_path_invokes_refresh(self, watch_loop):
+        """Empty scan (no packet-worthy) still refreshes live_prices."""
+        called = []
+        watch_loop._refresh_live_prices = lambda: called.append("refresh")
+        watch_loop._record_scan_metrics = lambda **kwargs: called.append("metrics")
+
+        with patch("src.scheduler.universe_scanner.run_universe_scan",
+                   return_value=self._make_result(aborted=False, packet_worthy_count=0)):
+            watch_loop._run_scan()
+
+        assert "refresh" in called, "_run_scan empty path must invoke _refresh_live_prices"
+        assert called.index("refresh") < called.index("metrics")
+
+    def test_scan_cycle_success_path_invokes_refresh(self, watch_loop):
+        """Success scan refreshes live_prices after notifications, before metrics."""
+        called = []
+        watch_loop._refresh_live_prices = lambda: called.append("refresh")
+        watch_loop._post_scan_notifications = lambda result: called.append("notify")
+        watch_loop._record_scan_metrics = lambda **kwargs: called.append("metrics")
+
+        with patch("src.scheduler.universe_scanner.run_universe_scan",
+                   return_value=self._make_result(aborted=False, packet_worthy_count=3,
+                                                   conviction_parsed=2, conviction_total=3)):
+            watch_loop._run_scan()
+
+        assert "refresh" in called, "_run_scan success path must invoke _refresh_live_prices"
+        # Order: notify → refresh → metrics. Notifications first (uses scan_number),
+        # then quote refresh (uses just-opened positions), then metrics row.
+        assert called.index("notify") < called.index("refresh") < called.index("metrics")
