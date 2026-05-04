@@ -9,9 +9,10 @@ Covers:
 - Public API preserved: is_market_holiday(date_str=None, check_date=None)
 - Module-level export NYSE_HOLIDAYS_2026 still present (back-compat for
   tests/test_config_tech_debt.py::test_holidays_module_complete).
+- subtract_trading_days(anchor, n) — NYSE-calendar-aware trading-day subtraction
 """
 
-from datetime import date
+from datetime import date, datetime
 
 
 # ---------------------------------------------------------------------------
@@ -254,3 +255,86 @@ def test_is_market_open_returns_false_on_full_holiday():
     # 2026-11-26 is Thanksgiving (full closure)
     now = datetime(2026, 11, 26, 11, 0, tzinfo=et)
     assert wl._is_market_open(now) is False
+
+
+# ---------------------------------------------------------------------------
+# subtract_trading_days — B.1 (#106) NYSE-calendar-aware trading-day subtraction
+# ---------------------------------------------------------------------------
+
+
+def test_subtract_trading_days_one_step_weekday():
+    """Mon 2026-01-05, n=1 -> prior Friday 2026-01-02 (one step back)."""
+    from src.scheduler.holidays import subtract_trading_days
+
+    result = subtract_trading_days(date(2026, 1, 5), 1)
+    assert result == date(2026, 1, 2)
+    assert isinstance(result, date) and not isinstance(result, datetime)
+
+
+def test_subtract_trading_days_crosses_holiday():
+    """Tue 2026-01-20, n=1 -> Fri 2026-01-16 (skips MLK Day Mon 2026-01-19)."""
+    from src.scheduler.holidays import subtract_trading_days
+
+    result = subtract_trading_days(date(2026, 1, 20), 1)
+    assert result == date(2026, 1, 16)
+    assert isinstance(result, date) and not isinstance(result, datetime)
+
+
+def test_subtract_trading_days_crosses_weekend():
+    """Mon 2026-01-05, n=2 -> Wed 2025-12-31 (skips Sat/Sun + New Year's 2026-01-01)."""
+    from src.scheduler.holidays import subtract_trading_days
+
+    result = subtract_trading_days(date(2026, 1, 5), 2)
+    assert result == date(2025, 12, 31)
+    assert isinstance(result, date) and not isinstance(result, datetime)
+
+
+def test_subtract_trading_days_two_hundred_anchor():
+    """anchor=2026-05-01, n=200 -> 2025-07-16.
+
+    Verified by independent calendar count: there are exactly 200 NYSE trading
+    days in the half-open interval (2025-07-16, 2026-05-01] (i.e. 2025-07-17
+    through 2026-05-01 inclusive = 200 trading days). The window start is
+    2025-06-05 (ceil(200*1.6)+10=330 calendar days before anchor), well inside
+    the 228-day trading-day window that pandas_market_calendars returns.
+    """
+    from src.scheduler.holidays import subtract_trading_days
+
+    result = subtract_trading_days(date(2026, 5, 1), 200)
+    assert result == date(2025, 7, 16)
+    assert isinstance(result, date) and not isinstance(result, datetime)
+
+
+def test_subtract_trading_days_zero_returns_anchor_or_prior():
+    """n=0 returns anchor if anchor is a NYSE trading day.
+
+    Semantic: n=0 means 'the trading day at or immediately before anchor'.
+    For a regular weekday (2026-01-05, Monday) that is anchor itself.
+    """
+    from src.scheduler.holidays import subtract_trading_days
+
+    result = subtract_trading_days(date(2026, 1, 5), 0)
+    assert result == date(2026, 1, 5)
+    assert isinstance(result, date) and not isinstance(result, datetime)
+
+
+def test_subtract_trading_days_raises_on_negative():
+    """n < 0 must raise ValueError with a message containing the bad value."""
+    import pytest
+    from src.scheduler.holidays import subtract_trading_days
+
+    with pytest.raises(ValueError, match="-1"):
+        subtract_trading_days(date(2026, 1, 5), -1)
+
+
+def test_subtract_trading_days_anchor_on_saturday():
+    """Sat 2026-01-17, n=1 -> Thu 2026-01-15.
+
+    Saturday is not a trading day; anchor rounds back to Fri 2026-01-16,
+    then one step back lands on Thu 2026-01-15.
+    """
+    from src.scheduler.holidays import subtract_trading_days
+
+    result = subtract_trading_days(date(2026, 1, 17), 1)
+    assert result == date(2026, 1, 15)
+    assert isinstance(result, date) and not isinstance(result, datetime)
