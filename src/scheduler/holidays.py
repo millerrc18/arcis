@@ -16,8 +16,9 @@ callers can distinguish full closures (no trading) from early-close days
 (NYSE closes at 13:00 ET — e.g. day after Thanksgiving, Christmas Eve).
 """
 
-from datetime import date
+from datetime import date, timedelta
 from functools import lru_cache
+from math import ceil
 
 import pandas_market_calendars as mcal
 
@@ -79,6 +80,31 @@ def is_market_half_day(date_str: str | None = None, check_date: date | None = No
     """
     d = _resolve_check_date(date_str, check_date)
     return d in _half_days_for_year(d.year)
+
+
+def subtract_trading_days(anchor: date, n: int) -> date:
+    """Return the date that is N NYSE trading days before anchor.
+
+    Uses pandas_market_calendars to honor weekends, full holidays, AND
+    half-days (which still count as trading days). If anchor itself is
+    a non-trading day, round it back to the previous trading day, then
+    step back N.
+
+    Args:
+        anchor: anchor date.
+        n: number of trading days to subtract; must be >= 0.
+
+    Returns:
+        A date object N trading days before anchor.
+
+    Raises:
+        ValueError: if n < 0.
+    """
+    if n < 0:
+        raise ValueError("n must be non-negative, got %d" % n)
+    window_start = anchor - timedelta(days=ceil(n * 1.6) + 10)
+    trading_days = _NYSE.valid_days(start_date=window_start, end_date=anchor)
+    return trading_days[-(n + 1)].date()
 
 
 # Back-compat: tests/test_config_tech_debt.py::test_holidays_module_complete
