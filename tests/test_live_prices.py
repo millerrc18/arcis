@@ -46,6 +46,12 @@ class TestLivePricesTableDef:
         assert table.sync_to_postgres is True
         assert table.sync_mode == "latest_only"
         assert table.sync_reconcile is True
+        assert table.sync_conflict_col == "ticker"
+        assert table.sync_time_column == "as_of", (
+            "latest_only sync requires sync_time_column. Without it, "
+            "RenderSyncThread builds SQL with MAX(None) -> "
+            "'no such column: None' error every cycle (#910 follow-up)."
+        )
 
     def test_live_prices_pk_is_ticker(self):
         from src.schema.registry import TABLES
