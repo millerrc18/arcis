@@ -132,7 +132,7 @@
     {
       "file": "src/evaluation/walkforward.py",
       "lines": 431,
-      "rationale": "#82 Sprint 1.C Phase 5 deterministic-ranker shadow portfolio adds ~64 net lines (3 small helpers — _compute_shadow_delta, _build_flat_result, _assemble_with_shadow_result — plus with_shadow=True branch in run_walkforward + --with-shadow CLI flag). The shadow branch is genuinely new functionality (pre-reg §6 secondary diagnostic + addendum §A1.6 verbatim). Origin/main was 367 lines; extracting to a sibling module would split tightly-coupled fold-orchestration code across files for marginal aesthetic gain. Helpers already compressed (nested-function _powered_pnl inside _compute_shadow_delta; **prov varargs to avoid duplicated 7-key dict signatures)."
+      "rationale": "#82 Sprint 1.C Phase 5 deterministic-ranker shadow portfolio adds ~64 net lines (3 small helpers \u2014 _compute_shadow_delta, _build_flat_result, _assemble_with_shadow_result \u2014 plus with_shadow=True branch in run_walkforward + --with-shadow CLI flag). The shadow branch is genuinely new functionality (pre-reg \u00a76 secondary diagnostic + addendum \u00a7A1.6 verbatim). Origin/main was 367 lines; extracting to a sibling module would split tightly-coupled fold-orchestration code across files for marginal aesthetic gain. Helpers already compressed (nested-function _powered_pnl inside _compute_shadow_delta; **prov varargs to avoid duplicated 7-key dict signatures)."
     },
     {
       "file": "src/training/backfill.py",
@@ -455,7 +455,7 @@
       "file": "src/evaluation/backtester.py",
       "function": "backtest_model",
       "lines": 305,
-      "rationale": "Sprint 1.C Phase 4 #96.3 added optional corpus_id parameter + per-candidate corpus lookup; the most disruptive corpus-decision logic was extracted into _resolve_corpus_decision helper. Pre-existing 280-line size already exceeded the previous recorded 213 (recorded count was stale before this PR); this entry now reflects the post-#96.3 size. Real refactor of the per-day candidate loop is deferred — splitting that loop touches too much existing logic and is out of scope for #96.3."
+      "rationale": "Sprint 1.C Phase 4 #96.3 added optional corpus_id parameter + per-candidate corpus lookup; the most disruptive corpus-decision logic was extracted into _resolve_corpus_decision helper. Pre-existing 280-line size already exceeded the previous recorded 213 (recorded count was stale before this PR); this entry now reflects the post-#96.3 size. Real refactor of the per-day candidate loop is deferred \u2014 splitting that loop touches too much existing logic and is out of scope for #96.3."
     },
     {
       "file": "src/evaluation/cto_report.py",
@@ -984,6 +984,12 @@
     },
     {
       "file": "src/sync/render_sync.py",
+      "function": "_resolve_sync_columns",
+      "lines": 64,
+      "rationale": "#85 sibling-search disclosure: pre-existing 64-line function discovered during run() split. Refactor is out of scope for this task \u2014 operator to schedule separately."
+    },
+    {
+      "file": "src/sync/render_sync.py",
       "function": "_replace_latest_in_postgres",
       "lines": 105
     },
@@ -996,12 +1002,6 @@
       "file": "src/sync/render_sync.py",
       "function": "pull_commands",
       "lines": 121
-    },
-    {
-      "file": "src/sync/render_sync.py",
-      "function": "run",
-      "lines": 62,
-      "rationale": "#72: periodic reconcile wiring added is_reconcile_cycle gate (4 lines) to existing 54-line run() — minimal growth, refactor deferred"
     },
     {
       "file": "src/sync/render_sync.py",
