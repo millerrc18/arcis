@@ -136,19 +136,11 @@ def _get_pg_table_columns(pg_conn, table_name: str) -> list[str] | None:
                 pass
 
 
-def _resolve_sync_columns(
-    pg_conn,
-    table_name: str,
-    source_columns: list[str],
-    *,
-    pk: str,
-    conflict_col: str | None,
-) -> list[str]:
-    """Filter source columns to the safe insert set for Postgres.
+def _filter_columns_by_registry(table_name: str, source_columns: list[str]) -> list[str]:
+    """Drop columns not present in the schema registry for table_name.
 
-    The registry is the canonical intended schema. When Postgres introspection
-    succeeds, we further intersect with live PG columns so schema drift no
-    longer hard-fails the entire table sync.
+    Returns source_columns unchanged when the table is not in the registry
+    (preserving the early-return semantics of the original function).
     """
     registry_types = _registry_column_types(table_name)
     if not registry_types:
@@ -164,10 +156,23 @@ def _resolve_sync_columns(
             table_name,
             ", ".join(dropped_not_in_registry),
         )
+    return filtered
 
+
+def _filter_columns_by_pg(
+    pg_conn,
+    table_name: str,
+    filtered: list[str],
+) -> tuple[list[str], set[str] | None]:
+    """Intersect filtered columns with live Postgres columns for table_name.
+
+    Returns (filtered, None) when introspection is unavailable (mocked conn or
+    query failure), signalling the caller to fall back to registry-only filtering.
+    Returns (insert_cols, pg_col_set) when introspection succeeds.
+    """
     pg_columns = _get_pg_table_columns(pg_conn, table_name)
     if pg_columns is None:
-        return filtered
+        return filtered, None
 
     pg_col_set = set(pg_columns)
     insert_cols = [col for col in filtered if col in pg_col_set]
@@ -179,7 +184,22 @@ def _resolve_sync_columns(
             table_name,
             ", ".join(dropped_not_in_pg),
         )
+    return insert_cols, pg_col_set
 
+
+def _validate_conflict_columns(
+    table_name: str,
+    pk: str,
+    conflict_col: str | None,
+    filtered: list[str],
+    pg_col_set: set[str],
+    insert_cols: list[str],
+) -> None:
+    """Run conflict-col / pk-missing / empty-insert validations.
+
+    Raises RuntimeError for hard failures; emits a WARNING for the pk-missing
+    case (which is advisory only).
+    """
     missing_conflict_cols = [
         col for col in _split_conflict_columns(conflict_col) if col not in pg_col_set
     ]
@@ -200,6 +220,30 @@ def _resolve_sync_columns(
     if not insert_cols:
         raise RuntimeError(f"{table_name}: no shared columns between SQLite, registry, and Postgres")
 
+
+def _resolve_sync_columns(
+    pg_conn,
+    table_name: str,
+    source_columns: list[str],
+    *,
+    pk: str,
+    conflict_col: str | None,
+) -> list[str]:
+    """Filter source columns to the safe insert set for Postgres.
+
+    The registry is the canonical intended schema. When Postgres introspection
+    succeeds, we further intersect with live PG columns so schema drift no
+    longer hard-fails the entire table sync.
+    """
+    filtered = _filter_columns_by_registry(table_name, source_columns)
+    if filtered is source_columns:
+        return source_columns
+
+    insert_cols, pg_col_set = _filter_columns_by_pg(pg_conn, table_name, filtered)
+    if pg_col_set is None:
+        return filtered
+
+    _validate_conflict_columns(table_name, pk, conflict_col, filtered, pg_col_set, insert_cols)
     return insert_cols
 
 

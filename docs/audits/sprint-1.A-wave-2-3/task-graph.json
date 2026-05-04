@@ -1,0 +1,68 @@
+{
+  "sprint_id": "sprint-1.A-wave-2-3",
+  "produced_by": "arcis:coding-planner",
+  "produced_at": "2026-05-04",
+  "base_sha": "20ab3d8",
+  "spec_commit": "d183078",
+  "status": "plan_approved_pending_execution",
+  "operator_authorization_required_before_execution": "Operator paused at PLAN approval checkpoint 2026-05-04. To resume: re-invoke arcis:coding-team with --plan docs/audits/sprint-1.A-wave-2-3/task-graph.json",
+  "tasks": [
+    {
+      "id": "T-A2",
+      "name": "Extract _resolve_sync_columns helpers (60-line guardrail)",
+      "files_in_scope": ["src/sync/render_sync.py", "tests/test_render_sync.py"],
+      "depends_on": [],
+      "estimated_complexity": "medium",
+      "extraction_plan": [
+        "_filter_columns_by_registry(table_name, source_columns) -> list[str]",
+        "_filter_columns_by_pg(pg_conn, table_name, filtered) -> tuple[list[str], set[str] | None]",
+        "_validate_conflict_columns(table_name, pk, conflict_col, filtered, pg_col_set, insert_cols) -> None"
+      ],
+      "outer_function_target": "<= 25 lines orchestrator delegating to 3 helpers; preserves all warnings/exceptions/return values",
+      "test_target": ">=6 tests in TestResolveSyncColumnsHelpers, mirroring PR #916 TestRenderSyncThreadHelpers pattern",
+      "scope_fence": "ONLY render_sync.py + test. NO CHANGELOG (refactor, no behavior change). NO touches to other oversize functions in same file."
+    },
+    {
+      "id": "T-B2",
+      "name": "Wire subtract_trading_days into corpus generator fetch anchor",
+      "files_in_scope": ["scripts/generate_llm_corpus.py", "tests/evaluation/test_corpus_generator.py", "CHANGELOG.md"],
+      "depends_on": [],
+      "estimated_complexity": "low",
+      "patch_site": "scripts/generate_llm_corpus.py:222 (_compute_features_for_window)",
+      "patch_summary": "fetch_start = (earliest_as_of - _timedelta(days=365)).isoformat()  ->  fetch_start = subtract_trading_days(earliest_as_of, 200).isoformat()",
+      "import_style": "function-local (matches existing convention)",
+      "test_target": ">=2 tests: anchor-lock at 2025-07-16 + drift guard vs calendar buffer",
+      "scope_fence": "ONLY corpus_generator + test + CHANGELOG. NO changes to backtester, holidays.py, registry."
+    },
+    {
+      "id": "T-B3",
+      "name": "Wire subtract_trading_days into backtester fetch anchor",
+      "files_in_scope": ["src/evaluation/backtester.py", "tests/test_backtester.py", "CHANGELOG.md"],
+      "depends_on": ["T-B2"],
+      "estimated_complexity": "medium",
+      "patch_site": "src/evaluation/backtester.py:136 (backtest_model)",
+      "patch_summary": "fetch_start = (start_date - timedelta(days=365)).date().isoformat()  ->  fetch_start = subtract_trading_days(start_date.date(), 200).isoformat()",
+      "import_style": "module-level (matches backtester convention)",
+      "test_target": ">=2 tests: anchor-lock 2025-07-16 + drift guard. Mock yfinance + calibration + config + PIT + RF rate.",
+      "scope_fence": "ONLY backtester + test + CHANGELOG. Worktree starts from SHA at which T-B2 lands."
+    },
+    {
+      "id": "T-DOCS",
+      "name": "Documentation sweep — refresh stale docs, roadmap, dashboard roadmap",
+      "files_in_scope": ["docs/**/*.md", "CLAUDE.md", "README.md", "MASTER.md (if exists)"],
+      "depends_on": ["T-B3"],
+      "estimated_complexity": "medium",
+      "scope_summary": "Sweep docs/ tree for stale references. Update docs/roadmap.md against actual sprint progression. Update dashboard roadmap (locate exact path during execution). Refresh any docs mentioning Wave 1 / Wave 2 / current sprint state. Update CLAUDE.md analytics section if any 'shelf' module promoted to 'wired' (e.g., subtract_trading_days via T-B2 + T-B3).",
+      "test_target": "no tests (docs-only)",
+      "scope_fence": "ONLY *.md files. NO code changes. NO CHANGELOG entry (docs sweeps don't need release notes).",
+      "operator_inputs_needed_at_execution_time": [
+        "Confirm location of dashboard roadmap (docs/research/ vs docs/audits/ vs root-level)",
+        "Confirm whether MASTER.md is the canonical roadmap source or just an org-wide doc",
+        "Any specific docs the operator KNOWS are stale (saves the agent grep work)"
+      ]
+    }
+  ],
+  "execution_order": [["T-A2", "T-B2"], ["T-B3"], ["T-DOCS"]],
+  "test_count_baseline": 3682,
+  "test_count_target_post_sprint": 3692
+}
