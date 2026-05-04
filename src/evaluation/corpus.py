@@ -22,6 +22,7 @@ JSONL is preferred for entries because (a) cheap append at generation time,
 Called by: src/evaluation/backtester.py (#96.4), src/evaluation/walkforward.py (#96.5)
 Calls: none
 Owns tables: none
+Config keys: none
 Tests: tests/evaluation/test_corpus.py
 
 The CorpusEntry fields map 1:1 to addendum §A3.1 per-decision artifact
