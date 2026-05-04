@@ -2489,7 +2489,7 @@ _register(TableDef(
     primary_key="ticker",
     sync_to_postgres=True,
     sync_mode="latest_only",
-    sync_time_column=None,
+    sync_time_column="as_of",
     sync_conflict_col="ticker",
     sync_reconcile=True,
 ))
