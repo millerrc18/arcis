@@ -25,7 +25,10 @@ create_router) so they can be unit-tested independently.
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from src.shadow_trading.exit_reason import outcome_stats_filter_sql
+from src.shadow_trading.exit_reason import (
+    EXCLUDED_FROM_OUTCOME_STATS,
+    outcome_stats_filter_sql,
+)
 
 
 PERFORMANCE_WEIGHT = 0.10
@@ -424,6 +427,17 @@ def create_router(runtime, verify_auth):
                 "ORDER BY st.actual_exit_time DESC",
                 (cutoff,),
             )
+            # Filter for outcome statistics. The query above intentionally returns
+            # synthetic-closure rows (e.g. exit_reason='reconciled_stale') so the
+            # by_exit_reason histogram below can surface them as informational signal.
+            # But all win-rate / profit-factor / band / sector / regime aggregations
+            # must EXCLUDE them — they have pnl_dollars=0 with no real broker fill,
+            # so counting them as losses corrupts every aggregate. #919 follow-up.
+            closed_recent_for_stats = [
+                t for t in closed_recent
+                if not t.get("exit_reason")
+                or t["exit_reason"] not in EXCLUDED_FROM_OUTCOME_STATS
+            ]
             packet_count = runtime.query_one(
                 "SELECT COUNT(*) as c FROM recommendations WHERE created_at >= %s",
                 (cutoff,),
@@ -437,7 +451,7 @@ def create_router(runtime, verify_auth):
                 "ORDER BY created_at DESC LIMIT 1"
             )
 
-            summary = _compute_trade_summary(closed_recent, open_count["c"] if open_count else 0)
+            summary = _compute_trade_summary(closed_recent_for_stats, open_count["c"] if open_count else 0)
 
             # By exit reason
             by_exit_reason = {}
@@ -451,8 +465,9 @@ def create_router(runtime, verify_auth):
                 pnls = data.pop("pnls")
                 data["avg_pnl"] = round(sum(pnls) / len(pnls), 2) if pnls else 0
 
-            # By sector/regime - join with recommendations
-            rec_ids = [t["recommendation_id"] for t in closed_recent if t.get("recommendation_id")]
+            # By sector/regime - join with recommendations.
+            # Use closed_recent_for_stats so reconciled_stale rows don't pollute the bands.
+            rec_ids = [t["recommendation_id"] for t in closed_recent_for_stats if t.get("recommendation_id")]
             rec_map = {}
             if rec_ids:
                 placeholders = ", ".join(["%s"] * len(rec_ids))
@@ -465,7 +480,7 @@ def create_router(runtime, verify_auth):
 
             # By score band
             by_score_band = {}
-            for trade in closed_recent:
+            for trade in closed_recent_for_stats:
                 rec = rec_map.get(trade.get("recommendation_id"), {})
                 score = rec.get("priority_score", 0) or 0
                 if score >= 80:
@@ -491,7 +506,7 @@ def create_router(runtime, verify_auth):
             # By sector
             from src.universe.sectors import SECTOR_MAP
             by_sector = {}
-            for trade in closed_recent:
+            for trade in closed_recent_for_stats:
                 sector = SECTOR_MAP.get(trade.get("ticker", ""), "Other")
                 if sector not in by_sector:
                     by_sector[sector] = {"trades": 0, "wins": 0}
@@ -503,7 +518,7 @@ def create_router(runtime, verify_auth):
 
             # By regime
             by_regime = {}
-            for trade in closed_recent:
+            for trade in closed_recent_for_stats:
                 rec = rec_map.get(trade.get("recommendation_id"), {})
                 regime = rec.get("market_regime") or "unknown"
                 if regime not in by_regime:
@@ -514,20 +529,22 @@ def create_router(runtime, verify_auth):
             for regime, data in by_regime.items():
                 data["win_rate"] = round(data["wins"] / data["trades"], 3) if data["trades"] else 0
 
-            # Execution analysis
-            durations = [t.get("duration_days", 0) or 0 for t in closed_recent]
-            timeouts = [t for t in closed_recent if t.get("exit_reason") == "timeout"]
-            targets_hit = [t for t in closed_recent if t.get("exit_reason") in ("target_1_hit", "target_2_hit", "target_1", "target_2")]
+            # Execution analysis. Uses closed_recent_for_stats — synthetic closures
+            # have NULL/zero durations and meaningless exit_reasons, so they'd skew
+            # avg_hold_period_days, targets_hit_pct, and timeout_pct.
+            durations = [t.get("duration_days", 0) or 0 for t in closed_recent_for_stats]
+            timeouts = [t for t in closed_recent_for_stats if t.get("exit_reason") == "timeout"]
+            targets_hit = [t for t in closed_recent_for_stats if t.get("exit_reason") in ("target_1_hit", "target_2_hit", "target_1", "target_2")]
             execution_analysis = {
                 "avg_hold_period_days": round(sum(durations) / len(durations), 1) if durations else 0,
-                "targets_hit_pct": round(len(targets_hit) / len(closed_recent) * 100, 1) if closed_recent else 0,
-                "timeout_pct": round(len(timeouts) / len(closed_recent) * 100, 1) if closed_recent else 0,
+                "targets_hit_pct": round(len(targets_hit) / len(closed_recent_for_stats) * 100, 1) if closed_recent_for_stats else 0,
+                "timeout_pct": round(len(timeouts) / len(closed_recent_for_stats) * 100, 1) if closed_recent_for_stats else 0,
                 "avg_mfe_winners": None,  # MFE requires intraday data not yet tracked
             }
 
-            # Fund metrics
-            pnls = [t.get("pnl_pct", 0) or 0 for t in closed_recent]
-            pnl_dollars = [t.get("pnl_dollars", 0) or 0 for t in closed_recent]
+            # Fund metrics — uses closed_recent_for_stats for the same reason
+            pnls = [t.get("pnl_pct", 0) or 0 for t in closed_recent_for_stats]
+            pnl_dollars = [t.get("pnl_dollars", 0) or 0 for t in closed_recent_for_stats]
             fund_metrics = {"sortino_ratio": None, "calmar_ratio": None, "var_95": None}
             if len(pnls) >= 2:
                 mean_ret = sum(pnls) / len(pnls)
@@ -565,9 +582,11 @@ def create_router(runtime, verify_auth):
                         skew = (n / ((n - 1) * (n - 2))) * sum(((p - mean_p) / std_p) ** 3 for p in pnls)
                         fund_metrics["return_skewness"] = round(skew, 3)
 
-                # Monthly batting avg: % of calendar months with positive total P&L
+                # Monthly batting avg: % of calendar months with positive total P&L.
+                # Uses closed_recent_for_stats — synthetic closures contribute $0 to
+                # their month, falsely flipping a winning month to break-even.
                 monthly_pnl = {}
-                for trade in closed_recent:
+                for trade in closed_recent_for_stats:
                     exit_time = trade.get("actual_exit_time") or trade.get("updated_at") or ""
                     month_key = exit_time[:7]
                     if month_key:
@@ -582,10 +601,11 @@ def create_router(runtime, verify_auth):
 
             # DB-2 Task 11: by-broker breakdown. Splits recent closed trades
             # by broker (alpaca vs ib) so the CTO report can show whether one
-            # broker is dragging the overall numbers. Quarantine filter is
-            # already applied to closed_recent.
+            # broker is dragging the overall numbers. Filters: quarantine applied
+            # in the SQL query; reconciled_stale (synthetic closures) excluded
+            # in-memory via closed_recent_for_stats.
             by_broker = {}
-            for trade in closed_recent:
+            for trade in closed_recent_for_stats:
                 broker = (trade.get("broker") or "alpaca").lower()
                 bucket = by_broker.setdefault(broker, {
                     "trades": 0, "wins": 0, "losses": 0,
@@ -760,6 +780,7 @@ def create_router(runtime, verify_auth):
                 "LEFT JOIN recommendations r ON st.recommendation_id = r.recommendation_id "
                 "WHERE st.status = 'closed' AND st.strategy_type = %s "
                 "AND COALESCE(st.quarantined, 0) = 0 "
+                f"{outcome_stats_filter_sql()} "
                 "ORDER BY st.actual_exit_time ASC",
                 (strategy_type,),
             )
