@@ -197,18 +197,22 @@ def _compute_features_for_window(
     trading days — below slice_to_date's 200-row gate, causing every ticker
     to be filtered out and features_by_date to be empty.
 
-    We anchor the fetch to (earliest_as_of - 365 calendar days) through
-    (latest_as_of) so slice_to_date's 200-trading-day minimum is satisfied
-    for the very first as_of cutoff. 365 calendar days ≈ 250 trading days
-    after weekends + holidays — comfortably above the 200-row gate. The
-    earlier 280-day buffer was at the edge (~192 trading days due to US
-    market holidays) and tipped under for the smoke window. PIT cleanliness
-    is still enforced at slice_to_date time (df.index <= cutoff).
+    #106 follow-up (B.2) — The fetch anchor is now computed via
+    ``subtract_trading_days(earliest_as_of, 200)`` from
+    ``src.scheduler.holidays``. This is the binding pre-reg semantic for
+    ``slice_to_date``'s 200-row gate: exactly 200 NYSE trading days before
+    the earliest decision point, honoring weekends, full holidays, and
+    half-days. The prior 365-calendar-day proxy was subject to holiday-count
+    drift (the earlier 280-day buffer hit ~192 trading days for the smoke
+    window due to US market holidays and tipped under the gate); the new
+    trading-day anchor removes that hazard entirely. PIT cleanliness is
+    still enforced at slice_to_date time (df.index <= cutoff).
     """
-    from datetime import date as _date, timedelta as _timedelta
+    from datetime import date as _date
 
     from src.data_ingestion.market_data import fetch_ohlcv, fetch_spy_benchmark
     from src.features.engine import compute_all_features
+    from src.scheduler.holidays import subtract_trading_days
     from src.training.historical_data import slice_to_date
 
     by_date: dict[str, dict[str, dict]] = {}
@@ -219,7 +223,7 @@ def _compute_features_for_window(
     spans = sorted({d for d, _ in decision_points})
     earliest_as_of = _date.fromisoformat(spans[0])
     latest_as_of = _date.fromisoformat(spans[-1])
-    fetch_start = (earliest_as_of - _timedelta(days=365)).isoformat()
+    fetch_start = subtract_trading_days(earliest_as_of, 200).isoformat()
     fetch_end = latest_as_of.isoformat()
 
     ohlcv = fetch_ohlcv(universe, start=fetch_start, end=fetch_end)
