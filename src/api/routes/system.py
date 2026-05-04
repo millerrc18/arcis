@@ -4,7 +4,8 @@ Called by: api.app
 Calls: config, evaluation.cto_report, evaluation.system_validator, journal.store, logging.activity, risk.governor, scheduler.metrics, services.system_service, training.versioning
 Owns tables: none
 Config keys: none
-Tests: none
+Tests: tests/test_local_api_routes.py, tests/test_tier_1_5_hygiene.py,
+  tests/evaluation/test_sharpe_canonical_routing.py
 
 Endpoints:
     GET  /status                    - System status (preflight-equivalent)

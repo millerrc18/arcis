@@ -9,6 +9,7 @@ testing correction count.
 Called by: Stage 1 results report writer (post #83).
 Calls: src.analytics.canonical_sharpe (per-partition Sharpe).
 Owns tables: none.
+Config keys: none.
 Tests: tests/evaluation/test_subgroup_analysis.py.
 
 Trade dict contract — fields the partitioner reads:
