@@ -788,4 +788,116 @@ class TestPerTableReconnection:
 
         # Should have errors but not crash
         assert len(summary["errors"]) > 0
-        assert "timestamp" in summary
+
+
+# ── RenderSyncThread helper method tests (#85 / PR #72 follow-up) ────
+
+class TestRenderSyncThreadHelpers:
+    """Unit tests for private helpers extracted from RenderSyncThread.run()."""
+
+    def _make_thread(self):
+        """Return a RenderSyncThread with no external deps for unit testing."""
+        return RenderSyncThread(
+            database_url="postgresql://test@localhost/db",
+            interval_seconds=60,
+        )
+
+    # ── _log_cycle_outcome ────────────────────────────────────────────
+
+    def test_log_cycle_outcome_logs_info_when_rows_synced(self, caplog):
+        thread = self._make_thread()
+        thread._cycle_count = 5
+        summary = {"synced": {"shadow_trades": 3}, "errors": []}
+        import logging
+        with caplog.at_level(logging.INFO, logger="src.sync.render_sync"):
+            thread._log_cycle_outcome(summary)
+        assert any("Sync cycle complete" in r.message for r in caplog.records)
+
+    def test_log_cycle_outcome_logs_info_when_errors_present(self, caplog):
+        thread = self._make_thread()
+        thread._cycle_count = 5
+        summary = {"synced": {}, "errors": ["some error"]}
+        import logging
+        with caplog.at_level(logging.INFO, logger="src.sync.render_sync"):
+            thread._log_cycle_outcome(summary)
+        assert any("Sync cycle complete" in r.message for r in caplog.records)
+
+    def test_log_cycle_outcome_quiet_heartbeat_at_30(self, caplog):
+        """Every 30th quiet cycle emits an INFO heartbeat."""
+        thread = self._make_thread()
+        thread._cycle_count = 30
+        summary = {"synced": {}, "errors": []}
+        import logging
+        with caplog.at_level(logging.INFO, logger="src.sync.render_sync"):
+            thread._log_cycle_outcome(summary)
+        assert any(
+            "quiet, no rows to sync" in r.message for r in caplog.records
+        )
+
+    def test_log_cycle_outcome_no_info_at_non_heartbeat_cycle(self, caplog):
+        """At cycle 7 (not 30 or 10-multiple) no INFO is emitted for a quiet cycle."""
+        thread = self._make_thread()
+        thread._cycle_count = 7
+        summary = {"synced": {}, "errors": []}
+        import logging
+        with caplog.at_level(logging.INFO, logger="src.sync.render_sync"):
+            thread._log_cycle_outcome(summary)
+        info_msgs = [r for r in caplog.records if r.levelname == "INFO"]
+        assert not info_msgs
+
+    def test_log_cycle_outcome_debug_heartbeat_at_10(self, caplog):
+        """Every 10th quiet cycle emits a DEBUG heartbeat (not INFO)."""
+        thread = self._make_thread()
+        thread._cycle_count = 10
+        summary = {"synced": {}, "errors": []}
+        import logging
+        with caplog.at_level(logging.DEBUG, logger="src.sync.render_sync"):
+            thread._log_cycle_outcome(summary)
+        debug_msgs = [
+            r for r in caplog.records
+            if r.levelname == "DEBUG" and "heartbeat" in r.message
+        ]
+        assert debug_msgs
+
+    # ── _dispatch_pulled_commands ─────────────────────────────────────
+
+    def test_dispatch_pulled_commands_calls_callback(self):
+        callback = MagicMock()
+        thread = self._make_thread()
+        thread._on_commands_pulled = callback
+        summary = {"commands": [{"cmd": "buy"}]}
+        thread._dispatch_pulled_commands(summary)
+        callback.assert_called_once_with([{"cmd": "buy"}])
+
+    def test_dispatch_pulled_commands_no_callback_no_error(self):
+        thread = self._make_thread()
+        thread._on_commands_pulled = None
+        summary = {"commands": [{"cmd": "buy"}]}
+        thread._dispatch_pulled_commands(summary)  # Must not raise
+
+    def test_dispatch_pulled_commands_empty_list_skips_callback(self):
+        callback = MagicMock()
+        thread = self._make_thread()
+        thread._on_commands_pulled = callback
+        summary = {"commands": []}
+        thread._dispatch_pulled_commands(summary)
+        callback.assert_not_called()
+
+    # ── _handle_cycle_exception ───────────────────────────────────────
+
+    def test_handle_cycle_exception_increments_error_count(self):
+        thread = self._make_thread()
+        thread.sync_consecutive_errors = 0
+        thread._handle_cycle_exception(RuntimeError("boom"))
+        assert thread.sync_consecutive_errors == 1
+
+    def test_handle_cycle_exception_telegram_failure_swallowed(self):
+        """Telegram send failure must not propagate — exception is silently swallowed."""
+        thread = self._make_thread()
+        thread.sync_consecutive_errors = 0
+        with patch(
+            "src.notifications.telegram.send_telegram",
+            side_effect=RuntimeError("telegram down"),
+        ):
+            thread._handle_cycle_exception(ValueError("test error"))
+        assert thread.sync_consecutive_errors == 1

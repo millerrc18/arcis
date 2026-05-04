@@ -1163,68 +1163,80 @@ class RenderSyncThread(threading.Thread):
                 exc,
             )
 
+    def _log_cycle_outcome(self, summary: dict) -> None:
+        """Log the result of a successful sync cycle."""
+        synced_count = sum(summary.get("synced", {}).values())
+        error_count = len(summary.get("errors", []))
+        if synced_count > 0 or error_count > 0:
+            logger.info(
+                "Sync cycle complete: %d rows synced, %d errors",
+                synced_count,
+                error_count,
+            )
+        # Quiet-cycle heartbeat: INFO every 30 cycles (≈30 min at
+        # 60s interval) so an idle poller is visible in logs without
+        # requiring a DEBUG-level filter. Everything else every
+        # 10 cycles stays at DEBUG.
+        elif self._cycle_count % 30 == 0:
+            logger.info(
+                "Render sync heartbeat — cycle %d (quiet, no rows to sync)",
+                self._cycle_count,
+            )
+        elif self._cycle_count % 10 == 0:
+            logger.debug("Render sync heartbeat — cycle %d", self._cycle_count)
+
+    def _dispatch_pulled_commands(self, summary: dict) -> None:
+        """Invoke the commands callback if commands were pulled."""
+        commands = summary.get("commands", [])
+        if commands and self._on_commands_pulled:
+            try:
+                self._on_commands_pulled(commands)
+            except Exception as exc:
+                logger.error("Command execution callback failed: %s", exc, extra={"ctx": {"event": "sync_error", "table": None, "error": str(exc)}})
+
+    def _handle_cycle_exception(self, exc: Exception) -> None:
+        """Handle an unhandled exception from a sync cycle."""
+        self.sync_consecutive_errors += 1
+        logger.error("Unhandled error in sync cycle: %s", exc, extra={"ctx": {"event": "sync_error", "table": None, "error": str(exc)}})
+        try:
+            from src.notifications.telegram import send_telegram
+            send_telegram(f"🚨 Render sync error: <code>{exc}</code>")
+        except Exception:
+            pass
+
+    def _run_one_cycle(self) -> None:
+        """Acquire the lock and run one sync cycle, or skip if already in progress."""
+        if not self._sync_lock.acquire(blocking=False):
+            logger.warning("Sync cycle already in progress — skipping")
+            return
+        try:
+            is_reconcile_cycle = (
+                self.reconcile_every_n_cycles > 0
+                and (self._cycle_count + 1) % self.reconcile_every_n_cycles == 0
+            )
+            summary = run_sync_cycle(
+                self.database_url,
+                self.db_path,
+                _reconcile_cycle=is_reconcile_cycle,
+            )
+            self.sync_last_success = time.time()
+            self.sync_consecutive_errors = 0
+            self._cycle_count += 1
+            self._log_cycle_outcome(summary)
+            self._dispatch_pulled_commands(summary)
+        except Exception as exc:
+            self._handle_cycle_exception(exc)
+        finally:
+            self._sync_lock.release()
+
     def run(self) -> None:
         """Main loop: sync, sleep, repeat."""
         logger.info(
             "Render sync thread started (interval=%ds)", self.interval_seconds
         )
         while not self._stop_event.is_set():
-            if not self._sync_lock.acquire(blocking=False):
-                logger.warning("Sync cycle already in progress — skipping")
-                self._stop_event.wait(self.interval_seconds)
-                continue
-            try:
-                is_reconcile_cycle = (
-                    self.reconcile_every_n_cycles > 0
-                    and (self._cycle_count + 1) % self.reconcile_every_n_cycles == 0
-                )
-                summary = run_sync_cycle(
-                    self.database_url,
-                    self.db_path,
-                    _reconcile_cycle=is_reconcile_cycle,
-                )
-                self.sync_last_success = time.time()
-                self.sync_consecutive_errors = 0
-                self._cycle_count += 1
-                synced_count = sum(summary.get("synced", {}).values())
-                error_count = len(summary.get("errors", []))
-                if synced_count > 0 or error_count > 0:
-                    logger.info(
-                        "Sync cycle complete: %d rows synced, %d errors",
-                        synced_count,
-                        error_count,
-                    )
-                # Quiet-cycle heartbeat: INFO every 30 cycles (≈30 min at
-                # 60s interval) so an idle poller is visible in logs without
-                # requiring a DEBUG-level filter. Everything else every
-                # 10 cycles stays at DEBUG.
-                elif self._cycle_count % 30 == 0:
-                    logger.info(
-                        "Render sync heartbeat — cycle %d (quiet, no rows to sync)",
-                        self._cycle_count,
-                    )
-                elif self._cycle_count % 10 == 0:
-                    logger.debug("Render sync heartbeat — cycle %d", self._cycle_count)
-                # Execute pulled commands via callback
-                commands = summary.get("commands", [])
-                if commands and self._on_commands_pulled:
-                    try:
-                        self._on_commands_pulled(commands)
-                    except Exception as exc:
-                        logger.error("Command execution callback failed: %s", exc, extra={"ctx": {"event": "sync_error", "table": None, "error": str(exc)}})
-            except Exception as exc:
-                self.sync_consecutive_errors += 1
-                logger.error("Unhandled error in sync cycle: %s", exc, extra={"ctx": {"event": "sync_error", "table": None, "error": str(exc)}})
-                try:
-                    from src.notifications.telegram import send_telegram
-                    send_telegram(f"🚨 Render sync error: <code>{exc}</code>")
-                except Exception:
-                    pass
-            finally:
-                self._sync_lock.release()
-
+            self._run_one_cycle()
             self._stop_event.wait(self.interval_seconds)
-
         logger.info("Render sync thread stopped")
 
 
