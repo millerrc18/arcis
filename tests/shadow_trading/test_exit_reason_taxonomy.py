@@ -177,3 +177,122 @@ def test_qty_mismatch_partial_fill_passes_through(caplog):
         result = _coerce("qty_mismatch_partial_fill")
     assert result == "qty_mismatch_partial_fill"
     assert "EXIT_REASON_INVALID" not in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# EXCLUDED_FROM_OUTCOME_STATS + outcome_stats_filter_sql helper
+# ---------------------------------------------------------------------------
+# Class of bug discovered 2026-05-04: `reconciled_stale` rows from reconcile.py
+# were polluting the dashboard win-rate (6 real wins / 21 total closed = 28.6%
+# instead of 6/6 = 100%). Synthetic closures must be excluded from outcome
+# aggregations.
+
+def test_excluded_from_outcome_stats_includes_reconciled_stale():
+    """reconciled_stale must be in the exclusion set — the original bug class."""
+    from src.shadow_trading.exit_reason import EXCLUDED_FROM_OUTCOME_STATS
+    assert "reconciled_stale" in EXCLUDED_FROM_OUTCOME_STATS
+
+
+def test_excluded_from_outcome_stats_is_frozenset():
+    """Exclusion set is immutable and a subset of CONTROLLED_VOCAB."""
+    from src.shadow_trading.exit_reason import EXCLUDED_FROM_OUTCOME_STATS, CONTROLLED_VOCAB
+    assert isinstance(EXCLUDED_FROM_OUTCOME_STATS, frozenset)
+    assert EXCLUDED_FROM_OUTCOME_STATS.issubset(CONTROLLED_VOCAB), (
+        "Every excluded reason must also be a valid vocab entry"
+    )
+
+
+def test_outcome_stats_filter_sql_contains_reconciled_stale():
+    """Helper emits SQL that excludes reconciled_stale."""
+    from src.shadow_trading.exit_reason import outcome_stats_filter_sql
+    fragment = outcome_stats_filter_sql()
+    assert "reconciled_stale" in fragment
+    assert fragment.startswith("AND ")
+    assert "exit_reason" in fragment
+    assert "NOT IN" in fragment
+
+
+def test_outcome_stats_filter_sql_handles_null_exit_reason():
+    """Filter must allow exit_reason IS NULL — pre-vocab rows shouldn't get excluded."""
+    from src.shadow_trading.exit_reason import outcome_stats_filter_sql
+    fragment = outcome_stats_filter_sql()
+    assert "IS NULL" in fragment
+
+
+def test_outcome_stats_filter_sql_executes_against_sqlite_in_memory():
+    """End-to-end: filter SQL works against a real SQLite instance and excludes
+    reconciled_stale rows while keeping target_1 / NULL exit_reason rows."""
+    import sqlite3
+    from src.shadow_trading.exit_reason import outcome_stats_filter_sql
+
+    conn = sqlite3.connect(":memory:")
+    conn.execute("""
+        CREATE TABLE shadow_trades (
+            trade_id TEXT PRIMARY KEY,
+            status TEXT,
+            exit_reason TEXT,
+            pnl_dollars REAL
+        )
+    """)
+    conn.executemany(
+        "INSERT INTO shadow_trades (trade_id, status, exit_reason, pnl_dollars) VALUES (?, ?, ?, ?)",
+        [
+            ("real-win-1", "closed", "target_1", 100.0),
+            ("real-loss-1", "closed", "stop_loss", -50.0),
+            ("synthetic-1", "closed", "reconciled_stale", 0.0),
+            ("synthetic-pnl", "closed", "reconciled_stale", 64.86),  # mirrors ETN case
+            ("legacy-null", "closed", None, 25.0),
+        ],
+    )
+    conn.commit()
+    rows = conn.execute(
+        f"SELECT trade_id FROM shadow_trades WHERE status = 'closed' {outcome_stats_filter_sql()}"
+    ).fetchall()
+    trade_ids = {r[0] for r in rows}
+    assert trade_ids == {"real-win-1", "real-loss-1", "legacy-null"}
+    assert "synthetic-1" not in trade_ids, "reconciled_stale (zero pnl) must be excluded"
+    assert "synthetic-pnl" not in trade_ids, (
+        "reconciled_stale (non-zero pnl from _estimate_exit_pnl) must ALSO be excluded — "
+        "the ETN case from 2026-05-04 had a real-looking pnl but was still a synthetic closure"
+    )
+    conn.close()
+
+
+def test_outcome_stats_filter_sql_executes_against_sqlite_with_other_clauses():
+    """Filter combines correctly with other WHERE conditions (the production usage shape)."""
+    import sqlite3
+    from src.shadow_trading.exit_reason import outcome_stats_filter_sql
+
+    conn = sqlite3.connect(":memory:")
+    conn.execute("""
+        CREATE TABLE shadow_trades (
+            trade_id TEXT PRIMARY KEY,
+            status TEXT,
+            actual_exit_time TEXT,
+            quarantined INTEGER,
+            exit_reason TEXT,
+            pnl_dollars REAL
+        )
+    """)
+    conn.executemany(
+        "INSERT INTO shadow_trades VALUES (?, ?, ?, ?, ?, ?)",
+        [
+            ("a", "closed", "2026-05-01T10:00:00", 0, "target_1", 100.0),
+            ("b", "closed", "2026-05-01T10:00:00", 0, "reconciled_stale", 0.0),
+            ("c", "closed", "2020-01-01T00:00:00", 0, "target_1", 50.0),  # before cutoff
+            ("d", "closed", "2026-05-01T10:00:00", 1, "target_1", 50.0),  # quarantined
+        ],
+    )
+    conn.commit()
+    rows = conn.execute(
+        f"SELECT trade_id FROM shadow_trades WHERE status = 'closed' "
+        f"AND actual_exit_time >= ? AND COALESCE(quarantined, 0) = 0 "
+        f"{outcome_stats_filter_sql()} "
+        f"ORDER BY trade_id",
+        ("2026-04-01T00:00:00",),
+    ).fetchall()
+    assert [r[0] for r in rows] == ["a"], (
+        "Expected only 'a' — 'b' excluded by reconciled_stale, "
+        "'c' excluded by date cutoff, 'd' excluded by quarantined"
+    )
+    conn.close()

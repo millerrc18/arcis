@@ -25,6 +25,8 @@ create_router) so they can be unit-tested independently.
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from src.shadow_trading.exit_reason import outcome_stats_filter_sql
+
 
 PERFORMANCE_WEIGHT = 0.10
 MODEL_QUALITY_WEIGHT = 0.25
@@ -243,6 +245,7 @@ def create_router(runtime, verify_auth):
             closed_trades = runtime.query(
                 "SELECT pnl_dollars, pnl_pct FROM shadow_trades WHERE status = 'closed'"
                 " AND COALESCE(quarantined, 0) = 0"
+                f" {outcome_stats_filter_sql()}"
             )
             example_row = runtime.query_one("SELECT COUNT(*) as count FROM training_examples")
             scan = runtime.query_one(
@@ -312,6 +315,7 @@ def create_router(runtime, verify_auth):
             closed_trades = runtime.query(
                 "SELECT pnl_dollars, pnl_pct FROM shadow_trades WHERE status = 'closed'"
                 " AND COALESCE(quarantined, 0) = 0"
+                f" {outcome_stats_filter_sql()}"
             )
             open_count_row = runtime.query_one(
                 "SELECT COUNT(*) as c FROM shadow_trades WHERE status = 'open'"

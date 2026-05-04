@@ -48,6 +48,45 @@ LEGACY_COERCIONS: dict[str, str] = {
 }
 
 
+# ── Outcome-stat exclusion ──────────────────────────────────────────
+#
+# Some exit_reason values represent synthetic closures rather than real trade
+# outcomes. The most common: 'reconciled_stale' is set by reconcile.py when a
+# tracked position no longer exists on the broker side — the local row gets
+# closed with pnl_dollars=0 and actual_exit_price=0 because there is no real
+# fill to read. These rows are bookkeeping artifacts; including them in
+# win-rate / profit-factor / avg-winner aggregations corrupts the stats.
+#
+# Add additional reasons here only if they similarly lack a real broker fill
+# AND should not contribute to outcome statistics.
+EXCLUDED_FROM_OUTCOME_STATS: frozenset[str] = frozenset({
+    "reconciled_stale",
+})
+
+
+def outcome_stats_filter_sql() -> str:
+    """Return a SQL fragment excluding synthetic closures from outcome stats.
+
+    Append to a WHERE clause that already has at least one condition (e.g.
+    ``status = 'closed'``):
+
+        SELECT pnl_dollars FROM shadow_trades
+        WHERE status = 'closed' {outcome_stats_filter_sql()}
+
+    Use for win_rate / profit_factor / avg_winner / max_consecutive aggregations.
+    Do NOT use for raw counts or for breakdowns that intentionally surface the
+    synthetic-close exit_reasons (e.g. /api/operator-view's exit_reason histogram).
+
+    Values are inlined as SQL string literals; safe because the source is the
+    EXCLUDED_FROM_OUTCOME_STATS frozenset which is a controlled, code-defined
+    constant — no user input ever flows into this fragment.
+    """
+    if not EXCLUDED_FROM_OUTCOME_STATS:
+        return ""
+    quoted = ", ".join(f"'{reason}'" for reason in sorted(EXCLUDED_FROM_OUTCOME_STATS))
+    return f"AND (exit_reason IS NULL OR exit_reason NOT IN ({quoted}))"
+
+
 def coerce_exit_reason(value: str, ticker: str = "") -> str:
     """Return value if in vocab; coerce legacy synonyms; else log warning and return 'unknown'.
 

@@ -300,7 +300,15 @@ def get_shadow_trade(
 def get_closed_shadow_trades(
     days: int = 30, db_path: str = DB_PATH
 ) -> list[dict]:
-    """Return closed shadow trades from the last N days."""
+    """Return closed shadow trades from the last N days.
+
+    Excludes synthetic closures (e.g. exit_reason='reconciled_stale' rows
+    written by reconcile.py when a tracked position no longer exists on the
+    broker side) per src.shadow_trading.exit_reason.EXCLUDED_FROM_OUTCOME_STATS.
+    Including them in win-rate / profit-factor aggregations corrupts the stats
+    because they have pnl_dollars=0.0 with no real broker fill behind them.
+    """
+    from src.shadow_trading.exit_reason import outcome_stats_filter_sql
     initialize_database(db_path)
     et = ZoneInfo("America/New_York")
     cutoff = (datetime.now(et) - timedelta(days=days)).isoformat()
@@ -309,7 +317,9 @@ def get_closed_shadow_trades(
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT * FROM shadow_trades WHERE status = 'closed' AND actual_exit_time >= ?"
-            " AND COALESCE(quarantined, 0) = 0 ORDER BY actual_exit_time DESC",
+            " AND COALESCE(quarantined, 0) = 0 "
+            f"{outcome_stats_filter_sql()} "
+            "ORDER BY actual_exit_time DESC",
             (cutoff,),
         ).fetchall()
     return [dict(row) for row in rows]
