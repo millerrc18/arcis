@@ -48,11 +48,13 @@ def _fetch_closed_trades_from_postgres(database_url: str, days: int) -> list[dic
     from datetime import datetime, timedelta, timezone
     import psycopg2
     import psycopg2.extras
+    from src.shadow_trading.exit_reason import outcome_stats_filter_sql
     cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
     sql = (
         "SELECT * FROM shadow_trades WHERE status = 'closed' "
         "AND actual_exit_time >= %s "
         "AND COALESCE(quarantined, 0) = 0 "
+        f"{outcome_stats_filter_sql()} "
         "ORDER BY actual_exit_time DESC"
     )
     with psycopg2.connect(database_url) as conn:
