@@ -875,3 +875,146 @@ class TestParallelEquivalence:
         assert {e.ticker for e in entries} == {"AAPL", "MSFT", "GOOG", "AMZN"}
         # Submission order preserved
         assert [e.ticker for e in entries] == ["AAPL", "MSFT", "GOOG", "AMZN"]
+
+
+# ── Bug B regression / B.2 trading-day anchor (#106 follow-up) ──────────────
+#
+# Sprint 1.C.4.5 / #104 — Bug B: _compute_features_for_window previously used
+# `fetch_ohlcv(period="3y")` (today-anchored). Then bumped to 280 calendar days,
+# which drifted below slice_to_date's 200-row gate due to holiday count. Then
+# bumped to 365 calendar days — also a proxy that drifts.
+#
+# B.2 wires subtract_trading_days(earliest_as_of, 200) so the fetch anchor is
+# directly aligned with the 200-trading-day pre-reg semantic, eliminating the
+# holiday-count drift hazard entirely.
+
+
+class TestComputeFeaturesWindowTradingDayAnchor:
+    """Regression-locks the trading-day-aware fetch anchor in
+    _compute_features_for_window (Sprint 1.C.4.5 / #104 / #106 follow-up B.2).
+
+    Mirrors test_holidays.py::test_subtract_trading_days_two_hundred_anchor:
+        subtract_trading_days(date(2026, 5, 1), 200) == date(2025, 7, 16)
+    """
+
+    def test_compute_features_for_window_uses_trading_day_anchor(self, monkeypatch):
+        """fetch_ohlcv and fetch_spy_benchmark receive start='2025-07-16' for
+        decision points at 2026-05-01 (hardcoded calendar lock matching
+        test_subtract_trading_days_two_hundred_anchor).
+
+        Also asserts start != '2025-05-01' (the prior 365-calendar-day result
+        for the same anchor date) to prove the new path is taken.
+
+        slice_to_date is patched to a no-op so the test stays hermetic and
+        does not require a real SPY DataFrame shape.
+        """
+        from scripts.generate_llm_corpus import _compute_features_for_window
+
+        captured_starts: list[str] = []
+
+        def fake_fetch_ohlcv(universe, start=None, end=None, **kwargs):
+            if start is not None:
+                captured_starts.append(("ohlcv", start))
+            return {}
+
+        def fake_fetch_spy_benchmark(start=None, end=None, **kwargs):
+            if start is not None:
+                captured_starts.append(("spy", start))
+            import pandas as pd
+            return pd.DataFrame()
+
+        import pandas as pd
+
+        def fake_slice_to_date(data, as_of_date):
+            return {}, pd.DataFrame()
+
+        monkeypatch.setattr(
+            "src.data_ingestion.market_data.fetch_ohlcv",
+            fake_fetch_ohlcv,
+        )
+        monkeypatch.setattr(
+            "src.data_ingestion.market_data.fetch_spy_benchmark",
+            fake_fetch_spy_benchmark,
+        )
+        monkeypatch.setattr(
+            "src.training.historical_data.slice_to_date",
+            fake_slice_to_date,
+        )
+
+        decision_points = [("2026-05-01", "AAPL"), ("2026-05-01", "MSFT")]
+        _compute_features_for_window(decision_points)
+
+        ohlcv_starts = [s for tag, s in captured_starts if tag == "ohlcv"]
+        spy_starts = [s for tag, s in captured_starts if tag == "spy"]
+
+        assert ohlcv_starts, "fetch_ohlcv was not called"
+        assert spy_starts, "fetch_spy_benchmark was not called"
+
+        # Hardcoded calendar lock: subtract_trading_days(date(2026, 5, 1), 200) == 2025-07-16
+        assert ohlcv_starts[0] == "2025-07-16", (
+            f"Expected trading-day anchor 2025-07-16, got {ohlcv_starts[0]}"
+        )
+        assert spy_starts[0] == "2025-07-16", (
+            f"Expected trading-day anchor 2025-07-16, got {spy_starts[0]}"
+        )
+
+        # Guard: must NOT be the prior 365-calendar-day result for this anchor.
+        # 2026-05-01 - 365 days = 2025-05-01 — that would indicate regression.
+        assert ohlcv_starts[0] != "2025-05-01", (
+            "fetch_ohlcv start= is '2025-05-01', which is the prior 365-calendar-day "
+            "result. The trading-day path is not being taken."
+        )
+
+    def test_compute_features_for_window_anchor_differs_from_calendar_buffer(
+        self, monkeypatch
+    ):
+        """For earliest_as_of=2024-12-01, the trading-day anchor differs from
+        (date(2024, 12, 1) - timedelta(days=365)).isoformat().
+
+        Guards against silent regression to calendar-day behavior.
+
+        slice_to_date is patched to a no-op so the test stays hermetic.
+        """
+        from datetime import date, timedelta
+        from scripts.generate_llm_corpus import _compute_features_for_window
+
+        captured_start: list[str] = []
+
+        def fake_fetch_ohlcv(universe, start=None, end=None, **kwargs):
+            if start is not None:
+                captured_start.append(start)
+            return {}
+
+        def fake_fetch_spy_benchmark(start=None, end=None, **kwargs):
+            import pandas as pd
+            return pd.DataFrame()
+
+        import pandas as pd
+
+        def fake_slice_to_date(data, as_of_date):
+            return {}, pd.DataFrame()
+
+        monkeypatch.setattr(
+            "src.data_ingestion.market_data.fetch_ohlcv",
+            fake_fetch_ohlcv,
+        )
+        monkeypatch.setattr(
+            "src.data_ingestion.market_data.fetch_spy_benchmark",
+            fake_fetch_spy_benchmark,
+        )
+        monkeypatch.setattr(
+            "src.training.historical_data.slice_to_date",
+            fake_slice_to_date,
+        )
+
+        decision_points = [("2024-12-01", "AAPL"), ("2024-12-01", "MSFT")]
+        _compute_features_for_window(decision_points)
+
+        assert captured_start, "fetch_ohlcv was not called"
+
+        calendar_day_result = (date(2024, 12, 1) - timedelta(days=365)).isoformat()
+        assert captured_start[0] != calendar_day_result, (
+            f"fetch_ohlcv start= is {captured_start[0]!r}, which equals the "
+            f"365-calendar-day buffer result {calendar_day_result!r}. "
+            "This indicates regression to calendar-day behavior."
+        )
