@@ -257,6 +257,52 @@ def get_position_value(ticker: str, desk: str = "swing") -> float:
     return float(market_value)
 
 
+def fetch_latest_quotes(tickers: list) -> dict:
+    """Return latest quotes for each ticker from Alpaca's market data API.
+
+    Returns a dict keyed by ticker with sub-keys: price, bid, ask, as_of.
+    Tickers with no data are omitted from the result. Raises on client
+    construction errors so callers can catch and log.
+    """
+    if not tickers:
+        return {}
+    client = _get_data_client()
+    from alpaca.data.requests import StockLatestQuoteRequest
+    from datetime import timezone
+    request = StockLatestQuoteRequest(symbol_or_symbols=list(tickers))
+    quotes = client.get_stock_latest_quote(request)
+    result = {}
+    for ticker, quote in quotes.items():
+        ask_price = getattr(quote, "ask_price", None)
+        bid_price = getattr(quote, "bid_price", None)
+        price = None
+        if ask_price is not None and bid_price is not None:
+            try:
+                price = (float(ask_price) + float(bid_price)) / 2
+            except (TypeError, ValueError):
+                price = None
+        if price is None and ask_price is not None:
+            try:
+                price = float(ask_price)
+            except (TypeError, ValueError):
+                pass
+        if price is None:
+            continue
+        ts = getattr(quote, "timestamp", None)
+        if ts is not None:
+            as_of = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+        else:
+            from datetime import datetime
+            as_of = datetime.now(timezone.utc).isoformat()
+        result[ticker] = {
+            "price": price,
+            "bid": float(bid_price) if bid_price is not None else None,
+            "ask": float(ask_price) if ask_price is not None else None,
+            "as_of": as_of,
+        }
+    return result
+
+
 # ── Re-exports from helper modules (patch-compat + public API) ────────────
 
 from src.shadow_trading.alpaca_adapter_paper import (  # noqa: E402
