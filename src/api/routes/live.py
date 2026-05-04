@@ -22,6 +22,7 @@ import sqlite3
 from fastapi import APIRouter
 
 from src.config import DB_PATH
+from src.shadow_trading.exit_reason import outcome_stats_filter_sql
 from src.utils.db import connect_db
 
 router = APIRouter(tags=["live"])
@@ -97,6 +98,7 @@ def live_summary():
             closed = conn.execute(
                 "SELECT pnl_dollars, pnl_pct FROM shadow_trades "
                 "WHERE source = 'live' AND status = 'closed' AND COALESCE(quarantined, 0) = 0"
+                f" {outcome_stats_filter_sql()}"
             ).fetchall()
             open_count = conn.execute(
                 "SELECT COUNT(*) as c FROM shadow_trades "
