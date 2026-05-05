@@ -529,6 +529,7 @@ def reconcile_paper_trades(
     matched = 0
     backfilled = []
     marked_closed = []
+    skipped = []
 
     # Alpaca has it, local doesn't -> orphaned.
     # Also checks for qty mismatches between Alpaca and local records,
@@ -600,6 +601,47 @@ def reconcile_paper_trades(
         from src.journal.store import insert_shadow_trade, close_shadow_trade
 
         for orph in orphaned:
+            # Wave 5 anti-re-backfill guard (closes phantom-position cycle bug, task #18).
+            # Don't re-backfill an orphan that was marked reconciled_stale within the last
+            # 6 hours — almost certainly an Alpaca paper account phantom position.
+            #
+            # Scope: Alpaca paper only. The query filters on broker='alpaca' AND source='paper'
+            # so the guard does NOT fire for IB-reconciled orphans (per Wave 5 brief: "DO NOT
+            # add a similar guard for IB orphans without operator authorization — they may have
+            # different semantics"). IB cold-storage handling at lines ~562-583 is a separate
+            # mechanism with its own broker-fetch-failure guards.
+            with connect_db(db_path) as conn:
+                stale_rows = conn.execute(
+                    """
+                    SELECT actual_exit_time FROM shadow_trades
+                    WHERE ticker = ?
+                      AND order_type = 'reconciled'
+                      AND exit_reason = 'reconciled_stale'
+                      AND COALESCE(broker, 'alpaca') = 'alpaca'
+                      AND source = 'paper'
+                      AND actual_exit_time IS NOT NULL
+                    """,
+                    (orph["ticker"],),
+                ).fetchall()
+            recent_stale = False
+            for _row in stale_rows:
+                try:
+                    _exit_t = datetime.fromisoformat(_row[0])
+                    if (now - _exit_t).total_seconds() < 6 * 3600:
+                        recent_stale = True
+                        break
+                except (ValueError, TypeError):
+                    pass
+            if recent_stale:
+                logger.warning(
+                    "[RECONCILE-PAPER] Phantom orphan skipped — %s was reconciled_stale "
+                    "within last 6 hours (likely Alpaca paper account stuck position; "
+                    "operator should clear orders manually). See Wave 5 / #18.",
+                    orph["ticker"],
+                )
+                skipped.append(orph["ticker"])
+                continue
+
             trade_data = _backfill_trade_data(
                 orph["ticker"], orph["avg_price"], orph["qty"],
                 orph["qty"] * orph["avg_price"], "paper", now,
@@ -906,6 +948,7 @@ def reconcile_paper_trades(
         "stale": stale,
         "discrepancies": discrepancies,
         "backfilled": backfilled,
+        "skipped": skipped,
         "marked_closed": marked_closed,
         "resolved_closed": resolved_closed,
         "resolved_reopened": resolved_reopened,
