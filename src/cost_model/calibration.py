@@ -19,6 +19,7 @@ from typing import Any
 
 from src.config import DB_PATH
 from src.utils.db import connect_db
+from src.shadow_trading.exit_reason import outcome_stats_filter_sql
 
 _DEFAULT_OUTPUT_PATH = str(Path(DB_PATH).parent / "cost_calibration.json")
 
@@ -98,19 +99,17 @@ def calibrate(
     """
     _conn = conn if conn is not None else connect_db()
     rows = _conn.execute(
-        """
-        SELECT ticker,
-               signal_entry_price, fill_entry_price,
-               signal_exit_price,  fill_exit_price
-        FROM shadow_trades
-        WHERE status = 'closed'
-          AND fill_entry_price IS NOT NULL
-          AND fill_exit_price  IS NOT NULL
-          AND signal_entry_price IS NOT NULL
-          AND signal_exit_price  IS NOT NULL
-          AND signal_entry_price > 0
-          AND signal_exit_price  > 0
-        """
+        "SELECT ticker,"
+        "       signal_entry_price, fill_entry_price,"
+        "       signal_exit_price,  fill_exit_price"
+        " FROM shadow_trades"
+        " WHERE status = 'closed'"
+        "   AND fill_entry_price IS NOT NULL"
+        "   AND fill_exit_price  IS NOT NULL"
+        "   AND signal_entry_price IS NOT NULL"
+        "   AND signal_exit_price  IS NOT NULL"
+        "   AND signal_entry_price > 0"
+        f"  AND signal_exit_price  > 0 {outcome_stats_filter_sql()}"
     ).fetchall()
     entry_slips, exit_slips, round_trips, count_by_ticker = _aggregate_rows(rows)
     result = _build_result(entry_slips, exit_slips, round_trips, count_by_ticker)

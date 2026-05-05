@@ -21,6 +21,7 @@ from src.shadow_trading._status_sql import (
     active_in_clause,
     terminal_in_clause,
 )
+from src.shadow_trading.exit_reason import outcome_stats_filter_sql
 
 logger = logging.getLogger(__name__)
 
@@ -409,7 +410,7 @@ def send_eod_report():
             paper_closed_row = conn.execute(
                 "SELECT COUNT(*) as cnt, COALESCE(SUM(pnl_dollars),0) as pnl "
                 "FROM shadow_trades WHERE status = 'closed' AND COALESCE(source,'paper')='paper' "
-                "AND actual_exit_time LIKE ? AND COALESCE(quarantined, 0) = 0",
+                f"AND actual_exit_time LIKE ? AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()}",
                 (f"{today_str}%",),
             ).fetchone()
 
@@ -425,7 +426,7 @@ def send_eod_report():
             live_closed_row = conn.execute(
                 "SELECT COUNT(*) as cnt, COALESCE(SUM(pnl_dollars),0) as pnl "
                 "FROM shadow_trades WHERE status = 'closed' AND source='live' "
-                "AND actual_exit_time LIKE ? AND COALESCE(quarantined, 0) = 0",
+                f"AND actual_exit_time LIKE ? AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()}",
                 (f"{today_str}%",),
             ).fetchone()
 
@@ -433,7 +434,7 @@ def send_eod_report():
             all_closed = conn.execute(
                 "SELECT COUNT(*) as total, "
                 "SUM(CASE WHEN pnl_dollars > 0 THEN 1 ELSE 0 END) as wins "
-                "FROM shadow_trades WHERE status = 'closed' AND COALESCE(quarantined, 0) = 0",
+                f"FROM shadow_trades WHERE status = 'closed' AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()}"
             ).fetchone()
             wins = all_closed["wins"] or 0
             total = all_closed["total"] or 0
@@ -443,13 +444,15 @@ def send_eod_report():
             # Best/worst today
             best = conn.execute(
                 "SELECT ticker, pnl_pct FROM shadow_trades "
-                "WHERE status = 'closed' AND actual_exit_time LIKE ? AND COALESCE(quarantined, 0) = 0 "
+                "WHERE status = 'closed' AND actual_exit_time LIKE ?"
+                f" AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()} "
                 "ORDER BY pnl_pct DESC LIMIT 1",
                 (f"{today_str}%",),
             ).fetchone()
             worst = conn.execute(
                 "SELECT ticker, pnl_pct FROM shadow_trades "
-                "WHERE status = 'closed' AND actual_exit_time LIKE ? AND COALESCE(quarantined, 0) = 0 "
+                "WHERE status = 'closed' AND actual_exit_time LIKE ?"
+                f" AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()} "
                 "ORDER BY pnl_pct ASC LIMIT 1",
                 (f"{today_str}%",),
             ).fetchone()

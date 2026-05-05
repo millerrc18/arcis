@@ -47,6 +47,7 @@ from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
 from src.utils.db import connect_db
+from src.shadow_trading.exit_reason import outcome_stats_filter_sql
 
 logger = logging.getLogger(__name__)
 
@@ -293,7 +294,10 @@ def _check_idle_day(conn: sqlite3.Connection) -> bool:
 def _compute_phase_progress(conn: sqlite3.Connection) -> dict:
     """Compute 50-trade gate progress."""
     try:
-        cur = conn.execute("SELECT COUNT(*) FROM shadow_trades WHERE status = 'closed' AND COALESCE(quarantined, 0) = 0")
+        cur = conn.execute(
+            "SELECT COUNT(*) FROM shadow_trades WHERE status = 'closed'"
+            f" AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()}"
+        )
         closed = cur.fetchone()[0] or 0
         pct = min(100.0, (closed / GATE_TOTAL_TARGET) * 100)
         remaining = max(0, GATE_TOTAL_TARGET - closed)
