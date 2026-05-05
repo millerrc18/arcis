@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
 from src.utils.db import connect_db
+from src.shadow_trading.exit_reason import outcome_stats_filter_sql
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -127,7 +128,7 @@ def gather_strategic_data(db_path: str = DB_PATH) -> str:
             try:
                 closed = conn.execute(
                     "SELECT COUNT(*) as n FROM shadow_trades WHERE status = 'closed'"
-                    " AND COALESCE(quarantined, 0) = 0"
+                    f" AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()}"
                 ).fetchone()
                 total = conn.execute(
                     "SELECT COUNT(*) as n FROM shadow_trades WHERE COALESCE(quarantined, 0) = 0"
@@ -144,7 +145,7 @@ def gather_strategic_data(db_path: str = DB_PATH) -> str:
                     "SELECT SUM(pnl_dollars) as total, AVG(pnl_pct) as avg, "
                     "COUNT(CASE WHEN pnl_dollars > 0 THEN 1 END) as wins, COUNT(*) as n "
                     "FROM shadow_trades WHERE status = 'closed' AND pnl_dollars IS NOT NULL"
-                    " AND COALESCE(quarantined, 0) = 0"
+                    f" AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()}"
                 ).fetchone()
                 if pnl and pnl["n"] > 0:
                     win_rate = pnl["wins"] / pnl["n"] * 100
@@ -250,7 +251,7 @@ def gather_risk_data(db_path: str = DB_PATH) -> str:
             try:
                 cumulative = conn.execute(
                     "SELECT SUM(pnl_dollars) as total FROM shadow_trades WHERE status = 'closed'"
-                    " AND COALESCE(quarantined, 0) = 0"
+                    f" AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()}"
                 ).fetchone()
                 if cumulative and cumulative["total"] is not None:
                     parts.append(f"Cumulative closed P&L: ${cumulative['total']:.2f}")
@@ -261,7 +262,7 @@ def gather_risk_data(db_path: str = DB_PATH) -> str:
                 mae = conn.execute(
                     "SELECT ticker, MIN(max_adverse_excursion) as worst_mae "
                     "FROM shadow_trades WHERE status = 'closed' AND max_adverse_excursion IS NOT NULL"
-                    " AND COALESCE(quarantined, 0) = 0"
+                    f" AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()}"
                 ).fetchone()
                 if mae and mae["worst_mae"] is not None:
                     parts.append(f"Worst MAE (single trade): {mae['worst_mae']:.1f}%")

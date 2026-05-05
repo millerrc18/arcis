@@ -27,6 +27,7 @@ from fastapi import APIRouter
 
 from src.config import DB_PATH
 from src.utils.db import connect_db
+from src.shadow_trading.exit_reason import outcome_stats_filter_sql
 
 router = APIRouter(tags=["health"])
 logger = logging.getLogger(__name__)
@@ -66,7 +67,7 @@ def _read_persisted_score(conn):
 
     closed_row = conn.execute(
         "SELECT COUNT(*) as c FROM shadow_trades WHERE status = 'closed'"
-        " AND COALESCE(quarantined, 0) = 0"
+        f" AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()}"
     ).fetchone()
     closed_count = closed_row["c"] if closed_row else 0
 
@@ -187,7 +188,7 @@ def health_score():
         try:
             closed_row = conn.execute(
                 "SELECT COUNT(*) as c FROM shadow_trades WHERE status = 'closed'"
-                " AND COALESCE(quarantined, 0) = 0"
+                f" AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()}"
             ).fetchone()
             example_row = conn.execute(
                 "SELECT COUNT(*) as c FROM training_examples"

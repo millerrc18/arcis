@@ -21,6 +21,7 @@ import sqlite3
 from contextlib import closing
 
 from src.config import DB_PATH
+from src.shadow_trading.exit_reason import outcome_stats_filter_sql
 from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
@@ -154,7 +155,7 @@ def get_model_performance(db_path: str = DB_PATH) -> dict:
 
         # Get closed trades joined with recommendation model_version
         trade_rows = conn.execute(
-            """
+            f"""
             SELECT st.trade_id, st.ticker, st.pnl_dollars, st.pnl_pct,
                    st.exit_reason, st.duration_days, st.actual_exit_time,
                    st.created_at,
@@ -163,6 +164,7 @@ def get_model_performance(db_path: str = DB_PATH) -> dict:
             LEFT JOIN recommendations r ON st.recommendation_id = r.recommendation_id
             WHERE st.status = 'closed' AND st.pnl_dollars IS NOT NULL
             AND COALESCE(st.quarantined, 0) = 0
+            {outcome_stats_filter_sql().replace('exit_reason', 'st.exit_reason')}
             ORDER BY st.actual_exit_time ASC
 """
         ).fetchall()

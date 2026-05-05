@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 from src.config import DB_PATH, load_config
 from src.utils.db import connect_db
 from src.training.versioning import init_training_tables
+from src.shadow_trading.exit_reason import outcome_stats_filter_sql
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -263,7 +264,10 @@ def check_escalation(audit: dict, db_path: str = DB_PATH) -> list[dict]:
     try:
         import sqlite3
         with connect_db(db_path) as conn:
-            row = conn.execute("SELECT COUNT(*) as c FROM shadow_trades WHERE status = 'closed' AND COALESCE(quarantined, 0) = 0").fetchone()
+            row = conn.execute(
+                "SELECT COUNT(*) as c FROM shadow_trades WHERE status = 'closed'"
+                f" AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()}"
+            ).fetchone()
             closed_count = row[0] if row else 0
             bootcamp_mode = closed_count < 50
     except Exception:

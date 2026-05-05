@@ -20,6 +20,7 @@ import numpy as np
 
 from src.config import DB_PATH
 from src.utils.db import connect_db
+from src.shadow_trading.exit_reason import outcome_stats_filter_sql
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ def evaluate_50_trade_gate(db_path: str = DB_PATH) -> dict:
             rows = conn.execute(
                 "SELECT pnl_dollars, pnl_pct FROM shadow_trades "
                 "WHERE status = 'closed' AND pnl_pct IS NOT NULL "
-                "AND COALESCE(quarantined, 0) = 0 "
+                f"AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()} "
                 "ORDER BY actual_exit_time ASC"
             ).fetchall()
     except Exception as e:

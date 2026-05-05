@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS shadow_trades (
     trade_id TEXT PRIMARY KEY,
     ticker TEXT NOT NULL,
     status TEXT NOT NULL,
+    exit_reason TEXT,
     entry_price REAL,
     actual_entry_price REAL,
     actual_exit_price REAL,
@@ -47,16 +48,17 @@ def _insert_closed(conn, rows: list[dict]) -> None:
     for row in rows:
         conn.execute(
             """INSERT INTO shadow_trades
-               (trade_id, ticker, status,
+               (trade_id, ticker, status, exit_reason,
                 entry_price, actual_entry_price, actual_exit_price,
                 planned_shares, actual_shares,
                 signal_entry_price, signal_exit_price,
                 fill_entry_price, fill_exit_price)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 row["trade_id"],
                 row["ticker"],
                 row.get("status", "closed"),
+                row.get("exit_reason", "target_1"),
                 row.get("entry_price"),
                 row.get("actual_entry_price"),
                 row.get("actual_exit_price"),
@@ -93,6 +95,7 @@ def ten_closed_trades_conn():
                 "trade_id": f"T{i:03d}",
                 "ticker": "AAPL" if i < 5 else "MSFT",
                 "status": "closed",
+                "exit_reason": "target_1",
                 "entry_price": entry_signal,
                 "actual_entry_price": entry_fill,
                 "actual_exit_price": exit_fill,
@@ -119,6 +122,7 @@ def mixed_status_conn():
                 "trade_id": f"C{i:03d}",
                 "ticker": "TSLA",
                 "status": "closed",
+                "exit_reason": "target_1",
                 "entry_price": 200.0,
                 "actual_entry_price": 200.10,
                 "actual_exit_price": 210.0,
@@ -136,6 +140,7 @@ def mixed_status_conn():
                 "trade_id": f"O{i:03d}",
                 "ticker": "NVDA",
                 "status": "open",
+                "exit_reason": None,
                 "entry_price": 300.0,
                 "actual_entry_price": 300.05,
                 "actual_exit_price": None,
@@ -264,3 +269,90 @@ class TestGetCalibratedCostModel:
         calibrate(ten_closed_trades_conn, output_path=str(out))
         model = get_calibrated_cost_model(calibration_path=str(out))
         assert model["count_by_ticker"]["AAPL"] == 5
+
+
+# ---------------------------------------------------------------------------
+# Tests — H5: reconciled_stale exclusion (M6)
+# ---------------------------------------------------------------------------
+
+class TestCalibrateExcludesReconciledStale:
+    """H5 spec: calibration.py:106 excludes reconciled_stale rows.
+
+    M6: assert the metric CHANGES between filter-on and filter-off seeded data.
+    Reconciled_stale rows have fill_entry_price=0 and fill_exit_price=0, which
+    creates extreme negative slippage that corrupts the median_entry_slippage_bps.
+    """
+
+    def test_filter_active_median_reflects_only_normal_trades(self, tmp_path):
+        """10 normal (20bps slippage each) + 5 stale (fill=0): median = 20bps, NOT corrupted."""
+        conn = _make_conn()
+        rows = []
+        # 10 normal trades: signal=100, fill=100.20 → 20bps entry slippage
+        for i in range(10):
+            rows.append({
+                "trade_id": f"N{i:03d}",
+                "ticker": "AAPL",
+                "status": "closed",
+                "exit_reason": "target_1",
+                "entry_price": 100.0,
+                "actual_entry_price": 100.20,
+                "actual_exit_price": 105.0,
+                "planned_shares": 10.0,
+                "actual_shares": 10.0,
+                "signal_entry_price": 100.0,
+                "signal_exit_price": 105.0,
+                "fill_entry_price": 100.20,
+                "fill_exit_price": 104.80,
+            })
+        # 5 stale trades: fill_entry=0, fill_exit=0 — would create extreme negative slippage
+        for i in range(5):
+            rows.append({
+                "trade_id": f"S{i:03d}",
+                "ticker": "MSFT",
+                "status": "closed",
+                "exit_reason": "reconciled_stale",
+                "entry_price": 100.0,
+                "actual_entry_price": 0.0,
+                "actual_exit_price": 0.0,
+                "planned_shares": 5.0,
+                "actual_shares": 5.0,
+                "signal_entry_price": 100.0,
+                "signal_exit_price": 100.0,
+                "fill_entry_price": 0.0,
+                "fill_exit_price": 0.0,
+            })
+        _insert_closed(conn, rows)
+        result = calibrate(conn, output_path=str(tmp_path / "cal.json"))
+        # With filter: only 10 normal trades counted
+        assert result["total_count"] == 10, f"Expected 10 after filter, got {result['total_count']}"
+        # Median entry slippage should be 20bps (each normal trade has 20bps)
+        assert result["median_entry_slippage_bps"] is not None
+        assert abs(result["median_entry_slippage_bps"] - 20.0) < 1.0, (
+            f"Expected ~20bps, got {result['median_entry_slippage_bps']}"
+        )
+
+    def test_sanity_normal_only_median_slippage(self, tmp_path):
+        """10 normal (20bps) + 0 stale: median = 20bps."""
+        conn = _make_conn()
+        rows = []
+        for i in range(10):
+            rows.append({
+                "trade_id": f"N{i:03d}",
+                "ticker": "AAPL",
+                "status": "closed",
+                "exit_reason": "target_1",
+                "entry_price": 100.0,
+                "actual_entry_price": 100.20,
+                "actual_exit_price": 105.0,
+                "planned_shares": 10.0,
+                "actual_shares": 10.0,
+                "signal_entry_price": 100.0,
+                "signal_exit_price": 105.0,
+                "fill_entry_price": 100.20,
+                "fill_exit_price": 104.80,
+            })
+        _insert_closed(conn, rows)
+        result = calibrate(conn, output_path=str(tmp_path / "cal.json"))
+        assert result["total_count"] == 10
+        assert result["median_entry_slippage_bps"] is not None
+        assert abs(result["median_entry_slippage_bps"] - 20.0) < 1.0

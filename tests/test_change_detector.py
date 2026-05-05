@@ -109,3 +109,44 @@ class TestCheckPerformanceDrift:
     def test_empty_db(self, db_path):
         result = check_performance_drift(db_path)
         assert result["sufficient_data"] is False
+
+    def test_reconciled_stale_excluded_from_cusum_input(self, db_path):
+        """Filter active: 5 real-closed + 5 reconciled_stale → 5 visible → sufficient_data=False.
+
+        Without filter, the CUSUM input would be 10 rows (passes the >=10 gate)
+        and sufficient_data=True; reconciled_stale rows (synthetic-zero pnl_pct)
+        would corrupt the drift signal.
+        """
+        with sqlite3.connect(db_path) as conn:
+            # 5 real strategy outcomes
+            for i in range(5):
+                conn.execute(
+                    "INSERT INTO shadow_trades (trade_id, ticker, status, pnl_pct, exit_reason, "
+                    "actual_exit_time, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (f"r{i}", "AAPL", "closed", 2.0, "target_1", "2026-03-27", "2026-03-27", "2026-03-27"),
+                )
+            # 5 reconciled_stale rows (synthetic-zero pnl_pct — would corrupt CUSUM)
+            for i in range(5):
+                conn.execute(
+                    "INSERT INTO shadow_trades (trade_id, ticker, status, pnl_pct, exit_reason, "
+                    "actual_exit_time, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (f"s{i}", "AAPL", "closed", 0.0, "reconciled_stale", "2026-03-27", "2026-03-27", "2026-03-27"),
+                )
+        result = check_performance_drift(db_path)
+        assert result["sufficient_data"] is False, (
+            "Filter must exclude reconciled_stale; only 5 real rows remain (<10 gate)"
+        )
+        assert result["trade_count"] == 5
+
+    def test_reconciled_stale_excluded_sanity_with_only_real_closures(self, db_path):
+        """Sanity: 12 real-closed + 0 reconciled_stale → 12 visible → sufficient_data=True."""
+        with sqlite3.connect(db_path) as conn:
+            for i in range(12):
+                conn.execute(
+                    "INSERT INTO shadow_trades (trade_id, ticker, status, pnl_pct, exit_reason, "
+                    "actual_exit_time, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (f"r{i}", "AAPL", "closed", 2.0 if i % 2 == 0 else -1.0, "target_1", "2026-03-27", "2026-03-27", "2026-03-27"),
+                )
+        result = check_performance_drift(db_path)
+        assert result["sufficient_data"] is True
+        assert "overall_win_rate" in result

@@ -21,6 +21,7 @@ import requests
 from src.config import DB_PATH, load_config
 from src.utils.db import connect_db
 from src.notifications.telegram import send_telegram, is_telegram_enabled
+from src.shadow_trading.exit_reason import outcome_stats_filter_sql
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -124,7 +125,7 @@ def check_action_reminders(db_path: str = DB_PATH) -> list[str]:
             # 1. Phase gate milestones
             closed = conn.execute(
                 "SELECT COUNT(*) as c FROM shadow_trades WHERE status = 'closed'"
-                " AND COALESCE(quarantined, 0) = 0"
+                f" AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()}"
             ).fetchone()
             closed_count = closed["c"] if closed else 0
 
@@ -420,9 +421,10 @@ def _cmd_pnl() -> str:
             ).fetchone()
 
             closed_row = conn.execute(
-                """SELECT COUNT(*) as cnt, COALESCE(SUM(pnl_dollars), 0) as total_pnl,
-                   COALESCE(AVG(CASE WHEN pnl_dollars > 0 THEN 1.0 ELSE 0.0 END), 0) as win_rate
-                FROM shadow_trades WHERE status = 'closed' AND COALESCE(quarantined, 0) = 0"""
+                "SELECT COUNT(*) as cnt, COALESCE(SUM(pnl_dollars), 0) as total_pnl,"
+                " COALESCE(AVG(CASE WHEN pnl_dollars > 0 THEN 1.0 ELSE 0.0 END), 0) as win_rate"
+                " FROM shadow_trades WHERE status = 'closed'"
+                f" AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()}"
             ).fetchone()
 
             # Live-specific stats
@@ -433,10 +435,10 @@ def _cmd_pnl() -> str:
             ).fetchone()
 
             live_closed = conn.execute(
-                """SELECT COUNT(*) as cnt, COALESCE(SUM(pnl_dollars), 0) as total_pnl,
-                   COALESCE(AVG(CASE WHEN pnl_dollars > 0 THEN 1.0 ELSE 0.0 END), 0) as win_rate
-                FROM shadow_trades WHERE status = 'closed' AND source = 'live'
-                AND COALESCE(quarantined, 0) = 0"""
+                "SELECT COUNT(*) as cnt, COALESCE(SUM(pnl_dollars), 0) as total_pnl,"
+                " COALESCE(AVG(CASE WHEN pnl_dollars > 0 THEN 1.0 ELSE 0.0 END), 0) as win_rate"
+                " FROM shadow_trades WHERE status = 'closed' AND source = 'live'"
+                f" AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()}"
             ).fetchone()
 
         open_pnl = open_row["total_pnl"]

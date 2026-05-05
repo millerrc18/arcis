@@ -209,6 +209,61 @@ class TestGetModelPerformance:
         finally:
             os.unlink(db_path)
 
+    def test_reconciled_stale_excluded_from_live_metrics(self):
+        """Filter active in JOIN context: 3 real + 2 reconciled_stale → trades=3, not 5.
+
+        model_monitor query joins shadow_trades st with recommendations r and uses
+        outcome_stats_filter_sql().replace('exit_reason', 'st.exit_reason') to
+        disambiguate the column reference in the JOIN. Without filter, the synthetic
+        zero-pnl reconciled_stale rows would corrupt win-rate, profit-factor, and
+        Sharpe metrics for the active model.
+        """
+        trades = [
+            ("r1", "AAPL", "halcyon-v1.0.0", "t1", 100, 2.0, "target_1", 3, "2026-03-28T16:00"),
+            ("r2", "MSFT", "halcyon-v1.0.0", "t2", -50, -1.0, "stop_loss", 2, "2026-03-29T16:00"),
+            ("r3", "GOOG", "halcyon-v1.0.0", "t3", 75, 1.5, "target_1", 5, "2026-03-30T16:00"),
+            ("r4", "META", "halcyon-v1.0.0", "t4", 0, 0.0, "reconciled_stale", 0, "2026-03-31T16:00"),
+            ("r5", "NVDA", "halcyon-v1.0.0", "t5", 0, 0.0, "reconciled_stale", 0, "2026-04-01T16:00"),
+        ]
+        db_path = _create_test_db(
+            [("v1", "halcyon-v1.0.0", "2026-03-27", 979, 0.72, "active")],
+            trades,
+        )
+        try:
+            result = get_model_performance(db_path)
+            model = next(m for m in result["models"] if m["version"] == "halcyon-v1.0.0")
+            assert model["live_metrics"]["trades"] == 3, (
+                "Filter must exclude 2 reconciled_stale rows from live metrics; "
+                f"got {model['live_metrics']['trades']}"
+            )
+            assert model["live_metrics"]["wins"] == 2  # target_1 × 2
+            assert model["live_metrics"]["win_rate"] == round(2 / 3, 3)
+        finally:
+            os.unlink(db_path)
+
+    def test_reconciled_stale_excluded_sanity_with_only_real_closures(self):
+        """Sanity: 3 real + 0 reconciled_stale → trades=3, identical to test_with_data baseline.
+
+        Verifies the filter doesn't accidentally over-exclude when no reconciled_stale rows
+        exist (regression-lock for the case where future filter changes break baseline behavior).
+        """
+        trades = [
+            ("r1", "AAPL", "halcyon-v1.0.0", "t1", 100, 2.0, "target_1", 3, "2026-03-28T16:00"),
+            ("r2", "MSFT", "halcyon-v1.0.0", "t2", -50, -1.0, "stop_loss", 2, "2026-03-29T16:00"),
+            ("r3", "GOOG", "halcyon-v1.0.0", "t3", 75, 1.5, "target_1", 5, "2026-03-30T16:00"),
+        ]
+        db_path = _create_test_db(
+            [("v1", "halcyon-v1.0.0", "2026-03-27", 979, 0.72, "active")],
+            trades,
+        )
+        try:
+            result = get_model_performance(db_path)
+            model = next(m for m in result["models"] if m["version"] == "halcyon-v1.0.0")
+            assert model["live_metrics"]["trades"] == 3
+            assert model["live_metrics"]["wins"] == 2
+        finally:
+            os.unlink(db_path)
+
 
 class TestCheckModelRegression:
     def test_single_model_no_alert(self):
