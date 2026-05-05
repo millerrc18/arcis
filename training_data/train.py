@@ -1,6 +1,17 @@
 # training_data/train.py -- DEPRECATED: legacy single-stage trainer
-# Uses old Unsloth API. The curriculum script (CURRICULUM_TRAIN_SCRIPT) is the
-# primary training path and uses standard PEFT/TRL 0.24 API instead.
+#
+# This file is OVERWRITTEN by `src/training/trainer.py` on every training run
+# (see `TRAIN_SCRIPT` and `CURRICULUM_TRAIN_SCRIPT` constants there). Whatever
+# is committed here is a placeholder; trainer.py picks CURRICULUM_TRAIN_SCRIPT
+# (PEFT/TRL 0.24, the hardware-validated primary path) when curriculum data
+# exists, else falls back to TRAIN_SCRIPT (this Unsloth single-stage path,
+# kept only for legacy archive purposes).
+#
+# Editing this file directly has NO production effect — to change training
+# behavior, edit `src/training/trainer.py:TRAIN_SCRIPT` or `:CURRICULUM_TRAIN_SCRIPT`.
+#
+# Rationale: Unsloth was rejected as the production training stack because
+# it OOMs on 12GB. Do not revive this path without re-validating GPU memory.
 import json, sys, os
 os.environ["UNSLOTH_DISABLE_FUSED_CROSS_ENTROPY"] = "1"
 
