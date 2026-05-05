@@ -298,6 +298,14 @@ def check_bracket_health(
             and target_status in ACTIVE_LEG_STATUSES
         )
 
+        # Healthy completion: take-profit filled, stop sibling auto-canceled by broker.
+        # This is correct OCO behavior — the position exited cleanly via the target.
+        # Must NOT fire an alert. Applies to both BRACKET and OCO topologies.
+        healthy_completion = (
+            target_status == "filled"
+            and stop_status in ("canceled", "rejected")
+        )
+
         # Check for partial fills on bracket legs (#104)
         try:
             expected_qty = float(trade["planned_shares"] or 0)
@@ -317,8 +325,10 @@ def check_bracket_health(
                 logger.warning("[BRACKET] Partial fill check failed for %s: %s",
                                trade["ticker"], exc)
 
-        if intact:
+        if intact or healthy_completion:
             protected += 1
+            if healthy_completion and action_taken is None:
+                action_taken = "healthy_completion"
         else:
             broken.append(
                 {
@@ -349,7 +359,7 @@ def check_bracket_health(
             ticker=trade["ticker"],
             stop_status=stop_status,
             target_status=target_status,
-            bracket_intact=intact,
+            bracket_intact=intact or healthy_completion,
             action_taken=action_taken,
             db_path=db_path,
         )

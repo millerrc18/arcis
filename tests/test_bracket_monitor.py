@@ -257,6 +257,141 @@ def test_bracket_with_both_legs_active_classified_healthy(tmp_path):
     assert row == (1, "new", "new")
 
 
+def test_bracket_target_filled_stop_canceled_classified_healthy(tmp_path):
+    """BRACKET topology: target_leg_status='filled' + stop_leg_status='canceled' must be
+    classified as healthy completion (bracket_intact=1, action_taken='healthy_completion',
+    no Telegram alert).
+
+    This is the OCO-sibling-cancel false-positive: when the take-profit fills, the
+    broker auto-cancels the stop sibling. 5 false alerts were fired in production over
+    14 days (bracket_health audit evidence).
+    """
+    db_path = str(tmp_path / "bracket.db")
+    _make_db(db_path)
+    _insert_trade(db_path)
+
+    order_status = {
+        "order_class": "bracket",
+        "type": "market",
+        "status": "filled",
+        "limit_price": None,
+        "stop_price": None,
+        "legs": [
+            {"type": "stop", "status": "canceled", "stop_price": 175.0, "limit_price": None},
+            {"type": "limit", "status": "filled", "limit_price": 200.0, "stop_price": None},
+        ],
+    }
+
+    with patch(
+        "src.shadow_trading.alpaca_adapter.get_order_status", return_value=order_status
+    ), patch("src.shadow_trading.bracket_monitor._alert") as mock_alert:
+        result = check_bracket_health(db_path=db_path)
+
+    assert result["checked"] == 1
+    assert result["protected"] == 1, "target-filled+stop-canceled must count as protected"
+    assert result["broken"] == [], "target-filled+stop-canceled must not appear in broken list"
+    mock_alert.assert_not_called()
+
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT bracket_intact, action_taken, stop_leg_status, target_leg_status "
+            "FROM bracket_health"
+        ).fetchone()
+    assert row[0] == 1, f"bracket_intact must be 1, got {row[0]}"
+    assert row[1] == "healthy_completion", f"action_taken must be 'healthy_completion', got {row[1]!r}"
+    assert row[2] == "canceled", f"stop_leg_status must be 'canceled', got {row[2]!r}"
+    assert row[3] == "filled", f"target_leg_status must be 'filled', got {row[3]!r}"
+
+
+def test_oco_target_filled_stop_canceled_classified_healthy(tmp_path):
+    """OCO topology: parent status='filled' (take-profit filled) + stop leg status='canceled'
+    (broker auto-canceled sibling) must be classified as healthy completion.
+
+    This is the same OCO-sibling-cancel false-positive class for OCO topology.
+    """
+    db_path = str(tmp_path / "bracket.db")
+    _make_db(db_path)
+    _insert_trade(db_path)
+
+    order_status = {
+        "order_class": "oco",
+        "type": "limit",
+        "status": "filled",
+        "limit_price": 200.0,
+        "stop_price": None,
+        "legs": [
+            {"type": "stop", "status": "canceled", "stop_price": 175.0, "limit_price": None},
+        ],
+    }
+
+    with patch(
+        "src.shadow_trading.alpaca_adapter.get_order_status", return_value=order_status
+    ), patch("src.shadow_trading.bracket_monitor._alert") as mock_alert:
+        result = check_bracket_health(db_path=db_path)
+
+    assert result["checked"] == 1
+    assert result["protected"] == 1, "OCO target-filled+stop-canceled must count as protected"
+    assert result["broken"] == [], "OCO target-filled+stop-canceled must not appear in broken list"
+    mock_alert.assert_not_called()
+
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT bracket_intact, action_taken, stop_leg_status, target_leg_status "
+            "FROM bracket_health"
+        ).fetchone()
+    assert row[0] == 1, f"bracket_intact must be 1, got {row[0]}"
+    assert row[1] == "healthy_completion", f"action_taken must be 'healthy_completion', got {row[1]!r}"
+    assert row[2] == "canceled", f"stop_leg_status must be 'canceled', got {row[2]!r}"
+    assert row[3] == "filled", f"target_leg_status must be 'filled', got {row[3]!r}"
+
+
+def test_bracket_stop_canceled_target_pending_still_alerts(tmp_path):
+    """Regression-lock: stop_leg_status='canceled' AND target_leg_status='new' (genuine
+    broken bracket — stop vanished while trade is still open) MUST still fire an alert.
+
+    This locks the distinction: it is only safe when target_leg_status='filled'
+    (trade completed). An unexplained stop cancel with the target still pending is
+    a real broken-bracket requiring operator intervention.
+    """
+    db_path = str(tmp_path / "bracket.db")
+    _make_db(db_path)
+    _insert_trade(db_path)
+
+    order_status = {
+        "order_class": "bracket",
+        "type": "market",
+        "status": "filled",
+        "limit_price": None,
+        "stop_price": None,
+        "legs": [
+            {"type": "stop", "status": "canceled", "stop_price": 175.0, "limit_price": None},
+            {"type": "limit", "status": "new", "limit_price": 200.0, "stop_price": None},
+        ],
+    }
+
+    with patch(
+        "src.shadow_trading.alpaca_adapter.get_order_status", return_value=order_status
+    ), patch("src.shadow_trading.bracket_monitor._alert") as mock_alert:
+        result = check_bracket_health(db_path=db_path)
+
+    assert result["checked"] == 1
+    assert result["protected"] == 0, "genuine broken bracket must not be counted as protected"
+    assert len(result["broken"]) == 1, "genuine broken bracket must appear in broken list"
+    assert result["broken"][0]["ticker"] == "AAPL"
+    mock_alert.assert_called_once()
+    alert_msg = mock_alert.call_args.args[0]
+    assert "stop leg" in alert_msg.lower() or "BRACKET ALERT" in alert_msg, (
+        f"Alert message must mention stop leg: {alert_msg!r}"
+    )
+
+    with sqlite3.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT bracket_intact, action_taken FROM bracket_health"
+        ).fetchone()
+    assert row[0] == 0, f"bracket_intact must be 0 for genuine broken bracket, got {row[0]}"
+    assert row[1] == "alerted_stop_leg", f"action_taken must be 'alerted_stop_leg', got {row[1]!r}"
+
+
 def test_classifier_returns_unified_shape_for_both_classes(tmp_path):
     """The bracket_health DB record has identical columns for BRACKET and OCO inputs.
 
