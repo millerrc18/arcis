@@ -46,6 +46,25 @@ Question I'm trying to answer                       → Use this method
 
 ---
 
+## Conventions: paper vs live target/stop multipliers (asymmetry)
+
+**Paper-trade entries and live-trade entries use different ATR multipliers**, and the difference is undocumented elsewhere in the codebase. If you compare paper Sharpe to live Sharpe directly, you'll be comparing strategies operating at different risk/reward geometries — paper appears to hit `target_1` more often than live will under the same setup, because the paper bar is 33% closer.
+
+| Path | Source | stop_mult | target_1_mult | target_2_mult |
+|---|---|---|---|---|
+| **Paper** (LLM packet) | `src/packets/template.py:211` (hardcoded) | `2.0 × ATR` | `1.5 × ATR` | `3.0 × ATR` |
+| **Live** (executor) | `src/shadow_trading/executor.py:2609-2610` (config-driven) | `live_trading.risk.stop_atr_multiplier` (default `2.0`) | `live_trading.risk.target_atr_multiplier` (default `2.0`) | not used (single-target) |
+| **Backfill / orphan** | `src/shadow_trading/reconcile.py::_backfill_trade_data` | `entry × 0.95` (5% protective) | `entry × 1.05` | `entry × 1.10` |
+
+**Why it matters for the methodology toolkit:**
+- **Sharpe comparability** — running `canonical_sharpe.rf_adjusted_excess_sharpe` on a paper-only trade series and a live-only trade series produces numbers from different distributions even for an identical underlying strategy. Don't naively combine, average, or compare them.
+- **Promotion-gate input** — when the gate is wired to a strategy-level corpus, the architect must decide whether to (a) use paper-only trades (more samples, faster Stage-2 close, but biased high), (b) use live-only (slower, less biased), or (c) normalize by re-computing Sharpe with a single canonical multiplier. The current default `_resolve_returns_for_gate` aggregates all closed trades globally and inherits whatever mix of paper+live exists.
+- **Stage-1 → Stage-2 transition surprise** — strategies that look strong on paper (because target_1 hits at 1.5×ATR) may give back gains on the way to 2×ATR target_1 in live. Operator should expect a step-down in apparent edge during the paper→live transition that is partly an artifact of the multiplier change, not strategy decay.
+
+**Status of the asymmetry**: not currently treated as a bug — `packets/template.py:211` is the LLM packet generator (paper world), `executor.py:2609-2610` is the live execution layer (live world), and they were independently authored. A future audit could either (a) reconcile to a single multiplier, (b) make paper read from the same `live_trading.risk.target_atr_multiplier` config so they align, or (c) document this asymmetry as deliberate (e.g., paper as a more-aggressive sandbox to surface signal-quality issues with more trade samples, live as the conservative-execution layer). Discovered 2026-05-05 during the post-Wave-5 backfill cleanup; tracked as a follow-up item.
+
+---
+
 ## The methods
 
 ### <a id="cpcv"></a> CPCV — Combinatorial Purged Cross-Validation
