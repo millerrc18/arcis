@@ -1442,3 +1442,19 @@ def cmd_validate_schema(args):
         actions = fix_issues(issues, DB_PATH)
         for a in actions:
             print(f"  FIX: {a}")
+
+
+def cmd_reset_live_prices_watermark(args):
+    """Set sync_state.last_synced_at = now - 24h for live_prices. Idempotent."""
+    from datetime import datetime, timezone, timedelta
+
+    target_ts = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    with connect_db() as conn:
+        conn.execute(
+            "INSERT INTO sync_state (table_name, last_synced_at) "
+            "VALUES ('live_prices', ?) "
+            "ON CONFLICT(table_name) DO UPDATE SET last_synced_at = excluded.last_synced_at",
+            (target_ts,),
+        )
+        conn.commit()
+    print(f"Reset live_prices watermark to {target_ts}")
