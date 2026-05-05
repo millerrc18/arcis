@@ -618,7 +618,7 @@ def reconcile_paper_trades(
                       AND order_type = 'reconciled'
                       AND exit_reason = 'reconciled_stale'
                       AND COALESCE(broker, 'alpaca') = 'alpaca'
-                      AND source = 'paper'
+                      AND COALESCE(source, 'paper') = 'paper'
                       AND actual_exit_time IS NOT NULL
                     """,
                     (orph["ticker"],),

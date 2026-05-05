@@ -335,3 +335,178 @@ def test_original_bracket_path_not_skipped_by_guard(mock_cancel, mock_positions,
     assert "AAPL" not in result.get("skipped", []), (
         f"AAPL should NOT be in skipped (bracket order_type): {result.get('skipped')}"
     )
+
+
+@_patch("src.shadow_trading.reconcile.get_all_positions", return_value=_AAPL_ALPACA_POSITION)
+@_patch("src.shadow_trading.reconcile.cancel_orders_for_ticker", return_value=0)
+def test_ib_broker_orphan_not_blocked_by_guard(mock_cancel, mock_positions, tmp_path):
+    """Wave 5 guard: SQL clause `broker='alpaca'` must NOT block IB orphans.
+
+    Per Wave 5 brief: "DO NOT add a similar guard for IB orphans without operator
+    authorization — they may have different semantics." This test locks the
+    `COALESCE(broker, 'alpaca') = 'alpaca'` SQL filter as part of the contract.
+    A future refactor that broadens the filter to IB would silently break this
+    test.
+
+    Seed: shadow_trades row for AAPL with broker='ib', order_type='reconciled',
+    exit_reason='reconciled_stale', actual_exit_time = now - 1 hour (within
+    guard window). Alpaca returns AAPL as a position.
+    Expected: guard does NOT fire (broker mismatch); AAPL IS backfilled normally.
+    """
+    from src.journal.store import initialize_database
+    from src.shadow_trading.reconcile import reconcile_paper_trades
+
+    db_path = str(tmp_path / "test.sqlite3")
+    initialize_database(db_path)
+
+    recent_exit_time = (_datetime.now(_ET) - _timedelta(hours=1)).isoformat()
+    now_str = _datetime.now(_ET).isoformat()
+    with _sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO shadow_trades
+                (trade_id, ticker, status, source, broker, direction, order_type,
+                 exit_reason, actual_exit_time, entry_price, planned_shares,
+                 desk, created_at, updated_at)
+            VALUES (?, 'AAPL', 'closed', 'paper', 'ib', 'long', 'reconciled',
+                    'reconciled_stale', ?, 175.0, 10, 'swing', ?, ?)
+            """,
+            ("test-ib-stale-001", recent_exit_time, now_str, now_str),
+        )
+
+    result = reconcile_paper_trades(db_path=db_path, dry_run=False)
+
+    assert "AAPL" in result["backfilled"], (
+        "AAPL should be backfilled — prior stale row was broker='ib', so the "
+        "Alpaca-only guard must not fire. Backfilled: "
+        f"{result['backfilled']}, skipped: {result.get('skipped')}"
+    )
+    assert "AAPL" not in result.get("skipped", []), (
+        f"AAPL should NOT be in skipped (broker filter excludes IB): {result.get('skipped')}"
+    )
+
+
+@_patch("src.shadow_trading.reconcile.get_all_positions", return_value=_AAPL_ALPACA_POSITION)
+@_patch("src.shadow_trading.reconcile.cancel_orders_for_ticker", return_value=0)
+def test_6h_boundary_just_inside_window_skips(mock_cancel, mock_positions, tmp_path):
+    """Wave 5 guard: 5h59m-old reconciled_stale → guard SHOULD fire (within window).
+
+    Locks the `< 6 * 3600` boundary precisely. Comparison-direction or off-by-
+    threshold bugs would slip through tests that only use 1h and 8h endpoints.
+    """
+    from src.journal.store import initialize_database
+    from src.shadow_trading.reconcile import reconcile_paper_trades
+
+    db_path = str(tmp_path / "test.sqlite3")
+    initialize_database(db_path)
+
+    just_inside = (_datetime.now(_ET) - _timedelta(hours=5, minutes=59)).isoformat()
+    now_str = _datetime.now(_ET).isoformat()
+    with _sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO shadow_trades
+                (trade_id, ticker, status, source, direction, order_type,
+                 exit_reason, actual_exit_time, entry_price, planned_shares,
+                 desk, created_at, updated_at)
+            VALUES (?, 'AAPL', 'closed', 'paper', 'long', 'reconciled',
+                    'reconciled_stale', ?, 175.0, 10, 'swing', ?, ?)
+            """,
+            ("test-just-inside-001", just_inside, now_str, now_str),
+        )
+
+    result = reconcile_paper_trades(db_path=db_path, dry_run=False)
+    assert "AAPL" in result.get("skipped", []), (
+        "AAPL should be skipped (5h59m < 6h cutoff). "
+        f"Backfilled: {result['backfilled']}, skipped: {result.get('skipped')}"
+    )
+
+
+@_patch("src.shadow_trading.reconcile.get_all_positions", return_value=_AAPL_ALPACA_POSITION)
+@_patch("src.shadow_trading.reconcile.cancel_orders_for_ticker", return_value=0)
+def test_6h_boundary_just_outside_window_backfills(mock_cancel, mock_positions, tmp_path):
+    """Wave 5 guard: 6h01m-old reconciled_stale → guard MUST NOT fire (outside window).
+
+    Companion to test_6h_boundary_just_inside_window_skips. Locks the
+    boundary from the other side.
+    """
+    from src.journal.store import initialize_database
+    from src.shadow_trading.reconcile import reconcile_paper_trades
+
+    db_path = str(tmp_path / "test.sqlite3")
+    initialize_database(db_path)
+
+    just_outside = (_datetime.now(_ET) - _timedelta(hours=6, minutes=1)).isoformat()
+    now_str = _datetime.now(_ET).isoformat()
+    with _sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO shadow_trades
+                (trade_id, ticker, status, source, direction, order_type,
+                 exit_reason, actual_exit_time, entry_price, planned_shares,
+                 desk, created_at, updated_at)
+            VALUES (?, 'AAPL', 'closed', 'paper', 'long', 'reconciled',
+                    'reconciled_stale', ?, 175.0, 10, 'swing', ?, ?)
+            """,
+            ("test-just-outside-001", just_outside, now_str, now_str),
+        )
+
+    result = reconcile_paper_trades(db_path=db_path, dry_run=False)
+    assert "AAPL" in result["backfilled"], (
+        "AAPL should be backfilled (6h01m > 6h cutoff, outside guard window). "
+        f"Backfilled: {result['backfilled']}, skipped: {result.get('skipped')}"
+    )
+    assert "AAPL" not in result.get("skipped", []), (
+        f"AAPL should NOT be skipped (6h01m old). Skipped: {result.get('skipped')}"
+    )
+
+
+@_patch("src.shadow_trading.reconcile.get_all_positions", return_value=_AAPL_ALPACA_POSITION)
+@_patch("src.shadow_trading.reconcile.cancel_orders_for_ticker", return_value=0)
+def test_multi_stale_rows_uses_most_recent_within_window_logic(mock_cancel, mock_positions, tmp_path):
+    """Wave 5 guard: when multiple prior stale rows exist, ANY within-window match fires.
+
+    Seeds two rows for AAPL: one 7-days-old (way outside window) and one 1-hour-old
+    (within window). Either would match; the loop breaks on first within-window
+    hit. Locks the time-comparison logic when the result set has multiple rows
+    and a recent one is present.
+    """
+    from src.journal.store import initialize_database
+    from src.shadow_trading.reconcile import reconcile_paper_trades
+
+    db_path = str(tmp_path / "test.sqlite3")
+    initialize_database(db_path)
+
+    week_old = (_datetime.now(_ET) - _timedelta(days=7)).isoformat()
+    one_hour_old = (_datetime.now(_ET) - _timedelta(hours=1)).isoformat()
+    now_str = _datetime.now(_ET).isoformat()
+    with _sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO shadow_trades
+                (trade_id, ticker, status, source, direction, order_type,
+                 exit_reason, actual_exit_time, entry_price, planned_shares,
+                 desk, created_at, updated_at)
+            VALUES (?, 'AAPL', 'closed', 'paper', 'long', 'reconciled',
+                    'reconciled_stale', ?, 175.0, 10, 'swing', ?, ?)
+            """,
+            ("test-week-old-001", week_old, now_str, now_str),
+        )
+        conn.execute(
+            """
+            INSERT INTO shadow_trades
+                (trade_id, ticker, status, source, direction, order_type,
+                 exit_reason, actual_exit_time, entry_price, planned_shares,
+                 desk, created_at, updated_at)
+            VALUES (?, 'AAPL', 'closed', 'paper', 'long', 'reconciled',
+                    'reconciled_stale', ?, 175.0, 10, 'swing', ?, ?)
+            """,
+            ("test-one-hour-old-001", one_hour_old, now_str, now_str),
+        )
+
+    result = reconcile_paper_trades(db_path=db_path, dry_run=False)
+    assert "AAPL" in result.get("skipped", []), (
+        "AAPL should be skipped — week-old row alone wouldn't fire, but the "
+        "1-hour-old row is within window. Loop should break on first match. "
+        f"Backfilled: {result['backfilled']}, skipped: {result.get('skipped')}"
+    )
