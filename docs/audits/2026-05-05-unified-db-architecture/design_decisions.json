@@ -1,0 +1,106 @@
+[
+  {
+    "decision": "Recommend Option C (status quo + targeted hardening) at HIGH conviction, rejecting both consolidation directions",
+    "rationale": "Trading-state safety is structurally preserved by dual-store (Wave 4 incidents only degraded dashboard, never trade state); bidirectional command queue blocks vanilla Litestream; tests are 100% SQLite-fixture-bound; Wave 4 already closed the Critical-severity sync bugs; remaining pain is mostly latent or continuous-low-grade and amenable to harden tasks",
+    "alternatives_considered": [
+      "Option A (all-Postgres) \u2014 rejected: safety regression on trading + 1-3 person-weeks migration cost",
+      "Option B1/Litestream \u2014 rejected: incompatible with bidirectional pull_commands",
+      "Option B2/Turso \u2014 rejected: vendor risk on trading hot path",
+      "Option B3/Cloudflare Tunnel \u2014 deferred pending operator dashboard-usage data"
+    ]
+  },
+  {
+    "decision": "Absorb Option D (DB-engine abstraction at src/utils/db.py) into Option C as harden task H1",
+    "rationale": "The abstraction is the single highest-leverage harden task regardless of consolidation choice; keeping it as a standalone option creates a false trichotomy with A/B/C; the actionable form IS H1, not a separate \"do D, then decide\" gate",
+    "alternatives_considered": [
+      "Treat D as a separate \"first do this, then decide between A/B/C in 3-6 months\" path (rejected: same migration cost, same outcome)",
+      "Skip the abstraction entirely under Option C (rejected: loses the highest-leverage harden task)"
+    ]
+  },
+  {
+    "decision": "Flag Render PG monthly bill as ASSUMED, not computed",
+    "rationale": "render.yaml:32 sets sync: false \u2014 the Postgres tier is provisioned manually in the Render dashboard and not visible in repo; cost is a brief-required dimension but cannot be computed without operator-side info",
+    "alternatives_considered": [
+      "Skip cost dimension altogether (rejected: brief required it)",
+      "Fabricate a number from public Render pricing (rejected: dishonest \u2014 better to be explicit about ASSUMED)"
+    ]
+  },
+  {
+    "decision": "Size H1 (DB-engine abstraction) at 5-7 days, Medium complexity",
+    "rationale": "6 verified dual-mode files \u00d7 ~10-30 LOC each + new abstraction module + tests for placeholder rewriting + tests for error mapping + module-by-module migration discipline; mechanical refactor but with non-trivial design surface (RealDictCursor vs sqlite3.Row, transaction semantics)",
+    "alternatives_considered": [
+      "Size as Low (rejected: too optimistic given placeholder-rewriting subtleties + 6 distinct call sites)",
+      "Size as High (rejected: no architectural unknown, just careful mechanical work)"
+    ]
+  },
+  {
+    "decision": "Size H4 (testcontainers-postgres CI job) as Medium complexity",
+    "rationale": "Most cost is test inventory + selection (~20 representative tests covering sync mode classifications / ON CONFLICT / savepoint / DDL drift / strip-id), not infrastructure; pytest-postgresql is known-good library; CI integration mechanics are routine",
+    "alternatives_considered": [
+      "Size as Low (rejected: test selection is real judgment, not boilerplate)",
+      "Skip entirely (rejected: closes the substrate of every SQLite/PG impedance bug class)"
+    ]
+  },
+  {
+    "decision": "Set the CLAUDE.md-codified test floor of 3682 as a HARD invariant in any migration path",
+    "rationale": "CLAUDE.md enforces this as a CI baseline; current count is 4574 (verified `pytest --collect-only` on 2026-05-05); the floor is operator-codified and should be treated as non-negotiable; any test-touching migration must replace 1-for-1",
+    "alternatives_considered": [
+      "Allow temporary test-count regression with explicit rollback gate (rejected: floor is operator-codified, not negotiable; the rollback gate can wrap test-runtime instead)"
+    ]
+  },
+  {
+    "decision": "Preserve trading-state sync-independence as a SAFETY PROPERTY worth explicit defense",
+    "rationale": "Wave 4 H1/H2/H3 only ever degraded the dashboard, never trade state; reconciler reads MAX(updated_at) on local SQLite (`reconcile_state.py:32-44`); this property is non-trivial, undocumented anywhere prior to this audit, and currently free",
+    "alternatives_considered": [
+      "Treat trading-state coupling to PG as acceptable tradeoff for cleaner architecture (rejected: dollar-loss potential is unbounded; the safety property is currently free; PG outage scenarios would freeze trading)"
+    ]
+  },
+  {
+    "decision": "Recommend testcontainers-postgres on a SEPARATE CI job (not every PR)",
+    "rationale": "Every-PR adds 5-15 min latency + flakiness from PG container startup; weekly catches drift before prod release; matches arcis CI conventions; the value is in catching drift, not in synchronously gating every PR",
+    "alternatives_considered": [
+      "Run on every PR (rejected: latency + flakiness)",
+      "Skip entirely (rejected: closes the largest remaining bug substrate)"
+    ]
+  },
+  {
+    "decision": "Refuse to recommend libsql/Turso (Option B2) without explicit operator vendor-risk acknowledgment",
+    "rationale": "Operator's stated preference for battle-tested deps (psycopg2, pandas, scipy); Turso founded 2022 \u2014 a single company, on the trading hot path; vendor lock-in / acquisition / pricing-change risk all real; should not be a default recommendation without operator buy-in",
+    "alternatives_considered": [
+      "Recommend Option B2 because of free-tier cost and bidirectional support (rejected: vendor risk on trading hot path is structurally serious)",
+      "Drop B2 entirely (rejected: it's a real option that should be acknowledged + revisitable)"
+    ]
+  },
+  {
+    "decision": "Include Cloudflare Tunnel (B3) as residual uncertainty rather than as a full option in \u00a74",
+    "rationale": "B3 trades dashboard availability for simplicity; brief flags dashboard as heavily-used but operator usage frequency is unmeasured; cannot evaluate B3 without that data; B3 is a real path if usage is low and worth keeping visible",
+    "alternatives_considered": [
+      "Treat B3 as a full Option (rejected: lacks operator usage data)",
+      "Exclude entirely (rejected: it's a real cost-dominated winner if usage is low)"
+    ]
+  },
+  {
+    "decision": "Set H6 (target_host on pending_commands) as MEDIUM-LOW priority within harden bundle",
+    "rationale": "Latent risk that only materializes if operator commits to backup-machine plans; backward-compatible on its own (NULL = current behavior); cheap to land but not the highest-leverage task",
+    "alternatives_considered": [
+      "Skip (rejected: closes a real footgun cheaply)",
+      "Make it H1 (rejected: not the highest-leverage task; the dual-mode-branch removal is)"
+    ]
+  },
+  {
+    "decision": "Refuse to estimate person-weeks for Option A as a primary recommendation timeline",
+    "rationale": "Operator-time is the scarcest resource; Option A's 1-3 person-weeks is real cost against $0 marginal benefit at current evidence; offering a calendar-time number would frame Option A as more recommendable than it is",
+    "alternatives_considered": [
+      "Provide a calendar-time \"if started today\" answer for Option A (rejected: wrong framing because A isn't recommended)",
+      "Skip the cost discussion entirely (rejected: brief required cost dimension; the discussion belongs in \u00a74.1 where Option A is sketched)"
+    ]
+  },
+  {
+    "decision": "Re-anchor all registry.py citations at the `name=\"...\"` declaration line, not at attribute lines (sync_to_postgres, sync_mode)",
+    "rationale": "Phase 7 feasibility caught systematic 11-29 line drift between the original audit's citations and the current 2495-line registry; the original spec was measured against a registry version ~200 lines shorter; anchoring at attribute lines is fragile because attributes move within their TableDef block; the `name=\"...\"` declaration is the most stable, grep-friendly anchor and is unambiguous within each TableDef; this re-anchoring discipline is being recorded as a design decision so future spec authors keep citation accuracy strict",
+    "alternatives_considered": [
+      "Anchor at `_register(TableDef(` opening (rejected: less directly grep-friendly than `name=\"foo\"`)",
+      "Leave original drifted citations and add a reviewer-note (rejected: spec credibility rides on citation accuracy per operator strict-rigor directive)"
+    ]
+  }
+]
