@@ -231,6 +231,10 @@ def reconcile_live_trades(
     et = ZoneInfo("America/New_York")
     now = datetime.now(et)
 
+    # Wave 7 — empty-fetch guard mirrors Wave 6 paper-side pattern.
+    live_fetch_ok = True
+    _live_fetch_error: str | None = None
+
     # Broker-aware position lookup: IB trades check IB positions, Alpaca checks Alpaca.
     # If IB Gateway is disconnected, skip IB trades (don't mark them stale).
     try:
@@ -246,7 +250,13 @@ def reconcile_live_trades(
         ]
     except Exception as e:
         logger.warning("[RECONCILE-LIVE] Broker unreachable, falling back to Alpaca direct: %s", e)
-        alpaca_positions = get_live_positions(desk=desk)
+        try:
+            alpaca_positions = get_live_positions(desk=desk)
+        except Exception as e2:
+            logger.warning("[RECONCILE-LIVE] Alpaca direct fetch also failed: %s", e2)
+            alpaca_positions = []
+            live_fetch_ok = False
+            _live_fetch_error = str(e2)
 
     alpaca_tickers = {p["symbol"]: p for p in alpaca_positions}
 
@@ -263,9 +273,34 @@ def reconcile_live_trades(
         ).fetchall()
     tracked_tickers = {r["ticker"]: r["trade_id"] for r in tracked}
 
-    # Find discrepancies
+    # Wave 7 — Alpaca transient-empty guard for live path.  Mirror of Wave 6
+    # paper-side pattern (reconcile_paper_trades lines ~594-615).
+    # If the live broker successfully connected but returned 0 positions while
+    # local has _TRANSIENT_EMPTY_FETCH_THRESHOLD or more active live trades,
+    # treat the empty response as a transient fetch issue rather than a
+    # mass-close signal.
+    live_trade_count = len(tracked_tickers)
+    if live_fetch_ok and len(alpaca_tickers) == 0 and live_trade_count >= _TRANSIENT_EMPTY_FETCH_THRESHOLD:
+        logger.warning(
+            "[RECONCILE-LIVE] Live broker returned 0 positions but local has %d active "
+            "live trades — likely transient fetch issue, skipping live stale closure",
+            live_trade_count,
+        )
+        live_fetch_ok = False
+
+    # IB-parity warning: emit explicit "skipping stale closure for N" when
+    # live_fetch_ok is False and we have active live trades.
+    if not live_fetch_ok and live_trade_count > 0:
+        logger.warning(
+            "[RECONCILE-LIVE] Skipping stale closure for %d live-broker trades "
+            "— live fetch failed this cycle", live_trade_count,
+        )
+
+    # Find discrepancies.
+    # stale detection is suppressed when live_fetch_ok is False — a failed or
+    # transient-empty fetch cannot distinguish "position gone" from "API hiccup".
     orphaned = [t for t in alpaca_tickers if t not in tracked_tickers]
-    stale = [t for t in tracked_tickers if t not in alpaca_tickers]
+    stale = [] if not live_fetch_ok else [t for t in tracked_tickers if t not in alpaca_tickers]
 
     backfilled = []
     marked_closed = []
@@ -295,6 +330,9 @@ def reconcile_live_trades(
             )
 
         for ticker in stale:
+            # Wave 7 — skip stale-marking when live fetch failed this cycle.
+            if not live_fetch_ok:
+                continue
             trade_id = tracked_tickers[ticker]
             exit_price, pnl_dollars, pnl_pct = 0.0, 0.0, 0.0
             try:
@@ -393,6 +431,7 @@ def reconcile_live_trades(
         "stale": stale,
         "backfilled": backfilled,
         "marked_closed": marked_closed,
+        "error": _live_fetch_error,
     }
 
 
