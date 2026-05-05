@@ -97,6 +97,8 @@ EXPECTED_TABLES = {
     "user_notes",
     # Dashboard / cloud state
     "preflight_runs",
+    # Live runtime
+    "live_prices",
     # Trading Internals
     "bracket_health",
     # Diagnostics
