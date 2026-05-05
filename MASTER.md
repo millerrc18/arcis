@@ -17,6 +17,7 @@
 **Release:** v0.27.0 (2026-04-25: Track 1.5 instrumentation gap closure — 14 rounds, ~16 commits, ~250 new tests, all Critical+Important from both audits cleared, 5-KPI hero strip, broker_exceptions panel, preflight UI echo, SD#46 fix-before-trade principle, Mon $100 deploy deferred post-Cohort-3; prior: v0.26.0 2026-04-23 chain complete + triage bundle; v0.25.0 walk-forward v1; v0.23.4 Telegram refresh; v0.21.0 earnings filter SD#33)
 **Repository:** github.com/millerrc18/arcis (renamed from `halcyon-lab` 2026-04-25; old URL still redirects)
 **Dashboard:** halcyonlab.app (Render static + Python API)
+**Operator runbook:** [`docs/operator-guide.md`](docs/operator-guide.md) — daily ops, common commands, troubleshooting, recovery patterns, glossary. Single-source runbook; updated alongside any PR introducing a new operator-relevant procedure.
 
 **Purpose:** Autonomous AI trading system that scans, analyzes, and executes
 equity trades. Combines systematic technical scoring with LLM-generated

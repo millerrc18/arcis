@@ -4,6 +4,8 @@
 
 All project rules, architecture, data sources, and constraints are in **MASTER.md** — read it before making changes.
 
+For operator-side runbook content (daily ops cadence, troubleshooting decision trees, recovery patterns for stuck positions / corrupt WAL / lost commits, common CLI commands, glossary): see [`docs/operator-guide.md`](docs/operator-guide.md). When a PR introduces a new operator-runnable command or procedure, update the operator guide in the same PR — same discipline as `CHANGELOG.md`.
+
 ## Key Rules
 
 - **Never commit secrets** — `.env`, `config/settings.local.yaml`, and `.mcp.json` are gitignored for a reason
