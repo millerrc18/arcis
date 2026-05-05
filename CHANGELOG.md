@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- **T-DOCS sweep — Sprint 1.A documentation refresh.** MASTER.md sprint-queue marked Wave 2+3 ✅ COMPLETE (#911/#918/#921/#922/#923 merged); current-state metrics refreshed (corpus 18,185/67,681 ≈26.9%, watch loop paused, model arcis:v1.0.0). dashboard-data-map.md updated with #918/#919/#920 changes (live_prices as_of sync, outcome_stats_filter_sql helper). dashboard-gap-list-2026-04-29.md marked 5 fixed gaps as ✅ closed with PR refs and 5 in-flight gaps mapped to Wave 4 H1–H5. methodology-toolkit.md gained a `subtract_trading_days` reference (helper + calendar source + use cases + why). CLAUDE.md Analytics & Methodology section now flags `subtract_trading_days` as canonical for fetch anchors / lookback windows (cites #888 / #106 incident).
+
 - **feat(#106 follow-up): wire subtract_trading_days into src/evaluation/backtester.py fetch anchor** — replaces 365-calendar-day buffer with 200-trading-day pre-reg-aligned anchor; B.3 from PR #911 plan. Mirrors #922 (corpus generator wiring at the same call-site shape).
 
 - **feat(#106 follow-up): wire subtract_trading_days into scripts/generate_llm_corpus.py::_compute_features_for_window fetch anchor (replaces 365-calendar-day buffer with 200-trading-day pre-reg-aligned anchor; B.2 from PR #911 plan).**
