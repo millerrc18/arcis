@@ -661,7 +661,7 @@ def reconcile_paper_trades(
             recent_stale = False
             for _row in stale_rows:
                 try:
-                    _exit_t = datetime.fromisoformat(_row[0])
+                    _exit_t = datetime.fromisoformat(_row["actual_exit_time"])
                     if (now - _exit_t).total_seconds() < 6 * 3600:
                         recent_stale = True
                         break
