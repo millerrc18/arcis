@@ -1,0 +1,150 @@
+[
+  {
+    "decision": "Recommend Option C (status quo + harden) at HIGH conviction",
+    "rationale": "Trading-state safety property + bidirectional command queue blocks Litestream + tests are 100% SQLite-bound + Wave 4 closed the Critical-severity sync bugs",
+    "alternatives_considered": [
+      "Option A (rejected: safety regression + 1-3 person-weeks migration cost)",
+      "Option B1/Litestream (rejected: incompatible with bidirectional queue)",
+      "Option B2/Turso (rejected: vendor risk on trading hot path)",
+      "Option B3/Cloudflare Tunnel (deferred pending operator dashboard-usage data)"
+    ]
+  },
+  {
+    "decision": "Absorb Option D (DB-engine abstraction) into Option C as harden task H1",
+    "rationale": "The abstraction is the highest-leverage harden task regardless of consolidation choice; keeping it as a standalone option creates a false trichotomy",
+    "alternatives_considered": [
+      "Treat D as a separate \"first do this, then decide\" path (rejected: same migration cost, same outcome — H1 is the actionable form)"
+    ]
+  },
+  {
+    "decision": "Flag Render PG cost as ASSUMED, not computed",
+    "rationale": "`render.yaml:32` `sync: false` — repo cannot see PG plan; operator must verify",
+    "alternatives_considered": [
+      "Skip cost altogether (rejected: cost is a brief-required dimension); fabricate a number from public pricing (rejected: dishonest)"
+    ]
+  },
+  {
+    "decision": "Size H1 (DB-engine abstraction) at 5-7 days as Medium",
+    "rationale": "6 verified dual-mode files × ~10-30 LOC each + new abstraction module + tests; mechanical refactor with strong test coverage",
+    "alternatives_considered": [
+      "Size as Low (rejected: too optimistic given placeholder-rewriting subtleties)",
+      "Size as High (rejected: there's no architectural unknown, just careful work)"
+    ]
+  },
+  {
+    "decision": "Size H4 (testcontainers-postgres CI) as Medium",
+    "rationale": "Most cost is test inventory + selection (~20 representative tests), not infrastructure; pytest-postgresql is a known-good library",
+    "alternatives_considered": [
+      "Size as Low (rejected: test selection is a real judgment call, not boilerplate)",
+      "Skip entirely (rejected: closes the substrate of #185/#243/#797/H2/H3)"
+    ]
+  },
+  {
+    "decision": "Set the CLAUDE.md-codified test floor of 3682 as a HARD invariant in any migration",
+    "rationale": "CLAUDE.md enforces this CI baseline (current count 4574 from `pytest --collect-only` 2026-05-05); any path that drops tests below 3682 must replace them 1-for-1",
+    "alternatives_considered": [
+      "Allow temporary test-count regression with rollback gate (rejected: floor is operator-codified, not negotiable)"
+    ]
+  },
+  {
+    "decision": "Preserve trading-state sync-independence as a SAFETY PROPERTY worth explicitly defending",
+    "rationale": "Wave 4 H1/H2/H3 only ever degraded dashboard, never trade state; this is non-trivial and undocumented anywhere",
+    "alternatives_considered": [
+      "Treat trading-state coupling as an acceptable tradeoff for cleaner architecture (rejected: dollar-loss potential is unbounded and the safety property is currently free)"
+    ]
+  },
+  {
+    "decision": "Recommend testcontainers-postgres on a SEPARATE CI job (not every PR)",
+    "rationale": "Every-PR adds 5-15 min latency; weekly catches drift before prod release; matches arcis CI conventions",
+    "alternatives_considered": [
+      "Run on every PR (rejected: latency tax + flakiness from PG container startup)",
+      "Skip entirely (rejected: drift class is the largest remaining bug substrate)"
+    ]
+  },
+  {
+    "decision": "Refuse to recommend libsql/Turso (Option B2) without explicit operator consideration of vendor risk",
+    "rationale": "Operator's stated preference for battle-tested deps (psycopg2, pandas, scipy); Turso founded 2022 on trading hot path",
+    "alternatives_considered": [
+      "Recommend Option B2 because of free-tier cost and bidirectional support (rejected: vendor risk on trading hot path is structurally serious; flagged as residual uncertainty for re-evaluation, not a current recommendation)"
+    ]
+  },
+  {
+    "decision": "Include Cloudflare Tunnel (B3) as residual uncertainty rather than option in §4",
+    "rationale": "B3 trades availability for simplicity; brief flags dashboard as heavily-used; cannot evaluate without dashboard usage data",
+    "alternatives_considered": [
+      "Treat B3 as a full option (rejected: lacks operator usage data)",
+      "Exclude entirely (rejected: it's a real path that could win if usage frequency is low)"
+    ]
+  },
+  {
+    "decision": "Set H6 (target_host) priority as MEDIUM-LOW within harden bundle",
+    "rationale": "Latent risk; only matters if operator commits to backup-machine plans; backward-compatible on its own",
+    "alternatives_considered": [
+      "Skip (rejected: closes a real footgun cheaply)",
+      "Make it H1 (rejected: not the highest-leverage task)"
+    ]
+  },
+  {
+    "decision": "Refuse to estimate person-weeks for Option A migration as a primary recommendation timeline",
+    "rationale": "Operator-time is the scarcest resource; Option A's 1-3 person-weeks is real cost against $0 marginal benefit at current evidence",
+    "alternatives_considered": [
+      "Provide a calendar-time \"if started today\" answer (rejected: not the right framing because Option A isn't recommended)",
+      "Skip the cost discussion (rejected: brief required cost dimension)"
+    ]
+  },
+  {
+    "decision": "Re-anchor all `registry.py` line citations at the `name=\"...\"` declaration",
+    "rationale": "Phase 7 feasibility caught systematic 11-29 line drift between original audit and current 2495-line registry; anchoring at attribute lines (e.g. `sync_to_postgres=`) creates fragility because attributes move within blocks; the `name=` declaration is the most stable anchor",
+    "alternatives_considered": [
+      "Anchor at `_register(TableDef(` opening (rejected: less directly searchable than `name=\"foo\"`); leave original drifted citations (rejected: spec credibility rides on citation accuracy per operator strict-rigor directive)"
+    ]
+  },
+  {
+    "decision": "Make HIGH conviction CONDITIONAL on three §0 prerequisites (v3 revision)",
+    "rationale": "DA review correctly identified that HIGH with five unresolved uncertainties is overconfident. Conditional grading lets the recommendation hold its strength IF prerequisites resolve favorably while honestly admitting it could downgrade if they don't. Forces operator to answer the questions BEFORE committing to 5-7 person-weeks of harden work.",
+    "alternatives_considered": [
+      "Downgrade conviction outright to MEDIUM-HIGH (rejected: loses the signal that Option C is the right answer in the most-likely prerequisite-resolution scenario)",
+      "Keep flat HIGH and bury the prerequisites in §8 (rejected: violates strict-rigor — prerequisites should be visible at top, not buried)"
+    ]
+  },
+  {
+    "decision": "Promote Option E (Cloudflare Tunnel) to full option, not residual uncertainty (v3 revision)",
+    "rationale": "DA review correctly identified that dismissing E without first asking operator the question that would resolve dismissal is incoherent. E genuinely dominates Option C if dashboard usage is low — at $0/mo and zero sync layer, it obviates H2/H3/H6 entirely. Demoting E to a footnote would burn 4-5 person-weeks of harden work that E would make moot.",
+    "alternatives_considered": [
+      "Keep E as residual uncertainty (rejected: incoherent with §0 prerequisite #3)",
+      "Recommend E as primary (rejected: E loses if dashboard usage is high, which is plausible given operator's stated dashboard-heavy use)"
+    ]
+  },
+  {
+    "decision": "Rewrite trading-state safety claim as ASYMMETRIC (READ-side independent, WRITE-side coupled) (v3 revision)",
+    "rationale": "DA review correctly identified that v2's framing claimed wholly-independent trading state but `pull_commands` flows cloud-initiated trading actions THROUGH the PG sync arrow, making cloud-initiated `close_position` (and any future dashboard-driven action) coupled to PG availability. Honest framing distinguishes which trading actions are sync-independent (local-initiated, automated) vs which depend on PG (cloud-initiated).",
+    "alternatives_considered": [
+      "Keep v2 framing (rejected: factually incomplete — DA caught real asymmetry in `pull_commands` flow)",
+      "Drop the safety claim entirely (rejected: read-side independence is real and worth defending)"
+    ]
+  },
+  {
+    "decision": "H4 (testcontainers-PG CI) is a HARD prerequisite for H3 and H5 — re-sequenced in v3",
+    "rationale": "DA review correctly identified v2's sequencing was backwards: H3 changes `pending_commands` schema and H5 promotes 4 untested-pipeline tables, both shipping new SQLite-vs-PG drift surface. H4 is exactly the safety net for that drift class. v2 had H4 in Week 4-5 AFTER H3 — wrong order. v3 re-sequences H4 into Week 2-3 alongside H1, before H3 (Week 5) and H5 (Week 5-6).",
+    "alternatives_considered": [
+      "Keep H4 last \"because it's stabilization\" (rejected: H4 is preventive not reactive)",
+      "Skip H4 entirely (rejected: closes the largest remaining bug substrate)"
+    ]
+  },
+  {
+    "decision": "Raise H1/H3/H4 effort estimates by +30% in v3",
+    "rationale": "DA review correctly identified v2 estimates as systematically optimistic. H1: 5-7 → 7-10 days (336 connect_db audit cost + placeholder edge cases). H3: 4-5 → 5-7 days (property-based crash tests alone are 2-3 days). H4: 5-7 → 7-10 days (each of ~20 PG-fixture tests will discover SQLite-vs-PG drift bugs needing source fixes). New aggregate: 25.5-37.5 days = 5-7 person-weeks (was 4-5).",
+    "alternatives_considered": [
+      "Keep v2 estimates (rejected: systematic optimism is dishonesty per strict-rigor)",
+      "Raise more aggressively (rejected: +30% is the documented variance from the DA findings; further inflation needs evidence)"
+    ]
+  },
+  {
+    "decision": "Raise H5 risk rating Low → Low-Medium with H4 prerequisite (v3 revision)",
+    "rationale": "DA review correctly identified that 4 promoted Category-B tables have NEVER been through the sync pipeline. Bulk backfill on flip triggers the same `incremental` pipeline that produced #185/#243/#797/H2/H3 across 50 tables. \"Low\" risk understates this. v3 raises rating + makes H4 dry-run validation a hard prerequisite.",
+    "alternatives_considered": [
+      "Keep \"Low\" (rejected: ignores 4 untested-pipeline tables)",
+      "Raise to \"Medium\" (rejected: the backfill is well-bounded and rolls back cleanly via flag flip)"
+    ]
+  }
+]
