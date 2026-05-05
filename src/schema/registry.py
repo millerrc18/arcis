@@ -2111,7 +2111,7 @@ _register(TableDef(
         ColumnDef("from_status", "TEXT"),
         ColumnDef("to_status", "TEXT", nullable=False),
         ColumnDef("triggered_by", "TEXT", nullable=False,
-                  description="'manual' | 'auto_gate'"),
+                  description="'manual' | 'auto_gate' | 'gate_proposal' | 'operator_confirm'. 'gate_proposal' rows have from_status==to_status (informational only, no transition); 'operator_confirm' is a real transition via the confirm-promotion CLI."),
         ColumnDef("gate_result_json", "TEXT",
                   description="Evidence dict from check_promotion_gate"),
         ColumnDef("justification_note", "TEXT",
