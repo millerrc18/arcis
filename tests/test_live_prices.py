@@ -44,13 +44,14 @@ class TestLivePricesTableDef:
         from src.schema.registry import TABLES
         table = TABLES["live_prices"]
         assert table.sync_to_postgres is True
-        assert table.sync_mode == "latest_only"
+        assert table.sync_mode == "incremental"
         assert table.sync_reconcile is True
         assert table.sync_conflict_col == "ticker"
         assert table.sync_time_column == "as_of", (
-            "latest_only sync requires sync_time_column. Without it, "
+            "incremental sync requires sync_time_column. Without it, "
             "RenderSyncThread builds SQL with MAX(None) -> "
-            "'no such column: None' error every cycle (#910 follow-up)."
+            "'no such column: None' error every cycle (#910 follow-up resolved; "
+            "H3 switched latest_only -> incremental so all 15 ticker rows propagate)."
         )
 
     def test_live_prices_pk_is_ticker(self):
@@ -381,3 +382,172 @@ class TestShadowOpenLivePrices:
             assert "setup_signals" not in sql, (
                 f"setup_signals must not be queried; found: {sql}"
             )
+
+
+# ---------------------------------------------------------------------------
+# Incremental sync + watermark migration tests (Wave 4 H3)
+# ---------------------------------------------------------------------------
+
+class TestLivePricesSync:
+    def _make_mock_pg_conn(self):
+        """Return a mock Postgres connection that records executed statements."""
+        conn = MagicMock()
+        cursor = MagicMock()
+        conn.cursor.return_value = cursor
+        cursor.fetchall.return_value = []
+        conn.autocommit = False
+        return conn, cursor
+
+    def test_15_tickers_propagate_per_cycle(self):
+        """With incremental sync_mode, all ticker rows are sent to PG each cycle."""
+        import sqlite3 as _sqlite3
+        from datetime import datetime, timezone, timedelta
+        from unittest.mock import patch, MagicMock
+
+        db_conn = _sqlite3.connect(":memory:")
+        db_conn.row_factory = _sqlite3.Row
+        db_conn.execute(
+            "CREATE TABLE live_prices ("
+            "ticker TEXT PRIMARY KEY, price REAL, bid REAL, ask REAL, "
+            "as_of TEXT NOT NULL, source TEXT NOT NULL"
+            ")"
+        )
+        db_conn.execute(
+            "CREATE TABLE sync_state ("
+            "table_name TEXT PRIMARY KEY, last_synced_at TEXT NOT NULL, "
+            "in_flight_since TEXT, completed_at TEXT, status TEXT DEFAULT 'idle', "
+            "error_message TEXT, host TEXT"
+            ")"
+        )
+
+        tickers = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA"]
+        as_of = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+        for t in tickers:
+            db_conn.execute(
+                "INSERT INTO live_prices (ticker, price, bid, ask, as_of, source) "
+                "VALUES (?, 100.0, 99.9, 100.1, ?, 'alpaca')",
+                (t, as_of),
+            )
+        db_conn.commit()
+
+        mock_pg_conn, mock_cursor = self._make_mock_pg_conn()
+
+        with patch("src.sync.render_sync.sqlite3") as mock_sqlite_mod, \
+             patch("src.sync.render_sync.get_last_synced_at", return_value=None), \
+             patch("src.sync.render_sync.set_last_synced_at"):
+            mock_sqlite_mod.connect.return_value.__enter__ = lambda s: db_conn
+            mock_sqlite_mod.connect.return_value.__exit__ = MagicMock(return_value=False)
+            mock_sqlite_mod.Row = _sqlite3.Row
+
+            from src.sync.render_sync import _fetch_incremental_rows, _upsert_to_postgres
+            rows, columns = _fetch_incremental_rows("live_prices", "as_of", None, ":memory:")
+
+        assert len(rows) >= 5, (
+            f"Expected >=5 rows for incremental sync with NULL watermark, got {len(rows)}"
+        )
+
+    def test_watermark_migration_does_not_replay_history(self):
+        """With a 24h-old watermark, only rows newer than that watermark are synced."""
+        import sqlite3 as _sqlite3
+        from datetime import datetime, timezone, timedelta
+
+        db_conn = _sqlite3.connect(":memory:")
+        db_conn.row_factory = _sqlite3.Row
+        db_conn.execute(
+            "CREATE TABLE live_prices ("
+            "ticker TEXT PRIMARY KEY, price REAL, bid REAL, ask REAL, "
+            "as_of TEXT NOT NULL, source TEXT NOT NULL"
+            ")"
+        )
+
+        now = datetime.now(timezone.utc)
+        watermark = (now - timedelta(hours=24)).isoformat()
+
+        old_tickers = [f"OLD{i}" for i in range(100)]
+        old_as_of = (now - timedelta(days=8)).isoformat()
+        for t in old_tickers:
+            db_conn.execute(
+                "INSERT OR REPLACE INTO live_prices (ticker, price, bid, ask, as_of, source) "
+                "VALUES (?, 50.0, 49.9, 50.1, ?, 'alpaca')",
+                (t, old_as_of),
+            )
+
+        fresh_tickers = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA"]
+        fresh_as_of = (now - timedelta(minutes=30)).isoformat()
+        for t in fresh_tickers:
+            db_conn.execute(
+                "INSERT OR REPLACE INTO live_prices (ticker, price, bid, ask, as_of, source) "
+                "VALUES (?, 100.0, 99.9, 100.1, ?, 'alpaca')",
+                (t, fresh_as_of),
+            )
+        db_conn.commit()
+
+        from src.sync.render_sync import _fetch_incremental_rows
+        import sqlite3 as _sqlite3
+
+        with patch("src.sync.render_sync.sqlite3") as mock_sqlite_mod:
+            mock_sqlite_mod.connect.return_value.__enter__ = lambda s: db_conn
+            mock_sqlite_mod.connect.return_value.__exit__ = MagicMock(return_value=False)
+            mock_sqlite_mod.Row = _sqlite3.Row
+
+            rows, columns = _fetch_incremental_rows("live_prices", "as_of", watermark, ":memory:")
+
+        assert len(rows) == 5, (
+            f"Expected exactly 5 rows (fresh tickers only) with 24h watermark, got {len(rows)}"
+        )
+        returned_tickers = {r["ticker"] for r in rows}
+        assert returned_tickers == set(fresh_tickers)
+
+    def test_reset_live_prices_watermark_command_idempotent(self):
+        """reset-live-prices-watermark sets last_synced_at ~24h ago, idempotent on second call."""
+        import sqlite3 as _sqlite3
+        from datetime import datetime, timezone, timedelta
+
+        db_conn = _sqlite3.connect(":memory:")
+        db_conn.execute(
+            "CREATE TABLE sync_state ("
+            "table_name TEXT PRIMARY KEY, last_synced_at TEXT NOT NULL, "
+            "in_flight_since TEXT, completed_at TEXT, status TEXT DEFAULT 'idle', "
+            "error_message TEXT, host TEXT"
+            ")"
+        )
+        db_conn.commit()
+
+        from src.cli.commands import cmd_reset_live_prices_watermark
+
+        class FakeArgs:
+            pass
+
+        with patch("src.cli.commands.connect_db") as mock_connect:
+            mock_connect.return_value.__enter__ = lambda s: db_conn
+            mock_connect.return_value.__exit__ = MagicMock(return_value=False)
+
+            cmd_reset_live_prices_watermark(FakeArgs())
+            row1 = db_conn.execute(
+                "SELECT last_synced_at FROM sync_state WHERE table_name = 'live_prices'"
+            ).fetchone()
+            assert row1 is not None
+
+            ts1 = datetime.fromisoformat(row1[0].replace("Z", "+00:00"))
+            now = datetime.now(timezone.utc)
+            expected_floor = now - timedelta(hours=25)
+            expected_ceiling = now - timedelta(hours=23)
+            assert expected_floor < ts1 < expected_ceiling, (
+                f"Watermark {ts1} not within 23-25h of now"
+            )
+
+        with patch("src.cli.commands.connect_db") as mock_connect2:
+            mock_connect2.return_value.__enter__ = lambda s: db_conn
+            mock_connect2.return_value.__exit__ = MagicMock(return_value=False)
+
+            cmd_reset_live_prices_watermark(FakeArgs())
+            row2 = db_conn.execute(
+                "SELECT last_synced_at FROM sync_state WHERE table_name = 'live_prices'"
+            ).fetchone()
+            assert row2 is not None
+
+        ts2 = datetime.fromisoformat(row2[0].replace("Z", "+00:00"))
+        diff = abs((ts2 - ts1).total_seconds())
+        assert diff < 5, (
+            f"Second call changed watermark by {diff}s — expected idempotent within 5s"
+        )
