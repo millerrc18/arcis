@@ -1,0 +1,140 @@
+[
+  {
+    "decision": "Integrate methodology gate into existing platform.promotion.check_promotion_gate via AND-composition, NOT as a separate gate.",
+    "rationale": "Phase 3 INTERVIEW chose this path. AND-composition with existing walkforward+DSR+PBO checks gives a single source of truth for promotability; defer/reject naturally block via the False arm of AND without short-circuit complexity.",
+    "alternatives_considered": [
+      "Separate gate module with its own dispatcher (rejected: duplicates audit-row writing, splits the safety story across two code paths, makes overrides ambiguous)",
+      "OR-composition (rejected: weakens existing checks; methodology-only pass would override walkforward fail)"
+    ]
+  },
+  {
+    "decision": "Persist gate outcomes to existing strategy_promotion_events table via two new triggered_by sentinel values: 'gate_proposal' and 'operator_confirm'.",
+    "rationale": "Phase 4 deep-report concluded schema is sufficient — no new tables needed. Sentinel values + JSON keys in gate_result_json carry all needed metadata. Avoids migration risk and preserves audit-trail invariants.",
+    "alternatives_considered": [
+      "New promotion_gate_decisions table (rejected per Phase 4 finding)",
+      "New columns on strategy_promotion_events (rejected: schema churn for metadata that fits naturally as JSON keys)",
+      "Reuse 'manual' / 'auto_gate' (rejected: loses ability to distinguish proposal vs confirm vs operator-direct-promote)"
+    ]
+  },
+  {
+    "decision": "Daily gate fires at 16:35 ET via src/scheduler/watch.py, NOT via trainer.py event-driven cycles.",
+    "rationale": "Phase 3 INTERVIEW pinned cadence to daily off-hours. Trainer cycles are irregular and can fire multiple times per day; the methodology gate must fire exactly once per trading day after post-close-reconcile completes (so MinTRL/instrumentation inputs are stable).",
+    "alternatives_considered": [
+      "Trainer-cycle firing (rejected: drifts cadence from daily; risk of firing on stale or partial data)",
+      "Cron-driven external script (rejected: inconsistent with existing watch-loop pattern; loses _safe_run / _backoff resilience)"
+    ]
+  },
+  {
+    "decision": "Reject outcome is NOT overridable via the CLI flow.",
+    "rationale": "Operator-side intent: a hard methodology-side reject means a methodology problem the operator cannot fix by writing a justification note. Override capability for reject would defeat the purpose of having a methodology gate at all.",
+    "alternatives_considered": [
+      "Allow reject override with a longer justification (rejected: gradient-of-strictness adds complexity for no operator-facing benefit)",
+      "Allow reject override with operator-pair-confirm (rejected: out of scope; could be added later if operator workflow demands it)"
+    ]
+  },
+  {
+    "decision": "CLI confirm-promotion is a thin wrapper around platform.promotion.promote() — NOT an alternative promotion path.",
+    "rationale": "Critical-1 review finding: a synthetic-outcome path bypasses promote()'s server-side re-fire of check_promotion_gate, bypasses 40-char justification enforcement, and bypasses audit-row writing. The CLI's only added value is ergonomic pre-checks (justification length, proposal staleness).",
+    "alternatives_considered": [
+      "Synthetic _apply_gate_outcome with operator outcome=promote (rejected per Critical 1: silently strips four safety properties)",
+      "CLI writes audit row directly (rejected: violates single-writer invariant for promotion events)"
+    ]
+  },
+  {
+    "decision": "Feature flag METHODOLOGY_GATE_ENABLED defaults to true.",
+    "rationale": "This wires an already-tested module, not a new gate algorithm. The 4-of-5 voter has independent test coverage. Default-true reflects readiness; default-false would force every dev/test environment to opt in and create a hidden-disabled-by-default footgun.",
+    "alternatives_considered": [
+      "Default false per convention for new gates (rejected: this is wiring, not new logic)",
+      "No feature flag (rejected: emergency-disable capability is needed if a methodology-side bug blocks all promotions during a market event)"
+    ]
+  },
+  {
+    "decision": "Feature-flag short-circuit returns (True, {'decision': 'skipped'}) with NO persistence side-effects.",
+    "rationale": "Disabled mode should be inert — writing rows in disabled mode would pollute the dashboard and confuse the audit trail. (True, ...) ensures AND-composition still allows existing gates to run.",
+    "alternatives_considered": [
+      "Persist a 'skipped' proposal row anyway (rejected: pollutes counts; operator can't tell skipped from real defer)",
+      "Return (False, ...) when disabled (rejected: would block all promotions when operator intent is to bypass methodology side only)"
+    ]
+  },
+  {
+    "decision": "STRICT_GATE × METHODOLOGY_GATE_ENABLED compose as a 2x2 grid, not a 3-state enum.",
+    "rationale": "The two flags address orthogonal concerns: STRICT_GATE governs whether PASS proposals auto-promote vs notify; METHODOLOGY_GATE_ENABLED governs whether methodology side runs at all. A 3-state enum would conflate them and lose flexibility.",
+    "alternatives_considered": [
+      "3-state enum {strict, advisory, off} (rejected: loses the 'strict on existing gates, advisory on methodology' cell)",
+      "Single flag (rejected: loses emergency-disable capability)"
+    ]
+  },
+  {
+    "decision": "Apply analytics.instrumentation_filter.is_fully_instrumented as the gate input filter.",
+    "rationale": "Operator constraint per Major 5. Partially-instrumented trades have unreliable cost/timing data and would skew the methodology-gate inputs. The filter is the existing canonical predicate.",
+    "alternatives_considered": [
+      "No filter (rejected: violates operator constraint)",
+      "Custom per-method filters (rejected: inconsistent; the existing filter is canonical)"
+    ]
+  },
+  {
+    "decision": "When len(active_research_strategies) < 2, fall back to 4-of-4 threshold and persist threshold_used='4_of_4_no_white_rc'.",
+    "rationale": "White RC needs ≥2 strategies for meaningful multi-strategy data-snooping correction. Falling back to 4-of-4 over the remaining methods preserves gate strictness when White RC must abstain. Persisting the threshold_used key lets the dashboard distinguish 4-of-5 days from 4-of-4 days.",
+    "alternatives_considered": [
+      "Skip the gate entirely when pool too small (rejected: blocks promotion forever in early sprints with one strategy)",
+      "Use 3-of-4 to compensate (rejected: weakens gate)",
+      "Don't persist threshold variant (rejected per Major 6: dashboard breakdowns need the structured field)"
+    ]
+  },
+  {
+    "decision": "Late-import platform.promotion inside watch.py method body, not at module top.",
+    "rationale": "platform.promotion imports schema and analytics modules; watch.py is imported during scheduler init before some of those modules are fully loaded. Late-import inside the method body avoids a circular-import risk that has bitten this codebase before.",
+    "alternatives_considered": [
+      "Top-level import (rejected: circular-import risk)",
+      "Lazy module-level import via importlib (rejected: more complex than late-import; no benefit)"
+    ]
+  },
+  {
+    "decision": "Trainer.py is touched only for its pre-existing model-version abstention bug fix; it is NOT a gate-firing site.",
+    "rationale": "Critical 3 fix: cadence pinned to watch.py daily slot. Trainer feeds inputs to the gate; it does not drive gate decisions. The abstention bug is in scope because the daily gate consumes trainer-emitted artifacts and false-positive abstentions would corrupt evidence.",
+    "alternatives_considered": [
+      "Fire gate from trainer (rejected per Critical 3)",
+      "Defer trainer bug fix to a separate sprint (rejected: false-positive abstentions would corrupt the very first day of gate evidence; coupled but separable scope)"
+    ]
+  },
+  {
+    "decision": "promote() re-fires check_promotion_gate server-side as a redundant safety check.",
+    "rationale": "Defense in depth. Even if the CLI's staleness guard or justification check is bypassed, the server-side re-fire catches data drift between proposal and confirm. This is the existing behavior of promote() — preserving it is non-negotiable.",
+    "alternatives_considered": [
+      "Trust the proposal row (rejected: data can shift between proposal write and operator confirm)",
+      "Skip re-fire on operator_confirm (rejected: removes redundant safety; operator's justification is not a substitute for re-validation)"
+    ]
+  },
+  {
+    "decision": "Stale-proposal guard at 24h.",
+    "rationale": "Proposals are generated daily; a >24h-old proposal means the operator missed a trading day's worth of new data. The CLI rejects with exit 4 and asks the operator to wait for tomorrow's gate. Server-side promote() re-fire is the authoritative check; the staleness guard is operator-ergonomic.",
+    "alternatives_considered": [
+      "No staleness guard (rejected: operator could rubber-stamp ancient proposals)",
+      "Configurable staleness window (rejected: YAGNI; 24h matches the daily cadence exactly)"
+    ]
+  },
+  {
+    "decision": "Test plan is a behavior-coverage list of 8 named tests; count is derived, not target.",
+    "rationale": "Major 8 fix: a count target (12-18 tests) could land entirely on happy paths. Naming each test 1:1 to a critical safety property ensures coverage of the actual correctness conditions.",
+    "alternatives_considered": [
+      "12-18 test count target (rejected per Major 8: count is a proxy, not the goal)",
+      "Property-based testing only (rejected: harder to audit; some properties are easier to express as named scenarios)"
+    ]
+  },
+  {
+    "decision": "Override metadata (override_by, override_reason) lives as JSON keys in gate_result_json, NOT as new columns.",
+    "rationale": "Major 4 conformance: no new columns on strategy_promotion_events. JSON keys are sufficient for read-side dashboard rendering and audit-log searches; SQL filtering on override_by is rare enough that JSON is acceptable.",
+    "alternatives_considered": [
+      "New override_by / override_reason columns (rejected per Major 4)",
+      "Reuse justification_note for override_reason (accepted partially — they're often the same value; the JSON key is for cases where they diverge, e.g. operator_confirm with a longer note than what the schema enforces)"
+    ]
+  },
+  {
+    "decision": "AND-composition is implemented at the existing return points of _evaluate_shadow_trading_gate / _evaluate_production_gate, not by wrapping check_promotion_gate.",
+    "rationale": "Wrapping check_promotion_gate would create a second dispatcher and split the call graph. Inserting AND-composition at the existing return points is a minimal change that preserves the dispatcher's structure and naturally inherits the existing audit-row behavior.",
+    "alternatives_considered": [
+      "Wrap check_promotion_gate with a new outer function (rejected: splits the call graph)",
+      "Add a separate _evaluate_methodology_gate at the top level (rejected: duplicates the per-target-status fan-out in shadow_trading vs production paths)"
+    ]
+  }
+]
