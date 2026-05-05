@@ -140,7 +140,12 @@ class TestReconcileRoutesThroughCoerce:
                 call_count[0] += 1
                 if call_count[0] == 1:
                     return []
+                # Wave 5 orphan guard: stale-rows query for re-backfill prevention
+                # (inserted before stuck-trades processing). Returns [] — no recent
+                # reconciled_stale rows for GOOG, so the orphan proceeds to backfill.
                 if call_count[0] == 2:
+                    return []
+                if call_count[0] == 3:
                     return [stuck_row]
                 return []
 
@@ -188,7 +193,12 @@ class TestReconcileRoutesThroughCoerce:
                 call_count[0] += 1
                 if call_count[0] == 1:
                     return []
+                # Wave 5 orphan guard: stale-rows query for re-backfill prevention
+                # (inserted before stuck-trades processing). Returns [] — no recent
+                # reconciled_stale rows for MSFT, so the orphan proceeds to backfill.
                 if call_count[0] == 2:
+                    return []
+                if call_count[0] == 3:
                     return [stuck_row]
                 return []
 
