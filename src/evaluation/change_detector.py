@@ -15,6 +15,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.shadow_trading.exit_reason import outcome_stats_filter_sql
 from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ def check_performance_drift(db_path: str = DB_PATH) -> dict:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT pnl_pct FROM shadow_trades WHERE status = 'closed' "
-                "AND pnl_pct IS NOT NULL AND COALESCE(quarantined, 0) = 0"
+                f"AND pnl_pct IS NOT NULL AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()}"
                 " ORDER BY actual_exit_time ASC"
             ).fetchall()
 
