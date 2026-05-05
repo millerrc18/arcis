@@ -603,6 +603,17 @@ def reconcile_paper_trades(
         )
         alpaca_fetch_ok = False  # treat as unreachable for this cycle
 
+    # Wave 6 — IB-pattern parity: emit explicit "skipping stale closure for N"
+    # warning when alpaca is unreachable AND we have active alpaca trades.
+    # Mirror of the IB-side log at lines ~574-578.  Operational benefit: incident
+    # triage can answer "how many trades did Alpaca preserve during that hiccup?"
+    # from a single log line rather than having to infer from absence-of-stale.
+    if not alpaca_fetch_ok and alpaca_trade_count > 0:
+        logger.warning(
+            "[RECONCILE-PAPER] Skipping stale closure for %d alpaca-broker trades "
+            "— Alpaca fetch failed this cycle", alpaca_trade_count,
+        )
+
     for ticker, rec in tracked_map.items():
         trade_broker = rec.get("broker", "alpaca")
         if trade_broker == "ib":

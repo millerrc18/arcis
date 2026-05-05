@@ -143,6 +143,49 @@ class TestAlpacaEmptyWith2ActiveProceedsNormally:
         )
 
 
+class TestAlpacaEmptyAtBoundaryThresholdSkipsStaleMarking:
+    """Lock the >= 3 boundary on _TRANSIENT_EMPTY_FETCH_THRESHOLD.
+
+    Tests at exactly N=3 are the canonical defense against off-by-one drift
+    in the transient-empty guard.  The other tests use N=5 (above) and N=2
+    (below) — neither pins the boundary itself.  If a future refactor changes
+    `>= 3` to `> 3` (or vice versa), this test catches it.
+    """
+
+    def test_alpaca_empty_with_exactly_3_active_skips_stale_marking(self, tmp_db, caplog):
+        """get_all_positions() returns []; exactly 3 active alpaca trades;
+        NONE should be marked stale (>= 3 threshold means 3 active = transient guard fires)."""
+        for ticker in ("AAPL", "MSFT", "TSLA"):
+            insert_shadow_trade(_make_open_trade(ticker, broker="alpaca"), db_path=tmp_db)
+
+        with patch(
+            "src.shadow_trading.reconcile.get_all_positions",
+            return_value=[],
+        ), patch(
+            "src.config.load_config",
+            return_value={"trading": {"ib_enabled": False}},
+        ), caplog.at_level("WARNING"):
+            result = reconcile_paper_trades(db_path=tmp_db, dry_run=True)
+
+        stale_tickers = {s["ticker"] for s in result.get("stale", [])}
+        assert stale_tickers == set(), (
+            f"With exactly 3 active alpaca trades and Alpaca returning [], "
+            f"the transient guard should fire (threshold is >= 3) and NO trades "
+            f"should be marked stale. Got stale={stale_tickers}"
+        )
+        # Verify the transient-empty warning fired (not the exception-path warning)
+        assert any(
+            "0 positions but local has 3 active" in r.message
+            for r in caplog.records
+            if r.levelname == "WARNING"
+        ), (
+            "Expected the transient-empty WARNING to fire at exactly N=3. "
+            "If this test starts failing because the warning text changed, "
+            "update the assertion — but if it fails because no warning fired, "
+            "the >= 3 threshold has regressed to > 3."
+        )
+
+
 class TestAlpacaReturnsRealPositionsNormalPath:
     def test_alpaca_returns_real_positions_normal_path(self, tmp_db, caplog):
         """Happy-path: Alpaca returns real positions. Verify matched/stale/orphan
