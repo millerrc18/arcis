@@ -950,12 +950,12 @@ class WatchLoop(HandlerRegistryMixin):
             with connect_db(DB_PATH) as conn:
                 conn.execute(
                     "INSERT INTO scan_metrics "
-                    "(id, scan_number, scan_time, universe_count, features_count, "
+                    "(scan_number, scan_time, universe_count, features_count, "
                     "scored_count, packet_worthy, risk_passed, paper_traded, "
                     "live_traded, llm_success, llm_total, llm_fallback, "
                     "avg_conviction, duration_seconds, created_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (self._scan_number, self._scan_number, now.strftime("%H:%M"), universe_count,
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (self._scan_number, now.strftime("%H:%M"), universe_count,
                      features_count, features_count, packet_worthy,
                      packet_worthy, packet_worthy, 0, llm_success, llm_total,
                      0, avg_conviction, duration_seconds, now.isoformat()),
