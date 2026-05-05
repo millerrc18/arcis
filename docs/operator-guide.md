@@ -28,6 +28,7 @@
 | `.venv` | `C:\arcis\halcyon-lab\.venv\` | Gitignored. Created via `python -m venv .venv && .venv\Scripts\pip install -r requirements.txt` |
 | SQLite DB | `C:\arcis\data\ai_research_desk.sqlite3` | ~1 GB active runtime DB — outside repo on purpose |
 | Logs | `C:\arcis\logs\` and `C:\arcis\halcyon-lab\logs\` | Watch loop, sync, corpus, telegram, etc. |
+| **Hardware** | Operator machine | NVIDIA GPU with ≥12 GB VRAM required for Ollama inference and corpus generation throughput. Current: RTX 3060 12 GB. Planned upgrade: RTX 3090 24 GB. Lower VRAM → OOM during corpus gen; inference degrades or stalls. |
 
 ### First-time setup checklist
 
@@ -325,6 +326,83 @@ If tests fail in worktree but pass in main:
    → check tests/conftest.py for proper hermetic fixtures
 ```
 
+### "Corpus generation appears stalled / not progressing"
+
+```
+1. Check progress (count completed entries):
+   powershell -Command "(Get-Content 'C:\arcis\halcyon-lab\data\corpus\stage1-001\entries.jsonl' -TotalCount 9999999 | Measure-Object -Line).Lines"
+   # Or on Git Bash / WSL:
+   wc -l C:/arcis/halcyon-lab/data/corpus/stage1-001/entries.jsonl
+   # Healthy baseline reference: 27,063 / 67,681 entries (~40%) as of 2026-05-05 morning.
+   # ETA from that baseline: mid-day Wednesday at 4-parallel workers.
+   # If the count hasn't moved in >30 min, the process is stuck.
+
+2. Check if the corpus script is still running:
+   powershell -Command "Get-CimInstance Win32_Process -Filter \"name='python.exe' and CommandLine like '%generate_llm_corpus%'\" | Select-Object ProcessId, CommandLine | Format-List"
+   # No result → process died. Resume below.
+
+3. Check corpus generator log for error messages:
+   tail -f C:/arcis/halcyon-lab/logs/stage1-corpus.log
+   # Common error strings: "CUDA out of memory", "rate limit", "connection refused"
+
+Common causes and fixes:
+├─ Ollama OOM (out-of-VRAM):
+│    → nvidia-smi   # Check GPU memory usage; if 11.5/12 GB used, Ollama is full
+│    → taskkill /IM ollama.exe /F   # Kill Ollama, it auto-restarts
+│    → Reduce --num-parallel (try 2 instead of 4)
+│
+├─ Finnhub API rate limits:
+│    → Logs will show HTTP 429 or "Too Many Requests"
+│    → Wait 60 seconds and resume
+│
+├─ NSSM service stopped (if corpus gen is running as a service):
+│    → Check Windows Services for "arcis-corpus" or similar
+│    → nssm start <service-name>
+│
+└─ Broken --resume checkpoint (prompt_sha256 dedup broken):
+     → Check entries.jsonl for truncated final line (partial write on kill)
+     → Remove the last partial line, then resume
+
+Recovery (in all cases — resume is idempotent):
+   python scripts/generate_llm_corpus.py \
+     --corpus-id stage1-001 \
+     --window-start 2023-09-01 \
+     --window-end 2026-04-28 \
+     --resume \
+     --num-parallel 4
+```
+
+### "Watchdog has timed out / watch loop looks dead"
+
+The watchdog file (`C:\arcis\data\watchdog.txt`) is updated every ~60 seconds by the watch loop's main iteration. If the timestamp in that file is stale, the loop is either dead or blocked.
+
+```
+1. Check watchdog timestamp:
+   powershell -Command "Get-Content 'C:\arcis\data\watchdog.txt'"
+   # Shows an ISO timestamp (e.g., 2026-05-05T09:45:02.314159-04:00)
+   # If the timestamp is >5 minutes old, the loop is stuck or dead.
+
+2. Check if a python watch process is still running:
+   powershell -Command "Get-CimInstance Win32_Process -Filter \"name='python.exe' and CommandLine like '%watch%'\" | Select-Object ProcessId, CreationDate | Format-List"
+   # No result → watch loop is dead (graceful exit or crash)
+   # Result exists → loop is running but hung (rare — usually mid-scan deadlock)
+
+3. Check the watch loop log for the last activity:
+   tail -30 C:/arcis/halcyon-lab/logs/arcis.log
+
+Recovery:
+├─ If no process:
+│    → python -m src.main startup   # Clean restart (checks for stale lockfile first)
+│
+└─ If process exists but watchdog is stale (hung loop):
+     → taskkill /PID <pid> /F /T
+     → rm data/watch.lock   # Remove stale lockfile
+     → python -m src.main startup
+
+Cross-reference: §6 Recovery Patterns — Watch loop restart sequence for the full
+clean-restart checklist including post-PR-merge steps.
+```
+
 ### "Database is locked" errors
 
 ```
@@ -522,6 +600,7 @@ Quarterly (or when worktrees exceed ~30):
 
 | Term | Definition |
 |------|------------|
+| **SD#NN** | "Strategy Decision #NN" — an operator-confirmed architectural or methodology choice logged in MASTER.md §5 (Strategy Decisions). SD entries are permanent record; once made they are amended in place but never deleted. Full index: MASTER.md §5. Key SD entries referenced throughout this guide: **SD#33** (earnings filter hard block — ≥10-day exclusion window); **SD#41** (IB defer — Alpaca-only until excess Sharpe ≥ 0.5 over 150 OOS trades); **SD#43** (3-stage validation ladder — Stage 1/2/3 thresholds); **SD#46** (fix-before-trade principle — no live deploy until strategy shows expected alpha post Cohort 3 redesign). Research memos for major SDs live in `docs/research/SD-<NN>-*.md`. |
 | **Alpaca paper** | Alpaca's simulated trading environment; uses real market data but no real money |
 | **Backtester** | `src/evaluation/backtester.py` — runs strategy against historical data via `backtest_model()` |
 | **Bootcamp mode** | Auditor flag (`bootcamp_mode = closed_count < 50`) that downgrades CRITICAL alerts to ALERTs during early data-collection phase. Post-Wave-4-H7: sticky once operator sets `live_trading.post_bootcamp: true` |
