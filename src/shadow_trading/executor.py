@@ -103,7 +103,7 @@ def _count_live_open_positions(db_path: str) -> int:
     return int(row[0] or 0)
 
 
-def quarantine_trade(trade_id: str, reason: str, db_path: str = DB_PATH) -> None:
+def quarantine_trade(trade_id: str, reason: str, db_path: str = DB_PATH, ticker: str = "") -> None:
     """Atomically quarantine a shadow trade.
 
     Sets status='quarantined', quarantined=1, exit_reason=reason, and updated_at
@@ -114,11 +114,12 @@ def quarantine_trade(trade_id: str, reason: str, db_path: str = DB_PATH) -> None
     that left quarantined=0, causing the trade to still count against position limits.
     """
     now_str = datetime.now(ZoneInfo("America/New_York")).isoformat()
+    coerced_reason = coerce_exit_reason(reason, ticker=ticker)
     with connect_db(db_path) as conn:
         conn.execute(
             "UPDATE shadow_trades SET status='quarantined', quarantined=1, "
             "exit_reason=?, updated_at=? WHERE trade_id=?",
-            (reason, now_str, trade_id),
+            (coerced_reason, now_str, trade_id),
         )
         conn.commit()
     logger.info("[QUARANTINE] Trade %s quarantined: %s", trade_id[:8], reason)
@@ -1486,7 +1487,7 @@ def _retry_exit(
         )
         update_shadow_trade(
             trade["trade_id"],
-            {"status": "exit_pending", "exit_reason": skip_reason},
+            {"status": "exit_pending", "exit_reason": coerce_exit_reason(skip_reason, ticker=ticker)},
             db_path,
         )
         return
@@ -1513,7 +1514,7 @@ def _retry_exit(
                 trade["trade_id"],
                 exit_price=fill_price,
                 exit_time=datetime.now(ZoneInfo("America/New_York")).isoformat(),
-                exit_reason=trade.get("exit_reason", "retry_exit"),
+                exit_reason=coerce_exit_reason(trade.get("exit_reason") or "retry_exit", ticker=ticker),
                 pnl_dollars=round(pnl_dollars, 2),
                 pnl_pct=round(pnl_pct, 2),
                 db_path=db_path,

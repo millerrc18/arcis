@@ -296,3 +296,19 @@ def test_outcome_stats_filter_sql_executes_against_sqlite_with_other_clauses():
         "'c' excluded by date cutoff, 'd' excluded by quarantined"
     )
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Wave 4 H4 — retry_exit vocabulary assertions
+# ---------------------------------------------------------------------------
+
+def test_retry_exit_in_vocab():
+    """retry_exit must be present in CONTROLLED_VOCAB (Wave 4 H4 addition)."""
+    from src.shadow_trading.exit_reason import CONTROLLED_VOCAB
+    assert "retry_exit" in CONTROLLED_VOCAB
+
+
+def test_retry_exit_not_excluded_from_outcome_stats():
+    """retry_exit is a real fill with real P&L — must NOT be in EXCLUDED_FROM_OUTCOME_STATS."""
+    from src.shadow_trading.exit_reason import EXCLUDED_FROM_OUTCOME_STATS
+    assert "retry_exit" not in EXCLUDED_FROM_OUTCOME_STATS

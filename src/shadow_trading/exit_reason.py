@@ -31,6 +31,8 @@ CONTROLLED_VOCAB: frozenset[str] = frozenset({
     "entry_unfilled",
     "partial_exit",
     "broker_exception",
+    # real fill, real P&L (retry-success path)
+    "retry_exit",
     "error",
     "unknown",
 })
