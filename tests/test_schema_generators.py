@@ -200,12 +200,11 @@ def test_generate_sync_tables_exposes_sync_reconcile():
 
 # ── #798 — scan_metrics UNIQUE constraint runtime test ────────────
 
-def test_scan_metrics_unique_constraint_raises_on_duplicate(tmp_db):
-    """Duplicate (scan_number, scan_time) insert must raise IntegrityError (#798).
+def test_scan_metrics_created_at_unique_constraint_raises_on_duplicate(tmp_db):
+    """Duplicate created_at insert must raise IntegrityError.
 
-    Creates a fresh in-memory SQLite DB from the registry, inserts one
-    scan_metrics row, then asserts a second insert with the same
-    (scan_number, scan_time) raises sqlite3.IntegrityError.
+    scan_number/scan_time pairs may recur across days, but created_at is the
+    stable per-row identity for retained scan history.
     """
     create_all_tables(tmp_db)
     conn = sqlite3.connect(tmp_db)
@@ -225,9 +224,35 @@ def test_scan_metrics_unique_constraint_raises_on_duplicate(tmp_db):
             "scored_count, packet_worthy, risk_passed, paper_traded, "
             "live_traded, llm_success, llm_total, llm_fallback, "
             "avg_conviction, duration_seconds, created_at) "
-            "VALUES (2, 1, '10:00', 100, 95, 90, 5, 4, 3, 0, 4, 5, 0, 0.75, 12.5, '2026-01-01T10:00:01')"
+            "VALUES (2, 1, '10:00', 100, 95, 90, 5, 4, 3, 0, 4, 5, 0, 0.75, 12.5, '2026-01-01T10:00:00')"
         )
     conn.close()
+
+
+def test_scan_metrics_allows_repeated_scan_number_and_time_on_different_timestamps(tmp_db):
+    """Repeated scan slots on different days must remain valid retained history."""
+    create_all_tables(tmp_db)
+    conn = sqlite3.connect(tmp_db)
+    conn.execute(
+        "INSERT INTO scan_metrics "
+        "(id, scan_number, scan_time, universe_count, features_count, "
+        "scored_count, packet_worthy, risk_passed, paper_traded, "
+        "live_traded, llm_success, llm_total, llm_fallback, "
+        "avg_conviction, duration_seconds, created_at) "
+        "VALUES (1, 22, '14:49', 100, 95, 90, 5, 4, 3, 0, 4, 5, 0, 0.75, 12.5, '2026-04-17T14:49:33')"
+    )
+    conn.execute(
+        "INSERT INTO scan_metrics "
+        "(id, scan_number, scan_time, universe_count, features_count, "
+        "scored_count, packet_worthy, risk_passed, paper_traded, "
+        "live_traded, llm_success, llm_total, llm_fallback, "
+        "avg_conviction, duration_seconds, created_at) "
+        "VALUES (2, 22, '14:49', 100, 95, 90, 5, 4, 3, 0, 4, 5, 0, 0.75, 12.5, '2026-04-28T14:49:39')"
+    )
+    conn.commit()
+    count = conn.execute("SELECT COUNT(*) FROM scan_metrics").fetchone()[0]
+    conn.close()
+    assert count == 2
 
 
 # ── Validator tests ──────────────────────────────────────────────

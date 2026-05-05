@@ -16,6 +16,45 @@ from src.utils.db import connect_db
 logger = logging.getLogger(__name__)
 
 
+def _sqlite_index_signature(conn: sqlite3.Connection, table_name: str, index_name: str) -> tuple[bool, list[str]] | None:
+    """Return (unique, columns) for a SQLite index, or None if missing."""
+    rows = conn.execute(f"PRAGMA index_list({table_name})").fetchall()
+    for row in rows:
+        if row[1] != index_name:
+            continue
+        unique = bool(row[2])
+        cols = [info[2] for info in conn.execute(f"PRAGMA index_info({index_name})").fetchall()]
+        return unique, cols
+    return None
+
+
+def _reconcile_indexes(conn: sqlite3.Connection, table: TableDef) -> None:
+    """Drop/recreate same-name indexes whose definition drifted from the registry."""
+    for idx in table.indexes:
+        signature = _sqlite_index_signature(conn, table.name, idx.name)
+        if signature is None:
+            continue
+        existing_unique, existing_cols = signature
+        if existing_unique == idx.unique and existing_cols == idx.columns:
+            continue
+        logger.info(
+            "[SCHEMA] Replacing drifted SQLite index %s on %s: unique=%s cols=%s -> unique=%s cols=%s",
+            idx.name,
+            table.name,
+            existing_unique,
+            existing_cols,
+            idx.unique,
+            idx.columns,
+        )
+        conn.execute(f"DROP INDEX IF EXISTS {idx.name}")
+        unique = "UNIQUE " if idx.unique else ""
+        idx_cols = ", ".join(idx.columns)
+        conn.execute(
+            f"CREATE {unique}INDEX IF NOT EXISTS {idx.name} "
+            f"ON {table.name}({idx_cols})"
+        )
+
+
 def _render_column(c: ColumnDef, inline_pk_col: str | None) -> str:
     """Render one column's DDL fragment. AUTOINCREMENT is only emitted
     when the column is also the inline INTEGER PRIMARY KEY (#580)."""
@@ -103,6 +142,7 @@ def create_all_tables(db_path: str) -> None:
                         deferred_indexes.append((table.name, statement))
                     else:
                         logger.warning("[SCHEMA] %s: %s", table.name, e)
+            _reconcile_indexes(conn, table)
         conn.commit()
 
     # Retry deferred indexes after ensure_columns has a chance to run

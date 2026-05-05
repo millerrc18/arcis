@@ -116,16 +116,14 @@ def validate_codebase() -> list[SchemaIssue]:
 def fix_issues(
     issues: list[SchemaIssue], db_path: str | None = None
 ) -> list[str]:
-    """Auto-fix: create missing tables, add missing columns. Returns actions."""
+    """Auto-fix: create/repair tables and indexes, add missing columns."""
     if not db_path:
         return []
     from src.schema.sqlite import create_all_tables, ensure_columns
 
     actions = []
-    missing_tables = [i for i in issues if i.issue_type == "missing_table"]
-    if missing_tables:
-        create_all_tables(db_path)
-        actions.append(f"Created {len(missing_tables)} missing tables")
+    create_all_tables(db_path)
+    actions.append("Created/verified tables and repaired drifted indexes")
     added = ensure_columns(db_path)
     if added:
         actions.append(f"Added {len(added)} columns: {added}")

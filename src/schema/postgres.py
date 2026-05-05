@@ -8,6 +8,7 @@ Tests: tests/test_repo_structure.py
 """
 
 import logging
+from collections.abc import Callable
 
 from src.schema.registry import TABLES, TableDef, ColumnDef
 
@@ -20,6 +21,50 @@ _TYPE_MAP = {
     "TEXT": "TEXT",
     "BLOB": "BYTEA",
 }
+
+
+def _pg_index_signature(cur, table_name: str, index_name: str) -> tuple[bool, list[str]] | None:
+    """Return (unique, columns) for a Postgres index, or None if missing."""
+    cur.execute(
+        """
+        SELECT i.indisunique,
+               array_agg(a.attname ORDER BY ord.ord)
+        FROM pg_class t
+        JOIN pg_index i ON t.oid = i.indrelid
+        JOIN pg_class ix ON ix.oid = i.indexrelid
+        JOIN unnest(i.indkey) WITH ORDINALITY AS ord(attnum, ord) ON TRUE
+        JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ord.attnum
+        WHERE t.relname = %s
+          AND ix.relname = %s
+        GROUP BY i.indisunique
+        """,
+        (table_name, index_name),
+    )
+    row = cur.fetchone()
+    if row is None:
+        return None
+    return bool(row[0]), list(row[1] or [])
+
+
+def _reconcile_pg_index(cur, table: TableDef) -> None:
+    """Drop/recreate same-name Postgres indexes whose definition drifted."""
+    for idx in table.indexes:
+        signature = _pg_index_signature(cur, table.name, idx.name)
+        if signature is None:
+            continue
+        existing_unique, existing_cols = signature
+        if existing_unique == idx.unique and existing_cols == idx.columns:
+            continue
+        logger.info(
+            "[SCHEMA] Replacing drifted Postgres index %s on %s: unique=%s cols=%s -> unique=%s cols=%s",
+            idx.name,
+            table.name,
+            existing_unique,
+            existing_cols,
+            idx.unique,
+            idx.columns,
+        )
+        cur.execute(f"DROP INDEX IF EXISTS {idx.name}")
 
 
 def generate_create_table_sql(table: TableDef) -> str:
@@ -89,7 +134,13 @@ def generate_ensure_column_sql(table_name: str, col: ColumnDef) -> str:
     )
 
 
-def create_all_tables(database_url: str, *, connect_timeout: int | None = None) -> None:
+def create_all_tables(
+    database_url: str,
+    *,
+    connect_timeout: int | None = None,
+    lock_timeout_ms: int | None = None,
+    progress: Callable[[str], None] | None = None,
+) -> list[str]:
     """Create all Postgres tables from registry. Idempotent.
 
     Runs DDL in three phases so a newly-added column with an index doesn't
@@ -102,20 +153,33 @@ def create_all_tables(database_url: str, *, connect_timeout: int | None = None) 
     indefinitely — appropriate for manual migrations where the caller wants
     to sit through a cold Render free-tier wake-up. Startup paths pass a
     small value (e.g. 5) so an unreachable DB fails fast.
+
+    lock_timeout_ms: Optional Postgres lock timeout for DDL statements. When
+    set, CREATE INDEX / ALTER TABLE waits fail fast instead of appearing hung
+    behind long-lived writer transactions.
+
+    progress: Optional callback for lightweight human-readable progress
+    messages during manual migrations.
     """
     import psycopg2
 
+    sync_tables = [table for table in TABLES.values() if table.sync_to_postgres]
+    added_columns: list[str] = []
     kwargs = {"connect_timeout": connect_timeout} if connect_timeout else {}
     conn = psycopg2.connect(database_url, **kwargs)
     cur = conn.cursor()
-    for table in TABLES.values():
-        if table.sync_to_postgres:
-            cur.execute(generate_create_table_sql(table))
+    if lock_timeout_ms:
+        cur.execute("SET lock_timeout = %s", (f"{lock_timeout_ms}ms",))
+
+    if progress:
+        progress(f"Phase 1/3: verifying {len(sync_tables)} Postgres tables")
+    for table in sync_tables:
+        cur.execute(generate_create_table_sql(table))
     conn.commit()
     # Phase 2: add missing columns before creating indexes
-    for table in TABLES.values():
-        if not table.sync_to_postgres:
-            continue
+    if progress:
+        progress("Phase 2/3: ensuring missing columns")
+    for table in sync_tables:
         cur.execute(
             "SELECT column_name FROM information_schema.columns "
             "WHERE table_name = %s",
@@ -125,17 +189,23 @@ def create_all_tables(database_url: str, *, connect_timeout: int | None = None) 
         for col in table.columns:
             if col.name not in existing:
                 cur.execute(generate_ensure_column_sql(table.name, col))
+                added_columns.append(f"{table.name}.{col.name}")
     conn.commit()
     # Phase 3: indexes (column now guaranteed present)
-    for table in TABLES.values():
-        if table.sync_to_postgres:
-            idx_sql = generate_create_indexes_sql(table)
-            if idx_sql:
-                cur.execute(idx_sql)
+    if progress:
+        progress("Phase 3/3: ensuring indexes")
+    for table in sync_tables:
+        _reconcile_pg_index(cur, table)
+        idx_sql = generate_create_indexes_sql(table)
+        if idx_sql:
+            cur.execute(idx_sql)
     conn.commit()
     cur.close()
     conn.close()
     logger.info("[SCHEMA] Postgres: created/verified tables + columns + indexes")
+    if added_columns:
+        logger.info("[SCHEMA] Postgres: added %d columns during create_all_tables", len(added_columns))
+    return added_columns
 
 
 def ensure_columns(database_url: str, *, connect_timeout: int | None = None) -> list[str]:
