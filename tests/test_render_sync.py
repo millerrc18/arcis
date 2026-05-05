@@ -33,6 +33,7 @@ from src.sync.render_sync import (
     mark_sync_failed,
     get_sync_flight_status,
     SyncInFlightError,
+    release_stale_in_flight_for_host,
 )
 
 
@@ -1005,3 +1006,83 @@ class TestResolveSyncColumnsHelpers:
             "Primary key column" in r.message and "trade_id" in r.message
             for r in caplog.records
         )
+
+
+# ── Wave 4 H1 — release_stale_in_flight_for_host tests ──────────────
+
+class TestReleaseStaleInFlight:
+    """Tests for release_stale_in_flight_for_host (Wave 4 H1 / #8)."""
+
+    def _seed_sync_state_row(self, db_path, table_name, status, in_flight_since):
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "INSERT OR REPLACE INTO sync_state "
+            "  (table_name, last_synced_at, in_flight_since, completed_at, status, error_message, host) "
+            "VALUES (?, '', ?, NULL, ?, NULL, ?)",
+            (table_name, in_flight_since, status, table_name),
+        )
+        conn.commit()
+        conn.close()
+
+    def test_release_stale_clears_own_host_in_progress(self, tmp_path, monkeypatch):
+        """Stale lock >15min on own host is cleared; helper returns 1."""
+        db_path = str(tmp_path / "test.sqlite3")
+        _init_sync_state(db_path)
+        monkeypatch.setattr("src.sync.render_sync._sync_host_name", lambda: "TEST-HOST")
+        in_flight_since = "2026-05-04T09:00:00"  # well in the past
+        self._seed_sync_state_row(db_path, "TEST-HOST", "in_progress", in_flight_since)
+
+        rowcount = release_stale_in_flight_for_host(db_path, host="TEST-HOST")
+
+        assert rowcount == 1
+        conn = sqlite3.connect(db_path)
+        row = conn.execute(
+            "SELECT status, in_flight_since FROM sync_state WHERE table_name = 'TEST-HOST'"
+        ).fetchone()
+        conn.close()
+        assert row is not None
+        assert row[0] == "completed"
+        assert row[1] is None
+
+    def test_release_stale_clears_fresh_own_host(self, tmp_path, monkeypatch):
+        """Fresh lock (30sec old) on own host is ALSO cleared — no time cutoff."""
+        import datetime
+        db_path = str(tmp_path / "test.sqlite3")
+        _init_sync_state(db_path)
+        monkeypatch.setattr("src.sync.render_sync._sync_host_name", lambda: "TEST-HOST")
+        recent = (
+            datetime.datetime.now() - datetime.timedelta(seconds=30)
+        ).isoformat()
+        self._seed_sync_state_row(db_path, "TEST-HOST", "in_progress", recent)
+
+        rowcount = release_stale_in_flight_for_host(db_path, host="TEST-HOST")
+
+        assert rowcount == 1
+        conn = sqlite3.connect(db_path)
+        row = conn.execute(
+            "SELECT status, in_flight_since FROM sync_state WHERE table_name = 'TEST-HOST'"
+        ).fetchone()
+        conn.close()
+        assert row[0] == "completed"
+        assert row[1] is None
+
+    def test_release_stale_preserves_other_host(self, tmp_path, monkeypatch):
+        """Rows belonging to a different host are untouched; helper returns 0."""
+        db_path = str(tmp_path / "test.sqlite3")
+        _init_sync_state(db_path)
+        monkeypatch.setattr("src.sync.render_sync._sync_host_name", lambda: "TEST-HOST")
+        self._seed_sync_state_row(
+            db_path, "RENDER-PROD-A", "in_progress", "2026-05-04T08:00:00"
+        )
+
+        rowcount = release_stale_in_flight_for_host(db_path, host="TEST-HOST")
+
+        assert rowcount == 0
+        conn = sqlite3.connect(db_path)
+        row = conn.execute(
+            "SELECT status, in_flight_since FROM sync_state WHERE table_name = 'RENDER-PROD-A'"
+        ).fetchone()
+        conn.close()
+        assert row is not None
+        assert row[0] == "in_progress"
+        assert row[1] is not None

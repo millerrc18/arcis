@@ -411,6 +411,35 @@ def get_sync_flight_status(host: str, db_path: str = LOCAL_DB) -> dict | None:
     return dict(row) if row else None
 
 
+def release_stale_in_flight_for_host(db_path: str = LOCAL_DB, host: str | None = None) -> int:
+    """Clear any in-progress sync_state row for this host and return rowcount.
+
+    PID-lock invariant: watch.lock is acquired at watch.py:1293 before
+    start_render_sync() is called at watch.py:1361. Therefore when
+    RenderSyncThread.run() starts, no other watch-loop process exists on this
+    host. Any row with table_name=<host> and status='in_progress' is stale and
+    safe to clear unconditionally (no time cutoff needed).
+    """
+    own_host = host or _sync_host_name()
+    now = datetime.now(ET).isoformat()
+    with _sqlite_conn(db_path) as conn:
+        cur = conn.execute(
+            "UPDATE sync_state "
+            "SET status='completed', in_flight_since=NULL, completed_at=? "
+            "WHERE table_name=? AND status='in_progress'",
+            (now, own_host),
+        )
+        conn.commit()
+        rowcount = cur.rowcount
+    if rowcount > 0:
+        logger.warning(
+            "[SYNC] Cleared stale in_flight lock for host=%s (rowcount=%d)",
+            own_host,
+            rowcount,
+        )
+    return rowcount
+
+
 # ── Core sync logic ─────────────────────────────────────────────────
 
 def _fetch_incremental_rows(
@@ -1278,6 +1307,13 @@ class RenderSyncThread(threading.Thread):
         logger.info(
             "Render sync thread started (interval=%ds)", self.interval_seconds
         )
+        try:
+            release_stale_in_flight_for_host(self.db_path)
+        except Exception as exc:
+            logger.error(
+                "release_stale_in_flight_for_host failed (non-fatal): %s", exc,
+                extra={"ctx": {"event": "sync_error", "table": None, "error": str(exc)}},
+            )
         while not self._stop_event.is_set():
             self._run_one_cycle()
             self._stop_event.wait(self.interval_seconds)
