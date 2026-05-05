@@ -57,14 +57,69 @@ def ensure_bracket_health_table(db_path: str = DEFAULT_DB_PATH) -> None:
     pass
 
 
-def _classify_legs(order_status: dict) -> tuple[str | None, str | None]:
-    """Extract the stop and target leg statuses from an Alpaca bracket payload.
+def _is_oco_topology(order_status: dict) -> bool:
+    """Return True if the order status dict represents an OCO order.
 
-    Alpaca returns bracket legs in an unordered list without explicit
-    labels.  We distinguish stop vs target by checking for stop_price
-    (stop-loss leg) vs limit_price (take-profit leg).  Falls back to
-    order_type string matching ("stop" or "limit") as a secondary signal.
+    OCO topology: the parent IS the take-profit LIMIT order (parent has
+    limit_price set and order_class='oco'), and legs contains only the STOP.
+
+    Detection priority:
+    1. Explicit order_class field ('oco').
+    2. Structural fallback: parent has limit_price set, no LIMIT child in legs.
+       Handles production payloads where _serialize_order has not yet been
+       updated to forward order_class from the Alpaca SDK object.
     """
+    raw_class = str(order_status.get("order_class") or "").lower()
+    order_class = raw_class.split(".")[-1] if "." in raw_class else raw_class
+    if order_class == "oco":
+        return True
+    if order_class in ("bracket", "simple"):
+        return False
+    # Structural fallback: parent has a limit_price and no LIMIT-type leg.
+    parent_has_limit = order_status.get("limit_price") is not None
+    if not parent_has_limit:
+        return False
+    for leg in order_status.get("legs", []) or []:
+        leg_type = str(leg.get("type") or leg.get("order_type") or "").lower()
+        leg_type = leg_type.split(".")[-1] if "." in leg_type else leg_type
+        if "limit" in leg_type or leg.get("limit_price") is not None:
+            return False
+    return True
+
+
+def _classify_legs(order_status: dict) -> tuple[str | None, str | None]:
+    """Extract the stop and target leg statuses from an Alpaca order payload.
+
+    Supports two Alpaca order topologies:
+
+    BRACKET: parent is the filled entry order; legs=[STOP, LIMIT].
+    Both the stop-loss and take-profit are in parent.legs.
+
+    OCO: parent IS the take-profit LIMIT order (order_class='oco' or
+    structural: parent has limit_price, legs has only STOP).  The
+    take-profit status is read from the parent; the stop status from
+    the single leg.
+
+    Returns (stop_status, target_status) as lowercase strings or None.
+    """
+    if _is_oco_topology(order_status):
+        # OCO: parent status = take-profit status; single leg = stop.
+        raw_parent = str(order_status.get("status") or "").lower()
+        target_status = raw_parent.split(".")[-1] if "." in raw_parent else raw_parent
+        target_status = target_status or None
+
+        stop_status = None
+        for leg in order_status.get("legs", []) or []:
+            leg_type = str(leg.get("type") or leg.get("order_type") or "").lower()
+            leg_type = leg_type.split(".")[-1] if "." in leg_type else leg_type
+            has_stop = leg.get("stop_price") is not None or "stop" in leg_type
+            if has_stop and stop_status is None:
+                raw_status = str(leg.get("status") or "").lower()
+                stop_status = raw_status.split(".")[-1] if "." in raw_status else raw_status
+                stop_status = stop_status or None
+        return stop_status, target_status
+
+    # BRACKET (and unrecognized) topology: find STOP + LIMIT in legs.
     stop_status = None
     target_status = None
 
