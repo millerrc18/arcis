@@ -531,7 +531,7 @@ Quarterly (or when worktrees exceed ~30):
 | **HSHS** | "Halcyon Self-Health Score" — composite system health metric in `src/evaluation/hshs.py` and `src/evaluation/hshs_live.py` |
 | **Instrumented trade** | A closed trade with all required telemetry columns populated (per `src/analytics/instrumentation_filter.py`). Stage 1 baseline cohort uses only instrumented trades |
 | **MinTRL** | Bailey-LdP "Minimum Track Record Length" — sample size needed to detect a Sharpe at given confidence. ~80-150 trades for Sharpe ≥ 0.5 detection |
-| **OOS** | Out-of-sample. Stage 1 OOS validation = 30+ trades at t > 1.0 |
+| **OOS** | Out-of-sample. Stage 1 OOS validation = 30+ trades at t > 1.0 (sub-validation completing Stage 1, NOT Stage 2). See §9 for the canonical ladder |
 | **PBO** | Probability of Backtest Overfitting (Bailey-LdP 2014, CSCV). On the methodology shelf |
 | **PIT** | Point-in-time. A PIT-clean computation only uses data that was available AT the as_of date. SP100 PIT membership lookup in `src/universe/pit.py` |
 | **Promotion gate** | ≥4-of-5 voting gate (PSR/DSR/PBO/MC permutation/White's RC) in `src/methods/promotion_gate.py`. Built but not yet wired into the live promotion path |
@@ -539,7 +539,7 @@ Quarterly (or when worktrees exceed ~30):
 | **RenderSyncThread** | Background thread (`src/sync/render_sync.py`) that replicates local SQLite → Render Postgres. Per-table cursor in `sync_state` table |
 | **Shadow trade** | Paper trade tracked in our DB (`shadow_trades` table). Mirrors broker-side state |
 | **Sprint base branch** | A branch holding sprint specs as deliverable-0 commits (e.g. `sprint/wave-4-hotfixes/base`). Code lands via separate PRs against main |
-| **Stage 1 / 2 / 3** | Three-stage validation ladder. Stage 1 = baseline signed (`d651160`); Stage 2 = methodology gate; Stage 3 = IB live activation |
+| **Stage 1 / 2 / 3** | Three-stage validation ladder per MASTER.md SD#43. Stage 1 = baseline signed (`d651160`) + Stage 1 OOS sub-validation (excess-mean > 0 at t > 1.0 over 30 OOS); Stage 2 = IB-eligibility (excess Sharpe ≥ 0.5 over 150 OOS + ≥4-of-5 promotion gate); Stage 3 = full ramp (excess Sharpe > 1.0 over 300 OOS). See §9 for canonical text |
 | **Subtract_trading_days** | NYSE-calendar-aware helper in `src/scheduler/holidays.py`. ALWAYS use for fetch anchors / lookback windows. Background: #888 / #106 incident traced corpus + backtester silent data gaps to 365-day calendar approximation drift |
 | **T-A1, T-B3, etc.** | Sprint task identifiers (T = Task). e.g., Sprint 1.A Wave 2/3 had T-A1 (live_prices time column), T-B3 (backtester subtract_trading_days), etc. |
 | **Walkforward** | `src/evaluation/walkforward.py` — anchored cross-validation. R1-R8 rigor requirements per pre-reg addendum |
@@ -556,10 +556,12 @@ The strategic roadmap lives in **MASTER.md**:
 - **§Sprint history** — what's been done
 - **§Known blockers** — open obstacles to live trading
 
-The 3-stage validation ladder for live trading:
-1. **Stage 1** — Baseline signed (`d651160`); 35 instrumented trades; Sharpe 6.14 (regime-tailwind suspected); SPY-relative p=0.43
-2. **Stage 2** — OOS validation (30+ trades at t > 1.0); methodology toolkit gate (≥4-of-5: PSR/DSR/PBO/MC permutation/White's RC). Toolkit is built but not yet wired into the live path
-3. **Stage 3** — IB activation gated on excess Sharpe ≥ 0.5 over 150 OOS trades
+The 3-stage validation ladder for live trading (canonical: MASTER.md SD#43):
+
+1. **Stage 1** — Baseline signed (`d651160`); 35 instrumented trades; rf-adjusted excess Sharpe 6.14 (regime-tailwind suspected); SPY-relative p=0.43 (non-significant)
+   - *Stage 1 OOS validation*: excess-mean > 0 at t > 1.0 over 30 OOS trades (NOT YET STARTED)
+2. **Stage 2** — IB-eligibility threshold: excess Sharpe ≥ 0.5 at p < 0.05 over 150 OOS trades + ≥4-of-5 promotion gate (PSR/DSR/PBO/MC permutation/White's RC). Toolkit is built but not yet wired into the live path.
+3. **Stage 3** — Full ramp threshold: excess Sharpe > 1.0 at p < 0.05 over 300 OOS trades.
 
 The methodology toolkit (`src/methods/`) is currently **shelf** — implemented but not wired. Wiring this into a live promotion path is the highest-leverage strategic work after operational stability lands.
 
