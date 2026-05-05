@@ -259,17 +259,33 @@ def check_escalation(audit: dict, db_path: str = DB_PATH) -> list[dict]:
     actions = []
     flags = audit.get("flags", [])
 
-    # Check if we're in bootcamp mode (< 50 closed trades)
+    # Check if we're in bootcamp mode (< 50 closed trades).
+    #
+    # Post-bootcamp graduation override: `live_trading.post_bootcamp` config key
+    # (default False) makes graduation STICKY. Once the operator declares
+    # Stage 1 baseline signed and sets `post_bootcamp: true` in
+    # settings.local.yaml, bootcamp_mode never auto-flips back — even when
+    # closed_count drops below 50 (e.g., when reconciled_stale rows are
+    # filtered out per Wave 4 H5, dropping the honest count from 50 to 6).
+    # Without this override, H5's data-integrity filter would silently
+    # regress the system into bootcamp critical-alert downgrade behavior.
+    # Default False keeps fresh installs in bootcamp until manually graduated.
     bootcamp_mode = False
+    closed_count = 0
+    post_bootcamp = False
     try:
-        import sqlite3
+        cfg = load_config()
+        post_bootcamp = bool(cfg.get("live_trading", {}).get("post_bootcamp", False))
+    except Exception:
+        pass
+    try:
         with connect_db(db_path) as conn:
             row = conn.execute(
                 "SELECT COUNT(*) as c FROM shadow_trades WHERE status = 'closed'"
                 f" AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()}"
             ).fetchone()
             closed_count = row[0] if row else 0
-            bootcamp_mode = closed_count < 50
+            bootcamp_mode = (not post_bootcamp) and (closed_count < 50)
     except Exception:
         pass
 
