@@ -195,7 +195,7 @@ def build_premarket_digest(db_path: str = DB_PATH) -> tuple[str, str]:
         contested = " (contested)" if council["is_contested"] else ""
         lines.extend(["", "━━━ COUNCIL ━━━", f"Latest assessment: {consensus}{contested}"])
         if confidence > 0:
-            lines.append(f"Confidence: {confidence:.0%}")
+            lines.append(f"Confidence: {confidence:.0f}%")
 
     lines.extend([
         "", "━━━ TODAY'S PLAN ━━━",

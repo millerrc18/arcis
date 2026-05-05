@@ -170,3 +170,62 @@ class TestDigestClosedTotal:
             f" AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()}"
         ).fetchone()
         assert closed_total["c"] == 10
+
+
+class TestPremarketConfidenceFormatter:
+    """digest_builder.py:198 — confidence_weighted_score is stored 0-100, not 0-1.
+
+    Regression: 2026-05-05 operator brief showed 'Confidence: 6140%' because
+    the code used `:.0%` (multiplies by 100) on a value already in 0-100 scale.
+    See `src/council/aggregation.py:237` for the storage convention:
+        confidence_weighted_score = round(abs(aggregated_score) * 100, 1)
+    The formatter must use `:.0f}%` to render a 0-100 value as a percentage,
+    NOT `:.0%}` which expects a 0-1 fraction.
+    """
+
+    def test_confidence_60_renders_as_60_percent_not_6000_percent(self, tmp_path, monkeypatch):
+        """Council with confidence_weighted_score=61.4 renders 'Confidence: 61%' not '6140%'."""
+        db_path = str(tmp_path / "test.sqlite3")
+        from tests.conftest import init_test_db
+        init_test_db(db_path)
+
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                """INSERT INTO council_sessions (
+                    session_id, session_type, trigger_reason, rounds_completed, total_cost, created_at,
+                    consensus, confidence_weighted_score, is_contested
+                ) VALUES (?, 'daily', 'test', 1, 0.0, ?, 'bearish', 61.4, 0)""",
+                ("test-session", "2026-05-05T08:00:00"),
+            )
+            conn.commit()
+
+        from src.email.digest_builder import build_premarket_digest
+        _subject, body = build_premarket_digest(db_path=db_path)
+
+        assert "Confidence: 61%" in body, (
+            f"Expected 'Confidence: 61%' (renders 61.4 as 61%); body contains:\n"
+            f"{[line for line in body.split(chr(10)) if 'Confidence' in line]}"
+        )
+        assert "Confidence: 6140%" not in body, (
+            "Bug regression: :.0% was used on already-percent value, producing 6140%"
+        )
+
+    def test_confidence_zero_omits_line(self, tmp_path):
+        """confidence_weighted_score=0 → no 'Confidence:' line emitted."""
+        db_path = str(tmp_path / "test.sqlite3")
+        from tests.conftest import init_test_db
+        init_test_db(db_path)
+
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                """INSERT INTO council_sessions (
+                    session_id, session_type, trigger_reason, rounds_completed, total_cost, created_at,
+                    consensus, confidence_weighted_score, is_contested
+                ) VALUES (?, 'daily', 'test', 1, 0.0, ?, 'neutral', 0.0, 0)""",
+                ("test-session-zero", "2026-05-05T08:00:00"),
+            )
+            conn.commit()
+
+        from src.email.digest_builder import build_premarket_digest
+        _subject, body = build_premarket_digest(db_path=db_path)
+        assert "Confidence:" not in body, "Zero-confidence council session should not emit Confidence line"
