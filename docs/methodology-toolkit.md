@@ -53,7 +53,7 @@ Question I'm trying to answer                       → Use this method
 | Path | Source | stop_mult | target_1_mult | target_2_mult |
 |---|---|---|---|---|
 | **Paper** (LLM packet) | `src/packets/template.py:211` (hardcoded) | `2.0 × ATR` | `1.5 × ATR` | `3.0 × ATR` |
-| **Live** (executor) | `src/shadow_trading/executor.py:2609-2610` (config-driven) | `live_trading.risk.stop_atr_multiplier` (default `2.0`) | `live_trading.risk.target_atr_multiplier` (default `2.0`) | not used (single-target) |
+| **Live** (executor) | `src/shadow_trading/executor.py:2609-2610` (config-driven) | `live_trading.risk.stop_atr_multiplier` (settings.example.yaml: `2.0`; **code fallback: `1.0`** if config key unset) | `live_trading.risk.target_atr_multiplier` (default `2.0`) | not used (single-target) |
 | **Backfill / orphan** | `src/shadow_trading/reconcile.py::_backfill_trade_data` | `entry × 0.95` (5% protective) | `entry × 1.05` | `entry × 1.10` |
 
 **Why it matters for the methodology toolkit:**
