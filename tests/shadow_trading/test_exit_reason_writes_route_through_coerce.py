@@ -252,3 +252,161 @@ def test_new_vocab_entries_present():
     for value in ("entry_unfilled", "partial_exit", "broker_exception"):
         assert value in CONTROLLED_VOCAB, f"{value} missing from CONTROLLED_VOCAB"
         assert coerce_exit_reason(value) == value
+
+
+# ---------------------------------------------------------------------------
+# Wave 4 H4 — 3 bypass sites now wrapped with coerce_exit_reason
+# ---------------------------------------------------------------------------
+
+def test_quarantine_trade_exit_reason_passes_through_coerce():
+    """executor.py:120 — quarantine_trade must coerce reason through coerce_exit_reason.
+
+    Passing a non-vocab reason should result in 'unknown' being written to the DB,
+    not the raw non-vocab string.
+    """
+    from src.shadow_trading import executor
+    import sqlite3
+
+    conn = sqlite3.connect(":memory:")
+    conn.execute("""
+        CREATE TABLE shadow_trades (
+            trade_id TEXT PRIMARY KEY,
+            status TEXT,
+            quarantined INTEGER,
+            exit_reason TEXT,
+            updated_at TEXT
+        )
+    """)
+    conn.execute(
+        "INSERT INTO shadow_trades VALUES (?, ?, ?, ?, ?)",
+        ("tid-q", "open", 0, None, None),
+    )
+    conn.commit()
+
+    with patch("src.shadow_trading.executor.connect_db", return_value=conn):
+        executor.quarantine_trade("tid-q", "non_vocab_raw_value", db_path=":memory:")
+
+    row = conn.execute(
+        "SELECT exit_reason FROM shadow_trades WHERE trade_id='tid-q'"
+    ).fetchone()
+    assert row is not None
+    assert row[0] in CONTROLLED_VOCAB, (
+        f"quarantine_trade wrote non-vocab value {row[0]!r} — must pass through coerce"
+    )
+    conn.close()
+
+
+def test_skip_reason_from_sync_exit_qty_coerces():
+    """executor.py:1489 — skip_reason written via update_shadow_trade must be coerced.
+
+    If _sync_exit_qty returns a non-vocab skip_reason, the update must persist
+    a value from CONTROLLED_VOCAB (coerce fallback = 'unknown').
+    """
+    from src.shadow_trading import executor
+
+    entry_ts = _isoformat_days_ago(1)
+    open_trade = {
+        "trade_id": "tid-skip",
+        "ticker": "AAPL",
+        "status": "exit_failed",
+        "alpaca_order_id": "order-skip",
+        "actual_entry_price": 100.0,
+        "entry_price": 100.0,
+        "stop_price": 90.0,
+        "target_1": 110.0,
+        "target_2": 120.0,
+        "planned_shares": 10,
+        "shares": 10,
+        "actual_entry_time": entry_ts,
+        "created_at": entry_ts,
+        "exit_retry_count": 0,
+        "timeout_days": 15,
+    }
+
+    with (
+        patch.object(executor, "get_open_shadow_trades", return_value=[open_trade]),
+        patch.object(executor, "_get_current_price_safe", return_value=105.0),
+        patch.object(executor, "update_shadow_trade") as mock_update,
+        patch.object(executor, "load_config", return_value={"shadow_trading": {"timeout_days": 15}}),
+        patch.object(executor, "_sync_exit_qty", return_value=(0, "non_vocab_skip_value")),
+        patch("src.shadow_trading.alpaca_adapter.get_all_positions",
+              return_value=[]),
+        patch("src.shadow_trading.alpaca_adapter.get_order_status",
+              return_value={"status": "pending"}),
+        patch("src.shadow_trading.alpaca_adapter.cancel_paper_order",
+              return_value=None),
+    ):
+        executor.check_and_manage_open_trades(db_path=":memory:")
+
+    exit_pending_writes = [
+        call.args[1].get("exit_reason")
+        for call in mock_update.call_args_list
+        if len(call.args) >= 2
+        and isinstance(call.args[1], dict)
+        and call.args[1].get("status") == "exit_pending"
+        and call.args[1].get("exit_reason") is not None
+    ]
+    assert exit_pending_writes, "expected at least one exit_pending write with exit_reason"
+    for er in exit_pending_writes:
+        assert er in CONTROLLED_VOCAB, (
+            f"skip_reason bypass write {er!r} not in CONTROLLED_VOCAB — coerce not applied"
+        )
+
+
+def test_retry_exit_success_reason_coerces():
+    """executor.py:1516 — retry handler success path must coerce exit_reason.
+
+    When trade.get('exit_reason') returns a non-vocab value (or None), the
+    close_shadow_trade call must receive a vocab-valid exit_reason.
+    """
+    from src.shadow_trading import executor
+
+    entry_ts = _isoformat_days_ago(1)
+    open_trade = {
+        "trade_id": "tid-retry",
+        "ticker": "TSLA",
+        "status": "exit_failed",
+        "alpaca_order_id": "order-retry",
+        "actual_entry_price": 200.0,
+        "entry_price": 200.0,
+        "stop_price": 180.0,
+        "target_1": 220.0,
+        "target_2": 240.0,
+        "planned_shares": 5,
+        "shares": 5,
+        "actual_entry_time": entry_ts,
+        "created_at": entry_ts,
+        "exit_retry_count": 0,
+        "timeout_days": 15,
+        "exit_reason": None,
+    }
+
+    filled_result = {
+        "status": "filled",
+        "filled_avg_price": "210.0",
+        "order_id": "ord-filled",
+    }
+
+    with (
+        patch.object(executor, "get_open_shadow_trades", return_value=[open_trade]),
+        patch.object(executor, "_get_current_price_safe", return_value=205.0),
+        patch.object(executor, "update_shadow_trade"),
+        patch.object(executor, "close_shadow_trade") as mock_close,
+        patch.object(executor, "load_config", return_value={"shadow_trading": {"timeout_days": 15}}),
+        patch.object(executor, "_submit_exit_order", return_value=filled_result),
+        patch.object(executor, "_sync_exit_qty", return_value=(5, None)),
+        patch("src.shadow_trading.alpaca_adapter.get_all_positions",
+              return_value=[{"symbol": "TSLA", "qty": 5}]),
+        patch("src.shadow_trading.alpaca_adapter.get_order_status",
+              return_value={"status": "pending"}),
+        patch("src.shadow_trading.alpaca_adapter.cancel_paper_order",
+              return_value=None),
+    ):
+        executor.check_and_manage_open_trades(db_path=":memory:")
+
+    assert mock_close.called, "expected close_shadow_trade to be called on retry success"
+    for call in mock_close.call_args_list:
+        er = call.kwargs.get("exit_reason") or (call.args[2] if len(call.args) > 2 else None)
+        assert er in CONTROLLED_VOCAB, (
+            f"retry-success close_shadow_trade called with non-vocab exit_reason {er!r}"
+        )
