@@ -206,3 +206,108 @@ class TestEscalation:
         }
         actions = check_escalation(audit)
         assert all(a["action"] == "log_only" for a in actions)
+
+    def test_post_bootcamp_config_prevents_critical_downgrade(self, tmp_path, monkeypatch):
+        """Post-bootcamp graduation override pins bootcamp_mode False permanently.
+
+        Wave 4 H7 (2026-05-04, post Stage 1 baseline signing d651160) — operator
+        declared post-bootcamp via live_trading.post_bootcamp=true in config.
+        Even with closed_count < 50 (which would normally trigger
+        bootcamp_mode=True and downgrade ordinary CRITICAL flags), the
+        override keeps critical halts active.
+
+        This test is the regression-lock for the Wave 4 H5 sibling effect:
+        when H5 filters reconciled_stale from the closed-trade count, the
+        count drops from 50 to 6 — without this override, bootcamp_mode
+        would auto-flip back to True, regressing operational alert
+        sensitivity post-graduation.
+        """
+        from src.evaluation import auditor as auditor_module
+        from src.evaluation.auditor import check_escalation
+        from src.risk import governor as gov_module
+
+        halt_file = str(tmp_path / "halt")
+        monkeypatch.setattr(gov_module, "_HALT_FILE", halt_file)
+
+        # Mock load_config (bound in auditor module) to return post_bootcamp=true
+        monkeypatch.setattr(
+            auditor_module, "load_config",
+            lambda: {"live_trading": {"post_bootcamp": True}},
+        )
+
+        # Few trades — would normally trigger bootcamp_mode=True
+        db_path = str(tmp_path / "test.sqlite3")
+        init_test_db(db_path, ["shadow_trades"])
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "INSERT INTO shadow_trades (trade_id, ticker, status, created_at, updated_at) "
+            "VALUES ('t1', 'TEST', 'closed', '2026-01-01T00:00:00', '2026-01-01T00:00:00')",
+        )
+        conn.commit()
+        conn.close()
+
+        with patch("src.email.notifier.send_email", return_value=True):
+            audit = {
+                "flags": [{
+                    "severity": "critical",
+                    "category": "anomaly",  # Not in _NEVER_DOWNGRADE
+                    "description": "Catastrophic loss detected",
+                    "recommendation": "Halt immediately",
+                }],
+            }
+            actions = check_escalation(audit, db_path=db_path)
+
+        # Critical flag must HALT (not downgrade) because post_bootcamp=True
+        # overrides the count-based bootcamp_mode flip
+        assert any(a["action"] == "halt_trading" for a in actions), (
+            "post_bootcamp=true must keep bootcamp_mode=False even with <50 trades"
+        )
+        assert Path(halt_file).exists()
+
+    def test_post_bootcamp_default_false_preserves_bootcamp_behavior(self, tmp_path, monkeypatch):
+        """Default post_bootcamp=False preserves prior bootcamp downgrade behavior.
+
+        Companion test to ensure adding the override doesn't accidentally break
+        fresh installs (where post_bootcamp is unset / False). With <50 trades
+        and post_bootcamp=False, an ordinary CRITICAL flag still gets
+        downgraded to alert as before.
+        """
+        from src.evaluation import auditor as auditor_module
+        from src.evaluation.auditor import check_escalation
+        from src.risk import governor as gov_module
+
+        halt_file = str(tmp_path / "halt")
+        monkeypatch.setattr(gov_module, "_HALT_FILE", halt_file)
+
+        # Mock load_config to return post_bootcamp=false (default)
+        monkeypatch.setattr(
+            auditor_module, "load_config",
+            lambda: {"live_trading": {"post_bootcamp": False}},
+        )
+
+        db_path = str(tmp_path / "test.sqlite3")
+        init_test_db(db_path, ["shadow_trades"])
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "INSERT INTO shadow_trades (trade_id, ticker, status, created_at, updated_at) "
+            "VALUES ('t1', 'TEST', 'closed', '2026-01-01T00:00:00', '2026-01-01T00:00:00')",
+        )
+        conn.commit()
+        conn.close()
+
+        with patch("src.email.notifier.send_email", return_value=True):
+            audit = {
+                "flags": [{
+                    "severity": "critical",
+                    "category": "anomaly",
+                    "description": "Strategy drift detected",
+                    "recommendation": "Review trades",
+                }],
+            }
+            actions = check_escalation(audit, db_path=db_path)
+
+        # post_bootcamp=False with N<50 → bootcamp_mode=True → flag downgraded
+        # to alert → no halt action
+        assert not any(a["action"] == "halt_trading" for a in actions), (
+            "post_bootcamp=false (default) preserves bootcamp downgrade for <50 trades"
+        )

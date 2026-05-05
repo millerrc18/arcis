@@ -243,6 +243,16 @@ live_trading:
   broker: "alpaca"                         # "alpaca" or "ib". IB requires Gateway running.
   starting_capital: 100                    # USD. Keep small while validating.
   max_open_positions: 5
+  # Sticky graduation flag — once Stage 1 baseline is signed, set to true
+  # to prevent the auditor's bootcamp_mode from auto-flipping back when
+  # closed-trade counters get filtered (e.g. Wave 4 H5 excluding
+  # reconciled_stale rows). When true, ordinary CRITICAL audit flags
+  # always halt trading (production behavior); when false, they're
+  # downgraded to alerts during bootcamp (<50 closed trades). Default
+  # false — fresh installs go through bootcamp until manually graduated.
+  # Categories in _NEVER_DOWNGRADE (risk_governor_breach,
+  # emergency_halt_bypass) always halt regardless of this flag.
+  post_bootcamp: false
   risk:
     planned_risk_pct_max: 0.02             # 2% max risk per live trade.
     stop_atr_multiplier: 2.0              # ATR multiplier for stop distance.
