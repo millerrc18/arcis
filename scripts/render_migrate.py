@@ -23,6 +23,7 @@ Usage:
     python scripts/render_migrate.py
 """
 
+import argparse
 import os
 import sys
 
@@ -40,13 +41,64 @@ if not DATABASE_URL:
     print("  PowerShell: $env:DATABASE_URL = \"your-external-url\"")
     sys.exit(1)
 
-from src.schema.postgres import create_all_tables, ensure_columns
+from src.schema.postgres import create_all_tables
+from src.schema.registry import TABLES
+
+
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Additive Postgres schema sync for the Render dashboard."
+    )
+    parser.add_argument(
+        "--connect-timeout",
+        type=int,
+        default=15,
+        help="Postgres connect timeout in seconds (default: 15).",
+    )
+    parser.add_argument(
+        "--lock-timeout-ms",
+        type=int,
+        default=15000,
+        help="DDL lock wait timeout in milliseconds (default: 15000).",
+    )
+    return parser.parse_args()
 
 
 def main():
-    print("Connecting to Postgres...")
-    create_all_tables(DATABASE_URL)
-    added = ensure_columns(DATABASE_URL)
+    args = _parse_args()
+    sync_tables = [table for table in TABLES.values() if table.sync_to_postgres]
+    total_columns = sum(len(table.columns) for table in sync_tables)
+    total_indexes = sum(len(table.indexes) for table in sync_tables)
+
+    print(
+        f"Connecting to Postgres (connect_timeout={args.connect_timeout}s, "
+        f"lock_timeout={args.lock_timeout_ms}ms)...",
+        flush=True,
+    )
+    print(
+        f"Sync plan: {len(sync_tables)} tables, {total_columns} columns, "
+        f"{total_indexes} indexes",
+        flush=True,
+    )
+    try:
+        added = create_all_tables(
+            DATABASE_URL,
+            connect_timeout=args.connect_timeout,
+            lock_timeout_ms=args.lock_timeout_ms,
+            progress=lambda msg: print(msg, flush=True),
+        )
+    except Exception as exc:  # noqa: BLE001
+        pgcode = getattr(exc, "pgcode", None)
+        if pgcode == "55P03":
+            print(
+                "Migration stopped on a Postgres lock timeout. Another writer "
+                "is using one of the target tables; pause sync/collection and rerun.",
+                file=sys.stderr,
+                flush=True,
+            )
+        else:
+            print(f"Migration failed: {exc}", file=sys.stderr, flush=True)
+        raise
     print(f"Schema sync complete. {len(added)} columns added.")
     if added:
         for col in added:
