@@ -866,7 +866,7 @@ This spec went through three revisions; each preserves the architectural recomme
   - §6.5 re-sequenced — H4 now precedes H3 + H5 (testcontainers-PG fixture infra is prerequisite for the schema-touching tasks).
   - H1/H3/H4 effort estimates raised +30% (aggregate 5-7 person-weeks, was 4-5).
   - H5 risk rating raised Low → Low-Medium with H4 prerequisite explicit.
-  - 6 new design decision rows added to §11 (now 18 total, was 12).
+  - 7 new design decision rows added to §11 (now 19 total, was 12). The line-anchoring decision row added in v2 had not been counted in v3's initial summary; fixed when reconciling design_decisions.json against spec.md §11.
   - 6 minor DA findings folded into Known Considerations (§12).
   - Reject options renumbered F/G/H (was E/F/G) since "Option E" slot is now Cloudflare Tunnel.
 
