@@ -179,6 +179,50 @@ during schema changes:
 
 ---
 
+## Recent data-source changes (Sprint 1.A Wave 2+3)
+
+The following changes affected tile data sources as of 2026-05-04. Check here before debugging stale or wrong KPI values.
+
+### live_prices.sync_time_column now set (PR #918)
+
+`live_prices` previously shipped with `sync_mode="latest_only"` but `sync_time_column=None`. This caused `RenderSyncThread` to build `MAX(None)` SQL → `sqlite3.OperationalError` on every sync cycle, so live price data never propagated to Postgres. Effect: `/api/shadow/open` returned `current_price_est=None`.
+
+Fix: `sync_time_column="as_of"` (the existing alpaca timestamp column). After this fix, incremental sync works correctly and the Open Trades tile receives live prices from Render Postgres.
+
+| Tile | Before #918 | After #918 |
+|------|-------------|------------|
+| Open Trades `current_price_est` | `None` (sync blocked) | Live Alpaca bid-ask midpoint via `live_prices.price` |
+| `current_price_as_of` field | absent | Present (staleness detection available) |
+
+### Win-rate / outcome aggregations now exclude reconciled_stale rows (PR #919 + #920)
+
+New `EXCLUDED_FROM_OUTCOME_STATS = frozenset({'reconciled_stale'})` constant at `src/shadow_trading/exit_reason.py:62-64` is the canonical exclusion source.
+
+New `outcome_stats_filter_sql()` helper at `src/shadow_trading/exit_reason.py:67-87` returns:
+```
+AND (exit_reason IS NULL OR exit_reason NOT IN ('reconciled_stale'))
+```
+(no leading space — callers prepend a space before appending to WHERE clauses)
+
+Applied at 9 cloud route sites (#919 initial 4 sites + #920 5 additional) and 2 local route sites. The exit_reason histogram tile at `/api/cto-report` intentionally stays on unfiltered data (informational signal).
+
+| Tile / endpoint | Filter applied |
+|-----------------|----------------|
+| Win rate (`/api/shadow/metrics`) | Yes — `outcome_stats_filter_sql()` appended |
+| Profit factor (`/api/shadow/metrics`) | Yes |
+| CTO Report headline KPIs | Yes |
+| CTO Report by-score/sector/regime breakdowns | Yes |
+| Strategy detail aggregations | Yes |
+| Live summary | Yes |
+| Account-level desk-filtered metrics | Yes |
+| Projections win_rate / sharpe / drawdown | Yes |
+| Training status per-model metrics | Yes |
+| Exit reason histogram | No (intentional — surfaces reconciled_stale as signal) |
+
+**Note:** 21+ additional sibling sites identified as needing the same filter are planned for Wave 4 H5. Until H5 merges, some secondary aggregations outside the above list may still include reconciled_stale rows.
+
+---
+
 ## Column name gotchas
 
 These column names have caused bugs or confusion in the past.  Check

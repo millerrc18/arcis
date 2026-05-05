@@ -55,11 +55,12 @@ with an unbeatable technological moat.
 | Metric | Value |
 |---|---|
 | Phase | 1 (Honest Baseline + Track 1.5 instrumentation gaps closed) -- bootcamp paper archived, $100 live deploy DEFERRED per SD#46 (fix-before-trade principle) until Cohort 3 redesign produces a strategy with positive expected alpha. **3-stage roadmap (audit-spec §3.1):** Stage 1 = honest signed baseline (DONE 2026-04-25, commit `d651160`); Stage 2 = excess Sharpe ≥ 0.5 over 150 OOS trades; Stage 3 = > 1.0 over 300 OOS. SD#41 REVISED's raw-Sharpe gate superseded. Next milestones: Sprint 1 `sections_json` widening → Sprint 2 System Index audit → Sprint 3 Council impact → Sprint 4 Cohort 3 redesign → new deploy decision. |
-| Closed trades | Current DB intentionally fresh post-2026-04-24 archive (`ARCHIVE_ANCHOR_2026-04-24.json`). Archive has 320 shadow_trades / 111 closed / 105 quarantined / 35 fully-instrumented (per T1.08 four-column predicate). Stage-1 baseline computed from archive's 35 instrumented trades — see signed memo at `audits/2026-04-27/stage1_baseline_memo.md`. |
+| Closed trades | Current DB intentionally fresh post-2026-04-24 archive (`ARCHIVE_ANCHOR_2026-04-24.json`). Archive has 320 shadow_trades / 111 closed / 105 quarantined / 35 fully-instrumented (per T1.08 four-column predicate). Stage-1 baseline computed from archive's 35 instrumented trades — see signed memo at `audits/2026-04-27/stage1_baseline_memo.md`. Refreshed by operator on demand. |
 | Open positions | ~2 (verify with shadow-status) |
-| Model | halcyon-v1.0.0 (Qwen3 8B, Q8_0 GGUF); v2.0.0 retrain gated on excess-Sharpe validation |
-| Training data | 1,782 examples total; 76 quarantined (75 format_drift + 1 v1_citation); 1,706 clean corpus |
-| Tests | **3,380 tests passing, 0 failures, 4 skipped** as of 2026-04-25 audit close (+342 net from 3,038 pre-audit baseline; lineage: 3038 → 3159 (Track 1) → 3238 (Cohort 1) → 3380 (Cohort 2 + 3A)). Pre-2026-04-27-audit count was 2,667 tests across 241 test files (+44 tests, +7 test files Sprint 1; +55 tests, +8 test files Sprint 2: CSCV/walk-forward/promotion/trials/desk-tag/config; +37 tests Sprint 3: desk-filter/correlation-schema/exposure-limits; +31 tests Sprint 4 Tier 5: alpaca_clients/alpaca_adapter/reconcile-routing/scheduler-dispatch/shadow-harness/watch-tick/cost-calibration; +22 tests Sprint 4 cont.: find_candidates/platform-api/shadow-harness-tick/promotion-gates/widget/telegram/plugin-interface; +366 tests, +46 test files 2026-04-18/19: platform-foundation/rigor/safety/shadow, dashboard v1, walk-forward v1, training-data audit, hygiene bundle, known_events backfill; +25 tests, +4 test files v0.26.2-scoped: post_audit_ruleset_v1 spec-load + R8 firewall + sector-filter + event-exclusion; +26 tests, +2 test files v0.25.4: vix_enrichment + window_duration; +17 tests, +1 test file #530 Sprint A/B: scheduled-kind + python_plugin find_candidates wiring; +23 tests, +1 test file #530 Sprint C: scoring-DSL schema; +29 tests, +1 test file #530 Sprint D: multi-target brackets + regime-adaptive sizing schema; +25 tests, +1 test file #530 Sprint E: hooks/enrichment/post-scan/event-risk/bootcamp schema; +28 tests, +1 test file #530 Sprint C.1: scoring shape gaps — categorical/compound/weighted bands + adjustments + derived_metrics + min_score rename + POST_SCAN contents/strict fix + KNOWN_SCORING_METRICS + KNOWN_REGIME_LABELS; +9 tests, +3 test files fix/paper-exit-qty-asymmetry: D2 reconcile 3rd branch + D3 executor qty sync + _strip_enum enum.value normalization) |
+| Model | arcis:v1.0.0 (Qwen3 8B, Q8_0 GGUF); v2.0.0 retrain gated on excess-Sharpe validation |
+| Training data — Stage 1 corpus | 18,185 / 67,681 entries (~26.9%) as of 2026-05-04 ~21:13 ET. Resumed mid-evening after Ollama restart hang. Target rate ~13.8 s/entry → ~7.91 days continuous to finish. Operator-paced. |
+| Watch loop | Paused (operator-paused 2026-05-04 evening, Wave 4 prep) |
+| Tests | **3,682 tests passing, 0 failures** — CI floor (post-Sprint-1.A.1 baseline). Unchanged this PR (docs-only). Lineage: 3038 (pre-audit) → 3159 (Track 1) → 3238 (Cohort 1) → 3380 (Cohort 2 + 3A) → 3646 (Track 1.5 + Round 10) → 3651 (PR-690 I5) → 3671 (Sprint 1.A.0) → 3682 (Sprint 1.A.1: T10 migration regression-locks +11). |
 | Python files | 304 (+12 new src/platform/ modules Sprint 1; +4 new src/platform/ modules Sprint 2: promotion, trials, rigor/walkforward, rigor/trials; +1 module Sprint 3: exposure_limits; +4 modules Sprint 4 Tier 5: alpaca_clients, reconcile_dispatch, shadow_harness, cost_calibration; +3 modules Sprint 4 cont.: signal_eval, strategy_plugin, plugin_registry; +89 modules 2026-04-18/19: training/audit, platform/rigor/walkforward_*, observability/formatters, api/cloud_routes/_command_ttl, risk/price_utils, platform/_backtest_trace, diagnostic_handlers, summary_extractor, plus capability_registry + diagnostic-runner; +1 module v0.25.4: platform/vix_lookup) |
 | Dashboard pages | 28 |
 | Research docs | 92 |
@@ -1053,6 +1054,33 @@ VIX >40, system offline.
 
 ## 11. Sprint Queue
 
+### Sprint 1.A — Wave 2+3 ✅ COMPLETE (merged 2026-05-04)
+
+| PR | Task | Description |
+|---|---|---|
+| #911 | T-B1 helper | `subtract_trading_days(anchor, n)` NYSE-calendar-aware helper in `src/scheduler/holidays.py` |
+| #918 | T-A1 sync_time_column | `live_prices.sync_time_column = "as_of"` — fixes incremental sync that was blocked by `None` |
+| #921 | T-A2 _resolve_sync_columns | Extract 3 helpers from `_resolve_sync_columns`; outer function now 24 lines (was >60) |
+| #922 | T-B2 corpus | Wire `subtract_trading_days` into `scripts/generate_llm_corpus.py` fetch anchor |
+| #923 | T-B3 backtester | Wire `subtract_trading_days` into `src/evaluation/backtester.py` fetch anchor |
+
+**Bug C class (#888 calendar-day approximation) is now structurally impossible to reintroduce on the corpus + backtester paths** — `subtract_trading_days` has 2 production consumers + locked NYSE calendar test in `tests/scheduler/test_holidays.py`.
+
+**T-DOCS** (this PR, `docs/sprint-1.A-tdocs-sweep`) is the final closure of Sprint 1.A. All six doc files refreshed with Wave 2+3 outcomes.
+
+### Sprint 1.A Wave 4 — Hotfix Bundle (DESIGN PHASE)
+
+Wave 4 spec at `docs/audits/wave-4-hotfixes/spec.md`, branch `sprint/wave-4-hotfixes/base` @ commit `7705148`. **6 hotfixes (H1–H6). NOT YET DISPATCHED.**
+
+| Item | Gap | Tracker |
+|---|---|---|
+| H1 | Sync_state lock auto-release on watch-loop crash/restart | #8 |
+| H2 | `scan_metrics.id` UNIQUE constraint missing | #11 |
+| H3 | `live_prices.sync_mode` should be `incremental` (was `latest_only`) | #12 |
+| H4 | `coerce_exit_reason` bypass at `executor.py:1516` + sibling sites | #17 |
+| H5 | 27-site `outcome_stats_filter` expansion (21+ additional sites beyond #919/#920) | #14 |
+| H6 | (see spec) | (see spec) |
+
 ### Active Queue (SD#41 REVISED — Diagnostic-First Plan)
 
 | Priority | Sprint | Status |
@@ -1067,7 +1095,7 @@ VIX >40, system offline.
 | -- | **Stage 2 OOS validation** | NOT STARTED — gate: excess-Sharpe ≥ 0.5 at t ≥ 2.0 over 150 OOS trades (Phase 1→2 gate) |
 | -- | **Regime classifier v2 (SD#35)** | QUEUED — migrate 5-state `compute_market_regime` to 7-state canonical vocabulary; rename misnamed `regime_at_entry` column |
 | -- | **Attribution training data re-audit** | QUEUED — now that resolver is fixed, re-evaluate training examples that cited v1 (buggy) outcomes |
-| -- | **Saturday model retrain (halcyon-v2.0.0)** | BLOCKED — gated on excess-Sharpe validation per SD#41 REVISED |
+| -- | **Saturday model retrain (arcis:v2.0.0)** | BLOCKED — gated on excess-Sharpe validation per SD#41 REVISED |
 | -- | **Bracket calibration analysis** | QUEUED — MFE analysis on 69% stale exits |
 | -- | **iOS app (Capacitor)** | Backlog — native wrapper for dashboard |
 | -- | **alpaca-py canonicalization** | DONE v0.22.1 — migration already complete; version pin tightened to `>=0.43,<1.0`, CI guardrail test added, per-call-site best-practices audit + Phase 6 streaming-gap doc landed |

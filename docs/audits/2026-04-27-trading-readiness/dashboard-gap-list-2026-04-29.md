@@ -321,6 +321,40 @@ Each wave has a sibling-search step per `feedback_review_sibling_search.md` and 
 
 ---
 
+---
+
+## Sprint 1.A Wave 2+3 gap closures (2026-05-04)
+
+The following gaps from the per-finding tables above were closed by Sprint 1.A Wave 2+3 PRs. Marked ✅ here for traceability; per-finding table rows are not edited to preserve the original audit record.
+
+| Gap | Original status | Resolution | PR(s) |
+|-----|----------------|------------|-------|
+| Win rate skew from `reconciled_stale` rows | not-started / open | ✅ FIXED — `outcome_stats_filter_sql()` applied at 9 cloud + 2 local sites | #919 + #920 |
+| `live_prices.sync_time_column` was None, blocking incremental sync | not-started / open | ✅ FIXED — `sync_time_column="as_of"` set in schema registry | #918 |
+| Backtester fetch anchor used 365-calendar-day approximation (Bug C in #104 context) | not-started / open | ✅ FIXED — `subtract_trading_days(anchor, 200)` replaces `timedelta(days=365)` | #911 + #923 |
+| Corpus generator fetch anchor used 365-calendar-day approximation | not-started / open | ✅ FIXED — same `subtract_trading_days` helper wired into `scripts/generate_llm_corpus.py` | #911 + #922 |
+| `_resolve_sync_columns` over 60 lines (guardrail violation) | not-started / open | ✅ FIXED — extracted into 3 helpers; outer function now 24 lines | #921 |
+
+### Wave 4 in-flight gaps (design at `docs/audits/wave-4-hotfixes/spec.md`, branch `sprint/wave-4-hotfixes/base` @ `7705148`, NOT YET DISPATCHED)
+
+| Tracker | Gap | Wave 4 item |
+|---------|-----|-------------|
+| #8 | Sync_state lock not auto-released on watch-loop crash/restart | H1 |
+| #11 | `scan_metrics.id` missing UNIQUE constraint | H2 |
+| #12 | `live_prices.sync_mode` is `latest_only` — should be `incremental` after #918 | H3 |
+| #17 | `coerce_exit_reason` bypass at `executor.py:1516` + sibling sites | H4 |
+| #14 | 27-site `outcome_stats_filter` expansion (21+ additional sibling sites beyond #919/#920) | H5 |
+
+### Out-of-scope follow-ups (Wave 5+)
+
+| Gap | Reason deferred |
+|-----|----------------|
+| Paper-trade re-creation cycle bug (#18) | Root-cause investigation required; Wave 5 after diagnosis |
+| Static-analysis test enforcing `outcome_stats_filter` at every `shadow_trades` win-rate aggregation (#13) | Wave 4+ after H5 expansion settles the canonical site list |
+| Pre-merge stale-base hook (#15) | Infrastructure work; not dashboard-blocking |
+
+---
+
 ## Coverage gaps in this investigation
 
 What I read in full:
