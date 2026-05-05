@@ -59,6 +59,14 @@ logger = logging.getLogger(__name__)
 # ET date-string here limits that to once-per-calendar-day per process.
 _ib_cold_storage_warned_dates: set[str] = set()
 
+# Wave 6 — minimum number of active alpaca-broker trades that must be present
+# before an empty Alpaca response is treated as a transient fetch issue rather
+# than a legitimate flat-broker state.  Mirrors the IB-side threshold at
+# line ~578.  Rationale: 1-2 active trades could plausibly be manually closed
+# by the operator between cycles; 3+ is very unlikely to happen simultaneously
+# with a broker returning empty — far more likely a transient API issue.
+_TRANSIENT_EMPTY_FETCH_THRESHOLD = 3
+
 
 def _backfill_trade_data(ticker, entry_price, qty, allocation, source, now):
     """Build a trade_data dict for backfilling an orphaned position.
@@ -435,21 +443,15 @@ def reconcile_paper_trades(
             "error": str | None,
         }
     """
+    alpaca_fetch_ok = True
+    _alpaca_fetch_error: str | None = None
     try:
         alpaca_positions = get_all_positions(desk=desk)
     except Exception as e:
         logger.warning("[RECONCILE-PAPER] Alpaca API unreachable: %s", e)
-        return {
-            "desk": desk,
-            "alpaca_count": 0,
-            "local_count": 0,
-            "matched": 0,
-            "orphaned": [],
-            "stale": [],
-            "discrepancies": [],
-            "backfilled": [],
-            "error": str(e),
-        }
+        alpaca_positions = []
+        alpaca_fetch_ok = False
+        _alpaca_fetch_error = str(e)
 
     # Dual-broker support: also fetch IB paper positions if any trades use IB.
     # Tracks whether the fetch succeeded so we don't falsely close IB trades
@@ -583,6 +585,35 @@ def reconcile_paper_trades(
         )
         ib_fetch_ok = False  # treat as unreachable for this cycle
 
+    # Wave 6 — Alpaca transient-empty guard.  Mirror of the IB pattern above.
+    # If Alpaca successfully connected but returned 0 positions while local has
+    # _TRANSIENT_EMPTY_FETCH_THRESHOLD or more active alpaca-broker trades, treat
+    # the empty response as a transient fetch issue rather than a mass-close signal.
+    # This closes the root cause of the 2026-05-04 incident (13 real broker
+    # positions falsely marked reconciled_stale in a single cycle).
+    alpaca_trade_count = sum(
+        1 for rec in tracked_map.values()
+        if rec.get("broker", "alpaca") == "alpaca"
+    )
+    if alpaca_fetch_ok and len(alpaca_tickers) == 0 and alpaca_trade_count >= _TRANSIENT_EMPTY_FETCH_THRESHOLD:
+        logger.warning(
+            "[RECONCILE-PAPER] Alpaca returned 0 positions but local has %d active "
+            "alpaca trades — likely transient fetch issue, skipping Alpaca stale closure",
+            alpaca_trade_count,
+        )
+        alpaca_fetch_ok = False  # treat as unreachable for this cycle
+
+    # Wave 6 — IB-pattern parity: emit explicit "skipping stale closure for N"
+    # warning when alpaca is unreachable AND we have active alpaca trades.
+    # Mirror of the IB-side log at lines ~574-578.  Operational benefit: incident
+    # triage can answer "how many trades did Alpaca preserve during that hiccup?"
+    # from a single log line rather than having to infer from absence-of-stale.
+    if not alpaca_fetch_ok and alpaca_trade_count > 0:
+        logger.warning(
+            "[RECONCILE-PAPER] Skipping stale closure for %d alpaca-broker trades "
+            "— Alpaca fetch failed this cycle", alpaca_trade_count,
+        )
+
     for ticker, rec in tracked_map.items():
         trade_broker = rec.get("broker", "alpaca")
         if trade_broker == "ib":
@@ -594,6 +625,10 @@ def reconcile_paper_trades(
             else:
                 matched += 1
         else:
+            # alpaca-broker trade
+            if not alpaca_fetch_ok:
+                # Broker unreachable — leave row open, try again next cycle.
+                continue
             if ticker not in alpaca_tickers:
                 stale.append({"ticker": ticker, "trade_id": rec["trade_id"]})
 
@@ -952,5 +987,5 @@ def reconcile_paper_trades(
         "marked_closed": marked_closed,
         "resolved_closed": resolved_closed,
         "resolved_reopened": resolved_reopened,
-        "error": None,
+        "error": _alpaca_fetch_error,
     }

@@ -965,7 +965,8 @@
     {
       "file": "src/shadow_trading/reconcile.py",
       "function": "reconcile_paper_trades",
-      "lines": 517
+      "lines": 581,
+      "rationale": "Wave 6 (#32): added alpaca_fetch_ok flag + transient-empty guard + stale-loop alpaca branch guard to close the 2026-05-04 mass-misclassification root cause. +64 lines: _TRANSIENT_EMPTY_FETCH_THRESHOLD constant, alpaca_fetch_ok variable, alpaca_trade_count computation, 5-line guard block, stale-loop alpaca_fetch_ok check, _alpaca_fetch_error error plumbing. Mirrors the IB-side pattern already in this function (lines 562-591). Real refactor of this 581-line function is deferred — splitting the stale/orphan/stuck-exit logic into helpers is a structural change out of scope for this hotfix."
     },
     {
       "file": "src/simulation/engine.py",
