@@ -297,9 +297,15 @@ def test_trainer_promotion_gate_currently_cannot_promote_long_only():
     db = _tmp_db()
     version_id = _insert_version(db)
 
-    # Seed healthy positive returns with valid timestamps
+    # Seed healthy positive returns with valid timestamps + non-zero variance.
+    # Identical returns produce zero-variance signed returns, which makes
+    # rf_adjusted_excess_sharpe undefined and the gate fails before reaching
+    # the MC-perm degeneracy step. Varied returns let the gate run end-to-end
+    # so we actually exercise Choice A: MC perm shuffle with directions=[+1]*N
+    # is identity → p=1.0 → vote fails → decision != promote.
     for i in range(60):
-        _seed_shadow_trade(db, 3.0, f"2024-01-{(i % 28) + 1:02d}T09:30:00")
+        pnl = 3.0 + (i % 5 - 2) * 0.3  # cycles 2.4, 2.7, 3.0, 3.3, 3.6
+        _seed_shadow_trade(db, pnl, f"2024-01-{(i % 28) + 1:02d}T09:30:00")
 
     from src.training.trainer import run_promotion_gate_for_version
     result = run_promotion_gate_for_version(
