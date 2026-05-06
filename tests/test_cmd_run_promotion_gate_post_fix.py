@@ -18,7 +18,24 @@ import uuid
 from datetime import date
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from src.training.versioning import init_training_tables
+
+
+@pytest.fixture(autouse=True)
+def _mock_fred(monkeypatch):
+    """Mock FRED rf-rate fetch so tests don't make outbound network calls.
+
+    Per CLAUDE.md "Mock all external APIs in tests" — pytest must never hit
+    api.stlouisfed.org. Without this fixture the gate evaluation calls reach
+    src.methods._rf_vector.compute_per_period_rf_vector which fetches DTB3.
+    Returns a constant 0.0001 rf-rate per date with `truncated=False`.
+    """
+    monkeypatch.setattr(
+        "src.methods._rf_vector.compute_per_period_rf_vector",
+        lambda dates: ([0.0001] * len(dates), False),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -80,9 +97,15 @@ def test_cmd_run_promotion_gate_post_fix_behavior():
     db = _tmp_db()
     _insert_version(db, "cli-test-v1")
 
-    # Seed enough healthy returns with valid timestamps
+    # Seed healthy positive returns with valid timestamps + non-zero variance.
+    # Identical returns produce zero-variance signed returns, which makes
+    # rf_adjusted_excess_sharpe undefined and the gate fails before reaching
+    # the MC-perm degeneracy step. Varied returns let the gate run end-to-end
+    # so we actually exercise Choice A: MC perm shuffle with directions=[+1]*N
+    # is identity → p=1.0 → vote fails → decision != promote.
     for i in range(60):
-        _seed_shadow_trade(db, 3.5, f"2024-02-{(i % 28) + 1:02d}T10:00:00")
+        pnl = 3.5 + (i % 5 - 2) * 0.3  # cycles 2.9, 3.2, 3.5, 3.8, 4.1
+        _seed_shadow_trade(db, pnl, f"2024-02-{(i % 28) + 1:02d}T10:00:00")
 
     from src.cli.commands import cmd_run_promotion_gate
 
