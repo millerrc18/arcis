@@ -20,11 +20,23 @@ src.api.cloud_routes.kpis.* resolve correctly.
 """
 from __future__ import annotations
 
+import logging
+import sqlite3
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
 
+from src.analytics import kpis_compute as _analytics_kpis
 from src.analytics.instrumentation_filter import filter_fully_instrumented
+from src.config import DB_PATH
+
+_log = logging.getLogger(__name__)
+
+_GATE_PROPOSAL_ZERO_SHAPE: dict[str, dict[str, int]] = {
+    "1d": {"promote": 0, "reject": 0, "defer": 0, "unknown": 0},
+    "7d": {"promote": 0, "reject": 0, "defer": 0, "unknown": 0},
+    "30d": {"promote": 0, "reject": 0, "defer": 0, "unknown": 0},
+}
 
 router = APIRouter()
 
@@ -64,6 +76,28 @@ from src.api.cloud_routes.kpis_compute import (  # noqa: E402, F401
     _compute_promotion_gate_kpi,
     _compute_instrumentation_pct,
 )
+
+
+@router.get("/kpis/gate-proposals", dependencies=[Depends(verify_auth)])
+def get_gate_proposal_kpis() -> dict:
+    """Return methodology gate-proposal counts by decision over 1d/7d/30d windows.
+
+    Reads strategy_promotion_events filtered by triggered_by='gate_proposal'
+    via src.analytics.kpis_compute.get_gate_proposal_counts. operator_confirm
+    rows are excluded (real promotion transitions, not gate-proposal observations).
+
+    Returns the canonical zero shape and logs a warning if the table is missing
+    (fresh deployments before the first daily run) so the dashboard does not
+    show an error card.
+    """
+    try:
+        return _analytics_kpis.get_gate_proposal_counts(DB_PATH)
+    except sqlite3.OperationalError as exc:
+        _log.warning(
+            "[gate-proposals] strategy_promotion_events not yet available: %s; "
+            "returning zero shape", exc,
+        )
+        return _GATE_PROPOSAL_ZERO_SHAPE
 
 
 @router.get("/kpis", dependencies=[Depends(verify_auth)])
