@@ -27,6 +27,24 @@ import pytest
 from src.training.versioning import init_training_tables
 
 
+@pytest.fixture(autouse=True)
+def _mock_fred(monkeypatch):
+    """Mock FRED rf-rate fetch so tests don't make outbound network calls.
+
+    Per CLAUDE.md "Mock all external APIs in tests" — pytest must never hit
+    api.stlouisfed.org. Without this fixture, gate evaluation reaches
+    src.methods._rf_vector.compute_per_period_rf_vector which fetches DTB3.
+    Returns a constant 0.0001 rf-rate per date with `truncated=False`.
+    The trainer test mocks promotion_gate directly so it doesn't always
+    trip on a missing FRED key, but adding the fixture defensively per
+    QA reviewer flag matches the test-discipline invariant.
+    """
+    monkeypatch.setattr(
+        "src.methods._rf_vector.compute_per_period_rf_vector",
+        lambda dates: ([0.0001] * len(dates), False),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
