@@ -148,7 +148,8 @@
     },
     {
       "file": "src/training/trainer.py",
-      "lines": 1176
+      "lines": 1192,
+      "rationale": "T3 Sprint 2: _resolve_returns_for_gate refactored to return 3-tuple (returns, dates, directions) + SQL filter for actual_entry_time; run_promotion_gate_for_version gained backward-compat unpack branch. +16 lines from prior 1176."
     },
     {
       "file": "src/training/versioning.py",
@@ -1126,7 +1127,8 @@
     {
       "file": "src/training/trainer.py",
       "function": "run_promotion_gate_for_version",
-      "lines": 66
+      "lines": 73,
+      "rationale": "T3 Sprint 2: backward-compat isinstance check for _resolve_returns_for_gate return type (tuple vs legacy list mocks). +7 lines from prior 66."
     },
     {
       "file": "src/training/validation.py",
