@@ -5,18 +5,27 @@ Called by: scripts/run_backtest.py (auto-promote on first backtest),
            src.scheduler.watch (Sprint 4 shadow harness dispatcher).
 Calls: src.platform.rigor.dsr, src.platform.rigor.cscv,
        src.platform.rigor.walkforward, src.platform.rigor.trials,
-       src.platform.backtest_engine, sqlite3.
+       src.platform.backtest_engine, sqlite3,
+       src.methods.promotion_gate (Sprint 2 T2: methodology gate AND-composition),
+       src.analytics.instrumentation_filter (Sprint 2 T2: input quality filter).
 Owns tables: strategy_registry, strategy_promotion_events.
-Config keys: none.
-Tests: tests/platform/test_promotion.py.
+Config keys: METHODOLOGY_GATE_ENABLED (env, default 'true').
+Tests: tests/platform/test_promotion.py,
+       tests/test_promotion_methodology_gate.py.
 
 Gates (per spec line 1126-1148, locked in Sprint 2):
   proposed → backtested:   automatic on first backtest completion.
   backtested → shadow_trading:  DSR >= 0.95 AND PBO <= 0.50 AND
-                                OOS_efficiency >= 0.30.
-  shadow_trading → production:  above + n_shadow_trades >= 30 + 24h
+                                OOS_efficiency >= 0.30 AND
+                                methodology gate (AND-composed, Sprint 2 T2).
+  shadow_trading → production:  DSR + methodology gate AND-composed
+                                + n_shadow_trades >= 30 + 24h
                                 delay + manual confirm + justification
                                 note >= 40 chars.
+                                NOTE: production gate currently only checks DSR
+                                + methodology gate. PBO and walkforward are
+                                Sprint-4 placeholders (pbo=None,
+                                oos_efficiency=None in evidence).
   any → deprecated:        always allowed via demote() with reason
                            >= 20 chars.
 
@@ -29,12 +38,16 @@ actual close path).
 from __future__ import annotations
 
 import json
+import logging
+import os
 import sqlite3
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Callable
 
 from src.config import DB_PATH
 from src.utils.db import connect_db
+
+logger = logging.getLogger(__name__)
 
 STATUSES = {"proposed", "backtested", "shadow_trading", "production", "deprecated"}
 
@@ -214,6 +227,10 @@ def _evaluate_walkforward_gate(
 
     Attaches to evidence:
         walkforward_outcome_state: 'PASS' | 'FAIL' | 'INCONCLUSIVE' | None
+        walkforward_status: 'pass' | 'fail' | 'inconclusive' | 'no_data_yet'
+            (Sprint 2 T2: DA major fix 4 — human-readable status alongside
+            outcome_state for backwards-compat; distinguishes 'no data yet'
+            from 'FAIL' for dashboard display)
         walkforward_reason: structured reason string from the runner
         walkforward_run_id: cross-reference to walkforward_results
         walkforward_pooled_sharpe: net-of-cost pooled Sharpe
@@ -221,15 +238,17 @@ def _evaluate_walkforward_gate(
     wf = _fetch_latest_walkforward_outcome(strategy_id, db_path)
     if wf is None:
         evidence["walkforward_outcome_state"] = None
+        evidence["walkforward_status"] = "no_data_yet"
         evidence["walkforward_reason"] = None
         return None, evidence
     evidence["walkforward_outcome_state"] = wf["outcome_state"]
+    state = wf["outcome_state"]
+    evidence["walkforward_status"] = state.lower() if state else "no_data_yet"
     evidence["walkforward_reason"] = wf["reason"]
     evidence["walkforward_run_id"] = wf["run_id"]
     evidence["walkforward_pooled_sharpe"] = wf["pooled_sharpe"]
     evidence["walkforward_pooled_mde"] = wf["pooled_mde"]
     evidence["walkforward_heavy_tail_flag"] = bool(wf["heavy_tail_flag"])
-    state = wf["outcome_state"]
     if state == WF_STATE_PASS:
         return True, evidence
     if state == WF_STATE_INCONCLUSIVE:
@@ -243,6 +262,134 @@ def _evaluate_walkforward_gate(
     return False, evidence
 
 
+def _get_n_trials_for_strategy(db_path: str) -> int:
+    """Return the global N_eff from trials_registry for DSR n_trials arg."""
+    from src.platform.rigor.trials import get_current_n_eff
+    n = get_current_n_eff(db_path)
+    return max(n, 1)
+
+
+def _evaluate_strategy_methodology_gate(
+    strategy_id: str, db_path: str,
+) -> tuple[bool, dict]:
+    """Evaluate the 4-of-5 methodology gate for strategy_id.
+
+    Loads shadow_trades, filters via is_fully_instrumented AND
+    actual_entry_time IS NOT NULL AND pnl_pct IS NOT NULL, builds
+    MethodInputs, and calls promotion_gate.promotion_gate(...).
+
+    Returns (passes_bool, evidence_dict) where evidence matches spec §3.2.
+
+    Feature flag: METHODOLOGY_GATE_ENABLED=false short-circuits to
+    (True, {'decision': 'skipped'}) with no persistence side-effects.
+    """
+    if os.environ.get("METHODOLOGY_GATE_ENABLED", "true").lower() == "false":
+        return True, {"decision": "skipped"}
+
+    from src.analytics.instrumentation_filter import is_fully_instrumented
+    from src.methods.promotion_gate import promotion_gate
+
+    conn = connect_db(db_path)
+    try:
+        rows = conn.execute(
+            """SELECT pnl_pct, actual_entry_time, actual_exit_time,
+                      excess_return, actual_entry_price, actual_exit_price
+               FROM shadow_trades
+               WHERE pnl_pct IS NOT NULL""",
+        ).fetchall()
+    finally:
+        conn.close()
+
+    all_rows = [
+        {
+            "pnl_pct": r[0],
+            "actual_entry_time": r[1],
+            "actual_exit_time": r[2],
+            "excess_return": r[3],
+            "actual_entry_price": r[4],
+            "actual_exit_price": r[5],
+        }
+        for r in rows
+    ]
+    # Apply is_fully_instrumented AND actual_entry_time IS NOT NULL filter
+    # (actual_entry_time is needed for building dates list for promotion_gate)
+    instrumented_rows = [
+        r for r in all_rows
+        if is_fully_instrumented(r) and r.get("actual_entry_time") is not None
+    ]
+    excluded_count = len(all_rows) - len(instrumented_rows)
+
+    import datetime as _dt
+    returns = [float(r["pnl_pct"]) for r in instrumented_rows]
+    directions = [1] * len(instrumented_rows)
+    dates = []
+    for r in instrumented_rows:
+        try:
+            dates.append(_dt.date.fromisoformat(r["actual_entry_time"][:10]))
+        except (TypeError, ValueError):
+            dates.append(_dt.date.today())
+
+    assert len(returns) == len(dates) == len(directions), (
+        "Length invariant violated: returns/dates/directions must all match"
+    )
+
+    n_trials = _get_n_trials_for_strategy(db_path)
+
+    active_strategies = get_strategies_by_status(
+        ["shadow_trading", "backtested"], db_path,
+    )
+    other_strategies = [s for s in active_strategies if s != strategy_id]
+
+    if len(other_strategies) < 1:
+        candidate_pool = None
+        threshold_used = "4_of_4_no_white_rc"
+    else:
+        candidate_pool = None
+        threshold_used = "4_of_5"
+
+    if len(returns) == 0:
+        evidence = {
+            "methodology_gate": {
+                "decision": "no_data_yet",
+                "n_obs": 0,
+                "votes": {},
+                "details": {},
+                "reason": "no_instrumented_shadow_trades",
+            },
+            "threshold_used": threshold_used,
+            "instrumentation_excluded_count": excluded_count,
+        }
+        return True, evidence
+    else:
+        gate_result = promotion_gate(
+            returns=returns,
+            n_trials=n_trials,
+            dates=dates,
+            directions=directions,
+            candidate_pool=candidate_pool,
+        )
+
+    votes_raw = gate_result.get("votes", {})
+    votes_flat = {k: v for k, v in votes_raw.items()}
+
+    evidence = {
+        "methodology_gate": {
+            "decision": gate_result.get("decision"),
+            "n_obs": gate_result.get("n_obs"),
+            "mintrl": gate_result.get("mintrl"),
+            "votes": votes_flat,
+            "details": gate_result.get("details", {}),
+        },
+        "threshold_used": threshold_used,
+        "instrumentation_excluded_count": excluded_count,
+    }
+    if "reason" in gate_result:
+        evidence["methodology_gate"]["reason"] = gate_result["reason"]
+
+    passes = gate_result.get("decision") == "promote"
+    return passes, evidence
+
+
 def _evaluate_shadow_trading_gate(
     strategy_id: str, db_path: str,
 ) -> tuple[bool, dict]:
@@ -254,10 +401,16 @@ def _evaluate_shadow_trading_gate(
          If outcome != PASS, gate returns False with a structured reason.
       2. Legacy DSR + PBO + OOS_efficiency gate (backward-compatibility
          for strategies that predate walk-forward v1 table).
+
+    Sprint 2 T2: methodology gate AND-composed at ALL return sites.
     """
     passes_dsr, evidence = _evaluate_dsr_evidence(strategy_id, db_path)
     if "error" in evidence:
-        return False, evidence
+        mg_passes, mg_evidence = _evaluate_strategy_methodology_gate(
+            strategy_id, db_path,
+        )
+        evidence["methodology_gate"] = mg_evidence
+        return False and mg_passes, evidence
 
     # Walk-forward v1 three-state outcome takes precedence when available.
     wf_pass, evidence = _evaluate_walkforward_gate(
@@ -266,7 +419,11 @@ def _evaluate_shadow_trading_gate(
     if wf_pass is False:
         # INCONCLUSIVE or FAIL — never collapse. Evidence already carries
         # walkforward_outcome_state + walkforward_reason fields.
-        return False, evidence
+        mg_passes, mg_evidence = _evaluate_strategy_methodology_gate(
+            strategy_id, db_path,
+        )
+        evidence["methodology_gate"] = mg_evidence
+        return False and mg_passes, evidence
     # wf_pass is True → walk-forward passed, keep checking DSR.
     # wf_pass is None → no walkforward_results row; fall back to legacy gate.
 
@@ -292,27 +449,48 @@ def _evaluate_shadow_trading_gate(
             evidence["error"] = (
                 "backtest has no PBO — run a param sweep with CSCV first"
             )
-            return False, evidence
+            mg_passes, mg_evidence = _evaluate_strategy_methodology_gate(
+                strategy_id, db_path,
+            )
+            evidence["methodology_gate"] = mg_evidence
+            return False and mg_passes, evidence
         passes_pbo = bool(pbo <= GATE_PBO_MAX)
         evidence["passes_pbo_max"] = passes_pbo
-        return passes_dsr and passes_pbo, evidence
+        # DA major fix 1: AND-compose at line 298 (wf-PASS success branch)
+        mg_passes, mg_evidence = _evaluate_strategy_methodology_gate(
+            strategy_id, db_path,
+        )
+        evidence["methodology_gate"] = mg_evidence
+        return (passes_dsr and passes_pbo) and mg_passes, evidence
 
     # Legacy path (wf_pass is None).
     if pbo is None:
         evidence["error"] = "backtest has no PBO — run a param sweep with CSCV first"
-        return False, evidence
+        mg_passes, mg_evidence = _evaluate_strategy_methodology_gate(
+            strategy_id, db_path,
+        )
+        evidence["methodology_gate"] = mg_evidence
+        return False and mg_passes, evidence
     if oos_efficiency is None:
         evidence["error"] = (
             "backtest has no walk-forward OOS efficiency — "
             "run with --with-walkforward first"
         )
-        return False, evidence
+        mg_passes, mg_evidence = _evaluate_strategy_methodology_gate(
+            strategy_id, db_path,
+        )
+        evidence["methodology_gate"] = mg_evidence
+        return False and mg_passes, evidence
 
     passes_pbo = bool(pbo <= GATE_PBO_MAX)
     passes_oos = bool(oos_efficiency >= GATE_OOS_EFFICIENCY_MIN)
     evidence["passes_pbo_max"] = passes_pbo
     evidence["passes_oos_efficiency_min"] = passes_oos
-    return passes_dsr and passes_pbo and passes_oos, evidence
+    mg_passes, mg_evidence = _evaluate_strategy_methodology_gate(
+        strategy_id, db_path,
+    )
+    evidence["methodology_gate"] = mg_evidence
+    return (passes_dsr and passes_pbo and passes_oos) and mg_passes, evidence
 
 
 def _evaluate_production_gate(
@@ -321,11 +499,20 @@ def _evaluate_production_gate(
     """Evaluate gate criteria for 'shadow_trading → production' transition.
     Requires shadow_trading gate pass + 30+ shadow trades + 60+ days +
     manual confirm (enforced at promote() call site).
+
+    Sprint 2 T2: methodology gate AND-composed with DSR only.
+    NOTE: pbo=None and oos_efficiency=None are Sprint-4 placeholders —
+    production gate does NOT yet check walkforward or PBO. This asymmetry
+    is intentional; walkforward + PBO will be wired in Sprint 4.
     """
     passes_dsr, evidence = _evaluate_dsr_evidence(strategy_id, db_path)
     evidence["pbo"] = None  # Sprint 4 wires production gate PBO check
     evidence["oos_efficiency"] = None
-    return passes_dsr, evidence
+    mg_passes, mg_evidence = _evaluate_strategy_methodology_gate(
+        strategy_id, db_path,
+    )
+    evidence["methodology_gate"] = mg_evidence
+    return passes_dsr and mg_passes, evidence
 
 
 def check_promotion_gate(
@@ -340,18 +527,21 @@ def check_promotion_gate(
     Evidence keys depend on target:
       - target='backtested': {'auto': True}
       - target='shadow_trading': walk-forward v1 if present
-            {walkforward_outcome_state, walkforward_reason, walkforward_run_id,
+            {walkforward_outcome_state, walkforward_status,
+             walkforward_reason, walkforward_run_id,
              walkforward_pooled_sharpe, walkforward_pooled_mde,
              walkforward_heavy_tail_flag, dsr, pbo, n_eff_used_for_dsr,
-             trials_sr_variance_used}
+             trials_sr_variance_used, methodology_gate}
         else legacy gate
-            {dsr, pbo, oos_efficiency, max_drawdown_pct, n_trades, ...}
-      - target='production': above + {n_shadow_trades, shadow_duration_days}
+            {dsr, pbo, oos_efficiency, max_drawdown_pct, n_trades,
+             methodology_gate, ...}
+      - target='production': above + {n_shadow_trades, shadow_duration_days,
+            methodology_gate}
       - target='deprecated': {'auto': True}
 
     Three-state handling on shadow_trading:
       - walk-forward outcome PASS → evidence.walkforward_outcome_state='PASS',
-        still checks DSR + PBO
+        still checks DSR + PBO + methodology gate
       - walk-forward FAIL → returns (False, evidence with error='walkforward_failed')
       - walk-forward INCONCLUSIVE → returns (False, evidence with
         error='walkforward_inconclusive')
@@ -526,3 +716,86 @@ def register_strategy(
         conn.commit()
     finally:
         conn.close()
+
+
+def _safe_run(strategy_id: str, db_path: str) -> tuple[bool, dict]:
+    """Run _evaluate_strategy_methodology_gate wrapped in try/except.
+
+    On exception: returns (False, defer_evidence) with error_message set.
+    """
+    try:
+        return _evaluate_strategy_methodology_gate(strategy_id, db_path)
+    except Exception as exc:
+        logger.exception(
+            "[METHODOLOGY_GATE] strategy=%s raised during gate evaluation",
+            strategy_id,
+        )
+        return False, {
+            "decision": "defer",
+            "error_message": str(exc),
+            "instrumentation_excluded_count": 0,
+            "existing_gates": {},
+            "composed_pass": False,
+            "threshold_used": "4_of_5",
+            "override_by": None,
+            "override_reason": None,
+        }
+
+
+def run_daily_gate_for_all_active_strategies(
+    db_path: str = DB_PATH,
+    notify: Callable[[str, dict], None] | None = None,
+) -> list[dict]:
+    """Run the daily methodology gate for all shadow_trading + backtested strategies.
+
+    For each strategy:
+    - Calls _evaluate_strategy_methodology_gate (wrapped in _safe_run)
+    - Persists a strategy_promotion_events row with triggered_by='gate_proposal',
+      from_status==to_status (informational, no real transition),
+      justification_note=NULL
+    - Invokes notify callback on PASS proposals (T4 will provide it)
+
+    Returns a list of result dicts, one per strategy.
+
+    Feature flag: METHODOLOGY_GATE_ENABLED=false returns [] with no persistence.
+    """
+    if os.environ.get("METHODOLOGY_GATE_ENABLED", "true").lower() == "false":
+        return []
+
+    active = get_strategies_by_status(
+        ["shadow_trading", "backtested"], db_path,
+    )
+    results = []
+    for strategy_id in active:
+        passes, evidence = _safe_run(strategy_id, db_path)
+        current_status = _get_strategy_status(strategy_id, db_path) or "unknown"
+        conn = connect_db(db_path)
+        try:
+            _write_promotion_event(
+                conn,
+                strategy_id=strategy_id,
+                from_status=current_status,
+                to_status=current_status,
+                triggered_by="gate_proposal",
+                evidence=evidence,
+                justification_note=None,
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        if passes and notify is not None:
+            try:
+                notify(strategy_id, evidence)
+            except Exception:
+                logger.exception(
+                    "[METHODOLOGY_GATE] notify callback raised for strategy=%s",
+                    strategy_id,
+                )
+
+        results.append({
+            "strategy_id": strategy_id,
+            "passes": passes,
+            "evidence": evidence,
+        })
+    return results

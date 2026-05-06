@@ -78,7 +78,8 @@
     },
     {
       "file": "src/platform/promotion.py",
-      "lines": 527
+      "lines": 811,
+      "rationale": "Sprint 2 T2: added _evaluate_strategy_methodology_gate (129L), _get_n_trials_for_strategy (5L), _safe_run (19L), run_daily_gate_for_all_active_strategies (58L) + 7 AND-compose sites in _evaluate_shadow_trading_gate + 1 in _evaluate_production_gate + walkforward_status placement in _evaluate_walkforward_gate. All new code is scope-required per spec docs/audits/2026-05-05-methodology-gate-wiring/spec.md §1.2, §3.2, §4.1. Real split would require a sibling platform/promotion_gate_wiring.py module — deferred to Sprint 3."
     },
     {
       "file": "src/platform/signal_eval.py",
@@ -389,7 +390,8 @@
     {
       "file": "src/data_enrichment/enricher.py",
       "function": "enrich_features",
-      "lines": 137
+      "lines": 204,
+      "rationale": "Pre-existing growth (was 137 in original known_violations.json, grew to 204). Sprint 2 T2 disclosure per #731. Function computes the full feature-enrichment pipeline — splitting would require injecting many intermediate results. Real refactor deferred."
     },
     {
       "file": "src/data_enrichment/fundamentals.py",
@@ -699,8 +701,15 @@
     },
     {
       "file": "src/platform/promotion.py",
+      "function": "_evaluate_strategy_methodology_gate",
+      "lines": 129,
+      "rationale": "Sprint 2 T2: methodology gate helper per spec §3.2. Loads shadow_trades, applies instrumentation filter, builds MethodInputs (returns/dates/directions), calls promotion_gate, and composes evidence dict. Each sub-task is tightly coupled; splitting into multiple helpers would require passing large evidence dicts through multiple hops with no cohesion benefit. Deferred to Sprint 3 if needed."
+    },
+    {
+      "file": "src/platform/promotion.py",
       "function": "_evaluate_shadow_trading_gate",
-      "lines": 69
+      "lines": 101,
+      "rationale": "Sprint 2 T2: grew from 69 to 101 lines by adding AND-compose methodology gate at all 7 return sites (spec §1.2 DA major fix 1). Each site requires identical 3-line pattern (mg_passes, mg_evidence = ...; evidence['methodology_gate'] = ...; return ... and mg_passes). Macro expansion is technically possible but would obscure the AND-compose intent; pattern is already clear and the function structure is correct."
     },
     {
       "file": "src/platform/rigor/walkforward_runner.py",
