@@ -19,7 +19,16 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $watchdogLog = Join-Path $repoRoot "logs/ollama-watchdog.log"
 $ollamaErrLog = Join-Path $repoRoot "logs/ollama-daemon.err"
 $ollamaOutLog = Join-Path $repoRoot "logs/ollama-daemon.out"
-$ollamaExe = "C:\Users\mille\AppData\Local\Programs\Ollama\ollama.exe"
+# Resolution: $env:OLLAMA_EXE override > PATH > standard Windows install path.
+# Operator's machine works out-of-the-box via the fallback; other environments
+# can override without editing the script.
+$ollamaExe = if ($env:OLLAMA_EXE) {
+    $env:OLLAMA_EXE
+} elseif ((Get-Command ollama -ErrorAction SilentlyContinue)) {
+    (Get-Command ollama).Path
+} else {
+    "C:\Users\mille\AppData\Local\Programs\Ollama\ollama.exe"
+}
 $apiUrl = "http://127.0.0.1:11434/api/tags"
 $pollIntervalSec = 30
 $maxRestartsPer10Min = 3
@@ -66,6 +75,7 @@ function Start-OllamaHeadless {
 $restartHistory = @()
 
 Log "Watchdog starting. Poll=$pollIntervalSec s; max_restarts_per_10min=$maxRestartsPer10Min; circuit_pause=$pauseAfterCircuitBreakSec s"
+Log "Resolved ollama exe: $ollamaExe"
 Log "Logs: watchdog=$watchdogLog | daemon_err=$ollamaErrLog | daemon_out=$ollamaOutLog"
 
 # Initial health check
