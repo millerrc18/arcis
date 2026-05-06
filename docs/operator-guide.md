@@ -182,10 +182,33 @@ If you're stepping in as a new operator, these are the recurring real-world task
 | DB locked errors | §5 "Database is locked" |
 | SSH session closing kills your work | §5 "Long-running process won't survive my SSH session" + §7 "SSH-safe process launch" |
 | Process crashed; need to recover work | §6 "Lost work after stash-pop" |
+| **"Something feels wrong, I don't know what"** | §0.10 quick health check, then §6 "Total restart from a bad state" if multiple components are red |
 
 ### 0.9 The mental model in one paragraph
 
 ARCIS is a tight feedback loop: **scan universe → LLM-score candidates → submit bracket orders → reconcile broker state → grade outcomes → (eventually, when corpus + outcomes are ready) retrain the LLM**. Everything else (schema discipline, instrumentation filter, methodology gate, three-stage ladder, render sync, dashboard) is in service of making that loop *honest* — i.e., resistant to overfitting, look-ahead bias, statistical artifacts, regime tailwinds, and silent data corruption. The reason the validation ladder is so strict is because the operator is one person betting their own capital; we'd rather discover after 300 OOS trades that the strategy works than after 30 OOS trades that it doesn't.
+
+### 0.10 Quick health check (the 3am-incident one-liner)
+
+When something feels wrong but you don't know what, run this from PowerShell on the operator machine. It surfaces the four things that have to be true for ARCIS to be healthy:
+
+```powershell
+Write-Output "=== Watch loop ==="; Get-CimInstance Win32_Process -Filter "name='python.exe'" | ?{ $_.CommandLine -match 'src.main startup' } | Select-Object ProcessId, @{n='age_min';e={[math]::Round(((Get-Date)-$_.CreationDate).TotalMinutes,1)}} | Format-Table
+Write-Output "=== Ollama ==="; Get-Process -Name "ollama*" -ErrorAction SilentlyContinue | Select-Object Id, @{n='age_min';e={[math]::Round(((Get-Date)-$_.StartTime).TotalMinutes,1)}} | Format-Table
+try { $r = Invoke-WebRequest -Uri "http://127.0.0.1:11434/api/tags" -UseBasicParsing -TimeoutSec 5; Write-Output "Ollama API: $($r.StatusCode) (200=healthy)" } catch { Write-Output "Ollama API: DOWN" }
+Write-Output "=== Watchdog ==="; Get-CimInstance Win32_Process -Filter "name='powershell.exe'" | ?{ $_.CommandLine -match 'ollama_watchdog' } | Select-Object ProcessId | Format-Table
+Write-Output "=== Last 3 watchdog log lines ==="; Get-Content C:\arcis\halcyon-lab\logs\ollama-watchdog.log -Tail 3 -ErrorAction SilentlyContinue
+Write-Output "=== Watch loop heartbeat ==="; Get-Item C:\arcis\data\watchdog.txt -ErrorAction SilentlyContinue | Select-Object LastWriteTime
+```
+
+Healthy state:
+- One python `src.main startup` process, age >0 min (single instance per host)
+- One or more `ollama*` processes
+- Ollama API returns `200`
+- Watchdog (powershell + `ollama_watchdog`) running iff you're in a corpus / training session
+- `data/watchdog.txt` LastWriteTime within the last few minutes (watch-loop heartbeat)
+
+Anything else → drop into §5 troubleshooting using the symptom table in §0.8.
 
 ---
 
@@ -699,6 +722,43 @@ Resolution (one-shot):
 The squash-merge will collapse the merge commit; only your original
 content shows up in main's history.
 ```
+
+### Total restart from a bad state (the "I don't know what's wrong, just get me back to clean")
+
+When sanity is lost — duplicate watch loops, stale lockfile, Ollama in unknown state, corpus runner orphaned, stuck broker state — and you want to get back to a known-good baseline without forensics. Run in this exact order; each step is idempotent.
+
+```powershell
+# 1. Stop EVERYTHING ARCIS-related on this machine.
+Get-CimInstance Win32_Process -Filter "name='python.exe'" | ?{ $_.CommandLine -match 'src.main|generate_llm_corpus|ollama_watchdog' } | %{ Stop-Process -Id $_.ProcessId -Force }
+Get-CimInstance Win32_Process -Filter "name='powershell.exe'" | ?{ $_.CommandLine -match 'ollama_watchdog' } | %{ Stop-Process -Id $_.ProcessId -Force }
+Get-Process -Name "ollama*" -ErrorAction SilentlyContinue | Stop-Process -Force
+
+# 2. Clear any stale lockfiles. (PID lock check would refuse startup otherwise.)
+Remove-Item C:\arcis\halcyon-lab\data\watch.lock -ErrorAction SilentlyContinue
+
+# 3. Confirm broker state. Open paper.alpaca.markets in a browser. Note: are
+#    there positions / open orders that don't appear in your local DB? If yes,
+#    follow §6 "Stuck Alpaca paper positions" before continuing.
+
+# 4. Verify schema (auto-fix any drift).
+cd C:\arcis\halcyon-lab
+python -m src.main validate-schema --fix
+
+# 5. (Optional) Health check the database file.
+python -c "import sqlite3; c=sqlite3.connect('file:C:/arcis/data/ai_research_desk.sqlite3?mode=ro',uri=True); c.execute('PRAGMA quick_check').fetchone()"
+# Should print ('ok',). Anything else → §6 "Corrupted SQLite WAL after power loss".
+
+# 6. Restart Ollama watchdog (will start Ollama itself).
+$cmd = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\arcis\halcyon-lab\scripts\ollama_watchdog.ps1'
+Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine = $cmd}
+
+# 7. Restart watch loop.
+python -m src.main startup
+
+# 8. Verify with the §0.10 quick health check.
+```
+
+After step 8, run the §0.10 health-check one-liner. If everything is green, you're back to operational. If anything is still red, you're past "just-restart" territory — drop into the targeted §5 troubleshooting tree for that specific symptom.
 
 ### Worktree cleanup (post-merge)
 
