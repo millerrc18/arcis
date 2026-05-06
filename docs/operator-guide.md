@@ -139,7 +139,7 @@ The instrumentation filter is the discipline that lets ARCIS make calibrated pro
 
 `PIT-clean inputs (packet)` → `prompt` → `Ollama call` → `response` → `entries.jsonl row`.
 
-Where `packet_writer.py` orchestrates: it builds prompts from PIT-clean fundamentals/news/technicals snapshots, calls Ollama, parses the response, and appends a row to `data/corpus/stage1-001/entries.jsonl`. When Ollama fails, packet_writer falls back to a hand-written template — and **currently those template rows share `model_version="arcis:v1.0.0"` with real entries (task #52 will distinguish them)**. See §5 "Ollama crashes / corpus producing template fallbacks" for detection + cleanup.
+Where `packet_writer.py` orchestrates: it builds prompts from PIT-clean fundamentals/news/technicals snapshots, calls Ollama, parses the response, and appends a row to `data/corpus/stage1-001/entries.jsonl`. When Ollama fails, packet_writer falls back to a hand-written template — and **currently those template rows share `model_version="arcis:v1.0.0"` with real entries (a forthcoming packet_writer change will tag fallback rows distinctly so they can be filtered at training time)**. See §5 "Ollama crashes / corpus producing template fallbacks" for detection + cleanup.
 
 The corpus is then fed to training (`src/training/trainer.py`) to produce new model versions when accumulated outcomes warrant retraining.
 
@@ -152,7 +152,7 @@ These rules are enforced by code, tests, or operator discipline. Breaking any of
 | Schema registry is single source of truth | `src/schema/registry.py` + `test_no_create_table_in_source` / `test_no_alter_table_in_source` CI tests | Drift between Postgres / SQLite / code → silent data loss |
 | Risk governor is sacred | `src/risk/governor.py` (`min()` across 4 namespaces) | Bypass = unbounded position size; instant blow-up risk |
 | PIT discipline | `src/universe/pit.py` + tests | Future-data leakage invalidates backtest results |
-| Training data quality #1 | Corpus discriminator + (forthcoming) `model_version=template_fallback` tagging (#52) | Polluted training data → polluted future model |
+| Training data quality #1 | Corpus discriminator (`<1500` chars + rigid prefix) + forthcoming `model_version=template_fallback` tagging | Polluted training data → polluted future model |
 | Test count must not drop | CI floor at 3682 in `CLAUDE.md` | Catches accidental test deletion / bypass |
 | Worktree isolation for parallel agents | `CLAUDE.md` + `.claude/agent-scope.json` pre-commit hook | Index races between parallel agents → mixed-attribution commits |
 | `outcome_stats_filter_sql()` on every shadow_trades aggregation | `tests/test_outcome_stats_filter_coverage.py` static-analysis test | `reconciled_stale` rows aren't real outcomes; uncounted-out → wrong win-rate / wrong gate decision |
@@ -367,7 +367,7 @@ python scripts/generate_llm_corpus.py \
   --num-parallel 2
 ```
 
-`OLLAMA_NUM_PARALLEL` user env var must be set to `2` to match (set via watchdog or `[Environment]::SetEnvironmentVariable("OLLAMA_NUM_PARALLEL","2","User")`). Mismatch (e.g. corpus `--num-parallel 4` vs `OLLAMA_NUM_PARALLEL=1`) causes Ollama to spawn N runner subprocesses, each loading a separate model copy → VRAM exhaustion → silent crash.
+`OLLAMA_NUM_PARALLEL` user env var must be set to `2` to match — **one-time per-machine setup; the watchdog does NOT manage this**. Set via PowerShell `[Environment]::SetEnvironmentVariable("OLLAMA_NUM_PARALLEL","2","User")` or `setx OLLAMA_NUM_PARALLEL 2` BEFORE starting the watchdog (Ollama reads it on its own startup, not from the watchdog process env). Mismatch (e.g. corpus `--num-parallel 4` vs `OLLAMA_NUM_PARALLEL=1`) causes Ollama to spawn N runner subprocesses, each loading a separate model copy → VRAM exhaustion → silent crash.
 
 **For SSH-disconnect-safe runs**, use the WMI launch pattern in §7 "SSH-safe process launch" instead of running the command directly in your shell.
 
@@ -490,7 +490,7 @@ Compare local vs cloud:
 ├─ Local OK but cloud lags → RenderSyncThread issue
 │    → check sync_state table for stuck in_flight rows
 │    → if stuck >10 min: post-Wave-4-H1 this auto-clears on watch restart
-│    → manual fix: UPDATE sync_state SET status='idle', in_flight_since=NULL WHERE host_id='SWIFT-PC'
+│    → manual fix: UPDATE sync_state SET status='idle', in_flight_since=NULL WHERE host='SWIFT-PC'
 │
 └─ Numbers look LOW (e.g., 6 closed instead of 50) → H5 working as intended
    → reconciled_stale rows excluded from outcome counters
@@ -590,7 +590,7 @@ If tests fail in worktree but pass in main:
 6. Resume corpus with --num-parallel 2 (see §3 "Corpus generation")
 ```
 
-Root cause finding (2026-05-06): `packet_writer.py` has 5 fallback paths that all silently write template entries with the same `model_version="arcis:v1.0.0"` — indistinguishable from real LLM at training time. Discriminator: real LLM responses are 2400-3000 chars and start with natural-language analysis; templates are 750-800 chars and start with the rigid `<TICKER> is in a <trend>` prefix. Permanent fix is task #52 (skip-write or distinct `model_version="template_fallback"`).
+Root cause finding (2026-05-06): `packet_writer.py` has 5 fallback paths that all silently write template entries with the same `model_version="arcis:v1.0.0"` — indistinguishable from real LLM at training time. Discriminator: real LLM responses are 2400-3000 chars and start with natural-language analysis; templates are 750-800 chars and start with the rigid `<TICKER> is in a <trend>` prefix. Permanent fix is a forthcoming packet_writer change: either skip-write on fallback OR distinguish via `model_version="template_fallback"`.
 
 ### "Database is locked" errors
 
@@ -991,7 +991,7 @@ Quarterly (or when worktrees exceed ~30):
 | **Watch loop** | Main runtime daemon (`src/scheduler/watch.py::WatchLoop`). Single instance per host (PID lockfile) |
 | **(Ollama) Watchdog** | `scripts/ollama_watchdog.ps1` — separate from the watch loop. Polls `/api/tags` every 30s, auto-restarts Ollama on death, captures daemon stderr to `logs/ollama-daemon.err` for crash diagnostics. Required before any corpus generation run. See §7 |
 | **Worktree** | Independent git working directory sharing the same `.git` repo. Used for parallel agent isolation |
-| **Template-fallback entry** | A corpus entry written by `packet_writer.py` when the LLM call failed (Ollama unreachable / parse failure / etc.). Discriminator: response < 1500 chars AND starts with rigid `<TICKER> is in a [strong\|weak]? (uptrend\|downtrend\|neutral)` prefix. Currently shares `model_version="arcis:v1.0.0"` with real LLM entries — task #52 will add distinct tagging. Real LLM responses are 2400-3000 chars and start with natural-language analysis |
+| **Template-fallback entry** | A corpus entry written by `packet_writer.py` when the LLM call failed (Ollama unreachable / parse failure / etc.). Discriminator: response < 1500 chars AND starts with rigid `<TICKER> is in a [strong\|weak]? (uptrend\|downtrend\|neutral)` prefix. Currently shares `model_version="arcis:v1.0.0"` with real LLM entries — a forthcoming packet_writer change will add distinct tagging. Real LLM responses are 2400-3000 chars and start with natural-language analysis |
 | **WMI launch / Session 0** | `Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine=...}`. Launches a process detached from the calling session — survives SSH disconnect. Process lands in Session 0 (services), no GUI. Use for corpus + watchdog + any long-running ops process. See §7 |
 
 ---
