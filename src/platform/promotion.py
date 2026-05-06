@@ -289,13 +289,23 @@ def _evaluate_strategy_methodology_gate(
     from src.analytics.instrumentation_filter import is_fully_instrumented
     from src.methods.promotion_gate import promotion_gate
 
+    # NOTE on `strategy_id` parameter (single-strategy phase, 2026-05-06):
+    # shadow_trades has NO strategy_id column (see src/schema/registry.py:196-275).
+    # The current trading system is single-strategy ("pullback"); every shadow_trade
+    # belongs to the one active strategy by definition. The strategy_id parameter
+    # is kept in this helper's signature for forward-compat — when shadow_trades
+    # gains a strategy_id FK column (or strategy_type-based filter is wired in),
+    # this SQL will get an `AND strategy_id = ?` predicate. Filtering today
+    # would fail with `no such column: strategy_id`. ORDER BY actual_entry_time
+    # ASC keeps the dates list monotonic for promotion_gate downstream.
     conn = connect_db(db_path)
     try:
         rows = conn.execute(
             """SELECT pnl_pct, actual_entry_time, actual_exit_time,
                       excess_return, actual_entry_price, actual_exit_price
                FROM shadow_trades
-               WHERE pnl_pct IS NOT NULL""",
+               WHERE pnl_pct IS NOT NULL
+               ORDER BY actual_entry_time ASC""",
         ).fetchall()
     finally:
         conn.close()
