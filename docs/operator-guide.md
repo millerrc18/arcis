@@ -26,7 +26,9 @@
 
 ARCIS is a **single-operator autonomous trading research desk** that generates equity trade ideas with a locally-fine-tuned LLM, executes them on Alpaca's paper broker, tracks every trade with strict instrumentation, and validates whether its strategy is actually profitable through a three-stage statistical ladder before any live capital is allocated. The system is paper-only post-bootcamp; live trading is gated behind explicit statistical evidence of edge.
 
-The codename "arcis" / "halcyon-lab" refers to the same project. The local model is named `arcis:v1.0.0` (Qwen3-8B fine-tune) and is hosted via Ollama on a single Windows machine with an RTX 3060 (12 GiB VRAM).
+**Current maturity** (as of 2026-05-06): Stage-1 honest baseline signed (`d651160`, n=35 instrumented trades, regime-tailwind suspected). Stage-1 OOS sub-validation has not yet started — the system is in the **bootcamp-archived / pre-Stage-1-OOS** window, accumulating new paper trades. Stage 2 IB-eligibility (and the methodology gate that gates it) is the next strategic milestone. Treat ARCIS as **alpha-stage research infrastructure**, not a finished product.
+
+The codename "arcis" / "halcyon-lab" refers to the same project. The currently-active model in Ollama is `arcis:v1.0.0` (Qwen3-8B fine-tune; `halcyon-v1` is an older alias retained for fallback). The system runs on a single Windows machine with an RTX 3060 (12 GiB VRAM).
 
 ### 0.2 The strategic goal — 3-stage validation ladder
 
@@ -92,8 +94,11 @@ Intraday (09:30-16:00 ET, 5-min cadence):
     3. LLM call (Ollama) ─► returns conviction (1-10), direction, time horizon, key risks
     4. Risk governor ────► enforce position cap (min across 4 namespaces)
     5. Submit bracket order via Alpaca paper SDK
-       - Bracket = entry + take-profit (+1.5*ATR) + stop-loss (-1.0*ATR)
-       - Or OCO if position is already open
+       - Bracket = entry + take-profit + stop-loss legs
+       - Multipliers are config-driven via `live_trading.risk.{target,stop}_atr_multiplier`
+         (typical values: 1.5×ATR target / 1.0×ATR stop in paper; 2.0×ATR target in live config —
+         see PR #943 doc note for the asymmetry rationale)
+       - OCO topology used when entry already filled and only protection legs remain
   Bracket monitor (every 5 min):
     - Verify both legs of every bracket are still active or healthy-completion
     - False-alert quarantine if not (PR #944)
@@ -156,6 +161,7 @@ These rules are enforced by code, tests, or operator discipline. Breaking any of
 | Test count must not drop | CI floor at 3682 in `CLAUDE.md` | Catches accidental test deletion / bypass |
 | Worktree isolation for parallel agents | `CLAUDE.md` + `.claude/agent-scope.json` pre-commit hook | Index races between parallel agents → mixed-attribution commits |
 | `outcome_stats_filter_sql()` on every shadow_trades aggregation | `tests/test_outcome_stats_filter_coverage.py` static-analysis test | `reconciled_stale` rows aren't real outcomes; uncounted-out → wrong win-rate / wrong gate decision |
+| Mock all external APIs in tests | `tests/conftest.py` fixtures + per-test patches | Pytest must never make a network call to Alpaca / Finnhub / yfinance / FRED / Ollama. Tests that hit live APIs are flaky and contaminate rate limits |
 
 ### 0.7 What you'll actually be doing
 
@@ -184,7 +190,7 @@ If you're stepping in as a new operator, these are the recurring real-world task
 
 ### 0.9 The mental model in one paragraph
 
-ARCIS is a tight feedback loop: **scan universe → LLM-score candidates → submit bracket orders → reconcile broker state → grade outcomes → retrain LLM**. Everything else (schema discipline, instrumentation filter, methodology gate, three-stage ladder, render sync, dashboard) is in service of making that loop *honest* — i.e., resistant to overfitting, look-ahead bias, statistical artifacts, regime tailwinds, and silent data corruption. The reason the validation ladder is so strict is because the operator is one person betting their own capital; we'd rather discover after 300 OOS trades that the strategy works than after 30 OOS trades that it doesn't.
+ARCIS is a tight feedback loop: **scan universe → LLM-score candidates → submit bracket orders → reconcile broker state → grade outcomes → (eventually, when corpus + outcomes are ready) retrain the LLM**. Everything else (schema discipline, instrumentation filter, methodology gate, three-stage ladder, render sync, dashboard) is in service of making that loop *honest* — i.e., resistant to overfitting, look-ahead bias, statistical artifacts, regime tailwinds, and silent data corruption. The reason the validation ladder is so strict is because the operator is one person betting their own capital; we'd rather discover after 300 OOS trades that the strategy works than after 30 OOS trades that it doesn't.
 
 ---
 
