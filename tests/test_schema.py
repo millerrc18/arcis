@@ -174,6 +174,22 @@ def test_diagnostic_type_description_includes_training_audit():
     )
 
 
+def test_strategy_promotion_events_triggered_by_documents_all_sentinels():
+    """triggered_by description must enumerate all four valid sentinel values.
+
+    The column is unconstrained TEXT; the description is the single source
+    of truth for the sentinel set used by the methodology gate wiring sprint
+    (docs/audits/2026-05-05-methodology-gate-wiring/plan.md, T1).
+    """
+    td = TABLES["strategy_promotion_events"]
+    col = next(c for c in td.columns if c.name == "triggered_by")
+    description = col.description or ""
+    for sentinel in ("'manual'", "'auto_gate'", "'gate_proposal'", "'operator_confirm'"):
+        assert sentinel in description, (
+            f"triggered_by.description must list {sentinel}; got: {description!r}"
+        )
+
+
 def test_all_expected_tables_present():
     """Every known table must be in the registry."""
     missing = EXPECTED_TABLES - set(TABLES.keys())
