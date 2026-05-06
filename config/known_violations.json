@@ -103,7 +103,8 @@
     },
     {
       "file": "src/scheduler/watch.py",
-      "lines": 2085
+      "lines": 2262,
+      "rationale": "Sprint 2 T4: added _strategy_gate_done flag in __init__ (+1L) and _reset_daily_state (+1L), new 16:35 ET daily-loop slot (20L), _notify_gate_proposal helper (23L). All additions are scope-required per spec docs/audits/2026-05-05-methodology-gate-wiring/spec.md §4.2. Real split is deferred — the loop body and helper methods are tightly coupled."
     },
     {
       "file": "src/schema/registry.py",
@@ -880,7 +881,8 @@
     {
       "file": "src/scheduler/watch.py",
       "function": "_run_sync_body",
-      "lines": 619
+      "lines": 652,
+      "rationale": "Sprint 2 T4: +33 lines from new 16:35 ET methodology gate slot (20L) and whitespace/comment. Pre-existing at 619L; the loop body is tightly coupled and splitting is deferred per original rationale."
     },
     {
       "file": "src/services/mr_scan_service.py",
