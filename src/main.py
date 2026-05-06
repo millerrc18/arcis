@@ -90,6 +90,7 @@ from src.cli.commands import (
     cmd_watch,
     cmd_reset_live_prices_watermark,
 )
+from src.cli.promotion_cmd import cmd_confirm_promotion, build_confirm_promotion_parser
 from src.config import DB_PATH
 from src.journal.store import initialize_database
 
@@ -295,6 +296,18 @@ def build_parser() -> argparse.ArgumentParser:
         "reset-live-prices-watermark",
         help="Set live_prices sync watermark to now-24h (caps first incremental sync backlog)",
     ).set_defaults(func=cmd_reset_live_prices_watermark)
+
+    confirm_promotion = subparsers.add_parser(
+        "confirm-promotion",
+        help=(
+            "Confirm a gate_proposal and promote a strategy via promote() "
+            "(triggered_by='operator_confirm'). Requires a fresh gate_proposal "
+            "row (< 24h) with decision='defer'."
+        ),
+        parents=[build_confirm_promotion_parser()],
+        add_help=False,
+    )
+    confirm_promotion.set_defaults(func=cmd_confirm_promotion)
 
     return parser
 
