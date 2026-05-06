@@ -420,7 +420,7 @@ def _evaluate_shadow_trading_gate(
             strategy_id, db_path,
         )
         evidence["methodology_gate"] = mg_evidence
-        return False and mg_passes, evidence
+        return False, evidence  # gate already False; mg_evidence attached above for visibility
 
     # Walk-forward v1 three-state outcome takes precedence when available.
     wf_pass, evidence = _evaluate_walkforward_gate(
@@ -433,7 +433,7 @@ def _evaluate_shadow_trading_gate(
             strategy_id, db_path,
         )
         evidence["methodology_gate"] = mg_evidence
-        return False and mg_passes, evidence
+        return False, evidence  # gate already False; mg_evidence attached above for visibility
     # wf_pass is True → walk-forward passed, keep checking DSR.
     # wf_pass is None → no walkforward_results row; fall back to legacy gate.
 
@@ -463,7 +463,7 @@ def _evaluate_shadow_trading_gate(
                 strategy_id, db_path,
             )
             evidence["methodology_gate"] = mg_evidence
-            return False and mg_passes, evidence
+            return False, evidence  # gate already False; mg_evidence attached above for visibility
         passes_pbo = bool(pbo <= GATE_PBO_MAX)
         evidence["passes_pbo_max"] = passes_pbo
         # DA major fix 1: AND-compose at line 298 (wf-PASS success branch)
@@ -480,7 +480,7 @@ def _evaluate_shadow_trading_gate(
             strategy_id, db_path,
         )
         evidence["methodology_gate"] = mg_evidence
-        return False and mg_passes, evidence
+        return False, evidence  # gate already False; mg_evidence attached above for visibility
     if oos_efficiency is None:
         evidence["error"] = (
             "backtest has no walk-forward OOS efficiency — "
@@ -490,7 +490,7 @@ def _evaluate_shadow_trading_gate(
             strategy_id, db_path,
         )
         evidence["methodology_gate"] = mg_evidence
-        return False and mg_passes, evidence
+        return False, evidence  # gate already False; mg_evidence attached above for visibility
 
     passes_pbo = bool(pbo <= GATE_PBO_MAX)
     passes_oos = bool(oos_efficiency >= GATE_OOS_EFFICIENCY_MIN)
