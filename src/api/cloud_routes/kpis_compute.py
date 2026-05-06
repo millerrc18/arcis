@@ -363,6 +363,8 @@ def _compute_stage_traffic_light(
 
 def _compute_promotion_gate_kpi(
     n_trades: int, returns: list[float],
+    dates: list | None = None,
+    directions: list[int] | None = None,
 ) -> dict[str, Any]:
     base = {"votes_passed": None, "votes_total": 5}
     if n_trades == 0:
@@ -373,7 +375,7 @@ def _compute_promotion_gate_kpi(
                 "caption": f"MinTRL: gate not yet evaluable (N={n_trades}, need {N_MINIMUM_TRL})"}
     try:
         from src.methods.promotion_gate import promotion_gate
-        gate_result = promotion_gate(returns, n_trials=1)
+        gate_result = promotion_gate(returns, n_trials=1, dates=dates, directions=directions)
         votes_passed = sum(1 for v in gate_result.get("votes", {}).values() if v)
         decision = gate_result.get("decision", "defer")
         status = "green" if decision == "promote" else "red" if decision == "reject" else "blue"

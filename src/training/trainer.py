@@ -952,31 +952,41 @@ def run_fine_tune(db_path: str = DB_PATH) -> dict | None:
     }
 
 
-def _resolve_returns_for_gate(db_path: str = DB_PATH) -> list[float]:
-    """Fetch closed shadow trade excess returns for the promotion gate.
+def _resolve_returns_for_gate(
+    db_path: str = DB_PATH,
+) -> tuple[list[float], list, list[int]]:
+    """Fetch closed shadow trade returns for the promotion gate.
 
-    Returns a list of per-trade excess returns (pnl_pct / 100.0 minus
-    placeholder rf) from the shadow_trades table. Returns [] when no
-    qualifying rows are found so the gate can skip gracefully.
+    Returns a 3-tuple (returns, dates, directions) where:
+      - returns: list[float] — pnl_pct / 100.0 (raw, no rf pre-subtraction)
+      - dates: list[date] — date.fromisoformat(actual_entry_time[:10])
+      - directions: list[int] — +1 per trade (long-only per registry.py:202)
+
+    Rows with NULL actual_entry_time are filtered by SQL.
+    Returns ([], [], []) when no qualifying rows are found.
     """
+    from datetime import date as _date
     try:
         from src.journal.store import initialize_database
         initialize_database(db_path)
         with connect_db(db_path) as conn:
             rows = conn.execute(
-                """SELECT pnl_pct FROM shadow_trades
+                """SELECT pnl_pct, actual_entry_time FROM shadow_trades
                    WHERE status IN ('closed','stopped_out','target_hit','manually_closed')
                      AND pnl_pct IS NOT NULL
+                     AND actual_entry_time IS NOT NULL
                      AND COALESCE(quarantined, 0) = 0
                    ORDER BY actual_exit_time ASC"""
             ).fetchall()
         if not rows:
-            return []
-        rf_placeholder = 0.0001
-        return [float(r[0]) / 100.0 - rf_placeholder for r in rows]
+            return ([], [], [])
+        returns = [float(r[0]) / 100.0 for r in rows]
+        dates = [_date.fromisoformat(r[1][:10]) for r in rows]
+        directions = [1] * len(rows)
+        return (returns, dates, directions)
     except Exception as exc:
         logger.warning("[PROMOTION_GATE] _resolve_returns_for_gate failed: %s", exc)
-        return []
+        return ([], [], [])
 
 
 def _apply_gate_decision(decision: str, version_id: str, db_path: str = DB_PATH) -> None:
@@ -1016,7 +1026,13 @@ def run_promotion_gate_for_version(
 
     Returns a dict with keys: version_id, version_name, decision, status.
     """
-    returns = _resolve_returns_for_gate(db_path)
+    _gate_data = _resolve_returns_for_gate(db_path)
+    if isinstance(_gate_data, tuple) and len(_gate_data) == 3:
+        returns, dates, directions = _gate_data
+    else:
+        returns = list(_gate_data) if _gate_data else []
+        dates = []
+        directions = []
     if not returns:
         logger.info(
             "[PROMOTION_GATE] No qualifying returns for version %s — gate skipped",
@@ -1036,7 +1052,7 @@ def run_promotion_gate_for_version(
         }
 
     print(f"[PROMOTION_GATE] Running gate for {version_name} ({len(returns)} trade returns) ...")
-    result = promotion_gate(returns, n_trials=n_trials)
+    result = promotion_gate(returns, n_trials=n_trials, dates=dates, directions=directions)
     decision = result.get("decision", "reject")
     _apply_gate_decision(decision, version_id, db_path)
 
