@@ -4,6 +4,7 @@
 
 ## Table of contents
 
+0. [System Overview](#0-system-overview) — what ARCIS is and how it fits together
 1. [Quick Start](#1-quick-start) — first-time setup
 2. [Daily Operations](#2-daily-operations) — startup, monitor, recap
 3. [Common Commands](#3-common-commands) — cheat sheet
@@ -14,6 +15,176 @@
 8. [Glossary](#8-glossary) — term definitions
 9. [Roadmap pointer](#9-roadmap-pointer) — strategic direction
 10. [Update Protocol](#10-update-protocol) — keeping this doc fresh
+
+---
+
+## 0. System Overview
+
+> **5-minute onboarding.** If you've never touched ARCIS before, read this section end-to-end. By the time you finish, you should know what ARCIS does, how the pieces fit, and where to look first when something breaks. Read §1 onward only after you have this mental model.
+
+### 0.1 What is ARCIS?
+
+ARCIS is a **single-operator autonomous trading research desk** that generates equity trade ideas with a locally-fine-tuned LLM, executes them on Alpaca's paper broker, tracks every trade with strict instrumentation, and validates whether its strategy is actually profitable through a three-stage statistical ladder before any live capital is allocated. The system is paper-only post-bootcamp; live trading is gated behind explicit statistical evidence of edge.
+
+The codename "arcis" / "halcyon-lab" refers to the same project. The local model is named `arcis:v1.0.0` (Qwen3-8B fine-tune) and is hosted via Ollama on a single Windows machine with an RTX 3060 (12 GiB VRAM).
+
+### 0.2 The strategic goal — 3-stage validation ladder
+
+Per `MASTER.md` SD#43, real-money allocation depends on clearing three statistical bars:
+
+| Stage | Threshold | What unlocks |
+|---|---|---|
+| **Stage 1** | Baseline signed at commit `d651160` (35 instrumented trades, rf-adjusted excess Sharpe = 6.14, but SPY-relative p=0.43 — regime-tailwind suspected). Sub-validation: excess-mean > 0 at t > 1.0 over 30 OOS trades. | Permission to keep paper-trading and accumulate OOS data |
+| **Stage 2** | Excess Sharpe ≥ 0.5 at p < 0.05 over 150 OOS trades **AND** ≥4-of-5 promotion gate (PSR/DSR + PBO + CPCV + MC permutation + White's Reality Check) | IB Gateway live-trading eligibility |
+| **Stage 3** | Excess Sharpe > 1.0 at p < 0.05 over 300 OOS trades | Full capital ramp |
+
+The methodology gate (Stage 2 prerequisite) is being wired into the live evaluation path under Sprint 2 — implementation in `docs/audits/2026-05-05-methodology-gate-wiring/`. Until then, promotion is operator-judgment.
+
+### 0.3 System anatomy — what runs where
+
+```
+┌─────────────────────────────── Operator's machine (Windows, RTX 3060) ──────────────────────────────┐
+│                                                                                                       │
+│   Watch loop ─────────────────────►  Scheduler (5-min intraday, premarket, post-close, overnight)    │
+│   (single instance,                       │                                                           │
+│    PID lockfile in                        ├─► Universe scanner ─► LLM packet writer (Ollama)          │
+│    data/watch.lock)                       ├─► Risk governor ────► Order submitter (Alpaca SDK)        │
+│                                           ├─► Reconciler  ──────► shadow_trades table updates        │
+│                                           ├─► Render sync ──────► Cloud Postgres (every 5 min)       │
+│                                           └─► Build score / HSHS / dashboard refresh                  │
+│                                                                                                       │
+│   Ollama daemon ─────────────────►  Qwen3-8B fine-tune (arcis:v1.0.0) on GPU                         │
+│   (separate process,                  Watchdog (scripts/ollama_watchdog.ps1) auto-restarts on death  │
+│    poll-restarted by watchdog)                                                                        │
+│                                                                                                       │
+│   SQLite DB  C:\arcis\data\ai_research_desk.sqlite3  (~1 GB, 70 schema-registered tables)            │
+│                                                                                                       │
+│   Corpus runner ─────────────────►  Generates Stage-1 training data (Ollama-driven).                 │
+│   (long-lived bg process,             ~67,681 entries; ~23-day full run at NUM_PARALLEL=2.           │
+│    only when training)                Output: data/corpus/stage1-001/entries.jsonl                    │
+│                                                                                                       │
+└───────────────────────────────────────────┬──────────────────────────────────────────────────────────┘
+                                            │
+                                            │  RenderSyncThread replicates per-table cursors via sync_state
+                                            ▼
+┌─────────────────────────────── Render (cloud) ──────────────────────────────────────────────────────┐
+│                                                                                                       │
+│   FastAPI service (src/api/) ────►  Read-only API on cloud Postgres mirror                           │
+│   React frontend (frontend/) ────►  Dashboard UI at https://halcyonlab.app                           │
+│                                                                                                       │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Single point of truth: the local SQLite.** Everything else (cloud Postgres, dashboard, APIs) is downstream. Cloud is for visibility, not control. If local and cloud disagree, local wins by definition.
+
+### 0.4 The trade lifecycle
+
+```
+Pre-market (07:00-09:30 ET):
+  Universe scanner ─► point-in-time SP100 lookup (src/universe/pit.py)
+  Data collectors ──► fundamentals, news, insider, macro snapshots
+  Premarket scorer ─► rules-based score per ticker
+
+Intraday (09:30-16:00 ET, 5-min cadence):
+  Scan cycle:
+    1. Filter universe by liquidity / regime / build score
+    2. For each candidate: assemble "packet" (price, technicals, news, fundamentals)
+    3. LLM call (Ollama) ─► returns conviction (1-10), direction, time horizon, key risks
+    4. Risk governor ────► enforce position cap (min across 4 namespaces)
+    5. Submit bracket order via Alpaca paper SDK
+       - Bracket = entry + take-profit (+1.5*ATR) + stop-loss (-1.0*ATR)
+       - Or OCO if position is already open
+  Bracket monitor (every 5 min):
+    - Verify both legs of every bracket are still active or healthy-completion
+    - False-alert quarantine if not (PR #944)
+
+Post-close (16:00-16:35 ET):
+  reconcile_paper_trades  ──► reconcile local DB with broker state
+  reconcile_live_trades   ──► same for live broker
+  EOD report               ──► Telegram digest + email summary
+  Build score recompute    ──► dashboard refresh
+
+Methodology gate (16:35 ET, in flight via Sprint 2):
+  Daily run of the 5-method voting gate over each strategy
+  - Persists gate_proposal rows (informational)
+  - Operator confirms via CLI to actually promote strategy
+
+Overnight (16:35 ET - 07:00 ET):
+  Data collection sweep   ─► fresh fundamentals, news, macros (7 days/week)
+  VRAM handoff           ──► Ollama unload, training process can claim GPU
+  Training cycle          ─► retrain on accumulated outcomes (when corpus ready)
+  VRAM handoff           ──► training releases, Ollama reload before pre-market
+```
+
+### 0.5 The data lifecycle
+
+```
+Trade outcomes ──────────────►  shadow_trades table  ──► instrumentation filter ──► Stage 1/2/3 ladder
+                                                                ▲
+                                                                │
+                                                       outcome_stats_filter_sql()
+                                                       drops reconciled_stale rows
+                                                       (Wave 4 H5)
+
+Strategy candidate (LLM call) ──► trade ──► outcome ──► graded by build score / HSHS
+                                                ▲
+                                                │
+                                            instrumentation_filter is_fully_instrumented()
+                                            requires every telemetry column populated
+
+LLM training data (corpus) ────►  data/corpus/stage1-001/entries.jsonl  ──► training pipeline ──► new model version
+                                                ▲
+                                                │
+                                       packet_writer.py builds prompts from PIT-clean inputs;
+                                       Ollama generates response; entry written if NOT a fallback.
+                                       (fallback = Ollama failure ─► template; current bug task #52
+                                        means fallback shares model_version with real entries)
+```
+
+**The instrumentation filter is the discipline that lets ARCIS make calibrated promotion decisions.** A trade missing any required column (cost, slippage, fundamental snapshot, etc.) is excluded from Stage 1/2/3 statistics. Roughly 30-60% of paper trades fail instrumentation in early operations and are excluded from the bar.
+
+### 0.6 Key invariants (don't break these)
+
+These rules are enforced by code, tests, or operator discipline. Breaking any of them silently corrupts the validation ladder.
+
+| Invariant | Where enforced | Why it matters |
+|---|---|---|
+| Schema registry is single source of truth | `src/schema/registry.py` + `test_no_create_table_in_source` / `test_no_alter_table_in_source` CI tests | Drift between Postgres / SQLite / code → silent data loss |
+| Risk governor is sacred | `src/risk/governor.py` (`min()` across 4 namespaces) | Bypass = unbounded position size; instant blow-up risk |
+| PIT discipline | `src/universe/pit.py` + tests | Future-data leakage invalidates backtest results |
+| Training data quality #1 | Corpus discriminator + (forthcoming) `model_version=template_fallback` tagging (#52) | Polluted training data → polluted future model |
+| Test count must not drop | CI floor at 3682 in `CLAUDE.md` | Catches accidental test deletion / bypass |
+| Worktree isolation for parallel agents | `CLAUDE.md` + `.claude/agent-scope.json` pre-commit hook | Index races between parallel agents → mixed-attribution commits |
+| `outcome_stats_filter_sql()` on every shadow_trades aggregation | `tests/test_outcome_stats_filter_coverage.py` static-analysis test | `reconciled_stale` rows aren't real outcomes; uncounted-out → wrong win-rate / wrong gate decision |
+
+### 0.7 What you'll actually be doing
+
+If you're stepping in as a new operator, these are the recurring real-world tasks (in expected frequency order, most → least common):
+
+1. **Daily monitor** (5 min/day): Telegram digest pre-market + EOD; glance at https://halcyonlab.app for traffic light + KPIs. If green, no action.
+2. **Reconciler intervention** (~weekly): Stuck Alpaca paper positions show up as repeated `reconciled_stale` rows. Cancel orders + close positions in Alpaca UI, restart watch loop. See §6 "Stuck Alpaca paper positions".
+3. **PR review + merge** (~daily during active sprints): Sprint agents open PRs that need operator review. Merge via squash + delete-branch.
+4. **Corpus generation supervision** (~as-needed, multi-day runs): Stage 1 baseline + retraining. Watchdog handles uptime; you watch for fallback contamination via §5 "Ollama crashes" recipe.
+5. **Schema migration after PR merges** (~per-PR that touches schema): `validate-schema --fix` + `render_migrate.py`. Documented in PR body.
+6. **Recovery from incidents** (~rare): WAL corruption, lost commits, broken cloud sync. §6 has tested recipes for each.
+7. **Strategic decisions** (~quarterly): Stage gate promotions, model retrains, methodology toolkit additions, infra changes. Higher leverage; longer thinking.
+
+### 0.8 Where to look first when something breaks
+
+| Symptom | First place to look |
+|---|---|
+| Watch loop won't start | `logs/arcis.log` tail + §5 "Watch loop won't start" decision tree |
+| Cloud dashboard shows wrong numbers | `logs/arcis.log` + §5 "Cloud dashboard shows wrong numbers" |
+| Corpus stalled / producing fallback | `logs/corpus-stage1-001.err` + `logs/ollama-watchdog.log` + §5 "Ollama crashes" |
+| Trade in shadow_trades table looks wrong | sqlite3 readonly query + cross-reference Alpaca UI; §6 "Stuck Alpaca paper positions" if recurring |
+| Test failures after pull | §5 "Tests failing on test_repo_structure.py" or "ModuleNotFoundError" |
+| DB locked errors | §5 "Database is locked" |
+| SSH session closing kills your work | §5 "Long-running process won't survive my SSH session" + §7 "SSH-safe process launch" |
+| Process crashed; need to recover work | §6 "Lost work after stash-pop" |
+
+### 0.9 The mental model in one paragraph
+
+ARCIS is a tight feedback loop: **scan universe → LLM-score candidates → submit bracket orders → reconcile broker state → grade outcomes → retrain LLM**. Everything else (schema discipline, instrumentation filter, methodology gate, three-stage ladder, render sync, dashboard) is in service of making that loop *honest* — i.e., resistant to overfitting, look-ahead bias, statistical artifacts, regime tailwinds, and silent data corruption. The reason the validation ladder is so strict is because the operator is one person betting their own capital; we'd rather discover after 300 OOS trades that the strategy works than after 30 OOS trades that it doesn't.
 
 ---
 
