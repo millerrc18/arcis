@@ -81,72 +81,67 @@ The methodology gate (Stage 2 prerequisite) is being wired into the live evaluat
 
 ### 0.4 The trade lifecycle
 
-```
-Pre-market (07:00-09:30 ET):
-  Universe scanner ─► point-in-time SP100 lookup (src/universe/pit.py)
-  Data collectors ──► fundamentals, news, insider, macro snapshots
-  Premarket scorer ─► rules-based score per ticker
+A trading day proceeds through five phases. Each phase has a dedicated watch-loop slot.
 
-Intraday (09:30-16:00 ET, 5-min cadence):
-  Scan cycle:
-    1. Filter universe by liquidity / regime / build score
-    2. For each candidate: assemble "packet" (price, technicals, news, fundamentals)
-    3. LLM call (Ollama) ─► returns conviction (1-10), direction, time horizon, key risks
-    4. Risk governor ────► enforce position cap (min across 4 namespaces)
-    5. Submit bracket order via Alpaca paper SDK
-       - Bracket = entry + take-profit + stop-loss legs
-       - Multipliers are config-driven via `live_trading.risk.{target,stop}_atr_multiplier`
-         (typical values: 1.5×ATR target / 1.0×ATR stop in paper; 2.0×ATR target in live config —
-         see PR #943 doc note for the asymmetry rationale)
-       - OCO topology used when entry already filled and only protection legs remain
-  Bracket monitor (every 5 min):
-    - Verify both legs of every bracket are still active or healthy-completion
-    - False-alert quarantine if not (PR #944)
+**Pre-market (07:00–09:30 ET)**
+- Universe scanner — point-in-time SP100 lookup (`src/universe/pit.py`)
+- Data collectors — fundamentals, news, insider, macro snapshots
+- Premarket scorer — rules-based score per ticker
 
-Post-close (16:00-16:35 ET):
-  reconcile_paper_trades  ──► reconcile local DB with broker state
-  reconcile_live_trades   ──► same for live broker
-  EOD report               ──► Telegram digest + email summary
-  Build score recompute    ──► dashboard refresh
+**Intraday (09:30–16:00 ET, 5-min scan cadence)**
 
-Methodology gate (16:35 ET, in flight via Sprint 2):
-  Daily run of the 5-method voting gate over each strategy
-  - Persists gate_proposal rows (informational)
-  - Operator confirms via CLI to actually promote strategy
+Each scan cycle:
+1. Filter universe by liquidity / regime / build score
+2. For each surviving candidate, assemble a "packet" (price + technicals + news + fundamentals)
+3. LLM call (Ollama) — returns `conviction` (1–10), `direction`, `time_horizon`, `key_risk`
+4. Risk governor — enforces `effective_position_cap()` (`min()` across four namespaces: `risk.*`, `risk_governor.*`, `live_trading.*`, `bootcamp.*`)
+5. Submit bracket order via Alpaca paper SDK
+   - Three legs: entry + take-profit + stop-loss
+   - Multipliers config-driven via `live_trading.risk.{target,stop}_atr_multiplier` (typical: 1.5×ATR target / 1.0×ATR stop in paper; 2.0×ATR target in live config — see PR #943 for rationale)
+   - OCO topology when entry already filled and only protection legs remain (PR #943/#944)
 
-Overnight (16:35 ET - 07:00 ET):
-  Data collection sweep   ─► fresh fundamentals, news, macros (7 days/week)
-  VRAM handoff           ──► Ollama unload, training process can claim GPU
-  Training cycle          ─► retrain on accumulated outcomes (when corpus ready)
-  VRAM handoff           ──► training releases, Ollama reload before pre-market
-```
+In parallel, the bracket monitor runs every 5 min:
+- Verify both legs of every bracket are active or healthy-completion
+- False-alert quarantine on broken topology (PR #944)
+
+**Post-close (16:00–16:35 ET)**
+- `reconcile_paper_trades` — reconcile local DB against Alpaca broker state
+- `reconcile_live_trades` — same for live broker (currently moot; paper-only)
+- EOD report — Telegram digest + email summary
+- Build score recompute — dashboard refresh
+
+**Methodology gate (16:35 ET — in flight via Sprint 2)**
+- Daily run of the 5-method voting gate over each candidate strategy
+- Persists `triggered_by='gate_proposal'` rows in `strategy_promotion_events` (informational; `from_status==to_status`)
+- Operator confirms via `confirm-promotion` CLI to actually transition the strategy
+
+**Overnight (16:35 ET – 07:00 ET)**
+- Data collection sweep — fresh fundamentals, news, macros (runs 7 days/week per CLAUDE.md)
+- VRAM handoff — Ollama unloads, training process can claim GPU
+- Training cycle (when corpus + outcomes ready) — retrains on accumulated trade outcomes
+- VRAM handoff back — training releases, Ollama reloads before pre-market
 
 ### 0.5 The data lifecycle
 
-```
-Trade outcomes ──────────────►  shadow_trades table  ──► instrumentation filter ──► Stage 1/2/3 ladder
-                                                                ▲
-                                                                │
-                                                       outcome_stats_filter_sql()
-                                                       drops reconciled_stale rows
-                                                       (Wave 4 H5)
+Two flows feed each other:
 
-Strategy candidate (LLM call) ──► trade ──► outcome ──► graded by build score / HSHS
-                                                ▲
-                                                │
-                                            instrumentation_filter is_fully_instrumented()
-                                            requires every telemetry column populated
+**Flow 1 — Trade outcomes feed Stage 1/2/3 grading**
 
-LLM training data (corpus) ────►  data/corpus/stage1-001/entries.jsonl  ──► training pipeline ──► new model version
-                                                ▲
-                                                │
-                                       packet_writer.py builds prompts from PIT-clean inputs;
-                                       Ollama generates response; entry written if NOT a fallback.
-                                       (fallback = Ollama failure ─► template; current bug task #52
-                                        means fallback shares model_version with real entries)
-```
+`Strategy candidate (LLM call)` → `bracket order` → `closed trade` → `shadow_trades row` → graded by build score / HSHS / Stage-N stats.
 
-**The instrumentation filter is the discipline that lets ARCIS make calibrated promotion decisions.** A trade missing any required column (cost, slippage, fundamental snapshot, etc.) is excluded from Stage 1/2/3 statistics. Roughly 30-60% of paper trades fail instrumentation in early operations and are excluded from the bar.
+Two filters gate which rows count:
+- `instrumentation_filter.is_fully_instrumented()` — requires every required telemetry column populated (cost, slippage, fundamental snapshot, etc.). Trades missing any column are excluded from Stage 1/2/3 statistics. **Roughly 30–60% of paper trades fail instrumentation in early operations** — that's by design, not a bug.
+- `outcome_stats_filter_sql()` — drops `reconciled_stale` rows (bookkeeping artifacts of reconciler closures, not real strategy outcomes). Per Wave 4 H5; enforced by `tests/test_outcome_stats_filter_coverage.py`.
+
+The instrumentation filter is the discipline that lets ARCIS make calibrated promotion decisions. Missing it means we can't tell whether a trade closed because the strategy worked or because we lacked the data to know.
+
+**Flow 2 — Trade context feeds the LLM training corpus**
+
+`PIT-clean inputs (packet)` → `prompt` → `Ollama call` → `response` → `entries.jsonl row`.
+
+Where `packet_writer.py` orchestrates: it builds prompts from PIT-clean fundamentals/news/technicals snapshots, calls Ollama, parses the response, and appends a row to `data/corpus/stage1-001/entries.jsonl`. When Ollama fails, packet_writer falls back to a hand-written template — and **currently those template rows share `model_version="arcis:v1.0.0"` with real entries (task #52 will distinguish them)**. See §5 "Ollama crashes / corpus producing template fallbacks" for detection + cleanup.
+
+The corpus is then fed to training (`src/training/trainer.py`) to produce new model versions when accumulated outcomes warrant retraining.
 
 ### 0.6 Key invariants (don't break these)
 
