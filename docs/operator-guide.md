@@ -324,6 +324,40 @@ python -m src.main validate-schema --fix      # Auto-create missing tables/colum
 python -m src.main reset-live-prices-watermark # Cap live_prices first-cycle backlog to 24h (post H3 merge)
 ```
 
+#### Strategy promotion confirmation (Sprint 2 T5)
+
+After the daily gate runs and emits a `gate_proposal` row with `decision='defer'`,
+the operator reviews the evidence and confirms via:
+
+```bash
+# Review and confirm a deferred gate proposal (prompts y/N):
+python -m src.main confirm-promotion \
+  --strategy <strategy_id> \
+  --justification "Why this strategy is ready for shadow_trading after reviewing evidence..."
+
+# Skip y/N prompt (for scripted / overnight use):
+python -m src.main confirm-promotion \
+  --strategy <strategy_id> \
+  --justification "Why this strategy is ready for shadow_trading after reviewing evidence..." \
+  --yes
+
+# Promote to a different target status:
+python -m src.main confirm-promotion \
+  --strategy <strategy_id> \
+  --justification "Stage-2 review passed; promoting to production after 60+ days shadow." \
+  --target-status production \
+  --yes
+```
+
+**Pre-checks performed by the CLI (operator-ergonomic):**
+- Justification must be >= 40 characters
+- A `gate_proposal` row must exist for the strategy (from the daily gate or `run-promotion-gate`)
+- The proposal must be < 24 hours old (Decision 14 stale-proposal guard)
+- The proposal's `decision` must be `'defer'` — `'reject'` is NOT overridable
+
+**On success:** prints `event_id=<N> final_status=<status>` and exits 0.
+**On server-side re-fire rejection:** prints the rejection reason and exits non-zero (no event_id).
+
 ### Tests
 
 ```bash
@@ -785,6 +819,44 @@ git branch -D <branch-name>
 ---
 
 ## 7. Maintenance Tasks
+
+### Daily strategy promotion confirmation (Sprint 2 T5)
+
+The methodology gate runs nightly (via the watch loop or manually). When it emits a
+`gate_proposal` row with `decision='defer'`, the operator reviews the evidence and
+either confirms or ignores the proposal.
+
+**Typical daily workflow:**
+1. Review today's gate proposals (check Telegram notification or query the DB):
+   ```sql
+   SELECT strategy_id, gate_result_json, timestamp
+   FROM strategy_promotion_events
+   WHERE triggered_by = 'gate_proposal'
+     AND timestamp > datetime('now', '-24 hours')
+   ORDER BY timestamp DESC;
+   ```
+
+2. If the evidence looks good, confirm via the CLI:
+   ```bash
+   python -m src.main confirm-promotion \
+     --strategy <strategy_id> \
+     --justification "30-day shadow pass rate 88%; DSR 0.97; WF outcome PASS. Ready for shadow." \
+     --yes
+   ```
+
+3. The CLI delegates to `promote(triggered_by='operator_confirm')` which:
+   - Re-fires `check_promotion_gate` server-side (catches data drift between proposal and confirm)
+   - Writes the audit row with `triggered_by='operator_confirm'` and `from_status != to_status`
+   - Exits 0 on success, prints `event_id=<N> final_status=<status>`
+
+**If the re-fire rejects:** the CLI prints the rejection reason and exits non-zero.
+No event row is written. Re-run the daily gate after the data is corrected.
+
+**Decision 4 guard:** If the latest proposal has `decision='reject'`, the CLI refuses
+before prompting. A reject is not operator-overridable via this command.
+
+**Staleness guard (Decision 14):** Proposals older than 24h are rejected at the CLI level.
+Re-run the daily gate to generate a fresh proposal before confirming.
 
 ### Stage 1 corpus regeneration / resume
 
