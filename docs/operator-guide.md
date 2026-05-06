@@ -4,6 +4,7 @@
 
 ## Table of contents
 
+0. [System Overview](#0-system-overview) — what ARCIS is and how it fits together
 1. [Quick Start](#1-quick-start) — first-time setup
 2. [Daily Operations](#2-daily-operations) — startup, monitor, recap
 3. [Common Commands](#3-common-commands) — cheat sheet
@@ -14,6 +15,200 @@
 8. [Glossary](#8-glossary) — term definitions
 9. [Roadmap pointer](#9-roadmap-pointer) — strategic direction
 10. [Update Protocol](#10-update-protocol) — keeping this doc fresh
+
+---
+
+## 0. System Overview
+
+> **5-minute onboarding.** If you've never touched ARCIS before, read this section end-to-end. By the time you finish, you should know what ARCIS does, how the pieces fit, and where to look first when something breaks. Read §1 onward only after you have this mental model.
+
+### 0.1 What is ARCIS?
+
+ARCIS is a **single-operator autonomous trading research desk** that generates equity trade ideas with a locally-fine-tuned LLM, executes them on Alpaca's paper broker, tracks every trade with strict instrumentation, and validates whether its strategy is actually profitable through a three-stage statistical ladder before any live capital is allocated. The system is paper-only post-bootcamp; live trading is gated behind explicit statistical evidence of edge.
+
+**Current maturity** (as of 2026-05-06): Stage-1 honest baseline signed (`d651160`, n=35 instrumented trades, regime-tailwind suspected). Stage-1 OOS sub-validation has not yet started — the system is in the **bootcamp-archived / pre-Stage-1-OOS** window, accumulating new paper trades. Stage 2 IB-eligibility (and the methodology gate that gates it) is the next strategic milestone. Treat ARCIS as **alpha-stage research infrastructure**, not a finished product.
+
+The codename "arcis" / "halcyon-lab" refers to the same project. The currently-active model in Ollama is `arcis:v1.0.0` (Qwen3-8B fine-tune; `halcyon-v1` is an older alias retained for fallback). The system runs on a single Windows machine with an RTX 3060 (12 GiB VRAM).
+
+### 0.2 The strategic goal — 3-stage validation ladder
+
+Per `MASTER.md` SD#43, real-money allocation depends on clearing three statistical bars:
+
+| Stage | Threshold | What unlocks |
+|---|---|---|
+| **Stage 1** | Baseline signed at commit `d651160` (35 instrumented trades, rf-adjusted excess Sharpe = 6.14, but SPY-relative p=0.43 — regime-tailwind suspected). Sub-validation: excess-mean > 0 at t > 1.0 over 30 OOS trades. | Permission to keep paper-trading and accumulate OOS data |
+| **Stage 2** | Excess Sharpe ≥ 0.5 at p < 0.05 over 150 OOS trades **AND** ≥4-of-5 promotion gate (PSR/DSR + PBO + CPCV + MC permutation + White's Reality Check) | IB Gateway live-trading eligibility |
+| **Stage 3** | Excess Sharpe > 1.0 at p < 0.05 over 300 OOS trades | Full capital ramp |
+
+The methodology gate (Stage 2 prerequisite) is being wired into the live evaluation path under Sprint 2 — implementation in `docs/audits/2026-05-05-methodology-gate-wiring/`. Until then, promotion is operator-judgment.
+
+### 0.3 System anatomy — what runs where
+
+```
+┌─────────────────────────────── Operator's machine (Windows, RTX 3060) ──────────────────────────────┐
+│                                                                                                       │
+│   Watch loop ─────────────────────►  Scheduler (5-min intraday, premarket, post-close, overnight)    │
+│   (single instance,                       │                                                           │
+│    PID lockfile in                        ├─► Universe scanner ─► LLM packet writer (Ollama)          │
+│    data/watch.lock)                       ├─► Risk governor ────► Order submitter (Alpaca SDK)        │
+│                                           ├─► Reconciler  ──────► shadow_trades table updates        │
+│                                           ├─► Render sync ──────► Cloud Postgres (every 5 min)       │
+│                                           └─► Build score / HSHS / dashboard refresh                  │
+│                                                                                                       │
+│   Ollama daemon ─────────────────►  Qwen3-8B fine-tune (arcis:v1.0.0) on GPU                         │
+│   (separate process,                  Watchdog (scripts/ollama_watchdog.ps1) auto-restarts on death  │
+│    poll-restarted by watchdog)                                                                        │
+│                                                                                                       │
+│   SQLite DB  C:\arcis\data\ai_research_desk.sqlite3  (~1 GB, 70 schema-registered tables)            │
+│                                                                                                       │
+│   Corpus runner ─────────────────►  Generates Stage-1 training data (Ollama-driven).                 │
+│   (long-lived bg process,             ~67,681 entries; ~23-day full run at NUM_PARALLEL=2.           │
+│    only when training)                Output: data/corpus/stage1-001/entries.jsonl                    │
+│                                                                                                       │
+└───────────────────────────────────────────┬──────────────────────────────────────────────────────────┘
+                                            │
+                                            │  RenderSyncThread replicates per-table cursors via sync_state
+                                            ▼
+┌─────────────────────────────── Render (cloud) ──────────────────────────────────────────────────────┐
+│                                                                                                       │
+│   FastAPI service (src/api/) ────►  Read-only API on cloud Postgres mirror                           │
+│   React frontend (frontend/) ────►  Dashboard UI at https://halcyonlab.app                           │
+│                                                                                                       │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Single point of truth: the local SQLite.** Everything else (cloud Postgres, dashboard, APIs) is downstream. Cloud is for visibility, not control. If local and cloud disagree, local wins by definition.
+
+### 0.4 The trade lifecycle
+
+A trading day proceeds through five phases. Each phase has a dedicated watch-loop slot.
+
+**Pre-market (07:00–09:30 ET)**
+- Universe scanner — point-in-time SP100 lookup (`src/universe/pit.py`)
+- Data collectors — fundamentals, news, insider, macro snapshots
+- Premarket scorer — rules-based score per ticker
+
+**Intraday (09:30–16:00 ET, 5-min scan cadence)**
+
+Each scan cycle:
+1. Filter universe by liquidity / regime / build score
+2. For each surviving candidate, assemble a "packet" (price + technicals + news + fundamentals)
+3. LLM call (Ollama) — returns `conviction` (1–10), `direction`, `time_horizon`, `key_risk`
+4. Risk governor — enforces `effective_position_cap()` (`min()` across four namespaces: `risk.*`, `risk_governor.*`, `live_trading.*`, `bootcamp.*`)
+5. Submit bracket order via Alpaca paper SDK
+   - Three legs: entry + take-profit + stop-loss
+   - Multipliers config-driven via `live_trading.risk.{target,stop}_atr_multiplier` (typical: 1.5×ATR target / 1.0×ATR stop in paper; 2.0×ATR target in live config — see PR #943 for rationale)
+   - OCO topology when entry already filled and only protection legs remain (PR #943/#944)
+
+In parallel, the bracket monitor runs every 5 min:
+- Verify both legs of every bracket are active or healthy-completion
+- False-alert quarantine on broken topology (PR #944)
+
+**Post-close (16:00–16:35 ET)**
+- `reconcile_paper_trades` — reconcile local DB against Alpaca broker state
+- `reconcile_live_trades` — same for live broker (currently moot; paper-only)
+- EOD report — Telegram digest + email summary
+- Build score recompute — dashboard refresh
+
+**Methodology gate (16:35 ET — in flight via Sprint 2)**
+- Daily run of the 5-method voting gate over each candidate strategy
+- Persists `triggered_by='gate_proposal'` rows in `strategy_promotion_events` (informational; `from_status==to_status`)
+- Operator confirms via `confirm-promotion` CLI to actually transition the strategy
+
+**Overnight (16:35 ET – 07:00 ET)**
+- Data collection sweep — fresh fundamentals, news, macros (runs 7 days/week per CLAUDE.md)
+- VRAM handoff — Ollama unloads, training process can claim GPU
+- Training cycle (when corpus + outcomes ready) — retrains on accumulated trade outcomes
+- VRAM handoff back — training releases, Ollama reloads before pre-market
+
+### 0.5 The data lifecycle
+
+Two flows feed each other:
+
+**Flow 1 — Trade outcomes feed Stage 1/2/3 grading**
+
+`Strategy candidate (LLM call)` → `bracket order` → `closed trade` → `shadow_trades row` → graded by build score / HSHS / Stage-N stats.
+
+Two filters gate which rows count:
+- `instrumentation_filter.is_fully_instrumented()` — requires every required telemetry column populated (cost, slippage, fundamental snapshot, etc.). Trades missing any column are excluded from Stage 1/2/3 statistics. **Roughly 30–60% of paper trades fail instrumentation in early operations** — that's by design, not a bug.
+- `outcome_stats_filter_sql()` — drops `reconciled_stale` rows (bookkeeping artifacts of reconciler closures, not real strategy outcomes). Per Wave 4 H5; enforced by `tests/test_outcome_stats_filter_coverage.py`.
+
+The instrumentation filter is the discipline that lets ARCIS make calibrated promotion decisions. Missing it means we can't tell whether a trade closed because the strategy worked or because we lacked the data to know.
+
+**Flow 2 — Trade context feeds the LLM training corpus**
+
+`PIT-clean inputs (packet)` → `prompt` → `Ollama call` → `response` → `entries.jsonl row`.
+
+Where `packet_writer.py` orchestrates: it builds prompts from PIT-clean fundamentals/news/technicals snapshots, calls Ollama, parses the response, and appends a row to `data/corpus/stage1-001/entries.jsonl`. When Ollama fails, packet_writer falls back to a hand-written template — and **currently those template rows share `model_version="arcis:v1.0.0"` with real entries (a forthcoming packet_writer change will tag fallback rows distinctly so they can be filtered at training time)**. See §5 "Ollama crashes / corpus producing template fallbacks" for detection + cleanup.
+
+The corpus is then fed to training (`src/training/trainer.py`) to produce new model versions when accumulated outcomes warrant retraining.
+
+### 0.6 Key invariants (don't break these)
+
+These rules are enforced by code, tests, or operator discipline. Breaking any of them silently corrupts the validation ladder.
+
+| Invariant | Where enforced | Why it matters |
+|---|---|---|
+| Schema registry is single source of truth | `src/schema/registry.py` + `test_no_create_table_in_source` / `test_no_alter_table_in_source` CI tests | Drift between Postgres / SQLite / code → silent data loss |
+| Risk governor is sacred | `src/risk/governor.py` (`min()` across 4 namespaces) | Bypass = unbounded position size; instant blow-up risk |
+| PIT discipline | `src/universe/pit.py` + tests | Future-data leakage invalidates backtest results |
+| Training data quality #1 | Corpus discriminator (`<1500` chars + rigid prefix) + forthcoming `model_version=template_fallback` tagging | Polluted training data → polluted future model |
+| Test count must not drop | CI floor at 3682 in `CLAUDE.md` | Catches accidental test deletion / bypass |
+| Worktree isolation for parallel agents | `CLAUDE.md` + `.claude/agent-scope.json` pre-commit hook | Index races between parallel agents → mixed-attribution commits |
+| `outcome_stats_filter_sql()` on every shadow_trades aggregation | `tests/test_outcome_stats_filter_coverage.py` static-analysis test | `reconciled_stale` rows aren't real outcomes; uncounted-out → wrong win-rate / wrong gate decision |
+| Mock all external APIs in tests | `tests/conftest.py` fixtures + per-test patches | Pytest must never make a network call to Alpaca / Finnhub / yfinance / FRED / Ollama. Tests that hit live APIs are flaky and contaminate rate limits |
+
+### 0.7 What you'll actually be doing
+
+If you're stepping in as a new operator, these are the recurring real-world tasks (in expected frequency order, most → least common):
+
+1. **Daily monitor** (5 min/day): Telegram digest pre-market + EOD; glance at https://halcyonlab.app for traffic light + KPIs. If green, no action.
+2. **Reconciler intervention** (~weekly): Stuck Alpaca paper positions show up as repeated `reconciled_stale` rows. Cancel orders + close positions in Alpaca UI, restart watch loop. See §6 "Stuck Alpaca paper positions".
+3. **PR review + merge** (~daily during active sprints): Sprint agents open PRs that need operator review. Merge via squash + delete-branch.
+4. **Corpus generation supervision** (~as-needed, multi-day runs): Stage 1 baseline + retraining. Watchdog handles uptime; you watch for fallback contamination via §5 "Ollama crashes" recipe.
+5. **Schema migration after PR merges** (~per-PR that touches schema): `validate-schema --fix` + `render_migrate.py`. Documented in PR body.
+6. **Recovery from incidents** (~rare): WAL corruption, lost commits, broken cloud sync. §6 has tested recipes for each.
+7. **Strategic decisions** (~quarterly): Stage gate promotions, model retrains, methodology toolkit additions, infra changes. Higher leverage; longer thinking.
+
+### 0.8 Where to look first when something breaks
+
+| Symptom | First place to look |
+|---|---|
+| Watch loop won't start | `logs/arcis.log` tail + §5 "Watch loop won't start" decision tree |
+| Cloud dashboard shows wrong numbers | `logs/arcis.log` + §5 "Cloud dashboard shows wrong numbers" |
+| Corpus stalled / producing fallback | `logs/corpus-stage1-001.err` + `logs/ollama-watchdog.log` + §5 "Ollama crashes" |
+| Trade in shadow_trades table looks wrong | sqlite3 readonly query + cross-reference Alpaca UI; §6 "Stuck Alpaca paper positions" if recurring |
+| Test failures after pull | §5 "Tests failing on test_repo_structure.py" or "ModuleNotFoundError" |
+| DB locked errors | §5 "Database is locked" |
+| SSH session closing kills your work | §5 "Long-running process won't survive my SSH session" + §7 "SSH-safe process launch" |
+| Process crashed; need to recover work | §6 "Lost work after stash-pop" |
+| **"Something feels wrong, I don't know what"** | §0.10 quick health check, then §6 "Total restart from a bad state" if multiple components are red |
+
+### 0.9 The mental model in one paragraph
+
+ARCIS is a tight feedback loop: **scan universe → LLM-score candidates → submit bracket orders → reconcile broker state → grade outcomes → (eventually, when corpus + outcomes are ready) retrain the LLM**. Everything else (schema discipline, instrumentation filter, methodology gate, three-stage ladder, render sync, dashboard) is in service of making that loop *honest* — i.e., resistant to overfitting, look-ahead bias, statistical artifacts, regime tailwinds, and silent data corruption. The reason the validation ladder is so strict is because the operator is one person betting their own capital; we'd rather discover after 300 OOS trades that the strategy works than after 30 OOS trades that it doesn't.
+
+### 0.10 Quick health check (the 3am-incident one-liner)
+
+When something feels wrong but you don't know what, run this from PowerShell on the operator machine. It surfaces the four things that have to be true for ARCIS to be healthy:
+
+```powershell
+Write-Output "=== Watch loop ==="; Get-CimInstance Win32_Process -Filter "name='python.exe'" | ?{ $_.CommandLine -match 'src.main startup' } | Select-Object ProcessId, @{n='age_min';e={[math]::Round(((Get-Date)-$_.CreationDate).TotalMinutes,1)}} | Format-Table
+Write-Output "=== Ollama ==="; Get-Process -Name "ollama*" -ErrorAction SilentlyContinue | Select-Object Id, @{n='age_min';e={[math]::Round(((Get-Date)-$_.StartTime).TotalMinutes,1)}} | Format-Table
+try { $r = Invoke-WebRequest -Uri "http://127.0.0.1:11434/api/tags" -UseBasicParsing -TimeoutSec 5; Write-Output "Ollama API: $($r.StatusCode) (200=healthy)" } catch { Write-Output "Ollama API: DOWN" }
+Write-Output "=== Watchdog ==="; Get-CimInstance Win32_Process -Filter "name='powershell.exe'" | ?{ $_.CommandLine -match 'ollama_watchdog' } | Select-Object ProcessId | Format-Table
+Write-Output "=== Last 3 watchdog log lines ==="; Get-Content C:\arcis\halcyon-lab\logs\ollama-watchdog.log -Tail 3 -ErrorAction SilentlyContinue
+Write-Output "=== Watch loop heartbeat ==="; Get-Item C:\arcis\data\watchdog.txt -ErrorAction SilentlyContinue | Select-Object LastWriteTime
+```
+
+Healthy state:
+- One python `src.main startup` process, age >0 min (single instance per host)
+- One or more `ollama*` processes
+- Ollama API returns `200`
+- Watchdog (powershell + `ollama_watchdog`) running iff you're in a corpus / training session
+- `data/watchdog.txt` LastWriteTime within the last few minutes (watch-loop heartbeat)
+
+Anything else → drop into §5 troubleshooting using the symptom table in §0.8.
 
 ---
 
@@ -103,7 +298,9 @@ python -m src.main startup
 ### Watching the system live
 
 - **Tail watch loop log:** `tail -f C:/arcis/halcyon-lab/logs/arcis.log`
-- **Tail corpus generator (when running):** `tail -f C:/arcis/halcyon-lab/logs/stage1-corpus.log`
+- **Tail corpus generator (current run):** `tail -f C:/arcis/halcyon-lab/logs/corpus-stage1-001.err` (progress + Ollama messages go to stderr; legacy filename `stage1-corpus.log` is from earlier runs only)
+- **Tail Ollama watchdog:** `tail -f C:/arcis/halcyon-lab/logs/ollama-watchdog.log` (start/restart/circuit-break events)
+- **Tail Ollama daemon stderr:** `tail -f C:/arcis/halcyon-lab/logs/ollama-daemon.err` (CUDA / runner output — diagnostic on next crash)
 - **Sync thread health:** check `data/watch.lock` exists and modification time is recent
 - **DB lock checks:** never open `data/ai_research_desk.sqlite3` in MS Access / DBeaver while watch loop runs — Windows holds the file lock and writers will hit "database is locked"
 
@@ -146,22 +343,33 @@ DATABASE_URL=$(python -c "import yaml; cfg=yaml.safe_load(open('config/settings.
 
 ### Corpus generation
 
+**Prerequisite: Ollama watchdog MUST be running** (see §7 "Ollama watchdog"). Without it, a single Ollama crash will silently produce template-fallback entries that pollute training data — see §5 "Corpus producing template fallbacks".
+
 ```bash
-# Initial launch (Stage 1):
+# 0. Start the watchdog (one-time per machine boot, see §7 for WMI variant)
+scripts\start_ollama_watchdog.bat
+
+# 1. Initial launch (Stage 1) — NUM_PARALLEL=2 is the validated stable config
+#    on the RTX 3060 (12 GiB VRAM). At --num-parallel 4 the runner CUDA-OOMs.
+#    See §5 "Ollama crashes" for VRAM math.
 python scripts/generate_llm_corpus.py \
   --corpus-id stage1-001 \
   --window-start 2023-09-01 \
   --window-end 2026-04-28 \
-  --num-parallel 4
+  --num-parallel 2
 
-# Resume after stop / hang:
+# 2. Resume after stop / hang:
 python scripts/generate_llm_corpus.py \
   --corpus-id stage1-001 \
   --window-start 2023-09-01 \
   --window-end 2026-04-28 \
   --resume \
-  --num-parallel 4
+  --num-parallel 2
 ```
+
+`OLLAMA_NUM_PARALLEL` user env var must be set to `2` to match — **one-time per-machine setup; the watchdog does NOT manage this**. Set via PowerShell `[Environment]::SetEnvironmentVariable("OLLAMA_NUM_PARALLEL","2","User")` or `setx OLLAMA_NUM_PARALLEL 2` BEFORE starting the watchdog (Ollama reads it on its own startup, not from the watchdog process env). Mismatch (e.g. corpus `--num-parallel 4` vs `OLLAMA_NUM_PARALLEL=1`) causes Ollama to spawn N runner subprocesses, each loading a separate model copy → VRAM exhaustion → silent crash.
+
+**For SSH-disconnect-safe runs**, use the WMI launch pattern in §7 "SSH-safe process launch" instead of running the command directly in your shell.
 
 ### Frontend
 
@@ -217,8 +425,16 @@ python -m ruff format src/ tests/
 | `C:\arcis\data\watchdog.txt` | Watch loop heartbeat |
 | `C:\arcis\logs\` | Runtime logs |
 | `C:\arcis\halcyon-lab\logs\arcis.log` | Main watch loop log |
-| `C:\arcis\halcyon-lab\logs\stage1-corpus.log` | Corpus generator log |
-| `C:\arcis\halcyon-lab\data\corpus\stage1-001\entries.jsonl` | Generated corpus entries |
+| `C:\arcis\halcyon-lab\logs\corpus-stage1-001.out` | Corpus generator stdout (current run) |
+| `C:\arcis\halcyon-lab\logs\corpus-stage1-001.err` | Corpus generator stderr — **progress lines + Ollama interactions go HERE** (Python loggers default to stderr) |
+| `C:\arcis\halcyon-lab\logs\stage1-corpus.log` | Legacy corpus log filename — earlier runs only |
+| `C:\arcis\halcyon-lab\logs\ollama-watchdog.log` | Watchdog event log (start, restart, circuit-break events) |
+| `C:\arcis\halcyon-lab\logs\ollama-daemon.err` | Captured stderr from Ollama daemon — diagnostic on next runner crash |
+| `C:\arcis\halcyon-lab\logs\ollama-daemon.out` | Captured stdout from Ollama daemon |
+| `C:\arcis\halcyon-lab\data\corpus\stage1-001\entries.jsonl` | Generated corpus entries (append-only) |
+| `C:\arcis\halcyon-lab\data\corpus\stage1-001\entries.jsonl.bak.<N>` | Manual backups — `.bak.<line-count>` convention before any destructive trim |
+| `C:\arcis\halcyon-lab\scripts\ollama_watchdog.ps1` | Ollama watchdog (poll /api/tags, restart, capture stderr, circuit-breaker) |
+| `C:\arcis\halcyon-lab\scripts\start_ollama_watchdog.bat` | Convenience launcher for the watchdog |
 | `C:\arcis\halcyon-lab\.venv\` | Python virtualenv (gitignored) |
 | `C:\arcis\halcyon-lab\.env` | Secrets (gitignored) |
 | `C:\arcis\halcyon-lab\.claude\worktrees\` | Agent worktrees (auto-managed; safe to bulk-prune merged) |
@@ -274,7 +490,7 @@ Compare local vs cloud:
 ├─ Local OK but cloud lags → RenderSyncThread issue
 │    → check sync_state table for stuck in_flight rows
 │    → if stuck >10 min: post-Wave-4-H1 this auto-clears on watch restart
-│    → manual fix: UPDATE sync_state SET status='idle', in_flight_since=NULL WHERE host_id='SWIFT-PC'
+│    → manual fix: UPDATE sync_state SET status='idle', in_flight_since=NULL WHERE host='SWIFT-PC'
 │
 └─ Numbers look LOW (e.g., 6 closed instead of 50) → H5 working as intended
    → reconciled_stale rows excluded from outcome counters
@@ -325,6 +541,57 @@ If tests fail in worktree but pass in main:
    → check tests/conftest.py for proper hermetic fixtures
 ```
 
+### "Ollama crashes / corpus producing template fallbacks"
+
+**Symptom:** `logs/corpus-stage1-001.err` shows `WARNING [src.llm.packet_writer] [LLM] Generation failed -- fallback to template for <TICKER>` repeatedly. Or `Ollama unresponsive` warnings. Or the corpus runner silently appends entries that look terse (~750-800 chars) and start with `<TICKER> is in a [strong/weak/neutral] [uptrend/downtrend/neutral]`.
+
+```
+1. Verify the watchdog is running:
+   Get-Process -Name ollama* | Select-Object Id, @{n='age_min';e={[math]::Round(((Get-Date)-$_.StartTime).TotalMinutes,1)}}
+   Get-CimInstance Win32_Process -Filter "name='powershell.exe'" | ?{ $_.CommandLine -match 'ollama_watchdog' } | Format-List
+   - If neither: start the watchdog (see §7 "Ollama watchdog")
+   - If watchdog up but circuit-broken: read logs/ollama-watchdog.log tail; circuit pause is 5 min
+
+2. Check OLLAMA_NUM_PARALLEL matches corpus --num-parallel:
+   [Environment]::GetEnvironmentVariable("OLLAMA_NUM_PARALLEL","User")
+   - This rig (RTX 3060 12 GiB) is validated at 2. Higher values OOM the runner subprocess.
+   - VRAM math: arcis:v1.0.0 model = ~9.12 GiB resident at NUM_PARALLEL=2.
+     Browser/desktop GPU consumers (Edge, Chrome, VS Code) use ~1.5 GiB. Total ~10.6 GiB
+     of 12 GiB available; ~1.7 GiB cushion. NUM_PARALLEL=4 needs ~10.4 GiB resident
+     leaving ~0.4 GiB cushion — any GPU spike (browser tab, video) tips it over.
+
+3. Audit existing entries for fallback contamination:
+   python -c "import json,re,sys; t=re.compile(r'^[A-Z]+ is in a (strong |weak |)?(uptrend|downtrend|neutral)'); short_template=long_real=0
+   with open('data/corpus/stage1-001/entries.jsonl','rb') as f:
+     for line in f:
+       try: e=json.loads(line); c=len(e.get('response','')); m=t.match(e.get('response',''))
+       except: continue
+       if c<1500 and m: short_template+=1
+       elif c>=1500 and not m: long_real+=1
+   print(f'definite fallback: {short_template}; definite real: {long_real}')"
+   - If fallback count is non-zero: trim before resuming (next step)
+
+4. Trim fallback contamination (DESTRUCTIVE — keep backup):
+   cd data/corpus/stage1-001
+   cp entries.jsonl entries.jsonl.bak.$(wc -l < entries.jsonl | tr -d ' ')
+   python -c "import json,re; t=re.compile(r'^[A-Z]+ is in a (strong |weak |)?(uptrend|downtrend|neutral)')
+   with open('entries.jsonl','rb') as i, open('entries.jsonl.tmp','wb') as o:
+     for line in i:
+       try: e=json.loads(line); c=len(e.get('response','')); m=t.match(e.get('response',''))
+       except: o.write(line); continue
+       if c<1500 and m: continue
+       o.write(line)"
+   mv entries.jsonl.tmp entries.jsonl
+
+5. Restart Ollama clean:
+   - Watchdog will detect stale daemon and restart automatically
+   - Or manually: Get-Process -Name ollama* | Stop-Process -Force; & "C:\Users\mille\AppData\Local\Programs\Ollama\ollama.exe" serve
+
+6. Resume corpus with --num-parallel 2 (see §3 "Corpus generation")
+```
+
+Root cause finding (2026-05-06): `packet_writer.py` has 5 fallback paths that all silently write template entries with the same `model_version="arcis:v1.0.0"` — indistinguishable from real LLM at training time. Discriminator: real LLM responses are 2400-3000 chars and start with natural-language analysis; templates are 750-800 chars and start with the rigid `<TICKER> is in a <trend>` prefix. Permanent fix is a forthcoming packet_writer change: either skip-write on fallback OR distinguish via `model_version="template_fallback"`.
+
 ### "Database is locked" errors
 
 ```
@@ -337,6 +604,32 @@ If watch loop is the culprit (rare):
    → use sqlite3 -readonly for inspection
    → or read-only Python connection: sqlite3.connect('file:...?mode=ro', uri=True)
 ```
+
+### "Long-running process won't survive my SSH session closing"
+
+```
+Symptom: corpus runner / watchdog dies when you close PuTTY / OpenSSH client.
+Root cause: `Start-Process` and `python ... &` both spawn child processes
+that inherit the SSH session's job object. Closing SSH terminates the job.
+
+Fix: launch via WMI Win32_Process.Create. The Task Scheduler / service
+infrastructure spawns the process in Session 0 (the services session), so
+it persists across user/SSH session changes.
+
+# PowerShell pattern:
+$cmd = 'cmd.exe /c "cd /d C:\arcis\halcyon-lab && B:\Python\python.exe scripts/foo.py >> logs/foo.out 2>> logs/foo.err"'
+$result = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine = $cmd}
+Write-Output "PID: $($result.ProcessId), ReturnValue: $($result.ReturnValue)"  # 0 = success
+
+# Verify the process is in Session 0 (not your user session):
+Get-CimInstance Win32_Process -Filter "ProcessId=$($result.ProcessId)" | Select-Object SessionId
+# Compare with $PID's session — should differ if your shell is in a user session.
+
+# To stop the WMI-launched process:
+Stop-Process -Id <pid> -Force
+```
+
+See §7 "SSH-safe process launch" for the canonical patterns (corpus runner + watchdog).
 
 ---
 
@@ -400,6 +693,73 @@ Safe rollback:
 3. Merge the revert PR.
 ```
 
+### CHANGELOG.md conflict during sequential PR merges
+
+```
+Symptom: PR you opened earlier is now CONFLICTING after another PR merged
+to main, conflict is in CHANGELOG.md only.
+
+Root cause: both PRs added a new bullet at the top of the [Unreleased]
+section. Git's auto-merge can't decide ordering — it surfaces a conflict.
+
+Resolution (one-shot):
+1. git checkout -b <pr-branch>-resolve origin/<pr-branch>
+2. git merge origin/main
+   → Auto-merging CHANGELOG.md
+   → CONFLICT (content): Merge conflict in CHANGELOG.md
+3. Open CHANGELOG.md, locate the conflict block:
+   <<<<<<< HEAD
+   - **<your PR's entry>**
+   =======
+   - **<the entry that landed first>**
+   >>>>>>> origin/main
+4. Keep both entries, in order: yours first (it's the "newer" one being
+   merged on top), the other entry second. Remove the conflict markers.
+5. git add CHANGELOG.md && git commit -m "Merge origin/main into <branch>
+   -- resolve CHANGELOG conflict (keep both entries)"
+6. git push origin <pr-branch>-resolve:<pr-branch>
+
+The squash-merge will collapse the merge commit; only your original
+content shows up in main's history.
+```
+
+### Total restart from a bad state (the "I don't know what's wrong, just get me back to clean")
+
+When sanity is lost — duplicate watch loops, stale lockfile, Ollama in unknown state, corpus runner orphaned, stuck broker state — and you want to get back to a known-good baseline without forensics. Run in this exact order; each step is idempotent.
+
+```powershell
+# 1. Stop EVERYTHING ARCIS-related on this machine.
+Get-CimInstance Win32_Process -Filter "name='python.exe'" | ?{ $_.CommandLine -match 'src.main|generate_llm_corpus|ollama_watchdog' } | %{ Stop-Process -Id $_.ProcessId -Force }
+Get-CimInstance Win32_Process -Filter "name='powershell.exe'" | ?{ $_.CommandLine -match 'ollama_watchdog' } | %{ Stop-Process -Id $_.ProcessId -Force }
+Get-Process -Name "ollama*" -ErrorAction SilentlyContinue | Stop-Process -Force
+
+# 2. Clear any stale lockfiles. (PID lock check would refuse startup otherwise.)
+Remove-Item C:\arcis\halcyon-lab\data\watch.lock -ErrorAction SilentlyContinue
+
+# 3. Confirm broker state. Open paper.alpaca.markets in a browser. Note: are
+#    there positions / open orders that don't appear in your local DB? If yes,
+#    follow §6 "Stuck Alpaca paper positions" before continuing.
+
+# 4. Verify schema (auto-fix any drift).
+cd C:\arcis\halcyon-lab
+python -m src.main validate-schema --fix
+
+# 5. (Optional) Health check the database file.
+python -c "import sqlite3; c=sqlite3.connect('file:C:/arcis/data/ai_research_desk.sqlite3?mode=ro',uri=True); c.execute('PRAGMA quick_check').fetchone()"
+# Should print ('ok',). Anything else → §6 "Corrupted SQLite WAL after power loss".
+
+# 6. Restart Ollama watchdog (will start Ollama itself).
+$cmd = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\arcis\halcyon-lab\scripts\ollama_watchdog.ps1'
+Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine = $cmd}
+
+# 7. Restart watch loop.
+python -m src.main startup
+
+# 8. Verify with the §0.10 quick health check.
+```
+
+After step 8, run the §0.10 health-check one-liner. If everything is green, you're back to operational. If anything is still red, you're past "just-restart" territory — drop into the targeted §5 troubleshooting tree for that specific symptom.
+
 ### Worktree cleanup (post-merge)
 
 ```bash
@@ -430,13 +790,17 @@ git branch -D <branch-name>
 
 The Stage 1 corpus is generated by Ollama (local fine-tuned Qwen3-8B) over a multi-day run. Goal: 67,681 entries covering 2023-09-01 to 2026-04-28.
 
+**Two prerequisites before any corpus run:**
+1. Watchdog must be running (see "Ollama watchdog" below). Without it, an Ollama crash silently produces template-fallback entries (~16% of historical corpus was contaminated this way pre-2026-05-06; see §5 "Ollama crashes").
+2. `OLLAMA_NUM_PARALLEL=2` user env var. Validated stable on RTX 3060 12 GiB. NUM_PARALLEL=4 OOMs the runner subprocess.
+
 **To start fresh:**
 ```bash
 python scripts/generate_llm_corpus.py \
   --corpus-id stage1-001 \
   --window-start 2023-09-01 \
   --window-end 2026-04-28 \
-  --num-parallel 4
+  --num-parallel 2
 ```
 
 **To resume after stop / hang / restart:**
@@ -446,16 +810,97 @@ python scripts/generate_llm_corpus.py \
   --window-start 2023-09-01 \
   --window-end 2026-04-28 \
   --resume \
-  --num-parallel 4
+  --num-parallel 2
 ```
 
-The `--resume` flag dedup's via `prompt_sha256` against existing entries.jsonl — safe to invoke repeatedly.
+The `--resume` flag dedup's by `(as_of, ticker)` against existing entries.jsonl — safe to invoke repeatedly.
 
 **To monitor progress:**
 ```bash
-tail -f C:/arcis/halcyon-lab/logs/stage1-corpus.log
+# Logs (current run uses .out and .err split):
+tail -f C:/arcis/halcyon-lab/logs/corpus-stage1-001.err   # progress lines + Ollama messages here
+tail -f C:/arcis/halcyon-lab/logs/corpus-stage1-001.out   # stdout (typically empty unless Python prints)
+
+# Entry count:
 wc -l C:/arcis/halcyon-lab/data/corpus/stage1-001/entries.jsonl
+
+# Quick fallback-contamination audit (real LLM should dominate):
+grep -c "Using Ollama path" C:/arcis/halcyon-lab/logs/corpus-stage1-001.err
+grep -c "fallback to template" C:/arcis/halcyon-lab/logs/corpus-stage1-001.err
 ```
+
+**Healthy throughput:** ~2 entries/min at `--num-parallel 2` → ~67,681 entries / (2 × 60 × 24) ≈ 23 days for a full run from scratch. From a partial state (e.g. 27,000 already generated), remaining ETA scales accordingly.
+
+**For SSH-disconnect-safe runs**, use the WMI launch pattern below ("SSH-safe process launch") instead of running the command directly in your shell.
+
+### Ollama watchdog
+
+Background-monitor that polls `http://127.0.0.1:11434/api/tags` every 30s and auto-restarts Ollama on death. Closes the diagnostic gap from running `Start-Process -WindowStyle Hidden` (which discards stderr); the watchdog redirects stderr to `logs/ollama-daemon.err` so the next CUDA OOM is operator-visible.
+
+**Start (operator at console / RDP):**
+```bash
+scripts\start_ollama_watchdog.bat
+```
+Logs accumulate at `logs/ollama-watchdog.log`. Tail to monitor.
+
+**Start (SSH-disconnect-safe):** use the WMI pattern in "SSH-safe process launch" below with this command:
+```powershell
+$cmd = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\arcis\halcyon-lab\scripts\ollama_watchdog.ps1'
+Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine = $cmd}
+```
+
+**Verify it's working:**
+```powershell
+Get-CimInstance Win32_Process -Filter "name='powershell.exe'" | ?{ $_.CommandLine -match 'ollama_watchdog' } | Format-List ProcessId, CreationDate
+Invoke-WebRequest -Uri "http://127.0.0.1:11434/api/tags" -UseBasicParsing -TimeoutSec 5
+```
+
+**Stop the watchdog:**
+```powershell
+Get-CimInstance Win32_Process -Filter "name='powershell.exe'" | ?{ $_.CommandLine -match 'ollama_watchdog' } | %{ Stop-Process -Id $_.ProcessId -Force }
+```
+
+**Circuit breaker:** 3 restarts in any rolling 10-minute window pauses the watchdog for 5 minutes and dumps last 10 lines of `daemon.err` to the watchdog log. Indicates persistent driver/hardware issue (not transient OOM). Investigate before resuming the corpus.
+
+**Configuration overrides:** `$env:OLLAMA_EXE` to override the Ollama binary path; otherwise resolution is `$env:OLLAMA_EXE → on PATH → C:\Users\mille\AppData\Local\Programs\Ollama\ollama.exe`.
+
+### SSH-safe process launch (Win32_Process via WMI)
+
+When you launch a long-running process from an SSH session — corpus runner, watchdog, anything — `Start-Process` and `python ... &` both inherit your SSH session's job object. Closing SSH terminates the job, killing all children. **WMI Win32_Process.Create launches in Session 0 (services), independent of any user / SSH session.**
+
+**Canonical pattern (single command):**
+```powershell
+$cmd = 'cmd.exe /c "cd /d C:\arcis\halcyon-lab && set PYTHONUNBUFFERED=1 && B:\Python\python.exe scripts/foo.py >> logs/foo.out 2>> logs/foo.err"'
+$result = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine = $cmd}
+Write-Output "PID: $($result.ProcessId), ReturnValue: $($result.ReturnValue)"   # 0 = success
+```
+
+**Verify Session 0 (the persistence guarantee):**
+```powershell
+Get-CimInstance Win32_Process -Filter "ProcessId=$($result.ProcessId)" | Select-Object SessionId, ParentProcessId
+# SessionId should be 0
+```
+
+**Two specific recipes:**
+
+1. **Corpus runner** (the one you'll use most):
+   ```powershell
+   $cmd = 'cmd.exe /c "cd /d C:\arcis\halcyon-lab && set PYTHONUNBUFFERED=1 && B:\Python\python.exe scripts/generate_llm_corpus.py --corpus-id stage1-001 --window-start 2023-09-01 --window-end 2026-04-28 --num-parallel 2 --resume >> logs/corpus-stage1-001.out 2>> logs/corpus-stage1-001.err"'
+   Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine = $cmd}
+   ```
+
+2. **Watchdog**:
+   ```powershell
+   $cmd = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\arcis\halcyon-lab\scripts\ollama_watchdog.ps1'
+   Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine = $cmd}
+   ```
+
+**To stop a WMI-launched process:** `Stop-Process -Id <pid> -Force`. The WMI launch was just a means of detachment; once running, it's a normal process.
+
+**Caveats:**
+- Win32_Process inherits the calling user's environment. If you've `setx OLLAMA_NUM_PARALLEL 2` in another session, this session may not see it until shell restart.
+- `cmd.exe /c` wrapping is needed for shell features (`cd /d`, `&&` chaining, redirects). Without it, the command runs raw with no cwd / no redirects.
+- SessionId=0 is the services session — no GUI. Anything requiring a GUI (Excel automation, etc.) should NOT use this pattern.
 
 ### Schema migration to Render Postgres
 
@@ -544,7 +989,10 @@ Quarterly (or when worktrees exceed ~30):
 | **T-A1, T-B3, etc.** | Sprint task identifiers (T = Task). e.g., Sprint 1.A Wave 2/3 had T-A1 (live_prices time column), T-B3 (backtester subtract_trading_days), etc. |
 | **Walkforward** | `src/evaluation/walkforward.py` — anchored cross-validation. R1-R8 rigor requirements per pre-reg addendum |
 | **Watch loop** | Main runtime daemon (`src/scheduler/watch.py::WatchLoop`). Single instance per host (PID lockfile) |
+| **(Ollama) Watchdog** | `scripts/ollama_watchdog.ps1` — separate from the watch loop. Polls `/api/tags` every 30s, auto-restarts Ollama on death, captures daemon stderr to `logs/ollama-daemon.err` for crash diagnostics. Required before any corpus generation run. See §7 |
 | **Worktree** | Independent git working directory sharing the same `.git` repo. Used for parallel agent isolation |
+| **Template-fallback entry** | A corpus entry written by `packet_writer.py` when the LLM call failed (Ollama unreachable / parse failure / etc.). Discriminator: response < 1500 chars AND starts with rigid `<TICKER> is in a [strong\|weak]? (uptrend\|downtrend\|neutral)` prefix. Currently shares `model_version="arcis:v1.0.0"` with real LLM entries — a forthcoming packet_writer change will add distinct tagging. Real LLM responses are 2400-3000 chars and start with natural-language analysis |
+| **WMI launch / Session 0** | `Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine=...}`. Launches a process detached from the calling session — survives SSH disconnect. Process lands in Session 0 (services), no GUI. Use for corpus + watchdog + any long-running ops process. See §7 |
 
 ---
 

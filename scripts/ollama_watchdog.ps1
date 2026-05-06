@@ -1,4 +1,4 @@
-# Ollama watchdog — monitors /api/tags, restarts on death, captures stderr.
+# Ollama watchdog -- monitors /api/tags, restarts on death, captures stderr.
 #
 # Usage:
 #   powershell -File scripts/ollama_watchdog.ps1
@@ -82,7 +82,7 @@ Log "Logs: watchdog=$watchdogLog | daemon_err=$ollamaErrLog | daemon_out=$ollama
 if (Test-OllamaHealthy) {
     Log "Initial health check OK"
 } else {
-    Log "Initial health check FAILED — starting Ollama"
+    Log "Initial health check FAILED -- starting Ollama"
     Stop-OllamaProcesses
     Start-OllamaHeadless | Out-Null
     Start-Sleep -Seconds $startupGraceSec
@@ -98,7 +98,7 @@ while ($true) {
 
     if (Test-OllamaHealthy) { continue }
 
-    Log "Ollama unreachable — restart sequence initiating"
+    Log "Ollama unreachable -- restart sequence initiating"
 
     # Circuit breaker
     $now = Get-Date
@@ -125,7 +125,7 @@ while ($true) {
     if (Test-OllamaHealthy) {
         Log "Restart $($restartHistory.Count): SUCCESS"
     } else {
-        Log "Restart $($restartHistory.Count): FAILED — daemon not responding after ${startupGraceSec}s grace"
+        Log "Restart $($restartHistory.Count): FAILED -- daemon not responding after ${startupGraceSec}s grace"
         if (Test-Path $ollamaErrLog) {
             Log "Last 5 lines of daemon err log:"
             Get-Content $ollamaErrLog -Tail 5 | ForEach-Object { Log "  STDERR: $_" }
