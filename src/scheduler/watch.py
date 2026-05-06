@@ -256,6 +256,7 @@ class WatchLoop(HandlerRegistryMixin):
         self._premarket_bracket_check_done = False
         self._postclose_bracket_check_done = False
         self._postclose_reconcile_done = False
+        self._strategy_gate_done = False
         self._last_bracket_check_time: datetime | None = None
 
         # Research synthesis + daily metrics
@@ -363,6 +364,7 @@ class WatchLoop(HandlerRegistryMixin):
         self._premarket_bracket_check_done = False
         self._postclose_bracket_check_done = False
         self._postclose_reconcile_done = False
+        self._strategy_gate_done = False
         self._attribution_resolution_done = False
         self._model_regression_done = False
         self._stress_test_done = False
@@ -1622,6 +1624,31 @@ class WatchLoop(HandlerRegistryMixin):
                     ):
                         self._postclose_reconcile_done = True
 
+                # 4b2. Daily methodology gate sweep (16:35 ET — after post-close
+                # reconcile). Evaluates all shadow_trading + backtested strategies
+                # and persists gate_proposal events. Sprint 2 T4.
+                # Late-import inside the method body: top-level import of
+                # platform.promotion creates a circular-import risk (promotion.py
+                # imports from src.config which triggers watch.py's own import
+                # chain). This pattern matches how attribution_resolution_and_notify
+                # is imported at its call site above.
+                if (
+                    hour == 16
+                    and now.minute >= 35
+                    and not self._strategy_gate_done
+                ):
+                    from src.platform.promotion import (
+                        run_daily_gate_for_all_active_strategies,
+                    )
+                    if self._safe_run(
+                        "strategy methodology gate",
+                        lambda: run_daily_gate_for_all_active_strategies(
+                            db_path=DB_PATH,
+                            notify=self._notify_gate_proposal,
+                        ),
+                    ):
+                        self._strategy_gate_done = True
+
                 # 4c. Attribution outcome resolution (after market close)
                 # Window widened from 4:30-4:35 to 4:15-22:00 so NSSM restarts
                 # don't miss the window. The resolver is idempotent — safe to retry.
@@ -2004,6 +2031,31 @@ class WatchLoop(HandlerRegistryMixin):
             "[WATCH] Build score persisted: %.1f",
             result.get("build_score", 0),
         )
+
+    def _notify_gate_proposal(self, strategy_id: str, evidence: dict) -> None:
+        """Emit a Telegram-friendly digest when the methodology gate issues a
+        promote proposal for strategy_id.
+
+        Sprint 2 T4: stub implementation. Logs the decision and, when Telegram
+        is enabled, sends a concise one-line summary. Full digest formatting is
+        deferred to T9 (operator runbook sprint).
+        """
+        decision = evidence.get("methodology_gate", {}).get("decision")
+        logger.info(
+            "[METHODOLOGY_GATE] proposal for %s: decision=%s",
+            strategy_id,
+            decision,
+        )
+        try:
+            from src.notifications.telegram import send_telegram, is_telegram_enabled
+            if is_telegram_enabled():
+                send_telegram(
+                    f"[METHODOLOGY_GATE] {strategy_id}: decision={decision}"
+                )
+        except Exception:
+            logger.debug(
+                "[METHODOLOGY_GATE] Telegram notify failed for %s", strategy_id
+            )
 
     def _run_action_reminders(self):
         """8 PM ET — Send daily Telegram action reminders.
