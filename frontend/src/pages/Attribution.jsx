@@ -7,7 +7,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 export default function Attribution() {
   const { data, isLoading } = useQuery({
     queryKey: ['attribution-stats'],
-    queryFn: api.getAttributionStats,
+    queryFn: () => api.getAttributionStats(),
     refetchInterval: 120000,
   })
 

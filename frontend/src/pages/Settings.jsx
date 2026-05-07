@@ -184,10 +184,10 @@ function SettingInput({ settingKey, meta, currentValue, overrideInfo, onUpdate, 
 
 export default function Settings() {
   const queryClient = useQueryClient()
-  const { data: config, isLoading } = useQuery({ queryKey: ['config'], queryFn: api.getConfig })
-  const { data: status } = useQuery({ queryKey: ['status'], queryFn: api.getStatus })
+  const { data: config, isLoading } = useQuery({ queryKey: ['config'], queryFn: () => api.getConfig() })
+  const { data: status } = useQuery({ queryKey: ['status'], queryFn: () => api.getStatus() })
   const { data: costs } = useQuery({ queryKey: ['costs'], queryFn: () => api.getCosts(30), refetchInterval: 120000 })
-  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: api.getSettings, refetchInterval: 15000 })
+  const { data: settings } = useQuery({ queryKey: ['settings'], queryFn: () => api.getSettings(), refetchInterval: 15000 })
 
   const [pendingKeys, setPendingKeys] = useState(new Set())
   const [showResetConfirm, setShowResetConfirm] = useState(false)

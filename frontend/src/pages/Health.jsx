@@ -51,22 +51,22 @@ function overallColor(score) {
 export default function Health() {
   const { data: hshsData, isLoading: hshsLoading, isError: hshsError, error: hshsErrorObj, refetch: refetchHshs } = useQuery({
     queryKey: ['hshs-live'],
-    queryFn: api.getHSHS,
+    queryFn: () => api.getHSHS(),
     refetchInterval: 60000,
   })
   const { data: buildData, isLoading: buildLoading, isError: buildError } = useQuery({
     queryKey: ['build-score'],
-    queryFn: api.getBuildScore,
+    queryFn: () => api.getBuildScore(),
     refetchInterval: 120000,
   })
   const { data: trainingHistory } = useQuery({
     queryKey: ['training-history'],
-    queryFn: api.getTrainingHistory,
+    queryFn: () => api.getTrainingHistory(),
     refetchInterval: 300000,
   })
   const { data: ibData } = useQuery({
     queryKey: ['ib-status'],
-    queryFn: api.getIBStatus,
+    queryFn: () => api.getIBStatus(),
     refetchInterval: 60000,
     enabled: !IS_CLOUD,
   })

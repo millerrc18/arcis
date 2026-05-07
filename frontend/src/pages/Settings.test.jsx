@@ -1,6 +1,7 @@
 /**
  * Settings page tests — E3 SettingInput defense-in-depth precision clamp.
  * Sprint 3 / T11 — float32 noise defense.
+ * Sprint 3 / T20 — TanStack v5 queryFn arrow-wrap verification.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, fireEvent } from '@testing-library/react'
@@ -13,7 +14,19 @@ vi.mock('@tanstack/react-query', async (importOriginal) => {
 
 vi.mock('../config', () => ({ IS_CLOUD: false }))
 
+vi.mock('../api', () => ({
+  api: {
+    getConfig: vi.fn(),
+    getStatus: vi.fn(),
+    getSettings: vi.fn(),
+    getCosts: vi.fn(),
+    updateSettings: vi.fn(),
+    clearOverrides: vi.fn(),
+  },
+}))
+
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { api } from '../api'
 
 // Import only the SettingInput logic by pulling from the module.
 // Settings.jsx exports default; we need to test SettingInput's behavior via
@@ -185,5 +198,55 @@ describe('SettingInput — E3 float-precision clamp', () => {
     expect(mutate).toHaveBeenCalledWith(
       expect.objectContaining({ value: 0.006 })
     )
+  })
+})
+
+describe('Settings — T20 queryFn arrow-wrap', () => {
+  it('config queryFn is an arrow function, not a bare api.getConfig ref', () => {
+    useMutation.mockReturnValue({ mutate: vi.fn(), isPending: false })
+    useQueryClient.mockReturnValue({ invalidateQueries: vi.fn() })
+    let configQueryFn = null
+    useQuery.mockImplementation((opts) => {
+      if (opts.queryKey?.[0] === 'config') configQueryFn = opts.queryFn
+      return { data: undefined, isLoading: false }
+    })
+
+    wrap(<Settings />)
+
+    expect(configQueryFn).not.toBeNull()
+    expect(typeof configQueryFn).toBe('function')
+    expect(configQueryFn).not.toBe(api.getConfig)
+  })
+
+  it('status queryFn is an arrow function, not a bare api.getStatus ref', () => {
+    useMutation.mockReturnValue({ mutate: vi.fn(), isPending: false })
+    useQueryClient.mockReturnValue({ invalidateQueries: vi.fn() })
+    let statusQueryFn = null
+    useQuery.mockImplementation((opts) => {
+      if (opts.queryKey?.[0] === 'status') statusQueryFn = opts.queryFn
+      return { data: undefined, isLoading: false }
+    })
+
+    wrap(<Settings />)
+
+    expect(statusQueryFn).not.toBeNull()
+    expect(typeof statusQueryFn).toBe('function')
+    expect(statusQueryFn).not.toBe(api.getStatus)
+  })
+
+  it('settings queryFn is an arrow function, not a bare api.getSettings ref', () => {
+    useMutation.mockReturnValue({ mutate: vi.fn(), isPending: false })
+    useQueryClient.mockReturnValue({ invalidateQueries: vi.fn() })
+    let settingsQueryFn = null
+    useQuery.mockImplementation((opts) => {
+      if (opts.queryKey?.[0] === 'settings') settingsQueryFn = opts.queryFn
+      return { data: undefined, isLoading: false }
+    })
+
+    wrap(<Settings />)
+
+    expect(settingsQueryFn).not.toBeNull()
+    expect(typeof settingsQueryFn).toBe('function')
+    expect(settingsQueryFn).not.toBe(api.getSettings)
   })
 })
