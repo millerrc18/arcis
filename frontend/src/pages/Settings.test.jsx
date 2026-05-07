@@ -51,6 +51,83 @@ beforeEach(() => {
   useQuery.mockReturnValue({ data: undefined, isLoading: false })
 })
 
+const IB_WHY_DISABLED = 'Effect requires local IB Gateway connection'
+
+describe('F2.B IB toggle migration — visually-disabled with whyDisabled tooltip', () => {
+  function setup() {
+    useQuery.mockImplementation(({ queryKey }) => {
+      if (queryKey[0] === 'config') return { data: _baseConfig, isLoading: false }
+      if (queryKey[0] === 'settings') return { data: _baseSettings, isLoading: false }
+      return { data: undefined, isLoading: false }
+    })
+  }
+
+  it('shadow_mode toggle is rendered as disabled button', () => {
+    setup()
+    const { container } = wrap(<Settings />)
+    const buttons = Array.from(container.querySelectorAll('button'))
+    const shadowModeBtn = buttons.find(b => b.disabled && b.closest('[data-ib-key="live_trading.ib.shadow_mode"]'))
+    expect(shadowModeBtn).toBeTruthy()
+  })
+
+  it('shadow_mode row shows whyDisabled text', () => {
+    setup()
+    const { getAllByText } = wrap(<Settings />)
+    const matches = getAllByText(IB_WHY_DISABLED)
+    expect(matches.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('paper_routing toggle is rendered as disabled button', () => {
+    setup()
+    const { container } = wrap(<Settings />)
+    const buttons = Array.from(container.querySelectorAll('button'))
+    const paperRoutingBtn = buttons.find(b => b.disabled && b.closest('[data-ib-key="live_trading.ib.paper_routing"]'))
+    expect(paperRoutingBtn).toBeTruthy()
+  })
+
+  it('paper_routing row shows whyDisabled text', () => {
+    setup()
+    const { getAllByText } = wrap(<Settings />)
+    const matches = getAllByText(IB_WHY_DISABLED)
+    expect(matches.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('clicking shadow_mode disabled toggle does NOT fire onUpdate mutation', () => {
+    const mutate = vi.fn()
+    useMutation.mockReturnValue({ mutate, isPending: false })
+    setup()
+    const { container } = wrap(<Settings />)
+    const disabledBtn = container.querySelector('[data-ib-key="live_trading.ib.shadow_mode"] button[disabled]')
+    expect(disabledBtn).toBeTruthy()
+    fireEvent.click(disabledBtn)
+    expect(mutate).not.toHaveBeenCalled()
+  })
+
+  it('clicking paper_routing disabled toggle does NOT fire onUpdate mutation', () => {
+    const mutate = vi.fn()
+    useMutation.mockReturnValue({ mutate, isPending: false })
+    setup()
+    const { container } = wrap(<Settings />)
+    const disabledBtn = container.querySelector('[data-ib-key="live_trading.ib.paper_routing"] button[disabled]')
+    expect(disabledBtn).toBeTruthy()
+    fireEvent.click(disabledBtn)
+    expect(mutate).not.toHaveBeenCalled()
+  })
+
+  it('non-IB toggle (shadow_trading.enabled) remains functional — click fires mutation', () => {
+    const mutate = vi.fn()
+    useMutation.mockReturnValue({ mutate, isPending: false })
+    setup()
+    const { container } = wrap(<Settings />)
+    const tradingToggles = Array.from(
+      container.querySelectorAll('button.rounded-full')
+    ).filter(b => !b.disabled)
+    expect(tradingToggles.length).toBeGreaterThan(0)
+    fireEvent.click(tradingToggles[0])
+    expect(mutate).toHaveBeenCalled()
+  })
+})
+
 describe('SettingInput — E3 float-precision clamp', () => {
   it('clamps initial float32 artifact: 0.005000000001 with step=0.001 renders 0.005', () => {
     useQuery.mockImplementation(({ queryKey }) => {

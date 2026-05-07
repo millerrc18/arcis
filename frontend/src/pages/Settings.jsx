@@ -21,8 +21,8 @@ const SETTING_META = {
   // DB-2 Task 14 (unblocked after Sprint 1 merge): IB broker settings.
   // These live under live_trading.ib in the config; the toggles are writable
   // through config_overrides, port/client_id/host are informational (edit YAML).
-  'live_trading.ib.shadow_mode': { label: 'Shadow mode', type: 'toggle', section: 'IB', desc: 'Log what IB would do without executing (no real orders)' },
-  'live_trading.ib.paper_routing': { label: 'Paper routing', type: 'toggle', section: 'IB', desc: 'Route high-score paper trades through IB paper' },
+  'live_trading.ib.shadow_mode': { label: 'Shadow mode', type: 'toggle', section: 'IB', desc: 'Log what IB would do without executing (no real orders)', whyDisabled: 'Effect requires local IB Gateway connection' },
+  'live_trading.ib.paper_routing': { label: 'Paper routing', type: 'toggle', section: 'IB', desc: 'Route high-score paper trades through IB paper', whyDisabled: 'Effect requires local IB Gateway connection' },
   'live_trading.ib.paper_routing_threshold': { label: 'Routing threshold', type: 'number', section: 'IB', min: 0, max: 100, desc: 'Score ≥ threshold routes to IB (below stays Alpaca)' },
   'live_trading.ib.port': { label: 'Gateway port', type: 'number', section: 'IB', min: 1024, max: 65535, desc: '4002 = paper, 4001 = live. Start with 4002.' },
   'live_trading.ib.client_id': { label: 'Client ID', type: 'number', section: 'IB', min: 1, max: 32, desc: 'IB API client ID; must be unique per connection' },
@@ -65,6 +65,34 @@ function SettingInput({ settingKey, meta, currentValue, overrideInfo, onUpdate, 
   }
 
   if (meta.type === 'toggle') {
+    if (meta.whyDisabled) {
+      return (
+        <div data-ib-key={settingKey} className="flex items-center justify-between py-3" style={{ borderBottom: '1px solid var(--arcis-border)' }}>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm" style={{ color: 'var(--arcis-text-muted)' }}>{meta.label}</span>
+              <span className="text-xs px-1.5 py-0.5 rounded" style={{
+                background: 'var(--arcis-bg-elevated)',
+                color: 'var(--arcis-text-muted)',
+              }}>yaml default</span>
+            </div>
+            {meta.desc && <div className="text-xs mt-0.5" style={{ color: 'var(--arcis-text-muted)' }}>{meta.desc}</div>}
+            <div className="text-xs mt-0.5" style={{ color: 'var(--arcis-text-muted)', fontStyle: 'italic' }}>{meta.whyDisabled}</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              disabled
+              className="relative w-11 h-6 rounded-full transition-colors cursor-not-allowed opacity-40"
+              style={{ background: displayValue ? 'var(--arcis-success)' : 'var(--arcis-text-muted)' }}
+            >
+              <span className="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform shadow-sm"
+                style={{ transform: displayValue ? 'translateX(20px)' : 'translateX(0)' }} />
+            </button>
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div className="flex items-center justify-between py-3" style={{ borderBottom: '1px solid var(--arcis-border)' }}>
         <div>
