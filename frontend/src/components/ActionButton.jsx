@@ -54,7 +54,7 @@ export default function ActionButton({
     )
 
     return (
-      <Tooltip content={tooltipContent}>
+      <Tooltip content={tooltipContent} interactive={true}>
         <button
           disabled
           className="px-3 py-1.5 text-xs rounded opacity-50 cursor-not-allowed"

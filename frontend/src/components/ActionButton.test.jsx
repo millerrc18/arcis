@@ -144,4 +144,23 @@ describe('ActionButton — F1 cliOnly + secure-context fallback', () => {
       container.querySelector('.animate-spin')
     expect(spinner).not.toBeNull()
   })
+
+  it('cliOnly=true: tooltip surface is interactive (pointerEvents auto) so Copy button is clickable', async () => {
+    const { container } = render(
+      <ActionButton
+        cliOnly
+        cliCommand="python -m src.main reconcile-live"
+        whyDisabled="Requires local machine"
+        onClick={() => {}}
+      >
+        Reconcile
+      </ActionButton>,
+    )
+    const trigger = container.querySelector('span[style]')
+    fireEvent.mouseEnter(trigger)
+    await new Promise((r) => setTimeout(r, 350))
+    const surface = document.body.querySelector('[data-tooltip-surface]')
+    expect(surface).not.toBeNull()
+    expect(surface.style.pointerEvents).toBe('auto')
+  })
 })
