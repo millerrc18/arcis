@@ -161,10 +161,10 @@ export default function LiveLedger() {
   const [sortDir, setSortDir] = useState('desc')
 
   const { data: summary, isLoading: sumLoading } = useQuery({
-    queryKey: ['live-summary'], queryFn: api.getLiveSummary, refetchInterval: 30000,
+    queryKey: ['live-summary'], queryFn: () => api.getLiveSummary(), refetchInterval: 30000,
   })
   const { data: trades, isLoading: tradesLoading } = useQuery({
-    queryKey: ['live-trades'], queryFn: api.getLiveTrades, refetchInterval: 30000,
+    queryKey: ['live-trades'], queryFn: () => api.getLiveTrades(), refetchInterval: 30000,
   })
 
   const isLoading = sumLoading || tradesLoading

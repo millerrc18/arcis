@@ -48,7 +48,7 @@ export default function Simulation() {
 
   const { data, isLoading } = useQuery({
     queryKey: ['simulation-results'],
-    queryFn: api.getSimulationResults,
+    queryFn: () => api.getSimulationResults(),
     refetchInterval: running ? 10000 : 300000,
   })
 
