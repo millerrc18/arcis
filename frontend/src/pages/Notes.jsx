@@ -51,7 +51,7 @@ export default function Notes() {
   const queryClient = useQueryClient()
   const { data, isLoading } = useQuery({
     queryKey: ['notes'],
-    queryFn: api.fetchNotes,
+    queryFn: () => api.fetchNotes(),
     refetchInterval: 60000,
   })
 

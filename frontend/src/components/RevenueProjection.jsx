@@ -83,7 +83,7 @@ export default function RevenueProjection() {
 
   const { data: live } = useQuery({
     queryKey: ['projections-live'],
-    queryFn: api.getProjectionsLive,
+    queryFn: () => api.getProjectionsLive(),
     refetchInterval: 60000,
   })
 

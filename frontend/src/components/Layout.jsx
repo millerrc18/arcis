@@ -127,7 +127,7 @@ function StatusBar({ status, kpisQuery }) {
 }
 
 export default function Layout() {
-  const { data: status } = useQuery({ queryKey: ['status'], queryFn: api.getStatus, refetchInterval: 30000 })
+  const { data: status } = useQuery({ queryKey: ['status'], queryFn: () => api.getStatus(), refetchInterval: 30000 })
   const kpisQuery = useQuery({ queryKey: ['kpis'], queryFn: () => api.getKpis(), refetchInterval: 30000 })
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
