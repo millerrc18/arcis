@@ -45,10 +45,7 @@ export default function Monitoring() {
 
   if (isLoading) return <LoadingSpinner />
 
-  // `history` is an array on success but /monitoring/history can return
-  // { error: "..." } on failure. Coerce to [] to avoid "(e || []).map is not
-  // a function" crashes when the API has a hiccup.
-  const historyList = Array.isArray(history) ? history : []
+  const historyList = history?.snapshots ?? (Array.isArray(history) ? history : [])
   const latest = snapshot || (historyList.length > 0 ? historyList[historyList.length - 1] : null)
   const points = historyList.map(h => ({
     ...h,
