@@ -252,4 +252,45 @@ enhancement, sprint-4, ux
 
 ---
 
-*End of SP4 followup issue list. 8 issues total. Run `gh issue create` for each above.*
+## Issue 9: `#47` — Telegram + email triage findings (cross-domain)
+
+**Title**: `chore(notifications): triage and remediate findings from Telegram + email sweep audit (#46)`
+
+**Body**:
+```
+## Context
+
+Operator-tracked task #47 (folded into Sprint 4 per operator decision 2026-05-07). Audit task #46 ("Exhaustive sweep — Telegram notifications + email updates") completed; this issue tracks the remediation work.
+
+The audit surfaced findings spanning notification template hygiene, mute/digest rules, auth/access policy, and channel routing. Sprint 3 closed cockpit-coherence findings on the dashboard surface; Sprint 4 will additionally close the notification-channel surface so the operator's incoming signal stream matches the dashboard's quality bar.
+
+## What to fix
+
+1. Read the #46 audit output (location: `docs/audits/2026-04-XX-telegram-email-sweep/` or wherever the sweep filed findings).
+2. Triage each finding by severity (CRITICAL / IMPORTANT / NOISY / NIT) — same vocabulary as the cockpit audit.
+3. Group fixes into Sprint 4 batches alongside the 8 cockpit-coherence followups.
+4. Sprint 4 will need its own `arcis:design` cycle (audit→spec→plan) to consolidate the 9 items into one execution plan before dispatch (Sprint 3's spec was 56KB; Sprint 4 will be similar magnitude).
+
+## Files
+
+TBD per Sprint 4 spec — likely:
+- `src/notifications/` (channel routing, templates)
+- `src/services/email_*.py` (email send paths)
+- `src/services/telegram_*.py` (telegram bot, command handlers)
+- `config/settings.*.yaml` (mute/digest rules)
+- `docs/operator-guide.md` (notification troubleshooting)
+
+## Labels
+
+chore, sprint-4, notifications, cross-domain
+
+## Cross-link
+
+- Audit task: #46 (completed)
+- Operator-tracker task: #47 (pending until Sprint 4 closes)
+- Sibling Sprint 4 issues: #SP4-shadow-metrics-live-cohort, #SP4-status-open-positions-cohort, #SP4-calmar-debt, #SP4-stop-loss-fallback, #SP4-render-pg-reconcile, #SP4-kpis-meta-reconciliation-test, #SP4-tanstack-strategyresearch-platformstatus, #SP3-T12-pnl-card
+```
+
+---
+
+*End of SP4 followup issue list. 9 issues total. Run `gh issue create` for each above.*
