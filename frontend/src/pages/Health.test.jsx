@@ -102,3 +102,31 @@ describe('Health — E8 IB-status feature flag', () => {
     expect(ibCall.enabled).toBe(true)
   })
 })
+
+describe('Health — C2 LoadingState migration', () => {
+  it('hasHshs=false renders EmptyState via LoadingState (not bare arcis-card with muted text)', () => {
+    useQuery.mockImplementation((opts) => {
+      const key = opts.queryKey?.[0]
+      if (key === 'hshs-live') return { data: { hshs: 0, dimensions: {}, weights: {}, phase: 'early' }, isLoading: false, isError: false }
+      if (key === 'build-score') return { data: _buildData, isLoading: false, isError: false }
+      if (key === 'training-history') return { data: { versions: [] }, isLoading: false, isError: false }
+      return { data: undefined, isLoading: false, isError: false }
+    })
+    const { container } = wrap(<Health />)
+    const emptyState = container.querySelector('.flex.items-center.justify-center')
+    expect(emptyState).toBeTruthy()
+    expect(container.textContent).toContain('Collecting HSHS data...')
+  })
+
+  it('hshsLoading=true AND buildLoading=true renders loading spinner via LoadingState', () => {
+    useQuery.mockImplementation((opts) => {
+      const key = opts.queryKey?.[0]
+      if (key === 'hshs-live') return { data: undefined, isLoading: true, isError: false }
+      if (key === 'build-score') return { data: undefined, isLoading: true, isError: false }
+      if (key === 'training-history') return { data: undefined, isLoading: false, isError: false }
+      return { data: undefined, isLoading: false, isError: false }
+    })
+    const { container } = wrap(<Health />)
+    expect(container.querySelector('[data-testid="loading-spinner"]')).toBeTruthy()
+  })
+})

@@ -12,58 +12,13 @@ exports[`BrokerExceptionsPanel > renders empty state when no exceptions in last 
       Broker Exceptions
     </div>
     <div
-      style="display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px;"
+      class="flex items-center justify-center py-16"
     >
-      <div
-        class="arcis-card"
-        style="padding: 10px 14px; min-width: 100px;"
+      <span
+        style="font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--arcis-text-muted);"
       >
-        <div
-          style="font-size: 10px; text-transform: uppercase; color: var(--arcis-text-muted);"
-        >
-          24h Total
-        </div>
-        <div
-          style="font-size: 22px; font-weight: 600; font-family: var(--font-mono); color: var(--arcis-success);"
-        >
-          0
-        </div>
-      </div>
-      <div
-        class="arcis-card"
-        style="padding: 10px 14px; min-width: 100px;"
-      >
-        <div
-          style="font-size: 10px; text-transform: uppercase; color: var(--arcis-text-muted);"
-        >
-          7d Total
-        </div>
-        <div
-          style="font-size: 22px; font-weight: 600; font-family: var(--font-mono); color: var(--arcis-text);"
-        >
-          0
-        </div>
-      </div>
-      <div
-        class="arcis-card"
-        style="padding: 10px 14px; min-width: 120px;"
-      >
-        <div
-          style="font-size: 10px; text-transform: uppercase; color: var(--arcis-text-muted);"
-        >
-          Qty Mismatch
-        </div>
-        <div
-          style="font-size: 22px; font-weight: 600; font-family: var(--font-mono); color: var(--arcis-success);"
-        >
-          0
-        </div>
-      </div>
-    </div>
-    <div
-      style="color: var(--arcis-success); font-size: 13px; padding: 8px 0px;"
-    >
-      No broker exceptions in last 24h. ✓
+        No exceptions yet
+      </span>
     </div>
   </div>
 </div>
@@ -73,13 +28,26 @@ exports[`BrokerExceptionsPanel > renders loading state while fetching 1`] = `
 <div>
   <div
     class="arcis-card"
-    style="padding: 16px;"
+    style="padding: 14px 16px;"
   >
-    <span
-      style="color: var(--arcis-text-muted); font-size: 13px;"
+    <div
+      style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--arcis-text-secondary); font-weight: 500; margin-bottom: 10px;"
     >
-      Loading broker exceptions...
-    </span>
+      Broker Exceptions
+    </div>
+    <div
+      data-testid="loading-spinner"
+    >
+      <div
+        class="flex items-center justify-center py-12"
+      >
+        <span
+          style="font-family: var(--font-mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--arcis-text-muted);"
+        >
+          LOADING...
+        </span>
+      </div>
+    </div>
   </div>
 </div>
 `;

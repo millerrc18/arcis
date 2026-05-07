@@ -11,7 +11,7 @@ import {
   CartesianGrid,
 } from 'recharts'
 import { fetchApi, api } from '../api'
-import LoadingSpinner from '../components/LoadingSpinner'
+import LoadingState from '../components/LoadingState'
 import MetricCard from '../components/MetricCard'
 import StatusBadge from '../components/StatusBadge'
 
@@ -31,7 +31,7 @@ function pct(used, total) {
 }
 
 export default function Monitoring() {
-  const { data: history, isLoading } = useQuery({
+  const { data: history, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['monitoring-history'],
     queryFn: () => api.getMonitoringHistory(24),
     refetchInterval: 60000,
@@ -43,7 +43,18 @@ export default function Monitoring() {
     refetchInterval: 300000,
   })
 
-  if (isLoading) return <LoadingSpinner />
+  if (isLoading || isError) {
+    return (
+      <LoadingState
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        retry={refetch}
+        retryDisabledFor={5000}
+        isEmpty={false}
+      />
+    )
+  }
 
   const historyList = history?.snapshots ?? (Array.isArray(history) ? history : [])
   const latest = snapshot || (historyList.length > 0 ? historyList[historyList.length - 1] : null)
