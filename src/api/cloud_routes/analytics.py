@@ -309,6 +309,10 @@ def create_router(runtime, verify_auth):
                 "dimensions": dimensions,
                 "weights": weights,
                 "phase": "early",
+                "_meta": {
+                    "overall": meta_entry("none", closed_count),
+                    "performance": meta_entry("trades.all_closed", closed_count),
+                },
             }
         except Exception as exc:
             runtime.logger.error("[API] HSHS computation failed: %s", exc)
@@ -719,6 +723,7 @@ def create_router(runtime, verify_auth):
                 "decay_today": bool(latest.get("decay_applied")),
                 "history_7d": history_7d,
                 "computed_at": latest.get("created_at", ""),
+                "_meta": meta_entry("none", closed_count),
             }
         except Exception as exc:
             runtime.logger.error("[API] build-score failed: %s", exc, exc_info=True)
@@ -777,6 +782,7 @@ def create_router(runtime, verify_auth):
                 "statistical_power": "insufficient" if paired_n < 50 else (
                     "low" if paired_n < 200 else "adequate"),
                 "paired_n": paired_n,
+                "_meta": meta_entry("attribution.pairs", paired_n),
             }
         except Exception as exc:
             runtime.logger.error("[API] attribution_stats failed: %s", exc, exc_info=True)
@@ -803,7 +809,8 @@ def create_router(runtime, verify_auth):
 
             if not trades:
                 return {"trades": [], "by_score_band": {}, "by_regime": {},
-                        "hold_distribution": [], "drawdown_series": []}
+                        "hold_distribution": [], "drawdown_series": [],
+                        "_meta": meta_entry("trades.strategy", 0)}
 
             trade_list = [dict(t) for t in trades]
 
@@ -885,6 +892,7 @@ def create_router(runtime, verify_auth):
                 "by_regime": by_regime_out,
                 "hold_distribution": hold_distribution,
                 "drawdown_series": drawdown_series,
+                "_meta": meta_entry("trades.strategy", len(trade_list)),
             }
         except Exception as exc:
             runtime.logger.error(
@@ -917,7 +925,7 @@ def create_router(runtime, verify_auth):
                         except (_json.JSONDecodeError, TypeError):
                             pass
                 results.append(d)
-            return {"results": results}
+            return {"results": results, "_meta": meta_entry("stress.scenario", len(results))}
         except Exception as exc:
             runtime.logger.error("[API] stress-test/results failed: %s", exc, exc_info=True)
             return {"results": [], "error": str(exc)}
@@ -942,7 +950,7 @@ def create_router(runtime, verify_auth):
                         except (_json.JSONDecodeError, TypeError):
                             pass
                 results.append(d)
-            return {"results": results}
+            return {"results": results, "_meta": meta_entry("none", len(results))}
         except Exception as exc:
             runtime.logger.error("[API] simulation/results failed: %s", exc, exc_info=True)
             return {"results": [], "error": str(exc)}
