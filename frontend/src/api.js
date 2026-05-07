@@ -44,6 +44,7 @@ export async function fetchApi(path, options = {}) {
 
 export const api = {
   getStatus: () => fetchApi("/status"),
+  getKpis: () => fetchApi("/kpis"),
   getConfig: () => fetchApi("/config"),
   updateConfig: (data) =>
     fetchApi("/config", { method: "PUT", body: JSON.stringify(data) }),

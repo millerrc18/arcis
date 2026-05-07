@@ -44,7 +44,7 @@ const navSections = [
   ]},
 ]
 
-function StatusBar({ status }) {
+function StatusBar({ status, kpisQuery }) {
   const [time, setTime] = useState('')
 
   useEffect(() => {
@@ -59,17 +59,44 @@ function StatusBar({ status }) {
 
   const llmStatus = IS_CLOUD ? 'CLOUD' : (status?.ollama_available ? 'ONLINE' : 'OFFLINE')
   const mktStatus = status?.market_open ? 'OPEN' : 'CLOSED'
-  // #631-2 — Distinguish "loading" from "set but unset" Traffic Light state.
-  // Pre-fix `--` was ambiguous; now we show "…" while loading and "Not set"
-  // when the backend reports no TL value.
-  const tlLoaded = status !== undefined
-  const tlState = status?.traffic_light || (tlLoaded ? 'NOT SET' : '...')
   const positions = status?.open_positions ?? '--'
+  const positionsLabel = status?._meta?.open_positions?.label
   // #631-15 — When status is loading, show '…' rather than a stale hardcoded
   // version string. The single source of truth is src/version.py (server-side);
   // the loading-state placeholder avoids the misleading impression that the
   // dashboard is running an ancient build.
+  const tlLoaded = status !== undefined
   const version = status?.version || (tlLoaded ? 'unknown' : '…')
+
+  // B1 — TL sourced from /api/kpis (queryKey ['kpis'], deduped with KPIStrip)
+  // 3 explicit fallback states per spec §5 D7:
+  //   (a) isError   → 'TL: ERR'
+  //   (b) isPending  → 'TL: ...'
+  //   (c) loaded but decision_matrix_state == null → 'TL: COMPUTING'
+  let tlDisplay
+  let tlColor = 'var(--arcis-text-secondary)'
+  let tlTitle = 'Traffic Light gating state — GREEN/AMBER/RED'
+
+  if (kpisQuery?.isError) {
+    tlDisplay = 'ERR'
+    tlTitle = 'TL fetch failed — check network or API'
+  } else if (kpisQuery?.isPending || kpisQuery?.data === undefined) {
+    tlDisplay = '...'
+  } else {
+    const dms = kpisQuery.data?.stage_traffic_light?.decision_matrix_state
+    if (dms == null) {
+      tlDisplay = 'COMPUTING'
+      const lastComputedAt = kpisQuery.data?.stage_traffic_light?.last_computed_at
+      if (lastComputedAt) {
+        tlTitle = `Last computed: ${lastComputedAt}`
+      }
+    } else {
+      tlDisplay = String(dms).toUpperCase()
+      if (tlDisplay === 'GREEN') tlColor = 'var(--arcis-success)'
+      else if (tlDisplay === 'RED') tlColor = 'var(--arcis-danger)'
+      else if (tlDisplay === 'AMBER') tlColor = 'var(--arcis-warning)'
+    }
+  }
 
   return (
     <div
@@ -90,9 +117,9 @@ function StatusBar({ status }) {
       <span style={{ color: 'var(--arcis-border)' }}>|</span>
       <span>MKT <span style={{ color: mktStatus === 'OPEN' ? 'var(--arcis-success)' : 'var(--arcis-text-secondary)' }}>{mktStatus}</span></span>
       <span style={{ color: 'var(--arcis-border)' }}>|</span>
-      <span title="Traffic Light gating state — GREEN/AMBER/RED">TL: <span style={{ color: tlState === 'GREEN' ? 'var(--arcis-success)' : tlState === 'RED' ? 'var(--arcis-danger)' : tlState === 'AMBER' ? 'var(--arcis-warning)' : 'var(--arcis-text-secondary)' }}>{tlState.toUpperCase()}</span></span>
+      <span title={tlTitle}>TL: <span style={{ color: tlColor }}>{tlDisplay}</span></span>
       <span style={{ color: 'var(--arcis-border)' }}>|</span>
-      <span>{positions} POSITIONS</span>
+      <span title={positionsLabel}>{positions} POSITIONS</span>
       <span style={{ color: 'var(--arcis-border)' }}>|</span>
       <span>{time}</span>
     </div>
@@ -101,6 +128,7 @@ function StatusBar({ status }) {
 
 export default function Layout() {
   const { data: status } = useQuery({ queryKey: ['status'], queryFn: api.getStatus, refetchInterval: 30000 })
+  const kpisQuery = useQuery({ queryKey: ['kpis'], queryFn: () => api.getKpis(), refetchInterval: 30000 })
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   return (
@@ -183,7 +211,7 @@ export default function Layout() {
           </div>
           <ThemeToggle />
         </header>
-        <StatusBar status={status} />
+        <StatusBar status={status} kpisQuery={kpisQuery} />
         <main className="flex-1 overflow-y-auto p-3 md:p-6 lg:p-8">
           <Outlet />
         </main>
