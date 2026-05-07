@@ -285,7 +285,7 @@ export default function Council() {
   const [strategicQuestion, setStrategicQuestion] = useState('')
   const { data: latest, isLoading } = useQuery({
     queryKey: ['council-latest'],
-    queryFn: api.getCouncilLatest,
+    queryFn: () => api.getCouncilLatest(),
     refetchInterval: 60000,
   })
   const { data: history } = useQuery({
