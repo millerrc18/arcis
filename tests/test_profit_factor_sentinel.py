@@ -75,3 +75,23 @@ class TestProfitFactorSentinel:
         profit_factor = 2.5
         result = round(profit_factor, 3) if profit_factor != float("inf") else None
         assert result == 2.5
+
+    def test_compute_verdict_handles_none_profit_factor(self):
+        """compute_verdict must not raise TypeError when profit_factor is None.
+
+        Regression guard for the compute_verdict None-safety fix.
+        When profit_factor is None (winners-only run), compute_verdict should
+        treat it as 0 (conservative fallback) and return a valid verdict string.
+        """
+        from src.simulation.engine import compute_verdict
+        metrics = {
+            "total_trades": 25,
+            "profit_factor": None,
+            "sharpe_ratio": 0.5,
+            "total_pnl_pct": 5.0,
+        }
+        verdict = compute_verdict(metrics, benchmark_pnl=0)
+        assert isinstance(verdict, str), f"Expected str verdict, got {type(verdict)!r}"
+        assert verdict in {"edge", "neutral", "marginal", "bleeds", "insufficient"}, (
+            f"Unexpected verdict value: {verdict!r}"
+        )

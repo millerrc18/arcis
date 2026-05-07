@@ -165,7 +165,7 @@ def compute_verdict(metrics: dict, benchmark_pnl: float = 0) -> str:
         return "insufficient"
 
     sharpe = metrics.get("sharpe_ratio", 0)
-    pf = metrics.get("profit_factor", 0)
+    pf = metrics.get("profit_factor") or 0
     excess = metrics.get("total_pnl_pct", 0) - benchmark_pnl
 
     if excess > 0 and sharpe >= 0.5 and pf >= 1.3:
@@ -192,7 +192,7 @@ def print_heatmap(results: dict[str, dict]):
         icon = VERDICT_ICONS.get(r["verdict"], "?")
         excess = r["total_pnl_pct"] - r.get("benchmark_pnl_pct", 0)
         print(f"{name:<25} {r['total_trades']:>6} {r['win_rate']:>5.0%} "
-              f"{r.get('profit_factor', 0):>6.2f} {r['max_drawdown_pct']:>6.1f}% "
+              f"{r.get('profit_factor') or 0:>6.2f} {r['max_drawdown_pct']:>6.1f}% "
               f"{r.get('sharpe_ratio', 0):>7.2f} {r.get('benchmark_pnl_pct', 0):>6.1f}% "
               f"{excess:>+6.1f}% {icon} {r['verdict']:>10}")
 
