@@ -293,4 +293,88 @@ chore, sprint-4, notifications, cross-domain
 
 ---
 
-*End of SP4 followup issue list. 9 issues total. Run `gh issue create` for each above.*
+## Issue 10: `#SP4-cloud-req-import-guardrail`
+
+**Title**: `test(ci): add cloud-deploy import guardrail to catch missing requirements-cloud.txt entries`
+
+**Body**:
+```
+## Context
+
+Sprint 3 integration deploy (#1006) failed because T1's Calmar canonical helper refactor (`src/api/cloud_routes/analytics.py` → `src/evaluation/statistics.py` → `from scipy import stats`) introduced a transitive scipy import that wasn't in `requirements-cloud.txt`. Hot-fixed by #1007.
+
+This is the **fourth recurrence** of the same bug class:
+- jsonschema (some past sprint)
+- numpy (PR #690)
+- requests (some later sprint)
+- scipy (Sprint 3, #1007)
+
+Each time, the cloud-routes import chain pulls in a package that's in `requirements.txt` but not `requirements-cloud.txt`, the deploy crashes on startup, and we react with a one-line addition. The pattern indicates a structural blind spot: there's no pre-merge check that verifies `src.api.cloud_app` is importable under the cloud-only requirement set.
+
+## What to fix
+
+Add a pytest test (or a CI-only script) that:
+1. Creates a temporary venv with ONLY `requirements-cloud.txt` installed.
+2. Runs `python -c "from src.api.cloud_app import app"`.
+3. Asserts no `ModuleNotFoundError`.
+
+Alternative (lighter weight): a static-analysis test that enumerates all imports reachable from `src/api/cloud_app.py` (via AST walk) and verifies each top-level package name is either stdlib or in `requirements-cloud.txt`.
+
+## Files
+
+- `tests/test_cloud_requirements_imports.py` (NEW)
+- (Optional) `scripts/check_cloud_deploy_imports.py` for CI invocation
+
+## Labels
+
+test, ci, sprint-4, cloud-deploy, regression-prevention
+```
+
+---
+
+## Issue 11: `#SP4-settings-backend-float32-storage`
+
+**Title**: `fix(backend): clean up float32 storage of risk.planned_risk_pct_min/max settings`
+
+**Body**:
+```
+## Context
+
+Sprint 3 visual-verify investigation (2026-05-07) on the live halcyonlab.app dashboard surfaced that the Settings page's Risk % Min and Risk % Max inputs render correctly in the actual DOM (HTML `value="0.005"`, JS `.valueAsNumber=0.005`), BUT Chrome's accessibility tree reports `aria-valuenow="0.004999999888241291"`.
+
+Investigation showed:
+- T11's frontend mount-time clamp (`clampToStep` in `Settings.jsx:57`) IS working as designed.
+- The `aria-valuenow` value reported by Chrome is a float32-cast representation that the browser computes from the input's numeric value during accessibility-tree construction.
+- The float32 noise originates upstream: the backend stores `risk.planned_risk_pct_min/max` as float32 (likely via Python `numpy.float32` cast somewhere in the config-overrides write path, OR SQLite REAL with implicit precision loss).
+- The same pattern shows in `aria-valuemin="0.0010000000474974513"` (float32 cast of 0.001) — the `min` HTML attribute the frontend passes is "0.001" but Chrome reports the float32-cast.
+
+This is NOT a Sprint 3 frontend regression. The frontend clamp is correct. But the underlying storage cleanup would prevent the noise from surfacing in any tool that reads via the float32-cast path (e.g., the audit tool that captured the original concern, screen readers that surface aria-valuenow, third-party automation).
+
+## What to fix
+
+1. Trace the write path for `config_overrides` updates of `risk.planned_risk_pct_*` keys. Identify where the value transits through float32 (vs being preserved as Python float / SQLite REAL).
+2. Either:
+   a. Cast to float64 before write (preserves IEEE-754 nearest double of 0.005, which is closer to "exactly 0.005" than the float32 cast).
+   b. Add a backend clamp using the same `decimalsFromStep` / `toFixed` semantics the frontend uses, then store as REAL.
+3. Verify via Chrome's accessibility tree that `aria-valuenow="0.005"` (no float32 noise) post-fix.
+
+## Files
+
+- `src/api/cloud_routes/settings.py` (or wherever config_overrides are written)
+- `src/schema/registry.py` (verify column type is REAL not REAL with explicit FLOAT precision)
+- Possibly `src/services/config_overrides.py`
+
+## Labels
+
+bug, sprint-4, settings, backend, accessibility
+
+## Cross-link
+
+- Originally surfaced as audit 23-C1 in `docs/audits/2026-05-06-dashboard-coherence/summary.md`
+- Sprint 3 T11 closed the frontend display path; this issue closes the underlying storage path
+- Investigation docs: `docs/audits/2026-05-06-cockpit-coherence-sprint/visual-verify/results.md`
+```
+
+---
+
+*End of SP4 followup issue list. 11 issues total. Run `gh issue create` for each above.*
