@@ -124,15 +124,15 @@ def run_daily_audit():
 
     # CUSUM performance change detection
     try:
-        from src.evaluation.change_detector import detect_performance_change
-        change = detect_performance_change()
+        from src.evaluation.change_detector import check_performance_drift
+        change = check_performance_drift()
         if change and change.get("alarm"):
             alarm_msg = f"[CUSUM] Performance change detected: {change.get('direction', 'negative')} shift"
             logger.warning(alarm_msg)
             print(f"[WATCH] {alarm_msg}")
             try:
-                from src.notifications.telegram import send_telegram_message
-                send_telegram_message(f"\u26a0\ufe0f CUSUM ALARM\n{alarm_msg}\nDetails: {change.get('detail', '')}")
+                from src.notifications.telegram import send_telegram
+                send_telegram(f"\u26a0\ufe0f CUSUM ALARM\n{alarm_msg}\nDetails: {change.get('detail', '')}")
             except Exception as e:
                 logger.warning("[WATCH] CUSUM Telegram alert failed: %s", e)
     except Exception as e:
@@ -146,8 +146,8 @@ def run_daily_audit():
             leak_msg = f"[LEAKAGE] Balanced accuracy {leakage['balanced_accuracy']:.1%} > 65% threshold"
             logger.warning(leak_msg)
             try:
-                from src.notifications.telegram import send_telegram_message
-                send_telegram_message(f"\U0001f534 LEAKAGE ALERT\n{leak_msg}")
+                from src.notifications.telegram import send_telegram
+                send_telegram(f"\U0001f534 LEAKAGE ALERT\n{leak_msg}")
             except Exception as e:
                 logger.warning("[WATCH] Leakage Telegram alert failed: %s", e)
     except ImportError:
@@ -301,15 +301,15 @@ def run_model_regression_check():
 
     if result["status"] == "critical":
         try:
-            from src.notifications.telegram import send_telegram_message
-            send_telegram_message(
+            from src.notifications.telegram import send_telegram
+            send_telegram(
                 f"\U0001f6a8 MODEL REGRESSION CRITICAL\n{result['message']}")
         except Exception as e:
             logger.warning("[MODEL_MONITOR] Telegram alert failed: %s", e)
     elif result["status"] == "warning":
         try:
-            from src.notifications.telegram import send_telegram_message
-            send_telegram_message(
+            from src.notifications.telegram import send_telegram
+            send_telegram(
                 f"\u26a0\ufe0f Model regression warning\n{result['message']}")
         except Exception as e:
             logger.warning("[MODEL_MONITOR] Telegram alert failed: %s", e)
