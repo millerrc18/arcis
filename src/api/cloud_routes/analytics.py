@@ -745,6 +745,11 @@ def create_router(runtime, verify_auth):
             llm_wins = runtime.query_one(
                 "SELECT COUNT(*) as c FROM attribution_trades WHERE llm_portfolio_outcome = 'win'"
             )
+            paired_resolved = runtime.query_one(
+                "SELECT COUNT(*) as c FROM attribution_trades "
+                "WHERE ranker_only_outcome != 'pending' "
+                "AND llm_portfolio_outcome IS NOT NULL"
+            )
 
             def _win_rate(wins, resolved):
                 return round(wins / resolved, 3) if resolved else None
@@ -753,6 +758,7 @@ def create_router(runtime, verify_auth):
             rw = ranker_wins["c"] if ranker_wins else 0
             lr = llm_resolved["c"] if llm_resolved else 0
             lw = llm_wins["c"] if llm_wins else 0
+            paired_n = paired_resolved["c"] if paired_resolved else 0
 
             return {
                 "total_pairs": total_pairs,
@@ -760,8 +766,9 @@ def create_router(runtime, verify_auth):
                 "by_pair_type": by_pair,
                 "ranker_only": {"resolved": rr, "wins": rw, "win_rate": _win_rate(rw, rr)},
                 "llm_portfolio": {"resolved": lr, "wins": lw, "win_rate": _win_rate(lw, lr)},
-                "statistical_power": "insufficient" if rr < 50 else (
-                    "low" if rr < 200 else "adequate"),
+                "statistical_power": "insufficient" if paired_n < 50 else (
+                    "low" if paired_n < 200 else "adequate"),
+                "paired_n": paired_n,
             }
         except Exception as exc:
             runtime.logger.error("[API] attribution_stats failed: %s", exc, exc_info=True)
