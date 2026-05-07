@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../api'
 import LoadingSpinner from '../components/LoadingSpinner'
 import TimeoutCell from '../components/TimeoutCell'
+import Tooltip from '../components/Tooltip'
 import {
   LineChart, Line, AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip as RTooltip, ResponsiveContainer, Cell, ReferenceLine, ComposedChart,
@@ -390,6 +391,16 @@ export default function TradeHistory() {
               <div className="text-xs mt-0.5" style={{ color: 'var(--arcis-text-muted)', fontStyle: 'italic' }}>
                 CI: normal approx (IID assumption — optimistic). Block-bootstrap rerun pending.
               </div>
+              {attribution._meta?.sharpe_ratio != null && (
+                <Tooltip content={attribution._meta.sharpe_ratio.label}>
+                  <div
+                    data-testid="attribution-meta-badge"
+                    style={{ fontSize: 10, fontStyle: 'italic', color: 'var(--arcis-text-muted)', marginTop: 4 }}
+                  >
+                    {`n=${attribution._meta.sharpe_ratio.n} · ${attribution._meta.sharpe_ratio.cohort.split('.').pop()}`}
+                  </div>
+                </Tooltip>
+              )}
             </div>
             <div>
               <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>t-statistic</div>
