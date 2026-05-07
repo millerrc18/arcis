@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { IS_CLOUD } from '../config'
 import {
   PolarAngleAxis,
   PolarGrid,
@@ -67,6 +68,7 @@ export default function Health() {
     queryKey: ['ib-status'],
     queryFn: api.getIBStatus,
     refetchInterval: 60000,
+    enabled: !IS_CLOUD,
   })
 
   if (hshsLoading && buildLoading) return <LoadingSpinner />
@@ -198,6 +200,13 @@ export default function Health() {
       )}
 
       {/* IB Gateway Status */}
+      {IS_CLOUD && !ibData && (
+        <div className="arcis-card" data-testid="ib-cloud-banner">
+          <div className="text-sm" style={{ color: 'var(--arcis-text-muted)' }}>
+            Not available in cloud mode
+          </div>
+        </div>
+      )}
       {ibData && !ibData.error && (
         <div className="arcis-card" data-testid="ib-status-card" style={{ padding: '24px' }}>
           <div className="flex items-center justify-between mb-4">
