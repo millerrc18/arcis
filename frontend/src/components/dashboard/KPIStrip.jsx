@@ -138,7 +138,7 @@ export function KPICard({ title, value, status, subLine, caption, meta, children
   )
 }
 
-function RfAdjustedCard({ kpi, n }) {
+function RfAdjustedCard({ kpi, n, meta }) {
   const v = kpi.value != null ? kpi.value.toFixed(2) : null
   const sub = kpi.p_value != null
     ? `p=${kpi.p_value.toFixed(2)}  CI [${(kpi.ci_lower ?? 0).toFixed(2)}, ${(kpi.ci_upper ?? 0).toFixed(2)}]`
@@ -150,6 +150,7 @@ function RfAdjustedCard({ kpi, n }) {
       status={kpi.status}
       subLine={sub}
       caption={`N=${n} | canonical T1.03`}
+      meta={meta}
     />
   )
 }
@@ -176,7 +177,7 @@ function SpyRelativeCard({ kpi, nSpy, nTotal }) {
   )
 }
 
-function WinRateCard({ kpi, n }) {
+function WinRateCard({ kpi, n, meta }) {
   const v = kpi.value != null ? `${(kpi.value * 100).toFixed(1)}%` : null
   const sub = kpi.n_wins != null
     ? `${kpi.n_wins}W / ${kpi.n_losses}L`
@@ -188,6 +189,7 @@ function WinRateCard({ kpi, n }) {
       status={kpi.status}
       subLine={sub}
       caption={`N=${n} | quarantine-filtered`}
+      meta={meta}
     />
   )
 }
@@ -290,9 +292,9 @@ export default function KPIStrip({ kpis, error = false, loading = false }) {
         }}
         className="kpi-strip"
       >
-        <RfAdjustedCard kpi={safeKpis.rf_adjusted_excess_sharpe} n={nTotal} />
+        <RfAdjustedCard kpi={safeKpis.rf_adjusted_excess_sharpe} n={nTotal} meta={safeKpis._meta?.rf_adjusted_excess_sharpe} />
         <SpyRelativeCard kpi={safeKpis.spy_relative_sharpe} nSpy={nSpy} nTotal={nTotal} />
-        <WinRateCard kpi={safeKpis.win_rate} n={nTotal} />
+        <WinRateCard kpi={safeKpis.win_rate} n={nTotal} meta={safeKpis._meta?.win_rate} />
         <TrafficLightCard kpi={safeKpis.stage_traffic_light} n={nTotal} />
         <PromotionGateCard kpi={safeKpis.promotion_gate} nTrades={nTotal} nMinTrl={nMin} />
       </div>
