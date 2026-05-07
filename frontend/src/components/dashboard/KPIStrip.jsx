@@ -5,6 +5,7 @@
  * Color tokens: --arcis-success (green), --arcis-warning (amber),
  *   --arcis-danger (red), --arcis-info (blue), --arcis-text-muted (unknown/gray).
  */
+import Tooltip from '../Tooltip'
 
 const STATUS_COLOR = {
   green:   'var(--arcis-success)',
@@ -93,7 +94,7 @@ function StatusPill({ status, label }) {
   )
 }
 
-function KPICard({ title, value, status, subLine, caption, children }) {
+export function KPICard({ title, value, status, subLine, caption, meta, children }) {
   const color = STATUS_COLOR[status] || STATUS_COLOR.unknown
   return (
     <div
@@ -122,6 +123,16 @@ function KPICard({ title, value, status, subLine, caption, children }) {
         <div style={{ fontSize: 10, color: 'var(--arcis-text-muted)', marginTop: 2 }}>
           {caption}
         </div>
+      )}
+      {meta != null && (
+        <Tooltip content={meta.label}>
+          <div
+            data-testid="kpi-meta-badge"
+            style={{ fontSize: 10, fontStyle: 'italic', color: 'var(--arcis-text-muted)', marginTop: 4 }}
+          >
+            {`n=${meta.n} · ${meta.cohort.split('.').pop()}`}
+          </div>
+        </Tooltip>
       )}
     </div>
   )
