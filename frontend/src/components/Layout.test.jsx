@@ -33,6 +33,7 @@ vi.mock('../api', () => ({
 }))
 
 import { useQuery } from '@tanstack/react-query'
+import { api } from '../api'
 import Layout from './Layout'
 
 function buildStatusData(overrides = {}) {
@@ -216,5 +217,23 @@ describe('Layout StatusBar — TL from /api/kpis (B1)', () => {
     expect(tlEl.textContent).toContain('COMPUTING')
     const parent = tlEl.closest('[title]')
     expect(parent?.getAttribute('title') ?? '').toContain('2026-05-07')
+  })
+})
+
+describe('Layout — T17 queryFn arrow-wrap (E1.A)', () => {
+  it('passes an arrow function as queryFn for status query (not a bare api.getStatus ref)', () => {
+    let statusQueryFn = null
+    useQuery.mockImplementation((opts) => {
+      if (opts.queryKey?.[0] === 'status') {
+        statusQueryFn = opts.queryFn
+      }
+      return { data: buildStatusData(), isPending: false, isError: false }
+    })
+
+    renderLayout()
+
+    expect(statusQueryFn).not.toBeNull()
+    expect(typeof statusQueryFn).toBe('function')
+    expect(statusQueryFn).not.toBe(api.getStatus)
   })
 })
