@@ -30,6 +30,7 @@ from src.shadow_trading.exit_reason import (
     outcome_stats_filter_sql,
 )
 from src.evaluation.statistics import calmar_ratio as _canonical_calmar
+from src.api.cohort_meta import meta_entry
 
 
 PERFORMANCE_WEIGHT = 0.10
@@ -626,6 +627,8 @@ def create_router(runtime, verify_auth):
                 bucket["win_rate"] = round(bucket["wins"] / bucket["trades"] * 100, 1) if bucket["trades"] else 0
                 bucket["avg_pnl"] = round(bucket["total_pnl"] / bucket["trades"], 2) if bucket["trades"] else 0
 
+            _n_closed = len(closed_recent_for_stats)
+            _cto_section_meta = meta_entry("trades.all_closed", _n_closed)
             return {
                 "report_period": {
                     "start": cutoff[:10],
@@ -649,6 +652,11 @@ def create_router(runtime, verify_auth):
                 "packets_generated": packet_count["c"] if packet_count else 0,
                 "latest_audit": latest_audit,
                 "generated_at": datetime.now(runtime.et).isoformat(),
+                "_meta": {
+                    "trade_summary": _cto_section_meta,
+                    "performance": _cto_section_meta,
+                    "fund_metrics": _cto_section_meta,
+                },
             }
         except Exception as exc:
             runtime.logger.error("[API] cto_report failed: %s", exc, exc_info=True)

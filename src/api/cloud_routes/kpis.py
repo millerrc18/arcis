@@ -28,6 +28,7 @@ from fastapi import APIRouter, Depends
 
 from src.analytics import kpis_compute as _analytics_kpis
 from src.analytics.instrumentation_filter import filter_fully_instrumented
+from src.api.cohort_meta import meta_entry
 from src.config import DB_PATH
 
 _log = logging.getLogger(__name__)
@@ -111,6 +112,7 @@ def get_kpis() -> dict:
     spy_returns = _fetch_spy_returns_for_trades(spy_with_data)
     spy_aligned_returns = [float(t.get("pnl_pct") or 0) / 100.0 for t in spy_with_data]
     rf_per_trade, rf_used_fred = _compute_per_trade_rf(instrumented)
+    _kpi_meta = meta_entry("kpi.canonical", n_trades)
     return {
         "n_trades": n_trades,
         "n_total": n_trades,
@@ -124,4 +126,11 @@ def get_kpis() -> dict:
         "stage_traffic_light": _compute_stage_traffic_light(returns, rf_per_trade),
         "promotion_gate": _compute_promotion_gate_kpi(n_trades, returns),
         "rf_source": "fred_dtb3" if rf_used_fred else "placeholder",
+        "_meta": {
+            "rf_adjusted_excess_sharpe": _kpi_meta,
+            "spy_relative_sharpe": _kpi_meta,
+            "win_rate": _kpi_meta,
+            "stage_traffic_light": _kpi_meta,
+            "promotion_gate": _kpi_meta,
+        },
     }
