@@ -324,22 +324,35 @@ class TestT9MetaEnvelopes:
             f"Expected 'trades.all_closed', got {data['_meta']['cohort']}"
         )
 
-    def test_shadow_metrics_desk_live_emits_live_only(self):
-        """?desk=live → cohort='trades.live_only' per §2.3 rule."""
-        runtime = _make_runtime_meta()
-        runtime.query.side_effect = None
-        runtime.query.return_value = [
-            {"pnl_dollars": 10.0, "pnl_pct": 1.0},
-        ]
-        client = _make_app_client(runtime, module="trades")
+    def test_shadow_metrics_all_desks_emit_all_closed(self):
+        """§2.3 cohort: until source='live' filter is wired, all desk values map to trades.all_closed.
 
-        resp = client.get("/api/shadow/metrics?desk=live")
-        assert resp.status_code == 200, resp.text
-        data = resp.json()
-        assert "_meta" in data, f"_meta missing from /api/shadow/metrics?desk=live; keys: {list(data)}"
-        assert data["_meta"]["cohort"] == "trades.live_only", (
-            f"Expected 'trades.live_only' for desk=live, got {data['_meta']['cohort']}"
-        )
+        _desk_clause() filters by `desk` column, not `source` column.
+        No current desk value produces a source='live' SQL filter, so
+        trades.live_only is NEVER the correct cohort for any current code path.
+        Sprint 4 follow-up #SP4-shadow-metrics-live-cohort must update this test
+        when a true source='live' filter is wired.
+        """
+        for desk in [None, "swing", "live", "all", "research_a"]:
+            runtime = _make_runtime_meta()
+            runtime.query.side_effect = None
+            runtime.query.return_value = [
+                {"pnl_dollars": 10.0, "pnl_pct": 1.0},
+            ]
+            client = _make_app_client(runtime, module="trades")
+
+            url = "/api/shadow/metrics" if desk is None else f"/api/shadow/metrics?desk={desk}"
+            resp = client.get(url)
+            assert resp.status_code == 200, f"desk={desk!r}: {resp.text}"
+            data = resp.json()
+            assert "_meta" in data, (
+                f"desk={desk!r}: _meta missing from response; keys: {list(data)}"
+            )
+            assert data["_meta"]["cohort"] == "trades.all_closed", (
+                f"desk={desk!r}: Expected 'trades.all_closed', got {data['_meta']['cohort']!r}. "
+                f"trades.live_only requires source='live' SQL filter (not yet wired — Sprint 4 "
+                f"#SP4-shadow-metrics-live-cohort)."
+            )
 
     def test_attribution_stats_emits_attribution_pairs(self):
         """/api/attribution/stats emits cohort='attribution.pairs', n=paired_n."""

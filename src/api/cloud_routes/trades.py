@@ -311,7 +311,12 @@ def create_router(runtime, verify_auth):
                 f" {outcome_stats_filter_sql()}",
                 (cutoff, *desk_params),
             )
-            cohort_id = "trades.live_only" if desk is not None and desk not in ("swing",) else "trades.all_closed"
+            # Per spec §2.3: trades.live_only requires SQL filter source='live'.
+            # _desk_clause() filters by `desk` column, not `source` column.
+            # Until a true source='live' filter is wired (Sprint 4 follow-up
+            # #SP4-shadow-metrics-live-cohort), all current desk values map to
+            # trades.all_closed.
+            cohort_id = "trades.all_closed"
             if not rows:
                 return {"total_trades": 0, "_meta": meta_entry(cohort_id, 0)}
 
