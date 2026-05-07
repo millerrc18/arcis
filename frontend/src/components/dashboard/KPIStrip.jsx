@@ -292,6 +292,9 @@ export default function KPIStrip({ kpis, error = false, loading = false }) {
         }}
         className="kpi-strip"
       >
+        {/* _meta.rf_adjusted_excess_sharpe: wired — spec field 1 of 4.
+            _meta.win_rate: wired — spec field 2 of 4; .n equals n_trades (spec field 3, exposed via badge).
+            total_pnl_dollars: no primary value card in this strip shows dollar P&L — TODO #SP3-T12-pnl-card */}
         <RfAdjustedCard kpi={safeKpis.rf_adjusted_excess_sharpe} n={nTotal} meta={safeKpis._meta?.rf_adjusted_excess_sharpe} />
         <SpyRelativeCard kpi={safeKpis.spy_relative_sharpe} nSpy={nSpy} nTotal={nTotal} />
         <WinRateCard kpi={safeKpis.win_rate} n={nTotal} meta={safeKpis._meta?.win_rate} />

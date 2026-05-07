@@ -165,3 +165,52 @@ describe('KPICard meta prop', () => {
     expect(container.querySelector('[data-testid="kpi-meta-badge"]')).toBeNull()
   })
 })
+
+describe('KPIStrip _meta envelope wiring', () => {
+  it('renders kpi-meta-badge on rf-Adj card when _meta.rf_adjusted_excess_sharpe is present', () => {
+    const kpisWithMeta = {
+      ..._kpisGreen,
+      _meta: {
+        rf_adjusted_excess_sharpe: { cohort: 'kpi.canonical', label: 'Instrumented + quarantine-filtered', n: 160 },
+      },
+    }
+    const { container } = render(<KPIStrip kpis={kpisWithMeta} />)
+    const badges = container.querySelectorAll('[data-testid="kpi-meta-badge"]')
+    expect(badges.length).toBeGreaterThanOrEqual(1)
+    const badgeTexts = Array.from(badges).map(b => b.textContent)
+    expect(badgeTexts.some(t => t.includes('n=160') && t.includes('canonical'))).toBe(true)
+  })
+
+  it('renders kpi-meta-badge on win-rate card when _meta.win_rate is present', () => {
+    const kpisWithMeta = {
+      ..._kpisGreen,
+      _meta: {
+        win_rate: { cohort: 'kpi.canonical', label: 'Instrumented + quarantine-filtered', n: 160 },
+      },
+    }
+    const { container } = render(<KPIStrip kpis={kpisWithMeta} />)
+    const badges = container.querySelectorAll('[data-testid="kpi-meta-badge"]')
+    expect(badges.length).toBeGreaterThanOrEqual(1)
+    const badgeTexts = Array.from(badges).map(b => b.textContent)
+    expect(badgeTexts.some(t => t.includes('n=160') && t.includes('canonical'))).toBe(true)
+  })
+
+  it('renders two kpi-meta-badges when both rf_adjusted and win_rate meta are present', () => {
+    const kpisWithBothMeta = {
+      ..._kpisGreen,
+      _meta: {
+        rf_adjusted_excess_sharpe: { cohort: 'kpi.canonical', label: 'Rf-adj cohort', n: 160 },
+        win_rate: { cohort: 'kpi.canonical', label: 'Win-rate cohort', n: 160 },
+      },
+    }
+    const { container } = render(<KPIStrip kpis={kpisWithBothMeta} />)
+    const badges = container.querySelectorAll('[data-testid="kpi-meta-badge"]')
+    expect(badges.length).toBe(2)
+  })
+
+  it('renders no kpi-meta-badges when _meta is absent from kpis', () => {
+    const { container } = render(<KPIStrip kpis={_kpisGreen} />)
+    const badges = container.querySelectorAll('[data-testid="kpi-meta-badge"]')
+    expect(badges.length).toBe(0)
+  })
+})
