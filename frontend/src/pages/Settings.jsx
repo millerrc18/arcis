@@ -40,10 +40,22 @@ function getNestedValue(obj, path) {
   return path.split('.').reduce((o, k) => o?.[k], obj)
 }
 
+function decimalsFromStep(step) {
+  const s = String(step)
+  const dot = s.indexOf('.')
+  return dot === -1 ? 0 : s.length - dot - 1
+}
+
+function clampToStep(value, step) {
+  if (value == null || step == null || step >= 1) return value
+  return parseFloat(parseFloat(value).toFixed(decimalsFromStep(step)))
+}
+
 function SettingInput({ settingKey, meta, currentValue, overrideInfo, onUpdate, pending }) {
   const isOverridden = !!overrideInfo
   const displayValue = isOverridden ? overrideInfo.value : currentValue
-  const [localValue, setLocalValue] = useState(displayValue)
+  const initialValue = meta.step && meta.step < 1 ? clampToStep(displayValue, meta.step) : displayValue
+  const [localValue, setLocalValue] = useState(initialValue)
   const [saveAnim, setSaveAnim] = useState(null)
 
   const showSaveAnim = () => {
@@ -125,8 +137,14 @@ function SettingInput({ settingKey, meta, currentValue, overrideInfo, onUpdate, 
             }}
             onChange={(e) => setLocalValue(e.target.value)}
             onBlur={(e) => {
-              const v = meta.step && meta.step < 1 ? parseFloat(e.target.value) : parseInt(e.target.value, 10)
-              if (!isNaN(v) && v !== displayValue) { onUpdate(settingKey, v); showSaveAnim() }
+              let v = meta.step && meta.step < 1 ? parseFloat(e.target.value) : parseInt(e.target.value, 10)
+              if (isNaN(v)) return
+              if (meta.step && meta.step < 1) {
+                const displayNum = typeof displayValue === 'number' ? displayValue : parseFloat(displayValue)
+                const clamped = clampToStep(v, meta.step)
+                if (Math.abs(v - displayNum) < meta.step / 2) v = clamped
+              }
+              if (v !== displayValue) { onUpdate(settingKey, v); showSaveAnim() }
             }}
             onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur() }}
           />
