@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api'
+import LoadingState from '../components/LoadingState.jsx'
 import {
   ReactFlow,
   Background,
@@ -131,9 +132,9 @@ function buildEdges() {
 }
 
 export default function DBSchema() {
-  const { data: counts } = useQuery({
+  const { data: counts, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['table-counts'],
-    queryFn: () => api.getTableCounts().catch(() => ({})),
+    queryFn: () => api.getTableCounts(),
     refetchInterval: 300000,
   })
 
@@ -169,25 +170,34 @@ export default function DBSchema() {
         </div>
       </div>
 
-      <div className="arcis-card" style={{ height: 'calc(100vh - 180px)', padding: 0, overflow: 'hidden' }}>
-        <ReactFlow
-          nodes={flowNodes}
-          edges={flowEdges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onInit={onInit}
-          fitView
-          nodesDraggable={false}
-          nodesConnectable={false}
-          proOptions={{ hideAttribution: true }}
-          style={{ background: 'var(--arcis-bg-elevated)' }}
-        >
-          <Background color="#1E293B" gap={20} />
-          <Controls
-            style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 2 }}
-          />
-        </ReactFlow>
-      </div>
+      <LoadingState
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        retry={refetch}
+        retryDisabledFor={5000}
+        isEmpty={false}
+      >
+        <div className="arcis-card" style={{ height: 'calc(100vh - 180px)', padding: 0, overflow: 'hidden' }}>
+          <ReactFlow
+            nodes={flowNodes}
+            edges={flowEdges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onInit={onInit}
+            fitView
+            nodesDraggable={false}
+            nodesConnectable={false}
+            proOptions={{ hideAttribution: true }}
+            style={{ background: 'var(--arcis-bg-elevated)' }}
+          >
+            <Background color="#1E293B" gap={20} />
+            <Controls
+              style={{ background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)', borderRadius: 2 }}
+            />
+          </ReactFlow>
+        </div>
+      </LoadingState>
     </div>
   )
 }

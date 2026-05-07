@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
+import ActionButton from './ActionButton'
 
 function typeIsActive(runs, type) {
   return runs.some(
@@ -41,17 +42,13 @@ export default function DiagnosticKickoffButtons({ runs = [], onError }) {
           day clustering, sector rotation, entry-time, and holding-period
           analyses. Takes 3&ndash;5 minutes.
         </p>
-        <button
+        <ActionButton
+          cliOnly={false}
+          pending={regimeActive || regimeMut.isPending}
           onClick={() => regimeMut.mutate({ exclude_quarantined: false })}
-          disabled={regimeActive || regimeMut.isPending}
-          className={`w-full py-2 rounded text-sm font-medium ${
-            regimeActive || regimeMut.isPending
-              ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-              : 'bg-blue-600 text-white hover:bg-blue-700'
-          }`}
         >
           {regimeActive ? 'Running…' : 'Run Regime Diagnostic'}
-        </button>
+        </ActionButton>
       </div>
 
       <div className="border rounded p-4">
@@ -60,17 +57,13 @@ export default function DiagnosticKickoffButtons({ runs = [], onError }) {
           8-question forensic with bootcamp counterfactual. Takes 2&ndash;3
           minutes.
         </p>
-        <button
+        <ActionButton
+          cliOnly={false}
+          pending={forensicActive || forensicMut.isPending}
           onClick={() => forensicMut.mutate()}
-          disabled={forensicActive || forensicMut.isPending}
-          className={`w-full py-2 rounded text-sm font-medium ${
-            forensicActive || forensicMut.isPending
-              ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-              : 'bg-blue-600 text-white hover:bg-blue-700'
-          }`}
         >
           {forensicActive ? 'Running…' : 'Run Forensic Audit'}
-        </button>
+        </ActionButton>
       </div>
 
       <div className="border rounded p-4">
@@ -80,17 +73,13 @@ export default function DiagnosticKickoffButtons({ runs = [], onError }) {
           contamination, XML format drift, TF-IDF leakage detection.
           Quarantines without deleting. Takes 3&ndash;5 minutes.
         </p>
-        <button
+        <ActionButton
+          cliOnly={false}
+          pending={trainingActive || trainingMut.isPending}
           onClick={() => trainingMut.mutate({})}
-          disabled={trainingActive || trainingMut.isPending}
-          className={`w-full py-2 rounded text-sm font-medium ${
-            trainingActive || trainingMut.isPending
-              ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-              : 'bg-blue-600 text-white hover:bg-blue-700'
-          }`}
         >
           {trainingActive ? 'Running…' : 'Run Training Audit'}
-        </button>
+        </ActionButton>
       </div>
     </div>
   )

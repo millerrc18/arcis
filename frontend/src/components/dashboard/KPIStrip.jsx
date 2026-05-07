@@ -5,6 +5,7 @@
  * Color tokens: --arcis-success (green), --arcis-warning (amber),
  *   --arcis-danger (red), --arcis-info (blue), --arcis-text-muted (unknown/gray).
  */
+import Tooltip from '../Tooltip'
 
 const STATUS_COLOR = {
   green:   'var(--arcis-success)',
@@ -93,7 +94,7 @@ function StatusPill({ status, label }) {
   )
 }
 
-function KPICard({ title, value, status, subLine, caption, children }) {
+export function KPICard({ title, value, status, subLine, caption, meta, children }) {
   const color = STATUS_COLOR[status] || STATUS_COLOR.unknown
   return (
     <div
@@ -123,11 +124,21 @@ function KPICard({ title, value, status, subLine, caption, children }) {
           {caption}
         </div>
       )}
+      {meta != null && (
+        <Tooltip content={meta.label}>
+          <div
+            data-testid="kpi-meta-badge"
+            style={{ fontSize: 10, fontStyle: 'italic', color: 'var(--arcis-text-muted)', marginTop: 4 }}
+          >
+            {`n=${meta.n} · ${meta.cohort.split('.').pop()}`}
+          </div>
+        </Tooltip>
+      )}
     </div>
   )
 }
 
-function RfAdjustedCard({ kpi, n }) {
+function RfAdjustedCard({ kpi, n, meta }) {
   const v = kpi.value != null ? kpi.value.toFixed(2) : null
   const sub = kpi.p_value != null
     ? `p=${kpi.p_value.toFixed(2)}  CI [${(kpi.ci_lower ?? 0).toFixed(2)}, ${(kpi.ci_upper ?? 0).toFixed(2)}]`
@@ -139,6 +150,7 @@ function RfAdjustedCard({ kpi, n }) {
       status={kpi.status}
       subLine={sub}
       caption={`N=${n} | canonical T1.03`}
+      meta={meta}
     />
   )
 }
@@ -165,7 +177,7 @@ function SpyRelativeCard({ kpi, nSpy, nTotal }) {
   )
 }
 
-function WinRateCard({ kpi, n }) {
+function WinRateCard({ kpi, n, meta }) {
   const v = kpi.value != null ? `${(kpi.value * 100).toFixed(1)}%` : null
   const sub = kpi.n_wins != null
     ? `${kpi.n_wins}W / ${kpi.n_losses}L`
@@ -177,6 +189,7 @@ function WinRateCard({ kpi, n }) {
       status={kpi.status}
       subLine={sub}
       caption={`N=${n} | quarantine-filtered`}
+      meta={meta}
     />
   )
 }
@@ -279,9 +292,12 @@ export default function KPIStrip({ kpis, error = false, loading = false }) {
         }}
         className="kpi-strip"
       >
-        <RfAdjustedCard kpi={safeKpis.rf_adjusted_excess_sharpe} n={nTotal} />
+        {/* _meta.rf_adjusted_excess_sharpe: wired — spec field 1 of 4.
+            _meta.win_rate: wired — spec field 2 of 4; .n equals n_trades (spec field 3, exposed via badge).
+            total_pnl_dollars: no primary value card in this strip shows dollar P&L — TODO #SP3-T12-pnl-card */}
+        <RfAdjustedCard kpi={safeKpis.rf_adjusted_excess_sharpe} n={nTotal} meta={safeKpis._meta?.rf_adjusted_excess_sharpe} />
         <SpyRelativeCard kpi={safeKpis.spy_relative_sharpe} nSpy={nSpy} nTotal={nTotal} />
-        <WinRateCard kpi={safeKpis.win_rate} n={nTotal} />
+        <WinRateCard kpi={safeKpis.win_rate} n={nTotal} meta={safeKpis._meta?.win_rate} />
         <TrafficLightCard kpi={safeKpis.stage_traffic_light} n={nTotal} />
         <PromotionGateCard kpi={safeKpis.promotion_gate} nTrades={nTotal} nMinTrl={nMin} />
       </div>

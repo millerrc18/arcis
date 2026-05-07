@@ -7,6 +7,7 @@ import {
 } from 'recharts'
 import MetricCard from '../components/MetricCard'
 import LoadingSpinner from '../components/LoadingSpinner'
+import TooltipComponent from '../components/Tooltip'
 
 const MONO = { fontFamily: 'var(--font-mono)', fontVariantNumeric: 'tabular-nums' }
 const BAND_ORDER = ['0-39', '40-59', '60-79', '80-100']
@@ -117,11 +118,23 @@ export default function Strategy() {
         <>
           {/* KPI Cards */}
           {kpis && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8 }}>
-              <MetricCard label="Total Trades" value={kpis.totalTrades} />
-              <MetricCard label="Win Rate" value={kpis.winRate} suffix="%" />
-              <MetricCard label="Profit Factor" value={kpis.profitFactor} />
-              <MetricCard label="Avg Hold" value={kpis.avgHold} suffix="d" />
+            <div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8 }}>
+                <MetricCard label="Total Trades" value={kpis.totalTrades} />
+                <MetricCard label="Win Rate" value={kpis.winRate} suffix="%" />
+                <MetricCard label="Profit Factor" value={kpis.profitFactor} />
+                <MetricCard label="Avg Hold" value={kpis.avgHold} suffix="d" />
+              </div>
+              {data?._meta != null && (
+                <TooltipComponent content={data._meta.label}>
+                  <div
+                    data-testid="strategy-meta-badge"
+                    style={{ fontSize: 10, fontStyle: 'italic', color: 'var(--arcis-text-muted)', marginTop: 6 }}
+                  >
+                    {`n=${data._meta.n} · ${data._meta.cohort.split('.').pop()}`}
+                  </div>
+                </TooltipComponent>
+              )}
             </div>
           )}
 

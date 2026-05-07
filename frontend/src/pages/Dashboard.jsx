@@ -219,17 +219,17 @@ export default function Dashboard() {
   const [deskFilter, setDeskFilter] = useState('swing')
   const [researchDesks, setResearchDesks] = useState([])
 
-  const { data: status, isLoading: statusLoading } = useQuery({ queryKey: ['status'], queryFn: api.getStatus, refetchInterval: 60000 })
+  const { data: status, isLoading: statusLoading } = useQuery({ queryKey: ['status'], queryFn: () => api.getStatus(), refetchInterval: 60000 })
   const { data: openTrades } = useQuery({ queryKey: ['shadow-open', deskFilter], queryFn: () => api.getOpenTrades(deskFilter), refetchInterval: 60000 })
   const { data: closedData } = useQuery({ queryKey: ['shadow-closed', deskFilter], queryFn: () => api.getClosedTrades(30, deskFilter), refetchInterval: 60000 })
-  const { data: training } = useQuery({ queryKey: ['training-status'], queryFn: api.getTrainingStatus, refetchInterval: 60000 })
+  const { data: training } = useQuery({ queryKey: ['training-status'], queryFn: () => api.getTrainingStatus(), refetchInterval: 60000 })
   const { data: packets } = useQuery({ queryKey: ['packets'], queryFn: () => api.getPackets({ days: 1 }), refetchInterval: 60000 })
-  const { data: haltData } = useQuery({ queryKey: ['halt-status'], queryFn: api.getHaltStatus, refetchInterval: 30000 })
-  const { data: auditData } = useQuery({ queryKey: ['audit-latest'], queryFn: api.getLatestAudit, refetchInterval: 60000 })
+  const { data: haltData } = useQuery({ queryKey: ['halt-status'], queryFn: () => api.getHaltStatus(), refetchInterval: 30000 })
+  const { data: auditData } = useQuery({ queryKey: ['audit-latest'], queryFn: () => api.getLatestAudit(), refetchInterval: 60000 })
   const { data: ctoData } = useQuery({ queryKey: ['cto-report'], queryFn: () => api.getCtoReport(365), refetchInterval: 60000 })
-  const { data: configData } = useQuery({ queryKey: ['config'], queryFn: api.getConfig, refetchInterval: 300000 })
+  const { data: configData } = useQuery({ queryKey: ['config'], queryFn: () => api.getConfig(), refetchInterval: 300000 })
   const { data: accountData } = useQuery({ queryKey: ['shadow-account', deskFilter], queryFn: () => api.getAccount(deskFilter), refetchInterval: 60000 })
-  const { data: buildScore } = useQuery({ queryKey: ['build-score'], queryFn: api.getBuildScore, refetchInterval: 120000 })
+  const { data: buildScore } = useQuery({ queryKey: ['build-score'], queryFn: () => api.getBuildScore(), refetchInterval: 120000 })
   const {
     data: scanMetrics,
     isError: scanMetricsError,
@@ -238,7 +238,7 @@ export default function Dashboard() {
     data: systemIndex,
     isLoading: systemIndexLoading,
     isError: systemIndexError,
-  } = useQuery({ queryKey: ['system-index'], queryFn: api.getSystemIndex, refetchInterval: 60000 })
+  } = useQuery({ queryKey: ['system-index'], queryFn: () => api.getSystemIndex(), refetchInterval: 60000 })
   const {
     data: kpiData,
     isLoading: kpiLoading,

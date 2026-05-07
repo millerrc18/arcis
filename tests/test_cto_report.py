@@ -3,6 +3,9 @@
 from unittest.mock import patch, MagicMock
 
 import pytest
+import pytz
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 
 def _make_closed_trades(n: int, win_pct: float = 0.5) -> list[dict]:
@@ -250,3 +253,235 @@ class TestReportFormatting:
         text = format_cto_report(report)
         assert "CTO PERFORMANCE REPORT" in text
         assert "TRADE SUMMARY" in text
+
+
+# ── T9 — A1.B _meta envelope tests for remaining endpoints ───────────────────
+
+
+def _make_runtime_meta(queries: dict | None = None):
+    """Build a minimal mock runtime suitable for _meta endpoint tests."""
+    runtime = MagicMock()
+    runtime.logger = MagicMock()
+    runtime.et = pytz.timezone("US/Eastern")
+    queries = queries or {}
+
+    def query_one_side_effect(sql, *args, **kwargs):
+        for key, val in queries.items():
+            if key in sql:
+                return val
+        return {"c": 0, "count": 0, "cnt": 0,
+                "llm_success": 0, "llm_total": 0,
+                "verdict": None, "perplexity": None, "distinct_2": None,
+                "build_score": 0, "gate_velocity": 0, "system_health": 0,
+                "data_asset_value": 0, "model_quality": 0,
+                "research_velocity": 0, "reliability": 0,
+                "decay_applied": False, "created_at": ""}
+
+    def query_side_effect(sql, *args, **kwargs):
+        return []
+
+    runtime.query_one.side_effect = query_one_side_effect
+    runtime.query.side_effect = query_side_effect
+    return runtime
+
+
+def _make_app_client(runtime, module="analytics"):
+    app = FastAPI()
+
+    def verify_auth():
+        return True
+
+    if module == "analytics":
+        from src.api.cloud_routes.analytics import create_router
+    elif module == "trades":
+        from src.api.cloud_routes.trades import create_router
+    elif module == "training":
+        from src.api.cloud_routes.training import create_router
+
+    router = create_router(runtime, verify_auth)
+    app.include_router(router)
+    return TestClient(app, raise_server_exceptions=False)
+
+
+class TestT9MetaEnvelopes:
+    """T9 — A1.B: verify each remaining endpoint emits a valid _meta envelope."""
+
+    def test_shadow_metrics_default_emits_all_closed(self):
+        """No desk param → cohort='trades.all_closed'."""
+        runtime = _make_runtime_meta()
+        runtime.query.side_effect = None
+        runtime.query.return_value = [
+            {"pnl_dollars": 10.0, "pnl_pct": 1.0},
+            {"pnl_dollars": -5.0, "pnl_pct": -0.5},
+        ]
+        client = _make_app_client(runtime, module="trades")
+
+        resp = client.get("/api/shadow/metrics")
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert "_meta" in data, f"_meta missing from /api/shadow/metrics; keys: {list(data)}"
+        assert data["_meta"]["cohort"] == "trades.all_closed", (
+            f"Expected 'trades.all_closed', got {data['_meta']['cohort']}"
+        )
+
+    def test_shadow_metrics_all_desks_emit_all_closed(self):
+        """§2.3 cohort: until source='live' filter is wired, all desk values map to trades.all_closed.
+
+        _desk_clause() filters by `desk` column, not `source` column.
+        No current desk value produces a source='live' SQL filter, so
+        trades.live_only is NEVER the correct cohort for any current code path.
+        Sprint 4 follow-up #SP4-shadow-metrics-live-cohort must update this test
+        when a true source='live' filter is wired.
+        """
+        for desk in [None, "swing", "live", "all", "research_a"]:
+            runtime = _make_runtime_meta()
+            runtime.query.side_effect = None
+            runtime.query.return_value = [
+                {"pnl_dollars": 10.0, "pnl_pct": 1.0},
+            ]
+            client = _make_app_client(runtime, module="trades")
+
+            url = "/api/shadow/metrics" if desk is None else f"/api/shadow/metrics?desk={desk}"
+            resp = client.get(url)
+            assert resp.status_code == 200, f"desk={desk!r}: {resp.text}"
+            data = resp.json()
+            assert "_meta" in data, (
+                f"desk={desk!r}: _meta missing from response; keys: {list(data)}"
+            )
+            assert data["_meta"]["cohort"] == "trades.all_closed", (
+                f"desk={desk!r}: Expected 'trades.all_closed', got {data['_meta']['cohort']!r}. "
+                f"trades.live_only requires source='live' SQL filter (not yet wired — Sprint 4 "
+                f"#SP4-shadow-metrics-live-cohort)."
+            )
+
+    def test_attribution_stats_emits_attribution_pairs(self):
+        """/api/attribution/stats emits cohort='attribution.pairs', n=paired_n."""
+        runtime = MagicMock()
+        runtime.logger = MagicMock()
+        runtime.et = pytz.timezone("US/Eastern")
+
+        def query_one_side_effect(sql, *args, **kwargs):
+            sql_s = sql.strip()
+            if "ranker_only_outcome != 'pending'" in sql_s and "llm_portfolio_outcome IS NOT NULL" in sql_s:
+                return {"c": 7}
+            if "ranker_only_outcome != 'pending'" in sql_s:
+                return {"c": 10}
+            if "ranker_only_outcome = 'win'" in sql_s:
+                return {"c": 6}
+            if "llm_portfolio_outcome IS NOT NULL" in sql_s:
+                return {"c": 10}
+            if "llm_portfolio_outcome = 'win'" in sql_s:
+                return {"c": 5}
+            return {"c": 10}
+
+        runtime.query_one.side_effect = query_one_side_effect
+        runtime.query.return_value = []
+        client = _make_app_client(runtime, module="analytics")
+
+        resp = client.get("/api/attribution/stats")
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert "_meta" in data, f"_meta missing from /api/attribution/stats; keys: {list(data)}"
+        assert data["_meta"]["cohort"] == "attribution.pairs", (
+            f"Expected 'attribution.pairs', got {data['_meta']['cohort']}"
+        )
+        assert data["_meta"]["n"] == 7, (
+            f"Expected n=paired_n=7, got n={data['_meta']['n']}"
+        )
+
+    def test_strategy_detail_emits_trades_strategy(self):
+        """/api/strategy-detail/pullback emits cohort='trades.strategy'."""
+        runtime = _make_runtime_meta()
+        runtime.query.return_value = []
+        client = _make_app_client(runtime, module="analytics")
+
+        resp = client.get("/api/strategy-detail/pullback")
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert "_meta" in data, f"_meta missing from /api/strategy-detail/pullback; keys: {list(data)}"
+        assert data["_meta"]["cohort"] == "trades.strategy", (
+            f"Expected 'trades.strategy', got {data['_meta']['cohort']}"
+        )
+
+    def test_model_performance_emits_trades_model(self):
+        """/api/model-performance emits cohort='trades.model'."""
+        runtime = _make_runtime_meta()
+        runtime.query.return_value = []
+        client = _make_app_client(runtime, module="training")
+
+        resp = client.get("/api/model-performance")
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert "_meta" in data, f"_meta missing from /api/model-performance; keys: {list(data)}"
+        assert data["_meta"]["cohort"] == "trades.model", (
+            f"Expected 'trades.model', got {data['_meta']['cohort']}"
+        )
+
+    def test_build_score_emits_cohort_none(self):
+        """/api/build-score emits cohort='none' (uniform envelope pattern)."""
+        runtime = _make_runtime_meta()
+        runtime.query.return_value = []
+        client = _make_app_client(runtime, module="analytics")
+
+        resp = client.get("/api/build-score")
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert "_meta" in data, f"_meta missing from /api/build-score; keys: {list(data)}"
+        assert data["_meta"]["cohort"] == "none", (
+            f"Expected 'none', got {data['_meta']['cohort']}"
+        )
+
+    def test_health_hshs_per_section_meta(self):
+        """/api/health/hshs emits per-section _meta: overall=none, performance=trades.all_closed."""
+        runtime = _make_runtime_meta()
+        runtime.query.return_value = []
+        client = _make_app_client(runtime, module="analytics")
+
+        resp = client.get("/api/health/hshs")
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert "_meta" in data, f"_meta missing from /api/health/hshs; keys: {list(data)}"
+        assert "overall" in data["_meta"], f"_meta.overall missing; _meta keys: {list(data['_meta'])}"
+        assert "performance" in data["_meta"], f"_meta.performance missing; _meta keys: {list(data['_meta'])}"
+        assert data["_meta"]["overall"]["cohort"] == "none", (
+            f"Expected overall cohort='none', got {data['_meta']['overall']['cohort']}"
+        )
+        assert data["_meta"]["performance"]["cohort"] == "trades.all_closed", (
+            f"Expected performance cohort='trades.all_closed', got {data['_meta']['performance']['cohort']}"
+        )
+
+    def test_stress_test_results_emits_stress_scenario(self):
+        """/api/stress-test/results per-scenario _meta with cohort='stress.scenario'."""
+        import json
+        runtime = _make_runtime_meta()
+        runtime.query.side_effect = None
+        runtime.query.return_value = [
+            {"scenario_name": "bear_2022", "total_return_pct": -15.0,
+             "max_drawdown_pct": -20.0, "sharpe_ratio": -0.5,
+             "monthly_returns_json": json.dumps([1.0, -2.0]),
+             "regime_breakdown_json": None, "equity_curve_json": None,
+             "trade_count": 10, "win_rate": 0.4, "created_at": "2026-01-01"},
+        ]
+        client = _make_app_client(runtime, module="analytics")
+
+        resp = client.get("/api/stress-test/results")
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert "_meta" in data, f"_meta missing from /api/stress-test/results; keys: {list(data)}"
+        assert data["_meta"]["cohort"] == "stress.scenario", (
+            f"Expected 'stress.scenario', got {data['_meta']['cohort']}"
+        )
+
+    def test_simulation_results_emits_cohort_none(self):
+        """/api/simulation/results emits cohort='none' (synthetic data)."""
+        runtime = _make_runtime_meta()
+        runtime.query.return_value = []
+        client = _make_app_client(runtime, module="analytics")
+
+        resp = client.get("/api/simulation/results")
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert "_meta" in data, f"_meta missing from /api/simulation/results; keys: {list(data)}"
+        assert data["_meta"]["cohort"] == "none", (
+            f"Expected 'none', got {data['_meta']['cohort']}"
+        )

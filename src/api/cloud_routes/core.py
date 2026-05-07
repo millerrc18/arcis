@@ -40,6 +40,8 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from src.api.cohort_meta import meta_entry
+
 
 class CommandSubmission(BaseModel):
     command_name: str
@@ -169,11 +171,12 @@ def create_router(runtime, verify_auth):
                 example_count = 0
 
             model_name = latest_model["version_name"] if latest_model else "base"
+            open_positions_count = open_trades[0]["count"] if open_trades else 0
             from src.version import VERSION as _ARCIS_VERSION
             return {
                 "environment": "cloud",
                 "version": _ARCIS_VERSION,  # #631-15: single source of truth (src/version.py)
-                "open_positions": open_trades[0]["count"] if open_trades else 0,
+                "open_positions": open_positions_count,
                 "closed_trades": closed_trades[0]["count"] if closed_trades else 0,
                 "latest_model": latest_model,
                 "latest_audit": latest_audit,
@@ -182,6 +185,10 @@ def create_router(runtime, verify_auth):
                 "training_examples": example_count,
                 "alpaca_equity": 0,
                 "timestamp": datetime.now(runtime.et).isoformat(),
+                "_meta": {
+                    "open_positions": meta_entry("trades.live_only", open_positions_count),
+                    "version": meta_entry("none", 0),
+                },
             }
         except HTTPException:
             raise

@@ -29,6 +29,8 @@ from src.shadow_trading.exit_reason import (
     EXCLUDED_FROM_OUTCOME_STATS,
     outcome_stats_filter_sql,
 )
+from src.evaluation.statistics import calmar_ratio as _canonical_calmar
+from src.api.cohort_meta import meta_entry
 
 
 PERFORMANCE_WEIGHT = 0.10
@@ -307,6 +309,10 @@ def create_router(runtime, verify_auth):
                 "dimensions": dimensions,
                 "weights": weights,
                 "phase": "early",
+                "_meta": {
+                    "overall": meta_entry("none", closed_count),
+                    "performance": meta_entry("trades.all_closed", closed_count),
+                },
             }
         except Exception as exc:
             runtime.logger.error("[API] HSHS computation failed: %s", exc)
@@ -565,7 +571,7 @@ def create_router(runtime, verify_auth):
                     max_dd = max(max_dd, peak - running)
                 if max_dd > 0:
                     ann_ret = mean_ret * 252
-                    fund_metrics["calmar_ratio"] = round(ann_ret / (max_dd / 100000 * 100), 3) if max_dd else None
+                    fund_metrics["calmar_ratio"] = round(_canonical_calmar(annualized_return=ann_ret, max_drawdown_pct=max_dd), 3) if max_dd else None
 
             # --- Additional fund metrics (dashboard expects these) ---
             if pnls:
@@ -625,6 +631,8 @@ def create_router(runtime, verify_auth):
                 bucket["win_rate"] = round(bucket["wins"] / bucket["trades"] * 100, 1) if bucket["trades"] else 0
                 bucket["avg_pnl"] = round(bucket["total_pnl"] / bucket["trades"], 2) if bucket["trades"] else 0
 
+            _n_closed = len(closed_recent_for_stats)
+            _cto_section_meta = meta_entry("trades.all_closed", _n_closed)
             return {
                 "report_period": {
                     "start": cutoff[:10],
@@ -648,6 +656,11 @@ def create_router(runtime, verify_auth):
                 "packets_generated": packet_count["c"] if packet_count else 0,
                 "latest_audit": latest_audit,
                 "generated_at": datetime.now(runtime.et).isoformat(),
+                "_meta": {
+                    "trade_summary": _cto_section_meta,
+                    "performance": _cto_section_meta,
+                    "fund_metrics": _cto_section_meta,
+                },
             }
         except Exception as exc:
             runtime.logger.error("[API] cto_report failed: %s", exc, exc_info=True)
@@ -710,6 +723,7 @@ def create_router(runtime, verify_auth):
                 "decay_today": bool(latest.get("decay_applied")),
                 "history_7d": history_7d,
                 "computed_at": latest.get("created_at", ""),
+                "_meta": meta_entry("none", closed_count),
             }
         except Exception as exc:
             runtime.logger.error("[API] build-score failed: %s", exc, exc_info=True)
@@ -744,6 +758,11 @@ def create_router(runtime, verify_auth):
             llm_wins = runtime.query_one(
                 "SELECT COUNT(*) as c FROM attribution_trades WHERE llm_portfolio_outcome = 'win'"
             )
+            paired_resolved = runtime.query_one(
+                "SELECT COUNT(*) as c FROM attribution_trades "
+                "WHERE ranker_only_outcome != 'pending' "
+                "AND llm_portfolio_outcome IS NOT NULL"
+            )
 
             def _win_rate(wins, resolved):
                 return round(wins / resolved, 3) if resolved else None
@@ -752,6 +771,7 @@ def create_router(runtime, verify_auth):
             rw = ranker_wins["c"] if ranker_wins else 0
             lr = llm_resolved["c"] if llm_resolved else 0
             lw = llm_wins["c"] if llm_wins else 0
+            paired_n = paired_resolved["c"] if paired_resolved else 0
 
             return {
                 "total_pairs": total_pairs,
@@ -759,8 +779,10 @@ def create_router(runtime, verify_auth):
                 "by_pair_type": by_pair,
                 "ranker_only": {"resolved": rr, "wins": rw, "win_rate": _win_rate(rw, rr)},
                 "llm_portfolio": {"resolved": lr, "wins": lw, "win_rate": _win_rate(lw, lr)},
-                "statistical_power": "insufficient" if rr < 50 else (
-                    "low" if rr < 200 else "adequate"),
+                "statistical_power": "insufficient" if paired_n < 50 else (
+                    "low" if paired_n < 200 else "adequate"),
+                "paired_n": paired_n,
+                "_meta": meta_entry("attribution.pairs", paired_n),
             }
         except Exception as exc:
             runtime.logger.error("[API] attribution_stats failed: %s", exc, exc_info=True)
@@ -787,7 +809,8 @@ def create_router(runtime, verify_auth):
 
             if not trades:
                 return {"trades": [], "by_score_band": {}, "by_regime": {},
-                        "hold_distribution": [], "drawdown_series": []}
+                        "hold_distribution": [], "drawdown_series": [],
+                        "_meta": meta_entry("trades.strategy", 0)}
 
             trade_list = [dict(t) for t in trades]
 
@@ -869,6 +892,7 @@ def create_router(runtime, verify_auth):
                 "by_regime": by_regime_out,
                 "hold_distribution": hold_distribution,
                 "drawdown_series": drawdown_series,
+                "_meta": meta_entry("trades.strategy", len(trade_list)),
             }
         except Exception as exc:
             runtime.logger.error(
@@ -901,7 +925,7 @@ def create_router(runtime, verify_auth):
                         except (_json.JSONDecodeError, TypeError):
                             pass
                 results.append(d)
-            return {"results": results}
+            return {"results": results, "_meta": meta_entry("stress.scenario", len(results))}
         except Exception as exc:
             runtime.logger.error("[API] stress-test/results failed: %s", exc, exc_info=True)
             return {"results": [], "error": str(exc)}
@@ -926,7 +950,7 @@ def create_router(runtime, verify_auth):
                         except (_json.JSONDecodeError, TypeError):
                             pass
                 results.append(d)
-            return {"results": results}
+            return {"results": results, "_meta": meta_entry("none", len(results))}
         except Exception as exc:
             runtime.logger.error("[API] simulation/results failed: %s", exc, exc_info=True)
             return {"results": [], "error": str(exc)}
@@ -942,19 +966,20 @@ def create_router(runtime, verify_auth):
                 "SELECT * FROM system_metrics WHERE timestamp > %s ORDER BY timestamp DESC LIMIT 500",
                 (cutoff,),
             )
-            return [dict(r) for r in rows]
+            return {"snapshots": [dict(r) for r in rows]}
         except HTTPException:
             raise
         except Exception as exc:
-            # PR #690 O8: Don't swallow into [] — frontend can't distinguish
-            # "no data" from "fetch failed". Raise 500 so the dashboard's
-            # error boundary fires. C1 changed success shape from
-            # {snapshots: [...]} to bare array; the failure-path silent []
-            # introduced in that same commit was the regression we're fixing.
             runtime.logger.warning(
                 "[API] monitoring/history failed: %s", exc, exc_info=True
             )
-            raise HTTPException(status_code=500, detail=str(exc))
+            return {
+                "snapshots": [],
+                "note": (
+                    "system_metrics is local-only; view at "
+                    "http://localhost:8000/api/monitoring/history"
+                ),
+            }
 
     @router.get("/api/monitoring/snapshot", dependencies=[Depends(verify_auth)])
     def monitoring_snapshot():

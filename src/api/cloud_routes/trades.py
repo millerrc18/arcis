@@ -34,6 +34,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src.services.shadow_service import compute_timeout_status
 from src.shadow_trading.exit_reason import outcome_stats_filter_sql
+from src.api.cohort_meta import meta_entry
 
 
 # ── SD#41 / Sprint-3 Task-12c desk-filter helper ───────────────────────────
@@ -310,8 +311,14 @@ def create_router(runtime, verify_auth):
                 f" {outcome_stats_filter_sql()}",
                 (cutoff, *desk_params),
             )
+            # Per spec §2.3: trades.live_only requires SQL filter source='live'.
+            # _desk_clause() filters by `desk` column, not `source` column.
+            # Until a true source='live' filter is wired (Sprint 4 follow-up
+            # #SP4-shadow-metrics-live-cohort), all current desk values map to
+            # trades.all_closed.
+            cohort_id = "trades.all_closed"
             if not rows:
-                return {"total_trades": 0}
+                return {"total_trades": 0, "_meta": meta_entry(cohort_id, 0)}
 
             pnls = [row["pnl_dollars"] or 0 for row in rows]
             wins = [pnl for pnl in pnls if pnl > 0]
@@ -327,6 +334,7 @@ def create_router(runtime, verify_auth):
                 "avg_loss": round(sum(losses) / len(losses), 2) if losses else 0,
                 "expectancy": round(total_pnl / len(rows), 2) if rows else 0,
                 "days": days,
+                "_meta": meta_entry(cohort_id, len(rows)),
             }
         except HTTPException:
             raise

@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { IS_CLOUD } from '../config'
 import {
   PolarAngleAxis,
   PolarGrid,
@@ -13,7 +14,7 @@ import {
   YAxis,
 } from 'recharts'
 import { api } from '../api'
-import LoadingSpinner from '../components/LoadingSpinner'
+import LoadingState from '../components/LoadingState'
 import MetricCard from '../components/MetricCard'
 import StatusBadge from '../components/StatusBadge'
 import { TrendingUp, TrendingDown, Minus, AlertTriangle } from 'lucide-react'
@@ -48,28 +49,33 @@ function overallColor(score) {
 }
 
 export default function Health() {
-  const { data: hshsData, isLoading: hshsLoading } = useQuery({
+  const { data: hshsData, isLoading: hshsLoading, isError: hshsError, error: hshsErrorObj, refetch: refetchHshs } = useQuery({
     queryKey: ['hshs-live'],
-    queryFn: api.getHSHS,
+    queryFn: () => api.getHSHS(),
     refetchInterval: 60000,
   })
-  const { data: buildData, isLoading: buildLoading } = useQuery({
+  const { data: buildData, isLoading: buildLoading, isError: buildError } = useQuery({
     queryKey: ['build-score'],
-    queryFn: api.getBuildScore,
+    queryFn: () => api.getBuildScore(),
     refetchInterval: 120000,
   })
   const { data: trainingHistory } = useQuery({
     queryKey: ['training-history'],
-    queryFn: api.getTrainingHistory,
+    queryFn: () => api.getTrainingHistory(),
     refetchInterval: 300000,
   })
   const { data: ibData } = useQuery({
     queryKey: ['ib-status'],
-    queryFn: api.getIBStatus,
+    queryFn: () => api.getIBStatus(),
     refetchInterval: 60000,
+    enabled: !IS_CLOUD,
   })
 
-  if (hshsLoading && buildLoading) return <LoadingSpinner />
+  if (hshsLoading && buildLoading) {
+    return (
+      <LoadingState isLoading={true} isError={false} isEmpty={false} loadingMessage="Loading health data..." />
+    )
+  }
 
   // HSHS data
   const hshsOverall = hshsData?.hshs ?? 0
@@ -198,6 +204,13 @@ export default function Health() {
       )}
 
       {/* IB Gateway Status */}
+      {IS_CLOUD && !ibData && (
+        <div className="arcis-card" data-testid="ib-cloud-banner">
+          <div className="text-sm" style={{ color: 'var(--arcis-text-muted)' }}>
+            Not available in cloud mode
+          </div>
+        </div>
+      )}
       {ibData && !ibData.error && (
         <div className="arcis-card" data-testid="ib-status-card" style={{ padding: '24px' }}>
           <div className="flex items-center justify-between mb-4">
@@ -246,8 +259,16 @@ export default function Health() {
 
       {/* HSHS section */}
       {!hasHshs ? (
-        <div className="arcis-card text-center" style={{ padding: '48px' }}>
-          <div className="text-sm" style={{ color: 'var(--arcis-text-muted)' }}>Collecting HSHS data...</div>
+        <div className="arcis-card" style={{ padding: '48px' }}>
+          <LoadingState
+            isLoading={false}
+            isError={hshsError}
+            error={hshsErrorObj}
+            retry={refetchHshs}
+            retryDisabledFor={5000}
+            isEmpty={true}
+            emptyMessage="Collecting HSHS data..."
+          />
         </div>
       ) : (
         <>

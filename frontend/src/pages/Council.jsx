@@ -12,6 +12,7 @@ import {
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { api } from '../api'
 import { formatTimestamp } from '../utils/formatTimestamp'
+import ActionButton from '../components/ActionButton'
 import LoadingSpinner from '../components/LoadingSpinner'
 import StatusBadge from '../components/StatusBadge'
 
@@ -284,7 +285,7 @@ export default function Council() {
   const [strategicQuestion, setStrategicQuestion] = useState('')
   const { data: latest, isLoading } = useQuery({
     queryKey: ['council-latest'],
-    queryFn: api.getCouncilLatest,
+    queryFn: () => api.getCouncilLatest(),
     refetchInterval: 60000,
   })
   const { data: history } = useQuery({
@@ -329,14 +330,13 @@ export default function Council() {
             Five-agent vote-first council with conditional Round 2 and tracked parameter changes.
           </p>
         </div>
-        <button
+        <ActionButton
+          cliOnly={false}
+          pending={runCouncil.isPending}
           onClick={() => runCouncil.mutate()}
-          disabled={runCouncil.isPending}
-          className="px-4 py-2 font-medium text-sm text-white disabled:opacity-50"
-          style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-accent)' }}
         >
           {runCouncil.isPending ? 'Running...' : 'Run Council Now'}
-        </button>
+        </ActionButton>
       </div>
 
       <div className="p-4" style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-surface)', border: '1px solid var(--arcis-border)' }}>
@@ -355,14 +355,13 @@ export default function Council() {
             className="flex-1 px-3 py-2 text-sm"
             style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)' }}
           />
-          <button
+          <ActionButton
+            cliOnly={false}
+            pending={askStrategic.isPending || !strategicQuestion.trim()}
             onClick={() => askStrategic.mutate(strategicQuestion)}
-            disabled={askStrategic.isPending || !strategicQuestion.trim()}
-            className="px-4 py-2 text-sm font-medium disabled:opacity-50"
-            style={{ borderRadius: 'var(--radius-sm)', background: 'var(--arcis-bg-primary)', border: '1px solid var(--arcis-border)', color: 'var(--arcis-text-primary)' }}
           >
             {askStrategic.isPending ? 'Sending...' : 'Ask Council'}
-          </button>
+          </ActionButton>
         </div>
         {askStrategic.data && (
           <div className="mt-3 text-sm px-3 py-2" style={{ borderRadius: 'var(--radius-sm)', background: 'rgba(148, 163, 184, 0.12)', color: 'var(--arcis-text-secondary)' }}>

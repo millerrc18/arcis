@@ -2,6 +2,41 @@
 
 > **Single-source operational runbook.** When something needs doing, breaking, or unbreaking — start here. Updated regularly; if you encounter a procedure that isn't here, add it.
 
+## Sprint 3 Cockpit Coherence (2026-05-07) — operator-visible changes
+
+After Sprint 3 deploys to main + Render rebuilds, halcyonlab.app will render:
+- Header `TL: GREEN/AMBER/RED` (was `TL: NOT SET` — now read from `/api/kpis` `stage_traffic_light`; 3-state fallback: `TL: ...` pending, `TL: COMPUTING` if loaded-but-null, `TL: ERR` on API failure)
+- Cohort badges (e.g. `n=5 · canonical`) under rf-adjusted excess Sharpe + win rate KPI cards, and under Excess Sharpe in Trade History
+- LoadingState component on broker exceptions, DB schema, health, monitoring widgets — error states render explicit retry button instead of infinite spinner
+- ActionButton variants: `[CLI only]` badge for ops requiring local broker auth (Live Ledger reconcile, IB toggles)
+- Settings IB toggles (`live_trading.ib.shadow_mode`, `live_trading.ib.paper_routing`) are now visually disabled with "Effect requires local IB Gateway connection" reason text
+- Settings risk inputs no longer show float artifacts (`0.0049999...` → `0.005`)
+- Monitoring page gracefully handles `system_metrics is local-only` on Render (was 500/503 infinite spinner)
+
+### New CI guardrails (Sprint 3)
+
+- `tests/test_calmar_canonical_only.py`: any `def *calmar*` outside `src/evaluation/statistics.py` fails CI
+- `tests/test_eslint_queryfn_guardrail.py`: bare-queryFn refs in `useQuery` fail via ESLint rule (`npm --prefix frontend run lint:queryfn`)
+- `tests/test_dashboard_reconciliation.py`: cohort-aware reconciliation across 5 endpoints (`/api/cto-report`, `/api/shadow/metrics`, `/api/status`, `/api/attribution/stats`, `/api/stress-test/results`)
+
+### Sprint 4 follow-up issues to track
+
+After Sprint 3 merges, create these GitHub issues (see `docs/audits/2026-05-06-cockpit-coherence-sprint/sp4-followups.md` for full issue bodies):
+- `#SP4-shadow-metrics-live-cohort`: wire `source='live'` SQL filter for `/api/shadow/metrics` when `desk='live'`
+- `#SP4-status-open-positions-cohort`: align `/api/status._meta.open_positions` cohort label with SQL filter
+- `#SP4-calmar-debt`: migrate 3 hand-rolled Calmar sites (cto_report.py, engine.py, backtester.py) to canonical helper
+- `#SP4-stop-loss-fallback`: locate and fix downstream stop_loss display sign-inversion
+- `#SP4-render-pg-reconcile`: extend T16 reconciliation test to Postgres
+- `#SP4-kpis-meta-reconciliation-test`: regression-lock `/api/kpis` `_meta` envelope
+- `#SP4-tanstack-strategyresearch-platformstatus`: bare-ref `queryFn` at `StrategyResearch.jsx:41` + `PlatformStatusWidget.jsx:13`
+- `#SP3-T12-pnl-card`: no dollar P&L primary card in 5-card KPIStrip — design decision needed
+
+### Visual-verify checklist
+
+Full operator validation checklist for halcyonlab.app post-Render-rebuild: `docs/audits/2026-05-06-cockpit-coherence-sprint/visual-verify-checklist.md`
+
+---
+
 ## Table of contents
 
 0. [System Overview](#0-system-overview) — what ARCIS is and how it fits together
