@@ -32,7 +32,7 @@ function statusVariant(status) {
 export default function ModelPerformance() {
   const { data, isLoading, error } = useQuery({
     queryKey: ['model-performance'],
-    queryFn: api.getModelPerformance,
+    queryFn: () => api.getModelPerformance(),
     refetchInterval: 120000,
   })
   const [sortKey, setSortKey] = useState('trades')

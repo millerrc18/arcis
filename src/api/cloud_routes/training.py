@@ -39,6 +39,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.shadow_trading.exit_reason import outcome_stats_filter_sql
+from src.api.cohort_meta import meta_entry
 
 _DATA_COLLECTION_QUERIES = {
     "options_chains": (
@@ -606,6 +607,7 @@ def create_router(runtime, verify_auth):
                 "models": models,
                 "overall": overall,
                 "total_closed_trades": len(trades),
+                "_meta": meta_entry("trades.model", len(trades)),
             }
         except Exception as exc:
             runtime.logger.error("[API] model-performance failed: %s", exc, exc_info=True)

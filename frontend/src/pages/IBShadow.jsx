@@ -55,7 +55,7 @@ function pctColor(val, greenThresh, yellowThresh) {
 export default function IBShadow() {
   const { data: summary, isLoading: sumLoading } = useQuery({
     queryKey: ['ib-shadow-summary'],
-    queryFn: api.getIBShadowSummary,
+    queryFn: () => api.getIBShadowSummary(),
     refetchInterval: 60000,
   })
   const { data: logData, isLoading: logLoading } = useQuery({

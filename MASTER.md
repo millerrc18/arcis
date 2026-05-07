@@ -61,7 +61,7 @@ with an unbeatable technological moat.
 | Model | arcis:v1.0.0 (Qwen3 8B, Q8_0 GGUF); v2.0.0 retrain gated on excess-Sharpe validation |
 | Training data — Stage 1 corpus | 18,185 / 67,681 entries (~26.9%) as of 2026-05-04 ~21:13 ET. Resumed mid-evening after Ollama restart hang. Target rate ~13.8 s/entry → ~7.91 days continuous to finish. Operator-paced. |
 | Watch loop | Paused (operator-paused 2026-05-04 evening, Wave 4 prep) |
-| Tests | **3,682 tests passing, 0 failures** — CI floor (post-Sprint-1.A.1 baseline). Unchanged this PR (docs-only). Lineage: 3038 (pre-audit) → 3159 (Track 1) → 3238 (Cohort 1) → 3380 (Cohort 2 + 3A) → 3646 (Track 1.5 + Round 10) → 3651 (PR-690 I5) → 3671 (Sprint 1.A.0) → 3682 (Sprint 1.A.1: T10 migration regression-locks +11). |
+| Tests | **4,702 passing, 43 pre-existing failures** — post-Sprint-3 cockpit-coherence (2026-05-07). CI floor: 3682 (Sprint 1.A.1 baseline). Sprint 3 added +100 net. Pre-existing failures tracked separately (test_repo_structure.py 3 + others). Lineage: 3038 (pre-audit) → 3159 (Track 1) → 3238 (Cohort 1) → 3380 (Cohort 2 + 3A) → 3646 (Track 1.5) → 3651 (PR-690 I5) → 3671 (Sprint 1.A.0) → 3682 (Sprint 1.A.1) → 4602 (Sprint 2 closeout) → 4702 (Sprint 3 cockpit-coherence). |
 | Python files | 304 (+12 new src/platform/ modules Sprint 1; +4 new src/platform/ modules Sprint 2: promotion, trials, rigor/walkforward, rigor/trials; +1 module Sprint 3: exposure_limits; +4 modules Sprint 4 Tier 5: alpaca_clients, reconcile_dispatch, shadow_harness, cost_calibration; +3 modules Sprint 4 cont.: signal_eval, strategy_plugin, plugin_registry; +89 modules 2026-04-18/19: training/audit, platform/rigor/walkforward_*, observability/formatters, api/cloud_routes/_command_ttl, risk/price_utils, platform/_backtest_trace, diagnostic_handlers, summary_extractor, plus capability_registry + diagnostic-runner; +1 module v0.25.4: platform/vix_lookup) |
 | Dashboard pages | 28 |
 | Research docs | 92 |
@@ -1123,6 +1123,27 @@ Each is cheap to do now, expensive to retrofit later.
 | alpaca-py SDK migration | SPEC WRITTEN — `docs/sprints/sprint-alpaca-py-migration.md`. Audit shows migration already complete; spec documents verification + CI guardrail + intraday-streaming readiness note | Legacy `alpaca-trade-api` SDK is deprecated; intraday Phase 6 needs `TradingStream` + `StockDataStream` from the modern SDK |
 | asyncio handler refactor | SPEC WRITTEN — `docs/sprints/sprint-asyncio-handler-refactor.md`. Restructures the 60-second poll loop in `src/scheduler/watch.py` (2,023 lines) into `on_tick` / `on_daily_bar` / `on_fill` / `on_signal` handlers via an asyncio event loop | Phase 6 intraday plugs `StockDataStream` bar handlers and `TradingStream` fill handlers into the same event loop instead of rewriting the scheduler |
 | 1-minute bar collection | **DONE v0.23.0** — `scripts/collect_1min_bars.py`, nightly at 11:30 PM ET | ~2.3 MB/day of historical 1-min OHLCV for S&P 100; forward-fill starts accumulating the moment it's turned on |
+
+### Sprint 3 — Cockpit Coherence ✅ CLOSED (2026-05-07)
+
+**Sprint id:** `cockpit-coherence-2026-05-06`
+**PRs:** #983 (T6), #984 (T7), #985 (T11), #986 (T5), #987 (T1), #988 (T2/T4), #990 (T3), #991 (T8), #992 (T10), #993 (T9), #994 (T17), #995 (T15), #996 (T13), #997 (T12), #998 (T14), #999 (T16), #1000 (T21), #1001 (T20), #1002 (T19), #1003 (T18), #1004 (T22)
+**22 tasks (T1-T22)** shipped across 5 audit groups (E/A/B/C/F) + TanStack v5 sweep + ESLint guardrail.
+
+**Key milestones DONE:**
+- Header TL source-of-truth: `TL: NOT SET` → `TL: GREEN/AMBER/RED` from `/api/kpis`
+- `_meta` cohort envelope on all 9 API endpoints (additive, BC)
+- Shared `<LoadingState>` migrated to 4 widgets — closes E7 infinite-spinner on Render
+- Shared `<ActionButton cliOnly>` migrated to 4 pages + Settings IB toggles
+- 14 files wrapped for TanStack v5 bare-queryFn (closes `desk=[object Object]` URL corruption)
+- ESLint rule + pytest fixture preventing future bare-queryFn regressions
+- Calmar 1000x overshoot fixed + CI guardrail preventing recurrence
+- Test floor: 4602 → 4702 (+100 net; 43 pre-existing failures unchanged)
+
+**Open Sprint 4 follow-ups:** 8 issues — see `docs/audits/2026-05-06-cockpit-coherence-sprint/sp4-followups.md`
+**Visual-verify checklist:** `docs/audits/2026-05-06-cockpit-coherence-sprint/visual-verify-checklist.md` (run post-Render-rebuild)
+
+---
 
 ### Completed Sprints (historical)
 

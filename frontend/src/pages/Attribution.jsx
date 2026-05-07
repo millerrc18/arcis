@@ -7,7 +7,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 export default function Attribution() {
   const { data, isLoading } = useQuery({
     queryKey: ['attribution-stats'],
-    queryFn: api.getAttributionStats,
+    queryFn: () => api.getAttributionStats(),
     refetchInterval: 120000,
   })
 
@@ -15,6 +15,7 @@ export default function Attribution() {
 
   const stats = data || {}
   const total = stats.total_pairs || 0
+  const pairedN = stats.paired_n ?? 0
   const ranker = stats.ranker_only || {}
   const llm = stats.llm_portfolio || {}
   const byAction = stats.by_action || {}
@@ -32,7 +33,7 @@ export default function Attribution() {
   }))
 
   const powerColor = power === 'adequate' ? 'var(--arcis-success)' : power === 'low' ? 'var(--arcis-warning)' : 'var(--arcis-danger)'
-  const powerLabel = power === 'adequate' ? 'Adequate (200+)' : power === 'low' ? 'Low (50-200)' : `Insufficient (${total}/200)`
+  const powerLabel = power === 'adequate' ? 'Adequate (200+)' : power === 'low' ? 'Low (50-200)' : `Insufficient (${pairedN}/200)`
 
   return (
     <div className="space-y-4 md:space-y-6">
@@ -49,11 +50,11 @@ export default function Attribution() {
           Does the LLM add alpha?
         </h3>
         <p className="text-sm" style={{ color: 'var(--arcis-text-muted)' }}>
-          {total < 50
-            ? `Only ${total} paired trades logged. Need 200+ for statistical significance (McNemar's test at 80% power). Keep trading.`
-            : total < 200
-              ? `${total} paired trades — gaining statistical power. Need 200+ for definitive answer.`
-              : `${total} paired trades — sufficient for alpha attribution analysis.`
+          {pairedN < 50
+            ? `${pairedN} paired trades resolved (both arms). Need 200+ for statistical significance (McNemar's test at 80% power). Keep trading.`
+            : pairedN < 200
+              ? `${pairedN} paired trades resolved (both arms) — gaining statistical power. Need 200+ for definitive answer.`
+              : `${pairedN} paired trades resolved (both arms) — sufficient for alpha attribution analysis.`
           }
         </p>
       </div>

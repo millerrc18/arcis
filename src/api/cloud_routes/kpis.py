@@ -20,11 +20,24 @@ src.api.cloud_routes.kpis.* resolve correctly.
 """
 from __future__ import annotations
 
+import logging
+import sqlite3
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
 
+from src.analytics import kpis_compute as _analytics_kpis
 from src.analytics.instrumentation_filter import filter_fully_instrumented
+from src.api.cohort_meta import meta_entry
+from src.config import DB_PATH
+
+_log = logging.getLogger(__name__)
+
+_GATE_PROPOSAL_ZERO_SHAPE: dict[str, dict[str, int]] = {
+    "1d": {"promote": 0, "reject": 0, "defer": 0, "unknown": 0},
+    "7d": {"promote": 0, "reject": 0, "defer": 0, "unknown": 0},
+    "30d": {"promote": 0, "reject": 0, "defer": 0, "unknown": 0},
+}
 
 router = APIRouter()
 
@@ -66,6 +79,28 @@ from src.api.cloud_routes.kpis_compute import (  # noqa: E402, F401
 )
 
 
+@router.get("/kpis/gate-proposals", dependencies=[Depends(verify_auth)])
+def get_gate_proposal_kpis() -> dict:
+    """Return methodology gate-proposal counts by decision over 1d/7d/30d windows.
+
+    Reads strategy_promotion_events filtered by triggered_by='gate_proposal'
+    via src.analytics.kpis_compute.get_gate_proposal_counts. operator_confirm
+    rows are excluded (real promotion transitions, not gate-proposal observations).
+
+    Returns the canonical zero shape and logs a warning if the table is missing
+    (fresh deployments before the first daily run) so the dashboard does not
+    show an error card.
+    """
+    try:
+        return _analytics_kpis.get_gate_proposal_counts(DB_PATH)
+    except sqlite3.OperationalError as exc:
+        _log.warning(
+            "[gate-proposals] strategy_promotion_events not yet available: %s; "
+            "returning zero shape", exc,
+        )
+        return _GATE_PROPOSAL_ZERO_SHAPE
+
+
 @router.get("/kpis", dependencies=[Depends(verify_auth)])
 def get_kpis() -> dict:
     """Return all 5 canonical KPIs for the Dashboard hero strip."""
@@ -77,6 +112,7 @@ def get_kpis() -> dict:
     spy_returns = _fetch_spy_returns_for_trades(spy_with_data)
     spy_aligned_returns = [float(t.get("pnl_pct") or 0) / 100.0 for t in spy_with_data]
     rf_per_trade, rf_used_fred = _compute_per_trade_rf(instrumented)
+    _kpi_meta = meta_entry("kpi.canonical", n_trades)
     return {
         "n_trades": n_trades,
         "n_total": n_trades,
@@ -90,4 +126,11 @@ def get_kpis() -> dict:
         "stage_traffic_light": _compute_stage_traffic_light(returns, rf_per_trade),
         "promotion_gate": _compute_promotion_gate_kpi(n_trades, returns),
         "rf_source": "fred_dtb3" if rf_used_fred else "placeholder",
+        "_meta": {
+            "rf_adjusted_excess_sharpe": _kpi_meta,
+            "spy_relative_sharpe": _kpi_meta,
+            "win_rate": _kpi_meta,
+            "stage_traffic_light": _kpi_meta,
+            "promotion_gate": _kpi_meta,
+        },
     }

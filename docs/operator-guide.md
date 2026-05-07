@@ -2,6 +2,41 @@
 
 > **Single-source operational runbook.** When something needs doing, breaking, or unbreaking — start here. Updated regularly; if you encounter a procedure that isn't here, add it.
 
+## Sprint 3 Cockpit Coherence (2026-05-07) — operator-visible changes
+
+After Sprint 3 deploys to main + Render rebuilds, halcyonlab.app will render:
+- Header `TL: GREEN/AMBER/RED` (was `TL: NOT SET` — now read from `/api/kpis` `stage_traffic_light`; 3-state fallback: `TL: ...` pending, `TL: COMPUTING` if loaded-but-null, `TL: ERR` on API failure)
+- Cohort badges (e.g. `n=5 · canonical`) under rf-adjusted excess Sharpe + win rate KPI cards, and under Excess Sharpe in Trade History
+- LoadingState component on broker exceptions, DB schema, health, monitoring widgets — error states render explicit retry button instead of infinite spinner
+- ActionButton variants: `[CLI only]` badge for ops requiring local broker auth (Live Ledger reconcile, IB toggles)
+- Settings IB toggles (`live_trading.ib.shadow_mode`, `live_trading.ib.paper_routing`) are now visually disabled with "Effect requires local IB Gateway connection" reason text
+- Settings risk inputs no longer show float artifacts (`0.0049999...` → `0.005`)
+- Monitoring page gracefully handles `system_metrics is local-only` on Render (was 500/503 infinite spinner)
+
+### New CI guardrails (Sprint 3)
+
+- `tests/test_calmar_canonical_only.py`: any `def *calmar*` outside `src/evaluation/statistics.py` fails CI
+- `tests/test_eslint_queryfn_guardrail.py`: bare-queryFn refs in `useQuery` fail via ESLint rule (`npm --prefix frontend run lint:queryfn`)
+- `tests/test_dashboard_reconciliation.py`: cohort-aware reconciliation across 5 endpoints (`/api/cto-report`, `/api/shadow/metrics`, `/api/status`, `/api/attribution/stats`, `/api/stress-test/results`)
+
+### Sprint 4 follow-up issues to track
+
+After Sprint 3 merges, create these GitHub issues (see `docs/audits/2026-05-06-cockpit-coherence-sprint/sp4-followups.md` for full issue bodies):
+- `#SP4-shadow-metrics-live-cohort`: wire `source='live'` SQL filter for `/api/shadow/metrics` when `desk='live'`
+- `#SP4-status-open-positions-cohort`: align `/api/status._meta.open_positions` cohort label with SQL filter
+- `#SP4-calmar-debt`: migrate 3 hand-rolled Calmar sites (cto_report.py, engine.py, backtester.py) to canonical helper
+- `#SP4-stop-loss-fallback`: locate and fix downstream stop_loss display sign-inversion
+- `#SP4-render-pg-reconcile`: extend T16 reconciliation test to Postgres
+- `#SP4-kpis-meta-reconciliation-test`: regression-lock `/api/kpis` `_meta` envelope
+- `#SP4-tanstack-strategyresearch-platformstatus`: bare-ref `queryFn` at `StrategyResearch.jsx:41` + `PlatformStatusWidget.jsx:13`
+- `#SP3-T12-pnl-card`: no dollar P&L primary card in 5-card KPIStrip — design decision needed
+
+### Visual-verify checklist
+
+Full operator validation checklist for halcyonlab.app post-Render-rebuild: `docs/audits/2026-05-06-cockpit-coherence-sprint/visual-verify-checklist.md`
+
+---
+
 ## Table of contents
 
 0. [System Overview](#0-system-overview) — what ARCIS is and how it fits together
@@ -14,7 +49,8 @@
 7. [Maintenance Tasks](#7-maintenance-tasks) — corpus regen, schema migration, cleanup
 8. [Glossary](#8-glossary) — term definitions
 9. [Roadmap pointer](#9-roadmap-pointer) — strategic direction
-10. [Update Protocol](#10-update-protocol) — keeping this doc fresh
+10. [Daily methodology-gate workflow](#10-daily-methodology-gate-workflow) — reading the gate digest, interpreting evidence, acting on proposals
+11. [Update Protocol](#11-update-protocol) — keeping this doc fresh
 
 ---
 
@@ -40,7 +76,7 @@ Per `MASTER.md` SD#43, real-money allocation depends on clearing three statistic
 | **Stage 2** | Excess Sharpe ≥ 0.5 at p < 0.05 over 150 OOS trades **AND** ≥4-of-5 promotion gate (PSR/DSR + PBO + CPCV + MC permutation + White's Reality Check) | IB Gateway live-trading eligibility |
 | **Stage 3** | Excess Sharpe > 1.0 at p < 0.05 over 300 OOS trades | Full capital ramp |
 
-The methodology gate (Stage 2 prerequisite) is being wired into the live evaluation path under Sprint 2 — implementation in `docs/audits/2026-05-05-methodology-gate-wiring/`. Until then, promotion is operator-judgment.
+The methodology gate (Stage 2 prerequisite) is live as of Sprint 2 — implementation in `docs/audits/2026-05-05-methodology-gate-wiring/`. See §10 "Daily methodology-gate workflow" for the operational guide.
 
 ### 0.3 System anatomy — what runs where
 
@@ -110,10 +146,11 @@ In parallel, the bracket monitor runs every 5 min:
 - EOD report — Telegram digest + email summary
 - Build score recompute — dashboard refresh
 
-**Methodology gate (16:35 ET — in flight via Sprint 2)**
-- Daily run of the 5-method voting gate over each candidate strategy
+**Methodology gate (16:35 ET — live as of Sprint 2)**
+- Daily run of the 5-method voting gate over each active/backtested strategy
 - Persists `triggered_by='gate_proposal'` rows in `strategy_promotion_events` (informational; `from_status==to_status`)
-- Operator confirms via `confirm-promotion` CLI to actually transition the strategy
+- Operator reviews evidence and confirms via `confirm-promotion` CLI to actually transition the strategy
+- See §10 for full operational guide: reading the digest, interpreting evidence, troubleshooting defer
 
 **Overnight (16:35 ET – 07:00 ET)**
 - Data collection sweep — fresh fundamentals, news, macros (runs 7 days/week per CLAUDE.md)
@@ -1051,7 +1088,7 @@ Quarterly (or when worktrees exceed ~30):
 | **OOS** | Out-of-sample. Stage 1 OOS validation = 30+ trades at t > 1.0 (sub-validation completing Stage 1, NOT Stage 2). See §9 for the canonical ladder |
 | **PBO** | Probability of Backtest Overfitting (Bailey-LdP 2014, CSCV). On the methodology shelf |
 | **PIT** | Point-in-time. A PIT-clean computation only uses data that was available AT the as_of date. SP100 PIT membership lookup in `src/universe/pit.py` |
-| **Promotion gate** | ≥4-of-5 voting gate (PSR/DSR/PBO/MC permutation/White's RC) in `src/methods/promotion_gate.py`. Built but not yet wired into the live promotion path |
+| **Promotion gate** | ≥4-of-5 voting gate (PSR/DSR/PBO/MC permutation/White's RC) in `src/methods/promotion_gate.py`. Live in production as of Sprint 2; fires daily at 16:35 ET via watch.py. See §10 for operational guide |
 | **Reconciled_stale** | `exit_reason` value set when reconciler closes a shadow_trade that no longer exists at the broker. NOT a real strategy outcome — a bookkeeping artifact. Excluded from outcome stats (Wave 4 H5 + #919/#920 — `EXCLUDED_FROM_OUTCOME_STATS` constant) |
 | **RenderSyncThread** | Background thread (`src/sync/render_sync.py`) that replicates local SQLite → Render Postgres. Per-table cursor in `sync_state` table |
 | **Shadow trade** | Paper trade tracked in our DB (`shadow_trades` table). Mirrors broker-side state |
@@ -1080,14 +1117,251 @@ The 3-stage validation ladder for live trading (canonical: MASTER.md SD#43):
 
 1. **Stage 1** — Baseline signed (`d651160`); 35 instrumented trades; rf-adjusted excess Sharpe 6.14 (regime-tailwind suspected); SPY-relative p=0.43 (non-significant)
    - *Stage 1 OOS validation*: excess-mean > 0 at t > 1.0 over 30 OOS trades (NOT YET STARTED)
-2. **Stage 2** — IB-eligibility threshold: excess Sharpe ≥ 0.5 at p < 0.05 over 150 OOS trades + ≥4-of-5 promotion gate (PSR/DSR/PBO/MC permutation/White's RC). Toolkit is built but not yet wired into the live path.
+2. **Stage 2** — IB-eligibility threshold: excess Sharpe ≥ 0.5 at p < 0.05 over 150 OOS trades + ≥4-of-5 promotion gate (PSR/DSR/PBO/MC permutation/White's RC). Gate is now live in the promotion path (Sprint 2). See §10 for operational detail.
 3. **Stage 3** — Full ramp threshold: excess Sharpe > 1.0 at p < 0.05 over 300 OOS trades.
 
-The methodology toolkit (`src/methods/`) is currently **shelf** — implemented but not wired. Wiring this into a live promotion path is the highest-leverage strategic work after operational stability lands.
+The methodology gate is **live** as of Sprint 2 (T1–T8 merged). The daily 16:35 ET sweep fires it automatically. See §10 "Daily methodology-gate workflow" for the full operational guide.
 
 ---
 
-## 10. Update Protocol
+## 10. Daily methodology-gate workflow
+
+> **Sprint 2 closeout section.** The methodology gate is live. This section is your operational reference for reading the daily gate digest, interpreting evidence JSON, troubleshooting defer outcomes, and knowing when (and how) to promote. For the CLI syntax, see §3 "Strategy promotion confirmation". This section covers the *interpretation* layer on top of that mechanical layer.
+>
+> **Spec reference**: `docs/audits/2026-05-05-methodology-gate-wiring/spec.md` §T9 + §1.2 + §1.3.1 + §3.2 + §9.1.
+
+### 10.1 What the daily 16:35 ET sweep does
+
+Every trading day at 16:35 ET, immediately after post-close reconciliation completes, `watch.py` fires the methodology gate orchestrator:
+
+```
+WatchLoop._run_sync_body  →  run_daily_gate_for_all_active_strategies(db_path, notify=...)
+```
+
+The orchestrator iterates every strategy returned by `get_strategies_by_status(['shadow_trading', 'backtested'])` and for each one:
+
+1. Loads the strategy's shadow trades, keeping only rows where `is_fully_instrumented(row) == True` AND `actual_entry_time IS NOT NULL` AND `pnl_pct IS NOT NULL`. Partially-instrumented or undated rows are silently excluded; their count is recorded in `details.instrumentation_excluded_count`.
+2. Builds the `MethodInputs` payload (returns, dates, directions). The system is long-only, so `directions = [+1] * N`.
+3. Calls the 4-of-5 voting gate (`src/methods/promotion_gate.py`).
+4. Persists a **`triggered_by='gate_proposal'`** row to the `strategy_promotion_events` table with `from_status == to_status` (no actual transition) and `justification_note = NULL`. This is an audit / observation row only.
+5. If `is_telegram_enabled()`, sends a Telegram message via `_notify_gate_proposal`. Regardless of Telegram, logs `[METHODOLOGY_GATE] proposal for <id>: decision=<decision>` to `logs/arcis.log`.
+
+**Key points:**
+- The gate fires exactly once per trading day (idempotent flag `_strategy_gate_done`).
+- If the watch loop restarts mid-day after 16:35, the flag stays `False` until the day rolls; the gate re-runs.
+- With `METHODOLOGY_GATE_ENABLED=false`, the gate short-circuits: `(True, {'decision':'skipped'})` is returned, NO row is written, NO Telegram is sent. See §10.7 for the full flag matrix.
+
+### 10.2 How to read the daily digest
+
+**Telegram** (when enabled): You receive one message per strategy evaluated. Typical format:
+
+```
+[METHODOLOGY_GATE] proposal for <strategy_id>: decision=defer
+```
+
+**`logs/arcis.log`**: Same message, always written regardless of Telegram status. Search for `METHODOLOGY_GATE` to find all gate events for a day.
+
+**Database** (authoritative record):
+```sql
+SELECT strategy_id, from_status, gate_result_json, timestamp
+FROM strategy_promotion_events
+WHERE triggered_by = 'gate_proposal'
+  AND timestamp > datetime('now', '-24 hours')
+ORDER BY timestamp DESC;
+```
+
+The `gate_result_json` column holds the complete evidence dict — this is what you need to interpret (see §10.3).
+
+**When `decision='promote'`**: The methodology gate saw ≥4-of-5 (or ≥4-of-4 under fallback) passing votes. Check `composed_pass` in the evidence to see if the full AND-composition (methodology + walkforward + DSR + PBO) also cleared. You MUST still run the confirm-promotion CLI to actuate the transition — see §10.4.
+
+**When `decision='defer'`**: The gate could not reach quorum (too many abstentions). Review the evidence (§10.3) and troubleshoot (§10.5).
+
+**When `decision='reject'`**: ≥2 votes failed or the inverse hard-block fired. This is NOT operator-overridable via the CLI. Fix the underlying issue.
+
+### 10.3 How to interpret the evidence JSON
+
+The `gate_result_json` column stores a nested dict. Key fields:
+
+```json
+{
+  "methodology_gate": {
+    "decision": "promote | reject | defer",
+    "threshold_used": "4_of_5 | 4_of_4_no_white_rc",
+    "votes": {
+      "cpcv":            true | false | null,
+      "block_bootstrap": true | false | null,
+      "mc_perm":         true | false | null,
+      "psr_dsr":         true | false | null,
+      "white_rc":        true | false | null
+    },
+    "details": {
+      "n_pass":        2,
+      "n_fail":        1,
+      "n_abstentions": 2,
+      "instrumentation_excluded_count": 5,
+      "cpcv":            { "value": 0.72, "threshold": 0.6, ... },
+      "block_bootstrap": { "value": 0.04, "threshold": 0.05, ... },
+      "mc_perm":         { "value": 1.0,  "threshold": 0.05, "reason": "long-only degeneracy" },
+      "psr_dsr":         { "value": 0.91, "threshold": 0.5,  ... },
+      "white_rc":        { "value": null, "threshold": null,  "reason": "abstained: insufficient candidate_pool" }
+    }
+  },
+  "walkforward_status":       "no_data_yet | pass | fail | inconclusive",
+  "walkforward_outcome_state": "...",
+  "composed_pass": true | false
+}
+```
+
+**Field-by-field reference** (spec §3.2):
+
+| Field | Possible values | What it means |
+|---|---|---|
+| `decision` | `'promote'`, `'reject'`, `'defer'` | Gate conclusion for this run |
+| `threshold_used` | `'4_of_5'` (default), `'4_of_4_no_white_rc'` | Fallback when `candidate_pool < 2` (White RC cannot vote without peers) |
+| `votes.<name>` | `true`, `false`, `null` | `null` = abstention (method could not run; does NOT count as fail) |
+| `details.n_pass` | integer | Count of `true` votes |
+| `details.n_fail` | integer | Count of `false` votes |
+| `details.n_abstentions` | integer | Count of `null` votes |
+| `details.instrumentation_excluded_count` | integer | Rows dropped by `is_fully_instrumented` filter before the gate ran |
+| `details.<name>.value` | numeric or null | The test statistic for this method |
+| `details.<name>.threshold` | numeric or null | The pass/fail threshold |
+| `details.<name>.reason` | string (when present) | Why the method abstained or produced an unusual result |
+| `walkforward_status` | `'no_data_yet'`, `'pass'`, `'fail'`, `'inconclusive'` | Walkforward gate result (see §10.6 for `'no_data_yet'`) |
+| `walkforward_outcome_state` | same values or `None` | Legacy column; kept for backwards-compat alongside `walkforward_status` |
+
+**Vote names are exact** — `mc_perm` (not `mc_permutation`), `psr_dsr` (not `psr` or `dsr`). No `pbo` key exists in the `votes` dict (PBO is a separate legacy gate surfaced in `existing_gates.pbo_passes`, not a methodology vote). No top-level `tally` key (counts are in `details`).
+
+### 10.4 Running confirm-promotion end-to-end
+
+The confirm-promotion CLI is documented in §3 "Strategy promotion confirmation". Cross-reference that section for the full command syntax. **Do not duplicate it here.**
+
+The bridge between the daily gate and an actual status transition:
+
+1. The daily gate emits a proposal. `decision='promote'` means the gate clears on its own merits. `decision='defer'` is also confirm-promotion-able if you have a justification ≥40 chars explaining why you believe the strategy is ready despite the abstentions.
+2. You review the evidence via the SQL query in §10.2.
+3. You run the CLI:
+   ```bash
+   python -m src.main confirm-promotion \
+     --strategy <strategy_id> \
+     --justification "Your 40+ character rationale here explaining the evidence review..." \
+     --yes
+   ```
+4. The CLI is a **thin wrapper around `promote(triggered_by='operator_confirm', ...)`**. It does NOT bypass the server-side gate re-fire. `promote()` re-runs `check_promotion_gate` at the moment you confirm — catching any data drift between proposal time and confirm time. If the re-fire rejects, the CLI prints the reason and exits non-zero; no transition row is written.
+
+**Critical-1 design constraint**: The CLI never calls `_apply_gate_outcome` with a synthetic outcome. The gate re-fire at confirm time is the authoritative enforcement point. This is locked by `test_operator_confirm_calls_promote_not_synthetic_outcome` (PR #981).
+
+**`decision='reject'` is not overridable.** If the proposal carries `decision='reject'`, the CLI refuses before prompting. Fix the underlying methodology issue, wait for a new proposal.
+
+**Staleness guard**: Proposals older than 24h are rejected at the CLI level (Decision 14). Re-run the daily gate to generate a fresh proposal if the window passed.
+
+### 10.5 Troubleshooting defer outcomes
+
+`decision='defer'` means the gate could not reach a confident decision — insufficient quorum, not a hard failure.
+
+**Diagnostic query:**
+```sql
+SELECT gate_result_json FROM strategy_promotion_events
+WHERE triggered_by = 'gate_proposal'
+  AND strategy_id = '<your_id>'
+ORDER BY timestamp DESC
+LIMIT 1;
+```
+
+Then inspect `methodology_gate.details.n_abstentions` and `methodology_gate.details.<vote_name>.reason` for each abstaining method.
+
+**Common abstention causes:**
+
+| Symptom | Root cause | Action |
+|---|---|---|
+| `mc_perm: null` | `directions` is None (abstention semantics per `promotion_gate_helpers.py`); OR n_obs < 30 (insufficient power) | Under the daily orchestrator, directions are always `[+1]*N`; if null, check the gate was called correctly. Under trainer/kpi paths see §10.8 |
+| `mc_perm: false` | Long-only degeneracy (p=1.0 always) — see §10.8 | This is expected under trainer/kpi paths; not a strategy problem |
+| `psr_dsr: null` | n_obs < 30 (PSR power requirement) | Accumulate more instrumented shadow trades |
+| `white_rc: null` | `candidate_pool < 2` (need ≥2 strategies for White RC) | Normal at single-strategy stage; gate falls back to `4_of_4_no_white_rc` threshold |
+| All methods abstain | `instrumentation_excluded_count == N` (all trades excluded) | Check `is_fully_instrumented` failures — missing cost, slippage, or fundamental snapshot columns |
+| `psr_dsr: null` with `reason: 'insufficient_dated_returns'` | All rows have NULL `actual_entry_time` | Check shadow_trades for entry-time population; may need reconciler intervention |
+
+**General formula:**
+1. Check `details.n_abstentions` — if ≥2, you're short of quorum due to abstentions.
+2. For each abstaining method, read `details.<name>.reason`.
+3. Address the data gap (more trades, better instrumentation) or wait for the daily gate to re-evaluate tomorrow.
+
+**Note**: `decision='defer'` is operator-overridable via the confirm-promotion CLI if you have sufficient justification (≥40 chars, fresh proposal). `decision='reject'` is not.
+
+### 10.6 Bootstrap-window `walkforward_status='no_data_yet'`
+
+During the first ~30 days after a strategy enters `shadow_trading`, the walkforward rolling-window evaluation has not yet produced data. When `walkforward_results` has no rows for the strategy, `_evaluate_walkforward_gate` sets:
+
+```
+walkforward_status = 'no_data_yet'
+walkforward_outcome_state = None
+```
+
+**This is informational, not a failure.** The gate correctly emits `no_data_yet` (not `'inconclusive'`) to distinguish "waiting for first window" from "inconclusive evidence."
+
+**Effect on promotion:** The composed shadow_trading gate evaluates to False in the bootstrap window — correct behavior. You cannot promote without walkforward data. The evidence dict makes the cause visible; the dashboard can surface it without treating it as a methodology problem.
+
+**Action**: Run `scripts/smoke_gate_9_fold1.bat` manually to populate walkforward_results once the corpus is sufficient (typically after 30+ days of instrumented shadow trades). After that initial run, daily gate proposals will carry `walkforward_status='pass' | 'fail' | 'inconclusive'` instead.
+
+**Do NOT** interpret `decision='defer'` or `composed_pass=false` in the bootstrap window as evidence of a methodology problem. Look at `walkforward_status` first.
+
+### 10.7 Feature-flag + STRICT_GATE matrix
+
+Two environment variables govern gate behavior:
+
+| `METHODOLOGY_GATE_ENABLED` | `STRICT_GATE` | Behavior |
+|---|---|---|
+| `true` | `true` | Gate fires AND-composes. PASS proposals **auto-promote** (no operator confirm required). Evidence persisted. Most strict — use with caution. |
+| `true` | `false` | Gate fires AND-composes. PASS proposals **notify operator**. Operator confirms via CLI. Evidence persisted. **(Default)** |
+| `false` | `true` | Methodology side short-circuits to `(True, {'decision':'skipped'})`. Existing walkforward+DSR+PBO checks still gate. NO row written. NO Telegram. PASS auto-promotes. |
+| `false` | `false` | Methodology side short-circuits. Existing checks notify. Operator confirms. Effectively pre-Sprint-2 behavior. NO row written. NO Telegram. |
+
+**Production default**: `METHODOLOGY_GATE_ENABLED=true`, `STRICT_GATE=false` — gate fires, evidence persisted, operator confirmation required. Set `STRICT_GATE=true` only if you want PASS proposals to auto-promote without manual confirmation.
+
+**Emergency disable**: Set `METHODOLOGY_GATE_ENABLED=false` to short-circuit the methodology side entirely if a methodology-side bug blocks all promotions during a market event. All other gates (walkforward, DSR, PBO) continue to enforce normally.
+
+Spec reference: `docs/audits/2026-05-05-methodology-gate-wiring/spec.md` §9.1.
+
+### 10.8 Sprint 2 limitations — long-only MC permutation degeneracy
+
+**Do not misread `decision='reject'` from the trainer/KPI call paths as a methodology problem.**
+
+The system is long-only (`recommendations.direction` defaults to `'long'`, `src/schema/registry.py:202`). When `directions = [+1]*N`, the MC permutation shuffle is identity — every permutation produces the same test statistic, so `p_value = 1.0` deterministically. The `mc_perm` vote is always `False` (`passed = p_value < alpha` → `1.0 < 0.05` → False).
+
+This is a structural property of the test, not a bug:
+
+| Call path | `mc_perm` vote | `white_rc` vote | Maximum achievable | Possible decisions |
+|---|---|---|---|---|
+| `trainer.py` (n_trials > 1, no candidate_pool) | Always FAIL (p=1.0) | Abstain | **3-of-5** | `'reject'` or `'defer'` only |
+| `kpis_compute.py` (n_trials=1, no pool) | Always FAIL (p=1.0) | Abstain (n_trials=1) | **3-of-5** | `'reject'` or `'defer'` only |
+| `watch.py` daily orchestrator (with candidate_pool) | Always FAIL (p=1.0) | **Can pass** when pool ≥ 2 | **4-of-5** | `'promote'`, `'reject'`, or `'defer'` |
+
+**What this means operationally:**
+- If you see `decision='reject'` or `decision='defer'` from the trainer/KPI call paths, look at `mc_perm.value ≈ 1.0` in the evidence. That is the expected degeneracy, not a strategy flaw.
+- The **promote-capable** evaluation runs through the `watch.py` daily orchestrator (16:35 ET), where `active_research_strategies` provides the `candidate_pool` that allows White RC to vote (lifting the ceiling to 4-of-5).
+- The degeneracy is **regression-locked** by `test_trainer_promotion_gate_currently_cannot_promote_long_only` (PR #975, #981). A future sprint will refactor MC permutation to use a non-degenerate test (e.g., shuffling entry timestamps across the trading-day universe rather than direction labels).
+
+Spec reference: `docs/audits/2026-05-05-methodology-gate-wiring/spec.md` §1.3.1.
+
+### 10.9 Production-gate asymmetry
+
+**The shadow_trading and production gate transitions enforce different preconditions.** This is intentional.
+
+| Transition | Gate composition |
+|---|---|
+| `backtested → shadow_trading` | Methodology gate AND walkforward AND DSR AND PBO |
+| `shadow_trading → production` | Methodology gate AND DSR only (PBO and oos_efficiency are Sprint-4 placeholders, currently `None`) |
+
+**Why:** Moving into shadow_trading requires the full evidence set — you need walkforward data, DSR threshold, and PBO before risking shadow capital. Moving from shadow_trading to production has a lighter per-strategy gate at this stage because the production-side PBO and oos_efficiency wiring is deferred to Sprint 4. The `_evaluate_production_gate` function explicitly sets `evidence['pbo'] = None` and `evidence['oos_efficiency'] = None` at lines 326-327 of `src/platform/promotion.py`.
+
+**Do not assume both transitions enforce identical preconditions** — they don't. If a strategy passes the shadow_trading gate but you're promoting it to production, the methodology gate AND-composes with DSR only. Walkforward and PBO are not re-checked at the production gate boundary (they were already cleared at the shadow_trading boundary).
+
+This asymmetry is locked by `test_production_gate_methodology_compose_with_dsr_only` (PR #981).
+
+Spec reference: `docs/audits/2026-05-05-methodology-gate-wiring/spec.md` §1.2.
+
+---
+
+## 11. Update Protocol
 
 **This doc is updated in any PR that introduces a new operator-relevant runbook procedure.**
 

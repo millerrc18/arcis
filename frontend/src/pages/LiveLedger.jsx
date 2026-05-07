@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../api'
 import MetricCard from '../components/MetricCard'
-import Tooltip from '../components/Tooltip'
+import ActionButton from '../components/ActionButton'
 import LoadingSpinner from '../components/LoadingSpinner'
 import EmptyState from '../components/EmptyState'
 import TimeoutCell from '../components/TimeoutCell'
@@ -161,10 +161,10 @@ export default function LiveLedger() {
   const [sortDir, setSortDir] = useState('desc')
 
   const { data: summary, isLoading: sumLoading } = useQuery({
-    queryKey: ['live-summary'], queryFn: api.getLiveSummary, refetchInterval: 30000,
+    queryKey: ['live-summary'], queryFn: () => api.getLiveSummary(), refetchInterval: 30000,
   })
   const { data: trades, isLoading: tradesLoading } = useQuery({
-    queryKey: ['live-trades'], queryFn: api.getLiveTrades, refetchInterval: 30000,
+    queryKey: ['live-trades'], queryFn: () => api.getLiveTrades(), refetchInterval: 30000,
   })
 
   const isLoading = sumLoading || tradesLoading
@@ -268,12 +268,13 @@ export default function LiveLedger() {
           <div className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>
             Updated every 30s
           </div>
-          <Tooltip content="Syncs Alpaca live positions with the local database. Run locally: python -m src.main reconcile-live">
-            <button disabled className="px-3 py-1.5 text-xs rounded opacity-50 cursor-not-allowed"
-              style={{ background: 'var(--arcis-border)', color: 'var(--arcis-text-secondary)' }}>
-              Reconcile (CLI only)
-            </button>
-          </Tooltip>
+          <ActionButton
+            cliOnly={true}
+            cliCommand="python -m src.main reconcile-live"
+            whyDisabled="Requires local broker auth"
+          >
+            Reconcile
+          </ActionButton>
         </div>
       </div>
 

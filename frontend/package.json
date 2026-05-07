@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
+    "lint:queryfn": "eslint --no-config-lookup -c eslint-rules/eslint.queryfn.config.js src/",
     "preview": "vite preview",
     "test": "vitest",
     "ios:sync": "vite build && npx cap sync ios",
