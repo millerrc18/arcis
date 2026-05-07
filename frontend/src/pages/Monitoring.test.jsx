@@ -70,3 +70,40 @@ describe('Monitoring — C2 LoadingState migration', () => {
     expect(container.querySelector('[data-testid="error-card"]')).toBeFalsy()
   })
 })
+
+describe('Monitoring — T20 queryFn arrow-wrap', () => {
+  it('all useQuery queryFn values are arrow functions (not bare api method refs)', () => {
+    const capturedOptions = []
+    useQuery.mockImplementation((opts) => {
+      capturedOptions.push(opts)
+      return { data: undefined, isLoading: false, isError: false }
+    })
+
+    wrap(<Monitoring />)
+
+    expect(capturedOptions.length).toBeGreaterThan(0)
+    for (const opts of capturedOptions) {
+      if (opts.queryFn == null) continue
+      expect(typeof opts.queryFn).toBe('function')
+    }
+  })
+
+  it('monitoring-history and monitoring-snapshot each use a distinct arrow-wrapped queryFn', () => {
+    let historyFn = null
+    let snapshotFn = null
+    useQuery.mockImplementation((opts) => {
+      const key = opts.queryKey?.[0]
+      if (key === 'monitoring-history') historyFn = opts.queryFn
+      if (key === 'monitoring-snapshot') snapshotFn = opts.queryFn
+      return { data: undefined, isLoading: false, isError: false }
+    })
+
+    wrap(<Monitoring />)
+
+    expect(historyFn).not.toBeNull()
+    expect(typeof historyFn).toBe('function')
+    expect(snapshotFn).not.toBeNull()
+    expect(typeof snapshotFn).toBe('function')
+    expect(historyFn).not.toBe(snapshotFn)
+  })
+})

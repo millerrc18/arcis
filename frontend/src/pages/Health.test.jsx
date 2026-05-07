@@ -1,6 +1,7 @@
 /**
  * Health page tests — E8 IB-status feature flag.
  * Sprint 3 / T11 — IS_CLOUD gates getIBStatus useQuery.
+ * Sprint 3 / T20 — TanStack v5 queryFn arrow-wrap verification.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render } from '@testing-library/react'
@@ -18,7 +19,17 @@ vi.mock('../config', () => ({
   get IS_CLOUD() { return _IS_CLOUD },
 }))
 
+vi.mock('../api', () => ({
+  api: {
+    getHSHS: vi.fn(),
+    getBuildScore: vi.fn(),
+    getTrainingHistory: vi.fn(),
+    getIBStatus: vi.fn(),
+  },
+}))
+
 import { useQuery } from '@tanstack/react-query'
+import { api } from '../api'
 import Health from './Health'
 
 function wrap(ui) {
@@ -128,5 +139,63 @@ describe('Health — C2 LoadingState migration', () => {
     })
     const { container } = wrap(<Health />)
     expect(container.querySelector('[data-testid="loading-spinner"]')).toBeTruthy()
+  })
+})
+
+describe('Health — T20 queryFn arrow-wrap', () => {
+  it('hshs-live queryFn is an arrow function, not a bare api.getHSHS ref', () => {
+    let hshsFn = null
+    useQuery.mockImplementation((opts) => {
+      if (opts.queryKey?.[0] === 'hshs-live') hshsFn = opts.queryFn
+      return { data: undefined, isLoading: false, isError: false }
+    })
+
+    wrap(<Health />)
+
+    expect(hshsFn).not.toBeNull()
+    expect(typeof hshsFn).toBe('function')
+    expect(hshsFn).not.toBe(api.getHSHS)
+  })
+
+  it('build-score queryFn is an arrow function, not a bare api.getBuildScore ref', () => {
+    let buildFn = null
+    useQuery.mockImplementation((opts) => {
+      if (opts.queryKey?.[0] === 'build-score') buildFn = opts.queryFn
+      return { data: undefined, isLoading: false, isError: false }
+    })
+
+    wrap(<Health />)
+
+    expect(buildFn).not.toBeNull()
+    expect(typeof buildFn).toBe('function')
+    expect(buildFn).not.toBe(api.getBuildScore)
+  })
+
+  it('training-history queryFn is an arrow function, not a bare api.getTrainingHistory ref', () => {
+    let trainingFn = null
+    useQuery.mockImplementation((opts) => {
+      if (opts.queryKey?.[0] === 'training-history') trainingFn = opts.queryFn
+      return { data: undefined, isLoading: false, isError: false }
+    })
+
+    wrap(<Health />)
+
+    expect(trainingFn).not.toBeNull()
+    expect(typeof trainingFn).toBe('function')
+    expect(trainingFn).not.toBe(api.getTrainingHistory)
+  })
+
+  it('ib-status queryFn is an arrow function, not a bare api.getIBStatus ref', () => {
+    let ibFn = null
+    useQuery.mockImplementation((opts) => {
+      if (opts.queryKey?.[0] === 'ib-status') ibFn = opts.queryFn
+      return { data: undefined, isLoading: false, isError: false }
+    })
+
+    wrap(<Health />)
+
+    expect(ibFn).not.toBeNull()
+    expect(typeof ibFn).toBe('function')
+    expect(ibFn).not.toBe(api.getIBStatus)
   })
 })
