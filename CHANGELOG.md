@@ -1,5 +1,45 @@
 # Changelog
 
+## [Unreleased]
+
+### Sprint 4 — Cockpit Followups + Notification Subsystem (sprint/cockpit-followups-2026-05-07/base)
+
+<!-- T2  --> *placeholder Group-A.1 send_telegram rename*
+<!-- T3  --> *placeholder Group-A.2 safe_send wrapper*
+<!-- T4a --> *placeholder Group-A.3 scheduler migration*
+<!-- T4b --> *placeholder Group-A.3 services migration*
+<!-- T4c --> *placeholder Group-A.3 training+risk migration*
+<!-- T4d --> *placeholder Group-A.3 misc migration*
+<!-- T5  --> *placeholder Group-A.4 cli lazy imports*
+<!-- T6  --> *placeholder Group-A.5 per-check except + _get_telegram_config consolidation*
+<!-- T7  --> *placeholder cloud-req fast-lane AST*
+<!-- T8  --> *placeholder cloud-req slow-lane venv*
+<!-- T9  --> *placeholder cockpit-#1 shadow_metrics live cohort*
+<!-- T10 --> *placeholder cockpit-#2 /api/status open_positions cohort*
+<!-- T11a --> *placeholder cockpit-#8a backend total_pnl_dollars*
+<!-- T11b --> *placeholder Group-B email subsystem hardening*
+<!-- T12 --> *placeholder cockpit-#8b KPIStrip P&L card*
+<!-- T13a --> *placeholder Group-C chunked send + html_escape*
+<!-- T13b --> *placeholder Group-C notify_* updates*
+<!-- T13c --> *placeholder Group-C finnhub I15 + I11 urgency*
+<!-- T14 --> *placeholder Group-E.A schema registration*
+<!-- T15a --> *placeholder Group-E.B dedup migration*
+<!-- T15b --> *placeholder Group-E.B write hooks + /api/notifications/health*
+<!-- T15c --> *placeholder Group-E.B NotificationsHealthPanel + operator-guide NSSM warning*
+<!-- T16 --> *placeholder cockpit-#7 bare queryFn + ESLint extension*
+<!-- T17a --> *placeholder cockpit-#3 calmar cto_report+engine*
+<!-- T17b --> *placeholder cockpit-#3 calmar backtester+platform/metrics+allowlist empty*
+<!-- T18a --> *placeholder cockpit-#4 LiveLedger sign*
+<!-- T18b --> *placeholder cockpit-#4 ShadowLedger 3 sites*
+<!-- T18c --> *placeholder cockpit-#4 TradeHistory sign*
+<!-- T19 --> *placeholder cockpit-#5+#6 reconciliation extensions*
+<!-- T20 --> *placeholder mid-W2 visual-verify checkpoint*
+<!-- T21a --> *placeholder Group-F coverage extensions*
+<!-- T21b --> *placeholder Group-F typed council + dataclass payloads*
+<!-- T21c --> *placeholder Group-F operator-guide + telegram-commands docs*
+<!-- T22  --> *placeholder Group-D router/policy/digest (if dispatched)*
+<!-- T23 --> *placeholder sprint closeout — visual-verify gate + WON'T-FIX note + test count*
+
 ## [Unreleased] — Sprint 3 Cockpit Coherence (2026-05-07)
 
 ### Group E — Correctness bugs (5 fixes)
