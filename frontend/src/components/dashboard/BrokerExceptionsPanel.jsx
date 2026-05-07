@@ -9,6 +9,7 @@
  */
 import { useQuery } from '@tanstack/react-query'
 import { fetchApi } from '../../api'
+import LoadingState from '../LoadingState.jsx'
 
 function _fetchBrokerExceptions() {
   return Promise.all([
@@ -104,30 +105,14 @@ function ExceptionRow({ row }) {
 }
 
 export default function BrokerExceptionsPanel() {
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['broker-exceptions'],
     queryFn: _fetchBrokerExceptions,
     refetchInterval: 60000,
   })
 
-  if (isLoading) {
-    return (
-      <div className="arcis-card" style={{ padding: 16 }}>
-        <span style={{ color: 'var(--arcis-text-muted)', fontSize: 13 }}>Loading broker exceptions...</span>
-      </div>
-    )
-  }
-
-  if (isError || !data) {
-    return (
-      <div className="arcis-card" style={{ padding: 16 }}>
-        <span style={{ color: 'var(--arcis-danger)', fontSize: 13 }}>Failed to load broker exceptions</span>
-      </div>
-    )
-  }
-
-  const { summary, recent } = data
-  const rows = recent?.rows || []
+  const rows = data?.recent?.rows || []
+  const isEmpty = !isLoading && !isError && rows.length === 0
 
   return (
     <div className="arcis-card" style={{ padding: '14px 16px' }}>
@@ -135,18 +120,23 @@ export default function BrokerExceptionsPanel() {
                     color: 'var(--arcis-text-secondary)', fontWeight: 500, marginBottom: 10 }}>
         Broker Exceptions
       </div>
-      {summary && <SummaryCards summary={summary} />}
-      {rows.length === 0 ? (
-        <div style={{ color: 'var(--arcis-success)', fontSize: 13, padding: '8px 0' }}>
-          No broker exceptions in last 24h. ✓
-        </div>
-      ) : (
+      <LoadingState
+        isLoading={isLoading}
+        isError={isError}
+        error={error}
+        retry={refetch}
+        retryDisabledFor={5000}
+        isEmpty={isEmpty}
+        emptyMessage="No exceptions yet"
+        compact={true}
+      >
+        {data?.summary && <SummaryCards summary={data.summary} />}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 320, overflowY: 'auto' }}>
           {rows.map(row => (
             <ExceptionRow key={row.id} row={row} />
           ))}
         </div>
-      )}
+      </LoadingState>
     </div>
   )
 }

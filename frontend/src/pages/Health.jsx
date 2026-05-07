@@ -14,7 +14,7 @@ import {
   YAxis,
 } from 'recharts'
 import { api } from '../api'
-import LoadingSpinner from '../components/LoadingSpinner'
+import LoadingState from '../components/LoadingState'
 import MetricCard from '../components/MetricCard'
 import StatusBadge from '../components/StatusBadge'
 import { TrendingUp, TrendingDown, Minus, AlertTriangle } from 'lucide-react'
@@ -49,12 +49,12 @@ function overallColor(score) {
 }
 
 export default function Health() {
-  const { data: hshsData, isLoading: hshsLoading } = useQuery({
+  const { data: hshsData, isLoading: hshsLoading, isError: hshsError, error: hshsErrorObj, refetch: refetchHshs } = useQuery({
     queryKey: ['hshs-live'],
     queryFn: api.getHSHS,
     refetchInterval: 60000,
   })
-  const { data: buildData, isLoading: buildLoading } = useQuery({
+  const { data: buildData, isLoading: buildLoading, isError: buildError } = useQuery({
     queryKey: ['build-score'],
     queryFn: api.getBuildScore,
     refetchInterval: 120000,
@@ -71,7 +71,11 @@ export default function Health() {
     enabled: !IS_CLOUD,
   })
 
-  if (hshsLoading && buildLoading) return <LoadingSpinner />
+  if (hshsLoading && buildLoading) {
+    return (
+      <LoadingState isLoading={true} isError={false} isEmpty={false} loadingMessage="Loading health data..." />
+    )
+  }
 
   // HSHS data
   const hshsOverall = hshsData?.hshs ?? 0
@@ -255,8 +259,16 @@ export default function Health() {
 
       {/* HSHS section */}
       {!hasHshs ? (
-        <div className="arcis-card text-center" style={{ padding: '48px' }}>
-          <div className="text-sm" style={{ color: 'var(--arcis-text-muted)' }}>Collecting HSHS data...</div>
+        <div className="arcis-card" style={{ padding: '48px' }}>
+          <LoadingState
+            isLoading={false}
+            isError={hshsError}
+            error={hshsErrorObj}
+            retry={refetchHshs}
+            retryDisabledFor={5000}
+            isEmpty={true}
+            emptyMessage="Collecting HSHS data..."
+          />
         </div>
       ) : (
         <>

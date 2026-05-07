@@ -83,14 +83,14 @@ describe('BrokerExceptionsPanel', () => {
     useQuery.mockReturnValue({ data: _emptyData, isLoading: false, isError: false })
     const { container } = wrap(<BrokerExceptionsPanel />)
     expect(container).toMatchSnapshot()
-    expect(container.textContent).toContain('No broker exceptions in last 24h')
+    expect(container.textContent).toContain('No exceptions yet')
   })
 
   it('renders loading state while fetching', () => {
     useQuery.mockReturnValue({ data: undefined, isLoading: true, isError: false })
     const { container } = wrap(<BrokerExceptionsPanel />)
     expect(container).toMatchSnapshot()
-    expect(container.textContent).toContain('Loading')
+    expect(container.textContent).toContain('LOADING')
   })
 
   it('renders summary counts when rows present', () => {
@@ -136,5 +136,24 @@ describe('BrokerExceptionsPanel', () => {
     const text = container.textContent
     expect(text).toContain('alpaca')
     expect(text).toContain('ibkr')
+  })
+
+  it('C2 — isLoading renders loading-spinner via LoadingState', () => {
+    useQuery.mockReturnValue({ data: undefined, isLoading: true, isError: false })
+    const { container } = wrap(<BrokerExceptionsPanel />)
+    expect(container.querySelector('[data-testid="loading-spinner"]')).toBeTruthy()
+  })
+
+  it('C2 — isError renders error-inline via LoadingState compact mode (not plain danger text)', () => {
+    useQuery.mockReturnValue({ data: undefined, isLoading: false, isError: true, error: { message: 'API error' } })
+    const { container } = wrap(<BrokerExceptionsPanel />)
+    expect(container.querySelector('[data-testid="error-inline"]')).toBeTruthy()
+    expect(container.querySelector('[data-testid="error-card"]')).toBeFalsy()
+  })
+
+  it('C2 — isEmpty renders emptyMessage via LoadingState', () => {
+    useQuery.mockReturnValue({ data: _emptyData, isLoading: false, isError: false })
+    const { container } = wrap(<BrokerExceptionsPanel />)
+    expect(container.textContent).toContain('No exceptions yet')
   })
 })
