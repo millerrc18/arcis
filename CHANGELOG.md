@@ -12,7 +12,7 @@
 <!-- T4d --> *placeholder Group-A.3 misc migration*
 <!-- T5  --> *placeholder Group-A.4 cli lazy imports*
 <!-- T6  --> *placeholder Group-A.5 per-check except + _get_telegram_config consolidation*
-<!-- T7  --> *placeholder cloud-req fast-lane AST*
+<!-- T7  --> Added cloud-req fast-lane AST guardrail (`tests/test_cloud_requirements_imports.py` + `scripts/check_cloud_deploy_imports.py`) preventing the recurring cloud-deploy import drift bug class (jsonschema → numpy → requests → scipy — Sprint 3 #1007 was 4th recurrence). PR-time check; sub-second runtime; walks src/api/cloud_app.py import graph, validates each top-level package is stdlib or present in requirements-cloud.txt.
 <!-- T8  --> *placeholder cloud-req slow-lane venv*
 <!-- T9  --> *placeholder cockpit-#1 shadow_metrics live cohort*
 <!-- T10 --> *placeholder cockpit-#2 /api/status open_positions cohort*
