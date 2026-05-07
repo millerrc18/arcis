@@ -2,7 +2,8 @@
   "oversized_files": [
     {
       "file": "src/api/cloud_routes/analytics.py",
-      "lines": 946
+      "lines": 996,
+      "rationale": "Sprint 3 cockpit-coherence: T1 (Calmar fix +4L), T2 (attribution paired-overlap +8L), T3 (monitoring 200+empty+note +12L), T8 (cto-report _meta +15L), T9 (_meta on 7 endpoints +11L total in analytics.py). Pre-Sprint-3 baseline was 946. Real refactor of the 729-line create_router monolith is deferred to Sprint 4."
     },
     {
       "file": "src/api/cloud_routes/core.py",
