@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
 import MetricCard from '../components/MetricCard'
+import ActionButton from '../components/ActionButton'
 import LoadingSpinner from '../components/LoadingSpinner'
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, LineChart, Line, Legend } from 'recharts'
 
@@ -145,19 +146,13 @@ export default function Simulation() {
           </p>
           <div className="flex items-center justify-center gap-3">
             {runStatus && <span className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>{runStatus}</span>}
-            <button
+            <ActionButton
+              cliOnly={false}
+              pending={running}
               onClick={handleRunSimulation}
-              disabled={running}
-              className="px-4 py-2 rounded text-sm font-medium transition-colors"
-              style={{
-                background: running ? 'var(--arcis-bg-elevated)' : 'var(--arcis-accent)',
-                color: running ? 'var(--arcis-text-muted)' : '#fff',
-                cursor: running ? 'not-allowed' : 'pointer',
-                border: '1px solid var(--arcis-border)',
-              }}
             >
               {running ? 'Running...' : 'Run Simulation'}
-            </button>
+            </ActionButton>
           </div>
         </div>
       </div>
@@ -186,19 +181,13 @@ export default function Simulation() {
             </span>
           )}
           {runStatus && <span className="text-xs" style={{ color: 'var(--arcis-text-muted)' }}>{runStatus}</span>}
-          <button
+          <ActionButton
+            cliOnly={false}
+            pending={running}
             onClick={handleRunSimulation}
-            disabled={running}
-            className="px-4 py-2 rounded text-sm font-medium transition-colors"
-            style={{
-              background: running ? 'var(--arcis-bg-elevated)' : 'var(--arcis-accent)',
-              color: running ? 'var(--arcis-text-muted)' : '#fff',
-              cursor: running ? 'not-allowed' : 'pointer',
-              border: '1px solid var(--arcis-border)',
-            }}
           >
             {running ? 'Running...' : 'Run Simulation'}
-          </button>
+          </ActionButton>
         </div>
       </div>
 
@@ -236,7 +225,7 @@ export default function Simulation() {
                   <td className="px-3 py-2 text-sm font-medium" style={{ color: cellColor }}>{r.regime_label || r.scenario}</td>
                   <td className="px-3 py-2 text-right" style={monoStyle}>{r.total_trades ?? '--'}</td>
                   <td className="px-3 py-2 text-right" style={monoStyle}>{r.win_rate != null ? `${(r.win_rate * 100).toFixed(0)}%` : '--'}</td>
-                  <td className="px-3 py-2 text-right" style={monoStyle}>{r.profit_factor != null ? r.profit_factor.toFixed(2) : '--'}</td>
+                  <td className="px-3 py-2 text-right" style={monoStyle}>{r.profit_factor != null ? r.profit_factor.toFixed(2) : 'N/A (no losses)'}</td>
                   <td className="px-3 py-2 text-right" style={{ fontFamily: 'var(--font-mono)', color: 'var(--arcis-danger)' }}>{r.max_drawdown_pct != null ? `${r.max_drawdown_pct.toFixed(1)}%` : '--'}</td>
                   <td className="px-3 py-2 text-right" style={monoStyle}>{r.sharpe_ratio != null ? r.sharpe_ratio.toFixed(2) : '--'}</td>
                   <td className="px-3 py-2 text-right" style={{ fontFamily: 'var(--font-mono)', color: (r.benchmark_pnl_pct || 0) >= 0 ? 'var(--arcis-success)' : 'var(--arcis-danger)' }}>{formatPct(r.benchmark_pnl_pct)}</td>
