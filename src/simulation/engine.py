@@ -455,7 +455,7 @@ def run_scenario(name: str, start: str, end: str, config: dict | None = None) ->
         "losses": losses,
         "timeouts": timeouts,
         "win_rate": round(win_rate, 3),
-        "profit_factor": round(profit_factor, 3) if profit_factor != float("inf") else 999.0,
+        "profit_factor": round(profit_factor, 3) if profit_factor != float("inf") else None,
         "total_pnl_pct": round(total_pnl_pct, 2),
         "gross_pnl_pct": round(gross_pnl_pct, 2),
         "net_pnl_pct": round(total_pnl_pct, 2),
