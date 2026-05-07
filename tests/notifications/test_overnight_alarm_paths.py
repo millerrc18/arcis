@@ -13,8 +13,8 @@ def test_cusum_alarm_invokes_send_telegram():
     mock_change = {"alarm": True, "direction": "negative", "detail": "shift detected"}
     mock_send = MagicMock(return_value=True)
 
-    with patch("src.evaluation.change_detector.detect_performance_change",
-               return_value=mock_change, create=True), \
+    with patch("src.evaluation.change_detector.check_performance_drift",
+               return_value=mock_change), \
          patch("src.notifications.telegram.send_telegram", mock_send), \
          patch("src.evaluation.auditor.run_daily_audit",
                return_value={"overall_assessment": "green", "summary": "ok"}), \
@@ -36,8 +36,8 @@ def test_leakage_alert_invokes_send_telegram():
     """Leakage alert path calls send_telegram with LEAKAGE ALERT in body."""
     mock_send = MagicMock(return_value=True)
 
-    with patch("src.evaluation.change_detector.detect_performance_change",
-               return_value={"alarm": False}, create=True), \
+    with patch("src.evaluation.change_detector.check_performance_drift",
+               return_value={"alarm": False}), \
          patch("src.notifications.telegram.send_telegram", mock_send), \
          patch("src.evaluation.auditor.run_daily_audit",
                return_value={"overall_assessment": "green", "summary": "ok"}), \
@@ -87,6 +87,32 @@ def test_model_regression_warning_invokes_send_telegram():
     mock_send.assert_called_once()
     body = mock_send.call_args[0][0]
     assert "regression warning" in body.lower()
+
+
+def test_cusum_path_uses_check_performance_drift():
+    """Regression lock: CUSUM path imports check_performance_drift (not the old
+    detect_performance_change name) AND calls send_telegram on alarm=True."""
+    mock_change = {"alarm": True, "direction": "negative", "detail": "drift detected"}
+    mock_drift = MagicMock(return_value=mock_change)
+    mock_send = MagicMock(return_value=True)
+
+    with patch("src.evaluation.change_detector.check_performance_drift", mock_drift), \
+         patch("src.notifications.telegram.send_telegram", mock_send), \
+         patch("src.evaluation.auditor.run_daily_audit",
+               return_value={"overall_assessment": "green", "summary": "ok"}), \
+         patch("src.evaluation.auditor.check_escalation", return_value=[]), \
+         patch("src.email.notifier.send_email"), \
+         patch("src.training.leakage_detector.run_leakage_check",
+               return_value={"balanced_accuracy": 0.50}, create=True), \
+         patch("src.shadow_trading.exit_reconciliation.run_exit_reconciliation"):
+
+        from src.scheduler import overnight
+        overnight.run_daily_audit()
+
+    mock_drift.assert_called_once()
+    mock_send.assert_called_once()
+    body = mock_send.call_args[0][0]
+    assert "CUSUM ALARM" in body
 
 
 def test_no_send_telegram_message_references():

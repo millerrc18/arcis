@@ -124,8 +124,8 @@ def run_daily_audit():
 
     # CUSUM performance change detection
     try:
-        from src.evaluation.change_detector import detect_performance_change
-        change = detect_performance_change()
+        from src.evaluation.change_detector import check_performance_drift
+        change = check_performance_drift()
         if change and change.get("alarm"):
             alarm_msg = f"[CUSUM] Performance change detected: {change.get('direction', 'negative')} shift"
             logger.warning(alarm_msg)
