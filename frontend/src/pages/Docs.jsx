@@ -201,7 +201,7 @@ export default function Docs() {
   const [search, setSearch] = useState('')
   const { data: docList, isLoading: listLoading } = useQuery({
     queryKey: ['docs-list'],
-    queryFn: api.getDocsList,
+    queryFn: () => api.getDocsList(),
   })
   const { data: doc, isLoading: docLoading } = useQuery({
     queryKey: ['doc', activeDoc],

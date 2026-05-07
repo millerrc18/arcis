@@ -89,7 +89,7 @@ export default function Validation() {
 
   const { data, isLoading } = useQuery({
     queryKey: ['validation'],
-    queryFn: api.getValidation,
+    queryFn: () => api.getValidation(),
     refetchInterval: 300000,
   })
 

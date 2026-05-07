@@ -235,7 +235,7 @@ export default function TradeHistory() {
 
   const { data: attribution } = useQuery({
     queryKey: ['sharpe-attribution'],
-    queryFn: api.getSharpeAttribution,
+    queryFn: () => api.getSharpeAttribution(),
     refetchInterval: 60000,
   })
 
