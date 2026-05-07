@@ -17,9 +17,9 @@ const OUTCOME_COLORS = {
 const OUTCOME_TARGETS = { WIN: 40, LOSS: 25, TIMEOUT: 5, PASS: 15 }
 
 export default function Training() {
-  const { data: status, isLoading } = useQuery({ queryKey: ['training-status'], queryFn: api.getTrainingStatus, refetchInterval: 60000 })
-  const { data: history } = useQuery({ queryKey: ['training-versions'], queryFn: api.getTrainingVersions, refetchInterval: 60000 })
-  const { data: collectorStats } = useQuery({ queryKey: ['data-collection-stats'], queryFn: api.getDataCollectionStats, refetchInterval: 300000 })
+  const { data: status, isLoading } = useQuery({ queryKey: ['training-status'], queryFn: () => api.getTrainingStatus(), refetchInterval: 60000 })
+  const { data: history } = useQuery({ queryKey: ['training-versions'], queryFn: () => api.getTrainingVersions(), refetchInterval: 60000 })
+  const { data: collectorStats } = useQuery({ queryKey: ['data-collection-stats'], queryFn: () => api.getDataCollectionStats(), refetchInterval: 300000 })
   const [toast, setToast] = useState(null)
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000) }
 

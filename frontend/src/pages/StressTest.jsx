@@ -34,7 +34,7 @@ export default function StressTest() {
 
   const { data, isLoading } = useQuery({
     queryKey: ['stress-test-results'],
-    queryFn: api.getStressTestResults,
+    queryFn: () => api.getStressTestResults(),
     refetchInterval: running ? 10000 : 300000,
   })
 
