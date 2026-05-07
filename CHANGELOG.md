@@ -4,7 +4,7 @@
 
 ### Sprint 4 — Cockpit Followups + Notification Subsystem (sprint/cockpit-followups-2026-05-07/base)
 
-<!-- T2  --> *placeholder Group-A.1 send_telegram rename*
+<!-- T2  --> Renamed `send_telegram_message` → `send_telegram` at `src/scheduler/overnight.py:134/149/304/311` (CUSUM/leakage/regression alarm sites). Bug was silently swallowed by `try/except Exception`; operator never received these alerts. New regression test `tests/notifications/test_overnight_alarm_paths.py` locks in the 4 alarm paths.
 <!-- T3  --> *placeholder Group-A.2 safe_send wrapper*
 <!-- T4a --> *placeholder Group-A.3 scheduler migration*
 <!-- T4b --> *placeholder Group-A.3 services migration*
