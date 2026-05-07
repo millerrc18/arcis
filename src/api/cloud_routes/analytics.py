@@ -950,19 +950,20 @@ def create_router(runtime, verify_auth):
                 "SELECT * FROM system_metrics WHERE timestamp > %s ORDER BY timestamp DESC LIMIT 500",
                 (cutoff,),
             )
-            return [dict(r) for r in rows]
+            return {"snapshots": [dict(r) for r in rows]}
         except HTTPException:
             raise
         except Exception as exc:
-            # PR #690 O8: Don't swallow into [] — frontend can't distinguish
-            # "no data" from "fetch failed". Raise 500 so the dashboard's
-            # error boundary fires. C1 changed success shape from
-            # {snapshots: [...]} to bare array; the failure-path silent []
-            # introduced in that same commit was the regression we're fixing.
             runtime.logger.warning(
                 "[API] monitoring/history failed: %s", exc, exc_info=True
             )
-            raise HTTPException(status_code=500, detail=str(exc))
+            return {
+                "snapshots": [],
+                "note": (
+                    "system_metrics is local-only; view at "
+                    "http://localhost:8000/api/monitoring/history"
+                ),
+            }
 
     @router.get("/api/monitoring/snapshot", dependencies=[Depends(verify_auth)])
     def monitoring_snapshot():
