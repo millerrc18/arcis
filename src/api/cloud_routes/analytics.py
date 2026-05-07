@@ -29,6 +29,7 @@ from src.shadow_trading.exit_reason import (
     EXCLUDED_FROM_OUTCOME_STATS,
     outcome_stats_filter_sql,
 )
+from src.evaluation.statistics import calmar_ratio as _canonical_calmar
 
 
 PERFORMANCE_WEIGHT = 0.10
@@ -565,7 +566,7 @@ def create_router(runtime, verify_auth):
                     max_dd = max(max_dd, peak - running)
                 if max_dd > 0:
                     ann_ret = mean_ret * 252
-                    fund_metrics["calmar_ratio"] = round(ann_ret / (max_dd / 100000 * 100), 3) if max_dd else None
+                    fund_metrics["calmar_ratio"] = round(_canonical_calmar(annualized_return=ann_ret, max_drawdown_pct=max_dd), 3) if max_dd else None
 
             # --- Additional fund metrics (dashboard expects these) ---
             if pnls:
