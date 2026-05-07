@@ -17,3 +17,9 @@ numpy>=1.24,<3.0
 # Missing → /api/kpis crashed with ModuleNotFoundError on every call.
 # Recurrence of the jsonschema/numpy bug class.
 requests>=2.31,<3.0
+# scipy — required transitively by src/api/cloud_routes/analytics.py via
+# src.evaluation.statistics.calmar_ratio (Sprint 3 T1 cockpit-coherence —
+# Calmar canonical helper refactor at #987). Missing → cloud deploy crashed
+# on startup with ModuleNotFoundError. Fourth recurrence of this bug class
+# (jsonschema → numpy → requests → scipy).
+scipy>=1.11,<2.0
