@@ -18,7 +18,9 @@ Stop-list (packages whose transitive deps are NOT walked):
 
 from __future__ import annotations
 
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -78,19 +80,21 @@ class TestCloudAppImportsClean:
 # ---------------------------------------------------------------------------
 class TestSyntheticMissingPkgDetected:
     def test_synthetic_missing_pkg_detected(self, monkeypatch):
-        """Monkey-patching collect_external_imports to inject 'pandas' triggers failure.
+        """Monkey-patching collect_external_imports to inject 'sqlalchemy' triggers failure.
 
         Validates that the check function correctly flags a package that is NOT
         in requirements-cloud.txt with a helpful error mentioning its name.
+        Uses 'sqlalchemy' as the phantom package — it is not in requirements-cloud.txt
+        and not in NON_CLOUD_PACKAGES, so it must trigger a violation.
         """
         mod = _import_helper()
         original_collect = mod.collect_external_imports
 
         def _patched_collect(entry_file, repo):
             results = original_collect(entry_file, repo)
-            # Inject a phantom 'import pandas' as if it came from a real file
+            # Inject a phantom 'import sqlalchemy' as if it came from a real file
             results.append(
-                ("src/api/cloud_app.py", "import pandas", "pandas")
+                ("src/api/cloud_app.py", "import sqlalchemy", "sqlalchemy")
             )
             return results
 
@@ -98,10 +102,10 @@ class TestSyntheticMissingPkgDetected:
 
         ok, messages = mod.check_cloud_imports(repo=_REPO)
 
-        assert not ok, "Expected failure when 'pandas' (not in requirements-cloud.txt) is injected"
+        assert not ok, "Expected failure when 'sqlalchemy' (not in requirements-cloud.txt) is injected"
         full_output = "\n".join(messages)
-        assert "pandas" in full_output, (
-            f"Expected 'pandas' to appear in failure output, got:\n{full_output}"
+        assert "sqlalchemy" in full_output, (
+            f"Expected 'sqlalchemy' to appear in failure output, got:\n{full_output}"
         )
 
 
@@ -185,3 +189,93 @@ class TestStdlibImportsAccepted:
                 f"Full output:\n{full_output}"
             )
         # If check passes, that's fine too — stdlib imports shouldn't break anything
+
+
+# ---------------------------------------------------------------------------
+# Test 5 — Windows unicode crash: script exits 1 (not crash-encodes) on failure
+# ---------------------------------------------------------------------------
+class TestWindowsUnicodeFailureExitCode:
+    def test_failure_exits_1_not_unicode_error(self, tmp_path):
+        """Script must exit 1 (not crash with UnicodeEncodeError) when failure path is hit.
+
+        Regression guard for Finding 1: on Windows cp1252 consoles, a Unicode
+        arrow character in the hint message caused UnicodeEncodeError before
+        sys.exit(1) was reached, masking all failures with exit 0.
+
+        Injects a phantom missing package by writing a minimal requirements file
+        that omits fastapi (always present in the real walk), then invokes the
+        script via subprocess with PYTHONIOENCODING=cp1252 to simulate the
+        Windows console encoding. The script must return exit code 1, not exit 0
+        or crash with a non-zero code due to UnicodeEncodeError.
+        """
+        import os
+
+        repo = _REPO
+        # Write a requirements file that is missing packages reachable from cloud_app
+        minimal_req = tmp_path / "requirements-minimal.txt"
+        minimal_req.write_text("# empty — intentionally missing packages\n", encoding="utf-8")
+
+        env = os.environ.copy()
+        # Simulate Windows cp1252 console encoding — this is the exact scenario
+        # where -> (U+2192) would cause UnicodeEncodeError before the fix
+        env["PYTHONIOENCODING"] = "cp1252"
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(_HELPER),
+                "--req-file",
+                str(minimal_req),
+            ],
+            capture_output=True,
+            cwd=str(repo),
+            env=env,
+        )
+        assert result.returncode == 1, (
+            f"Expected exit code 1 when packages are missing under cp1252 encoding, "
+            f"got {result.returncode}.\n"
+            f"If returncode==0: UnicodeEncodeError crashed the output before sys.exit(1).\n"
+            f"stdout: {result.stdout!r}\n"
+            f"stderr: {result.stderr!r}"
+        )
+        stderr_text = result.stderr.decode("utf-8", errors="replace")
+        assert "UnicodeEncodeError" not in stderr_text, (
+            f"Script crashed with UnicodeEncodeError under cp1252 encoding.\n"
+            f"The failure-path hint message must use only ASCII characters.\n"
+            f"stderr: {stderr_text}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Test 6 — Deep-transitive walker: jsonschema detected via platform chain
+# ---------------------------------------------------------------------------
+class TestDeepTransitiveWalkerJsonschema:
+    def test_deep_transitive_jsonschema_in_walked_packages(self):
+        """jsonschema must appear in the walked packages after walker depth fix.
+
+        Regression guard for Finding 2: the original walker used a two-mode
+        traversal — files inside src/api/ recurse; files outside src/api/ do NOT
+        recurse further. jsonschema lives at
+        src/platform/capability_registry/schemas.py, two hops outside src/api/:
+
+            src/api/cloud_routes/system_index.py
+              -> src/platform/capability_registry/__init__.py  [no-recurse under old logic]
+                 -> src/platform/capability_registry/schemas.py  [never reached]
+                    -> from jsonschema import Draft7Validator    [never found]
+
+        After option-A fix (full transitive walk through all of src/), schemas.py
+        must be reached and jsonschema must appear in the collected packages.
+        """
+        mod = _import_helper()
+        repo = _REPO
+        entry = repo / "src" / "api" / "cloud_app.py"
+
+        results = mod.collect_external_imports(entry, repo)
+        found_pkgs = {pkg for (_, _, pkg) in results}
+
+        assert "jsonschema" in found_pkgs, (
+            f"Expected 'jsonschema' (imported in "
+            f"src/platform/capability_registry/schemas.py via Draft7Validator) "
+            f"to appear in the walked package set after full transitive walk fix.\n"
+            f"Found packages: {sorted(found_pkgs)}"
+        )

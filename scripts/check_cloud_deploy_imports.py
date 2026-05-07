@@ -47,6 +47,24 @@ WALK_STOP_PREFIXES: tuple[str, ...] = (
 # ---------------------------------------------------------------------------
 LOCAL_PACKAGES: frozenset[str] = frozenset({"src", "scripts", "tests"})
 
+# ---------------------------------------------------------------------------
+# NON_CLOUD_PACKAGES: PyPI packages that are in requirements.txt (full local
+# environment) but intentionally NOT deployed to the cloud environment.
+# These packages are reachable from cloud_app.py transitively (via registry
+# population imports like src.shadow_trading, src.trading, src.training), but
+# their code paths that require these packages are NOT exercised on Render.
+# When the full transitive walker reaches them, they must not be flagged as
+# violations — the operator has intentionally excluded them from cloud.
+# ---------------------------------------------------------------------------
+NON_CLOUD_PACKAGES: frozenset[str] = frozenset({
+    "anthropic",   # src/training/claude_client.py — local LLM training only
+    "alpaca",      # src/shadow_trading/alpaca_*.py — local broker only
+    "ib_async",    # src/trading/ib_broker.py — local IB Gateway only
+    "pandas",      # src/data_ingestion/market_data.py — local data pipeline only
+    "yfinance",    # src/data_ingestion/market_data.py, src/analytics/spy_benchmark.py
+    "pandas_market_calendars",  # src/scheduler/holidays.py — local scheduler only
+})
+
 # Alias map: PyPI package name → importable top-level name.
 # Required because PyPI names and import names differ for these packages.
 _PYPI_TO_IMPORT: dict[str, str] = {
@@ -122,18 +140,6 @@ def _is_stop_listed(rel_path: str) -> bool:
     return any(norm.startswith(p.replace("\\", "/")) for p in WALK_STOP_PREFIXES)
 
 
-def _is_in_cloud_api(rel_path: str) -> bool:
-    """Return True if rel_path is inside src/api/ (the cloud boundary).
-
-    Only files inside src/api/ (including cloud_routes/) are allowed to
-    recursively expand their src.* imports.  This prevents the walker from
-    following chains like cloud_app.py → src.platform → src.training →
-    anthropic, which are NOT deployed to the cloud environment.
-    """
-    norm = rel_path.replace("\\", "/")
-    return norm.startswith("src/api/")
-
-
 def collect_external_imports(
     entry_file: Path,
     repo: Path,
@@ -145,20 +151,16 @@ def collect_external_imports(
 
     Traversal rules:
     - Start at entry_file (cloud_app.py)
-    - Files inside src/api/ (the cloud boundary): recurse into all src.* imports
-    - Files outside src/api/ (e.g. src/evaluation/statistics.py reached from
-      a cloud_routes file): collect their external imports but do NOT recurse
-      further into their src.* imports
+    - Recurse into all src.* imports transitively through all of src/
     - Never visits the same file twice
     - Never descends into WALK_STOP_PREFIXES paths (tests/, scripts/)
     """
     visited: set[Path] = set()
     results: list[tuple[str, str, str]] = []
-    # worklist: (file_path, allow_recurse)
-    worklist: list[tuple[Path, bool]] = [(entry_file.resolve(), True)]
+    worklist: list[Path] = [entry_file.resolve()]
 
     while worklist:
-        current, allow_recurse = worklist.pop()
+        current = worklist.pop()
         if current in visited:
             continue
         visited.add(current)
@@ -193,20 +195,13 @@ def collect_external_imports(
                     # Relative import — skip (not used in this codebase at top-level)
                     continue
                 if pkg == "src":
-                    if not allow_recurse:
-                        # Outside cloud boundary: don't recurse further
-                        continue
-                    # Inside cloud boundary: resolve and enqueue
                     resolved = _resolve_src_module(node.module, repo)
                     if resolved is not None:
                         resolved_rel = str(resolved.relative_to(repo)).replace(
                             "\\", "/"
                         )
                         if not _is_stop_listed(resolved_rel) and resolved not in visited:
-                            # Allow further recursion only if the resolved file
-                            # is also inside the cloud API boundary
-                            child_recurse = _is_in_cloud_api(resolved_rel)
-                            worklist.append((resolved, child_recurse))
+                            worklist.append(resolved)
                 else:
                     results.append((rel, stmt, pkg))
 
@@ -249,6 +244,9 @@ def check_cloud_imports(
         # Local repo packages — not PyPI, not flagged
         if pkg in LOCAL_PACKAGES or pkg_lower in LOCAL_PACKAGES:
             continue
+        # Packages intentionally excluded from cloud (local-only trading infra)
+        if pkg in NON_CLOUD_PACKAGES or pkg_lower in {p.lower() for p in NON_CLOUD_PACKAGES}:
+            continue
         # Check against cloud packages (case-insensitive + original)
         if pkg in cloud_pkgs or pkg_lower in {p.lower() for p in cloud_pkgs}:
             continue
@@ -265,7 +263,7 @@ def check_cloud_imports(
         "",
     ]
     for rel_path, stmt, pkg in violations:
-        messages.append(f"  - {rel_path}: `{stmt}` → missing top-level package: '{pkg}'")
+        messages.append(f"  - {rel_path}: `{stmt}` -> missing top-level package: '{pkg}'")
         messages.append(
             f"    Hint: add '{pkg}>=<version>' to requirements-cloud.txt"
             " (see comment format in that file for examples)"
