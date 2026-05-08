@@ -54,7 +54,7 @@ function formatEvent(evt) {
       return `Opened ${d.side || 'BUY'} ${d.ticker || '?'}${d.score ? ` (score: ${d.score})` : ''}`
     case 'trade_closed': {
       const pnl = d.pnl_pct != null ? `${d.pnl_pct >= 0 ? '+' : ''}${d.pnl_pct.toFixed(1)}%` : ''
-      const dollars = d.pnl_dollars != null ? ` ($${d.pnl_dollars >= 0 ? '+' : ''}${d.pnl_dollars.toFixed(2)})` : ''
+      const dollars = d.pnl_dollars != null ? ` (${d.pnl_dollars > 0 ? '+' : d.pnl_dollars < 0 ? '-' : ''}$${Math.abs(d.pnl_dollars).toFixed(2)})` : ''
       return `Closed ${d.ticker || '?'} ${pnl}${dollars}`
     }
     case 'training_started':
