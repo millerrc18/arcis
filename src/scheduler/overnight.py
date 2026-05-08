@@ -16,6 +16,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.notifications import safe_send
 from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
@@ -179,16 +180,12 @@ def run_training_check():
         if result:
             print(f"[WATCH] Training complete: {result['version_name']}")
             # ── Telegram: notify_model_event ──
-            try:
-                from src.notifications.telegram import notify_model_event, is_telegram_enabled
-                if is_telegram_enabled():
-                    notify_model_event(
-                        event="TRAINING COMPLETE",
-                        model_name=result.get("version_name", "unknown"),
-                        detail=f"Reason: {reason}",
-                    )
-            except Exception as e:
-                logger.warning("[WATCH] notify_model_event failed: %s", e)
+            safe_send(
+                "model_event",
+                event="TRAINING COMPLETE",
+                model_name=result.get("version_name", "unknown"),
+                detail=f"Reason: {reason}",
+            )
         else:
             print("[WATCH] Training failed. Check logs.")
     else:
@@ -209,46 +206,40 @@ def run_saturday_reports(db_path: str = DB_PATH):
     print("[WATCH] Training report email sent.")
 
     # ── Telegram: notify_retrain_report ──
+    from src.training.versioning import get_active_model_name, get_training_example_counts
+    model_name = get_active_model_name()
+    counts = get_training_example_counts()
+    _retrain_total = counts.get("total", 0)
     try:
-        from src.notifications.telegram import notify_retrain_report, is_telegram_enabled
-        from src.training.versioning import get_active_model_name, get_training_example_counts
-        if is_telegram_enabled():
-            model_name = get_active_model_name()
-            counts = get_training_example_counts()
-            # Compute week-over-week training metrics
-            _retrain_total = counts.get("total", 0)
-            try:
-                from datetime import timedelta as _td
-                with connect_db(db_path) as _rc:
-                    _week_ago = (datetime.now(ET) - _td(days=7)).isoformat()
-                    _new_wk = _rc.execute(
-                        "SELECT COUNT(*) FROM training_examples WHERE created_at > ?",
-                        (_week_ago,)
-                    ).fetchone()[0]
-                    _new_paper = _rc.execute(
-                        "SELECT COUNT(*) FROM training_examples WHERE created_at > ? AND source LIKE '%paper%'",
-                        (_week_ago,)
-                    ).fetchone()[0]
-            except Exception:
-                _new_wk = 0
-                _new_paper = 0
-
-            notify_retrain_report(
-                model_name=model_name,
-                training_examples=_retrain_total,
-                prev_examples=_retrain_total - _new_wk,
-                new_this_week=_new_wk,
-                new_paper=_new_paper,
-                new_live=0,
-                canary_status="STABLE",
-                perplexity=0.0,
-                prev_perplexity=0.0,
-                distinct2=0.0,
-                prev_distinct2=0.0,
-                champion_challenger="N/A",
-            )
-    except Exception as e:
-        logger.warning("[WATCH] notify_retrain_report failed: %s", e)
+        from datetime import timedelta as _td
+        with connect_db(db_path) as _rc:
+            _week_ago = (datetime.now(ET) - _td(days=7)).isoformat()
+            _new_wk = _rc.execute(
+                "SELECT COUNT(*) FROM training_examples WHERE created_at > ?",
+                (_week_ago,)
+            ).fetchone()[0]
+            _new_paper = _rc.execute(
+                "SELECT COUNT(*) FROM training_examples WHERE created_at > ? AND source LIKE '%paper%'",
+                (_week_ago,)
+            ).fetchone()[0]
+    except Exception:
+        _new_wk = 0
+        _new_paper = 0
+    safe_send(
+        "retrain_report",
+        model_name=model_name,
+        training_examples=_retrain_total,
+        prev_examples=_retrain_total - _new_wk,
+        new_this_week=_new_wk,
+        new_paper=_new_paper,
+        new_live=0,
+        canary_status="STABLE",
+        perplexity=0.0,
+        prev_perplexity=0.0,
+        distinct2=0.0,
+        prev_distinct2=0.0,
+        champion_challenger="N/A",
+    )
 
     # Weekly deep audit
     try:
@@ -451,16 +442,12 @@ def run_overnight_training_collection():
         logger.warning("[WATCH] broadcast overnight_task failed: %s", e)
 
     # ── Telegram: notify_overnight_training_complete ──
-    try:
-        from src.notifications.telegram import notify_overnight_training_complete, is_telegram_enabled
-        if is_telegram_enabled():
-            notify_overnight_training_complete(
-                tasks_completed=1,
-                tasks_total=1,
-                details={"training_collection": {"success": True}},
-            )
-    except Exception as e:
-        logger.warning("[WATCH] notify_overnight_training_complete failed: %s", e)
+    safe_send(
+        "overnight_training_complete",
+        tasks_completed=1,
+        tasks_total=1,
+        details={"training_collection": {"success": True}},
+    )
 
 
 def run_news_ingestion():
@@ -518,11 +505,7 @@ def run_attribution_resolution_and_notify(db_path: str = DB_PATH) -> int:
     except Exception as exc:
         logger.warning("[ATTRIBUTION] pending-count lookup failed: %s", exc)
         pending_remaining = -1
-    try:
-        from src.notifications.telegram import notify_attribution_resolve_complete
-        notify_attribution_resolve_complete(resolved, max(pending_remaining, 0))
-    except Exception as exc:
-        logger.warning("[ATTRIBUTION] notify failed: %s", exc)
+    safe_send("attribution_resolve_complete", resolved=resolved, pending_remaining=max(pending_remaining, 0))
     return resolved
 
 
@@ -539,16 +522,13 @@ def run_1min_bar_collection():
     logger.info("[OVERNIGHT] Collecting 1-minute bars for %s...", target.date())
     result = collect(target_dates=[target])
     logger.info("[OVERNIGHT] 1-minute bar collection complete: %s", result)
-    try:
-        from src.notifications.telegram import notify_1min_bar_collection
-        notify_1min_bar_collection(
-            bars_collected=result.get("bars_collected", 0),
-            tickers=result.get("tickers", 0),
-            empty_ticker_days=result.get("empty_ticker_days", 0),
-            dates=result.get("dates", 1),
-        )
-    except Exception as exc:
-        logger.warning("[OVERNIGHT] notify_1min_bar_collection failed: %s", exc)
+    safe_send(
+        "1min_bar_collection",
+        bars_collected=result.get("bars_collected", 0),
+        tickers=result.get("tickers", 0),
+        empty_ticker_days=result.get("empty_ticker_days", 0),
+        dates=result.get("dates", 1),
+    )
 
 
 def run_enrichment_precache(config: dict):
@@ -698,12 +678,7 @@ def run_data_collection(db_path: str = DB_PATH,
             logger.warning("[EARNINGS] %d stocks report this week: %s",
                            len(upcoming), ", ".join(upcoming))
             # Telegram earnings warning
-            try:
-                from src.notifications.telegram import notify_earnings_warning, is_telegram_enabled
-                if is_telegram_enabled():
-                    notify_earnings_warning(upcoming)
-            except Exception as e:
-                logger.warning("[WATCH] notify_earnings_warning failed: %s", e)
+            safe_send("earnings_warning", tickers=upcoming)
     except Exception as e:
         logger.debug("[WATCH] Earnings fetch failed: %s", e)
         results["earnings"] = {"error": str(e)}
@@ -805,55 +780,42 @@ def run_data_collection(db_path: str = DB_PATH,
         logger.warning("[WATCH] Retention failed: %s", e)
 
     # 1J. Track collector failures and alert at 3+ consecutive
-    try:
-        from src.notifications.telegram import notify_collection_failure, is_telegram_enabled
-        if is_telegram_enabled():
-            for name, result in results.items():
-                if _is_collector_error(result):
-                    collector_failures[name] = collector_failures.get(name, 0) + 1
-                    if collector_failures[name] >= 3:
-                        other_status = {
-                            n: collector_failures.get(n, 0) < 3
-                            for n in results if n != name
-                        }
-                        notify_collection_failure(
-                            collector_name=name,
-                            consecutive_failures=collector_failures[name],
-                            last_error=str(result)[:80],
-                            last_success_ago="unknown",
-                            other_collectors=other_status,
-                        )
-                else:
-                    collector_failures[name] = 0  # Reset on success
-    except Exception as e:
-        logger.warning("[WATCH] notify_collection_failure failed: %s", e)
+    for name, result in results.items():
+        if _is_collector_error(result):
+            collector_failures[name] = collector_failures.get(name, 0) + 1
+            if collector_failures[name] >= 3:
+                other_status = {
+                    n: collector_failures.get(n, 0) < 3
+                    for n in results if n != name
+                }
+                safe_send(
+                    "collection_failure",
+                    collector_name=name,
+                    consecutive_failures=collector_failures[name],
+                    last_error=str(result)[:80],
+                    last_success_ago="unknown",
+                    other_collectors=other_status,
+                )
+        else:
+            collector_failures[name] = 0  # Reset on success
 
     # H3. Notify new research papers via Telegram
     if research_results.get("total_new", 0) > 0:
-        try:
-            from src.notifications.telegram import notify_research_papers, is_telegram_enabled
-            if is_telegram_enabled():
-                with connect_db(db_path) as _cn:
-                    top = _cn.execute(
-                        "SELECT title, relevance_score FROM research_papers ORDER BY collected_at DESC LIMIT 1"
-                    ).fetchone()
-                top_title = top[0] if top else "Unknown"
-                top_score = top[1] if top else 0
-                notify_research_papers(
-                    total_new=research_results["total_new"],
-                    top_paper=top_title,
-                    top_score=top_score,
-                )
-        except Exception as e:
-            logger.warning("[WATCH] notify_research_papers failed: %s", e)
+        with connect_db(db_path) as _cn:
+            top = _cn.execute(
+                "SELECT title, relevance_score FROM research_papers ORDER BY collected_at DESC LIMIT 1"
+            ).fetchone()
+        top_title = top[0] if top else "Unknown"
+        top_score = top[1] if top else 0
+        safe_send(
+            "research_papers",
+            total_new=research_results["total_new"],
+            top_paper=top_title,
+            top_score=top_score,
+        )
 
     # Telegram overnight summary
-    try:
-        from src.notifications.telegram import notify_overnight_complete, is_telegram_enabled
-        if is_telegram_enabled():
-            notify_overnight_complete(results)
-    except Exception as e:
-        logger.warning("[WATCH] notify_overnight_complete failed: %s", e)
+    safe_send("overnight_complete", results=results)
 
     try:
         broadcast_sync("overnight_task", {"task": "data_collection", "status": "complete",
@@ -891,12 +853,7 @@ def run_evening_handoff(vram_manager=None):
             ["-m", "scripts.overnight_train"],
         )
         print("[WATCH] VRAM handoff complete -- overnight training started")
-        try:
-            from src.notifications.telegram import notify_vram_handoff, is_telegram_enabled
-            if is_telegram_enabled():
-                notify_vram_handoff("training", True)
-        except Exception as e:
-            logger.warning("[WATCH] notify_vram_handoff failed: %s", e)
+        safe_send("vram_handoff", direction="training", success=True)
         return vm
     else:
         try:
@@ -910,12 +867,7 @@ def run_evening_handoff(vram_manager=None):
         except Exception as metric_err:
             logger.debug("[WATCH] vram_handoff_training_ok metric failed: %s", metric_err)
         print("[WATCH] VRAM handoff FAILED -- staying in inference mode")
-        try:
-            from src.notifications.telegram import notify_vram_handoff, is_telegram_enabled
-            if is_telegram_enabled():
-                notify_vram_handoff("training", False, "Staying in inference mode")
-        except Exception as e:
-            logger.warning("[WATCH] notify_vram_handoff failed: %s", e)
+        safe_send("vram_handoff", direction="training", success=False, detail="Staying in inference mode")
         return vram_manager
 
 
@@ -946,12 +898,7 @@ def run_morning_handoff(vram_manager=None):
             logger.debug("[WATCH] vram_handoff_inference_ok metric failed: %s", metric_err)
         stop_flag.unlink(missing_ok=True)
         print("[WATCH] Morning handoff complete -- Ollama loaded and warm")
-        try:
-            from src.notifications.telegram import notify_vram_handoff, is_telegram_enabled
-            if is_telegram_enabled():
-                notify_vram_handoff("inference", True)
-        except Exception as e:
-            logger.warning("[WATCH] notify_vram_handoff failed: %s", e)
+        safe_send("vram_handoff", direction="inference", success=True)
     else:
         try:
             from src.scheduler.metrics import upsert_daily_metric
@@ -964,12 +911,7 @@ def run_morning_handoff(vram_manager=None):
         except Exception as metric_err:
             logger.debug("[WATCH] vram_handoff_inference_ok metric failed: %s", metric_err)
         print("[WATCH] Morning handoff FAILED -- attempting Ollama restart")
-        try:
-            from src.notifications.telegram import notify_vram_handoff, is_telegram_enabled
-            if is_telegram_enabled():
-                notify_vram_handoff("inference", False, "Attempting restart")
-        except Exception as e:
-            logger.warning("[WATCH] notify_vram_handoff failed: %s", e)
+        safe_send("vram_handoff", direction="inference", success=False, detail="Attempting restart")
         # Fallback: try reload anyway
         stop_flag.unlink(missing_ok=True)
         try:
@@ -1137,18 +1079,15 @@ def run_stress_test():
             failed += 1
             logger.warning("[WATCH] Stress test %s failed: %s", name, e)
     print("[WATCH] Stress test complete")
-    try:
-        from src.notifications.telegram import notify_stress_test_complete
-        notes = " | ".join(
-            f"{r['name']}: WR {r.get('win_rate', 0):.0%}, DD {r.get('max_drawdown_pct', 0):.1f}%"
-            for r in results
-        )
-        notify_stress_test_complete(
-            scenarios_run=len(SCENARIOS), passed=len(results), failed=failed,
-            notes=notes,
-        )
-    except Exception as exc:
-        logger.warning("[WATCH] notify_stress_test_complete failed: %s", exc)
+    notes = " | ".join(
+        f"{r['name']}: WR {r.get('win_rate', 0):.0%}, DD {r.get('max_drawdown_pct', 0):.1f}%"
+        for r in results
+    )
+    safe_send(
+        "stress_test_complete",
+        scenarios_run=len(SCENARIOS), passed=len(results), failed=failed,
+        notes=notes,
+    )
 
 
 def run_simulation_engine():
@@ -1175,28 +1114,21 @@ def run_research_synthesis():
     print(f"[WATCH] Research synthesis: {papers_count} papers reviewed, {actionable} actionable")
 
     # ── Telegram: notify_research_papers (new papers discovered) ──
-    try:
-        from src.notifications.telegram import notify_research_papers, is_telegram_enabled
-        if is_telegram_enabled() and papers_count > 0:
-            top_paper = result.get("top_paper_title", "Unknown")
-            top_score = result.get("top_paper_score", 0.0)
-            notify_research_papers(
-                total_new=papers_count,
-                top_paper=top_paper,
-                top_score=top_score,
-            )
-    except Exception as e:
-        logger.warning("[WATCH] notify_research_papers failed: %s", e)
+    if papers_count > 0:
+        top_paper = result.get("top_paper_title", "Unknown")
+        top_score = result.get("top_paper_score", 0.0)
+        safe_send(
+            "research_papers",
+            total_new=papers_count,
+            top_paper=top_paper,
+            top_score=top_score,
+        )
 
     # ── Telegram: notify_research_digest (synthesis complete) ──
-    try:
-        from src.notifications.telegram import notify_research_digest, is_telegram_enabled
-        if is_telegram_enabled():
-            digest = result.get("digest_summary", "No digest generated")
-            notify_research_digest(
-                papers_count=papers_count,
-                actionable_count=actionable,
-                digest_summary=digest,
-            )
-    except Exception as e:
-        logger.warning("[WATCH] notify_research_digest failed: %s", e)
+    digest = result.get("digest_summary", "No digest generated")
+    safe_send(
+        "research_digest",
+        papers_count=papers_count,
+        actionable_count=actionable,
+        digest_summary=digest,
+    )
