@@ -57,7 +57,8 @@ export default {
             prop.type === 'Property' &&
             prop.key.type === 'Identifier' &&
             prop.key.name === 'queryFn' &&
-            prop.value.type === 'MemberExpression'
+            prop.value.type !== 'ArrowFunctionExpression' &&
+            prop.value.type !== 'FunctionExpression'
           ) {
             context.report({
               node: prop.value,

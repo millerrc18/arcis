@@ -38,7 +38,7 @@ export default function StrategyResearch() {
 
   const { data, isLoading } = useQuery({
     queryKey: ["platform-strategies"],
-    queryFn: getPlatformStrategies,
+    queryFn: () => getPlatformStrategies(),
   });
   // Defensive: backend has returned non-array shapes on error paths. The
   // = [] destructuring default only fires on `undefined`, not null / {}.
