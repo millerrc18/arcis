@@ -338,9 +338,10 @@ def backtest_model(model_name: str, months: int = 6,
                 max_dd_duration_days = dd_dur
 
     # Calmar ratio (annualized return / max drawdown)
+    from src.evaluation.statistics import calmar_ratio
     test_days = max((end_date - start_date).days, 1)
     ann_return = (total_pnl_pct / 100) * (365 / test_days) * 100
-    calmar = round(ann_return / abs(max_dd_pct), 2) if max_dd_pct != 0 else 0
+    calmar = round(calmar_ratio(ann_return, abs(max_dd_pct)), 2)
 
     # Monthly returns
     monthly_returns = {}
