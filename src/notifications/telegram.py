@@ -75,6 +75,7 @@ import requests.exceptions
 import urllib3.exceptions
 
 from src.config import DB_PATH, load_config
+from src.notifications._config import _get_telegram_config
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -102,21 +103,6 @@ def _redact_token(text) -> str:
     to log. Use in EVERY except-block log call inside this module."""
     s = str(text) if not isinstance(text, str) else text
     return _TELEGRAM_TOKEN_RE.sub("/bot[REDACTED]", s)
-
-
-def _get_telegram_config() -> dict:
-    """Load Telegram config from settings. .env takes precedence over YAML.
-
-    Environment variables override YAML so that Render can set tokens via
-    env vars without touching the config file.
-    """
-    config = load_config()
-    tg = config.get("telegram", {})
-    return {
-        "enabled": tg.get("enabled", False),
-        "bot_token": os.environ.get("TELEGRAM_BOT_TOKEN") or tg.get("bot_token", ""),
-        "chat_id": os.environ.get("TELEGRAM_CHAT_ID") or str(tg.get("chat_id", "")),
-    }
 
 
 def is_telegram_enabled() -> bool:
