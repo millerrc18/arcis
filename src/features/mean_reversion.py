@@ -81,6 +81,15 @@ def compute_mr_features(ticker: str, ohlcv: pd.DataFrame,
         "volume_ratio": volume_ratio,
         "distance_from_200ema": distance_from_200ema,
         "last_close": round(last_close, 2),
+        # current_price is the canonical feature-dict key consumed by
+        # build_packet_from_features (src/packets/template.py:170). Pullback
+        # scan's compute_all_features returns it; MR scan was missing it,
+        # causing build_packet_from_features to receive current_price=0.0
+        # (the .get default) and refuse via the #621 path — silently dropping
+        # MR tickers from every scan (root cause of #52 MR-scan symptom,
+        # observed BAC/CVX/DE/AMZN/AVGO recurring rejections). Aliased to
+        # last_close so both keys map to the same value.
+        "current_price": round(last_close, 2),
         "above_200ema": last_close > ema_200,
     }
 
