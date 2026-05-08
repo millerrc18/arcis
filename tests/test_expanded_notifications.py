@@ -539,7 +539,7 @@ class TestMilestoneDetection:
         _check_open_milestones(db_path, source="paper")
 
         mock_notify.assert_called_once()
-        assert "First paper trade" in mock_notify.call_args[0][0]
+        assert "First paper trade" in mock_notify.call_args.kwargs["milestone"]
 
     @patch("src.notifications.telegram.is_telegram_enabled", return_value=True)
     @patch("src.notifications.telegram.notify_milestone")
@@ -565,7 +565,7 @@ class TestMilestoneDetection:
 
         # Should be called for 10th trade milestone
         calls = mock_notify.call_args_list
-        milestone_names = [c[0][0] for c in calls]
+        milestone_names = [c.kwargs["milestone"] for c in calls]
         assert any("10th" in m for m in milestone_names)
 
 

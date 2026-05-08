@@ -45,6 +45,7 @@ from src.shadow_trading.broker_exception_logger import log_and_persist
 from src.shadow_trading.exit_reason import coerce_exit_reason
 from src.shadow_trading.models import ShadowTrade
 from src.shadow_trading.qty_mismatch import parse_qty_mismatch, should_abort_retry
+from src.notifications import safe_send
 from src.notifications.telegram import send_telegram
 from alpaca.common.exceptions import APIError
 
@@ -264,7 +265,6 @@ def _check_paper_buying_power(entry_price: float, shares: int) -> bool:
             _consecutive_bp_failures += 1
             if _consecutive_bp_failures >= _BP_ALERT_THRESHOLD:
                 try:
-                    from src.notifications.telegram import send_telegram
                     send_telegram(
                         f"⚠️ BUYING POWER CRISIS: {_consecutive_bp_failures} consecutive rejections\n"
                         f"Available: ${buying_power:,.2f} / Need: ${required:,.2f}\n"
@@ -752,7 +752,6 @@ def open_shadow_trade(
             if adjusted <= 0:
                 logger.warning("[RISK] Drawdown %.1f%% — trading halted (Thorp protocol)", current_dd_pct)
                 try:
-                    from src.notifications.telegram import send_telegram
                     send_telegram(
                         f"🔴 DRAWDOWN HALT: {current_dd_pct:.1f}%\n"
                         f"Trading halted per Thorp protocol (≥20% DD).\n"
@@ -778,7 +777,6 @@ def open_shadow_trade(
                             (alert_key, f"%{int(threshold)}%")
                         ).fetchone()
                         if not _alert_row:
-                            from src.notifications.telegram import send_telegram
                             from src.utils.activity_logger import log_activity
                             recovery_pct = current_dd_pct / (100 - current_dd_pct) * 100
                             send_telegram(
@@ -957,7 +955,6 @@ def open_shadow_trade(
                         ticker, close_err,
                     )
                 try:
-                    from src.notifications.telegram import send_telegram
                     send_telegram(
                         f"🚨 UNPROTECTED POSITION (SDK MISSING): {ticker}\n"
                         f"alpaca.trading imports unavailable. Attempted emergency "
@@ -1010,7 +1007,6 @@ def open_shadow_trade(
                         )
                         logger.error("[SHADOW] EMERGENCY: Cannot close unprotected position %s: %s", ticker, close_err)
                     try:
-                        from src.notifications.telegram import send_telegram
                         send_telegram(
                             f"🚨 UNPROTECTED POSITION: {ticker}\n"
                             f"Entry filled but stop-loss submission failed.\n"
@@ -2082,7 +2078,6 @@ def check_and_manage_open_trades(
                             "[EXIT] Circuit breaker: %d/%d exits failed — halting remaining exits",
                             _exit_failures, _exit_attempts)
                         try:
-                            from src.notifications.telegram import send_telegram
                             send_telegram(
                                 f"\U0001f6a8 EXIT CIRCUIT BREAKER: {_exit_failures}/{_exit_attempts} "
                                 f"exits failed this cycle. Remaining exits paused."
@@ -2177,7 +2172,6 @@ def check_and_manage_open_trades(
                         db_path,
                     )
                     try:
-                        from src.notifications.telegram import send_telegram
                         send_telegram(
                             f"⚠️ Exit order FAILED for {ticker} — will retry next cycle"
                         )
@@ -2299,31 +2293,27 @@ def check_and_manage_open_trades(
                 ticker, exit_reason, pnl_dollars, pnl_pct, days_open,
             )
 
-            try:
-                from src.notifications.telegram import notify_trade_closed, is_telegram_enabled
-                if is_telegram_enabled():
-                    # Enriched context — fields are all nullable in shadow_trades;
-                    # notify_trade_closed renders only what's present.
-                    notify_trade_closed(
-                        ticker,
-                        pnl_dollars,
-                        pnl_pct,
-                        exit_reason,
-                        days_open,
-                        source=trade.get("source", "paper"),
-                        sector=trade.get("realized_sector"),
-                        regime_at_entry=trade.get("regime_at_entry"),
-                        regime_at_exit=trade.get("regime_at_exit"),
-                        mfe_pct=trade.get("max_favorable_excursion"),
-                        mae_pct=trade.get("max_adverse_excursion"),
-                        excess_return=trade.get("excess_return"),
-                        spy_return_over_hold=trade.get("spy_return_over_hold"),
-                        drawdown_from_mfe=trade.get("drawdown_from_mfe"),
-                        entry_slippage_bps=trade.get("entry_slippage_bps"),
-                        exit_slippage_bps=trade.get("exit_slippage_bps"),
-                    )
-            except Exception as e:
-                logger.warning("[SHADOW] Telegram notify_trade_closed failed for %s: %s", ticker, e)
+            # Enriched context — fields are all nullable in shadow_trades;
+            # notify_trade_closed renders only what's present.
+            safe_send(
+                "trade_closed",
+                ticker=ticker,
+                pnl_dollars=pnl_dollars,
+                pnl_pct=pnl_pct,
+                exit_reason=exit_reason,
+                days_held=days_open,
+                source=trade.get("source", "paper"),
+                sector=trade.get("realized_sector"),
+                regime_at_entry=trade.get("regime_at_entry"),
+                regime_at_exit=trade.get("regime_at_exit"),
+                mfe_pct=trade.get("max_favorable_excursion"),
+                mae_pct=trade.get("max_adverse_excursion"),
+                excess_return=trade.get("excess_return"),
+                spy_return_over_hold=trade.get("spy_return_over_hold"),
+                drawdown_from_mfe=trade.get("drawdown_from_mfe"),
+                entry_slippage_bps=trade.get("entry_slippage_bps"),
+                exit_slippage_bps=trade.get("exit_slippage_bps"),
+            )
 
             # 1F. Check for trade close milestones
             _check_close_milestones(db_path)
@@ -2341,7 +2331,6 @@ def check_and_manage_open_trades(
             _price_failures / _price_total * 100, _price_failures, _price_total,
         )
         try:
-            from src.notifications.telegram import send_telegram
             send_telegram(
                 f"PRICE FETCH ALERT: {_price_failures}/{_price_total} price checks failed "
                 f"({_price_failures / _price_total * 100:.0f}%). Possible Alpaca API outage."
@@ -2490,16 +2479,12 @@ def open_live_trade(
                 "[LIVE] CAPITAL GUARD: Equity $%.2f < 50%% of starting $%.2f — HALTING",
                 live_equity, starting_capital,
             )
-            try:
-                from src.notifications.telegram import notify_risk_alert, is_telegram_enabled
-                if is_telegram_enabled():
-                    notify_risk_alert(
-                        "LIVE CAPITAL GUARD",
-                        f"Live equity ${live_equity:.2f} below 50% of starting ${starting_capital:.2f}. "
-                        f"Live trading halted.",
-                    )
-            except Exception as e:
-                logger.warning("[LIVE] Capital guard Telegram alert failed: %s", e)
+            safe_send(
+                "risk_alert",
+                alert_type="LIVE CAPITAL GUARD",
+                detail=f"Live equity ${live_equity:.2f} below 50% of starting ${starting_capital:.2f}. "
+                       f"Live trading halted.",
+            )
             return None
     except Exception as e:
         logger.warning("[LIVE] Could not check live account: %s — skipping", e)
@@ -2550,17 +2535,13 @@ def open_live_trade(
                 "exceeds -5%% of $%.2f — HALTING for day",
                 daily_live_pnl, today_realized, today_unrealized, starting_capital,
             )
-            try:
-                from src.notifications.telegram import notify_risk_alert, is_telegram_enabled
-                if is_telegram_enabled():
-                    notify_risk_alert(
-                        "LIVE DAILY LOSS LIMIT",
-                        f"Live daily P&L ${daily_live_pnl:.2f} (realized ${today_realized:.2f} "
-                        f"+ unrealized ${today_unrealized:.2f}) exceeds -5% of ${starting_capital:.2f}. "
-                        f"No more live trades today.",
-                    )
-            except Exception as e:
-                logger.warning("[LIVE] Daily loss Telegram alert failed: %s", e)
+            safe_send(
+                "risk_alert",
+                alert_type="LIVE DAILY LOSS LIMIT",
+                detail=f"Live daily P&L ${daily_live_pnl:.2f} (realized ${today_realized:.2f} "
+                       f"+ unrealized ${today_unrealized:.2f}) exceeds -5% of ${starting_capital:.2f}. "
+                       f"No more live trades today.",
+            )
             return None
     except Exception as e:
         logger.error("[LIVE] Daily loss guard failed for %s — REJECTING trade: %s", packet.ticker, e)
@@ -2733,19 +2714,14 @@ def open_live_trade(
     )
 
     # Telegram notification for live trade
-    try:
-        from src.notifications.telegram import notify_trade_opened, is_telegram_enabled
-        if is_telegram_enabled():
-            ps = packet.position_sizing
-            notify_trade_opened(
-                ticker, actual_price, stop_price, target_price,
-                int(features.get("_score", 0)), planned_shares,
-                setup_type=features.get("setup_type"),
-                setup_confidence=features.get("setup_confidence"),
-                source="live",
-            )
-    except Exception as e:
-        logger.warning("[LIVE] Telegram notify_trade_opened failed: %s", e)
+    safe_send(
+        "trade_opened",
+        ticker=ticker, entry_price=actual_price, stop=stop_price, target=target_price,
+        score=int(features.get("_score", 0)), shares=planned_shares,
+        setup_type=features.get("setup_type"),
+        setup_confidence=features.get("setup_confidence"),
+        source="live",
+    )
 
     # 1F. Check for live trade open milestones
     _check_open_milestones(db_path, source="live")
@@ -2779,10 +2755,6 @@ def _check_open_milestones(db_path: str = DB_PATH,
                            source: str = "paper") -> None:
     """Check for trade open milestones and send notifications."""
     try:
-        from src.notifications.telegram import notify_milestone, is_telegram_enabled
-        if not is_telegram_enabled():
-            return
-
         with connect_db(db_path) as conn:
             # Count total opened trades for this source
             total = conn.execute(
@@ -2794,9 +2766,10 @@ def _check_open_milestones(db_path: str = DB_PATH,
             label = "live" if source == "live" else "paper"
 
             if total == 1:
-                notify_milestone(
-                    f"First {label} trade opened!",
-                    f"Your trading journey begins. Track progress in the Shadow Ledger."
+                safe_send(
+                    "milestone",
+                    milestone=f"First {label} trade opened!",
+                    detail=f"Your trading journey begins. Track progress in the Shadow Ledger.",
                 )
     except Exception as e:
         logger.debug("[MILESTONE] Open milestone check failed: %s", e)
@@ -2805,10 +2778,6 @@ def _check_open_milestones(db_path: str = DB_PATH,
 def _check_close_milestones(db_path: str = DB_PATH) -> None:
     """Check for trade close milestones and send notifications."""
     try:
-        from src.notifications.telegram import notify_milestone, is_telegram_enabled
-        if not is_telegram_enabled():
-            return
-
         _t_frag_m, _t_params_m = terminal_in_clause()
         with connect_db(db_path) as conn:
 
@@ -2854,7 +2823,7 @@ def _check_close_milestones(db_path: str = DB_PATH) -> None:
                         f"Current win rate: {win_rate:.0%} ({wins}W / {losses}L)\n"
                         f"Avg hold: {avg_hold:.1f} days | Expectancy: ${expectancy:+.2f}/trade"
                     )
-                notify_milestone(milestones[closed_total], detail)
+                safe_send("milestone", milestone=milestones[closed_total], detail=detail)
 
             # First profitable trade
             if wins == 1:
@@ -2865,9 +2834,10 @@ def _check_close_milestones(db_path: str = DB_PATH) -> None:
                     _t_params_m,
                 ).fetchone()
                 if first_win:
-                    notify_milestone(
-                        "First profitable trade!",
-                        f"{first_win['ticker']}: ${first_win['pnl_dollars']:+.2f} ({first_win['pnl_pct']:+.1f}%)"
+                    safe_send(
+                        "milestone",
+                        milestone="First profitable trade!",
+                        detail=f"{first_win['ticker']}: ${first_win['pnl_dollars']:+.2f} ({first_win['pnl_pct']:+.1f}%)",
                     )
 
             # First live profit
@@ -2886,9 +2856,10 @@ def _check_close_milestones(db_path: str = DB_PATH) -> None:
                     _t_params_m,
                 ).fetchone()
                 if first_live_win:
-                    notify_milestone(
-                        "First live trade profit!",
-                        f"{first_live_win['ticker']}: ${first_live_win['pnl_dollars']:+.2f} ({first_live_win['pnl_pct']:+.1f}%)"
+                    safe_send(
+                        "milestone",
+                        milestone="First live trade profit!",
+                        detail=f"{first_live_win['ticker']}: ${first_live_win['pnl_dollars']:+.2f} ({first_live_win['pnl_pct']:+.1f}%)",
                     )
 
             # 3 consecutive wins
@@ -2907,9 +2878,10 @@ def _check_close_milestones(db_path: str = DB_PATH) -> None:
                 ).fetchall()
                 # Only alert if the 4th-most-recent was NOT a win (to avoid repeat alerts)
                 if len(last_4) < 4 or float(last_4[3]["pnl_dollars"] or 0) <= 0:
-                    notify_milestone(
-                        "3 consecutive wins!",
-                        "Hot streak! Keep the discipline."
+                    safe_send(
+                        "milestone",
+                        milestone="3 consecutive wins!",
+                        detail="Hot streak! Keep the discipline.",
                     )
 
             # Best single trade P&L
@@ -2930,9 +2902,10 @@ def _check_close_milestones(db_path: str = DB_PATH) -> None:
                     and best_ever["ticker"] == latest["ticker"]
                     and float(best_ever["pnl_dollars"] or 0) == float(latest["pnl_dollars"] or 0)
                     and float(best_ever["pnl_dollars"] or 0) > 0):
-                notify_milestone(
-                    "New best trade!",
-                    f"{best_ever['ticker']}: ${best_ever['pnl_dollars']:+.2f} ({best_ever['pnl_pct']:+.1f}%)"
+                safe_send(
+                    "milestone",
+                    milestone="New best trade!",
+                    detail=f"{best_ever['ticker']}: ${best_ever['pnl_dollars']:+.2f} ({best_ever['pnl_pct']:+.1f}%)",
                 )
 
     except Exception as e:
@@ -2942,10 +2915,6 @@ def _check_close_milestones(db_path: str = DB_PATH) -> None:
 def _check_loss_streak(db_path: str = DB_PATH) -> None:
     """Check for consecutive losses and alert at 3+."""
     try:
-        from src.notifications.telegram import notify_streak_alert, is_telegram_enabled
-        if not is_telegram_enabled():
-            return
-
         _t_frag_ls, _t_params_ls = terminal_in_clause()
         with connect_db(db_path) as conn:
             recent = conn.execute(
@@ -2955,57 +2924,56 @@ def _check_loss_streak(db_path: str = DB_PATH) -> None:
                 _t_params_ls,
             ).fetchall()
 
-        if len(recent) < 3:
-            return
-
-        # Count consecutive losses from most recent
-        streak = 0
-        streak_trades = []
-        for r in recent:
-            if float(r["pnl_dollars"] or 0) < 0:
-                streak += 1
-                streak_trades.append((r["ticker"], r["pnl_pct"]))
-            else:
-                break
-
-        if streak >= 3:
-            # Only alert if this is exactly the streak boundary (3rd, 4th, etc.)
-            # Check if streak was already 3+ before this trade
-            prev_streak = 0
-            for r in recent[1:]:
+        if len(recent) >= 3:
+            # Count consecutive losses from most recent
+            streak = 0
+            streak_trades = []
+            for r in recent:
                 if float(r["pnl_dollars"] or 0) < 0:
-                    prev_streak += 1
+                    streak += 1
+                    streak_trades.append((r["ticker"], r["pnl_pct"]))
                 else:
                     break
 
-            # Alert on first crossing of 3, or every additional loss after
-            if streak == 3 or (streak > 3 and prev_streak < streak):
-                max_dd = min(float(r["pnl_pct"] or 0) for r in recent[:streak])
-
-                # Historical max streak
-                with connect_db(db_path) as conn:
-                    all_closed = conn.execute(
-                        f"SELECT pnl_dollars FROM shadow_trades WHERE status IN ({_t_frag_ls})"
-                        " AND COALESCE(quarantined, 0) = 0 "
-                        "ORDER BY actual_exit_time ASC",
-                        _t_params_ls,
-                    ).fetchall()
-                max_streak = 0
-                current = 0
-                for r in all_closed:
+            if streak >= 3:
+                # Only alert if this is exactly the streak boundary (3rd, 4th, etc.)
+                # Check if streak was already 3+ before this trade
+                prev_streak = 0
+                for r in recent[1:]:
                     if float(r["pnl_dollars"] or 0) < 0:
-                        current += 1
-                        max_streak = max(max_streak, current)
+                        prev_streak += 1
                     else:
-                        current = 0
+                        break
 
-                notify_streak_alert(
-                    streak_length=streak,
-                    recent_trades=streak_trades[:5],
-                    max_drawdown_pct=max_dd,
-                    risk_governor_status="NORMAL",
-                    historical_max_streak=max_streak,
-                )
+                # Alert on first crossing of 3, or every additional loss after
+                if streak == 3 or (streak > 3 and prev_streak < streak):
+                    max_dd = min(float(r["pnl_pct"] or 0) for r in recent[:streak])
+
+                    # Historical max streak
+                    with connect_db(db_path) as conn:
+                        all_closed = conn.execute(
+                            f"SELECT pnl_dollars FROM shadow_trades WHERE status IN ({_t_frag_ls})"
+                            " AND COALESCE(quarantined, 0) = 0 "
+                            "ORDER BY actual_exit_time ASC",
+                            _t_params_ls,
+                        ).fetchall()
+                    max_streak = 0
+                    current = 0
+                    for r in all_closed:
+                        if float(r["pnl_dollars"] or 0) < 0:
+                            current += 1
+                            max_streak = max(max_streak, current)
+                        else:
+                            current = 0
+
+                    safe_send(
+                        "streak_alert",
+                        streak_length=streak,
+                        recent_trades=streak_trades[:5],
+                        max_drawdown_pct=max_dd,
+                        risk_governor_status="NORMAL",
+                        historical_max_streak=max_streak,
+                    )
     except Exception as e:
         logger.warning("[STREAK] Loss streak check failed: %s", e)
 
@@ -3013,10 +2981,6 @@ def _check_loss_streak(db_path: str = DB_PATH) -> None:
 def _check_sector_exposure(db_path: str = DB_PATH) -> None:
     """Check sector concentration after each trade open."""
     try:
-        from src.notifications.telegram import notify_exposure_alert, is_telegram_enabled
-        if not is_telegram_enabled():
-            return
-
         _a_frag_se, _a_params_se = active_in_clause()
         with connect_db(db_path) as conn:
             open_trades = conn.execute(
@@ -3025,46 +2989,45 @@ def _check_sector_exposure(db_path: str = DB_PATH) -> None:
                 _a_params_se,
             ).fetchall()
 
-        if len(open_trades) < 3:
-            return
+        if len(open_trades) >= 3:
+            # Get sector for each ticker (best-effort from recommendations)
+            sectors: dict[str, list[str]] = {}
+            with connect_db(db_path) as conn:
+                for trade in open_trades:
+                    ticker = trade["ticker"]
+                    rec = conn.execute(
+                        "SELECT setup_type FROM recommendations WHERE ticker = ? "
+                        "ORDER BY created_at DESC LIMIT 1",
+                        (ticker,),
+                    ).fetchone()
+                    # Use setup_type as a proxy; in practice, sector info would come from features
+                    sector = "Unknown"
+                    _now = time.time()
+                    _cached = _sector_cache.get(ticker)
+                    if _cached and _cached[1] > _now:
+                        sector = _cached[0]
+                    else:
+                        try:
+                            import yfinance as yf
+                            info = yf.Ticker(ticker).info
+                            sector = info.get("sector", "Unknown")
+                            _sector_cache[ticker] = (sector, _now + _SECTOR_CACHE_TTL_S)
+                        except Exception as e:
+                            logger.debug("[EXPOSURE] yfinance sector lookup failed for %s: %s", ticker, e)
+                    sectors.setdefault(sector, []).append(ticker)
 
-        # Get sector for each ticker (best-effort from recommendations)
-        sectors: dict[str, list[str]] = {}
-        with connect_db(db_path) as conn:
-            for trade in open_trades:
-                ticker = trade["ticker"]
-                rec = conn.execute(
-                    "SELECT setup_type FROM recommendations WHERE ticker = ? "
-                    "ORDER BY created_at DESC LIMIT 1",
-                    (ticker,),
-                ).fetchone()
-                # Use setup_type as a proxy; in practice, sector info would come from features
-                sector = "Unknown"
-                _now = time.time()
-                _cached = _sector_cache.get(ticker)
-                if _cached and _cached[1] > _now:
-                    sector = _cached[0]
-                else:
-                    try:
-                        import yfinance as yf
-                        info = yf.Ticker(ticker).info
-                        sector = info.get("sector", "Unknown")
-                        _sector_cache[ticker] = (sector, _now + _SECTOR_CACHE_TTL_S)
-                    except Exception as e:
-                        logger.debug("[EXPOSURE] yfinance sector lookup failed for %s: %s", ticker, e)
-                sectors.setdefault(sector, []).append(ticker)
-
-        total_positions = len(open_trades)
-        limit_pct = 30.0
-        for sector, tickers in sectors.items():
-            if sector == "Unknown":
-                continue
-            exposure_pct = (len(tickers) / total_positions) * 100
-            if exposure_pct > limit_pct and len(tickers) >= 3:
-                notify_exposure_alert(
-                    sector=sector, count=len(tickers), tickers=tickers,
-                    exposure_pct=exposure_pct, limit_pct=limit_pct,
-                )
+            total_positions = len(open_trades)
+            limit_pct = 30.0
+            for sector, tickers in sectors.items():
+                if sector == "Unknown":
+                    continue
+                exposure_pct = (len(tickers) / total_positions) * 100
+                if exposure_pct > limit_pct and len(tickers) >= 3:
+                    safe_send(
+                        "exposure_alert",
+                        sector=sector, count=len(tickers), tickers=tickers,
+                        exposure_pct=exposure_pct, limit_pct=limit_pct,
+                    )
     except Exception as e:
         logger.debug("[EXPOSURE] Sector exposure check failed: %s", e)
 
