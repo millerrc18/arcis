@@ -10,11 +10,13 @@ Tests: tests/notifications/test_platform_events.py.
 All messages prefixed '[RESEARCH]' — operator filter rule on Telegram
 client distinguishes from swing trade notifications.
 
-Deduplication via content hash for notify_shadow_gate_ready: once a
-gate has been signaled ready for a strategy, don't re-notify within 24h.
-_DEDUP_CACHE is the fast in-process layer (cleared on restart).
-_already_notified_recently_db provides the DB-backed restart-safe check
-(T15a) — usable by callers that need persistence across NSSM restarts.
+Deduplication for notify_backtest_complete and notify_shadow_gate_ready
+uses _already_notified_recently_db (DB-backed, restart-safe via T15a).
+_DEDUP_CACHE and _already_notified_recently are retained only for
+notify_strategy_promoted / notify_strategy_demoted which do not need
+restart-safe dedup (they are idempotent promotion events that fire once
+per state transition and are intentionally not deduplicated across
+restarts).
 """
 from __future__ import annotations
 
@@ -173,10 +175,11 @@ def _send(message: str) -> None:
 
 def notify_backtest_complete(
     strategy_id: str, result_id: str, passed_gate_a: bool,
+    _conn=None,
 ) -> None:
     """Fired from backtest_engine.run_backtest on completion."""
     key = _dedup_key("backtest_complete", f"{strategy_id}::{result_id}")
-    if _already_notified_recently(key):
+    if _already_notified_recently_db("backtest_complete", key, conn=_conn):
         return
     gate = "[OK] passed auto gate" if passed_gate_a else "[WAIT] awaiting manual"
     _send(
@@ -185,11 +188,11 @@ def notify_backtest_complete(
     )
 
 
-def notify_shadow_gate_ready(strategy_id: str, evidence: dict) -> None:
+def notify_shadow_gate_ready(strategy_id: str, evidence: dict, _conn=None) -> None:
     """Fired when a shadow_trading gate check first passes for a
     strategy. Dedup per-strategy within 24h."""
     key = _dedup_key("shadow_gate_ready", strategy_id)
-    if _already_notified_recently(key):
+    if _already_notified_recently_db("shadow_gate_ready", key, conn=_conn):
         return
     dsr = evidence.get("dsr")
     pbo = evidence.get("pbo")

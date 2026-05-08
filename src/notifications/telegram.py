@@ -898,13 +898,16 @@ def notify_action_required(action: str, detail: str, urgency: str = "normal") ->
     return send_telegram(msg)
 
 
-def notify_validation_summary(result: dict) -> bool:
+def notify_validation_summary(result: dict, force_send: bool = False) -> bool:
     """Send system validation summary via Telegram.
 
     Silent if all checks pass — only sends when there are warnings or failures.
     This prevents noise during normal operation while ensuring problems
     surface immediately. Failed checks show full detail; warnings show
     only category counts to keep the message concise.
+
+    force_send=True bypasses the silent-on-pass branch and sends regardless
+    (spec C12 — startup confirmation path).
     """
     if not is_telegram_enabled():
         return False
@@ -915,8 +918,8 @@ def notify_validation_summary(result: dict) -> bool:
     overall = result.get("overall_status", "unknown")
     total = result.get("checks_total", 0)
 
-    # Silent on all-pass
-    if failed == 0 and warnings == 0:
+    # Silent on all-pass unless force_send is requested
+    if failed == 0 and warnings == 0 and not force_send:
         return True
 
     icon = {"healthy": "\u2705", "degraded": "\u26a0\ufe0f", "critical": "\ud83d\udea8"}.get(overall, "\u2753")
