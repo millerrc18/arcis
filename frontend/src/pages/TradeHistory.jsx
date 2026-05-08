@@ -30,7 +30,7 @@ function formatPct(val, decimals = 2) {
 
 function formatDollars(val, decimals = 2) {
   if (val == null || isNaN(val)) return '--'
-  const sign = val >= 0 ? '+' : ''
+  const sign = val > 0 ? '+' : val < 0 ? '-' : ''
   const abs = Math.abs(val)
   return `${sign}$${abs.toFixed(decimals)}`
 }
