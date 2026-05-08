@@ -37,7 +37,7 @@ function PnlValue({ value, showArrow = true }) {
   const isPos = value >= 0
   return (
     <span className="financial-data" style={{ color: isPos ? 'var(--arcis-success)' : 'var(--arcis-danger)' }}>
-      {showArrow && (isPos ? '\u25B2 ' : '\u25BC ')}${Math.abs(value).toFixed(2)}
+      {showArrow && (isPos ? '\u25B2 ' : '\u25BC ')}{value > 0 ? '+' : value < 0 ? '-' : ''}${Math.abs(value).toFixed(2)}
     </span>
   )
 }
