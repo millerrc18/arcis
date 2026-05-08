@@ -1028,6 +1028,7 @@ def notify_trading_stats_update(stats: dict, label: str = "") -> bool:
 
 def _record_send_failure(event_type: str, error_msg: str) -> None:
     """Stub — T15 will implement notifications_sent table write. For T3, no-op + log."""
+    error_msg = _redact_token(error_msg)
     logger.debug(
         "[NOTIFICATIONS] dispatch_failed event=%s err=%s (T15 will persist)",
         event_type, error_msg,
@@ -1057,6 +1058,11 @@ def safe_send(event_type: str, **kwargs) -> bool:
     Raises:
         ImportError, NameError, AttributeError, KeyError — propagated. These
         indicate code-level bugs that must surface at startup.
+
+    SECURITY: `event_type` MUST be a hardcoded string literal at the call site.
+    Never wire it to user input or external request payloads. Pass-through to
+    event_map raises KeyError on typo by design — for an attacker-controlled
+    event_type, that becomes a crash vector inside the watch loop.
     """
     if not is_telegram_enabled():
         return False
@@ -1126,7 +1132,7 @@ def safe_send(event_type: str, **kwargs) -> bool:
             "[NOTIFICATIONS] %s dispatch failed (network): %s",
             event_type, _redact_token(e),
         )
-        _record_send_failure(event_type, str(e))  # stub for T3; real impl in T15
+        _record_send_failure(event_type, _redact_token(e))  # stub for T3; real impl in T15
         return False
     # Note: NO bare `except Exception` here. ImportError / NameError /
     # AttributeError propagate to startup-time visibility.

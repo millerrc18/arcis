@@ -67,8 +67,8 @@
     },
     {
       "file": "src/notifications/telegram.py",
-      "lines": 1142,
-      "rationale": "Sprint 4 T3: added safe_send central dispatcher (+93L function) + _record_send_failure stub (+7L) + import socket/urllib3.exceptions/requests.exceptions (+3L) = +110L net from 1032. safe_send requires the full 38-entry event_map dict for exhaustive notify_* coverage; splitting into a sibling module is deferred to T4 when all callers migrate."
+      "lines": 1147,
+      "rationale": "Sprint 4 T3: added safe_send central dispatcher (+93L function) + _record_send_failure stub (+7L) + import socket/urllib3.exceptions/requests.exceptions (+3L) = +110L net from 1032. safe_send requires the full 38-entry event_map dict for exhaustive notify_* coverage; splitting into a sibling module is deferred to T4 when all callers migrate. T3 revision: +5L for token-redaction defense-in-depth (_record_send_failure belt-and-suspenders +1L, safe_send SECURITY docstring note +4L)."
     },
     {
       "file": "src/notifications/telegram_commands.py",
@@ -646,8 +646,8 @@
     {
       "file": "src/notifications/telegram.py",
       "function": "safe_send",
-      "lines": 93,
-      "rationale": "Sprint 4 T3: event_map exhaustively maps all 38 notify_* functions — the dict body itself accounts for ~50 of the 93 lines and is structural (not logic). Splitting the map into a module-level constant would make it harder to read alongside the dispatch logic. Accepted as architectural necessity for the exhaustive central dispatcher per spec §3.4."
+      "lines": 99,
+      "rationale": "Sprint 4 T3: event_map exhaustively maps all 38 notify_* functions — the dict body itself accounts for ~50 of the 93 lines and is structural (not logic). Splitting the map into a module-level constant would make it harder to read alongside the dispatch logic. Accepted as architectural necessity for the exhaustive central dispatcher per spec §3.4. T3 revision: +6L for SECURITY docstring note (defense-in-depth for attacker-controlled event_type crash vector)."
     },
     {
       "file": "src/notifications/telegram.py",

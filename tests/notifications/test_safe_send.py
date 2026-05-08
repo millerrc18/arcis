@@ -61,6 +61,31 @@ class TestSafeSendCounter:
                     mock_record.assert_called_once_with("trade_opened", error_msg)
 
 
+class TestSafeSendTokenRedaction:
+    def test_failed_dispatch_redacts_token_from_error_msg(self):
+        """Token in network-error URL must be redacted before _record_send_failure."""
+        token_url = (
+            "HTTPSConnectionPool(host='api.telegram.org', port=443): "
+            "Max retries exceeded with url: "
+            "/bot1234567890:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/sendMessage"
+        )
+        with patch("src.notifications.telegram.is_telegram_enabled", return_value=True):
+            with patch("src.notifications.telegram.notify_trade_opened",
+                       side_effect=requests.exceptions.RequestException(token_url)):
+                with patch("src.notifications.telegram._record_send_failure") as mock_record:
+                    safe_send("trade_opened", ticker="AAPL", entry_price=100.0,
+                              stop=95.0, target=110.0, score=80, shares=10)
+                    mock_record.assert_called_once()
+                    call_args = mock_record.call_args
+                    error_arg = call_args[0][1]  # second positional arg
+                    assert ":AAAAAAAA" not in error_arg, (
+                        f"Bot token not redacted in _record_send_failure call: {error_arg!r}"
+                    )
+                    assert "[REDACTED]" in error_arg, (
+                        f"Expected [REDACTED] in redacted string: {error_arg!r}"
+                    )
+
+
 class TestSafeSendDisabledShortCircuit:
     def test_telegram_disabled_returns_false_no_dispatch(self):
         """is_telegram_enabled() False → returns False; no notify_X invocation."""
