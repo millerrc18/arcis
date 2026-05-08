@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Hotfix — MR feature dict adds `current_price` key (true root cause of #52)
+
+- **`src/features/mean_reversion.py:compute_mr_features`** now includes `current_price` (alongside the existing `last_close`) in its returned feature dict. Pre-fix, the dict had only `last_close` — but `build_packet_from_features` (`src/packets/template.py:170`) reads `features.get("current_price", 0.0)` as the canonical key. MR features were ALWAYS missing it, so packet builder ALWAYS got `0.0` and refused via #621. Pullback scan worked because `compute_all_features` (engine.py:173) already returns `current_price`. This is the TRUE root cause of the recurring BAC/CVX/DE/AMZN/AVGO MR-scan rejections — yfinance data was clean; the bug was a feature-dict key naming mismatch between the two scan paths. PR #1037 (yfinance trailing-zero sanitizer) and #1036 (None-guard at enhance_packet_with_llm) remain as defense-in-depth but didn't address the actual production symptom. New regression test `tests/test_mr_features_current_price_key.py` (5 tests) covers: MR features include current_price, current_price aliases last_close, end-to-end MR features → build_packet returns non-None packet, pullback features schema already includes current_price (sibling-lock).
+
 ### Hotfix — Operator-only kill switch (auto-halt removed)
 
 - **`src/risk/governor.py`** introduces `_HALT_ALLOWED_SOURCES = frozenset({"cli", "dashboard", "api", "test"})` and a new `HaltSourceForbiddenError(ValueError)` exception. `_global_halt(True, source=...)` now raises if the source is not in the allowlist. Resume calls (`halt=False`) remain unrestricted (anyone can clear). This is the architectural lockdown — even if a future bug introduces a new auto-halt code path, the governor refuses it at the boundary.
