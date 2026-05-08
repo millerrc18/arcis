@@ -28,6 +28,47 @@ from pathlib import Path
 import pytest
 
 # ---------------------------------------------------------------------------
+# Configurable timeouts — override via env vars for slow CI runners.
+# pip install timeout (scipy alone is ~80MB; throttled networks may exceed 180s).
+# ---------------------------------------------------------------------------
+PIP_TIMEOUT = int(os.environ.get("CLOUD_REQ_PIP_TIMEOUT", "180"))
+IMPORT_TIMEOUT = int(os.environ.get("CLOUD_REQ_IMPORT_TIMEOUT", "120"))
+
+# ---------------------------------------------------------------------------
+# Subprocess helpers
+# ---------------------------------------------------------------------------
+
+def _run_or_kill(cmd, *, timeout, **kwargs):
+    """subprocess.run with explicit child kill on TimeoutExpired.
+
+    Per CPython docs, subprocess.run with timeout does NOT kill child processes
+    on TimeoutExpired. This wrapper guarantees cleanup so test runs don't leak
+    pip.exe/python.exe processes that hold venv file locks (especially on
+    Windows where lingering handles delay tmp_path cleanup by ~60s).
+    """
+    # Popen doesn't accept capture_output; translate to stdout/stderr pipes.
+    if kwargs.pop("capture_output", False):
+        kwargs.setdefault("stdout", subprocess.PIPE)
+        kwargs.setdefault("stderr", subprocess.PIPE)
+    proc = subprocess.Popen(cmd, **kwargs)
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+        return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        if os.name == "nt":
+            # Windows: also kill the process tree (pip spawns child python.exe)
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=10,
+            )
+        proc.communicate()  # drain pipes after kill
+        raise
+
+
+# ---------------------------------------------------------------------------
 # STOP-LIST — prefixes the walker must never descend into.
 # These directories are not deployed to the cloud; their imports are irrelevant.
 # ---------------------------------------------------------------------------
@@ -284,6 +325,20 @@ class TestDeepTransitiveWalkerJsonschema:
 
 
 # ---------------------------------------------------------------------------
+# Network availability fixture for slow-lane tests
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def has_pypi_network():
+    """Skip slow-lane tests when PyPI is unreachable."""
+    import socket
+    try:
+        socket.create_connection(("pypi.org", 443), timeout=5)
+    except OSError as e:
+        pytest.skip(f"requires PyPI network access: {e}")
+
+
+# ---------------------------------------------------------------------------
 # Helper — build a minimal env dict for subprocess calls
 # ---------------------------------------------------------------------------
 def _clean_env() -> dict:
@@ -324,9 +379,12 @@ class TestSlowLaneVenvImport:
     Marked @pytest.mark.slow — skipped in default sweep; opt-in via:
       python -m pytest tests/test_cloud_requirements_imports.py -m slow
       or: RUN_SLOW=1 python -m pytest tests/test_cloud_requirements_imports.py -m slow
+
+    Requires PyPI network access. Override timeouts for slow CI runners via:
+      CLOUD_REQ_PIP_TIMEOUT=300 CLOUD_REQ_IMPORT_TIMEOUT=180 pytest -m slow
     """
 
-    def test_cloud_app_imports_in_clean_venv(self, tmp_path):
+    def test_cloud_app_imports_in_clean_venv(self, tmp_path, has_pypi_network):
         """Builds a temp venv, installs requirements-cloud.txt only, imports cloud_app."""
         repo = _REPO
         req_file = repo / "requirements-cloud.txt"
@@ -341,13 +399,11 @@ class TestSlowLaneVenvImport:
         clean_env = _clean_env()
 
         install_cmd = [str(pip_exe), "install", "-r", str(req_file), "--quiet"]
-        if os.name == "nt":
-            install_cmd += ["tzdata"]
-        pip_result = subprocess.run(
+        pip_result = _run_or_kill(
             install_cmd,
             capture_output=True,
             text=True,
-            timeout=180,
+            timeout=PIP_TIMEOUT,
             env=clean_env,
         )
         assert pip_result.returncode == 0, (
@@ -356,11 +412,11 @@ class TestSlowLaneVenvImport:
             f"stderr: {pip_result.stderr}"
         )
 
-        import_result = subprocess.run(
+        import_result = _run_or_kill(
             [str(python_exe), "-c", "from src.api.cloud_app import app"],
             capture_output=True,
             text=True,
-            timeout=120,
+            timeout=IMPORT_TIMEOUT,
             cwd=str(repo),
             env=clean_env,
         )
@@ -392,9 +448,12 @@ class TestSlowLaneSyntheticMissingScipy:
     removing this regression-lock.
 
     INFORMATIONAL/CI-ONLY: same as TestSlowLaneVenvImport — NOT a PR merge gate.
+
+    Requires PyPI network access. Override timeouts for slow CI runners via:
+      CLOUD_REQ_PIP_TIMEOUT=300 CLOUD_REQ_IMPORT_TIMEOUT=180 pytest -m slow
     """
 
-    def test_missing_scipy_raises_module_not_found(self, tmp_path):
+    def test_missing_scipy_raises_module_not_found(self, tmp_path, has_pypi_network):
         """Builds a temp requirements-cloud.txt without scipy, attempts import, asserts failure."""
         repo = _REPO
         req_file = repo / "requirements-cloud.txt"
@@ -420,13 +479,11 @@ class TestSlowLaneSyntheticMissingScipy:
         clean_env = _clean_env()
 
         install_cmd = [str(pip_exe), "install", "-r", str(stripped_req), "--quiet"]
-        if os.name == "nt":
-            install_cmd += ["tzdata"]
-        pip_result = subprocess.run(
+        pip_result = _run_or_kill(
             install_cmd,
             capture_output=True,
             text=True,
-            timeout=180,
+            timeout=PIP_TIMEOUT,
             env=clean_env,
         )
         assert pip_result.returncode == 0, (
@@ -436,11 +493,11 @@ class TestSlowLaneSyntheticMissingScipy:
             f"stderr: {pip_result.stderr}"
         )
 
-        import_result = subprocess.run(
+        import_result = _run_or_kill(
             [str(python_exe), "-c", "from src.api.cloud_app import app"],
             capture_output=True,
             text=True,
-            timeout=120,
+            timeout=IMPORT_TIMEOUT,
             cwd=str(repo),
             env=clean_env,
         )
