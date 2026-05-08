@@ -2,13 +2,15 @@
 
 ## [Unreleased]
 
-_(Sprint 4 Wave 3 in progress — T21 Group F coverage, T22 Group D operator-discretion, T23 sprint closeout. PRs against `main`.)_
+## [v0.34.0] - 2026-05-08 — Sprint 4 Wave 1+2+3: cockpit followups + notifications observability + post-deploy hotfixes + sprint closeout
 
-## [v0.34.0] - 2026-05-08 — Sprint 4 Wave 1+2: cockpit followups + notifications observability + post-deploy hotfixes
+### Sprint 4 closeout summary
 
-### Sprint 4 Wave 2 deploy + 6 post-deploy hotfixes (today's work)
+Sprint 4 delivered 22 of 23 planned tasks (T22 deferred to Sprint 5 as `#SP5-notifications-routing-policy`, tracked as task #69). Test floor: **4,798 tests passing** (baseline was 3,682 pre-Sprint-4; +1,116 net across all waves). Deferred to Sprint 5: `#SP5-notifications-routing-policy` (T22, task #69), `#SP5-notifications-CC6-prefixing`, `#SP5-notifications-dataclass-payloads-tail`, `#SP5-council-errors-consolidation` (task #68). Visual-verify gate: 11 priority pages + 2 new components all PASS post-deploy. WON'T FIX: `#SP4-settings-backend-float32-storage` (frontend clamp applied in T11; backend float32 storage retained).
 
-This release cuts after Sprint 4 Wave 1+2 deploys to halcyonlab.app and 6 hotfixes shipped during the post-deploy visual-verify gate. Wave 3 (T21/T22/T23) remains in progress for the next release.
+### Sprint 4 Wave 2 deploy + 6 post-deploy hotfixes
+
+This release cuts after Sprint 4 Wave 1+2+3 deploys to halcyonlab.app and 6 hotfixes shipped during the post-deploy visual-verify gate.
 
 **Hotfixes shipped during the post-deploy gate (most recent first):**
 
@@ -80,8 +82,7 @@ This release cuts after Sprint 4 Wave 1+2 deploys to halcyonlab.app and 6 hotfix
 <!-- T21b --> Added 5 typed exception classes (`CostCapExceededError`, `AgentTimeoutError`, `LLMUnavailableError`, `NoQuorumError`, `InvalidQuestionError`) to `src/notifications/telegram_commands.py`. Extracted `run_council_command` wrapper for patchability. Replaced generic `except Exception` in `_cmd_council` with 5 typed except branches returning categorized diagnostic strings per C14 spec. Added `@dataclass` payload classes (`TradeOpenedPayload`, `TradeClosedPayload`, `EodReportPayload`, `WeeklyDigestPayload`) to `src/notifications/telegram.py` (CC3): missing required field → `TypeError` at construction. +13 tests.
 <!-- T21c --> `docs/operator-guide.md`: added §12 "Notification Troubleshooting" covering bot-silent decision tree (health endpoint, NSSM restart, stale watch.lock), bot-token rotation procedure, email-digest failure diagnosis (SMTP config + `notifications_sent` table query), and subsystem health verification via `/api/notifications/health` (I13). `docs/telegram-commands.md`: added "CLI: send-test-email" section documenting the command, when to use it, and troubleshooting table (I14). TOC entry for §12 added to operator guide.
 <!-- T21-REV --> Wired CC3 dataclass payloads into all 4 notify_* functions: `notify_trade_opened`, `notify_trade_closed`, `notify_eod_report`, `notify_weekly_digest` now accept typed payload objects only (Option A — breaking change). Updated `safe_send` to route payload events via `kwargs["payload"]`. Updated all 6 call sites: `scheduler/reports.py` (eod_report + weekly_digest), `scheduler/universe_scanner.py` (trade_opened), `shadow_trading/reconcile.py` ×2 (trade_closed), `shadow_trading/executor.py` (trade_closed via safe_send). Updated 7 test files to use payload API. New `tests/notifications/test_telegram_payload_wiring.py` (+21 tests) covering wiring + safe_send full chain.
-<!-- T22  --> *placeholder Group-D router/policy/digest (if dispatched)*
-<!-- T23 --> *placeholder sprint closeout — visual-verify gate + WON'T-FIX note + test count*
+<!-- T23 --> Sprint 4 closeout (T23): visual-verify gate (13 post-merge screenshots, all PASS), operator-guide enhancements (§1 GPU prerequisite, §5 corpus-not-progressing decision tree, §7 watchdog-timeout signs, §8 SD#NN glossary entry), WON'T-FIX paragraph for `#SP4-settings-backend-float32-storage`, test floor confirmed ≥4798 (T22 skipped → `#SP5-notifications-routing-policy` opened as #69), CHANGELOG T22 placeholder removed, `src/data_enrichment/news.py` 490-line violation disclosed in `config/known_violations.json`.
 
 ## [v0.33.0] - 2026-05-07 — Sprint 3 Cockpit Coherence
 
