@@ -30,6 +30,11 @@
       "lines": 448
     },
     {
+      "file": "src/data_enrichment/news.py",
+      "lines": 490,
+      "rationale": "Sprint 4 T13c: normalize_earnings_time helper added, plus T13-SECREV _html_escape wiring across fetch_recent_news/fetch_historical_news external-data interpolations. Pre-Sprint-4 baseline was under 400; Sprint 4 T13-series additions grew it to 490. Real split (separating fetch_recent_news vs fetch_historical_news into sibling helpers) deferred to Sprint 5 — functions are tightly coupled via shared Finnhub client state."
+    },
+    {
       "file": "src/council/engine.py",
       "lines": 695
     },
