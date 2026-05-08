@@ -51,6 +51,7 @@ from src.api.cloud_routes import platform as _platform_module
 from src.api.cloud_routes import kpis as kpis_route
 from src.api.cloud_routes import broker_exceptions as broker_exceptions_route
 from src.api.cloud_routes import preflight as preflight_route
+from src.api.cloud_routes import notifications as notifications_route
 from src.sync.render_sync import SYNC_TABLES
 
 # Populate the four capability registries via decorator side-effects (#807, dashboard Tier 1.B).
@@ -318,6 +319,8 @@ app.dependency_overrides[broker_exceptions_route.verify_auth] = verify_auth
 app.include_router(broker_exceptions_route.router, prefix="/api")
 app.dependency_overrides[preflight_route.verify_auth] = verify_auth
 app.include_router(preflight_route.router, prefix="/api")
+app.dependency_overrides[notifications_route.verify_auth] = verify_auth
+app.include_router(notifications_route.router, prefix="/api")
 
 # Platform routes: SQLite-backed. POST endpoints require verify_auth (#598).
 # We override the placeholder verify_auth in the platform module with the real
