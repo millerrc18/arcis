@@ -9,6 +9,7 @@ deferred imports inside alpaca_adapter.py resolve to mocks without
 requiring the alpaca-py SDK at test time.
 """
 
+import os
 import sqlite3
 import sys
 import types
@@ -174,3 +175,31 @@ def schema_db(tmp_path):
     path = str(tmp_path / "test.db")
     init_test_db(path)
     return path
+
+
+@pytest.fixture(scope="function")
+def postgres_session():
+    """Postgres session fixture for parametrized reconciliation tests.
+
+    Yields a connection-like object whose .execute() delegates to psycopg2.
+    Scoped to function (not session) to isolate state per test, per
+    reviewer item #12.
+
+    SKIP GUARD: this fixture is only reached when DATABASE_URL is set.
+    The parametrize decorator in test_dashboard_reconciliation.py uses
+    pytest.mark.skipif(not os.environ.get('DATABASE_URL'), ...) at
+    collection time so the skip fires before the fixture body runs.
+    When DATABASE_URL is absent the postgres parametrize variant is
+    SKIPPED (not FAILED) — total test count is stable across environments.
+    """
+    import psycopg2
+    import psycopg2.extras
+
+    database_url = os.environ.get("DATABASE_URL") or os.environ.get("TEST_DATABASE_URL")
+    conn = psycopg2.connect(database_url, cursor_factory=psycopg2.extras.RealDictCursor)
+    conn.autocommit = False
+    try:
+        yield conn
+    finally:
+        conn.rollback()
+        conn.close()
