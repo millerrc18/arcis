@@ -71,7 +71,16 @@ def _fetch_single(dl_ticker: str, download_kwargs: dict) -> pd.DataFrame | None:
 def _extract_batch_frames(
     raw: pd.DataFrame, download_tickers: list[str]
 ) -> dict[str, pd.DataFrame]:
-    """Extract per-ticker DataFrames from a yfinance batch download response."""
+    """Extract per-ticker DataFrames from a yfinance batch download response.
+
+    Sanitizes trailing rows with Close <= 0 or Close == NaN — yfinance batch
+    downloads occasionally return such rows for individual tickers when the
+    underlying request had a partial failure (observed for AMZN 2026-05-08,
+    BAC 2026-05-08 ×4, AVGO 2026-05-07 ×5). These zero-close rows would propagate
+    to `engine.py:_compute_price_features` as `current_price = float(close.iloc[-1])`
+    and trigger `template.py:177`'s #621 refuse-to-build-packet path, which in turn
+    crashed `enhance_packet_with_llm` via `NoneType` until the #52 hot-fix.
+    """
     result: dict[str, pd.DataFrame] = {}
     for dl_ticker in download_tickers:
         orig_ticker = REVERSE_TICKER_MAP.get(dl_ticker, dl_ticker)
@@ -81,6 +90,7 @@ def _extract_batch_frames(
             else:
                 df = raw[["Open", "High", "Low", "Close", "Volume"]].copy()
             df = df.dropna(how="all")
+            df = _trim_invalid_trailing_close(df, orig_ticker)
             if not df.empty:
                 result[orig_ticker] = df
             else:
@@ -88,6 +98,38 @@ def _extract_batch_frames(
         except Exception as e:
             logger.warning("Failed to extract data for %s: %s", orig_ticker, e)
     return result
+
+
+def _trim_invalid_trailing_close(df: "pd.DataFrame", ticker: str) -> "pd.DataFrame":
+    """Drop trailing rows where Close <= 0 or Close is NaN.
+
+    yfinance batch downloads occasionally append a row with Close == 0.0 or NaN
+    for tickers whose data fetch partially failed. Those rows are otherwise
+    well-formed (Open/High/Low/Volume populated), so `dropna(how="all")` does
+    not remove them. The downstream feature pipeline reads
+    `current_price = float(close.iloc[-1])`, propagating the 0/NaN as a packet
+    refusal (#621). Trim from the tail so the most recent VALID close becomes
+    the price reading.
+    """
+    if df.empty or "Close" not in df.columns:
+        return df
+    close = df["Close"]
+    n_before = len(df)
+    # Walk back from the tail, dropping any trailing row where close is NaN or <= 0
+    while not df.empty:
+        last = df["Close"].iloc[-1]
+        if pd.isna(last) or last <= 0:
+            df = df.iloc[:-1]
+            continue
+        break
+    n_after = len(df)
+    if n_after < n_before:
+        logger.warning(
+            "[FETCH] %s: trimmed %d trailing row(s) with invalid Close (NaN or <=0) "
+            "from yfinance batch response; %d valid rows retained",
+            ticker, n_before - n_after, n_after,
+        )
+    return df
 
 
 def fetch_ohlcv(
