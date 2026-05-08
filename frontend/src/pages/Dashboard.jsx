@@ -7,6 +7,7 @@ import { hapticWarning, hapticSuccess } from '../native'
 import MetricCard from '../components/MetricCard'
 import KPIStrip from '../components/dashboard/KPIStrip'
 import BrokerExceptionsPanel from '../components/dashboard/BrokerExceptionsPanel'
+import NotificationsHealthPanel from '../components/dashboard/NotificationsHealthPanel'
 import PreflightStatusCard from '../components/dashboard/PreflightStatusCard'
 import DataTable from '../components/DataTable'
 import LoadingSpinner from '../components/LoadingSpinner'
@@ -637,6 +638,9 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* Notifications health — Sprint 4 T15c — bottom-of-page widget */}
+      <NotificationsHealthPanel />
     </div>
   )
 }
