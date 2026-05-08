@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+_(Sprint 4 Wave 3 in progress — T21 Group F coverage, T22 Group D operator-discretion, T23 sprint closeout. PRs against `main`.)_
+
+## [v0.34.0] - 2026-05-08 — Sprint 4 Wave 1+2: cockpit followups + notifications observability + post-deploy hotfixes
+
+### Sprint 4 Wave 2 deploy + 6 post-deploy hotfixes (today's work)
+
+This release cuts after Sprint 4 Wave 1+2 deploys to halcyonlab.app and 6 hotfixes shipped during the post-deploy visual-verify gate. Wave 3 (T21/T22/T23) remains in progress for the next release.
+
+**Hotfixes shipped during the post-deploy gate (most recent first):**
+
 ### Hotfix — MR feature dict adds `current_price` key (true root cause of #52)
 
 - **`src/features/mean_reversion.py:compute_mr_features`** now includes `current_price` (alongside the existing `last_close`) in its returned feature dict. Pre-fix, the dict had only `last_close` — but `build_packet_from_features` (`src/packets/template.py:170`) reads `features.get("current_price", 0.0)` as the canonical key. MR features were ALWAYS missing it, so packet builder ALWAYS got `0.0` and refused via #621. Pullback scan worked because `compute_all_features` (engine.py:173) already returns `current_price`. This is the TRUE root cause of the recurring BAC/CVX/DE/AMZN/AVGO MR-scan rejections — yfinance data was clean; the bug was a feature-dict key naming mismatch between the two scan paths. PR #1037 (yfinance trailing-zero sanitizer) and #1036 (None-guard at enhance_packet_with_llm) remain as defense-in-depth but didn't address the actual production symptom. New regression test `tests/test_mr_features_current_price_key.py` (5 tests) covers: MR features include current_price, current_price aliases last_close, end-to-end MR features → build_packet returns non-None packet, pullback features schema already includes current_price (sibling-lock).
@@ -72,7 +82,7 @@
 <!-- T22  --> *placeholder Group-D router/policy/digest (if dispatched)*
 <!-- T23 --> *placeholder sprint closeout — visual-verify gate + WON'T-FIX note + test count*
 
-## [Unreleased] — Sprint 3 Cockpit Coherence (2026-05-07)
+## [v0.33.0] - 2026-05-07 — Sprint 3 Cockpit Coherence
 
 ### Group E — Correctness bugs (5 fixes)
 
