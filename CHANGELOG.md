@@ -5,7 +5,7 @@
 ### Sprint 4 — Cockpit Followups + Notification Subsystem (sprint/cockpit-followups-2026-05-07/base)
 
 <!-- T2  --> Fixed two stacked silent-swallow bugs in CUSUM alarm path: (a) renamed `detect_performance_change` → `check_performance_drift` at `src/scheduler/overnight.py:127-128` (ImportError was caught by outer try/except, never reached the inner Telegram code), (b) renamed `send_telegram_message` → `send_telegram` at `src/scheduler/overnight.py:134/149/304/311` (NameError caught by inner try/except). New regression test `tests/notifications/test_overnight_alarm_paths.py` (6 tests) locks both fixes. Without (a), T2's send_telegram fix would have shipped incomplete because the ImportError fires first.
-<!-- T3  --> *placeholder Group-A.2 safe_send wrapper*
+<!-- T3  --> Added `safe_send(event_type, **kwargs)` central dispatcher to `src/notifications/telegram.py`. Catches ONLY network errors (urllib3.HTTPError, requests.RequestException, socket.timeout, OSError); ImportError/NameError/AttributeError propagate so code-level bugs surface at startup (not silently at runtime). Re-exported from `src/notifications/__init__.py`. T15 will wire the `_record_send_failure` stub to the `notifications_sent` table; T4 will migrate the 25+ caller sites from try/except Exception to safe_send.
 <!-- T4a --> *placeholder Group-A.3 scheduler migration*
 <!-- T4b --> *placeholder Group-A.3 services migration*
 <!-- T4c --> *placeholder Group-A.3 training+risk migration*
