@@ -8,7 +8,7 @@
 <!-- T3  --> Added `safe_send(event_type, **kwargs)` central dispatcher to `src/notifications/telegram.py`. Catches ONLY network errors (urllib3.HTTPError, requests.RequestException, socket.timeout, OSError); ImportError/NameError/AttributeError propagate so code-level bugs surface at startup (not silently at runtime). Bot-token redaction applied at BOTH the warning log AND the `_record_send_failure` persistence path (defense-in-depth for T15's notifications_sent table). Re-exported from `src/notifications/__init__.py`. T15 will wire the `_record_send_failure` stub to the `notifications_sent` table; T4 will migrate the 25+ caller sites from try/except Exception to safe_send.
 <!-- T4a --> *placeholder Group-A.3 scheduler migration*
 <!-- T4b --> *placeholder Group-A.3 services migration*
-<!-- T4c --> *placeholder Group-A.3 training+risk migration*
+<!-- T4c --> Migrated 4 training+risk notify call sites to `safe_send`: `training/canary.py` (_send_alert → `model_event`), `training/ingestion_gate.py` (alert_training_halt → `system_event`), `training/trainer.py` (holdout-empty → `trainer_holdout_empty`), `risk/governor.py` (governor-disabled → `system_event`). Eliminates silent swallow of ImportError/NameError at each call site.
 <!-- T4d --> *placeholder Group-A.3 misc migration*
 <!-- T5  --> *placeholder Group-A.4 cli lazy imports*
 <!-- T6  --> *placeholder Group-A.5 per-check except + _get_telegram_config consolidation*

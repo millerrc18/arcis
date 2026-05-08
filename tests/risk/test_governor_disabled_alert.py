@@ -72,8 +72,9 @@ def test_warn_once_skips_telegram_when_disabled():
 def test_warn_once_tolerates_telegram_error():
     """If telegram send raises, critical still fires and nothing propagates."""
     from src.risk import governor
+    import src.notifications.telegram as tg_mod
     with patch.object(governor.logger, "critical") as mock_crit, patch.object(
-        governor.logger, "warning",
+        tg_mod.logger, "warning",
     ) as mock_warn, patch(
         "src.notifications.telegram.send_telegram",
         side_effect=ConnectionError("telegram down"),
@@ -82,7 +83,7 @@ def test_warn_once_tolerates_telegram_error():
     ):
         governor._warn_governor_disabled_once()  # must not raise
     mock_crit.assert_called_once()
-    # Telegram failure logged at warning level
+    # Telegram failure logged at warning level (now in safe_send within telegram.py)
     mock_warn.assert_called_once()
 
 

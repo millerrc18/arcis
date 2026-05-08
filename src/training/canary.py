@@ -28,6 +28,7 @@ from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
 from src.utils.db import connect_db
+from src.notifications import safe_send
 from src.training.quality_drift import (
     compute_all_metrics,
     check_degradation,
@@ -302,29 +303,21 @@ class CanaryMonitor:
 
     def _send_alert(self, result: dict) -> None:
         """Send a Telegram alert when degradation is detected."""
-        try:
-            from src.notifications.telegram import send_telegram
-        except ImportError:
-            logger.warning("Telegram notifications not available")
-            return
-
-        msg = (
-            "<b>Canary Degradation Alert</b>\n\n"
-            f"Model: <code>{result['model_version']}</code>\n"
-            f"Avg Score: {result['avg_score']:.4f} "
-            f"(delta: {result['score_delta_pct'] * 100:+.1f}%)\n"
-            f"Distinct-1: {result['distinct_1']:.4f}\n"
-            f"Distinct-2: {result['distinct_2']:.4f}\n"
-            f"Self-BLEU: {result['self_bleu']:.4f}\n"
-            f"Vocab Size: {result['vocab_size']}\n\n"
-            f"Issues: {result['details']}"
+        safe_send(
+            "model_event",
+            event="canary_degradation",
+            model_name=result["model_version"],
+            detail=(
+                f"Avg Score: {result['avg_score']:.4f} "
+                f"(delta: {result['score_delta_pct'] * 100:+.1f}%)\n"
+                f"Distinct-1: {result['distinct_1']:.4f}\n"
+                f"Distinct-2: {result['distinct_2']:.4f}\n"
+                f"Self-BLEU: {result['self_bleu']:.4f}\n"
+                f"Vocab Size: {result['vocab_size']}\n"
+                f"Issues: {result['details']}"
+            ),
         )
-
-        try:
-            send_telegram(msg)
-            logger.info("Canary degradation alert sent via Telegram")
-        except Exception as e:
-            logger.error("Failed to send canary alert: %s", e)
+        logger.info("Canary degradation alert sent via Telegram")
 
     def get_history(self, limit: int = 10) -> list[dict]:
         """Retrieve recent canary evaluation history.
