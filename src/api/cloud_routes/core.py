@@ -146,6 +146,7 @@ def create_router(runtime, verify_auth):
         try:
             open_trades = runtime.query(
                 "SELECT COUNT(*) as count FROM shadow_trades WHERE status = 'open'"
+                " AND source = 'live'"
                 " AND COALESCE(quarantined, 0) = 0"
             )
             closed_trades = runtime.query(

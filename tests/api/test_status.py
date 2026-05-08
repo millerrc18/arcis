@@ -181,3 +181,54 @@ class TestStatusMetaEnvelope:
         assert "_meta" in data
         assert "version" in data["_meta"]
         assert data["_meta"]["version"]["cohort"] == "none"
+
+    @patch("src.api.cloud_app._query_one")
+    @patch("src.api.cloud_app._query")
+    def test_status_open_positions_cohort_aligned(self, mock_query, mock_query_one, client):
+        """open_positions SQL includes source='live' so the count reflects live trades only.
+
+        Regression-lock: 5 shadow_trades (2 source=live status=open,
+        3 source=swing status=open) → open_positions=2, not 5.
+        """
+        def _query_side_effect(sql, params=()):
+            if "source" in sql and "open" in sql:
+                return [{"count": 2}]
+            return [{"count": 5}]
+
+        mock_query.side_effect = _query_side_effect
+        mock_query_one.side_effect = [
+            {"version_name": "v1", "created_at": "2026-01-01", "status": "active"},
+            {"overall_assessment": "green", "created_at": "2026-01-01"},
+            {"c": 100},
+        ]
+        resp = client.get("/api/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["open_positions"] == 2
+        assert data["_meta"]["open_positions"]["cohort"] == "trades.live_only"
+        assert data["_meta"]["open_positions"]["n"] == 2
+
+    @patch("src.api.cloud_app._query_one")
+    @patch("src.api.cloud_app._query")
+    def test_open_positions_sql_filters_source_live(self, mock_query, mock_query_one, client):
+        """SQL issued for open_positions must contain AND source = 'live' predicate.
+
+        Pre-fix, the SQL had no source filter; cohort label 'trades.live_only'
+        was therefore a lie. This test regression-locks the fix.
+        """
+        mock_query.return_value = [{"count": 0}]
+        mock_query_one.side_effect = [
+            {"version_name": "v1", "created_at": "2026-01-01", "status": "active"},
+            {"overall_assessment": "green", "created_at": "2026-01-01"},
+            {"c": 100},
+        ]
+        resp = client.get("/api/status")
+        assert resp.status_code == 200
+        open_positions_call = mock_query.call_args_list[0]
+        sql_issued = open_positions_call[0][0]
+        assert "source" in sql_issued, (
+            f"open_positions SQL must filter by source; got: {sql_issued!r}"
+        )
+        assert "live" in sql_issued, (
+            f"open_positions SQL must filter source='live'; got: {sql_issued!r}"
+        )
