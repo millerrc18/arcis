@@ -84,10 +84,13 @@ class TestAtomicKillSwitch:
         assert "stale" in caplog.text.lower() or "48" in caplog.text
 
     def test_halt_info_returns_metadata(self):
-        governor._global_halt(True, source="telegram", reason="manual halt")
+        # source="cli" is in the operator-allowlist (operator policy 2026-05-08).
+        # Original test used source="telegram" before the source allowlist
+        # was added — telegram is no longer a permitted halt source.
+        governor._global_halt(True, source="cli", reason="manual halt")
         info = governor._halt_info()
         assert info is not None
-        assert info["source"] == "telegram"
+        assert info["source"] == "cli"
         assert info["reason"] == "manual halt"
 
     def test_halt_info_none_when_not_halted(self):

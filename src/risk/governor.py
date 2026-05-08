@@ -171,6 +171,21 @@ def _get_halt_path() -> Path:
     return Path(configured or _DEFAULT_HALT_FILE)
 
 
+_HALT_ALLOWED_SOURCES = frozenset({"cli", "dashboard", "api", "test"})
+
+
+class HaltSourceForbiddenError(ValueError):
+    """Raised when `_global_halt(True, ...)` is called from a non-operator source.
+
+    Operator policy 2026-05-08: the kill switch is operator-action-only. Auto-halt
+    paths (auditor, scheduler, scan service) are forbidden — they must escalate
+    via email/telegram alert and let the operator decide whether to halt.
+
+    Resume calls (`_global_halt(False, ...)`) are unrestricted — anyone can
+    clear the halt, including the auditor's recovery path if it ever fires.
+    """
+
+
 def _global_halt(halt: bool, source: str = "unknown", reason: str = ""):
     """Set or clear the global trading halt atomically.
 
@@ -179,7 +194,24 @@ def _global_halt(halt: bool, source: str = "unknown", reason: str = ""):
     mid-write could leave a truncated file that _is_halted() misreads.
     Writes JSON with timestamp so staleness detection can warn when a
     halt file lingers beyond 48 hours (likely forgotten).
+
+    Source allowlist (operator policy 2026-05-08):
+      Halt requests (`halt=True`) are accepted ONLY from operator-action sources:
+      ``cli``, ``dashboard``, ``api``, ``test``. Any other source raises
+      ``HaltSourceForbiddenError``. This blocks auto-halt code paths (auditor,
+      scheduler, etc.) at the governor boundary even if they slip past code
+      review. Resume requests (``halt=False``) are unrestricted.
     """
+    if halt and source not in _HALT_ALLOWED_SOURCES:
+        msg = (
+            f"_global_halt(True, source={source!r}) refused — kill switch is "
+            f"operator-action-only (allowed sources: {sorted(_HALT_ALLOWED_SOURCES)}). "
+            f"Auto-halt paths must escalate via email/telegram alert instead. "
+            f"Reason was: {reason!r}"
+        )
+        logger.critical("[RISK] %s", msg)
+        raise HaltSourceForbiddenError(msg)
+
     halt_path = _get_halt_path()
     if halt:
         halt_path.parent.mkdir(parents=True, exist_ok=True)
