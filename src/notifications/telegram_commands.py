@@ -20,6 +20,7 @@ import requests
 
 from src.config import DB_PATH, load_config
 from src.utils.db import connect_db
+from src.notifications._config import _get_telegram_config
 from src.notifications.telegram import send_telegram, is_telegram_enabled
 from src.shadow_trading.exit_reason import outcome_stats_filter_sql
 
@@ -27,22 +28,6 @@ logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
 
 TELEGRAM_UPDATES_API = "https://api.telegram.org/bot{token}/getUpdates"
-
-
-def _get_telegram_config() -> dict:
-    """Load Telegram config from settings. .env takes precedence over YAML.
-
-    Environment variables override YAML so that Render can set tokens via
-    env vars without touching the config file.
-    """
-    import os
-    config = load_config()
-    tg = config.get("telegram", {})
-    return {
-        "enabled": tg.get("enabled", False),
-        "bot_token": os.environ.get("TELEGRAM_BOT_TOKEN") or tg.get("bot_token", ""),
-        "chat_id": os.environ.get("TELEGRAM_CHAT_ID") or str(tg.get("chat_id", "")),
-    }
 
 
 def poll_commands(last_update_id: int = 0) -> tuple[list[dict], int]:
@@ -118,11 +103,11 @@ def check_action_reminders(db_path: str = DB_PATH) -> list[str]:
     sent = []
     now = datetime.now(ET)
 
-    try:
-        with connect_db(db_path) as conn:
-            conn.row_factory = sqlite3.Row
+    with connect_db(db_path) as conn:
+        conn.row_factory = sqlite3.Row
 
-            # 1. Phase gate milestones
+        # 1. Phase gate milestones
+        try:
             closed = conn.execute(
                 "SELECT COUNT(*) as c FROM shadow_trades WHERE status = 'closed'"
                 f" AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()}"
@@ -131,7 +116,6 @@ def check_action_reminders(db_path: str = DB_PATH) -> list[str]:
 
             for milestone in [50, 100, 200, 500]:
                 if closed_count >= milestone:
-                    # Check if we already notified for this milestone
                     already = conn.execute(
                         "SELECT COUNT(*) as c FROM activity_log "
                         "WHERE event_type = 'gate_milestone' AND detail LIKE ?",
@@ -156,8 +140,11 @@ def check_action_reminders(db_path: str = DB_PATH) -> list[str]:
                             logger.warning("[TELEGRAM] gate_milestone activity_log insert failed: %s", e)
                         sent.append(f"gate_{milestone}")
                     break  # Only notify for highest milestone
+        except Exception as e:
+            logger.error("[REMINDER] phase_gate_milestone check failed: %s", e)
 
-            # 2. Sunday review ritual (5 PM Sundays)
+        # 2. Sunday review ritual (5 PM Sundays)
+        try:
             if now.weekday() == 6 and now.hour == 17:
                 notify_action_required(
                     "Weekly review ritual",
@@ -167,34 +154,36 @@ def check_action_reminders(db_path: str = DB_PATH) -> list[str]:
                     urgency="normal",
                 )
                 sent.append("sunday_review")
+        except Exception as e:
+            logger.error("[REMINDER] sunday_review check failed: %s", e)
 
-            # 3. API key rotation (check every 90 days)
+        # 3. API key rotation (check every 90 days)
+        try:
             last_rotation = conn.execute(
                 "SELECT detail FROM activity_log "
                 "WHERE event_type = 'api_key_rotation' ORDER BY created_at DESC LIMIT 1"
             ).fetchone()
             if not last_rotation:
-                # Never rotated — remind after system has been running 90 days
                 oldest_trade = conn.execute(
                     "SELECT MIN(created_at) as first FROM shadow_trades"
                 ).fetchone()
                 if oldest_trade and oldest_trade["first"]:
                     from datetime import datetime as dt
-                    try:
-                        first = dt.fromisoformat(oldest_trade["first"].replace("Z", "+00:00"))
-                        if (now - first.replace(tzinfo=ET if first.tzinfo is None else first.tzinfo)).days >= 90:
-                            notify_action_required(
-                                "Rotate API keys (90-day reminder)",
-                                "Rotate: Alpaca, Anthropic, Finnhub, Polygon (if active).\n"
-                                "Update config/settings.local.yaml and Render env vars.\n"
-                                "Log: <code>python -m src.main log-activity api_key_rotation 'Rotated all keys'</code>",
-                                urgency="normal",
-                            )
-                            sent.append("api_rotation")
-                    except Exception as e:
-                        logger.warning("[TELEGRAM] api_rotation date check failed: %s", e)
+                    first = dt.fromisoformat(oldest_trade["first"].replace("Z", "+00:00"))
+                    if (now - first.replace(tzinfo=ET if first.tzinfo is None else first.tzinfo)).days >= 90:
+                        notify_action_required(
+                            "Rotate API keys (90-day reminder)",
+                            "Rotate: Alpaca, Anthropic, Finnhub, Polygon (if active).\n"
+                            "Update config/settings.local.yaml and Render env vars.\n"
+                            "Log: <code>python -m src.main log-activity api_key_rotation 'Rotated all keys'</code>",
+                            urgency="normal",
+                        )
+                        sent.append("api_rotation")
+        except Exception as e:
+            logger.error("[REMINDER] api_key_rotation check failed: %s", e)
 
-            # 4. Unscored training examples
+        # 4. Unscored training examples
+        try:
             unscored = conn.execute(
                 "SELECT COUNT(*) as c FROM training_examples "
                 "WHERE quality_score_auto IS NULL OR quality_score_auto = 0"
@@ -209,32 +198,31 @@ def check_action_reminders(db_path: str = DB_PATH) -> list[str]:
                     urgency="low",
                 )
                 sent.append("score_training")
+        except Exception as e:
+            logger.error("[REMINDER] score_training check failed: %s", e)
 
-            # 5. Saturday retrain check (Sundays — did Saturday retrain happen?)
+        # 5. Saturday retrain check (Sundays — did Saturday retrain happen?)
+        try:
             if now.weekday() == 6 and now.hour >= 10:
                 active = conn.execute(
                     "SELECT version_name, created_at FROM model_versions "
                     "WHERE status = 'active' ORDER BY created_at DESC LIMIT 1"
                 ).fetchone()
                 if active:
-                    try:
-                        from datetime import datetime as dt
-                        created = dt.fromisoformat(active["created_at"].replace("Z", "+00:00"))
-                        days_since = (now - created.replace(tzinfo=ET if created.tzinfo is None else created.tzinfo)).days
-                        if days_since > 14:
-                            notify_action_required(
-                                f"Model retrain overdue ({days_since} days)",
-                                f"Last retrain: {active['created_at'][:10]} ({active['version_name']})\n"
-                                f"Run: <code>python -m src.main train --force</code>\n"
-                                f"Or check Saturday overnight schedule logs.",
-                                urgency="high",
-                            )
-                            sent.append("retrain_overdue")
-                    except Exception as e:
-                        logger.warning("[TELEGRAM] retrain_overdue date check failed: %s", e)
-
-    except Exception as e:
-        logger.debug("[TELEGRAM] Action reminder check failed: %s", e)
+                    from datetime import datetime as dt
+                    created = dt.fromisoformat(active["created_at"].replace("Z", "+00:00"))
+                    days_since = (now - created.replace(tzinfo=ET if created.tzinfo is None else created.tzinfo)).days
+                    if days_since > 14:
+                        notify_action_required(
+                            f"Model retrain overdue ({days_since} days)",
+                            f"Last retrain: {active['created_at'][:10]} ({active['version_name']})\n"
+                            f"Run: <code>python -m src.main train --force</code>\n"
+                            f"Or check Saturday overnight schedule logs.",
+                            urgency="high",
+                        )
+                        sent.append("retrain_overdue")
+        except Exception as e:
+            logger.error("[REMINDER] retrain_overdue check failed: %s", e)
 
     return sent
 
