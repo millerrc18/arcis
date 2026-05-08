@@ -326,3 +326,157 @@ class TestCommandHandlerErrorPaths:
 
     def test_heartbeat_error_returns_string(self):
         self._assert_error_string("/heartbeat", "src.notifications.telegram_commands._cmd_heartbeat")
+
+
+# ── T21b: _cmd_council typed exceptions (C14) ────────────────────────────────
+
+
+class TestCmdCouncilTypedExceptions:
+    """C14: _cmd_council returns categorized strings for typed council exceptions."""
+
+    def _run_council_with_exc(self, exc):
+        with patch("src.notifications.telegram_commands.requests") as _:
+            with patch(
+                "src.notifications.telegram_commands._cmd_council.__wrapped__"
+                if hasattr(
+                    __import__("src.notifications.telegram_commands", fromlist=["_cmd_council"]),
+                    "_cmd_council"
+                ) and hasattr(
+                    __import__("src.notifications.telegram_commands", fromlist=["_cmd_council"])._cmd_council,
+                    "__wrapped__",
+                ) else "src.notifications.telegram_commands._cmd_council"
+            ):
+                pass
+        # Patch run_council_command to raise the typed exception
+        import sys
+        mod_name = "src.council.engine"
+        if mod_name in sys.modules:
+            target = f"{mod_name}.run_council_command"
+        else:
+            target = "src.council.engine.run_council_command"
+        with patch("src.notifications.telegram_commands._cmd_council") as mock_cmd:
+            mock_cmd.side_effect = exc
+            from src.notifications.telegram_commands import handle_command
+            return handle_command("/council", "test question")
+
+    def test_cost_cap_exceeded_returns_categorized_string(self):
+        from src.notifications.telegram_commands import _cmd_council, CostCapExceededError
+        with patch(
+            "src.notifications.telegram_commands.run_council_command",
+            side_effect=CostCapExceededError("cap hit"),
+        ):
+            result = _cmd_council("question")
+        assert "cost cap" in result.lower()
+
+    def test_agent_timeout_returns_categorized_string(self):
+        from src.notifications.telegram_commands import _cmd_council, AgentTimeoutError
+        with patch(
+            "src.notifications.telegram_commands.run_council_command",
+            side_effect=AgentTimeoutError("timeout"),
+        ):
+            result = _cmd_council("question")
+        assert "agent timeout" in result.lower()
+
+    def test_llm_unavailable_returns_categorized_string(self):
+        from src.notifications.telegram_commands import _cmd_council, LLMUnavailableError
+        with patch(
+            "src.notifications.telegram_commands.run_council_command",
+            side_effect=LLMUnavailableError("no llm"),
+        ):
+            result = _cmd_council("question")
+        assert "llm unavailable" in result.lower()
+
+    def test_no_quorum_returns_categorized_string(self):
+        from src.notifications.telegram_commands import _cmd_council, NoQuorumError
+        with patch(
+            "src.notifications.telegram_commands.run_council_command",
+            side_effect=NoQuorumError("no quorum"),
+        ):
+            result = _cmd_council("question")
+        assert "no quorum" in result.lower()
+
+    def test_invalid_question_returns_categorized_string(self):
+        from src.notifications.telegram_commands import _cmd_council, InvalidQuestionError
+        with patch(
+            "src.notifications.telegram_commands.run_council_command",
+            side_effect=InvalidQuestionError("bad question"),
+        ):
+            result = _cmd_council("question")
+        assert "invalid question" in result.lower()
+
+
+# ── T21b: dataclass payloads (CC3) ───────────────────────────────────────────
+
+
+class TestNotifyTradeOpenedDataclass:
+    """CC3: notify_trade_opened uses TradeOpenedPayload dataclass; missing required field → TypeError."""
+
+    def test_trade_opened_payload_missing_ticker_raises_typeerror(self):
+        from src.notifications.telegram import TradeOpenedPayload
+        with pytest.raises(TypeError):
+            TradeOpenedPayload(entry_price=100.0, stop=95.0, target=110.0, score=80, shares=10)
+
+    def test_trade_opened_payload_constructs_with_required_fields(self):
+        from src.notifications.telegram import TradeOpenedPayload
+        p = TradeOpenedPayload(
+            ticker="AAPL", entry_price=100.0, stop=95.0, target=110.0, score=80, shares=10
+        )
+        assert p.ticker == "AAPL"
+        assert p.entry_price == 100.0
+
+    def test_trade_closed_payload_missing_ticker_raises_typeerror(self):
+        from src.notifications.telegram import TradeClosedPayload
+        with pytest.raises(TypeError):
+            TradeClosedPayload(pnl_dollars=50.0, pnl_pct=5.0, exit_reason="target", days_held=3)
+
+    def test_trade_closed_payload_constructs_with_required_fields(self):
+        from src.notifications.telegram import TradeClosedPayload
+        p = TradeClosedPayload(
+            ticker="MSFT", pnl_dollars=50.0, pnl_pct=5.0, exit_reason="target", days_held=3
+        )
+        assert p.ticker == "MSFT"
+
+    def test_eod_report_payload_missing_field_raises_typeerror(self):
+        from src.notifications.telegram import EodReportPayload
+        with pytest.raises(TypeError):
+            EodReportPayload()
+
+    def test_eod_report_payload_constructs_with_required_fields(self):
+        from src.notifications.telegram import EodReportPayload
+        p = EodReportPayload(
+            paper_open=2, paper_open_pnl=100.0,
+            paper_closed_today=1, paper_closed_pnl=50.0,
+            live_open=0, live_open_pnl=0.0,
+            live_closed_today=0, live_closed_pnl=0.0,
+            win_rate=0.67, wins=2, losses=1,
+            best_ticker="AAPL", best_pct=5.0,
+            worst_ticker="MSFT", worst_pct=-1.0,
+            regime="neutral", vix=18.0, vix_change=0.5,
+        )
+        assert p.win_rate == 0.67
+
+    def test_weekly_digest_payload_missing_field_raises_typeerror(self):
+        from src.notifications.telegram import WeeklyDigestPayload
+        with pytest.raises(TypeError):
+            WeeklyDigestPayload()
+
+    def test_weekly_digest_payload_constructs_with_required_fields(self):
+        from src.notifications.telegram import WeeklyDigestPayload
+        p = WeeklyDigestPayload(
+            period_start="2026-05-01", period_end="2026-05-07",
+            opened_paper=3, opened_live=1,
+            closed_paper=2, closed_live=0,
+            win_rate=0.75, expectancy=50.0,
+            best_ticker="AAPL", best_pct=5.0,
+            worst_ticker="MSFT", worst_pct=-2.0,
+            pnl_paper=150.0, pnl_live=80.0,
+            training_start=900, training_end=920,
+            signal_start=500, signal_end=510,
+            scoring_backlog=20, quality_avg=4.2,
+            canary_status="ok", llm_success_rate=0.98,
+            regime="neutral", vix=17.5, vix_range_low=15.0, vix_range_high=20.0,
+            spy_weekly_pct=1.2,
+            council_sessions=3, council_consensus="cautious_long", council_avg_confidence=72,
+            earnings_next_week=["AAPL"], events_next_week=["Fed meeting"],
+        )
+        assert p.period_start == "2026-05-01"

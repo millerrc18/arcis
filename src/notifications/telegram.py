@@ -67,7 +67,9 @@ escaping special chars that appear frequently in financial data (., -, +).
 import logging
 import os
 import socket
+from dataclasses import dataclass
 from datetime import datetime
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 import requests
@@ -192,6 +194,107 @@ def send_telegram(message: str, parse_mode: str = "HTML") -> bool:
         if not _send_single(cfg, tagged, None):
             ok = False
     return ok
+
+
+# ── Typed dataclass payloads (CC3) ────────────────────────────────────────
+
+
+@dataclass
+class TradeOpenedPayload:
+    ticker: str
+    entry_price: float
+    stop: float
+    target: float
+    score: int
+    shares: int
+    setup_type: Optional[str] = None
+    setup_confidence: Optional[float] = None
+    source: str = "paper"
+    sector: Optional[str] = None
+    regime_at_entry: Optional[str] = None
+    vix_at_entry: Optional[float] = None
+    concurrent_positions: Optional[int] = None
+    llm_conviction: Optional[int] = None
+
+
+@dataclass
+class TradeClosedPayload:
+    ticker: str
+    pnl_dollars: float
+    pnl_pct: float
+    exit_reason: str
+    days_held: int
+    source: str = "paper"
+    sector: Optional[str] = None
+    regime_at_entry: Optional[str] = None
+    regime_at_exit: Optional[str] = None
+    mfe_pct: Optional[float] = None
+    mae_pct: Optional[float] = None
+    excess_return: Optional[float] = None
+    spy_return_over_hold: Optional[float] = None
+    drawdown_from_mfe: Optional[float] = None
+    entry_slippage_bps: Optional[float] = None
+    exit_slippage_bps: Optional[float] = None
+
+
+@dataclass
+class EodReportPayload:
+    paper_open: int
+    paper_open_pnl: float
+    paper_closed_today: int
+    paper_closed_pnl: float
+    live_open: int
+    live_open_pnl: float
+    live_closed_today: int
+    live_closed_pnl: float
+    win_rate: float
+    wins: int
+    losses: int
+    best_ticker: str
+    best_pct: float
+    worst_ticker: str
+    worst_pct: float
+    regime: str
+    vix: float
+    vix_change: float
+    risk_rejected: int = 0
+    risk_qualified: int = 0
+
+
+@dataclass
+class WeeklyDigestPayload:
+    period_start: str
+    period_end: str
+    opened_paper: int
+    opened_live: int
+    closed_paper: int
+    closed_live: int
+    win_rate: float
+    expectancy: float
+    best_ticker: str
+    best_pct: float
+    worst_ticker: str
+    worst_pct: float
+    pnl_paper: float
+    pnl_live: float
+    training_start: int
+    training_end: int
+    signal_start: int
+    signal_end: int
+    scoring_backlog: int
+    quality_avg: float
+    canary_status: str
+    llm_success_rate: float
+    regime: str
+    vix: float
+    vix_range_low: float
+    vix_range_high: float
+    spy_weekly_pct: float
+    council_sessions: int
+    council_consensus: str
+    council_avg_confidence: int
+    earnings_next_week: list
+    events_next_week: list
 
 
 # ── Pre-formatted alert functions ─────────────────────────────────────────
