@@ -73,9 +73,8 @@ def compute_sortino(
 
 
 def compute_calmar(total_return: float, max_drawdown: float) -> float:
-    if max_drawdown == 0.0:
-        return float("inf")
-    return float(total_return / max_drawdown)
+    from src.evaluation.statistics import calmar_ratio
+    return calmar_ratio(total_return, max_drawdown)
 
 
 def compute_max_drawdown(

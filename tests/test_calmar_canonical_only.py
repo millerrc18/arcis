@@ -32,21 +32,16 @@ import tempfile
 _SRC_DIR = os.path.join(os.path.dirname(__file__), "..", "src")
 
 # Allowlisted ad-hoc calmar sites. Key = (relative_path, line_number).
-# These are correct per the 2026-05-06 deep report. Tracked as #SP4-calmar-debt.
 # T17a migrated: cto_report.py:738, engine.py:439
-_ALLOWLIST = {
-    # backtester.py: calmar = round(ann_return / abs(max_dd_pct), 2) — correct
-    # T17b will migrate this site
-    ("src/evaluation/backtester.py", 343),
-}
+# T17b migrated: backtester.py:343
+# All 4 canonical-debt sites resolved — allowlist intentionally empty.
+_ALLOWLIST: set = set()
 
 # Allowlist for calmar-named function definitions outside src/evaluation/statistics.py.
-# Key = (relative_path, line_number). Tracked as #SP4-calmar-debt.
-_CALMAR_FUNC_ALLOWLIST = {
-    # SP4-calmar-debt: compute_calmar() wraps total_return / max_drawdown —
-    # should migrate to canonical calmar_ratio() from src/evaluation/statistics.py
-    ("src/platform/metrics.py", 75),
-}
+# T17b migrated: metrics.py:75 compute_calmar body now delegates to calmar_ratio().
+# Thin-wrapper calmar-named functions (body calls calmar_ratio()) are exempt from
+# the guardrail — they are correct delegations, not ad-hoc formula debt.
+_CALMAR_FUNC_ALLOWLIST: set = set()
 
 
 def _get_repo_root() -> str:
@@ -192,14 +187,23 @@ def _scan_calmar_func_defs(
     Returns list of (relative_path, line_number, line_text) for every line
     matching ``def <something containing 'calmar'>(``.
     relative_path uses forward slashes and is relative to repo_root.
+
+    Thin-wrapper functions whose body calls ``calmar_ratio(`` are NOT returned
+    — they are correct delegations to the canonical helper, not ad-hoc formulas.
     """
     hits = []
     for abs_path in src_paths:
         rel_path = os.path.relpath(abs_path, repo_root).replace("\\", "/")
         with open(abs_path, encoding="utf-8") as f:
-            for lineno, line in enumerate(f, start=1):
-                if _CALMAR_FUNC_RE.search(line):
-                    hits.append((rel_path, lineno, line))
+            all_lines = f.readlines()
+        for lineno, line in enumerate(all_lines, start=1):
+            if not _CALMAR_FUNC_RE.search(line):
+                continue
+            # Check the next 5 lines for a calmar_ratio( call — thin wrapper
+            body_window = all_lines[lineno: lineno + 5]
+            if any("calmar_ratio(" in body_line for body_line in body_window):
+                continue
+            hits.append((rel_path, lineno, line))
     return hits
 
 
@@ -215,13 +219,15 @@ def _collect_src_py_files(repo_root: str) -> list[str]:
 
 
 def test_no_calmar_named_functions_outside_allowlist():
-    """Any def *calmar*() outside statistics.py or _CALMAR_FUNC_ALLOWLIST must fail CI.
+    """Any def *calmar*() outside statistics.py that contains an ad-hoc formula must fail CI.
 
     This catches the compute_calmar() style sibling that the original regex missed
     because its body uses parameter names (total_return / max_drawdown) that don't
     match the 'calmar.*max_dd' pattern — only the function name gives it away.
 
     Canonical definition in src/evaluation/statistics.py is exempt.
+    Thin-wrapper functions whose body calls calmar_ratio() are exempt — they are
+    correct delegations, not ad-hoc formula debt.
     Known ad-hoc calmar functions are in _CALMAR_FUNC_ALLOWLIST (#SP4-calmar-debt).
     """
     repo_root = _get_repo_root()
