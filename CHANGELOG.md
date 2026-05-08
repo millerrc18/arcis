@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Sprint 4 Wave 2 hotfix — MetricCard sign-aware prefix formatting (T18 sibling-fix)
+
+- **`frontend/src/components/MetricCard.jsx`** rewrites `{prefix}{value}{suffix}` rendering through a new `_formatValue(prefix, value, suffix)` helper that moves a leading numeric sign before the prefix. Negative dollar amounts now render `-$6.55` (sign before prefix) instead of `$-6.55` (sign after). Visual-verify of the post-Wave-2 deploy on `halcyonlab.app` caught `AVG LOSS $-6.55` in the ShadowLedger Closed-tab summary card — a sibling site that T18's per-row fix didn't cover. Centralizing the fix at the component level closes 9 call sites in one edit (4 in ShadowLedger, 2 in ModelPerformance, 2 in LiveLedger, 1 in Dashboard). Regex guard `/^[-+]\d/` ensures non-numeric leading-dash values like `--` (no-data placeholder) pass through unchanged. New `frontend/src/components/MetricCard.test.jsx` (8 tests) locks: unsigned-value pass-through, negative-sign move, positive-sign move, `--` placeholder pass-through, zero, no-prefix bypass, suffix preservation, comma-separated negative.
+
 ### Sprint 4 Wave 1 hotfix — urllib3 + DATABASE_URL test fixture
 
 - **urllib3 added to requirements-cloud.txt** (6th recurrence of cloud-deploy import drift bug class). Sprint 4 T3 added `import urllib3.exceptions` to `src/notifications/telegram.py` for the `safe_send` network-error catch list. T7 fast-lane AST walker correctly flagged this as reachable from `cloud_app` via `cloud_routes/platform.py → notifications/telegram.py` but missing from `requirements-cloud.txt`. urllib3 ships transitively via requests today; declaring explicitly per defensive policy. Walker package count: 53 → 54.
