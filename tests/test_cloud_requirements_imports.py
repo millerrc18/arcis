@@ -18,12 +18,55 @@ Stop-list (packages whose transitive deps are NOT walked):
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import tempfile
+import venv
 from pathlib import Path
 
 import pytest
+
+# ---------------------------------------------------------------------------
+# Configurable timeouts — override via env vars for slow CI runners.
+# pip install timeout (scipy alone is ~80MB; throttled networks may exceed 180s).
+# ---------------------------------------------------------------------------
+PIP_TIMEOUT = int(os.environ.get("CLOUD_REQ_PIP_TIMEOUT", "180"))
+IMPORT_TIMEOUT = int(os.environ.get("CLOUD_REQ_IMPORT_TIMEOUT", "120"))
+
+# ---------------------------------------------------------------------------
+# Subprocess helpers
+# ---------------------------------------------------------------------------
+
+def _run_or_kill(cmd, *, timeout, **kwargs):
+    """subprocess.run with explicit child kill on TimeoutExpired.
+
+    Per CPython docs, subprocess.run with timeout does NOT kill child processes
+    on TimeoutExpired. This wrapper guarantees cleanup so test runs don't leak
+    pip.exe/python.exe processes that hold venv file locks (especially on
+    Windows where lingering handles delay tmp_path cleanup by ~60s).
+    """
+    # Popen doesn't accept capture_output; translate to stdout/stderr pipes.
+    if kwargs.pop("capture_output", False):
+        kwargs.setdefault("stdout", subprocess.PIPE)
+        kwargs.setdefault("stderr", subprocess.PIPE)
+    proc = subprocess.Popen(cmd, **kwargs)
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+        return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        if os.name == "nt":
+            # Windows: also kill the process tree (pip spawns child python.exe)
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=10,
+            )
+        proc.communicate()  # drain pipes after kill
+        raise
+
 
 # ---------------------------------------------------------------------------
 # STOP-LIST — prefixes the walker must never descend into.
@@ -278,4 +321,198 @@ class TestDeepTransitiveWalkerJsonschema:
             f"src/platform/capability_registry/schemas.py via Draft7Validator) "
             f"to appear in the walked package set after full transitive walk fix.\n"
             f"Found packages: {sorted(found_pkgs)}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Network availability fixture for slow-lane tests
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def has_pypi_network():
+    """Skip slow-lane tests when PyPI is unreachable."""
+    import socket
+    try:
+        socket.create_connection(("pypi.org", 443), timeout=5)
+    except OSError as e:
+        pytest.skip(f"requires PyPI network access: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Helper — build a minimal env dict for subprocess calls
+# ---------------------------------------------------------------------------
+def _clean_env() -> dict:
+    """Return a minimal env dict that omits .env-derived runtime variables.
+
+    Prevents worktree env-drift (feedback_worktree_env_drift): the subprocess
+    must not inherit ARCIS_LOCAL_API_TOKEN, ARCIS_DB_PATH, or similar operator-
+    machine env vars, so the venv test is hermetic in CI and fresh clones.
+    Only PATH (needed to find the OS pip/python) and PYTHONPATH are forwarded.
+    """
+    env = {"PATH": os.environ.get("PATH", "")}
+    for key in ("SYSTEMROOT", "SYSTEMDRIVE", "TEMP", "TMP", "HOMEDRIVE", "HOMEPATH"):
+        if key in os.environ:
+            env[key] = os.environ[key]
+    return env
+
+
+def _venv_bin(venv_dir: Path) -> Path:
+    """Return the Scripts/ or bin/ dir inside venv_dir."""
+    return venv_dir / ("Scripts" if os.name == "nt" else "bin")
+
+
+# ---------------------------------------------------------------------------
+# Test 7 — slow-lane positive: real venv, install requirements-cloud.txt,
+#           confirm `from src.api.cloud_app import app` succeeds.
+# ---------------------------------------------------------------------------
+@pytest.mark.slow
+class TestSlowLaneVenvImport:
+    """Slow-lane: actually pip-install requirements-cloud.txt in a temp venv,
+    confirm `from src.api.cloud_app import app` succeeds. ~30-60s runtime.
+
+    INFORMATIONAL/CI-ONLY: T8 is NOT a PR merge gate. T7 fast-lane AST walker
+    (TestCloudAppImportsClean) is the gating test. T8 provides defense-in-depth
+    by exercising real pip resolution to catch transitive dependency drift that
+    pure AST walking cannot detect (e.g. a package that installs fine but whose
+    transitive pip dep conflicts in a clean venv).
+
+    Marked @pytest.mark.slow — skipped in default sweep; opt-in via:
+      python -m pytest tests/test_cloud_requirements_imports.py -m slow
+      or: RUN_SLOW=1 python -m pytest tests/test_cloud_requirements_imports.py -m slow
+
+    Requires PyPI network access. Override timeouts for slow CI runners via:
+      CLOUD_REQ_PIP_TIMEOUT=300 CLOUD_REQ_IMPORT_TIMEOUT=180 pytest -m slow
+    """
+
+    def test_cloud_app_imports_in_clean_venv(self, tmp_path, has_pypi_network):
+        """Builds a temp venv, installs requirements-cloud.txt only, imports cloud_app."""
+        repo = _REPO
+        req_file = repo / "requirements-cloud.txt"
+
+        venv_dir = tmp_path / "venv"
+        venv.create(str(venv_dir), with_pip=True)
+
+        bin_dir = _venv_bin(venv_dir)
+        pip_exe = bin_dir / ("pip.exe" if os.name == "nt" else "pip")
+        python_exe = bin_dir / ("python.exe" if os.name == "nt" else "python")
+
+        clean_env = _clean_env()
+
+        install_cmd = [str(pip_exe), "install", "-r", str(req_file), "--quiet"]
+        pip_result = _run_or_kill(
+            install_cmd,
+            capture_output=True,
+            text=True,
+            timeout=PIP_TIMEOUT,
+            env=clean_env,
+        )
+        assert pip_result.returncode == 0, (
+            f"pip install failed (exit {pip_result.returncode}).\n"
+            f"stdout: {pip_result.stdout}\n"
+            f"stderr: {pip_result.stderr}"
+        )
+
+        import_result = _run_or_kill(
+            [str(python_exe), "-c", "from src.api.cloud_app import app"],
+            capture_output=True,
+            text=True,
+            timeout=IMPORT_TIMEOUT,
+            cwd=str(repo),
+            env=clean_env,
+        )
+        assert import_result.returncode == 0, (
+            f"Import failed in clean venv (exit {import_result.returncode}).\n"
+            f"This means requirements-cloud.txt is missing a package that cloud_app needs.\n"
+            f"stdout: {import_result.stdout}\n"
+            f"stderr: {import_result.stderr}"
+        )
+        assert "ModuleNotFoundError" not in import_result.stderr, (
+            f"ModuleNotFoundError detected in venv import.\n"
+            f"stderr: {import_result.stderr}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Test 8 — slow-lane negative / regression-lock: venv missing scipy triggers
+#           ModuleNotFoundError.  Locks in 4th-recurrence bug class detection.
+# ---------------------------------------------------------------------------
+@pytest.mark.slow
+class TestSlowLaneSyntheticMissingScipy:
+    """Synthetic regression: create a temp requirements-cloud.txt missing scipy
+    (which Sprint 3 #1007 hot-fixed), assert venv import fails with
+    ModuleNotFoundError on scipy specifically.
+
+    Locks in the 4th-recurrence bug class detection. If this test begins
+    PASSING when scipy is absent, it means cloud_app no longer uses scipy
+    transitively — which would be a notable architectural change and warrants
+    removing this regression-lock.
+
+    INFORMATIONAL/CI-ONLY: same as TestSlowLaneVenvImport — NOT a PR merge gate.
+
+    Requires PyPI network access. Override timeouts for slow CI runners via:
+      CLOUD_REQ_PIP_TIMEOUT=300 CLOUD_REQ_IMPORT_TIMEOUT=180 pytest -m slow
+    """
+
+    def test_missing_scipy_raises_module_not_found(self, tmp_path, has_pypi_network):
+        """Builds a temp requirements-cloud.txt without scipy, attempts import, asserts failure."""
+        repo = _REPO
+        req_file = repo / "requirements-cloud.txt"
+
+        stripped_req = tmp_path / "requirements-cloud-no-scipy.txt"
+        original_lines = req_file.read_text(encoding="utf-8").splitlines(keepends=True)
+        stripped_lines = [
+            line for line in original_lines
+            if not (
+                line.strip().lower().startswith("scipy")
+                or line.strip().lower().startswith("# scipy")
+            )
+        ]
+        stripped_req.write_text("".join(stripped_lines), encoding="utf-8")
+
+        venv_dir = tmp_path / "venv"
+        venv.create(str(venv_dir), with_pip=True)
+
+        bin_dir = _venv_bin(venv_dir)
+        pip_exe = bin_dir / ("pip.exe" if os.name == "nt" else "pip")
+        python_exe = bin_dir / ("python.exe" if os.name == "nt" else "python")
+
+        clean_env = _clean_env()
+
+        install_cmd = [str(pip_exe), "install", "-r", str(stripped_req), "--quiet"]
+        pip_result = _run_or_kill(
+            install_cmd,
+            capture_output=True,
+            text=True,
+            timeout=PIP_TIMEOUT,
+            env=clean_env,
+        )
+        assert pip_result.returncode == 0, (
+            f"pip install failed even for the stripped requirements "
+            f"(exit {pip_result.returncode}).\n"
+            f"stdout: {pip_result.stdout}\n"
+            f"stderr: {pip_result.stderr}"
+        )
+
+        import_result = _run_or_kill(
+            [str(python_exe), "-c", "from src.api.cloud_app import app"],
+            capture_output=True,
+            text=True,
+            timeout=IMPORT_TIMEOUT,
+            cwd=str(repo),
+            env=clean_env,
+        )
+        assert import_result.returncode != 0, (
+            "Expected import to fail when scipy is absent, but it succeeded.\n"
+            "If cloud_app no longer uses scipy transitively, remove this regression-lock."
+        )
+        combined = import_result.stdout + import_result.stderr
+        assert "ModuleNotFoundError" in combined, (
+            f"Expected 'ModuleNotFoundError' in subprocess output when scipy is absent.\n"
+            f"stdout: {import_result.stdout}\n"
+            f"stderr: {import_result.stderr}"
+        )
+        assert "scipy" in combined, (
+            f"Expected 'scipy' to appear in the error message when scipy is absent.\n"
+            f"stdout: {import_result.stdout}\n"
+            f"stderr: {import_result.stderr}"
         )
