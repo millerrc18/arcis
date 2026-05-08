@@ -22,7 +22,7 @@
 <!-- T13a --> *placeholder Group-C chunked send + html_escape*
 <!-- T13b --> *placeholder Group-C notify_* updates*
 <!-- T13c --> *placeholder Group-C finnhub I15 + I11 urgency*
-<!-- T14 --> *placeholder Group-E.A schema registration*
+<!-- T14 --> Registered `notifications_sent` (id INTEGER PK + event_type, channel ['telegram'|'email'], recipient, sent_at, status ['ok'|'failed'|'dropped'|'heartbeat'], retry_count, error_msg + index on (event_type, sent_at DESC)) and `notifications_dedup` (id INTEGER PK + UNIQUE(event_type, dedup_key) + sent_at) tables in `src/schema/registry.py` per CLAUDE.md schema-rules-mandatory. Schema-only — T15 (Batch 4) wires the write hooks; retention policy deferred to Sprint 5 follow-up `#SP5-notifications-retention`. EXPECTED_TABLE_COUNT bumped 68→72 in `tests/test_schema.py`; +5 schema-shape tests covering column types, nullability, indexes, and UNIQUE constraint.
 <!-- T15a --> *placeholder Group-E.B dedup migration*
 <!-- T15b --> *placeholder Group-E.B write hooks + /api/notifications/health*
 <!-- T15c --> *placeholder Group-E.B NotificationsHealthPanel + operator-guide NSSM warning*
