@@ -2,7 +2,7 @@
 
 Sprint 3 cockpit-coherence Task T16 (SQLite-only baseline).
 Sprint 4 T19a extends: postgres_session fixture parametrizes the mock-runtime
-tests so both DB backends are exercised when DATABASE_URL is set.
+tests so both DB backends are exercised when TEST_DATABASE_URL is set.
 
 Verifies:
 1. All 5 main endpoints emit a _meta envelope.
@@ -11,9 +11,11 @@ Verifies:
 3. Open-position count reconciles between /api/status and /api/live/summary.
 4. meta_entry('bogus', 0) raises KeyError (negative test).
 
-Postgres parametrize variant: runs only when DATABASE_URL env var is set;
-otherwise SKIPPED at collection (not FAILED). Test count is stable across
-environments (#SP4-render-pg-reconcile).
+Postgres parametrize variant: runs only when TEST_DATABASE_URL env var is set;
+otherwise SKIPPED (not FAILED). DATABASE_URL is intentionally NOT honored —
+the operator's .env points at production Render Postgres and CLAUDE.md
+forbids tests touching prod. Test count is stable across environments
+(#SP4-render-pg-reconcile).
 """
 from __future__ import annotations
 
