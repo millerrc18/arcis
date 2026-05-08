@@ -426,6 +426,7 @@ def run_scenario(name: str, start: str, end: str, config: dict | None = None) ->
     # `np.std` default — bumping to ddof=1 would silently change every
     # historical simulation report). None → 0 to match legacy contract.
     from src.analytics.canonical_sharpe import compute_sharpe
+    from src.evaluation.statistics import calmar_ratio
     if len(trades) > 1:
         returns = [t["pnl_pct"] for t in trades]
         sharpe_canonical = compute_sharpe(returns, periods_per_year=52, ddof=0)
@@ -436,7 +437,7 @@ def run_scenario(name: str, start: str, end: str, config: dict | None = None) ->
     # Calmar ratio
     days_in_test = (datetime.strptime(end, "%Y-%m-%d") - datetime.strptime(start, "%Y-%m-%d")).days
     annualized_return = (total_pnl_pct / 100) * (365 / max(days_in_test, 1)) * 100
-    calmar = annualized_return / max_dd if max_dd > 0 else 0
+    calmar = calmar_ratio(annualized_return, max_dd)
 
     # Benchmark
     benchmark_pnl = compute_benchmark(spy_data, start, end)

@@ -726,6 +726,7 @@ def _compute_fund_metrics(closed: list, trade_summary: dict) -> dict:
     # `inf` and 0 sentinels at the call site reproduce the legacy contract
     # (no downside → +inf if profitable, else 0).
     from src.analytics.canonical_sharpe import compute_sortino_mar
+    from src.evaluation.statistics import calmar_ratio
     downside = [r for r in pnl_pcts if r < 0]
     if not downside:
         sortino = float('inf') if mean_r > 0 else 0
@@ -735,7 +736,7 @@ def _compute_fund_metrics(closed: list, trade_summary: dict) -> dict:
 
     # Calmar ratio — return / max drawdown
     max_dd_pct = trade_summary.get("max_drawdown_pct", 0)
-    calmar = (mean_r * 150) / max_dd_pct if max_dd_pct > 0 else 0
+    calmar = calmar_ratio(mean_r * 150, max_dd_pct)
 
     # VaR 95% — 5th percentile of returns
     sorted_pnl = sorted(pnl_pcts)

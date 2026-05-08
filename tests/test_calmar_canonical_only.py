@@ -33,12 +33,10 @@ _SRC_DIR = os.path.join(os.path.dirname(__file__), "..", "src")
 
 # Allowlisted ad-hoc calmar sites. Key = (relative_path, line_number).
 # These are correct per the 2026-05-06 deep report. Tracked as #SP4-calmar-debt.
+# T17a migrated: cto_report.py:738, engine.py:439
 _ALLOWLIST = {
-    # cto_report.py: calmar = (mean_r * 150) / max_dd_pct — correct, annualizes 150 periods
-    ("src/evaluation/cto_report.py", 738),
-    # engine.py: calmar = annualized_return / max_dd — correct, max_dd is already a pct here
-    ("src/simulation/engine.py", 439),
     # backtester.py: calmar = round(ann_return / abs(max_dd_pct), 2) — correct
+    # T17b will migrate this site
     ("src/evaluation/backtester.py", 343),
 }
 
@@ -271,3 +269,89 @@ def test_calmar_func_guardrail_regression_synthetic():
         assert "calmar_v2" in line_text
     finally:
         os.unlink(tmp_path)
+
+
+# ── T17a: cto_report + engine canonical migration tests ───────────────────────
+
+def test_t17a_allowlists_empty():
+    """Post-T17a: _ALLOWLIST and _CALMAR_FUNC_ALLOWLIST must be empty sets.
+
+    T17a migrates cto_report.py:738 and engine.py:439. T17b migrates
+    backtester.py:343 and metrics.py:75. After both deliverables the
+    allowlists are empty — this test enforces that contract.
+    """
+    assert _ALLOWLIST == set(), (
+        f"_ALLOWLIST must be empty after T17 migration, got: {_ALLOWLIST}"
+    )
+    assert _CALMAR_FUNC_ALLOWLIST == set(), (
+        f"_CALMAR_FUNC_ALLOWLIST must be empty after T17 migration, got: {_CALMAR_FUNC_ALLOWLIST}"
+    )
+
+
+# ── T17b: backtester + platform/metrics canonical migration tests ─────────────
+
+def test_t17b_compute_calmar_zero_drawdown_returns_zero():
+    """platform/metrics.compute_calmar: max_dd=0 → 0.0 (canonical), NOT inf.
+
+    The canonical calmar_ratio() returns 0.0 when max_drawdown_pct==0.
+    The old compute_calmar() returned float('inf'). Post-T17b the function
+    must delegate to calmar_ratio and therefore return 0.0.
+    """
+    from src.platform.metrics import compute_calmar
+    result = compute_calmar(total_return=0.5, max_drawdown=0.0)
+    assert result == 0.0, (
+        f"compute_calmar(0.5, 0.0) must return 0.0 (canonical), got {result!r}"
+    )
+    assert result != float("inf"), (
+        "compute_calmar must NOT return inf — canonical calmar_ratio returns 0.0 for zero drawdown"
+    )
+
+
+def test_t17b_compute_calmar_matches_canonical():
+    """platform/metrics.compute_calmar delegates to canonical calmar_ratio."""
+    from src.platform.metrics import compute_calmar
+    from src.evaluation.statistics import calmar_ratio
+    pairs = [(0.20, 0.10), (0.05, 0.25), (1.0, 0.50), (0.0, 0.15)]
+    for total_return, max_dd in pairs:
+        expected = calmar_ratio(total_return, max_dd)
+        got = compute_calmar(total_return, max_dd)
+        assert abs(got - expected) < 1e-9, (
+            f"compute_calmar({total_return}, {max_dd}) = {got}, "
+            f"canonical calmar_ratio = {expected}"
+        )
+
+
+def test_t17b_backtester_calmar_matches_canonical():
+    """backtester.py:343 calmar uses canonical calmar_ratio (post-round check)."""
+    from src.evaluation.statistics import calmar_ratio
+    ann_return = 15.0
+    max_dd_pct = 7.5
+    expected = round(calmar_ratio(ann_return, abs(max_dd_pct)), 2)
+    assert expected == round(ann_return / abs(max_dd_pct), 2), (
+        "Numerical equivalence check: calmar_ratio and direct division must agree "
+        "for non-zero drawdown"
+    )
+
+
+def test_t17a_cto_report_calmar_matches_canonical():
+    """cto_report.py:738 calmar uses canonical calmar_ratio to 3 decimal places."""
+    from src.evaluation.statistics import calmar_ratio
+    mean_r = 0.08
+    max_dd_pct = 5.0
+    expected = calmar_ratio(mean_r * 150, max_dd_pct)
+    direct = (mean_r * 150) / max_dd_pct
+    assert abs(expected - direct) < 1e-9, (
+        "calmar_ratio must match direct formula for non-zero drawdown"
+    )
+
+
+def test_t17a_engine_calmar_matches_canonical():
+    """engine.py:439 calmar uses canonical calmar_ratio."""
+    from src.evaluation.statistics import calmar_ratio
+    annualized_return = 12.5
+    max_dd = 6.25
+    expected = calmar_ratio(annualized_return, max_dd)
+    direct = annualized_return / max_dd
+    assert abs(expected - direct) < 1e-9, (
+        "calmar_ratio must match direct formula for non-zero drawdown"
+    )
