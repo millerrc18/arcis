@@ -324,16 +324,23 @@ class TestT9MetaEnvelopes:
             f"Expected 'trades.all_closed', got {data['_meta']['cohort']}"
         )
 
-    def test_shadow_metrics_all_desks_emit_all_closed(self):
-        """§2.3 cohort: until source='live' filter is wired, all desk values map to trades.all_closed.
+    def test_shadow_metrics_per_desk_cohort(self):
+        """§2.3 cohort (Sprint 4 T9 / #SP4-shadow-metrics-live-cohort): _desk_clause now
+        returns a 3-tuple `(frag, params, cohort_id)`. desk='live' wires `source='live'`
+        SQL filter and emits cohort='trades.live_only'; all other desks emit
+        'trades.all_closed'.
 
-        _desk_clause() filters by `desk` column, not `source` column.
-        No current desk value produces a source='live' SQL filter, so
-        trades.live_only is NEVER the correct cohort for any current code path.
-        Sprint 4 follow-up #SP4-shadow-metrics-live-cohort must update this test
-        when a true source='live' filter is wired.
+        Updated from the Sprint 3 lock that asserted ALL desks emit 'trades.all_closed' —
+        that lock was self-marked as a Sprint 4 follow-up target.
         """
-        for desk in [None, "swing", "live", "all", "research_a"]:
+        expected_cohort_per_desk = {
+            None: "trades.all_closed",
+            "swing": "trades.all_closed",
+            "live": "trades.live_only",
+            "all": "trades.all_closed",
+            "research_a": "trades.all_closed",
+        }
+        for desk, expected_cohort in expected_cohort_per_desk.items():
             runtime = _make_runtime_meta()
             runtime.query.side_effect = None
             runtime.query.return_value = [
@@ -348,10 +355,8 @@ class TestT9MetaEnvelopes:
             assert "_meta" in data, (
                 f"desk={desk!r}: _meta missing from response; keys: {list(data)}"
             )
-            assert data["_meta"]["cohort"] == "trades.all_closed", (
-                f"desk={desk!r}: Expected 'trades.all_closed', got {data['_meta']['cohort']!r}. "
-                f"trades.live_only requires source='live' SQL filter (not yet wired — Sprint 4 "
-                f"#SP4-shadow-metrics-live-cohort)."
+            assert data["_meta"]["cohort"] == expected_cohort, (
+                f"desk={desk!r}: Expected {expected_cohort!r}, got {data['_meta']['cohort']!r}."
             )
 
     def test_attribution_stats_emits_attribution_pairs(self):

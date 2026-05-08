@@ -276,3 +276,7 @@ export async function getWalkforwardRunTrades(runId, windowIndex = null) {
     `/walkforward/runs/${encodeURIComponent(runId)}/trades${suffix}`,
   );
 }
+
+export async function getNotificationsHealth() {
+  return fetchApi("/notifications/health");
+}

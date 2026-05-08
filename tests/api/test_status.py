@@ -181,3 +181,214 @@ class TestStatusMetaEnvelope:
         assert "_meta" in data
         assert "version" in data["_meta"]
         assert data["_meta"]["version"]["cohort"] == "none"
+
+    @patch("src.api.cloud_app._query_one")
+    @patch("src.api.cloud_app._query")
+    def test_status_open_positions_cohort_aligned(self, mock_query, mock_query_one, client):
+        """open_positions SQL includes source='live' so the count reflects live trades only.
+
+        Regression-lock: 5 shadow_trades (2 source=live status=open,
+        3 source=swing status=open) → open_positions=2, not 5.
+        """
+        def _query_side_effect(sql, params=()):
+            if "source" in sql and "open" in sql:
+                return [{"count": 2}]
+            return [{"count": 5}]
+
+        mock_query.side_effect = _query_side_effect
+        mock_query_one.side_effect = [
+            {"version_name": "v1", "created_at": "2026-01-01", "status": "active"},
+            {"overall_assessment": "green", "created_at": "2026-01-01"},
+            {"c": 100},
+        ]
+        resp = client.get("/api/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["open_positions"] == 2
+        assert data["_meta"]["open_positions"]["cohort"] == "trades.live_only"
+        assert data["_meta"]["open_positions"]["n"] == 2
+
+    @patch("src.api.cloud_app._query_one")
+    @patch("src.api.cloud_app._query")
+    def test_open_positions_sql_filters_source_live(self, mock_query, mock_query_one, client):
+        """SQL issued for open_positions must contain AND source = 'live' predicate.
+
+        Pre-fix, the SQL had no source filter; cohort label 'trades.live_only'
+        was therefore a lie. This test regression-locks the fix.
+        """
+        mock_query.return_value = [{"count": 0}]
+        mock_query_one.side_effect = [
+            {"version_name": "v1", "created_at": "2026-01-01", "status": "active"},
+            {"overall_assessment": "green", "created_at": "2026-01-01"},
+            {"c": 100},
+        ]
+        resp = client.get("/api/status")
+        assert resp.status_code == 200
+        open_positions_call = mock_query.call_args_list[0]
+        sql_issued = open_positions_call[0][0]
+        assert "source" in sql_issued, (
+            f"open_positions SQL must filter by source; got: {sql_issued!r}"
+        )
+        assert "live" in sql_issued, (
+            f"open_positions SQL must filter source='live'; got: {sql_issued!r}"
+        )
+
+
+# ── T19c: core.py router-level regression-lock for T10 fix ───────────────────
+
+class TestStatusOpenPositionsCohortAlignedCoreRouter:
+    """T19c — regression-lock for cockpit-#2 (T10 fix) via core.py create_router path.
+
+    core.py:147-150 SQL must include source='live' AND the cohort label
+    'trades.live_only' must match.  This test exercises the router directly
+    (not via cloud_app) so it locks the actual SQL in core.py, independent of
+    any cloud_app-level patching.
+    """
+
+    def _make_core_client(self, open_count: int = 2):
+        from unittest.mock import MagicMock
+        import pytz
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from src.api.cloud_routes.core import create_router
+
+        runtime = MagicMock()
+        runtime.logger = MagicMock()
+        runtime.et = pytz.timezone("US/Eastern")
+
+        issued_sqls: list[str] = []
+
+        def _query_side(sql, *args, **kwargs):
+            issued_sqls.append(sql)
+            if "status = 'open'" in sql:
+                return [{"count": open_count}]
+            if "status = 'closed'" in sql:
+                return [{"count": 0}]
+            return []
+
+        def _query_one_side(sql, *args, **kwargs):
+            if "model_versions" in sql:
+                return {"version_name": "v1", "created_at": "2026-01-01", "status": "active"}
+            if "audit_reports" in sql:
+                return {"overall_assessment": "green", "created_at": "2026-01-01"}
+            if "training_examples" in sql:
+                return {"c": 0}
+            return None
+
+        runtime.query.side_effect = _query_side
+        runtime.query_one.side_effect = _query_one_side
+
+        app = FastAPI()
+        app.include_router(create_router(runtime, lambda: True))
+        client = TestClient(app, raise_server_exceptions=True)
+        return client, issued_sqls
+
+    def test_status_open_positions_cohort_aligned_via_core_router(self):
+        """core.py /api/status open_positions cohort='trades.live_only' and SQL has source='live'.
+
+        Regression-lock for T10 fix: verifies core.py:147-150 SQL and _meta cohort label
+        agree. desk='live' filter is the source of truth for the 'trades.live_only' cohort.
+        """
+        client, issued_sqls = self._make_core_client(open_count=2)
+        resp = client.get("/api/status")
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert "open_positions" in data, (
+            f"/api/status must include open_positions; got keys: {list(data.keys())}"
+        )
+        assert data["open_positions"] == 2
+
+        assert "_meta" in data
+        assert "open_positions" in data["_meta"]
+        meta = data["_meta"]["open_positions"]
+        assert meta["cohort"] == "trades.live_only", (
+            f"open_positions _meta.cohort must be 'trades.live_only', got {meta['cohort']!r}"
+        )
+        assert meta["n"] == 2, (
+            f"_meta.open_positions.n must equal open_positions count; got {meta['n']}"
+        )
+
+        open_sql = next(
+            (s for s in issued_sqls if "status = 'open'" in s),
+            None,
+        )
+        assert open_sql is not None, "No SQL containing status='open' was issued"
+        assert "source" in open_sql and "live" in open_sql, (
+            f"open_positions SQL must filter source='live'; got: {open_sql!r}"
+        )
+
+
+# ── T19b: kpis _meta envelope reconciliation (all 3 fields + n non-negative) ──
+
+class TestKpisMetaEnvelopeReconciliation:
+    """T19b — reconcile _meta cohort labels across rf_adjusted_excess_sharpe,
+    win_rate, and total_pnl_dollars.  All three must carry cohort='kpi.canonical'.
+    All n fields must be non-negative integers.
+
+    Uses full patch set (_fetch_closed_trades + _fetch_spy_returns_for_trades +
+    filter_fully_instrumented) so the test is hermetic and does not hit the DB.
+    """
+
+    @pytest.fixture
+    def _kpis_runtime_mock(self):
+        from unittest.mock import patch, MagicMock
+        trades = [
+            {
+                "pnl_pct": 3.0, "pnl_dollars": 30.0,
+                "spy_return_over_hold": 0.01,
+                "actual_entry_time": "2026-01-01T10:00:00",
+                "actual_exit_time": "2026-01-05T15:00:00",
+                "excess_return": 0.02,
+            },
+            {
+                "pnl_pct": -1.0, "pnl_dollars": -10.0,
+                "spy_return_over_hold": None,
+                "actual_entry_time": "2026-01-02T10:00:00",
+                "actual_exit_time": "2026-01-06T15:00:00",
+                "excess_return": -0.005,
+            },
+            {
+                "pnl_pct": 2.0, "pnl_dollars": 20.0,
+                "spy_return_over_hold": 0.005,
+                "actual_entry_time": "2026-01-03T10:00:00",
+                "actual_exit_time": "2026-01-07T15:00:00",
+                "excess_return": 0.015,
+            },
+        ]
+        with patch("src.api.cloud_routes.kpis._fetch_closed_trades", return_value=trades), \
+             patch(
+                 "src.api.cloud_routes.kpis.filter_fully_instrumented",
+                 return_value=trades,
+             ), \
+             patch(
+                 "src.api.cloud_routes.kpis._fetch_spy_returns_for_trades",
+                 return_value=[0.01, 0.005],
+             ):
+            yield trades
+
+    def test_kpis_meta_envelope_reconciliation(self, _kpis_runtime_mock):
+        """_meta for rf_adjusted_excess_sharpe, win_rate, total_pnl_dollars all carry
+        cohort='kpi.canonical' and non-negative integer n fields.
+
+        T19b regression-lock per cockpit-#6: verifies T11a total_pnl_dollars is wired
+        into _meta with the canonical cohort label alongside the other two KPIs.
+        """
+        from src.api.cloud_routes.kpis import get_kpis
+
+        result = get_kpis()
+
+        assert "_meta" in result
+
+        for field in ("rf_adjusted_excess_sharpe", "win_rate", "total_pnl_dollars"):
+            assert field in result["_meta"], (
+                f"_meta must contain '{field}'; got keys: {list(result['_meta'].keys())}"
+            )
+            meta = result["_meta"][field]
+            assert meta["cohort"] == "kpi.canonical", (
+                f"_meta.{field}.cohort must be 'kpi.canonical', got {meta['cohort']!r}"
+            )
+            n_val = meta["n"]
+            assert isinstance(n_val, int) and n_val >= 0, (
+                f"_meta.{field}.n must be a non-negative integer, got {n_val!r}"
+            )

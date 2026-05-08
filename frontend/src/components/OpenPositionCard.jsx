@@ -119,7 +119,7 @@ export default function OpenPositionCard({ trade, onClose }) {
         </div>
         <div className="text-right">
           <div className="financial-data text-lg" style={{ color: isPos ? 'var(--arcis-success)' : 'var(--arcis-danger)' }}>
-            {pnlDollars != null ? (isPos ? '+' : '') + fmt$(pnlDollars).replace('$', '$') : '--'}
+            {pnlDollars != null ? (pnlDollars > 0 ? '+' : pnlDollars < 0 ? '-' : '') + '$' + Math.abs(pnlDollars).toFixed(2) : '--'}
           </div>
           <div className="text-xs" style={{ color: isPos ? 'var(--arcis-success)' : 'var(--arcis-danger)' }}>
             {fmtPct(pnlPct)}

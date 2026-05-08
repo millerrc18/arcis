@@ -264,31 +264,31 @@ class TestDeskClauseHelper:
 
     def test_none_returns_swing_clause(self):
         from src.api.cloud_routes.trades import _desk_clause
-        frag, params = _desk_clause(None)
+        frag, params, _cohort_id = _desk_clause(None)
         assert "desk = %s" in frag
         assert params == ["swing"]
 
     def test_swing_returns_swing_clause(self):
         from src.api.cloud_routes.trades import _desk_clause
-        frag, params = _desk_clause("swing")
+        frag, params, _cohort_id = _desk_clause("swing")
         assert "desk = %s" in frag
         assert params == ["swing"]
 
     def test_all_returns_no_filter(self):
         from src.api.cloud_routes.trades import _desk_clause
-        frag, params = _desk_clause("all")
+        frag, params, _cohort_id = _desk_clause("all")
         assert frag == "1=1"
         assert params == []
 
     def test_wildcard_converted_to_like(self):
         from src.api.cloud_routes.trades import _desk_clause
-        frag, params = _desk_clause("research_*")
+        frag, params, _cohort_id = _desk_clause("research_*")
         assert "LIKE" in frag
         assert params == ["research_%"]
 
     def test_exact_research_strategy_uses_equality(self):
         from src.api.cloud_routes.trades import _desk_clause
-        frag, params = _desk_clause("research_lazy_prices_v1")
+        frag, params, _cohort_id = _desk_clause("research_lazy_prices_v1")
         assert "desk = %s" in frag
         assert params == ["research_lazy_prices_v1"]
         assert "LIKE" not in frag

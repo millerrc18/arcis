@@ -2519,7 +2519,7 @@ _register(TableDef(
     indexes=[
         IndexDef("idx_notifications_sent_event_recent", ["event_type", "sent_at DESC"]),
     ],
-    sync_to_postgres=False,
+    sync_to_postgres=True,
     sync_mode="incremental",
     sync_time_column="sent_at",
     sync_pk="id",
@@ -2542,7 +2542,7 @@ _register(TableDef(
     indexes=[
         IndexDef("idx_notifications_dedup_unique", ["event_type", "dedup_key"], unique=True),
     ],
-    sync_to_postgres=False,
+    sync_to_postgres=True,
     sync_mode="incremental",
     sync_time_column="sent_at",
     sync_pk="id",

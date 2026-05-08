@@ -63,7 +63,7 @@ describe('KPIStrip', () => {
     expect(text).toContain('SPY-Relative Sharpe')
     expect(text).toContain('Win Rate')
     expect(text).toContain('Stage Traffic Light')
-    expect(text).toContain('Promotion Gate')
+    expect(text).toContain('Total P&L')
   })
 
   it('renders amber status pill on amber fixture', () => {
@@ -78,7 +78,7 @@ describe('KPIStrip', () => {
     expect(container.innerHTML).toContain('red')
   })
 
-  it('renders blue pill for promotion gate below MinTRL', () => {
+  it('renders MinTRL caption in TrafficLight tooltip when below MinTRL', () => {
     const { container } = render(<KPIStrip kpis={_kpisAmber} />)
     const text = container.textContent
     expect(text).toContain('MinTRL')
@@ -103,11 +103,10 @@ describe('KPIStrip', () => {
     expect(text).toContain('v3')
   })
 
-  it('renders Stage-2 progress bar in promotion gate card', () => {
-    const { container } = render(<KPIStrip kpis={_kpisAmber} />)
+  it('renders TrafficLight vote count in tooltip when promotion_gate has votes_passed', () => {
+    const { container } = render(<KPIStrip kpis={_kpisGreen} />)
     const text = container.textContent
-    expect(text).toContain('35')
-    expect(text).toContain('150')
+    expect(text).toContain('4/5')
   })
 
   it('renders loading skeleton when kpis is null', () => {
@@ -127,9 +126,9 @@ describe('KPIStrip', () => {
       promotion_gate: { status: 'blue', caption: 'waiting on more trades' },
     }
     const { container } = render(<KPIStrip kpis={partial} />)
-    expect(container.textContent).toContain('Promotion Gate')
-    expect(container.textContent).toContain('waiting on more trades')
+    expect(container.textContent).toContain('Total P&L')
     expect(container.textContent).toContain('rf-Adj Excess Sharpe')
+    expect(container.textContent).toContain('Stage Traffic Light')
   })
 })
 
@@ -212,5 +211,34 @@ describe('KPIStrip _meta envelope wiring', () => {
     const { container } = render(<KPIStrip kpis={_kpisGreen} />)
     const badges = container.querySelectorAll('[data-testid="kpi-meta-badge"]')
     expect(badges.length).toBe(0)
+  })
+})
+
+describe('TotalPnlDollarsCard (T12)', () => {
+  const _kpisWithPnl = {
+    ..._kpisGreen,
+    total_pnl_dollars: 1234.56,
+    _meta: {
+      total_pnl_dollars: { cohort: 'kpi.canonical', label: 'Fully instrumented (v3)', n: 160 },
+    },
+  }
+
+  it('renders Total P&L card with formatted dollar value and meta badge', () => {
+    const { container } = render(<KPIStrip kpis={_kpisWithPnl} />)
+    const text = container.textContent
+    expect(text).toContain('Total P&L')
+    expect(text).toContain('$1,234.56')
+    const badges = container.querySelectorAll('[data-testid="kpi-meta-badge"]')
+    expect(badges.length).toBeGreaterThanOrEqual(1)
+    const badgeTexts = Array.from(badges).map(b => b.textContent)
+    expect(badgeTexts.some(t => t.includes('n=160'))).toBe(true)
+  })
+
+  it('does not render PromotionGateCard and shows vote count in TrafficLight tooltip area', () => {
+    const { container } = render(<KPIStrip kpis={_kpisWithPnl} />)
+    const text = container.textContent
+    expect(text).not.toContain('Promotion Gate')
+    expect(text).toContain('Stage Traffic Light')
+    expect(text).toContain('4/5')
   })
 })

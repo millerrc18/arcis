@@ -1391,3 +1391,52 @@ When a future agent or operator hits a procedure not documented here: **add it b
 - [`docs/dashboard-data-map.md`](dashboard-data-map.md) — dashboard tile data sources
 - [`docs/audits/`](audits/) — sprint specs, audit reports, gap lists
 - [`CHANGELOG.md`](../CHANGELOG.md) — release history under `[Unreleased]` and prior versions
+
+---
+
+## Notification dedup migration (Sprint 4 T15a)
+
+### What changed
+
+The notification deduplication window (`_DEDUP_CACHE`) was previously an in-memory Python dict. After T15a it persists to the `notifications_dedup` SQLite table, so the 24-hour window survives NSSM restarts of the watch loop.
+
+### Expected behaviour on first NSSM restart post-merge
+
+**One-shot duplicate alert risk:** On the first NSSM restart after T15a merges to main, the in-memory `_DEDUP_CACHE` is empty (the old code), but the `notifications_dedup` table is also empty (T15a has never run). This means any notification that would have been suppressed by the prior in-memory window may fire again.
+
+This is a one-time event. After the first restart, the DB table is populated and dedup works normally across all subsequent restarts.
+
+### Optional post-deploy dedup seed (eliminates the duplicate)
+
+If you want to prevent the one-shot duplicates entirely, run this script in the halcyon-lab repo root after merging but before the NSSM restart:
+
+```python
+# scripts/seed_dedup_from_sent.py (optional one-shot)
+import sqlite3, os
+from datetime import datetime, timedelta, timezone
+
+DB_PATH = os.environ.get("ARCIS_DB_PATH", "C:/arcis/data/ai_research_desk.sqlite3")
+cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+
+conn = sqlite3.connect(DB_PATH)
+rows = conn.execute(
+    "SELECT event_type, event_type || '::' || sent_at AS dedup_key, sent_at"
+    " FROM notifications_sent WHERE sent_at >= ? AND status='ok'",
+    (cutoff,),
+).fetchall()
+for event_type, dedup_key, sent_at in rows:
+    conn.execute(
+        "INSERT OR IGNORE INTO notifications_dedup (event_type, dedup_key, sent_at)"
+        " VALUES (?, ?, ?)",
+        (event_type, dedup_key, sent_at),
+    )
+conn.commit()
+conn.close()
+print(f"Seeded {len(rows)} dedup rows from notifications_sent.")
+```
+
+Run with: `python scripts/seed_dedup_from_sent.py`
+
+### Notification health dashboard widget
+
+`GET /api/notifications/health` returns `{success_rate, fail_count, dedup_hits, oldest_unack_alert}` for the last 24 hours. The `NotificationsHealthPanel` widget on the dashboard polls this endpoint every 5 minutes. A `success_rate < 0.80` or `fail_count > 0` indicates a delivery problem worth investigating.

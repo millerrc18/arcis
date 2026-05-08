@@ -61,7 +61,7 @@ function PnlValue({ value, showArrow = true }) {
   const isPos = value >= 0
   return (
     <span className="financial-data" style={{ color: isPos ? 'var(--arcis-success)' : 'var(--arcis-danger)' }}>
-      {showArrow && (isPos ? '\u25B2 ' : '\u25BC ')}${Math.abs(value).toFixed(2)}
+      {showArrow && (isPos ? '\u25B2 ' : '\u25BC ')}{value > 0 ? '+' : value < 0 ? '-' : ''}${Math.abs(value).toFixed(2)}
     </span>
   )
 }
@@ -565,7 +565,7 @@ export default function ShadowLedger() {
         const opacity = pnlOpacity(t.pnl_dollars, maxPnl)
         return <span className="financial-data" style={{
           color: (t.pnl_dollars || 0) >= 0 ? 'var(--arcis-success)' : 'var(--arcis-danger)', opacity,
-        }}>{t.pnl_dollars != null ? `${t.pnl_dollars >= 0 ? '+' : ''}$${Math.abs(t.pnl_dollars).toFixed(2)}` : '--'}</span>
+        }}>{t.pnl_dollars != null ? `${t.pnl_dollars > 0 ? '+' : t.pnl_dollars < 0 ? '-' : ''}$${Math.abs(t.pnl_dollars).toFixed(2)}` : '--'}</span>
       }},
     { key: 'pnl_pct', label: 'P&L %', type: 'percent',
       render: (t) => <PnlPctValue value={t.pnl_pct} /> },
@@ -589,7 +589,7 @@ export default function ShadowLedger() {
         const opacity = pnlOpacity(t.pnl_dollars, maxPnl)
         return <span className="financial-data" style={{
           color: (t.pnl_dollars || 0) >= 0 ? 'var(--arcis-success)' : 'var(--arcis-danger)', opacity,
-        }}>{t.pnl_dollars != null ? `${t.pnl_dollars >= 0 ? '+' : ''}$${Math.abs(t.pnl_dollars).toFixed(2)}` : '--'}</span>
+        }}>{t.pnl_dollars != null ? `${t.pnl_dollars > 0 ? '+' : t.pnl_dollars < 0 ? '-' : ''}$${Math.abs(t.pnl_dollars).toFixed(2)}` : '--'}</span>
       }},
     { key: 'pnl_pct', label: 'P&L %', type: 'percent',
       render: (t) => <PnlPctValue value={t.pnl_pct} /> },
