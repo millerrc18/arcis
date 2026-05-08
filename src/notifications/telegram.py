@@ -105,14 +105,51 @@ def _redact_token(text) -> str:
     return _TELEGRAM_TOKEN_RE.sub("/bot[REDACTED]", s)
 
 
+def _html_escape(text: str) -> str:
+    """Escape &, <, > for HTML parse_mode messages."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def is_telegram_enabled() -> bool:
     """Check if Telegram notifications are configured and enabled."""
     cfg = _get_telegram_config()
     return cfg["enabled"] and bool(cfg["bot_token"]) and bool(cfg["chat_id"])
 
 
+_TELEGRAM_CHUNK_SIZE = 4000
+
+
+def _send_single(cfg: dict, text: str, parse_mode: str) -> bool:
+    """Send one message chunk. Returns True on success, False on failure."""
+    try:
+        url = TELEGRAM_API.format(token=cfg["bot_token"])
+        resp = requests.post(
+            url,
+            json={
+                "chat_id": cfg["chat_id"],
+                "text": text,
+                "parse_mode": parse_mode,
+                "disable_web_page_preview": True,
+            },
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            return True
+        logger.warning(
+            "[TELEGRAM] Send failed: %s %s",
+            resp.status_code, _redact_token(resp.text[:200]),
+        )
+        return False
+    except Exception as e:
+        logger.warning("[TELEGRAM] Send error: %s", _redact_token(e))
+        return False
+
+
 def send_telegram(message: str, parse_mode: str = "HTML") -> bool:
     """Send a message via Telegram Bot API.
+
+    Messages longer than 4000 characters are split into chunks with
+    [chunk N/M] markers appended to each part.
 
     Args:
         message: Text to send (supports HTML formatting)
@@ -124,29 +161,20 @@ def send_telegram(message: str, parse_mode: str = "HTML") -> bool:
     if not cfg["enabled"] or not cfg["bot_token"] or not cfg["chat_id"]:
         return False
 
-    try:
-        url = TELEGRAM_API.format(token=cfg["bot_token"])
-        resp = requests.post(
-            url,
-            json={
-                "chat_id": cfg["chat_id"],
-                "text": message,
-                "parse_mode": parse_mode,
-                "disable_web_page_preview": True,
-            },
-            timeout=10,
-        )
-        if resp.status_code == 200:
-            return True
-        else:
-            logger.warning(
-                "[TELEGRAM] Send failed: %s %s",
-                resp.status_code, _redact_token(resp.text[:200]),
-            )
-            return False
-    except Exception as e:
-        logger.warning("[TELEGRAM] Send error: %s", _redact_token(e))
-        return False
+    if len(message) <= _TELEGRAM_CHUNK_SIZE:
+        return _send_single(cfg, message, parse_mode)
+
+    chunks = [
+        message[i: i + _TELEGRAM_CHUNK_SIZE]
+        for i in range(0, len(message), _TELEGRAM_CHUNK_SIZE)
+    ]
+    total = len(chunks)
+    ok = True
+    for idx, chunk in enumerate(chunks, start=1):
+        tagged = f"{chunk}\n[chunk {idx}/{total}]"
+        if not _send_single(cfg, tagged, parse_mode):
+            ok = False
+    return ok
 
 
 # ── Pre-formatted alert functions ─────────────────────────────────────────
