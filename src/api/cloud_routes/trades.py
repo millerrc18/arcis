@@ -39,22 +39,25 @@ from src.api.cohort_meta import meta_entry
 
 # ── SD#41 / Sprint-3 Task-12c desk-filter helper ───────────────────────────
 
-def _desk_clause(desk: str | None) -> tuple[str, list]:
-    """Return (sql_fragment, params) for injecting into WHERE.
+def _desk_clause(desk: str | None) -> tuple[str, list, str]:
+    """Return (sql_fragment, params, cohort_id) for injecting into WHERE.
 
     Semantics (spec line 1016):
       None / 'swing'     -> swing-only (backward-compat default)
       'all'              -> no desk filter (sums across all desks)
       'research_*'       -> SQL LIKE with wildcard converted to %
+      'live'             -> source='live' filter + cohort_id='trades.live_only'
       exact string       -> equality match
     """
+    if desk == "live":
+        return ("source = %s", ["live"], "trades.live_only")
     if desk is None or desk == "swing":
-        return ("desk = %s", ["swing"])
+        return ("desk = %s", ["swing"], "trades.all_closed")
     if desk == "all":
-        return ("1=1", [])
+        return ("1=1", [], "trades.all_closed")
     if "*" in desk:
-        return ("desk LIKE %s", [desk.replace("*", "%")])
-    return ("desk = %s", [desk])
+        return ("desk LIKE %s", [desk.replace("*", "%")], "trades.all_closed")
+    return ("desk = %s", [desk], "trades.all_closed")
 
 
 # ── SD#41 D1 sharpe-attribution helpers ────────────────────────────────
@@ -153,7 +156,7 @@ def create_router(runtime, verify_auth):
         proxy for current price — no live API call needed.
         Task 12c: accepts optional ?desk= to filter by desk (default swing-only).
         """
-        desk_frag, desk_params = _desk_clause(desk)
+        desk_frag, desk_params, _cohort_id = _desk_clause(desk)
         try:
             rows = runtime.query(
                 "SELECT st.*, r.setup_type, r.market_regime, r.priority_score "
@@ -234,7 +237,7 @@ def create_router(runtime, verify_auth):
     @router.get("/api/shadow/closed", dependencies=[Depends(verify_auth)])
     def shadow_closed(days: int = 30, desk: str | None = Query(None)):
         """Task 12c: accepts optional ?desk= to filter by desk (default swing-only)."""
-        desk_frag, desk_params = _desk_clause(desk)
+        desk_frag, desk_params, _cohort_id = _desk_clause(desk)
         try:
             cutoff = (datetime.now(runtime.et) - timedelta(days=days)).isoformat()
             rows = runtime.query(
@@ -280,7 +283,7 @@ def create_router(runtime, verify_auth):
         IB gate: excess_sharpe >= 0.5 at excess_t_stat >= 2.0 over 150 OOS trades.
         Task 12c: accepts optional ?desk= to filter by desk (default swing-only).
         """
-        desk_frag, desk_params = _desk_clause(desk)
+        desk_frag, desk_params, _cohort_id = _desk_clause(desk)
         try:
             rows = runtime.query(
                 "SELECT pnl_pct, spy_return_over_hold, excess_return "
@@ -301,7 +304,7 @@ def create_router(runtime, verify_auth):
     @router.get("/api/shadow/metrics", dependencies=[Depends(verify_auth)])
     def shadow_metrics(days: int = 30, desk: str | None = Query(None)):
         """Task 12c: accepts optional ?desk= to filter by desk (default swing-only)."""
-        desk_frag, desk_params = _desk_clause(desk)
+        desk_frag, desk_params, cohort_id = _desk_clause(desk)
         try:
             cutoff = (datetime.now(runtime.et) - timedelta(days=days)).isoformat()
             rows = runtime.query(
@@ -311,12 +314,6 @@ def create_router(runtime, verify_auth):
                 f" {outcome_stats_filter_sql()}",
                 (cutoff, *desk_params),
             )
-            # Per spec §2.3: trades.live_only requires SQL filter source='live'.
-            # _desk_clause() filters by `desk` column, not `source` column.
-            # Until a true source='live' filter is wired (Sprint 4 follow-up
-            # #SP4-shadow-metrics-live-cohort), all current desk values map to
-            # trades.all_closed.
-            cohort_id = "trades.all_closed"
             if not rows:
                 return {"total_trades": 0, "_meta": meta_entry(cohort_id, 0)}
 
@@ -475,7 +472,7 @@ def create_router(runtime, verify_auth):
     @router.get("/api/shadow/account", dependencies=[Depends(verify_auth)])
     def shadow_account(desk: str | None = Query(None)):
         """Task 12c: accepts optional ?desk= to filter by desk (default swing-only)."""
-        desk_frag, desk_params = _desk_clause(desk)
+        desk_frag, desk_params, _cohort_id = _desk_clause(desk)
         try:
             # Fix for #266: select same columns as shadow_open for consistent P&L computation
             open_trades = runtime.query(
