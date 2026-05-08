@@ -344,7 +344,13 @@ def notify_overnight_complete(results: dict) -> bool:
     now = datetime.now(ET).strftime("%H:%M ET")
     lines = [f"🌙 <b>OVERNIGHT DATA COLLECTION</b> ({now})"]
     for key, val in results.items():
-        if isinstance(val, str) and "error" in val.lower():
+        if isinstance(val, dict):
+            if not val.get("success", True):
+                err = str(val.get("error", ""))[:60]
+                lines.append(f"  ❌ {key}: {err}" if err else f"  ❌ {key}")
+            else:
+                lines.append(f"  ✅ {key}")
+        elif isinstance(val, str) and "error" in val.lower():
             lines.append(f"  ❌ {key}: {val[:60]}")
         else:
             lines.append(f"  ✅ {key}")
@@ -548,7 +554,7 @@ def notify_premarket_brief(vix: float, vix_change: float, regime: str,
     msg = (
         f"🌅 <b>PRE-MARKET BRIEF</b> ({now})\n\n"
         f"VIX: {vix:.2f} ({vix_change:+.2f}) | Regime: {regime}\n"
-        f"S&amp;P Futures: {spy_futures_pct:+.2f}% | 10Y: {ten_year:.2f}%\n"
+        f"{_html_escape('S&P')} Futures: {spy_futures_pct:+.2f}% | 10Y: {ten_year:.2f}%\n"
         f"Earnings today: {earnings_str}\n"
         f"{events_str}\n\n"
         f"Council consensus: {council_consensus.upper()} ({council_confidence}%)\n"
@@ -729,7 +735,7 @@ def notify_weekly_digest(
         f"  Closed: {closed_paper} paper, {closed_live} live\n"
         f"  Win rate: {win_rate:.0%} | Expectancy: ${expectancy:+.2f}\n"
         f"  Best: {best_ticker} {best_pct:+.1f}% | Worst: {worst_ticker} {worst_pct:+.1f}%\n"
-        f"  P&amp;L: Paper ${pnl_paper:+.2f} | Live ${pnl_live:+.2f}\n\n"
+        f"  {_html_escape('P&L')}: Paper ${pnl_paper:+.2f} | Live ${pnl_live:+.2f}\n\n"
         f"<b>DATA ASSET:</b>\n"
         f"  Training examples: {training_start} → {training_end} (+{training_end - training_start})\n"
         f"  Signal zoo: {signal_start} → {signal_end} (+{signal_end - signal_start})\n"
@@ -792,14 +798,21 @@ def notify_research_papers(total_new: int, top_paper: str, top_score: float) -> 
     return send_telegram(msg)
 
 
+_RESEARCH_DIGEST_SUMMARY_LIMIT = 800
+
+
 def notify_research_digest(papers_count: int, actionable_count: int,
                            digest_summary: str) -> bool:
     """Send weekly research intelligence digest."""
+    if len(digest_summary) > _RESEARCH_DIGEST_SUMMARY_LIMIT:
+        summary_body = digest_summary[:_RESEARCH_DIGEST_SUMMARY_LIMIT] + "\n[truncated; see email digest]"
+    else:
+        summary_body = digest_summary
     msg = (
         f"📚 <b>WEEKLY RESEARCH DIGEST</b>\n\n"
         f"Papers reviewed: {papers_count}\n"
         f"Actionable findings: {actionable_count}\n\n"
-        f"{digest_summary[:800]}"
+        f"{summary_body}"
     )
     return send_telegram(msg)
 
@@ -863,7 +876,9 @@ def notify_action_required(action: str, detail: str, urgency: str = "normal") ->
     urgency: 'low', 'normal', 'high', 'critical'
     """
     icons = {"low": "📋", "normal": "🔔", "high": "⚠️", "critical": "🚨"}
-    icon = icons.get(urgency, "🔔")
+    if urgency not in icons:
+        raise ValueError(f"Unknown urgency '{urgency}'; must be one of {list(icons)}")
+    icon = icons[urgency]
     msg = f"{icon} <b>ACTION REQUIRED</b>\n\n<b>{action}</b>\n{detail}"
     return send_telegram(msg)
 
