@@ -43,6 +43,7 @@ load_dotenv()
 
 from src.config import DB_PATH, load_config
 from src.llm.client import is_llm_available
+from src.notifications import safe_send
 from src.scheduler.handler_registry import HandlerRegistryMixin
 from src.scheduler.scorer import GuardedScorer
 from src.utils.db import connect_db
@@ -686,26 +687,19 @@ class WatchLoop(HandlerRegistryMixin):
         print(f"{'─'*46}\n")
 
         # Send Telegram startup notification
-        try:
-            from src.notifications.telegram import notify_system_event, is_telegram_enabled
-            if is_telegram_enabled():
-                from src.training.versioning import get_active_model_name, get_training_example_counts
-                _tg_model = get_active_model_name()
-                if self.training_enabled:
-                    _tg_counts = get_training_example_counts()
-                    _tg_training = f"enabled ({_tg_counts.get('total', 0)} examples)"
-                else:
-                    _tg_training = "disabled"
-                notify_system_event(
-                    "ARCIS STARTED",
-                    f"Model: {_tg_model}\nMode: {'Overnight' if self.overnight else 'Standard'}\nTraining: {_tg_training}"
-                )
-                print(" Telegram: connected (ok)")
-            else:
-                print(" Telegram: not configured")
-        except Exception as e:
-            logger.warning("[WATCH] Telegram startup notification failed: %s", e)
-            print(" Telegram: not configured")
+        from src.training.versioning import get_active_model_name, get_training_example_counts
+        _tg_model = get_active_model_name()
+        if self.training_enabled:
+            _tg_counts = get_training_example_counts()
+            _tg_training = f"enabled ({_tg_counts.get('total', 0)} examples)"
+        else:
+            _tg_training = "disabled"
+        safe_send(
+            "system_event",
+            event="ARCIS STARTED",
+            detail=f"Model: {_tg_model}\nMode: {'Overnight' if self.overnight else 'Standard'}\nTraining: {_tg_training}",
+        )
+        print(" Telegram: connected (ok)")
 
     def _run_morning_watchlist(self):
         """Execute the morning watchlist pipeline."""
@@ -878,31 +872,23 @@ class WatchLoop(HandlerRegistryMixin):
 
     def _post_scan_notifications(self, result):
         """Send Telegram notifications after a scan cycle."""
-        try:
-            from src.notifications.telegram import notify_scan_complete, is_telegram_enabled
-            if is_telegram_enabled():
-                notify_scan_complete(
-                    packets_count=result.packet_worthy_count,
-                    trades_opened=result.trades_opened,
-                    trades_closed=result.trades_closed,
-                )
-        except Exception as e:
-            logger.warning("[WATCH] notify_scan_complete failed: %s", e)
+        safe_send(
+            "scan_complete",
+            packets_count=result.packet_worthy_count,
+            trades_opened=result.trades_opened,
+            trades_closed=result.trades_closed,
+        )
 
-        try:
-            from src.notifications.telegram import notify_scan_result, is_telegram_enabled
-            if is_telegram_enabled():
-                if not hasattr(self, '_scan_number'):
-                    self._scan_number = 0
-                self._scan_number += 1
-                notify_scan_result(
-                    scan_number=self._scan_number,
-                    total_scanned=result.universe_count,
-                    packet_worthy=result.packet_worthy_count,
-                    watchlist=result.watchlist_count,
-                )
-        except Exception as e:
-            logger.warning("[WATCH] notify_scan_result failed: %s", e)
+        if not hasattr(self, '_scan_number'):
+            self._scan_number = 0
+        self._scan_number += 1
+        safe_send(
+            "scan_result",
+            scan_number=self._scan_number,
+            total_scanned=result.universe_count,
+            packet_worthy=result.packet_worthy_count,
+            watchlist=result.watchlist_count,
+        )
 
         if not self._first_scan_done:
             # Fire-once marker: set BEFORE the notification attempt so that a
@@ -913,30 +899,26 @@ class WatchLoop(HandlerRegistryMixin):
             # succeeded — this flag gates a one-time informational summary, not
             # a task that should retry on failure. (#709 audit: correct-as-is)
             self._first_scan_done = True
-            try:
-                from src.notifications.telegram import notify_first_scan_summary, is_telegram_enabled
-                if is_telegram_enabled():
-                    top_setups = [
-                        (c["ticker"], c["score"]) for c in result.packet_worthy[:3]
-                    ]
-                    setup_type_counts: dict[str, int] = {}
-                    for c in result.packet_worthy:
-                        st = c.get("features", {}).get("setup_type", "unknown")
-                        setup_type_counts[st] = setup_type_counts.get(st, 0) + 1
-                    notify_first_scan_summary(
-                        total_scanned=result.universe_count,
-                        packet_worthy=result.packet_worthy_count,
-                        watchlist=result.watchlist_count,
-                        trades_opened_paper=result.trades_opened,
-                        trades_opened_live=0,
-                        top_setups=top_setups,
-                        setup_type_counts=setup_type_counts,
-                        llm_success=result.packet_worthy_count,
-                        llm_total=result.packet_worthy_count,
-                        llm_fallback=0,
-                    )
-            except Exception as e:
-                logger.warning("[WATCH] notify_first_scan_summary failed: %s", e)
+            top_setups = [
+                (c["ticker"], c["score"]) for c in result.packet_worthy[:3]
+            ]
+            setup_type_counts: dict[str, int] = {}
+            for c in result.packet_worthy:
+                st = c.get("features", {}).get("setup_type", "unknown")
+                setup_type_counts[st] = setup_type_counts.get(st, 0) + 1
+            safe_send(
+                "first_scan_summary",
+                total_scanned=result.universe_count,
+                packet_worthy=result.packet_worthy_count,
+                watchlist=result.watchlist_count,
+                trades_opened_paper=result.trades_opened,
+                trades_opened_live=0,
+                top_setups=top_setups,
+                setup_type_counts=setup_type_counts,
+                llm_success=result.packet_worthy_count,
+                llm_total=result.packet_worthy_count,
+                llm_fallback=0,
+            )
 
     def _record_scan_metrics(self, *, universe_count: int = 0,
                              features_count: int = 0, packet_worthy: int = 0,
@@ -1538,35 +1520,31 @@ class WatchLoop(HandlerRegistryMixin):
                         if self._safe_run("EOD Telegram report", self._send_eod_report):
                             self._eod_report_done = True
                         # ── Telegram: notify_daily_summary (after eod report) ──
-                        try:
-                            from src.notifications.telegram import notify_daily_summary, is_telegram_enabled
-                            if is_telegram_enabled():
-                                with connect_db(DB_PATH) as _conn:
-                                    _conn.row_factory = sqlite3.Row
-                                    _today = datetime.now(ET).strftime("%Y-%m-%d")
-                                    _open = _conn.execute(
-                                        "SELECT COUNT(*) FROM shadow_trades WHERE status='open'"
-                                        " AND COALESCE(quarantined, 0) = 0"
-                                    ).fetchone()[0]
-                                    _closed_today = _conn.execute(
-                                        "SELECT COUNT(*) FROM shadow_trades WHERE status='closed' "
-                                        "AND actual_exit_time LIKE ? AND COALESCE(quarantined, 0) = 0",
-                                        (f"{_today}%",)
-                                    ).fetchone()[0]
-                                    _pnl_row = _conn.execute(
-                                        "SELECT COALESCE(SUM(pnl_dollars),0) FROM shadow_trades "
-                                        "WHERE status='closed' AND actual_exit_time LIKE ?"
-                                        " AND COALESCE(quarantined, 0) = 0",
-                                        (f"{_today}%",)
-                                    ).fetchone()
-                                    _total_pnl = _pnl_row[0] if _pnl_row else 0.0
-                                notify_daily_summary(
-                                    total_pnl=_total_pnl,
-                                    open_trades=_open,
-                                    closed_today=_closed_today,
-                                )
-                        except Exception as e:
-                            logger.warning("[WATCH] notify_daily_summary failed: %s", e)
+                        with connect_db(DB_PATH) as _conn:
+                            _conn.row_factory = sqlite3.Row
+                            _today = datetime.now(ET).strftime("%Y-%m-%d")
+                            _open = _conn.execute(
+                                "SELECT COUNT(*) FROM shadow_trades WHERE status='open'"
+                                " AND COALESCE(quarantined, 0) = 0"
+                            ).fetchone()[0]
+                            _closed_today = _conn.execute(
+                                "SELECT COUNT(*) FROM shadow_trades WHERE status='closed' "
+                                "AND actual_exit_time LIKE ? AND COALESCE(quarantined, 0) = 0",
+                                (f"{_today}%",)
+                            ).fetchone()[0]
+                            _pnl_row = _conn.execute(
+                                "SELECT COALESCE(SUM(pnl_dollars),0) FROM shadow_trades "
+                                "WHERE status='closed' AND actual_exit_time LIKE ?"
+                                " AND COALESCE(quarantined, 0) = 0",
+                                (f"{_today}%",)
+                            ).fetchone()
+                            _total_pnl = _pnl_row[0] if _pnl_row else 0.0
+                        safe_send(
+                            "daily_summary",
+                            total_pnl=_total_pnl,
+                            open_trades=_open,
+                            closed_today=_closed_today,
+                        )
 
                 # 4. Daily audit (4:15 PM ET)
                 elif (hour == 16 and now.minute >= 15 and now.minute < 30
@@ -1575,16 +1553,12 @@ class WatchLoop(HandlerRegistryMixin):
                     if self._safe_run("daily audit", self._run_daily_audit):
                         self._daily_audit_done = True
                     # Send daily scoring summary via Telegram
-                    try:
-                        from src.notifications.telegram import notify_scoring_summary, is_telegram_enabled
-                        if is_telegram_enabled() and self._daily_scored > 0:
-                            with connect_db(DB_PATH) as conn:
-                                backlog = conn.execute(
-                                    "SELECT COUNT(*) FROM training_examples WHERE quality_score_auto IS NULL"
-                                ).fetchone()[0]
-                            notify_scoring_summary(self._daily_scored, backlog)
-                    except Exception as e:
-                        logger.warning("[WATCH] notify_scoring_summary failed: %s", e)
+                    if self._daily_scored > 0:
+                        with connect_db(DB_PATH) as conn:
+                            backlog = conn.execute(
+                                "SELECT COUNT(*) FROM training_examples WHERE quality_score_auto IS NULL"
+                            ).fetchone()[0]
+                        safe_send("scoring_summary", scored_today=self._daily_scored, backlog=backlog)
 
                 # 4b. Daily system validation (4:30 PM ET)
                 # Sprint 0 Wave 2a (DONE-FLAG-A, T9): wrap in _safe_run so the
