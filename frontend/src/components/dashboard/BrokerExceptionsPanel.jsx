@@ -107,7 +107,7 @@ function ExceptionRow({ row }) {
 export default function BrokerExceptionsPanel() {
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['broker-exceptions'],
-    queryFn: _fetchBrokerExceptions,
+    queryFn: () => _fetchBrokerExceptions(),
     refetchInterval: 60000,
   })
 

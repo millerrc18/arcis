@@ -74,7 +74,7 @@ function ItemRow({ item }) {
 export default function PreflightStatusCard() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['preflight-latest'],
-    queryFn: _fetchPreflight,
+    queryFn: () => _fetchPreflight(),
     refetchInterval: 300000,
   })
 

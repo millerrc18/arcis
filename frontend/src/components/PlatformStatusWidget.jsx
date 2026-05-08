@@ -10,7 +10,7 @@ import { getPlatformStrategies } from "../api.js";
 export default function PlatformStatusWidget() {
   const { data: strategies = [], isLoading } = useQuery({
     queryKey: ["platform-strategies"],
-    queryFn: getPlatformStrategies,
+    queryFn: () => getPlatformStrategies(),
   });
 
   if (isLoading) return null;
