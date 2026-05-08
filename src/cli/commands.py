@@ -15,6 +15,8 @@ from src.config import DB_PATH
 from src.utils.db import connect_db
 from src.email.notifier import send_email
 from src.journal.store import initialize_database
+from src.notifications import safe_send
+from src.notifications.telegram import is_telegram_enabled, send_telegram
 from src.packets.template import build_demo_packet
 from src.shadow_trading.exit_reason import coerce_exit_reason
 
@@ -39,8 +41,6 @@ def cmd_send_test_email(args):
 
 
 def cmd_send_test_telegram(args):
-    from src.notifications.telegram import is_telegram_enabled, send_telegram
-
     if not is_telegram_enabled():
         print("Telegram not configured. Add telegram section to config/settings.local.yaml:")
         print("  telegram:")
@@ -1310,22 +1310,18 @@ def _build_startup_result(all_checks, elapsed_ms):
 
 def _notify_startup_telegram(result, args, check_only):
     """Send Telegram notification with startup results."""
-    try:
-        from src.notifications.telegram import notify_startup_complete, is_telegram_enabled
-        force = getattr(args, "force", False)
-        p, w, c = len(result.passed), len(result.warnings), len(result.criticals)
-        if is_telegram_enabled():
-            notify_startup_complete(
-                overall_status=result.overall_status,
-                passed=p, warnings=w, criticals=c,
-                warning_details=[ch.detail for ch in result.warnings[:5]],
-                critical_details=[ch.detail for ch in result.criticals[:5]],
-                launching=(c == 0 or force) and not check_only,
-                email_mode=getattr(args, "email_mode", "digest"),
-                overnight=not getattr(args, "no_overnight", False),
-            )
-    except Exception:
-        pass
+    force = getattr(args, "force", False)
+    p, w, c = len(result.passed), len(result.warnings), len(result.criticals)
+    safe_send(
+        "startup_complete",
+        overall_status=result.overall_status,
+        passed=p, warnings=w, criticals=c,
+        warning_details=[ch.detail for ch in result.warnings[:5]],
+        critical_details=[ch.detail for ch in result.criticals[:5]],
+        launching=(c == 0 or force) and not check_only,
+        email_mode=getattr(args, "email_mode", "digest"),
+        overnight=not getattr(args, "no_overnight", False),
+    )
 
 
 def _startup_decision(result, args, config, check_only):

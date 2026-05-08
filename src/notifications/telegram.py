@@ -66,12 +66,16 @@ escaping special chars that appear frequently in financial data (., -, +).
 
 import logging
 import os
+import socket
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import requests
+import requests.exceptions
+import urllib3.exceptions
 
 from src.config import DB_PATH, load_config
+from src.notifications._config import _get_telegram_config
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -99,21 +103,6 @@ def _redact_token(text) -> str:
     to log. Use in EVERY except-block log call inside this module."""
     s = str(text) if not isinstance(text, str) else text
     return _TELEGRAM_TOKEN_RE.sub("/bot[REDACTED]", s)
-
-
-def _get_telegram_config() -> dict:
-    """Load Telegram config from settings. .env takes precedence over YAML.
-
-    Environment variables override YAML so that Render can set tokens via
-    env vars without touching the config file.
-    """
-    config = load_config()
-    tg = config.get("telegram", {})
-    return {
-        "enabled": tg.get("enabled", False),
-        "bot_token": os.environ.get("TELEGRAM_BOT_TOKEN") or tg.get("bot_token", ""),
-        "chat_id": os.environ.get("TELEGRAM_CHAT_ID") or str(tg.get("chat_id", "")),
-    }
 
 
 def is_telegram_enabled() -> bool:
@@ -1021,6 +1010,118 @@ def notify_trading_stats_update(stats: dict, label: str = "") -> bool:
         "ex-Sharpe shown once ≥10 closed trades in the window.</i>"
     )
     return send_telegram("\n".join(lines))
+
+
+def _record_send_failure(event_type: str, error_msg: str) -> None:
+    """Stub — T15 will implement notifications_sent table write. For T3, no-op + log."""
+    error_msg = _redact_token(error_msg)
+    logger.debug(
+        "[NOTIFICATIONS] dispatch_failed event=%s err=%s (T15 will persist)",
+        event_type, error_msg,
+    )
+
+
+def safe_send(event_type: str, **kwargs) -> bool:
+    """Central dispatcher for notify_* functions.
+
+    Replaces the 25+ try/except Exception call sites that silently swallow
+    NameError + ImportError + network failures alike.
+
+    Design principle: catch ONLY genuine network failures. Let ImportError /
+    NameError / AttributeError propagate so import-time bugs surface at startup,
+    not silently at runtime. (Sprint 4 T2 / overnight.py incident: both a
+    NameError and an ImportError in the alarm path were swallowed for months.)
+
+    Args:
+        event_type: name of the notify_* function to invoke (e.g. "trade_opened",
+                    "scan_complete", "startup_complete"). Mapping to function
+                    happens via explicit dict lookup, NOT getattr/dynamic attribute.
+        **kwargs: passed through to the resolved notify_* function.
+
+    Returns:
+        True if dispatch succeeded; False if disabled or transient network failure.
+
+    Raises:
+        ImportError, NameError, AttributeError, KeyError — propagated. These
+        indicate code-level bugs that must surface at startup.
+
+    SECURITY: `event_type` MUST be a hardcoded string literal at the call site.
+    Never wire it to user input or external request payloads. Pass-through to
+    event_map raises KeyError on typo by design — for an attacker-controlled
+    event_type, that becomes a crash vector inside the watch loop.
+    """
+    if not is_telegram_enabled():
+        return False
+
+    # Explicit dispatch map. New event_types must be registered here.
+    # KeyError on unknown event_type is desirable — it's a typo at the call site.
+    event_map = {
+        # Trade lifecycle
+        "trade_opened": notify_trade_opened,
+        "trade_closed": notify_trade_closed,
+        # Scan & pipeline
+        "scan_complete": notify_scan_complete,
+        "scan_result": notify_scan_result,
+        "first_scan_summary": notify_first_scan_summary,
+        "watchlist": notify_watchlist,
+        "premarket_complete": notify_premarket_complete,
+        "premarket_brief": notify_premarket_brief,
+        # System & risk alerts
+        "risk_alert": notify_risk_alert,
+        "system_event": notify_system_event,
+        "startup_complete": notify_startup_complete,
+        "validation_summary": notify_validation_summary,
+        "collection_failure": notify_collection_failure,
+        "exposure_alert": notify_exposure_alert,
+        "regime_alert": notify_regime_alert,
+        # Overnight & scheduling
+        "overnight_complete": notify_overnight_complete,
+        "overnight_training_complete": notify_overnight_training_complete,
+        "vram_handoff": notify_vram_handoff,
+        "scoring_summary": notify_scoring_summary,
+        "schedule_health": notify_schedule_health,
+        # Periodic reports
+        "daily_summary": notify_daily_summary,
+        "eod_report": notify_eod_report,
+        "data_asset_report": notify_data_asset_report,
+        "weekly_digest": notify_weekly_digest,
+        "retrain_report": notify_retrain_report,
+        "research_papers": notify_research_papers,
+        "research_digest": notify_research_digest,
+        # Milestones & alerts
+        "milestone": notify_milestone,
+        "streak_alert": notify_streak_alert,
+        "earnings_warning": notify_earnings_warning,
+        "position_earnings_warning": notify_position_earnings_warning,
+        "model_event": notify_model_event,
+        # Action reminders
+        "action_required": notify_action_required,
+        # Training & data
+        "trainer_holdout_empty": notify_trainer_holdout_empty,
+        "1min_bar_collection": notify_1min_bar_collection,
+        "attribution_resolve_complete": notify_attribution_resolve_complete,
+        "stress_test_complete": notify_stress_test_complete,
+        "trading_stats_update": notify_trading_stats_update,
+    }
+    notify_fn = event_map[event_type]  # KeyError if unknown — intentional
+
+    try:
+        return notify_fn(**kwargs)
+    except (
+        urllib3.exceptions.HTTPError,
+        requests.exceptions.RequestException,
+        socket.timeout,
+        OSError,  # covers ConnectionError, BrokenPipe, etc.
+    ) as e:
+        # Network failure — log + persist via Group E (T15 wires the actual write)
+        logger.warning(
+            "[NOTIFICATIONS] %s dispatch failed (network): %s",
+            event_type, _redact_token(e),
+        )
+        _record_send_failure(event_type, _redact_token(e))  # stub for T3; real impl in T15
+        return False
+    # Note: NO bare `except Exception` here. ImportError / NameError /
+    # AttributeError propagate to startup-time visibility.
 
 
 # Backward compatibility — remove after all callers are updated

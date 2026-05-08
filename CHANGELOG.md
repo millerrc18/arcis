@@ -1,5 +1,45 @@
 # Changelog
 
+## [Unreleased]
+
+### Sprint 4 — Cockpit Followups + Notification Subsystem (sprint/cockpit-followups-2026-05-07/base)
+
+<!-- T2  --> Fixed two stacked silent-swallow bugs in CUSUM alarm path: (a) renamed `detect_performance_change` → `check_performance_drift` at `src/scheduler/overnight.py:127-128` (ImportError was caught by outer try/except, never reached the inner Telegram code), (b) renamed `send_telegram_message` → `send_telegram` at `src/scheduler/overnight.py:134/149/304/311` (NameError caught by inner try/except). New regression test `tests/notifications/test_overnight_alarm_paths.py` (6 tests) locks both fixes. Without (a), T2's send_telegram fix would have shipped incomplete because the ImportError fires first.
+<!-- T3  --> Added `safe_send(event_type, **kwargs)` central dispatcher to `src/notifications/telegram.py`. Catches ONLY network errors (urllib3.HTTPError, requests.RequestException, socket.timeout, OSError); ImportError/NameError/AttributeError propagate so code-level bugs surface at startup (not silently at runtime). Bot-token redaction applied at BOTH the warning log AND the `_record_send_failure` persistence path (defense-in-depth for T15's notifications_sent table). Re-exported from `src/notifications/__init__.py`. T15 will wire the `_record_send_failure` stub to the `notifications_sent` table; T4 will migrate the 25+ caller sites from try/except Exception to safe_send.
+<!-- T4a --> Migrated try/except Exception caller pattern to safe_send wrapper at src/scheduler/{watch,reports,watch_handlers,overnight}.py. ImportError on notify_X functions now propagates to startup; only network errors are caught. Part of Group A.3 16-file migration (T4a scheduler track).
+<!-- T4b --> Migrated 13 notification call sites across `src/services/scan_service.py` and `src/shadow_trading/executor.py` from the `try { import notify_X + is_telegram_enabled() check } except Exception` pattern to one-line `safe_send(event_type, **kwargs)`. scan_service.py: 1 site (`trade_opened` on shadow trade open). executor.py: 12 sites — `trade_closed`, `risk_alert` × 2 (live capital guard + daily loss limit), `trade_opened` (live trade), `milestone` × 7 (open/close/streak milestones in helper functions), `streak_alert`, `exposure_alert`. Redundant inline `send_telegram` imports at 8 executor.py sites eliminated (module-level import already present). `safe_send` also hoisted to module-level import in scan_service.py. Post-fix: 0 `try:.*from src.notifications` matches in all 4 scope files.
+<!-- T4c --> Migrated 4 training+risk notify call sites to `safe_send`: `training/canary.py` (_send_alert → `model_event`), `training/ingestion_gate.py` (alert_training_halt → `system_event`), `training/trainer.py` (holdout-empty → `trainer_holdout_empty`), `risk/governor.py` (governor-disabled → `system_event`). Eliminates silent swallow of ImportError/NameError at each call site.
+<!-- T4d --> Migrated remaining `try/except Exception` notification patterns to `safe_send`: `research_synthesizer.py` (1 site — `send_telegram` direct call → `safe_send("research_digest", ...)`), `cli/commands.py` (1 site — `_notify_startup_telegram` → `safe_send("startup_complete", ...)`), `cloud_routes/platform.py` (3 sites — outer `try/except Exception` wrappers removed from `notify_backtest_complete`, `notify_strategy_promoted`, `notify_strategy_demoted` calls; platform_events functions retain their own internal error handling). `auditor.py` confirmed 0 notification patterns via GREP (no-op).
+<!-- T5  --> Fixed I10 — relocated lazy `from src.notifications import safe_send` imports from function bodies to module-level in `src/cli/commands.py`. ImportError now surfaces at process startup, not at first command-execution hit. New regression test `tests/cli/test_commands_imports.py` (NEW, +2 tests) AST-walks the module to lock no-lazy-imports invariant.
+<!-- T6  --> Fixed I12: `check_action_reminders` at src/notifications/telegram_commands.py now uses per-check try/except (5 independent reminder checks). Previously a function-wide bare `except Exception` aborted all 5 if any raised — including operator-action-required reminders (API key rotation, phase-gate milestone, retrain-overdue alert). Fixed CC2: consolidated duplicate `_get_telegram_config` (telegram.py:104 + telegram_commands.py:32) into shared `src/notifications/_config.py` (NEW). Both modules import from the new module. Regression test `tests/notifications/test_check_action_reminders_isolation.py` (NEW) locks both fixes.
+<!-- T7  --> Added cloud-req fast-lane AST guardrail (`tests/test_cloud_requirements_imports.py` + `scripts/check_cloud_deploy_imports.py`) preventing the recurring cloud-deploy import drift bug class (jsonschema -> numpy -> requests -> scipy — Sprint 3 #1007 was 4th recurrence). PR-time check; sub-second runtime; walks src/api/cloud_app.py import graph transitively through all of src/, validating each top-level package is stdlib or present in requirements-cloud.txt. Catches all 4 historical IMPORT-statement recurrences (jsonschema, numpy, requests, scipy) including deep-transitive ones (jsonschema lives at src/platform/capability_registry/schemas.py, two hops outside src/api/). Note: tzdata (5th recurrence, surfaced by T8 slow-lane) loads via `zoneinfo.ZoneInfo()` runtime string lookup — out of AST walker design scope; T8 slow-lane is the detection vector for that class. T8 slow-lane provides defense-in-depth via venv subprocess.
+<!-- T8  --> Added cloud-req slow-lane venv subprocess test (`tests/test_cloud_requirements_imports.py` extension) + tzdata to requirements-cloud.txt (5th recurrence of cloud-deploy import drift bug class — `zoneinfo.ZoneInfo('America/New_York')` fails on Windows clean venv without OS tzdata; masked on Linux Render). T8 revision adds: subprocess child-kill on timeout (`_run_or_kill` helper), PyPI-offline skip guard (`has_pypi_network` fixture), configurable timeouts via env vars (`CLOUD_REQ_PIP_TIMEOUT`, `CLOUD_REQ_IMPORT_TIMEOUT`), and pytest slow-marker registration (`pytest.ini`). Marked `@pytest.mark.slow`; creates temp venv, installs ONLY requirements-cloud.txt, asserts `from src.api.cloud_app import app` succeeds. Synthetic regression-lock asserts missing scipy raises ModuleNotFoundError. Defense-in-depth complement to T7 fast-lane AST walker; informational/CI-only — does NOT block PR merge.
+<!-- T9  --> *placeholder cockpit-#1 shadow_metrics live cohort*
+<!-- T10 --> *placeholder cockpit-#2 /api/status open_positions cohort*
+<!-- T11a --> *placeholder cockpit-#8a backend total_pnl_dollars*
+<!-- T11b --> *placeholder Group-B email subsystem hardening*
+<!-- T12 --> *placeholder cockpit-#8b KPIStrip P&L card*
+<!-- T13a --> *placeholder Group-C chunked send + html_escape*
+<!-- T13b --> *placeholder Group-C notify_* updates*
+<!-- T13c --> *placeholder Group-C finnhub I15 + I11 urgency*
+<!-- T14 --> Registered `notifications_sent` (id INTEGER PK + event_type, channel ['telegram'|'email'], recipient, sent_at, status ['ok'|'failed'|'dropped'|'heartbeat'], retry_count, error_msg + index on (event_type, sent_at DESC)) and `notifications_dedup` (id INTEGER PK + UNIQUE(event_type, dedup_key) + sent_at) tables in `src/schema/registry.py` per CLAUDE.md schema-rules-mandatory. Schema-only — T15 (Batch 4) wires the write hooks; retention policy deferred to Sprint 5 follow-up `#SP5-notifications-retention`. EXPECTED_TABLE_COUNT bumped 68→72 in `tests/test_schema.py`; +5 schema-shape tests covering column types, nullability, indexes, and UNIQUE constraint.
+<!-- T15a --> *placeholder Group-E.B dedup migration*
+<!-- T15b --> *placeholder Group-E.B write hooks + /api/notifications/health*
+<!-- T15c --> *placeholder Group-E.B NotificationsHealthPanel + operator-guide NSSM warning*
+<!-- T16 --> *placeholder cockpit-#7 bare queryFn + ESLint extension*
+<!-- T17a --> *placeholder cockpit-#3 calmar cto_report+engine*
+<!-- T17b --> *placeholder cockpit-#3 calmar backtester+platform/metrics+allowlist empty*
+<!-- T18a --> *placeholder cockpit-#4 LiveLedger sign*
+<!-- T18b --> *placeholder cockpit-#4 ShadowLedger 3 sites*
+<!-- T18c --> *placeholder cockpit-#4 TradeHistory sign*
+<!-- T19 --> *placeholder cockpit-#5+#6 reconciliation extensions*
+<!-- T20 --> *placeholder mid-W2 visual-verify checkpoint*
+<!-- T21a --> *placeholder Group-F coverage extensions*
+<!-- T21b --> *placeholder Group-F typed council + dataclass payloads*
+<!-- T21c --> *placeholder Group-F operator-guide + telegram-commands docs*
+<!-- T22  --> *placeholder Group-D router/policy/digest (if dispatched)*
+<!-- T23 --> *placeholder sprint closeout — visual-verify gate + WON'T-FIX note + test count*
+
 ## [Unreleased] — Sprint 3 Cockpit Coherence (2026-05-07)
 
 ### Group E — Correctness bugs (5 fixes)

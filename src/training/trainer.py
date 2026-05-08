@@ -38,6 +38,7 @@ from zoneinfo import ZoneInfo
 from src.config import DB_PATH, load_config
 from src.utils.db import connect_db
 from src.methods.promotion_gate import promotion_gate
+from src.notifications import safe_send
 from src.training.versioning import (
     get_active_model_version,
     get_next_semver,
@@ -545,18 +546,12 @@ def export_training_data(
             "5-day gap pushed holdout past end of corpus. Model evaluation BLOCKED.",
             most_recent, days_stale,
         )
-        try:
-            from src.notifications.telegram import (
-                notify_trainer_holdout_empty, is_telegram_enabled,
-            )
-            if is_telegram_enabled():
-                notify_trainer_holdout_empty(
-                    train_count=len(train_examples),
-                    most_recent_date=most_recent,
-                    days_stale=days_stale,
-                )
-        except Exception as exc:
-            logger.debug("[TRAINER] holdout-empty Telegram alert failed: %s", exc)
+        safe_send(
+            "trainer_holdout_empty",
+            train_count=len(train_examples),
+            most_recent_date=most_recent,
+            days_stale=days_stale,
+        )
 
     def _write_jsonl(path, exs):
         with open(path, "w") as f:

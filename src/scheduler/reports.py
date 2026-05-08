@@ -16,6 +16,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.notifications import safe_send
 from src.utils.db import connect_db
 from src.shadow_trading._status_sql import (
     active_in_clause,
@@ -160,15 +161,9 @@ def run_morning_watchlist(config: dict, email_mode: str = "digest"):
         pass  # Handled by scheduled pre-market digest
 
     # Telegram watchlist notification — send packet-worthy (high-conviction) names
-    try:
-        from src.notifications.telegram import notify_watchlist, is_telegram_enabled
-        if is_telegram_enabled():
-            pw_tickers = [c["ticker"] for c in candidates.get("packet_worthy", [])]
-            wl_count = len(candidates.get("watchlist", []))
-            notify_watchlist(pw_tickers[:5], len(pw_tickers),
-                             watchlist_count=wl_count)
-    except Exception as e:
-        logger.warning("[WATCH] notify_watchlist failed: %s", e)
+    pw_tickers = [c["ticker"] for c in candidates.get("packet_worthy", [])]
+    wl_count = len(candidates.get("watchlist", []))
+    safe_send("watchlist", tickers=pw_tickers[:5], count=len(pw_tickers), watchlist_count=wl_count)
 
 
 # ── 1. Saturday Reports ─────────────────────────────────────────────
@@ -187,46 +182,40 @@ def run_saturday_reports():
     print("[WATCH] Training report email sent.")
 
     # ── Telegram: notify_retrain_report ──
+    from src.training.versioning import get_active_model_name, get_training_example_counts
+    model_name = get_active_model_name()
+    counts = get_training_example_counts()
+    _retrain_total = counts.get("total", 0)
     try:
-        from src.notifications.telegram import notify_retrain_report, is_telegram_enabled
-        from src.training.versioning import get_active_model_name, get_training_example_counts
-        if is_telegram_enabled():
-            model_name = get_active_model_name()
-            counts = get_training_example_counts()
-            # Compute week-over-week training metrics
-            _retrain_total = counts.get("total", 0)
-            try:
-                from datetime import timedelta as _td
-                with connect_db(DB_PATH) as _rc:
-                    _week_ago = (datetime.now(ET) - _td(days=7)).isoformat()
-                    _new_wk = _rc.execute(
-                        "SELECT COUNT(*) FROM training_examples WHERE created_at > ?",
-                        (_week_ago,)
-                    ).fetchone()[0]
-                    _new_paper = _rc.execute(
-                        "SELECT COUNT(*) FROM training_examples WHERE created_at > ? AND source LIKE '%paper%'",
-                        (_week_ago,)
-                    ).fetchone()[0]
-            except Exception:
-                _new_wk = 0
-                _new_paper = 0
-
-            notify_retrain_report(
-                model_name=model_name,
-                training_examples=_retrain_total,
-                prev_examples=_retrain_total - _new_wk,
-                new_this_week=_new_wk,
-                new_paper=_new_paper,
-                new_live=0,
-                canary_status="STABLE",
-                perplexity=0.0,
-                prev_perplexity=0.0,
-                distinct2=0.0,
-                prev_distinct2=0.0,
-                champion_challenger="N/A",
-            )
-    except Exception as e:
-        logger.warning("[WATCH] notify_retrain_report failed: %s", e)
+        from datetime import timedelta as _td
+        with connect_db(DB_PATH) as _rc:
+            _week_ago = (datetime.now(ET) - _td(days=7)).isoformat()
+            _new_wk = _rc.execute(
+                "SELECT COUNT(*) FROM training_examples WHERE created_at > ?",
+                (_week_ago,)
+            ).fetchone()[0]
+            _new_paper = _rc.execute(
+                "SELECT COUNT(*) FROM training_examples WHERE created_at > ? AND source LIKE '%paper%'",
+                (_week_ago,)
+            ).fetchone()[0]
+    except Exception:
+        _new_wk = 0
+        _new_paper = 0
+    safe_send(
+        "retrain_report",
+        model_name=model_name,
+        training_examples=_retrain_total,
+        prev_examples=_retrain_total - _new_wk,
+        new_this_week=_new_wk,
+        new_paper=_new_paper,
+        new_live=0,
+        canary_status="STABLE",
+        perplexity=0.0,
+        prev_perplexity=0.0,
+        distinct2=0.0,
+        prev_distinct2=0.0,
+        champion_challenger="N/A",
+    )
 
     # Weekly deep audit
     try:
@@ -928,17 +917,13 @@ def save_daily_metric_snapshot(db_path: str = DB_PATH):
         )
 
         # ── Telegram: notify_schedule_health (daily metric check) ──
-        try:
-            from src.notifications.telegram import notify_schedule_health, is_telegram_enabled
-            if is_telegram_enabled():
-                health = _collect_schedule_health(DB_PATH)
-                notify_schedule_health(
-                    gpu_util=float(health["gpu_util"]),
-                    scan_delay_max=float(health["scan_delay_max"]),
-                    handoff_ok=bool(health["handoff_ok"]),
-                    temp_max=int(health["temp_max"]),
-                )
-        except Exception as e:
-            logger.warning("[WATCH] notify_schedule_health failed: %s", e)
+        health = _collect_schedule_health(DB_PATH)
+        safe_send(
+            "schedule_health",
+            gpu_util=float(health["gpu_util"]),
+            scan_delay_max=float(health["scan_delay_max"]),
+            handoff_ok=bool(health["handoff_ok"]),
+            temp_max=int(health["temp_max"]),
+        )
     except Exception as e:
         logger.debug("[METRICS] Daily snapshot failed: %s", e)

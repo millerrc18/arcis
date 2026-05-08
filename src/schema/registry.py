@@ -2493,3 +2493,57 @@ _register(TableDef(
     sync_conflict_col="ticker",
     sync_reconcile=True,
 ))
+
+# ---------------------------------------------------------------------------
+# Notifications (2 tables) — Sprint 4 T14
+# ---------------------------------------------------------------------------
+
+# notifications_sent: Dispatch outcome log for every notification attempt.
+# Written by: src/notifications/telegram.py _record_send_failure (T15 wires stub).
+# Read by: cockpit health panel + retry policy (T15).
+# Schema-only registration; write hooks wired in T15.
+_register(TableDef(
+    name="notifications_sent",
+    description="Sprint 4 T14: notifications dispatch outcome log. Used by cockpit health panel + retry policy. channel constrained to 'telegram' | 'email'. status constrained to 'ok' | 'failed' | 'dropped' | 'heartbeat'.",
+    columns=[
+        ColumnDef("id", "INTEGER", nullable=False),
+        ColumnDef("event_type", "TEXT", nullable=False, description="Event identifier (e.g., trade_opened, cusum_alarm, leakage_alert)."),
+        ColumnDef("channel", "TEXT", nullable=False, description="Dispatch channel: 'telegram' or 'email'."),
+        ColumnDef("recipient", "TEXT", nullable=True, description="Recipient address or chat_id (nullable for broadcast)."),
+        ColumnDef("sent_at", "TEXT", nullable=False, description="ISO timestamp of dispatch attempt."),
+        ColumnDef("status", "TEXT", nullable=False, description="Outcome: 'ok' | 'failed' | 'dropped' | 'heartbeat'."),
+        ColumnDef("retry_count", "INTEGER", nullable=False, default="0", description="Retry attempts to date."),
+        ColumnDef("error_msg", "TEXT", nullable=True, description="Redacted error message when status='failed'."),
+    ],
+    primary_key="id",
+    indexes=[
+        IndexDef("idx_notifications_sent_event_recent", ["event_type", "sent_at DESC"]),
+    ],
+    sync_to_postgres=False,
+    sync_mode="incremental",
+    sync_time_column="sent_at",
+    sync_pk="id",
+))
+
+# notifications_dedup: Deduplication cache for notification dispatch.
+# Enforces that the same (event_type, dedup_key) pair is never sent twice.
+# Written by: src/notifications/telegram.py (T15 wires dedup logic).
+# Schema-only registration; write hooks wired in T15.
+_register(TableDef(
+    name="notifications_dedup",
+    description="Sprint 4 T14: notification deduplication cache. UNIQUE on (event_type, dedup_key) prevents duplicate sends. Write hooks wired in T15.",
+    columns=[
+        ColumnDef("id", "INTEGER", nullable=False),
+        ColumnDef("event_type", "TEXT", nullable=False, description="Event identifier matching notifications_sent.event_type."),
+        ColumnDef("dedup_key", "TEXT", nullable=False, description="Deduplication key (e.g., trade_id+date, alert hash)."),
+        ColumnDef("sent_at", "TEXT", nullable=False, description="ISO timestamp when notification was first sent."),
+    ],
+    primary_key="id",
+    indexes=[
+        IndexDef("idx_notifications_dedup_unique", ["event_type", "dedup_key"], unique=True),
+    ],
+    sync_to_postgres=False,
+    sync_mode="incremental",
+    sync_time_column="sent_at",
+    sync_pk="id",
+))

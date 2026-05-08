@@ -23,3 +23,12 @@ requests>=2.31,<3.0
 # on startup with ModuleNotFoundError. Fourth recurrence of this bug class
 # (jsonschema → numpy → requests → scipy).
 scipy>=1.11,<2.0
+# tzdata — required transitively by src.scheduler.holidays + various date logic
+# via zoneinfo.ZoneInfo('America/New_York'). Linux Render uses OS tzdata from
+# /usr/share/zoneinfo so the gap was masked in production; surfaces on Windows
+# clean venv. Sprint 4 T8 caught this — 5th recurrence of the cloud-deploy
+# import drift bug class. NOTE: T7's fast-lane AST walker did NOT catch this
+# because zoneinfo loads tzdata via runtime string lookup, not an import
+# statement (out of T7's design scope). T8 slow-lane venv subprocess was the
+# detection vector.
+tzdata>=2024.1,<2026

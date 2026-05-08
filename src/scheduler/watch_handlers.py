@@ -24,6 +24,8 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from src.notifications import safe_send
+
 if TYPE_CHECKING:
     from src.scheduler.watch import WatchLoop
 
@@ -194,19 +196,13 @@ def maybe_premarket_candidates(watch: "WatchLoop", now: datetime) -> None:
 
 def _notify_premarket_complete(watch: "WatchLoop") -> None:
     """Telegram ping after the 4 pre-market tasks finish — best-effort, swallows errors."""
-    try:
-        from src.notifications.telegram import (
-            notify_premarket_complete, is_telegram_enabled,
-        )
-        if is_telegram_enabled():
-            notify_premarket_complete(
-                features_done=watch._premarket_features_done,
-                training_gen=0,
-                news_scored=0,
-                candidates=0,
-            )
-    except Exception as exc:
-        logger.warning("[WATCH] notify_premarket_complete failed: %s", exc)
+    safe_send(
+        "premarket_complete",
+        features_done=watch._premarket_features_done,
+        training_gen=0,
+        news_scored=0,
+        candidates=0,
+    )
 
 
 # ── Market-hours / daytime pulses ──────────────────────────────────────
