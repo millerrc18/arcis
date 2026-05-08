@@ -720,7 +720,24 @@ def enhance_packet_with_llm(packet: TradePacket, features: dict,
 
     Returns:
         The packet, potentially with enhanced why_now and deeper_analysis.
+        Returns None when the input packet is None (defensive — see #52 below).
     """
+    # Defensive: build_packet_from_features (src/packets/template.py:177)
+    # legitimately returns None for tickers with current_price <= 0 (#621).
+    # Callers should guard with `if packet is None: continue` before invoking
+    # this function, but a missed caller would crash the surrounding scan loop
+    # with `'NoneType' object has no attribute 'llm_conviction_parse_failed'`
+    # at line 729 below. Belt-and-suspenders: short-circuit here so a missed
+    # caller fails closed (skip ticker) instead of crashing the entire scan.
+    # Tracked as task #52 — packet_writer fallback bug.
+    if packet is None:
+        logger.warning(
+            "[LLM] enhance_packet_with_llm received packet=None; upstream "
+            "build_packet_from_features rejected the ticker (#621). Returning "
+            "None — caller must skip this ticker."
+        )
+        return None
+
     llm_cfg = config.get("llm", {})
     if not llm_cfg.get("enabled", False):
         logger.info("[LLM] Disabled in config — fallback to template for %s", packet.ticker)

@@ -267,6 +267,13 @@ def run_scan(
         else:
             packet = build_packet_from_features(ticker, feat, config, strategy=strategy)
 
+        # #621 / task #52: build_packet_from_features returns None for tickers
+        # with current_price <= 0 (silent feature-fetch failure). Skip the ticker
+        # rather than crash the pullback scan via NoneType in enhance_packet_with_llm.
+        if packet is None:
+            logger.warning("[SCAN] Skipping %s — build_packet_from_features returned None (current_price invalid)", ticker)
+            continue
+
         # Sprint 2 K: pre-LLM BP check. Skip Ollama for un-fundable packets.
         # Defensive on packets that lack position_sizing (test mocks).
         _ps = getattr(packet, "position_sizing", None)
