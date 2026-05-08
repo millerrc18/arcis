@@ -80,3 +80,40 @@ def test_chunked_send_returns_false_on_failure():
             result = send_telegram(long_msg)
 
     assert result is False
+
+
+# Fix 3 — plaintext fallback when HTML chunking returns 400
+def test_chunked_send_html_400_falls_back_to_plaintext():
+    """Fix 3: 5000-char HTML message where chunk-mode returns 400 → retries all chunks as plaintext."""
+    # Body with an HTML tag that could straddle the boundary
+    long_msg = "X" * 3990 + "<b>tag spans</b>" + "Y" * 1000
+
+    ok_resp = _mock_response(200)
+    fail_resp = _mock_response(400)
+
+    # First HTML chunk → 400; plaintext retry → 200
+    responses = [fail_resp, ok_resp, ok_resp]
+    response_iter = iter(responses)
+
+    def side_effect(*args, **kwargs):
+        return next(response_iter)
+
+    with patch("src.notifications.telegram._get_telegram_config", return_value=_make_cfg()):
+        with patch("requests.post", side_effect=side_effect) as mock_post:
+            from src.notifications.telegram import send_telegram
+            result = send_telegram(long_msg)
+
+    assert result is True
+    # Should have tried HTML first (failed), then retried both chunks as plaintext
+    assert mock_post.call_count == 3
+
+    # First call was HTML (parse_mode="HTML")
+    first_kwargs = mock_post.call_args_list[0][1]["json"]
+    assert first_kwargs["parse_mode"] == "HTML"
+
+    # Subsequent calls (plaintext retry) must have parse_mode=None or absent
+    second_kwargs = mock_post.call_args_list[1][1]["json"]
+    assert second_kwargs.get("parse_mode") is None
+
+    third_kwargs = mock_post.call_args_list[2][1]["json"]
+    assert third_kwargs.get("parse_mode") is None
