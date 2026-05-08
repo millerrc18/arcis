@@ -353,6 +353,13 @@ def _clean_env() -> dict:
     for key in ("SYSTEMROOT", "SYSTEMDRIVE", "TEMP", "TMP", "HOMEDRIVE", "HOMEPATH"):
         if key in os.environ:
             env[key] = os.environ[key]
+    # cloud_app validates DATABASE_URL/ARCIS_DB_PATH at import time
+    # (src/config/__init__.py) — set a fake DATABASE_URL so the import-graph
+    # check works hermetically without exposing real DB connections. Sprint 4
+    # PR #1020 review surfaced this gap when the test was run with no env
+    # vars set at all and the import raised RuntimeError before pytest could
+    # observe ModuleNotFoundError-class failures (the actual test target).
+    env["DATABASE_URL"] = "postgresql://fake:fake@localhost:5432/fake"
     return env
 
 

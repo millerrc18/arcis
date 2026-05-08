@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Sprint 4 Wave 1 hotfix — urllib3 + DATABASE_URL test fixture
+
+- **urllib3 added to requirements-cloud.txt** (6th recurrence of cloud-deploy import drift bug class). Sprint 4 T3 added `import urllib3.exceptions` to `src/notifications/telegram.py` for the `safe_send` network-error catch list. T7 fast-lane AST walker correctly flagged this as reachable from `cloud_app` via `cloud_routes/platform.py → notifications/telegram.py` but missing from `requirements-cloud.txt`. urllib3 ships transitively via requests today; declaring explicitly per defensive policy. Walker package count: 53 → 54.
+- **DATABASE_URL fixture in `_clean_env()`**: `tests/test_cloud_requirements_imports.py::TestSlowLaneVenvImport` strips env vars for hermeticity but `cloud_app` validates `DATABASE_URL`/`ARCIS_DB_PATH` at import time (`src/config/__init__.py:65`). Subprocess env now sets `DATABASE_URL=postgresql://fake:fake@localhost:5432/fake` so the slow-lane import-graph check works without exposing the underlying RuntimeError before pytest can observe `ModuleNotFoundError` failures (the actual test target). Both flagged by Sprint 4 PR #1020 review.
+
 ### Sprint 4 — Cockpit Followups + Notification Subsystem (sprint/cockpit-followups-2026-05-07/base)
 
 <!-- T2  --> Fixed two stacked silent-swallow bugs in CUSUM alarm path: (a) renamed `detect_performance_change` → `check_performance_drift` at `src/scheduler/overnight.py:127-128` (ImportError was caught by outer try/except, never reached the inner Telegram code), (b) renamed `send_telegram_message` → `send_telegram` at `src/scheduler/overnight.py:134/149/304/311` (NameError caught by inner try/except). New regression test `tests/notifications/test_overnight_alarm_paths.py` (6 tests) locks both fixes. Without (a), T2's send_telegram fix would have shipped incomplete because the ImportError fires first.
