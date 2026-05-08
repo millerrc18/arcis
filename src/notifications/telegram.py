@@ -75,6 +75,7 @@ import requests.exceptions
 import urllib3.exceptions
 
 from src.config import DB_PATH, load_config
+from src.data_ingestion.finnhub import normalize_earnings_time
 from src.notifications._config import _get_telegram_config
 
 logger = logging.getLogger(__name__)
@@ -854,9 +855,7 @@ def notify_position_earnings_warning(ticker: str, days_until: int,
                                      current_pnl: float, current_pnl_pct: float,
                                      expected_move_pct: float | None = None) -> bool:
     """Alert: open position has earnings within 3 trading days."""
-    time_label = "BMO" if earnings_time and "before" in earnings_time.lower() else (
-        "AMC" if earnings_time and "after" in earnings_time.lower() else earnings_time or "TBD"
-    )
+    time_label = normalize_earnings_time(earnings_time)
     msg = (
         f"📅 <b>EARNINGS WARNING: You hold {ticker}</b>\n\n"
         f"Earnings in {days_until} days ({earnings_date} {time_label})\n"
