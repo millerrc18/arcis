@@ -1,6 +1,8 @@
-"""B3 CI dashboard reconciliation test -- SQLite-only, cohort-aware.
+"""B3 CI dashboard reconciliation test -- SQLite + Postgres parametrized.
 
-Sprint 3 cockpit-coherence Task T16.
+Sprint 3 cockpit-coherence Task T16 (SQLite-only baseline).
+Sprint 4 T19a extends: postgres_session fixture parametrizes the mock-runtime
+tests so both DB backends are exercised when TEST_DATABASE_URL is set.
 
 Verifies:
 1. All 5 main endpoints emit a _meta envelope.
@@ -9,8 +11,11 @@ Verifies:
 3. Open-position count reconciles between /api/status and /api/live/summary.
 4. meta_entry('bogus', 0) raises KeyError (negative test).
 
-Postgres validation explicitly OUT OF SCOPE (Sprint 4 follow-up
-#SP4-render-pg-reconcile). All fixtures are SQLite-backed or mock-only.
+Postgres parametrize variant: runs only when TEST_DATABASE_URL env var is set;
+otherwise SKIPPED (not FAILED). DATABASE_URL is intentionally NOT honored —
+the operator's .env points at production Render Postgres and CLAUDE.md
+forbids tests touching prod. Test count is stable across environments
+(#SP4-render-pg-reconcile).
 """
 from __future__ import annotations
 
@@ -260,3 +265,39 @@ def test_invalid_cohort_id_rejected():
 
     with pytest.raises(KeyError):
         meta_entry("bogus", 0)
+
+
+# -- Test 5: Postgres parametrize (T19a) ---------------------------------------
+
+@pytest.mark.parametrize("db_backend", ["sqlite", "postgres"])
+def test_all_endpoints_emit_meta_parametrized(db_backend, request):
+    """Parametrized variant of test_all_endpoints_emit_meta against both backends.
+
+    SQLite path uses the same mock-runtime fixture as the original T16 tests.
+    Postgres path requests `postgres_session` lazily via `request.getfixturevalue`
+    so the sqlite variant runs unconditionally and the postgres variant skips
+    cleanly when `TEST_DATABASE_URL` is not set.
+
+    SAFETY: the postgres path reads ONLY `TEST_DATABASE_URL`, never `DATABASE_URL`.
+    Operator's `.env` puts production Render `DATABASE_URL` on the path
+    (load_dotenv walks up from worktrees), and CLAUDE.md "Tests must NEVER write
+    to the prod DB" forbids using it for tests.
+    """
+    if db_backend == "postgres":
+        postgres_session = request.getfixturevalue("postgres_session")
+        assert postgres_session is not None, "postgres_session fixture must yield a connection"
+
+    runtime = _make_runtime()
+    client = _make_client(runtime)
+
+    for endpoint in _ENDPOINTS_WITH_META:
+        resp = client.get(endpoint)
+        assert resp.status_code == 200, (
+            f"[{db_backend}] Expected 200 from {endpoint}, "
+            f"got {resp.status_code}: {resp.text[:300]}"
+        )
+        data = resp.json()
+        assert "_meta" in data, (
+            f"[{db_backend}] Endpoint {endpoint} must emit a _meta envelope. "
+            f"Response keys: {list(data.keys())}"
+        )

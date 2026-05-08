@@ -9,6 +9,7 @@ deferred imports inside alpaca_adapter.py resolve to mocks without
 requiring the alpaca-py SDK at test time.
 """
 
+import os
 import sqlite3
 import sys
 import types
@@ -174,3 +175,39 @@ def schema_db(tmp_path):
     path = str(tmp_path / "test.db")
     init_test_db(path)
     return path
+
+
+@pytest.fixture(scope="function")
+def postgres_session():
+    """Postgres session fixture for parametrized reconciliation tests.
+
+    Yields a connection-like object whose .execute() delegates to psycopg2.
+    Scoped to function (not session) to isolate state per test, per
+    reviewer item #12.
+
+    SAFETY: reads ONLY `TEST_DATABASE_URL`, never `DATABASE_URL`. The
+    operator's `.env` puts production Render `DATABASE_URL` on the path
+    (load_dotenv walks up from worktrees), and CLAUDE.md "Tests must NEVER
+    write to the prod DB" forbids using it for tests. Operator must
+    explicitly opt-in by setting `TEST_DATABASE_URL` to a separate
+    test/staging Postgres URL.
+
+    SKIP GUARD: parametrize decorator in test_dashboard_reconciliation.py
+    uses pytest.mark.skipif(not os.environ.get('TEST_DATABASE_URL'), ...)
+    at collection time so the skip fires before the fixture body runs.
+    When TEST_DATABASE_URL is absent the postgres parametrize variant is
+    SKIPPED (not FAILED) — total test count is stable across environments.
+    """
+    import psycopg2
+    import psycopg2.extras
+
+    test_database_url = os.environ.get("TEST_DATABASE_URL")
+    if not test_database_url:
+        pytest.skip("TEST_DATABASE_URL not set; postgres fixture cannot run")
+    conn = psycopg2.connect(test_database_url, cursor_factory=psycopg2.extras.RealDictCursor)
+    conn.autocommit = False
+    try:
+        yield conn
+    finally:
+        conn.rollback()
+        conn.close()
