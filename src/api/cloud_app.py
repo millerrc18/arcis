@@ -51,6 +51,7 @@ from src.api.cloud_routes import platform as _platform_module
 from src.api.cloud_routes import kpis as kpis_route
 from src.api.cloud_routes import broker_exceptions as broker_exceptions_route
 from src.api.cloud_routes import preflight as preflight_route
+from src.api.cloud_routes import notifications as _notifications_module
 from src.sync.render_sync import SYNC_TABLES
 
 # Populate the four capability registries via decorator side-effects (#807, dashboard Tier 1.B).
@@ -336,3 +337,6 @@ app.include_router(_platform_module.router)
 from src.api.cloud_routes import walkforward as _walkforward_module  # noqa: E402
 app.dependency_overrides[_walkforward_module.verify_auth] = verify_auth
 app.include_router(_walkforward_module.router)
+
+# T15b — notifications health endpoint (no auth required — read-only observability)
+app.include_router(_notifications_module.router, prefix="/api")

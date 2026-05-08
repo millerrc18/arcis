@@ -20,6 +20,40 @@ logger = logging.getLogger(__name__)
 _TELEGRAM_BODY_LIMIT = 400
 
 
+def _write_notification_sent(
+    event_type: str,
+    channel: str,
+    status: str,
+    error_msg: str | None = None,
+    recipient: str | None = None,
+    conn=None,
+) -> None:
+    """Persist an email dispatch outcome to notifications_sent. Silent on DB error."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    _own_conn = conn is None
+    try:
+        if conn is None:
+            from src.utils.db import connect_db
+            from src.config import DB_PATH
+            conn = connect_db(DB_PATH)
+        conn.execute(
+            "INSERT INTO notifications_sent"
+            " (event_type, channel, recipient, sent_at, status, retry_count, error_msg)"
+            " VALUES (?, ?, ?, ?, ?, 0, ?)",
+            (event_type, channel, recipient, now, status, error_msg),
+        )
+        conn.commit()
+    except Exception:
+        logger.debug("[EMAIL] _write_notification_sent failed silently", exc_info=True)
+    finally:
+        if _own_conn and conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 def send_email(subject: str, body: str, to_address: str | None = None) -> bool:
     """Send a plain-text email via SMTP.
 
@@ -75,17 +109,40 @@ def send_email(subject: str, body: str, to_address: str | None = None) -> bool:
                 "system_event",
                 message=f"[EMAIL FAILED] {subject}\n{body[:_TELEGRAM_BODY_LIMIT]}",
             )
+            _write_notification_sent(
+                event_type="email_send", channel="email", status="failed",
+                recipient=recipient, error_msg=str(failures)[:200],
+            )
             return False
+        _write_notification_sent(
+            event_type="email_send", channel="email", status="ok", recipient=recipient,
+        )
         return True
     except smtplib.SMTPAuthenticationError:
         logger.warning("SMTP authentication failed. Check username/password.")
+        _write_notification_sent(
+            event_type="email_send", channel="email", status="failed",
+            recipient=recipient, error_msg="SMTPAuthenticationError",
+        )
         return False
     except smtplib.SMTPConnectError:
         logger.warning("Could not connect to SMTP server.")
+        _write_notification_sent(
+            event_type="email_send", channel="email", status="failed",
+            recipient=recipient, error_msg="SMTPConnectError",
+        )
         return False
     except ConnectionRefusedError:
         logger.warning("Connection refused by SMTP server.")
+        _write_notification_sent(
+            event_type="email_send", channel="email", status="failed",
+            recipient=recipient, error_msg="ConnectionRefusedError",
+        )
         return False
     except Exception as e:
         logger.warning("Failed to send email: %s", e)
+        _write_notification_sent(
+            event_type="email_send", channel="email", status="failed",
+            recipient=recipient, error_msg=str(e)[:200],
+        )
         return False

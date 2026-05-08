@@ -1070,11 +1070,50 @@ def notify_trading_stats_update(stats: dict, label: str = "") -> bool:
     return send_telegram("\n".join(lines))
 
 
+def _write_notification_sent(
+    event_type: str,
+    channel: str,
+    status: str,
+    error_msg: str | None = None,
+    recipient: str | None = None,
+    conn=None,
+) -> None:
+    """Persist a dispatch outcome row to notifications_sent.
+
+    Silently logs on any DB error — persistence must never crash the notification path.
+    ``conn`` is accepted for testing (in-memory SQLite); production uses src.config.DB_PATH.
+    """
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    _own_conn = conn is None
+    try:
+        if conn is None:
+            from src.utils.db import connect_db
+            from src.config import DB_PATH
+            conn = connect_db(DB_PATH)
+        conn.execute(
+            "INSERT INTO notifications_sent"
+            " (event_type, channel, recipient, sent_at, status, retry_count, error_msg)"
+            " VALUES (?, ?, ?, ?, ?, 0, ?)",
+            (event_type, channel, recipient, now, status, error_msg),
+        )
+        conn.commit()
+    except Exception:
+        logger.debug("[NOTIFICATIONS] _write_notification_sent failed silently", exc_info=True)
+    finally:
+        if _own_conn and conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 def _record_send_failure(event_type: str, error_msg: str) -> None:
-    """Stub — T15 will implement notifications_sent table write. For T3, no-op + log."""
+    """Persist a failed dispatch to notifications_sent (T15 implementation)."""
     error_msg = _redact_token(error_msg)
+    _write_notification_sent(event_type=event_type, channel="telegram", status="failed", error_msg=error_msg)
     logger.debug(
-        "[NOTIFICATIONS] dispatch_failed event=%s err=%s (T15 will persist)",
+        "[NOTIFICATIONS] dispatch_failed event=%s err=%s",
         event_type, error_msg,
     )
 
@@ -1164,19 +1203,21 @@ def safe_send(event_type: str, **kwargs) -> bool:
     notify_fn = event_map[event_type]  # KeyError if unknown — intentional
 
     try:
-        return notify_fn(**kwargs)
+        result = notify_fn(**kwargs)
+        _write_notification_sent(event_type=event_type, channel="telegram", status="ok")
+        return result
     except (
         urllib3.exceptions.HTTPError,
         requests.exceptions.RequestException,
         socket.timeout,
         OSError,  # covers ConnectionError, BrokenPipe, etc.
     ) as e:
-        # Network failure — log + persist via Group E (T15 wires the actual write)
+        # Network failure — log + persist
         logger.warning(
             "[NOTIFICATIONS] %s dispatch failed (network): %s",
             event_type, _redact_token(e),
         )
-        _record_send_failure(event_type, _redact_token(e))  # stub for T3; real impl in T15
+        _record_send_failure(event_type, _redact_token(e))
         return False
     # Note: NO bare `except Exception` here. ImportError / NameError /
     # AttributeError propagate to startup-time visibility.
