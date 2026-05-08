@@ -73,7 +73,13 @@ class TestDailyAudit:
 
 
 class TestEscalation:
-    def test_critical_flag_halts_trading(self, tmp_path, monkeypatch):
+    def test_critical_flag_alerts_operator_no_auto_halt(self, tmp_path, monkeypatch):
+        """Operator policy 2026-05-08: kill switch is operator-action-only.
+
+        The auditor must NOT auto-halt on CRITICAL flags. It must escalate via
+        email + logger.critical and append an `operator_action_required` action
+        so the operator decides whether to halt manually.
+        """
         from src.evaluation.auditor import check_escalation
         from src.risk import governor as gov_module
 
@@ -105,8 +111,12 @@ class TestEscalation:
             }
             actions = check_escalation(audit, db_path=db_path)
 
-        assert any(a["action"] == "halt_trading" for a in actions)
-        assert Path(halt_file).exists()
+        # Auto-halt is disabled — halt file must NOT appear
+        assert not Path(halt_file).exists(), "auditor must not auto-halt"
+        # No "halt_trading" action — only "operator_action_required" + "email_alert"
+        assert not any(a["action"] == "halt_trading" for a in actions)
+        assert any(a["action"] == "operator_action_required" for a in actions)
+        assert any(a["action"] == "email_alert" for a in actions)
 
     def test_alert_flag_sends_email_only(self):
         from src.evaluation.auditor import check_escalation
@@ -126,13 +136,18 @@ class TestEscalation:
         assert not any(a["action"] == "halt_trading" for a in actions)
 
     def test_risk_governor_breach_never_downgraded_in_bootcamp(self, tmp_path, monkeypatch):
-        """Safety CRITICALs must bypass bootcamp downgrade.
+        """Safety CRITICALs must bypass bootcamp downgrade — but never auto-halt.
 
-        During bootcamp mode (<50 closed trades), ordinary CRITICAL flags are
-        downgraded to alerts so the system can accumulate a trade history.
-        But categories signaling a risk-governor breach or emergency-halt
-        bypass must ALWAYS halt, even with few trades — those flags signal
-        loss of containment, not model uncertainty.
+        Operator policy 2026-05-08: kill switch is operator-action-only. Even
+        for risk_governor_breach / emergency_halt_bypass categories that signal
+        loss of containment, the auditor must NOT auto-halt — it must escalate
+        via email + critical log + `operator_action_required` action so the
+        operator decides whether to halt manually.
+
+        Bootcamp downgrade still does NOT apply to _NEVER_DOWNGRADE categories
+        (so the alert keeps critical severity instead of being downgraded to
+        alert) — but the only path-difference is the alert text + severity tag,
+        not whether trading auto-halts.
         """
         from src.evaluation.auditor import check_escalation
         from src.risk import governor as gov_module
@@ -162,13 +177,21 @@ class TestEscalation:
             }
             actions = check_escalation(audit, db_path=db_path)
 
-        assert any(a["action"] == "halt_trading" for a in actions), (
-            "risk_governor_breach must halt even in bootcamp mode"
+        # Auto-halt is disabled — even for safety-critical categories
+        assert not Path(halt_file).exists(), (
+            "auditor must not auto-halt risk_governor_breach (operator-only kill-switch policy)"
         )
-        assert Path(halt_file).exists()
+        assert not any(a["action"] == "halt_trading" for a in actions)
+        # But severity stays critical (NOT downgraded to alert despite bootcamp mode)
+        assert any(
+            a["action"] == "operator_action_required" and a["severity"] == "critical"
+            for a in actions
+        ), "risk_governor_breach must keep critical severity even in bootcamp mode"
 
-    def test_emergency_halt_bypass_never_downgraded_in_bootcamp(self, tmp_path, monkeypatch):
-        """Companion test: emergency_halt_bypass also bypasses bootcamp downgrade."""
+    def test_emergency_halt_bypass_alerts_operator_no_auto_halt(self, tmp_path, monkeypatch):
+        """Operator policy 2026-05-08: emergency_halt_bypass keeps critical
+        severity (not downgraded by bootcamp) but does NOT auto-halt.
+        Operator decides whether to halt via CLI/dashboard/API."""
         from src.evaluation.auditor import check_escalation
         from src.risk import governor as gov_module
 
@@ -189,9 +212,14 @@ class TestEscalation:
             }
             actions = check_escalation(audit, db_path=db_path)
 
-        assert any(a["action"] == "halt_trading" for a in actions), (
-            "emergency_halt_bypass must halt even in bootcamp mode"
+        assert not Path(halt_file).exists(), (
+            "auditor must not auto-halt emergency_halt_bypass (operator-only kill-switch policy)"
         )
+        assert not any(a["action"] == "halt_trading" for a in actions)
+        assert any(
+            a["action"] == "operator_action_required" and a["severity"] == "critical"
+            for a in actions
+        ), "emergency_halt_bypass must keep critical severity despite bootcamp mode"
 
     def test_warning_flag_logs_only(self):
         from src.evaluation.auditor import check_escalation
@@ -257,12 +285,19 @@ class TestEscalation:
             }
             actions = check_escalation(audit, db_path=db_path)
 
-        # Critical flag must HALT (not downgrade) because post_bootcamp=True
-        # overrides the count-based bootcamp_mode flip
-        assert any(a["action"] == "halt_trading" for a in actions), (
-            "post_bootcamp=true must keep bootcamp_mode=False even with <50 trades"
+        # post_bootcamp=True must prevent bootcamp downgrade — the flag keeps
+        # critical severity. But operator policy 2026-05-08: kill switch is
+        # operator-only; auditor must NOT auto-halt regardless. The regression
+        # this test locks is "config override prevents severity downgrade",
+        # not "auto-halt fires".
+        assert not Path(halt_file).exists(), (
+            "auditor must not auto-halt (operator-only kill-switch policy)"
         )
-        assert Path(halt_file).exists()
+        assert not any(a["action"] == "halt_trading" for a in actions)
+        assert any(
+            a["action"] == "operator_action_required" and a["severity"] == "critical"
+            for a in actions
+        ), "post_bootcamp=true must keep critical severity even with <50 trades"
 
     def test_post_bootcamp_default_false_preserves_bootcamp_behavior(self, tmp_path, monkeypatch):
         """Default post_bootcamp=False preserves prior bootcamp downgrade behavior.

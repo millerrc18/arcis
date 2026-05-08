@@ -294,13 +294,14 @@ def check_escalation(audit: dict, db_path: str = DB_PATH) -> list[dict]:
         category = flag.get("category", "")
 
         if severity == "critical":
-            # Safety CRITICALs must always halt — bootcamp downgrade is for
-            # model-quality signals (miscalibration, regime-awareness), not
-            # for loss-of-containment signals. A risk-governor breach or
-            # emergency-halt bypass means our safety net is broken; that
-            # never becomes an "alert."
+            # Operator policy 2026-05-08: kill switch is operator-action-only.
+            # The auditor NEVER auto-halts. CRITICAL flags escalate via email +
+            # logger.critical so the operator can decide whether to halt manually.
+            # Bootcamp-mode downgrade still applies for model-quality CRITICALs
+            # (miscalibration etc.) so they don't spam alerts during the early
+            # 50-trade learning window — _NEVER_DOWNGRADE categories (loss-of-
+            # containment signals) keep critical severity in their alert.
             if bootcamp_mode and category not in _NEVER_DOWNGRADE:
-                # During bootcamp, downgrade critical to alert — don't halt
                 logger.warning(
                     "[AUDIT] CRITICAL flag DOWNGRADED to alert (bootcamp mode, %d closed trades): %s",
                     closed_count, flag.get("description"),
@@ -309,27 +310,32 @@ def check_escalation(audit: dict, db_path: str = DB_PATH) -> list[dict]:
                 flag["severity"] = "alert"
                 flag["description"] = f"[BOOTCAMP DOWNGRADE] {flag.get('description', '')}"
             else:
-                # Production mode — halt trading
-                from src.risk.governor import _global_halt
-                _global_halt(True, source="auditor", reason=flag.get("description", "critical audit flag"))
-                logger.critical("[AUDIT] CRITICAL flag — trading halted: %s", flag.get("description"))
+                # Production mode — alert operator, no auto-halt
+                logger.critical(
+                    "[AUDIT] CRITICAL flag — operator action required (auto-halt disabled per policy): %s",
+                    flag.get("description"),
+                )
 
                 actions.append({
-                    "action": "halt_trading",
+                    "action": "operator_action_required",
                     "severity": "critical",
                     "flag": flag,
                 })
 
-                # Send alert email
+                # Send alert email — operator decides whether to halt
                 try:
                     from src.email.notifier import send_email
-                    subject = "[TRADE DESK] CRITICAL AUDIT ALERT — Trading Halted"
+                    subject = "[TRADE DESK] CRITICAL AUDIT FLAG — Operator Action Required"
                     body = (
                         f"CRITICAL AUDIT FLAG\n\n"
                         f"Category: {flag.get('category')}\n"
                         f"Description: {flag.get('description')}\n"
                         f"Recommendation: {flag.get('recommendation')}\n\n"
-                        f"Trading has been automatically halted. Resume via dashboard or CLI."
+                        f"Trading was NOT auto-halted (operator-only kill-switch policy 2026-05-08). "
+                        f"Review and halt manually if appropriate via:\n"
+                        f"  - CLI: python -m src.main halt-trading\n"
+                        f"  - Dashboard halt button\n"
+                        f"  - API: POST /api/system/halt-trading"
                     )
                     send_email(subject, body)
                 except Exception as e:

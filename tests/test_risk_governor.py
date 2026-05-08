@@ -178,7 +178,9 @@ class TestKillSwitch:
         monkeypatch.setattr(gov_module, "_HALT_FILE", halt_file)
 
         assert not _is_halted()
-        _global_halt(True)
+        # source="test" is in the operator-allowlist (operator policy 2026-05-08).
+        # Default source="unknown" would now raise HaltSourceForbiddenError.
+        _global_halt(True, source="test")
         assert _is_halted()
         _global_halt(False)
         assert not _is_halted()
