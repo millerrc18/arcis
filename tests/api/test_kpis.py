@@ -1204,3 +1204,88 @@ class TestRequestsLazyImportFallback:
 
         with pytest.raises(ImportError, match="requests is required"):
             rfr._fetch_dtb3_observations("fake_key", dt.date(2026, 3, 1))
+
+
+# ── T11a: total_pnl_dollars emit (Sprint 4 Cockpit #8a) ─────────────────────
+
+class TestTotalPnlDollars:
+    """Tests for total_pnl_dollars field in /api/kpis response.
+
+    Sprint 4 T11a: backend must emit total_pnl_dollars (sum of pnl_dollars
+    for instrumented trades) in the top-level response and in _meta with
+    cohort='kpi.canonical' and n=n_trades."""
+
+    _INSTRUMENTED_TRADES_WITH_PNL = [
+        {
+            "pnl_pct": 2.3,
+            "pnl_dollars": 115.0,
+            "excess_return": 0.023,
+            "instrumentation_version": 3,
+            "actual_entry_time": "2026-03-01T10:00:00",
+            "actual_exit_time": "2026-03-05T15:00:00",
+        },
+        {
+            "pnl_pct": -1.1,
+            "pnl_dollars": -55.0,
+            "excess_return": -0.011,
+            "instrumentation_version": 3,
+            "actual_entry_time": "2026-03-02T10:00:00",
+            "actual_exit_time": "2026-03-06T15:00:00",
+        },
+        {
+            "pnl_pct": 3.1,
+            "pnl_dollars": 155.0,
+            "excess_return": 0.031,
+            "instrumentation_version": 3,
+            "actual_entry_time": "2026-03-03T10:00:00",
+            "actual_exit_time": "2026-03-07T15:00:00",
+        },
+    ]
+
+    def test_total_pnl_dollars_present_and_correctly_summed(self):
+        """total_pnl_dollars must be present and equal the sum of pnl_dollars
+        across instrumented trades."""
+        with patch(
+            "src.api.cloud_routes.kpis._fetch_closed_trades",
+            return_value=self._INSTRUMENTED_TRADES_WITH_PNL,
+        ):
+            result = get_kpis()
+        assert "total_pnl_dollars" in result, (
+            "T11a: top-level total_pnl_dollars field must be present in /api/kpis response"
+        )
+        expected = round(115.0 + (-55.0) + 155.0, 2)
+        assert result["total_pnl_dollars"] == expected, (
+            f"total_pnl_dollars should be {expected}, got {result['total_pnl_dollars']}"
+        )
+
+    def test_total_pnl_dollars_meta_cohort_and_n(self):
+        """_meta.total_pnl_dollars must carry cohort='kpi.canonical' and
+        n equal to the number of instrumented trades."""
+        with patch(
+            "src.api.cloud_routes.kpis._fetch_closed_trades",
+            return_value=self._INSTRUMENTED_TRADES_WITH_PNL,
+        ):
+            result = get_kpis()
+        assert "_meta" in result
+        assert "total_pnl_dollars" in result["_meta"], (
+            "T11a: _meta.total_pnl_dollars must be present"
+        )
+        meta = result["_meta"]["total_pnl_dollars"]
+        assert meta["cohort"] == "kpi.canonical", (
+            f"_meta.total_pnl_dollars.cohort must be 'kpi.canonical', got {meta['cohort']}"
+        )
+        assert meta["n"] == 3, (
+            f"_meta.total_pnl_dollars.n must equal n_trades (3), got {meta['n']}"
+        )
+
+    def test_total_pnl_dollars_zero_when_no_instrumented_trades(self):
+        """When there are no instrumented trades, total_pnl_dollars must be 0.0."""
+        with patch(
+            "src.api.cloud_routes.kpis._fetch_closed_trades",
+            return_value=[],
+        ):
+            result = get_kpis()
+        assert result["total_pnl_dollars"] == 0.0, (
+            f"total_pnl_dollars must be 0.0 when no instrumented trades, "
+            f"got {result['total_pnl_dollars']}"
+        )
