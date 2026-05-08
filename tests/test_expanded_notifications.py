@@ -153,9 +153,9 @@ class TestEodReport:
     @patch("src.notifications.telegram.send_telegram")
     def test_basic_format(self, mock_send):
         mock_send.return_value = True
-        from src.notifications.telegram import notify_eod_report
+        from src.notifications.telegram import notify_eod_report, EodReportPayload
 
-        result = notify_eod_report(
+        result = notify_eod_report(EodReportPayload(
             paper_open=5, paper_open_pnl=23.40,
             paper_closed_today=1, paper_closed_pnl=8.20,
             live_open=1, live_open_pnl=-0.80,
@@ -164,7 +164,7 @@ class TestEodReport:
             best_ticker="CAT", best_pct=3.2,
             worst_ticker="FDX", worst_pct=-1.8,
             regime="TRANSITION", vix=24.8, vix_change=-0.5,
-        )
+        ))
         assert result is True
         msg = mock_send.call_args[0][0]
         assert "END OF DAY" in msg
@@ -376,9 +376,9 @@ class TestWeeklyDigest:
     @patch("src.notifications.telegram.send_telegram")
     def test_format(self, mock_send):
         mock_send.return_value = True
-        from src.notifications.telegram import notify_weekly_digest
+        from src.notifications.telegram import notify_weekly_digest, WeeklyDigestPayload
 
-        notify_weekly_digest(
+        notify_weekly_digest(WeeklyDigestPayload(
             period_start="Mar 21", period_end="Mar 26",
             opened_paper=12, opened_live=4,
             closed_paper=8, closed_live=2,
@@ -398,7 +398,7 @@ class TestWeeklyDigest:
             council_avg_confidence=71,
             earnings_next_week=["AAPL", "MSFT"],
             events_next_week=["NFP Friday"],
-        )
+        ))
         msg = mock_send.call_args[0][0]
         assert "WEEKLY DIGEST" in msg
         assert "TRADES:" in msg

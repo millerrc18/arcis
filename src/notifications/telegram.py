@@ -67,7 +67,9 @@ escaping special chars that appear frequently in financial data (., -, +).
 import logging
 import os
 import socket
+from dataclasses import dataclass
 from datetime import datetime
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 import requests
@@ -194,26 +196,132 @@ def send_telegram(message: str, parse_mode: str = "HTML") -> bool:
     return ok
 
 
+# ── Typed dataclass payloads (CC3) ────────────────────────────────────────
+
+
+@dataclass
+class TradeOpenedPayload:
+    ticker: str
+    entry_price: float
+    stop: float
+    target: float
+    score: int
+    shares: int
+    setup_type: Optional[str] = None
+    setup_confidence: Optional[float] = None
+    source: str = "paper"
+    sector: Optional[str] = None
+    regime_at_entry: Optional[str] = None
+    vix_at_entry: Optional[float] = None
+    concurrent_positions: Optional[int] = None
+    llm_conviction: Optional[int] = None
+
+
+@dataclass
+class TradeClosedPayload:
+    ticker: str
+    pnl_dollars: float
+    pnl_pct: float
+    exit_reason: str
+    days_held: int
+    source: str = "paper"
+    sector: Optional[str] = None
+    regime_at_entry: Optional[str] = None
+    regime_at_exit: Optional[str] = None
+    mfe_pct: Optional[float] = None
+    mae_pct: Optional[float] = None
+    excess_return: Optional[float] = None
+    spy_return_over_hold: Optional[float] = None
+    drawdown_from_mfe: Optional[float] = None
+    entry_slippage_bps: Optional[float] = None
+    exit_slippage_bps: Optional[float] = None
+
+
+@dataclass
+class EodReportPayload:
+    paper_open: int
+    paper_open_pnl: float
+    paper_closed_today: int
+    paper_closed_pnl: float
+    live_open: int
+    live_open_pnl: float
+    live_closed_today: int
+    live_closed_pnl: float
+    win_rate: float
+    wins: int
+    losses: int
+    best_ticker: str
+    best_pct: float
+    worst_ticker: str
+    worst_pct: float
+    regime: str
+    vix: float
+    vix_change: float
+    risk_rejected: int = 0
+    risk_qualified: int = 0
+
+
+@dataclass
+class WeeklyDigestPayload:
+    period_start: str
+    period_end: str
+    opened_paper: int
+    opened_live: int
+    closed_paper: int
+    closed_live: int
+    win_rate: float
+    expectancy: float
+    best_ticker: str
+    best_pct: float
+    worst_ticker: str
+    worst_pct: float
+    pnl_paper: float
+    pnl_live: float
+    training_start: int
+    training_end: int
+    signal_start: int
+    signal_end: int
+    scoring_backlog: int
+    quality_avg: float
+    canary_status: str
+    llm_success_rate: float
+    regime: str
+    vix: float
+    vix_range_low: float
+    vix_range_high: float
+    spy_weekly_pct: float
+    council_sessions: int
+    council_consensus: str
+    council_avg_confidence: int
+    earnings_next_week: list
+    events_next_week: list
+
+
 # ── Pre-formatted alert functions ─────────────────────────────────────────
 
 
-def notify_trade_opened(ticker: str, entry_price: float, stop: float,
-                        target: float, score: int, shares: int,
-                        setup_type: str | None = None,
-                        setup_confidence: float | None = None,
-                        source: str = "paper",
-                        sector: str | None = None,
-                        regime_at_entry: str | None = None,
-                        vix_at_entry: float | None = None,
-                        concurrent_positions: int | None = None,
-                        llm_conviction: int | None = None) -> bool:
+def notify_trade_opened(payload: TradeOpenedPayload) -> bool:
     """Alert: new trade opened.
 
     Args:
-        source: "paper" or "live" — controls header emoji and label.
-        sector, regime_at_entry, vix_at_entry, concurrent_positions, llm_conviction:
-            optional context rendered when present. Callers pass what they have.
+        payload: TradeOpenedPayload dataclass with all trade fields.
+                 source controls header emoji/label ("paper" or "live").
     """
+    ticker = payload.ticker
+    entry_price = payload.entry_price
+    stop = payload.stop
+    target = payload.target
+    score = payload.score
+    shares = payload.shares
+    setup_type = payload.setup_type
+    setup_confidence = payload.setup_confidence
+    source = payload.source
+    sector = payload.sector
+    regime_at_entry = payload.regime_at_entry
+    vix_at_entry = payload.vix_at_entry
+    concurrent_positions = payload.concurrent_positions
+    llm_conviction = payload.llm_conviction
+
     pnl_risk = (entry_price - stop) * shares
     rr_ratio = ((target - entry_price) / (entry_price - stop)) if entry_price > stop else None
 
@@ -249,25 +357,21 @@ def notify_trade_opened(ticker: str, entry_price: float, stop: float,
     return send_telegram("\n".join(lines))
 
 
-def notify_trade_closed(ticker: str, pnl_dollars: float, pnl_pct: float,
-                        exit_reason: str, days_held: int,
-                        source: str = "paper",
-                        sector: str | None = None,
-                        regime_at_entry: str | None = None,
-                        regime_at_exit: str | None = None,
-                        mfe_pct: float | None = None,
-                        mae_pct: float | None = None,
-                        excess_return: float | None = None,
-                        spy_return_over_hold: float | None = None,
-                        drawdown_from_mfe: float | None = None,
-                        entry_slippage_bps: float | None = None,
-                        exit_slippage_bps: float | None = None) -> bool:
+def notify_trade_closed(payload: TradeClosedPayload) -> bool:
     """Alert: trade closed.
 
-    Optional kwargs render only when present — every caller can pass the
-    fields it has without touching any of the rest. See shadow_trades
-    schema (`src/schema/registry.py`) for field semantics.
+    Args:
+        payload: TradeClosedPayload dataclass. Optional fields render only when
+                 present — callers set what they have. See shadow_trades schema
+                 (`src/schema/registry.py`) for field semantics.
     """
+    ticker = payload.ticker
+    pnl_dollars = payload.pnl_dollars
+    pnl_pct = payload.pnl_pct
+    exit_reason = payload.exit_reason
+    days_held = payload.days_held
+    source = payload.source
+
     emoji = "🟢" if pnl_dollars >= 0 else "🔴"
     label = "LIVE TRADE CLOSED" if source == "live" else "TRADE CLOSED"
     lines = [
@@ -276,9 +380,9 @@ def notify_trade_closed(ticker: str, pnl_dollars: float, pnl_pct: float,
         f"Reason: {_html_escape(exit_reason)} | Held: {days_held}d",
     ]
     lines.extend(_format_closed_extras(
-        excess_return, spy_return_over_hold, mfe_pct, mae_pct,
-        drawdown_from_mfe, sector, regime_at_entry, regime_at_exit,
-        entry_slippage_bps, exit_slippage_bps,
+        payload.excess_return, payload.spy_return_over_hold, payload.mfe_pct, payload.mae_pct,
+        payload.drawdown_from_mfe, payload.sector, payload.regime_at_entry, payload.regime_at_exit,
+        payload.entry_slippage_bps, payload.exit_slippage_bps,
     ))
     return send_telegram("\n".join(lines))
 
@@ -629,30 +733,26 @@ def notify_first_scan_summary(total_scanned: int, packet_worthy: int,
     return send_telegram(msg)
 
 
-def notify_eod_report(paper_open: int, paper_open_pnl: float,
-                      paper_closed_today: int, paper_closed_pnl: float,
-                      live_open: int, live_open_pnl: float,
-                      live_closed_today: int, live_closed_pnl: float,
-                      win_rate: float, wins: int, losses: int,
-                      best_ticker: str, best_pct: float,
-                      worst_ticker: str, worst_pct: float,
-                      regime: str, vix: float, vix_change: float,
-                      risk_rejected: int = 0, risk_qualified: int = 0) -> bool:
+def notify_eod_report(payload: EodReportPayload) -> bool:
     """Alert: 4:00 PM end-of-day P&L report with paper/live split."""
     now = datetime.now(ET).strftime("%H:%M ET")
 
     msg = (
         f"📈 <b>END OF DAY</b> ({now})\n\n"
-        f"Paper: {paper_open} open (${paper_open_pnl:+.2f}) | "
-        f"{paper_closed_today} closed today (${paper_closed_pnl:+.2f})\n"
-        f"Live:  {live_open} open (${live_open_pnl:+.2f}) | "
-        f"{live_closed_today} closed today (${live_closed_pnl:+.2f})\n"
-        f"Win rate (all time): {win_rate:.0%} ({wins}W / {losses}L)\n\n"
-        f"Best: {best_ticker} {best_pct:+.1f}% | Worst: {worst_ticker} {worst_pct:+.1f}%\n"
-        f"Regime: {regime} | VIX: {vix:.1f} ({vix_change:+.1f})"
+        f"Paper: {payload.paper_open} open (${payload.paper_open_pnl:+.2f}) | "
+        f"{payload.paper_closed_today} closed today (${payload.paper_closed_pnl:+.2f})\n"
+        f"Live:  {payload.live_open} open (${payload.live_open_pnl:+.2f}) | "
+        f"{payload.live_closed_today} closed today (${payload.live_closed_pnl:+.2f})\n"
+        f"Win rate (all time): {payload.win_rate:.0%} ({payload.wins}W / {payload.losses}L)\n\n"
+        f"Best: {payload.best_ticker} {payload.best_pct:+.1f}% | "
+        f"Worst: {payload.worst_ticker} {payload.worst_pct:+.1f}%\n"
+        f"Regime: {payload.regime} | VIX: {payload.vix:.1f} ({payload.vix_change:+.1f})"
     )
-    if risk_qualified > 0:
-        msg += f"\nRisk governor: {risk_qualified - risk_rejected}/{risk_qualified} passed ({risk_rejected} blocked)"
+    if payload.risk_qualified > 0:
+        msg += (
+            f"\nRisk governor: {payload.risk_qualified - payload.risk_rejected}"
+            f"/{payload.risk_qualified} passed ({payload.risk_rejected} blocked)"
+        )
     return send_telegram(msg)
 
 
@@ -718,56 +818,37 @@ def notify_streak_alert(streak_length: int, recent_trades: list[tuple[str, float
     return send_telegram(msg)
 
 
-def notify_weekly_digest(
-    period_start: str, period_end: str,
-    # Trades
-    opened_paper: int, opened_live: int,
-    closed_paper: int, closed_live: int,
-    win_rate: float, expectancy: float,
-    best_ticker: str, best_pct: float,
-    worst_ticker: str, worst_pct: float,
-    pnl_paper: float, pnl_live: float,
-    # Data asset
-    training_start: int, training_end: int,
-    signal_start: int, signal_end: int,
-    scoring_backlog: int, quality_avg: float,
-    # Model
-    canary_status: str, llm_success_rate: float,
-    # Market
-    regime: str, vix: float, vix_range_low: float, vix_range_high: float,
-    spy_weekly_pct: float,
-    # Council
-    council_sessions: int, council_consensus: str, council_avg_confidence: int,
-    # Next week
-    earnings_next_week: list[str], events_next_week: list[str],
-) -> bool:
+def notify_weekly_digest(payload: WeeklyDigestPayload) -> bool:
     """Alert: Sunday 8 PM weekly digest — full system summary."""
-    earnings_str = ", ".join(earnings_next_week[:5]) if earnings_next_week else "None"
-    events_str = ", ".join(events_next_week[:3]) if events_next_week else "None"
+    earnings_str = ", ".join(payload.earnings_next_week[:5]) if payload.earnings_next_week else "None"
+    events_str = ", ".join(payload.events_next_week[:3]) if payload.events_next_week else "None"
 
     msg = (
-        f"📋 <b>WEEKLY DIGEST</b> ({period_start}–{period_end})\n\n"
+        f"📋 <b>WEEKLY DIGEST</b> ({payload.period_start}–{payload.period_end})\n\n"
         f"<b>TRADES:</b>\n"
-        f"  Opened: {opened_paper} paper, {opened_live} live\n"
-        f"  Closed: {closed_paper} paper, {closed_live} live\n"
-        f"  Win rate: {win_rate:.0%} | Expectancy: ${expectancy:+.2f}\n"
-        f"  Best: {best_ticker} {best_pct:+.1f}% | Worst: {worst_ticker} {worst_pct:+.1f}%\n"
-        f"  {_html_escape('P&L')}: Paper ${pnl_paper:+.2f} | Live ${pnl_live:+.2f}\n\n"
+        f"  Opened: {payload.opened_paper} paper, {payload.opened_live} live\n"
+        f"  Closed: {payload.closed_paper} paper, {payload.closed_live} live\n"
+        f"  Win rate: {payload.win_rate:.0%} | Expectancy: ${payload.expectancy:+.2f}\n"
+        f"  Best: {payload.best_ticker} {payload.best_pct:+.1f}% | "
+        f"Worst: {payload.worst_ticker} {payload.worst_pct:+.1f}%\n"
+        f"  {_html_escape('P&L')}: Paper ${payload.pnl_paper:+.2f} | Live ${payload.pnl_live:+.2f}\n\n"
         f"<b>DATA ASSET:</b>\n"
-        f"  Training examples: {training_start} → {training_end} (+{training_end - training_start})\n"
-        f"  Signal zoo: {signal_start} → {signal_end} (+{signal_end - signal_start})\n"
-        f"  Scoring backlog: {scoring_backlog}\n"
-        f"  Quality avg: {quality_avg:.1f}/5.0\n\n"
+        f"  Training examples: {payload.training_start} → {payload.training_end} "
+        f"(+{payload.training_end - payload.training_start})\n"
+        f"  Signal zoo: {payload.signal_start} → {payload.signal_end} "
+        f"(+{payload.signal_end - payload.signal_start})\n"
+        f"  Scoring backlog: {payload.scoring_backlog}\n"
+        f"  Quality avg: {payload.quality_avg:.1f}/5.0\n\n"
         f"<b>MODEL:</b>\n"
-        f"  Canary: {canary_status}\n"
-        f"  LLM success rate: {llm_success_rate:.0%}\n\n"
+        f"  Canary: {payload.canary_status}\n"
+        f"  LLM success rate: {payload.llm_success_rate:.0%}\n\n"
         f"<b>MARKET:</b>\n"
-        f"  Regime: {regime}\n"
-        f"  VIX: {vix:.1f} (range: {vix_range_low:.1f}–{vix_range_high:.1f})\n"
-        f"  SPY: {spy_weekly_pct:+.1f}% this week\n\n"
+        f"  Regime: {payload.regime}\n"
+        f"  VIX: {payload.vix:.1f} (range: {payload.vix_range_low:.1f}–{payload.vix_range_high:.1f})\n"
+        f"  SPY: {payload.spy_weekly_pct:+.1f}% this week\n\n"
         f"<b>COUNCIL:</b>\n"
-        f"  Sessions: {council_sessions}\n"
-        f"  Consensus: {council_consensus} (avg {council_avg_confidence}% confidence)\n\n"
+        f"  Sessions: {payload.council_sessions}\n"
+        f"  Consensus: {payload.council_consensus} (avg {payload.council_avg_confidence}% confidence)\n\n"
         f"<b>NEXT WEEK:</b>\n"
         f"  Earnings: {earnings_str}\n"
         f"  Events: {events_str}"
@@ -1205,8 +1286,14 @@ def safe_send(event_type: str, **kwargs) -> bool:
     }
     notify_fn = event_map[event_type]  # KeyError if unknown — intentional
 
+    # CC3 wiring: the 4 payload-accepting functions receive a single `payload` object.
+    # All other event types continue to receive **kwargs as before.
+    _PAYLOAD_EVENTS = {"trade_opened", "trade_closed", "eod_report", "weekly_digest"}
     try:
-        result = notify_fn(**kwargs)
+        if event_type in _PAYLOAD_EVENTS:
+            result = notify_fn(kwargs["payload"])
+        else:
+            result = notify_fn(**kwargs)
         _write_notification_sent(event_type=event_type, channel="telegram", status="ok")
         return result
     except (

@@ -131,15 +131,15 @@ def test_send_eod_report_handles_none_best_worst(tmp_db, monkeypatch):
 
 
 def test_notify_eod_report_format_accepts_float_inputs():
-    """Direct sanity: notify_eod_report works with float kwargs
+    """Direct sanity: notify_eod_report works with float payload fields
     (proves the fix-target signature is float-compatible)."""
-    from src.notifications.telegram import notify_eod_report
+    from src.notifications.telegram import notify_eod_report, EodReportPayload
     with patch(
         "src.notifications.telegram.is_telegram_enabled", return_value=True,
     ), patch(
         "src.notifications.telegram.send_telegram", return_value=True,
     ):
-        result = notify_eod_report(
+        result = notify_eod_report(EodReportPayload(
             paper_open=3, paper_open_pnl=142.5,
             paper_closed_today=2, paper_closed_pnl=-47.8,
             live_open=0, live_open_pnl=0.0,
@@ -149,7 +149,7 @@ def test_notify_eod_report_format_accepts_float_inputs():
             worst_ticker="MSFT", worst_pct=-1.15,
             regime="GREEN", vix=18.5, vix_change=0.2,
             risk_rejected=2, risk_qualified=10,
-        )
+        ))
     assert result is True
 
 

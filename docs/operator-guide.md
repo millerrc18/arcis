@@ -51,6 +51,7 @@ Full operator validation checklist for halcyonlab.app post-Render-rebuild: `docs
 9. [Roadmap pointer](#9-roadmap-pointer) — strategic direction
 10. [Daily methodology-gate workflow](#10-daily-methodology-gate-workflow) — reading the gate digest, interpreting evidence, acting on proposals
 11. [Update Protocol](#11-update-protocol) — keeping this doc fresh
+12. [Notification Troubleshooting](#12-notification-troubleshooting) — bot silent, token rotated, email stopped, health check
 
 ---
 
@@ -1436,6 +1437,122 @@ print(f"Seeded {len(rows)} dedup rows from notifications_sent.")
 ```
 
 Run with: `python scripts/seed_dedup_from_sent.py`
+
+---
+
+## 12. Notification Troubleshooting
+
+### 12.1 "Bot is silent"
+
+The Telegram bot has stopped sending messages.
+
+**Decision tree:**
+
+1. **Check subsystem health** — `curl http://127.0.0.1:8765/api/notifications/health` (or `curl http://127.0.0.1:8080/api/notifications/health` on the default local API port). A `success_rate < 0.8` or non-empty `oldest_unack_alert` indicates delivery failures. See [T15 endpoint](../tests/api/test_notifications_health.py) for the response shape.
+
+2. **Check the NSSM watch loop** — open PowerShell and run:
+   ```powershell
+   nssm status arcis-watch
+   # Expected: SERVICE_RUNNING
+   # If stopped:
+   nssm restart arcis-watch
+   ```
+   If the service is not registered: `python -m src.main startup` from `C:\arcis\halcyon-lab`.
+
+3. **Check `data/watch.lock`** — a stale lockfile prevents the watch loop from starting:
+   ```powershell
+   Get-Content C:\arcis\data\watch.lock   # shows PID
+   Get-CimInstance Win32_Process -Filter "ProcessId=<pid>"  # check if PID is alive
+   # If no such process exists, the lockfile is stale:
+   Remove-Item C:\arcis\data\watch.lock
+   nssm restart arcis-watch
+   ```
+
+4. **Check Telegram config** — verify `config/settings.local.yaml` has `telegram.enabled: true`, a valid `bot_token`, and the correct `chat_id`. Use `/start` in your Telegram chat to ping the bot manually.
+
+### 12.2 "Bot token rotated"
+
+You have regenerated the bot token via BotFather and need to update ARCIS.
+
+1. Copy the new token from `@BotFather`.
+2. Update `.env` (or `config/settings.local.yaml`):
+   ```yaml
+   telegram:
+     bot_token: "<new-token>"
+   ```
+3. Restart the NSSM watch loop:
+   ```powershell
+   nssm restart arcis-watch
+   ```
+4. Send `/status` in Telegram to verify delivery.
+
+**Note:** The old token is immediately invalidated — all in-flight requests with the old token will fail with a `401 Unauthorized` from the Telegram API.
+
+### 12.3 "Email digest stopped arriving"
+
+The daily email digest (`notify_eod_report` or weekly `notify_weekly_digest`) is not being delivered.
+
+**Decision tree:**
+
+1. **Check SMTP config** — verify `config/settings.local.yaml`:
+   ```yaml
+   email:
+     smtp_host: smtp.gmail.com
+     smtp_port: 587
+     from_address: your@gmail.com
+     to_addresses: [your@gmail.com]
+     # password must be in .env as EMAIL_PASSWORD, NOT here
+   ```
+   If `EMAIL_PASSWORD` is missing from `.env`, `send_email` will emit a warning but not send.
+
+2. **Check the `notifications_sent` table for failures**:
+   ```python
+   import sqlite3
+   DB = "C:/arcis/data/ai_research_desk.sqlite3"
+   conn = sqlite3.connect(f"file:{DB}?mode=ro", uri=True)
+   rows = conn.execute(
+       "SELECT event_type, status, error_msg, sent_at"
+       " FROM notifications_sent WHERE channel='email' AND status='failed'"
+       " ORDER BY sent_at DESC LIMIT 10"
+   ).fetchall()
+   for r in rows: print(r)
+   ```
+   Common `error_msg` values and fixes:
+   - `"SMTP AUTH failed"` → check `EMAIL_PASSWORD` in `.env`
+   - `"Connection refused"` → check `smtp_host`/`smtp_port` in settings
+   - `"Recipient refused"` → verify `to_addresses` list
+
+3. **Manually send a test email**:
+   ```bash
+   python -m src.main send-test-email
+   ```
+   Watches logs for SMTP errors.
+
+### 12.4 How to verify subsystem health
+
+Use the T15 health endpoint to confirm the notification pipeline is live:
+
+```bash
+curl http://127.0.0.1:8765/api/notifications/health
+```
+
+Expected response shape (see T15 spec):
+```json
+{
+  "success_rate": 0.97,
+  "fail_count": 1,
+  "dedup_hits": 12,
+  "oldest_unack_alert": null
+}
+```
+
+| Field | Healthy | Warning |
+|-------|---------|---------|
+| `success_rate` | ≥ 0.95 | < 0.80 |
+| `fail_count` | 0–2 in 24h | > 5 in 24h |
+| `oldest_unack_alert` | `null` | any non-null value |
+
+If `oldest_unack_alert` is non-null, an alert fired but was never acknowledged — check `notifications_sent` for the corresponding row and investigate the `error_msg`.
 
 ### Notification health dashboard widget
 

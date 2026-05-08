@@ -194,6 +194,37 @@ Status: OK
 - `/uptime` — Watch loop uptime
 - `/heartbeat` — Watchdog heartbeat age
 
+## CLI: send-test-email
+
+The `send-test-email` CLI command sends a test email through the configured SMTP transport to verify end-to-end email delivery without waiting for the overnight schedule.
+
+```bash
+python -m src.main send-test-email
+```
+
+**What it does:**
+
+- Reads `config/settings.local.yaml` for `smtp_host`, `smtp_port`, `from_address`, and `to_addresses`
+- Reads `EMAIL_PASSWORD` from `.env` (NOT from YAML — passwords must not live in config files)
+- Sends a minimal test message with subject `"ARCIS email test"` to all configured recipients
+- Prints `OK` on success or the SMTP error on failure
+
+**When to use it:**
+
+- After rotating SMTP credentials or changing `to_addresses`
+- After the watch loop is deployed to a new host
+- When `notifications_sent` shows `channel='email', status='failed'` rows (see §12.3 of the operator guide)
+- Any time you suspect the email subsystem is broken but need to confirm before investigating further
+
+**Troubleshooting delivery failures:**
+
+| Symptom | Likely cause |
+|---------|-------------|
+| `SMTP AUTH failed` | `EMAIL_PASSWORD` wrong or missing in `.env` |
+| `Connection refused` | `smtp_host` / `smtp_port` misconfigured |
+| `Recipient refused` | `to_addresses` list contains an invalid address |
+| Command not found | Run from `C:\arcis\halcyon-lab` with the venv active |
+
 ## Notification Types
 
 In addition to commands, the bot sends automatic push notifications for:

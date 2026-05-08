@@ -30,6 +30,26 @@ ET = ZoneInfo("America/New_York")
 TELEGRAM_UPDATES_API = "https://api.telegram.org/bot{token}/getUpdates"
 
 
+class CostCapExceededError(RuntimeError):
+    """Council session blocked by per-session cost cap."""
+
+
+class AgentTimeoutError(RuntimeError):
+    """One or more council agents exceeded the response timeout."""
+
+
+class LLMUnavailableError(RuntimeError):
+    """Local Ollama LLM unreachable or returning errors."""
+
+
+class NoQuorumError(RuntimeError):
+    """Council agents could not reach minimum quorum after all rounds."""
+
+
+class InvalidQuestionError(ValueError):
+    """Council question is malformed or too long to process."""
+
+
 def poll_commands(last_update_id: int = 0) -> tuple[list[dict], int]:
     """Poll for incoming Telegram commands.
 
@@ -559,15 +579,31 @@ def _cmd_scoring() -> str:
         return "📝 No scoring data available."
 
 
+def run_council_command(question: str):
+    """Thin wrapper so tests can patch src.notifications.telegram_commands.run_council_command."""
+    from src.council.engine import run_council_command as _run
+    return _run(question)
+
+
 def _cmd_council(question: str = "") -> str:
     """Run an AI council session and format the result.
 
     If a question is provided (e.g., /council Should we buy the 3090?),
     runs a strategic session. Otherwise runs a daily tactical session.
+    Typed exceptions return categorized diagnostic strings (C14).
     """
     try:
-        from src.council.engine import run_council_command
         result = run_council_command(question)
+    except CostCapExceededError:
+        return "❌ cost cap exceeded; raise via /admin or wait for next window"
+    except AgentTimeoutError:
+        return "❌ agent timeout; check /diagnostics for stuck agents"
+    except LLMUnavailableError:
+        return "❌ LLM unavailable; check /healthz for ollama health"
+    except NoQuorumError:
+        return "❌ no quorum; <quorum diagnostics summary>"
+    except InvalidQuestionError:
+        return "❌ invalid question; try shorter or rephrased"
     except Exception as e:
         return f"❌ Council session failed: {str(e)[:200]}"
 

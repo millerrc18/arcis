@@ -298,7 +298,7 @@ def run_universe_scan(ctx: ScanContext) -> ScanResult:
 
             # Telegram trade notification
             try:
-                from src.notifications.telegram import notify_trade_opened, is_telegram_enabled
+                from src.notifications.telegram import notify_trade_opened, TradeOpenedPayload, is_telegram_enabled
                 if is_telegram_enabled():
                     from src.notifications.telegram import send_telegram
                     from src.shadow_trading.executor import _parse_price
@@ -312,12 +312,16 @@ def run_universe_scan(ctx: ScanContext) -> ScanResult:
                         else 1
                     )
                     try:
-                        notify_trade_opened(
-                            ticker, entry_price, stop_price, target_price,
-                            int(candidate["score"]), shares,
+                        notify_trade_opened(TradeOpenedPayload(
+                            ticker=ticker,
+                            entry_price=entry_price,
+                            stop=stop_price,
+                            target=target_price,
+                            score=int(candidate["score"]),
+                            shares=shares,
                             setup_type=feat.get("setup_type"),
                             setup_confidence=feat.get("setup_confidence"),
-                        )
+                        ))
                     except Exception:
                         send_telegram(
                             f"\U0001f7e2 <b>TRADE OPENED: {ticker}</b>\n"

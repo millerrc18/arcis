@@ -376,7 +376,7 @@ def send_premarket_brief():
 
 def send_eod_report():
     """4:00 PM ET — Send end-of-day P&L report."""
-    from src.notifications.telegram import notify_eod_report, is_telegram_enabled
+    from src.notifications.telegram import notify_eod_report, EodReportPayload, is_telegram_enabled
     if not is_telegram_enabled():
         return
 
@@ -484,10 +484,9 @@ def send_eod_report():
 
         # Sprint 2 L5: shadow_trades.pnl_dollars and pnl_pct are stored
         # as SQLite TEXT (89 live rows typed text as of 2026-04-20),
-        # so SUM() / SELECT returns str. notify_eod_report uses
-        # f-strings like `${pnl:+.2f}` which raise TypeError on str.
-        # Cast at the call site.
-        notify_eod_report(
+        # so SUM() / SELECT returns str. EodReportPayload fields are typed
+        # float/int — cast at the call site.
+        notify_eod_report(EodReportPayload(
             paper_open=paper_open_row["cnt"],
             paper_open_pnl=float(paper_open_row["pnl"] or 0),
             paper_closed_today=paper_closed_row["cnt"],
@@ -503,7 +502,7 @@ def send_eod_report():
             worst_pct=float(worst["pnl_pct"]) if worst and worst["pnl_pct"] is not None else 0.0,
             regime=regime, vix=vix, vix_change=vix - vix_prev,
             risk_rejected=risk_rejected, risk_qualified=risk_worthy,
-        )
+        ))
         print("[WATCH] EOD report sent via Telegram.")
     except Exception as e:
         logger.warning("[WATCH] EOD report failed: %s", e)
@@ -636,7 +635,7 @@ def check_vix_regime_alert(last_vix_alert_level: float | None) -> float | None:
 
 def send_weekly_digest():
     """Sunday 8 PM ET — Send full weekly digest."""
-    from src.notifications.telegram import notify_weekly_digest, is_telegram_enabled
+    from src.notifications.telegram import notify_weekly_digest, WeeklyDigestPayload, is_telegram_enabled
     if not is_telegram_enabled():
         return
 
@@ -773,7 +772,7 @@ def send_weekly_digest():
                     except (ValueError, KeyError):
                         continue
 
-        notify_weekly_digest(
+        notify_weekly_digest(WeeklyDigestPayload(
             period_start=period_start, period_end=period_end,
             opened_paper=opened_paper, opened_live=opened_live,
             closed_paper=closed_paper, closed_live=closed_live,
@@ -795,7 +794,7 @@ def send_weekly_digest():
             council_consensus=council_consensus,
             council_avg_confidence=council_avg_conf,
             earnings_next_week=earnings_next, events_next_week=events_next,
-        )
+        ))
         print("[WATCH] Weekly digest sent via Telegram.")
     except Exception as e:
         logger.warning("[WATCH] Weekly digest failed: %s", e)
