@@ -174,18 +174,9 @@ def run_weekly_synthesis(db_path: str = DB_PATH) -> dict:
         logger.error("[SYNTHESIS] Failed to store digest: %s", e)
 
     # Send Telegram notification
-    try:
-        from src.notifications.telegram import send_telegram
-        summary = digest_text[:800] if len(digest_text) > 800 else digest_text
-        msg = (
-            f"📚 <b>WEEKLY RESEARCH DIGEST</b>\n\n"
-            f"Papers reviewed: {len(papers)}\n"
-            f"Actionable findings: {actionable_count}\n\n"
-            f"{summary}"
-        )
-        send_telegram(msg)
-    except Exception:
-        pass
+    from src.notifications import safe_send
+    safe_send("research_digest", papers_count=len(papers),
+              actionable_count=actionable_count, digest_summary=digest_text)
 
     logger.info("[SYNTHESIS] Digest complete: %d papers reviewed, %d actionable",
                 len(papers), actionable_count)

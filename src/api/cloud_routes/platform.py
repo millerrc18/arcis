@@ -205,17 +205,12 @@ async def _run_backtest_async(req: BacktestKickoffReq, result_id: str) -> None:
             result, db_path=DB_PATH,
             git_sha=os.environ.get("RENDER_GIT_COMMIT", "unknown"),
         )
-        try:
-            from src.notifications.platform_events import notify_backtest_complete
-            notify_backtest_complete(
-                strategy_id=req.strategy_id,
-                result_id=result_id,
-                passed_gate_a=(result.metrics.get("deflated_sharpe") or 0) >= 0.95,
-            )
-        except Exception:
-            logger.exception(
-                "[PLATFORM] notify_backtest_complete failed (non-fatal)",
-            )
+        from src.notifications.platform_events import notify_backtest_complete
+        notify_backtest_complete(
+            strategy_id=req.strategy_id,
+            result_id=result_id,
+            passed_gate_a=(result.metrics.get("deflated_sharpe") or 0) >= 0.95,
+        )
     except Exception:
         logger.exception(
             "[PLATFORM] async backtest %s failed", result_id,
@@ -271,11 +266,8 @@ async def promote_strategy(req: PromoteReq) -> dict:
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
-    try:
-        from src.notifications.platform_events import notify_strategy_promoted
-        notify_strategy_promoted(req.strategy_id, from_status, req.target_status)
-    except Exception:
-        logger.exception("[PLATFORM] notify_strategy_promoted failed")
+    from src.notifications.platform_events import notify_strategy_promoted
+    notify_strategy_promoted(req.strategy_id, from_status, req.target_status)
     return {"status": "promoted", "target_status": req.target_status}
 
 
@@ -341,9 +333,6 @@ async def demote_strategy(req: DemoteReq) -> dict:
         )
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
-    try:
-        from src.notifications.platform_events import notify_strategy_demoted
-        notify_strategy_demoted(req.strategy_id, req.reason)
-    except Exception:
-        logger.exception("[PLATFORM] notify_strategy_demoted failed")
+    from src.notifications.platform_events import notify_strategy_demoted
+    notify_strategy_demoted(req.strategy_id, req.reason)
     return {"status": "deprecated"}
