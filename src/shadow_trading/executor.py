@@ -2295,24 +2295,27 @@ def check_and_manage_open_trades(
 
             # Enriched context — fields are all nullable in shadow_trades;
             # notify_trade_closed renders only what's present.
+            from src.notifications.telegram import TradeClosedPayload
             safe_send(
                 "trade_closed",
-                ticker=ticker,
-                pnl_dollars=pnl_dollars,
-                pnl_pct=pnl_pct,
-                exit_reason=exit_reason,
-                days_held=days_open,
-                source=trade.get("source", "paper"),
-                sector=trade.get("realized_sector"),
-                regime_at_entry=trade.get("regime_at_entry"),
-                regime_at_exit=trade.get("regime_at_exit"),
-                mfe_pct=trade.get("max_favorable_excursion"),
-                mae_pct=trade.get("max_adverse_excursion"),
-                excess_return=trade.get("excess_return"),
-                spy_return_over_hold=trade.get("spy_return_over_hold"),
-                drawdown_from_mfe=trade.get("drawdown_from_mfe"),
-                entry_slippage_bps=trade.get("entry_slippage_bps"),
-                exit_slippage_bps=trade.get("exit_slippage_bps"),
+                payload=TradeClosedPayload(
+                    ticker=ticker,
+                    pnl_dollars=pnl_dollars,
+                    pnl_pct=pnl_pct,
+                    exit_reason=exit_reason,
+                    days_held=days_open,
+                    source=trade.get("source", "paper"),
+                    sector=trade.get("realized_sector"),
+                    regime_at_entry=trade.get("regime_at_entry"),
+                    regime_at_exit=trade.get("regime_at_exit"),
+                    mfe_pct=trade.get("max_favorable_excursion"),
+                    mae_pct=trade.get("max_adverse_excursion"),
+                    excess_return=trade.get("excess_return"),
+                    spy_return_over_hold=trade.get("spy_return_over_hold"),
+                    drawdown_from_mfe=trade.get("drawdown_from_mfe"),
+                    entry_slippage_bps=trade.get("entry_slippage_bps"),
+                    exit_slippage_bps=trade.get("exit_slippage_bps"),
+                ),
             )
 
             # 1F. Check for trade close milestones

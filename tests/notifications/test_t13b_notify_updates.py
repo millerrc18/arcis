@@ -123,8 +123,8 @@ def test_weekly_digest_no_raw_amp():
     """I16: &amp; not hardcoded in weekly_digest; output identical via _html_escape."""
     with patch("src.notifications.telegram._get_telegram_config", return_value=_make_cfg()):
         with patch("requests.post", return_value=_mock_ok()) as mock_post:
-            from src.notifications.telegram import notify_weekly_digest
-            notify_weekly_digest(
+            from src.notifications.telegram import notify_weekly_digest, WeeklyDigestPayload
+            notify_weekly_digest(WeeklyDigestPayload(
                 period_start="2026-05-01", period_end="2026-05-07",
                 opened_paper=5, opened_live=2,
                 closed_paper=3, closed_live=1,
@@ -140,7 +140,7 @@ def test_weekly_digest_no_raw_amp():
                 spy_weekly_pct=1.2,
                 council_sessions=5, council_consensus="long", council_avg_confidence=75,
                 earnings_next_week=["MSFT"], events_next_week=["FOMC"],
-            )
+            ))
 
     sent_text = mock_post.call_args_list[0][1]["json"]["text"]
     assert "P&amp;L" in sent_text

@@ -472,8 +472,11 @@ class TestTelegramSourceParameter:
         mock_cfg.return_value = {"enabled": True, "bot_token": "t", "chat_id": "c"}
         mock_send.return_value = True
 
-        from src.notifications.telegram import notify_trade_opened
-        notify_trade_opened("AAPL", 50.0, 48.0, 54.0, 75, 1, source="paper")
+        from src.notifications.telegram import notify_trade_opened, TradeOpenedPayload
+        notify_trade_opened(TradeOpenedPayload(
+            ticker="AAPL", entry_price=50.0, stop=48.0, target=54.0,
+            score=75, shares=1, source="paper"
+        ))
 
         msg = mock_send.call_args[0][0]
         assert "TRADE OPENED" in msg
@@ -486,8 +489,11 @@ class TestTelegramSourceParameter:
         mock_cfg.return_value = {"enabled": True, "bot_token": "t", "chat_id": "c"}
         mock_send.return_value = True
 
-        from src.notifications.telegram import notify_trade_opened
-        notify_trade_opened("AAPL", 50.0, 48.0, 54.0, 75, 1, source="live")
+        from src.notifications.telegram import notify_trade_opened, TradeOpenedPayload
+        notify_trade_opened(TradeOpenedPayload(
+            ticker="AAPL", entry_price=50.0, stop=48.0, target=54.0,
+            score=75, shares=1, source="live"
+        ))
 
         msg = mock_send.call_args[0][0]
         assert "LIVE TRADE OPENED" in msg
@@ -499,8 +505,11 @@ class TestTelegramSourceParameter:
         mock_cfg.return_value = {"enabled": True, "bot_token": "t", "chat_id": "c"}
         mock_send.return_value = True
 
-        from src.notifications.telegram import notify_trade_opened
-        notify_trade_opened("AAPL", 50.0, 48.0, 54.0, 75, 1)
+        from src.notifications.telegram import notify_trade_opened, TradeOpenedPayload
+        notify_trade_opened(TradeOpenedPayload(
+            ticker="AAPL", entry_price=50.0, stop=48.0, target=54.0,
+            score=75, shares=1
+        ))
 
         msg = mock_send.call_args[0][0]
         assert "LIVE" not in msg

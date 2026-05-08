@@ -11,6 +11,14 @@ import tempfile
 import os
 from unittest.mock import patch, MagicMock
 
+from src.notifications.telegram import TradeOpenedPayload
+
+
+def _payload():
+    return TradeOpenedPayload(
+        ticker="AAPL", entry_price=100.0, stop=95.0, target=110.0, score=80, shares=10
+    )
+
 
 def _make_sent_db():
     """In-memory DB with notifications_sent table."""
@@ -45,15 +53,7 @@ def test_safe_send_failure_writes_failed_row():
         ):
             with patch("src.notifications.telegram._write_notification_sent") as mock_write:
                 mock_write.side_effect = lambda **kw: _insert_sent(conn, **kw)
-                safe_send(
-                    "trade_opened",
-                    ticker="AAPL",
-                    entry_price=100.0,
-                    stop=95.0,
-                    target=110.0,
-                    score=80,
-                    shares=10,
-                )
+                safe_send("trade_opened", payload=_payload())
 
     rows = conn.execute("SELECT status, error_msg FROM notifications_sent").fetchall()
     assert len(rows) == 1
@@ -239,15 +239,7 @@ def test_safe_send_failure_writes_row_to_real_db():
              ), \
              patch("src.config.DB_PATH", db_path), \
              patch("src.notifications.telegram.DB_PATH", db_path, create=True):
-            safe_send(
-                "trade_opened",
-                ticker="AAPL",
-                entry_price=100.0,
-                stop=95.0,
-                target=110.0,
-                score=80,
-                shares=10,
-            )
+            safe_send("trade_opened", payload=_payload())
 
         conn = sqlite3.connect(db_path)
         rows = conn.execute(
