@@ -130,6 +130,13 @@ def run_mr_scan(config: dict | None = None, dry_run: bool = False) -> dict:
             ticker, feat, config, strategy_name="mean_reversion"
         )
 
+        # #621 / task #52: build_packet_from_features returns None for tickers
+        # with current_price <= 0 (silent feature-fetch failure). Skip the ticker
+        # rather than crash the MR scan via NoneType in enhance_packet_with_llm.
+        if packet is None:
+            logger.warning("[MR] Skipping %s — build_packet_from_features returned None (current_price invalid)", ticker)
+            continue
+
         # Sprint 2 K: pre-LLM BP check. Skip Ollama for un-fundable packets.
         # Defensive on packets that lack position_sizing (test mocks).
         _ps = getattr(packet, "position_sizing", None)
