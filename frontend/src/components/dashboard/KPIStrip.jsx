@@ -194,10 +194,15 @@ function WinRateCard({ kpi, n, meta }) {
   )
 }
 
-function TrafficLightCard({ kpi, n }) {
+function TrafficLightCard({ kpi, n, promotionKpi }) {
   const v = kpi.S != null ? kpi.S.toFixed(2) : null
   const sub = kpi.t_stat != null
     ? `t=${kpi.t_stat.toFixed(2)}  CI lower=${(kpi.ci_lower ?? 0).toFixed(2)}`
+    : null
+  const voteText = promotionKpi != null
+    ? (promotionKpi.votes_passed != null
+        ? `${promotionKpi.votes_passed}/${promotionKpi.votes_total ?? 5} votes`
+        : (promotionKpi.caption ?? null))
     : null
   return (
     <KPICard
@@ -206,6 +211,32 @@ function TrafficLightCard({ kpi, n }) {
       status={kpi.status}
       subLine={sub}
       caption={`S=${v ?? '--'}  N=${n}`}
+    >
+      {voteText && (
+        <Tooltip content={promotionKpi.caption || 'Promotion gate vote count'}>
+          <div
+            data-testid="traffic-light-vote-badge"
+            style={{ fontSize: 10, color: 'var(--arcis-text-muted)', marginTop: 2 }}
+          >
+            {voteText}
+          </div>
+        </Tooltip>
+      )}
+    </KPICard>
+  )
+}
+
+function TotalPnlDollarsCard({ value, meta }) {
+  const formatted = value != null
+    ? `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : null
+  const status = value == null ? 'unknown' : value >= 0 ? 'green' : 'red'
+  return (
+    <KPICard
+      title="Total P&L"
+      value={formatted}
+      status={status}
+      meta={meta}
     />
   )
 }
@@ -292,14 +323,11 @@ export default function KPIStrip({ kpis, error = false, loading = false }) {
         }}
         className="kpi-strip"
       >
-        {/* _meta.rf_adjusted_excess_sharpe: wired — spec field 1 of 4.
-            _meta.win_rate: wired — spec field 2 of 4; .n equals n_trades (spec field 3, exposed via badge).
-            total_pnl_dollars: no primary value card in this strip shows dollar P&L — TODO #SP3-T12-pnl-card */}
         <RfAdjustedCard kpi={safeKpis.rf_adjusted_excess_sharpe} n={nTotal} meta={safeKpis._meta?.rf_adjusted_excess_sharpe} />
         <SpyRelativeCard kpi={safeKpis.spy_relative_sharpe} nSpy={nSpy} nTotal={nTotal} />
         <WinRateCard kpi={safeKpis.win_rate} n={nTotal} meta={safeKpis._meta?.win_rate} />
-        <TrafficLightCard kpi={safeKpis.stage_traffic_light} n={nTotal} />
-        <PromotionGateCard kpi={safeKpis.promotion_gate} nTrades={nTotal} nMinTrl={nMin} />
+        <TrafficLightCard kpi={safeKpis.stage_traffic_light} n={nTotal} promotionKpi={safeKpis.promotion_gate} />
+        <TotalPnlDollarsCard value={safeKpis.total_pnl_dollars} meta={safeKpis._meta?.total_pnl_dollars} />
       </div>
       <InstrumentationBadge pct={safeKpis.instrumentation_pct} />
       <style>{`
