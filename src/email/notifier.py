@@ -1,10 +1,10 @@
 """SMTP email notifier for the Arcis system.
 
 Called by: cli.commands, evaluation.auditor, scheduler.watch, services.recap_service, services.scan_service, services.watchlist_service
-Calls: config
+Calls: config, notifications
 Owns tables: none
-Config keys: cc_addresses, email, from_address, password, smtp_port, smtp_server, to_address, use_tls, username
-Tests: none
+Config keys: cc_addresses, email, from_address, smtp_port, smtp_server, to_address, use_tls, username
+Tests: tests/email/test_notifier.py
 """
 
 import logging
@@ -13,8 +13,11 @@ import smtplib
 from email.mime.text import MIMEText
 
 from src.config import load_config
+from src.notifications import safe_send
 
 logger = logging.getLogger(__name__)
+
+_TELEGRAM_BODY_LIMIT = 400
 
 
 def send_email(subject: str, body: str, to_address: str | None = None) -> bool:
@@ -31,10 +34,18 @@ def send_email(subject: str, body: str, to_address: str | None = None) -> bool:
     smtp_port = email_cfg.get("smtp_port", 587)
     use_tls = email_cfg.get("use_tls", True)
     username = email_cfg.get("username", "")
-    password = os.environ.get("EMAIL_PASSWORD") or email_cfg.get("password", "")
+    # C4: require EMAIL_PASSWORD env var; YAML fallback removed
+    password = os.environ.get("EMAIL_PASSWORD", "")
+    yaml_password = email_cfg.get("password", "")
+    if yaml_password:
+        logger.warning(
+            "email.password YAML key is non-empty — passwords must be set via "
+            "EMAIL_PASSWORD env var, not YAML config (security policy)"
+        )
     from_address = email_cfg.get("from_address", username)
     recipient = to_address or email_cfg.get("to_address", "")
-    cc_addresses = email_cfg.get("cc_addresses", [])
+    # C5: handle None safely (YAML omission yields None, not [])
+    cc_addresses = email_cfg.get("cc_addresses") or []
 
     if not smtp_server or not username or not password or not recipient:
         logger.warning("Email configuration is incomplete. Check your settings.")
@@ -55,8 +66,16 @@ def send_email(subject: str, body: str, to_address: str | None = None) -> bool:
         if use_tls:
             server.starttls()
         server.login(username, password)
-        server.sendmail(from_address, all_recipients, msg.as_string())
+        failures = server.sendmail(from_address, all_recipients, msg.as_string())
         server.quit()
+        # C17: sendmail returns {} on full success; non-empty dict means some/all recipients failed
+        if failures:
+            logger.warning("SMTP sendmail reported delivery failures: %s", failures)
+            safe_send(
+                "system_event",
+                message=f"[EMAIL FAILED] {subject}\n{body[:_TELEGRAM_BODY_LIMIT]}",
+            )
+            return False
         return True
     except smtplib.SMTPAuthenticationError:
         logger.warning("SMTP authentication failed. Check username/password.")

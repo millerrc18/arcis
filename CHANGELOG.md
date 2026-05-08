@@ -22,7 +22,7 @@
 <!-- T9  --> *placeholder cockpit-#1 shadow_metrics live cohort*
 <!-- T10 --> *placeholder cockpit-#2 /api/status open_positions cohort*
 <!-- T11a --> Added `compute_total_pnl_dollars(instrumented)` to `kpis_compute.py` (sum of `pnl_dollars` rounded to 2dp). Wired into `/api/kpis` response as top-level `total_pnl_dollars` field and `_meta.total_pnl_dollars` with `cohort='kpi.canonical'`, `n=n_trades`, `label=COHORT_LABELS['kpi.canonical']`. Zero-safe: returns `0.0` when no instrumented trades. +3 tests in `tests/api/test_kpis.py` (value+sum, meta cohort+n, empty-DB zero).
-<!-- T11b --> *placeholder Group-B email subsystem hardening*
+<!-- T11b --> Hardened email subsystem (Group B): (C5) `cc_addresses or []` guards against YAML omission returning None — eliminates TypeError on `[recipient] + cc_addresses`; (C4) removed YAML `password` fallback from `send_email` — `EMAIL_PASSWORD` env var now required, warning emitted at call-time if YAML key is non-empty (security: passwords must not live in YAML config); (C17) when `smtplib.sendmail` returns a non-empty failures dict, invoke `safe_send("system_event", ...)` as telegram fallback with subject + body truncated to 400 chars; (N1) re-exported `digest_builder` module from `src/email/__init__.py` so callers can `from src.email import digest_builder`. New `tests/email/test_notifier.py` (+8 tests) covers all four fixes plus envelope, TLS, and ConnectionRefused paths.
 <!-- T12 --> *placeholder cockpit-#8b KPIStrip P&L card*
 <!-- T13a --> *placeholder Group-C chunked send + html_escape*
 <!-- T13b --> *placeholder Group-C notify_* updates*
