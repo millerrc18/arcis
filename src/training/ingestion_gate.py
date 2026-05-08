@@ -12,6 +12,7 @@ import re
 import sqlite3
 from src.utils.db import connect_db
 from collections import Counter
+from src.notifications import safe_send
 
 logger = logging.getLogger(__name__)
 
@@ -154,15 +155,13 @@ def should_halt_batch(
 
 def alert_training_halt(compliance: float, rejected: int, total: int, top_reason: str) -> None:
     """Send the required Telegram alert when a batch falls below compliance threshold."""
-    try:
-        from src.notifications.telegram import send_telegram
-
-        reason_hint = REASON_HINTS.get(top_reason)
-        reason_text = f"{top_reason} ({reason_hint})" if reason_hint else top_reason
-        send_telegram(
-            "🛑 TRAINING HALT: "
+    reason_hint = REASON_HINTS.get(top_reason)
+    reason_text = f"{top_reason} ({reason_hint})" if reason_hint else top_reason
+    safe_send(
+        "system_event",
+        event="TRAINING HALT",
+        detail=(
             f"{compliance:.1f}% format compliance ({rejected}/{total} rejected). "
             f"Top reason: {reason_text}"
-        )
-    except Exception as exc:
-        logger.warning("[INGESTION] Training halt alert failed: %s", exc)
+        ),
+    )

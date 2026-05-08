@@ -44,6 +44,7 @@ from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH, load_config
 from src.utils.db import connect_db
+from src.notifications import safe_send
 from src.shadow_trading._status_sql import terminal_in_clause
 
 # All risk timestamps use Eastern Time because US equity markets
@@ -136,15 +137,11 @@ def _warn_governor_disabled_once() -> None:
         "[RISK] Governor DISABLED -- all trades auto-approved. "
         "Review config/settings.local.yaml risk_governor.enabled.",
     )
-    try:
-        from src.notifications.telegram import send_telegram, is_telegram_enabled
-        if is_telegram_enabled():
-            send_telegram(
-                "[FAIL] RISK GOVERNOR DISABLED -- all trades auto-approved. "
-                "Review config/settings.local.yaml risk_governor.enabled.",
-            )
-    except Exception as e:
-        logger.warning("[RISK] governor-disabled Telegram alert failed: %s", e)
+    safe_send(
+        "system_event",
+        event="RISK GOVERNOR DISABLED",
+        detail="all trades auto-approved. Review config/settings.local.yaml risk_governor.enabled.",
+    )
 
 # Kill switch is a file-based flag rather than a DB column so it works
 # even when the database is corrupt or locked.  The sentinel file path
