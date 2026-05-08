@@ -394,3 +394,8 @@ def _compute_instrumentation_pct(trades: list[dict]) -> float | None:
     return round(100.0 * v3_count / len(trades), 1)
 
 
+def compute_total_pnl_dollars(instrumented: list[dict]) -> float:
+    """Return the sum of pnl_dollars across instrumented trades, rounded to 2dp."""
+    return round(sum(float(t.get("pnl_dollars") or 0) for t in instrumented), 2)
+
+

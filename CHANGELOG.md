@@ -21,7 +21,7 @@
 <!-- T8  --> Added cloud-req slow-lane venv subprocess test (`tests/test_cloud_requirements_imports.py` extension) + tzdata to requirements-cloud.txt (5th recurrence of cloud-deploy import drift bug class — `zoneinfo.ZoneInfo('America/New_York')` fails on Windows clean venv without OS tzdata; masked on Linux Render). T8 revision adds: subprocess child-kill on timeout (`_run_or_kill` helper), PyPI-offline skip guard (`has_pypi_network` fixture), configurable timeouts via env vars (`CLOUD_REQ_PIP_TIMEOUT`, `CLOUD_REQ_IMPORT_TIMEOUT`), and pytest slow-marker registration (`pytest.ini`). Marked `@pytest.mark.slow`; creates temp venv, installs ONLY requirements-cloud.txt, asserts `from src.api.cloud_app import app` succeeds. Synthetic regression-lock asserts missing scipy raises ModuleNotFoundError. Defense-in-depth complement to T7 fast-lane AST walker; informational/CI-only — does NOT block PR merge.
 <!-- T9  --> *placeholder cockpit-#1 shadow_metrics live cohort*
 <!-- T10 --> *placeholder cockpit-#2 /api/status open_positions cohort*
-<!-- T11a --> *placeholder cockpit-#8a backend total_pnl_dollars*
+<!-- T11a --> Added `compute_total_pnl_dollars(instrumented)` to `kpis_compute.py` (sum of `pnl_dollars` rounded to 2dp). Wired into `/api/kpis` response as top-level `total_pnl_dollars` field and `_meta.total_pnl_dollars` with `cohort='kpi.canonical'`, `n=n_trades`, `label=COHORT_LABELS['kpi.canonical']`. Zero-safe: returns `0.0` when no instrumented trades. +3 tests in `tests/api/test_kpis.py` (value+sum, meta cohort+n, empty-DB zero).
 <!-- T11b --> *placeholder Group-B email subsystem hardening*
 <!-- T12 --> *placeholder cockpit-#8b KPIStrip P&L card*
 <!-- T13a --> *placeholder Group-C chunked send + html_escape*

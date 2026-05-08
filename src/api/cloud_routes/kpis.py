@@ -28,7 +28,7 @@ from fastapi import APIRouter, Depends
 
 from src.analytics import kpis_compute as _analytics_kpis
 from src.analytics.instrumentation_filter import filter_fully_instrumented
-from src.api.cohort_meta import meta_entry
+from src.api.cohort_meta import COHORT_LABELS, meta_entry
 from src.config import DB_PATH
 
 _log = logging.getLogger(__name__)
@@ -76,6 +76,7 @@ from src.api.cloud_routes.kpis_compute import (  # noqa: E402, F401
     _compute_stage_traffic_light,
     _compute_promotion_gate_kpi,
     _compute_instrumentation_pct,
+    compute_total_pnl_dollars,
 )
 
 
@@ -125,6 +126,7 @@ def get_kpis() -> dict:
         "win_rate": _compute_win_rate_kpi(instrumented),
         "stage_traffic_light": _compute_stage_traffic_light(returns, rf_per_trade),
         "promotion_gate": _compute_promotion_gate_kpi(n_trades, returns),
+        "total_pnl_dollars": compute_total_pnl_dollars(instrumented),
         "rf_source": "fred_dtb3" if rf_used_fred else "placeholder",
         "_meta": {
             "rf_adjusted_excess_sharpe": _kpi_meta,
@@ -132,5 +134,10 @@ def get_kpis() -> dict:
             "win_rate": _kpi_meta,
             "stage_traffic_light": _kpi_meta,
             "promotion_gate": _kpi_meta,
+            "total_pnl_dollars": meta_entry(
+                "kpi.canonical",
+                n_trades,
+                label=COHORT_LABELS["kpi.canonical"],
+            ),
         },
     }
