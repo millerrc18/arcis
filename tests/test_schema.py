@@ -36,7 +36,7 @@ def test_register_adds_table():
 
 # ── Completeness tests ───────────────────────────────────────────
 
-EXPECTED_TABLE_COUNT = 68
+EXPECTED_TABLE_COUNT = 72
 
 
 def test_registry_has_all_tables():
@@ -103,6 +103,8 @@ EXPECTED_TABLES = {
     "bracket_health",
     # Diagnostics
     "diagnostic_runs", "diagnostic_run_plots",
+    # Notifications (Sprint 4 T14)
+    "notifications_sent", "notifications_dedup",
 }
 
 
@@ -585,4 +587,91 @@ def test_scan_metrics_has_unique_index_on_created_at():
         "scan_metrics must have a UNIQUE index covering created_at. "
         "Add IndexDef('idx_scan_metrics_unique', ['created_at'], unique=True) "
         "to the scan_metrics TableDef in src/schema/registry.py"
+    )
+
+
+# ── Sprint 4 T14 — notifications_sent + notifications_dedup ──────
+
+def test_notifications_sent_in_TABLES():
+    """notifications_sent must be registered in TABLES (Sprint 4 T14)."""
+    assert "notifications_sent" in TABLES, (
+        "notifications_sent not in registry — add TableDef to src/schema/registry.py"
+    )
+
+
+def test_notifications_sent_columns_match_spec():
+    """notifications_sent must have all 8 spec columns with correct types and nullability."""
+    assert "notifications_sent" in TABLES
+    td = TABLES["notifications_sent"]
+    col_map = {c.name: c for c in td.columns}
+
+    assert "id" in col_map, "notifications_sent missing id column"
+    assert col_map["id"].type == "INTEGER"
+
+    assert "event_type" in col_map, "notifications_sent missing event_type column"
+    assert col_map["event_type"].type == "TEXT"
+    assert col_map["event_type"].nullable is False
+
+    assert "channel" in col_map, "notifications_sent missing channel column"
+    assert col_map["channel"].type == "TEXT"
+    assert col_map["channel"].nullable is False
+
+    assert "recipient" in col_map, "notifications_sent missing recipient column"
+    assert col_map["recipient"].nullable is True
+
+    assert "sent_at" in col_map, "notifications_sent missing sent_at column"
+    assert col_map["sent_at"].type == "TEXT"
+    assert col_map["sent_at"].nullable is False
+
+    assert "status" in col_map, "notifications_sent missing status column"
+    assert col_map["status"].type == "TEXT"
+    assert col_map["status"].nullable is False
+
+    assert "retry_count" in col_map, "notifications_sent missing retry_count column"
+    assert col_map["retry_count"].type == "INTEGER"
+    assert col_map["retry_count"].nullable is False
+    assert col_map["retry_count"].default == "0", (
+        f"retry_count default should be '0', got {col_map['retry_count'].default!r}"
+    )
+
+    assert "error_msg" in col_map, "notifications_sent missing error_msg column"
+    assert col_map["error_msg"].nullable is True
+
+
+def test_notifications_sent_index_registered():
+    """notifications_sent must have (event_type, sent_at DESC) index registered."""
+    assert "notifications_sent" in TABLES
+    td = TABLES["notifications_sent"]
+    event_recent_indexes = [
+        idx for idx in td.indexes
+        if "event_type" in idx.columns and any("sent_at" in c for c in idx.columns)
+    ]
+    assert event_recent_indexes, (
+        "notifications_sent missing index on (event_type, sent_at DESC). "
+        "Add IndexDef with columns=['event_type', 'sent_at DESC'] to registry."
+    )
+
+
+def test_notifications_dedup_in_TABLES():
+    """notifications_dedup must be registered in TABLES (Sprint 4 T14)."""
+    assert "notifications_dedup" in TABLES, (
+        "notifications_dedup not in registry — add TableDef to src/schema/registry.py"
+    )
+
+
+def test_notifications_dedup_unique_event_dedup_key():
+    """notifications_dedup must have UNIQUE constraint on (event_type, dedup_key)."""
+    assert "notifications_dedup" in TABLES
+    td = TABLES["notifications_dedup"]
+    col_names = [c.name for c in td.columns]
+    assert "event_type" in col_names, "notifications_dedup missing event_type column"
+    assert "dedup_key" in col_names, "notifications_dedup missing dedup_key column"
+    assert "sent_at" in col_names, "notifications_dedup missing sent_at column"
+    unique_indexes = [
+        idx for idx in td.indexes
+        if idx.unique and "event_type" in idx.columns and "dedup_key" in idx.columns
+    ]
+    assert unique_indexes, (
+        "notifications_dedup must have a UNIQUE index on (event_type, dedup_key). "
+        "Add IndexDef with unique=True and columns=['event_type', 'dedup_key']."
     )
