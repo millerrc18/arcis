@@ -34,7 +34,7 @@
 <!-- T16 --> *placeholder cockpit-#7 bare queryFn + ESLint extension*
 <!-- T17a --> *placeholder cockpit-#3 calmar cto_report+engine*
 <!-- T17b --> *placeholder cockpit-#3 calmar backtester+platform/metrics+allowlist empty*
-<!-- T18a --> *placeholder cockpit-#4 LiveLedger sign*
+<!-- T18a --> Fixed negative-P&L sign formatting in `LiveLedger.jsx` `PnlValue` component (line 40): `Math.abs(value).toFixed(2)` without sign prefix stripped the minus sign from all losing trades, showing e.g. `$150.50` instead of `-$150.50`. Fixed with `{value > 0 ? '+' : value < 0 ? '-' : ''}` prefix. New test file `frontend/src/pages/__tests__/PnlSignFormatting.test.jsx` (T18a tests: negative → `-$150.50`, positive → `+$200.00`, zero → `$0.00`).
 <!-- T18b --> *placeholder cockpit-#4 ShadowLedger 3 sites*
 <!-- T18c --> *placeholder cockpit-#4 TradeHistory sign*
 <!-- T19 --> *placeholder cockpit-#5+#6 reconciliation extensions*
