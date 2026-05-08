@@ -75,6 +75,7 @@ import requests.exceptions
 import urllib3.exceptions
 
 from src.config import DB_PATH, load_config
+from src.data_ingestion.finnhub import normalize_earnings_time
 from src.notifications._config import _get_telegram_config
 
 logger = logging.getLogger(__name__)
@@ -105,14 +106,54 @@ def _redact_token(text) -> str:
     return _TELEGRAM_TOKEN_RE.sub("/bot[REDACTED]", s)
 
 
+def _html_escape(text) -> str:
+    """HTML-escape user-controlled string fields. None-safe, str-coercing."""
+    if text is None:
+        return ""
+    s = text if isinstance(text, str) else str(text)
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def is_telegram_enabled() -> bool:
     """Check if Telegram notifications are configured and enabled."""
     cfg = _get_telegram_config()
     return cfg["enabled"] and bool(cfg["bot_token"]) and bool(cfg["chat_id"])
 
 
+_TELEGRAM_CHUNK_SIZE = 4000
+
+
+def _send_single(cfg: dict, text: str, parse_mode: str) -> bool:
+    """Send one message chunk. Returns True on success, False on failure."""
+    try:
+        url = TELEGRAM_API.format(token=cfg["bot_token"])
+        resp = requests.post(
+            url,
+            json={
+                "chat_id": cfg["chat_id"],
+                "text": text,
+                "parse_mode": parse_mode,
+                "disable_web_page_preview": True,
+            },
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            return True
+        logger.warning(
+            "[TELEGRAM] Send failed: %s %s",
+            resp.status_code, _redact_token(resp.text[:200]),
+        )
+        return False
+    except Exception as e:
+        logger.warning("[TELEGRAM] Send error: %s", _redact_token(e))
+        return False
+
+
 def send_telegram(message: str, parse_mode: str = "HTML") -> bool:
     """Send a message via Telegram Bot API.
+
+    Messages longer than 4000 characters are split into chunks with
+    [chunk N/M] markers appended to each part.
 
     Args:
         message: Text to send (supports HTML formatting)
@@ -124,29 +165,33 @@ def send_telegram(message: str, parse_mode: str = "HTML") -> bool:
     if not cfg["enabled"] or not cfg["bot_token"] or not cfg["chat_id"]:
         return False
 
-    try:
-        url = TELEGRAM_API.format(token=cfg["bot_token"])
-        resp = requests.post(
-            url,
-            json={
-                "chat_id": cfg["chat_id"],
-                "text": message,
-                "parse_mode": parse_mode,
-                "disable_web_page_preview": True,
-            },
-            timeout=10,
-        )
-        if resp.status_code == 200:
-            return True
-        else:
-            logger.warning(
-                "[TELEGRAM] Send failed: %s %s",
-                resp.status_code, _redact_token(resp.text[:200]),
-            )
-            return False
-    except Exception as e:
-        logger.warning("[TELEGRAM] Send error: %s", _redact_token(e))
-        return False
+    if len(message) <= _TELEGRAM_CHUNK_SIZE:
+        return _send_single(cfg, message, parse_mode)
+
+    chunks = [
+        message[i: i + _TELEGRAM_CHUNK_SIZE]
+        for i in range(0, len(message), _TELEGRAM_CHUNK_SIZE)
+    ]
+    total = len(chunks)
+
+    # Try HTML chunked first; if any chunk returns 400 (tag-tearing), retry all as plaintext.
+    html_failed = False
+    for idx, chunk in enumerate(chunks, start=1):
+        tagged = f"{chunk}\n[chunk {idx}/{total}]"
+        if not _send_single(cfg, tagged, parse_mode):
+            html_failed = True
+            break
+
+    if not html_failed:
+        return True
+
+    # Plaintext fallback — strips any HTML tags that may have been torn by chunking.
+    ok = True
+    for idx, chunk in enumerate(chunks, start=1):
+        tagged = f"{chunk}\n[chunk {idx}/{total}]"
+        if not _send_single(cfg, tagged, None):
+            ok = False
+    return ok
 
 
 # ── Pre-formatted alert functions ─────────────────────────────────────────
@@ -226,9 +271,9 @@ def notify_trade_closed(ticker: str, pnl_dollars: float, pnl_pct: float,
     emoji = "🟢" if pnl_dollars >= 0 else "🔴"
     label = "LIVE TRADE CLOSED" if source == "live" else "TRADE CLOSED"
     lines = [
-        f"{emoji} <b>{label}: {ticker}</b>",
+        f"{emoji} <b>{label}: {_html_escape(ticker)}</b>",
         f"P&L: ${pnl_dollars:+.2f} ({pnl_pct:+.1f}%)",
-        f"Reason: {exit_reason} | Held: {days_held}d",
+        f"Reason: {_html_escape(exit_reason)} | Held: {days_held}d",
     ]
     lines.extend(_format_closed_extras(
         excess_return, spy_return_over_hold, mfe_pct, mae_pct,
@@ -316,18 +361,24 @@ def notify_overnight_complete(results: dict) -> bool:
     now = datetime.now(ET).strftime("%H:%M ET")
     lines = [f"🌙 <b>OVERNIGHT DATA COLLECTION</b> ({now})"]
     for key, val in results.items():
-        if isinstance(val, str) and "error" in val.lower():
-            lines.append(f"  ❌ {key}: {val[:60]}")
+        if isinstance(val, dict):
+            if not val.get("success", True):
+                err = _html_escape(str(val.get("error", ""))[:60])
+                lines.append(f"  ❌ {_html_escape(key)}: {err}" if err else f"  ❌ {_html_escape(key)}")
+            else:
+                lines.append(f"  ✅ {_html_escape(key)}")
+        elif isinstance(val, str) and "error" in val.lower():
+            lines.append(f"  ❌ {_html_escape(key)}: {_html_escape(val[:60])}")
         else:
-            lines.append(f"  ✅ {key}")
+            lines.append(f"  ✅ {_html_escape(key)}")
     return send_telegram("\n".join(lines))
 
 
 def notify_system_event(event: str, detail: str = "") -> bool:
     """Alert: general system event."""
-    msg = f"🔧 <b>{event}</b>"
+    msg = f"🔧 <b>{_html_escape(event)}</b>"
     if detail:
-        msg += f"\n{detail}"
+        msg += f"\n{_html_escape(detail)}"
     return send_telegram(msg)
 
 
@@ -392,9 +443,9 @@ def notify_daily_summary(total_pnl: float, open_trades: int,
 
 def notify_model_event(event: str, model_name: str, detail: str = "") -> bool:
     """Alert: model training/promotion/rollback event."""
-    msg = f"🧠 <b>MODEL: {event}</b>\nModel: {model_name}"
+    msg = f"🧠 <b>MODEL: {_html_escape(event)}</b>\nModel: {_html_escape(model_name)}"
     if detail:
-        msg += f"\n{detail}"
+        msg += f"\n{_html_escape(detail)}"
     return send_telegram(msg)
 
 
@@ -463,9 +514,9 @@ def notify_overnight_training_complete(tasks_completed: int, tasks_total: int,
     if details:
         for task, status in details.items():
             emoji = "✅" if status.get("success", False) else "❌"
-            msg += f"\n  {emoji} {task}"
+            msg += f"\n  {emoji} {_html_escape(task)}"
             if not status.get("success", False) and status.get("error"):
-                msg += f": {str(status['error'])[:40]}"
+                msg += f": {_html_escape(str(status['error'])[:40])}"
     return send_telegram(msg)
 
 
@@ -520,7 +571,7 @@ def notify_premarket_brief(vix: float, vix_change: float, regime: str,
     msg = (
         f"🌅 <b>PRE-MARKET BRIEF</b> ({now})\n\n"
         f"VIX: {vix:.2f} ({vix_change:+.2f}) | Regime: {regime}\n"
-        f"S&amp;P Futures: {spy_futures_pct:+.2f}% | 10Y: {ten_year:.2f}%\n"
+        f"{_html_escape('S&P')} Futures: {spy_futures_pct:+.2f}% | 10Y: {ten_year:.2f}%\n"
         f"Earnings today: {earnings_str}\n"
         f"{events_str}\n\n"
         f"Council consensus: {council_consensus.upper()} ({council_confidence}%)\n"
@@ -647,7 +698,7 @@ def notify_regime_alert(vix_now: float, vix_prev: float,
 
 def notify_milestone(milestone: str, detail: str) -> bool:
     """Alert: trade milestone reached (1st trade, 10th close, etc.)."""
-    msg = f"🏆 <b>MILESTONE: {milestone}</b>\n\n{detail}"
+    msg = f"🏆 <b>MILESTONE: {_html_escape(milestone)}</b>\n\n{_html_escape(detail)}"
     return send_telegram(msg)
 
 
@@ -701,7 +752,7 @@ def notify_weekly_digest(
         f"  Closed: {closed_paper} paper, {closed_live} live\n"
         f"  Win rate: {win_rate:.0%} | Expectancy: ${expectancy:+.2f}\n"
         f"  Best: {best_ticker} {best_pct:+.1f}% | Worst: {worst_ticker} {worst_pct:+.1f}%\n"
-        f"  P&amp;L: Paper ${pnl_paper:+.2f} | Live ${pnl_live:+.2f}\n\n"
+        f"  {_html_escape('P&L')}: Paper ${pnl_paper:+.2f} | Live ${pnl_live:+.2f}\n\n"
         f"<b>DATA ASSET:</b>\n"
         f"  Training examples: {training_start} → {training_end} (+{training_end - training_start})\n"
         f"  Signal zoo: {signal_start} → {signal_end} (+{signal_end - signal_start})\n"
@@ -737,7 +788,7 @@ def notify_retrain_report(model_name: str,
 
     msg = (
         f"🧠 <b>SATURDAY RETRAIN COMPLETE</b>\n\n"
-        f"Model: {model_name}\n"
+        f"Model: {_html_escape(model_name)}\n"
         f"Training examples: {training_examples} (was {prev_examples})\n"
         f"New examples this week: {new_this_week} ({new_paper} paper, {new_live} live)\n\n"
         f"Canary evaluation: {canary_status}\n"
@@ -759,19 +810,26 @@ def notify_research_papers(total_new: int, top_paper: str, top_score: float) -> 
         score_value = 0.0
     msg = (
         f"📄 {total_new} new research papers\n"
-        f"Top: {top_paper[:60]} (relevance: {score_value:.1f})"
+        f"Top: {_html_escape(top_paper[:60])} (relevance: {score_value:.1f})"
     )
     return send_telegram(msg)
+
+
+_RESEARCH_DIGEST_SUMMARY_LIMIT = 800
 
 
 def notify_research_digest(papers_count: int, actionable_count: int,
                            digest_summary: str) -> bool:
     """Send weekly research intelligence digest."""
+    if len(digest_summary) > _RESEARCH_DIGEST_SUMMARY_LIMIT:
+        summary_body = _html_escape(digest_summary[:_RESEARCH_DIGEST_SUMMARY_LIMIT]) + "\n[truncated; see email digest]"
+    else:
+        summary_body = _html_escape(digest_summary)
     msg = (
         f"📚 <b>WEEKLY RESEARCH DIGEST</b>\n\n"
         f"Papers reviewed: {papers_count}\n"
         f"Actionable findings: {actionable_count}\n\n"
-        f"{digest_summary[:800]}"
+        f"{summary_body}"
     )
     return send_telegram(msg)
 
@@ -787,7 +845,7 @@ def notify_collection_failure(collector_name: str, consecutive_failures: int,
     msg = (
         f"🚨 <b>COLLECTION ALERT</b>\n\n"
         f"{collector_name} collector failed {consecutive_failures} consecutive times\n"
-        f"Last error: {last_error[:80]}\n"
+        f"Last error: {_html_escape(last_error[:80])}\n"
         f"Last success: {last_success_ago}\n\n"
         f"Other collectors: {others_str}"
     )
@@ -813,9 +871,7 @@ def notify_position_earnings_warning(ticker: str, days_until: int,
                                      current_pnl: float, current_pnl_pct: float,
                                      expected_move_pct: float | None = None) -> bool:
     """Alert: open position has earnings within 3 trading days."""
-    time_label = "BMO" if earnings_time and "before" in earnings_time.lower() else (
-        "AMC" if earnings_time and "after" in earnings_time.lower() else earnings_time or "TBD"
-    )
+    time_label = normalize_earnings_time(earnings_time)
     msg = (
         f"📅 <b>EARNINGS WARNING: You hold {ticker}</b>\n\n"
         f"Earnings in {days_until} days ({earnings_date} {time_label})\n"
@@ -835,8 +891,10 @@ def notify_action_required(action: str, detail: str, urgency: str = "normal") ->
     urgency: 'low', 'normal', 'high', 'critical'
     """
     icons = {"low": "📋", "normal": "🔔", "high": "⚠️", "critical": "🚨"}
-    icon = icons.get(urgency, "🔔")
-    msg = f"{icon} <b>ACTION REQUIRED</b>\n\n<b>{action}</b>\n{detail}"
+    if urgency not in icons:
+        raise ValueError(f"Unknown urgency '{urgency}'; must be one of {list(icons)}")
+    icon = icons[urgency]
+    msg = f"{icon} <b>ACTION REQUIRED</b>\n\n<b>{_html_escape(action)}</b>\n{_html_escape(detail)}"
     return send_telegram(msg)
 
 
