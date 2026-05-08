@@ -52,6 +52,7 @@ Full operator validation checklist for halcyonlab.app post-Render-rebuild: `docs
 10. [Daily methodology-gate workflow](#10-daily-methodology-gate-workflow) — reading the gate digest, interpreting evidence, acting on proposals
 11. [Update Protocol](#11-update-protocol) — keeping this doc fresh
 12. [Notification Troubleshooting](#12-notification-troubleshooting) — bot silent, token rotated, email stopped, health check
+13. [Known design decisions / WON'T-FIX notes](#known-design-decisions--wont-fix-notes) — `#SP4-settings-backend-float32-storage` and similar
 
 ---
 
@@ -261,6 +262,7 @@ Anything else → drop into §5 troubleshooting using the symptom table in §0.8
 | `.venv` | `C:\arcis\halcyon-lab\.venv\` | Gitignored. Created via `python -m venv .venv && .venv\Scripts\pip install -r requirements.txt` |
 | SQLite DB | `C:\arcis\data\ai_research_desk.sqlite3` | ~1 GB active runtime DB — outside repo on purpose |
 | Logs | `C:\arcis\logs\` and `C:\arcis\halcyon-lab\logs\` | Watch loop, sync, corpus, telegram, etc. |
+| Hardware | NVIDIA GPU with ≥12 GB VRAM | Required for Ollama inference. Current: RTX 3060 12 GB; planned upgrade to RTX 3090 24 GB. VRAM directly gates `--num-parallel` throughput for corpus generation and model inference — see §5 "Ollama crashes / corpus producing template fallbacks" and §7 "Stage 1 corpus regeneration / resume" for VRAM math. |
 
 ### First-time setup checklist
 
@@ -664,6 +666,55 @@ If tests fail in worktree but pass in main:
 
 Root cause finding (2026-05-06): `packet_writer.py` has 5 fallback paths that all silently write template entries with the same `model_version="arcis:v1.0.0"` — indistinguishable from real LLM at training time. Discriminator: real LLM responses are 2400-3000 chars and start with natural-language analysis; templates are 750-800 chars and start with the rigid `<TICKER> is in a <trend>` prefix. Permanent fix is a forthcoming packet_writer change: either skip-write on fallback OR distinguish via `model_version="template_fallback"`.
 
+### "Corpus is not progressing"
+
+The corpus runner appears to be running (`python scripts/generate_llm_corpus.py` process is up) but the entry count in `entries.jsonl` is not growing, or is growing much slower than the expected ~2 entries/min at `--num-parallel 2`.
+
+```
+1. Is Ollama responding?
+   curl http://127.0.0.1:11434/api/tags
+   ├─ Returns JSON within 1s → Ollama is healthy; skip to step 2
+   ├─ Returns JSON but takes >5s → Ollama is under memory pressure; reduce parallelism
+   └─ No response / empty after 5s → Ollama is hung
+         → Check the watchdog: Get-CimInstance Win32_Process -Filter "name='powershell.exe'" |
+           ?{ $_.CommandLine -match 'ollama_watchdog' }
+         → If watchdog is up: wait for it to auto-restart Ollama (up to 30s poll interval)
+         → If watchdog is down: restart it (see §7 "Ollama watchdog")
+         → If watchdog circuit-broken: tail logs/ollama-watchdog.log — 3 restarts in 10min
+           pause it; investigate logs/ollama-daemon.err before resuming
+
+2. Is --num-parallel exceeding available VRAM?
+   nvidia-smi
+   ├─ GPU memory: if "MiB used" is near total (e.g., 11500/12288 MiB) → OOM risk
+   ├─ GPU utilization: if oscillating 0→100 rapidly or showing throttle events → pressure
+   └─ Confirmed OOM → restart corpus with --num-parallel 1 (halves throughput but stable)
+   VRAM math for RTX 3060 (12 GiB):
+   - arcis:v1.0.0 at NUM_PARALLEL=2: ~9.12 GiB model + ~1.5 GiB browser/desktop = ~10.6 GiB
+   - Browser tabs / VS Code GPU usage can push this to 11+ GiB → OOM crash
+   - RTX 3090 (24 GiB) will support NUM_PARALLEL=4 comfortably (~11 GiB + 4 GiB headroom)
+   Fix: close GPU-heavy browser tabs, reduce Chrome/Edge hardware acceleration, or drop
+   --num-parallel to 1
+
+3. Is the watch loop competing for GPU during market hours?
+   During US market hours (09:30–16:00 ET), the intraday scan loop makes Ollama inference
+   calls every 5 minutes. These starve the corpus generator on the same GPU context.
+   Symptom: corpus throughput drops from ~2 entries/min to ~0.5 or stalls entirely during
+   market hours; resumes overnight when the scan loop is idle.
+   Fix: schedule corpus generation to run overnight only (16:00 ET → 07:00 ET). Use the
+   WMI launch pattern (see §7 "SSH-safe process launch") with a start-time delay, or
+   simply stop/resume the corpus runner around market hours manually.
+
+4. If none of the above — check for fallback contamination:
+   python -c "import json,re,sys; t=re.compile(r'^[A-Z]+ is in a'); count=0
+   with open('data/corpus/stage1-001/entries.jsonl','rb') as f:
+     for line in f:
+       try: e=json.loads(line); c=len(e.get('response','')); m=t.match(e.get('response',''))
+       except: continue
+       if c<1500 and m: count+=1
+   print(f'template fallback entries: {count}')"
+   - Non-zero count means Ollama was crashing silently → see §5 "Ollama crashes" for cleanup
+```
+
 ### "Database is locked" errors
 
 ```
@@ -1012,6 +1063,38 @@ Get-CimInstance Win32_Process -Filter "ProcessId=$($result.ProcessId)" | Select-
 - `cmd.exe /c` wrapping is needed for shell features (`cd /d`, `&&` chaining, redirects). Without it, the command runs raw with no cwd / no redirects.
 - SessionId=0 is the services session — no GUI. Anything requiring a GUI (Excel automation, etc.) should NOT use this pattern.
 
+### Watchdog timeout signs
+
+The watch loop writes a heartbeat to `data/watchdog.txt` on each iteration. This is your primary liveness indicator.
+
+**Normal heartbeat cadence:**
+- During US market hours (09:30–16:00 ET): file `LastWriteTime` updates every ~30s (scan loop runs every 5 min; heartbeat written at the top of each iteration before task dispatch)
+- Outside market hours (overnight, weekends): updates every 5–10 min (overnight tasks are longer; the loop blocks on them)
+- During corpus generation (watch loop idle, corpus running): the watch loop still ticks but may pause for 60–90s on long scans
+
+**Signs the watch loop is stuck (>5 min stale heartbeat during market hours):**
+
+```powershell
+# Quick check:
+Get-Item C:\arcis\data\watchdog.txt | Select-Object LastWriteTime
+# If LastWriteTime is >5 min ago during trading hours → investigate
+
+# Full health check (§0.10 one-liner):
+Get-CimInstance Win32_Process -Filter "name='python.exe'" |
+  ?{ $_.CommandLine -match 'src.main startup' } |
+  Select-Object ProcessId, @{n='age_min';e={[math]::Round(((Get-Date)-$_.CreationDate).TotalMinutes,1)}}
+# If no process → loop died; if process exists but heartbeat stale → loop is blocked
+```
+
+**When to investigate:**
+- Heartbeat >5 min stale during 09:30–16:00 ET → likely blocked on Ollama call or DB lock
+- Heartbeat >15 min stale at any time → treat as hung; restart with NSSM (`nssm restart arcis-watch`)
+- Heartbeat file missing entirely → watch loop never started; check `data/watch.lock` for stale PID
+
+**Cross-reference:** The Ollama watchdog (§7 "Ollama watchdog") is a SEPARATE process from the watch loop. `data/watchdog.txt` is written by the watch loop (`src/scheduler/watch.py`), not the Ollama watchdog script. Both can be alive independently.
+
+**Kill-switch policy (post Sprint 4 hotfix #1038):** Auto-halts no longer fire from the auditor. The risk governor (`src/risk/governor.py`) enforces operator-only halt sources via `_HALT_ALLOWED_SOURCES = {"cli", "dashboard", "api", "test"}`. Any attempt to halt trading from an auditor code path raises `HaltSourceForbiddenError`. Manual halt paths: (1) CLI: `python -m src.main halt`, (2) Dashboard: kill-switch button, (3) API: `POST /api/halt`. A stale `watchdog.txt` is NOT an automatic halt signal — investigate and restart manually.
+
 ### Schema migration to Render Postgres
 
 After any schema change in `src/schema/registry.py`:
@@ -1092,6 +1175,7 @@ Quarterly (or when worktrees exceed ~30):
 | **Promotion gate** | ≥4-of-5 voting gate (PSR/DSR/PBO/MC permutation/White's RC) in `src/methods/promotion_gate.py`. Live in production as of Sprint 2; fires daily at 16:35 ET via watch.py. See §10 for operational guide |
 | **Reconciled_stale** | `exit_reason` value set when reconciler closes a shadow_trade that no longer exists at the broker. NOT a real strategy outcome — a bookkeeping artifact. Excluded from outcome stats (Wave 4 H5 + #919/#920 — `EXCLUDED_FROM_OUTCOME_STATS` constant) |
 | **RenderSyncThread** | Background thread (`src/sync/render_sync.py`) that replicates local SQLite → Render Postgres. Per-table cursor in `sync_state` table |
+| **SD#NN** | Strategic Decision identifier. Used in `MASTER.md` as governing-decision tags (e.g., SD#41 REVISED, SD#43, SD#46). Each SD documents an operator-level decision with rationale that subsequent code changes must respect. Example: SD#43 is the 3-stage validation ladder definition; any code change to the promotion gate logic must cite and respect SD#43. SD numbers are assigned sequentially as new governing decisions are made. |
 | **Shadow trade** | Paper trade tracked in our DB (`shadow_trades` table). Mirrors broker-side state |
 | **Sprint base branch** | A branch holding sprint specs as deliverable-0 commits (e.g. `sprint/wave-4-hotfixes/base`). Code lands via separate PRs against main |
 | **Stage 1 / 2 / 3** | Three-stage validation ladder per MASTER.md SD#43. Stage 1 = baseline signed (`d651160`) + Stage 1 OOS sub-validation (excess-mean > 0 at t > 1.0 over 30 OOS); Stage 2 = IB-eligibility (excess Sharpe ≥ 0.5 over 150 OOS + ≥4-of-5 promotion gate); Stage 3 = full ramp (excess Sharpe > 1.0 over 300 OOS). See §9 for canonical text |
@@ -1557,3 +1641,21 @@ If `oldest_unack_alert` is non-null, an alert fired but was never acknowledged �
 ### Notification health dashboard widget
 
 `GET /api/notifications/health` returns `{success_rate, fail_count, dedup_hits, oldest_unack_alert}` for the last 24 hours. The `NotificationsHealthPanel` widget on the dashboard polls this endpoint every 5 minutes. A `success_rate < 0.80` or `fail_count > 0` indicates a delivery problem worth investigating.
+
+---
+
+## Known design decisions / WON'T-FIX notes
+
+### `#SP4-settings-backend-float32-storage` WON'T FIX
+
+**Context:** The Settings page risk inputs (`risk.planned_risk_pct_min` and `risk.planned_risk_pct_max`) were displaying float32 representational noise in the browser — e.g., a value set to `0.005` would render as `0.0049999...` or `0.00500000007...`. Sprint 4 T11 (Sprint 3) added a frontend clamp in `frontend/src/components/...` (MetricCard and Settings form inputs) that rounds displayed values to remove the noise.
+
+**Decision:** The backend storage of these config values remains float32 in SQLite. We are NOT migrating the backend to float64 or Python `Decimal` for these fields. Rationale:
+
+1. The storage is functionally correct — `0.0049999...` IS `0.005` to float32 precision; the risk governor reads and compares it correctly at runtime.
+2. The bug was purely a display artifact. The frontend clamp eliminates the operator-visible symptom entirely.
+3. A backend migration to float64/Decimal would require schema changes, a migration script, validation across all 4 namespace consumers of the risk governor, and re-testing of the promotion gate's risk-threshold comparisons — disproportionate investment for a display-only fix.
+
+**Trade-off operators must know:** External tools that read `config/settings.local.yaml` or query the `settings` table directly (e.g., scripts using `yaml.safe_load` or raw SQLite queries) will still see the raw float32 representation. If you build automation that parses these values, round them to 4 significant figures at the consumption point. The dashboard and CLI always display the clamped value.
+
+**Tag:** `#SP4-settings-backend-float32-storage WON'T FIX` — resolved by T11 frontend clamp. Backend storage unchanged by design.
