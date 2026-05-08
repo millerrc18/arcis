@@ -17,8 +17,6 @@ environments (#SP4-render-pg-reconcile).
 """
 from __future__ import annotations
 
-import os
-
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -269,26 +267,22 @@ def test_invalid_cohort_id_rejected():
 
 # -- Test 5: Postgres parametrize (T19a) ---------------------------------------
 
-_PG_SKIP = pytest.mark.skipif(
-    not os.environ.get("DATABASE_URL"),
-    reason="DATABASE_URL not set; skipping postgres parametrize",
-)
-
-
-@_PG_SKIP
 @pytest.mark.parametrize("db_backend", ["sqlite", "postgres"])
-def test_all_endpoints_emit_meta_parametrized(db_backend, postgres_session):
+def test_all_endpoints_emit_meta_parametrized(db_backend, request):
     """Parametrized variant of test_all_endpoints_emit_meta against both backends.
 
     SQLite path uses the same mock-runtime fixture as the original T16 tests.
-    Postgres path uses postgres_session to confirm DB connectivity before
-    running the mock-runtime assertions (the endpoint logic itself is mocked;
-    this test validates the fixture wiring and skip guard, not live DB queries).
+    Postgres path requests `postgres_session` lazily via `request.getfixturevalue`
+    so the sqlite variant runs unconditionally and the postgres variant skips
+    cleanly when `TEST_DATABASE_URL` is not set.
 
-    Skipped at collection when DATABASE_URL is absent (not failed) so test
-    count stays stable across environments.
+    SAFETY: the postgres path reads ONLY `TEST_DATABASE_URL`, never `DATABASE_URL`.
+    Operator's `.env` puts production Render `DATABASE_URL` on the path
+    (load_dotenv walks up from worktrees), and CLAUDE.md "Tests must NEVER write
+    to the prod DB" forbids using it for tests.
     """
     if db_backend == "postgres":
+        postgres_session = request.getfixturevalue("postgres_session")
         assert postgres_session is not None, "postgres_session fixture must yield a connection"
 
     runtime = _make_runtime()

@@ -185,18 +185,26 @@ def postgres_session():
     Scoped to function (not session) to isolate state per test, per
     reviewer item #12.
 
-    SKIP GUARD: this fixture is only reached when DATABASE_URL is set.
-    The parametrize decorator in test_dashboard_reconciliation.py uses
-    pytest.mark.skipif(not os.environ.get('DATABASE_URL'), ...) at
-    collection time so the skip fires before the fixture body runs.
-    When DATABASE_URL is absent the postgres parametrize variant is
+    SAFETY: reads ONLY `TEST_DATABASE_URL`, never `DATABASE_URL`. The
+    operator's `.env` puts production Render `DATABASE_URL` on the path
+    (load_dotenv walks up from worktrees), and CLAUDE.md "Tests must NEVER
+    write to the prod DB" forbids using it for tests. Operator must
+    explicitly opt-in by setting `TEST_DATABASE_URL` to a separate
+    test/staging Postgres URL.
+
+    SKIP GUARD: parametrize decorator in test_dashboard_reconciliation.py
+    uses pytest.mark.skipif(not os.environ.get('TEST_DATABASE_URL'), ...)
+    at collection time so the skip fires before the fixture body runs.
+    When TEST_DATABASE_URL is absent the postgres parametrize variant is
     SKIPPED (not FAILED) — total test count is stable across environments.
     """
     import psycopg2
     import psycopg2.extras
 
-    database_url = os.environ.get("DATABASE_URL") or os.environ.get("TEST_DATABASE_URL")
-    conn = psycopg2.connect(database_url, cursor_factory=psycopg2.extras.RealDictCursor)
+    test_database_url = os.environ.get("TEST_DATABASE_URL")
+    if not test_database_url:
+        pytest.skip("TEST_DATABASE_URL not set; postgres fixture cannot run")
+    conn = psycopg2.connect(test_database_url, cursor_factory=psycopg2.extras.RealDictCursor)
     conn.autocommit = False
     try:
         yield conn
