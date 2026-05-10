@@ -1468,6 +1468,59 @@ When a future agent or operator hits a procedure not documented here: **add it b
 
 ---
 
+## Modified-A — Local Postgres (post-2026-05-10 cutover)
+
+### Where data lives
+
+After the Cloudflare Tunnel + Modified-A cutover (2026-05-10), the database tier moves from a SQLite-only architecture (with Render PG mirror via `RenderSyncThread`) to a Docker-Postgres-as-primary architecture. SQLite remains on disk during a migration window for rollback insurance.
+
+| Layer | Pre-cutover | Post-cutover |
+|---|---|---|
+| Watch loop writer | Local SQLite at `C:/arcis/data/ai_research_desk.sqlite3` | Local Docker Postgres at `localhost:5433`, db `halcyon`, user `halcyon` |
+| Dashboard mirror | Render-hosted Postgres (RenderSyncThread pushes 61/70 tables) | Same Docker Postgres — single source of truth |
+| Dashboard frontend | Render `halcyon-frontend` static service | Local FastAPI's `StaticFiles` mount (served via Cloudflare Tunnel from operator's machine) |
+| Dashboard API | Render `halcyon-api` FastAPI service | Local FastAPI on `127.0.0.1:8000` (NSSM service `ArcisDashboard`, exposed via Cloudflare Tunnel as `halcyonlab.app`) |
+
+### Inspect data live (post-Wave-4)
+
+The connection string lives in `.env` as `DATABASE_URL`:
+
+```bash
+psql $DATABASE_URL
+# or
+psql "postgresql://halcyon:<DOCKER_PG_PASSWORD>@localhost:5433/halcyon"
+```
+
+In pgAdmin, register the server as `Halcyon Local (Docker)` with host `localhost`, port `5433`, db `halcyon`, user `halcyon`, password from `.env` `DOCKER_PG_PASSWORD`.
+
+**Don't** open the SQLite file in MS Access or similar tools while the watch loop is running — see "Database Access Rules" in CLAUDE.md (the same MS-Access-lock incident from 2026-04-19 still applies if you're inspecting the cold backup `ai_research_desk-2026-05-10-precutover.sqlite3`).
+
+### Rollback to SQLite (emergency)
+
+If the post-cutover watch loop fails to start or shows persistent PG connection errors:
+
+```powershell
+nssm stop ArcisWatchLoop
+
+# Drop DATABASE_URL from the NSSM service env — connect_db falls back to SQLite path automatically
+nssm set ArcisWatchLoop AppEnvironmentExtra ARCIS_DB_PATH=C:/arcis/data/ai_research_desk.sqlite3
+
+# Restart — watch loop is now on SQLite again; sync thread tries to push to a now-non-existent Render PG
+nssm start ArcisWatchLoop
+```
+
+The pre-cutover SQLite snapshot at `C:/arcis/data/ai_research_desk-2026-05-10-precutover.sqlite3` (507 MB, captured on cutover day) is the worst-case restoration point.
+
+### Why no more Render PG
+
+See `docs/audits/2026-05-10-cloudflare-tunnel-cutover/spec.md` for the Modified-A migration design. TL;DR: eliminating the Render-hosted Postgres tier removes ~600 LOC of `render_sync.py` complexity (3 sync modes, strip-id rules, savepoint logic), eliminates the asymmetric trading-state coupling described in spec §1, and saves the operator the Render PG monthly bill. Cloudflare Tunnel exposes the local FastAPI to `halcyonlab.app` via a TLS-terminated tunnel, so the dashboard remains publicly reachable from any device.
+
+### Render PG retention
+
+The Render PG instance is retained as a cold backup until **2026-05-17** (7 days post-cutover). To dispose: delete from Render dashboard → confirm. The `pg_dump` snapshot at `C:/arcis/data/render-pg-snapshot-2026-05-10.sql` (478 MB) is on disk indefinitely.
+
+---
+
 ## See also
 
 - [`CLAUDE.md`](../CLAUDE.md) — rules for AI agents working on the codebase (governance + schema discipline + worktree pattern)

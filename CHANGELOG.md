@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+### Wave 5.1 — Training-readiness verification script (post-3090 trainer preflight)
+
+- **`scripts/verify_training_readiness.py`** (NEW) — non-destructive, fail-fast diagnostic that proves the post-3090-upgrade trainer (`training_data/train.py`) is ready to run end-to-end. Five sequential checks with `[VERIFY-N]` prefixes and a final `READINESS: PASS|FAIL (X/5)` summary + non-zero exit on fail: (1) CUDA + 3090 detection with ≥20 GB free VRAM gate; (2) trainer dependency import sweep (transformers, peft, trl, bitsandbytes, datasets); (3) Stage 1/2/3 jsonl path + first-5-line JSON validity; (4) trainer dry-run capped at `max_steps=1` with tmpdir cleanup; (5) GGUF export artifact verification (≥1 MB). 329 lines, 9 functions ≤49 lines each.
+- **`tests/test_verify_training_readiness.py`** (NEW) — 4 new tests; mock torch.cuda + tmp_path file fixtures. Real-code-path coverage (no tautological mocks).
+
+### Wave 4.1 — `sqlite_to_pg_migrate.py` one-shot data migration script
+
+- **`scripts/sqlite_to_pg_migrate.py`** (NEW) — copies all 63 sync-eligible registry tables from local SQLite to local Docker Postgres. Idempotent via `INSERT … ON CONFLICT DO NOTHING`; CLI flags `--tables`, `--dry-run`, `--vacuum-after`. Streaming SQLite read via `cursor.fetchmany(_CHUNK_SIZE)` keeps peak per-table RAM at ~100 KB regardless of table size. Bulk inserts via `psycopg2.extras.execute_values` (~5–10× faster than `executemany`). Single PG connection reused across the per-table loop with per-table commit/rollback boundaries. Per-table transactions; skips NULL-pk rows (matches sync_thread #243 fix). Dry-run on operator's actual data: 63 tables, 1,323,393 rows total — committed log at `docs/audits/2026-05-10-cloudflare-tunnel-cutover/migration-dry-run.log`.
+- **`tests/test_sqlite_to_pg_migrate.py`** (NEW) — 6 tests with mocked psycopg2 (no live PG required): null-pk filtering, chunk boundaries, dry-run no-op, abort on missing/wrong DATABASE_URL, sync-skip filter.
+
+### Wave 4.2 — `SYNC_THREAD_ENABLED` feature flag for `start_render_sync`
+
+- **`src/sync/render_sync.py`** — added an env-var gate at the top of `start_render_sync()`: when `SYNC_THREAD_ENABLED=false` (case-insensitive), log INFO and return None early (matches existing `watch.py:1351-1355` None-handling contract). Default `'true'` preserves existing behavior. Surgical 4-line change placed before any config reads. Risk R5 mitigation per cutover spec §7 — without this flag, watch loop post-Render-decommission would log connection errors continuously when `RenderSyncThread` tries to push to a dead Render PG endpoint.
+- **`tests/test_render_sync.py`** — 2 new tests added (existing 70 preserved): `test_start_render_sync_returns_none_when_sync_thread_enabled_false`, `test_start_render_sync_starts_when_sync_thread_enabled_true_or_unset`.
+
+### Wave 3 — Cutover verification + Render decommission docs
+
+- **`docs/audits/2026-05-10-cloudflare-tunnel-cutover/wave-3-smoke-test-checklist.md`** (NEW) — operator-actionable per-page table for browser smoke-testing all 6 pages on `halcyonlab.app` after tunnel cutover.
+- **`docs/audits/2026-05-10-cloudflare-tunnel-cutover/wave-3-render-decommission-runbook.md`** (NEW) — pre-deletion checklist, Render-dashboard delete steps, DNS cleanup audit, post-deletion verification curl (with required Chrome User-Agent per `reference_cloudflare_bot_fight` memory), 7-day rollback window, and 2026-05-17 PG retention disposal reminder.
+- **`docs/audits/2026-05-10-cloudflare-tunnel-cutover/wave-3-receipt.md`** (NEW) — template for operator-completed evidence (PM-prepped; operator fills + commits).
+
 ### Wave 2.1 — Engine-aware `connect_db` shim (dual-engine SQLite/Postgres)
 
 - **`src/utils/db.py`** — `connect_db` refactored from a pure SQLite helper into an engine-aware shim. When called with no `db_path` argument and `DATABASE_URL` starts with `postgres`, returns a `PostgresConnectionWrapper` backed by psycopg2 (`RealDictCursor` for name-based result access). When `DATABASE_URL` is unset / empty (or any explicit `db_path` is passed), returns the existing `sqlite3.Connection` with `busy_timeout=30000` and `row_factory=sqlite3.Row` — default behavior is byte-for-byte identical to pre-change. New `PostgresConnectionWrapper` class exposes `cursor()`, `execute()`, `executemany()`, `commit()`, `rollback()`, `close()`, and `row_factory`. This is the foundational wedge for the Wave 4 watch-loop write-side flip — once `DATABASE_URL` is set in the NSSM service env, all 336 `connect_db` call sites route to PG transparently.
