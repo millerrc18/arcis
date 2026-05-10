@@ -14,6 +14,7 @@ Size gate: file must stay <=400 lines (test_repo_structure.py enforces this).
 
 import argparse
 import os
+import re
 import sqlite3
 import sys
 from typing import Optional
@@ -46,9 +47,21 @@ def _validate_database_url(database_url: str) -> None:
         sys.exit(1)
 
 
-def _resolve_primary_key(table) -> str:
+def _resolve_primary_key_columns(table) -> list[str]:
+    """Return PK column names as a list — single-col PKs return [col]; composite PKs return all cols."""
     pk = table.primary_key
-    return pk if isinstance(pk, str) else pk[0]
+    return [pk] if isinstance(pk, str) else list(pk)
+
+
+def _redact_password(database_url: str) -> str:
+    """Mask the password in a DSN-style URL for safe logging.
+
+    `postgresql://user:secret@host:port/db` → `postgresql://user:<redacted>@host:port/db`.
+    Used to prevent password fragments from landing in committed log files (the
+    untimely committed migration-dry-run.log on 2026-05-10 leaked 19 chars of
+    the PG password; this redaction prevents recurrence).
+    """
+    return re.sub(r"://([^:/?#]+):[^@]+@", r"://\1:<redacted>@", database_url)
 
 
 def _get_sync_tables(table_filter: Optional[list[str]]):
@@ -81,19 +94,39 @@ def _print_dry_run_plan(sqlite_path: str, sync_tables: list) -> None:
     print(f"\nDRY RUN complete. {len(sync_tables)} tables would be migrated.")
 
 
-def _build_insert_sql_template(table_name: str, col_names: list[str], pk_name: str) -> str:
+def _build_insert_sql_template(table_name: str, col_names: list[str], pk_cols: list[str]) -> str:
+    """Build an `INSERT … ON CONFLICT (…) DO NOTHING` template for execute_values.
+
+    `pk_cols` is a list of column names — single-element for single-column PKs,
+    multi-element for composite PKs. Composite PKs must include ALL their columns
+    in the ON CONFLICT target, because Postgres requires the conflict target to
+    match an exact UNIQUE/PRIMARY KEY constraint — a single-column target against
+    a composite PK raises:
+        ERROR: there is no unique or exclusion constraint matching the ON
+        CONFLICT specification
+
+    Affected sync tables (verified against registry 2026-05-10):
+        minute_bars                        ['ticker', 'timestamp']         435K rows
+        sp100_historical_constituents      ['ticker', 'added_date']        0 rows today
+        correlation_matrices               5-col composite                 0 rows today
+        factor_loadings                    4-col composite                 0 rows today
+    """
     cols_sql = ", ".join(col_names)
+    pk_cols_sql = ", ".join(pk_cols)
     return (
         f"INSERT INTO {table_name} ({cols_sql}) VALUES %s "
-        f"ON CONFLICT ({pk_name}) DO NOTHING"
+        f"ON CONFLICT ({pk_cols_sql}) DO NOTHING"
     )
 
 
 def _migrate_table(sqlite_conn, pg_conn, table, vacuum_after: bool) -> dict:
     table_name = table.name
-    pk_name = _resolve_primary_key(table)
+    pk_cols = _resolve_primary_key_columns(table)
     col_names = [c.name for c in table.columns]
-    pk_idx = col_names.index(pk_name)
+    # Resolve PK columns to indexes so the NULL filter doesn't have to lookup
+    # column names per row. For composite PKs we filter rows where ANY PK
+    # column is NULL (matches PG's NOT NULL behavior on PK columns).
+    pk_indexes = [col_names.index(c) for c in pk_cols]
 
     sqlite_cur = sqlite_conn.cursor()
     try:
@@ -103,7 +136,7 @@ def _migrate_table(sqlite_conn, pg_conn, table, vacuum_after: bool) -> dict:
     except sqlite3.OperationalError:
         source_count = 0
 
-    insert_sql = _build_insert_sql_template(table_name, col_names, pk_name)
+    insert_sql = _build_insert_sql_template(table_name, col_names, pk_cols)
 
     sqlite_cur.execute(f"SELECT {', '.join(col_names)} FROM {table_name}")
 
@@ -115,7 +148,8 @@ def _migrate_table(sqlite_conn, pg_conn, table, vacuum_after: bool) -> dict:
         chunk = sqlite_cur.fetchmany(_CHUNK_SIZE)
         if not chunk:
             break
-        valid_chunk = [r for r in chunk if r[pk_idx] is not None]
+        # ANY PK column NULL → skip (matches PG NOT NULL on PK columns).
+        valid_chunk = [r for r in chunk if all(r[i] is not None for i in pk_indexes)]
         null_pk_skipped += len(chunk) - len(valid_chunk)
         if not valid_chunk:
             continue
@@ -219,7 +253,7 @@ def main() -> None:
     table_filter = [t.strip() for t in args.tables.split(",")] if args.tables else None
 
     print(f"Source SQLite: {sqlite_path}")
-    print(f"Destination PG: {database_url[:40]}..." if len(database_url) > 40 else f"Destination PG: {database_url}")
+    print(f"Destination PG: {_redact_password(database_url)}")
 
     run_migration(
         sqlite_path=str(sqlite_path),

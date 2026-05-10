@@ -292,6 +292,117 @@ def test_migrate_aborts_when_database_url_missing(monkeypatch, tmp_path, capsys)
     assert exc_info.value.code != 0
 
 
+def test_build_insert_sql_template_uses_composite_pk_conflict_target(monkeypatch):
+    """For composite-PK tables (e.g. minute_bars), the ON CONFLICT target must list ALL pk columns.
+
+    Postgres requires the ON CONFLICT specification to match an exact UNIQUE/PRIMARY KEY
+    constraint. A single-column target against a composite PK raises:
+        ERROR: there is no unique or exclusion constraint matching the ON CONFLICT specification
+
+    Pre-fix this script used `pk[0]` only and would have crashed on minute_bars (435K rows,
+    33% of the operator's 1.3M row total).
+    """
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@localhost/db")
+    mod = _import_migrate(monkeypatch)
+    sql = mod._build_insert_sql_template(
+        "minute_bars", ["ticker", "timestamp", "open", "high", "low", "close", "volume"],
+        ["ticker", "timestamp"],
+    )
+    assert "ON CONFLICT (ticker, timestamp) DO NOTHING" in sql, (
+        f"Composite PK conflict target missing both columns; got: {sql}"
+    )
+    # Single-PK form must also still work (regression guard for the simple case)
+    sql_single = mod._build_insert_sql_template(
+        "recommendations", ["id", "ticker", "score"], ["id"]
+    )
+    assert "ON CONFLICT (id) DO NOTHING" in sql_single
+
+
+def test_migrate_filters_rows_with_any_null_pk_column(monkeypatch, tmp_path):
+    """For composite-PK tables, rows with ANY NULL pk column must be filtered before insert.
+
+    Uses minute_bars (composite PK = [ticker, timestamp]). Rows tested:
+      - ('AAPL', '2026-01-01', …) — valid
+      - (None,    '2026-01-02', …) — NULL ticker → filtered
+      - ('MSFT', None,           …) — NULL timestamp → filtered
+      - (None,    None,           …) — both NULL → filtered
+    Only the first row should reach execute_values.
+    """
+    monkeypatch.setenv("ARCIS_DB_PATH", "C:/arcis/data/ai_research_desk.sqlite3")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@localhost/db")
+    mod = _import_migrate(monkeypatch)
+
+    from src.schema.registry import TABLES
+    table = TABLES["minute_bars"]
+    col_names = [c.name for c in table.columns]
+    pk_cols = list(table.primary_key)
+
+    def make_row(ticker, ts):
+        row = []
+        for c in col_names:
+            if c == "ticker":
+                row.append(ticker)
+            elif c == "timestamp":
+                row.append(ts)
+            else:
+                row.append("placeholder")
+        return tuple(row)
+
+    rows = [
+        make_row("AAPL", "2026-01-01T09:30:00"),  # valid
+        make_row(None, "2026-01-02T09:30:00"),    # null ticker → skip
+        make_row("MSFT", None),                    # null timestamp → skip
+        make_row(None, None),                      # both null → skip
+    ]
+
+    sqlite_path = str(tmp_path / "test.sqlite3")
+    conn = sqlite3.connect(sqlite_path)
+    col_defs = ", ".join(f"{c.name} TEXT" for c in table.columns)
+    conn.execute(f"CREATE TABLE minute_bars ({col_defs})")
+    conn.executemany(
+        f"INSERT INTO minute_bars VALUES ({','.join('?' for _ in col_names)})",
+        rows,
+    )
+    conn.commit()
+    conn.close()
+
+    pg_conn_mock = mock.MagicMock()
+    pg_cursor_mock = mock.MagicMock()
+    pg_conn_mock.cursor.return_value = pg_cursor_mock
+    pg_cursor_mock.fetchone.return_value = (4,)
+
+    with mock.patch("psycopg2.connect", return_value=pg_conn_mock):
+        with mock.patch("scripts.sqlite_to_pg_migrate.execute_values") as ev_mock:
+            mod.run_migration(
+                sqlite_path=sqlite_path,
+                database_url="postgresql://u:p@localhost/db",
+                table_filter=["minute_bars"],
+                dry_run=False,
+                vacuum_after=False,
+            )
+
+    assert ev_mock.call_count == 1, f"Expected 1 execute_values call (1 valid row), got {ev_mock.call_count}"
+    rows_arg = ev_mock.call_args_list[0][0][2]
+    assert len(rows_arg) == 1, f"Expected 1 row after NULL-pk filter, got {len(rows_arg)}"
+    pk_indexes = [col_names.index(c) for c in pk_cols]
+    for i in pk_indexes:
+        assert rows_arg[0][i] is not None, "Filtered row should have non-null PK columns"
+
+
+def test_redact_password_masks_dsn_credentials(monkeypatch):
+    """_redact_password must mask the password fragment in DSN-style URLs (Issue 3a)."""
+    mod = _import_migrate(monkeypatch)
+    assert mod._redact_password(
+        "postgresql://halcyon:05351f6cdf77220ec83supersecret@localhost:5433/halcyon"
+    ) == "postgresql://halcyon:<redacted>@localhost:5433/halcyon"
+    # No password → leave unchanged
+    assert mod._redact_password("postgresql://localhost:5433/halcyon") == (
+        "postgresql://localhost:5433/halcyon"
+    )
+    # Empty string → leave unchanged (defensive)
+    assert mod._redact_password("") == ""
+
+
 def test_migrate_aborts_when_database_url_not_postgres(monkeypatch, tmp_path):
     """DATABASE_URL not starting with 'postgres' must cause SystemExit."""
     monkeypatch.setenv("ARCIS_DB_PATH", "C:/arcis/data/ai_research_desk.sqlite3")
