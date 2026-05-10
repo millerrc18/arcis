@@ -1,0 +1,61 @@
+# Local Postgres for the Modified-A migration (cutover 2026-05-10).
+#
+# Why this file exists:
+# - Replaces the Render-hosted Postgres tier as the dashboard mirror /
+#   eventual sole DB. See docs/audits/2026-05-10-cloudflare-tunnel-cutover/
+#   spec.md for the migration plan.
+# - Volume binds to C:/arcis/data/pg-data (OUTSIDE the git repo) per the
+#   CLAUDE.md "runtime data lives outside the git repo" rule. The spec
+#   originally called for ./data/pg-data inside the repo with a gitignore;
+#   placing it alongside the existing SQLite + snapshots at C:/arcis/data
+#   is the better operator-visibility choice.
+#
+# Port binding is 127.0.0.1:5433 — Postgres is NEVER exposed to the
+# network. The Cloudflare Tunnel exposes the FastAPI in front of it,
+# not Postgres directly. If you ever see 0.0.0.0:5433 in this file, fix
+# it before bringing the container back up.
+#
+# Why 5433 not the default 5432: the operator's machine already has a
+# Windows-installed PostgreSQL 18 service (postgresql-x64-18) listening
+# on 5432. Choosing 5433 sidesteps the conflict and preserves the local
+# PG tool for ad-hoc analytic queries / pgAdmin / etc.
+#
+# Operator commands:
+#   docker compose up -d        # start
+#   docker compose down         # stop (data persists on volume)
+#   docker compose down -v      # stop + DELETE all data (destructive)
+#   docker compose logs -f      # tail logs
+#   docker compose ps           # status
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: halcyon-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: halcyon
+      POSTGRES_USER: halcyon
+      POSTGRES_PASSWORD: ${DOCKER_PG_PASSWORD:?DOCKER_PG_PASSWORD must be set in .env}
+      # Disable telemetry / autovacuum tuning for a single-host workload.
+      # Postgres autovacuum runs at default cadence; tune later if needed.
+    ports:
+      # host port 5433 → container port 5432
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - "C:/arcis/data/pg-data:/var/lib/postgresql/data"
+    healthcheck:
+      # pg_isready returns 0 if the server is accepting connections.
+      # Used by `docker compose up --wait` and by render_migrate.py
+      # entrypoint scripts that check container health before connecting.
+      test: ["CMD-SHELL", "pg_isready -U halcyon -d halcyon"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    # Reasonable memory cap. Postgres on a single 398-MB-equivalent dataset
+    # rarely needs more than 1 GB shared_buffers + 2-4 GB OS cache. Adjust
+    # in postgres conf if cold-start query latency becomes an issue.
+    deploy:
+      resources:
+        limits:
+          memory: 2G
