@@ -390,10 +390,16 @@ def test_migrate_filters_rows_with_any_null_pk_column(monkeypatch, tmp_path):
 
 
 def test_redact_password_masks_dsn_credentials(monkeypatch):
-    """_redact_password must mask the password fragment in DSN-style URLs (Issue 3a)."""
+    """_redact_password must mask the password fragment in DSN-style URLs (Issue 3a).
+
+    Uses a fabricated test password (NOT any production substring) — earlier
+    revisions of this test mistakenly used a fragment of the real leaked
+    password as the fixture value, which would have committed the substring
+    to git permanently. Operator caught that during PR #1047 re-review.
+    """
     mod = _import_migrate(monkeypatch)
     assert mod._redact_password(
-        "postgresql://halcyon:05351f6cdf77220ec83supersecret@localhost:5433/halcyon"
+        "postgresql://halcyon:fake-test-password-xyz123@localhost:5433/halcyon"
     ) == "postgresql://halcyon:<redacted>@localhost:5433/halcyon"
     # No password → leave unchanged
     assert mod._redact_password("postgresql://localhost:5433/halcyon") == (
@@ -401,6 +407,10 @@ def test_redact_password_masks_dsn_credentials(monkeypatch):
     )
     # Empty string → leave unchanged (defensive)
     assert mod._redact_password("") == ""
+    # Special-character passwords (operator may rotate to a token with `:` or `@`-like chars)
+    assert mod._redact_password(
+        "postgresql://user:p%40ssw%3Ard@host:5432/db"
+    ) == "postgresql://user:<redacted>@host:5432/db"
 
 
 def test_migrate_aborts_when_database_url_not_postgres(monkeypatch, tmp_path):
