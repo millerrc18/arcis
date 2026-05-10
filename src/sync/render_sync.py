@@ -36,6 +36,7 @@ Key fixes referenced:
 
 import json
 import logging
+import os
 import socket
 import sqlite3
 import threading
@@ -1337,6 +1338,10 @@ def start_render_sync(
         on_commands_pulled: Optional callback(commands: list[dict]) invoked
             when commands are pulled from the cloud command queue.
     """
+    if os.environ.get("SYNC_THREAD_ENABLED", "true").lower() == "false":
+        logger.info("[SYNC] RenderSyncThread disabled via SYNC_THREAD_ENABLED=false")
+        return None
+
     render_cfg = config.get("render", {})
     if not render_cfg.get("enabled", False):
         logger.debug("Render sync disabled in config")
