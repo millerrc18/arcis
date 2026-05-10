@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react'
-import { IS_CLOUD } from '../config'
+import { IS_CLOUD, API_SECRET } from '../config'
 
 const MAX_EVENTS = 100
 const INITIAL_DELAY = 3000
@@ -37,7 +37,13 @@ export function WebSocketProvider({ children }) {
       }
 
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const ws = new WebSocket(`${protocol}//${window.location.host}/ws/live`)
+      // Token query-parameter auth — backend /ws/live requires this since the
+      // Cloudflare Tunnel cutover (PR #1047). If API_SECRET is empty the
+      // backend closes with code 1008 immediately; we still attempt the
+      // connection so onclose fires and the retry/disable logic kicks in
+      // naturally rather than silently no-op'ing.
+      const tokenParam = API_SECRET ? `?token=${encodeURIComponent(API_SECRET)}` : ''
+      const ws = new WebSocket(`${protocol}//${window.location.host}/ws/live${tokenParam}`)
       wsRef.current = ws
 
       ws.onopen = () => {

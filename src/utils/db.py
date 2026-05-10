@@ -1,10 +1,17 @@
-"""SQLite connection helper with busy_timeout.
+"""SQLite / PostgreSQL connection helper.
 
 Called by: scheduler.watch, shadow_trading.executor, sync.render_sync, and others
 Calls: none
 Owns tables: none
-Config keys: none
+Config keys: DATABASE_URL (optional — if set and starts with 'postgres', uses PG)
 Tests: tests/test_db_util.py
+
+When DATABASE_URL is unset (or empty), connect_db() returns a plain
+sqlite3.Connection against DEFAULT_DB, exactly as before this change.  When
+DATABASE_URL starts with 'postgres', connect_db() (called with no db_path)
+returns a PostgresConnectionWrapper backed by psycopg2.  When an explicit
+db_path is passed the SQLite path is ALWAYS used, preserving test-fixture
+compatibility for the 336 callers that use init_test_db(db_path).
 
 The busy_timeout is critical because multiple threads (watch loop, sync thread,
 FastAPI workers) all access the same SQLite database file — and external tools
@@ -24,21 +31,92 @@ column name (dict-like) rather than tuple index. This prevents bugs when columns
 are reordered in the schema registry.
 """
 
+import os
 import sqlite3
+
+import psycopg2
+import psycopg2.extras
 
 from src.config import DB_PATH
 
 DEFAULT_DB = DB_PATH
 BUSY_TIMEOUT_MS = 30_000  # 30s — rides through typical external-tool locks
 
+_SENTINEL = object()
 
-def connect_db(db_path: str = DEFAULT_DB) -> sqlite3.Connection:
-    """Open a SQLite connection with busy_timeout and Row factory.
 
-    Every module that opens a database connection should use this helper
-    to ensure consistent busy_timeout and row factory settings.
+class PostgresConnectionWrapper:
+    """Thin context-manager wrapper around a psycopg2 connection.
+
+    Exposes the same surface as sqlite3.Connection that callers rely on:
+    cursor(), execute(), executemany(), commit(), rollback(), close(),
+    and a settable row_factory attribute (no-op — psycopg2 RealDictCursor
+    already provides name-based access).
     """
-    conn = sqlite3.connect(db_path, timeout=BUSY_TIMEOUT_MS / 1000.0)
+
+    def __init__(self, conn):
+        self._conn = conn
+        self.row_factory = None
+
+    def cursor(self):
+        return self._conn.cursor()
+
+    def execute(self, sql, params=None):
+        cur = self._conn.cursor()
+        if params is None:
+            cur.execute(sql)
+        else:
+            cur.execute(sql, params)
+        return cur
+
+    def executemany(self, sql, params):
+        cur = self._conn.cursor()
+        cur.executemany(sql, params)
+        return cur
+
+    def commit(self):
+        return self._conn.commit()
+
+    def rollback(self):
+        return self._conn.rollback()
+
+    def close(self):
+        return self._conn.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is None:
+            self.commit()
+        else:
+            self.rollback()
+        self.close()
+        return False
+
+
+def connect_db(db_path=_SENTINEL):
+    """Return a database connection.
+
+    When db_path is explicitly provided (any value including None), always uses
+    SQLite against that path (None opens an in-memory DB, which is what callers
+    that patch DB_PATH=None in tests rely on).  When called with no arguments,
+    inspects DATABASE_URL: if it starts with 'postgres', returns a
+    PostgresConnectionWrapper; otherwise returns the standard SQLite connection
+    at DEFAULT_DB.
+
+    SQLite connections always carry busy_timeout=30000 and row_factory=sqlite3.Row.
+    """
+    if db_path is _SENTINEL:
+        database_url = os.environ.get("DATABASE_URL", "")
+        if database_url.startswith("postgres"):
+            raw = psycopg2.connect(database_url, cursor_factory=psycopg2.extras.RealDictCursor)
+            return PostgresConnectionWrapper(raw)
+        effective_path = DEFAULT_DB
+    else:
+        effective_path = db_path
+
+    conn = sqlite3.connect(effective_path, timeout=BUSY_TIMEOUT_MS / 1000.0)
     conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
     conn.row_factory = sqlite3.Row
     return conn

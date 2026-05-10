@@ -597,6 +597,35 @@ class TestStartRenderSync:
         thread.stop()
         assert thread._stop_event.is_set()
 
+    @patch("src.sync.render_sync.RenderSyncThread")
+    def test_start_render_sync_returns_none_when_sync_thread_enabled_false(self, MockThread, monkeypatch):
+        monkeypatch.setenv("SYNC_THREAD_ENABLED", "false")
+        config = {
+            "render": {
+                "enabled": True,
+                "database_url": "postgresql://user:pass@host:5432/halcyon",
+                "sync_interval_seconds": 60,
+            }
+        }
+        result = start_render_sync(config)
+        assert result is None
+        MockThread.assert_not_called()
+
+    @patch("src.sync.render_sync.RenderSyncThread")
+    def test_start_render_sync_starts_when_sync_thread_enabled_true_or_unset(self, MockThread, monkeypatch):
+        monkeypatch.delenv("SYNC_THREAD_ENABLED", raising=False)
+        mock_instance = MagicMock()
+        MockThread.return_value = mock_instance
+        config = {
+            "render": {
+                "enabled": True,
+                "database_url": "postgresql://user:pass@host:5432/halcyon",
+                "sync_interval_seconds": 60,
+            }
+        }
+        result = start_render_sync(config)
+        MockThread.assert_called_once()
+
 
 # ── #673 — sync_state in-flight detection ───────────────────────────
 

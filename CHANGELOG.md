@@ -2,6 +2,50 @@
 
 ## [Unreleased]
 
+### Wave 5.1 — Training-readiness verification script (post-3090 trainer preflight)
+
+- **`scripts/verify_training_readiness.py`** (NEW) — non-destructive, fail-fast diagnostic that proves the post-3090-upgrade trainer (`training_data/train.py`) is ready to run end-to-end. Five sequential checks with `[VERIFY-N]` prefixes and a final `READINESS: PASS|FAIL (X/5)` summary + non-zero exit on fail: (1) CUDA + 3090 detection with ≥20 GB free VRAM gate; (2) trainer dependency import sweep (transformers, peft, trl, bitsandbytes, datasets); (3) Stage 1/2/3 jsonl path + first-5-line JSON validity; (4) trainer dry-run capped at `max_steps=1` with tmpdir cleanup; (5) GGUF export artifact verification (≥1 MB). 329 lines, 9 functions ≤49 lines each.
+- **`tests/test_verify_training_readiness.py`** (NEW) — 4 new tests; mock torch.cuda + tmp_path file fixtures. Real-code-path coverage (no tautological mocks).
+
+### Wave 4.1 — `sqlite_to_pg_migrate.py` one-shot data migration script
+
+- **`scripts/sqlite_to_pg_migrate.py`** (NEW) — copies all 63 sync-eligible registry tables from local SQLite to local Docker Postgres. Idempotent via `INSERT … ON CONFLICT DO NOTHING`; CLI flags `--tables`, `--dry-run`, `--vacuum-after`. Streaming SQLite read via `cursor.fetchmany(_CHUNK_SIZE)` keeps peak per-table RAM at ~100 KB regardless of table size. Bulk inserts via `psycopg2.extras.execute_values` (~5–10× faster than `executemany`). Single PG connection reused across the per-table loop with per-table commit/rollback boundaries. Per-table transactions; skips NULL-pk rows (matches sync_thread #243 fix). Dry-run on operator's actual data: 63 tables, 1,323,393 rows total — committed log at `docs/audits/2026-05-10-cloudflare-tunnel-cutover/migration-dry-run.log`.
+- **`tests/test_sqlite_to_pg_migrate.py`** (NEW) — 6 tests with mocked psycopg2 (no live PG required): null-pk filtering, chunk boundaries, dry-run no-op, abort on missing/wrong DATABASE_URL, sync-skip filter.
+
+### Wave 4.2 — `SYNC_THREAD_ENABLED` feature flag for `start_render_sync`
+
+- **`src/sync/render_sync.py`** — added an env-var gate at the top of `start_render_sync()`: when `SYNC_THREAD_ENABLED=false` (case-insensitive), log INFO and return None early (matches existing `watch.py:1351-1355` None-handling contract). Default `'true'` preserves existing behavior. Surgical 4-line change placed before any config reads. Risk R5 mitigation per cutover spec §7 — without this flag, watch loop post-Render-decommission would log connection errors continuously when `RenderSyncThread` tries to push to a dead Render PG endpoint.
+- **`tests/test_render_sync.py`** — 2 new tests added (existing 70 preserved): `test_start_render_sync_returns_none_when_sync_thread_enabled_false`, `test_start_render_sync_starts_when_sync_thread_enabled_true_or_unset`.
+
+### Wave 3 — Cutover verification + Render decommission docs
+
+- **`docs/audits/2026-05-10-cloudflare-tunnel-cutover/wave-3-smoke-test-checklist.md`** (NEW) — operator-actionable per-page table for browser smoke-testing all 6 pages on `halcyonlab.app` after tunnel cutover.
+- **`docs/audits/2026-05-10-cloudflare-tunnel-cutover/wave-3-render-decommission-runbook.md`** (NEW) — pre-deletion checklist, Render-dashboard delete steps, DNS cleanup audit, post-deletion verification curl (with required Chrome User-Agent per `reference_cloudflare_bot_fight` memory), 7-day rollback window, and 2026-05-17 PG retention disposal reminder.
+- **`docs/audits/2026-05-10-cloudflare-tunnel-cutover/wave-3-receipt.md`** (NEW) — template for operator-completed evidence (PM-prepped; operator fills + commits).
+
+### Wave 2.1 — Engine-aware `connect_db` shim (dual-engine SQLite/Postgres)
+
+- **`src/utils/db.py`** — `connect_db` refactored from a pure SQLite helper into an engine-aware shim. When called with no `db_path` argument and `DATABASE_URL` starts with `postgres`, returns a `PostgresConnectionWrapper` backed by psycopg2 (`RealDictCursor` for name-based result access). When `DATABASE_URL` is unset / empty (or any explicit `db_path` is passed), returns the existing `sqlite3.Connection` with `busy_timeout=30000` and `row_factory=sqlite3.Row` — default behavior is byte-for-byte identical to pre-change. New `PostgresConnectionWrapper` class exposes `cursor()`, `execute()`, `executemany()`, `commit()`, `rollback()`, `close()`, and `row_factory`. This is the foundational wedge for the Wave 4 watch-loop write-side flip — once `DATABASE_URL` is set in the NSSM service env, all 336 `connect_db` call sites route to PG transparently.
+- **`tests/test_db_util.py`** — 4 new tests added; existing 3 tests preserved unchanged. New tests use monkeypatch + mocked psycopg2.connect (no real PG connection required): `test_connect_db_uses_sqlite_when_database_url_unset`, `test_connect_db_uses_postgres_when_database_url_postgres_scheme`, `test_connect_db_explicit_db_path_forces_sqlite`, `test_pg_wrapper_exposes_required_methods`.
+
+### Cutover — Cloudflare Tunnel + Modified-A migration (Wave 1, 2026-05-10)
+
+Infrastructure stand-up for the unified-DB switch. Today's exit state is **transitional Hybrid** (Postgres provisioned with mirrored schema but no live data; SQLite still primary). The data migration + watch-loop write-side flip + SQLite retirement are explicit tail items per `docs/audits/2026-05-10-cloudflare-tunnel-cutover/spec.md` §6.
+
+- **`docker-compose.yml`** (NEW) — Postgres 16-alpine, container `halcyon-pg`, bound to `127.0.0.1:5433`. Port 5433 (not the default 5432) because the operator's machine has a Windows-installed PostgreSQL 18 service on 5432; 5433 sidesteps the conflict and preserves the local PG tool for ad-hoc analytic queries. Volume mounts to `C:/arcis/data/pg-data` (outside the git repo per CLAUDE.md "runtime data lives outside the repo" rule). Healthcheck via `pg_isready`; 2 GB memory cap.
+- **`src/api/app.py`** — auth-gated for the post-cutover tunnel exposure. `verify_auth` lifted from `cloud_app.py:153-176` (same hash-or-plaintext bearer-token model the frontend already speaks). Every native router (system, scan, shadow, training, …) now requires bearer auth via `include_router(dependencies=[Depends(verify_auth)])`. 3 new cloud_routes wired in (`notifications`, `platform`, `walkforward`) — these were previously cloud_app-only; bringing them local is required for the tunnel cutover. Existing cloud_routes (kpis, broker_exceptions, preflight) + new ones use the `dependency_overrides` pattern from `cloud_app.py:316-340`. New unauthenticated `/healthz` endpoint for curl smoke tests + external monitoring. WebSocket `/ws/live` still UNAUTH'd as a follow-up (`#1100`). FastAPI title version bumped 0.17.1 → 0.34.0 to match latest release tag.
+- **`training_data/train.py`** — switched from Unsloth single-stage trainer to multi-stage curriculum (STRUCTURE → EVIDENCE → DECISION) using HF Transformers + PEFT LoRA + TRL SFTTrainer + bitsandbytes nf4 4-bit quantization. Driven by the 2026-05-10 GPU upgrade (RTX 3060 12 GB → RTX 3090 24 GB) which removes the 12 GB VRAM ceiling that originally rejected Unsloth's standard path. GGUF export retains Unsloth as primary path with llama.cpp CPU conversion as fallback. `.gitignore` updated: `training_data/` → `training_data/*` so allowlist sibling rules can re-include `train.py` and `README.md` (parent-dir exclusion blocks child re-inclusion per gitignore spec).
+- **Render PG snapshot** — `pg_dump` ran to `C:/arcis/data/render-pg-snapshot-2026-05-10.sql` (478 MB, 65 CREATE TABLE + 65 COPY blocks). Rollback artifact for the migration.
+- **Local SQLite snapshot** — `cp` to `C:/arcis/data/ai_research_desk-2026-05-10-precutover.sqlite3` (507 MB). Rollback artifact for the data-migration phase.
+- **Schema mirrored** to Docker PG via `scripts/render_migrate.py` — 63 tables, 862 columns, 70 indexes, 0 columns added (clean migration).
+- **Frontend rebuild** — fresh `npm run build` produces `frontend/dist/` with new `VITE_API_SECRET` baked into the bundle. Local FastAPI's `StaticFiles` mount at `app.py:80` serves it at the same origin as `/api/*`, so no CORS in production.
+- **NSSM `ArcisDashboard` service** — operator-installed wrapper for `python -m src.main dashboard --port 8000` (the FastAPI uvicorn host). Sibling to the existing `ArcisWatchLoop` service. Stdout/stderr logs at `C:/arcis/logs/dashboard-{stdout,stderr}.log`.
+- **Cloudflare Zero Trust public hostname** — operator-configured rule routing `halcyonlab.app → http://localhost:8000` through tunnel `f6f41208-e674-43cf-bb9d-6ca5c4972eb3`.
+
+Audits committed for history: SP3 visual-verify gate evidence (17 PNG before/after pairs from PR #1006), SP5 (terminal sprint) scope inventory (operator-confirmed Hybrid canon disposition).
+
+Wave 2-5 are dispatched via `arcis:code` (coding-team skill) per operator policy on Sprint-1+ feature work.
+
 ## [v0.34.0] - 2026-05-08 — Sprint 4 Wave 1+2+3: cockpit followups + notifications observability + post-deploy hotfixes + sprint closeout
 
 ### Sprint 4 closeout summary
