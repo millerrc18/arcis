@@ -41,8 +41,13 @@ data/
 !data/reference/**
 
 # Training artifacts
-training_data/
+# Match files inside the dir (not the dir itself) so allowlisted
+# files like train.py + README.md can be re-included via `!`. Git
+# does not allow re-including child paths under an excluded
+# directory pattern (the `training_data/` form), per gitignore rules.
+training_data/*
 !training_data/README.md
+!training_data/train.py
 *.pkl
 *.gguf
 *.safetensors
