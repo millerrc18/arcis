@@ -186,11 +186,34 @@ app.include_router(walkforward_module.router)
 
 
 # WebSocket for live updates (uses shared manager from websocket.py).
-# TODO(#1100): add bearer-token auth to /ws/live before the public tunnel
-# exposes it for high-value subscriptions. Currently anyone with the
-# halcyonlab.app domain can connect — same as pre-cutover localhost-only state.
+#
+# Auth: token query-parameter — `wss://halcyonlab.app/ws/live?token=<api_secret>`.
+# WebSockets don't support bearer headers cleanly (browser WebSocket API doesn't
+# expose a way to set custom request headers), so we use the standard query-
+# parameter pattern. Token check mirrors the HTTP verify_auth: accept either the
+# SHA-256 hashed token (frontend's AuthGate flow) or the raw plaintext (curl /
+# scripts). Constant-time compare via hmac.compare_digest. On mismatch, close
+# with code 1008 (Policy Violation) before connect.
+#
+# Why this matters: pre-cutover the FastAPI bound to 127.0.0.1 only and the
+# WebSocket was network-isolated. Post-cutover (Cloudflare Tunnel exposing
+# `wss://halcyonlab.app/ws/live`), an unauthenticated WS would leak trade
+# signals to any internet observer — the broadcast payload includes
+# `trade_opened` events with ticker/side/shares (see
+# `src/shadow_trading/executor.py` broadcast_sync call sites). That's a
+# front-running surface for the quant strategy. This token check closes it.
 @app.websocket("/ws/live")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(websocket: WebSocket, token: str = ""):
+    if not API_SECRET:
+        # Fail closed — refuse to serve WS without auth configured.
+        await websocket.close(code=1008)
+        return
+    if not (
+        hmac.compare_digest(token, _API_SECRET_HASH)
+        or hmac.compare_digest(token, API_SECRET)
+    ):
+        await websocket.close(code=1008)
+        return
     await manager.connect(websocket)
     try:
         while True:
