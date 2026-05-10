@@ -45,6 +45,7 @@ def _import_migrate(monkeypatch, database_url: str = "postgresql://user:pw@local
         _REPO_ROOT / "scripts" / "sqlite_to_pg_migrate.py",
     )
     mod = importlib.util.module_from_spec(spec)
+    sys.modules["scripts.sqlite_to_pg_migrate"] = mod
     spec.loader.exec_module(mod)
     return mod
 
@@ -78,6 +79,7 @@ def test_migrate_skips_tables_with_sync_to_postgres_false(monkeypatch, tmp_path)
     sqlite_cursor_mock.fetchone.return_value = (0,)
     sqlite_cursor_mock.description = []
     sqlite_cursor_mock.fetchall.return_value = []
+    sqlite_cursor_mock.fetchmany.return_value = []
 
     queried_tables = []
 
@@ -109,7 +111,7 @@ def test_migrate_skips_tables_with_sync_to_postgres_false(monkeypatch, tmp_path)
 
 
 def test_migrate_handles_null_primary_keys(monkeypatch, tmp_path):
-    """Rows with a NULL primary key must be filtered before executemany."""
+    """Rows with a NULL primary key must be filtered before execute_values."""
     monkeypatch.setenv("ARCIS_DB_PATH", "C:/arcis/data/ai_research_desk.sqlite3")
     monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@localhost/db")
     mod = _import_migrate(monkeypatch)
@@ -145,28 +147,27 @@ def test_migrate_handles_null_primary_keys(monkeypatch, tmp_path):
     pg_cursor_mock = mock.MagicMock()
     pg_conn_mock.cursor.return_value = pg_cursor_mock
     pg_cursor_mock.fetchone.return_value = (2,)  # 2 rows in sqlite
-    pg_cursor_mock.rowcount = 1
 
     with mock.patch("psycopg2.connect", return_value=pg_conn_mock):
-        mod.run_migration(
-            sqlite_path=sqlite_path,
-            database_url="postgresql://u:p@localhost/db",
-            table_filter=["recommendations"],
-            dry_run=False,
-            vacuum_after=False,
-        )
+        with mock.patch("scripts.sqlite_to_pg_migrate.execute_values") as ev_mock:
+            mod.run_migration(
+                sqlite_path=sqlite_path,
+                database_url="postgresql://u:p@localhost/db",
+                table_filter=["recommendations"],
+                dry_run=False,
+                vacuum_after=False,
+            )
 
-    # executemany should have been called; check that the NULL-pk row was excluded.
-    all_calls = pg_cursor_mock.executemany.call_args_list
-    assert len(all_calls) >= 1, "executemany was never called"
-    for call in all_calls:
-        rows_arg = call[0][1]  # second positional arg to executemany
+    # execute_values should have been called; check that the NULL-pk row was excluded.
+    assert ev_mock.call_count >= 1, "execute_values was never called"
+    for call in ev_mock.call_args_list:
+        rows_arg = call[0][2]  # third positional arg to execute_values(cur, sql, rows)
         for row in rows_arg:
-            assert row[pk_idx] is not None, "NULL pk row was passed to executemany"
+            assert row[pk_idx] is not None, "NULL pk row was passed to execute_values"
 
 
 def test_migrate_chunks_at_1000_rows(monkeypatch, tmp_path):
-    """2500 rows must result in exactly 3 executemany calls (1000, 1000, 500)."""
+    """2500 rows must result in exactly 3 execute_values calls (1000, 1000, 500)."""
     monkeypatch.setenv("ARCIS_DB_PATH", "C:/arcis/data/ai_research_desk.sqlite3")
     monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@localhost/db")
     mod = _import_migrate(monkeypatch)
@@ -197,28 +198,27 @@ def test_migrate_chunks_at_1000_rows(monkeypatch, tmp_path):
     pg_cursor_mock = mock.MagicMock()
     pg_conn_mock.cursor.return_value = pg_cursor_mock
     pg_cursor_mock.fetchone.return_value = (2500,)
-    pg_cursor_mock.rowcount = 1000
 
     with mock.patch("psycopg2.connect", return_value=pg_conn_mock):
-        mod.run_migration(
-            sqlite_path=sqlite_path,
-            database_url="postgresql://u:p@localhost/db",
-            table_filter=["recommendations"],
-            dry_run=False,
-            vacuum_after=False,
-        )
+        with mock.patch("scripts.sqlite_to_pg_migrate.execute_values") as ev_mock:
+            mod.run_migration(
+                sqlite_path=sqlite_path,
+                database_url="postgresql://u:p@localhost/db",
+                table_filter=["recommendations"],
+                dry_run=False,
+                vacuum_after=False,
+            )
 
-    em_calls = pg_cursor_mock.executemany.call_args_list
-    assert len(em_calls) == 3, (
-        f"Expected 3 executemany calls for 2500 rows in chunks of 1000, got {len(em_calls)}"
+    assert ev_mock.call_count == 3, (
+        f"Expected 3 execute_values calls for 2500 rows in chunks of 1000, got {ev_mock.call_count}"
     )
-    assert len(em_calls[0][0][1]) == 1000
-    assert len(em_calls[1][0][1]) == 1000
-    assert len(em_calls[2][0][1]) == 500
+    assert len(ev_mock.call_args_list[0][0][2]) == 1000
+    assert len(ev_mock.call_args_list[1][0][2]) == 1000
+    assert len(ev_mock.call_args_list[2][0][2]) == 500
 
 
-def test_migrate_dry_run_does_not_call_executemany(monkeypatch, tmp_path):
-    """--dry-run must print plan without calling executemany."""
+def test_migrate_dry_run_does_not_call_execute_values(monkeypatch, tmp_path):
+    """--dry-run must print plan without calling execute_values."""
     monkeypatch.setenv("ARCIS_DB_PATH", "C:/arcis/data/ai_research_desk.sqlite3")
     monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@localhost/db")
     mod = _import_migrate(monkeypatch)
@@ -248,15 +248,16 @@ def test_migrate_dry_run_does_not_call_executemany(monkeypatch, tmp_path):
     pg_cursor_mock.fetchone.return_value = (1,)
 
     with mock.patch("psycopg2.connect", return_value=pg_conn_mock):
-        mod.run_migration(
-            sqlite_path=sqlite_path,
-            database_url="postgresql://u:p@localhost/db",
-            table_filter=["recommendations"],
-            dry_run=True,
-            vacuum_after=False,
-        )
+        with mock.patch("scripts.sqlite_to_pg_migrate.execute_values") as ev_mock:
+            mod.run_migration(
+                sqlite_path=sqlite_path,
+                database_url="postgresql://u:p@localhost/db",
+                table_filter=["recommendations"],
+                dry_run=True,
+                vacuum_after=False,
+            )
 
-    pg_cursor_mock.executemany.assert_not_called()
+    ev_mock.assert_not_called()
 
 
 def test_migrate_aborts_when_database_url_missing(monkeypatch, tmp_path, capsys):

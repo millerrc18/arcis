@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     import psycopg2
+    from psycopg2.extras import execute_values
 except ImportError:
     print("ERROR: psycopg2 not installed. Run: pip install psycopg2-binary")
     sys.exit(1)
@@ -80,36 +81,12 @@ def _print_dry_run_plan(sqlite_path: str, sync_tables: list) -> None:
     print(f"\nDRY RUN complete. {len(sync_tables)} tables would be migrated.")
 
 
-def _fetch_sqlite_rows(sqlite_conn, table_name: str, col_names: list[str]) -> list[tuple]:
-    cur = sqlite_conn.cursor()
+def _build_insert_sql_template(table_name: str, col_names: list[str], pk_name: str) -> str:
     cols_sql = ", ".join(col_names)
-    cur.execute(f"SELECT {cols_sql} FROM {table_name}")
-    return cur.fetchall()
-
-
-def _filter_null_pk_rows(rows: list[tuple], pk_idx: int) -> tuple[list[tuple], int]:
-    valid = [r for r in rows if r[pk_idx] is not None]
-    skipped = len(rows) - len(valid)
-    return valid, skipped
-
-
-def _build_insert_sql(table_name: str, col_names: list[str], pk_name: str) -> str:
-    cols_sql = ", ".join(col_names)
-    placeholders = ", ".join("%s" for _ in col_names)
     return (
-        f"INSERT INTO {table_name} ({cols_sql}) VALUES ({placeholders}) "
+        f"INSERT INTO {table_name} ({cols_sql}) VALUES %s "
         f"ON CONFLICT ({pk_name}) DO NOTHING"
     )
-
-
-def _insert_chunks(pg_cur, insert_sql: str, rows: list[tuple]) -> int:
-    inserted = 0
-    for i in range(0, len(rows), _CHUNK_SIZE):
-        chunk = rows[i : i + _CHUNK_SIZE]
-        pg_cur.executemany(insert_sql, chunk)
-        rc = pg_cur.rowcount
-        inserted += rc if rc >= 0 else len(chunk)
-    return inserted
 
 
 def _migrate_table(sqlite_conn, pg_conn, table, vacuum_after: bool) -> dict:
@@ -126,32 +103,39 @@ def _migrate_table(sqlite_conn, pg_conn, table, vacuum_after: bool) -> dict:
     except sqlite3.OperationalError:
         source_count = 0
 
-    all_rows, null_pk_skipped = _filter_null_pk_rows(
-        _fetch_sqlite_rows(sqlite_conn, table_name, col_names),
-        pk_idx,
-    )
+    insert_sql = _build_insert_sql_template(table_name, col_names, pk_name)
 
-    insert_sql = _build_insert_sql(table_name, col_names, pk_name)
+    sqlite_cur.execute(f"SELECT {', '.join(col_names)} FROM {table_name}")
 
     pg_cur = pg_conn.cursor()
-    inserted = _insert_chunks(pg_cur, insert_sql, all_rows)
-    conflict_skipped = len(all_rows) - inserted
+    total_inserted = 0
+    null_pk_skipped = 0
 
-    pg_conn.commit()
+    while True:
+        chunk = sqlite_cur.fetchmany(_CHUNK_SIZE)
+        if not chunk:
+            break
+        valid_chunk = [r for r in chunk if r[pk_idx] is not None]
+        null_pk_skipped += len(chunk) - len(valid_chunk)
+        if not valid_chunk:
+            continue
+        execute_values(pg_cur, insert_sql, valid_chunk, page_size=_CHUNK_SIZE)
+        total_inserted += len(valid_chunk)
+
+    conflict_skipped = source_count - null_pk_skipped - total_inserted
 
     if vacuum_after:
         pg_cur.execute(f"VACUUM ANALYZE {table_name}")
-        pg_conn.commit()
 
     pg_cur.close()
 
     print(
-        f"  {table_name:<45} src={source_count:>7}  inserted={inserted:>7}"
+        f"  {table_name:<45} src={source_count:>7}  inserted={total_inserted:>7}"
         f"  conflict_skip={conflict_skipped:>6}  null_pk_skip={null_pk_skipped:>4}"
     )
     return {
         "source": source_count,
-        "inserted": inserted,
+        "inserted": total_inserted,
         "conflict_skipped": conflict_skipped,
         "null_pk_skipped": null_pk_skipped,
         "error": False,
@@ -179,22 +163,24 @@ def run_migration(
     total_rows = 0
     total_errors = 0
 
-    for table in sync_tables:
-        pg_conn = psycopg2.connect(database_url)
-        try:
-            result = _migrate_table(sqlite_conn, pg_conn, table, vacuum_after)
-            total_rows += result["inserted"]
-            if result["error"]:
-                total_errors += 1
-        except Exception as exc:
-            print(f"  ERROR migrating {table.name}: {exc}", file=sys.stderr)
+    pg_conn = psycopg2.connect(database_url)
+    try:
+        for table in sync_tables:
             try:
-                pg_conn.rollback()
-            except Exception:
-                pass
-            total_errors += 1
-        finally:
-            pg_conn.close()
+                result = _migrate_table(sqlite_conn, pg_conn, table, vacuum_after)
+                pg_conn.commit()
+                total_rows += result["inserted"]
+                if result["error"]:
+                    total_errors += 1
+            except Exception as exc:
+                print(f"  ERROR migrating {table.name}: {exc}", file=sys.stderr)
+                try:
+                    pg_conn.rollback()
+                except Exception:
+                    pass
+                total_errors += 1
+    finally:
+        pg_conn.close()
 
     sqlite_conn.close()
     print(
