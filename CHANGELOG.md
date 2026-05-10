@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Wave 2.1 — Engine-aware `connect_db` shim (dual-engine SQLite/Postgres)
+
+- **`src/utils/db.py`** — `connect_db` refactored from a pure SQLite helper into an engine-aware shim. When called with no `db_path` argument and `DATABASE_URL` starts with `postgres`, returns a `PostgresConnectionWrapper` backed by psycopg2 (`RealDictCursor` for name-based result access). When `DATABASE_URL` is unset / empty (or any explicit `db_path` is passed), returns the existing `sqlite3.Connection` with `busy_timeout=30000` and `row_factory=sqlite3.Row` — default behavior is byte-for-byte identical to pre-change. New `PostgresConnectionWrapper` class exposes `cursor()`, `execute()`, `executemany()`, `commit()`, `rollback()`, `close()`, and `row_factory`. This is the foundational wedge for the Wave 4 watch-loop write-side flip — once `DATABASE_URL` is set in the NSSM service env, all 336 `connect_db` call sites route to PG transparently.
+- **`tests/test_db_util.py`** — 4 new tests added; existing 3 tests preserved unchanged. New tests use monkeypatch + mocked psycopg2.connect (no real PG connection required): `test_connect_db_uses_sqlite_when_database_url_unset`, `test_connect_db_uses_postgres_when_database_url_postgres_scheme`, `test_connect_db_explicit_db_path_forces_sqlite`, `test_pg_wrapper_exposes_required_methods`.
+
 ### Cutover — Cloudflare Tunnel + Modified-A migration (Wave 1, 2026-05-10)
 
 Infrastructure stand-up for the unified-DB switch. Today's exit state is **transitional Hybrid** (Postgres provisioned with mirrored schema but no live data; SQLite still primary). The data migration + watch-loop write-side flip + SQLite retirement are explicit tail items per `docs/audits/2026-05-10-cloudflare-tunnel-cutover/spec.md` §6.
