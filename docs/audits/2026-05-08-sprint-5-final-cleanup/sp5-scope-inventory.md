@@ -180,3 +180,126 @@ NOT in scope under Hybrid:
 - Versioning: SP5 ships as `v0.35.0` per established cadence.
 - Documentation: operator-guide + CHANGELOG + MASTER.md updated to reflect "system in maintainable state" closing chapter.
 - Visual-verify gate on Render after merge — same protocol as SP3/SP4 closeouts.
+
+---
+
+## J. Full repo scrub (operator-added 2026-05-10 after cutover review)
+
+Operator directive added during PR #1047 review cycle: after the Modified-A cutover lands and the DB is unified, Sprint 5 must include a **comprehensive repo scrub** that closes accumulated debt the cutover surfaced + categories not yet inventoried. The PR #1047 review caught a partial-PG-password leak in a committed log (`migration-dry-run.log`), which suggested broader risk: if one secret slipped in, others may have. SP5's scrub closes that gap exhaustively before the system enters its post-S5 feature-freeze maintenance posture.
+
+**Why now:** SP5 is the terminal sprint. Anything not scrubbed here becomes permanent debt the operator carries forward without further sprint capacity to address it.
+
+### J1. Secrets audit across full git history
+
+- Run `gitleaks detect --source . --no-banner --no-git --redact` against the current working tree
+- Run `gitleaks detect --source . --log-opts="--all" --no-banner --redact` against ALL refs/all-history (catches leaks scrubbed from main but still reachable via reflog/branch tips)
+- Cross-check with `trufflehog git file://.` for high-entropy strings (catches secrets gitleaks's rule patterns miss)
+- For each finding: (a) verify it's still active OR already rotated; (b) if active → rotate immediately + add to known-rotated-secrets audit; (c) scrub from history via `git filter-repo` (the modern replacement for filter-branch); (d) document scrub in CHANGELOG so reviewers can verify the fix
+- Establish a pre-commit hook that runs gitleaks on staged content — prevents future leaks at commit time. ARCIS already has `scripts/hooks/pre-commit` for scope-check; extend it.
+
+### J2. Eradicate the 87 pre-existing test failures observed during PR #1047 dispatches
+
+From multiple agents' broad-sweep reports during PR #1047 (T2-rev, T3, T1):
+- ~6 `test_projections_live_*` auth-fixture failures (auth not configured in test env / worktree-env-drift class per memory `feedback_worktree_env_drift`)
+- ~3 `test_repo_structure.py` failures (pre-existing canon; addressed by §B Hybrid disposition — confirm here)
+- `tests/evaluation/test_walkforward.py::test_all_folds_produce_trades` makes a live FRED API call without mock — pre-existing CLAUDE.md "mock all external APIs" violation
+- `tests/test_cloud_requirements_imports.py` makes live PyPI network calls — should use `@pytest.mark.network` and be excludable from fast runs
+- ~75 remaining unaccounted — categorize each into: real-bug / fixture-env-mismatch / network-bound / flake; fix or document acceptance per category
+
+Goal: full sweep `python -m pytest tests/ -q --timeout=60` returns 0 failures on operator's machine post-SP5.
+
+### J3. Dependabot vulnerabilities
+
+GitHub flagged **4 high + 1 moderate** vulnerabilities on `main` at the time of PR #1047 push. Review at https://github.com/millerrc18/arcis/security/dependabot; for each:
+- Upgrade dependency to a non-vulnerable version (Dependabot PRs already filed for `jsonschema`, `uvicorn`, `bitsandbytes`, `matplotlib` per the 2026-05-08 PR list)
+- If upgrade not possible: document why; add to an accepted-vulnerabilities allowlist (security risk acknowledgement + mitigation)
+
+### J4. Gitignore audit
+
+- Catch any `.env` / `.local` / `.log` / `*.pkl` / `*.gguf` files accidentally tracked (the `migration-dry-run.log` slipped past via `git add -f`; verify NO similar force-adds linger in tree)
+- Run `git ls-files | xargs -I{} sh -c 'git check-ignore -q "{}" && echo "TRACKED-BUT-IGNORED: {}"'`
+- Audit `training_data/` allowlist — currently `train.py` + `README.md` re-included; verify no other files should be tracked or that the pattern is correct
+- Test gate: add `test_no_gitignored_files_tracked` to repo_structure
+
+### J5. Dead code + stale-file sweep
+
+- Schema audit: any tables in `src/schema/registry.py` not referenced by any code (post-cutover, with `render_sync.py` retired)? Drop them.
+- Code audit: `vulture` or `deadcode` to find unused functions / classes (post-cutover the dual-mode `if database_url:` branches in cloud_routes become dead)
+- Frontend dead-code: which components in `frontend/src/` aren't referenced from `App.jsx` or its tree?
+- Documentation cruft: `docs/audits/` accumulates per-sprint specs; consider an archival convention (move closed sprints to `docs/audits/archive/`)
+
+### J6. Post-cutover code retirement (folds in §6 tail items from spec)
+
+These are also the spec's "out of scope today" §6.5-6.9 items — Sprint 5 absorbs them:
+- `src/sync/render_sync.py` — 1359 LOC, fully obsolete once watch loop is on PG. **Delete the entire file.**
+- `src/api/cloud_app.py` — 341 LOC, fully obsolete once local FastAPI is the only entry point. **Delete the entire file.**
+- `src/schema/postgres.py` vs `src/schema/sqlite.py` — keep only one engine's generator. Post-Modified-A this is PG; `sqlite.py` deletes.
+- 6 `cloud_routes/*.py` files with `if database_url:` runtime branches — collapse to single-engine PG logic. ~70 LOC removable.
+- Stale CNAME records in Cloudflare DNS (`api → halcyon-api.onrender.com`, `www → halcyon-frontend-3ioh.onrender.com`) — cleanup per Wave 3 runbook
+- Pre-cutover SQLite snapshot at `C:/arcis/data/ai_research_desk-2026-05-10-precutover.sqlite3` — retain 30 days post-cutover for emergency rollback; document disposal date in operator-guide §11 Maintenance Tasks
+
+### J7. NSSM + system services audit
+
+- List all NSSM services on operator's machine. Expected: `ArcisWatchLoop`, `ArcisDashboard`, `Cloudflared`. Anything else is stale (from prior experiments / one-shots).
+- Verify each service's `AppEnvironmentExtra`, `AppDirectory`, `AppParameters` are correct + documented in `docs/operator-guide.md`
+- Verify NSSM service ARGUMENTS / env vars don't contain secrets that should be in `.env` instead (NSSM env is persisted in registry; same scrub discipline applies)
+
+### J8. Docker artifacts cleanup
+
+- `docker image prune -a` to remove dangling images
+- `docker volume prune` (after confirming no current containers need them — Docker PG's `pg-data` volume must be preserved)
+- Document expected images / volumes in `docs/operator-guide.md` under "Modified-A — Local Postgres"
+
+### J9. CHANGELOG.md cleanup + final v0.35.0 cut
+
+- All `[Unreleased]` entries (Wave 1-5 cutover work + SP5 closeout) get bundled under `[v0.35.0] - 2026-05-XX` header
+- New empty `[Unreleased]` block at top for post-SP5 maintenance changes
+- Tag `v0.35.0` in git
+- `src/version.py` VERSION → `v0.35.0`
+- Validate per `docs/versioning-policy.md` (no drift between CHANGELOG header / VERSION / git tag)
+
+### J10. Memory cleanup (operator-side `~/.claude/projects/C--arcis/memory/`)
+
+Not a repo change but operator-side. Audit memories for:
+- Outdated facts (e.g., references to RTX 3060 that survived the 3090 upgrade — keep the historical reference but note it's superseded)
+- Memories about sprints that completed (e.g., Sprint 3 audit specifics — close out or archive)
+- Duplicate / overlapping memories (sometimes happens when multiple agents save similar memories)
+
+### J11. File organization / "files in correct homes" — spring cleaning
+
+Per operator note 2026-05-10: §J also means classic structural hygiene — making sure each file lives where future-Ryan and future-agents would expect to find it.
+
+- **Stray top-level files**: scan repo root for files that should be in subdirs. (`C:Temppr997_full.diff` and `.clone/` were cleaned during Wave 1 pre-flight; verify no similar artifacts linger.) Top-level should be: README, LICENSE, CHANGELOG, CLAUDE.md, MASTER.md, pyproject.toml, requirements.txt, docker-compose.yml, .env.example, .gitignore. Anything else is suspect.
+- **`docs/audits/` archival**: closed sprints (Sprint 1-4 work) should move to `docs/audits/archive/<sprint-id>/` so the active-audits dir is just current-sprint + post-sprint-followups. Reduces git diff noise + improves dir-listing comprehension. SP1.A, SP1.B, SP1.C, SP2, SP3 (`2026-05-06-cockpit-coherence-sprint`), SP4 (`2026-05-07-sprint-4-cockpit-followups`) all candidates.
+- **`scripts/` organization**: currently flat. Consider grouping by purpose: `scripts/one_shots/` (migrations, scrubs — like `sqlite_to_pg_migrate.py`), `scripts/maintenance/` (regularly-runnable — like `render_migrate.py`, `verify_training_readiness.py`), `scripts/build/` (build_sp100_history.py-style data builders). Either via dirs or a docstring convention.
+- **`tests/` symmetry with `src/`**: any test file that doesn't have a clear `src/` counterpart? Any source module without tests? Add coverage gap doc OR backfill. Note: `tests/test_db_util.py` mirrors `src/utils/db.py`, `tests/api/test_app_ws_auth.py` mirrors `src/api/app.py` ws endpoint — that's the pattern.
+- **`docs/` organization**: `docs/operator-guide.md` is 1700+ lines. Consider splitting into per-topic files OR adding a clear ToC + section markers. Same for MASTER.md. Reduce gigantic single-file documents.
+- **Frontend file organization**: `frontend/src/components/` is flat with 30+ components. Consider grouping by domain (dashboard/, council/, trades/, etc. — partial pattern already exists for `dashboard/`).
+- **Naming consistency**: file naming conventions — `snake_case.py` for Python (confirmed), `PascalCase.jsx` for React components (verify; some may have drifted to camelCase). Add a `docs/style-guide.md` or extend CLAUDE.md.
+- **Data dir hygiene**: `C:/arcis/data/` accumulates snapshots (e.g., `ai_research_desk-2026-05-10-precutover.sqlite3` from cutover, `render-pg-snapshot-2026-05-10.sql`). Document a retention policy in operator-guide §7 Maintenance Tasks — e.g., "snapshots older than 90 days auto-purge unless explicitly preserved".
+- **Logs dir hygiene**: `C:/arcis/logs/` similarly accumulates. Confirm log rotation is in place; if not, add it.
+
+### Acceptance criteria for §J11
+
+- Top-level repo dir is canonical (no stray .diff / .clone / temp files)
+- `docs/audits/` shows only active or recent sprints; older sprints in `docs/audits/archive/`
+- `scripts/` organized OR documented per a clear scheme
+- `tests/` ↔ `src/` symmetry audit committed at `docs/audits/2026-05-XX-sprint-5-closeout/coverage-gap.md` (where gaps are intentional and accepted)
+- `frontend/src/components/` grouped where natural
+- `docs/style-guide.md` (NEW) or CLAUDE.md addendum documents naming + organization conventions
+- Snapshots / logs retention policies documented in `operator-guide.md` §7
+
+### Acceptance criteria for §J
+
+- `gitleaks detect --source . --log-opts="--all"` returns 0 findings
+- `python -m pytest tests/ -q --timeout=60` shows 0 failures on operator's machine
+- Dependabot dashboard shows 0 high-severity vulnerabilities (moderates documented if any retained)
+- `git ls-files | xargs git check-ignore -q` (negated) returns 0 paths
+- `vulture src/` and `vulture frontend/src/` return <10 false-positive-rate findings
+- `render_sync.py`, `cloud_app.py`, `sqlite.py` schema generator all deleted
+- 6 cloud_routes dual-mode branches collapsed
+- All NSSM services documented in operator-guide
+- v0.35.0 cut + tagged
+- Operator-guide post-S5 reflects "maintainable state" — no open follow-ups, no SP6 escape hatch references
+
+§J is the heaviest single section of SP5 by volume but most of the work is auditing + deletion, not new feature development. Estimated 2–3 days of focused work if dispatched as a coding-team sprint batch.
