@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### Cutover — Cloudflare Tunnel + Modified-A migration (Wave 1, 2026-05-10)
+
+Infrastructure stand-up for the unified-DB switch. Today's exit state is **transitional Hybrid** (Postgres provisioned with mirrored schema but no live data; SQLite still primary). The data migration + watch-loop write-side flip + SQLite retirement are explicit tail items per `docs/audits/2026-05-10-cloudflare-tunnel-cutover/spec.md` §6.
+
+- **`docker-compose.yml`** (NEW) — Postgres 16-alpine, container `halcyon-pg`, bound to `127.0.0.1:5433`. Port 5433 (not the default 5432) because the operator's machine has a Windows-installed PostgreSQL 18 service on 5432; 5433 sidesteps the conflict and preserves the local PG tool for ad-hoc analytic queries. Volume mounts to `C:/arcis/data/pg-data` (outside the git repo per CLAUDE.md "runtime data lives outside the repo" rule). Healthcheck via `pg_isready`; 2 GB memory cap.
+- **`src/api/app.py`** — auth-gated for the post-cutover tunnel exposure. `verify_auth` lifted from `cloud_app.py:153-176` (same hash-or-plaintext bearer-token model the frontend already speaks). Every native router (system, scan, shadow, training, …) now requires bearer auth via `include_router(dependencies=[Depends(verify_auth)])`. 3 new cloud_routes wired in (`notifications`, `platform`, `walkforward`) — these were previously cloud_app-only; bringing them local is required for the tunnel cutover. Existing cloud_routes (kpis, broker_exceptions, preflight) + new ones use the `dependency_overrides` pattern from `cloud_app.py:316-340`. New unauthenticated `/healthz` endpoint for curl smoke tests + external monitoring. WebSocket `/ws/live` still UNAUTH'd as a follow-up (`#1100`). FastAPI title version bumped 0.17.1 → 0.34.0 to match latest release tag.
+- **`training_data/train.py`** — switched from Unsloth single-stage trainer to multi-stage curriculum (STRUCTURE → EVIDENCE → DECISION) using HF Transformers + PEFT LoRA + TRL SFTTrainer + bitsandbytes nf4 4-bit quantization. Driven by the 2026-05-10 GPU upgrade (RTX 3060 12 GB → RTX 3090 24 GB) which removes the 12 GB VRAM ceiling that originally rejected Unsloth's standard path. GGUF export retains Unsloth as primary path with llama.cpp CPU conversion as fallback. `.gitignore` updated: `training_data/` → `training_data/*` so allowlist sibling rules can re-include `train.py` and `README.md` (parent-dir exclusion blocks child re-inclusion per gitignore spec).
+- **Render PG snapshot** — `pg_dump` ran to `C:/arcis/data/render-pg-snapshot-2026-05-10.sql` (478 MB, 65 CREATE TABLE + 65 COPY blocks). Rollback artifact for the migration.
+- **Local SQLite snapshot** — `cp` to `C:/arcis/data/ai_research_desk-2026-05-10-precutover.sqlite3` (507 MB). Rollback artifact for the data-migration phase.
+- **Schema mirrored** to Docker PG via `scripts/render_migrate.py` — 63 tables, 862 columns, 70 indexes, 0 columns added (clean migration).
+- **Frontend rebuild** — fresh `npm run build` produces `frontend/dist/` with new `VITE_API_SECRET` baked into the bundle. Local FastAPI's `StaticFiles` mount at `app.py:80` serves it at the same origin as `/api/*`, so no CORS in production.
+- **NSSM `ArcisDashboard` service** — operator-installed wrapper for `python -m src.main dashboard --port 8000` (the FastAPI uvicorn host). Sibling to the existing `ArcisWatchLoop` service. Stdout/stderr logs at `C:/arcis/logs/dashboard-{stdout,stderr}.log`.
+- **Cloudflare Zero Trust public hostname** — operator-configured rule routing `halcyonlab.app → http://localhost:8000` through tunnel `f6f41208-e674-43cf-bb9d-6ca5c4972eb3`.
+
+Audits committed for history: SP3 visual-verify gate evidence (17 PNG before/after pairs from PR #1006), SP5 (terminal sprint) scope inventory (operator-confirmed Hybrid canon disposition).
+
+Wave 2-5 are dispatched via `arcis:code` (coding-team skill) per operator policy on Sprint-1+ feature work.
+
 ## [v0.34.0] - 2026-05-08 — Sprint 4 Wave 1+2+3: cockpit followups + notifications observability + post-deploy hotfixes + sprint closeout
 
 ### Sprint 4 closeout summary
