@@ -1,0 +1,378 @@
+{
+  "tasks": [
+    {
+      "id": "T2.1",
+      "name": "Migrate edgar_collector PRAGMA table_info to engine_aware_column_info",
+      "description": "Replace PRAGMA table_info(edgar_filings) at src/data_collection/edgar_collector.py:233 with engine_aware_column_info.",
+      "phase": 2,
+      "files_in_scope": [
+        "src/data_collection/edgar_collector.py",
+        "tests/test_edgar_collector_introspection.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py"
+      ],
+      "scope_fence": "Do NOT re-touch INSERT OR IGNORE migration (T1.4).",
+      "test_strategy": "1 parametrized test.",
+      "depends_on": [
+        "T0.5"
+      ],
+      "complexity": "low",
+      "batch": 1,
+      "worktree_required": true
+    },
+    {
+      "id": "T2.2",
+      "name": "Migrate data_collection/retention sqlite_master + PRAGMA",
+      "description": "Replace sqlite_master query at src/data_collection/retention.py:108 with engine_aware_table_list. PRAGMA table_info at line 116 with engine_aware_column_info.",
+      "phase": 2,
+      "files_in_scope": [
+        "src/data_collection/retention.py",
+        "tests/test_retention_introspection.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py"
+      ],
+      "scope_fence": "Do NOT touch other call sites.",
+      "test_strategy": "1 parametrized test.",
+      "depends_on": [
+        "T0.5"
+      ],
+      "complexity": "low",
+      "batch": 1,
+      "worktree_required": true
+    },
+    {
+      "id": "T2.3",
+      "name": "Migrate event_risk_score PRAGMA table_info",
+      "description": "Replace PRAGMA table_info at src/features/event_risk_score.py:48 with engine_aware_column_info.",
+      "phase": 2,
+      "files_in_scope": [
+        "src/features/event_risk_score.py",
+        "tests/test_event_risk_score_introspection.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py"
+      ],
+      "scope_fence": "Do NOT change feature logic.",
+      "test_strategy": "1 parametrized test.",
+      "depends_on": [
+        "T0.5"
+      ],
+      "complexity": "low",
+      "batch": 1,
+      "worktree_required": true
+    },
+    {
+      "id": "T2.4",
+      "name": "Migrate model_monitor PRAGMA table_info",
+      "description": "Replace PRAGMA table_info at src/evaluation/model_monitor.py:176 with engine_aware_column_info.",
+      "phase": 2,
+      "files_in_scope": [
+        "src/evaluation/model_monitor.py",
+        "tests/test_model_monitor_introspection.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py"
+      ],
+      "scope_fence": "Do NOT touch monitoring logic.",
+      "test_strategy": "1 parametrized test.",
+      "depends_on": [
+        "T0.5"
+      ],
+      "complexity": "low",
+      "batch": 1,
+      "worktree_required": true
+    },
+    {
+      "id": "T2.5",
+      "name": "Migrate cosine_similarity PRAGMA table_info",
+      "description": "Replace PRAGMA table_info at src/platform/features/cosine_similarity.py:161 with engine_aware_column_info.",
+      "phase": 2,
+      "files_in_scope": [
+        "src/platform/features/cosine_similarity.py",
+        "tests/test_cosine_similarity_introspection.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py"
+      ],
+      "scope_fence": "Do NOT touch feature logic.",
+      "test_strategy": "1 parametrized test.",
+      "depends_on": [
+        "T0.5"
+      ],
+      "complexity": "low",
+      "batch": 1,
+      "worktree_required": true
+    },
+    {
+      "id": "T2.6",
+      "name": "Migrate system_validator PRAGMA + sqlite_master",
+      "description": "Replace PRAGMA journal_mode at src/evaluation/system_validator.py:165 (wrap in isinstance check). Replace sqlite_master at line 175 with engine_aware_table_list.",
+      "phase": 2,
+      "files_in_scope": [
+        "src/evaluation/system_validator.py",
+        "tests/test_system_validator_introspection.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py"
+      ],
+      "scope_fence": "Do NOT migrate other PRAGMAs in this file.",
+      "test_strategy": "1 parametrized test.",
+      "depends_on": [
+        "T0.5"
+      ],
+      "complexity": "standard",
+      "batch": 2,
+      "worktree_required": true
+    },
+    {
+      "id": "T2.7",
+      "name": "Migrate schema/validator PRAGMA + sqlite_master (CRITICAL)",
+      "description": "Replace sqlite_master at src/schema/validator.py:43 with engine_aware_table_list. Replace PRAGMA table_info at line 61 with engine_aware_column_info. Was the 2026-05-10 cutover blocker.",
+      "phase": 2,
+      "files_in_scope": [
+        "src/schema/validator.py",
+        "tests/test_schema_validator_engine_aware.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py",
+        "src/schema/registry.py"
+      ],
+      "scope_fence": "Do NOT touch src/schema/sqlite.py or src/schema/postgres.py.",
+      "test_strategy": "2 parametrized tests.",
+      "depends_on": [
+        "T0.5"
+      ],
+      "complexity": "standard",
+      "batch": 2,
+      "worktree_required": true
+    },
+    {
+      "id": "T2.8",
+      "name": "Migrate startup_checks sqlite_master COUNT × 2 (CRITICAL)",
+      "description": "Replace sqlite_master COUNT(*) queries at src/startup_checks.py:151-154 and 164-167 with len(engine_aware_table_list(conn)). Remove unused import sqlite3 at line 16.",
+      "phase": 2,
+      "files_in_scope": [
+        "src/startup_checks.py",
+        "tests/test_startup_checks_engine_aware.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py",
+        "src/schema/validator.py"
+      ],
+      "scope_fence": "Do NOT touch _check_render_postgres.",
+      "test_strategy": "1 parametrized test.",
+      "depends_on": [
+        "T0.5",
+        "T2.7"
+      ],
+      "complexity": "standard",
+      "batch": 3,
+      "worktree_required": true
+    },
+    {
+      "id": "T2.9",
+      "name": "Rewrite council/agent_data julianday SQL",
+      "description": "At src/council/agent_data.py:91, replace julianday('now') - julianday(actual_entry_time) with Python-side computation. Pass days_held as parameter.",
+      "phase": 2,
+      "files_in_scope": [
+        "src/council/agent_data.py",
+        "tests/test_council_agent_data_julianday.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py"
+      ],
+      "scope_fence": "Do NOT change council debate logic.",
+      "test_strategy": "1 parametrized test.",
+      "depends_on": [
+        "T0.2"
+      ],
+      "complexity": "low",
+      "batch": 1,
+      "worktree_required": true
+    },
+    {
+      "id": "T2.10",
+      "name": "Rewrite api/routes/ib_status date('now')",
+      "description": "At src/api/routes/ib_status.py:55, replace WHERE date(created_at) = date('now') with parameterized form passing date.today().isoformat().",
+      "phase": 2,
+      "files_in_scope": [
+        "src/api/routes/ib_status.py",
+        "tests/test_ib_status_date_now.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py"
+      ],
+      "scope_fence": "Do NOT change route logic.",
+      "test_strategy": "1 parametrized test.",
+      "depends_on": [
+        "T0.2"
+      ],
+      "complexity": "low",
+      "batch": 1,
+      "worktree_required": true
+    },
+    {
+      "id": "T2.11",
+      "name": "Rewrite shadow_trading/executor date('now')",
+      "description": "At src/shadow_trading/executor.py:776, replace date('now') with parameterized form.",
+      "phase": 2,
+      "files_in_scope": [
+        "src/shadow_trading/executor.py",
+        "tests/test_shadow_trading_executor_date_now.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py"
+      ],
+      "scope_fence": "Do NOT touch other call sites.",
+      "test_strategy": "1 parametrized test.",
+      "depends_on": [
+        "T0.2"
+      ],
+      "complexity": "low",
+      "batch": 1,
+      "worktree_required": true
+    },
+    {
+      "id": "T2.12",
+      "name": "Refactor watch.py _configure_database: PRAGMA helper + PG retry wrapper (with fast-exit)",
+      "description": "At src/scheduler/watch.py:1107-1132 (_configure_database): (1) Replace inline PRAGMA cluster with configure_sqlite_for_production(conn) helper from T0.8 (no-op on PG). (2) Replace bare connect_db(DB_PATH) with connect_db_with_pg_retry(DB_PATH, max_attempts=5, backoff_seconds=30) from T0.11. (3) M3 verification: confirm the surrounding `except Exception` at line 1133 does NOT catch SystemExit raised by sys.exit(1) in T0.11 retry exhaustion — SystemExit inherits BaseException not Exception. Add a comment at line 1133 stating: '# SystemExit from connect_db_with_pg_retry retry exhaustion is intentionally uncaught — NSSM restarts the service.' Backup API at lines 1164-1165 stays raw SQLite.",
+      "phase": 2,
+      "files_in_scope": [
+        "src/scheduler/watch.py",
+        "tests/test_watch_pragma_isolation.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py"
+      ],
+      "scope_fence": "Do NOT touch backup API at lines 1164-1165. Do NOT touch other connect_db sites. Do NOT refactor watch_loop control flow.",
+      "test_strategy": "3 parametrized tests: (a) _configure_database runs cleanly on both engines; (b) calls connect_db_with_pg_retry with max_attempts=5 (monkeypatch assert); (c) M3 — simulate T0.11 retry exhaustion (mock connect_db_with_pg_retry to raise SystemExit(1)); assert SystemExit propagates past line 1133 and the watch process would exit (capture SystemExit at test boundary).",
+      "depends_on": [
+        "T0.8",
+        "T0.11"
+      ],
+      "complexity": "standard",
+      "batch": 2,
+      "worktree_required": true
+    },
+    {
+      "id": "T2.13",
+      "name": "Extend test_connect_db_discipline.py allowlist",
+      "description": "Extend tests/test_connect_db_discipline.py: permanent allowlist (sqlite/registry/watch:1164-1165/trainer:1171), retiring-allowlist (render_sync.py, reconcile.py with markers).",
+      "phase": 2,
+      "files_in_scope": [
+        "tests/test_connect_db_discipline.py"
+      ],
+      "files_read_only": [
+        "src/schema/sqlite.py",
+        "src/scheduler/watch.py",
+        "src/training/trainer.py"
+      ],
+      "scope_fence": "Do NOT modify existing 4-file allowlist tests.",
+      "test_strategy": "8 test pairs + 4 retiring-allowlist tests.",
+      "depends_on": [
+        "T0.8"
+      ],
+      "complexity": "standard",
+      "batch": 3,
+      "worktree_required": true
+    },
+    {
+      "id": "T2.14",
+      "name": "Create test_no_sqlite_isms_in_pg_safe_files.py (AST-based, M4)",
+      "description": "Create tests/test_no_sqlite_isms_in_pg_safe_files.py. M4 REVISION: use AST-based scanning, NOT substring scan. The visitor traverses ast.Str/ast.Constant/ast.JoinedStr/ast.FormattedValue/ast.BinOp(op=Add) nodes, reconstructing full strings where possible. Detects: (1) String literals containing INSERT OR REPLACE/IGNORE — even when split across f-string fragments or .format() calls. (2) SQL-keyword strings (INSERT/SELECT/UPDATE/DELETE/VALUES) containing literal `?` placeholders outside quoted literals (heuristic for unrewritten placeholders). (3) String-concatenation chains where any segment contains SQLite-ism fragments. (4) f-string fragments where the {expr} portion evaluates to constant REPLACE or IGNORE (e.g. `f'INSERT OR {action.upper()} INTO ...'` if action is a constant). Define ALLOWLIST including retiring-files src/sync/render_sync.py + src/sync/reconcile.py with `# RETIRING: delete in SP5 §J6 Phase 4` markers. Add 4-5 test functions: test_no_insert_or_replace_or_ignore_ast, test_no_pragma_in_pg_safe_files (line-range allowlist for watch.py:1164-1165), test_no_sqlite_master_references_ast, test_no_sqlite_date_functions_ast, test_no_unrewritten_question_placeholders_ast.",
+      "phase": 2,
+      "files_in_scope": [
+        "tests/test_no_sqlite_isms_in_pg_safe_files.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py",
+        "tests/test_connect_db_discipline.py"
+      ],
+      "scope_fence": "Do NOT add tests for raw sqlite3.connect (test_connect_db_discipline.py scope). Bumped to standard complexity per M4 — AST traversal + multi-pattern detection.",
+      "test_strategy": "5 test functions; assert ZERO offenders in scanned files. Include positive test fixtures (a small fixture file containing each anti-pattern) to verify the AST detector catches them.",
+      "depends_on": [
+        "T1.1",
+        "T1.2",
+        "T1.3",
+        "T1.4",
+        "T1.5",
+        "T1.6",
+        "T1.7",
+        "T1.8",
+        "T1.9",
+        "T1.10",
+        "T1.11",
+        "T1.12",
+        "T1.13",
+        "T1.14",
+        "T1.15",
+        "T2.1",
+        "T2.2",
+        "T2.3",
+        "T2.4",
+        "T2.5",
+        "T2.6",
+        "T2.7",
+        "T2.8",
+        "T2.9",
+        "T2.10",
+        "T2.11",
+        "T2.12"
+      ],
+      "complexity": "standard",
+      "batch": 4,
+      "worktree_required": true
+    },
+    {
+      "id": "T2.15",
+      "name": "Bump CI test floor + Phase 0 closeout reconciliation (M6)",
+      "description": "Update .github/workflows/pg-tests.yml minimum-test-count step to match actual Phase 2 end-state (per spec section 5.3 target +134; accept band +90 to +140). PM verifies actual delta is within band; if outside, document why in CHANGELOG. Update CLAUDE.md test-floor lineage paragraph with actual numbers.",
+      "phase": 2,
+      "files_in_scope": [
+        ".github/workflows/pg-tests.yml",
+        "CLAUDE.md"
+      ],
+      "files_read_only": [
+        "docs/audits/2026-05-11-modified-a-migration/_design_raw.json"
+      ],
+      "scope_fence": "Do NOT modify any test file.",
+      "test_strategy": "Workflow run verifies pass; PM-side count vs accept-band check.",
+      "depends_on": [
+        "T2.14"
+      ],
+      "complexity": "trivial",
+      "batch": 5,
+      "worktree_required": false
+    }
+  ],
+  "execution_order": [
+    [
+      "T2.1",
+      "T2.2",
+      "T2.3",
+      "T2.4",
+      "T2.5",
+      "T2.9",
+      "T2.10",
+      "T2.11"
+    ],
+    [
+      "T2.6",
+      "T2.7",
+      "T2.12"
+    ],
+    [
+      "T2.8",
+      "T2.13"
+    ],
+    [
+      "T2.14"
+    ],
+    [
+      "T2.15"
+    ]
+  ],
+  "notes": "REVISION 2 (Devil's Advocate critical+major addressed): T0.0 + T0.12 audit tasks added to batch 1 (no-dep). T3.0 baseline env audit slotted into batch 1 of Phase 3 alongside T3.1 snapshots. Total: 57 tasks across 5 phases (was 54; +T0.0, +T0.12, +T3.0). 21-batch execution_order structure preserved exactly. Phase 0 grows from +33 to +61 tests (C1+C3+M3 coverage). T0.2 bumped low→standard (M1 quote+pct-aware rewrite is a real parser). T2.14 bumped to standard (M4 AST-based scanning). T3.2 precedence flip is kill-switched behind ARCIS_PG_CUTOVER_ENABLED=1 env var (M2) — merging T3.2 alone does NOT activate cutover on any developer machine. T0.11 retry exhaustion does sys.exit(1) so NSSM restarts (M3 zombie-watchdog fix) — SystemExit propagates past watch.py:1133 because Exception does not catch BaseException subclasses. T0.4 _REPLACE_SEMANTICS dict is populated from T0.12 audit, hard-coded per-table; ValueError raised if a new table is upserted with action='replace' without classification (M-safety: forces auditability). Target test delta: +134 (accept band +90 to +140 per M6); PM verifies actual vs band in T2.15 closeout. Worktree isolation MANDATORY for Phase 1, Phase 2 file migrations, and Phase 4 cleanup. Cutover window remains Saturday morning EDT. MINORs N1/N2/N3 listed in spec section 11 'Known Considerations' — NOT planner-tracked; deferred to post-cutover backlog.\n\n## PHASE 2 SCOPE NOTE (PM read this)\n\nThis is the PHASE 2 SUBSET of the full Modified-A migration plan.\nFull plan has 57 tasks across 5 phases; this file has only the 15 Phase 2 tasks.\nPhase 2 ships as a SINGLE PR titled 'sp5(j5/j6): Phase 2 — PRAGMA/introspection migration'.\nPhase 0 + Phase 1 are MERGED to main. engine_aware_table_list, engine_aware_column_info, engine_aware_index_list, engine_aware_foreign_keys, configure_sqlite_for_production, connect_db_with_pg_retry are ALL available.\nDO NOT touch wrapper internals in src/utils/db.py (Phase 0 LOCKED).\nDO NOT migrate INSERT OR REPLACE/IGNORE sites (Phase 1 already done).\nDO NOT flip connect_db precedence (Phase 3 territory).\nPhase 2 is PRAGMA / sqlite_master / introspection call-site migration + CI workflow + AST-scan discipline test.\n"
+}
