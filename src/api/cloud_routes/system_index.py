@@ -28,7 +28,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.config import DB_PATH
-from src.utils.db import connect_db
+from src.utils.db import connect_db, engine_aware_upsert
 from src.platform.capability_registry import (
     BaseEntry,
     ensure_bootstrapped,
@@ -93,28 +93,22 @@ def _read_view_state(conn: sqlite3.Connection, entry_name: str) -> dict[str, Any
 def _write_view_state(conn: sqlite3.Connection, entry_name: str, value: dict[str, Any]) -> None:
     now = _utc_now_iso()
     value_json = json.dumps(value, default=str)
-    conn.execute(
-        "INSERT INTO operator_view_state "
-        "(user_id, entry_name, last_viewed_at, last_viewed_value) "
-        "VALUES (?, ?, ?, ?) "
-        "ON CONFLICT(user_id, entry_name) DO UPDATE SET "
-        "last_viewed_at = excluded.last_viewed_at, "
-        "last_viewed_value = excluded.last_viewed_value",
-        (OPERATOR_ID, entry_name, now, value_json),
-    )
+    engine_aware_upsert(conn, 'operator_view_state', {
+        'user_id': OPERATOR_ID,
+        'entry_name': entry_name,
+        'last_viewed_at': now,
+        'last_viewed_value': value_json,
+    }, action='replace')
     conn.commit()
 
 
 def _write_reviewed_override(conn: sqlite3.Connection, entry_name: str) -> str:
     reviewed = date.today().isoformat()
-    conn.execute(
-        "INSERT INTO operator_view_state "
-        "(user_id, entry_name, last_reviewed_date_override) "
-        "VALUES (?, ?, ?) "
-        "ON CONFLICT(user_id, entry_name) DO UPDATE SET "
-        "last_reviewed_date_override = excluded.last_reviewed_date_override",
-        (OPERATOR_ID, entry_name, reviewed),
-    )
+    engine_aware_upsert(conn, 'operator_view_state', {
+        'user_id': OPERATOR_ID,
+        'entry_name': entry_name,
+        'last_reviewed_date_override': reviewed,
+    }, action='replace')
     conn.commit()
     return reviewed
 

@@ -36,7 +36,7 @@ def test_register_adds_table():
 
 # ── Completeness tests ───────────────────────────────────────────
 
-EXPECTED_TABLE_COUNT = 72
+EXPECTED_TABLE_COUNT = 71
 
 
 def test_registry_has_all_tables():
@@ -91,7 +91,7 @@ EXPECTED_TABLES = {
     # Health / Freshness
     "data_freshness", "daily_ib_health", "ib_shadow_log",
     # Infrastructure
-    "activity_log", "log_entries", "sync_state",
+    "activity_log", "log_entries",
     "command_results", "config_overrides", "pending_commands",
     # User Data
     "user_notes",
@@ -373,33 +373,22 @@ def test_stats_queries_reference_valid_columns():
 # ── #673 — sync_state in-flight detection columns ────────────────
 
 def test_sync_state_has_inflight_columns():
-    """sync_state must have in_flight_since and completed_at for quiescence detection.
+    """sync_state removed in Phase 3-revised (render_sync.py deprecated in T7).
 
-    Sprint C.6 (#673): extends the 2-column sync_state table with in-flight
-    tracking so external scripts can detect whether a sync cycle is running
-    without needing to inspect the threading.Lock internals.
+    Sprint C.6 (#673): the in-flight columns were verified when sync_state
+    existed. This test is superseded by test_sync_state_not_in_registry.
     """
-    assert "sync_state" in TABLES
-    td = TABLES["sync_state"]
-    names = [c.name for c in td.columns]
-    assert "in_flight_since" in names, "sync_state missing in_flight_since column"
-    assert "completed_at" in names, "sync_state missing completed_at column"
-    assert "status" in names, "sync_state missing status column"
-    in_flight = next(c for c in td.columns if c.name == "in_flight_since")
-    assert in_flight.type == "TEXT"
-    completed = next(c for c in td.columns if c.name == "completed_at")
-    assert completed.type == "TEXT"
-    status_col = next(c for c in td.columns if c.name == "status")
-    assert status_col.type == "TEXT"
-    assert status_col.default == "idle"
+    assert "sync_state" not in TABLES, (
+        "sync_state was removed from registry in Phase 3-revised — "
+        "render_sync.py is deleted in Task T7 as part of the one-DB cutover"
+    )
 
 
 def test_sync_state_not_synced_to_postgres():
-    """sync_state must NOT sync to Postgres (that would be circular)."""
-    assert "sync_state" in TABLES
-    td = TABLES["sync_state"]
-    assert td.sync_to_postgres is False, (
-        "sync_state must not sync to Postgres — that would be circular"
+    """sync_state removed in Phase 3-revised (render_sync.py deprecated in T7)."""
+    assert "sync_state" not in TABLES, (
+        "sync_state was removed from registry in Phase 3-revised — "
+        "render_sync.py is deleted in Task T7 as part of the one-DB cutover"
     )
 
 
@@ -689,4 +678,26 @@ def test_notifications_dedup_sync_conflict_col_matches_composite_unique():
         "notifications_dedup.sync_conflict_col must be 'event_type, dedup_key' "
         f"(got {td.sync_conflict_col!r}). PK `id` is autoincrement; uniqueness is "
         "enforced via the composite index — that's the natural ON CONFLICT target."
+    )
+
+
+def test_sync_to_postgres_flipped_for_one_db_cutover():
+    """Phase 3-revised: 8 previously-local-only tables now sync to PG."""
+    from src.schema.registry import TABLES
+    flipped_tables = [
+        "daily_ib_health", "model_evaluations", "preference_pairs",
+        "config_overrides", "bracket_health", "data_freshness",
+        "system_metrics", "operator_view_state",
+    ]
+    for tname in flipped_tables:
+        assert tname in TABLES, f"{tname} missing from registry"
+        assert TABLES[tname].sync_to_postgres is True, f"{tname} should sync to PG post-Phase-3-revised"
+
+
+def test_sync_state_not_in_registry():
+    """Phase 3-revised: sync_state removed alongside render_sync.py deprecation."""
+    from src.schema.registry import TABLES
+    assert "sync_state" not in TABLES, (
+        "sync_state should be removed from registry — render_sync.py is being "
+        "deleted in Task T7 as part of the one-DB cutover"
     )

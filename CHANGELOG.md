@@ -2,6 +2,40 @@
 
 ## [Unreleased]
 
+### SP5 §J5/§J6 Phase 3-revised — One-database cutover correction
+
+Closes the PR #1054 cutover gap (which routed only ~5 of 336 call sites to PG). With this PR + the operator-led re-cutover runbook (see `docs/operator-guide.md` §"Postgres Cutover (SP5 §J5/§J6 Phase 3-revised — one-DB)"), `ARCIS_PG_CUTOVER_ENABLED=1` routes EVERY `connect_db()` call to Postgres regardless of how `db_path` was passed — closing the one-database invariant. Full design at `docs/audits/2026-05-11-modified-a-migration/spec-revised-one-db.md`.
+
+**Code changes (T1-T6):**
+- **`src/utils/db.py`** — `connect_db()` precedence rule inverted: gate ON + DATABASE_URL postgres now wins for ALL call sites, including explicit `db_path`. Adds `_warn_db_path_ignored_once` helper that emits a one-time WARN per distinct `db_path` override (SP-ONEDB-009). `connect_db_with_pg_retry()` mirrors the inversion. `_REPLACE_SEMANTICS` gets `'operator_view_state': 'in_place_update'`.
+- **`src/schema/registry.py`** — 8 tables flipped to `sync_to_postgres=True` (daily_ib_health, model_evaluations, preference_pairs, config_overrides, bracket_health, data_freshness, system_metrics, operator_view_state). `sync_state` TableDef removed entirely (deprecated alongside render_sync.py). Total tables now 71 (was 72).
+- **Writers converted to `engine_aware_upsert`:**
+  - `src/training/ab_evaluation.py` (model_evaluations writer)
+  - `src/training/dpo_pipeline.py` (preference_pairs writer)
+  - `src/commands/executor.py` (command_results writer)
+  - `src/config/overrides.py` (config_overrides writer)
+  - `src/shadow_trading/bracket_monitor.py` (bracket_health writer)
+  - `src/api/cloud_routes/system_index.py` (operator_view_state writers ×2)
+
+**Deletions (T7):**
+- `src/sync/render_sync.py` — deprecated; relied on `sync_state` table (removed)
+- `src/sync/reconcile.py` — deprecated; no callers post-cutover
+- `src/cli/commands.py:cmd_reset_live_prices_watermark` + `src/cli/main.py` subcommand registration
+- `tests/test_render_sync*.py` files
+- `config/known_violations.json` entries referencing the deleted files
+
+**Tests added (~25 net new):**
+- 12 truth-table tests in `tests/test_db_util.py` (8 rows × extras for warn-once + retry-parity)
+- 2 schema regression locks in `tests/test_schema.py` (8-flip assertion + sync_state-absence)
+- 6 cross-engine writer tests across `tests/test_writers_*.py` (one per writer)
+- 3 deletion-regression-locks in `tests/test_render_sync_removed.py`
+
+**Operator next steps:** see `docs/operator-guide.md` §"Postgres Cutover (SP5 §J5/§J6 Phase 3-revised — one-DB)" for the 8-step re-cutover runbook. Includes the SQLite-shows-zero-recent-writes assertion that would have caught PR #1054 in 30 seconds.
+
+**Out of scope (cleanup backlog):**
+- `cloud_routes/` manual `if database_url:` branches are now redundant under one-DB but each has independent quirks — cleanup is post-merge backlog (SP-ONEDB-011).
+- The autouse `_REPLACE_SEMANTICS` monkeypatch fixtures in `tests/test_writers_operator_view_state.py` and `tests/api/conftest.py` become no-ops post-merge (T1+T6 together cover the entry); deletion is post-merge backlog.
+
 ### Sprint S1-CC Batch B — Walk-Forward Framework Scoping (3 docs-only tasks)
 
 Closes the second half of Sprint S1-CC. Stage 1 corpus admissibility passed (Batch A landed via PR #1051); this batch lands the v1 spec + v1 plan for the walk-forward validation framework that gates Stage 2 OOS dispatch and v2 training. **Docs-only.** No src/, tests/, or config/ changes.

@@ -667,9 +667,17 @@ def test_replace_semantics_dict_matches_audit_verbatim():
         "config_overrides": "in_place_update",
         "system_metrics": "in_place_update",
         "council_parameter_state": "in_place_update",
+        "operator_view_state": "in_place_update",
         "simulation_results": "in_place_update",
         "walkforward_results": "in_place_update",
         "walkforward_trades": "in_place_update",
         "sp100_historical_constituents": "in_place_update",
     }
     assert _REPLACE_SEMANTICS == expected
+
+
+def test_replace_semantics_includes_operator_view_state():
+    """Phase 3-revised T1: operator_view_state must be in _REPLACE_SEMANTICS as in_place_update."""
+    from src.utils.db import _REPLACE_SEMANTICS
+    assert "operator_view_state" in _REPLACE_SEMANTICS
+    assert _REPLACE_SEMANTICS["operator_view_state"] == "in_place_update"

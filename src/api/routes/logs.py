@@ -201,7 +201,7 @@ def expire_stale_commands_endpoint():
             # Nothing to do in truly-local mode without a Render Postgres
             return {"expired": 0, "note": "no render database configured"}
 
-        from src.sync.render_sync import expire_stale_commands
+        from src.commands.maintenance import expire_stale_commands
 
         count = expire_stale_commands(database_url)
         return {"expired": count}

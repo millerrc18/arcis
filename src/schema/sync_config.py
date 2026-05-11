@@ -1,6 +1,7 @@
 """Generate SYNC_TABLES config from the schema registry.
 
-Called by: src.sync.render_sync
+Called by: src.api.cloud_app, src.startup_checks (post one-DB cutover —
+    render_sync.py was deleted in SP5 §J5/§J6 Phase 3-revised)
 Calls: src.schema.registry
 Owns tables: none
 Config keys: none

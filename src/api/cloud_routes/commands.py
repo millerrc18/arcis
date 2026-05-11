@@ -37,7 +37,7 @@ def create_router(runtime, verify_auth):
         if not database_url:
             return {"expired": 0, "note": "DATABASE_URL not configured"}
         try:
-            from src.sync.render_sync import expire_stale_commands
+            from src.commands.maintenance import expire_stale_commands
             count = expire_stale_commands(database_url)
             return {"expired": count}
         except Exception as exc:

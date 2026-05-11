@@ -51,6 +51,20 @@ BUSY_TIMEOUT_MS = 30_000  # 30s — rides through typical external-tool locks
 
 _SENTINEL = object()
 
+_DB_PATH_WARNED: set[int] = set()
+
+
+def _warn_db_path_ignored_once(db_path) -> None:
+    key = id(db_path)
+    if key in _DB_PATH_WARNED:
+        return
+    _DB_PATH_WARNED.add(key)
+    logger.warning(
+        "[DB] connect_db(db_path=%r) overridden by Phase 3 cutover gate; "
+        "ARCIS_PG_CUTOVER_ENABLED=1 routes to PG. Unset to revert to SQLite path.",
+        db_path,
+    )
+
 
 def _rewrite_question_to_pct(sql: str) -> str:
     """Rewrite `?` placeholders to `%s` and escape unpaired `%` to `%%`.
@@ -403,15 +417,23 @@ class PostgresConnectionWrapper:
 def connect_db(db_path=_SENTINEL):
     """Return a database connection.
 
-    Precedence — explicit `db_path` wins (original Wave 2.1 contract,
-    restored after the 2026-05-10 hotfix rollback):
+    Precedence — Phase 3-revised (spec-revised-one-db.md §2.1 truth table):
 
-    1. If `db_path` is explicitly provided (any value), always use SQLite at
-       that path. None opens `:memory:` (test-fixture compat).
-    2. If `db_path` is omitted (sentinel default), check BOTH env vars:
-       - ARCIS_PG_CUTOVER_ENABLED == "1" AND DATABASE_URL starts with
-         "postgres" → return PostgresConnectionWrapper (Phase 3 gate)
-       - anything else → return SQLite at DEFAULT_DB
+    The gate (ARCIS_PG_CUTOVER_ENABLED=1) + PG URL (DATABASE_URL starting
+    with "postgres") together route EVERY call site to Postgres — including
+    calls that pass an explicit `db_path`. When an explicit path is overridden,
+    `_warn_db_path_ignored_once` emits a one-time WARN so the override is
+    auditable.
+
+    Truth table (8 rows):
+      gate=off, url=off, path=sentinel  → SQLite at DEFAULT_DB
+      gate=off, url=off, path=explicit  → SQLite at explicit path
+      gate=off, url=pg,  path=sentinel  → SQLite at DEFAULT_DB (gate-off ignores url)
+      gate=off, url=pg,  path=explicit  → SQLite at explicit path
+      gate=on,  url=off, path=sentinel  → SQLite at DEFAULT_DB (gate requires url)
+      gate=on,  url=off, path=explicit  → SQLite at explicit path
+      gate=on,  url=pg,  path=sentinel  → PostgresConnectionWrapper
+      gate=on,  url=pg,  path=explicit  → PostgresConnectionWrapper (path IGNORED, WARN emitted)
 
     Why the gate (Phase 3 T3.2 — M2 mitigation):
     Without ARCIS_PG_CUTOVER_ENABLED, merging T3.2 to main would flip
@@ -424,41 +446,29 @@ def connect_db(db_path=_SENTINEL):
     `nssm set ArcisWatchLoop AppEnvironmentExtra ARCIS_PG_CUTOVER_ENABLED=`
     → instant SQLite revert. Gate removed in Phase 4 T4.4 once cutover stable.
 
-    Why this precedence (NOT "DATABASE_URL wins"): 265 of the 336 call sites
-    pass `connect_db(db_path)` with an explicit path. The downstream code at
-    many of those sites uses SQLite-specific syntax (PRAGMA index_list,
-    `?` placeholders, `sqlite_master`) that Postgres rejects. The 2026-05-10
-    hotfix attempt to invert precedence (DATABASE_URL wins) tripped on three
-    such call paths within 2 minutes of watch loop restart:
+    Why Phase 3-revised inverts explicit-path precedence (PR #1054 fix):
+    PR #1054 gated only the sentinel-default branch. With 265 of 336 call sites
+    passing an explicit db_path, the gate routed only ~5 sites to PG. The watch
+    loop's writes kept landing in SQLite even when the gate was ON. All 336 call
+    sites have been audited (Sprint 5 §J5/§J6 scope) — those needing guaranteed
+    SQLite now call sqlite3.connect directly or _sqlite_only_connect. The gate
+    routing every call to PG is now safe. See spec-revised-one-db.md §2.1.
 
-      - src/schema/sqlite.py: PRAGMA index_list (fixed by ed1757c — file
-        now uses sqlite3.connect directly)
-      - src/evaluation/system_validator.py:1039: `INSERT ... VALUES (?,?,?...)`
-        with SQLite placeholders against PG
-      - src/schema/validator.py: `SELECT name FROM sqlite_master` against PG
-
-    The proper Modified-A migration audits ALL such call sites + queries
-    and converts them either to PG-compatible syntax (`%s` placeholders,
-    `information_schema` lookups) OR routes them through a direct
-    `sqlite3.connect` for SQLite-only operations. That's Sprint 5 §J5/§J6
-    scope, not a one-line shim flip.
-
-    Until SP5 lands, production stays on SQLite via this explicit-path
-    contract. Cloud-routes that already have manual `if database_url:`
-    runtime branches (src/api/cloud_routes/{kpis_compute,platform,…}.py)
-    continue to use that pattern unchanged.
+    M3 fast-exit for PG transient failures: use connect_db_with_pg_retry().
 
     SQLite connections always carry busy_timeout=30000 and row_factory=sqlite3.Row.
     """
-    if db_path is _SENTINEL:
-        database_url = os.environ.get("DATABASE_URL", "")
-        if os.environ.get("ARCIS_PG_CUTOVER_ENABLED") == "1" and database_url.startswith("postgres"):
-            raw = psycopg2.connect(database_url, cursor_factory=psycopg2.extras.RealDictCursor)
-            return PostgresConnectionWrapper(raw)
-        effective_path = DEFAULT_DB
-    else:
-        effective_path = db_path
+    database_url = os.environ.get("DATABASE_URL", "")
+    gate_on = os.environ.get("ARCIS_PG_CUTOVER_ENABLED") == "1"
+    pg_url = database_url.startswith("postgres")
 
+    if gate_on and pg_url:
+        if db_path is not _SENTINEL:
+            _warn_db_path_ignored_once(db_path)
+        raw = psycopg2.connect(database_url, cursor_factory=psycopg2.extras.RealDictCursor)
+        return PostgresConnectionWrapper(raw)
+
+    effective_path = DEFAULT_DB if db_path is _SENTINEL else db_path
     conn = sqlite3.connect(effective_path, timeout=BUSY_TIMEOUT_MS / 1000.0)
     conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
     conn.row_factory = sqlite3.Row
@@ -630,6 +640,7 @@ _REPLACE_SEMANTICS = {
     "config_overrides": "in_place_update",
     "system_metrics": "in_place_update",
     "council_parameter_state": "in_place_update",
+    "operator_view_state": "in_place_update",
     "simulation_results": "in_place_update",
     "walkforward_results": "in_place_update",
     "walkforward_trades": "in_place_update",
@@ -997,17 +1008,18 @@ def connect_db_with_pg_retry(db_path=_SENTINEL, *, max_attempts=5, backoff_secon
     On success after retries, logs at INFO level with the attempt count so
     operators can see retry activity post-mortem.
     """
-    if db_path is not _SENTINEL:
-        return connect_db(db_path)
-
     database_url = os.environ.get("DATABASE_URL", "")
-    if not (os.environ.get("ARCIS_PG_CUTOVER_ENABLED") == "1" and database_url.startswith("postgres")):
-        return connect_db()
+    gate_on = os.environ.get("ARCIS_PG_CUTOVER_ENABLED") == "1"
+    pg_url = database_url.startswith("postgres")
+
+    if not (gate_on and pg_url):
+        # SQLite path: identity passthrough to connect_db (no retry needed)
+        return connect_db(db_path)
 
     last_exc = None
     for attempt in range(1, max_attempts + 1):
         try:
-            conn = connect_db()
+            conn = connect_db(db_path)
             if attempt > 1:
                 logger.info(
                     "[DB] PG connect succeeded on attempt %d/%d",

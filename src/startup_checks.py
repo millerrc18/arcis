@@ -288,8 +288,8 @@ def _check_render_postgres(config: dict) -> list[CheckResult]:
         import psycopg2
         from src.schema.registry import TABLES
         from src.schema.postgres import create_all_tables, ensure_columns
-        from src.sync.render_sync import SYNC_TABLES
-        synced_names = set(SYNC_TABLES.keys())
+        from src.schema.sync_config import generate_sync_tables
+        synced_names = set(generate_sync_tables().keys())
 
         # #385: Auto-fix Postgres drift during startup — same pattern as
         # SQLite auto-fix at line 161. Previously this only warned, causing

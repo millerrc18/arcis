@@ -1376,21 +1376,14 @@ class WatchLoop(HandlerRegistryMixin):
             except Exception as exc:
                 logger.error("[WATCH] Command execution failed: %s", exc)
 
-        # Start Render cloud sync background thread
-        try:
-            from src.sync.render_sync import start_render_sync
-            sync_thread = start_render_sync(
-                self.config,
-                on_commands_pulled=_on_commands_pulled,
-            )
-            if sync_thread:
-                print(" Render sync: enabled (ok)")
-                print(" Command queue: enabled (ok)")
-            else:
-                print(" Render sync: disabled")
-        except Exception as e:
-            logger.debug("Render sync startup failed: %s", e)
-            print(f" Render sync: error ({e})")
+        # Render cloud sync removed in SP5 §J5/§J6 Phase 3-revised (one-DB
+        # cutover): Postgres is now the production database; there is no
+        # remote PG to sync TO. The local watch loop writes directly to PG
+        # via connect_db() when ARCIS_PG_CUTOVER_ENABLED=1. The
+        # `_on_commands_pulled` callback path that this block previously
+        # wired into the render_sync thread is now invoked via the cloud
+        # dashboard's command endpoints; see src/api/cloud_routes/commands.py.
+        print(" Render sync: removed (one-DB cutover)")
 
         # Register signal handlers for graceful shutdown
         def _handle_shutdown(signum, frame):

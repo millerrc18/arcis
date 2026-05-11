@@ -88,7 +88,6 @@ from src.cli.commands import (
     cmd_validate_system,
     cmd_validate_training,
     cmd_watch,
-    cmd_reset_live_prices_watermark,
 )
 from src.cli.promotion_cmd import cmd_confirm_promotion, build_confirm_promotion_parser
 from src.config import DB_PATH
@@ -291,11 +290,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--postgres", action="store_true", help="Also validate Render Postgres"
     )
     validate_schema.set_defaults(func=cmd_validate_schema)
-
-    subparsers.add_parser(
-        "reset-live-prices-watermark",
-        help="Set live_prices sync watermark to now-24h (caps first incremental sync backlog)",
-    ).set_defaults(func=cmd_reset_live_prices_watermark)
 
     confirm_promotion = subparsers.add_parser(
         "confirm-promotion",

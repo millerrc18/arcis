@@ -52,7 +52,7 @@ from src.api.cloud_routes import kpis as kpis_route
 from src.api.cloud_routes import broker_exceptions as broker_exceptions_route
 from src.api.cloud_routes import preflight as preflight_route
 from src.api.cloud_routes import notifications as notifications_route
-from src.sync.render_sync import SYNC_TABLES
+from src.schema.sync_config import generate_sync_tables
 
 # Populate the four capability registries via decorator side-effects (#807, dashboard Tier 1.B).
 # Each `import` here triggers @register_action / @register_state / @register_system /
@@ -71,7 +71,7 @@ import src.platform.capability_registry.audit_registration  # noqa: E402,F401  â
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
-DIAGNOSTIC_TABLES = tuple(SYNC_TABLES.keys())
+DIAGNOSTIC_TABLES = tuple(generate_sync_tables().keys())
 
 # Grafana Loki log shipping â€” Render sets GRAFANA_LOKI_TOKEN as an env var
 # (not YAML), so build the config dict inline rather than calling load_config().
