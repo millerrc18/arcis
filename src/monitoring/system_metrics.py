@@ -11,7 +11,6 @@ failure so the top-level snapshot never crashes the watch loop.
 """
 
 import logging
-import sqlite3
 import subprocess
 import uuid
 from datetime import datetime
@@ -21,7 +20,7 @@ import psutil
 import requests
 
 from src.config import DB_PATH
-from src.utils.db import connect_db
+from src.utils.db import connect_db, engine_aware_upsert
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -129,7 +128,18 @@ def _collect_process_metrics() -> dict:
 # ---------------------------------------------------------------------------
 
 def _store_snapshot(snapshot: dict, db_path: str = DB_PATH) -> None:
-    """INSERT a snapshot row into system_metrics."""
+    """INSERT a snapshot row into system_metrics.
+
+    Dispatches through `engine_aware_upsert(action='replace')` so SQLite
+    callers use native `INSERT OR REPLACE` and PG callers get
+    `INSERT ... ON CONFLICT (snapshot_id) DO UPDATE` — both reach the same
+    one-row-per-snapshot_id invariant. The audit at
+    docs/audits/2026-05-11-modified-a-migration/replace-semantics-audit.md
+    classifies system_metrics as `in_place_update` (no incoming FKs, no
+    triggers, no rowid dependencies); production also generates a fresh
+    UUID per call so REPLACE is dead-code in production (see §6.1 of the
+    audit doc — follow-up tracked separately under Sprint 5 backlog).
+    """
     cols = [
         "snapshot_id", "timestamp",
         "gpu_util_pct", "gpu_vram_used_mb", "gpu_vram_total_mb",
@@ -139,15 +149,10 @@ def _store_snapshot(snapshot: dict, db_path: str = DB_PATH) -> None:
         "ollama_status", "ollama_model",
         "python_rss_mb",
     ]
-    placeholders = ", ".join("?" for _ in cols)
-    col_names = ", ".join(cols)
-    values = tuple(snapshot.get(c) for c in cols)
+    row_dict = {c: snapshot.get(c) for c in cols}
 
     with connect_db(db_path) as conn:  # timeout upgraded to 30s via connect_db per CLAUDE.md
-        conn.execute(
-            f"INSERT OR REPLACE INTO system_metrics ({col_names}) VALUES ({placeholders})",
-            values,
-        )
+        engine_aware_upsert(conn, "system_metrics", row_dict, action="replace")
         conn.commit()
 
 
