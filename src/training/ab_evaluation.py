@@ -14,7 +14,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH, load_config
-from src.utils.db import connect_db
+from src.utils.db import connect_db, engine_aware_upsert
 from src.training.versioning import init_training_tables
 
 logger = logging.getLogger(__name__)
@@ -91,16 +91,21 @@ def run_shadow_evaluation(new_model: str, current_model: str,
 
     init_training_tables(db_path)
     with connect_db(db_path) as conn:
-        conn.execute(
-            """INSERT INTO model_evaluations
-               (evaluation_id, created_at, recommendation_id, ticker, input_text,
-                current_model, current_output, current_score,
-                new_model, new_output, new_score, winner, score_delta)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (evaluation_id, created_at, recommendation_id, ticker, input_text,
-             current_model, current_output, current_score,
-             new_model, new_output, new_score, winner, score_delta),
-        )
+        engine_aware_upsert(conn, 'model_evaluations', {
+            'evaluation_id': evaluation_id,
+            'created_at': created_at,
+            'recommendation_id': recommendation_id,
+            'ticker': ticker,
+            'input_text': input_text,
+            'current_model': current_model,
+            'current_output': current_output,
+            'current_score': current_score,
+            'new_model': new_model,
+            'new_output': new_output,
+            'new_score': new_score,
+            'winner': winner,
+            'score_delta': score_delta,
+        }, action='ignore')
         conn.commit()
 
     result = {
