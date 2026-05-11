@@ -28,6 +28,7 @@ import os
 import sys
 
 import psycopg2
+from psycopg2 import sql
 
 
 def _get_required_env(name: str) -> str:
@@ -50,27 +51,31 @@ def main() -> None:
         cur = conn.cursor()
 
         # --- CREATE ROLE halcyon_app (idempotent) ---
+        # Named dollar-quote tag $halcyon$ is defensive against any future
+        # Literal output containing $$ (industry standard for embedded
+        # dollar-quoting). sql.Literal safely quotes the password value,
+        # eliminating the SQL injection class present with f-string composition.
         cur.execute(
-            f"""
-DO $$
+            sql.SQL("""
+DO $halcyon$
 BEGIN
-  CREATE ROLE halcyon_app WITH LOGIN PASSWORD '{app_password}';
+  CREATE ROLE halcyon_app WITH LOGIN PASSWORD {pw};
 EXCEPTION WHEN duplicate_object THEN NULL;
 END
-$$
-"""
+$halcyon$
+""").format(pw=sql.Literal(app_password))
         )
 
         # --- CREATE ROLE halcyon_readonly (idempotent) ---
         cur.execute(
-            f"""
-DO $$
+            sql.SQL("""
+DO $halcyon$
 BEGIN
-  CREATE ROLE halcyon_readonly WITH LOGIN PASSWORD '{ro_password}';
+  CREATE ROLE halcyon_readonly WITH LOGIN PASSWORD {pw};
 EXCEPTION WHEN duplicate_object THEN NULL;
 END
-$$
-"""
+$halcyon$
+""").format(pw=sql.Literal(ro_password))
         )
 
         # --- CONNECT on database ---
@@ -93,7 +98,7 @@ $$
             "GRANT SELECT ON ALL TABLES IN SCHEMA public TO halcyon_readonly"
         )
 
-        # --- Sequence grants for halcyon_app ---
+        # --- Sequence grants for halcyon_app (existing sequences) ---
         cur.execute(
             "GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO halcyon_app"
         )
@@ -101,6 +106,14 @@ $$
         # --- Default privileges for future tables — halcyon_app ---
         cur.execute(
             "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO halcyon_app"
+        )
+
+        # --- Default privileges for future sequences — halcyon_app ---
+        # Without this, future SERIAL/IDENTITY columns added by migrations will
+        # be inaccessible to halcyon_app — INSERT statements will fail with
+        # "permission denied for sequence <name>_id_seq".
+        cur.execute(
+            "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE ON SEQUENCES TO halcyon_app"
         )
 
         # --- Default privileges for future tables — halcyon_readonly ---
