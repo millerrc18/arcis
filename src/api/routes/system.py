@@ -686,16 +686,25 @@ def monitoring_snapshot():
 def monitoring_history(hours: int = 24):
     """Get system metrics history."""
     import sqlite3
+    from datetime import datetime, timedelta, timezone
     try:
+        # Sprint 5 §J5/§J6 Phase 2.5 T5: compute the cutoff in Python and
+        # bind as `?` so the same SQL works on SQLite and Postgres post-
+        # cutover. The previous SQLite-only time-modifier literal was
+        # replaced by this Python-side computation.
+        cutoff = (
+            datetime.now(timezone.utc).replace(tzinfo=None)
+            - timedelta(hours=hours)
+        ).isoformat()
         # PR #690 B4: closing() guarantees conn.close() — sqlite3 __exit__ only
         # commits/rolls back, it does not release the file handle.
         with closing(connect_db(DB_PATH)) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
                 "SELECT * FROM system_metrics "
-                "WHERE timestamp >= datetime('now', ? || ' hours') "
+                "WHERE timestamp >= ? "
                 "ORDER BY timestamp ASC",
-                (f"-{hours}",),
+                (cutoff,),
             ).fetchall()
         return [dict(r) for r in rows]
     except Exception as exc:
