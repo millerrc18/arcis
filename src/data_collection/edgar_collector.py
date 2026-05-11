@@ -31,7 +31,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from src.config import DB_PATH
-from src.utils.db import connect_db
+from src.utils.db import connect_db, engine_aware_upsert
 from src.data_collection.edgar_historical import (  # noqa: F401 — re-exported
     _lookup_primary_document,
     _lookup_primary_document_via_index as _lookup_primary_document_via_index,
@@ -334,25 +334,23 @@ def collect_new_filings(
                     filing_url = f"https://data.sec.gov/Archives/edgar/data/{cik.lstrip('0')}/{accession.replace('-', '')}/"
 
                     try:
-                        conn.execute(
-                            """INSERT OR IGNORE INTO edgar_filings
-                            (ticker, cik, form_type, filing_date, accession_number,
-                             filing_url, description, full_text, sections_json,
-                             word_count, collected_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                            (
-                                ticker,
-                                cik,
-                                form,
-                                filing.get("filing_date", ""),
-                                accession,
-                                filing_url,
-                                filing.get("description", ""),
-                                full_text,
-                                json.dumps(sections) if sections else None,
-                                word_count,
-                                collected_at,
-                            ),
+                        engine_aware_upsert(
+                            conn,
+                            "edgar_filings",
+                            {
+                                "ticker": ticker,
+                                "cik": cik,
+                                "form_type": form,
+                                "filing_date": filing.get("filing_date", ""),
+                                "accession_number": accession,
+                                "filing_url": filing_url,
+                                "description": filing.get("description", ""),
+                                "full_text": full_text,
+                                "sections_json": json.dumps(sections) if sections else None,
+                                "word_count": word_count,
+                                "collected_at": collected_at,
+                            },
+                            action="ignore",
                         )
                         filings_stored += 1
 

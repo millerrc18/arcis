@@ -43,7 +43,7 @@ from fastapi import APIRouter, Depends, Query
 from src.api.local_auth import verify_local_token
 from src.config import DB_PATH, load_config
 from src.services.system_service import get_system_status
-from src.utils.db import connect_db
+from src.utils.db import connect_db, engine_aware_upsert
 
 router = APIRouter(tags=["system"])
 logger = logging.getLogger(__name__)
@@ -560,12 +560,21 @@ def update_settings(body: dict):
     try:
         # PR #690 B4: closing() guarantees conn.close() — sqlite3 __exit__ only
         # commits/rolls back, it does not release the file handle.
+        # Sprint 5 §J5/§J6 Phase 1 T1.11: route through engine_aware_upsert so
+        # the same call works on SQLite (native replace) and PG (ON CONFLICT
+        # DO UPDATE). config_overrides is classified `in_place_update` in
+        # `_REPLACE_SEMANTICS` (T0.12 audit §5.3).
         with closing(connect_db(DB_PATH)) as conn:
             with conn:  # transaction commit on context exit
-                conn.execute(
-                    "INSERT OR REPLACE INTO config_overrides "
-                    "(setting_key, setting_value, updated_at) VALUES (?, ?, ?)",
-                    (key, _json.dumps(value), now),
+                engine_aware_upsert(
+                    conn,
+                    "config_overrides",
+                    {
+                        "setting_key": key,
+                        "setting_value": _json.dumps(value),
+                        "updated_at": now,
+                    },
+                    action="replace",
                 )
         return {"status": "saved", "key": key}
     except Exception as exc:

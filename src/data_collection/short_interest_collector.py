@@ -33,7 +33,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from src.config import DB_PATH
-from src.utils.db import connect_db
+from src.utils.db import connect_db, engine_aware_upsert
 from src.utils.retry import retry_with_backoff
 
 logger = logging.getLogger(__name__)
@@ -107,23 +107,37 @@ def collect_short_interest(
                         dtc = round(short_vol / avg_vol, 2)
 
                     try:
-                        cursor = conn.execute(
-                            """INSERT OR IGNORE INTO short_interest
-                            (ticker, settlement_date, short_interest,
-                             avg_daily_volume, days_to_cover, short_pct_float,
-                             source, collected_at)
-                            VALUES (?, ?, ?, ?, ?, ?, 'finnhub', ?)""",
-                            (
-                                ticker,
-                                settlement_date,
-                                short_vol,
-                                avg_vol,
-                                dtc,
-                                entry.get("shortInterestPercentFloat"),
-                                collected_at,
-                            ),
+                        # Pre-count dedup signal: did this (ticker, settlement_date)
+                        # already exist? engine_aware_upsert(action='ignore')
+                        # routes through `INSERT OR IGNORE` (SQLite) and `INSERT
+                        # ... ON CONFLICT DO NOTHING` (PG), neither of which
+                        # expose a reliable rowcount across engines (PG cursors
+                        # post-DO-NOTHING report rowcount=0 OR -1 depending on
+                        # driver build). We probe before the upsert to keep the
+                        # records_stored counter accurate cross-engine.
+                        existing = conn.execute(
+                            "SELECT 1 FROM short_interest WHERE ticker = ? "
+                            "AND settlement_date = ? LIMIT 1",
+                            (ticker, settlement_date),
+                        ).fetchone()
+                        engine_aware_upsert(
+                            conn,
+                            "short_interest",
+                            {
+                                "ticker": ticker,
+                                "settlement_date": settlement_date,
+                                "short_interest": short_vol,
+                                "avg_daily_volume": avg_vol,
+                                "days_to_cover": dtc,
+                                "short_pct_float": entry.get(
+                                    "shortInterestPercentFloat"
+                                ),
+                                "source": "finnhub",
+                                "collected_at": collected_at,
+                            },
+                            action="ignore",
                         )
-                        if cursor.rowcount > 0:
+                        if existing is None:
                             records_stored += 1
                     except sqlite3.IntegrityError:
                         pass  # Duplicate — already have this settlement date

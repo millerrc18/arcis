@@ -46,7 +46,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
-from src.utils.db import connect_db
+from src.utils.db import connect_db, engine_aware_upsert
 from src.shadow_trading.exit_reason import outcome_stats_filter_sql
 
 logger = logging.getLogger(__name__)
@@ -456,27 +456,21 @@ def persist_build_score(db_path: str = DEFAULT_DB) -> dict:
 
     conn = connect_db(db_path)  # timeout upgraded to 30s via connect_db per CLAUDE.md Database Access Rules
     try:
-        conn.execute(
-            "INSERT OR REPLACE INTO build_score_history "
-            "(score_id, score_date, build_score, gate_velocity, system_health, "
-            "data_asset_value, model_quality, research_velocity, reliability, "
-            "decay_applied, components_json, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                str(uuid.uuid4()),
-                datetime.now(ET).strftime("%Y-%m-%d"),
-                result["build_score"],
-                result["components"]["gate_velocity"],
-                result["components"]["system_health"],
-                result["components"]["data_asset_value"],
-                result["components"]["model_quality"],
-                result["components"]["research_velocity"],
-                result["components"]["reliability"],
-                1 if result["decay_today"] else 0,
-                str(result["components"]),
-                datetime.now(ET).isoformat(),
-            ),
-        )
+        row = {
+            "score_id": str(uuid.uuid4()),
+            "score_date": datetime.now(ET).strftime("%Y-%m-%d"),
+            "build_score": result["build_score"],
+            "gate_velocity": result["components"]["gate_velocity"],
+            "system_health": result["components"]["system_health"],
+            "data_asset_value": result["components"]["data_asset_value"],
+            "model_quality": result["components"]["model_quality"],
+            "research_velocity": result["components"]["research_velocity"],
+            "reliability": result["components"]["reliability"],
+            "decay_applied": 1 if result["decay_today"] else 0,
+            "components_json": str(result["components"]),
+            "created_at": datetime.now(ET).isoformat(),
+        }
+        engine_aware_upsert(conn, "build_score_history", row, action="replace")
         conn.commit()
     except Exception as e:
         logger.error("[BuildScore] persist failed: %s", e)

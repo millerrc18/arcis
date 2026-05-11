@@ -91,11 +91,22 @@ def _already_notified_recently_db(
             conn.commit()
             return False
 
-        # No prior row — insert
-        conn.execute(
-            "INSERT OR IGNORE INTO notifications_dedup (event_type, dedup_key, sent_at)"
-            " VALUES (?, ?, ?)",
-            (event_type, dedup_key, now.isoformat()),
+        # No prior row — insert via engine-aware UPSERT (Sprint 5 §J5/§J6
+        # Phase 1 T1.7). Conflict target resolves to (event_type, dedup_key)
+        # per notifications_dedup.sync_conflict_col (registry T0.7) — the
+        # autoincrement `id` PK is the surrogate, uniqueness lives on the
+        # composite. action='ignore' maps to SQLite INSERT OR IGNORE and
+        # PG `ON CONFLICT (event_type, dedup_key) DO NOTHING`.
+        from src.utils.db import engine_aware_upsert
+        engine_aware_upsert(
+            conn,
+            "notifications_dedup",
+            {
+                "event_type": event_type,
+                "dedup_key": dedup_key,
+                "sent_at": now.isoformat(),
+            },
+            action="ignore",
         )
         conn.commit()
         return False

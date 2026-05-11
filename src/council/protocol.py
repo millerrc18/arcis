@@ -15,7 +15,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
-from src.utils.db import connect_db
+from src.utils.db import connect_db, engine_aware_upsert
 from src.council.aggregation import aggregate_votes, tally_votes
 from src.council.constants import (
     PARAMETER_DEFAULTS,
@@ -224,25 +224,23 @@ def _store_debug_log(
         import hashlib
 
         with connect_db(db_path) as conn:
-            conn.execute(
-                "INSERT OR IGNORE INTO council_debug_log "
-                "(debug_id, session_id, agent_name, round, system_prompt_hash, "
-                "user_message, raw_response, parsed_successfully, parse_error, "
-                "latency_ms, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    str(uuid.uuid4()),
-                    session_id,
-                    agent_name,
-                    round_num,
-                    hashlib.md5(system_prompt.encode()).hexdigest()[:12],
-                    user_prompt[:5000],
-                    str(debug.get("raw", ""))[:5000],
-                    0 if assessment.get("_parse_failed") else 1,
-                    assessment.get("key_reasoning", "")[:500] if assessment.get("_parse_failed") else None,
-                    debug.get("latency_ms", 0),
-                    datetime.now(ET).isoformat(),
+            row = {
+                "debug_id": str(uuid.uuid4()),
+                "session_id": session_id,
+                "agent_name": agent_name,
+                "round": round_num,
+                "system_prompt_hash": hashlib.md5(system_prompt.encode()).hexdigest()[:12],
+                "user_message": user_prompt[:5000],
+                "raw_response": str(debug.get("raw", ""))[:5000],
+                "parsed_successfully": 0 if assessment.get("_parse_failed") else 1,
+                "parse_error": (
+                    assessment.get("key_reasoning", "")[:500]
+                    if assessment.get("_parse_failed")
+                    else None
                 ),
-            )
+                "latency_ms": debug.get("latency_ms", 0),
+                "created_at": datetime.now(ET).isoformat(),
+            }
+            engine_aware_upsert(conn, "council_debug_log", row, action="ignore")
     except Exception as exc:
         logger.debug("[COUNCIL] Debug log insert failed: %s", exc)

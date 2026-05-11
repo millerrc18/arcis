@@ -1,6 +1,8 @@
 """Tests for point-in-time S&P 100 resolver (R3)."""
 from __future__ import annotations
 
+import os
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -142,3 +144,223 @@ def test_resolver_deduplicates_reentries(tmp_path):
     conn.close()
     u = resolve_universe_as_of("2022-01-01", str(db))
     assert u.count("TEST") == 1
+
+
+# ---------------------------------------------------------------------------
+# Sprint 5 §J5/§J6 Phase 1 T1.15 — populate_constituents_table engine_aware_upsert
+# ---------------------------------------------------------------------------
+#
+# Test strategy (per T1.15 brief):
+#   * sp100_historical_constituents classified `in_place_update` per T0.12
+#     audit §5.9. Composite TEXT PK `(ticker, added_date)` — readers query
+#     date-range based.
+#   * Parametrized across [sqlite, postgres] like
+#     tests/evaluation/test_build_score.py — PG path skips cleanly when
+#     TEST_DATABASE_URL / DATABASE_URL is not a postgres:// URL.
+#   * First insert lands the row; second insert with same composite PK
+#     UPDATES non-target columns (removed_date, company_name, reason).
+
+TEST_PG_URL_UNIV = os.environ.get("TEST_DATABASE_URL") or os.environ.get(
+    "DATABASE_URL", ""
+)
+_PG_AVAILABLE_UNIV = TEST_PG_URL_UNIV.startswith("postgres")
+
+
+def _build_sqlite_ddl_univ(table_name):
+    """Return SQLite CREATE TABLE SQL for one of the audited tables."""
+    from src.schema.registry import TABLES
+
+    td = TABLES[table_name]
+    cols = []
+    for c in td.columns:
+        nn = "" if c.nullable else " NOT NULL"
+        cols.append(f"{c.name} {c.type}{nn}")
+    pk = td.primary_key if isinstance(td.primary_key, list) else [td.primary_key]
+    cols.append(f"PRIMARY KEY ({', '.join(pk)})")
+    body = ",\n    ".join(cols)
+    return f"CREATE TABLE {table_name} (\n    {body}\n);"
+
+
+def _build_pg_ddl_univ(table_name):
+    """Return Postgres CREATE TABLE SQL for one of the audited tables."""
+    from src.schema.postgres import generate_create_table_sql
+    from src.schema.registry import TABLES
+
+    return generate_create_table_sql(TABLES[table_name])
+
+
+@pytest.fixture
+def sqlite_conn_univ():
+    """In-memory SQLite connection with row_factory=sqlite3.Row."""
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    yield conn
+    conn.close()
+
+
+@pytest.fixture
+def pg_conn_univ():
+    """Live psycopg2 wrapper. Skips if TEST_DATABASE_URL not set."""
+    if not _PG_AVAILABLE_UNIV:
+        pytest.skip("TEST_DATABASE_URL / DATABASE_URL not set or not postgres://")
+
+    import psycopg2
+    import psycopg2.extras
+
+    from src.utils.db import PostgresConnectionWrapper
+
+    raw = psycopg2.connect(
+        TEST_PG_URL_UNIV, cursor_factory=psycopg2.extras.RealDictCursor
+    )
+    wrapper = PostgresConnectionWrapper(raw)
+    yield wrapper
+    try:
+        wrapper.rollback()
+    except Exception:
+        pass
+    wrapper.close()
+
+
+def _setup_constituents_table(conn):
+    """Drop+recreate `sp100_historical_constituents` on the given engine."""
+    from src.utils.db import PostgresConnectionWrapper
+
+    if isinstance(conn, PostgresConnectionWrapper):
+        cur = conn.cursor()
+        cur.execute("DROP TABLE IF EXISTS sp100_historical_constituents CASCADE")
+        cur.execute(_build_pg_ddl_univ("sp100_historical_constituents"))
+        conn.commit()
+    else:
+        conn.execute("DROP TABLE IF EXISTS sp100_historical_constituents")
+        conn.execute(_build_sqlite_ddl_univ("sp100_historical_constituents"))
+        conn.commit()
+
+
+def _get_univ_conn(request):
+    """Return the conn fixture matching the parametrized engine."""
+    engine = request.param
+    if engine == "sqlite":
+        return request.getfixturevalue("sqlite_conn_univ")
+    elif engine == "postgres":
+        return request.getfixturevalue("pg_conn_univ")
+    raise ValueError(f"unknown engine: {engine}")
+
+
+@pytest.fixture(params=["sqlite", "postgres"])
+def conn_engine_univ(request):
+    return _get_univ_conn(request)
+
+
+def _count_rows_univ(conn, table):
+    cur = conn.cursor()
+    cur.execute(f"SELECT COUNT(*) AS c FROM {table}")
+    row = cur.fetchone()
+    return row["c"] if hasattr(row, "keys") and "c" in row.keys() else row[0]
+
+
+class TestSP100HistoricalConstituentsEngineAwareUpsert:
+    """T1.15: sp100_historical_constituents.engine_aware_upsert dual-engine."""
+
+    def test_first_insert_lands_row(self, conn_engine_univ):
+        """T1.15 #5: first insert against sp100_historical_constituents lands.
+
+        Composite PK (ticker, added_date) — the audit §5.9 classified this
+        as `in_place_update` since readers are date-range based and there
+        are no incoming FKs / triggers / rowid dependencies.
+        """
+        from src.utils.db import engine_aware_upsert
+
+        conn = conn_engine_univ
+        _setup_constituents_table(conn)
+
+        row = {
+            "ticker": "TEST_ABC",
+            "added_date": "2020-06-22",
+            "removed_date": None,
+            "company_name": "Test ABC Inc",
+            "reason": "addition",
+        }
+        engine_aware_upsert(
+            conn, "sp100_historical_constituents", row, action="replace",
+        )
+        conn.commit()
+
+        assert _count_rows_univ(conn, "sp100_historical_constituents") == 1
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM sp100_historical_constituents "
+            "WHERE ticker=? AND added_date=?",
+            ("TEST_ABC", "2020-06-22"),
+        )
+        fetched = cur.fetchone()
+        assert fetched["company_name"] == "Test ABC Inc"
+        assert fetched["removed_date"] is None
+        assert fetched["reason"] == "addition"
+
+    def test_replace_updates_existing_row(self, conn_engine_univ):
+        """T1.15 #6: re-upserting same (ticker, added_date) UPDATES non-PK.
+
+        Simulates re-loading the curated CSV after a correction
+        (e.g., setting `removed_date` once a ticker is officially removed,
+        updating the `company_name` after a rename).
+        """
+        from src.utils.db import engine_aware_upsert
+
+        conn = conn_engine_univ
+        _setup_constituents_table(conn)
+
+        row1 = {
+            "ticker": "TEST_XYZ",
+            "added_date": "2018-01-01",
+            "removed_date": None,
+            "company_name": "Test XYZ Old Name",
+            "reason": "addition",
+        }
+        engine_aware_upsert(
+            conn, "sp100_historical_constituents", row1, action="replace",
+        )
+
+        # Second load — same composite PK, updated removed_date + name
+        row2 = {
+            "ticker": "TEST_XYZ",
+            "added_date": "2018-01-01",
+            "removed_date": "2023-12-31",
+            "company_name": "Test XYZ Renamed",
+            "reason": "renamed-and-removed",
+        }
+        engine_aware_upsert(
+            conn, "sp100_historical_constituents", row2, action="replace",
+        )
+        conn.commit()
+
+        assert _count_rows_univ(conn, "sp100_historical_constituents") == 1
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM sp100_historical_constituents "
+            "WHERE ticker=? AND added_date=?",
+            ("TEST_XYZ", "2018-01-01"),
+        )
+        fetched = cur.fetchone()
+        assert fetched["removed_date"] == "2023-12-31"
+        assert fetched["company_name"] == "Test XYZ Renamed"
+        assert fetched["reason"] == "renamed-and-removed"
+
+
+def test_populate_constituents_no_literal_insert_or_replace_in_source():
+    """T1.15 lock-in: walkforward_universe.py must not contain `INSERT OR REPLACE`."""
+    universe_path = (
+        Path(__file__).resolve().parents[3]
+        / "src" / "platform" / "rigor" / "walkforward_universe.py"
+    )
+    source = universe_path.read_text(encoding="utf-8")
+    # Allow the docstring to mention the historical wording; ban literal SQL.
+    sql_lines = [
+        line for line in source.splitlines()
+        if "INSERT OR REPLACE INTO" in line
+    ]
+    assert sql_lines == [], (
+        "src/platform/rigor/walkforward_universe.py must not contain literal "
+        "`INSERT OR REPLACE INTO` after T1.15 migration; use "
+        "engine_aware_upsert(action='replace') via src.utils.db instead. "
+        f"Found: {sql_lines}"
+    )

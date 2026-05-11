@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import csv
 import sqlite3
-from src.utils.db import connect_db
+from src.utils.db import connect_db, engine_aware_upsert
 from datetime import date
 from pathlib import Path
 
@@ -77,12 +77,15 @@ def populate_constituents_table(
     conn = connect_db(db_path)
     try:
         for r in rows:
-            conn.execute(
-                "INSERT OR REPLACE INTO sp100_historical_constituents "
-                "(ticker, added_date, removed_date, company_name, reason) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (r["ticker"], r["added_date"], r["removed_date"],
-                 r["company_name"], r["reason"]),
+            row = {
+                "ticker": r["ticker"],
+                "added_date": r["added_date"],
+                "removed_date": r["removed_date"],
+                "company_name": r["company_name"],
+                "reason": r["reason"],
+            }
+            engine_aware_upsert(
+                conn, "sp100_historical_constituents", row, action="replace",
             )
         conn.commit()
     finally:

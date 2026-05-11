@@ -32,7 +32,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
-from src.utils.db import connect_db
+from src.utils.db import connect_db, engine_aware_upsert
 from src.data_collection.research_sources import (
     RELEVANCE_KEYWORDS,
     crawl_ai_blogs,
@@ -117,23 +117,22 @@ def _store_paper(paper: dict, score: float, reason: str,
     now = datetime.now(TZ).isoformat()
     try:
         with connect_db(db_path) as conn:
-            conn.execute(
-                """INSERT OR IGNORE INTO research_papers
-                   (source, external_id, title, authors, abstract, url,
-                    published_date, relevance_score, relevance_reason, collected_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    paper.get("source", ""),
-                    paper.get("external_id", ""),
-                    paper.get("title", ""),
-                    paper.get("authors", ""),
-                    paper.get("abstract", ""),
-                    paper.get("url", ""),
-                    paper.get("published_date", ""),
-                    score,
-                    reason,
-                    now,
-                ),
+            engine_aware_upsert(
+                conn,
+                "research_papers",
+                {
+                    "source": paper.get("source", ""),
+                    "external_id": paper.get("external_id", ""),
+                    "title": paper.get("title", ""),
+                    "authors": paper.get("authors", ""),
+                    "abstract": paper.get("abstract", ""),
+                    "url": paper.get("url", ""),
+                    "published_date": paper.get("published_date", ""),
+                    "relevance_score": score,
+                    "relevance_reason": reason,
+                    "collected_at": now,
+                },
+                action="ignore",
             )
     except Exception as e:
         logger.warning("[RESEARCH] Failed to store paper: %s", e)

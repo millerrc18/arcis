@@ -31,7 +31,7 @@ import requests
 
 from src.config import DB_PATH
 from src.data_enrichment.finnhub_plan import finnhub_plan_supports
-from src.utils.db import connect_db
+from src.utils.db import connect_db, engine_aware_upsert
 from src.utils.retry import retry_with_backoff
 
 logger = logging.getLogger(__name__)
@@ -149,29 +149,27 @@ def collect_analyst_estimates(
                 latest_rec = recs[0] if recs else {}
 
                 try:
-                    conn.execute(
-                        """INSERT OR IGNORE INTO analyst_estimates
-                        (ticker, date, consensus_buy, consensus_hold, consensus_sell,
-                         consensus_strong_buy, consensus_strong_sell,
-                         price_target_high, price_target_low, price_target_mean,
-                         price_target_median, num_analysts, source, collected_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'finnhub', ?)""",
-                        (
-                            ticker,
-                            today_str,
-                            latest_rec.get("buy"),
-                            latest_rec.get("hold"),
-                            latest_rec.get("sell"),
-                            latest_rec.get("strongBuy"),
-                            latest_rec.get("strongSell"),
-                            pt.get("targetHigh"),
-                            pt.get("targetLow"),
-                            pt.get("targetMean"),
-                            pt.get("targetMedian"),
-                            sum(latest_rec.get(k, 0) or 0
-                                for k in ("buy", "hold", "sell", "strongBuy", "strongSell")) or None,
-                            collected_at,
-                        ),
+                    row_dict = {
+                        "ticker": ticker,
+                        "date": today_str,
+                        "consensus_buy": latest_rec.get("buy"),
+                        "consensus_hold": latest_rec.get("hold"),
+                        "consensus_sell": latest_rec.get("sell"),
+                        "consensus_strong_buy": latest_rec.get("strongBuy"),
+                        "consensus_strong_sell": latest_rec.get("strongSell"),
+                        "price_target_high": pt.get("targetHigh"),
+                        "price_target_low": pt.get("targetLow"),
+                        "price_target_mean": pt.get("targetMean"),
+                        "price_target_median": pt.get("targetMedian"),
+                        "num_analysts": sum(
+                            latest_rec.get(k, 0) or 0
+                            for k in ("buy", "hold", "sell", "strongBuy", "strongSell")
+                        ) or None,
+                        "source": "finnhub",
+                        "collected_at": collected_at,
+                    }
+                    engine_aware_upsert(
+                        conn, "analyst_estimates", row_dict, action="ignore"
                     )
                     estimates_stored += 1
                 except sqlite3.IntegrityError:
