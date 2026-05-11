@@ -86,9 +86,10 @@ jobs:
           # Floor accounts for chronic-failure class (worktree env-drift, hardcoded
           # test:test fixtures, scripts/archive_bootcamp_2026_04_24.py registry-count
           # drift, etc.) — Sprint 5 §J cleanup will eradicate these and the floor
-          # tightens up. Initial CI run with all fixes saw 4995 passed; floor of
-          # 4900 gives slack while still catching real regressions.
-          EXPECTED=4900
+          # tightens up. Initial CI run with all fixes saw 4995 passed; bumped to
+          # 5050 after Phase 1 + Phase 2 added ~135 tests (target +100 net, with
+          # ~35 lost to the chronic-failure class). §J cleanup will tighten.
+          EXPECTED=5050
           echo "Tests passed: $ACTUAL (floor: $EXPECTED)"
           if [ -z "$ACTUAL" ]; then
             echo "Could not extract test count from pytest output" >&2
