@@ -16,6 +16,13 @@ Closes the second half of Sprint S1-CC. Stage 1 corpus admissibility passed (Bat
 
 **Out of scope:** v2 training dispatch (still gated on walk-forward shipping + Stage 2 closure). Strategy specs (#511 Connors RSI(2) etc.) remain separate. No src/ or test changes in this batch — the impl sprint dispatches from the plan after operator review.
 
+### SP5 §J5/§J6 Phase 3 T3.2 — connect_db precedence-flip gated behind ARCIS_PG_CUTOVER_ENABLED
+
+The Phase 3 cutover gate. `src/utils/db.py:connect_db()` and `connect_db_with_pg_retry()` now route to Postgres ONLY when BOTH `DATABASE_URL` starts with `postgres` AND `ARCIS_PG_CUTOVER_ENABLED=1`. Without the gate, behavior on every machine with a stale `DATABASE_URL` env var is unchanged (SQLite path). Production cutover (Phase 3 T3.3) requires the operator to set BOTH env vars on the NSSM service via `nssm set ArcisWatchLoop AppEnvironmentExtra` (APPEND syntax). Rollback is a single env unset: `ARCIS_PG_CUTOVER_ENABLED=` → instant SQLite revert. Gate removed in Phase 4 T4.4 once cutover is stable.
+
+- **`src/utils/db.py`** — `connect_db()` and `connect_db_with_pg_retry()` precedence rule gated. Docstring updated with the M2 mitigation rationale (2026-05-10 cutover attempt failed in 2 min from stale shell DATABASE_URL; gate makes T3.2 merge a no-op on dev boxes).
+- **`tests/test_db_util.py`** — 3 new tests: gate-off+PG-url → SQLite, gate-on+PG-url → PG, gate-on+no-PG-url → SQLite. Plus updates to any existing PG-routing tests to set the gate explicitly.
+
 ### SP5 §J5/§J6 Phase 2.5 — KNOWN_OFFENDERS date-function cleanup (12 sites, 6 files)
 
 Phase 3 cutover prerequisite. Phase 2 T2.14 (AST-based SQLite-ism discipline scan) shipped with a `KNOWN_OFFENDERS` allowlist containing 12 `datetime('now', ...)` / `date('now', ...)` sites across 6 files — patterns that crash on Postgres because the SQLite negative-offset date literal has no PG equivalent. This phase migrates all 12 sites to Python-side `datetime.now(ET) - timedelta(days=N)` cutoffs bound as `?` parameters (the wrapper rewrites `?` → `%s` for psycopg2 post-cutover). After this phase, `KNOWN_OFFENDERS` is **Phase-3-cutover-ready**: zero remaining date-function offenders block the cutover (only the PRAGMA-guarded `system_validator.py:167` and the 34 dynamic-`?` wrapper-handled sites remain).

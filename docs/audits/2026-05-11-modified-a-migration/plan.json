@@ -13,8 +13,8 @@
         "src/notifications/platform_events.py",
         "src/api/cloud_routes/platform.py"
       ],
-      "scope_fence": "Do NOT modify any production file. Audit doc only. Do NOT pre-decide rewriting strategy for category (c) sites — Phase 1+ tasks handle those.",
-      "test_strategy": "0 new tests — audit doc. PM verifies doc enumerates ≥1 site per category and includes the activity_log LIKE site explicitly.",
+      "scope_fence": "Do NOT modify any production file. Audit doc only. Do NOT pre-decide rewriting strategy for category (c) sites \u2014 Phase 1+ tasks handle those.",
+      "test_strategy": "0 new tests \u2014 audit doc. PM verifies doc enumerates \u22651 site per category and includes the activity_log LIKE site explicitly.",
       "depends_on": [],
       "complexity": "low",
       "batch": 1,
@@ -23,7 +23,7 @@
     {
       "id": "T0.1",
       "name": "Add CompatRow + _RowFactoryCursor classes (C3-aware iteration)",
-      "description": "Add CompatRow class supporting BOTH row[int] AND row['col']. CRITICAL (C3): __iter__ yields iter(self._row.values()) so iteration yields VALUES, NOT keys — matching sqlite3.Row semantics. __len__ returns column count. keys() returns column-name iterator for explicit name access. Add _RowFactoryCursor wrapping psycopg2 cursor; overrides fetchone/fetchall/fetchmany to wrap returned dicts in CompatRow. Place class definitions BEFORE PostgresConnectionWrapper.",
+      "description": "Add CompatRow class supporting BOTH row[int] AND row['col']. CRITICAL (C3): __iter__ yields iter(self._row.values()) so iteration yields VALUES, NOT keys \u2014 matching sqlite3.Row semantics. __len__ returns column count. keys() returns column-name iterator for explicit name access. Add _RowFactoryCursor wrapping psycopg2 cursor; overrides fetchone/fetchall/fetchmany to wrap returned dicts in CompatRow. Place class definitions BEFORE PostgresConnectionWrapper.",
       "phase": 0,
       "files_in_scope": [
         "src/utils/db.py",
@@ -42,7 +42,7 @@
     {
       "id": "T0.2",
       "name": "Add quote+pct-aware rewrite to PostgresConnectionWrapper (C1 + M1)",
-      "description": "Modify PostgresConnectionWrapper.execute/executemany/cursor to use a real quote-and-percent-aware tokenizer for `?`→`%s` rewriting AND escape unpaired `%` to `%%`. Outside string literals: `?` → `%s`, unpaired `%` → `%%`. Inside single-quoted literals: leave both untouched. Inside double-quoted identifiers (PG): leave alone. The implementation tracks quote state through the string. Add _rewrite_question_to_pct(sql) module function. Bumped from low to standard complexity per M1 reconciliation: this is no longer a 1-line replace.",
+      "description": "Modify PostgresConnectionWrapper.execute/executemany/cursor to use a real quote-and-percent-aware tokenizer for `?`\u2192`%s` rewriting AND escape unpaired `%` to `%%`. Outside string literals: `?` \u2192 `%s`, unpaired `%` \u2192 `%%`. Inside single-quoted literals: leave both untouched. Inside double-quoted identifiers (PG): leave alone. The implementation tracks quote state through the string. Add _rewrite_question_to_pct(sql) module function. Bumped from low to standard complexity per M1 reconciliation: this is no longer a 1-line replace.",
       "phase": 0,
       "files_in_scope": [
         "src/utils/db.py",
@@ -53,7 +53,7 @@
         "docs/audits/2026-05-11-modified-a-migration/literal-pct-audit.md"
       ],
       "scope_fence": "Do NOT change connect_db() precedence rule. Do NOT touch CompatRow class.",
-      "test_strategy": "10 tests: (1-6 prior) basic ? → %s; quote-preserve `?` inside string literal; perf <100us; no-op when no ?; cursor.execute() goes through rewrite; executemany() rewrites once. (7-10 C1) `_rewrite_question_to_pct(\"SELECT * FROM activity_log WHERE message LIKE '%position%' AND id=?\")` produces SQL psycopg2 can execute without IndexError when params bound; `LIKE 'PCT%'` survives; `WHERE col = '50%'` survives; mixed `?`+`%` pattern in WHERE clause binds correctly against a real PG test fixture.",
+      "test_strategy": "10 tests: (1-6 prior) basic ? \u2192 %s; quote-preserve `?` inside string literal; perf <100us; no-op when no ?; cursor.execute() goes through rewrite; executemany() rewrites once. (7-10 C1) `_rewrite_question_to_pct(\"SELECT * FROM activity_log WHERE message LIKE '%position%' AND id=?\")` produces SQL psycopg2 can execute without IndexError when params bound; `LIKE 'PCT%'` survives; `WHERE col = '50%'` survives; mixed `?`+`%` pattern in WHERE clause binds correctly against a real PG test fixture.",
       "depends_on": [
         "T0.1",
         "T0.0"
@@ -75,7 +75,7 @@
         "scripts/sqlite_to_pg_migrate.py",
         "src/schema/registry.py"
       ],
-      "scope_fence": "Do NOT modify scripts/sqlite_to_pg_migrate.py — the existing migrator keeps its inline helper.",
+      "scope_fence": "Do NOT modify scripts/sqlite_to_pg_migrate.py \u2014 the existing migrator keeps its inline helper.",
       "test_strategy": "5 tests: sync_conflict_col path, string PK path, list PK path, unknown table raises, sync_conflict_col stripping.",
       "depends_on": [],
       "complexity": "low",
@@ -85,7 +85,7 @@
     {
       "id": "T0.12",
       "name": "Pre-flight audit: REPLACE semantic-divergence per table (C2)",
-      "description": "Audit the 10 `action='replace'` Phase 1 target tables for SQLite-INSERT-OR-REPLACE-vs-PG-DO-UPDATE semantic divergence. Tables: data_freshness, build_score_history, config_overrides, system_metrics, council_parameter_state, simulation_results, walkforward_results, walkforward_trades, sp100_historical_constituents, plus any others uncovered. For each table, document in docs/audits/2026-05-11-modified-a-migration/replace-semantics-audit.md: (1) incoming FK references (other tables pointing at this one with ON DELETE clauses — from schema registry), (2) outgoing FK refs with ON DELETE CASCADE (this table's deletion cascades), (3) AUTOINCREMENT / rowid dependencies (does any reader code rely on rowid stability?), (4) any triggers on DELETE or INSERT. Output the dispatch decision per table: 'in_place_update' (PG ON CONFLICT DO UPDATE OK, no semantic divergence) or 'delete_insert' (must emulate SQLite DELETE+INSERT atomically on PG). Audit doc deliverable; no production code change.",
+      "description": "Audit the 10 `action='replace'` Phase 1 target tables for SQLite-INSERT-OR-REPLACE-vs-PG-DO-UPDATE semantic divergence. Tables: data_freshness, build_score_history, config_overrides, system_metrics, council_parameter_state, simulation_results, walkforward_results, walkforward_trades, sp100_historical_constituents, plus any others uncovered. For each table, document in docs/audits/2026-05-11-modified-a-migration/replace-semantics-audit.md: (1) incoming FK references (other tables pointing at this one with ON DELETE clauses \u2014 from schema registry), (2) outgoing FK refs with ON DELETE CASCADE (this table's deletion cascades), (3) AUTOINCREMENT / rowid dependencies (does any reader code rely on rowid stability?), (4) any triggers on DELETE or INSERT. Output the dispatch decision per table: 'in_place_update' (PG ON CONFLICT DO UPDATE OK, no semantic divergence) or 'delete_insert' (must emulate SQLite DELETE+INSERT atomically on PG). Audit doc deliverable; no production code change.",
       "phase": 0,
       "files_in_scope": [
         "docs/audits/2026-05-11-modified-a-migration/replace-semantics-audit.md"
@@ -102,7 +102,7 @@
         "src/platform/rigor/walkforward_universe.py"
       ],
       "scope_fence": "Do NOT modify any production file. Audit doc only. T0.4 consumes the dispatch decisions into _REPLACE_SEMANTICS dict.",
-      "test_strategy": "0 new tests — audit doc. PM verifies doc enumerates a decision for all 10 tables and includes the reasoning trail (FK refs, triggers, AUTOINCREMENT).",
+      "test_strategy": "0 new tests \u2014 audit doc. PM verifies doc enumerates a decision for all 10 tables and includes the reasoning trail (FK refs, triggers, AUTOINCREMENT).",
       "depends_on": [],
       "complexity": "standard",
       "batch": 1,
@@ -111,7 +111,7 @@
     {
       "id": "T0.4",
       "name": "Add engine_aware_upsert with per-table REPLACE-semantic dispatch (C2)",
-      "description": "Add engine_aware_upsert(conn, table_name, row_dict, action='replace'|'ignore') to src/utils/db.py. Branches on isinstance(conn, PostgresConnectionWrapper). SQLite path: INSERT OR REPLACE/IGNORE INTO {table} VALUES (?, ...). PG path action='ignore': INSERT INTO {table} VALUES (%s, ...) ON CONFLICT (target) DO NOTHING (mirrors migrator script). PG path action='replace': consult _REPLACE_SEMANTICS dict (populated from T0.12 audit, hard-coded per table). If 'in_place_update' → INSERT ... ON CONFLICT DO UPDATE SET non_target_col=EXCLUDED.non_target_col. If 'delete_insert' → wrap DELETE FROM {table} WHERE conflict_cols=... + INSERT in single transaction. Raises ValueError(\"engine_aware_upsert(action='replace') called on table {name} without semantic classification — add to _REPLACE_SEMANTICS dict\") if table absent. Reuses _resolve_conflict_target from T0.3.",
+      "description": "Add engine_aware_upsert(conn, table_name, row_dict, action='replace'|'ignore') to src/utils/db.py. Branches on isinstance(conn, PostgresConnectionWrapper). SQLite path: INSERT OR REPLACE/IGNORE INTO {table} VALUES (?, ...). PG path action='ignore': INSERT INTO {table} VALUES (%s, ...) ON CONFLICT (target) DO NOTHING (mirrors migrator script). PG path action='replace': consult _REPLACE_SEMANTICS dict (populated from T0.12 audit, hard-coded per table). If 'in_place_update' \u2192 INSERT ... ON CONFLICT DO UPDATE SET non_target_col=EXCLUDED.non_target_col. If 'delete_insert' \u2192 wrap DELETE FROM {table} WHERE conflict_cols=... + INSERT in single transaction. Raises ValueError(\"engine_aware_upsert(action='replace') called on table {name} without semantic classification \u2014 add to _REPLACE_SEMANTICS dict\") if table absent. Reuses _resolve_conflict_target from T0.3.",
       "phase": 0,
       "files_in_scope": [
         "src/utils/db.py",
@@ -244,7 +244,7 @@
     {
       "id": "T0.11",
       "name": "Add connect_db_with_pg_retry with fast-exit on exhaustion (M3)",
-      "description": "Add connect_db_with_pg_retry(db_path=None, *, max_attempts=5, backoff_seconds=30) to src/utils/db.py. SQLite path: identity passthrough to connect_db() (no retry). PG path: try/except wrapping psycopg2.OperationalError with time.sleep(backoff_seconds) loop up to max_attempts. On exhaustion (M3 fix): (1) Write 'PG_CONNECT_FAIL: <exc>' to data/watchdog.txt (Path constructed from src.config.DB_PATH parent). (2) logger.critical('PG unreachable after %d attempts; exiting for NSSM restart', max_attempts). (3) sys.exit(1) — raises SystemExit which is NOT caught by Exception-only handlers; process exits cleanly; NSSM auto-restart kicks in. Module-level log emits info when retry succeeds with attempt count. Adds: `import sys`, `import time`, `from pathlib import Path` if not already imported.",
+      "description": "Add connect_db_with_pg_retry(db_path=None, *, max_attempts=5, backoff_seconds=30) to src/utils/db.py. SQLite path: identity passthrough to connect_db() (no retry). PG path: try/except wrapping psycopg2.OperationalError with time.sleep(backoff_seconds) loop up to max_attempts. On exhaustion (M3 fix): (1) Write 'PG_CONNECT_FAIL: <exc>' to data/watchdog.txt (Path constructed from src.config.DB_PATH parent). (2) logger.critical('PG unreachable after %d attempts; exiting for NSSM restart', max_attempts). (3) sys.exit(1) \u2014 raises SystemExit which is NOT caught by Exception-only handlers; process exits cleanly; NSSM auto-restart kicks in. Module-level log emits info when retry succeeds with attempt count. Adds: `import sys`, `import time`, `from pathlib import Path` if not already imported.",
       "phase": 0,
       "files_in_scope": [
         "src/utils/db.py",
@@ -255,7 +255,7 @@
         "src/config/__init__.py"
       ],
       "scope_fence": "Do NOT modify _configure_database in watch.py (T2.12). Do NOT change connect_db() precedence rule (T3.2).",
-      "test_strategy": "5 tests: (1) SQLite path returns sqlite3.Connection without retry; (2) PG path with mocked psycopg2.connect raising OperationalError twice then succeeding returns PostgresConnectionWrapper (asserts 2 retries via monkeypatched time.sleep counter); (3) PG path with mocked psycopg2.connect raising OperationalError 5x writes watchdog.txt (assert file content contains 'PG_CONNECT_FAIL'); (4 M3) Exhaustion calls sys.exit(1) — capture SystemExit, assert exit code == 1; (5 M3) Exhaustion writes watchdog.txt BEFORE sys.exit (assert file written even if SystemExit propagates).",
+      "test_strategy": "5 tests: (1) SQLite path returns sqlite3.Connection without retry; (2) PG path with mocked psycopg2.connect raising OperationalError twice then succeeding returns PostgresConnectionWrapper (asserts 2 retries via monkeypatched time.sleep counter); (3) PG path with mocked psycopg2.connect raising OperationalError 5x writes watchdog.txt (assert file content contains 'PG_CONNECT_FAIL'); (4 M3) Exhaustion calls sys.exit(1) \u2014 capture SystemExit, assert exit code == 1; (5 M3) Exhaustion writes watchdog.txt BEFORE sys.exit (assert file written even if SystemExit propagates).",
       "depends_on": [
         "T0.1",
         "T0.2"
@@ -608,7 +608,7 @@
     {
       "id": "T1.15",
       "name": "Migrate walkforward_runner + walkforward_universe to engine_aware_upsert",
-      "description": "Replace INSERT OR REPLACE × 2 at walkforward_runner.py:308 (walkforward_results) + line 355 (walkforward_trades). Replace INSERT OR REPLACE at walkforward_universe.py:81 (sp100_historical_constituents). Each verifies T0.12 semantic dispatch.",
+      "description": "Replace INSERT OR REPLACE \u00d7 2 at walkforward_runner.py:308 (walkforward_results) + line 355 (walkforward_trades). Replace INSERT OR REPLACE at walkforward_universe.py:81 (sp100_historical_constituents). Each verifies T0.12 semantic dispatch.",
       "phase": 1,
       "files_in_scope": [
         "src/platform/rigor/walkforward_runner.py",
@@ -778,7 +778,7 @@
     },
     {
       "id": "T2.8",
-      "name": "Migrate startup_checks sqlite_master COUNT × 2 (CRITICAL)",
+      "name": "Migrate startup_checks sqlite_master COUNT \u00d7 2 (CRITICAL)",
       "description": "Replace sqlite_master COUNT(*) queries at src/startup_checks.py:151-154 and 164-167 with len(engine_aware_table_list(conn)). Remove unused import sqlite3 at line 16.",
       "phase": 2,
       "files_in_scope": [
@@ -865,7 +865,7 @@
     {
       "id": "T2.12",
       "name": "Refactor watch.py _configure_database: PRAGMA helper + PG retry wrapper (with fast-exit)",
-      "description": "At src/scheduler/watch.py:1107-1132 (_configure_database): (1) Replace inline PRAGMA cluster with configure_sqlite_for_production(conn) helper from T0.8 (no-op on PG). (2) Replace bare connect_db(DB_PATH) with connect_db_with_pg_retry(DB_PATH, max_attempts=5, backoff_seconds=30) from T0.11. (3) M3 verification: confirm the surrounding `except Exception` at line 1133 does NOT catch SystemExit raised by sys.exit(1) in T0.11 retry exhaustion — SystemExit inherits BaseException not Exception. Add a comment at line 1133 stating: '# SystemExit from connect_db_with_pg_retry retry exhaustion is intentionally uncaught — NSSM restarts the service.' Backup API at lines 1164-1165 stays raw SQLite.",
+      "description": "At src/scheduler/watch.py:1107-1132 (_configure_database): (1) Replace inline PRAGMA cluster with configure_sqlite_for_production(conn) helper from T0.8 (no-op on PG). (2) Replace bare connect_db(DB_PATH) with connect_db_with_pg_retry(DB_PATH, max_attempts=5, backoff_seconds=30) from T0.11. (3) M3 verification: confirm the surrounding `except Exception` at line 1133 does NOT catch SystemExit raised by sys.exit(1) in T0.11 retry exhaustion \u2014 SystemExit inherits BaseException not Exception. Add a comment at line 1133 stating: '# SystemExit from connect_db_with_pg_retry retry exhaustion is intentionally uncaught \u2014 NSSM restarts the service.' Backup API at lines 1164-1165 stays raw SQLite.",
       "phase": 2,
       "files_in_scope": [
         "src/scheduler/watch.py",
@@ -875,7 +875,7 @@
         "src/utils/db.py"
       ],
       "scope_fence": "Do NOT touch backup API at lines 1164-1165. Do NOT touch other connect_db sites. Do NOT refactor watch_loop control flow.",
-      "test_strategy": "3 parametrized tests: (a) _configure_database runs cleanly on both engines; (b) calls connect_db_with_pg_retry with max_attempts=5 (monkeypatch assert); (c) M3 — simulate T0.11 retry exhaustion (mock connect_db_with_pg_retry to raise SystemExit(1)); assert SystemExit propagates past line 1133 and the watch process would exit (capture SystemExit at test boundary).",
+      "test_strategy": "3 parametrized tests: (a) _configure_database runs cleanly on both engines; (b) calls connect_db_with_pg_retry with max_attempts=5 (monkeypatch assert); (c) M3 \u2014 simulate T0.11 retry exhaustion (mock connect_db_with_pg_retry to raise SystemExit(1)); assert SystemExit propagates past line 1133 and the watch process would exit (capture SystemExit at test boundary).",
       "depends_on": [
         "T0.8",
         "T0.11"
@@ -909,7 +909,7 @@
     {
       "id": "T2.14",
       "name": "Create test_no_sqlite_isms_in_pg_safe_files.py (AST-based, M4)",
-      "description": "Create tests/test_no_sqlite_isms_in_pg_safe_files.py. M4 REVISION: use AST-based scanning, NOT substring scan. The visitor traverses ast.Str/ast.Constant/ast.JoinedStr/ast.FormattedValue/ast.BinOp(op=Add) nodes, reconstructing full strings where possible. Detects: (1) String literals containing INSERT OR REPLACE/IGNORE — even when split across f-string fragments or .format() calls. (2) SQL-keyword strings (INSERT/SELECT/UPDATE/DELETE/VALUES) containing literal `?` placeholders outside quoted literals (heuristic for unrewritten placeholders). (3) String-concatenation chains where any segment contains SQLite-ism fragments. (4) f-string fragments where the {expr} portion evaluates to constant REPLACE or IGNORE (e.g. `f'INSERT OR {action.upper()} INTO ...'` if action is a constant). Define ALLOWLIST including retiring-files src/sync/render_sync.py + src/sync/reconcile.py with `# RETIRING: delete in SP5 §J6 Phase 4` markers. Add 4-5 test functions: test_no_insert_or_replace_or_ignore_ast, test_no_pragma_in_pg_safe_files (line-range allowlist for watch.py:1164-1165), test_no_sqlite_master_references_ast, test_no_sqlite_date_functions_ast, test_no_unrewritten_question_placeholders_ast.",
+      "description": "Create tests/test_no_sqlite_isms_in_pg_safe_files.py. M4 REVISION: use AST-based scanning, NOT substring scan. The visitor traverses ast.Str/ast.Constant/ast.JoinedStr/ast.FormattedValue/ast.BinOp(op=Add) nodes, reconstructing full strings where possible. Detects: (1) String literals containing INSERT OR REPLACE/IGNORE \u2014 even when split across f-string fragments or .format() calls. (2) SQL-keyword strings (INSERT/SELECT/UPDATE/DELETE/VALUES) containing literal `?` placeholders outside quoted literals (heuristic for unrewritten placeholders). (3) String-concatenation chains where any segment contains SQLite-ism fragments. (4) f-string fragments where the {expr} portion evaluates to constant REPLACE or IGNORE (e.g. `f'INSERT OR {action.upper()} INTO ...'` if action is a constant). Define ALLOWLIST including retiring-files src/sync/render_sync.py + src/sync/reconcile.py with `# RETIRING: delete in SP5 \u00a7J6 Phase 4` markers. Add 4-5 test functions: test_no_insert_or_replace_or_ignore_ast, test_no_pragma_in_pg_safe_files (line-range allowlist for watch.py:1164-1165), test_no_sqlite_master_references_ast, test_no_sqlite_date_functions_ast, test_no_unrewritten_question_placeholders_ast.",
       "phase": 2,
       "files_in_scope": [
         "tests/test_no_sqlite_isms_in_pg_safe_files.py"
@@ -918,7 +918,7 @@
         "src/utils/db.py",
         "tests/test_connect_db_discipline.py"
       ],
-      "scope_fence": "Do NOT add tests for raw sqlite3.connect (test_connect_db_discipline.py scope). Bumped to standard complexity per M4 — AST traversal + multi-pattern detection.",
+      "scope_fence": "Do NOT add tests for raw sqlite3.connect (test_connect_db_discipline.py scope). Bumped to standard complexity per M4 \u2014 AST traversal + multi-pattern detection.",
       "test_strategy": "5 test functions; assert ZERO offenders in scanned files. Include positive test fixtures (a small fixture file containing each anti-pattern) to verify the AST detector catches them.",
       "depends_on": [
         "T1.1",
@@ -977,7 +977,7 @@
     {
       "id": "T3.0",
       "name": "Pre-cutover: verify NSSM baseline env preservation (M5)",
-      "description": "Operator step before T3.1: run `nssm get ArcisWatchLoop AppEnvironmentExtra` and document the current env-var list in docs/operator-guide.md under a new 'NSSM Production Environment' section. Required baseline vars: PYTHONUTF8=1 (UTF-8 codec safety for TRL chat_template_utils on Windows — confirmed 2026-05-10), ARCIS_DB_PATH=C:/arcis/data/ai_research_desk.sqlite3, OLLAMA_BASE_URL (LLM endpoint), and any others currently set. Acceptance: env-var list documented + PM verifies T3.3 uses APPEND syntax (not overwrite) when adding DATABASE_URL and ARCIS_PG_CUTOVER_ENABLED. PM blocks T3.3 dispatch if env-var list is empty or missing PYTHONUTF8.",
+      "description": "Operator step before T3.1: run `nssm get ArcisWatchLoop AppEnvironmentExtra` and document the current env-var list in docs/operator-guide.md under a new 'NSSM Production Environment' section. Required baseline vars: PYTHONUTF8=1 (UTF-8 codec safety for TRL chat_template_utils on Windows \u2014 confirmed 2026-05-10), ARCIS_DB_PATH=C:/arcis/data/ai_research_desk.sqlite3, OLLAMA_BASE_URL (LLM endpoint), and any others currently set. Acceptance: env-var list documented + PM verifies T3.3 uses APPEND syntax (not overwrite) when adding DATABASE_URL and ARCIS_PG_CUTOVER_ENABLED. PM blocks T3.3 dispatch if env-var list is empty or missing PYTHONUTF8.",
       "phase": 3,
       "files_in_scope": [
         "docs/operator-guide.md"
@@ -1011,7 +1011,7 @@
     {
       "id": "T3.2",
       "name": "Land precedence-flip commit (M2 kill-switched)",
-      "description": "Modify src/utils/db.py:connect_db() (lines 98-148): when ALL of (a) os.environ.get('ARCIS_PG_CUTOVER_ENABLED') == '1' AND (b) DATABASE_URL.startswith('postgres') are true, IGNORE db_path argument with one-time warning log; else preserve current SQLite precedence. M2 INVARIANT: merging T3.2 to main MUST NOT change watch loop behaviour on any developer machine — the env gate defaults off. Tests assert: (a) gate=off + DATABASE_URL set + db_path passed → sqlite3.Connection at db_path (NOT routed to PG); (b) gate=on + DATABASE_URL set + db_path passed → PostgresConnectionWrapper; (c) gate=off + DATABASE_URL unset + db_path passed → sqlite3.Connection at db_path; (d) gate=on + DATABASE_URL unset → still SQLite (gate is gate, not override).",
+      "description": "Modify src/utils/db.py:connect_db() (lines 98-148): when ALL of (a) os.environ.get('ARCIS_PG_CUTOVER_ENABLED') == '1' AND (b) DATABASE_URL.startswith('postgres') are true, IGNORE db_path argument with one-time warning log; else preserve current SQLite precedence. M2 INVARIANT: merging T3.2 to main MUST NOT change watch loop behaviour on any developer machine \u2014 the env gate defaults off. Tests assert: (a) gate=off + DATABASE_URL set + db_path passed \u2192 sqlite3.Connection at db_path (NOT routed to PG); (b) gate=on + DATABASE_URL set + db_path passed \u2192 PostgresConnectionWrapper; (c) gate=off + DATABASE_URL unset + db_path passed \u2192 sqlite3.Connection at db_path; (d) gate=on + DATABASE_URL unset \u2192 still SQLite (gate is gate, not override).",
       "phase": 3,
       "files_in_scope": [
         "src/utils/db.py",
@@ -1025,12 +1025,15 @@
       ],
       "complexity": "low",
       "batch": 2,
-      "worktree_required": false
+      "worktree_required": false,
+      "status": "complete",
+      "completed_pr": "sp5-phase-3-t3.2-precedence-flip-gate",
+      "completed_date": "2026-05-11"
     },
     {
       "id": "T3.3",
       "name": "Operator: NSSM env set (append) + restart",
-      "description": "Saturday morning: nssm set ArcisWatchLoop AppEnvironmentExtra <ENTIRE EXISTING ENV STRING from T3.0> + DATABASE_URL=postgresql://halcyon:...@localhost:5432/halcyon + ARCIS_PG_CUTOVER_ENABLED=1. M5: use APPEND syntax — do NOT overwrite existing env (PYTHONUTF8/ARCIS_DB_PATH must remain). Run nssm restart ArcisWatchLoop.",
+      "description": "Saturday morning: nssm set ArcisWatchLoop AppEnvironmentExtra <ENTIRE EXISTING ENV STRING from T3.0> + DATABASE_URL=postgresql://halcyon:...@localhost:5432/halcyon + ARCIS_PG_CUTOVER_ENABLED=1. M5: use APPEND syntax \u2014 do NOT overwrite existing env (PYTHONUTF8/ARCIS_DB_PATH must remain). Run nssm restart ArcisWatchLoop.",
       "phase": 3,
       "files_in_scope": [],
       "files_read_only": [
@@ -1048,7 +1051,7 @@
     {
       "id": "T3.4",
       "name": "30-min smoke + 7-day observability (including activity_log LIKE C1 coverage)",
-      "description": "PM/operator tails arcis.log for 30 min. Verify watch loop tick, position monitor, Telegram poll (activity_log LIKE '%position%' — explicit C1 regression coverage), dashboard render. After 30-min OK, 7-day observability window begins. Verify zero IndexError/TypeError from psycopg2 binding.",
+      "description": "PM/operator tails arcis.log for 30 min. Verify watch loop tick, position monitor, Telegram poll (activity_log LIKE '%position%' \u2014 explicit C1 regression coverage), dashboard render. After 30-min OK, 7-day observability window begins. Verify zero IndexError/TypeError from psycopg2 binding.",
       "phase": 3,
       "files_in_scope": [],
       "files_read_only": [
@@ -1066,13 +1069,13 @@
     {
       "id": "T3.5",
       "name": "Cutover rollback procedure (contingent)",
-      "description": "If T3.4 fails: operator runs nssm set ArcisWatchLoop AppEnvironmentExtra <baseline without ARCIS_PG_CUTOVER_ENABLED, optionally also without DATABASE_URL>; nssm restart. SQLite path resumes. Single env unset (ARCIS_PG_CUTOVER_ENABLED) is sufficient to revert — DATABASE_URL alone no longer flips precedence.",
+      "description": "If T3.4 fails: operator runs nssm set ArcisWatchLoop AppEnvironmentExtra <baseline without ARCIS_PG_CUTOVER_ENABLED, optionally also without DATABASE_URL>; nssm restart. SQLite path resumes. Single env unset (ARCIS_PG_CUTOVER_ENABLED) is sufficient to revert \u2014 DATABASE_URL alone no longer flips precedence.",
       "phase": 3,
       "files_in_scope": [
         "docs/audits/2026-05-MM-cutover-retry-rollback.md (contingent)"
       ],
       "files_read_only": [],
-      "scope_fence": "Conditional task — only executes if T3.4 fails.",
+      "scope_fence": "Conditional task \u2014 only executes if T3.4 fails.",
       "test_strategy": "Operator + PM verify SQLite path resumes.",
       "depends_on": [
         "T3.4"
@@ -1213,7 +1216,7 @@
     {
       "id": "T4.7",
       "name": "Update CHANGELOG + docs/operator-guide.md (full env-var list, M5)",
-      "description": "Update docs/operator-guide.md with: (1) canonical NSSM env-var list — PYTHONUTF8, ARCIS_DB_PATH, DATABASE_URL, OLLAMA_BASE_URL, and any others — per M5; (2) cutover rollback steps referencing ARCIS_PG_CUTOVER_ENABLED unset; (3) reference to _design_raw.json. CHANGELOG.md final SP5 §J5/§J6 entry.",
+      "description": "Update docs/operator-guide.md with: (1) canonical NSSM env-var list \u2014 PYTHONUTF8, ARCIS_DB_PATH, DATABASE_URL, OLLAMA_BASE_URL, and any others \u2014 per M5; (2) cutover rollback steps referencing ARCIS_PG_CUTOVER_ENABLED unset; (3) reference to _design_raw.json. CHANGELOG.md final SP5 \u00a7J5/\u00a7J6 entry.",
       "phase": 4,
       "files_in_scope": [
         "docs/operator-guide.md",
@@ -1360,5 +1363,5 @@
       "T4.8"
     ]
   ],
-  "notes": "REVISION 2 (Devil's Advocate critical+major addressed): T0.0 + T0.12 audit tasks added to batch 1 (no-dep). T3.0 baseline env audit slotted into batch 1 of Phase 3 alongside T3.1 snapshots. Total: 57 tasks across 5 phases (was 54; +T0.0, +T0.12, +T3.0). 21-batch execution_order structure preserved exactly. Phase 0 grows from +33 to +61 tests (C1+C3+M3 coverage). T0.2 bumped low→standard (M1 quote+pct-aware rewrite is a real parser). T2.14 bumped to standard (M4 AST-based scanning). T3.2 precedence flip is kill-switched behind ARCIS_PG_CUTOVER_ENABLED=1 env var (M2) — merging T3.2 alone does NOT activate cutover on any developer machine. T0.11 retry exhaustion does sys.exit(1) so NSSM restarts (M3 zombie-watchdog fix) — SystemExit propagates past watch.py:1133 because Exception does not catch BaseException subclasses. T0.4 _REPLACE_SEMANTICS dict is populated from T0.12 audit, hard-coded per-table; ValueError raised if a new table is upserted with action='replace' without classification (M-safety: forces auditability). Target test delta: +134 (accept band +90 to +140 per M6); PM verifies actual vs band in T2.15 closeout. Worktree isolation MANDATORY for Phase 1, Phase 2 file migrations, and Phase 4 cleanup. Cutover window remains Saturday morning EDT. MINORs N1/N2/N3 listed in spec section 11 'Known Considerations' — NOT planner-tracked; deferred to post-cutover backlog."
+  "notes": "REVISION 2 (Devil's Advocate critical+major addressed): T0.0 + T0.12 audit tasks added to batch 1 (no-dep). T3.0 baseline env audit slotted into batch 1 of Phase 3 alongside T3.1 snapshots. Total: 57 tasks across 5 phases (was 54; +T0.0, +T0.12, +T3.0). 21-batch execution_order structure preserved exactly. Phase 0 grows from +33 to +61 tests (C1+C3+M3 coverage). T0.2 bumped low\u2192standard (M1 quote+pct-aware rewrite is a real parser). T2.14 bumped to standard (M4 AST-based scanning). T3.2 precedence flip is kill-switched behind ARCIS_PG_CUTOVER_ENABLED=1 env var (M2) \u2014 merging T3.2 alone does NOT activate cutover on any developer machine. T0.11 retry exhaustion does sys.exit(1) so NSSM restarts (M3 zombie-watchdog fix) \u2014 SystemExit propagates past watch.py:1133 because Exception does not catch BaseException subclasses. T0.4 _REPLACE_SEMANTICS dict is populated from T0.12 audit, hard-coded per-table; ValueError raised if a new table is upserted with action='replace' without classification (M-safety: forces auditability). Target test delta: +134 (accept band +90 to +140 per M6); PM verifies actual vs band in T2.15 closeout. Worktree isolation MANDATORY for Phase 1, Phase 2 file migrations, and Phase 4 cleanup. Cutover window remains Saturday morning EDT. MINORs N1/N2/N3 listed in spec section 11 'Known Considerations' \u2014 NOT planner-tracked; deferred to post-cutover backlog."
 }

@@ -408,9 +408,21 @@ def connect_db(db_path=_SENTINEL):
 
     1. If `db_path` is explicitly provided (any value), always use SQLite at
        that path. None opens `:memory:` (test-fixture compat).
-    2. If `db_path` is omitted (sentinel default), check `DATABASE_URL`:
-       - postgres scheme → return PostgresConnectionWrapper
-       - empty / non-postgres → return SQLite at DEFAULT_DB
+    2. If `db_path` is omitted (sentinel default), check BOTH env vars:
+       - ARCIS_PG_CUTOVER_ENABLED == "1" AND DATABASE_URL starts with
+         "postgres" → return PostgresConnectionWrapper (Phase 3 gate)
+       - anything else → return SQLite at DEFAULT_DB
+
+    Why the gate (Phase 3 T3.2 — M2 mitigation):
+    Without ARCIS_PG_CUTOVER_ENABLED, merging T3.2 to main would flip
+    precedence on every developer machine that has DATABASE_URL=postgresql://...
+    in shell (including project-unrelated PG URLs). The 2026-05-10 cutover
+    attempt failed in 2 minutes from exactly this shape. The gate makes T3.2's
+    merge a no-op on developer boxes; only production NSSM (which sets BOTH
+    DATABASE_URL AND ARCIS_PG_CUTOVER_ENABLED=1 via AppEnvironmentExtra)
+    routes to PG. T3.5 rollback = single env unset:
+    `nssm set ArcisWatchLoop AppEnvironmentExtra ARCIS_PG_CUTOVER_ENABLED=`
+    → instant SQLite revert. Gate removed in Phase 4 T4.4 once cutover stable.
 
     Why this precedence (NOT "DATABASE_URL wins"): 265 of the 336 call sites
     pass `connect_db(db_path)` with an explicit path. The downstream code at
@@ -440,7 +452,7 @@ def connect_db(db_path=_SENTINEL):
     """
     if db_path is _SENTINEL:
         database_url = os.environ.get("DATABASE_URL", "")
-        if database_url.startswith("postgres"):
+        if os.environ.get("ARCIS_PG_CUTOVER_ENABLED") == "1" and database_url.startswith("postgres"):
             raw = psycopg2.connect(database_url, cursor_factory=psycopg2.extras.RealDictCursor)
             return PostgresConnectionWrapper(raw)
         effective_path = DEFAULT_DB
@@ -959,7 +971,14 @@ def connect_db_with_pg_retry(db_path=_SENTINEL, *, max_attempts=5, backoff_secon
     SQLite path: identity passthrough to `connect_db()` (no retry — local file
     operations don't have the network-style transient failure profile).
 
-    PG path: wrap `connect_db()` in a try/except `psycopg2.OperationalError`
+    PG path (Phase 3 gate): BOTH ARCIS_PG_CUTOVER_ENABLED == "1" AND
+    DATABASE_URL starts with "postgres" must be true to enter the retry loop.
+    This mirrors the gate in connect_db() so the retry wrapper agrees with the
+    underlying routing decision and does not spin wasted retry attempts when
+    connect_db() would return SQLite anyway. Gate semantics match T3.2 —
+    see connect_db() docstring for the M2 rationale.
+
+    PG retry: wrap `connect_db()` in a try/except `psycopg2.OperationalError`
     loop. On failure, sleep `backoff_seconds` and retry up to `max_attempts`.
 
     M3 (Devil's Advocate critical fix) — on exhaustion:
@@ -982,7 +1001,7 @@ def connect_db_with_pg_retry(db_path=_SENTINEL, *, max_attempts=5, backoff_secon
         return connect_db(db_path)
 
     database_url = os.environ.get("DATABASE_URL", "")
-    if not database_url.startswith("postgres"):
+    if not (os.environ.get("ARCIS_PG_CUTOVER_ENABLED") == "1" and database_url.startswith("postgres")):
         return connect_db()
 
     last_exc = None
