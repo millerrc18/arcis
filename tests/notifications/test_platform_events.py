@@ -1,10 +1,14 @@
 """Tests for src.notifications.platform_events."""
+import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch, call
+
+import pytest
 
 from src.notifications.platform_events import (
     _DEDUP_CACHE,
+    _already_notified_recently_db,
     notify_backtest_complete,
     notify_shadow_gate_ready,
     notify_strategy_demoted,
@@ -163,3 +167,165 @@ def test_notify_shadow_gate_ready_db_dedup_survives_cache_clear():
     with patch("src.notifications.telegram.send_telegram") as mock_send2:
         notify_shadow_gate_ready("strat_db_2", evidence, _conn=conn)
     assert mock_send2.call_count == 0, "DB dedup must suppress after cache clear"
+
+
+# -- Sprint 5 §J5/§J6 Phase 1 T1.7 -----------------------------------------
+# Parametrized dual-engine coverage for the notifications_dedup INSERT path
+# migrated from `INSERT OR IGNORE` to `engine_aware_upsert(..., action='ignore')`.
+# The composite uniqueness target `(event_type, dedup_key)` is resolved via
+# `notifications_dedup.sync_conflict_col` set in T0.7 (registry).
+# Sibling-search confirmed: only one INSERT OR (IGNORE|REPLACE) site in
+# src/notifications/platform_events.py — at :96.
+
+def _select_dedup_row(conn, event_type, dedup_key):
+    cur = conn.execute(
+        "SELECT event_type, dedup_key, sent_at FROM notifications_dedup "
+        "WHERE event_type=? AND dedup_key=?",
+        (event_type, dedup_key),
+    )
+    return cur.fetchone()
+
+
+def _count_dedup_rows(conn):
+    cur = conn.execute("SELECT COUNT(*) AS c FROM notifications_dedup")
+    row = cur.fetchone()
+    if hasattr(row, "keys") and "c" in row.keys():
+        return row["c"]
+    return row[0]
+
+
+@pytest.fixture(autouse=True)
+def _load_test_database_url_from_env():
+    """Load TEST_DATABASE_URL from .env so the postgres parametrize variant runs.
+
+    Sprint 5 phase 1 T1.7 — Docker-Postgres uses interpolated password
+    `postgresql://halcyon:$DOCKER_PG_PASSWORD@127.0.0.1:5433/halcyon` in the
+    dispatch brief; resolve via dotenv at import time, set TEST_DATABASE_URL
+    if absent and DOCKER_PG_PASSWORD is present. No-op when neither is set —
+    parametrized_conn(postgres) then skips cleanly.
+    """
+    if os.environ.get("TEST_DATABASE_URL"):
+        return
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except Exception:
+        return
+    pw = os.environ.get("DOCKER_PG_PASSWORD")
+    if pw and not os.environ.get("TEST_DATABASE_URL"):
+        os.environ["TEST_DATABASE_URL"] = (
+            f"postgresql://halcyon:{pw}@127.0.0.1:5433/halcyon"
+        )
+
+
+def test_t1_7_first_insert_lands_row(parametrized_conn):
+    """T1.7 #1 — first call to _already_notified_recently_db inserts the row.
+
+    `engine_aware_upsert(conn, 'notifications_dedup', row, action='ignore')`
+    resolves the conflict target to `(event_type, dedup_key)` per the
+    registry's sync_conflict_col. The first call has no prior row, so the
+    INSERT lands and the function returns False (not previously notified).
+    """
+    conn = parametrized_conn
+    now_iso = datetime.now(timezone.utc).isoformat()
+    # Pre-clean the parametrized DB — fixtures bootstrap schemas but may
+    # share state across the same engine variant within a test session.
+    conn.execute(
+        "DELETE FROM notifications_dedup WHERE event_type=? AND dedup_key=?",
+        ("t1_7_evt", "t1_7_first"),
+    )
+    conn.commit()
+
+    result = _already_notified_recently_db(
+        "t1_7_evt", "t1_7_first", conn=conn,
+    )
+
+    assert result is False, "first call -> not previously notified"
+    row = _select_dedup_row(conn, "t1_7_evt", "t1_7_first")
+    assert row is not None, "engine_aware_upsert(action='ignore') must INSERT new row"
+    # sent_at must be a recent ISO timestamp written by the helper, not
+    # the test's `now_iso` — assert it parses and is near-current.
+    sent_at = row["sent_at"] if hasattr(row, "keys") else row[2]
+    parsed = datetime.fromisoformat(sent_at)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    delta = abs((datetime.now(timezone.utc) - parsed).total_seconds())
+    assert delta < 60, f"sent_at {sent_at} should be within 60s of now"
+
+
+def test_t1_7_duplicate_event_type_dedup_key_ignored(parametrized_conn):
+    """T1.7 #2 — duplicate (event_type, dedup_key) is ignored, no exception.
+
+    The autoincrement `id` PK is the surrogate; uniqueness lives on the
+    composite `(event_type, dedup_key)` index (registry sync_conflict_col).
+    Composite conflict must NOT overwrite the existing row's sent_at, and
+    must NOT raise.
+
+    Path: pre-seed a row directly (so the platform_events helper's "row
+    exists" branch is bypassed), then directly call the engine_aware_upsert
+    line that platform_events:96 now uses, with the same composite. Result:
+    no exception, no duplicate row, sent_at preserved. Validates both
+    engines route through the correct conflict target — PG path uses
+    `ON CONFLICT (event_type, dedup_key) DO NOTHING`, SQLite path uses
+    `INSERT OR IGNORE` natively.
+    """
+    conn = parametrized_conn
+    # Pre-clean — fixtures may share state across same-engine variants
+    conn.execute(
+        "DELETE FROM notifications_dedup WHERE event_type=? AND dedup_key=?",
+        ("t1_7_dup_evt", "t1_7_dup_key"),
+    )
+    conn.commit()
+
+    # Use the production helper to land the first row — exercises the
+    # INSERT branch which T1.7 migrates to engine_aware_upsert(action='ignore').
+    first = _already_notified_recently_db(
+        "t1_7_dup_evt", "t1_7_dup_key", conn=conn,
+    )
+    assert first is False, "first call -> not previously notified"
+
+    # Capture the sent_at the helper wrote
+    seed_row = _select_dedup_row(conn, "t1_7_dup_evt", "t1_7_dup_key")
+    assert seed_row is not None
+    seed_sent_at = (
+        seed_row["sent_at"] if hasattr(seed_row, "keys") else seed_row[2]
+    )
+
+    # Now exercise the migrated INSERT branch a second time with the same
+    # composite key. Direct engine_aware_upsert call mirrors what
+    # platform_events.py:96 does after T1.7 — the duplicate must be
+    # ignored (no exception, no overwrite, no new row).
+    from src.utils.db import engine_aware_upsert
+
+    later_iso = (datetime.now(timezone.utc) + timedelta(seconds=5)).isoformat()
+    # Must NOT raise — duplicate composite is ignored.
+    engine_aware_upsert(
+        conn,
+        "notifications_dedup",
+        {
+            "event_type": "t1_7_dup_evt",
+            "dedup_key": "t1_7_dup_key",
+            "sent_at": later_iso,
+        },
+        action="ignore",
+    )
+    conn.commit()
+
+    # Row count for our key is still 1 — no duplicate inserted
+    cur = conn.execute(
+        "SELECT COUNT(*) AS c FROM notifications_dedup WHERE event_type=?",
+        ("t1_7_dup_evt",),
+    )
+    row = cur.fetchone()
+    count = row["c"] if hasattr(row, "keys") and "c" in row.keys() else row[0]
+    assert count == 1, "duplicate composite conflict must NOT add a row"
+
+    # Original sent_at preserved — action='ignore' must not overwrite
+    final_row = _select_dedup_row(conn, "t1_7_dup_evt", "t1_7_dup_key")
+    final_sent_at = (
+        final_row["sent_at"] if hasattr(final_row, "keys") else final_row[2]
+    )
+    assert final_sent_at == seed_sent_at, (
+        "action='ignore' must preserve original sent_at, "
+        f"got {final_sent_at!r} expected {seed_sent_at!r}"
+    )
