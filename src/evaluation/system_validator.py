@@ -42,7 +42,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH, load_config
-from src.utils.db import connect_db
+from src.utils.db import connect_db, engine_aware_table_list
 from src.utils.secret_redact import (
     _TOKEN_PATTERNS,
     sanitize_error as _sanitize_error,
@@ -161,19 +161,21 @@ def _check_database(db_path: str) -> list[dict]:
     checks.append(_check("db_connection", "pass", "SQLite connection OK"))
 
     try:
-        # WAL mode
-        mode = conn.execute("PRAGMA journal_mode").fetchone()
-        mode_val = mode[0] if mode else "unknown"
-        if mode_val == "wal":
-            checks.append(_check("db_wal_mode", "pass", "WAL mode enabled"))
-        else:
-            checks.append(_check("db_wal_mode", "warn",
-                                  f"Journal mode is '{mode_val}', not WAL"))
+        # WAL mode — SQLite-only runtime tuning; PG has no analog (PRAGMA
+        # is SQLite syntax and raises on PG). Sprint 5 §J5/§J6 Phase 2 T2.6.
+        if isinstance(conn, sqlite3.Connection):
+            mode = conn.execute("PRAGMA journal_mode").fetchone()
+            mode_val = mode[0] if mode else "unknown"
+            if mode_val == "wal":
+                checks.append(_check("db_wal_mode", "pass", "WAL mode enabled"))
+            else:
+                checks.append(_check("db_wal_mode", "warn",
+                                      f"Journal mode is '{mode_val}', not WAL"))
 
-        # Check all expected tables exist
-        existing = {row[0] for row in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()}
+        # Check all expected tables exist — engine-aware so PG-backed
+        # connections use pg_catalog.pg_tables instead of sqlite_master.
+        # Sprint 5 §J5/§J6 Phase 2 T2.6.
+        existing = set(engine_aware_table_list(conn))
 
         missing = [t for t in EXPECTED_TABLES if t not in existing]
         if missing:
