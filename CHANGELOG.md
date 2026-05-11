@@ -11,7 +11,7 @@ Phase 3 cutover prerequisite. Phase 2 T2.14 (AST-based SQLite-ism discipline sca
 - **`src/council/agent_data.py`** (2 sites — lines was 272, 451) — `gather_risk_data` 7-day llm failure-rate fallback + `gather_macro_data` 365-day high-yield average. 365-day site uses `.date().isoformat()` because `collected_date` is stored as YYYY-MM-DD date string (not full ISO timestamp); string-comparison-safe.
 - **`src/council/context.py`** (1 site — line was 30) — `build_shared_context` 1-day recent-recommendations rollup. Same `datetime.now(ET) - timedelta(days=1)` pattern.
 - **`src/api/routes/system.py`** (1 site — line was 694) — `monitoring_history` hours-parameterized cutoff. **Preserved pre-existing UTC behavior** (matches the SQLite `datetime('now', ? || ' hours')` UTC return); `system_metrics.timestamp` is written in ET so a 4-5h skew exists at the boundary. Statistically irrelevant for typical 24-hour windows but filed as a follow-up.
-- **`src/api/routes/ib_status.py`** (1 site — line was 76) — `ib_status` 30-day uptime % cutoff. Uses naive `datetime.datetime.now()` matching the operator's Windows local time (ET); CI/UTC environment has a 4-5h skew but window is 30 days so impact is statistically irrelevant.
+- **`src/api/routes/ib_status.py`** (1 site — line was 76) — `ib_status` 30-day uptime % cutoff. Uses tz-aware `datetime.datetime.now(ET)` matching the write-side convention at `src/trading/ib_shadow.py:78` (post-review fix per PR #1052 review).
 - **`tests/test_build_score_date_now.py`** (NEW, 214 lines) — 4 tests + 2 cross-engine SQLite/PG parity tests
 - **`tests/test_hshs_live_date_now.py`** (NEW, 240 lines) — 4 tests
 - **`tests/test_agent_data_date_now.py`** (NEW, 383 lines) — 6 tests (risk + macro paths)
@@ -19,6 +19,12 @@ Phase 3 cutover prerequisite. Phase 2 T2.14 (AST-based SQLite-ism discipline sca
 - **`tests/test_api_routes_system_date_now.py`** (NEW, 211 lines) — 4 tests
 - **`tests/test_ib_status_uptime_window.py`** (NEW, 192 lines) — 4 tests
 - **`tests/test_no_sqlite_isms_in_pg_safe_files.py`** — removed all 12 date-function entries from `KNOWN_OFFENDERS`; added a summary comment block explaining the migration. All 15 AST-scan tests pass against the post-merge integration.
+
+### Sprint S1-CC Batch A — Stage 1 corpus closeout
+
+### Added
+
+- Stage 1 corpus generation complete (67,528 entries, §B2 admissibility PASS, manifest pinned at SHA256 `43c2e3ed...0d93` per `data/corpus/stage1-001/MANIFEST.md`). Cold-read verdict PASS → proceed to walk-forward framework scoping (S1-CC Batch B).
 
 ### SP5 §J5/§J6 Phase 0 — Modified-A migration (T0.7)
 
