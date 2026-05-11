@@ -98,40 +98,46 @@ class PostgresConnectionWrapper:
 def connect_db(db_path=_SENTINEL):
     """Return a database connection.
 
-    Precedence — **DATABASE_URL wins**:
+    Precedence — explicit `db_path` wins (original Wave 2.1 contract,
+    restored after the 2026-05-10 hotfix rollback):
 
-    1. If `DATABASE_URL` is set and starts with "postgres", return a
-       PostgresConnectionWrapper. The `db_path` arg is IGNORED in this branch.
-    2. Otherwise (DATABASE_URL unset or non-postgres): return a SQLite
-       connection. Path resolution:
-         - `db_path = _SENTINEL` (no arg)  → DEFAULT_DB
-         - `db_path` provided (any value, including None) → that value
-           (None opens `:memory:` — what tests that patch DB_PATH=None rely on)
+    1. If `db_path` is explicitly provided (any value), always use SQLite at
+       that path. None opens `:memory:` (test-fixture compat).
+    2. If `db_path` is omitted (sentinel default), check `DATABASE_URL`:
+       - postgres scheme → return PostgresConnectionWrapper
+       - empty / non-postgres → return SQLite at DEFAULT_DB
 
-    Why this precedence: production code at 265+ of the 336 call sites passes
-    `connect_db(db_path)` or `connect_db(DB_PATH)` explicitly. If the shim
-    treated any explicit arg as "force SQLite", the Modified-A cutover's
-    DATABASE_URL flip would silently fail to route production reads/writes
-    to Postgres — the watch loop would keep writing SQLite forever. This was
-    observed live on 2026-05-10 19:25 EDT when the NSSM env update flipped
-    DATABASE_URL but writes kept landing in SQLite. The fix inverts the
-    precedence: DATABASE_URL wins, db_path becomes advisory.
+    Why this precedence (NOT "DATABASE_URL wins"): 265 of the 336 call sites
+    pass `connect_db(db_path)` with an explicit path. The downstream code at
+    many of those sites uses SQLite-specific syntax (PRAGMA index_list,
+    `?` placeholders, `sqlite_master`) that Postgres rejects. The 2026-05-10
+    hotfix attempt to invert precedence (DATABASE_URL wins) tripped on three
+    such call paths within 2 minutes of watch loop restart:
 
-    For test fixtures that need SQLite when DATABASE_URL happens to be set
-    in the environment: use `monkeypatch.delenv("DATABASE_URL", raising=False)`
-    or `monkeypatch.setenv("DATABASE_URL", "")` in the fixture setup. Tests
-    in this repo don't generally set DATABASE_URL (env-drift memory means
-    worktrees don't carry .env), so the default behavior continues to use
-    SQLite paths for test_db_path-style fixtures.
+      - src/schema/sqlite.py: PRAGMA index_list (fixed by ed1757c — file
+        now uses sqlite3.connect directly)
+      - src/evaluation/system_validator.py:1039: `INSERT ... VALUES (?,?,?...)`
+        with SQLite placeholders against PG
+      - src/schema/validator.py: `SELECT name FROM sqlite_master` against PG
+
+    The proper Modified-A migration audits ALL such call sites + queries
+    and converts them either to PG-compatible syntax (`%s` placeholders,
+    `information_schema` lookups) OR routes them through a direct
+    `sqlite3.connect` for SQLite-only operations. That's Sprint 5 §J5/§J6
+    scope, not a one-line shim flip.
+
+    Until SP5 lands, production stays on SQLite via this explicit-path
+    contract. Cloud-routes that already have manual `if database_url:`
+    runtime branches (src/api/cloud_routes/{kpis_compute,platform,…}.py)
+    continue to use that pattern unchanged.
 
     SQLite connections always carry busy_timeout=30000 and row_factory=sqlite3.Row.
     """
-    database_url = os.environ.get("DATABASE_URL", "")
-    if database_url.startswith("postgres"):
-        raw = psycopg2.connect(database_url, cursor_factory=psycopg2.extras.RealDictCursor)
-        return PostgresConnectionWrapper(raw)
-
     if db_path is _SENTINEL:
+        database_url = os.environ.get("DATABASE_URL", "")
+        if database_url.startswith("postgres"):
+            raw = psycopg2.connect(database_url, cursor_factory=psycopg2.extras.RealDictCursor)
+            return PostgresConnectionWrapper(raw)
         effective_path = DEFAULT_DB
     else:
         effective_path = db_path

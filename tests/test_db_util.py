@@ -10,8 +10,15 @@ import pytest
 
 
 def test_connect_db_uses_sqlite_when_database_url_unset(monkeypatch):
-    """connect_db with no args and no DATABASE_URL should return a sqlite3.Connection."""
-    monkeypatch.delenv("DATABASE_URL", raising=False)
+    """connect_db with no args and no DATABASE_URL should return a sqlite3.Connection.
+
+    Uses `setenv("", "")` instead of `delenv` because python-dotenv runs at
+    module import time (via src.config) with default override=False, which
+    would re-set DATABASE_URL from .env if it's missing from os.environ.
+    Setting it to empty string ensures the env var is present but the
+    startswith("postgres") check returns False.
+    """
+    monkeypatch.setenv("DATABASE_URL", "")
     from src.utils.db import connect_db
     conn = connect_db()
     assert type(conn) is sqlite3.Connection
@@ -37,30 +44,22 @@ def test_connect_db_uses_postgres_when_database_url_postgres_scheme(monkeypatch)
     assert hasattr(wrapper, "row_factory")
 
 
-def test_connect_db_database_url_overrides_explicit_db_path(tmp_path, monkeypatch):
-    """When DATABASE_URL is set, an explicit db_path is IGNORED and PG is used.
+def test_connect_db_explicit_db_path_forces_sqlite(tmp_path, monkeypatch):
+    """An explicit db_path arg always uses SQLite, even when DATABASE_URL is set.
 
-    This precedence (DATABASE_URL wins) is required for Modified-A cutover correctness:
-    production has 265+ call sites that pass `connect_db(DB_PATH)` explicitly, and
-    they all need to route to PG once DATABASE_URL is set in NSSM env. Pre-fix the
-    shim short-circuited to SQLite on any explicit arg — silently keeping the
-    watch loop on SQLite even after the cutover NSSM env update.
-
-    Test fixtures that need SQLite-only behavior should clear DATABASE_URL via
-    `monkeypatch.delenv` BEFORE calling connect_db (see other tests below).
+    Restored after the 2026-05-10 hotfix rollback. The precedence-flipped
+    version (DATABASE_URL wins over db_path) tripped on three SQLite-only
+    downstream code paths within 2 minutes of going live, so the shim is
+    back to its Wave 2.1 contract: explicit path → SQLite. Modified-A
+    migration is now SP5 §J5/§J6 scope (audit every SQL dialect sensitive
+    call site).
     """
     monkeypatch.setenv("DATABASE_URL", "postgresql://halcyon:pw@localhost:5433/halcyon")
     db_path = str(tmp_path / "test.sqlite3")
-    sentinel_conn = MagicMock(name="pg_raw_conn")
-    with patch("psycopg2.connect", return_value=sentinel_conn) as mock_pg:
-        from src.utils.db import connect_db
-        wrapper = connect_db(db_path=db_path)
-        # PG path was taken despite db_path being explicit
-        mock_pg.assert_called_once()
-    # Verify we got the wrapper, not a sqlite3.Connection
-    assert not isinstance(wrapper, sqlite3.Connection)
-    assert hasattr(wrapper, "execute")
-    assert hasattr(wrapper, "executemany")
+    from src.utils.db import connect_db
+    conn = connect_db(db_path=db_path)
+    assert type(conn) is sqlite3.Connection
+    conn.close()
 
 
 def test_pg_wrapper_exposes_required_methods(monkeypatch):
