@@ -27,7 +27,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
-from src.utils.db import connect_db
+from src.utils.db import connect_db, engine_aware_upsert
 from src.council.constants import PARAMETER_DEFAULTS
 
 logger = logging.getLogger(__name__)
@@ -116,11 +116,17 @@ def log_parameter_change(
             )
 
             # Update current state
-            conn.execute(
-                "INSERT OR REPLACE INTO council_parameter_state "
-                "(parameter_name, current_value, default_value, last_session_id, last_updated) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (parameter_name, applied_value, default_value, session_id, now),
+            engine_aware_upsert(
+                conn,
+                "council_parameter_state",
+                {
+                    "parameter_name": parameter_name,
+                    "current_value": applied_value,
+                    "default_value": default_value,
+                    "last_session_id": session_id,
+                    "last_updated": now,
+                },
+                action="replace",
             )
 
     except Exception as e:
