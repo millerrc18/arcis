@@ -31,7 +31,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from src.config import DB_PATH
-from src.utils.db import connect_db, engine_aware_upsert
+from src.utils.db import connect_db, engine_aware_column_info, engine_aware_upsert
 from src.data_collection.edgar_historical import (  # noqa: F401 — re-exported
     _lookup_primary_document,
     _lookup_primary_document_via_index as _lookup_primary_document_via_index,
@@ -230,7 +230,7 @@ def _ensure_nlp_columns(conn: sqlite3.Connection) -> bool:
 
     Returns True if columns are available, False otherwise.
     """
-    cols = {c[1] for c in conn.execute("PRAGMA table_info(edgar_filings)").fetchall()}
+    cols = {row["name"] for row in engine_aware_column_info(conn, "edgar_filings")}
     needed = ["sentiment_polarity", "sentiment_negative_count",
               "sentiment_uncertainty_count", "cautionary_phrases"]
     missing = [c for c in needed if c not in cols]
