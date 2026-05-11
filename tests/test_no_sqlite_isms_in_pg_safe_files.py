@@ -143,14 +143,10 @@ KNOWN_OFFENDERS: frozenset[tuple[str, int, str]] = frozenset({
     # that needs Python-side computation of the cutoff before the cutover.
     ("src/council/context.py", 30,
      "Phase 3+ date-function migration deferred"),
-    ("src/council/agent_data.py", 272,
-     "Phase 3+ date-function migration deferred"),
-    ("src/council/agent_data.py", 451,
-     "Phase 3+ date-function migration deferred"),
     # build_score.py (was 151, 163, 408, 432) + hshs_live.py (was 218, 260,
-    # 266) entries removed in Sprint 5 §J5/§J6 Phase 2.5 — all 7
-    # datetime('now', ...) sites migrated to Python-side cutoffs
-    # (datetime.now(ET) - timedelta(days=N)).
+    # 266) + agent_data.py (was 272, 451) entries removed in Sprint 5
+    # §J5/§J6 Phase 2.5 — all 9 datetime('now', ...) sites migrated to
+    # Python-side cutoffs (datetime.now(ET) - timedelta(days=N)).
     ("src/api/routes/system.py", 694,
      "Phase 3+ date-function migration deferred"),
     ("src/api/routes/ib_status.py", 76,
