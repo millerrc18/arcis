@@ -34,6 +34,9 @@ are reordered in the schema registry.
 import logging
 import os
 import sqlite3
+import sys
+import time
+from pathlib import Path
 
 import psycopg2
 import psycopg2.extras
@@ -944,3 +947,77 @@ def engine_aware_foreign_keys(conn, table_name: str) -> list:
 # connection (without going through the engine-aware connect_db()) can import
 # it via `from src.utils.db import _sqlite_only_connect`. The canonical
 # implementation lives in src/schema/sqlite.py — see Sprint 5 §J5/§J6 phase 0.
+
+
+# ---------------------------------------------------------------------------
+# Sprint 5 §J5/§J6 Phase 0 T0.11 — connect_db_with_pg_retry (M3 fast-exit)
+# ---------------------------------------------------------------------------
+
+def connect_db_with_pg_retry(db_path=_SENTINEL, *, max_attempts=5, backoff_seconds=30):
+    """Connect with bounded retry on PG transient failures + fast-exit on exhaustion.
+
+    SQLite path: identity passthrough to `connect_db()` (no retry — local file
+    operations don't have the network-style transient failure profile).
+
+    PG path: wrap `connect_db()` in a try/except `psycopg2.OperationalError`
+    loop. On failure, sleep `backoff_seconds` and retry up to `max_attempts`.
+
+    M3 (Devil's Advocate critical fix) — on exhaustion:
+      1. Write `PG_CONNECT_FAIL: <exc>` to `<DB_PATH parent>/watchdog.txt` so
+         NSSM's external watcher can distinguish DB-induced restarts from
+         unrelated crashes.
+      2. Log `logger.critical('PG unreachable after %d attempts; exiting for
+         NSSM restart', max_attempts)`.
+      3. `sys.exit(1)` — raises SystemExit which is NOT caught by
+         `except Exception` handlers in watch.py:1133 (that handler has a
+         dedicated `except SystemExit: raise` pass-through). The process
+         exits cleanly with code 1; NSSM's auto-restart policy kicks in.
+         This prevents the zombie-watchdog mode where the watch loop keeps
+         running without a configured DB.
+
+    On success after retries, logs at INFO level with the attempt count so
+    operators can see retry activity post-mortem.
+    """
+    if db_path is not _SENTINEL:
+        return connect_db(db_path)
+
+    database_url = os.environ.get("DATABASE_URL", "")
+    if not database_url.startswith("postgres"):
+        return connect_db()
+
+    last_exc = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            conn = connect_db()
+            if attempt > 1:
+                logger.info(
+                    "[DB] PG connect succeeded on attempt %d/%d",
+                    attempt, max_attempts,
+                )
+            return conn
+        except psycopg2.OperationalError as exc:
+            last_exc = exc
+            if attempt < max_attempts:
+                logger.warning(
+                    "[DB] PG connect attempt %d/%d failed: %s — retrying in %ds",
+                    attempt, max_attempts, exc, backoff_seconds,
+                )
+                time.sleep(backoff_seconds)
+
+    # Exhausted: M3 fast-exit. Write watchdog.txt BEFORE sys.exit so the
+    # marker is durable even though SystemExit unwinds the stack.
+    watchdog_parent = Path(DB_PATH).parent if DB_PATH else Path("data")
+    watchdog_file = watchdog_parent / "watchdog.txt"
+    try:
+        watchdog_parent.mkdir(parents=True, exist_ok=True)
+        watchdog_file.write_text(
+            f"PG_CONNECT_FAIL: {last_exc}\n", encoding="utf-8",
+        )
+    except OSError as write_exc:
+        logger.error("[DB] Could not write watchdog.txt: %s", write_exc)
+
+    logger.critical(
+        "PG unreachable after %d attempts; exiting for NSSM restart",
+        max_attempts,
+    )
+    sys.exit(1)
