@@ -18,7 +18,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
-from src.utils.db import connect_db
+from src.utils.db import connect_db, engine_aware_upsert
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -128,16 +128,13 @@ def apply_override(
             ).fetchone()
             previous = row[0] if row else None
 
-            conn.execute(
-                "INSERT INTO config_overrides "
-                "(setting_key, setting_value, previous_value, updated_at, updated_by) "
-                "VALUES (?, ?, ?, ?, 'dashboard') "
-                "ON CONFLICT(setting_key) DO UPDATE SET "
-                "setting_value = excluded.setting_value, "
-                "previous_value = excluded.previous_value, "
-                "updated_at = excluded.updated_at",
-                (key, json_value, previous, now),
-            )
+            engine_aware_upsert(conn, "config_overrides", {
+                "setting_key": key,
+                "setting_value": json_value,
+                "previous_value": previous,
+                "updated_at": now,
+                "updated_by": "dashboard",
+            }, action="replace")
             conn.commit()
 
         logger.info("Config override applied: %s = %s", key, value)

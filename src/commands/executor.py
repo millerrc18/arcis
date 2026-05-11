@@ -22,7 +22,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
-from src.utils.db import connect_db
+from src.utils.db import connect_db, engine_aware_upsert
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -66,12 +66,15 @@ def _store_result(
 
     try:
         with connect_db(db_path) as conn:
-            conn.execute(
-                "INSERT INTO command_results "
-                "(result_id, command_id, status, result_json, error_message, "
-                "execution_ms, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (result_id, command_id, status, result_json, error, execution_ms, now),
-            )
+            engine_aware_upsert(conn, "command_results", {
+                "result_id": result_id,
+                "command_id": command_id,
+                "status": status,
+                "result_json": result_json,
+                "error_message": error,
+                "execution_ms": execution_ms,
+                "created_at": now,
+            }, action="ignore")
             # Update local pending_commands status
             conn.execute(
                 "UPDATE pending_commands SET status = ? WHERE command_id = ?",
