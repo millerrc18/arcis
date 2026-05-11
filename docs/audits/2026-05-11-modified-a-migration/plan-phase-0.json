@@ -1,0 +1,324 @@
+{
+  "tasks": [
+    {
+      "id": "T0.0",
+      "name": "Pre-flight audit: catalogue literal-% in SQL strings (C1)",
+      "description": "Grep all in-scope production files for SQL string literals containing literal `%` (LIKE wildcards, prefix patterns, embedded percent chars). For each site, categorise as: (a) already-safe (pure SQLite path, no rewrite needed), (b) requires `%%` escape (LIKE pattern that must survive psycopg2 format binding), (c) parameter-substitutable (move `'%X%'` to bound parameter `LIKE ?` with `'%X%'` as the param value). Output: docs/audits/2026-05-11-modified-a-migration/literal-pct-audit.md with per-site classification. Must enumerate at minimum: activity_log LIKE in Telegram poll path, any cloud_routes LIKE queries, council/value_tracker reporting queries, and walkforward universe filters. Include grep command used. Audit doc is the spec deliverable; no production code change.",
+      "phase": 0,
+      "files_in_scope": [
+        "docs/audits/2026-05-11-modified-a-migration/literal-pct-audit.md"
+      ],
+      "files_read_only": [
+        "src/scheduler/watch.py",
+        "src/notifications/platform_events.py",
+        "src/api/cloud_routes/platform.py"
+      ],
+      "scope_fence": "Do NOT modify any production file. Audit doc only. Do NOT pre-decide rewriting strategy for category (c) sites — Phase 1+ tasks handle those.",
+      "test_strategy": "0 new tests — audit doc. PM verifies doc enumerates ≥1 site per category and includes the activity_log LIKE site explicitly.",
+      "depends_on": [],
+      "complexity": "low",
+      "batch": 1,
+      "worktree_required": false
+    },
+    {
+      "id": "T0.1",
+      "name": "Add CompatRow + _RowFactoryCursor classes (C3-aware iteration)",
+      "description": "Add CompatRow class supporting BOTH row[int] AND row['col']. CRITICAL (C3): __iter__ yields iter(self._row.values()) so iteration yields VALUES, NOT keys — matching sqlite3.Row semantics. __len__ returns column count. keys() returns column-name iterator for explicit name access. Add _RowFactoryCursor wrapping psycopg2 cursor; overrides fetchone/fetchall/fetchmany to wrap returned dicts in CompatRow. Place class definitions BEFORE PostgresConnectionWrapper.",
+      "phase": 0,
+      "files_in_scope": [
+        "src/utils/db.py",
+        "tests/test_db_compatrow.py"
+      ],
+      "files_read_only": [
+        "tests/conftest.py"
+      ],
+      "scope_fence": "Do NOT modify connect_db() function yet. Do NOT add engine_aware_* helpers yet (T0.4-T0.8).",
+      "test_strategy": "12 tests: (1-8 prior) int access, str access, __contains__, keys(), __len__, repr, _RowFactoryCursor.fetchone, _RowFactoryCursor.fetchall; (9-12 C3): tuple(CompatRow({'a':1,'b':2})) == (1,2); list(CompatRow(...)) == [1,2]; [v for v in row] == [1,2]; a,b = CompatRow({'a':1,'b':2}); assert (a,b) == (1,2). Also: dict(CompatRow({'a':1,'b':2})) raises TypeError or returns {'a':1,'b':2} per chosen contract (document the choice).",
+      "depends_on": [],
+      "complexity": "low",
+      "batch": 1,
+      "worktree_required": false
+    },
+    {
+      "id": "T0.2",
+      "name": "Add quote+pct-aware rewrite to PostgresConnectionWrapper (C1 + M1)",
+      "description": "Modify PostgresConnectionWrapper.execute/executemany/cursor to use a real quote-and-percent-aware tokenizer for `?`→`%s` rewriting AND escape unpaired `%` to `%%`. Outside string literals: `?` → `%s`, unpaired `%` → `%%`. Inside single-quoted literals: leave both untouched. Inside double-quoted identifiers (PG): leave alone. The implementation tracks quote state through the string. Add _rewrite_question_to_pct(sql) module function. Bumped from low to standard complexity per M1 reconciliation: this is no longer a 1-line replace.",
+      "phase": 0,
+      "files_in_scope": [
+        "src/utils/db.py",
+        "tests/test_db_wrapper_rewrite.py"
+      ],
+      "files_read_only": [
+        "src/api/cloud_routes/platform.py",
+        "docs/audits/2026-05-11-modified-a-migration/literal-pct-audit.md"
+      ],
+      "scope_fence": "Do NOT change connect_db() precedence rule. Do NOT touch CompatRow class.",
+      "test_strategy": "10 tests: (1-6 prior) basic ? → %s; quote-preserve `?` inside string literal; perf <100us; no-op when no ?; cursor.execute() goes through rewrite; executemany() rewrites once. (7-10 C1) `_rewrite_question_to_pct(\"SELECT * FROM activity_log WHERE message LIKE '%position%' AND id=?\")` produces SQL psycopg2 can execute without IndexError when params bound; `LIKE 'PCT%'` survives; `WHERE col = '50%'` survives; mixed `?`+`%` pattern in WHERE clause binds correctly against a real PG test fixture.",
+      "depends_on": [
+        "T0.1",
+        "T0.0"
+      ],
+      "complexity": "standard",
+      "batch": 2,
+      "worktree_required": false
+    },
+    {
+      "id": "T0.3",
+      "name": "Extract _resolve_conflict_target helper",
+      "description": "Extract conflict-target resolution from scripts/sqlite_to_pg_migrate.py:50-53 into src/utils/db.py as _resolve_conflict_target(table_name) returning list[str]. Precedence: TABLES[name].sync_conflict_col comma-split, else TABLES[name].primary_key. Raises ValueError on unknown table.",
+      "phase": 0,
+      "files_in_scope": [
+        "src/utils/db.py",
+        "tests/test_db_conflict_target.py"
+      ],
+      "files_read_only": [
+        "scripts/sqlite_to_pg_migrate.py",
+        "src/schema/registry.py"
+      ],
+      "scope_fence": "Do NOT modify scripts/sqlite_to_pg_migrate.py — the existing migrator keeps its inline helper.",
+      "test_strategy": "5 tests: sync_conflict_col path, string PK path, list PK path, unknown table raises, sync_conflict_col stripping.",
+      "depends_on": [],
+      "complexity": "low",
+      "batch": 1,
+      "worktree_required": false
+    },
+    {
+      "id": "T0.12",
+      "name": "Pre-flight audit: REPLACE semantic-divergence per table (C2)",
+      "description": "Audit the 10 `action='replace'` Phase 1 target tables for SQLite-INSERT-OR-REPLACE-vs-PG-DO-UPDATE semantic divergence. Tables: data_freshness, build_score_history, config_overrides, system_metrics, council_parameter_state, simulation_results, walkforward_results, walkforward_trades, sp100_historical_constituents, plus any others uncovered. For each table, document in docs/audits/2026-05-11-modified-a-migration/replace-semantics-audit.md: (1) incoming FK references (other tables pointing at this one with ON DELETE clauses — from schema registry), (2) outgoing FK refs with ON DELETE CASCADE (this table's deletion cascades), (3) AUTOINCREMENT / rowid dependencies (does any reader code rely on rowid stability?), (4) any triggers on DELETE or INSERT. Output the dispatch decision per table: 'in_place_update' (PG ON CONFLICT DO UPDATE OK, no semantic divergence) or 'delete_insert' (must emulate SQLite DELETE+INSERT atomically on PG). Audit doc deliverable; no production code change.",
+      "phase": 0,
+      "files_in_scope": [
+        "docs/audits/2026-05-11-modified-a-migration/replace-semantics-audit.md"
+      ],
+      "files_read_only": [
+        "src/schema/registry.py",
+        "src/data_enrichment/staleness.py",
+        "src/evaluation/build_score.py",
+        "src/api/routes/system.py",
+        "src/monitoring/system_metrics.py",
+        "src/council/value_tracker.py",
+        "src/simulation/engine.py",
+        "src/platform/rigor/walkforward_runner.py",
+        "src/platform/rigor/walkforward_universe.py"
+      ],
+      "scope_fence": "Do NOT modify any production file. Audit doc only. T0.4 consumes the dispatch decisions into _REPLACE_SEMANTICS dict.",
+      "test_strategy": "0 new tests — audit doc. PM verifies doc enumerates a decision for all 10 tables and includes the reasoning trail (FK refs, triggers, AUTOINCREMENT).",
+      "depends_on": [],
+      "complexity": "standard",
+      "batch": 1,
+      "worktree_required": false
+    },
+    {
+      "id": "T0.4",
+      "name": "Add engine_aware_upsert with per-table REPLACE-semantic dispatch (C2)",
+      "description": "Add engine_aware_upsert(conn, table_name, row_dict, action='replace'|'ignore') to src/utils/db.py. Branches on isinstance(conn, PostgresConnectionWrapper). SQLite path: INSERT OR REPLACE/IGNORE INTO {table} VALUES (?, ...). PG path action='ignore': INSERT INTO {table} VALUES (%s, ...) ON CONFLICT (target) DO NOTHING (mirrors migrator script). PG path action='replace': consult _REPLACE_SEMANTICS dict (populated from T0.12 audit, hard-coded per table). If 'in_place_update' → INSERT ... ON CONFLICT DO UPDATE SET non_target_col=EXCLUDED.non_target_col. If 'delete_insert' → wrap DELETE FROM {table} WHERE conflict_cols=... + INSERT in single transaction. Raises ValueError(\"engine_aware_upsert(action='replace') called on table {name} without semantic classification — add to _REPLACE_SEMANTICS dict\") if table absent. Reuses _resolve_conflict_target from T0.3.",
+      "phase": 0,
+      "files_in_scope": [
+        "src/utils/db.py",
+        "tests/test_db_engine_aware_upsert.py"
+      ],
+      "files_read_only": [
+        "scripts/sqlite_to_pg_migrate.py",
+        "src/schema/registry.py",
+        "docs/audits/2026-05-11-modified-a-migration/replace-semantics-audit.md"
+      ],
+      "scope_fence": "Do NOT migrate any production INSERT OR REPLACE/IGNORE sites yet (Phase 1). Wrapper must not raise on tables with UUID PKs. _REPLACE_SEMANTICS values must match T0.12 audit doc verbatim.",
+      "test_strategy": "12 tests parametrized engine=[sqlite, postgres]: (1-8 prior) action=replace inserts new + updates existing; action=ignore preserves + inserts; composite-PK target; sync_conflict_col target; unknown table raises; action=invalid raises. (9-12 C2) in_place_update path on a leaf table preserves FK refs; delete_insert path on a parent-with-cascade table fires cascade as expected; ValueError raised when table not in _REPLACE_SEMANTICS; transaction atomicity for delete_insert (rollback on INSERT failure restores DELETEd row).",
+      "depends_on": [
+        "T0.1",
+        "T0.2",
+        "T0.3",
+        "T0.12"
+      ],
+      "complexity": "standard",
+      "batch": 3,
+      "worktree_required": false
+    },
+    {
+      "id": "T0.5",
+      "name": "Add engine_aware_table_list + engine_aware_column_info helpers",
+      "description": "Add engine_aware_table_list(conn) and engine_aware_column_info(conn, table) to src/utils/db.py. Shape-matched to PRAGMA table_info output.",
+      "phase": 0,
+      "files_in_scope": [
+        "src/utils/db.py",
+        "tests/test_db_engine_aware_introspection.py"
+      ],
+      "files_read_only": [
+        "src/startup_checks.py",
+        "src/schema/registry.py"
+      ],
+      "scope_fence": "Do NOT migrate any production sqlite_master/PRAGMA call sites yet (Phase 2A).",
+      "test_strategy": "6 tests parametrized engine=[sqlite, postgres].",
+      "depends_on": [
+        "T0.1",
+        "T0.2"
+      ],
+      "complexity": "standard",
+      "batch": 3,
+      "worktree_required": false
+    },
+    {
+      "id": "T0.6",
+      "name": "Add engine_aware_index_list + engine_aware_foreign_keys helpers",
+      "description": "Add engine_aware_index_list(conn, table) and engine_aware_foreign_keys(conn, table) to src/utils/db.py.",
+      "phase": 0,
+      "files_in_scope": [
+        "src/utils/db.py",
+        "tests/test_db_engine_aware_introspection.py"
+      ],
+      "files_read_only": [
+        "src/schema/registry.py"
+      ],
+      "scope_fence": "Do NOT migrate any production PRAGMA index_list / foreign_key_list call sites yet (Phase 2A).",
+      "test_strategy": "4 tests parametrized engine=[sqlite, postgres].",
+      "depends_on": [
+        "T0.1",
+        "T0.2"
+      ],
+      "complexity": "standard",
+      "batch": 3,
+      "worktree_required": false
+    },
+    {
+      "id": "T0.7",
+      "name": "Add sync_conflict_col to notifications_dedup TableDef",
+      "description": "Modify TABLES['notifications_dedup'] in src/schema/registry.py: add sync_conflict_col=\"event_type, dedup_key\". Run validate-schema --fix. Update CHANGELOG.md.",
+      "phase": 0,
+      "files_in_scope": [
+        "src/schema/registry.py",
+        "CHANGELOG.md"
+      ],
+      "files_read_only": [
+        "src/notifications/platform_events.py"
+      ],
+      "scope_fence": "Do NOT migrate the INSERT OR IGNORE site at platform_events.py:96 yet (T1.7).",
+      "test_strategy": "1 test in tests/test_schema.py.",
+      "depends_on": [],
+      "complexity": "trivial",
+      "batch": 1,
+      "worktree_required": false
+    },
+    {
+      "id": "T0.8",
+      "name": "Add configure_sqlite_for_production helper + re-export _sqlite_only_connect",
+      "description": "Add configure_sqlite_for_production(conn) to src/utils/db.py. No-op + warning log on PG. Add re-export of _sqlite_only_connect from src/schema/sqlite.py.",
+      "phase": 0,
+      "files_in_scope": [
+        "src/utils/db.py",
+        "tests/test_db_configure_sqlite.py"
+      ],
+      "files_read_only": [
+        "src/scheduler/watch.py",
+        "src/schema/sqlite.py"
+      ],
+      "scope_fence": "Do NOT yet refactor src/scheduler/watch.py:1107-1132 (T2.12).",
+      "test_strategy": "4 tests: SQLite applies all 4 PRAGMAs, PG no-ops with warning, re-export importable, _sqlite_only_connect returns proper Connection.",
+      "depends_on": [],
+      "complexity": "low",
+      "batch": 1,
+      "worktree_required": false
+    },
+    {
+      "id": "T0.9",
+      "name": "Add pg_wrapper + parametrized_conn fixtures to conftest.py",
+      "description": "Add pg_wrapper fixture and parametrized_conn fixture. Schema bootstrap via src/schema/postgres.py.",
+      "phase": 0,
+      "files_in_scope": [
+        "tests/conftest.py",
+        "tests/test_conftest_pg_wrapper.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py",
+        "src/schema/postgres.py"
+      ],
+      "scope_fence": "Do NOT modify existing postgres_session fixture or init_test_db.",
+      "test_strategy": "2 sanity tests.",
+      "depends_on": [
+        "T0.1",
+        "T0.2"
+      ],
+      "complexity": "low",
+      "batch": 4,
+      "worktree_required": false
+    },
+    {
+      "id": "T0.11",
+      "name": "Add connect_db_with_pg_retry with fast-exit on exhaustion (M3)",
+      "description": "Add connect_db_with_pg_retry(db_path=None, *, max_attempts=5, backoff_seconds=30) to src/utils/db.py. SQLite path: identity passthrough to connect_db() (no retry). PG path: try/except wrapping psycopg2.OperationalError with time.sleep(backoff_seconds) loop up to max_attempts. On exhaustion (M3 fix): (1) Write 'PG_CONNECT_FAIL: <exc>' to data/watchdog.txt (Path constructed from src.config.DB_PATH parent). (2) logger.critical('PG unreachable after %d attempts; exiting for NSSM restart', max_attempts). (3) sys.exit(1) — raises SystemExit which is NOT caught by Exception-only handlers; process exits cleanly; NSSM auto-restart kicks in. Module-level log emits info when retry succeeds with attempt count. Adds: `import sys`, `import time`, `from pathlib import Path` if not already imported.",
+      "phase": 0,
+      "files_in_scope": [
+        "src/utils/db.py",
+        "tests/test_db_pg_retry.py"
+      ],
+      "files_read_only": [
+        "src/scheduler/watch.py",
+        "src/config/__init__.py"
+      ],
+      "scope_fence": "Do NOT modify _configure_database in watch.py (T2.12). Do NOT change connect_db() precedence rule (T3.2).",
+      "test_strategy": "5 tests: (1) SQLite path returns sqlite3.Connection without retry; (2) PG path with mocked psycopg2.connect raising OperationalError twice then succeeding returns PostgresConnectionWrapper (asserts 2 retries via monkeypatched time.sleep counter); (3) PG path with mocked psycopg2.connect raising OperationalError 5x writes watchdog.txt (assert file content contains 'PG_CONNECT_FAIL'); (4 M3) Exhaustion calls sys.exit(1) — capture SystemExit, assert exit code == 1; (5 M3) Exhaustion writes watchdog.txt BEFORE sys.exit (assert file written even if SystemExit propagates).",
+      "depends_on": [
+        "T0.1",
+        "T0.2"
+      ],
+      "complexity": "low",
+      "batch": 4,
+      "worktree_required": false
+    },
+    {
+      "id": "T0.10",
+      "name": "Create .github/workflows/pg-tests.yml CI workflow",
+      "description": "Create .github/workflows/pg-tests.yml. Trigger: on pull_request to main + push to main. Python 3.12. postgres:16-alpine sidecar. TEST_DATABASE_URL set. Bootstrap schema via scripts/bootstrap_pg_test_schema.py. Run pytest with --timeout=60. Assert test count >= 3682.",
+      "phase": 0,
+      "files_in_scope": [
+        ".github/workflows/pg-tests.yml",
+        "scripts/bootstrap_pg_test_schema.py"
+      ],
+      "files_read_only": [
+        "src/schema/postgres.py",
+        "requirements.txt"
+      ],
+      "scope_fence": "Do NOT add other workflows.",
+      "test_strategy": "Workflow runs on the introducing PR; manual verification of first green run.",
+      "depends_on": [
+        "T0.1",
+        "T0.2",
+        "T0.4",
+        "T0.5",
+        "T0.6",
+        "T0.7",
+        "T0.8",
+        "T0.9",
+        "T0.11"
+      ],
+      "complexity": "standard",
+      "batch": 5,
+      "worktree_required": false
+    }
+  ],
+  "execution_order": [
+    [
+      "T0.0",
+      "T0.1",
+      "T0.3",
+      "T0.7",
+      "T0.8",
+      "T0.12"
+    ],
+    [
+      "T0.2"
+    ],
+    [
+      "T0.4",
+      "T0.5",
+      "T0.6"
+    ],
+    [
+      "T0.9",
+      "T0.11"
+    ],
+    [
+      "T0.10"
+    ]
+  ],
+  "notes": "REVISION 2 (Devil's Advocate critical+major addressed): T0.0 + T0.12 audit tasks added to batch 1 (no-dep). T3.0 baseline env audit slotted into batch 1 of Phase 3 alongside T3.1 snapshots. Total: 57 tasks across 5 phases (was 54; +T0.0, +T0.12, +T3.0). 21-batch execution_order structure preserved exactly. Phase 0 grows from +33 to +61 tests (C1+C3+M3 coverage). T0.2 bumped low→standard (M1 quote+pct-aware rewrite is a real parser). T2.14 bumped to standard (M4 AST-based scanning). T3.2 precedence flip is kill-switched behind ARCIS_PG_CUTOVER_ENABLED=1 env var (M2) — merging T3.2 alone does NOT activate cutover on any developer machine. T0.11 retry exhaustion does sys.exit(1) so NSSM restarts (M3 zombie-watchdog fix) — SystemExit propagates past watch.py:1133 because Exception does not catch BaseException subclasses. T0.4 _REPLACE_SEMANTICS dict is populated from T0.12 audit, hard-coded per-table; ValueError raised if a new table is upserted with action='replace' without classification (M-safety: forces auditability). Target test delta: +134 (accept band +90 to +140 per M6); PM verifies actual vs band in T2.15 closeout. Worktree isolation MANDATORY for Phase 1, Phase 2 file migrations, and Phase 4 cleanup. Cutover window remains Saturday morning EDT. MINORs N1/N2/N3 listed in spec section 11 'Known Considerations' — NOT planner-tracked; deferred to post-cutover backlog.\n\n## PHASE 0 SCOPE NOTE (PM read this)\n\nThis is the PHASE 0 SUBSET of the full Modified-A migration plan.\nFull plan has 57 tasks across 5 phases (0-4); this file has only the 13 Phase 0 tasks.\nPhase 0 ships as a SINGLE PR titled 'sp5(j5/j6): Phase 0 — wrapper foundation'.\nAfter Phase 0 lands on main and the operator reviews, a SEPARATE /arcis:code invocation will execute Phase 1.\nDO NOT touch any file outside the Phase 0 task scope fences.\nDO NOT add code that anticipates Phase 1+ migrations (no proactive call-site rewrites).\nPhase 0 is wrapper-foundation ONLY — call sites stay unchanged.\n"
+}
