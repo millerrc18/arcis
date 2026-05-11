@@ -22,7 +22,7 @@ from contextlib import closing
 
 from src.config import DB_PATH
 from src.shadow_trading.exit_reason import outcome_stats_filter_sql
-from src.utils.db import connect_db
+from src.utils.db import connect_db, engine_aware_column_info
 
 logger = logging.getLogger(__name__)
 
@@ -173,7 +173,7 @@ def get_model_performance(db_path: str = DB_PATH) -> dict:
         # Check if canary_score column exists in recommendations
         has_canary = False
         try:
-            cols = [r[1] for r in conn.execute("PRAGMA table_info(recommendations)").fetchall()]
+            cols = [r["name"] for r in engine_aware_column_info(conn, "recommendations")]
             has_canary = "canary_score" in cols
         except Exception:
             pass

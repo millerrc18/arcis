@@ -10,6 +10,7 @@ Endpoints:
     GET /ib/status  - IB Gateway connection and shadow mode status
 """
 
+import datetime
 import logging
 import sqlite3
 
@@ -48,11 +49,16 @@ def ib_status():
             errors = row["errors"] or 0 if row else 0
             last_connection = row["last_connection"] if row else None
 
-            # Today's shadow log stats
+            # Today's shadow log stats — `date(created_at)` is ANSI-standard
+            # (works on both SQLite and Postgres); we compute today's date in
+            # Python and bind it as a parameter, avoiding the SQLite-only
+            # current-date literal that PG rejects (PG uses CURRENT_DATE).
+            today_iso = datetime.date.today().isoformat()
             today_row = conn.execute(
                 "SELECT COUNT(*) as total, "
                 "SUM(CASE WHEN ib_connected = 1 THEN 1 ELSE 0 END) as connected "
-                "FROM ib_shadow_log WHERE date(created_at) = date('now')"
+                "FROM ib_shadow_log WHERE date(created_at) = ?",
+                (today_iso,),
             ).fetchone()
             today_total = today_row["total"] if today_row else 0
             today_connected = today_row["connected"] or 0 if today_row else 0

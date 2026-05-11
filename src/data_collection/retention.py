@@ -27,7 +27,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
-from src.utils.db import connect_db
+from src.utils.db import connect_db, engine_aware_column_info, engine_aware_table_list
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -104,16 +104,13 @@ def run_retention(db_path: str = DB_PATH) -> dict[str, int]:
 
 def _get_existing_tables(conn: sqlite3.Connection) -> set[str]:
     """Return set of table names that exist in the database."""
-    rows = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table'"
-    ).fetchall()
-    return {r[0] for r in rows}
+    return set(engine_aware_table_list(conn))
 
 
 def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
-    """Check whether a column exists in a table via PRAGMA."""
+    """Check whether a column exists in a table via engine-aware introspection."""
     try:
-        cols = conn.execute(f"PRAGMA table_info({table})").fetchall()  # noqa: S608
-        return any(c[1] == column for c in cols)
+        cols = engine_aware_column_info(conn, table)
+        return any(c["name"] == column for c in cols)
     except Exception:
         return False
