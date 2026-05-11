@@ -22,7 +22,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-from src.utils.db import connect_db
+from src.utils.db import connect_db, engine_aware_column_info
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity as _sk_cos
@@ -158,7 +158,7 @@ def _prior_year_accession(
 
 def _has_full_text_column(conn: sqlite3.Connection) -> bool:
     """Return True if edgar_filings has a full_text column."""
-    cols = {c[1] for c in conn.execute("PRAGMA table_info(edgar_filings)").fetchall()}
+    cols = {c["name"] for c in engine_aware_column_info(conn, "edgar_filings")}
     return "full_text" in cols
 
 
