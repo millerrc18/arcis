@@ -13,11 +13,19 @@ Endpoints:
 import datetime
 import logging
 import sqlite3
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter
 
 from src.config import DB_PATH, load_config
 from src.utils.db import connect_db
+
+# Eastern Time — matches the write convention for ib_shadow_log.created_at
+# at src/trading/ib_shadow.py:78 (`datetime.now(ET).isoformat()`). Using
+# tz-aware ET on the read side ensures the cutoff comparison aligns
+# byte-for-byte with the stored ISO strings (including the -04:00/-05:00
+# offset suffix).
+ET = ZoneInfo("America/New_York")
 
 router = APIRouter(tags=["ib"])
 logger = logging.getLogger(__name__)
@@ -74,9 +82,12 @@ def ib_status():
 
             # 30-day uptime percentage — compute the cutoff timestamp in
             # Python and bind it as a parameter, avoiding the SQLite-only
-            # negative-offset datetime literal that PG rejects.
+            # negative-offset datetime literal that PG rejects. ET tz
+            # matches the write side at src/trading/ib_shadow.py:78
+            # (`datetime.now(ET).isoformat()`) — keeps byte-stable boundary
+            # comparison across SQLite + PG + CI/UTC hosts.
             cutoff_30d = (
-                datetime.datetime.now() - datetime.timedelta(days=30)
+                datetime.datetime.now(ET) - datetime.timedelta(days=30)
             ).isoformat()
             month_row = conn.execute(
                 "SELECT COUNT(*) as total, "
