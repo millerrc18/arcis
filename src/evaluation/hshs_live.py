@@ -38,7 +38,7 @@ database corruption events.
 
 import logging
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
@@ -214,10 +214,11 @@ def _score_data_asset(conn: sqlite3.Connection) -> float:
         # Data volume score
         volume_score = min(40.0, total * 0.4)  # 100 examples = 40 pts
 
-        # Freshness: examples created in last 7 days
+        # Freshness: last 7 days (Python ET cutoff for cross-engine, SP5 P2.5 T2).
+        cutoff_7d = (datetime.now(ET) - timedelta(days=7)).isoformat()
         cur = conn.execute(
-            "SELECT COUNT(*) FROM training_examples "
-            "WHERE created_at >= datetime('now', '-7 days')"
+            "SELECT COUNT(*) FROM training_examples WHERE created_at >= ?",
+            (cutoff_7d,),
         )
         recent = cur.fetchone()[0] or 0
         freshness_score = min(30.0, (recent / max(total, 1)) * 60)  # 50% recent = 30
@@ -257,18 +258,18 @@ def _score_flywheel_velocity(conn: sqlite3.Connection) -> float:
         version_count = cur.fetchone()[0] or 0
         cycles = max(0, version_count - 1)
 
-        cur = conn.execute(
+        now_et = datetime.now(ET)
+        cutoff_7d = (now_et - timedelta(days=7)).isoformat()
+        cutoff_14d = (now_et - timedelta(days=14)).isoformat()
+        recent_week = conn.execute(
+            "SELECT COUNT(*) FROM training_examples WHERE created_at >= ?",
+            (cutoff_7d,),
+        ).fetchone()[0] or 0
+        prior_week = conn.execute(
             "SELECT COUNT(*) FROM training_examples "
-            "WHERE created_at >= datetime('now', '-7 days')"
-        )
-        recent_week = cur.fetchone()[0] or 0
-
-        cur = conn.execute(
-            "SELECT COUNT(*) FROM training_examples "
-            "WHERE created_at >= datetime('now', '-14 days') "
-            "AND created_at < datetime('now', '-7 days')"
-        )
-        prior_week = cur.fetchone()[0] or 0
+            "WHERE created_at >= ? AND created_at < ?",
+            (cutoff_14d, cutoff_7d),
+        ).fetchone()[0] or 0
 
         if prior_week > 0:
             growth_rate = recent_week / prior_week
