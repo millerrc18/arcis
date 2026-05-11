@@ -35,7 +35,7 @@ import hashlib
 import json
 import logging
 import sqlite3
-from src.utils.db import connect_db
+from src.utils.db import connect_db, engine_aware_upsert
 import subprocess
 import uuid
 from dataclasses import dataclass, asdict
@@ -304,38 +304,33 @@ def persist_run_result(
     )
     conn = connect_db(db_path)
     try:
-        conn.execute(
-            "INSERT OR REPLACE INTO walkforward_results ("
-            "run_id, strategy_id, spec_hash, code_git_sha, random_seed, "
-            "config_json, outcome_state, reason, pooled_sharpe, pooled_mde, "
-            "heavy_tail_flag, heavy_tail_window_count, n_windows, "
-            "n_windows_pass, n_windows_fail, n_windows_inconclusive_data, "
-            "n_windows_inconclusive_power, n_windows_inconclusive_duration, "
-            "derived_from_source_type, derived_from_source_run_id, "
-            "effective_universe_size, max_drawdown_pct, vix_tier_coverage, "
-            "created_at"
-            ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-            "?, ?, ?, ?, ?, ?)",
-            (
-                result.run_id, result.strategy_id, result.spec_hash,
-                result.code_git_sha, result.config.random_seed,
-                json.dumps(result.config.as_json_dict()),
-                result.outcome.outcome_state, result.outcome.reason,
-                result.pooled_sharpe, result.pooled_mde,
-                1 if result.heavy_tail_window_count > 0 else 0,
-                result.heavy_tail_window_count,
-                len(result.config.windows),
-                result.outcome.n_windows_pass,
-                result.outcome.n_windows_fail,
-                result.outcome.n_windows_inconclusive_data,
-                result.outcome.n_windows_inconclusive_power,
-                result.outcome.n_windows_inconclusive_duration,
-                source_type, source_run_id,
-                result.effective_universe_size,
-                overall_max_dd, result.vix_tier_coverage,
-                _now_iso(),
-            ),
-        )
+        results_row = {
+            "run_id": result.run_id,
+            "strategy_id": result.strategy_id,
+            "spec_hash": result.spec_hash,
+            "code_git_sha": result.code_git_sha,
+            "random_seed": result.config.random_seed,
+            "config_json": json.dumps(result.config.as_json_dict()),
+            "outcome_state": result.outcome.outcome_state,
+            "reason": result.outcome.reason,
+            "pooled_sharpe": result.pooled_sharpe,
+            "pooled_mde": result.pooled_mde,
+            "heavy_tail_flag": 1 if result.heavy_tail_window_count > 0 else 0,
+            "heavy_tail_window_count": result.heavy_tail_window_count,
+            "n_windows": len(result.config.windows),
+            "n_windows_pass": result.outcome.n_windows_pass,
+            "n_windows_fail": result.outcome.n_windows_fail,
+            "n_windows_inconclusive_data": result.outcome.n_windows_inconclusive_data,
+            "n_windows_inconclusive_power": result.outcome.n_windows_inconclusive_power,
+            "n_windows_inconclusive_duration": result.outcome.n_windows_inconclusive_duration,
+            "derived_from_source_type": source_type,
+            "derived_from_source_run_id": source_run_id,
+            "effective_universe_size": result.effective_universe_size,
+            "max_drawdown_pct": overall_max_dd,
+            "vix_tier_coverage": result.vix_tier_coverage,
+            "created_at": _now_iso(),
+        }
+        engine_aware_upsert(conn, "walkforward_results", results_row, action="replace")
         if oos_trades_per_window is not None:
             for i, trades in enumerate(oos_trades_per_window):
                 window_sharpe = (
@@ -351,34 +346,33 @@ def persist_run_result(
                     if i < len(result.window_metrics) else 0.0
                 )
                 for t in trades:
-                    conn.execute(
-                        "INSERT OR REPLACE INTO walkforward_trades ("
-                        "trade_id, run_id, window_index, is_in_is_window, "
-                        "ticker, entry_date, exit_date, entry_price, "
-                        "exit_price, pnl_pct, excess_return, exit_reason, "
-                        "hold_days, vix_at_entry, vix_tier, purged, "
-                        "embargoed, sharpe_observed, bootstrap_se, mde_value"
-                        ") VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-                        "?, ?, 0, 0, ?, ?, ?)",
-                        (
+                    trade_row = {
+                        "trade_id": (
                             getattr(t, "trade_id", None)
                             or (t.get("trade_id") if isinstance(t, dict) else None)
-                            or str(uuid.uuid4()),
-                            result.run_id, i,
-                            getattr(t, "ticker", None) or (t.get("ticker") if isinstance(t, dict) else None),
-                            getattr(t, "entry_date", None) or (t.get("entry_date") if isinstance(t, dict) else None),
-                            getattr(t, "exit_date", None) or (t.get("exit_date") if isinstance(t, dict) else None),
-                            getattr(t, "entry_price", None) or (t.get("entry_price") if isinstance(t, dict) else None),
-                            getattr(t, "exit_price", None) or (t.get("exit_price") if isinstance(t, dict) else None),
-                            getattr(t, "pnl_pct", None) or (t.get("pnl_pct") if isinstance(t, dict) else None),
-                            getattr(t, "excess_return", None) or (t.get("excess_return") if isinstance(t, dict) else None),
-                            getattr(t, "exit_reason", None) or (t.get("exit_reason") if isinstance(t, dict) else None),
-                            getattr(t, "hold_days", None) or (t.get("hold_days") if isinstance(t, dict) else None),
-                            getattr(t, "vix_at_entry", None) or (t.get("vix_at_entry") if isinstance(t, dict) else None),
-                            _assign_vix_tier(t),
-                            window_sharpe, window_bse, window_mde,
+                            or str(uuid.uuid4())
                         ),
-                    )
+                        "run_id": result.run_id,
+                        "window_index": i,
+                        "is_in_is_window": 0,
+                        "ticker": getattr(t, "ticker", None) or (t.get("ticker") if isinstance(t, dict) else None),
+                        "entry_date": getattr(t, "entry_date", None) or (t.get("entry_date") if isinstance(t, dict) else None),
+                        "exit_date": getattr(t, "exit_date", None) or (t.get("exit_date") if isinstance(t, dict) else None),
+                        "entry_price": getattr(t, "entry_price", None) or (t.get("entry_price") if isinstance(t, dict) else None),
+                        "exit_price": getattr(t, "exit_price", None) or (t.get("exit_price") if isinstance(t, dict) else None),
+                        "pnl_pct": getattr(t, "pnl_pct", None) or (t.get("pnl_pct") if isinstance(t, dict) else None),
+                        "excess_return": getattr(t, "excess_return", None) or (t.get("excess_return") if isinstance(t, dict) else None),
+                        "exit_reason": getattr(t, "exit_reason", None) or (t.get("exit_reason") if isinstance(t, dict) else None),
+                        "hold_days": getattr(t, "hold_days", None) or (t.get("hold_days") if isinstance(t, dict) else None),
+                        "vix_at_entry": getattr(t, "vix_at_entry", None) or (t.get("vix_at_entry") if isinstance(t, dict) else None),
+                        "vix_tier": _assign_vix_tier(t),
+                        "purged": 0,
+                        "embargoed": 0,
+                        "sharpe_observed": window_sharpe,
+                        "bootstrap_se": window_bse,
+                        "mde_value": window_mde,
+                    }
+                    engine_aware_upsert(conn, "walkforward_trades", trade_row, action="replace")
         conn.commit()
     finally:
         conn.close()

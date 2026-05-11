@@ -1,6 +1,8 @@
 """Integration tests for the walk-forward runner (R1–R8 wired)."""
 from __future__ import annotations
 
+import os
+import sqlite3
 from dataclasses import dataclass
 from datetime import date, timedelta
 
@@ -323,3 +325,301 @@ def test_runner_three_outcome_states_all_reachable():
     }
     r = run_walkforward(spec, cfg_pass, pass_trades)
     assert r.outcome.outcome_state == STATE_PASS
+
+
+# ---------------------------------------------------------------------------
+# Sprint 5 §J5/§J6 Phase 1 T1.15 — persist_run_result engine_aware_upsert dual-engine
+# ---------------------------------------------------------------------------
+#
+# Test strategy (per T1.15 brief):
+#   * walkforward_results AND walkforward_trades both classified
+#     `in_place_update` per T0.12 audit §5.7 + §5.8. Both are written by
+#     persist_run_result() in src/platform/rigor/walkforward_runner.py — the
+#     parent-then-child INSERT pattern via `run_id` is NOT declared as a
+#     registry ForeignKey (audit §6.2), so the dispatch behavior is uniform
+#     across engines: replace-on-PK without cascade.
+#   * Parametrized across [sqlite, postgres] like
+#     tests/evaluation/test_build_score.py — PG path skips cleanly when
+#     TEST_DATABASE_URL / DATABASE_URL is not a postgres:// URL.
+#   * Each test exercises the engine_aware_upsert helper directly with
+#     deterministic PKs so the REPLACE conflict path actually fires; on the
+#     second insert with same PK, non-target columns must be updated.
+
+TEST_PG_URL = os.environ.get("TEST_DATABASE_URL") or os.environ.get(
+    "DATABASE_URL", ""
+)
+_PG_AVAILABLE = TEST_PG_URL.startswith("postgres")
+
+
+def _build_sqlite_ddl_runner(table_name):
+    """Return SQLite CREATE TABLE SQL for one of the audited tables."""
+    from src.schema.registry import TABLES
+
+    td = TABLES[table_name]
+    cols = []
+    for c in td.columns:
+        nn = "" if c.nullable else " NOT NULL"
+        cols.append(f"{c.name} {c.type}{nn}")
+    pk = td.primary_key if isinstance(td.primary_key, list) else [td.primary_key]
+    cols.append(f"PRIMARY KEY ({', '.join(pk)})")
+    body = ",\n    ".join(cols)
+    return f"CREATE TABLE {table_name} (\n    {body}\n);"
+
+
+def _build_pg_ddl_runner(table_name):
+    """Return Postgres CREATE TABLE SQL for one of the audited tables."""
+    from src.schema.postgres import generate_create_table_sql
+    from src.schema.registry import TABLES
+
+    return generate_create_table_sql(TABLES[table_name])
+
+
+@pytest.fixture
+def sqlite_conn_runner():
+    """In-memory SQLite connection with row_factory=sqlite3.Row."""
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    yield conn
+    conn.close()
+
+
+@pytest.fixture
+def pg_conn_runner():
+    """Live psycopg2 wrapper. Skips if TEST_DATABASE_URL not set."""
+    if not _PG_AVAILABLE:
+        pytest.skip("TEST_DATABASE_URL / DATABASE_URL not set or not postgres://")
+
+    import psycopg2
+    import psycopg2.extras
+
+    from src.utils.db import PostgresConnectionWrapper
+
+    raw = psycopg2.connect(
+        TEST_PG_URL, cursor_factory=psycopg2.extras.RealDictCursor
+    )
+    wrapper = PostgresConnectionWrapper(raw)
+    yield wrapper
+    try:
+        wrapper.rollback()
+    except Exception:
+        pass
+    wrapper.close()
+
+
+def _setup_walkforward_table(conn, table_name):
+    """Drop+recreate `table_name` on whichever engine `conn` is for."""
+    from src.utils.db import PostgresConnectionWrapper
+
+    if isinstance(conn, PostgresConnectionWrapper):
+        cur = conn.cursor()
+        cur.execute(f"DROP TABLE IF EXISTS {table_name} CASCADE")
+        cur.execute(_build_pg_ddl_runner(table_name))
+        conn.commit()
+    else:
+        conn.execute(f"DROP TABLE IF EXISTS {table_name}")
+        conn.execute(_build_sqlite_ddl_runner(table_name))
+        conn.commit()
+
+
+def _get_runner_conn(request):
+    """Return the conn fixture matching the parametrized engine."""
+    engine = request.param
+    if engine == "sqlite":
+        return request.getfixturevalue("sqlite_conn_runner")
+    elif engine == "postgres":
+        return request.getfixturevalue("pg_conn_runner")
+    raise ValueError(f"unknown engine: {engine}")
+
+
+@pytest.fixture(params=["sqlite", "postgres"])
+def conn_engine_runner(request):
+    return _get_runner_conn(request)
+
+
+def _count_rows_runner(conn, table):
+    cur = conn.cursor()
+    cur.execute(f"SELECT COUNT(*) AS c FROM {table}")
+    row = cur.fetchone()
+    return row["c"] if hasattr(row, "keys") and "c" in row.keys() else row[0]
+
+
+def _walkforward_results_row(run_id, outcome_state="PASS", pooled_sharpe=1.5,
+                              reason="ok"):
+    """Construct a minimal walkforward_results row dict."""
+    return {
+        "run_id": run_id,
+        "strategy_id": "wf_t1.15",
+        "spec_hash": "deadbeef",
+        "code_git_sha": None,
+        "random_seed": 42,
+        "config_json": "{}",
+        "outcome_state": outcome_state,
+        "reason": reason,
+        "pooled_sharpe": pooled_sharpe,
+        "pooled_mde": 0.3,
+        "heavy_tail_flag": 0,
+        "heavy_tail_window_count": 0,
+        "n_windows": 5,
+        "n_windows_pass": 4,
+        "n_windows_fail": 1,
+        "n_windows_inconclusive_data": 0,
+        "n_windows_inconclusive_power": 0,
+        "n_windows_inconclusive_duration": 0,
+        "derived_from_source_type": None,
+        "derived_from_source_run_id": None,
+        "effective_universe_size": 100,
+        "max_drawdown_pct": -5.5,
+        "vix_tier_coverage": 3,
+        "created_at": "2026-05-11T10:00:00",
+    }
+
+
+def _walkforward_trades_row(trade_id, run_id, pnl_pct=0.01, vix_tier="MID"):
+    """Construct a minimal walkforward_trades row dict."""
+    return {
+        "trade_id": trade_id,
+        "run_id": run_id,
+        "window_index": 0,
+        "is_in_is_window": 0,
+        "ticker": "AAPL",
+        "entry_date": "2020-01-15",
+        "exit_date": "2020-01-25",
+        "entry_price": 100.0,
+        "exit_price": 101.0,
+        "pnl_pct": pnl_pct,
+        "excess_return": 0.005,
+        "exit_reason": "timeout",
+        "hold_days": 10,
+        "vix_at_entry": 18.0,
+        "vix_tier": vix_tier,
+        "purged": 0,
+        "embargoed": 0,
+        "quarantined": 0,
+        "sharpe_observed": 0.5,
+        "bootstrap_se": 0.1,
+        "mde_value": 0.3,
+    }
+
+
+class TestWalkforwardResultsEngineAwareUpsert:
+    """T1.15: walkforward_results.engine_aware_upsert dual-engine coverage."""
+
+    def test_first_insert_lands_row(self, conn_engine_runner):
+        """T1.15 #1: first insert against walkforward_results lands the row."""
+        from src.utils.db import engine_aware_upsert
+
+        conn = conn_engine_runner
+        _setup_walkforward_table(conn, "walkforward_results")
+
+        row = _walkforward_results_row("fixed-run-1", outcome_state="PASS")
+        engine_aware_upsert(conn, "walkforward_results", row, action="replace")
+        conn.commit()
+
+        assert _count_rows_runner(conn, "walkforward_results") == 1
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM walkforward_results WHERE run_id=?", ("fixed-run-1",)
+        )
+        fetched = cur.fetchone()
+        assert fetched["outcome_state"] == "PASS"
+        assert fetched["pooled_sharpe"] == 1.5
+
+    def test_replace_updates_existing_row(self, conn_engine_runner):
+        """T1.15 #2: re-upserting same run_id UPDATES non-target columns."""
+        from src.utils.db import engine_aware_upsert
+
+        conn = conn_engine_runner
+        _setup_walkforward_table(conn, "walkforward_results")
+
+        row1 = _walkforward_results_row(
+            "fixed-run-2", outcome_state="INCONCLUSIVE", pooled_sharpe=0.5,
+            reason="coverage_inconclusive",
+        )
+        engine_aware_upsert(conn, "walkforward_results", row1, action="replace")
+
+        # Second persist with same run_id but updated outcome (re-rerun)
+        row2 = _walkforward_results_row(
+            "fixed-run-2", outcome_state="PASS", pooled_sharpe=2.1,
+            reason="ok",
+        )
+        engine_aware_upsert(conn, "walkforward_results", row2, action="replace")
+        conn.commit()
+
+        assert _count_rows_runner(conn, "walkforward_results") == 1
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM walkforward_results WHERE run_id=?", ("fixed-run-2",)
+        )
+        fetched = cur.fetchone()
+        assert fetched["outcome_state"] == "PASS"
+        assert fetched["pooled_sharpe"] == 2.1
+        assert fetched["reason"] == "ok"
+
+
+class TestWalkforwardTradesEngineAwareUpsert:
+    """T1.15: walkforward_trades.engine_aware_upsert dual-engine coverage."""
+
+    def test_first_insert_lands_row(self, conn_engine_runner):
+        """T1.15 #3: first insert against walkforward_trades lands the row."""
+        from src.utils.db import engine_aware_upsert
+
+        conn = conn_engine_runner
+        _setup_walkforward_table(conn, "walkforward_trades")
+
+        row = _walkforward_trades_row("fixed-trade-1", "fixed-run-1",
+                                       pnl_pct=0.025)
+        engine_aware_upsert(conn, "walkforward_trades", row, action="replace")
+        conn.commit()
+
+        assert _count_rows_runner(conn, "walkforward_trades") == 1
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM walkforward_trades WHERE trade_id=?",
+            ("fixed-trade-1",),
+        )
+        fetched = cur.fetchone()
+        assert fetched["pnl_pct"] == 0.025
+        assert fetched["ticker"] == "AAPL"
+
+    def test_replace_updates_existing_row(self, conn_engine_runner):
+        """T1.15 #4: re-upserting same trade_id UPDATES non-target columns."""
+        from src.utils.db import engine_aware_upsert
+
+        conn = conn_engine_runner
+        _setup_walkforward_table(conn, "walkforward_trades")
+
+        row1 = _walkforward_trades_row("fixed-trade-2", "fixed-run-1",
+                                        pnl_pct=0.01, vix_tier="LOW")
+        engine_aware_upsert(conn, "walkforward_trades", row1, action="replace")
+
+        # Re-persist same trade_id with updated pnl + vix_tier
+        row2 = _walkforward_trades_row("fixed-trade-2", "fixed-run-1",
+                                        pnl_pct=0.05, vix_tier="HIGH")
+        engine_aware_upsert(conn, "walkforward_trades", row2, action="replace")
+        conn.commit()
+
+        assert _count_rows_runner(conn, "walkforward_trades") == 1
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM walkforward_trades WHERE trade_id=?",
+            ("fixed-trade-2",),
+        )
+        fetched = cur.fetchone()
+        assert fetched["pnl_pct"] == 0.05
+        assert fetched["vix_tier"] == "HIGH"
+
+
+def test_persist_run_result_no_literal_insert_or_replace_in_source():
+    """T1.15 lock-in: walkforward_runner.py must not contain `INSERT OR REPLACE`."""
+    from pathlib import Path
+
+    runner_path = (
+        Path(__file__).resolve().parents[3]
+        / "src" / "platform" / "rigor" / "walkforward_runner.py"
+    )
+    source = runner_path.read_text(encoding="utf-8")
+    assert "INSERT OR REPLACE" not in source, (
+        "src/platform/rigor/walkforward_runner.py must not contain literal "
+        "`INSERT OR REPLACE` after T1.15 migration; use "
+        "engine_aware_upsert(action='replace') via src.utils.db instead."
+    )
