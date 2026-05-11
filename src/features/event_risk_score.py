@@ -42,13 +42,20 @@ def _coerce_date(value: str | date | datetime | None) -> date | None:
             return None
 
 
-def _get_table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
-    """Return lowercase column names for a table, or an empty set."""
+def _get_table_columns(conn, table_name: str) -> set[str]:
+    """Return lowercase column names for a table, or an empty set.
+
+    Sprint 5 §J5/§J6 Phase 2 T2.3 — uses engine_aware_column_info so the
+    helper works on both SQLite (PRAGMA-backed) and PostgreSQL
+    (information_schema-backed) connections.
+    """
+    from src.utils.db import engine_aware_column_info
+
     try:
-        rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
-    except sqlite3.Error:
+        rows = engine_aware_column_info(conn, table_name)
+    except Exception:
         return set()
-    return {str(row[1]).lower() for row in rows}
+    return {str(row["name"]).lower() for row in rows}
 
 
 def _load_fallback_events(reference_date: date) -> list[dict]:
