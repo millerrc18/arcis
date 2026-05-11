@@ -49,6 +49,163 @@ BUSY_TIMEOUT_MS = 30_000  # 30s — rides through typical external-tool locks
 _SENTINEL = object()
 
 
+def _rewrite_question_to_pct(sql: str) -> str:
+    """Rewrite `?` placeholders to `%s` and escape unpaired `%` to `%%`.
+
+    Quote-aware tokenizer for the SQLite-style placeholder → psycopg2 style
+    rewrite (Sprint 5 §J5/§J6 Phase 0 T0.2 — Modified-A migration).
+
+    Devil's Advocate C1 + M1 framing:
+
+    - C1: psycopg2 uses Python's `%` formatting for parameter binding. ANY
+      `%` character in the SQL string (including those inside `'...'` string
+      literals like `LIKE '%position%'`) is treated as a format spec when
+      `cursor.execute(sql, params)` is called with a non-None `params`.
+      Unrecognised format specs crash with `IndexError: tuple index out of
+      range`. The fix: when the SQL contains a `?` that we're rewriting to
+      `%s` (signalling format-binding will happen), ALL literal `%` chars
+      must be doubled to `%%` so they survive binding as a single `%`. This
+      doubling applies inside AND outside string literals — psycopg2 doesn't
+      parse SQL, only Python `%` formatting.
+
+    - M1: literal `?` characters inside single-quoted SQL string literals
+      must NOT be rewritten (they're data, not placeholders). The naive
+      `sql.replace('?', '%s')` prototype at cloud_routes/platform.py:59 gets
+      this wrong; this state-machine tokenizer gets it right.
+
+    Two-pass strategy:
+
+    Pass 1 (single tokenizer walk): determine if any `?` outside a string
+    literal exists. If yes, the caller will supply params and psycopg2 will
+    format-bind, so `%` must be escaped EVERYWHERE.
+
+    Pass 2 (single tokenizer walk): produce the rewritten string with the
+    decision from pass 1 applied.
+
+    Why uniform-everywhere rather than outside-only: empirically, psycopg2
+    crashes on `LIKE '%foo%' AND id=%s` with `(1,)` params because it tries
+    to interpret `%f` as a format spec. The audit doc T0.0 mis-states this
+    contract — see the docstring's "C1" paragraph for the empirical
+    correction. Tests 8-10 + the JSON-fragment test in
+    `tests/test_db_wrapper_rewrite.py` exercise this rule against a live
+    PG fixture.
+
+    When the SQL contains NO `?` outside literals: this function leaves the
+    string unchanged (no rewrite, no escape). Callers without `?` won't
+    pass params, psycopg2 won't format-bind, and existing literal `%` chars
+    stay as data — exactly what `LIKE 'PCT%'`-style ad-hoc SELECT needs.
+
+    State transitions for both passes:
+        OUTSIDE -> IN_SINGLE on first `'`
+        IN_SINGLE -> OUTSIDE on closing `'` (consecutive `''` is an embedded
+                     quote per ANSI SQL — consume both and stay IN_SINGLE)
+        OUTSIDE -> IN_DOUBLE on first `"`
+        IN_DOUBLE -> OUTSIDE on closing `"` (PG identifier — no embedded
+                     escapes per the SQL standard)
+    """
+    # Pass 1: detect any `?` outside string literals.
+    has_question_outside = False
+    state = "OUTSIDE"
+    i = 0
+    n = len(sql)
+    while i < n:
+        c = sql[i]
+        if state == "OUTSIDE":
+            if c == "'":
+                state = "IN_SINGLE"
+            elif c == '"':
+                state = "IN_DOUBLE"
+            elif c == "?":
+                has_question_outside = True
+                break
+            i += 1
+        elif state == "IN_SINGLE":
+            if c == "'":
+                if i + 1 < n and sql[i + 1] == "'":
+                    i += 2
+                    continue
+                state = "OUTSIDE"
+            i += 1
+        else:  # IN_DOUBLE
+            if c == '"':
+                state = "OUTSIDE"
+            i += 1
+
+    if not has_question_outside:
+        # No format-binding will happen. Leave SQL unchanged so literal `%`
+        # in patterns like `LIKE 'PCT%'` reaches PG verbatim.
+        return sql
+
+    # Pass 2: rewrite `?` -> `%s` outside literals, escape every literal `%`
+    # to `%%` (inside AND outside literals) so format-binding renders it as
+    # a single `%` in the executed SQL. Pre-existing `%s`/`%%`/`%(name)s`
+    # outside literals are preserved (already-valid psycopg2 syntax).
+    out = []
+    state = "OUTSIDE"
+    i = 0
+    while i < n:
+        c = sql[i]
+        if state == "OUTSIDE":
+            if c == "'":
+                state = "IN_SINGLE"
+                out.append(c)
+                i += 1
+            elif c == '"':
+                state = "IN_DOUBLE"
+                out.append(c)
+                i += 1
+            elif c == "?":
+                out.append("%s")
+                i += 1
+            elif c == "%":
+                nxt = sql[i + 1] if i + 1 < n else ""
+                if nxt in ("s", "%", "(", "d"):
+                    # Already a psycopg2 placeholder or escape sequence;
+                    # don't double.
+                    out.append(c)
+                    i += 1
+                else:
+                    out.append("%%")
+                    i += 1
+            else:
+                out.append(c)
+                i += 1
+        elif state == "IN_SINGLE":
+            if c == "'":
+                if i + 1 < n and sql[i + 1] == "'":
+                    out.append("''")
+                    i += 2
+                else:
+                    state = "OUTSIDE"
+                    out.append(c)
+                    i += 1
+            elif c == "%":
+                # C1: literal `%` inside a string literal must also be
+                # escaped — psycopg2 doesn't know about SQL string-literal
+                # quoting, so an unescaped `%` triggers format-spec parsing
+                # regardless of position.
+                out.append("%%")
+                i += 1
+            else:
+                out.append(c)
+                i += 1
+        else:  # IN_DOUBLE
+            if c == '"':
+                state = "OUTSIDE"
+                out.append(c)
+                i += 1
+            elif c == "%":
+                # PG double-quoted identifiers don't normally contain `%`,
+                # but escape defensively just in case (same rationale as
+                # IN_SINGLE).
+                out.append("%%")
+                i += 1
+            else:
+                out.append(c)
+                i += 1
+    return "".join(out)
+
+
 def _resolve_conflict_target(table_name: str) -> list[str]:
     """Return the ON CONFLICT target columns for `table_name`.
 
@@ -145,14 +302,25 @@ class _RowFactoryCursor:
     CompatRow on the way out. `fetchone()` returns `None` (not a CompatRow)
     when the cursor is exhausted, matching DB-API 2.0 semantics.
 
-    `execute`, `executemany`, `close`, and other cursor attributes pass
-    through unchanged via `__getattr__`. The `PostgresConnectionWrapper` layer
-    is responsible for any SQL rewrites (`?` -> `%s`, etc.) before the SQL
-    reaches this cursor.
+    `execute` and `executemany` rewrite the SQL via `_rewrite_question_to_pct`
+    before delegating, so call sites that pass SQLite-style `?` placeholders
+    transparently get the `%s` form psycopg2 expects (Sprint 5 §J5/§J6 Phase
+    0 T0.2). `close`, `fetchone`, and other attributes pass through
+    unchanged via `__getattr__` (fetch* wrap rows in CompatRow).
     """
 
     def __init__(self, inner_cursor):
         self._cursor = inner_cursor
+
+    def execute(self, sql, params=None):
+        rewritten = _rewrite_question_to_pct(sql)
+        if params is None:
+            return self._cursor.execute(rewritten)
+        return self._cursor.execute(rewritten, params)
+
+    def executemany(self, sql, params_seq):
+        rewritten = _rewrite_question_to_pct(sql)
+        return self._cursor.executemany(rewritten, params_seq)
 
     def fetchone(self):
         row = self._cursor.fetchone()
@@ -188,19 +356,24 @@ class PostgresConnectionWrapper:
         self.row_factory = None
 
     def cursor(self):
-        return self._conn.cursor()
+        # Wrap in _RowFactoryCursor so callers that do
+        # `wrapper.cursor().execute(sql, params)` also route SQL through the
+        # quote-aware `?`->`%s` rewrite (Sprint 5 §J5/§J6 Phase 0 T0.2).
+        return _RowFactoryCursor(self._conn.cursor())
 
     def execute(self, sql, params=None):
+        rewritten = _rewrite_question_to_pct(sql)
         cur = self._conn.cursor()
         if params is None:
-            cur.execute(sql)
+            cur.execute(rewritten)
         else:
-            cur.execute(sql, params)
+            cur.execute(rewritten, params)
         return cur
 
     def executemany(self, sql, params):
+        rewritten = _rewrite_question_to_pct(sql)
         cur = self._conn.cursor()
-        cur.executemany(sql, params)
+        cur.executemany(rewritten, params)
         return cur
 
     def commit(self):
