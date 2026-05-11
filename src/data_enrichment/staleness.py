@@ -16,7 +16,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
-from src.utils.db import connect_db
+from src.utils.db import connect_db, engine_aware_upsert
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -38,11 +38,17 @@ def record_fetch(source: str, ticker: str, db_path: str = DB_PATH) -> None:
     now = datetime.now(ET).isoformat()
     try:
         with connect_db(db_path) as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO data_freshness "
-                "(source, ticker, last_fetched_at, status, created_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (source, ticker, now, "acceptable", now),
+            engine_aware_upsert(
+                conn,
+                "data_freshness",
+                {
+                    "source": source,
+                    "ticker": ticker,
+                    "last_fetched_at": now,
+                    "status": "acceptable",
+                    "created_at": now,
+                },
+                action="replace",
             )
             conn.commit()
     except Exception as e:
