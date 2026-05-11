@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Sprint S1-CC Batch A — Stage 1 corpus closeout
+
+### Added
+
+- Stage 1 corpus generation complete (67,528 entries, §B2 admissibility PASS, manifest pinned at SHA256 `43c2e3ed...0d93` per `data/corpus/stage1-001/MANIFEST.md`). Cold-read verdict PASS → proceed to walk-forward framework scoping (S1-CC Batch B).
+
 ### SP5 §J5/§J6 Phase 0 — Modified-A migration (T0.7)
 
 - **`src/schema/registry.py`** — added `sync_conflict_col="event_type, dedup_key"` to the `notifications_dedup` TableDef. The PK `id` is autoincrement; uniqueness is enforced via the composite index on `(event_type, dedup_key)` at registry.py:2543 — that composite is the natural ON CONFLICT target. Prerequisite for the SP5 §J5 `engine_aware_upsert` migration at `src/notifications/platform_events.py:96` (tracked as T1.7 in Phase 1).
