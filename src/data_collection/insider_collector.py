@@ -30,7 +30,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from src.config import DB_PATH
-from src.utils.db import connect_db
+from src.utils.db import connect_db, engine_aware_upsert
 from src.utils.retry import retry_with_backoff
 
 logger = logging.getLogger(__name__)
@@ -114,25 +114,24 @@ def collect_insider_transactions(
                     price = txn.get("transactionPrice", 0) or 0
                     value = abs(shares * price) if shares and price else None
 
-                    conn.execute(
-                        """INSERT INTO insider_transactions
-                        (ticker, insider_name, title, transaction_type,
-                         transaction_date, filing_date, shares, price,
-                         value, shares_after, source, collected_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'finnhub', ?)""",
-                        (
-                            ticker,
-                            txn.get("name"),
-                            txn.get("position", txn.get("title")),
-                            txn.get("transactionCode"),
-                            txn.get("transactionDate"),
-                            filing_date,
-                            shares,
-                            price,
-                            value,
-                            txn.get("share"),
-                            collected_at,
-                        ),
+                    engine_aware_upsert(
+                        conn,
+                        "insider_transactions",
+                        {
+                            "ticker": ticker,
+                            "insider_name": txn.get("name"),
+                            "title": txn.get("position", txn.get("title")),
+                            "transaction_type": txn.get("transactionCode"),
+                            "transaction_date": txn.get("transactionDate"),
+                            "filing_date": filing_date,
+                            "shares": shares,
+                            "price": price,
+                            "value": value,
+                            "shares_after": txn.get("share"),
+                            "source": "finnhub",
+                            "collected_at": collected_at,
+                        },
+                        action="ignore",
                     )
                     transactions_stored += 1
 
