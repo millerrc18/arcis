@@ -485,3 +485,218 @@ def configure_sqlite_for_production(conn) -> None:
 # it via `from src.utils.db import _sqlite_only_connect`. The canonical
 # implementation lives in src/schema/sqlite.py — see Sprint 5 §J5/§J6 phase 0.
 from src.schema.sqlite import _sqlite_only_connect  # noqa: E402,F401
+
+
+# ---------------------------------------------------------------------------
+# Sprint 5 §J5/§J6 Phase 0 T0.4 — central UPSERT helper
+# ---------------------------------------------------------------------------
+#
+# Devil's Advocate C2 (REPLACE-semantic divergence between engines):
+#
+#   SQLite's `INSERT OR REPLACE` does DELETE-then-INSERT (one atomic step):
+#     • ON DELETE triggers fire
+#     • ON DELETE CASCADE FKs cascade to child rows
+#     • AUTOINCREMENT rowid is reassigned
+#
+#   PG's `INSERT ... ON CONFLICT ... DO UPDATE` does in-place UPDATE:
+#     • Triggers don't fire (the row is updated, not deleted)
+#     • CASCADE doesn't fire
+#     • ctid / rowid is preserved
+#
+#   For tables with NO incoming FKs, NO triggers, and NO rowid-dependent
+#   readers, these two paths are functionally identical. The T0.12 audit
+#   (docs/audits/2026-05-11-modified-a-migration/replace-semantics-audit.md)
+#   classified all 9 Phase 1 `action='replace'` target tables as such — they
+#   are dispatched as `in_place_update`. The `delete_insert` branch is
+#   implemented so that future tables that DO have cascade dependencies can
+#   route through it without code churn — the dispatch table is the policy
+#   surface.
+#
+# The audit's `_REPLACE_SEMANTICS` dict below MUST match the audit doc §7
+# verbatim. The test_replace_semantics_dict_matches_audit_verbatim test in
+# tests/test_db_engine_aware_upsert.py pins this.
+
+_REPLACE_SEMANTICS = {
+    "data_freshness": "in_place_update",
+    "build_score_history": "in_place_update",
+    "config_overrides": "in_place_update",
+    "system_metrics": "in_place_update",
+    "council_parameter_state": "in_place_update",
+    "simulation_results": "in_place_update",
+    "walkforward_results": "in_place_update",
+    "walkforward_trades": "in_place_update",
+    "sp100_historical_constituents": "in_place_update",
+}
+
+
+def _require_classified_replace(table_name):
+    """Raise ValueError if `table_name` is not in `_REPLACE_SEMANTICS`.
+
+    Sprint 5 §J5/§J6 Phase 0 T0.4 (Devil's Advocate C2): forces every future
+    `action='replace'` target through the T0.12-style audit before its
+    dispatch lands. Without this guard, a Phase-2+ refactor could silently
+    add a new replace target whose SQLite-vs-PG semantics diverge and
+    corrupt FK-related data over the 7-day observability window.
+    """
+    if table_name not in _REPLACE_SEMANTICS:
+        raise ValueError(
+            f"engine_aware_upsert(action='replace') called on table "
+            f"{table_name!r} without semantic classification — add to "
+            f"_REPLACE_SEMANTICS dict in src/utils/db.py (see "
+            f"docs/audits/2026-05-11-modified-a-migration/"
+            f"replace-semantics-audit.md for the classification procedure)"
+        )
+
+
+def _transactional_delete_insert(conn, table_name, row_dict, conflict_target):
+    """Atomic DELETE + INSERT pair inside the existing transaction.
+
+    Used by `engine_aware_upsert` when a table is classified `delete_insert`
+    in `_REPLACE_SEMANTICS` (T0.12 audit found 0 such tables in Phase 1,
+    but the branch exists for future tables that DO need cascade semantics).
+
+    On any exception during DELETE or INSERT, `conn.rollback()` is called
+    so the DELETE half doesn't persist. Caller re-raises the original
+    exception so the failure surfaces to the application layer.
+    """
+    col_names = list(row_dict.keys())
+    col_values = tuple(row_dict[c] for c in col_names)
+    cols_sql = ", ".join(col_names)
+    placeholders = ", ".join(["?"] * len(col_names))
+    where_clause = " AND ".join(f"{c}=?" for c in conflict_target)
+    target_values = tuple(row_dict[c] for c in conflict_target)
+    try:
+        conn.execute(
+            f"DELETE FROM {table_name} WHERE {where_clause}", target_values
+        )
+        conn.execute(
+            f"INSERT INTO {table_name} ({cols_sql}) VALUES ({placeholders})",
+            col_values,
+        )
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def _pg_replace_in_place(conn, table_name, row_dict, conflict_target):
+    """INSERT ... ON CONFLICT (target) DO UPDATE SET non_target=EXCLUDED.non_target.
+
+    PG path for `in_place_update`-classified tables. Computes the SET clause
+    from the columns the caller actually supplied — any column in the
+    conflict target itself is excluded (PG forbids updating a column that
+    appears in the conflict specification).
+    """
+    col_names = list(row_dict.keys())
+    col_values = tuple(row_dict[c] for c in col_names)
+    cols_sql = ", ".join(col_names)
+    placeholders = ", ".join(["?"] * len(col_names))
+    target_sql = ", ".join(conflict_target)
+    non_target_cols = [c for c in col_names if c not in conflict_target]
+    if non_target_cols:
+        set_sql = ", ".join(f"{c}=EXCLUDED.{c}" for c in non_target_cols)
+        sql = (
+            f"INSERT INTO {table_name} ({cols_sql}) VALUES ({placeholders}) "
+            f"ON CONFLICT ({target_sql}) DO UPDATE SET {set_sql}"
+        )
+    else:
+        sql = (
+            f"INSERT INTO {table_name} ({cols_sql}) VALUES ({placeholders}) "
+            f"ON CONFLICT ({target_sql}) DO NOTHING"
+        )
+    conn.execute(sql, col_values)
+
+
+def _dispatch_pg(conn, table_name, row_dict, action, conflict_target):
+    """PG dispatch — `ignore` → DO NOTHING; `replace` → consult _REPLACE_SEMANTICS."""
+    col_names = list(row_dict.keys())
+    col_values = tuple(row_dict[c] for c in col_names)
+    cols_sql = ", ".join(col_names)
+    placeholders = ", ".join(["?"] * len(col_names))
+    target_sql = ", ".join(conflict_target)
+
+    if action == "ignore":
+        sql = (
+            f"INSERT INTO {table_name} ({cols_sql}) VALUES ({placeholders}) "
+            f"ON CONFLICT ({target_sql}) DO NOTHING"
+        )
+        conn.execute(sql, col_values)
+        return
+
+    _require_classified_replace(table_name)
+    semantic = _REPLACE_SEMANTICS[table_name]
+    if semantic == "in_place_update":
+        _pg_replace_in_place(conn, table_name, row_dict, conflict_target)
+    elif semantic == "delete_insert":
+        _transactional_delete_insert(conn, table_name, row_dict, conflict_target)
+    else:
+        raise ValueError(
+            f"engine_aware_upsert: _REPLACE_SEMANTICS[{table_name!r}]="
+            f"{semantic!r} — expected 'in_place_update' or 'delete_insert'"
+        )
+
+
+def _dispatch_sqlite(conn, table_name, row_dict, action, conflict_target):
+    """SQLite dispatch — INSERT OR REPLACE / INSERT OR IGNORE."""
+    col_names = list(row_dict.keys())
+    col_values = tuple(row_dict[c] for c in col_names)
+    cols_sql = ", ".join(col_names)
+    placeholders = ", ".join(["?"] * len(col_names))
+
+    if action == "ignore":
+        sql = f"INSERT OR IGNORE INTO {table_name} ({cols_sql}) VALUES ({placeholders})"
+        conn.execute(sql, col_values)
+        return
+
+    # action == 'replace' — gate through the audit dispatch table even on
+    # SQLite so the side that has DELETE+INSERT semantics natively doesn't
+    # let a future Phase-2+ caller silently bypass the audit.
+    _require_classified_replace(table_name)
+    semantic = _REPLACE_SEMANTICS[table_name]
+    if semantic == "delete_insert":
+        _transactional_delete_insert(conn, table_name, row_dict, conflict_target)
+    else:
+        # in_place_update on SQLite → native INSERT OR REPLACE (DELETE+INSERT
+        # is the SQLite semantic; reader-invisible for all 9 audited tables).
+        sql = (
+            f"INSERT OR REPLACE INTO {table_name} ({cols_sql}) "
+            f"VALUES ({placeholders})"
+        )
+        conn.execute(sql, col_values)
+
+
+def engine_aware_upsert(conn, table_name, row_dict, action="replace"):
+    """Engine-agnostic UPSERT — dispatch by engine + action.
+
+    Used by 17 Phase 1 call sites that need to dedup-insert rows on both
+    SQLite and PostgreSQL. Resolves the conflict target via
+    `_resolve_conflict_target` (T0.3) — honoring sync_conflict_col over
+    primary_key — then dispatches per engine:
+
+    - SQLite: `INSERT OR REPLACE/IGNORE INTO {table} ...` (native one-statement
+      atomic DELETE+INSERT or skip-on-conflict).
+    - PG action='ignore': `INSERT ... ON CONFLICT (target) DO NOTHING`
+      (mirrors the migrator's `_build_insert_sql_template` at
+      scripts/sqlite_to_pg_migrate.py:97).
+    - PG action='replace': consults `_REPLACE_SEMANTICS` (T0.12 audit).
+      `in_place_update` → ON CONFLICT DO UPDATE SET non_target=EXCLUDED.
+      `delete_insert` → transactional DELETE + INSERT.
+
+    Raises:
+        ValueError if `action` not in {'replace', 'ignore'}.
+        ValueError if `table_name` is not registered in `TABLES`.
+        ValueError if `action='replace'` and `table_name` is not in
+            `_REPLACE_SEMANTICS` — forces every future replace target through
+            the T0.12-style audit before its dispatch lands.
+
+    Sprint 5 §J5/§J6 Phase 0 T0.4 — Modified-A migration central helper.
+    """
+    if action not in ("replace", "ignore"):
+        raise ValueError(
+            f"engine_aware_upsert: action must be 'replace' or 'ignore', "
+            f"got {action!r}"
+        )
+    conflict_target = _resolve_conflict_target(table_name)
+    if isinstance(conn, PostgresConnectionWrapper):
+        _dispatch_pg(conn, table_name, row_dict, action, conflict_target)
+    else:
+        _dispatch_sqlite(conn, table_name, row_dict, action, conflict_target)
