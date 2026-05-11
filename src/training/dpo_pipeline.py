@@ -15,7 +15,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
-from src.utils.db import connect_db
+from src.utils.db import connect_db, engine_aware_upsert
 from src.training.versioning import init_training_tables
 
 logger = logging.getLogger(__name__)
@@ -103,16 +103,18 @@ def generate_preference_pairs(n_pairs: int = 100,
         # Store the pair
         pair_id = str(uuid.uuid4())
         with connect_db(db_path) as conn:
-            conn.execute(
-                "INSERT INTO preference_pairs "
-                "(pair_id, created_at, ticker, input_text, chosen_output, rejected_output, "
-                "chosen_source, rejected_source, quality_delta, notes) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (pair_id, now, row["ticker"], input_text,
-                 best["output"], worst["output"],
-                 "ollama_generated", "ollama_generated",
-                 round(delta, 2), f"Best: {best['score']:.1f}, Worst: {worst['score']:.1f}"),
-            )
+            engine_aware_upsert(conn, 'preference_pairs', {
+                'pair_id': pair_id,
+                'created_at': now,
+                'ticker': row["ticker"],
+                'input_text': input_text,
+                'chosen_output': best["output"],
+                'rejected_output': worst["output"],
+                'chosen_source': "ollama_generated",
+                'rejected_source': "ollama_generated",
+                'quality_delta': round(delta, 2),
+                'notes': f"Best: {best['score']:.1f}, Worst: {worst['score']:.1f}",
+            }, action='ignore')
             conn.commit()
         created += 1
 
