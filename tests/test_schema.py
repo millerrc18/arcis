@@ -675,3 +675,18 @@ def test_notifications_dedup_unique_event_dedup_key():
         "notifications_dedup must have a UNIQUE index on (event_type, dedup_key). "
         "Add IndexDef with unique=True and columns=['event_type', 'dedup_key']."
     )
+
+
+def test_notifications_dedup_sync_conflict_col_matches_composite_unique():
+    """SP5 §J5/§J6 Phase 0 T0.7: notifications_dedup.sync_conflict_col must be
+    'event_type, dedup_key' so engine_aware_upsert targets the composite unique
+    constraint (the natural conflict target) instead of the autoincrement PK `id`.
+    Prerequisite for the platform_events.py:96 migration in T1.7.
+    """
+    assert "notifications_dedup" in TABLES
+    td = TABLES["notifications_dedup"]
+    assert td.sync_conflict_col == "event_type, dedup_key", (
+        "notifications_dedup.sync_conflict_col must be 'event_type, dedup_key' "
+        f"(got {td.sync_conflict_col!r}). PK `id` is autoincrement; uniqueness is "
+        "enforced via the composite index — that's the natural ON CONFLICT target."
+    )
