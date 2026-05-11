@@ -480,6 +480,99 @@ def configure_sqlite_for_production(conn) -> None:
     conn.execute("PRAGMA synchronous=NORMAL")
 
 
+def engine_aware_table_list(conn) -> list[str]:
+    """Return a sorted list of base-table names in the connection's database.
+
+    Engine-aware (Sprint 5 §J5/§J6 Phase 0 T0.5):
+    - SQLite path: `SELECT name FROM sqlite_master WHERE type='table'`
+    - PG path: `SELECT tablename FROM pg_catalog.pg_tables
+               WHERE schemaname = 'public'`
+
+    The returned list is sorted alphabetically — call sites diffing
+    registry tables vs. database tables rely on a stable order.
+
+    Both paths filter system tables (SQLite internal `sqlite_*`, PG
+    `information_schema` / `pg_*`) so the result reflects only the
+    application's own tables.
+    """
+    if isinstance(conn, PostgresConnectionWrapper):
+        cur = conn.execute(
+            "SELECT tablename FROM pg_catalog.pg_tables "
+            "WHERE schemaname = 'public' ORDER BY tablename"
+        )
+        rows = cur.fetchall()
+        names = [r["tablename"] for r in rows]
+    else:
+        cur = conn.execute(
+            "SELECT name FROM sqlite_master "
+            "WHERE type='table' AND name NOT LIKE 'sqlite_%' "
+            "ORDER BY name"
+        )
+        rows = cur.fetchall()
+        names = [r[0] for r in rows]
+    return sorted(names)
+
+
+def engine_aware_column_info(conn, table_name: str) -> list:
+    """Return column metadata for `table_name`, shape matches PRAGMA table_info.
+
+    Each row exposes the six PRAGMA fields: `cid` (0-based ordinal), `name`,
+    `type`, `notnull` (1/0), `dflt_value`, `pk` (1 if column is part of the
+    primary key, else 0). Rows support dict-style access via `row["name"]`.
+
+    Engine-aware (Sprint 5 §J5/§J6 Phase 0 T0.5):
+    - SQLite path: `PRAGMA table_info(table_name)` — emits the six fields
+      natively. The cursor is wrapped to a list of dicts for cross-engine
+      access uniformity.
+    - PG path: `information_schema.columns` joined with
+      `information_schema.key_column_usage` (filtered by the pkey
+      constraint) so `pk` reflects PK membership. `cid = ordinal_position - 1`
+      to align with SQLite's 0-based ordinal.
+
+    Returns `[]` when `table_name` does not exist on either engine — this
+    matches PRAGMA table_info(missing) silent-empty behavior. Call sites
+    that need a hard error must check the result themselves.
+    """
+    if isinstance(conn, PostgresConnectionWrapper):
+        # Subquery determines whether each column is part of the table's
+        # primary key by joining the table_constraints / key_column_usage
+        # views filtered to constraint_type = 'PRIMARY KEY'.
+        sql = (
+            "SELECT "
+            "  c.ordinal_position - 1 AS cid, "
+            "  c.column_name AS name, "
+            "  c.data_type AS type, "
+            "  CASE WHEN c.is_nullable = 'NO' THEN 1 ELSE 0 END AS notnull, "
+            "  c.column_default AS dflt_value, "
+            "  CASE WHEN kcu.column_name IS NOT NULL THEN 1 ELSE 0 END AS pk "
+            "FROM information_schema.columns c "
+            "LEFT JOIN information_schema.key_column_usage kcu "
+            "  ON kcu.table_schema = c.table_schema "
+            "  AND kcu.table_name = c.table_name "
+            "  AND kcu.column_name = c.column_name "
+            "  AND kcu.constraint_name IN ( "
+            "    SELECT constraint_name FROM information_schema.table_constraints "
+            "    WHERE table_schema = c.table_schema "
+            "    AND table_name = c.table_name "
+            "    AND constraint_type = 'PRIMARY KEY' "
+            "  ) "
+            "WHERE c.table_schema = 'public' AND c.table_name = %s "
+            "ORDER BY c.ordinal_position"
+        )
+        cur = conn.execute(sql, (table_name,))
+        rows = cur.fetchall()
+        # Rows already expose CompatRow dict-style access — return as-is.
+        return list(rows)
+
+    # SQLite: PRAGMA table_info returns 6-column rows. Wrap each as a dict
+    # so callers can use `row["name"]` uniformly with the PG path. PRAGMA
+    # is silent on unknown tables, returning zero rows.
+    cur = conn.execute(f"PRAGMA table_info({table_name})")
+    rows = cur.fetchall()
+    fields = ("cid", "name", "type", "notnull", "dflt_value", "pk")
+    return [dict(zip(fields, tuple(r))) for r in rows]
+
+
 # Re-export _sqlite_only_connect so call sites that want a guaranteed SQLite
 # connection (without going through the engine-aware connect_db()) can import
 # it via `from src.utils.db import _sqlite_only_connect`. The canonical
