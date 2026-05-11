@@ -134,11 +134,6 @@
       "lines": 482
     },
     {
-      "file": "src/sync/render_sync.py",
-      "lines": 1112,
-      "rationale": "#72: periodic reconcile wiring added ~173 lines to render_sync.py (run_sync_cycle reconcile block + RenderSyncThread._maybe_run_reconcile method + reconcile_every_n_cycles gate in run())"
-    },
-    {
       "file": "src/evaluation/walkforward.py",
       "lines": 431,
       "rationale": "#82 Sprint 1.C Phase 5 deterministic-ranker shadow portfolio adds ~64 net lines (3 small helpers — _compute_shadow_delta, _build_flat_result, _assemble_with_shadow_result — plus with_shadow=True branch in run_walkforward + --with-shadow CLI flag). The shadow branch is genuinely new functionality (pre-reg §6 secondary diagnostic + addendum §A1.6 verbatim). Origin/main was 367 lines; extracting to a sibling module would split tightly-coupled fold-orchestration code across files for marginal aesthetic gain. Helpers already compressed (nested-function _powered_pnl inside _compute_shadow_delta; **prov varargs to avoid duplicated 7-key dict signatures)."
@@ -1012,26 +1007,6 @@
       "file": "src/startup_checks.py",
       "function": "_check_render_postgres",
       "lines": 65
-    },
-    {
-      "file": "src/sync/render_sync.py",
-      "function": "_replace_latest_in_postgres",
-      "lines": 105
-    },
-    {
-      "file": "src/sync/render_sync.py",
-      "function": "_upsert_to_postgres",
-      "lines": 127
-    },
-    {
-      "file": "src/sync/render_sync.py",
-      "function": "pull_commands",
-      "lines": 121
-    },
-    {
-      "file": "src/sync/render_sync.py",
-      "function": "run_sync_cycle",
-      "lines": 106
     },
     {
       "file": "src/trading/ib_broker.py",
