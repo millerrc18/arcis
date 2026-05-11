@@ -143,23 +143,16 @@ def health_startup():
 
 @router.get("/health/sync")
 def health_sync():
-    """Return Render sync thread health status.
+    """Return sync thread health status — disabled post one-DB cutover.
 
-    Walks all live threads to find the RenderSyncThread instance.
-    If the thread died silently (#228), this endpoint surfaces the gap
-    so the dashboard can show a warning.
+    Post SP5 §J5/§J6 Phase 3-revised: render_sync.py was deleted (one-DB
+    cutover makes PG the production database; no sync thread needed).
+    Static "disabled" payload preserves the dashboard's expected response
+    shape so the health card renders without errors.
     """
-    try:
-        from src.sync.render_sync import RenderSyncThread
-        import threading
-        for thread in threading.enumerate():
-            if isinstance(thread, RenderSyncThread):
-                return thread.health_status()
-        return {"alive": False, "last_success_seconds_ago": None,
-                "consecutive_errors": 0, "stale": True,
-                "note": "sync thread not running"}
-    except Exception as exc:
-        return {"alive": False, "error": str(exc)}
+    return {"alive": False, "last_success_seconds_ago": None,
+            "consecutive_errors": 0, "stale": False,
+            "note": "render sync removed in one-DB cutover (SP5 Phase 3-revised)"}
 
 
 @router.get("/health/hshs")
