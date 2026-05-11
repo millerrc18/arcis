@@ -33,7 +33,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from src.config import DB_PATH
-from src.utils.db import connect_db
+from src.utils.db import connect_db, engine_aware_upsert
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -124,11 +124,20 @@ def _store_fed_item(
 ) -> int:
     """Insert one Fed communication row and return 1 when stored."""
     try:
-        conn.execute(
-            """INSERT OR IGNORE INTO fed_communications
-            (comm_type, title, date, speaker, url, full_text, word_count, collected_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (comm_type, title, filing_date, speaker, full_url, full_text, word_count, collected_at),
+        engine_aware_upsert(
+            conn,
+            "fed_communications",
+            {
+                "comm_type": comm_type,
+                "title": title,
+                "date": filing_date,
+                "speaker": speaker,
+                "url": full_url,
+                "full_text": full_text,
+                "word_count": word_count,
+                "collected_at": collected_at,
+            },
+            action="ignore",
         )
         return 1
     except sqlite3.IntegrityError:
