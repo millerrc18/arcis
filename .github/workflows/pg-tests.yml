@@ -1,0 +1,62 @@
+name: PG Tests
+
+"on":
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  pg-tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: halcyon
+          POSTGRES_PASSWORD: halcyon
+          POSTGRES_DB: halcyon
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      TEST_DATABASE_URL: postgresql://halcyon:halcyon@localhost:5432/halcyon
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-timeout
+
+      - name: Bootstrap PG test schema
+        run: python scripts/bootstrap_pg_test_schema.py
+
+      - name: Run test suite against Postgres
+        run: python -m pytest tests/ -q --timeout=60 | tee pytest-output.txt
+
+      - name: Enforce test-count floor
+        run: |
+          ACTUAL=$(grep -oE '[0-9]+ passed' pytest-output.txt | head -1 | grep -oE '[0-9]+')
+          EXPECTED=5105
+          echo "Tests passed: $ACTUAL (floor: $EXPECTED)"
+          if [ -z "$ACTUAL" ]; then
+            echo "Could not extract test count from pytest output" >&2
+            exit 1
+          fi
+          if [ "$ACTUAL" -lt "$EXPECTED" ]; then
+            echo "Test count $ACTUAL below floor $EXPECTED — failing" >&2
+            exit 1
+          fi
