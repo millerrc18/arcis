@@ -28,6 +28,33 @@ def _query_db(query: str, params: tuple = (), db_path: str = DB_PATH) -> list[di
         return [dict(row) for row in cursor.fetchall()]
 
 
+def _days_since(entry_time, now: datetime) -> int:
+    """Return integer days elapsed between `entry_time` and `now`.
+
+    Cross-engine days-held arithmetic for shadow_trades.actual_entry_time
+    (Sprint 5 §J5/§J6 Phase 2 T2.9 — replaces SQLite-only julianday()).
+
+    Accepts both an ISO-8601 string (SQLite TEXT column) and a datetime
+    instance (psycopg2 may surface TIMESTAMP as datetime). Naive entry
+    times are coerced to the ET tz so subtraction with the ET-aware `now`
+    succeeds. Returns 0 on None / parse failure rather than raising —
+    the caller's f-string would have rendered `0d` for SQL NULL anyway
+    (`position['days'] or 0`).
+    """
+    if entry_time is None:
+        return 0
+    if isinstance(entry_time, datetime):
+        parsed = entry_time
+    else:
+        try:
+            parsed = datetime.fromisoformat(str(entry_time))
+        except (TypeError, ValueError):
+            return 0
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=ET)
+    return (now - parsed).days
+
+
 def gather_tactical_data(db_path: str = DB_PATH) -> str:
     """Gather market microstructure and short-term data for Tactical Operator."""
     parts = []
@@ -86,15 +113,19 @@ def gather_tactical_data(db_path: str = DB_PATH) -> str:
                 logger.debug("[COUNCIL] Tactical scan query: %s", exc)
 
             try:
+                # Cross-engine days_held: fetch actual_entry_time as a string and
+                # compute (now - entry).days in Python. SQLite's julianday() has
+                # no Postgres equivalent (Sprint 5 §J5/§J6 Phase 2 T2.9).
                 positions = conn.execute(
                     "SELECT st.ticker, st.pnl_pct, r.sector_context as sector, "
-                    "CAST(julianday('now') - julianday(actual_entry_time) AS INTEGER) as days "
+                    "st.actual_entry_time "
                     "FROM shadow_trades st "
                     "LEFT JOIN recommendations r ON st.recommendation_id = r.recommendation_id "
                     "WHERE st.status = 'open' AND COALESCE(st.quarantined, 0) = 0"
                     " ORDER BY st.pnl_pct DESC"
                 ).fetchall()
                 if positions:
+                    now_local = datetime.now(ET)
                     winners = sum(1 for position in positions if float(position["pnl_pct"] or 0) > 0)
                     total_pnl = sum(float(position["pnl_pct"] or 0) for position in positions)
                     parts.append(
@@ -103,9 +134,10 @@ def gather_tactical_data(db_path: str = DB_PATH) -> str:
                     )
                     for position in positions[:8]:
                         emoji = "📈" if float(position["pnl_pct"] or 0) > 0 else "📉"
+                        days_held = _days_since(position["actual_entry_time"], now_local)
                         parts.append(
                             f"  {emoji} {position['ticker']} ({position['sector'] or '?'}): "
-                            f"{(position['pnl_pct'] or 0):+.1f}% ({position['days'] or 0}d)"
+                            f"{(position['pnl_pct'] or 0):+.1f}% ({days_held}d)"
                         )
                 else:
                     parts.append("\nNo open positions.")
