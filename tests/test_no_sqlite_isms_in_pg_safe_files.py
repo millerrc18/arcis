@@ -142,12 +142,10 @@ KNOWN_OFFENDERS: frozenset[tuple[str, int, str]] = frozenset({
     # Each is a `WHERE created_at >= datetime('now', '-N days')` pattern
     # that needs Python-side computation of the cutoff before the cutover.
     # build_score.py (was 151, 163, 408, 432) + hshs_live.py (was 218, 260,
-    # 266) + agent_data.py (was 272, 451) + context.py (was 30) entries
-    # removed in Sprint 5 §J5/§J6 Phase 2.5 — all 10 datetime('now', ...)
-    # sites migrated to Python-side cutoffs (datetime.now(ET) -
-    # timedelta(days=N)).
-    ("src/api/routes/system.py", 694,
-     "Phase 3+ date-function migration deferred"),
+    # 266) + agent_data.py (was 272, 451) + context.py (was 30) +
+    # api/routes/system.py (was 694) entries removed in Sprint 5 §J5/§J6
+    # Phase 2.5 — all 11 datetime('now', ...) sites migrated to Python-side
+    # cutoffs (datetime.now(ET) - timedelta(days=N)).
     ("src/api/routes/ib_status.py", 76,
      "Phase 3+ date-function migration deferred"),
 
