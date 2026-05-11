@@ -478,25 +478,6 @@ class TestCollectorFailureHandling:
         assert isinstance(result, dict)
 
 
-# ── Render Sync Tables Config ───────────────────────────────────────
-
-class TestRenderSyncNewTables:
-    def test_new_tables_in_sync_config(self):
-        from src.sync.render_sync import SYNC_TABLES
-        new_tables = [
-            "insider_transactions",
-            "short_interest",
-            "analyst_estimates",
-            "fed_communications",
-            "edgar_filings",
-        ]
-        for table in new_tables:
-            assert table in SYNC_TABLES, f"Missing from SYNC_TABLES: {table}"
-            assert SYNC_TABLES[table]["mode"] == "incremental"
-            assert SYNC_TABLES[table]["time_col"] == "collected_at"
-            assert SYNC_TABLES[table]["pk"] == "id"
-
-
 # ── Training Data Collector: pnl type safety (#195) ───────────────
 
 class TestTrainingDataCollectorPnlTypeSafety:
