@@ -1,0 +1,1 @@
+ARCIS_DB_PATH=C:/arcis/data/ai_research_desk.sqlite3
