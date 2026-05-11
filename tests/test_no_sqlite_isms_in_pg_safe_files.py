@@ -163,8 +163,6 @@ KNOWN_OFFENDERS: frozenset[tuple[str, int, str]] = frozenset({
      "Phase 3+ date-function migration deferred"),
     ("src/api/routes/system.py", 694,
      "Phase 3+ date-function migration deferred"),
-    ("src/api/routes/ib_status.py", 76,
-     "Phase 3+ date-function migration deferred"),
 
     # ── Dynamic `?` placeholder construction — wrapper-handled ───────────
     # 34 sites total. All use `connect_db()`/`closing(connect_db())` to
