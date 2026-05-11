@@ -161,8 +161,6 @@ KNOWN_OFFENDERS: frozenset[tuple[str, int, str]] = frozenset({
      "Phase 3+ date-function migration deferred"),
     ("src/evaluation/hshs_live.py", 266,
      "Phase 3+ date-function migration deferred"),
-    ("src/api/routes/system.py", 694,
-     "Phase 3+ date-function migration deferred"),
     ("src/api/routes/ib_status.py", 76,
      "Phase 3+ date-function migration deferred"),
 
