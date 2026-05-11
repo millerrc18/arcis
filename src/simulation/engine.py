@@ -21,7 +21,7 @@ from zoneinfo import ZoneInfo
 
 from src.attribution.logger import simulate_mechanical_outcome
 from src.config import DB_PATH
-from src.utils.db import connect_db
+from src.utils.db import connect_db, engine_aware_upsert
 from src.features.indicators import compute_atr
 from src.simulation.cache import (
     _add_days,
@@ -498,57 +498,51 @@ def store_result(result: dict, run_id: str, seed: int, config: dict,
     tl_states = result.get("tl_states", [])
     tl_val = validate_traffic_light(result["scenario"], tl_states)
 
+    # T0.12 audit note: simulation_results is classified `in_place_update`
+    # (no incoming FKs, no triggers, no rowid readers). The PK `result_id`
+    # is a fresh UUID per call, so the `action='replace'` branch is dead
+    # code in production — every call is functionally an INSERT (latent-bug
+    # follow-up at audit §6.1). Routed through engine_aware_upsert so the
+    # SQLite-vs-PG dispatch is engine-agnostic (Sprint 5 §J5/§J6 Phase 1 T1.14).
+    row = {
+        "result_id": str(uuid.uuid4()),
+        "run_id": run_id,
+        "scenario": result["scenario"],
+        "regime_label": result.get("regime_label", result["scenario"]),
+        "start_date": result["start_date"],
+        "end_date": result["end_date"],
+        "total_trades": result["total_trades"],
+        "wins": result["wins"],
+        "losses": result["losses"],
+        "timeouts": result["timeouts"],
+        "win_rate": result["win_rate"],
+        "profit_factor": result.get("profit_factor", 0),
+        "total_pnl_pct": result["total_pnl_pct"],
+        "gross_pnl_pct": result.get("gross_pnl_pct", 0),
+        "net_pnl_pct": result.get("net_pnl_pct", result["total_pnl_pct"]),
+        "max_drawdown_pct": result["max_drawdown_pct"],
+        "sharpe_ratio": result.get("sharpe_ratio", 0),
+        "calmar_ratio": result.get("calmar_ratio", 0),
+        "benchmark_pnl_pct": result.get("benchmark_pnl_pct", 0),
+        "excess_return_pct": result.get("excess_return_pct", 0),
+        "transaction_cost_bps": result.get("transaction_cost_bps", 0),
+        "tl_expected": tl_val.get("expected", ""),
+        "tl_actual_majority": tl_val.get("actual_majority", ""),
+        "tl_correct": 1 if tl_val.get("correct") else 0,
+        "monthly_returns_json": json.dumps(result.get("monthly_returns", {})),
+        "equity_curve_json": json.dumps(result.get("equity_curve", [])),
+        "regime_breakdown_json": json.dumps(result.get("regime_breakdown", {})),
+        "model_version": result.get("model_version", "mechanical_brackets"),
+        "config_json": repro["config_snapshot"][:10000],
+        "verdict": result.get("verdict", "unknown"),
+        "survivorship_bias": 1 if result.get("survivorship_bias") else 0,
+        "random_seed": repro["random_seed"],
+        "git_commit": repro["git_commit"],
+        "created_at": datetime.now(ET).isoformat(),
+    }
     try:
         with connect_db(db_path) as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO simulation_results "
-                "(result_id, run_id, scenario, regime_label, start_date, end_date, "
-                "total_trades, wins, losses, timeouts, win_rate, profit_factor, "
-                "total_pnl_pct, gross_pnl_pct, net_pnl_pct, max_drawdown_pct, "
-                "sharpe_ratio, calmar_ratio, benchmark_pnl_pct, excess_return_pct, "
-                "transaction_cost_bps, tl_expected, tl_actual_majority, tl_correct, "
-                "monthly_returns_json, equity_curve_json, regime_breakdown_json, "
-                "model_version, config_json, verdict, survivorship_bias, "
-                "random_seed, git_commit, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
-                "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    str(uuid.uuid4()),
-                    run_id,
-                    result["scenario"],
-                    result.get("regime_label", result["scenario"]),
-                    result["start_date"],
-                    result["end_date"],
-                    result["total_trades"],
-                    result["wins"],
-                    result["losses"],
-                    result["timeouts"],
-                    result["win_rate"],
-                    result.get("profit_factor", 0),
-                    result["total_pnl_pct"],
-                    result.get("gross_pnl_pct", 0),
-                    result.get("net_pnl_pct", result["total_pnl_pct"]),
-                    result["max_drawdown_pct"],
-                    result.get("sharpe_ratio", 0),
-                    result.get("calmar_ratio", 0),
-                    result.get("benchmark_pnl_pct", 0),
-                    result.get("excess_return_pct", 0),
-                    result.get("transaction_cost_bps", 0),
-                    tl_val.get("expected", ""),
-                    tl_val.get("actual_majority", ""),
-                    1 if tl_val.get("correct") else 0,
-                    json.dumps(result.get("monthly_returns", {})),
-                    json.dumps(result.get("equity_curve", [])),
-                    json.dumps(result.get("regime_breakdown", {})),
-                    result.get("model_version", "mechanical_brackets"),
-                    repro["config_snapshot"][:10000],
-                    result.get("verdict", "unknown"),
-                    1 if result.get("survivorship_bias") else 0,
-                    repro["random_seed"],
-                    repro["git_commit"],
-                    datetime.now(ET).isoformat(),
-                ),
-            )
+            engine_aware_upsert(conn, "simulation_results", row, action="replace")
             conn.commit()
     except Exception as e:
         logger.error("[SIM] Failed to store result for %s: %s", result["scenario"], e)
