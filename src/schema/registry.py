@@ -393,7 +393,9 @@ _register(TableDef(
         ColumnDef("notes", "TEXT"),
     ],
     primary_key="date",
-    sync_to_postgres=False,
+    sync_to_postgres=True,
+    sync_mode="full",
+    sync_pk="date",
 ))
 
 # validation_results: Output from `preflight` and daily validation (4:30 PM).
@@ -536,7 +538,10 @@ _register(TableDef(
         ColumnDef("score_delta", "REAL"),
     ],
     primary_key="evaluation_id",
-    sync_to_postgres=False,
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_pk="evaluation_id",
+    sync_time_column="created_at",
 ))
 
 # audit_reports: Daily (4:15 PM) and weekly (Saturday) audit results.
@@ -625,7 +630,10 @@ _register(TableDef(
         ColumnDef("notes", "TEXT"),
     ],
     primary_key="pair_id",
-    sync_to_postgres=False,
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_pk="pair_id",
+    sync_time_column="created_at",
 ))
 
 # canary_evaluations: Runs after each training cycle to detect quality degradation.
@@ -1518,28 +1526,6 @@ _register(TableDef(
     sync_reconcile=True,
 ))
 
-# sync_state: Cursor tracking for render_sync. One row per table (last_synced_at)
-# plus one row per host for in-flight detection (#673). NOT synced to Postgres
-# (that would be circular). In-flight columns: in_flight_since (set when a sync
-# cycle begins), completed_at (set when it ends), status ('idle'/'in_progress'/
-# 'completed'/'failed'), error_message (set on failure), host (machine identity).
-# The host row is separate from the per-table rows (table_name == host for those).
-_register(TableDef(
-    name="sync_state",
-    description="Tracks last sync timestamp per table and in-flight state per host",
-    columns=[
-        ColumnDef("table_name", "TEXT", nullable=False),
-        ColumnDef("last_synced_at", "TEXT", nullable=False),
-        ColumnDef("in_flight_since", "TEXT"),
-        ColumnDef("completed_at", "TEXT"),
-        ColumnDef("status", "TEXT", default="idle"),
-        ColumnDef("error_message", "TEXT"),
-        ColumnDef("host", "TEXT"),
-    ],
-    primary_key="table_name",
-    sync_to_postgres=False,
-))
-
 _register(TableDef(
     name="command_results",
     description="Results of remotely-issued commands",
@@ -1571,7 +1557,9 @@ _register(TableDef(
         ColumnDef("updated_by", "TEXT", default="dashboard"),
     ],
     primary_key="setting_key",
-    sync_to_postgres=False,
+    sync_to_postgres=True,
+    sync_mode="full",
+    sync_pk="setting_key",
 ))
 
 # pending_commands: Remote command queue. Dashboard pushes commands to Postgres,
@@ -1728,7 +1716,10 @@ _register(TableDef(
         ColumnDef("checked_at", "TEXT", nullable=False),
     ],
     primary_key="check_id",
-    sync_to_postgres=False,
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_pk="check_id",
+    sync_time_column="checked_at",
 ))
 
 # ---------------------------------------------------------------------------
@@ -1827,7 +1818,9 @@ _register(TableDef(
         IndexDef("idx_freshness_source", ["source"]),
         IndexDef("idx_freshness_ticker", ["ticker"]),
     ],
-    sync_to_postgres=False,
+    sync_to_postgres=True,
+    sync_mode="full",
+    sync_pk="source, ticker",
 ))
 
 # ---------------------------------------------------------------------------
@@ -1996,8 +1989,9 @@ _register(TableDef(
     indexes=[
         IndexDef("idx_sysmetrics_ts", ["timestamp"]),
     ],
-    sync_to_postgres=False,
+    sync_to_postgres=True,
     sync_mode="incremental",
+    sync_pk="snapshot_id",
     sync_time_column="timestamp",
 ))
 
@@ -2239,7 +2233,9 @@ _register(TableDef(
                               "will propagate to the source file."),
     ],
     primary_key=["user_id", "entry_name"],
-    sync_to_postgres=False,
+    sync_to_postgres=True,
+    sync_mode="full",
+    sync_pk="user_id, entry_name",
 ))
 
 
