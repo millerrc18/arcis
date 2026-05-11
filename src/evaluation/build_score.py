@@ -148,9 +148,17 @@ def _query_diversity(conn: sqlite3.Connection) -> float:
 def _score_data_asset_value(conn: sqlite3.Connection) -> float:
     """Quality (40%) + Diversity (35%) + Freshness (25%)."""
     try:
+        # Sprint 5 §J5/§J6 Phase 2.5 T1: Python-side cutoffs (engine-agnostic).
+        # Replaces SQLite-only date-shift literals; cutoff computed in Python
+        # for cross-engine portability. ET matches the production write
+        # convention (datetime.now(ET).isoformat() in
+        # src/training/data_collector.py:460).
+        cutoff_30d = (datetime.now(ET) - timedelta(days=30)).isoformat()
+        cutoff_90d = (datetime.now(ET) - timedelta(days=90)).isoformat()
         cur = conn.execute(
             "SELECT AVG(quality_score) FROM training_examples "
-            "WHERE quality_score IS NOT NULL AND created_at >= datetime('now', '-30 days')"
+            "WHERE quality_score IS NOT NULL AND created_at >= ?",
+            (cutoff_30d,),
         )
         row = cur.fetchone()
         avg_q = row[0] if row and row[0] is not None else None
@@ -161,7 +169,8 @@ def _score_data_asset_value(conn: sqlite3.Connection) -> float:
         cur = conn.execute("SELECT COUNT(*) FROM training_examples")
         total = cur.fetchone()[0] or 1
         cur = conn.execute(
-            "SELECT COUNT(*) FROM training_examples WHERE created_at >= datetime('now', '-90 days')"
+            "SELECT COUNT(*) FROM training_examples WHERE created_at >= ?",
+            (cutoff_90d,),
         )
         freshness = min(100.0, ((cur.fetchone()[0] or 0) / total) * 100.0)
 
@@ -405,10 +414,18 @@ def compute_build_score(db_path: str = DEFAULT_DB) -> dict:
 def _build_data_detail(conn: sqlite3.Connection) -> dict:
     """Break down data_asset_value into quality/diversity/freshness."""
     try:
+        # Sprint 5 §J5/§J6 Phase 2.5 T1: Python-side cutoffs (engine-agnostic).
+        # Replaces SQLite-only date-shift literals; cutoff computed in Python
+        # for cross-engine portability. ET matches the production write
+        # convention (datetime.now(ET).isoformat() in
+        # src/training/data_collector.py:460).
+        cutoff_30d = (datetime.now(ET) - timedelta(days=30)).isoformat()
+        cutoff_90d = (datetime.now(ET) - timedelta(days=90)).isoformat()
         cur = conn.execute(
             "SELECT AVG(quality_score) FROM training_examples "
             "WHERE quality_score IS NOT NULL "
-            "AND created_at >= datetime('now', '-30 days')"
+            "AND created_at >= ?",
+            (cutoff_30d,),
         )
         row = cur.fetchone()
         avg_q = row[0] if row and row[0] is not None else None
@@ -431,7 +448,8 @@ def _build_data_detail(conn: sqlite3.Connection) -> dict:
 
         cur = conn.execute(
             "SELECT COUNT(*) FROM training_examples "
-            "WHERE created_at >= datetime('now', '-90 days')"
+            "WHERE created_at >= ?",
+            (cutoff_90d,),
         )
         recent = cur.fetchone()[0] or 0
         freshness = round(min(100, (recent / max(total, 1)) * 100), 1)

@@ -269,9 +269,15 @@ def gather_risk_data(db_path: str = DB_PATH) -> str:
                 logger.debug("[COUNCIL] Risk losses: %s", exc)
 
             try:
+                # Cross-engine 7-day cutoff: compute in Python so the SQL is
+                # engine-agnostic. SQLite's datetime('now') has no Postgres
+                # equivalent (Sprint 5 §J5/§J6 Phase 2.5 T3 — same pattern as
+                # gather_innovation_data's week_ago/month_ago precedent).
+                week_ago = (datetime.now(ET) - timedelta(days=7)).isoformat()
                 fallback = conn.execute(
                     "SELECT SUM(llm_success) as ok, SUM(llm_total) as total "
-                    "FROM scan_metrics WHERE created_at > datetime('now', '-7 days')"
+                    "FROM scan_metrics WHERE created_at > ?",
+                    (week_ago,),
                 ).fetchone()
                 if fallback and fallback["total"] and fallback["total"] > 0:
                     rate = (1 - fallback["ok"] / fallback["total"]) * 100
@@ -448,9 +454,15 @@ def gather_macro_data(db_path: str = DB_PATH) -> str:
                     "SELECT value FROM macro_snapshots "
                     "WHERE series_id = 'BAMLH0A0HYM2' ORDER BY collected_date DESC LIMIT 1"
                 ).fetchone()
+                # Cross-engine 365-day cutoff: compute in Python so the SQL
+                # is engine-agnostic (Sprint 5 §J5/§J6 Phase 2.5 T3). Uses ET
+                # for consistency with the rest of agent_data; collected_date
+                # is stored as ISO 'YYYY-MM-DD' so string comparison works.
+                year_ago = (datetime.now(ET) - timedelta(days=365)).date().isoformat()
                 average = conn.execute(
                     "SELECT AVG(value) as avg FROM macro_snapshots "
-                    "WHERE series_id = 'BAMLH0A0HYM2' AND collected_date > date('now', '-365 days')"
+                    "WHERE series_id = 'BAMLH0A0HYM2' AND collected_date > ?",
+                    (year_ago,),
                 ).fetchone()
                 if high_yield and average and average["avg"]:
                     z_score = (high_yield["value"] - average["avg"]) / max(0.1, abs(average["avg"] * 0.15))

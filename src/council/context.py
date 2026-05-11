@@ -8,7 +8,7 @@ Tests: none
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
@@ -25,9 +25,15 @@ def build_shared_context(db_path: str = DB_PATH) -> str:
     parts = [f"Session date: {datetime.now(ET).strftime('%Y-%m-%d %H:%M ET')}"]
 
     try:
+        # Sprint 5 §J5/§J6 Phase 2.5 T4 — replace SQLite-only
+        # `datetime('now', '-1 day')` with a Python-computed cutoff passed as
+        # a bound parameter. The wrapper rewrites `?` → `%s` for psycopg2 so
+        # the same SQL works on both engines.
+        recent_cutoff = (datetime.now(ET) - timedelta(days=1)).isoformat()
         recs = _query_db(
             "SELECT COUNT(*) as count, AVG(priority_score) as avg_score "
-            "FROM recommendations WHERE created_at >= datetime('now', '-1 day')",
+            "FROM recommendations WHERE created_at >= ?",
+            params=(recent_cutoff,),
             db_path=db_path,
         )
         if recs:

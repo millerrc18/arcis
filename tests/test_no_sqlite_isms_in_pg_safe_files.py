@@ -141,30 +141,14 @@ KNOWN_OFFENDERS: frozenset[tuple[str, int, str]] = frozenset({
     # ── SQLite-only date functions in files not yet on Phase 2B list ─────
     # Each is a `WHERE created_at >= datetime('now', '-N days')` pattern
     # that needs Python-side computation of the cutoff before the cutover.
-    ("src/council/context.py", 30,
-     "Phase 3+ date-function migration deferred"),
-    ("src/council/agent_data.py", 272,
-     "Phase 3+ date-function migration deferred"),
-    ("src/council/agent_data.py", 451,
-     "Phase 3+ date-function migration deferred"),
-    ("src/evaluation/build_score.py", 151,
-     "Phase 3+ date-function migration deferred"),
-    ("src/evaluation/build_score.py", 163,
-     "Phase 3+ date-function migration deferred"),
-    ("src/evaluation/build_score.py", 408,
-     "Phase 3+ date-function migration deferred"),
-    ("src/evaluation/build_score.py", 432,
-     "Phase 3+ date-function migration deferred"),
-    ("src/evaluation/hshs_live.py", 218,
-     "Phase 3+ date-function migration deferred"),
-    ("src/evaluation/hshs_live.py", 260,
-     "Phase 3+ date-function migration deferred"),
-    ("src/evaluation/hshs_live.py", 266,
-     "Phase 3+ date-function migration deferred"),
-    ("src/api/routes/system.py", 694,
-     "Phase 3+ date-function migration deferred"),
-    ("src/api/routes/ib_status.py", 76,
-     "Phase 3+ date-function migration deferred"),
+    # build_score.py (was 151, 163, 408, 432) + hshs_live.py (was 218, 260,
+    # 266) + agent_data.py (was 272, 451) + context.py (was 30) +
+    # api/routes/system.py (was 694) + api/routes/ib_status.py (was 76)
+    # entries removed in Sprint 5 §J5/§J6 Phase 2.5 — all 12 datetime('now',
+    # ...) sites migrated to Python-side cutoffs (datetime.now(ET) -
+    # timedelta(days=N)). KNOWN_OFFENDERS is now Phase-3-cutover-ready: no
+    # remaining date-function offenders block the cutover (only the
+    # PRAGMA-guarded site and the dynamic-? wrapper-handled sites remain).
 
     # ── Dynamic `?` placeholder construction — wrapper-handled ───────────
     # 34 sites total. All use `connect_db()`/`closing(connect_db())` to
