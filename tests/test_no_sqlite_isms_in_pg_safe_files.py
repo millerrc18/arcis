@@ -141,8 +141,9 @@ KNOWN_OFFENDERS: frozenset[tuple[str, int, str]] = frozenset({
     # ── SQLite-only date functions in files not yet on Phase 2B list ─────
     # Each is a `WHERE created_at >= datetime('now', '-N days')` pattern
     # that needs Python-side computation of the cutoff before the cutover.
-    ("src/council/context.py", 30,
-     "Phase 3+ date-function migration deferred"),
+    # Note: src/council/context.py:30 was on this list; migrated in
+    # Phase 2.5 T4 (replaced datetime('now', '-1 day') with a parameterized
+    # cutoff computed via datetime.now(ET) - timedelta(days=1)).
     ("src/council/agent_data.py", 272,
      "Phase 3+ date-function migration deferred"),
     ("src/council/agent_data.py", 451,
