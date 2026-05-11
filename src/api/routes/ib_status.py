@@ -72,12 +72,18 @@ def ib_status():
             ).fetchone()
             ib_trade_count = ib_trade_row["c"] if ib_trade_row else 0
 
-            # 30-day uptime percentage
+            # 30-day uptime percentage — compute the cutoff timestamp in
+            # Python and bind it as a parameter, avoiding the SQLite-only
+            # negative-offset datetime literal that PG rejects.
+            cutoff_30d = (
+                datetime.datetime.now() - datetime.timedelta(days=30)
+            ).isoformat()
             month_row = conn.execute(
                 "SELECT COUNT(*) as total, "
                 "SUM(CASE WHEN ib_connected = 1 THEN 1 ELSE 0 END) as connected "
                 "FROM ib_shadow_log "
-                "WHERE created_at >= datetime('now', '-30 days')"
+                "WHERE created_at >= ?",
+                (cutoff_30d,),
             ).fetchone()
             month_total = month_row["total"] if month_row else 0
             month_connected = month_row["connected"] or 0 if month_row else 0
