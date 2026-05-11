@@ -35,7 +35,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
-from src.utils.db import connect_db
+from src.utils.db import connect_db, engine_aware_upsert
 
 logger = logging.getLogger(__name__)
 
@@ -185,23 +185,16 @@ def _record_check(
     """
     ensure_bracket_health_table(db_path)
     with connect_db(db_path) as conn:
-        conn.execute(
-            "INSERT INTO bracket_health "
-            "(check_id, trade_id, ticker, stop_leg_status, target_leg_status, "
-            " bracket_intact, action_taken, checked_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (
-                str(uuid.uuid4()),
-                trade_id,
-                ticker,
-                stop_status,
-                target_status,
-                1 if bracket_intact else 0,
-                action_taken,
-                datetime.now(ET).isoformat(),
-            ),
-        )
-        conn.commit()
+        engine_aware_upsert(conn, 'bracket_health', {
+            'check_id': str(uuid.uuid4()),
+            'trade_id': trade_id,
+            'ticker': ticker,
+            'stop_leg_status': stop_status,
+            'target_leg_status': target_status,
+            'bracket_intact': 1 if bracket_intact else 0,
+            'action_taken': action_taken,
+            'checked_at': datetime.now(ET).isoformat(),
+        }, action='ignore')
 
 
 def _alert(message: str) -> None:
