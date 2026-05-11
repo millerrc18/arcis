@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### SP5 §J5/§J6 Phase 2.5 — KNOWN_OFFENDERS date-function cleanup (12 sites, 6 files)
+
+Phase 3 cutover prerequisite. Phase 2 T2.14 (AST-based SQLite-ism discipline scan) shipped with a `KNOWN_OFFENDERS` allowlist containing 12 `datetime('now', ...)` / `date('now', ...)` sites across 6 files — patterns that crash on Postgres because the SQLite negative-offset date literal has no PG equivalent. This phase migrates all 12 sites to Python-side `datetime.now(ET) - timedelta(days=N)` cutoffs bound as `?` parameters (the wrapper rewrites `?` → `%s` for psycopg2 post-cutover). After this phase, `KNOWN_OFFENDERS` is **Phase-3-cutover-ready**: zero remaining date-function offenders block the cutover (only the PRAGMA-guarded `system_validator.py:167` and the 34 dynamic-`?` wrapper-handled sites remain).
+
+- **`src/evaluation/build_score.py`** (4 sites — lines was 151, 163, 408, 432) — `_score_data_asset_value` and `_build_data_detail` 30-day + 90-day cutoffs now `datetime.now(ET) - timedelta(days=N)` matching the production write convention at `src/training/data_collector.py:460`. Side benefit: closes a pre-existing 4-hour UTC/ET skew bug at the cutoff boundary (the old SQLite `datetime('now', ...)` returned UTC against ET-stored timestamps).
+- **`src/evaluation/hshs_live.py`** (3 sites — lines was 218, 260, 266) — `_score_data_asset` 7-day freshness + `_score_flywheel_velocity` 7-day/14-day cohort comparison. Cohort comparison reworked to share a single `now_et` anchor across the two queries so the boundary is byte-stable.
+- **`src/council/agent_data.py`** (2 sites — lines was 272, 451) — `gather_risk_data` 7-day llm failure-rate fallback + `gather_macro_data` 365-day high-yield average. 365-day site uses `.date().isoformat()` because `collected_date` is stored as YYYY-MM-DD date string (not full ISO timestamp); string-comparison-safe.
+- **`src/council/context.py`** (1 site — line was 30) — `build_shared_context` 1-day recent-recommendations rollup. Same `datetime.now(ET) - timedelta(days=1)` pattern.
+- **`src/api/routes/system.py`** (1 site — line was 694) — `monitoring_history` hours-parameterized cutoff. **Preserved pre-existing UTC behavior** (matches the SQLite `datetime('now', ? || ' hours')` UTC return); `system_metrics.timestamp` is written in ET so a 4-5h skew exists at the boundary. Statistically irrelevant for typical 24-hour windows but filed as a follow-up.
+- **`src/api/routes/ib_status.py`** (1 site — line was 76) — `ib_status` 30-day uptime % cutoff. Uses naive `datetime.datetime.now()` matching the operator's Windows local time (ET); CI/UTC environment has a 4-5h skew but window is 30 days so impact is statistically irrelevant.
+- **`tests/test_build_score_date_now.py`** (NEW, 214 lines) — 4 tests + 2 cross-engine SQLite/PG parity tests
+- **`tests/test_hshs_live_date_now.py`** (NEW, 240 lines) — 4 tests
+- **`tests/test_agent_data_date_now.py`** (NEW, 383 lines) — 6 tests (risk + macro paths)
+- **`tests/test_council_context_date_now.py`** (NEW, 269 lines) — 5 tests
+- **`tests/test_api_routes_system_date_now.py`** (NEW, 211 lines) — 4 tests
+- **`tests/test_ib_status_uptime_window.py`** (NEW, 192 lines) — 4 tests
+- **`tests/test_no_sqlite_isms_in_pg_safe_files.py`** — removed all 12 date-function entries from `KNOWN_OFFENDERS`; added a summary comment block explaining the migration. All 15 AST-scan tests pass against the post-merge integration.
+
 ### SP5 §J5/§J6 Phase 0 — Modified-A migration (T0.7)
 
 - **`src/schema/registry.py`** — added `sync_conflict_col="event_type, dedup_key"` to the `notifications_dedup` TableDef. The PK `id` is autoincrement; uniqueness is enforced via the composite index on `(event_type, dedup_key)` at registry.py:2543 — that composite is the natural ON CONFLICT target. Prerequisite for the SP5 §J5 `engine_aware_upsert` migration at `src/notifications/platform_events.py:96` (tracked as T1.7 in Phase 1).
