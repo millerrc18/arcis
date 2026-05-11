@@ -211,3 +211,142 @@ def postgres_session():
     finally:
         conn.rollback()
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Sprint 5 §J5/§J6 Phase 0 T0.9 — pg_wrapper + parametrized_conn
+# ---------------------------------------------------------------------------
+#
+# Two fixtures so engine-aware helpers can be tested against BOTH SQLite and
+# Postgres without per-test boilerplate. `pg_wrapper` returns a
+# `PostgresConnectionWrapper` (the same shape `connect_db()` returns when
+# `DATABASE_URL` points at Postgres) so call sites exercise the wrapper's
+# cursor / execute / `?`->`%s` rewrite paths end-to-end. `parametrized_conn`
+# wraps both engines under a single fixture that's auto-parametrized over
+# `engine=['sqlite', 'postgres']`, with the postgres variant skipping cleanly
+# when `TEST_DATABASE_URL` is unset.
+#
+# Schema bootstrap on the PG side uses `src.schema.postgres.generate_create_sql`
+# to create the same registry-defined tables that exist on the SQLite side.
+# The fixture tracks the created table names and drops them on teardown so
+# the test/staging Postgres database returns to a clean slate after each test.
+# Tables that already exist are left untouched (CREATE TABLE IF NOT EXISTS),
+# but only the table names this fixture itself bootstrapped are dropped on
+# cleanup — so a long-running test database with pre-existing tables is safe.
+#
+# SAFETY: same as postgres_session — reads ONLY `TEST_DATABASE_URL`, never
+# `DATABASE_URL`. Operator must explicitly opt-in.
+
+
+@pytest.fixture(scope="function")
+def pg_wrapper():
+    """PostgresConnectionWrapper fixture for engine-parametrized tests.
+
+    Yields a `PostgresConnectionWrapper` backed by a psycopg2 RealDictCursor
+    connection to `TEST_DATABASE_URL`. Bootstraps all registry tables via
+    `src.schema.postgres.generate_create_sql` and drops the tables this
+    fixture itself created on teardown.
+
+    SAFETY: reads ONLY `TEST_DATABASE_URL`, never `DATABASE_URL`. When
+    `TEST_DATABASE_URL` is unset, the fixture calls `pytest.skip()` so the
+    test is reported SKIPPED (not FAILED) and the total test count stays
+    stable across environments.
+
+    SKIP GUARD: the skip happens INSIDE the fixture body so parametrized
+    callers (`parametrized_conn`) can request `pg_wrapper` lazily via
+    `request.getfixturevalue("pg_wrapper")` and have the sqlite variant
+    proceed unconditionally while the postgres variant skips cleanly.
+    """
+    import psycopg2
+    import psycopg2.extras
+
+    from src.schema.postgres import generate_create_sql
+    from src.schema.registry import TABLES
+    from src.utils.db import PostgresConnectionWrapper
+
+    test_database_url = os.environ.get("TEST_DATABASE_URL")
+    if not test_database_url:
+        pytest.skip("TEST_DATABASE_URL not set; pg_wrapper fixture cannot run")
+
+    raw_conn = psycopg2.connect(
+        test_database_url, cursor_factory=psycopg2.extras.RealDictCursor
+    )
+    raw_conn.autocommit = True
+    created_tables: list[str] = []
+    cur = raw_conn.cursor()
+    try:
+        # Phase 1: CREATE TABLE IF NOT EXISTS for every sync-eligible table.
+        # generate_create_sql emits CREATE TABLE IF NOT EXISTS + CREATE INDEX
+        # IF NOT EXISTS so the call is idempotent on a pre-populated DB.
+        for tdef in TABLES.values():
+            if not tdef.sync_to_postgres:
+                continue
+            cur.execute(generate_create_sql(tdef))
+            created_tables.append(tdef.name)
+    except Exception:
+        cur.close()
+        raw_conn.close()
+        raise
+
+    raw_conn.autocommit = False
+    wrapper = PostgresConnectionWrapper(raw_conn)
+    try:
+        yield wrapper
+    finally:
+        try:
+            raw_conn.rollback()
+        except Exception:
+            pass
+        # Teardown: drop the tables this fixture created. autocommit=True so
+        # each DROP commits independently — partial cleanup is preferable to
+        # leaving the test DB in a half-rolled-back state.
+        try:
+            raw_conn.autocommit = True
+            cleanup_cur = raw_conn.cursor()
+            for name in reversed(created_tables):
+                try:
+                    cleanup_cur.execute(f"DROP TABLE IF EXISTS {name} CASCADE")
+                except Exception:
+                    pass
+            cleanup_cur.close()
+        finally:
+            raw_conn.close()
+
+
+@pytest.fixture(params=["sqlite", "postgres"])
+def parametrized_conn(request, tmp_path):
+    """Engine-parametrized DB fixture exposing a `.execute()` callable.
+
+    Parametrized over `engine=['sqlite', 'postgres']`. The 'sqlite' variant
+    yields a `sqlite3.Connection` against a fresh tmp database populated by
+    `init_test_db()`. The 'postgres' variant yields the `pg_wrapper`
+    `PostgresConnectionWrapper` (which itself skips when `TEST_DATABASE_URL`
+    is unset).
+
+    Callers get a uniform `.execute(sql, params=None)` surface across both
+    engines — the wrapper's `_rewrite_question_to_pct` translates SQLite-
+    style `?` placeholders to psycopg2-style `%s` transparently, so cross-
+    engine tests can write a single `?`-placeholder query.
+
+    Lazy fixture request: 'postgres' variant requests `pg_wrapper` via
+    `request.getfixturevalue` so the sqlite variant runs unconditionally
+    and the postgres variant skips cleanly when `TEST_DATABASE_URL` is
+    absent.
+    """
+    engine = request.param
+    if engine == "sqlite":
+        db_path = str(tmp_path / "test.db")
+        init_test_db(db_path)
+        conn = sqlite3.connect(db_path)
+        # row_factory=sqlite3.Row so named-column access (`row["col"]`) is
+        # available across both engines, matching psycopg2 RealDictCursor.
+        conn.row_factory = sqlite3.Row
+        try:
+            yield conn
+        finally:
+            conn.close()
+    elif engine == "postgres":
+        wrapper = request.getfixturevalue("pg_wrapper")
+        yield wrapper
+    else:
+        raise ValueError(f"unknown engine param: {engine!r}")

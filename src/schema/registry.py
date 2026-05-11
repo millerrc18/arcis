@@ -2546,4 +2546,8 @@ _register(TableDef(
     sync_mode="incremental",
     sync_time_column="sent_at",
     sync_pk="id",
+    # SP5 §J5/§J6 Phase 0 T0.7: PK `id` is autoincrement; uniqueness lives on
+    # the composite index above. ON CONFLICT must target the composite, not the
+    # surrogate PK. Consumed by engine_aware_upsert at platform_events.py:96 in T1.7.
+    sync_conflict_col="event_type, dedup_key",
 ))
