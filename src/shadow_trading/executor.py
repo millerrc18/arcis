@@ -772,9 +772,10 @@ def open_shadow_trade(
                     alert_key = f"dd_alert_{int(threshold)}"
                     # Check if we already alerted at this threshold today
                     try:
+                        _today_iso = datetime.now().date().isoformat()
                         _alert_row = _conn.execute(
-                            "SELECT 1 FROM activity_log WHERE event_type = ? AND detail LIKE ? AND created_at > date('now')",
-                            (alert_key, f"%{int(threshold)}%")
+                            "SELECT 1 FROM activity_log WHERE event_type = ? AND detail LIKE ? AND created_at > ?",
+                            (alert_key, f"%{int(threshold)}%", _today_iso)
                         ).fetchone()
                         if not _alert_row:
                             from src.utils.activity_logger import log_activity
