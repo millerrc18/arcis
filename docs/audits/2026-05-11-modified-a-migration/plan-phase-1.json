@@ -1,0 +1,360 @@
+{
+  "tasks": [
+    {
+      "id": "T1.1",
+      "name": "Migrate short_interest_collector to engine_aware_upsert",
+      "description": "Replace INSERT OR IGNORE at src/data_collection/short_interest_collector.py:111 with engine_aware_upsert(conn, 'short_interest', row_dict, action='ignore').",
+      "phase": 1,
+      "files_in_scope": [
+        "src/data_collection/short_interest_collector.py",
+        "tests/test_short_interest_collector_upsert.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py",
+        "src/schema/registry.py"
+      ],
+      "scope_fence": "Do NOT touch any other call site.",
+      "test_strategy": "1 parametrized test.",
+      "depends_on": [
+        "T0.4"
+      ],
+      "complexity": "low",
+      "batch": 1,
+      "worktree_required": true
+    },
+    {
+      "id": "T1.2",
+      "name": "Migrate research_collector to engine_aware_upsert",
+      "description": "Replace INSERT OR IGNORE at src/data_collection/research_collector.py:121 with engine_aware_upsert.",
+      "phase": 1,
+      "files_in_scope": [
+        "src/data_collection/research_collector.py",
+        "tests/test_research_collector_upsert.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py",
+        "src/schema/registry.py"
+      ],
+      "scope_fence": "Do NOT touch other call sites.",
+      "test_strategy": "1 parametrized test.",
+      "depends_on": [
+        "T0.4"
+      ],
+      "complexity": "low",
+      "batch": 1,
+      "worktree_required": true
+    },
+    {
+      "id": "T1.3",
+      "name": "Migrate fed_collector to engine_aware_upsert",
+      "description": "Replace INSERT OR IGNORE at src/data_collection/fed_collector.py:128 with engine_aware_upsert.",
+      "phase": 1,
+      "files_in_scope": [
+        "src/data_collection/fed_collector.py",
+        "tests/test_fed_collector_upsert.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py",
+        "src/schema/registry.py"
+      ],
+      "scope_fence": "Do NOT touch other call sites.",
+      "test_strategy": "1 parametrized test.",
+      "depends_on": [
+        "T0.4"
+      ],
+      "complexity": "low",
+      "batch": 1,
+      "worktree_required": true
+    },
+    {
+      "id": "T1.4",
+      "name": "Migrate edgar_collector INSERT OR IGNORE to engine_aware_upsert",
+      "description": "Replace INSERT OR IGNORE at src/data_collection/edgar_collector.py:338 with engine_aware_upsert. Do NOT yet touch PRAGMA table_info at line 233 (T2.1).",
+      "phase": 1,
+      "files_in_scope": [
+        "src/data_collection/edgar_collector.py",
+        "tests/test_edgar_collector_upsert.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py",
+        "src/schema/registry.py"
+      ],
+      "scope_fence": "Do NOT touch PRAGMA table_info (T2.1).",
+      "test_strategy": "1 parametrized test.",
+      "depends_on": [
+        "T0.4"
+      ],
+      "complexity": "low",
+      "batch": 1,
+      "worktree_required": true
+    },
+    {
+      "id": "T1.5",
+      "name": "Migrate analyst_collector to engine_aware_upsert",
+      "description": "Replace INSERT OR IGNORE at src/data_collection/analyst_collector.py:153 with engine_aware_upsert.",
+      "phase": 1,
+      "files_in_scope": [
+        "src/data_collection/analyst_collector.py",
+        "tests/test_analyst_collector_upsert.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py",
+        "src/schema/registry.py"
+      ],
+      "scope_fence": "Do NOT touch other call sites.",
+      "test_strategy": "1 parametrized test.",
+      "depends_on": [
+        "T0.4"
+      ],
+      "complexity": "low",
+      "batch": 1,
+      "worktree_required": true
+    },
+    {
+      "id": "T1.6",
+      "name": "Convert insider_collector plain INSERT to engine_aware_upsert",
+      "description": "Wrap the plain INSERT at src/data_collection/insider_collector.py:118 in engine_aware_upsert(conn, 'insider_transactions', row_dict, action='ignore'). Verify the unique constraint is registered as sync_conflict_col in registry; if absent, add it and record in CHANGELOG.md.",
+      "phase": 1,
+      "files_in_scope": [
+        "src/data_collection/insider_collector.py",
+        "tests/test_insider_collector_upsert.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py",
+        "src/schema/registry.py"
+      ],
+      "scope_fence": "Do NOT touch other call sites. If sync_conflict_col addition is needed, include in PR with CHANGELOG entry.",
+      "test_strategy": "1 parametrized test asserting dedup behaviour on both engines.",
+      "depends_on": [
+        "T0.4"
+      ],
+      "complexity": "low",
+      "batch": 1,
+      "worktree_required": true
+    },
+    {
+      "id": "T1.7",
+      "name": "Migrate platform_events to engine_aware_upsert",
+      "description": "Replace INSERT OR IGNORE at src/notifications/platform_events.py:96 with engine_aware_upsert(conn, 'notifications_dedup', row_dict, action='ignore'). Depends on T0.7.",
+      "phase": 1,
+      "files_in_scope": [
+        "src/notifications/platform_events.py",
+        "tests/test_platform_events_upsert.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py",
+        "src/schema/registry.py"
+      ],
+      "scope_fence": "Do NOT touch notifications_dedup TableDef (T0.7).",
+      "test_strategy": "1 parametrized test.",
+      "depends_on": [
+        "T0.4",
+        "T0.7"
+      ],
+      "complexity": "low",
+      "batch": 2,
+      "worktree_required": true
+    },
+    {
+      "id": "T1.8",
+      "name": "Migrate council/protocol INSERT OR IGNORE to engine_aware_upsert",
+      "description": "Replace INSERT OR IGNORE at src/council/protocol.py:228 with engine_aware_upsert(conn, 'council_debug_log', row_dict, action='ignore').",
+      "phase": 1,
+      "files_in_scope": [
+        "src/council/protocol.py",
+        "tests/test_council_protocol_upsert.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py",
+        "src/schema/registry.py"
+      ],
+      "scope_fence": "Do NOT touch other call sites.",
+      "test_strategy": "1 parametrized test.",
+      "depends_on": [
+        "T0.4"
+      ],
+      "complexity": "low",
+      "batch": 1,
+      "worktree_required": true
+    },
+    {
+      "id": "T1.9",
+      "name": "Migrate staleness to engine_aware_upsert (verify in_place vs delete_insert)",
+      "description": "Replace INSERT OR REPLACE at src/data_enrichment/staleness.py:42 with engine_aware_upsert(conn, 'data_freshness', row_dict, action='replace'). Verify _REPLACE_SEMANTICS['data_freshness'] matches T0.12 audit. Test asserts the chosen semantic via FK-cascade fixture if applicable.",
+      "phase": 1,
+      "files_in_scope": [
+        "src/data_enrichment/staleness.py",
+        "tests/test_staleness_upsert.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py",
+        "src/schema/registry.py",
+        "docs/audits/2026-05-11-modified-a-migration/replace-semantics-audit.md"
+      ],
+      "scope_fence": "Do NOT touch other call sites.",
+      "test_strategy": "1 parametrized test asserting UPDATE/UPSERT semantics match T0.12 dispatch decision.",
+      "depends_on": [
+        "T0.4"
+      ],
+      "complexity": "low",
+      "batch": 1,
+      "worktree_required": true
+    },
+    {
+      "id": "T1.10",
+      "name": "Migrate build_score to engine_aware_upsert",
+      "description": "Replace INSERT OR REPLACE at src/evaluation/build_score.py:460 with engine_aware_upsert(conn, 'build_score_history', row_dict, action='replace'). Verify semantic dispatch matches T0.12.",
+      "phase": 1,
+      "files_in_scope": [
+        "src/evaluation/build_score.py",
+        "tests/test_build_score_upsert.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py",
+        "src/schema/registry.py",
+        "docs/audits/2026-05-11-modified-a-migration/replace-semantics-audit.md"
+      ],
+      "scope_fence": "Do NOT touch other call sites.",
+      "test_strategy": "1 parametrized test asserting semantic match.",
+      "depends_on": [
+        "T0.4"
+      ],
+      "complexity": "low",
+      "batch": 1,
+      "worktree_required": true
+    },
+    {
+      "id": "T1.11",
+      "name": "Migrate api/routes/system to engine_aware_upsert",
+      "description": "Replace INSERT OR REPLACE at src/api/routes/system.py:566 with engine_aware_upsert(conn, 'config_overrides', row_dict, action='replace').",
+      "phase": 1,
+      "files_in_scope": [
+        "src/api/routes/system.py",
+        "tests/test_api_routes_system_upsert.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py",
+        "src/schema/registry.py"
+      ],
+      "scope_fence": "Do NOT touch other call sites.",
+      "test_strategy": "1 parametrized test asserting semantic match.",
+      "depends_on": [
+        "T0.4"
+      ],
+      "complexity": "low",
+      "batch": 2,
+      "worktree_required": true
+    },
+    {
+      "id": "T1.12",
+      "name": "Migrate system_metrics to engine_aware_upsert",
+      "description": "Replace INSERT OR REPLACE + dynamic placeholders at src/monitoring/system_metrics.py:131-152 with engine_aware_upsert. Remove unused import sqlite3 at line 14.",
+      "phase": 1,
+      "files_in_scope": [
+        "src/monitoring/system_metrics.py",
+        "tests/test_system_metrics_upsert.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py",
+        "src/schema/registry.py"
+      ],
+      "scope_fence": "Do NOT touch other call sites.",
+      "test_strategy": "1 parametrized test.",
+      "depends_on": [
+        "T0.4"
+      ],
+      "complexity": "low",
+      "batch": 1,
+      "worktree_required": true
+    },
+    {
+      "id": "T1.13",
+      "name": "Migrate council/value_tracker to engine_aware_upsert",
+      "description": "Replace INSERT OR REPLACE at src/council/value_tracker.py:120 with engine_aware_upsert(conn, 'council_parameter_state', row_dict, action='replace'). Do NOT touch dynamic IN-list at line 306.",
+      "phase": 1,
+      "files_in_scope": [
+        "src/council/value_tracker.py",
+        "tests/test_council_value_tracker_upsert.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py",
+        "src/schema/registry.py"
+      ],
+      "scope_fence": "Do NOT touch IN list at line 306.",
+      "test_strategy": "1 parametrized test asserting semantic match.",
+      "depends_on": [
+        "T0.4"
+      ],
+      "complexity": "low",
+      "batch": 2,
+      "worktree_required": true
+    },
+    {
+      "id": "T1.14",
+      "name": "Migrate simulation/engine INSERT OR REPLACE to engine_aware_upsert",
+      "description": "Replace INSERT OR REPLACE at src/simulation/engine.py:504 with engine_aware_upsert(conn, 'simulation_results', row_dict, action='replace').",
+      "phase": 1,
+      "files_in_scope": [
+        "src/simulation/engine.py",
+        "tests/test_simulation_engine_upsert.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py",
+        "src/schema/registry.py"
+      ],
+      "scope_fence": "Do NOT touch other call sites.",
+      "test_strategy": "1 parametrized test.",
+      "depends_on": [
+        "T0.4"
+      ],
+      "complexity": "low",
+      "batch": 2,
+      "worktree_required": true
+    },
+    {
+      "id": "T1.15",
+      "name": "Migrate walkforward_runner + walkforward_universe to engine_aware_upsert",
+      "description": "Replace INSERT OR REPLACE × 2 at walkforward_runner.py:308 (walkforward_results) + line 355 (walkforward_trades). Replace INSERT OR REPLACE at walkforward_universe.py:81 (sp100_historical_constituents). Each verifies T0.12 semantic dispatch.",
+      "phase": 1,
+      "files_in_scope": [
+        "src/platform/rigor/walkforward_runner.py",
+        "src/platform/rigor/walkforward_universe.py",
+        "tests/test_walkforward_upsert.py"
+      ],
+      "files_read_only": [
+        "src/utils/db.py",
+        "src/schema/registry.py"
+      ],
+      "scope_fence": "Do NOT touch other call sites.",
+      "test_strategy": "3 parametrized tests asserting semantic match per target table.",
+      "depends_on": [
+        "T0.4"
+      ],
+      "complexity": "low",
+      "batch": 2,
+      "worktree_required": true
+    }
+  ],
+  "execution_order": [
+    [
+      "T1.1",
+      "T1.2",
+      "T1.3",
+      "T1.4",
+      "T1.5",
+      "T1.6",
+      "T1.8",
+      "T1.9",
+      "T1.10",
+      "T1.12",
+      "T1.14"
+    ],
+    [
+      "T1.7",
+      "T1.11",
+      "T1.13",
+      "T1.15"
+    ]
+  ],
+  "notes": "REVISION 2 (Devil's Advocate critical+major addressed): T0.0 + T0.12 audit tasks added to batch 1 (no-dep). T3.0 baseline env audit slotted into batch 1 of Phase 3 alongside T3.1 snapshots. Total: 57 tasks across 5 phases (was 54; +T0.0, +T0.12, +T3.0). 21-batch execution_order structure preserved exactly. Phase 0 grows from +33 to +61 tests (C1+C3+M3 coverage). T0.2 bumped low→standard (M1 quote+pct-aware rewrite is a real parser). T2.14 bumped to standard (M4 AST-based scanning). T3.2 precedence flip is kill-switched behind ARCIS_PG_CUTOVER_ENABLED=1 env var (M2) — merging T3.2 alone does NOT activate cutover on any developer machine. T0.11 retry exhaustion does sys.exit(1) so NSSM restarts (M3 zombie-watchdog fix) — SystemExit propagates past watch.py:1133 because Exception does not catch BaseException subclasses. T0.4 _REPLACE_SEMANTICS dict is populated from T0.12 audit, hard-coded per-table; ValueError raised if a new table is upserted with action='replace' without classification (M-safety: forces auditability). Target test delta: +134 (accept band +90 to +140 per M6); PM verifies actual vs band in T2.15 closeout. Worktree isolation MANDATORY for Phase 1, Phase 2 file migrations, and Phase 4 cleanup. Cutover window remains Saturday morning EDT. MINORs N1/N2/N3 listed in spec section 11 'Known Considerations' — NOT planner-tracked; deferred to post-cutover backlog.\n\n## PHASE 1 SCOPE NOTE (PM read this)\n\nThis is the PHASE 1 SUBSET of the full Modified-A migration plan.\nFull plan has 57 tasks across 5 phases (0-4); this file has only the 15 Phase 1 tasks.\nPhase 1 ships as a SINGLE PR titled 'sp5(j5/j6): Phase 1 — UPSERT migration'.\nPhase 0 (wrapper foundation) is ALREADY MERGED to main — engine_aware_upsert, _resolve_conflict_target, CompatRow, etc. are available.\nAfter Phase 1 lands on main and the operator reviews, a SEPARATE /arcis:code invocation will execute Phase 2.\nDO NOT touch any file outside the Phase 1 task scope fences.\nDO NOT add or modify wrapper internals in src/utils/db.py (Phase 0 territory — locked).\nDO NOT migrate PRAGMA/sqlite_master sites (Phase 2 territory).\nPhase 1 is UPSERT call-site migration ONLY: 17 INSERT OR REPLACE/IGNORE sites in 16 files → engine_aware_upsert(conn, table, row_dict, action).\n"
+}
