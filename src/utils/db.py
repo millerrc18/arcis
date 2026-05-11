@@ -38,11 +38,46 @@ import psycopg2
 import psycopg2.extras
 
 from src.config import DB_PATH
+from src.schema.registry import TABLES
 
 DEFAULT_DB = DB_PATH
 BUSY_TIMEOUT_MS = 30_000  # 30s — rides through typical external-tool locks
 
 _SENTINEL = object()
+
+
+def _resolve_conflict_target(table_name: str) -> list[str]:
+    """Return the ON CONFLICT target columns for `table_name`.
+
+    Precedence (Sprint 5 §J5/§J6 Phase 0 T0.3):
+        1. If TABLES[table_name].sync_conflict_col is set, comma-split it
+           and strip whitespace from each part. This handles tables whose
+           PK is an autoincrement INTEGER but whose uniqueness for dedup
+           is on another column (e.g. edgar_filings uses accession_number,
+           not the integer id — see #185).
+        2. Otherwise fall back to TABLES[table_name].primary_key — a string
+           PK becomes a single-element list, a list PK is returned as-is
+           (composite PKs must include ALL their columns in the ON CONFLICT
+           target, because Postgres requires the conflict target to match
+           an exact UNIQUE/PRIMARY KEY constraint).
+
+    Raises ValueError if `table_name` is not registered in TABLES.
+
+    Mirrors the inline `_resolve_primary_key_columns` helper in
+    scripts/sqlite_to_pg_migrate.py (which intentionally stays inline for
+    the one-shot migrator) but adds the sync_conflict_col precedence so
+    the runtime upsert path (T0.4 `engine_aware_upsert`) gets the correct
+    target for the 8 tables that override their PK with sync_conflict_col.
+    """
+    if table_name not in TABLES:
+        raise ValueError(f"Unknown table: {table_name}")
+    table = TABLES[table_name]
+    if table.sync_conflict_col:
+        return [col.strip() for col in table.sync_conflict_col.split(",")]
+    pk = table.primary_key
+    if isinstance(pk, str):
+        return [pk]
+    return list(pk)
 
 
 class PostgresConnectionWrapper:
