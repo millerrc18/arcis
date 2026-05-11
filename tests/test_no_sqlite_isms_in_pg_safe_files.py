@@ -143,10 +143,6 @@ KNOWN_OFFENDERS: frozenset[tuple[str, int, str]] = frozenset({
     # that needs Python-side computation of the cutoff before the cutover.
     ("src/council/context.py", 30,
      "Phase 3+ date-function migration deferred"),
-    ("src/council/agent_data.py", 272,
-     "Phase 3+ date-function migration deferred"),
-    ("src/council/agent_data.py", 451,
-     "Phase 3+ date-function migration deferred"),
     ("src/evaluation/build_score.py", 151,
      "Phase 3+ date-function migration deferred"),
     ("src/evaluation/build_score.py", 163,
