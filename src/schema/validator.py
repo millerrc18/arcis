@@ -10,7 +10,7 @@ Tests: tests/test_schema.py
 import json
 import logging
 import sqlite3
-from src.utils.db import connect_db
+from src.utils.db import connect_db, engine_aware_column_info, engine_aware_table_list
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,12 +37,7 @@ def validate_sqlite(db_path: str) -> list[SchemaIssue]:
     issues = []
     conn = connect_db(db_path)
 
-    existing_tables = {
-        row[0]
-        for row in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()
-    }
+    existing_tables = set(engine_aware_table_list(conn))
 
     for name, table in TABLES.items():
         if name not in existing_tables:
@@ -57,8 +52,8 @@ def validate_sqlite(db_path: str) -> list[SchemaIssue]:
             continue
 
         existing_cols = {
-            row[1]: row[2]
-            for row in conn.execute(f"PRAGMA table_info({name})").fetchall()
+            row["name"]: row["type"]
+            for row in engine_aware_column_info(conn, name)
         }
         for col in table.columns:
             if col.name not in existing_cols:
