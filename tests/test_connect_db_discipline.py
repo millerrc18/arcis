@@ -28,6 +28,7 @@ Config keys: none
 Tests: self
 """
 
+import ast
 import re
 from pathlib import Path
 
@@ -286,4 +287,84 @@ def test_retiring_allowlist_reconcile_uses_raw_connect():
         "src/sync/reconcile.py is on the RETIRING allowlist for raw "
         "sqlite3.connect() but no call sites were found. If the file was "
         "refactored, update this retiring-allowlist test accordingly."
+    )
+
+
+# ── T6 — Wrapper-function connect_db() discipline (SP5 §J cutover-rectification) ──
+
+_WRAPPER_PREFIXES = ("insert_", "log_", "record_", "save_")
+
+
+def _scan_wrappers_in_dir(src_root: Path) -> list[str]:
+    """Walk src_root for .py files and return violations.
+
+    A violation is a FunctionDef whose name starts with one of
+    _WRAPPER_PREFIXES that contains a direct sqlite3.connect() or
+    _sqlite3.connect() call node inside its body.
+
+    Returns a list of strings in the form 'file:lineno: funcname() calls
+    sqlite3.connect()' — empty list means no violations found.
+    """
+    violations: list[str] = []
+    for py_file in sorted(src_root.rglob("*.py")):
+        try:
+            source = py_file.read_text(encoding="utf-8")
+            tree = ast.parse(source, filename=str(py_file))
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef):
+                continue
+            if not any(node.name.startswith(p) for p in _WRAPPER_PREFIXES):
+                continue
+            for child in ast.walk(node):
+                if not isinstance(child, ast.Call):
+                    continue
+                func = child.func
+                if (
+                    isinstance(func, ast.Attribute)
+                    and func.attr == "connect"
+                    and isinstance(func.value, ast.Name)
+                    and func.value.id in ("sqlite3", "_sqlite3")
+                ):
+                    violations.append(
+                        f"{py_file}:{child.lineno}: {node.name}() calls"
+                        f" {func.value.id}.connect()"
+                    )
+    return violations
+
+
+def test_wrapper_functions_use_connect_db():
+    """All wrapper functions (insert_*/log_*/record_*/save_*) in src/ must not
+    call raw sqlite3.connect() — they must use connect_db() from src.utils.db.
+
+    SP5 §J cutover-rectification T6: closes the structural test gap that allowed
+    the NVDA shadow_trades row to leak into SQLite during the Phase 3 cutover.
+    The leak path was through a wrapper function; by auditing all wrappers
+    structurally we catch the next class of leak before it ships.
+
+    If this test fails, a wrapper function is using raw sqlite3.connect() instead
+    of connect_db(). DO NOT fix src/ automatically — report to operator for
+    follow-up (scope fence: do NOT modify src/).
+    """
+    src_root = Path("src")
+    violations = _scan_wrappers_in_dir(src_root)
+    assert not violations, (
+        f"{len(violations)} wrapper function(s) use raw sqlite3.connect() instead "
+        f"of connect_db():\n" + "\n".join(violations)
+    )
+
+
+def test_wrapper_scanner_catches_synthetic_violation(tmp_path):
+    """Scanner self-test — verify it catches a synthetic raw sqlite3.connect in a wrapper."""
+    bad_file = tmp_path / "bad_wrapper.py"
+    bad_file.write_text(
+        "import sqlite3\n"
+        "def insert_thing():\n"
+        "    conn = sqlite3.connect('/tmp/foo')\n"
+        "    return conn\n"
+    )
+    violations = _scan_wrappers_in_dir(tmp_path)
+    assert any("bad_wrapper.py" in v for v in violations), (
+        f"Scanner should have caught synthetic violation; got {violations}"
     )
