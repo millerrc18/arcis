@@ -147,14 +147,9 @@ KNOWN_OFFENDERS: frozenset[tuple[str, int, str]] = frozenset({
      "Phase 3+ date-function migration deferred"),
     ("src/council/agent_data.py", 451,
      "Phase 3+ date-function migration deferred"),
-    ("src/evaluation/build_score.py", 151,
-     "Phase 3+ date-function migration deferred"),
-    ("src/evaluation/build_score.py", 163,
-     "Phase 3+ date-function migration deferred"),
-    ("src/evaluation/build_score.py", 408,
-     "Phase 3+ date-function migration deferred"),
-    ("src/evaluation/build_score.py", 432,
-     "Phase 3+ date-function migration deferred"),
+    # build_score.py entries (was 151, 163, 408, 432) removed in Sprint 5
+    # §J5/§J6 Phase 2.5 T1 — all 4 datetime('now', ...) sites migrated to
+    # Python-side cutoffs (datetime.now(ET) - timedelta(days=N)).
     ("src/evaluation/hshs_live.py", 218,
      "Phase 3+ date-function migration deferred"),
     ("src/evaluation/hshs_live.py", 260,
