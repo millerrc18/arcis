@@ -1561,6 +1561,25 @@ adapted for the Phase 3-revised (one-DB) scenario:
 
 **Note on §0.5:** The Phase 3 smoke checklist (`t3.4-smoke-checklist.md` §0.6) expected 72 tables. Phase 3-revised removes `sync_state` (deprecated alongside `render_sync.py`). If you see 72, the Phase 3-revised schema migration has not run — re-run `python scripts/render_migrate.py` before continuing.
 
+### Step 0.5 — Verify pgAdmin isolation
+
+Before starting the cutover, confirm pgAdmin (or any GUI tool) is either
+disconnected from halcyon-pg OR authenticated as `halcyon_readonly`
+(read-only, can't issue DDL). Run:
+
+```powershell
+docker exec halcyon-pg psql -U halcyon -d halcyon -c \
+  "SELECT application_name, usename, client_addr FROM pg_stat_activity \
+   WHERE datname='halcyon' AND application_name LIKE '%pgAdmin%' \
+   AND usename != 'halcyon_readonly';"
+```
+
+Expected: zero rows. If non-empty, disconnect pgAdmin or switch its
+connection to use the `halcyon_readonly` role (see post-merge PG role
+setup section). A pgAdmin connection as `halcyon` superuser can
+accidentally DROP tables via GUI actions — confirmed risk during the
+2026-05-11 cutover attempt.
+
 ### Step 2 — Stop services
 
 ```powershell
@@ -1704,6 +1723,22 @@ Post-cutover timestamps in any of these tables confirm the engine_aware_upsert w
 - §2 read paths: ≥6/7 endpoints clean
 - §3 C1 LIKE regression: §3.1 or §3.2 passes
 - §4 log sweep: zero CRITICAL patterns; `_DB_PATH_WARNED` WARN lines in `arcis.log` are expected (one per distinct `db_path` override, by design — see SP-ONEDB-009)
+
+### Step 7.5 — Capture pg_stat_activity during smoke
+
+In a SEPARATE PowerShell terminal (so it doesn't block the main cutover
+flow), run:
+
+```powershell
+.\scripts\capture_pg_activity.ps1
+```
+
+This loops every 30s capturing pg_stat_activity to
+`C:/arcis/logs/pg-activity-<timestamp>.log`. Continues until you press
+Ctrl+C. Should run for the entire 30-min smoke window. If the cutover
+fails, the log will show every connection's queries — invaluable
+forensic data for diagnosing the 2026-05-11-class table-disappearance
+issue (which had no log trail under default PG settings).
 
 ### Step 8 — Rollback (only if Step 7 FAILS)
 
