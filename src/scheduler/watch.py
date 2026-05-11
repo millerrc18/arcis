@@ -46,7 +46,11 @@ from src.llm.client import is_llm_available
 from src.notifications import safe_send
 from src.scheduler.handler_registry import HandlerRegistryMixin
 from src.scheduler.scorer import GuardedScorer
-from src.utils.db import connect_db
+from src.utils.db import (
+    configure_sqlite_for_production,
+    connect_db,
+    connect_db_with_pg_retry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1105,35 +1109,66 @@ class WatchLoop(HandlerRegistryMixin):
 
     @staticmethod
     def _configure_database():
-        """Configure SQLite for production use."""
-        try:
-            conn = connect_db(DB_PATH)
+        """Configure the database for production use (Sprint 5 T2.12).
 
-            # Integrity check — abort before any writes if DB is corrupted
-            result = conn.execute("PRAGMA integrity_check").fetchone()[0]
-            if result != "ok":
-                logger.critical("[DB] INTEGRITY CHECK FAILED: %s", result)
+        Engine-agnostic startup path:
+
+        - connect_db_with_pg_retry(DB_PATH, max_attempts=5, backoff_seconds=30)
+          replaces the bare connect_db(DB_PATH). On PG transient failures the
+          helper retries with 30s backoff up to 5 attempts; on exhaustion it
+          writes data/watchdog.txt and calls sys.exit(1) (M3 fast-exit).
+        - configure_sqlite_for_production(conn) replaces the inline PRAGMA
+          cluster (busy_timeout, journal_mode=WAL, synchronous=NORMAL,
+          integrity_check). The helper internally checks
+          isinstance(conn, PostgresConnectionWrapper) and no-ops + warns on
+          PG, so this call is safe to make unconditionally.
+
+        M3 invariant — SystemExit must propagate, not be swallowed:
+          connect_db_with_pg_retry exits with code 1 on PG exhaustion,
+          raising SystemExit. SystemExit inherits from BaseException, NOT
+          Exception, so `except Exception` below does NOT catch it. The
+          explicit `except SystemExit: raise` pass-through is belt-and-braces
+          insurance against a future refactor accidentally widening the
+          handler. Without this propagation, the watch loop would become a
+          zombie-watchdog that survives DB outages instead of being restarted
+          by NSSM. Tests pinning this invariant live in
+          tests/test_watch_pragma_isolation.py.
+        """
+        try:
+            conn = connect_db_with_pg_retry(
+                DB_PATH, max_attempts=5, backoff_seconds=30,
+            )
+            try:
+                configure_sqlite_for_production(conn)
+            finally:
+                conn.close()
+            logger.info(
+                "[DB] Configured: WAL mode, synchronous=NORMAL, "
+                "busy_timeout=30000ms (PG path is no-op)"
+            )
+        except RuntimeError as exc:
+            # configure_sqlite_for_production raises RuntimeError on
+            # integrity_check failure. Surface via Telegram + sys.exit(1) so
+            # NSSM restarts cleanly.
+            if "integrity_check" in str(exc):
+                logger.critical("[DB] INTEGRITY CHECK FAILED: %s", exc)
                 try:
                     from src.notifications.telegram import send_telegram
                     send_telegram("\U0001f534 DATABASE CORRUPTED \u2014 integrity check failed. Watch loop halted.")
                 except Exception:
                     pass
-                conn.close()
                 import sys
                 sys.exit(1)
-
-            # Fix for #160: WAL mode + busy_timeout=5000ms prevents "database is locked"
-            # errors when the API server and watch loop access SQLite concurrently.
-            # NORMAL sync is safe with WAL (data survives process crash, not power loss).
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA synchronous=NORMAL")
-            conn.execute("PRAGMA busy_timeout=5000")
-            conn.close()
-            logger.info("[DB] SQLite configured: WAL mode, synchronous=NORMAL, busy_timeout=5000ms")
+            logger.warning("[DB] Configuration failed: %s", exc)
         except SystemExit:
+            # M3 invariant: connect_db_with_pg_retry calls sys.exit(1) on PG
+            # exhaustion; integrity_check branch above also re-exits.
+            # SystemExit inherits from BaseException so the `except Exception`
+            # below does NOT catch it; this explicit pass-through is
+            # belt-and-braces against a future refactor.
             raise
         except Exception as exc:
-            logger.warning("[DB] SQLite configuration failed: %s", exc)
+            logger.warning("[DB] Configuration failed: %s", exc)
 
     @staticmethod
     def _check_row_counts():
