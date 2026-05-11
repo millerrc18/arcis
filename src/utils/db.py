@@ -31,6 +31,7 @@ column name (dict-like) rather than tuple index. This prevents bugs when columns
 are reordered in the schema registry.
 """
 
+import logging
 import os
 import sqlite3
 
@@ -39,6 +40,8 @@ import psycopg2.extras
 
 from src.config import DB_PATH
 from src.schema.registry import TABLES
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_DB = DB_PATH
 BUSY_TIMEOUT_MS = 30_000  # 30s — rides through typical external-tool locks
@@ -272,3 +275,40 @@ def connect_db(db_path=_SENTINEL):
     conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def configure_sqlite_for_production(conn) -> None:
+    """Apply runtime-tuning PRAGMAs (SQLite-only; no-op on PG).
+
+    Applies: busy_timeout=30000, journal_mode=WAL, synchronous=NORMAL, and
+    integrity_check verification (raises RuntimeError if the result is not
+    "ok"). Designed to replace the inline PRAGMA block in the watch loop
+    startup path (src/scheduler/watch.py: _configure_database, T2.12).
+
+    PG-wrapped connections: no-op + warning log. PRAGMA is SQLite-specific
+    syntax that Postgres rejects with "syntax error at or near PRAGMA";
+    Postgres tuning is managed at the server / connection-string level.
+    """
+    if isinstance(conn, PostgresConnectionWrapper):
+        logger.warning(
+            "PRAGMA runtime tuning is SQLite-only; skipping on PG-backed connection"
+        )
+        return
+
+    # Integrity check first — abort before any writes if DB is corrupted
+    row = conn.execute("PRAGMA integrity_check").fetchone()
+    if row is not None:
+        result = row[0]
+        if result != "ok":
+            raise RuntimeError(f"SQLite integrity_check failed: {result}")
+
+    conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+
+
+# Re-export _sqlite_only_connect so call sites that want a guaranteed SQLite
+# connection (without going through the engine-aware connect_db()) can import
+# it via `from src.utils.db import _sqlite_only_connect`. The canonical
+# implementation lives in src/schema/sqlite.py — see Sprint 5 §J5/§J6 phase 0.
+from src.schema.sqlite import _sqlite_only_connect  # noqa: E402,F401
