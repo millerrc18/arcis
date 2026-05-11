@@ -793,3 +793,154 @@ def engine_aware_upsert(conn, table_name, row_dict, action="replace"):
         _dispatch_pg(conn, table_name, row_dict, action, conflict_target)
     else:
         _dispatch_sqlite(conn, table_name, row_dict, action, conflict_target)
+
+
+# ---------------------------------------------------------------------------
+# T0.6: engine_aware_index_list + engine_aware_foreign_keys
+# ---------------------------------------------------------------------------
+
+def engine_aware_index_list(conn, table_name: str) -> list:
+    """Return list of index metadata dicts. Engine-aware.
+
+    Output shape matches `PRAGMA index_list(<table>)`:
+        (seq, name, unique, origin, partial)
+
+    SQLite path: delegates to PRAGMA index_list and projects rows to dicts.
+    PG path: queries pg_catalog.pg_indexes / pg_catalog.pg_index to derive
+    the equivalent fields. `origin` is reported as 'pk' for primary-key
+    indexes, 'u' for unique constraints, and 'c' otherwise. `partial` is
+    1 if the index has a WHERE clause, 0 otherwise.
+
+    Sprint 5 §J5/§J6 Phase 0 T0.6 — Modified-A migration helper. Phase 2A
+    call sites at src/schema/validator.py + src/scheduler/watch.py will
+    consume this helper to replace inlined PRAGMA queries.
+    """
+    if isinstance(conn, PostgresConnectionWrapper):
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT
+                0 AS seq,
+                i.relname AS name,
+                CASE WHEN ix.indisunique THEN 1 ELSE 0 END AS unique,
+                CASE
+                    WHEN ix.indisprimary THEN 'pk'
+                    WHEN ix.indisunique THEN 'u'
+                    ELSE 'c'
+                END AS origin,
+                CASE WHEN ix.indpred IS NOT NULL THEN 1 ELSE 0 END AS partial
+            FROM pg_catalog.pg_index ix
+            JOIN pg_catalog.pg_class i ON i.oid = ix.indexrelid
+            JOIN pg_catalog.pg_class t ON t.oid = ix.indrelid
+            JOIN pg_catalog.pg_namespace n ON n.oid = t.relnamespace
+            WHERE n.nspname = 'public' AND t.relname = %s
+            ORDER BY i.relname
+            """,
+            (table_name,),
+        )
+        rows = cur.fetchall()
+        return [
+            {
+                "seq": row["seq"],
+                "name": row["name"],
+                "unique": int(row["unique"]),
+                "origin": row["origin"],
+                "partial": int(row["partial"]),
+            }
+            for row in rows
+        ]
+
+    # SQLite path
+    cur = conn.execute(f"PRAGMA index_list({table_name})")
+    rows = cur.fetchall()
+    return [
+        {
+            "seq": row[0],
+            "name": row[1],
+            "unique": int(row[2]),
+            "origin": row[3],
+            "partial": int(row[4]),
+        }
+        for row in rows
+    ]
+
+
+def engine_aware_foreign_keys(conn, table_name: str) -> list:
+    """Return list of foreign-key metadata dicts. Engine-aware.
+
+    Output shape matches `PRAGMA foreign_key_list(<table>)`:
+        (id, seq, table, from, to, on_update, on_delete, match)
+
+    SQLite path: delegates to PRAGMA foreign_key_list and projects rows
+    to dicts.
+    PG path: queries information_schema.referential_constraints joined
+    with key_column_usage and constraint_column_usage to derive the
+    equivalent fields. `id` and `seq` are not meaningful in PG, so they
+    are reported as 0. `match` is reported as 'NONE'.
+
+    Sprint 5 §J5/§J6 Phase 0 T0.6 — Modified-A migration helper. Phase 2A
+    call sites will consume this helper to replace inlined PRAGMA queries.
+    """
+    if isinstance(conn, PostgresConnectionWrapper):
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT
+                0 AS id,
+                (kcu.ordinal_position - 1) AS seq,
+                ccu.table_name AS "table",
+                kcu.column_name AS "from",
+                ccu.column_name AS "to",
+                rc.update_rule AS on_update,
+                rc.delete_rule AS on_delete,
+                'NONE' AS match
+            FROM information_schema.referential_constraints rc
+            JOIN information_schema.key_column_usage kcu
+                ON kcu.constraint_name = rc.constraint_name
+                AND kcu.constraint_schema = rc.constraint_schema
+            JOIN information_schema.constraint_column_usage ccu
+                ON ccu.constraint_name = rc.constraint_name
+                AND ccu.constraint_schema = rc.constraint_schema
+            WHERE kcu.table_name = %s
+              AND kcu.table_schema = 'public'
+            ORDER BY rc.constraint_name, kcu.ordinal_position
+            """,
+            (table_name,),
+        )
+        rows = cur.fetchall()
+        return [
+            {
+                "id": row["id"],
+                "seq": row["seq"],
+                "table": row["table"],
+                "from": row["from"],
+                "to": row["to"],
+                "on_update": row["on_update"],
+                "on_delete": row["on_delete"],
+                "match": row["match"],
+            }
+            for row in rows
+        ]
+
+    # SQLite path
+    cur = conn.execute(f"PRAGMA foreign_key_list({table_name})")
+    rows = cur.fetchall()
+    return [
+        {
+            "id": row[0],
+            "seq": row[1],
+            "table": row[2],
+            "from": row[3],
+            "to": row[4],
+            "on_update": row[5],
+            "on_delete": row[6],
+            "match": row[7],
+        }
+        for row in rows
+    ]
+
+
+# Re-export _sqlite_only_connect so call sites that want a guaranteed SQLite
+# connection (without going through the engine-aware connect_db()) can import
+# it via `from src.utils.db import _sqlite_only_connect`. The canonical
+# implementation lives in src/schema/sqlite.py — see Sprint 5 §J5/§J6 phase 0.

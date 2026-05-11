@@ -296,3 +296,186 @@ def test_same_column_names_on_both_engines_for_shadow_trades():
     finally:
         sqlite_cleanup()
         pg_cleanup()
+
+
+# ---------------------------------------------------------------------------
+# T0.6: engine_aware_index_list + engine_aware_foreign_keys tests
+# ---------------------------------------------------------------------------
+
+def _sqlite_conn_with_schema(tmp_path, table_names):
+    """Open a SQLite connection and create the named registry tables on it."""
+    from src.schema.registry import TABLES
+    from src.schema.sqlite import generate_create_sql
+
+    db_path = tmp_path / "introspect.sqlite3"
+    conn = sqlite3.connect(str(db_path), timeout=5.0)
+    conn.row_factory = sqlite3.Row
+    for name in table_names:
+        conn.executescript(generate_create_sql(TABLES[name]))
+    conn.commit()
+    return conn
+
+
+def _pg_wrapper_with_schema(table_names):
+    """Open a PG wrapper and ensure the named registry tables exist.
+
+    Skips the test if TEST_DATABASE_URL is unset. Uses the same DDL the
+    SQLite path uses (registry-generated CREATE TABLE) — Postgres accepts
+    the SQLite-flavored CREATE TABLE for the tables we test against here
+    (no SQLite-specific features in shadow_trades / recommendations DDL
+    beyond what's portable).
+
+    Drops the tables first to ensure a clean slate per test, then creates
+    them so the introspection queries observe a known shape.
+    """
+    test_database_url = os.environ.get("TEST_DATABASE_URL")
+    if not test_database_url:
+        pytest.skip("TEST_DATABASE_URL not set; postgres path cannot run")
+
+    import psycopg2
+    import psycopg2.extras
+
+    from src.schema.registry import TABLES
+    from src.schema.sqlite import generate_create_sql
+    from src.utils.db import PostgresConnectionWrapper
+
+    raw = psycopg2.connect(test_database_url, cursor_factory=psycopg2.extras.RealDictCursor)
+    raw.autocommit = True
+    cur = raw.cursor()
+    # Drop in reverse dependency order — best-effort CASCADE
+    for name in reversed(table_names):
+        cur.execute(f"DROP TABLE IF EXISTS {name} CASCADE")
+    for name in table_names:
+        # Generate SQLite-flavored DDL; convert known SQLite-isms to PG
+        # equivalents for the tables under test. The Phase 2 sync layer
+        # has its own canonical PG DDL — for introspection tests we only
+        # need the schema to exist with the same indexes + FKs.
+        ddl = generate_create_sql(TABLES[name])
+        # Strip SQLite-specific tokens that Postgres doesn't accept
+        ddl_pg = (
+            ddl.replace("AUTOINCREMENT", "")
+            .replace("INTEGER PRIMARY KEY", "SERIAL PRIMARY KEY")
+        )
+        cur.execute(ddl_pg)
+    raw.autocommit = False
+    return PostgresConnectionWrapper(raw)
+
+
+def _open_conn(engine, tmp_path, table_names):
+    if engine == "sqlite":
+        return _sqlite_conn_with_schema(tmp_path, table_names)
+    return _pg_wrapper_with_schema(table_names)
+
+
+# ---------------------------------------------------------------------------
+# T0.6 TESTS — engine_aware_index_list
+# ---------------------------------------------------------------------------
+
+
+class TestIndexList:
+    """engine_aware_index_list(conn, table) returns PRAGMA-shaped index dicts."""
+
+    @pytest.mark.parametrize("engine", ["sqlite", "postgres"])
+    def test_index_list_returns_pragma_shape(self, engine, tmp_path):
+        """Each row has the 5 PRAGMA index_list fields:
+        (seq, name, unique, origin, partial).
+        """
+        from src.utils.db import engine_aware_index_list
+
+        conn = _open_conn(engine, tmp_path, ["shadow_trades"])
+        try:
+            rows = engine_aware_index_list(conn, "shadow_trades")
+        finally:
+            conn.close()
+
+        assert isinstance(rows, list)
+        assert len(rows) >= 1, "shadow_trades should have at least one index"
+        for row in rows:
+            # PRAGMA index_list returns 5 fields: seq, name, unique, origin, partial
+            assert "seq" in row, f"missing 'seq' in {row}"
+            assert "name" in row, f"missing 'name' in {row}"
+            assert "unique" in row, f"missing 'unique' in {row}"
+            assert "origin" in row, f"missing 'origin' in {row}"
+            assert "partial" in row, f"missing 'partial' in {row}"
+            assert isinstance(row["name"], str)
+            assert isinstance(row["unique"], int)
+            assert isinstance(row["partial"], int)
+
+    @pytest.mark.parametrize("engine", ["sqlite", "postgres"])
+    def test_index_list_returns_registry_indexes(self, engine, tmp_path):
+        """All indexes declared in the registry for shadow_trades are present
+        in the introspection result.
+        """
+        from src.schema.registry import TABLES
+        from src.utils.db import engine_aware_index_list
+
+        expected_names = {idx.name for idx in TABLES["shadow_trades"].indexes}
+
+        conn = _open_conn(engine, tmp_path, ["shadow_trades"])
+        try:
+            rows = engine_aware_index_list(conn, "shadow_trades")
+        finally:
+            conn.close()
+
+        actual_names = {row["name"] for row in rows}
+        missing = expected_names - actual_names
+        assert not missing, (
+            f"registry-declared indexes missing from introspection: {missing}; "
+            f"got: {actual_names}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# T0.6 TESTS — engine_aware_foreign_keys
+# ---------------------------------------------------------------------------
+
+
+class TestForeignKeys:
+    """engine_aware_foreign_keys(conn, table) returns PRAGMA-shaped FK dicts."""
+
+    @pytest.mark.parametrize("engine", ["sqlite", "postgres"])
+    def test_foreign_keys_returns_pragma_shape(self, engine, tmp_path):
+        """Each row has the 8 PRAGMA foreign_key_list fields:
+        (id, seq, table, from, to, on_update, on_delete, match).
+        """
+        from src.utils.db import engine_aware_foreign_keys
+
+        # shadow_trades has FK to recommendations(recommendation_id)
+        conn = _open_conn(engine, tmp_path, ["recommendations", "shadow_trades"])
+        try:
+            rows = engine_aware_foreign_keys(conn, "shadow_trades")
+        finally:
+            conn.close()
+
+        assert isinstance(rows, list)
+        assert len(rows) >= 1, (
+            "shadow_trades should have at least one FK (recommendation_id -> "
+            "recommendations.recommendation_id)"
+        )
+        for row in rows:
+            # PRAGMA foreign_key_list fields
+            for field in ("id", "seq", "table", "from", "to", "on_update", "on_delete", "match"):
+                assert field in row, f"missing '{field}' in {row}"
+            assert isinstance(row["table"], str)
+            assert isinstance(row["from"], str)
+            assert isinstance(row["to"], str)
+
+        # Verify the known recommendation_id -> recommendations.recommendation_id FK is present
+        fk_tuples = {(row["table"], row["from"], row["to"]) for row in rows}
+        assert ("recommendations", "recommendation_id", "recommendation_id") in fk_tuples, (
+            f"expected (recommendations, recommendation_id, recommendation_id) FK; got: {fk_tuples}"
+        )
+
+    @pytest.mark.parametrize("engine", ["sqlite", "postgres"])
+    def test_foreign_keys_empty_for_table_with_no_fks(self, engine, tmp_path):
+        """A table with no FKs returns an empty list (not None, not error)."""
+        from src.utils.db import engine_aware_foreign_keys
+
+        # recommendations has no FK declarations in the registry
+        conn = _open_conn(engine, tmp_path, ["recommendations"])
+        try:
+            rows = engine_aware_foreign_keys(conn, "recommendations")
+        finally:
+            conn.close()
+
+        assert rows == [], f"expected [] for table with no FKs, got: {rows}"
