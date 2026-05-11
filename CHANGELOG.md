@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Sprint S1-CC Batch B — Walk-Forward Framework Scoping (3 docs-only tasks)
+
+Closes the second half of Sprint S1-CC. Stage 1 corpus admissibility passed (Batch A landed via PR #1051); this batch lands the v1 spec + v1 plan for the walk-forward validation framework that gates Stage 2 OOS dispatch and v2 training. **Docs-only.** No src/, tests/, or config/ changes.
+
+- **`docs/audits/2026-05-11-stage1-completion/walkforward-prior-art.md`** (NEW, 419 lines) — B1 prior-art review. Inventories WIRED vs SHELF across `src/methods/promotion_gate._decide`, `src/platform/promotion._evaluate_walkforward_gate`, `src/evaluation/walkforward.py` (Stage-1 anchored harness), and `src/platform/rigor/walkforward_*` (R1-R8 state-machine + `walkforward_results` persistence). Documents the composition pattern (walk-forward AND-composes with the 4-of-5 methodology voter at the orchestrator level, NOT as a 6th vote) and surfaces 12 open methodological questions (D1-D12) the spec must resolve.
+- **`docs/audits/2026-05-11-stage1-completion/walkforward-spec-v1.md`** (NEW, 264 lines) — B2 v1 spec. Per operator-convention section flow (Revision History → Overview → Architecture → Data Model → API & Module Surface → Error Handling → Testing Strategy → Operational Notes → File Inventory → Known Considerations → Design Decisions Table → Do-Not-Do → Falsifiability Triggers). **12 design decisions captured** (SP-WF-001 through SP-WF-012). Key resolutions:
+  - **SP-WF-008 (composition)** = Choice B — walk-forward stays AND-composed at `src/platform/promotion.py:_evaluate_backtested_to_shadow`, NOT a 6th vote into `_decide`. Preserves independent falsifiability of methodology voter vs regime-stability gate.
+  - **SP-WF-009 (sentinel default)** = Choice A — `WALKFORWARD_GATE_ENABLED=true` by default. The gate is already wired and blocking in production (R1-R8 v1); `false` default would silently regress an enforced gate.
+- **`docs/audits/2026-05-11-stage1-completion/walkforward-plan-v1.md`** (NEW, 325 lines) — B3 v1 plan. 12 tasks across 5 batches (parallel-eligible where independent). Sentinel: matches spec SP-WF-009 (default `true`). Schema additions: D7 Choice A (reuse existing `walkforward_results` table + add `gate_version TEXT DEFAULT 'v1'` column for forward-compat reads; new `excess_sharpe_min_used REAL` column for self-describing rows). Total estimated LOC budget: ~235 net new src/ + ~395 new test lines. T7 is procedure-only (`validate-schema --fix` + `render_migrate.py`).
+
+**Cross-doc alignment verified:** B2 and B3 were drafted by parallel agents (worktree-isolated) and independently converged on the AND-composition pattern + sentinel `true` default. Independent convergence is a positive signal that the resolutions are grounded in the existing codebase, not artifact of any single agent's reasoning.
+
+**Out of scope:** v2 training dispatch (still gated on walk-forward shipping + Stage 2 closure). Strategy specs (#511 Connors RSI(2) etc.) remain separate. No src/ or test changes in this batch — the impl sprint dispatches from the plan after operator review.
+
 ### SP5 §J5/§J6 Phase 2.5 — KNOWN_OFFENDERS date-function cleanup (12 sites, 6 files)
 
 Phase 3 cutover prerequisite. Phase 2 T2.14 (AST-based SQLite-ism discipline scan) shipped with a `KNOWN_OFFENDERS` allowlist containing 12 `datetime('now', ...)` / `date('now', ...)` sites across 6 files — patterns that crash on Postgres because the SQLite negative-offset date literal has no PG equivalent. This phase migrates all 12 sites to Python-side `datetime.now(ET) - timedelta(days=N)` cutoffs bound as `?` parameters (the wrapper rewrites `?` → `%s` for psycopg2 post-cutover). After this phase, `KNOWN_OFFENDERS` is **Phase-3-cutover-ready**: zero remaining date-function offenders block the cutover (only the PRAGMA-guarded `system_validator.py:167` and the 34 dynamic-`?` wrapper-handled sites remain).
