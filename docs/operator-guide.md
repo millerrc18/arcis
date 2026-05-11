@@ -1521,6 +1521,216 @@ The Render PG instance is retained as a cold backup until **2026-05-17** (7 days
 
 ---
 
+## Postgres Cutover (SP5 §J5/§J6 Phase 3-revised — one-DB)
+
+### When to use this runbook
+
+After PR `sp5-phase-3rev` integration merges to main, the operator executes
+the steps below to flip production from SQLite to Postgres. Code-side
+plumbing is complete after merge; this runbook is the operational sequence.
+
+This runbook supersedes the Phase 3 cutover in the original spec
+(`docs/audits/2026-05-11-modified-a-migration/spec.md`) for the re-cutover
+attempt. The Phase 3-revised PR corrected the PR #1054 gap where only ~5 of
+336 `connect_db()` call sites routed to PG. Under Phase 3-revised, the
+precedence inversion is complete — every `connect_db()` call routes to PG
+when `ARCIS_PG_CUTOVER_ENABLED=1` is set, regardless of how `db_path` was
+passed (SP-ONEDB-001). See the CHANGELOG entry for T1–T6 code change details.
+
+### Prerequisites (all must be satisfied)
+
+- Both NSSM services (`ArcisWatchLoop`, `ArcisDashboard`) running on current `origin/main` with the Phase 3-revised code merged
+- `halcyon-pg` Docker container running and healthy (`docker ps --filter "name=halcyon-pg"`)
+- `.env` contains `DOCKER_PG_PASSWORD=<64-char-hex>` (random — set during cutover Wave 1)
+- Local SQLite snapshot available at `C:/arcis/data/ai_research_desk-YYYY-MM-DD-precutover.sqlite3`
+- `ARCIS_PG_CUTOVER_ENABLED` env var NOT YET set on either service
+
+### Step 1 — Pre-flight verification
+
+Before starting the cutover, verify the pre-smoke gates from
+`docs/audits/2026-05-11-modified-a-migration/t3.4-smoke-checklist.md` §0,
+adapted for the Phase 3-revised (one-DB) scenario:
+
+| # | Check | Command | Expected |
+|---|-------|---------|----------|
+| 0.1 | Both NSSM services have baseline env but NOT yet `ARCIS_PG_CUTOVER_ENABLED` | `nssm get ArcisWatchLoop AppEnvironmentExtra` | Contains `ARCIS_DB_PATH=...` AND `PYTHONUTF8=1`; does NOT yet contain `ARCIS_PG_CUTOVER_ENABLED=1` |
+| 0.2 | Both services are RUNNING | `Get-Service ArcisWatchLoop, ArcisDashboard` | Status=Running for both |
+| 0.3 | Docker PG is healthy | `docker ps --filter "name=halcyon-pg" --format "{{.Names}}\t{{.Status}}"` | `halcyon-pg   Up X minutes (healthy)` |
+| 0.4 | `data/watchdog.txt` absent or empty | `Test-Path C:\arcis\data\watchdog.txt` | File absent or empty (no PG_CONNECT_FAIL content) |
+| 0.5 | PG schema has 71 tables (Phase 3-revised removes `sync_state`) | `docker exec halcyon-pg psql -U halcyon -d halcyon -c "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public';"` | `71` (SP-ONEDB-002: sync_state removed; was 72 in Phase 3) |
+
+**Note on §0.5:** The Phase 3 smoke checklist (`t3.4-smoke-checklist.md` §0.6) expected 72 tables. Phase 3-revised removes `sync_state` (deprecated alongside `render_sync.py`). If you see 72, the Phase 3-revised schema migration has not run — re-run `python scripts/render_migrate.py` before continuing.
+
+### Step 2 — Stop services
+
+```powershell
+nssm stop ArcisWatchLoop
+nssm stop ArcisDashboard
+Get-Service ArcisWatchLoop, ArcisDashboard  # both should be Stopped
+```
+
+Wait until both services show `Stopped` status before proceeding. Any in-flight SQLite writes during shutdown are safe — the pre-cutover snapshot (Step 3) captures the final state.
+
+### Step 3 — Fresh snapshots
+
+```powershell
+$ts = Get-Date -Format "yyyy-MM-dd"
+Copy-Item C:/arcis/data/ai_research_desk.sqlite3 "C:/arcis/data/ai_research_desk-$ts-precutover.sqlite3"
+docker exec halcyon-pg pg_dump -U halcyon halcyon > "C:/arcis/data/pg-pre-cutover-$ts.sql"
+```
+
+These are the rollback artifacts. The SQLite snapshot is the worst-case restoration point. The PG dump captures any prior PG state before the fresh migration overwrite.
+
+### Step 4 — Re-mirror schema + migrate data
+
+This step syncs the PG schema to the Phase 3-revised registry (71 tables) and copies all sync-eligible rows from SQLite to PG.
+
+```powershell
+# Build DATABASE_URL from .env
+$pgPass = (Get-Content C:\arcis\halcyon-lab\.env | Where-Object { $_ -match '^DOCKER_PG_PASSWORD=' } | ForEach-Object { $_ -replace '^DOCKER_PG_PASSWORD=', '' }).Trim()
+$env:DATABASE_URL = "postgresql://halcyon:$pgPass@localhost:5433/halcyon"
+
+# Sync schema (creates/drops tables to match registry — 71 tables expected)
+python scripts/render_migrate.py
+
+# Migrate data from SQLite → PG
+python scripts/sqlite_to_pg_migrate.py
+```
+
+**Expected output from `render_migrate.py`:** 71 tables synced. If `sync_state` still appears, the Phase 3-revised schema change hasn't merged — stop and investigate.
+
+**Expected output from `sqlite_to_pg_migrate.py`:** 1.4M+ rows migrated across the sync-eligible tables (63 of 71). The 8 newly-flipped tables (see §"Data verification" below) should now have non-zero PG row counts.
+
+**Data verification — the 8 newly-flipped tables must have data in PG:**
+
+```powershell
+docker exec halcyon-pg psql -U halcyon -d halcyon -c "
+SELECT
+  'system_metrics' AS t, COUNT(*) FROM system_metrics UNION ALL
+  SELECT 'bracket_health', COUNT(*) FROM bracket_health UNION ALL
+  SELECT 'data_freshness', COUNT(*) FROM data_freshness UNION ALL
+  SELECT 'daily_ib_health', COUNT(*) FROM daily_ib_health UNION ALL
+  SELECT 'model_evaluations', COUNT(*) FROM model_evaluations UNION ALL
+  SELECT 'preference_pairs', COUNT(*) FROM preference_pairs UNION ALL
+  SELECT 'config_overrides', COUNT(*) FROM config_overrides UNION ALL
+  SELECT 'operator_view_state', COUNT(*) FROM operator_view_state;
+"
+```
+
+All 8 should show counts > 0 (or 0 for tables that were genuinely empty in SQLite — that is acceptable; the critical check is that the table exists in PG and the migration ran without errors).
+
+Note: For the password-construction approach used above, see memory `reference_docker_bind_mount_persistence` — the same `.env` pattern applies.
+
+### Step 5 — NSSM env APPEND (the cutover moment)
+
+This is the point of no return for the active write path. The APPEND syntax preserves all existing env vars (PYTHONUTF8, ARCIS_DB_PATH, OLLAMA_BASE_URL, etc.) and adds the two cutover keys.
+
+```powershell
+# Verify the current baseline before appending:
+nssm get ArcisWatchLoop AppEnvironmentExtra
+# Record the full output — you will need it for Step 8 rollback if required.
+
+# Append cutover env vars (do NOT use nssm set with only the new vars — that overwrites):
+$pgPass = (Get-Content C:\arcis\halcyon-lab\.env | Where-Object { $_ -match '^DOCKER_PG_PASSWORD=' } | ForEach-Object { $_ -replace '^DOCKER_PG_PASSWORD=', '' }).Trim()
+$pgUrl = "postgresql://halcyon:$pgPass@localhost:5433/halcyon"
+
+# ArcisWatchLoop: existing baseline + cutover keys
+# Replace <EXISTING_ENV_STRING> with the full string from nssm get above:
+nssm set ArcisWatchLoop AppEnvironmentExtra "<EXISTING_ENV_STRING> DATABASE_URL=$pgUrl ARCIS_PG_CUTOVER_ENABLED=1"
+
+# ArcisDashboard: typically empty baseline + cutover keys
+nssm set ArcisDashboard AppEnvironmentExtra "DATABASE_URL=$pgUrl ARCIS_PG_CUTOVER_ENABLED=1"
+```
+
+**CRITICAL:** Verify that PYTHONUTF8=1 and ARCIS_DB_PATH are still present after the set:
+
+```powershell
+nssm get ArcisWatchLoop AppEnvironmentExtra
+# Must contain: PYTHONUTF8=1, ARCIS_DB_PATH=C:/arcis/data/ai_research_desk.sqlite3, DATABASE_URL=..., ARCIS_PG_CUTOVER_ENABLED=1
+```
+
+If PYTHONUTF8 or ARCIS_DB_PATH is missing, the TRL training pipeline will break silently. STOP and redo Step 5 with the correct APPEND approach (M5 mitigation from the spec).
+
+### Step 6 — Start both services
+
+```powershell
+nssm start ArcisWatchLoop
+nssm start ArcisDashboard
+Get-Service ArcisWatchLoop, ArcisDashboard  # both must be Running
+```
+
+Wait 60 seconds after start before proceeding to Step 7. Check `data/watchdog.txt` — if it contains `PG_CONNECT_FAIL:`, the PG connection failed at startup (M3 fast-exit fired). Investigate Docker PG health before retrying.
+
+### Step 7 — Smoke verification (30 min)
+
+Follow `docs/audits/2026-05-11-modified-a-migration/t3.4-smoke-checklist.md` for the full 30-minute smoke checklist, with the following **CRITICAL additions** for Phase 3-revised (one-DB):
+
+**Addition §1.A — SQLite must show ZERO new rows during the gate-on window.**
+
+The PR #1054 failure mode was writes silently routing to SQLite even with the gate on. This assertion catches that regression in 30 seconds. Run this every 5 min during the smoke window:
+
+```python
+import sqlite3
+conn = sqlite3.connect("file:C:/arcis/data/ai_research_desk.sqlite3?mode=ro", uri=True)
+rows = conn.execute(
+    "SELECT COUNT(*) FROM shadow_trades WHERE updated_at >= datetime('now', '-5 minutes')"
+).fetchone()
+assert rows[0] == 0, f"SQLite received {rows[0]} writes during gate-on — cutover regression!"
+conn.close()
+```
+
+If this assertion fails, STOP immediately and proceed to Step 8 rollback. This is a NON-NEGOTIABLE check — it is the assertion that would have caught PR #1054 in 30 seconds.
+
+**Addition: PG schema check expects 71 tables (not 72).** The t3.4-smoke-checklist.md §0.6 expects 72 — for Phase 3-revised, the expected count is 71 (`sync_state` removed per SP-ONEDB-002).
+
+**Addition: All 8 newly-flipped tables must show writes in PG.** The Phase 3 smoke only verified 5 write paths (system_metrics, shadow_trades, activity_log, notifications_dedup, scan_metrics). Phase 3-revised adds 8 more tables to the sync-to-PG set. Spot-check at minute 10:
+
+```powershell
+docker exec halcyon-pg psql -U halcyon -d halcyon -c "
+SELECT 'bracket_health' AS t, MAX(updated_at) FROM bracket_health UNION ALL
+SELECT 'data_freshness', MAX(updated_at) FROM data_freshness UNION ALL
+SELECT 'config_overrides', MAX(updated_at) FROM config_overrides UNION ALL
+SELECT 'operator_view_state', MAX(updated_at) FROM operator_view_state;
+"
+```
+
+Post-cutover timestamps in any of these tables confirm the engine_aware_upsert writers are routing to PG correctly.
+
+**Expected smoke PASS criteria (Phase 3-revised):**
+
+- All §0 pre-smoke gates pass (using 71 not 72 for §0.5/§0.6 counts)
+- §1.A SQLite-zero-writes assertion holds for all 5-min checks during the window
+- §1 write paths: all 5 original paths + spot-check of ≥2 of the 8 newly-flipped tables
+- §2 read paths: ≥6/7 endpoints clean
+- §3 C1 LIKE regression: §3.1 or §3.2 passes
+- §4 log sweep: zero CRITICAL patterns; `_DB_PATH_WARNED` WARN lines in `arcis.log` are expected (one per distinct `db_path` override, by design — see SP-ONEDB-009)
+
+### Step 8 — Rollback (only if Step 7 FAILS)
+
+If any CRITICAL failure occurs during the smoke:
+
+```powershell
+# Single env unset reverts cutover — SQLite resumes as primary on next connect_db() call
+nssm set ArcisWatchLoop AppEnvironmentExtra "ARCIS_DB_PATH=C:/arcis/data/ai_research_desk.sqlite3 PYTHONUTF8=1 SYNC_THREAD_ENABLED=false"
+nssm set ArcisDashboard AppEnvironmentExtra ""
+nssm restart ArcisWatchLoop
+nssm restart ArcisDashboard
+```
+
+After rollback, verify that `Get-Content C:\arcis\logs\watch.log -Tail 20` shows SQLite-backed activity (no psycopg2 errors) within ~30 seconds of restart.
+
+After rollback: investigate the failure pattern via `logs/arcis_err.log` and `logs/dashboard-stderr.log`. File a P0 incident with the Step 7 sub-step that failed (§1.A failure = writes still routing to SQLite = connect_db gate regression; §4 CRITICAL pattern = schema drift or PG unreachable).
+
+### Known considerations
+
+- `_DB_PATH_WARNED` WARN log appears in `arcis.log` exactly ONCE per distinct `db_path` passed to `connect_db()` under gate-on. This is by design — see SP-ONEDB-009. It confirms the gate intercepted an explicit `db_path` override. Multiple WARN lines for the same path indicate a cold-start sequence or multiple processes; not a concern unless the count grows unboundedly.
+- SQLite remains on disk post-cutover as a stale snapshot for rollback safety. Writes during gate-on do NOT mirror back to SQLite. See SP-ONEDB-001 + SP-ONEDB-005. The file at `ai_research_desk-YYYY-MM-DD-precutover.sqlite3` is the canonical cold backup.
+- `render_sync.py` and `reconcile.py` were deleted in T7 of this PR — do NOT attempt to import them or invoke the legacy `reset-live-prices-watermark` CLI subcommand. The subcommand is removed from `src/cli/main.py`.
+- The `sync_state` table is absent from the Phase 3-revised schema (removed along with `render_sync.py`). If any legacy script references it, it will receive a `relation "sync_state" does not exist` error from PG. File as a follow-up; does not block the cutover.
+- `cloud_routes/` manual `if database_url:` branches are now redundant under the one-DB invariant but each has independent quirks. Cleanup is tracked as post-merge backlog (SP-ONEDB-011); do NOT modify these branches as part of the cutover — they are harmless no-ops under gate-on.
+
+---
+
 ## See also
 
 - [`CLAUDE.md`](../CLAUDE.md) — rules for AI agents working on the codebase (governance + schema discipline + worktree pattern)
