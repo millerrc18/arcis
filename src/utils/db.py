@@ -45,6 +45,97 @@ BUSY_TIMEOUT_MS = 30_000  # 30s — rides through typical external-tool locks
 _SENTINEL = object()
 
 
+class CompatRow:
+    """Row wrapper supporting BOTH `row[int]` AND `row['col']` access.
+
+    Mirrors sqlite3.Row semantics for psycopg2 RealDictCursor results. Used by
+    `_RowFactoryCursor` to wrap each dict returned by psycopg2 so that
+    SQLite-shaped call sites (`row[0]`, `tuple(row)`, `a, b = row`) keep
+    working under PG without per-site rewrites.
+
+    CRITICAL INVARIANT (Devil's Advocate finding C3): Iteration yields VALUES,
+    not keys. This matches sqlite3.Row exactly:
+
+        for v in row    -> values
+        tuple(row)      -> (v1, v2, ...)
+        list(row)       -> [v1, v2, ...]
+        a, b = row      -> values destructured
+
+    For column-name iteration, callers must use `row.keys()` explicitly. If
+    `__iter__` yielded keys, code paths that destructure rows (`a, b = row`)
+    or coerce to tuple/list would silently swap values for column names — the
+    silent-data-corruption class of bug the Modified-A migration must prevent.
+
+    `dict(CompatRow)` returns a column-keyed dict by virtue of Python's
+    `dict()` constructor preferring `keys() + __getitem__` over `__iter__`
+    when both are available — same behavior as `dict(sqlite3.Row)`.
+    """
+
+    __slots__ = ("_row",)
+
+    def __init__(self, row_dict):
+        self._row = row_dict
+
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return list(self._row.values())[key]
+        return self._row[key]
+
+    def __iter__(self):
+        # C3: yield VALUES, not keys — matches sqlite3.Row.
+        return iter(self._row.values())
+
+    def __len__(self):
+        return len(self._row)
+
+    def __contains__(self, key):
+        return key in self._row
+
+    def keys(self):
+        return self._row.keys()
+
+    def __repr__(self):
+        return f"CompatRow({self._row!r})"
+
+
+class _RowFactoryCursor:
+    """Wraps a psycopg2 cursor so fetch* methods return CompatRow instances.
+
+    The inner cursor is expected to be a `psycopg2.extras.RealDictCursor` (set
+    by `connect_db()` via `cursor_factory=psycopg2.extras.RealDictCursor`), so
+    its fetch methods return dicts. This wrapper translates each dict to a
+    CompatRow on the way out. `fetchone()` returns `None` (not a CompatRow)
+    when the cursor is exhausted, matching DB-API 2.0 semantics.
+
+    `execute`, `executemany`, `close`, and other cursor attributes pass
+    through unchanged via `__getattr__`. The `PostgresConnectionWrapper` layer
+    is responsible for any SQL rewrites (`?` -> `%s`, etc.) before the SQL
+    reaches this cursor.
+    """
+
+    def __init__(self, inner_cursor):
+        self._cursor = inner_cursor
+
+    def fetchone(self):
+        row = self._cursor.fetchone()
+        if row is None:
+            return None
+        return CompatRow(row)
+
+    def fetchall(self):
+        return [CompatRow(r) for r in self._cursor.fetchall()]
+
+    def fetchmany(self, size=None):
+        if size is None:
+            rows = self._cursor.fetchmany()
+        else:
+            rows = self._cursor.fetchmany(size)
+        return [CompatRow(r) for r in rows]
+
+    def __getattr__(self, name):
+        return getattr(self._cursor, name)
+
+
 class PostgresConnectionWrapper:
     """Thin context-manager wrapper around a psycopg2 connection.
 
