@@ -1,0 +1,182 @@
+[
+  {
+    "decision": "Precedence rule for the cutover gated behind ARCIS_PG_CUTOVER_ENABLED=1 env var (M2)",
+    "rationale": "Without the env gate, T3.2's precedence flip activates on EVERY machine where DATABASE_URL is set in the shell — including developer boxes where DATABASE_URL points at another project's PG. The gate makes T3.2 a no-op on merge: only the production NSSM service (which has both DATABASE_URL=postgresql://… AND ARCIS_PG_CUTOVER_ENABLED=1) routes to PG. Rollback becomes a single env unset (ARCIS_PG_CUTOVER_ENABLED=). Gate removed in T4.4 cleanup once cutover is stable. Documented incident analog: not yet observed, but the failure shape (stale DATABASE_URL in developer shell silently routing to PG) is high-likelihood after T3.2 merge given the watch loop runs on the operator's box where multiple projects coexist.",
+    "alternatives_considered": [
+      "DATABASE_URL alone flips precedence (rejected: too coupled to ambient env; M2 incident shape)",
+      "Build-time flag baked into the binary (rejected: requires re-deploy to roll back)",
+      "Operator manually edits db.py at cutover time (rejected: hard to revert; not idempotent)"
+    ]
+  },
+  {
+    "decision": "Quote-AND-percent-aware rewrite (C1) — escapes unpaired `%` to `%%`, not just naive `?` replace",
+    "rationale": "psycopg2 uses `%` as both parameter sigil and format-specifier prefix. After replacing `?` with `%s`, any literal `%` in SQL (LIKE wildcards, prefix patterns, embedded percent chars) causes psycopg2's binding to crash with IndexError/TypeError — exact same failure shape as 2026-05-10. The codebase contains real literal-% sites (activity_log LIKE '%position%' in Telegram poll path, called out as smoke test). The rewrite MUST handle this. T0.0 audits all such sites; T0.2 ships a quote+pct-aware tokenizer that doubles unpaired `%` to `%%` outside string literals. C1 regression test executes the rewritten SQL against a real PG fixture and asserts no binding error.",
+    "alternatives_considered": [
+      "Naive replace (REJECTED — original revision; would crash on activity_log LIKE in T3.4 smoke)",
+      "Force every literal % to be a bound parameter (rejected: 158+ sites; many are static SQL strings)",
+      "Use psycopg2.sql.SQL composition (rejected: requires every call site to opt in; defeats centralisation)"
+    ]
+  },
+  {
+    "decision": "engine_aware_upsert action='replace' dispatches per-table on _REPLACE_SEMANTICS — explicit DELETE+INSERT emulation for FK-sensitive tables (C2)",
+    "rationale": "SQLite INSERT OR REPLACE is DELETE-then-INSERT (fires ON DELETE triggers, cascades FK refs, reassigns rowid). PG INSERT ... ON CONFLICT DO UPDATE is in-place UPDATE (preserves FKs, no DELETE trigger). Silent data divergence for any FK-dependent table. T0.12 audits all 10 action='replace' target tables for FK refs, cascades, AUTOINCREMENT, triggers. Findings encoded into a hard-coded _REPLACE_SEMANTICS dict in src/utils/db.py. PG path dispatches: 'in_place_update' → ON CONFLICT DO UPDATE; 'delete_insert' → wrap DELETE+INSERT in single transaction. Unknown tables raise ValueError to force auditability.",
+    "alternatives_considered": [
+      "ON CONFLICT DO UPDATE for all replace tables (REJECTED — C2 silent data divergence)",
+      "DELETE+INSERT for all replace tables (rejected: needlessly destroys rowid stability where it's safe)",
+      "Migrate FK-sensitive tables to action='ignore' instead (rejected: changes semantics; replaces upsert with insert-or-noop)"
+    ]
+  },
+  {
+    "decision": "CompatRow iterates VALUES, not keys — explicit __iter__ contract matching sqlite3.Row (C3)",
+    "rationale": "sqlite3.Row.__iter__ yields VALUES (cell contents). psycopg2.extras.RealDictRow.__iter__ yields KEYS (column names). 60+ row[N] integer-indexed sites in the codebase. If any site does `for v in row:` or `tuple(row)` or `a, b = row`, with naive RealDictRow we'd silently yield column names instead of values. CompatRow MUST override __iter__ to yield self._row.values(). Tests assert tuple(row) == (v1, v2), list(row) == [v1, v2], destructuring works, [v for v in row] yields values. dict(row) is explicitly an undefined case — document the chosen behaviour in the class docstring.",
+    "alternatives_considered": [
+      "Default RealDictRow iteration (REJECTED — C3 silent corruption on any for-loop)",
+      "Wrap and yield keys to match dict default (rejected: contradicts sqlite3.Row semantics; the whole point is dropping into existing code)",
+      "Document the trap and grep all `for v in row:` sites (rejected: too much detection surface)"
+    ]
+  },
+  {
+    "decision": "T0.11 retry exhaustion calls sys.exit(1) after watchdog.txt write — NSSM restarts the service (M3)",
+    "rationale": "Original revision: T0.11 wrote watchdog.txt and re-raised psycopg2.OperationalError. Watch.py:1133 has `except Exception` which CATCHES the re-raised exception, logs warning, and continues — leaving a zombie watch loop running without a working DB. Telegram alert never fires, NSSM never restarts (process didn't exit), every subsequent task fails silently. Fix: on retry exhaustion, write watchdog.txt then sys.exit(1). SystemExit inherits BaseException not Exception, so the wrapping `except Exception` at line 1133 does NOT catch it. Process exits cleanly, NSSM auto-restarts. T2.12 adds a comment at line 1133 explicitly documenting this invariant. Operator-facing rollback (NSSM unset ARCIS_PG_CUTOVER_ENABLED) still works because the next retry cycle will route to SQLite path.",
+    "alternatives_considered": [
+      "Re-raise OperationalError and let watch.py handle it (REJECTED — M3 zombie-watchdog mode)",
+      "Refactor watch.py:1133 to remove `except Exception` for OperationalError specifically (rejected: leaks DB concern into scheduler; centralisation argues for fast-exit in the wrapper)",
+      "Watchdog.txt + os._exit(1) instead of sys.exit(1) (rejected: bypasses Python cleanup; sys.exit is the standard exit path)"
+    ]
+  },
+  {
+    "decision": "T2.14 uses AST-based scanning, not substring scan (M4)",
+    "rationale": "The 2026-05-10 crash was triggered by system_validator.py:1039's `f'INSERT INTO ... VALUES ({placeholders})'` where placeholders was built dynamically. Substring scan for 'INSERT OR REPLACE' or '?' would miss `f'INSERT OR {action.upper()} INTO ...'` or `'INSERT' + ' OR ' + 'IGNORE' + ' INTO ...'`. AST-based scan visits ast.Constant/ast.JoinedStr/ast.FormattedValue/ast.BinOp(op=Add) nodes, reconstructs strings where possible, and catches dynamic patterns. Detection rules: (1) any string containing 'INSERT OR REPLACE/IGNORE' even split; (2) SQL-keyword strings with unrewritten `?` placeholders; (3) string concat chains with SQLite-ism fragments; (4) f-string fragments where the expr evaluates to constant REPLACE/IGNORE. Bumps T2.14 to standard complexity. Includes positive-test fixtures (anti-pattern files) to verify the detector works.",
+    "alternatives_considered": [
+      "Substring scan (REJECTED — M4: misses dynamic patterns; this was the exact 2026-05-10 bug class)",
+      "Ban all `?` placeholders in migrated files entirely (rejected: too aggressive; legitimate parameterized queries still use ?)",
+      "Lint with ruff/flake8 custom rule (rejected: extra tooling; AST scan in pytest is more discoverable and self-contained)"
+    ]
+  },
+  {
+    "decision": "Pre-cutover baseline NSSM env audit (T3.0) + APPEND syntax at T3.3 (M5)",
+    "rationale": "Tonight (2026-05-10) we discovered TRL's chat_template_utils.py on Windows requires PYTHONUTF8=1 for UTF-8 codec safety. If operator follows the original spec literally and only adds DATABASE_URL to NSSM env at T3.3 (potentially overwriting via `nssm set`), PYTHONUTF8 disappears → training pipeline silently breaks. T3.0 documents the baseline env-var list (PYTHONUTF8, ARCIS_DB_PATH, OLLAMA_BASE_URL, and any others surfaced via `nssm get`) in operator-guide.md. T3.3 explicitly uses APPEND syntax — concatenates new vars onto the existing string rather than overwriting. PM blocks T3.3 if T3.0 audit doc is missing or empty. T4.7 finalises the canonical env-var list in operator-guide.md.",
+    "alternatives_considered": [
+      "Operator remembers to use append (REJECTED — M5: not enforceable; relies on human discipline)",
+      "Move all env config to .env file loaded by watch.py startup (rejected: NSSM env is the canonical operator interface; .env wouldn't apply to non-Python subprocesses)",
+      "Add an integration test that asserts PYTHONUTF8 is set (rejected: tests don't run under NSSM; can't simulate the service env)"
+    ]
+  },
+  {
+    "decision": "Use a CompatRow wrapper class to support BOTH row[int] AND row['col'] access on PG",
+    "rationale": "The codebase report enumerated 60+ row[N] integer-indexed sites across 50+ files including hot paths. RealDictCursor returns dicts that raise KeyError on int access — silent data corruption without CompatRow. (Iteration semantics — C3 — addressed in design_decisions[3].)",
+    "alternatives_considered": [
+      "Audit + fix all 60 row[N] sites manually (rejected: enormous touch surface)",
+      "Use psycopg2 default tuple cursor (rejected: row['col'] then breaks)",
+      "Use NamedTupleCursor (rejected: row[0] still doesn't work syntactically the same way)"
+    ]
+  },
+  {
+    "decision": "engine_aware_upsert: action='ignore' (DO NOTHING) mirrors the migrator; action='replace' is per-table dispatched (NEW code)",
+    "rationale": "scripts/sqlite_to_pg_migrate.py:_build_insert_sql_template emits ONLY DO NOTHING — that covers the action='ignore' branch (7 of 17 Phase 1 sites). The action='replace' branch is new code, now further refined by C2's per-table semantic dispatch.",
+    "alternatives_considered": [
+      "Pretend the whole helper is extracted (rejected: false reuse)",
+      "Author both branches from scratch (rejected: ignore-branch IS verbatim the migrator's output)",
+      "Use SQLAlchemy Core (rejected: no ORM in this codebase)"
+    ]
+  },
+  {
+    "decision": "Add sync_conflict_col='event_type, dedup_key' to notifications_dedup TableDef (T0.7)",
+    "rationale": "notifications_dedup has a unique idx on (event_type, dedup_key) but no sync_conflict_col → engine_aware_upsert would fall back to PK=id (UUID) → would silently allow duplicates on PG.",
+    "alternatives_considered": [
+      "Auto-introspect unique indexes (rejected: too implicit)",
+      "Pass conflict_target explicitly at call site (rejected: defeats centralisation)",
+      "Add sync_conflict_col to ALL 64 PK-only tables (rejected: no behavioural change)"
+    ]
+  },
+  {
+    "decision": "Retiring allowlist for sync/render_sync.py + sync/reconcile.py (not permanent)",
+    "rationale": "Both files deleted in Phase 4. Permanent allowlist would hide a future audit issue. `# RETIRING: delete in SP5 §J6 Phase 4` markers + separate test surface.",
+    "alternatives_considered": [
+      "Permanent allowlist (rejected: hides retirement intent)",
+      "Skip entirely (rejected: loses regression-lock coverage during transition)",
+      "Comment-out discipline test (rejected: harder to find when removing)"
+    ]
+  },
+  {
+    "decision": "Extract configure_sqlite_for_production helper to src/utils/db.py",
+    "rationale": "Named helper makes intent explicit, lets future SQLite-only callers reuse, isolates engine-check to one place.",
+    "alternatives_considered": [
+      "Inline isinstance check at watch.py (rejected: re-uses guards if future modules need same setup)",
+      "Put in src/scheduler/ (rejected: belongs with the wrapper)",
+      "Move to PostgresConnectionWrapper.__init__ no-op (rejected: too magical)"
+    ]
+  },
+  {
+    "decision": "Phase 3 (cutover) is operator-managed at NSSM-env level — not auto-dispatched by PM agent",
+    "rationale": "NSSM env edits + service restart on production are operator-trust operations per memory `reference_watch_loop_management`. Auto-dispatching agents violates autopilot discipline.",
+    "alternatives_considered": [
+      "Auto-dispatch a PM-controlled NSSM update (rejected: bypass)",
+      "Watch loop polls config file (rejected: adds complexity)",
+      "Manual code flip (rejected: that's what the env var IS for)"
+    ]
+  },
+  {
+    "decision": "5-phase plan with phases landing as separate PRs",
+    "rationale": "Each phase has a distinct concern + acceptance gate. Granular rollback + reviewability + clear cutover gate.",
+    "alternatives_considered": [
+      "Bundle Phase 0+1 (rejected: Should constraint says separate PRs)",
+      "Bundle Phase 1+2 (rejected: 28 files in one PR is unreviewable)",
+      "Single mega-PR (rejected: was the implicit 2026-05-10 attempt)"
+    ]
+  },
+  {
+    "decision": "Test count target +134 with accept band +90 to +140 (M6)",
+    "rationale": "Per-task budgets sum to +134 (Phase 0: +61, Phase 1: +17, Phase 2: +63, Phase 3: +3, Phase 4: -10). Accept band allows ±slack without re-issue. T2.15 closeout includes PM verification of actual delta vs band. CLAUDE.md test-floor lineage updated with the actual number.",
+    "alternatives_considered": [
+      "Exact target +100 (rejected: brittle — small variations cause unnecessary re-issue)",
+      "No target at all (rejected: violates Success criteria of ≥+100)",
+      "Strict band ±5 (rejected: too tight given AST-test count is hard to predict precisely)"
+    ]
+  },
+  {
+    "decision": "CI workflow uses postgres:16-alpine sidecar with ephemeral creds — no GitHub secrets",
+    "rationale": "No existing GitHub secret infrastructure. postgres:16-alpine matches Render PG + Docker compose. Sidecar uses postgres:postgres ephemeral creds.",
+    "alternatives_considered": [
+      "External test PG via secret (rejected: introduces secret management)",
+      "Run SQLite-only in CI (rejected: defeats dual-engine regression-locks)",
+      "testcontainers-python (rejected: extra dep)"
+    ]
+  },
+  {
+    "decision": "Worktree isolation MANDATORY for parallel Phase 1, Phase 2, Phase 4 dispatches",
+    "rationale": "Per CLAUDE.md 'Parallel Agent Dispatch — Worktree Discipline' and memory feedback_strict_rigor_no_handwave. Phase 1 (15 parallel agents), Phase 2 (8-11 per batch), Phase 4 cleanup all need worktrees.",
+    "alternatives_considered": [
+      "Worktrees for everything (rejected: friction on serial tasks)",
+      "No worktrees anywhere (rejected: violates CLAUDE.md)",
+      "Worktrees only for cross-package boundaries (rejected: too clever)"
+    ]
+  },
+  {
+    "decision": "PM-side verification step before EVERY parallel batch: git fetch origin && gh pr list",
+    "rationale": "Per memory feedback_autopilot_origin_check. Sprint 0 Wave 1b PR #701 duplicate-work incident. Phase 1 has up to 11 parallel agents — without origin check, agents could race the operator.",
+    "alternatives_considered": [
+      "Skip the check (rejected: documented incident)",
+      "After-batches-complete check (rejected: too late)",
+      "Agents themselves do git fetch (rejected: only PM has the full repo view)"
+    ]
+  },
+  {
+    "decision": "Add connect_db_with_pg_retry (T0.11) — 5×30s retry, fast-exit on exhaustion",
+    "rationale": "Per feasibility-review finding 4 + M3 fix: the prior spec described a retry loop that doesn't exist. The actual _configure_database at watch.py:1107-1132 has no OperationalError handler. T0.11 adds the retry loop; T2.12 swaps the call site; M3 makes exhaustion call sys.exit(1) so NSSM restarts (no zombie watch loop).",
+    "alternatives_considered": [
+      "Rewrite spec section 6.2 to honestly describe current crash-and-restart (rejected: per feedback_fix_before_trade, fix-now)",
+      "Inline retry in watch.py (rejected: duplicates if another module needs it)",
+      "Automatic retry on PostgresConnectionWrapper.__init__ (rejected: too magical)"
+    ]
+  },
+  {
+    "decision": "Spec section 2.6 footnotes retiring-file SQLite-isms as out-of-scope",
+    "rationale": "Per feasibility-review finding 7: render_sync.py:891 NOT in Phase 1 (deleted in Phase 4). Footnote makes the deliberate scoping decision auditable.",
+    "alternatives_considered": [
+      "Migrate render_sync.py:891 in Phase 1 (rejected: file deleted in Phase 4; wasted churn)",
+      "Don't footnote (rejected: reviewer flagged; explicit > implicit)",
+      "Move to permanent allowlist (rejected: conflates SQLite-only-by-design with soon-to-be-deleted)"
+    ]
+  }
+]
