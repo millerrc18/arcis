@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### SP5 §J5/§J6 Phase 0 — Modified-A migration (T0.7)
+
+- **`src/schema/registry.py`** — added `sync_conflict_col="event_type, dedup_key"` to the `notifications_dedup` TableDef. The PK `id` is autoincrement; uniqueness is enforced via the composite index on `(event_type, dedup_key)` at registry.py:2543 — that composite is the natural ON CONFLICT target. Prerequisite for the SP5 §J5 `engine_aware_upsert` migration at `src/notifications/platform_events.py:96` (tracked as T1.7 in Phase 1).
+- **`tests/test_schema.py`** — added `test_notifications_dedup_sync_conflict_col_matches_composite_unique` asserting `TABLES['notifications_dedup'].sync_conflict_col == "event_type, dedup_key"`.
+
 ### Wave 5.1 — Training-readiness verification script (post-3090 trainer preflight)
 
 - **`scripts/verify_training_readiness.py`** (NEW) — non-destructive, fail-fast diagnostic that proves the post-3090-upgrade trainer (`training_data/train.py`) is ready to run end-to-end. Five sequential checks with `[VERIFY-N]` prefixes and a final `READINESS: PASS|FAIL (X/5)` summary + non-zero exit on fail: (1) CUDA + 3090 detection with ≥20 GB free VRAM gate; (2) trainer dependency import sweep (transformers, peft, trl, bitsandbytes, datasets); (3) Stage 1/2/3 jsonl path + first-5-line JSON validity; (4) trainer dry-run capped at `max_steps=1` with tmpdir cleanup; (5) GGUF export artifact verification (≥1 MB). 329 lines, 9 functions ≤49 lines each.
