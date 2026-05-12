@@ -339,6 +339,97 @@ def has_pypi_network():
 
 
 # ---------------------------------------------------------------------------
+# Session-scoped shared venv — ONE pip install per session, reused across
+# all slow-lane tests.  Eliminates the per-test pip install that caused
+# agent timeouts (Wave F #86).
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="session")
+def cloud_req_shared_venv(tmp_path_factory):
+    """Build ONE shared venv with requirements-cloud.txt installed.
+
+    Session-scoped so the pip install runs ONCE per pytest session instead of
+    once per slow-lane test.  Slow-lane tests that need a clean venv with all
+    cloud requirements can use this fixture's ``python_exe`` directly; tests
+    that need a modified requirements set (e.g. missing scipy) use the
+    fixture's ``wheel_cache`` dir with ``--find-links --no-index`` so their
+    own pip install is satisfied from local files, not the network.
+    """
+    import socket
+
+    try:
+        socket.create_connection(("pypi.org", 443), timeout=5)
+    except OSError as e:
+        pytest.skip(f"cloud_req_shared_venv requires PyPI network access: {e}")
+
+    repo = _REPO
+    req_file = repo / "requirements-cloud.txt"
+
+    session_tmp = tmp_path_factory.mktemp("cloud_req_shared")
+    venv_dir = session_tmp / "venv"
+    wheel_cache = session_tmp / "wheel_cache"
+    wheel_cache.mkdir()
+
+    venv.create(str(venv_dir), with_pip=True)
+    bin_dir = _venv_bin(venv_dir)
+    pip_exe = bin_dir / ("pip.exe" if os.name == "nt" else "pip")
+    python_exe = bin_dir / ("python.exe" if os.name == "nt" else "python")
+
+    clean_env = _clean_env()
+
+    # Step 1 — download all wheels into wheel_cache (offline-install source
+    # for stripped-req tests that follow).
+    download_result = _run_or_kill(
+        [
+            str(pip_exe),
+            "download",
+            "-r", str(req_file),
+            "--dest", str(wheel_cache),
+            "--quiet",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=PIP_TIMEOUT,
+        env=clean_env,
+    )
+    assert download_result.returncode == 0, (
+        f"pip download failed (exit {download_result.returncode}).\n"
+        f"stdout: {download_result.stdout}\n"
+        f"stderr: {download_result.stderr}"
+    )
+
+    # Step 2 — install from the local wheel cache (fast, no further network
+    # traffic needed for the shared venv itself).
+    install_result = _run_or_kill(
+        [
+            str(pip_exe),
+            "install",
+            "-r", str(req_file),
+            "--find-links", str(wheel_cache),
+            "--no-index",
+            "--quiet",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=PIP_TIMEOUT,
+        env=clean_env,
+    )
+    assert install_result.returncode == 0, (
+        f"pip install (from cache) failed (exit {install_result.returncode}).\n"
+        f"stdout: {install_result.stdout}\n"
+        f"stderr: {install_result.stderr}"
+    )
+
+    return {
+        "venv_dir": venv_dir,
+        "python_exe": python_exe,
+        "pip_exe": pip_exe,
+        "wheel_cache": wheel_cache,
+        "clean_env": clean_env,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Helper — build a minimal env dict for subprocess calls
 # ---------------------------------------------------------------------------
 def _clean_env() -> dict:
@@ -391,33 +482,14 @@ class TestSlowLaneVenvImport:
       CLOUD_REQ_PIP_TIMEOUT=300 CLOUD_REQ_IMPORT_TIMEOUT=180 pytest -m slow
     """
 
-    def test_cloud_app_imports_in_clean_venv(self, tmp_path, has_pypi_network):
-        """Builds a temp venv, installs requirements-cloud.txt only, imports cloud_app."""
+    def test_cloud_app_imports_in_clean_venv(self, cloud_req_shared_venv):
+        """Uses the session-scoped shared venv (pre-installed requirements-cloud.txt) to
+        import cloud_app — no per-test pip install.  The shared venv was built once by
+        the ``cloud_req_shared_venv`` session fixture.
+        """
         repo = _REPO
-        req_file = repo / "requirements-cloud.txt"
-
-        venv_dir = tmp_path / "venv"
-        venv.create(str(venv_dir), with_pip=True)
-
-        bin_dir = _venv_bin(venv_dir)
-        pip_exe = bin_dir / ("pip.exe" if os.name == "nt" else "pip")
-        python_exe = bin_dir / ("python.exe" if os.name == "nt" else "python")
-
-        clean_env = _clean_env()
-
-        install_cmd = [str(pip_exe), "install", "-r", str(req_file), "--quiet"]
-        pip_result = _run_or_kill(
-            install_cmd,
-            capture_output=True,
-            text=True,
-            timeout=PIP_TIMEOUT,
-            env=clean_env,
-        )
-        assert pip_result.returncode == 0, (
-            f"pip install failed (exit {pip_result.returncode}).\n"
-            f"stdout: {pip_result.stdout}\n"
-            f"stderr: {pip_result.stderr}"
-        )
+        python_exe = cloud_req_shared_venv["python_exe"]
+        clean_env = cloud_req_shared_venv["clean_env"]
 
         import_result = _run_or_kill(
             [str(python_exe), "-c", "from src.api.cloud_app import app"],
@@ -460,10 +532,19 @@ class TestSlowLaneSyntheticMissingScipy:
       CLOUD_REQ_PIP_TIMEOUT=300 CLOUD_REQ_IMPORT_TIMEOUT=180 pytest -m slow
     """
 
-    def test_missing_scipy_raises_module_not_found(self, tmp_path, has_pypi_network):
-        """Builds a temp requirements-cloud.txt without scipy, attempts import, asserts failure."""
+    def test_missing_scipy_raises_module_not_found(self, tmp_path, cloud_req_shared_venv):
+        """Installs requirements-cloud.txt minus scipy into a flat ``--target`` directory
+        using the session wheel cache (no network, no venv.create overhead), then runs the
+        import check with PYTHONPATH pointing at that target dir.
+
+        Skipping ``venv.create(with_pip=True)`` removes ~10-12s of per-test venv bootstrap
+        cost on Windows; the target-dir approach achieves the same hermetic isolation.
+        """
         repo = _REPO
         req_file = repo / "requirements-cloud.txt"
+        wheel_cache = cloud_req_shared_venv["wheel_cache"]
+        pip_exe = cloud_req_shared_venv["pip_exe"]
+        clean_env = cloud_req_shared_venv["clean_env"]
 
         stripped_req = tmp_path / "requirements-cloud-no-scipy.txt"
         original_lines = req_file.read_text(encoding="utf-8").splitlines(keepends=True)
@@ -476,16 +557,19 @@ class TestSlowLaneSyntheticMissingScipy:
         ]
         stripped_req.write_text("".join(stripped_lines), encoding="utf-8")
 
-        venv_dir = tmp_path / "venv"
-        venv.create(str(venv_dir), with_pip=True)
+        target_dir = tmp_path / "site-packages"
+        target_dir.mkdir()
 
-        bin_dir = _venv_bin(venv_dir)
-        pip_exe = bin_dir / ("pip.exe" if os.name == "nt" else "pip")
-        python_exe = bin_dir / ("python.exe" if os.name == "nt" else "python")
-
-        clean_env = _clean_env()
-
-        install_cmd = [str(pip_exe), "install", "-r", str(stripped_req), "--quiet"]
+        # Install stripped requirements into target_dir from local wheel cache.
+        # No venv creation — avoids the ~10-12s with_pip=True bootstrap overhead.
+        install_cmd = [
+            str(pip_exe), "install",
+            "-r", str(stripped_req),
+            "--target", str(target_dir),
+            "--find-links", str(wheel_cache),
+            "--no-index",
+            "--quiet",
+        ]
         pip_result = _run_or_kill(
             install_cmd,
             capture_output=True,
@@ -494,19 +578,34 @@ class TestSlowLaneSyntheticMissingScipy:
             env=clean_env,
         )
         assert pip_result.returncode == 0, (
-            f"pip install failed even for the stripped requirements "
+            f"pip install (--target) failed even for the stripped requirements "
             f"(exit {pip_result.returncode}).\n"
             f"stdout: {pip_result.stdout}\n"
             f"stderr: {pip_result.stderr}"
         )
 
+        # Use the shared venv's python with PYTHONPATH pointing ONLY at target_dir
+        # (which has no scipy) plus the repo root (so src.api.cloud_app resolves).
+        # Explicitly clear PYTHONPATH from any parent env that might leak scipy.
+        python_exe = cloud_req_shared_venv["python_exe"]
+        isolated_env = dict(clean_env)
+        isolated_env["PYTHONPATH"] = str(target_dir)
+
         import_result = _run_or_kill(
-            [str(python_exe), "-c", "from src.api.cloud_app import app"],
+            [
+                str(python_exe), "-c",
+                (
+                    "import sys; "
+                    f"sys.path[:] = [r'{target_dir}', r'{repo}'] + "
+                    "[p for p in sys.path if 'site-packages' not in p]; "
+                    "from src.api.cloud_app import app"
+                ),
+            ],
             capture_output=True,
             text=True,
             timeout=IMPORT_TIMEOUT,
             cwd=str(repo),
-            env=clean_env,
+            env=isolated_env,
         )
         assert import_result.returncode != 0, (
             "Expected import to fail when scipy is absent, but it succeeded.\n"
