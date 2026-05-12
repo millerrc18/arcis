@@ -308,6 +308,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main():
     """Initialize logging, DB state, and dispatch the parsed CLI command."""
+    import os
     from src.config import load_config
     from src.log_config import setup_logging
 
@@ -317,6 +318,22 @@ def main():
         level=logging_config.get("level", "INFO"),
         log_file=logging_config.get("file", "logs/arcis.log"),
     )
+
+    _settings_path = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)), "config", "settings.local.yaml"
+    )
+    if not os.path.exists(_settings_path):
+        _settings_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "config", "settings.yaml"
+        )
+    if os.path.exists(_settings_path):
+        from src.notifications.telegram import _load_notifications_config
+        from src.notifications.errors import NotificationsConfigError
+        try:
+            _load_notifications_config(_settings_path)
+        except NotificationsConfigError:
+            raise
+
     initialize_database()
     args = build_parser().parse_args()
     args.func(args)
