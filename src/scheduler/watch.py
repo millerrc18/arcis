@@ -797,7 +797,7 @@ class WatchLoop(HandlerRegistryMixin):
 
         # ── Scan metrics ──
         # avg_conviction: mean of llm_conviction from packets if available.
-        # TODO: wire real per-packet conviction list from result when
+        # TODO(#1057): wire real per-packet conviction list from result when
         # universe_scanner.ScanResult exposes it (source: src/scheduler/universe_scanner.py).
         # Proxy: conviction_parsed/conviction_total gives parse rate, not mean conviction.
         _avg_conviction = 0.0
@@ -1413,6 +1413,13 @@ class WatchLoop(HandlerRegistryMixin):
                     Path("data/watchdog.txt").write_text(now.isoformat())
                 except Exception:
                     pass
+                # DB-side heartbeat for platform_events (T7 / #67)
+                try:
+                    from src.notifications.platform_events import write_heartbeat  # lazy import
+                    write_heartbeat()
+                    logger.debug("[WATCH] platform_events heartbeat written")
+                except Exception as exc:
+                    logger.warning("[WATCH] platform_events heartbeat failed: %s", exc)
 
                 # Reset daily state at midnight
                 today = now.date()
