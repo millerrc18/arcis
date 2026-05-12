@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### SP5 Wave A+B strategic fix — wrap `PostgresConnectionWrapper.execute()` cursor (closes #98)
+
+Root-cause fix for the M4/2026-05-10 KeyError:0 bug class that drove the T1ext 82-site defensive-dispatch sweep and the subsequent `_scalar(row)` helper (PR #1059). `PostgresConnectionWrapper.execute()` previously returned a raw psycopg2 cursor whose `fetchone()` produced raw dicts — incompatible with `row[0]` access. `cursor().execute()` already wrapped via `_RowFactoryCursor` (CompatRow output). This PR closes that asymmetry by wrapping the inner cursor identically in `execute()` and `executemany()`.
+
+Effect on existing call sites: the 82 `_scalar(row)` sites consolidated in PR #1059 continue to work unchanged (CompatRow supports `row[0]`, which is what the helper falls back to for non-dict shapes). The helper's `isinstance(row, dict)` branch is now unreachable in practice but remains as forward-compat protection if a future caller routes around the wrapper.
+
+#### Changed
+
+- **`src/utils/db.py` — `PostgresConnectionWrapper.execute()` + `executemany()`**: return value wrapped in `_RowFactoryCursor` (uniform with `cursor()`). Pre-existing `__getattr__` passthrough on `_RowFactoryCursor` preserves access to `.rowcount`, `.description`, etc., so caller surface is unchanged.
+
+#### Added
+
+- **`tests/test_pg_wrapper_execute_returns_compatrow.py`** (5 tests): regression-lock that asserts `wrapper.execute(sql)` and `wrapper.executemany(sql, params)` return `_RowFactoryCursor`, that `fetchone()` returns `CompatRow` (with both `row[0]` and `row['col']` working), that `fetchall()` returns list of CompatRow, and that pass-through attributes like `.rowcount` still work.
+
+#### Follow-ups (post-merge cleanup, scoped separately)
+
+- Mechanically remove the 82 `_scalar(row)` call sites added in PR #1059 — replace with direct `row[0]` access. Helper can then be deprecated. Tracked as next-tier follow-up.
+
 ### SP5 Wave A+B post-merge — `_scalar(row)` helper + 82-site dispatch consolidation
 
 Operator review observation on PR #1058 surfaced T1ext idiom drift: 81 sites used a defensive cross-engine scalar-fetch dispatch pattern, but 1 site at `watch.py:1182` drifted to a brittle literal-key idiom (`row['count']`) that only works because psycopg2 auto-aliases `COUNT(*)` → `'count'`. Any SQL change to a different aggregate (MIN, AVG, subquery) would break it silently. This PR consolidates all 82 sites onto a single `_scalar(row)` helper.

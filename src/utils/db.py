@@ -408,6 +408,16 @@ class _RowFactoryCursor:
             rows = self._cursor.fetchmany(size)
         return [CompatRow(r) for r in rows]
 
+    def __iter__(self):
+        # Python looks up __iter__ on the TYPE, not via __getattr__ on the
+        # instance — so falling through to the inner cursor's iterator isn't
+        # automatic. Define explicitly so `for row in wrapper.execute(sql):`
+        # yields CompatRow uniformly (matching fetchall's contract). Without
+        # this, post-#1060 direct iteration would raise TypeError because the
+        # raw psycopg2 cursor's __iter__ would no longer be reachable through
+        # the now-class-defined cursor wrapper.
+        return (CompatRow(r) for r in self._cursor)
+
     def __getattr__(self, name):
         return getattr(self._cursor, name)
 
@@ -432,19 +442,30 @@ class PostgresConnectionWrapper:
         return _RowFactoryCursor(self._conn.cursor())
 
     def execute(self, sql, params=None):
+        # Wrap in _RowFactoryCursor so the returned cursor's fetch* methods
+        # produce CompatRow instances (supporting both `row[0]` and `row['col']`)
+        # rather than raw psycopg2 dicts. Without this wrapping the caller
+        # pattern `wrapper.execute(sql).fetchone()` returned a raw dict, which
+        # raises KeyError(0) on `row[0]` access — the M4/2026-05-10 bug class
+        # that drove the T1ext 82-site defensive-dispatch sweep. By wrapping
+        # the cursor uniformly with `wrapper.cursor().execute()`'s wrapping,
+        # the dispatch becomes unnecessary at all call sites (the `_scalar()`
+        # helper is preserved as a forward-compatible convenience for the
+        # None / single-column scalar fetch pattern, but its `isinstance(row,
+        # dict)` branch is now unreachable in practice — see follow-up tracker).
         rewritten = _rewrite_question_to_pct(sql)
         cur = self._conn.cursor()
         if params is None:
             cur.execute(rewritten)
         else:
             cur.execute(rewritten, params)
-        return cur
+        return _RowFactoryCursor(cur)
 
     def executemany(self, sql, params):
         rewritten = _rewrite_question_to_pct(sql)
         cur = self._conn.cursor()
         cur.executemany(rewritten, params)
-        return cur
+        return _RowFactoryCursor(cur)
 
     def commit(self):
         return self._conn.commit()
