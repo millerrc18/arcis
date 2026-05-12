@@ -127,10 +127,11 @@ class PreMarketPipeline:
         # Count unscored examples
         with connect_db(self.db_path) as conn:
             try:
-                unscored = conn.execute(
+                _row = conn.execute(
                     "SELECT COUNT(*) FROM training_examples "
                     "WHERE quality_score_auto IS NULL"
-                ).fetchone()[0]
+                ).fetchone()
+                unscored = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
             except Exception:
                 unscored = 0
 
