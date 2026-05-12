@@ -10,9 +10,9 @@ from fastapi.testclient import TestClient
 # ── Fixtures ─────────────────────────────────────────────────────────
 
 @pytest.fixture(autouse=True)
-def set_env(monkeypatch):
+def set_env(monkeypatch, pg_docker_url):
     """Set DATABASE_URL for all tests."""
-    monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/halcyon")
+    monkeypatch.setenv("DATABASE_URL", pg_docker_url)
     monkeypatch.delenv("API_SECRET", raising=False)
 
 

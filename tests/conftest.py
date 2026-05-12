@@ -7,12 +7,26 @@ schema registry migration (PR #189).
 Also provides mock Alpaca modules via sys.modules injection so that
 deferred imports inside alpaca_adapter.py resolve to mocks without
 requiring the alpaca-py SDK at test time.
+
+Docker PG fixture (T9):
+pg_docker_url — session-scoped fixture that provisions an ephemeral
+Postgres via docker-compose.test.yml (port 5434). If docker is
+unavailable it falls back to the hardcoded CI URL
+(postgresql://test:test@localhost/halcyon) so CI's pg-tests.yml
+continues to work unchanged.  Three test files (tests/api/test_status.py,
+tests/test_cloud_app.py, tests/test_shadow_desk_filter.py) consume this
+fixture via their autouse set_env / set_db_env fixtures rather than
+hardcoding DATABASE_URL themselves.
 """
 
 import os
+import shutil
 import sqlite3
+import subprocess
 import sys
+import time
 import types
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -350,3 +364,121 @@ def parametrized_conn(request, tmp_path):
         yield wrapper
     else:
         raise ValueError(f"unknown engine param: {engine!r}")
+
+
+# ---------------------------------------------------------------------------
+# T9 — Local PG provisioning via docker-compose
+# ---------------------------------------------------------------------------
+#
+# session-scoped: container is started ONCE per pytest session and torn down
+# at the end. All tests that consume pg_docker_url (directly or via the
+# autouse set_env / set_db_env fixtures in the 3 cross-engine test files)
+# share the same container.
+#
+# Fallback: if docker is not available (e.g. bare-metal CI, developer machine
+# without Docker Desktop), the fixture falls back to the hardcoded CI URL
+# postgresql://test:test@localhost/halcyon.  CI's pg-tests.yml creates that
+# role and runs the suite unchanged — no modification to the workflow needed.
+#
+# DATABASE_URL and TEST_DATABASE_URL are both set at session scope so:
+#   1. connect_db() sees DATABASE_URL when the gate is off (Phase 0) and the
+#      fixture just needs the URL in the env for cloud_app module-reload paths.
+#   2. postgres_session / pg_wrapper fixtures read TEST_DATABASE_URL.
+
+_COMPOSE_FILE = str(
+    Path(__file__).parent.parent / "docker-compose.test.yml"
+)
+_TEST_PG_URL = "postgresql://test:test@127.0.0.1:5434/halcyon"
+_CI_FALLBACK_URL = "postgresql://test:test@localhost/halcyon"
+
+
+def _docker_available() -> bool:
+    return shutil.which("docker") is not None
+
+
+def _compose_up() -> bool:
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "-f", _COMPOSE_FILE, "up", "-d", "--wait"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return False
+
+
+def _compose_down() -> None:
+    try:
+        subprocess.run(
+            ["docker", "compose", "-f", _COMPOSE_FILE, "down", "-v"],
+            capture_output=True,
+            timeout=30,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+
+
+def _wait_for_pg(url: str, *, retries: int = 20, delay: float = 1.0) -> bool:
+    try:
+        import psycopg2
+    except ImportError:
+        return False
+    for _ in range(retries):
+        try:
+            conn = psycopg2.connect(url, connect_timeout=3)
+            conn.close()
+            return True
+        except Exception:
+            time.sleep(delay)
+    return False
+
+
+@pytest.fixture(scope="session")
+def pg_docker_url():
+    """Session-scoped fixture — provision ephemeral PG for cross-engine tests.
+
+    Start the docker-compose.test.yml container (postgres:16-alpine on
+    port 5434).  Set DATABASE_URL and TEST_DATABASE_URL for the session.
+    Tear down the container at session end.
+
+    If docker is unavailable (CI bare-metal, no Docker Desktop) the fixture
+    falls back to the hardcoded CI URL postgresql://test:test@localhost/halcyon
+    so CI's pg-tests.yml continues to work unchanged.
+    """
+    already_set = os.environ.get("DATABASE_URL", "")
+    if already_set.startswith("postgres"):
+        yield already_set
+        return
+
+    url = _CI_FALLBACK_URL
+    started_container = False
+
+    if _docker_available():
+        if _compose_up():
+            if _wait_for_pg(_TEST_PG_URL):
+                url = _TEST_PG_URL
+                started_container = True
+
+    old_db_url = os.environ.get("DATABASE_URL")
+    old_test_db_url = os.environ.get("TEST_DATABASE_URL")
+
+    os.environ["DATABASE_URL"] = url
+    os.environ["TEST_DATABASE_URL"] = url
+
+    try:
+        yield url
+    finally:
+        if old_db_url is None:
+            os.environ.pop("DATABASE_URL", None)
+        else:
+            os.environ["DATABASE_URL"] = old_db_url
+
+        if old_test_db_url is None:
+            os.environ.pop("TEST_DATABASE_URL", None)
+        else:
+            os.environ["TEST_DATABASE_URL"] = old_test_db_url
+
+        if started_container:
+            _compose_down()

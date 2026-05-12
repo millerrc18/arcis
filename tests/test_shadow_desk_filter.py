@@ -21,8 +21,8 @@ from fastapi.testclient import TestClient
 # ── Fixtures (replicate test_cloud_app.py style exactly) ─────────────────────
 
 @pytest.fixture(autouse=True)
-def set_env(monkeypatch):
-    monkeypatch.setenv("DATABASE_URL", "postgresql://test:test@localhost/halcyon")
+def set_env(monkeypatch, pg_docker_url):
+    monkeypatch.setenv("DATABASE_URL", pg_docker_url)
     monkeypatch.delenv("API_SECRET", raising=False)
 
 
