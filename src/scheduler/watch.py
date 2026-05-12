@@ -549,20 +549,23 @@ class WatchLoop(HandlerRegistryMixin):
         try:
             with connect_db(DB_PATH) as conn:
                 conn.row_factory = sqlite3.Row
-                paper = conn.execute(
+                _row = conn.execute(
                     "SELECT COUNT(*) FROM shadow_trades WHERE status='open' AND source='paper'"
                     " AND COALESCE(quarantined, 0) = 0"
-                ).fetchone()[0]
-                live = conn.execute(
+                ).fetchone()
+                paper = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+                _row = conn.execute(
                     "SELECT COUNT(*) FROM shadow_trades WHERE status='open' AND source='live'"
                     " AND COALESCE(quarantined, 0) = 0"
-                ).fetchone()[0]
+                ).fetchone()
+                live = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
                 stats["open_paper"] = paper
                 stats["open_live"] = live
-                closed = conn.execute(
+                _row = conn.execute(
                     "SELECT COUNT(*) FROM shadow_trades WHERE status='closed'"
                     " AND COALESCE(quarantined, 0) = 0"
-                ).fetchone()[0]
+                ).fetchone()
+                closed = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
                 stats["phase_trades"] = closed
                 # Today's closed P&L
                 today_str = datetime.now(ET).strftime("%Y-%m-%d")
@@ -1175,7 +1178,8 @@ class WatchLoop(HandlerRegistryMixin):
         """Sanity-check that critical tables aren't unexpectedly empty."""
         try:
             conn = connect_db(DB_PATH)
-            count = conn.execute("SELECT COUNT(*) FROM shadow_trades").fetchone()[0]
+            row = conn.execute("SELECT COUNT(*) FROM shadow_trades").fetchone()
+            count = row[0] if not isinstance(row, dict) else row['count']
             conn.close()
             if count == 0:
                 logger.warning("[DB] shadow_trades is empty \u2014 possible fresh database or corruption recovery")
@@ -1551,15 +1555,17 @@ class WatchLoop(HandlerRegistryMixin):
                         with connect_db(DB_PATH) as _conn:
                             _conn.row_factory = sqlite3.Row
                             _today = datetime.now(ET).strftime("%Y-%m-%d")
-                            _open = _conn.execute(
+                            _row = _conn.execute(
                                 "SELECT COUNT(*) FROM shadow_trades WHERE status='open'"
                                 " AND COALESCE(quarantined, 0) = 0"
-                            ).fetchone()[0]
-                            _closed_today = _conn.execute(
+                            ).fetchone()
+                            _open = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+                            _row = _conn.execute(
                                 "SELECT COUNT(*) FROM shadow_trades WHERE status='closed' "
                                 "AND actual_exit_time LIKE ? AND COALESCE(quarantined, 0) = 0",
                                 (f"{_today}%",)
-                            ).fetchone()[0]
+                            ).fetchone()
+                            _closed_today = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
                             _pnl_row = _conn.execute(
                                 "SELECT COALESCE(SUM(pnl_dollars),0) FROM shadow_trades "
                                 "WHERE status='closed' AND actual_exit_time LIKE ?"
@@ -1583,9 +1589,10 @@ class WatchLoop(HandlerRegistryMixin):
                     # Send daily scoring summary via Telegram
                     if self._daily_scored > 0:
                         with connect_db(DB_PATH) as conn:
-                            backlog = conn.execute(
+                            _row = conn.execute(
                                 "SELECT COUNT(*) FROM training_examples WHERE quality_score_auto IS NULL"
-                            ).fetchone()[0]
+                            ).fetchone()
+                            backlog = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
                         safe_send("scoring_summary", scored_today=self._daily_scored, backlog=backlog)
 
                 # 4b. Daily system validation (4:30 PM ET)

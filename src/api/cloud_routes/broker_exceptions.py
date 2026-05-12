@@ -191,7 +191,8 @@ def get_summary() -> dict:
 
     with closing(connect_db()) as conn:
         def _count(sql: str, params: tuple) -> int:
-            return conn.execute(sql, params).fetchone()[0]
+            row = conn.execute(sql, params).fetchone()
+            return row[0] if not isinstance(row, dict) else list(row.values())[0]
 
         total_24h = _count(
             "SELECT COUNT(*) FROM broker_exceptions WHERE timestamp >= ?",
