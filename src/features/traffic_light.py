@@ -40,7 +40,8 @@ def _ensure_state_table(db_path: str = DB_PATH):
     try:
         with connect_db(db_path) as conn:
             # Ensure exactly one row
-            existing = conn.execute(f"SELECT COUNT(*) FROM {STATE_TABLE}").fetchone()[0]
+            _row = conn.execute(f"SELECT COUNT(*) FROM {STATE_TABLE}").fetchone()
+            existing = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
             if existing == 0:
                 conn.execute(
                     f"INSERT INTO {STATE_TABLE} (id, current_regime) VALUES (1, 'GREEN')"
