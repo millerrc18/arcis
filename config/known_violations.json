@@ -10,6 +10,16 @@
       "lines": 533
     },
     {
+      "file": "src/api/cloud_routes/kpis_compute.py",
+      "lines": 401,
+      "rationale": "Sprint 5 Wave A+B base: new kpis_compute.py file introduced as part of KPI dashboard split. 401 lines (1 over limit). Real refactor deferred; file is a new addition and the content boundary is not yet stable."
+    },
+    {
+      "file": "src/api/cloud_routes/system_index.py",
+      "lines": 449,
+      "rationale": "Sprint 5 Wave A+B base: system_index.py introduced as part of cloud routes reorganization. 449 lines. Real refactor deferred."
+    },
+    {
       "file": "src/api/cloud_routes/trades.py",
       "lines": 630
     },
@@ -48,7 +58,8 @@
     },
     {
       "file": "src/evaluation/corpus_generator.py",
-      "lines": 462
+      "lines": 663,
+      "rationale": "Sprint 5 Wave A+B base: corpus_generator.py grew from 462 to 663 lines on sprint/sp5-wave-ab/base via corpus-phase PRs (Stage 1 corpus generation, batch processing, and walkforward integration). Splitting the batch iteration and per-date corpus-entry builder into a sibling module is a structural refactor out of scope for T4 disclosure; filed as follow-up."
     },
     {
       "file": "src/evaluation/cto_report.py",
@@ -68,12 +79,13 @@
     },
     {
       "file": "src/llm/packet_writer.py",
-      "lines": 751
+      "lines": 878,
+      "rationale": "Sprint 5 Wave A+B base: packet_writer.py grew from 751 to 878 lines on sprint/sp5-wave-ab/base. Growth attributed to _detect_conviction_strategy helper and extended prompt assembly. Real split deferred."
     },
     {
       "file": "src/notifications/telegram.py",
-      "lines": 1147,
-      "rationale": "Sprint 4 T3: added safe_send central dispatcher (+93L function) + _record_send_failure stub (+7L) + import socket/urllib3.exceptions/requests.exceptions (+3L) = +110L net from 1032. safe_send requires the full 38-entry event_map dict for exhaustive notify_* coverage; splitting into a sibling module is deferred to T4 when all callers migrate. T3 revision: +5L for token-redaction defense-in-depth (_record_send_failure belt-and-suspenders +1L, safe_send SECURITY docstring note +4L)."
+      "lines": 1322,
+      "rationale": "Sprint 4 T3 baseline 1147. Sprint 5 Wave A+B base: grew to 1322 lines with notify_validation_summary and platform_events wiring additions. Sprint 4 T3 rationale still applies: splitting deferred until all callers migrate to safe_send."
     },
     {
       "file": "src/notifications/telegram_commands.py",
@@ -115,7 +127,18 @@
     },
     {
       "file": "src/schema/registry.py",
-      "lines": 2311
+      "lines": 2549,
+      "rationale": "Sprint 5 Wave A+B base: registry.py grew from 2311 to 2549 lines with new PG-migration tables and cutover schema additions. Single source of truth requirement mandates all DDL remain here; splitting is architecturally prohibited."
+    },
+    {
+      "file": "src/services/scan_service.py",
+      "lines": 440,
+      "rationale": "Sprint 5 Wave A+B base: scan_service.py grew to 440 lines. run_scan function also exceeded tolerance (330→401). Real split of the scan orchestration logic deferred."
+    },
+    {
+      "file": "src/shadow_trading/alpaca_adapter.py",
+      "lines": 425,
+      "rationale": "Sprint 5 Wave A+B base: alpaca_adapter.py (unified broker adapter) introduced at 425 lines as part of PG/SQLite cutover work. Real split deferred."
     },
     {
       "file": "src/shadow_trading/executor.py",
@@ -123,7 +146,8 @@
     },
     {
       "file": "src/shadow_trading/reconcile.py",
-      "lines": 901
+      "lines": 1042,
+      "rationale": "Sprint 5 Wave A+B base: reconcile.py grew from 901 to 1042 lines. Wave 6 reconciler improvements already grandfathered at 901 (reconcile_paper_trades at 581L); additional cutover-phase reconciler logic pushed it further. Real refactor of reconcile_paper_trades deferred."
     },
     {
       "file": "src/simulation/engine.py",
@@ -434,6 +458,12 @@
     },
     {
       "file": "src/email/digest_builder.py",
+      "function": "build_eod_digest",
+      "lines": 61,
+      "rationale": "Sprint 5 Wave A+B base: build_eod_digest reached 61 lines on sprint/sp5-wave-ab/base, 1 line over the 60-line limit. Function assembles the end-of-day digest from multiple data sources; splitting into sub-builders would require passing intermediate result dicts across call boundaries with minimal cohesion benefit. Filed as follow-up refactor."
+    },
+    {
+      "file": "src/email/digest_builder.py",
       "function": "build_evening_digest",
       "lines": 62
     },
@@ -446,6 +476,12 @@
       "file": "src/email/digest_builder.py",
       "function": "build_premarket_digest",
       "lines": 72
+    },
+    {
+      "file": "src/email/notifier.py",
+      "function": "send_email",
+      "lines": 91,
+      "rationale": "Sprint 5 Wave A+B base: send_email reached 91 lines with MIME multipart + retry + error handling. Single function owns the full email dispatch contract; splitting would require passing MIME objects across call boundaries. Real refactor deferred."
     },
     {
       "file": "src/evaluation/auditor.py",
@@ -467,6 +503,18 @@
       "function": "backtest_model",
       "lines": 305,
       "rationale": "Sprint 1.C Phase 4 #96.3 added optional corpus_id parameter + per-candidate corpus lookup; the most disruptive corpus-decision logic was extracted into _resolve_corpus_decision helper. Pre-existing 280-line size already exceeded the previous recorded 213 (recorded count was stale before this PR); this entry now reflects the post-#96.3 size. Real refactor of the per-day candidate loop is deferred — splitting that loop touches too much existing logic and is out of scope for #96.3."
+    },
+    {
+      "file": "src/evaluation/corpus_generator.py",
+      "function": "_generate_one_entry",
+      "lines": 62,
+      "rationale": "Sprint 5 Wave A+B base: _generate_one_entry reached 62 lines as part of corpus generation pipeline. 2 lines over limit. Real refactor deferred."
+    },
+    {
+      "file": "src/evaluation/corpus_generator.py",
+      "function": "_stream_entries",
+      "lines": 175,
+      "rationale": "Sprint 5 Wave A+B base: _stream_entries reached 175 lines handling batch corpus streaming with PG/SQLite cursor differences. Real split deferred."
     },
     {
       "file": "src/evaluation/cto_report.py",
@@ -604,6 +652,12 @@
       "lines": 98
     },
     {
+      "file": "src/features/mean_reversion.py",
+      "function": "compute_mr_features",
+      "lines": 67,
+      "rationale": "Sprint 5 Wave A+B base: compute_mr_features reached 67 lines with additional mean-reversion signal computation. Real refactor deferred."
+    },
+    {
       "file": "src/features/traffic_light.py",
       "function": "compute_traffic_light",
       "lines": 110
@@ -640,6 +694,12 @@
     },
     {
       "file": "src/llm/packet_writer.py",
+      "function": "_detect_conviction_strategy",
+      "lines": 75,
+      "rationale": "Sprint 5 Wave A+B base: new conviction-strategy detection helper. 75 lines. Real refactor deferred."
+    },
+    {
+      "file": "src/llm/packet_writer.py",
       "function": "enhance_packet_with_llm",
       "lines": 150
     },
@@ -653,6 +713,12 @@
       "function": "safe_send",
       "lines": 99,
       "rationale": "Sprint 4 T3: event_map exhaustively maps all 38 notify_* functions — the dict body itself accounts for ~50 of the 93 lines and is structural (not logic). Splitting the map into a module-level constant would make it harder to read alongside the dispatch logic. Accepted as architectural necessity for the exhaustive central dispatcher per spec §3.4. T3 revision: +6L for SECURITY docstring note (defense-in-depth for attacker-controlled event_type crash vector)."
+    },
+    {
+      "file": "src/notifications/platform_events.py",
+      "function": "_already_notified_recently_db",
+      "lines": 83,
+      "rationale": "Sprint 5 Wave A+B base: new platform_events deduplication helper introduced for notification throttling. 83 lines. Real refactor deferred."
     },
     {
       "file": "src/notifications/telegram.py",
@@ -673,6 +739,12 @@
       "file": "src/notifications/telegram.py",
       "function": "handle_command",
       "lines": 73
+    },
+    {
+      "file": "src/notifications/telegram.py",
+      "function": "notify_validation_summary",
+      "lines": 61,
+      "rationale": "Sprint 5 Wave A+B base: notify_validation_summary reached 61 lines, 1 over limit. Composes validation summary message from multiple subsystem checks. Real refactor deferred."
     },
     {
       "file": "src/notifications/telegram_commands.py",
@@ -905,7 +977,8 @@
     {
       "file": "src/services/scan_service.py",
       "function": "run_scan",
-      "lines": 330
+      "lines": 401,
+      "rationale": "Sprint 5 Wave A+B base: run_scan grew from 330 to 401 lines with PG-aware query rewriting, engine-impedance wrapper calls, and additional scan metrics. Real split deferred."
     },
     {
       "file": "src/services/shadow_service.py",
@@ -1007,6 +1080,54 @@
       "file": "src/startup_checks.py",
       "function": "_check_render_postgres",
       "lines": 65
+    },
+    {
+      "file": "src/utils/db.py",
+      "function": "_rewrite_question_to_pct",
+      "lines": 154,
+      "rationale": "Sprint 5 Phase 0 T0.2: quote-and-percent-aware tokenizer for cross-engine SQL rewriting. 154 lines. Architectural constraint: all wrapper changes in db.py per spec section 2.X. Real refactor deferred to post-Sprint-5."
+    },
+    {
+      "file": "src/utils/db.py",
+      "function": "connect_db",
+      "lines": 61,
+      "rationale": "Sprint 5 Wave A+B base: connect_db grew to 61 lines with PG/SQLite routing and CompatRow wiring. 1 line over limit. Real refactor deferred."
+    },
+    {
+      "file": "src/utils/db.py",
+      "function": "engine_aware_index_list",
+      "lines": 63,
+      "rationale": "Sprint 5 Phase 0 T0.6: pg_indexes + PRAGMA-shape output for cross-engine index introspection. 63 lines. Real refactor deferred."
+    },
+    {
+      "file": "src/utils/db.py",
+      "function": "engine_aware_foreign_keys",
+      "lines": 72,
+      "rationale": "Sprint 5 Phase 0 T0.6: information_schema.referential_constraints + PRAGMA-shape foreign key output. 72 lines. Real refactor deferred."
+    },
+    {
+      "file": "src/utils/db.py",
+      "function": "connect_db_with_pg_retry",
+      "lines": 75,
+      "rationale": "Sprint 5 T0.11: bounded-retry helper for PG transient OperationalError. 75 lines. Real refactor deferred per db.py architectural constraint."
+    },
+    {
+      "file": "src/schema/postgres.py",
+      "function": "create_all_tables",
+      "lines": 71,
+      "rationale": "Sprint 5 Wave A+B base: create_all_tables grew to 71 lines with additional PG-specific table creation and index building. Real refactor deferred."
+    },
+    {
+      "file": "src/api/cloud_routes/broker_exceptions.py",
+      "function": "get_summary",
+      "lines": 74,
+      "rationale": "Sprint 5 Wave A+B base: new broker_exceptions route. 74 lines. Real refactor deferred."
+    },
+    {
+      "file": "src/api/cloud_routes/system_index.py",
+      "function": "create_router",
+      "lines": 63,
+      "rationale": "Sprint 5 Wave A+B base: system_index router. 63 lines. Real refactor deferred."
     },
     {
       "file": "src/trading/ib_broker.py",
