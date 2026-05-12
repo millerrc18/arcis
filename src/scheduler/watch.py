@@ -1410,6 +1410,13 @@ class WatchLoop(HandlerRegistryMixin):
                     Path("data/watchdog.txt").write_text(now.isoformat())
                 except Exception:
                     pass
+                # DB-side heartbeat for platform_events (T7 / #67)
+                try:
+                    from src.notifications.platform_events import write_heartbeat  # lazy import
+                    write_heartbeat()
+                    logger.debug("[WATCH] platform_events heartbeat written")
+                except Exception as exc:
+                    logger.warning("[WATCH] platform_events heartbeat failed: %s", exc)
 
                 # Reset daily state at midnight
                 today = now.date()
