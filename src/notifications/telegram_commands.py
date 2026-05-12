@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from src.config import DB_PATH, load_config
-from src.utils.db import connect_db
+from src.utils.db import _scalar, connect_db
 from src.notifications._config import _get_telegram_config
 from src.notifications.telegram import send_telegram, is_telegram_enabled
 from src.shadow_trading.exit_reason import outcome_stats_filter_sql
@@ -563,11 +563,11 @@ def _cmd_scoring() -> str:
             _row = conn.execute(
                 "SELECT COUNT(*) FROM training_examples"
             ).fetchone()
-            total = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            total = _scalar(_row)
             _row = conn.execute(
                 "SELECT COUNT(*) FROM training_examples WHERE quality_score IS NOT NULL"
             ).fetchone()
-            scored = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            scored = _scalar(_row)
             unscored = total - scored
 
         return (

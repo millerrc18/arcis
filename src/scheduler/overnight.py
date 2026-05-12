@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
 from src.notifications import safe_send
-from src.utils.db import connect_db
+from src.utils.db import _scalar, connect_db
 
 logger = logging.getLogger(__name__)
 
@@ -218,12 +218,12 @@ def run_saturday_reports(db_path: str = DB_PATH):
                 "SELECT COUNT(*) FROM training_examples WHERE created_at > ?",
                 (_week_ago,)
             ).fetchone()
-            _new_wk = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            _new_wk = _scalar(_row)
             _row = _rc.execute(
                 "SELECT COUNT(*) FROM training_examples WHERE created_at > ? AND source LIKE '%paper%'",
                 (_week_ago,)
             ).fetchone()
-            _new_paper = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            _new_paper = _scalar(_row)
     except Exception:
         _new_wk = 0
         _new_paper = 0
@@ -504,7 +504,7 @@ def run_attribution_resolution_and_notify(db_path: str = DB_PATH) -> int:
                 "SELECT COUNT(*) FROM attribution_trades "
                 "WHERE ranker_only_outcome = 'pending'"
             ).fetchone()
-            pending_remaining = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            pending_remaining = _scalar(_row)
     except Exception as exc:
         logger.warning("[ATTRIBUTION] pending-count lookup failed: %s", exc)
         pending_remaining = -1

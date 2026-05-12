@@ -47,6 +47,7 @@ from src.notifications import safe_send
 from src.scheduler.handler_registry import HandlerRegistryMixin
 from src.scheduler.scorer import GuardedScorer
 from src.utils.db import (
+    _scalar,
     configure_sqlite_for_production,
     connect_db,
     connect_db_with_pg_retry,
@@ -553,19 +554,19 @@ class WatchLoop(HandlerRegistryMixin):
                     "SELECT COUNT(*) FROM shadow_trades WHERE status='open' AND source='paper'"
                     " AND COALESCE(quarantined, 0) = 0"
                 ).fetchone()
-                paper = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+                paper = _scalar(_row)
                 _row = conn.execute(
                     "SELECT COUNT(*) FROM shadow_trades WHERE status='open' AND source='live'"
                     " AND COALESCE(quarantined, 0) = 0"
                 ).fetchone()
-                live = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+                live = _scalar(_row)
                 stats["open_paper"] = paper
                 stats["open_live"] = live
                 _row = conn.execute(
                     "SELECT COUNT(*) FROM shadow_trades WHERE status='closed'"
                     " AND COALESCE(quarantined, 0) = 0"
                 ).fetchone()
-                closed = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+                closed = _scalar(_row)
                 stats["phase_trades"] = closed
                 # Today's closed P&L
                 today_str = datetime.now(ET).strftime("%Y-%m-%d")
@@ -1179,7 +1180,7 @@ class WatchLoop(HandlerRegistryMixin):
         try:
             conn = connect_db(DB_PATH)
             row = conn.execute("SELECT COUNT(*) FROM shadow_trades").fetchone()
-            count = row[0] if not isinstance(row, dict) else row['count']
+            count = _scalar(row)
             conn.close()
             if count == 0:
                 logger.warning("[DB] shadow_trades is empty \u2014 possible fresh database or corruption recovery")
@@ -1566,13 +1567,13 @@ class WatchLoop(HandlerRegistryMixin):
                                 "SELECT COUNT(*) FROM shadow_trades WHERE status='open'"
                                 " AND COALESCE(quarantined, 0) = 0"
                             ).fetchone()
-                            _open = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+                            _open = _scalar(_row)
                             _row = _conn.execute(
                                 "SELECT COUNT(*) FROM shadow_trades WHERE status='closed' "
                                 "AND actual_exit_time LIKE ? AND COALESCE(quarantined, 0) = 0",
                                 (f"{_today}%",)
                             ).fetchone()
-                            _closed_today = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+                            _closed_today = _scalar(_row)
                             _pnl_row = _conn.execute(
                                 "SELECT COALESCE(SUM(pnl_dollars),0) FROM shadow_trades "
                                 "WHERE status='closed' AND actual_exit_time LIKE ?"
@@ -1599,7 +1600,7 @@ class WatchLoop(HandlerRegistryMixin):
                             _row = conn.execute(
                                 "SELECT COUNT(*) FROM training_examples WHERE quality_score_auto IS NULL"
                             ).fetchone()
-                            backlog = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+                            backlog = _scalar(_row)
                         safe_send("scoring_summary", scored_today=self._daily_scored, backlog=backlog)
 
                 # 4b. Daily system validation (4:30 PM ET)

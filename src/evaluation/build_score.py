@@ -46,7 +46,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
-from src.utils.db import connect_db, engine_aware_upsert
+from src.utils.db import _scalar, connect_db, engine_aware_upsert
 from src.shadow_trading.exit_reason import outcome_stats_filter_sql
 
 logger = logging.getLogger(__name__)
@@ -100,7 +100,7 @@ def _score_gate_velocity(conn: sqlite3.Connection) -> float:
             (cutoff,),
         )
         _row = cur.fetchone()
-        weekly_closed = (_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 0
+        weekly_closed = (_scalar(_row)) or 0
         return min(100.0, (weekly_closed / GATE_TARGET_WEEKLY) * 50)
     except Exception as e:
         logger.warning("[BuildScore] gate_velocity error: %s", e)
@@ -135,19 +135,19 @@ def _query_diversity(conn: sqlite3.Connection) -> float:
         "SELECT COUNT(DISTINCT regime) FROM training_examples WHERE regime IS NOT NULL"
     )
     _row = cur.fetchone()
-    regime_score = min(100.0, ((_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 0) / 4.0 * 100.0)
+    regime_score = min(100.0, ((_scalar(_row)) or 0) / 4.0 * 100.0)
     cur = conn.execute("SELECT COUNT(*) FROM training_examples")
     _row = cur.fetchone()
-    total = (_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 0
+    total = (_scalar(_row)) or 0
     cur = conn.execute("SELECT COUNT(*) FROM training_examples WHERE outcome_type = 'loss'")
     _row = cur.fetchone()
-    loss_pct = ((_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 0) / max(total, 1)
+    loss_pct = ((_scalar(_row)) or 0) / max(total, 1)
     balance = min(100.0, (loss_pct / 0.15) * 50 + 50) if total > 0 else 50.0
     cur = conn.execute(
         "SELECT COUNT(DISTINCT ticker) FROM training_examples WHERE ticker IS NOT NULL"
     )
     _row = cur.fetchone()
-    breadth = min(100.0, ((_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 0) / 100.0 * 100.0)
+    breadth = min(100.0, ((_scalar(_row)) or 0) / 100.0 * 100.0)
     return (regime_score + balance + breadth) / 3.0
 
 def _score_data_asset_value(conn: sqlite3.Connection) -> float:
@@ -173,13 +173,13 @@ def _score_data_asset_value(conn: sqlite3.Connection) -> float:
 
         cur = conn.execute("SELECT COUNT(*) FROM training_examples")
         _row = cur.fetchone()
-        total = (_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 1
+        total = (_scalar(_row)) or 1
         cur = conn.execute(
             "SELECT COUNT(*) FROM training_examples WHERE created_at >= ?",
             (cutoff_90d,),
         )
         _row = cur.fetchone()
-        freshness = min(100.0, ((_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 0) / total * 100.0)
+        freshness = min(100.0, ((_scalar(_row)) or 0) / total * 100.0)
 
         return round(
             quality * DATA_QUALITY_WEIGHT + diversity * DATA_DIVERSITY_WEIGHT + freshness * DATA_FRESHNESS_WEIGHT, 2
@@ -240,7 +240,7 @@ def _score_reliability(conn: sqlite3.Connection) -> float:
             (cutoff,),
         )
         _row = cur.fetchone()
-        total_scans = (_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 0
+        total_scans = (_scalar(_row)) or 0
         scan_rate = min(100.0, (total_scans / EXPECTED_WEEKLY_SCANS) * 100)
 
         # Uptime proxy: scheduler heartbeat (if recent scan exists, system was up)
@@ -291,21 +291,21 @@ def _check_idle_day(conn: sqlite3.Connection) -> bool:
             (today,),
         )
         _row = cur.fetchone()
-        closed_today = (_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 0
+        closed_today = (_scalar(_row)) or 0
 
         cur = conn.execute(
             "SELECT COUNT(*) FROM training_examples WHERE created_at >= ?",
             (today,),
         )
         _row = cur.fetchone()
-        examples_today = (_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 0
+        examples_today = (_scalar(_row)) or 0
 
         cur = conn.execute(
             "SELECT COUNT(*) FROM scan_metrics WHERE created_at >= ?",
             (today,),
         )
         _row = cur.fetchone()
-        scans_today = (_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 0
+        scans_today = (_scalar(_row)) or 0
 
         return closed_today == 0 and examples_today == 0 and scans_today == 0
     except Exception:
@@ -319,7 +319,7 @@ def _compute_phase_progress(conn: sqlite3.Connection) -> dict:
             f" AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()}"
         )
         _row = cur.fetchone()
-        closed = (_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 0
+        closed = (_scalar(_row)) or 0
         pct = min(100.0, (closed / GATE_TOTAL_TARGET) * 100)
         remaining = max(0, GATE_TOTAL_TARGET - closed)
         return {
@@ -445,18 +445,18 @@ def _build_data_detail(conn: sqlite3.Connection) -> dict:
 
         cur = conn.execute("SELECT COUNT(*) FROM training_examples")
         _row = cur.fetchone()
-        total = (_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 1
+        total = (_scalar(_row)) or 1
         cur = conn.execute(
             "SELECT COUNT(DISTINCT regime) FROM training_examples "
             "WHERE regime IS NOT NULL"
         )
         _row = cur.fetchone()
-        regimes = (_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 0
+        regimes = (_scalar(_row)) or 0
         cur = conn.execute(
             "SELECT COUNT(DISTINCT ticker) FROM training_examples WHERE ticker IS NOT NULL"
         )
         _row = cur.fetchone()
-        tickers = (_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 0
+        tickers = (_scalar(_row)) or 0
         diversity = round(
             (min(100, (regimes / 4) * 100) + min(100, (tickers / 100) * 100)) / 2, 1
         )
@@ -467,7 +467,7 @@ def _build_data_detail(conn: sqlite3.Connection) -> dict:
             (cutoff_90d,),
         )
         _row = cur.fetchone()
-        recent = (_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 0
+        recent = (_scalar(_row)) or 0
         freshness = round(min(100, (recent / max(total, 1)) * 100), 1)
 
         return {

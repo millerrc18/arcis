@@ -23,7 +23,7 @@ import sqlite3  # noqa: F401 — retained for test fixtures / future direct use
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from src.utils.db import connect_db
+from src.utils.db import _scalar, connect_db
 
 import pandas as pd
 
@@ -41,7 +41,7 @@ def _ensure_state_table(db_path: str = DB_PATH):
         with connect_db(db_path) as conn:
             # Ensure exactly one row
             _row = conn.execute(f"SELECT COUNT(*) FROM {STATE_TABLE}").fetchone()
-            existing = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            existing = _scalar(_row)
             if existing == 0:
                 conn.execute(
                     f"INSERT INTO {STATE_TABLE} (id, current_regime) VALUES (1, 'GREEN')"

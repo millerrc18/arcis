@@ -42,7 +42,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
-from src.utils.db import connect_db
+from src.utils.db import _scalar, connect_db
 from src.evaluation.hshs import DIMENSION_KEYS, compute_hshs_score
 from src.shadow_trading.exit_reason import outcome_stats_filter_sql
 
@@ -83,7 +83,7 @@ def _score_performance(conn: sqlite3.Connection) -> float:
             f" AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()}"
         )
         _row = cur.fetchone()
-        total = int((_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 0)
+        total = int((_scalar(_row)) or 0)
 
         if total == 0:
             return 5.0  # Minimal baseline -- system exists but no trades yet
@@ -94,7 +94,7 @@ def _score_performance(conn: sqlite3.Connection) -> float:
             f" AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()}"
         )
         _row = cur.fetchone()
-        winners = int((_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 0)
+        winners = int((_scalar(_row)) or 0)
         win_rate = winners / total if total else 0
 
         # Profit factor: gross profit / gross loss.
@@ -106,7 +106,7 @@ def _score_performance(conn: sqlite3.Connection) -> float:
             f" AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()}"
         )
         _row = cur.fetchone()
-        gross_profit = float((_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 0)
+        gross_profit = float((_scalar(_row)) or 0)
 
         cur = conn.execute(
             "SELECT COALESCE(ABS(SUM(pnl_dollars)), 0) FROM shadow_trades "
@@ -114,7 +114,7 @@ def _score_performance(conn: sqlite3.Connection) -> float:
             f" AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()}"
         )
         _row = cur.fetchone()
-        gross_loss = float((_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 0.01)
+        gross_loss = float((_scalar(_row)) or 0.01)
         if gross_loss == 0:
             gross_loss = 0.01
         profit_factor = gross_profit / gross_loss
@@ -129,7 +129,7 @@ def _score_performance(conn: sqlite3.Connection) -> float:
             f"WHERE status = 'closed' AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()}"
         )
         _row = cur.fetchone()
-        raw = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+        raw = _scalar(_row)
         # float() cast (#181/#195): raw can be None, empty string, Decimal,
         # or a TEXT-typed number from SQLite.  Without float(), abs(raw)
         # raises "bad operand type for abs(): 'str'".
@@ -167,7 +167,7 @@ def _score_model_quality(conn: sqlite3.Connection) -> float:
     try:
         cur = conn.execute("SELECT COUNT(*) FROM training_examples")
         _row = cur.fetchone()
-        total_examples = (_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 0
+        total_examples = (_scalar(_row)) or 0
 
         if total_examples == 0:
             return 5.0
@@ -178,7 +178,7 @@ def _score_model_quality(conn: sqlite3.Connection) -> float:
             "WHERE source = 'template' OR source = 'fallback'"
         )
         _row = cur.fetchone()
-        fallback_count = (_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 0
+        fallback_count = (_scalar(_row)) or 0
         fallback_rate = fallback_count / total_examples if total_examples else 1.0
 
         # Quality scores (if available)
@@ -214,7 +214,7 @@ def _score_data_asset(conn: sqlite3.Connection) -> float:
     try:
         cur = conn.execute("SELECT COUNT(*) FROM training_examples")
         _row = cur.fetchone()
-        total = (_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 0
+        total = (_scalar(_row)) or 0
 
         if total == 0:
             return 5.0
@@ -229,7 +229,7 @@ def _score_data_asset(conn: sqlite3.Connection) -> float:
             (cutoff_7d,),
         )
         _row = cur.fetchone()
-        recent = (_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 0
+        recent = (_scalar(_row)) or 0
         freshness_score = min(30.0, (recent / max(total, 1)) * 60)  # 50% recent = 30
 
         # Source diversity
@@ -238,7 +238,7 @@ def _score_data_asset(conn: sqlite3.Connection) -> float:
             "WHERE source IS NOT NULL"
         )
         _row = cur.fetchone()
-        distinct_sources = (_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 1
+        distinct_sources = (_scalar(_row)) or 1
         diversity_score = min(30.0, distinct_sources * 10)  # 3 sources = 30
 
         return min(100.0, volume_score + freshness_score + diversity_score)
@@ -266,7 +266,7 @@ def _score_flywheel_velocity(conn: sqlite3.Connection) -> float:
             "SELECT COUNT(*) FROM model_versions WHERE status IN ('active', 'retired', 'evaluation')"
         )
         _row = cur.fetchone()
-        version_count = (_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 0
+        version_count = (_scalar(_row)) or 0
         cycles = max(0, version_count - 1)
 
         now_et = datetime.now(ET)
@@ -276,13 +276,13 @@ def _score_flywheel_velocity(conn: sqlite3.Connection) -> float:
             "SELECT COUNT(*) FROM training_examples WHERE created_at >= ?",
             (cutoff_7d,),
         ).fetchone()
-        recent_week = (_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 0
+        recent_week = (_scalar(_row)) or 0
         _row = conn.execute(
             "SELECT COUNT(*) FROM training_examples "
             "WHERE created_at >= ? AND created_at < ?",
             (cutoff_14d, cutoff_7d),
         ).fetchone()
-        prior_week = (_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 0
+        prior_week = (_scalar(_row)) or 0
 
         if prior_week > 0:
             growth_rate = recent_week / prior_week
@@ -320,7 +320,7 @@ def _score_defensibility(conn: sqlite3.Connection) -> float:
         # Proprietary data volume (training examples)
         cur = conn.execute("SELECT COUNT(*) FROM training_examples")
         _row = cur.fetchone()
-        data_count = (_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 0
+        data_count = (_scalar(_row)) or 0
 
         # System complexity proxy: number of tables with data
         tables_with_data = 0
@@ -335,7 +335,7 @@ def _score_defensibility(conn: sqlite3.Connection) -> float:
             try:
                 cur = conn.execute(f"SELECT COUNT(*) FROM {table}")
                 _row = cur.fetchone()
-                if ((_row[0] if not isinstance(_row, dict) else list(_row.values())[0]) or 0) > 0:
+                if ((_scalar(_row)) or 0) > 0:
                     tables_with_data += 1
             except Exception:
                 pass

@@ -24,7 +24,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH, load_config
-from src.utils.db import connect_db
+from src.utils.db import _scalar, connect_db
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -131,7 +131,7 @@ class PreMarketPipeline:
                     "SELECT COUNT(*) FROM training_examples "
                     "WHERE quality_score_auto IS NULL"
                 ).fetchone()
-                unscored = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+                unscored = _scalar(_row)
             except Exception:
                 unscored = 0
 

@@ -2,6 +2,37 @@
 
 ## [Unreleased]
 
+### SP5 Wave A+B post-merge — `_scalar(row)` helper + 82-site dispatch consolidation
+
+Operator review observation on PR #1058 surfaced T1ext idiom drift: 81 sites used a defensive cross-engine scalar-fetch dispatch pattern, but 1 site at `watch.py:1182` drifted to a brittle literal-key idiom (`row['count']`) that only works because psycopg2 auto-aliases `COUNT(*)` → `'count'`. Any SQL change to a different aggregate (MIN, AVG, subquery) would break it silently. This PR consolidates all 82 sites onto a single `_scalar(row)` helper.
+
+#### Added
+
+- **`_scalar(row)` helper at `src/utils/db.py`**: single function handles all four row shapes flowing out of `fetchone()` under the cross-engine wrapper architecture — `None`, `sqlite3.Row`, `CompatRow` (PG via `.cursor().execute()`), and raw `dict` (PG via `.execute()` — see follow-up #98). Replaces inline `row[0] if not isinstance(row, dict) else ...` dispatch at every call site.
+- **`tests/test_scalar_helper_discipline.py`** (5 tests): AST-based structural guardrail that forbids future drift back to the inline dispatch idiom. Narrow matcher distinguishes scalar-fetch dispatch (`X[0] if not isinstance(X, dict) else list(X.values())[0]` or `X['key']`) from legitimate defensive `.get()` patterns. Joins `test_no_fetchone_int_index_in_pg_unsafe_files.py` (T1ext) and `test_no_sqlite_isms_in_pg_safe_files.py` (M4) as the third AST-based cross-engine guardrail.
+
+#### Changed
+
+- **82 dispatch sites consolidated onto `_scalar(...)`** across 14 files. Per-file count:
+  - `src/scheduler/reports.py` (23 sites)
+  - `src/evaluation/build_score.py` (16)
+  - `src/evaluation/hshs_live.py` (15)
+  - `src/scheduler/watch.py` (7 — includes the brittle Idiom B at line 1182)
+  - `src/attribution/logger.py` (5)
+  - `src/shadow_trading/executor.py` (4)
+  - `src/scheduler/overnight.py` (3)
+  - `src/notifications/telegram_commands.py` (2)
+  - `src/services/system_service.py` (2)
+  - `src/api/cloud_routes/broker_exceptions.py` (1 — Idiom C variant)
+  - `src/config/overrides.py` (1)
+  - `src/evaluation/system_validator.py` (1)
+  - `src/features/traffic_light.py` (1)
+  - `src/scheduler/premarket.py` (1)
+
+#### Follow-ups filed (deeper hardening, NOT silently expanded into scope)
+
+- **Task #98**: Wrap `PostgresConnectionWrapper.execute()`'s cursor in `_RowFactoryCursor` (`db.py:402-409`). Root cause of why the 82-site dispatch was needed — `wrapper.execute()` returns a raw psycopg2 cursor while `wrapper.cursor().execute()` returns the wrapped variant. Fixing this would make the dispatch entirely unnecessary at all 82 sites. Tactical fix in this PR (the helper) + strategic fix in #98 is the right sequence — lower-risk path that doesn't conflate concerns.
+
 ### SP5 Wave A+B T3 — known_violations.json render_sync.py stale entries
 
 #### Fixed

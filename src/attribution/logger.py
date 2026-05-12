@@ -14,7 +14,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
-from src.utils.db import connect_db
+from src.utils.db import _scalar, connect_db
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -285,7 +285,7 @@ def get_attribution_stats(db_path: str = DB_PATH) -> dict:
         with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
             _row = conn.execute("SELECT COUNT(*) FROM attribution_trades").fetchone()
-            total = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            total = _scalar(_row)
 
             by_action = {r["llm_action"]: r["cnt"] for r in conn.execute(
                 "SELECT llm_action, COUNT(*) as cnt FROM attribution_trades GROUP BY llm_action"
@@ -298,19 +298,19 @@ def get_attribution_stats(db_path: str = DB_PATH) -> dict:
             _row = conn.execute(
                 "SELECT COUNT(*) FROM attribution_trades WHERE ranker_only_outcome != 'pending'"
             ).fetchone()
-            ranker_resolved = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            ranker_resolved = _scalar(_row)
             _row = conn.execute(
                 "SELECT COUNT(*) FROM attribution_trades WHERE ranker_only_outcome = 'win'"
             ).fetchone()
-            ranker_wins = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            ranker_wins = _scalar(_row)
             _row = conn.execute(
                 "SELECT COUNT(*) FROM attribution_trades WHERE llm_portfolio_outcome IS NOT NULL"
             ).fetchone()
-            llm_resolved = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            llm_resolved = _scalar(_row)
             _row = conn.execute(
                 "SELECT COUNT(*) FROM attribution_trades WHERE llm_portfolio_outcome = 'win'"
             ).fetchone()
-            llm_wins = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            llm_wins = _scalar(_row)
 
             return {
                 "total_pairs": total,
