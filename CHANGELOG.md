@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### SP5 Wave C — Council typed exception hierarchy + agent_data.py refactor (#68)
+
+Replaces 28 bare `except Exception` blocks in `src/council/agent_data.py` with typed catches, surfacing previously-swallowed SQLite errors.
+
+**NOTE: Canary deploy required** — this may surface previously-swallowed bugs; canary deploy via watch-loop restart with eyes-on for 1h.
+
+#### Added
+
+- **`src/council/errors.py`** — typed hierarchy: `CouncilError(Exception)` base; `CouncilParseError`, `CouncilTimeoutError`, `CouncilAgentDataError`, `CouncilProviderError` subclasses. `CouncilUnavailableError` gains `CouncilError` as second base (back-compat: still `RuntimeError`).
+- **`tests/council/test_typed_errors.py`** (13 tests): 5 instantiation tests, 7 hierarchy/IS-A tests, 1 AST-based enforcement test asserting zero bare `except Exception` remain in `agent_data.py`.
+
+#### Changed
+
+- **`src/council/agent_data.py`** — all 28 bare `except Exception` blocks converted to `except sqlite3.Error` (DB query sites) or `except (CouncilAgentDataError, ImportError, AttributeError, sqlite3.Error)` (compute_hshs site). Outer function guards narrowed from `except Exception` to `except CouncilAgentDataError`. Public function signatures unchanged.
+
 ### SP5 Wave A+B strategic fix — wrap `PostgresConnectionWrapper.execute()` cursor (closes #98)
 
 Root-cause fix for the M4/2026-05-10 KeyError:0 bug class that drove the T1ext 82-site defensive-dispatch sweep and the subsequent `_scalar(row)` helper (PR #1059). `PostgresConnectionWrapper.execute()` previously returned a raw psycopg2 cursor whose `fetchone()` produced raw dicts — incompatible with `row[0]` access. `cursor().execute()` already wrapped via `_RowFactoryCursor` (CompatRow output). This PR closes that asymmetry by wrapping the inner cursor identically in `execute()` and `executemany()`.
