@@ -1289,3 +1289,122 @@ class TestTotalPnlDollars:
             f"total_pnl_dollars must be 0.0 when no instrumented trades, "
             f"got {result['total_pnl_dollars']}"
         )
+
+
+# ── Wave C #54: Wire dates+directions to promotion_gate KPI ──────────────────
+
+class TestPromotionGateDatesDirectionsWired:
+    """Tests that dates and directions extracted from instrumented trades are
+    passed through to _compute_promotion_gate_kpi, enabling the MC permutation
+    vote to run instead of abstaining.
+
+    Wave C #54 — kpis.py:128 must pass dates and directions so that
+    _compute_promotion_gate_kpi forwards them to promotion_gate(), which then
+    passes directions to _run_mc_perm(). Without this wiring, mc_perm abstains
+    with reason='mc_permutation_requires_real_directions'.
+    """
+
+    _INSTRUMENTED_TRADES_150 = [
+        {
+            "pnl_pct": 1.2 if i % 3 != 0 else -0.5,
+            "excess_return": 0.012 if i % 3 != 0 else -0.005,
+            "instrumentation_version": 3,
+            "actual_entry_time": f"2026-0{(i % 9) + 1}-01T10:00:00",
+            "actual_exit_time": f"2026-0{(i % 9) + 1}-05T15:00:00",
+            "direction": "long" if i % 5 != 0 else "short",
+            "spy_return_over_hold": 0.005,
+        }
+        for i in range(150)
+    ]
+
+    def test_get_kpis_passes_dates_to_promotion_gate_kpi(self):
+        """get_kpis must extract dates from actual_entry_time of instrumented
+        trades and pass them as the dates= kwarg to _compute_promotion_gate_kpi.
+        Verified by patching _compute_promotion_gate_kpi and checking the call
+        args include a non-None dates list."""
+        call_kwargs = {}
+
+        def _capture(*args, **kwargs):
+            call_kwargs.update(kwargs)
+            call_kwargs["n_trades"] = args[0] if args else kwargs.get("n_trades")
+            return {
+                "votes_passed": None,
+                "votes_total": 5,
+                "status": "blue",
+                "caption": "captured",
+            }
+
+        with patch("src.api.cloud_routes.kpis._fetch_closed_trades",
+                   return_value=self._INSTRUMENTED_TRADES_150):
+            with patch("src.api.cloud_routes.kpis._compute_promotion_gate_kpi",
+                       side_effect=_capture):
+                get_kpis()
+
+        assert "dates" in call_kwargs, (
+            "get_kpis must pass dates= kwarg to _compute_promotion_gate_kpi; "
+            f"got call_kwargs keys: {list(call_kwargs.keys())}"
+        )
+        assert call_kwargs["dates"] is not None, (
+            "dates= kwarg must be non-None when trades have actual_entry_time"
+        )
+        assert len(call_kwargs["dates"]) == 150, (
+            f"dates list length must equal n_instrumented (150); "
+            f"got {len(call_kwargs['dates'])}"
+        )
+
+    def test_get_kpis_passes_directions_to_promotion_gate_kpi(self):
+        """get_kpis must extract directions from the direction field of
+        instrumented trades and pass them as the directions= kwarg to
+        _compute_promotion_gate_kpi. directions must be integers (1 or -1),
+        not raw 'long'/'short' strings."""
+        call_kwargs = {}
+
+        def _capture(*args, **kwargs):
+            call_kwargs.update(kwargs)
+            return {
+                "votes_passed": None,
+                "votes_total": 5,
+                "status": "blue",
+                "caption": "captured",
+            }
+
+        with patch("src.api.cloud_routes.kpis._fetch_closed_trades",
+                   return_value=self._INSTRUMENTED_TRADES_150):
+            with patch("src.api.cloud_routes.kpis._compute_promotion_gate_kpi",
+                       side_effect=_capture):
+                get_kpis()
+
+        assert "directions" in call_kwargs, (
+            "get_kpis must pass directions= kwarg to _compute_promotion_gate_kpi"
+        )
+        directions = call_kwargs["directions"]
+        assert directions is not None
+        assert len(directions) == 150
+        assert all(d in (1, -1) for d in directions), (
+            f"all direction values must be integers 1 or -1; "
+            f"got sample: {directions[:5]}"
+        )
+
+    def test_mc_vote_does_not_abstain_when_directions_wired(self):
+        """When directions is provided (non-None), _run_mc_perm must return a
+        non-abstaining vote (passed is True or False, not None).
+
+        This verifies that the mc_permutation_requires_real_directions abstention
+        is NOT triggered when the wiring is correct."""
+        from src.methods.promotion_gate_helpers import _run_mc_perm
+        import numpy as np
+
+        returns = np.array([0.012, -0.005, 0.023] * 50, dtype=float)
+        directions = [1] * 150
+
+        vote = _run_mc_perm(returns, alpha=0.05, directions=directions)
+
+        assert vote["passed"] is not None, (
+            "mc_perm vote must not abstain when directions is provided; "
+            f"got passed=None with details={vote.get('details')}"
+        )
+        assert "reason" not in vote.get("details", {}), (
+            "mc_perm vote must not carry mc_permutation_requires_real_directions "
+            f"reason when directions is wired; got details={vote.get('details')}"
+        )
+

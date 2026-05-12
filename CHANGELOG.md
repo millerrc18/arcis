@@ -75,6 +75,40 @@ Adds `shadow_trades.strategy_id` forward-compat FK column for methodology gate f
 
 `VALIDATE CONSTRAINT shadow_trades_strategy_id_fkey` is operator-run off-hours (deferred per Decision 24). The `NOT VALID` constraint is active for new inserts immediately post-migration.
 
+### SP5 Wave C #54 — Wire dates+directions to promotion_gate KPI
+
+Fixes the silent MC-permutation abstention in the /api/kpis promotion_gate
+response. Previously `get_kpis()` called `_compute_promotion_gate_kpi(n_trades,
+returns)` without dates or directions, causing `_run_mc_perm` to abstain with
+`reason='mc_permutation_requires_real_directions'` on every request.
+
+#### Changed
+
+- **`src/api/cloud_routes/kpis.py` — `get_kpis()`**: extracts `dates` (from
+  `actual_entry_time` via `_parse_iso_date`) and `directions` (from `direction`
+  field, mapped `"long"→1`, anything-else→-1) from the instrumented trades list
+  and passes them as kwargs to `_compute_promotion_gate_kpi`. No signature
+  changes to `kpis_compute.py` or `promotion_gate.py`.
+
+#### Changed (performance fix-up)
+
+- **`src/data_ingestion/risk_free_rate.py` — `_fetch_dtb3_observations()`**:
+  FRED HTTP timeout reduced from 15 s to 5 s. With T1's dates+directions
+  wire-up the rf-rate path now activates per `/api/kpis` request. A 15 s
+  blocking call on a dashboard endpoint is unacceptable; the graceful fallback
+  to `RF_PERIOD_CONSTANT` in `src/methods/_rf_vector.py:90-98` makes a shorter
+  timeout safe.
+
+#### Added
+
+- **`tests/api/test_kpis.py` — `TestPromotionGateDatesDirectionsWired`**
+  (3 tests): verifies dates and directions are forwarded as kwargs with correct
+  length and type (int 1/-1), and that `_run_mc_perm` does not abstain when
+  directions is non-None.
+- **`tests/test_risk_free_rate_timeout.py`** (1 test): asserts
+  `_fetch_dtb3_observations` passes `timeout=5` to `requests.get` — regression
+  lock against future timeout creep.
+
 ### SP5 Wave A+B strategic fix — wrap `PostgresConnectionWrapper.execute()` cursor (closes #98)
 
 Root-cause fix for the M4/2026-05-10 KeyError:0 bug class that drove the T1ext 82-site defensive-dispatch sweep and the subsequent `_scalar(row)` helper (PR #1059). `PostgresConnectionWrapper.execute()` previously returned a raw psycopg2 cursor whose `fetchone()` produced raw dicts — incompatible with `row[0]` access. `cursor().execute()` already wrapped via `_RowFactoryCursor` (CompatRow output). This PR closes that asymmetry by wrapping the inner cursor identically in `execute()` and `executemany()`.
