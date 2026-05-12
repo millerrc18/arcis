@@ -36,7 +36,7 @@ def test_register_adds_table():
 
 # ── Completeness tests ───────────────────────────────────────────
 
-EXPECTED_TABLE_COUNT = 71
+EXPECTED_TABLE_COUNT = 72
 
 
 def test_registry_has_all_tables():
@@ -105,6 +105,8 @@ EXPECTED_TABLES = {
     "diagnostic_runs", "diagnostic_run_plots",
     # Notifications (Sprint 4 T14)
     "notifications_sent", "notifications_dedup",
+    # Platform events forensic trail (T2 Wave C #96)
+    "platform_events",
 }
 
 
@@ -700,4 +702,125 @@ def test_sync_state_not_in_registry():
     assert "sync_state" not in TABLES, (
         "sync_state should be removed from registry — render_sync.py is being "
         "deleted in Task T7 as part of the one-DB cutover"
+    )
+
+
+# ── T2 Wave C #56 + #96 — strategy_id FK + platform_events ──────────────────
+
+def test_shadow_trades_strategy_id_column_present():
+    """strategy_id column must be present on shadow_trades with nullable=True (T2/#56)."""
+    from src.schema.registry import TABLES
+    assert "shadow_trades" in TABLES
+    td = TABLES["shadow_trades"]
+    col_names = [c.name for c in td.columns]
+    assert "strategy_id" in col_names, "shadow_trades missing strategy_id column"
+    col = next(c for c in td.columns if c.name == "strategy_id")
+    assert col.type == "TEXT", f"strategy_id type should be TEXT, got {col.type}"
+    assert col.nullable is True, "strategy_id should be nullable=True"
+
+
+def test_platform_events_table_present_with_all_columns():
+    """platform_events table must be present with all 6 required columns (T2/#96)."""
+    from src.schema.registry import TABLES
+    assert "platform_events" in TABLES, "platform_events table missing from registry"
+    td = TABLES["platform_events"]
+    col_names = [c.name for c in td.columns]
+    for required in ("id", "event_type", "severity", "payload_json", "source", "created_at"):
+        assert required in col_names, f"platform_events missing column: {required}"
+    id_col = next(c for c in td.columns if c.name == "id")
+    assert id_col.type == "INTEGER"
+    assert id_col.autoincrement is True
+    event_type_col = next(c for c in td.columns if c.name == "event_type")
+    assert event_type_col.nullable is False
+    severity_col = next(c for c in td.columns if c.name == "severity")
+    assert severity_col.nullable is False
+    source_col = next(c for c in td.columns if c.name == "source")
+    assert source_col.nullable is False
+
+
+def test_shadow_trades_strategy_id_fk_db_enforcement():
+    """FK constraint on strategy_id must reject nonexistent strategy_id at COMMIT (T2/#56).
+
+    Uses an in-memory SQLite DB built from the registry schema. Deferred FK
+    checks are verified at COMMIT time via PRAGMA defer_foreign_keys=ON.
+    """
+    import sqlite3
+    from src.schema.sqlite import generate_create_sql
+    from src.schema.registry import TABLES
+    conn = sqlite3.connect(":memory:")
+    conn.execute("PRAGMA foreign_keys = ON")
+    for table_name in ("recommendations", "strategy_registry", "shadow_trades"):
+        sql = generate_create_sql(TABLES[table_name])
+        for stmt in sql.split(";\n"):
+            stmt = stmt.strip()
+            if stmt:
+                conn.execute(stmt)
+    conn.commit()
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO shadow_trades "
+            "(trade_id, ticker, status, created_at, updated_at, strategy_id) "
+            "VALUES ('t1','AAPL','open','2026-01-01','2026-01-01','nonexistent_strategy')"
+        )
+        conn.commit()
+    conn.close()
+
+
+def test_fetch_closed_trades_filters_by_strategy_id():
+    """_fetch_closed_trades(strategy_id='X') returns only trades for strategy X (T2/#56)."""
+    import sqlite3
+    from unittest.mock import patch
+    from src.api.cloud_routes.kpis_compute import _fetch_closed_trades
+
+    rows_x = [
+        {"trade_id": "t1", "ticker": "AAPL", "status": "closed",
+         "strategy_id": "strategy_X", "actual_exit_time": "2026-01-02",
+         "quarantined": 0, "exit_reason": "target_1"},
+    ]
+    rows_y = [
+        {"trade_id": "t2", "ticker": "MSFT", "status": "closed",
+         "strategy_id": "strategy_Y", "actual_exit_time": "2026-01-02",
+         "quarantined": 0, "exit_reason": "target_1"},
+    ]
+    all_rows = rows_x + rows_y
+
+    with patch("src.api.cloud_routes.kpis_compute.get_closed_shadow_trades",
+               return_value=all_rows):
+        result = _fetch_closed_trades(strategy_id="strategy_X")
+    assert len(result) == 1
+    assert result[0]["strategy_id"] == "strategy_X"
+
+
+def test_fetch_closed_trades_strategy_id_none_returns_all():
+    """_fetch_closed_trades(strategy_id=None) returns all trades — backward compat (T2/#56)."""
+    from unittest.mock import patch
+    from src.api.cloud_routes.kpis_compute import _fetch_closed_trades
+
+    all_rows = [
+        {"trade_id": "t1", "ticker": "AAPL", "status": "closed",
+         "strategy_id": "strategy_X", "actual_exit_time": "2026-01-02",
+         "quarantined": 0, "exit_reason": "target_1"},
+        {"trade_id": "t2", "ticker": "MSFT", "status": "closed",
+         "strategy_id": "strategy_Y", "actual_exit_time": "2026-01-02",
+         "quarantined": 0, "exit_reason": "target_1"},
+    ]
+
+    with patch("src.api.cloud_routes.kpis_compute.get_closed_shadow_trades",
+               return_value=all_rows):
+        result = _fetch_closed_trades(strategy_id=None)
+    assert len(result) == 2
+
+
+def test_render_migrate_fk_emits_not_valid():
+    """render_migrate.py FK constraint SQL for strategy_id must include NOT VALID (T2/Decision-24)."""
+    from src.schema.postgres import generate_fk_constraint_sql
+    from src.schema.registry import TABLES, ForeignKeyDef
+    td = TABLES["shadow_trades"]
+    fk = next(
+        fk for fk in td.foreign_keys
+        if fk.column == "strategy_id"
+    )
+    sql = generate_fk_constraint_sql("shadow_trades", fk)
+    assert "NOT VALID" in sql, (
+        f"FK constraint SQL must include NOT VALID per Decision 24; got: {sql!r}"
     )

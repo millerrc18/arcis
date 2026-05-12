@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+### SP5 Wave C T2 — strategy_id FK + platform_events TableDef (closes #56, #96)
+
+Adds `shadow_trades.strategy_id` forward-compat FK column for methodology gate filtering, and declares the `platform_events` table as a forensic-trail write target for Wave C/D monitoring modules.
+
+#### Added
+
+- **`src/schema/registry.py` — `shadow_trades.strategy_id`**: `TEXT nullable=True` column + `ForeignKeyDef('strategy_id', 'strategy_registry', 'strategy_id', initially_deferred=True)`. Legacy trades remain NULL; forward-compat for C7a.4 filter. PostgreSQL migration uses `NOT VALID` (Decision 24 — no AccessExclusiveLock; operator runs `VALIDATE CONSTRAINT` off-hours).
+- **`src/schema/registry.py` — `platform_events` TableDef**: new table with `id` (INTEGER autoincrement PK), `event_type` (TEXT not null), `severity` (TEXT not null), `payload_json` (TEXT nullable), `source` (TEXT not null), `created_at` (TEXT default CURRENT_TIMESTAMP). Indexes: `idx_platform_events_type_created (event_type, created_at)` + `idx_platform_events_severity`. Write-sites are C4 drift detector + D5 alert_silence; this task declares only.
+- **`src/schema/registry.py` — `ForeignKeyDef.initially_deferred`**: new boolean field (default False) on `ForeignKeyDef` dataclass. Consumed by `generate_fk_constraint_sql` to emit `NOT VALID` constraints in render_migrate.
+- **`src/schema/postgres.py` — `generate_fk_constraint_sql`**: generates `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY ... NOT VALID;` per Decision 24.
+- **`scripts/render_migrate.py` — `--dry-run` flag**: prints FK constraint SQL without connecting to Postgres; also shows `NOT VALID` constraints on live runs with operator VALIDATE reminder.
+
+#### Changed
+
+- **`src/api/cloud_routes/kpis_compute.py` — `_fetch_closed_trades`**: adds optional `strategy_id: str | None = None` parameter. When not None, filters rows by `strategy_id`. Default None preserves existing behavior.
+
+#### Tests
+
+- 6 new tests in `tests/test_schema.py`: `test_shadow_trades_strategy_id_column_present`, `test_platform_events_table_present_with_all_columns`, `test_shadow_trades_strategy_id_fk_db_enforcement`, `test_fetch_closed_trades_filters_by_strategy_id`, `test_fetch_closed_trades_strategy_id_none_returns_all`, `test_render_migrate_fk_emits_not_valid`.
+
+#### Migration note
+
+`VALIDATE CONSTRAINT shadow_trades_strategy_id_fkey` is operator-run off-hours (deferred per Decision 24). The `NOT VALID` constraint is active for new inserts immediately post-migration.
+
 ### SP5 Wave A+B strategic fix — wrap `PostgresConnectionWrapper.execute()` cursor (closes #98)
 
 Root-cause fix for the M4/2026-05-10 KeyError:0 bug class that drove the T1ext 82-site defensive-dispatch sweep and the subsequent `_scalar(row)` helper (PR #1059). `PostgresConnectionWrapper.execute()` previously returned a raw psycopg2 cursor whose `fetchone()` produced raw dicts — incompatible with `row[0]` access. `cursor().execute()` already wrapped via `_RowFactoryCursor` (CompatRow output). This PR closes that asymmetry by wrapping the inner cursor identically in `execute()` and `executemany()`.

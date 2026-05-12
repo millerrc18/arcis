@@ -10,7 +10,7 @@ Tests: tests/test_repo_structure.py
 import logging
 from collections.abc import Callable
 
-from src.schema.registry import TABLES, TableDef, ColumnDef
+from src.schema.registry import TABLES, TableDef, ColumnDef, ForeignKeyDef
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +131,23 @@ def generate_ensure_column_sql(table_name: str, col: ColumnDef) -> str:
         f"{col.name} {pg_type}{default_clause};\n"
         f"EXCEPTION WHEN duplicate_column THEN NULL;\n"
         f"END $$;\n"
+    )
+
+
+def generate_fk_constraint_sql(table_name: str, fk: ForeignKeyDef) -> str:
+    """Generate ADD CONSTRAINT ... FOREIGN KEY ... NOT VALID for Postgres.
+
+    Per Decision 24: NOT VALID skips the upfront table scan so there is no
+    AccessExclusiveLock on the referencing table during migration. The
+    operator runs VALIDATE CONSTRAINT off-hours to verify existing rows.
+    """
+    constraint_name = f"{table_name}_{fk.column}_fkey"
+    return (
+        f"ALTER TABLE {table_name} "
+        f"ADD CONSTRAINT {constraint_name} "
+        f"FOREIGN KEY ({fk.column}) "
+        f"REFERENCES {fk.references_table}({fk.references_column}) "
+        f"NOT VALID;"
     )
 
 

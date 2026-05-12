@@ -61,6 +61,7 @@ class ForeignKeyDef:
     column: str
     references_table: str
     references_column: str
+    initially_deferred: bool = False
 
 
 @dataclass
@@ -316,6 +317,10 @@ _register(TableDef(
                               "DEFAULT 3 set 2026-04-25 (Round 4 B5-amend, ff69ad9) once "
                               "B1+B3+B4+B8 all merged. Backfill of pre-existing rows is a "
                               "no-op against the current empty DB; see B5 Pass 1 design."),
+        ColumnDef("strategy_id", "TEXT", nullable=True,
+                  description="FK to strategy_registry.strategy_id (T2/#56). NULL on legacy "
+                              "trades pre-dating strategy registry. Forward-compat for "
+                              "methodology gate filter."),
     ],
     primary_key="trade_id",
     indexes=[
@@ -328,6 +333,8 @@ _register(TableDef(
     ],
     foreign_keys=[
         ForeignKeyDef("recommendation_id", "recommendations", "recommendation_id"),
+        ForeignKeyDef("strategy_id", "strategy_registry", "strategy_id",
+                      initially_deferred=True),
     ],
     sync_to_postgres=True,
     sync_mode="incremental",
@@ -2546,4 +2553,34 @@ _register(TableDef(
     # the composite index above. ON CONFLICT must target the composite, not the
     # surrogate PK. Consumed by engine_aware_upsert at platform_events.py:96 in T1.7.
     sync_conflict_col="event_type, dedup_key",
+))
+
+# platform_events: Forensic-trail write target for monitoring events.
+# Written by: src/monitoring/manual_intervention_drift.py (C4/#45),
+#             src/monitoring/alert_silence.py (D5/#94).
+# THIS TASK (T2) only declares the TableDef. Write-site wiring is in C4 + D5.
+# Resolves #96 (orphan-table drift) — table is owned here, not in the write-sites.
+_register(TableDef(
+    name="platform_events",
+    description="Forensic trail for platform monitoring events (drift detection, alert silence). "
+                "Write-sites: C4 drift detector + D5 alert_silence. T2 owns TableDef.",
+    columns=[
+        ColumnDef("id", "INTEGER", nullable=False, autoincrement=True),
+        ColumnDef("event_type", "TEXT", nullable=False),
+        ColumnDef("severity", "TEXT", nullable=False,
+                  description="low|medium|high|critical"),
+        ColumnDef("payload_json", "TEXT", nullable=True),
+        ColumnDef("source", "TEXT", nullable=False,
+                  description="alert_silence|drift_detector|..."),
+        ColumnDef("created_at", "TEXT", nullable=False, default="CURRENT_TIMESTAMP"),
+    ],
+    primary_key="id",
+    indexes=[
+        IndexDef("idx_platform_events_type_created", ["event_type", "created_at"]),
+        IndexDef("idx_platform_events_severity", ["severity"]),
+    ],
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_time_column="created_at",
+    sync_pk="id",
 ))
