@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### SP5 Wave C T2 fix-up — revert platform_events to spec §3.1c (QA REQUEST_CHANGES)
+
+QA reviewer flagged two spec deviations and one misleading test docstring introduced in the T2 base commit. All three reverted to spec-literal.
+
+#### Changed
+
+- **`src/schema/registry.py` — `platform_events.created_at`**: type reverted from `TEXT` to `TIMESTAMP` per spec §3.1c (design.md line 204). SQLite stores TIMESTAMP as TEXT internally; Postgres gets the proper TIMESTAMP type via render_migrate.py. The dev's `TEXT` choice was an undisclosed deviation.
+- **`src/schema/registry.py` — `platform_events` indexes**: reverted from dev's composite `idx_platform_events_type_created (event_type, created_at)` + `idx_platform_events_severity` to spec-literal `idx_platform_events_created_at ([created_at])` + `idx_platform_events_event_type ([event_type])` per spec §3.1c (design.md lines 206-209). Severity index removed — not in spec.
+- **`tests/test_schema.py` — `test_shadow_trades_strategy_id_fk_db_enforcement` docstring**: corrected misleading claim that FK is "verified at COMMIT time via PRAGMA defer_foreign_keys=ON". The test never sets that pragma; IntegrityError fires at INSERT. Docstring now accurately describes INSERT-time immediate enforcement and references #107 (deferred-semantics gap tracked against src/schema/sqlite.py).
+
+#### Added
+
+- **`tests/test_schema.py` — `test_platform_events_created_at_is_timestamp`**: asserts `created_at` type is `TIMESTAMP` per spec §3.1c.
+- **`tests/test_schema.py` — `test_platform_events_has_proper_indexes`**: asserts spec-aligned index names (`idx_platform_events_created_at`, `idx_platform_events_event_type`) and absence of non-spec indexes.
+
 ### SP5 Wave C T2 — strategy_id FK + platform_events TableDef (closes #56, #96)
 
 Adds `shadow_trades.strategy_id` forward-compat FK column for methodology gate filtering, and declares the `platform_events` table as a forensic-trail write target for Wave C/D monitoring modules.
@@ -9,7 +24,7 @@ Adds `shadow_trades.strategy_id` forward-compat FK column for methodology gate f
 #### Added
 
 - **`src/schema/registry.py` — `shadow_trades.strategy_id`**: `TEXT nullable=True` column + `ForeignKeyDef('strategy_id', 'strategy_registry', 'strategy_id', initially_deferred=True)`. Legacy trades remain NULL; forward-compat for C7a.4 filter. PostgreSQL migration uses `NOT VALID` (Decision 24 — no AccessExclusiveLock; operator runs `VALIDATE CONSTRAINT` off-hours).
-- **`src/schema/registry.py` — `platform_events` TableDef**: new table with `id` (INTEGER autoincrement PK), `event_type` (TEXT not null), `severity` (TEXT not null), `payload_json` (TEXT nullable), `source` (TEXT not null), `created_at` (TEXT default CURRENT_TIMESTAMP). Indexes: `idx_platform_events_type_created (event_type, created_at)` + `idx_platform_events_severity`. Write-sites are C4 drift detector + D5 alert_silence; this task declares only.
+- **`src/schema/registry.py` — `platform_events` TableDef**: new table with `id` (INTEGER autoincrement PK), `event_type` (TEXT not null), `severity` (TEXT not null), `payload_json` (TEXT nullable), `source` (TEXT not null), `created_at` (TIMESTAMP default CURRENT_TIMESTAMP). Indexes: `idx_platform_events_created_at ([created_at])` + `idx_platform_events_event_type ([event_type])`. Write-sites are C4 drift detector + D5 alert_silence; this task declares only.
 - **`src/schema/registry.py` — `ForeignKeyDef.initially_deferred`**: new boolean field (default False) on `ForeignKeyDef` dataclass. Consumed by `generate_fk_constraint_sql` to emit `NOT VALID` constraints in render_migrate.
 - **`src/schema/postgres.py` — `generate_fk_constraint_sql`**: generates `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY ... NOT VALID;` per Decision 24.
 - **`scripts/render_migrate.py` — `--dry-run` flag**: prints FK constraint SQL without connecting to Postgres; also shows `NOT VALID` constraints on live runs with operator VALIDATE reminder.

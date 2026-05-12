@@ -738,11 +738,52 @@ def test_platform_events_table_present_with_all_columns():
     assert source_col.nullable is False
 
 
-def test_shadow_trades_strategy_id_fk_db_enforcement():
-    """FK constraint on strategy_id must reject nonexistent strategy_id at COMMIT (T2/#56).
+def test_platform_events_created_at_is_timestamp():
+    """platform_events.created_at must be TIMESTAMP per spec §3.1c (T2/#96 fix-up)."""
+    from src.schema.registry import TABLES
+    td = TABLES["platform_events"]
+    created_at_col = next(c for c in td.columns if c.name == "created_at")
+    assert created_at_col.type == "TIMESTAMP", (
+        f"created_at should be TIMESTAMP per spec §3.1c, got {created_at_col.type!r}"
+    )
 
-    Uses an in-memory SQLite DB built from the registry schema. Deferred FK
-    checks are verified at COMMIT time via PRAGMA defer_foreign_keys=ON.
+
+def test_platform_events_has_proper_indexes():
+    """platform_events must have exactly 2 spec-aligned indexes (T2/#96 fix-up).
+
+    Spec §3.1c (design.md lines 206-209) specifies:
+      idx_platform_events_created_at on [created_at]
+      idx_platform_events_event_type on [event_type]
+    No severity index. No composite index.
+    """
+    from src.schema.registry import TABLES
+    td = TABLES["platform_events"]
+    index_names = [idx.name for idx in td.indexes]
+    assert "idx_platform_events_created_at" in index_names, (
+        "Missing idx_platform_events_created_at (spec §3.1c)"
+    )
+    assert "idx_platform_events_event_type" in index_names, (
+        "Missing idx_platform_events_event_type (spec §3.1c)"
+    )
+    assert "idx_platform_events_type_created" not in index_names, (
+        "Composite idx_platform_events_type_created must not exist (not in spec §3.1c)"
+    )
+    assert "idx_platform_events_severity" not in index_names, (
+        "idx_platform_events_severity must not exist (not in spec §3.1c)"
+    )
+    assert len(td.indexes) == 2, (
+        f"platform_events must have exactly 2 indexes per spec §3.1c, got {len(td.indexes)}"
+    )
+
+
+def test_shadow_trades_strategy_id_fk_db_enforcement():
+    """FK constraint on strategy_id must reject nonexistent strategy_id at DB layer (T2/#56).
+
+    Uses an in-memory SQLite DB built from the registry schema. The IntegrityError
+    fires immediately at INSERT time (immediate FK enforcement). Deferred-mode
+    testing (PRAGMA defer_foreign_keys = ON + error at COMMIT) requires the FK
+    constraint itself to carry DEFERRABLE INITIALLY DEFERRED — tracked in #107
+    against src/schema/sqlite.py.
     """
     import sqlite3
     from src.schema.sqlite import generate_create_sql
