@@ -10,7 +10,9 @@ Config keys: none
 """
 
 import ast
+import sqlite3
 import textwrap
+from unittest.mock import patch
 
 import pytest
 
@@ -126,3 +128,41 @@ class TestAgentDataNoBareExceptException:
             f"Found {count} bare `except Exception` block(s) in "
             "src/council/agent_data.py — all must be converted to typed catches."
         )
+
+
+# ---------------------------------------------------------------------------
+# Group 4: outer guard catches sqlite3.OperationalError (T3 fix-up)
+# ---------------------------------------------------------------------------
+
+
+class TestOuterGuardCatchesSqliteError:
+    """Verify that the 5 outer guards now catch sqlite3.Error (infrastructure
+    errors) so a DB-lock during a council session degrades gracefully instead
+    of aborting the whole 5-agent loop.
+    """
+
+    def test_outer_guard_catches_sqlite3_operational_error(self):
+        """connect_db raising sqlite3.OperationalError must return fallback string."""
+        import src.council.agent_data as agent_data_mod
+
+        with patch(
+            "src.council.agent_data.connect_db",
+            side_effect=sqlite3.OperationalError("database is locked"),
+        ):
+            result = agent_data_mod.gather_tactical_data(db_path=":memory:")
+
+        assert result == "No tactical data available."
+
+    def test_outer_guard_increments_failure_counter(self):
+        """gather_tactical_data increments _council_agent_data_failures counter."""
+        import src.council.agent_data as agent_data_mod
+
+        before = agent_data_mod._council_agent_data_failures["gather_tactical_data"]
+        with patch(
+            "src.council.agent_data.connect_db",
+            side_effect=sqlite3.OperationalError("database is locked"),
+        ):
+            agent_data_mod.gather_tactical_data(db_path=":memory:")
+
+        after = agent_data_mod._council_agent_data_failures["gather_tactical_data"]
+        assert after == before + 1

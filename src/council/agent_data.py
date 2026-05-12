@@ -7,6 +7,7 @@ Config keys: none
 Tests: none
 """
 
+import collections
 import logging
 import sqlite3
 from datetime import datetime, timedelta
@@ -19,6 +20,8 @@ from src.shadow_trading.exit_reason import outcome_stats_filter_sql
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
+
+_council_agent_data_failures: collections.defaultdict = collections.defaultdict(int)
 
 
 def _query_db(query: str, params: tuple = (), db_path: str = DB_PATH) -> list[dict]:
@@ -145,8 +148,12 @@ def gather_tactical_data(db_path: str = DB_PATH) -> str:
             except sqlite3.Error as exc:
                 logger.debug("[COUNCIL] Tactical positions query: %s", exc)
 
-    except CouncilAgentDataError as exc:
-        logger.warning("[COUNCIL] Tactical data gather failed: %s", exc)
+    except (CouncilAgentDataError, sqlite3.Error) as exc:
+        _council_agent_data_failures["gather_tactical_data"] += 1
+        logger.warning(
+            "[COUNCIL] %s caught %s: %s — degrading to fallback",
+            "gather_tactical_data", type(exc).__name__, exc,
+        )
 
     return "\n".join(parts) if parts else "No tactical data available."
 
@@ -220,8 +227,12 @@ def gather_strategic_data(db_path: str = DB_PATH) -> str:
             except sqlite3.Error:
                 pass
 
-    except CouncilAgentDataError as exc:
-        logger.warning("[COUNCIL] Strategic data gather failed: %s", exc)
+    except (CouncilAgentDataError, sqlite3.Error) as exc:
+        _council_agent_data_failures["gather_strategic_data"] += 1
+        logger.warning(
+            "[COUNCIL] %s caught %s: %s — degrading to fallback",
+            "gather_strategic_data", type(exc).__name__, exc,
+        )
 
     return "\n".join(parts) if parts else "No strategic data available."
 
@@ -308,8 +319,12 @@ def gather_risk_data(db_path: str = DB_PATH) -> str:
             except sqlite3.Error:
                 pass
 
-    except CouncilAgentDataError as exc:
-        logger.warning("[COUNCIL] Risk data gather failed: %s", exc)
+    except (CouncilAgentDataError, sqlite3.Error) as exc:
+        _council_agent_data_failures["gather_risk_data"] += 1
+        logger.warning(
+            "[COUNCIL] %s caught %s: %s — degrading to fallback",
+            "gather_risk_data", type(exc).__name__, exc,
+        )
 
     return "\n".join(parts) if parts else "No risk data available."
 
@@ -398,8 +413,12 @@ def gather_innovation_data(db_path: str = DB_PATH) -> str:
             except sqlite3.Error:
                 pass
 
-    except CouncilAgentDataError as exc:
-        logger.warning("[COUNCIL] Innovation data gather failed: %s", exc)
+    except (CouncilAgentDataError, sqlite3.Error) as exc:
+        _council_agent_data_failures["gather_innovation_data"] += 1
+        logger.warning(
+            "[COUNCIL] %s caught %s: %s — degrading to fallback",
+            "gather_innovation_data", type(exc).__name__, exc,
+        )
 
     return "\n".join(parts) if parts else "No innovation data available."
 
@@ -489,7 +508,11 @@ def gather_macro_data(db_path: str = DB_PATH) -> str:
             except sqlite3.Error:
                 pass
 
-    except CouncilAgentDataError as exc:
-        logger.warning("[COUNCIL] Macro data gather failed: %s", exc)
+    except (CouncilAgentDataError, sqlite3.Error) as exc:
+        _council_agent_data_failures["gather_macro_data"] += 1
+        logger.warning(
+            "[COUNCIL] %s caught %s: %s — degrading to fallback",
+            "gather_macro_data", type(exc).__name__, exc,
+        )
 
     return "\n".join(parts) if parts else "No macro data available."
