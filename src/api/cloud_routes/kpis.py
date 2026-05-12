@@ -125,7 +125,11 @@ def get_kpis() -> dict:
         "spy_relative_sharpe": _compute_spy_relative_kpi(spy_aligned_returns, spy_returns),
         "win_rate": _compute_win_rate_kpi(instrumented),
         "stage_traffic_light": _compute_stage_traffic_light(returns, rf_per_trade),
-        "promotion_gate": _compute_promotion_gate_kpi(n_trades, returns),
+        "promotion_gate": _compute_promotion_gate_kpi(
+            n_trades, returns,
+            dates=[_parse_iso_date(t.get("actual_entry_time")) for t in instrumented],
+            directions=[1 if t.get("direction", "long") == "long" else -1 for t in instrumented],
+        ),
         "total_pnl_dollars": compute_total_pnl_dollars(instrumented),
         "rf_source": "fred_dtb3" if rf_used_fred else "placeholder",
         "_meta": {
