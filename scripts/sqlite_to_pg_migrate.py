@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     import psycopg2
+    from psycopg2 import sql
     from psycopg2.extras import execute_values
 except ImportError:
     print("ERROR: psycopg2 not installed. Run: pip install psycopg2-binary")
@@ -134,7 +135,12 @@ def _advance_sequence_after_bulk(pg_conn, table_name: str, pk_col: str) -> None:
             return  # not a serial column — UUID, composite, or no sequence
         seq_name = seq_row[0]
         cur.execute(
-            f"SELECT setval(%s, COALESCE(MAX({pk_col}), 0) + 1, false) FROM {table_name}",
+            sql.SQL(
+                "SELECT setval(%s, COALESCE(MAX({pk_col}), 0) + 1, false) FROM {tbl}"
+            ).format(
+                pk_col=sql.Identifier(pk_col),
+                tbl=sql.Identifier(table_name),
+            ),
             (seq_name,),
         )
     pg_conn.commit()

@@ -520,6 +520,15 @@ def test_setval_uses_coalesce_max_plus_one(monkeypatch):
     ]
     assert len(setval_calls) == 1
     sql_str = str(setval_calls[0])
-    assert "COALESCE(MAX(id), 0) + 1" in sql_str, (
-        f"setval SQL must contain 'COALESCE(MAX(id), 0) + 1'; got: {sql_str}"
+    # Composed AST must include the COALESCE/MAX/+1 pattern wrapped around an
+    # Identifier-quoted pk_col (defense vs SQL injection on column-name input,
+    # symmetric with T2 PG roles setup discipline).
+    assert "COALESCE(MAX(" in sql_str and "), 0) + 1, false) FROM" in sql_str, (
+        f"setval SQL must contain the COALESCE(MAX(...), 0) + 1 pattern; got: {sql_str}"
+    )
+    assert "Identifier('id')" in sql_str, (
+        f"pk_col must be wrapped in sql.Identifier (not raw f-string); got: {sql_str}"
+    )
+    assert "Identifier('activity_log')" in sql_str, (
+        f"table_name must be wrapped in sql.Identifier (not raw f-string); got: {sql_str}"
     )
