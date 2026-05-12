@@ -1,12 +1,12 @@
-# Sprint 5 Closeout — Implementation Plan
+# Sprint 5 Closeout — Implementation Plan (v3 — C7 added)
 
 **Generated:** 2026-05-12 from `docs/audits/2026-05-12-sprint-5-closeout-plan/specs/2026-05-12-sprint-5-closeout-plan-design.md`
 
-**Tasks:** 16  |  **Execution batches:** 10
+**Tasks:** 26  |  **Execution batches:** 19
 
 ## Sequencing notes
 
-v2 revision. Wave C precedes Wave D per glidepath. Batches: (1) Independent small tasks — #54 wire, #47 audit doc, #100 scanner, #15 stale-base CI, Wave E disposition + inline stale-text fixes (all zero-or-low-risk independent edits). (2) Council errors (#68 — independent of #56 schema), test speedup (#86), PG provisioning (#87). (3) #56+#96 schema task (must precede #45 because the platform_events TableDef is C4's write target). (4) #45 drift detector (depends on schema in Task 2 + typed-error pattern in Task 3; first watch.py hook). (5) D1 policy.py (depends on #68 + on #45 having added the manual_intervention_drift event_map entry so config validation works). (6) D2 digest_queue.py + watch.py rebases on #45's watch.py edit. (7) D3 safe_send retry + severity audit + schema column adds (depends on D1 policy + D2 digest_queue). (8) D4 html-escape siblings + conftest isolation (depends on D3 safe_send wiring). (9) D5 alert silence (depends on D2's watch.py hook landing + D3 safe_send semantics + Task 11's notifications_digest_queue table for UNION read). (10) Sprint Close aggregates everything. Sequential constraint on src/scheduler/watch.py: tasks 4, 11, 14 edit the same file — each rebases on prior. PM enforces serial dispatch via §6.5.1 detection mechanism (git fetch + gh pr list before dispatch + worktree-glob check). All other tasks within a batch can run worktree-parallel.
+v3 revision adds 10 C7 tasks (17-26) between Wave D close (Task 14) and Sprint Close (Task 16). Sprint Close (Task 16) now depends on all 1-15 + 17-26. Sequencing rationale: Batch 10 starts C7a serial chain (Task 17 = first packet_writer.py edit; Task 25 = independent analyst_collector change runs alongside). Tasks 18, 19, 20 are sequential rebases on packet_writer.py + enricher.py (single-batch each — same pattern as the C4→D2→D5 watch.py serial chain in v2). Task 20 has hard dependency on Task 2 (strategy_id FK). Tasks 21-24 are the C7b serial chain — all share packet_writer.py + enricher.py rebases. Task 26 is the matrix scanner — runs last after C7b chain merged so it asserts coverage against the actual state. PM enforces serial dispatch for the packet_writer.py + enricher.py chain via §6.5.1 detection mechanism (same as watch.py: git fetch + gh pr list + worktree-glob check). All other tasks within a batch can run worktree-parallel. Task 16 (Sprint Close) updates depends_on to [1-15, 17-26] (Task 25 independent but still needs Sprint Close to aggregate). Projected final test floor moves 5350→5400 (v2 was 5350; +40 C7 tests pushes projected median to 5450-5500; 5400 keeps 50-test conservative buffer). Sprint Close updates pg-tests.yml floor + CLAUDE.md to 5400 (not 5350).
 
 ## Execution batches
 
@@ -19,7 +19,16 @@ v2 revision. Wave C precedes Wave D per glidepath. Batches: (1) Independent smal
 - **Batch 7**: tasks [12]
 - **Batch 8**: tasks [13]
 - **Batch 9**: tasks [14]
-- **Batch 10**: tasks [16]
+- **Batch 10**: tasks [17, 25]
+- **Batch 11**: tasks [18]
+- **Batch 12**: tasks [19]
+- **Batch 13**: tasks [20]
+- **Batch 14**: tasks [21]
+- **Batch 15**: tasks [22]
+- **Batch 16**: tasks [23]
+- **Batch 17**: tasks [24]
+- **Batch 18**: tasks [26]
+- **Batch 19**: tasks [16]
 
 ## Task details
 
@@ -59,7 +68,7 @@ Step 1: Grep src/ to confirm `strategy_registry` TableDef exists and its PK colu
 
 Extend src/council/errors.py with CouncilParseError, CouncilTimeoutError, CouncilAgentDataError, CouncilProviderError (each inheriting CouncilError). Keep existing CouncilUnavailableError(RuntimeError, CouncilError) for back-compat. Refactor the 28 `except Exception as exc` blocks in src/council/agent_data.py (corrected from v1 '30+' — actual grep count is 28): triage each block by error source (SQLite/psycopg → CouncilAgentDataError, json.JSONDecodeError → CouncilParseError, requests.RequestException → CouncilProviderError). PR body must disclose: 'This may surface previously-swallowed bugs; canary deploy via watch-loop restart with eyes-on for 1h.' Engine.py + value_tracker.py except-blocks are EXPLICITLY DEFERRED to post-sprint.
 
-### Task 4 — Wave C #45 — Manual intervention drift detector + extend existing src/monitoring/ package + watch loop hook
+### Task 4 — Wave C #45 — Manual intervention drift detector + new src/monitoring/ package + watch loop hook
 
 - **Complexity:** ?
 - **Depends on:** [2, 3]
@@ -69,7 +78,7 @@ Extend src/council/errors.py with CouncilParseError, CouncilTimeoutError, Counci
 - **Test strategy:** +6 tests in tests/monitoring/test_manual_intervention_drift.py: detector with mocked broker/db, threshold boundary (29 min no-alert, 31 min alert), state persistence across calls, alert dedup within 24h, no-alert-on-broker-outage (don't alert on alert path), platform_events row written on finding. +1 AST guardrail in tests/monitoring/test_drift_detector_no_recursion.py (no safe_send call from inside the detector's own alert path). Also create src/monitoring/__init__.py + src/monitoring/errors.py + tests/monitoring/__init__.py — minimal package scaffolding.
 - **Reviewer dispatch:** ['QA', 'Security']
 
-**EXTEND existing `src/monitoring/` package** (corrected per PR #1061 review — the package already exists with `system_metrics.py`; do NOT create from scratch). UPDATE `src/monitoring/__init__.py` docstring from "System monitoring — GPU, CPU, RAM, disk, Ollama health tracking." to "System monitoring + operational alerting — health metrics and divergence detectors." (preserve any other existing content of `__init__.py`). PRESERVE `src/monitoring/system_metrics.py` untouched. ADD `src/monitoring/errors.py` with `MonitoringDataError` class. ADD `src/monitoring/manual_intervention_drift.py` with `detect_drift(broker_positions, db_positions, threshold_minutes=30, state_path, conn) -> list[DriftFinding]`. Detector writes a `platform_events` row (source='drift_detector', severity='high') for forensic trail when emitting a finding. Add `notify_manual_intervention_drift` to src/notifications/telegram.py event_map at module-import-time (top-level dict literal). Wire a 30-minute periodic tick in src/scheduler/watch.py that calls the detector and emits via safe_send (with literal severity='high' kwarg). Add operator-guide section 'Drift detection'. **This task also creates `data/drift_detector_state.json` as a new atomic-write singleton state file (referenced by Task 12's retry counter — they share the same file shape per Decision 21).** THIS TASK IS THE FIRST OF THREE SEQUENTIAL EDITS to src/scheduler/watch.py (followed by tasks 11 and 14). Per §6.5.1, PM enforces serial dispatch via Glob over worktree branches.
+Create the new `src/monitoring/` package: src/monitoring/__init__.py (with docstring 'Operational health detectors. Distinct from src/diagnostics/ statistical methodology.'), src/monitoring/errors.py (MonitoringDataError). Create src/monitoring/manual_intervention_drift.py with `detect_drift(broker_positions, db_positions, threshold_minutes=30, state_path, conn) -> list[DriftFinding]`. Detector writes a `platform_events` row (source='drift_detector', severity='high') for forensic trail when emitting a finding. Add `notify_manual_intervention_drift` to src/notifications/telegram.py event_map at module-import-time (top-level dict literal). Wire a 30-minute periodic tick in src/scheduler/watch.py that calls the detector and emits via safe_send (with literal severity='high' kwarg). Add operator-guide section 'Drift detection'. THIS TASK IS THE FIRST OF THREE SEQUENTIAL EDITS to src/scheduler/watch.py (followed by tasks 11 and 14). Per §6.5.1, PM enforces serial dispatch via Glob over worktree branches.
 
 ### Task 5 — Wave C #47 — Telegram-email-sweep audit triage disposition doc
 
@@ -183,15 +192,13 @@ Apply `_html_escape()` to regime_old/regime_new interpolation at src/notificatio
 
 - **Complexity:** ?
 - **Depends on:** [11, 13]
-- **Scope fence:** Do NOT call safe_send from within the alert_silence event's own dispatch path (no recursion). Do NOT add the silence detector to non-market-hours paths. Do NOT place the module in src/diagnostics/ — operational alerting goes in src/monitoring/ per Decision 23. **THIS TASK ALSO adds `is_market_open(now_et)` to `src/scheduler/holidays.py`** — extract from `WatchLoop._is_market_open` at watch.py:405 (corrected per PR #1061 review — the function does NOT currently exist in holidays.py; only `is_market_holiday` + `is_market_half_day` are present). The new helper takes a datetime in America/New_York and returns bool. After extraction, replace `WatchLoop._is_market_open` body to call `holidays.is_market_open(...)` for back-compat.
-- **Files in scope:** ['src/monitoring/alert_silence.py', 'tests/monitoring/test_alert_silence.py', 'src/notifications/telegram.py', 'src/scheduler/watch.py', 'src/scheduler/holidays.py', 'tests/scheduler/test_holidays.py']
-- **Files read-only:** ['src/notifications/digest_queue.py', 'src/schema/registry.py']
-- **Test strategy:** +5 tests in test_alert_silence.py: silence detected during market hours when no recent ok send AND no recent digest activity, no-alert outside market hours, platform_events row written on detection (source='alert_silence'), dashboard widget data shape, M3 anchor truth-table (digest_cadence=60 + alert_threshold=60 + low-only events for 90 min during market hours → returns None — no false silence because digest_queue.enqueued_at MAX is recent). Visual-verify gate: render the widget in browser before PR push. **+3 tests in tests/scheduler/test_holidays.py**: is_market_open returns True during 9:30-16:00 ET on a weekday non-holiday, False on weekends/holidays, False outside regular hours (handles half-day close at 13:00 ET via is_market_half_day check).
+- **Scope fence:** Do NOT call safe_send from within the alert_silence event's own dispatch path (no recursion). Do NOT modify is_market_open. Do NOT add the silence detector to non-market-hours paths. Do NOT place the module in src/diagnostics/ — operational alerting goes in src/monitoring/ per Decision 23.
+- **Files in scope:** ['src/monitoring/alert_silence.py', 'tests/monitoring/test_alert_silence.py', 'src/notifications/telegram.py', 'src/scheduler/watch.py']
+- **Files read-only:** ['src/scheduler/holidays.py', 'src/notifications/digest_queue.py', 'src/schema/registry.py']
+- **Test strategy:** +5 tests in test_alert_silence.py: silence detected during market hours when no recent ok send AND no recent digest activity, no-alert outside market hours, platform_events row written on detection (source='alert_silence'), dashboard widget data shape, M3 anchor truth-table (digest_cadence=60 + alert_threshold=60 + low-only events for 90 min during market hours → returns None — no false silence because digest_queue.enqueued_at MAX is recent). Visual-verify gate: render the widget in browser before PR push.
 - **Reviewer dispatch:** ['QA']
 
-**FIRST:** add `is_market_open(now_et: datetime) -> bool` to `src/scheduler/holidays.py` (extracted from `WatchLoop._is_market_open` at watch.py:405). Function checks: weekday in [0..4] AND not is_market_holiday(now_et.date()) AND time within [9:30, 16:00] ET (or [9:30, 13:00] ET if is_market_half_day). Replace `WatchLoop._is_market_open` body to call the new helper. Add 3 tests in `tests/scheduler/test_holidays.py`.
-
-**THEN:** create src/monitoring/alert_silence.py with `check_alert_silence(now_et, threshold_minutes=60, conn=None) -> AlertSilenceFinding | None`. Logic (M3 resolution): read UNION of (notifications_sent WHERE status='ok' MAX sent_at), (notifications_digest_queue WHERE flushed_at IS NOT NULL MAX flushed_at), (notifications_digest_queue WHERE enqueued_at IS NOT NULL MAX enqueued_at). During market hours (via the newly-added `src/scheduler/holidays.is_market_open`), if MAX(union) is older than now_et - threshold, return finding + emit via safe_send(event_type='alert_silence', severity='high', ...) + write platform_events row (source='alert_silence', severity='high') for forensic trail. The enqueued_at UNION term proves watch loop is alive during digest-only quiet periods (no false-fire). Add `alert_silence` to telegram.py event_map at module-import time. Wire 5-min hook in src/scheduler/watch.py — REBASES on Task 11's watch.py edits. Add dashboard widget data endpoint (operator visibility).
+Create src/monitoring/alert_silence.py with `check_alert_silence(now_et, threshold_minutes=60, conn=None) -> AlertSilenceFinding | None`. Logic (M3 resolution): read UNION of (notifications_sent WHERE status='ok' MAX sent_at), (notifications_digest_queue WHERE flushed_at IS NOT NULL MAX flushed_at), (notifications_digest_queue WHERE enqueued_at IS NOT NULL MAX enqueued_at). During market hours (via src/scheduler/holidays.is_market_open), if MAX(union) is older than now_et - threshold, return finding + emit via safe_send(event_type='alert_silence', severity='high', ...) + write platform_events row (source='alert_silence', severity='high') for forensic trail. The enqueued_at UNION term proves watch loop is alive during digest-only quiet periods (no false-fire). Add `alert_silence` to telegram.py event_map at module-import time. Wire 5-min hook in src/scheduler/watch.py — REBASES on Task 11's watch.py edits. Add dashboard widget data endpoint (operator visibility).
 
 ### Task 15 — Wave E — Dual-GPU disposition doc + inline stale-text fixes to canonical spec
 
@@ -216,4 +223,124 @@ Create docs/audits/2026-05-12-dual-gpu-ideation/disposition.md stating: 'Impleme
 - **Reviewer dispatch:** ['QA', 'Documentarian']
 
 Final closeout PR. Steps: (1) Bump src/version.py from 'v0.34.0' to 'v0.35.0'. (2) In CHANGELOG.md, move ALL [Unreleased] entries into a new `## [v0.35.0] - 2026-05-XX — Sprint 5 close` section per §7.4.1 aggregation rule (verbatim copy-paste; deduplicate meta-entries; within-wave ordering by task-id; [Unreleased] header retained with empty body). (3) Create docs/roadmap.md per spec §7.2 template with sprint-history table + active-track pointer (incl. walk-forward FK deprecation note from §1.3) + deferred-track section. (4) Append docs/operator-guide.md section 'Sprint 5 closeout state' + 'NSSM env config' subsection. (5) Update CLAUDE.md test floor 3682→5350 with lineage paragraph per §7.3. (6) Update .github/workflows/pg-tests.yml floor 5050→5350. (7) Refresh docs/audits/known-pre-existing-failures.md by re-running full sweep and regenerating the failure table. (8) Add tests/shadow_trading/test_alpaca_adapter_split.py to config/known_violations.json with rationale 'pending post-sprint refactor (#97)'; delete the sentinel test file. (9) Cosmetic _scalar helper removal across ~30 call sites — SCOPE CAP: if >40 files would change, defer to post-sprint and note in PR body. (10) Create git tag `v0.35.0` after PR merge.
+
+### Task 17 — Wave C7a.1 — COUNCIL CONSENSUS packet section
+
+- **Complexity:** ?
+- **Depends on:** []
+- **Scope fence:** Do NOT modify _build_feature_prompt sections 1-12. Do NOT touch C7b plan-gating logic (this is Tier-1, plan-independent). Do NOT call safe_send. Do NOT modify council_votes or council_sessions schema. Do NOT add a Finnhub call. FIRST of the C7a serial chain — subsequent tasks 18-20 rebase on this.
+- **Files in scope:** ['src/llm/packet_writer.py', 'src/data_enrichment/enricher.py', 'tests/llm/test_packet_council_consensus.py']
+- **Files read-only:** ['src/schema/registry.py']
+- **Test strategy:** +4 tests in test_packet_council_consensus.py: (1) per-pillar read populates 5 vote fields, (2) prompt rendering produces COUNCIL CONSENSUS section with 5 rows + confidence, (3) missing-session fallback renders empty-state message, (4) stale-session (>3d) appends [STALE] marker. Read-only joins on council_votes + council_sessions; tests fixture an in-memory DB with sample rows.
+- **Reviewer dispatch:** []
+
+Add `=== COUNCIL CONSENSUS ===` section to `_build_feature_prompt` in `src/llm/packet_writer.py` at index 13 (after CROSS-ASSET CONTEXT). Read latest non-stale `council_sessions` row via `src/data_enrichment/enricher.py`; join `council_votes` per-pillar (macro/strategic/tactical/innovation/risk). Populate new enricher feature-dict fields per spec §4.9: `council_macro_vote`, `council_strategic_vote`, `council_tactical_vote`, `council_innovation_vote`, `council_risk_vote`, `council_session_id`, `council_consensus_score`, `council_session_age_days`. Render section as 5-row compact table per spec §X.1.1. Missing-session fallback: section renders `(No recent council session)`. Stale (>3d) fallback: append `[STALE]`. THIS TASK IS THE FIRST OF FOUR SEQUENTIAL EDITS to packet_writer.py + enricher.py (Tasks 17→18→19→20). Per §6.5.1 detection mechanism, PM enforces serial dispatch via Glob over worktree branches.
+
+### Task 18 — Wave C7a.2 — HISTORICAL CREDIBILITY packet section
+
+- **Complexity:** ?
+- **Depends on:** [17]
+- **Scope fence:** Do NOT modify walkforward_results schema. Do NOT modify promotion_gate.py logic. Do NOT add Finnhub calls. Rebase on Task 17.
+- **Files in scope:** ['src/llm/packet_writer.py', 'src/data_enrichment/enricher.py', 'tests/llm/test_packet_historical_credibility.py']
+- **Files read-only:** ['src/schema/registry.py', 'src/methods/promotion_gate.py']
+- **Test strategy:** +3 tests: walkforward read with setup_class match, PSR/CPCV vote-count rendering, no-data fallback. Fixture walkforward_results rows in test DB.
+- **Reviewer dispatch:** []
+
+Add `=== HISTORICAL CREDIBILITY ===` section to `_build_feature_prompt` at index 14. Enricher reads `walkforward_results` for matching `setup_class` (and ticker+strategy if FK lands). Populate `setup_walkforward_credibility` (PSR/CPCV vote-count), `setup_psr_pass`, `setup_cpcv_pass`, `setup_walkforward_n_votes`. Render as numeric credibility prior + per-method pass/fail per spec §X.1.2. No-match fallback: `(No walk-forward history for this setup class)`. REBASES on Task 17's packet_writer.py + enricher.py edits.
+
+### Task 19 — Wave C7a.3 — RECENT ATTRIBUTION packet section
+
+- **Complexity:** ?
+- **Depends on:** [18]
+- **Scope fence:** Do NOT modify attribution_trades schema. Do NOT add Finnhub calls. Do NOT compute against unrealized PnL — closed trades only. Rebase on Task 18.
+- **Files in scope:** ['src/llm/packet_writer.py', 'src/data_enrichment/enricher.py', 'tests/llm/test_packet_recent_attribution.py']
+- **Files read-only:** ['src/schema/registry.py']
+- **Test strategy:** +3 tests: 30d window read, similar-ticker sector join, no-recent-trades fallback. Fixture attribution_trades rows with mix of inside/outside window.
+- **Reviewer dispatch:** []
+
+Add `=== RECENT ATTRIBUTION ===` section at index 15. Enricher reads `attribution_trades` last 30 days (default; configurable via `data_enrichment.attribution_window_days`). Computes setup-class W/L rate + ticker-specific PnL + similar-ticker (sector-match) PnL. Populates `recent_setup_win_rate`, `recent_ticker_pnl`, `recent_similar_pnl_30d`. Renders per spec §X.1.3. No-recent-trades fallback message. REBASES on Task 18.
+
+### Task 20 — Wave C7a.4 — STRATEGY CONTEXT header section
+
+- **Complexity:** ?
+- **Depends on:** [2, 19]
+- **Scope fence:** Do NOT modify strategy_registry schema. Do NOT modify shadow_trades schema (Task 2 already did). Do NOT add a Finnhub call. Rebase on Task 19. If Task 2 scoped-reduced FK, document degradation in PR body.
+- **Files in scope:** ['src/llm/packet_writer.py', 'src/data_enrichment/enricher.py', 'tests/llm/test_packet_strategy_context.py']
+- **Files read-only:** ['src/schema/registry.py']
+- **Test strategy:** +3 tests: strategy_id FK join populates header, demoted/abstain rendering, NULL-strategy_id fallback (legacy trade). Fixture strategy_registry + shadow_trades rows.
+- **Reviewer dispatch:** []
+
+Add `=== STRATEGY CONTEXT ===` as a header preamble (between DATA CONTEXT and TECHNICAL DATA) in `_build_feature_prompt`. Enricher reads `strategy_registry` via newly-added `strategy_id` FK on `shadow_trades` from Task 2 (#56). Populates `strategy_id`, `strategy_status` (active|shadow|abstain|demoted), `strategy_parent_name`. Renders per spec §X.1.4. NULL-strategy_id fallback (legacy trades): `Strategy: (unassigned — legacy trade)`. REBASES on Task 19. **HARD DEPENDENCY on Task 2** — if Task 2 scope-reduced to ColumnDef-only (no FK), C7a.4 must use best-effort lookup + fallback; PR body must disclose the degradation.
+
+### Task 21 — Wave C7b.1 — INSTITUTIONAL FLOW collector + section (plan-gated)
+
+- **Complexity:** ?
+- **Depends on:** [20]
+- **Scope fence:** Do NOT bypass finnhub_plan_supports gate. Do NOT add packet section that renders even partially when plan does not support — section must be ABSENT (Decision 30). Do NOT modify enricher.py beyond institutional_* feature fields (Task 22 picks up next). Do NOT add the DATA CONTEXT header trigger here (composite Tasks 22-24 collectively close the trigger). FIRST of C7b serial chain.
+- **Files in scope:** ['src/data_collection/institutional_ownership_collector.py', 'src/schema/registry.py', 'src/llm/packet_writer.py', 'tests/data_collection/test_institutional_ownership_collector.py']
+- **Files read-only:** ['src/data_enrichment/finnhub_plan.py', 'src/data_collection/insider_collector.py', 'src/scheduler/watch.py']
+- **Test strategy:** +5 tests: (1) plan=fundamental-1 → API call made + row written + UPSERT idempotent, (2) plan=free → NO API call (mock-the-finnhub-client + assert_not_called) + collector returns None, (3) schema discipline (institutional_holdings table + columns + index), (4) packet section renders when plan supports + data present, (5) packet section completely absent when plan=free. Run validate-schema --fix + render_migrate.py; include outputs in PR body.
+- **Reviewer dispatch:** []
+
+Create `src/data_collection/institutional_ownership_collector.py` with `collect_institutional_ownership(ticker, config)` per spec §4.10. Gate at function entry on `finnhub_plan_supports('institutional_ownership', config)` — return None + INFO log when plan does not support. Add `institutional_holdings` TableDef per spec §3.1c. Add INSTITUTIONAL FLOW packet section at index 4.5 (between SECTOR RELATIVE and FUNDAMENTAL SNAPSHOT) with three render states: plan supports + data → render with age-days; plan supports + no data → `(No data yet — collector pending)`; plan does not support → section absent. Populate enricher feature-dict fields per spec §4.9. Wire 1-line nightly collector tick in `src/scheduler/watch.py` (plan-gated; no-op when plan=free). FIRST of C7b serial chain — subsequent tasks 22-24 rebase on packet_writer.py + enricher.py edits.
+
+### Task 22 — Wave C7b.2 — filings_sentiment collector + MATERIAL EVENTS section (plan-gated)
+
+- **Complexity:** ?
+- **Depends on:** [21]
+- **Scope fence:** Do NOT touch edgar_filings or edgar_collector.py — filings_sentiment is a distinct retrieval cadence and table (Decision 27). Do NOT inline-call the collector from runtime — collector is overnight/nightly only. Rebase on Task 21.
+- **Files in scope:** ['src/data_collection/filings_sentiment_collector.py', 'src/schema/registry.py', 'src/llm/packet_writer.py', 'src/data_enrichment/enricher.py']
+- **Files read-only:** ['src/data_enrichment/finnhub_plan.py', 'src/data_collection/institutional_ownership_collector.py']
+- **Test strategy:** +5 tests: plan=fundamental-1 API call + row, plan=free no-API + None, schema discipline (filings_sentiment table), packet sub-block render when plan supports, sub-block omits when plan does not. Test file `tests/data_collection/test_filings_sentiment_collector.py`.
+- **Reviewer dispatch:** []
+
+Create `src/data_collection/filings_sentiment_collector.py` per spec §4.11. Plan-gated on `'filings_sentiment'`. Add `filings_sentiment` TableDef per spec §3.1c. Add `=== MATERIAL EVENTS ===` packet section at index 7.5 (between RECENT NEWS and MACRO CONTEXT) — this task seeds the section with filings_sentiment sub-block; Task 23 (press_releases) adds the second sub-block. Composition rule: if neither sub-block has plan-support, section omits entirely; if only one, section renders with only that sub-block. Populate `filing_sentiment_score`, `filing_sentiment_label`, `latest_filing_type`, `latest_filing_age_days` in enricher. Wire nightly tick in watch.py. REBASES on Task 21.
+
+### Task 23 — Wave C7b.3 — press_releases collector + MATERIAL EVENTS section (plan-gated)
+
+- **Complexity:** ?
+- **Depends on:** [22]
+- **Scope fence:** Do NOT route press releases through the existing RECENT NEWS pipeline — they belong in MATERIAL EVENTS (distinct catalyst category, Decision 27). Do NOT modify news collectors. Rebase on Task 22.
+- **Files in scope:** ['src/data_collection/press_releases_collector.py', 'src/schema/registry.py', 'src/llm/packet_writer.py', 'src/data_enrichment/enricher.py']
+- **Files read-only:** ['src/data_enrichment/finnhub_plan.py']
+- **Test strategy:** +5 tests: plan=fundamental-1 + plan=free pair, schema, packet sub-block render + omit. Test file `tests/data_collection/test_press_releases_collector.py`. MATERIAL EVENTS section integration test: when only press_releases supported (filings_sentiment NOT supported) → section renders with only press-releases sub-block.
+- **Reviewer dispatch:** []
+
+Create `src/data_collection/press_releases_collector.py` per spec §4.12. Plan-gated on `'press_releases'`. Add `press_releases` TableDef per spec §3.1c. Extend MATERIAL EVENTS section with press-releases sub-block (per spec §X.2.2). Populate `press_release_count_7d`, `latest_press_release_headline`, `latest_press_release_age_days` in enricher. Wire nightly tick in watch.py. REBASES on Task 22.
+
+### Task 24 — Wave C7b.4 — stock_financials runtime promotion (plan-gated) + DATA CONTEXT header
+
+- **Complexity:** ?
+- **Depends on:** [23]
+- **Scope fence:** Do NOT call Finnhub API at runtime — read existing JSON sink only. Do NOT modify scripts/finnhub_fundamental_export.py. Do NOT add a new TableDef — JSON sink is the storage. Do NOT trigger DATA CONTEXT header on Tier-1 section absence — Tier-1 is plan-independent (Decision 32). Rebase on Task 23.
+- **Files in scope:** ['src/data_enrichment/financials.py', 'src/llm/packet_writer.py', 'src/data_enrichment/enricher.py', 'tests/data_enrichment/test_financials.py']
+- **Files read-only:** ['scripts/finnhub_fundamental_export.py', 'src/data_enrichment/finnhub_plan.py']
+- **Test strategy:** +4 tests for financials.py: plan=fundamental-1 reads JSON + enriches, plan=free returns None (last-known fallback preserved), FUNDAMENTAL SNAPSHOT in-place enrichment with live fields, snapshot age-days computed. +3 tests in NEW `tests/llm/test_data_context_header_trigger.py`: header omitted when all Tier-2 sections present, header present when ≥1 omits, header content lists exact omitted section names.
+- **Reviewer dispatch:** []
+
+Create `src/data_enrichment/financials.py` per spec §4.13 — promotes `scripts/finnhub_fundamental_export.py` from export-only to runtime read-only enricher. Plan-gated on `'stock_financials'`. Reads `data/finnhub_fundamentals/<ticker>.json` (existing nightly-export sink). Enriches the existing FUNDAMENTAL SNAPSHOT packet section IN-PLACE with live P/E, debt/equity, gross margin, ROIC, quality flag. Populates `fundamental_*` feature fields per spec §4.9. When plan=free: section's existing fallback (last-known cached or empty) preserved — no regression. **THIS TASK ALSO ADDS THE DATA CONTEXT HEADER** (spec §4.8.1) — prepends DATA CONTEXT block at top of prompt when ≥1 of {INSTITUTIONAL FLOW, MATERIAL EVENTS, FUNDAMENTAL SNAPSHOT enrichment} omits. Implements §4.8.2 stale-data ageing (default 7d threshold via `data_enrichment.stale_data_threshold_days`). REBASES on Task 23.
+
+### Task 25 — Wave C7b.5 — analyst_collector nightly cap update (plan-conditional)
+
+- **Complexity:** ?
+- **Depends on:** []
+- **Scope fence:** Do NOT bump cap above the documented rate-limit. Do NOT touch other collectors. Do NOT add new endpoints — rate-limit-only change.
+- **Files in scope:** ['src/data_collection/analyst_collector.py', 'tests/data_collection/test_analyst_collector_rate_limit.py']
+- **Files read-only:** ['src/data_enrichment/finnhub_plan.py']
+- **Test strategy:** +2 tests: plan=fundamental-1 cap=100, plan=free cap=20 (preserved). PR body must include rate-limit citation (Finnhub doc URL + retrieved-date).
+- **Reviewer dispatch:** []
+
+Update `src/data_collection/analyst_collector.py:14` comment + add `_get_nightly_cap(config)` helper per spec §4.14. Plan=fundamental-1 → 100/night; plan=free → 20/night (preserved). **C7b.5 developer MUST verify current Finnhub fundamental-1 rate-limit from Finnhub docs** (via Context7 or direct doc fetch) before bumping; cite source in PR body. Independent of Tasks 17-24 — only touches analyst_collector.py.
+
+### Task 26 — Wave C7b.6 — finnhub_plan feature-matrix runtime-coverage AST scanner
+
+- **Complexity:** ?
+- **Depends on:** [21, 22, 23, 24, 25]
+- **Scope fence:** Do NOT modify _FEATURE_MATRIX. Do NOT modify any src/ files — pure test addition. Do NOT add scanner-level allowlists — fail loud on coverage gap. Depends on full C7b chain (21-25) being merged first so scanner runs against complete state.
+- **Files in scope:** ['tests/test_finnhub_plan_runtime_coverage.py', 'tests/data_enrichment/test_no_collector_without_plan_gate.py', 'tests/llm/test_packet_section_plan_omission.py']
+- **Files read-only:** ['src/data_enrichment/finnhub_plan.py', 'src/llm/packet_writer.py', 'src/data_collection/institutional_ownership_collector.py', 'src/data_collection/filings_sentiment_collector.py']
+- **Test strategy:** +3 tests in test_finnhub_plan_runtime_coverage.py (forward-coverage, reverse-omission-path, self-test on synthetic source-tree fixture) + the test_packet_section_plan_omission.py parametrized cases (counted under their parent C7b tasks) + AST guardrail in test_no_collector_without_plan_gate.py. Total new tests: +3 from this task's own file. Test file additions in tests/llm/ are referenced by Tasks 21-24's plan-on/off coverage; this task ensures the file exists with the parametrize harness.
+- **Reviewer dispatch:** []
+
+Create `tests/test_finnhub_plan_runtime_coverage.py` per spec §4.15. Two-way AST scanner: (1) FORWARD — for every feature in `_FEATURE_MATRIX['fundamental-1']`, assert ≥1 `finnhub_plan_supports('<feature>',...)` call site exists in `src/`; (2) REVERSE — for every paid-tier-only feature, assert a packet-section omission test exists in `tests/llm/test_packet_section_plan_omission.py`. Self-test on synthetic fixture (feature defined + caller present → PASS; feature defined + caller absent → FAIL). ALSO create `tests/data_enrichment/test_no_collector_without_plan_gate.py` (collector-gate AST guardrail per spec §6.2c). ALSO create `tests/llm/test_packet_section_plan_omission.py` with parametrized cases for INSTITUTIONAL FLOW, MATERIAL EVENTS, FUNDAMENTAL SNAPSHOT enrichment. **Depends on Tasks 21-25** — runtime coverage is asserted against what exists at merge time.
 

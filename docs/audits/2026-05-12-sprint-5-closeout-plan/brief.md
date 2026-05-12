@@ -67,6 +67,74 @@ Design spec already landed at `docs/audits/2026-05-12-dual-gpu-strategy-a-spec/`
 - **#86** — Speed up full test suite (chronic agent timeout root cause). Hypothesis: `tests/test_cloud_requirements_imports.py` is the slowest test (uses fresh-env pip install per case). Investigate + restructure: parameterize within one env install, OR cache the venv across cases.
 - **#87** — Provision local test PG for agents. Currently 3 fixtures hardcode `DATABASE_URL=postgresql://test:test@localhost/halcyon`. Refactor to use `docker-compose.test.yml` ephemeral container in `conftest.py` session scope.
 
+### 4a. NEW task — C7: LLM packet enrichment (operator request 2026-05-12)
+
+**Reframed from "Finnhub fundamental-1 max-utilization" to "are we giving the LLM all the tools it needs?"** Audit of LLM packet (`src/llm/packet_writer.py` `_build_feature_prompt`) vs collected DB tables (71 total) revealed 17+ unexposed signal sources. Highest-leverage closures land as new packet sections + enricher fields.
+
+**Tier 1 — system-internal signals (the most important miss):**
+- `council_votes` + `council_sessions` — multi-agent panel (macro/strategic/tactical/innovation/risk) outputs that are *specifically designed* to inform per-trade decisions but currently never reach the LLM prompt. Add packet section `=== COUNCIL CONSENSUS ===` summarizing latest votes per pillar with vote-confidence weights.
+- `walkforward_results` — credibility lookup for matching setup_class (or ticker+strategy combo); add packet section `=== HISTORICAL CREDIBILITY ===` showing "this setup has X% walk-forward credibility per PSR/CPCV vote-count".
+- `attribution_trades` — recent (last-N-days) W/L rate by setup_class + similar-ticker performance; add packet section `=== RECENT ATTRIBUTION ===` for regime-adaptation context.
+- `strategy_registry` + `strategy_promotion_events` — which strategy this candidate is under + its current promotion status (active/shadow/abstain/demoted). Wave C #56 already adds the `strategy_id` FK; the packet section is a natural extension. Add to existing `=== TECHNICAL DATA ===` header or new `=== STRATEGY CONTEXT ===` section.
+
+**Tier 2 — catalyst signals (Finnhub fundamental-1 max-utilization):**
+- `institutional_ownership` (Finnhub `/stock/institutional-ownership`) — NEW collector + new `institutional_holdings` table in registry + new packet section `=== INSTITUTIONAL FLOW ===` (13F deltas qoq).
+- `filings_sentiment` (Finnhub `/stock/filings-sentiment`) — NEW collector; folds into enricher to enrich `=== INSIDER ACTIVITY ===` or new `=== MATERIAL EVENTS ===` section.
+- `press_releases` (Finnhub `/stock/press-releases`) — NEW collector; folds into news section or new catalyst signal.
+- `stock_financials` runtime — promote from `scripts/finnhub_fundamental_export.py` (currently export-only) to `src/data_enrichment/financials.py` runtime; enrich existing `=== FUNDAMENTAL SNAPSHOT ===` section with live P/E / debt / margins / quality flags.
+- Update `analyst_collector.py:14` stale rate-limit comment ("20 tickers/night for free tier" → "100 tickers/night for fundamental-1 tier"); push the batch size accordingly. Verify fundamental-1's actual rate limit (300 calls/min vs 60/min on free) before bumping.
+- Add `src/data_enrichment/finnhub_plan.py` test that every "fundamental-1" feature in `_FEATURE_MATRIX` has at least one runtime caller (prevents stuck-on-shelf class).
+
+**Hard requirement — fundamental-1 is reversible (operator clarification 2026-05-12):**
+
+The fundamental-1 paid plan is NOT guaranteed permanent. C7 must architect EVERY new feature as a clean on/off switch so the system degrades gracefully on plan downgrade (operator setting `FINNHUB_PLAN=free` env var → instant revert to free-tier behavior without code changes, restarts, or data corruption).
+
+Existing infrastructure at `src/data_enrichment/finnhub_plan.py` provides the foundation:
+- `FINNHUB_PLAN` env var overrides config (already wired at `finnhub_plan.py:64-66`)
+- `_FEATURE_MATRIX` with per-feature support sets per plan
+- `finnhub_plan_supports(feature, config)` boolean gate
+- `auto` mode degrades gracefully on 403
+
+C7 must EXTEND this discipline to:
+
+1. **Every NEW collector** (C7b.1-C7b.4) MUST gate on `finnhub_plan_supports("<feature>")` at entry — emit no-op + INFO log when feature absent. Tests must include both "plan=fundamental-1 → collector hits API" AND "plan=free → collector returns early without API call" cases.
+
+2. **Every NEW packet section** (C7a + C7b INSTITUTIONAL FLOW + MATERIAL EVENTS additions) MUST be conditional in `_build_feature_prompt`:
+   - If underlying feature data is empty AND plan supports it → section says "No data yet (collector pending)"
+   - If plan does NOT support it → section OMITTED entirely (clean prompt, no degraded-context noise)
+   - If data is stale (>N days) → section includes "Data last refreshed: X days ago" so the LLM knows freshness
+   - This matches the existing `if N not in skip_sections:` pattern in packet_writer.py for optional sections
+
+3. **Packet header signal** — when ANY paid-tier section is omitted due to plan downgrade, add a single-line `=== DATA CONTEXT ===` header at the top of the packet: "Operating on Finnhub free tier; institutional/filings-sentiment/press-releases unavailable." This tells the LLM explicitly that its context is reduced so it can lower conviction appropriately rather than confidently committing on partial data.
+
+4. **Plan-aware test discipline** — every new collector + packet section gets BOTH plan-on and plan-off test cases. The `finnhub_plan` feature-matrix runtime-caller test (C7b.6) becomes a 2-way assertion: every fundamental-1 feature has a runtime caller AND a graceful-degradation path.
+
+5. **Stale-data ageing**: when plan downgrades, EXISTING data in tables (`institutional_holdings`, `filings_sentiment`, `press_releases_log`) remains valid as historical record but doesn't refresh. Packet section logic must compute `data_age_days = (today - max(timestamp)).days` and surface it to the LLM. Operator-side ceremony: optional `DELETE FROM institutional_holdings WHERE …` to scrub stale data on intentional downgrade.
+
+6. **Operator-guide section** — `docs/operator-guide.md` gets a new "Finnhub plan downgrade ceremony" section: (1) set `FINNHUB_PLAN=free` in NSSM AppEnvironmentExtra, (2) restart watch loop, (3) verify packet sections degrade cleanly via dashboard, (4) optional table scrub.
+
+This requirement applies to C7b ONLY (Tier 2 Finnhub-dependent additions). Tier 1 packet sections (C7a — council, walk-forward, attribution, strategy) read from internal tables and are plan-independent.
+
+**Deferred to post-sprint (lower signal/effort):**
+- Tier 3 (`correlation_matrices`, `factor_loadings`, `bracket_health`, `broker_exceptions` exposure)
+- Tier 4 meta-signals (`quality_drift_metrics`, `build_score_history`, `canary_evaluations`, `stress_test_results`) — walk-forward sprint's natural territory
+
+**Why this is highest-leverage Sprint 5 add:** Tier 1 closes the gap where the LLM is asked to commit on a setup WITHOUT seeing the system's own internal opinions (council vote, walk-forward credibility, recent attribution, strategy status). The data already exists — only prompt assembly is missing. Tier 2 maximizes the paid Finnhub subscription (54% of fundamental-1 features currently unused). Combined ~1.5-2 dev days. Lands in Wave C batches 1-3 (independent of watch.py serial constraint; reads `strategy_id` from Wave C #56 work so depends on Task 2).
+
+**Sub-task decomposition for the architect:**
+- **C7a (Tier 1 — packet enrichment from existing tables):**
+  - C7a.1 Council consensus packet section (reads council_votes/sessions; enriches feature dict)
+  - C7a.2 Historical credibility packet section (walkforward_results setup_class lookup)
+  - C7a.3 Recent attribution packet section (attribution_trades last-N-days W/L)
+  - C7a.4 Strategy context (reads strategy_registry; depends on Wave C #56 strategy_id FK landing first)
+- **C7b (Tier 2 — Finnhub fundamental-1 max-utilization):**
+  - C7b.1 institutional_ownership collector + table + INSTITUTIONAL FLOW packet section
+  - C7b.2 filings_sentiment collector + MATERIAL EVENTS packet integration
+  - C7b.3 press_releases collector + catalyst signal integration
+  - C7b.4 stock_financials runtime (promote from export script)
+  - C7b.5 analyst_collector rate-limit + batch size update + comment refresh
+  - C7b.6 finnhub_plan feature-matrix runtime-caller test (AST scanner forbids stuck-on-shelf)
+
 ### 4b. NEW findings (surfaced 2026-05-12 mid-flight, after surface scan)
 
 **Finding F1 — 2 more T1ext-missed cross-engine sites** (10:09–10:13 ET log inspection)

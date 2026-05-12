@@ -1,0 +1,349 @@
+{
+  "spec": "# Sprint 5 Closeout Plan — Design Spec (v3)\n\n**Document ID:** `docs/audits/2026-05-12-sprint-5-closeout-plan/spec.md`\n**Status:** Draft v3 — targeted revision adding Wave C7 (LLM packet enrichment + Finnhub fundamental-1 on/off-switched max-utilization). All v2 grounding fixes from PR #1061 review preserved.\n**Audience:** `arcis:code` PM orchestrator + per-wave developer/reviewer agents\n**Scope:** Waves C/D/F (implementation) + Wave E (design-only) + **Wave C7 (NEW — LLM packet enrichment with plan-gated discipline)** + mini-tracker dispositions + Sprint Close PR contract\n\n---\n\n## 0. Revision History\n\n| Version | Date | Author | Notes |\n|---|---|---|---|\n| v1 | 2026-05-12 | design-team | Initial spec. |\n| v2 | 2026-05-12 | design-team | Devil's-advocate revision (M1-M5, FEAS1-2, MIN1-7, NIT1). Decisions 17→24. |\n| v3 | 2026-05-12 | design-team | **C7 addition** — 10 new tasks (C7a.1-4 + C7b.1-6). New §X covers Tier-1 system-internal signals (council/walkforward/attribution/strategy) and Tier-2 Finnhub fundamental-1 max-util with **hard on/off switch discipline** (every C7b feature gated on `finnhub_plan_supports()`, every packet section conditionally omits, degraded DATA CONTEXT header signals reduced context to LLM). Decisions 25→32. |\n\n---\n\n## 1. Overview\n\n*(unchanged from v2; see git history. Headline change in v3: a 10-task Wave C7 lands enrichment-side work between Wave D close and Sprint Close. C7a is plan-independent. C7b is plan-gated with operator-side downgrade ceremony.)*\n\n### 1.5 v3 Headline change — Wave C7 in scope\n\nWave C7 adds LLM-packet enrichment without expanding the prompt's prose-token budget materially. Two tiers:\n\n- **Tier 1 — system-internal signals (plan-independent):** COUNCIL CONSENSUS, HISTORICAL CREDIBILITY, RECENT ATTRIBUTION, STRATEGY CONTEXT — all read existing tables (`council_votes`, `council_sessions`, `walkforward_results`, `attribution_trades`, `strategy_registry`).\n- **Tier 2 — Finnhub fundamental-1 max-utilization (plan-gated):** institutional_ownership, filings_sentiment, press_releases, stock_financials runtime promotion, analyst rate-limit bump, plus a feature-matrix runtime-coverage AST scanner.\n\nThe fundamental-1 plan is **not guaranteed permanent**. C7b architects every new feature as a clean on/off switch grounded in existing `src/data_enrichment/finnhub_plan.py` infrastructure.\n\n---\n\n## Section 2-12 carry forward unchanged from v2. The following sections are ADDED or AMENDED in v3.\n\n---\n\n## §3 Data Model — v3 ADDITIONS\n\n### 3.1c Wave C7b — new tables (plan-gated populators; tables themselves exist regardless of plan)\n\n**`institutional_holdings` (C7b.1):**\n```python\nTableDef(\n    name='institutional_holdings',\n    columns=[\n        ColumnDef('id', 'INTEGER', primary_key=True, autoincrement=True),\n        ColumnDef('ticker', 'TEXT', nullable=False),\n        ColumnDef('as_of_date', 'TEXT', nullable=False),  # YYYY-MM-DD\n        ColumnDef('total_shares', 'INTEGER', nullable=True),\n        ColumnDef('num_holders', 'INTEGER', nullable=True),\n        ColumnDef('top_5_holders_pct', 'REAL', nullable=True),\n        ColumnDef('qoq_delta_pct', 'REAL', nullable=True,\n                  description='Quarter-over-quarter delta in total institutional ownership %'),\n        ColumnDef('retrieved_at', 'TIMESTAMP', nullable=False, default='CURRENT_TIMESTAMP'),\n        ColumnDef('source', 'TEXT', nullable=False, default=\"'finnhub'\"),\n    ],\n    indexes=[\n        IndexDef('idx_inst_holdings_ticker_date', ['ticker', 'as_of_date']),\n    ],\n)\n```\n\n**`filings_sentiment` (C7b.2):** new TableDef (NOT a column-add to `edgar_filings` — the sentiment signal is per-filing-snapshot retrieved separately from Finnhub and has its own retrieval cadence).\n```python\nTableDef(\n    name='filings_sentiment',\n    columns=[\n        ColumnDef('id', 'INTEGER', primary_key=True, autoincrement=True),\n        ColumnDef('ticker', 'TEXT', nullable=False),\n        ColumnDef('filing_type', 'TEXT', nullable=False),  # 10-K|10-Q|8-K|...\n        ColumnDef('filed_at', 'TIMESTAMP', nullable=False),\n        ColumnDef('sentiment_score', 'REAL', nullable=True),  # [-1.0, 1.0]\n        ColumnDef('sentiment_label', 'TEXT', nullable=True),  # negative|neutral|positive\n        ColumnDef('retrieved_at', 'TIMESTAMP', nullable=False, default='CURRENT_TIMESTAMP'),\n    ],\n    indexes=[\n        IndexDef('idx_filings_sent_ticker_filed', ['ticker', 'filed_at']),\n    ],\n)\n```\n\n**`press_releases` (C7b.3):**\n```python\nTableDef(\n    name='press_releases',\n    columns=[\n        ColumnDef('id', 'INTEGER', primary_key=True, autoincrement=True),\n        ColumnDef('ticker', 'TEXT', nullable=False),\n        ColumnDef('headline', 'TEXT', nullable=False),\n        ColumnDef('url', 'TEXT', nullable=True),\n        ColumnDef('published_at', 'TIMESTAMP', nullable=False),\n        ColumnDef('summary', 'TEXT', nullable=True),\n        ColumnDef('retrieved_at', 'TIMESTAMP', nullable=False, default='CURRENT_TIMESTAMP'),\n    ],\n    indexes=[\n        IndexDef('idx_press_ticker_published', ['ticker', 'published_at']),\n    ],\n)\n```\n\n**No new tables for C7a** — Tier-1 reads existing `council_votes`, `council_sessions`, `walkforward_results`, `attribution_trades`, `strategy_registry`. Tier-1 enrichment is feature-dict population only (no persisted column adds).\n\n**No new schema for C7b.4** — `stock_financials` runtime promotion reuses the export-side parquet/JSON sink at `data/finnhub_fundamentals/`; enricher reads the most-recent snapshot per ticker. If the existing sink path is JSON-only, runtime module reads JSON directly (no new DB table).\n\n---\n\n## §4 API & Module Surface — v3 ADDITIONS\n\n### 4.8 `src/llm/packet_writer.py` — NEW packet sections (C7)\n\nAll new sections compose into `_build_feature_prompt` between existing sections per **Decision 27 ordering**:\n\n| Index | Section | Source task | Tier | Plan-gated? |\n|---|---|---|---|---|\n| (header) | `=== DATA CONTEXT ===` | C7b composite | 2 | Yes — emitted only when ≥1 Tier-2 section omits |\n| (header) | `=== STRATEGY CONTEXT ===` | C7a.4 | 1 | No |\n| 4.5 | `=== INSTITUTIONAL FLOW ===` | C7b.1 | 2 | Yes — `finnhub_plan_supports('institutional_ownership')` |\n| 7.5 | `=== MATERIAL EVENTS ===` | C7b.2 + C7b.3 | 2 | Yes — `finnhub_plan_supports('filings_sentiment')` OR `finnhub_plan_supports('press_releases')` |\n| 13 | `=== COUNCIL CONSENSUS ===` | C7a.1 | 1 | No |\n| 14 | `=== HISTORICAL CREDIBILITY ===` | C7a.2 | 1 | No |\n| 15 | `=== RECENT ATTRIBUTION ===` | C7a.3 | 1 | No |\n\n`FUNDAMENTAL SNAPSHOT` (section 5) is **enriched in place** by C7b.4 — no new section; reads `stock_financials` snapshot when plan supports.\n\n### 4.8.1 DATA CONTEXT header (Decision 32)\n\nEmitted at top of prompt (before TECHNICAL DATA) when ANY Tier-2 section omits due to plan downgrade. Trigger threshold: **N≥1** (any single omission triggers it; rationale Decision 32).\n\n```\n=== DATA CONTEXT ===\nOperating on Finnhub free tier. The following enrichment sources are unavailable:\n  - INSTITUTIONAL FLOW (institutional_ownership)\n  - MATERIAL EVENTS (filings_sentiment, press_releases)\n  - FUNDAMENTAL SNAPSHOT (live financials enrichment — falling back to last-known)\nReduced context. Consider lower conviction floor when committing.\n```\n\n### 4.8.2 Stale-data ageing signal (Decision 31)\n\nEvery C7b-populated section computes `data_age_days = (now - retrieved_at).days` and surfaces it in the section preamble:\n\n```\n=== INSTITUTIONAL FLOW ===\n(Data last refreshed: 5 days ago)\n  Total institutional shares: 142.3M ...\n```\n\nThreshold for explicit \"stale\" warning: **7 days** (configurable via `data_enrichment.stale_data_threshold_days` in settings YAML). When `data_age_days > threshold`, append `[STALE]` marker to the preamble.\n\n### 4.9 `src/data_enrichment/enricher.py` — new feature-dict fields (C7)\n\n**Tier-1 (C7a.1-4):**\n- `council_macro_vote`, `council_strategic_vote`, `council_tactical_vote`, `council_innovation_vote`, `council_risk_vote` — strings `bull|bear|hold|abstain`\n- `council_session_id`, `council_consensus_score`, `council_session_age_days`\n- `setup_walkforward_credibility` (float 0-1 from PSR/CPCV vote-count), `setup_psr_pass` (bool), `setup_cpcv_pass` (bool), `setup_walkforward_n_votes` (int)\n- `recent_setup_win_rate` (float), `recent_ticker_pnl` (float, 30d $), `recent_similar_pnl_30d` (float)\n- `strategy_id` (str | None), `strategy_status` (`active|shadow|abstain|demoted|null`), `strategy_parent_name` (str | None)\n\n**Tier-2 (C7b.1-4):**\n- `institutional_total_shares` (int), `institutional_num_holders` (int), `institutional_top5_pct` (float), `institutional_qoq_delta_pct` (float), `institutional_data_age_days` (int)\n- `filing_sentiment_score` (float), `filing_sentiment_label` (str), `latest_filing_type` (str), `latest_filing_age_days` (int)\n- `press_release_count_7d` (int), `latest_press_release_headline` (str), `latest_press_release_age_days` (int)\n- `fundamental_pe`, `fundamental_debt_equity`, `fundamental_gross_margin`, `fundamental_roic`, `fundamental_quality_flag` (str), `fundamental_data_age_days` (int)\n\n### 4.10 `src/data_collection/institutional_ownership_collector.py` (NEW — C7b.1)\n\n```python\ndef collect_institutional_ownership(ticker: str, config: dict | None = None) -> dict | None:\n    \"\"\"\n    Plan-gated collector.\n    \n    On entry:\n      if not finnhub_plan_supports('institutional_ownership', config):\n          logger.info('institutional_ownership skipped — plan does not support')\n          return None  # NO-OP, no API call attempted\n    \n    Calls Finnhub /stock/institutional-ownership. Writes one row to\n    institutional_holdings (UPSERT on (ticker, as_of_date)).\n    \n    Returns the inserted row dict or None when gated off.\n    \"\"\"\n```\n\n### 4.11 `src/data_collection/filings_sentiment_collector.py` (NEW — C7b.2)\n\nSame plan-gated pattern. Calls `/stock/filings-sentiment`. Writes to `filings_sentiment`. Gate feature: `'filings_sentiment'`.\n\n### 4.12 `src/data_collection/press_releases_collector.py` (NEW — C7b.3)\n\nSame plan-gated pattern. Calls `/stock/press-releases`. Writes to `press_releases`. Gate feature: `'press_releases'`. Integrates with existing news/catalyst pipeline by surfacing in MATERIAL EVENTS section header (not RECENT NEWS — keeps press-release signal distinct from news flow).\n\n### 4.13 `src/data_enrichment/financials.py` (NEW — C7b.4)\n\nPromotes `scripts/finnhub_fundamental_export.py` from export-only to runtime enricher.\n\n```python\ndef get_fundamentals(ticker: str, config: dict | None = None) -> dict | None:\n    \"\"\"\n    Plan-gated.\n    \n    On entry:\n      if not finnhub_plan_supports('stock_financials', config):\n          return None  # FUNDAMENTAL SNAPSHOT section falls back to last-known (existing behavior)\n    \n    Reads the most-recent snapshot from data/finnhub_fundamentals/<ticker>.json\n    (refreshed by the existing nightly export script). Returns dict with\n    pe, debt_equity, gross_margin, roic, quality_flag, snapshot_age_days.\n    \"\"\"\n```\n\nThe export script remains the writer; this runtime module is read-only. Decoupling avoids runtime API calls.\n\n### 4.14 `src/data_collection/analyst_collector.py` — rate-limit + batch update (C7b.5)\n\nExisting comment at line 14 says \"20 tickers/night for free tier\". For fundamental-1 the rate limit is 300/min (vs 60/min free). C7b.5 developer **MUST verify the actual rate limit from current Finnhub docs** (via Context7 or web check) before bumping. Likely new cap: 100/night. Implementation: read plan, branch the `MAX_TICKERS_PER_NIGHT` constant on plan.\n\n```python\ndef _get_nightly_cap(config: dict | None = None) -> int:\n    plan = get_finnhub_plan(config)\n    if plan == 'fundamental-1':\n        return 100  # confirmed against current Finnhub fundamental-1 rate-limit docs\n    return 20  # free tier — preserved\n```\n\n### 4.15 `tests/test_finnhub_plan_runtime_coverage.py` (NEW — C7b.6)\n\nTwo-way AST scanner:\n\n1. **Forward direction:** for every feature in `_FEATURE_MATRIX['fundamental-1']`, assert at least one `finnhub_plan_supports('<feature>'...)` call site exists in `src/`. Prevents \"feature defined in matrix but no runtime caller\" stuck-on-shelf class.\n2. **Reverse direction:** for every paid-tier-only feature (in `fundamental-1` but NOT in `free`), assert a packet-section omission path exists — concretely, `tests/llm/test_packet_section_plan_omission.py` must contain a parametrized test naming that feature. Prevents \"new collector added but packet section unconditionally renders empty when plan=free\" class.\n3. **Self-test:** test on a synthetic source-tree fixture (feature defined + caller present → PASS; feature defined + caller absent → FAIL).\n\n---\n\n## §6 Testing Strategy — v3 ADDITIONS\n\n### 6.1c C7 test additions (projected)\n\n| Wave | Task | New tests | Notes |\n|---|---|---|---|\n| C7 | C7a.1 (council consensus) | +4 | per-pillar read, prompt rendering, missing-session fallback, age-days computation |\n| C7 | C7a.2 (historical credibility) | +3 | walkforward read, PSR/CPCV vote-count surfacing, no-data fallback |\n| C7 | C7a.3 (recent attribution) | +3 | 30d window read, similar-ticker join, no-recent-trades fallback |\n| C7 | C7a.4 (strategy context) | +3 | strategy_id FK join, demoted/abstain rendering, NULL-strategy_id fallback |\n| C7 | C7b.1 (institutional flow) | +5 | collector plan-on, plan-off (NO API call assertion), schema, packet-section-on, packet-section-omit |\n| C7 | C7b.2 (filings sentiment) | +5 | same 5-axis pattern |\n| C7 | C7b.3 (press releases) | +5 | same |\n| C7 | C7b.4 (stock_financials runtime) | +4 | runtime read, plan-on enrichment, plan-off fallback to last-known, FUNDAMENTAL SNAPSHOT in-place enrichment |\n| C7 | C7b.5 (analyst rate-limit) | +2 | plan=fundamental-1 cap=100, plan=free cap=20 |\n| C7 | C7b.6 (matrix scanner) | +3 | forward-coverage scan, reverse-omission-path scan, self-test on synthetic fixture |\n| C7 | DATA CONTEXT header | +3 | header omitted when all Tier-2 sections present, header present when ≥1 Tier-2 omits, header content lists exact omitted sections |\n\n**C7 total projected:** +40 tests. **Updated full sprint projection:** v2 had +95-115; v3 has +135-155. **Projected final floor: 5450-5500. Sprint Close bumps to 5400** (50-test conservative buffer below new median).\n\n### 6.2c AST guardrails for C7\n\n- **`tests/llm/test_packet_section_plan_omission.py`** — for every Tier-2 section, parametrized cases: plan=`fundamental-1` AND data present → section appears; plan=`free` → section completely absent from prompt string (not just empty); plan=`fundamental-1` AND data missing → section appears with \"No data yet (collector pending)\" placeholder.\n- **`tests/llm/test_data_context_header_trigger.py`** — header appears iff at least one of {INSTITUTIONAL FLOW, MATERIAL EVENTS, FUNDAMENTAL SNAPSHOT enrichment} omits.\n- **`tests/test_finnhub_plan_runtime_coverage.py`** (C7b.6) — the 2-way matrix scanner.\n- **`tests/data_enrichment/test_no_collector_without_plan_gate.py`** — AST-scan every new file under `src/data_collection/` that calls `finnhub.Client()` and assert the call is inside a `finnhub_plan_supports(...)`-gated branch. Closes the \"new collector forgets to gate\" class.\n\n### 6.3c Plan-on / plan-off test discipline (operator-clarification 2026-05-12)\n\nEvery C7b test file MUST contain BOTH plan-on and plan-off cases. Reviewer dispatch (QA) verifies a 2-line receipt in PR body: \"plan=fundamental-1 case: PASS. plan=free case: PASS.\" Missing receipt → PR rejected.\n\n---\n\n## §8 File Inventory — v3 ADDITIONS\n\n### 8.1c New files (C7)\n\n| Path | Created by | Purpose |\n|---|---|---|\n| `src/data_collection/institutional_ownership_collector.py` | C7b.1 | Plan-gated institutional ownership collector |\n| `src/data_collection/filings_sentiment_collector.py` | C7b.2 | Plan-gated filings sentiment collector |\n| `src/data_collection/press_releases_collector.py` | C7b.3 | Plan-gated press releases collector |\n| `src/data_enrichment/financials.py` | C7b.4 | Runtime financials enricher (reads existing export sink) |\n| `tests/data_collection/test_institutional_ownership_collector.py` | C7b.1 | plan-on/off + schema |\n| `tests/data_collection/test_filings_sentiment_collector.py` | C7b.2 | plan-on/off + schema |\n| `tests/data_collection/test_press_releases_collector.py` | C7b.3 | plan-on/off + schema |\n| `tests/data_enrichment/test_financials.py` | C7b.4 | plan-on/off enrichment |\n| `tests/data_collection/test_analyst_collector_rate_limit.py` | C7b.5 | plan-conditional cap |\n| `tests/test_finnhub_plan_runtime_coverage.py` | C7b.6 | 2-way matrix scanner |\n| `tests/llm/test_packet_section_plan_omission.py` | C7b composite | section-omission AST guardrail |\n| `tests/llm/test_data_context_header_trigger.py` | C7b composite | header trigger condition |\n| `tests/data_enrichment/test_no_collector_without_plan_gate.py` | C7b composite | collector-gate AST guardrail |\n| `tests/llm/test_packet_council_consensus.py` | C7a.1 | Tier-1 council read + render |\n| `tests/llm/test_packet_historical_credibility.py` | C7a.2 | Tier-1 walkforward read + render |\n| `tests/llm/test_packet_recent_attribution.py` | C7a.3 | Tier-1 attribution read + render |\n| `tests/llm/test_packet_strategy_context.py` | C7a.4 | Tier-1 strategy context render |\n\n### 8.2c Modified files (C7)\n\n| Path | Modified by | Change |\n|---|---|---|\n| `src/llm/packet_writer.py` | C7a.1, C7a.2, C7a.3, C7a.4, C7b.1, C7b.2, C7b.3, C7b.4 | Add 5 new sections + STRATEGY CONTEXT header + DATA CONTEXT header. SEQUENCE: C7a.1 → C7a.2 → C7a.3 → C7a.4 → C7b.1 → C7b.2 → C7b.3 → C7b.4 (all rebase on prior). |\n| `src/data_enrichment/enricher.py` | C7a.1-4, C7b.1-4 | Add feature-dict fields per §4.9. SEQUENCE: same rebase chain. |\n| `src/schema/registry.py` | C7b.1, C7b.2, C7b.3 | Add 3 TableDefs (institutional_holdings, filings_sentiment, press_releases). |\n| `src/data_collection/analyst_collector.py` | C7b.5 | Plan-conditional batch cap; verify rate-limit doc citation. |\n| `src/scheduler/watch.py` | C7b.1, C7b.2, C7b.3 | Wire 3 new nightly collector ticks (plan-gated; no-op when plan=free). Sequential rebases on each other (each is single-line addition to overnight schedule). |\n| `config/settings.example.yaml` | C7 | Add `data_enrichment.stale_data_threshold_days` (default 7); add `data_enrichment.finnhub_plan` example values (`auto|free|fundamental-1`). |\n| `docs/operator-guide.md` | C7 (folded into Sprint Close) | New section \"Finnhub plan downgrade ceremony\": (1) set `FINNHUB_PLAN=free` in NSSM AppEnvironmentExtra, (2) restart watch loop via NSSM, (3) verify packet sections degrade cleanly via dashboard `/api/llm/packet-preview` endpoint, (4) optional `DELETE FROM institutional_holdings WHERE retrieved_at < ...` scrub on intentional downgrade. |\n\n---\n\n## §10 Do-Not-Do — v3 ADDITIONS\n\n- DO NOT call any Finnhub paid-tier endpoint without a `finnhub_plan_supports('<feature>')` gate at function entry. AST guardrail enforces.\n- DO NOT add new collectors that bypass the `data/finnhub_fundamentals/` sink pattern — runtime modules READ, the export script WRITES.\n- DO NOT render a Tier-2 packet section unconditionally — every Tier-2 section must compose as `if finnhub_plan_supports(<feature>): emit_section() else: skip` (omission, not empty placeholder).\n- DO NOT add a new feature to `_FEATURE_MATRIX['fundamental-1']` without a runtime caller in `src/`. C7b.6 scanner enforces.\n- DO NOT add new Tier-1 fields to enricher.py that read tables outside {council_votes, council_sessions, walkforward_results, attribution_trades, strategy_registry, shadow_trades, strategy_registry} — keep Tier-1 plan-independent.\n- DO NOT use `auto`-mode plan resolution in tests — tests must explicitly set `FINNHUB_PLAN=free` or `FINNHUB_PLAN=fundamental-1` via monkeypatch (per memory `feedback_worktree_env_drift`).\n- DO NOT bump the analyst rate-limit cap without a citation to current Finnhub docs in the PR body (C7b.5).\n- DO NOT skip the DATA CONTEXT header when ≥1 Tier-2 section is omitted — its absence silently confidence-launders the prompt.\n\n---\n\n## §11 Falsifiability Triggers — v3 ADDITIONS\n\n- **C7b composite**: setting `FINNHUB_PLAN=free` and rendering a sample packet — if any Tier-2 section text appears in the prompt (INSTITUTIONAL FLOW, MATERIAL EVENTS section, live fundamental enrichment), the plan-gating is broken. Spec demands silent omission; if not silent, revise.\n- **C7a.4**: if `shadow_trades.strategy_id` FK from Task 2 was scope-reduced to ColumnDef-only (no FK), C7a.4 must read strategy via best-effort join + fallback to enricher-side lookup. Spec revision needed if FK fully scope-out.\n- **C7b.5**: if Finnhub fundamental-1 rate-limit doc is not retrievable or contradicts the assumed 300/min, spec must defer the analyst-cap bump and document the current limit.\n- **C7b.6**: matrix scanner finds a `fundamental-1` feature with zero `finnhub_plan_supports(<feature>)` call sites — the runtime-coverage path is broken before C7b lands.\n- **DATA CONTEXT header**: if operator runs the watch loop with `FINNHUB_PLAN=free` and the DATA CONTEXT header does NOT appear in any rendered packet (verifiable via dashboard packet-preview), the §4.8.1 trigger logic is broken.\n- **Stale data ageing**: if `data_age_days` exceeds 7 (default threshold) and the prompt does NOT carry the `[STALE]` marker, the §4.8.2 ageing path is broken.\n\n---\n\n## §X (NEW v3) — Wave C7 Architecture Detail\n\n### X.1 Tier-1 system-internal signals (plan-independent)\n\n**X.1.1 COUNCIL CONSENSUS (C7a.1)** — Enricher reads the latest non-stale council session via:\n```sql\nSELECT v.pillar, v.vote, v.confidence_weight, s.session_id, s.consensus_score, s.created_at\nFROM council_votes v\nJOIN council_sessions s ON v.session_id = s.session_id\nWHERE s.created_at = (SELECT MAX(created_at) FROM council_sessions WHERE status = 'final')\n```\nFeature dict populates 5 per-pillar votes + session_id + consensus_score + session_age_days. Packet section renders as a compact 5-row table (Decision 28):\n```\n=== COUNCIL CONSENSUS ===\n(Session 2026-05-11 — 1 day old; consensus 0.72)\n  macro:      bull (conf 0.85)\n  strategic:  hold (conf 0.62)\n  tactical:   bull (conf 0.78)\n  innovation: hold (conf 0.55)\n  risk:       bear (conf 0.45)\n```\nMissing-session fallback: section renders `(No recent council session)`. Stale (>3d) fallback: append `[STALE]`.\n\n**X.1.2 HISTORICAL CREDIBILITY (C7a.2)** — Reads `walkforward_results` for matching `setup_class`. Renders as numeric credibility prior + vote count (Decision 29):\n```\n=== HISTORICAL CREDIBILITY ===\nSetup class: 'pullback_to_50ma'\n  Walk-forward credibility: 0.68 (3/5 votes pass)\n  PSR: PASS  |  CPCV: PASS  |  Bootstrap: PASS  |  MC: FAIL  |  White RC: FAIL\n```\nNo-walkforward-match fallback: section renders `(No walk-forward history for this setup class)`.\n\n**X.1.3 RECENT ATTRIBUTION (C7a.3)** — Reads `attribution_trades` last 30 days. Computes setup-class win rate + ticker-specific PnL + similar-ticker PnL. Renders:\n```\n=== RECENT ATTRIBUTION ===\nLast 30 days (LLM-influenced):\n  Setup 'pullback_to_50ma' win rate: 4/7 (57%)\n  This ticker (AAPL): +$340 (2 closed trades)\n  Similar tickers (tech mega-cap): +$1,820 (9 closed trades)\n```\nNo-recent-trades fallback: `(No closed LLM-influenced trades in last 30 days)`.\n\n**X.1.4 STRATEGY CONTEXT (C7a.4)** — Reads `strategy_registry` via newly-added `strategy_id` FK (Task 2). Renders as **header** preamble (not numbered section — keeps prompt structure aligned):\n```\n=== STRATEGY CONTEXT ===\nStrategy: 'momentum_v3' [active]  |  Parent: 'momentum_v2_proven'\n```\nNULL strategy_id fallback (legacy trades): header reads `Strategy: (unassigned — legacy trade)`.\n\n### X.2 Tier-2 Finnhub fundamental-1 max-utilization (plan-gated)\n\n**X.2.1 INSTITUTIONAL FLOW (C7b.1)** — Position in prompt: after SECTOR RELATIVE (index 4), before FUNDAMENTAL SNAPSHOT (index 5). Index 4.5.\n```\n=== INSTITUTIONAL FLOW ===\n(Data last refreshed: 5 days ago)\n  Total institutional shares: 142.3M (across 1,847 holders)\n  Top-5 concentration: 32.1%\n  QoQ delta: +2.3% institutional accumulation\n```\n\n**X.2.2 MATERIAL EVENTS (C7b.2 + C7b.3)** — Position: between RECENT NEWS (7) and MACRO CONTEXT (8). Index 7.5. Composes filings_sentiment + press_releases:\n```\n=== MATERIAL EVENTS ===\nRecent filings:\n  10-Q filed 2026-05-08 (sentiment: positive, score 0.62)\nRecent press releases (last 7d): 2\n  - \"Q1 revenue beats consensus\" (2026-05-10)\n```\nIf only one of (filings_sentiment, press_releases) is supported by plan, section renders with only that sub-block. If neither, section omits entirely.\n\n**X.2.3 FUNDAMENTAL SNAPSHOT enrichment (C7b.4)** — Existing section (index 5) gains live fields when plan supports `stock_financials`:\n```\n=== FUNDAMENTAL SNAPSHOT ===\n(Data last refreshed: 2 days ago)\n  P/E: 28.4  |  Debt/Equity: 1.42  |  Gross Margin: 41.2%  |  ROIC: 18.7%\n  Quality flag: high_quality\n```\nWhen plan=free: existing fallback (last-known cached values OR \"No live fundamental data\") preserved. No regression risk.\n\n**X.2.4 Analyst rate-limit bump (C7b.5)** — Already specified in §4.14. Verified citation requirement.\n\n**X.2.5 Runtime coverage matrix scanner (C7b.6)** — Already specified in §4.15.\n\n### X.3 On/off switch discipline (operator clarification 2026-05-12)\n\nFundamental-1 is NOT guaranteed permanent. C7b architects every new feature as a clean on/off switch grounded in existing `src/data_enrichment/finnhub_plan.py`:\n\n1. **Collector gate (function entry):** every C7b collector starts with `if not finnhub_plan_supports(feature, config): logger.info(...); return None`. Tests assert NO Finnhub API call is made when gated off (via mock-the-finnhub-client + assert-not-called).\n2. **Packet section gate (composition):** every Tier-2 section in `_build_feature_prompt` wrapped as `if finnhub_plan_supports(feature): emit_section() else: omit`. Three states per section: (a) plan supports + data present → render with `(Data last refreshed: N days ago)`; (b) plan supports + no data yet → render with `(No data yet — collector pending)`; (c) plan does not support → section absent from prompt entirely.\n3. **Degraded-context header (§4.8.1):** when ≥1 Tier-2 section omits, DATA CONTEXT header prepended to prompt with explicit reduced-context guidance to LLM.\n4. **Plan-aware test discipline (§6.3c):** every new collector + section gets both plan-on and plan-off cases. 2-way matrix-test (C7b.6) asserts runtime caller existence AND graceful-degradation path existence.\n5. **Stale-data ageing (§4.8.2):** every Tier-2 section computes data_age_days and surfaces it; ages >threshold get `[STALE]` marker.\n6. **Operator downgrade ceremony (operator-guide):** documented procedure for `FINNHUB_PLAN=free` switch.\n\n---\n\n*End of spec v3. PM consumes the accompanying task graph (Tasks 1-26 + Sprint Close at Task 16) for execution.*",
+  "plan": {
+    "tasks": [
+      {
+        "id": 17,
+        "name": "Wave C7a.1 — COUNCIL CONSENSUS packet section",
+        "description": "Add `=== COUNCIL CONSENSUS ===` section to `_build_feature_prompt` in `src/llm/packet_writer.py` at index 13 (after CROSS-ASSET CONTEXT). Read latest non-stale `council_sessions` row via `src/data_enrichment/enricher.py`; join `council_votes` per-pillar (macro/strategic/tactical/innovation/risk). Populate new enricher feature-dict fields per spec §4.9: `council_macro_vote`, `council_strategic_vote`, `council_tactical_vote`, `council_innovation_vote`, `council_risk_vote`, `council_session_id`, `council_consensus_score`, `council_session_age_days`. Render section as 5-row compact table per spec §X.1.1. Missing-session fallback: section renders `(No recent council session)`. Stale (>3d) fallback: append `[STALE]`. THIS TASK IS THE FIRST OF FOUR SEQUENTIAL EDITS to packet_writer.py + enricher.py (Tasks 17→18→19→20). Per §6.5.1 detection mechanism, PM enforces serial dispatch via Glob over worktree branches.",
+        "files_in_scope": [
+          "src/llm/packet_writer.py",
+          "src/data_enrichment/enricher.py",
+          "tests/llm/test_packet_council_consensus.py"
+        ],
+        "files_read_only": [
+          "src/schema/registry.py"
+        ],
+        "depends_on": [],
+        "test_strategy": "+4 tests in test_packet_council_consensus.py: (1) per-pillar read populates 5 vote fields, (2) prompt rendering produces COUNCIL CONSENSUS section with 5 rows + confidence, (3) missing-session fallback renders empty-state message, (4) stale-session (>3d) appends [STALE] marker. Read-only joins on council_votes + council_sessions; tests fixture an in-memory DB with sample rows.",
+        "scope_fence": "Do NOT modify _build_feature_prompt sections 1-12. Do NOT touch C7b plan-gating logic (this is Tier-1, plan-independent). Do NOT call safe_send. Do NOT modify council_votes or council_sessions schema. Do NOT add a Finnhub call. FIRST of the C7a serial chain — subsequent tasks 18-20 rebase on this.",
+        "estimated_complexity": "medium"
+      },
+      {
+        "id": 18,
+        "name": "Wave C7a.2 — HISTORICAL CREDIBILITY packet section",
+        "description": "Add `=== HISTORICAL CREDIBILITY ===` section to `_build_feature_prompt` at index 14. Enricher reads `walkforward_results` for matching `setup_class` (and ticker+strategy if FK lands). Populate `setup_walkforward_credibility` (PSR/CPCV vote-count), `setup_psr_pass`, `setup_cpcv_pass`, `setup_walkforward_n_votes`. Render as numeric credibility prior + per-method pass/fail per spec §X.1.2. No-match fallback: `(No walk-forward history for this setup class)`. REBASES on Task 17's packet_writer.py + enricher.py edits.",
+        "files_in_scope": [
+          "src/llm/packet_writer.py",
+          "src/data_enrichment/enricher.py",
+          "tests/llm/test_packet_historical_credibility.py"
+        ],
+        "files_read_only": [
+          "src/schema/registry.py",
+          "src/methods/promotion_gate.py"
+        ],
+        "depends_on": [
+          17
+        ],
+        "test_strategy": "+3 tests: walkforward read with setup_class match, PSR/CPCV vote-count rendering, no-data fallback. Fixture walkforward_results rows in test DB.",
+        "scope_fence": "Do NOT modify walkforward_results schema. Do NOT modify promotion_gate.py logic. Do NOT add Finnhub calls. Rebase on Task 17.",
+        "estimated_complexity": "medium"
+      },
+      {
+        "id": 19,
+        "name": "Wave C7a.3 — RECENT ATTRIBUTION packet section",
+        "description": "Add `=== RECENT ATTRIBUTION ===` section at index 15. Enricher reads `attribution_trades` last 30 days (default; configurable via `data_enrichment.attribution_window_days`). Computes setup-class W/L rate + ticker-specific PnL + similar-ticker (sector-match) PnL. Populates `recent_setup_win_rate`, `recent_ticker_pnl`, `recent_similar_pnl_30d`. Renders per spec §X.1.3. No-recent-trades fallback message. REBASES on Task 18.",
+        "files_in_scope": [
+          "src/llm/packet_writer.py",
+          "src/data_enrichment/enricher.py",
+          "tests/llm/test_packet_recent_attribution.py"
+        ],
+        "files_read_only": [
+          "src/schema/registry.py"
+        ],
+        "depends_on": [
+          18
+        ],
+        "test_strategy": "+3 tests: 30d window read, similar-ticker sector join, no-recent-trades fallback. Fixture attribution_trades rows with mix of inside/outside window.",
+        "scope_fence": "Do NOT modify attribution_trades schema. Do NOT add Finnhub calls. Do NOT compute against unrealized PnL — closed trades only. Rebase on Task 18.",
+        "estimated_complexity": "medium"
+      },
+      {
+        "id": 20,
+        "name": "Wave C7a.4 — STRATEGY CONTEXT header section",
+        "description": "Add `=== STRATEGY CONTEXT ===` as a header preamble (between DATA CONTEXT and TECHNICAL DATA) in `_build_feature_prompt`. Enricher reads `strategy_registry` via newly-added `strategy_id` FK on `shadow_trades` from Task 2 (#56). Populates `strategy_id`, `strategy_status` (active|shadow|abstain|demoted), `strategy_parent_name`. Renders per spec §X.1.4. NULL-strategy_id fallback (legacy trades): `Strategy: (unassigned — legacy trade)`. REBASES on Task 19. **HARD DEPENDENCY on Task 2** — if Task 2 scope-reduced to ColumnDef-only (no FK), C7a.4 must use best-effort lookup + fallback; PR body must disclose the degradation.",
+        "files_in_scope": [
+          "src/llm/packet_writer.py",
+          "src/data_enrichment/enricher.py",
+          "tests/llm/test_packet_strategy_context.py"
+        ],
+        "files_read_only": [
+          "src/schema/registry.py"
+        ],
+        "depends_on": [
+          2,
+          19
+        ],
+        "test_strategy": "+3 tests: strategy_id FK join populates header, demoted/abstain rendering, NULL-strategy_id fallback (legacy trade). Fixture strategy_registry + shadow_trades rows.",
+        "scope_fence": "Do NOT modify strategy_registry schema. Do NOT modify shadow_trades schema (Task 2 already did). Do NOT add a Finnhub call. Rebase on Task 19. If Task 2 scoped-reduced FK, document degradation in PR body.",
+        "estimated_complexity": "medium"
+      },
+      {
+        "id": 21,
+        "name": "Wave C7b.1 — INSTITUTIONAL FLOW collector + section (plan-gated)",
+        "description": "Create `src/data_collection/institutional_ownership_collector.py` with `collect_institutional_ownership(ticker, config)` per spec §4.10. Gate at function entry on `finnhub_plan_supports('institutional_ownership', config)` — return None + INFO log when plan does not support. Add `institutional_holdings` TableDef per spec §3.1c. Add INSTITUTIONAL FLOW packet section at index 4.5 (between SECTOR RELATIVE and FUNDAMENTAL SNAPSHOT) with three render states: plan supports + data → render with age-days; plan supports + no data → `(No data yet — collector pending)`; plan does not support → section absent. Populate enricher feature-dict fields per spec §4.9. Wire 1-line nightly collector tick in `src/scheduler/watch.py` (plan-gated; no-op when plan=free). FIRST of C7b serial chain — subsequent tasks 22-24 rebase on packet_writer.py + enricher.py edits.",
+        "files_in_scope": [
+          "src/data_collection/institutional_ownership_collector.py",
+          "src/schema/registry.py",
+          "src/llm/packet_writer.py",
+          "tests/data_collection/test_institutional_ownership_collector.py"
+        ],
+        "files_read_only": [
+          "src/data_enrichment/finnhub_plan.py",
+          "src/data_collection/insider_collector.py",
+          "src/scheduler/watch.py"
+        ],
+        "depends_on": [
+          20
+        ],
+        "test_strategy": "+5 tests: (1) plan=fundamental-1 → API call made + row written + UPSERT idempotent, (2) plan=free → NO API call (mock-the-finnhub-client + assert_not_called) + collector returns None, (3) schema discipline (institutional_holdings table + columns + index), (4) packet section renders when plan supports + data present, (5) packet section completely absent when plan=free. Run validate-schema --fix + render_migrate.py; include outputs in PR body.",
+        "scope_fence": "Do NOT bypass finnhub_plan_supports gate. Do NOT add packet section that renders even partially when plan does not support — section must be ABSENT (Decision 30). Do NOT modify enricher.py beyond institutional_* feature fields (Task 22 picks up next). Do NOT add the DATA CONTEXT header trigger here (composite Tasks 22-24 collectively close the trigger). FIRST of C7b serial chain.",
+        "estimated_complexity": "medium"
+      },
+      {
+        "id": 22,
+        "name": "Wave C7b.2 — filings_sentiment collector + MATERIAL EVENTS section (plan-gated)",
+        "description": "Create `src/data_collection/filings_sentiment_collector.py` per spec §4.11. Plan-gated on `'filings_sentiment'`. Add `filings_sentiment` TableDef per spec §3.1c. Add `=== MATERIAL EVENTS ===` packet section at index 7.5 (between RECENT NEWS and MACRO CONTEXT) — this task seeds the section with filings_sentiment sub-block; Task 23 (press_releases) adds the second sub-block. Composition rule: if neither sub-block has plan-support, section omits entirely; if only one, section renders with only that sub-block. Populate `filing_sentiment_score`, `filing_sentiment_label`, `latest_filing_type`, `latest_filing_age_days` in enricher. Wire nightly tick in watch.py. REBASES on Task 21.",
+        "files_in_scope": [
+          "src/data_collection/filings_sentiment_collector.py",
+          "src/schema/registry.py",
+          "src/llm/packet_writer.py",
+          "src/data_enrichment/enricher.py"
+        ],
+        "files_read_only": [
+          "src/data_enrichment/finnhub_plan.py",
+          "src/data_collection/institutional_ownership_collector.py"
+        ],
+        "depends_on": [
+          21
+        ],
+        "test_strategy": "+5 tests: plan=fundamental-1 API call + row, plan=free no-API + None, schema discipline (filings_sentiment table), packet sub-block render when plan supports, sub-block omits when plan does not. Test file `tests/data_collection/test_filings_sentiment_collector.py`.",
+        "scope_fence": "Do NOT touch edgar_filings or edgar_collector.py — filings_sentiment is a distinct retrieval cadence and table (Decision 27). Do NOT inline-call the collector from runtime — collector is overnight/nightly only. Rebase on Task 21.",
+        "estimated_complexity": "medium"
+      },
+      {
+        "id": 23,
+        "name": "Wave C7b.3 — press_releases collector + MATERIAL EVENTS section (plan-gated)",
+        "description": "Create `src/data_collection/press_releases_collector.py` per spec §4.12. Plan-gated on `'press_releases'`. Add `press_releases` TableDef per spec §3.1c. Extend MATERIAL EVENTS section with press-releases sub-block (per spec §X.2.2). Populate `press_release_count_7d`, `latest_press_release_headline`, `latest_press_release_age_days` in enricher. Wire nightly tick in watch.py. REBASES on Task 22.",
+        "files_in_scope": [
+          "src/data_collection/press_releases_collector.py",
+          "src/schema/registry.py",
+          "src/llm/packet_writer.py",
+          "src/data_enrichment/enricher.py"
+        ],
+        "files_read_only": [
+          "src/data_enrichment/finnhub_plan.py"
+        ],
+        "depends_on": [
+          22
+        ],
+        "test_strategy": "+5 tests: plan=fundamental-1 + plan=free pair, schema, packet sub-block render + omit. Test file `tests/data_collection/test_press_releases_collector.py`. MATERIAL EVENTS section integration test: when only press_releases supported (filings_sentiment NOT supported) → section renders with only press-releases sub-block.",
+        "scope_fence": "Do NOT route press releases through the existing RECENT NEWS pipeline — they belong in MATERIAL EVENTS (distinct catalyst category, Decision 27). Do NOT modify news collectors. Rebase on Task 22.",
+        "estimated_complexity": "medium"
+      },
+      {
+        "id": 24,
+        "name": "Wave C7b.4 — stock_financials runtime promotion (plan-gated) + DATA CONTEXT header",
+        "description": "Create `src/data_enrichment/financials.py` per spec §4.13 — promotes `scripts/finnhub_fundamental_export.py` from export-only to runtime read-only enricher. Plan-gated on `'stock_financials'`. Reads `data/finnhub_fundamentals/<ticker>.json` (existing nightly-export sink). Enriches the existing FUNDAMENTAL SNAPSHOT packet section IN-PLACE with live P/E, debt/equity, gross margin, ROIC, quality flag. Populates `fundamental_*` feature fields per spec §4.9. When plan=free: section's existing fallback (last-known cached or empty) preserved — no regression. **THIS TASK ALSO ADDS THE DATA CONTEXT HEADER** (spec §4.8.1) — prepends DATA CONTEXT block at top of prompt when ≥1 of {INSTITUTIONAL FLOW, MATERIAL EVENTS, FUNDAMENTAL SNAPSHOT enrichment} omits. Implements §4.8.2 stale-data ageing (default 7d threshold via `data_enrichment.stale_data_threshold_days`). REBASES on Task 23.",
+        "files_in_scope": [
+          "src/data_enrichment/financials.py",
+          "src/llm/packet_writer.py",
+          "src/data_enrichment/enricher.py",
+          "tests/data_enrichment/test_financials.py"
+        ],
+        "files_read_only": [
+          "scripts/finnhub_fundamental_export.py",
+          "src/data_enrichment/finnhub_plan.py"
+        ],
+        "depends_on": [
+          23
+        ],
+        "test_strategy": "+4 tests for financials.py: plan=fundamental-1 reads JSON + enriches, plan=free returns None (last-known fallback preserved), FUNDAMENTAL SNAPSHOT in-place enrichment with live fields, snapshot age-days computed. +3 tests in NEW `tests/llm/test_data_context_header_trigger.py`: header omitted when all Tier-2 sections present, header present when ≥1 omits, header content lists exact omitted section names.",
+        "scope_fence": "Do NOT call Finnhub API at runtime — read existing JSON sink only. Do NOT modify scripts/finnhub_fundamental_export.py. Do NOT add a new TableDef — JSON sink is the storage. Do NOT trigger DATA CONTEXT header on Tier-1 section absence — Tier-1 is plan-independent (Decision 32). Rebase on Task 23.",
+        "estimated_complexity": "medium"
+      },
+      {
+        "id": 25,
+        "name": "Wave C7b.5 — analyst_collector nightly cap update (plan-conditional)",
+        "description": "Update `src/data_collection/analyst_collector.py:14` comment + add `_get_nightly_cap(config)` helper per spec §4.14. Plan=fundamental-1 → 100/night; plan=free → 20/night (preserved). **C7b.5 developer MUST verify current Finnhub fundamental-1 rate-limit from Finnhub docs** (via Context7 or direct doc fetch) before bumping; cite source in PR body. Independent of Tasks 17-24 — only touches analyst_collector.py.",
+        "files_in_scope": [
+          "src/data_collection/analyst_collector.py",
+          "tests/data_collection/test_analyst_collector_rate_limit.py"
+        ],
+        "files_read_only": [
+          "src/data_enrichment/finnhub_plan.py"
+        ],
+        "depends_on": [],
+        "test_strategy": "+2 tests: plan=fundamental-1 cap=100, plan=free cap=20 (preserved). PR body must include rate-limit citation (Finnhub doc URL + retrieved-date).",
+        "scope_fence": "Do NOT bump cap above the documented rate-limit. Do NOT touch other collectors. Do NOT add new endpoints — rate-limit-only change.",
+        "estimated_complexity": "low"
+      },
+      {
+        "id": 26,
+        "name": "Wave C7b.6 — finnhub_plan feature-matrix runtime-coverage AST scanner",
+        "description": "Create `tests/test_finnhub_plan_runtime_coverage.py` per spec §4.15. Two-way AST scanner: (1) FORWARD — for every feature in `_FEATURE_MATRIX['fundamental-1']`, assert ≥1 `finnhub_plan_supports('<feature>',...)` call site exists in `src/`; (2) REVERSE — for every paid-tier-only feature, assert a packet-section omission test exists in `tests/llm/test_packet_section_plan_omission.py`. Self-test on synthetic fixture (feature defined + caller present → PASS; feature defined + caller absent → FAIL). ALSO create `tests/data_enrichment/test_no_collector_without_plan_gate.py` (collector-gate AST guardrail per spec §6.2c). ALSO create `tests/llm/test_packet_section_plan_omission.py` with parametrized cases for INSTITUTIONAL FLOW, MATERIAL EVENTS, FUNDAMENTAL SNAPSHOT enrichment. **Depends on Tasks 21-25** — runtime coverage is asserted against what exists at merge time.",
+        "files_in_scope": [
+          "tests/test_finnhub_plan_runtime_coverage.py",
+          "tests/data_enrichment/test_no_collector_without_plan_gate.py",
+          "tests/llm/test_packet_section_plan_omission.py"
+        ],
+        "files_read_only": [
+          "src/data_enrichment/finnhub_plan.py",
+          "src/llm/packet_writer.py",
+          "src/data_collection/institutional_ownership_collector.py",
+          "src/data_collection/filings_sentiment_collector.py"
+        ],
+        "depends_on": [
+          21,
+          22,
+          23,
+          24,
+          25
+        ],
+        "test_strategy": "+3 tests in test_finnhub_plan_runtime_coverage.py (forward-coverage, reverse-omission-path, self-test on synthetic source-tree fixture) + the test_packet_section_plan_omission.py parametrized cases (counted under their parent C7b tasks) + AST guardrail in test_no_collector_without_plan_gate.py. Total new tests: +3 from this task's own file. Test file additions in tests/llm/ are referenced by Tasks 21-24's plan-on/off coverage; this task ensures the file exists with the parametrize harness.",
+        "scope_fence": "Do NOT modify _FEATURE_MATRIX. Do NOT modify any src/ files — pure test addition. Do NOT add scanner-level allowlists — fail loud on coverage gap. Depends on full C7b chain (21-25) being merged first so scanner runs against complete state.",
+        "estimated_complexity": "medium"
+      }
+    ],
+    "execution_order": [
+      [
+        1,
+        5,
+        6,
+        7,
+        15
+      ],
+      [
+        3,
+        8,
+        9
+      ],
+      [
+        2
+      ],
+      [
+        4
+      ],
+      [
+        10
+      ],
+      [
+        11
+      ],
+      [
+        12
+      ],
+      [
+        13
+      ],
+      [
+        14
+      ],
+      [
+        17,
+        25
+      ],
+      [
+        18
+      ],
+      [
+        19
+      ],
+      [
+        20
+      ],
+      [
+        21
+      ],
+      [
+        22
+      ],
+      [
+        23
+      ],
+      [
+        24
+      ],
+      [
+        26
+      ],
+      [
+        16
+      ]
+    ],
+    "notes": "v3 revision adds 10 C7 tasks (17-26) between Wave D close (Task 14) and Sprint Close (Task 16). Sprint Close (Task 16) now depends on all 1-15 + 17-26. Sequencing rationale: Batch 10 starts C7a serial chain (Task 17 = first packet_writer.py edit; Task 25 = independent analyst_collector change runs alongside). Tasks 18, 19, 20 are sequential rebases on packet_writer.py + enricher.py (single-batch each — same pattern as the C4→D2→D5 watch.py serial chain in v2). Task 20 has hard dependency on Task 2 (strategy_id FK). Tasks 21-24 are the C7b serial chain — all share packet_writer.py + enricher.py rebases. Task 26 is the matrix scanner — runs last after C7b chain merged so it asserts coverage against the actual state. PM enforces serial dispatch for the packet_writer.py + enricher.py chain via §6.5.1 detection mechanism (same as watch.py: git fetch + gh pr list + worktree-glob check). All other tasks within a batch can run worktree-parallel. Task 16 (Sprint Close) updates depends_on to [1-15, 17-26] (Task 25 independent but still needs Sprint Close to aggregate). Projected final test floor moves 5350→5400 (v2 was 5350; +40 C7 tests pushes projected median to 5450-5500; 5400 keeps 50-test conservative buffer). Sprint Close updates pg-tests.yml floor + CLAUDE.md to 5400 (not 5350)."
+  },
+  "design_decisions": [
+    {
+      "decision": "[v2 carry-forward, decisions 1-25] — Wave E design-only; minor version bump; backward-compat Wave D defaults; per-wave PRs; create docs/roadmap.md; #97 grandfather; #96 platform_events RESOLVED-BY-C2; #68 reframe to 28 except blocks in agent_data.py only; in-place safe_send policy gate; DB-backed digest queue; source_tag as notifications_sent column; 3-attempt retry; 5-failure-in-10min escalation; C4→D2→D5 watch.py serial; PG port 5433; test floor 5400 (updated in v3); _scalar removal in Sprint Close with scope-cap; hermetic env discipline; severity REQUIRED kwarg; ARCIS_NOTIFICATION_SOURCE default 'unknown'; quiet_hours.bypass_severity REMOVED; retry counter persisted; flush-then-fail recovery; EXTEND existing src/monitoring/ (corrected); FK NOT VALID. (Full text of decisions 1-25 preserved verbatim in spec §10 — not duplicated here.)",
+      "rationale": "All 25 v2 decisions preserved unchanged. See spec §10 Design Decisions table.",
+      "alternatives_considered": [
+        "See spec §10 for per-decision alternatives table"
+      ]
+    },
+    {
+      "decision": "[NEW v3 — D26] C7 prioritization: Tier 1 (system-internal, plan-independent) + Tier 2 (Finnhub fundamental-1 max-util, plan-gated). Tier 3 (broker-side fill quality, IB Gateway integration) + Tier 4 (alternative data — Glassnode, Polygon options chains) DEFERRED to post-sprint.",
+      "rationale": "Tier 1 unlocks signal value from data already in the database (council/walkforward/attribution) — zero external dependency, immediate ROI. Tier 2 maximizes utilization of an existing paid plan with downgrade-resilient architecture. Tier 3+ requires new integration surface (IB Gateway runtime, new vendor onboarding) — out of Sprint 5 closeout scope. Sprint 5 is the final sprint per memory feedback_sprint_5_is_final; deferred = post-Sprint-5 maintenance.",
+      "alternatives_considered": [
+        "Tier 1 only (rejected: leaves Finnhub fundamental-1 features stuck-on-shelf — exactly what C7b.6 scanner exists to prevent)",
+        "Tiers 1-4 all in scope (rejected: scope explosion; Tier 3 alone is multi-day integration)",
+        "Tier 2 only without on/off discipline (rejected: violates operator clarification 2026-05-12 — plan downgrade must be a clean switch)"
+      ]
+    },
+    {
+      "decision": "[NEW v3 — D27] Packet section ordering: INSTITUTIONAL FLOW at index 4.5 (between SECTOR RELATIVE and FUNDAMENTAL SNAPSHOT); MATERIAL EVENTS at index 7.5 (between RECENT NEWS and MACRO CONTEXT); COUNCIL CONSENSUS at index 13; HISTORICAL CREDIBILITY at index 14; RECENT ATTRIBUTION at index 15. STRATEGY CONTEXT as header preamble (not numbered).",
+      "rationale": "INSTITUTIONAL FLOW is fundamental-adjacent (ownership concentration is a fundamental signal); placing it before FUNDAMENTAL SNAPSHOT lets the LLM read ownership context before financials. MATERIAL EVENTS is catalyst-adjacent (filings + press releases are event-driven, same category as news); placing it after RECENT NEWS keeps event-flow contiguous. Tier-1 sections (council/credibility/attribution) at the end because they're meta-signals (system's own confidence) — LLM reads market data first, then system context. STRATEGY CONTEXT as header because it's a one-line identity tag, not a content section.",
+      "alternatives_considered": [
+        "All Tier-1 sections at the top (rejected: front-loads meta-context before market data — wrong epistemic order)",
+        "INSTITUTIONAL FLOW after FUNDAMENTAL SNAPSHOT (rejected: ownership IS a fundamental — keep them ordered cause→effect)",
+        "MATERIAL EVENTS merged into RECENT NEWS (rejected: filings + press releases have distinct catalyst character and retrieval cadence; merging confuses signal source)"
+      ]
+    },
+    {
+      "decision": "[NEW v3 — D28] COUNCIL CONSENSUS content shape: per-pillar table with confidence weights, not free text.",
+      "rationale": "Table format is token-dense and machine-parseable; the LLM can pattern-match on the 5-row structure consistently across packets. Free text would burn tokens on prose framing without adding signal. Confidence weights matter — a unanimous vote at low confidence is qualitatively different from a split vote at high confidence; both must be visible.",
+      "alternatives_considered": [
+        "Free-text summary (rejected: tokens wasted on prose, less consistent across packets)",
+        "Vote tally only (rejected: loses confidence dimension)",
+        "Full vote history (rejected: token bloat; latest session is sufficient signal)"
+      ]
+    },
+    {
+      "decision": "[NEW v3 — D29] HISTORICAL CREDIBILITY content shape: numeric credibility (0-1 scalar) + per-method PASS/FAIL pivot, not prose.",
+      "rationale": "The promotion_gate's voting structure is the canonical signal — surfacing the same 5-method vote pattern in the packet keeps the LLM aligned with the system's own gating logic. Numeric credibility lets the LLM weight conviction proportionally. Pivot table (PSR|CPCV|Bootstrap|MC|White RC) is 5 tokens — minimal cost, high information.",
+      "alternatives_considered": [
+        "Single credibility scalar only (rejected: loses which method failed — diagnostic signal)",
+        "Prose summary (rejected: token cost, less parseable)",
+        "Full walkforward output (rejected: bloat; the 5-method pivot is the consumable form)"
+      ]
+    },
+    {
+      "decision": "[NEW v3 — D30] Plan downgrade behavior: OMISSION (clean prompt) not 'unavailable' placeholder.",
+      "rationale": "Operator clarification 2026-05-12: 'every new packet section conditional in _build_feature_prompt: Plan does NOT support → section OMITTED entirely (clean prompt; matches existing if N not in skip_sections: pattern)'. Rationale: an 'unavailable' placeholder still consumes tokens and trains the LLM to expect the section even when not present. Clean omission with a single DATA CONTEXT header (Decision 32) signals reduced context once at the top, not per-section.",
+      "alternatives_considered": [
+        "'(Unavailable on current plan)' placeholder per section (rejected: token burn; trains LLM to expect sections that may rotate availability)",
+        "Replace omitted section with neighboring section's content (rejected: confuses signal source)",
+        "Mark sections with [DEGRADED] marker but render skeletons (rejected: still consumes tokens)"
+      ]
+    },
+    {
+      "decision": "[NEW v3 — D31] Stale data threshold: 7 days default, configurable via `data_enrichment.stale_data_threshold_days`.",
+      "rationale": "Finnhub institutional ownership refreshes quarterly (13F filings); filings_sentiment refreshes per-filing (irregular); press_releases refresh daily. 7 days is below the 13F refresh cadence (so 13F data stays fresh between quarterly updates) and above the daily press-release cadence (so daily updates aren't flagged). Configurable allows operator to tighten for press-releases-only deployments. The `[STALE]` marker appears only when data_age > threshold, surfacing freshness to the LLM without per-feature thresholds (which would balloon config surface).",
+      "alternatives_considered": [
+        "Per-feature thresholds (rejected: config surface bloat; 7d single-threshold covers the common case)",
+        "3 days (rejected: too aggressive for quarterly 13F data; would mark everything stale)",
+        "14 days (rejected: too lenient — week-old press release data is misleading)",
+        "No staleness signal (rejected: LLM has no way to discount stale data without explicit cue)"
+      ]
+    },
+    {
+      "decision": "[NEW v3 — D32] DATA CONTEXT header trigger: N≥1 omission (any single Tier-2 omit triggers it).",
+      "rationale": "An N≥2 threshold would mean: if only one section omits (e.g., institutional_ownership unavailable but filings + press_releases present), the LLM gets no explicit signal that context is reduced. The LLM would commit at full confidence on partial data — exactly the failure mode the header is designed to prevent. N≥1 is fail-loud: any reduction triggers explicit notice. The header itself is short (~5 lines, <50 tokens) — token cost negligible relative to the protective value.",
+      "alternatives_considered": [
+        "N≥2 threshold (rejected: leaves single-section degradation invisible to LLM)",
+        "Always emit header with plan status (rejected: when plan=fundamental-1 and all sections present, header adds noise without signal — operator wouldn't want to see 'all systems normal' tags burning tokens on every packet)",
+        "Per-section [DEGRADED] markers in lieu of header (rejected: cumulative token cost across sections > single header; also less explicit about overall conviction implication)"
+      ]
+    }
+  ]
+}
