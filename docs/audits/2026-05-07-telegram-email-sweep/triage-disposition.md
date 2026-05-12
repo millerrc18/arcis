@@ -124,14 +124,7 @@
 
 ## Decision Matrix
 
-| Status | Count | IDs |
-|--------|-------|-----|
-| `closed-by-PR-X` | 35 | C1, C2, C3, C4, C5, C7, C11, C12, C13, C14, C15, C16, C17, I4, I5, I6, I10, I11, I12, I13, I14, I15, I16, I17, N1, N5, Nit5, CC1, CC2, CC3 (partial), CC4, CC5, and sub-findings absorbed into groups A/B/C/E/F |
-| `scoped-into-Wave-D` | 7 | I1, I2, I3, I10 (partial — call-site migration complete, routing policy pending), I18, CC3 (remaining ~26 functions), CC6 |
-| `follow-up-issue-N` | 2 | I7 (follow-up-issue-1: `_safe_fetchone` OperationalError visibility), N6 (follow-up-issue-2: `notify_research_digest` unit test) |
-| `accepted-risk` | 9 | C6, C8, C9, I7 (accepted-risk component), I8, I9, N2, N3, N4, N7, N8, N9, N10, Nit1, Nit2, Nit3, Nit4 |
-
-**Exact per-finding count (50 findings + 6 CC patterns = 56 total):**
+**Per-finding count (50 findings + 6 CC patterns = 56 total):**
 
 | Status | Finding count |
 |--------|--------------|
