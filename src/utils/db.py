@@ -53,6 +53,27 @@ _SENTINEL = object()
 
 _DB_PATH_WARNED: set[int] = set()
 
+_GATE_ON_NO_PG_URL_WARNED: bool = False
+
+
+def _warn_gate_on_no_pg_url_once() -> None:
+    """Single WARN when gate is on but DATABASE_URL doesn't start with postgres.
+
+    This is the symmetric forensic signal to _warn_db_path_ignored_once: if the
+    operator sets ARCIS_PG_CUTOVER_ENABLED=1 but DATABASE_URL is empty or
+    non-postgres, we silently fall through to SQLite. This WARN ensures the
+    misconfig leaves a forensic trail.
+    """
+    global _GATE_ON_NO_PG_URL_WARNED
+    if _GATE_ON_NO_PG_URL_WARNED:
+        return
+    _GATE_ON_NO_PG_URL_WARNED = True
+    logger.warning(
+        "[DB] ARCIS_PG_CUTOVER_ENABLED=1 but DATABASE_URL does not start with "
+        "'postgres' — falling through to SQLite. Verify NSSM env via "
+        "`nssm get <service> AppEnvironmentExtra`."
+    )
+
 
 def _warn_db_path_ignored_once(db_path) -> None:
     key = id(db_path)
@@ -467,6 +488,9 @@ def connect_db(db_path=_SENTINEL):
             _warn_db_path_ignored_once(db_path)
         raw = psycopg2.connect(database_url, cursor_factory=psycopg2.extras.RealDictCursor)
         return PostgresConnectionWrapper(raw)
+
+    if gate_on and not pg_url:
+        _warn_gate_on_no_pg_url_once()
 
     effective_path = DEFAULT_DB if db_path is _SENTINEL else db_path
     conn = sqlite3.connect(effective_path, timeout=BUSY_TIMEOUT_MS / 1000.0)

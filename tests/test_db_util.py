@@ -388,3 +388,73 @@ def test_warn_once_resets_across_test_isolation_or_not_doc(monkeypatch):
     assert isinstance(db_module._DB_PATH_WARNED, set), (
         "_DB_PATH_WARNED must be a set instance"
     )
+
+
+# ---------------------------------------------------------------------------
+# SP5 §J cutover-rectification T5 — symmetric WARN-once on gate-on/no-pg-url
+# ---------------------------------------------------------------------------
+
+def test_warn_gate_on_no_pg_url_emits_once(tmp_path, monkeypatch, caplog):
+    """Gate=on, DATABASE_URL missing/empty: two connect_db() calls emit exactly 1 WARN.
+
+    SP-ONEDB-T5: symmetric forensic signal to SP-ONEDB-009. When
+    ARCIS_PG_CUTOVER_ENABLED=1 but DATABASE_URL does not start with 'postgres',
+    every connect_db() call silently falls through to SQLite. This test asserts
+    that exactly one WARN is emitted (not zero, not two) across repeated calls.
+    """
+    import logging
+    import src.utils.db as db_module
+    db_path = str(tmp_path / "test_gate_warn.sqlite3")
+    monkeypatch.setenv("ARCIS_PG_CUTOVER_ENABLED", "1")
+    monkeypatch.setenv("DATABASE_URL", "")
+    db_module._GATE_ON_NO_PG_URL_WARNED = False
+    try:
+        with caplog.at_level(logging.WARNING, logger="src.utils.db"):
+            from src.utils.db import connect_db
+            conn1 = connect_db(db_path=db_path)
+            conn1.close()
+            conn2 = connect_db(db_path=db_path)
+            conn2.close()
+        warn_msgs = [
+            r.message for r in caplog.records
+            if r.levelno == logging.WARNING and "ARCIS_PG_CUTOVER_ENABLED" in r.message
+        ]
+        assert len(warn_msgs) == 1, (
+            f"Expected exactly 1 WARN about gate-on/no-pg-url across 2 calls, "
+            f"got {len(warn_msgs)}: {warn_msgs}"
+        )
+    finally:
+        db_module._GATE_ON_NO_PG_URL_WARNED = False
+
+
+def test_warn_gate_on_no_pg_url_silent_when_pg_url_set(tmp_path, monkeypatch, caplog):
+    """Gate=on, DATABASE_URL=postgresql://...: NO warn about gate/no-pg-url.
+
+    SP-ONEDB-T5: when DATABASE_URL is a valid postgres URL, the gate routes to PG
+    and _warn_gate_on_no_pg_url_once must NOT fire. The existing SP-ONEDB-009
+    warn (_warn_db_path_ignored_once) may still fire if explicit db_path is
+    passed — but that is separate and not asserted here.
+    """
+    import logging
+    import src.utils.db as db_module
+    monkeypatch.setenv("ARCIS_PG_CUTOVER_ENABLED", "1")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://halcyon:pw@localhost:5433/halcyon")
+    db_module._GATE_ON_NO_PG_URL_WARNED = False
+    try:
+        sentinel_conn = MagicMock(name="pg_raw_conn")
+        with caplog.at_level(logging.WARNING, logger="src.utils.db"):
+            with patch("psycopg2.connect", return_value=sentinel_conn):
+                from src.utils.db import connect_db
+                conn = connect_db()
+        gate_no_pg_warns = [
+            r.message for r in caplog.records
+            if r.levelno == logging.WARNING
+            and "ARCIS_PG_CUTOVER_ENABLED" in r.message
+            and "does not start with" in r.message
+        ]
+        assert len(gate_no_pg_warns) == 0, (
+            f"Expected 0 gate/no-pg-url WARNs when pg_url is set, "
+            f"got {len(gate_no_pg_warns)}: {gate_no_pg_warns}"
+        )
+    finally:
+        db_module._GATE_ON_NO_PG_URL_WARNED = False
