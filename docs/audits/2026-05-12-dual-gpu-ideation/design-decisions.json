@@ -1,0 +1,48 @@
+[
+  {
+    "decision": "NSSM AppEnvironmentExtra changes follow read-merge-write pattern, not copy-paste",
+    "rationale": "NSSM AppEnvironmentExtra is a replacement operation (verbatim overwrite of the entire block). The post-Sprint-5 / PR #1056 production env contains five load-bearing vars (ARCIS_DB_PATH, SYNC_THREAD_ENABLED=false, DATABASE_URL, ARCIS_PG_CUTOVER_ENABLED=1, PYTHONUTF8=1). Naive copy-paste of a three-variable example block (early draft) would silently strip the cutover gate and re-enable the deprecated SQLite→Postgres sync thread, breaking the Postgres primary read path. Operator memory `reference_watch_loop_management` confirms NSSM management. Risk register R16 documents this as a critical hazard with a procedural mitigation: capture pre-change env, verify post-cutover canonical vars present, merge new vars, write merged block, restart, verify via startup banner. The SP6 PR description must include the pre-change capture so reviewers can confirm no production var was dropped.",
+    "alternatives_considered": [
+      "Three-variable copy-paste example (rejected: destructive, wipes production state)",
+      "Per-variable nssm set commands (rejected: NSSM AppEnvironmentExtra is set-or-replace; no per-variable API)",
+      "Documentation note only without procedural mitigation (rejected: doesn't address the hazard — operators copy-paste examples by default)"
+    ]
+  },
+  {
+    "decision": "Pin CUDA_DEVICE_ORDER=PCI_BUS_ID at every CUDA-consuming boundary",
+    "rationale": "CUDA's default `FASTEST_FIRST` ordering is governed by a heuristic (compute capability × SM count × clock × tie-breaker) that NVIDIA does not guarantee stable across driver releases. PCI_BUS_ID is deterministic from hardware enumeration: with the 3090 in PCIe 01:00.0 (lower bus) and the 3060 in 08:00.0, GPU 0 = 3090 is contractual. A flipped enumeration (driver upgrade, PCIe reseat, GPU swap) under FASTEST_FIRST would route training to the 3060 (12 GB insufficient — OOM) and Ollama to the 3090 (works but wastes the bigger card). Pinning costs one env var per boundary (already needed for CUDA_VISIBLE_DEVICES discipline); the marginal cost is near-zero, the risk eliminated is high. Added as boundary B0 in §5.0–§5.1; new risk R19; new failure mode F13; behavior and source-level guardrail tests in §13.2.",
+    "alternatives_considered": [
+      "Rely on FASTEST_FIRST default (rejected: not contractual; one driver release could silently flip ordering)",
+      "Pin only at the watch-loop NSSM env and let inheritance propagate (rejected: misses operator interactive shell and the new ArcisOllamaWatchdog service)",
+      "Pin via source-level os.environ.setdefault in trainer.py and ollama_watchdog.ps1 only (rejected: covers process internals but not subprocess spawn — env-stripping anti-patterns would defeat it; defense-in-depth approach pins at all boundaries)"
+    ]
+  },
+  {
+    "decision": "OLLAMA_NUM_PARALLEL default = 2 (operator-validated); 4 is opt-in after load test",
+    "rationale": "Operator memory `project_gpu_upgrade` and operator-guide §5 establish that NUM_PARALLEL=4 on the 3060 (12 GB) yields ~10.4 GB resident with ~0.4 GB cushion. Typical CUDA workspace transient allocations are ~512 MB, exceeding the cushion. 5-agent concurrent council bursts can push past the cap. NUM_PARALLEL=2 leaves ~1.7 GB cushion (operator-validated steady-state safe). The cost of conservatism is reduced inference parallelism, not correctness. Operators who want NUM_PARALLEL=4 can opt in after running the §10.6 load test (`nvidia-smi -i 1 memory.used` must stay below 11.5 GB during a 2-minute 5-agent concurrent council scan). Risk R17 documents the opt-in discipline. Default 2 is the safer ship-point; the operator-guide insert reconciles against the §632 line that previously claimed NUM_PARALLEL=4 was viable.",
+    "alternatives_considered": [
+      "Keep default NUM_PARALLEL=4 (rejected: 0.4 GB cushion below CUDA workspace allocations; no safety margin for council bursts)",
+      "Default 2 with no opt-in path documented (rejected: operators with larger throughput needs would re-discover NUM_PARALLEL=4 without the load-test discipline)",
+      "Default 3 as compromise (rejected: not operator-validated; introduces a third configuration to support; cushion still narrow at ~1.0 GB)"
+    ]
+  },
+  {
+    "decision": "Strict spec-vs-implementation boundary: prescriptive code moves to non-normative Appendix D",
+    "rationale": "The earlier draft included Python function bodies, exact env-dict literals, complete PowerShell blocks, and 60 lines of operator-guide prose inline in the spec. This drifts from SPEC_ONLY discipline — implementation choices belong in plan.md and code. Spec §6 sections are now prose-only ('replace function body with health-check log-and-return; no Popen; rename'). Reference code blocks live in Appendix D under an explicit 'Implementation Guidance (non-normative)' label, making clear they illustrate one valid pattern but do not bind the implementer. The operator-guide §12.1 prose moves entirely to `docs/audits/2026-05-12-dual-gpu-ideation/operator-guide-insert.md`, a standalone authored draft file the spec references. This keeps the spec at the WHAT level, allows the operator-guide content to be polished without spec churn, and gives the SP6 implementer a clean separation between contractual requirements (spec) and reference patterns (appendix).",
+    "alternatives_considered": [
+      "Keep inline code blocks but label them as 'examples' (rejected: same readability problem; reviewers can't distinguish normative from non-normative)",
+      "Strip all code from spec with no appendix (rejected: implementers benefit from reference patterns; complete absence forces them to re-derive trivial syntax)",
+      "Split into multiple spec documents (rejected: overkill for the volume; one appendix + one external operator-guide file is sufficient)"
+    ]
+  },
+  {
+    "decision": "NSSM-wrap ollama_watchdog.ps1 as ArcisOllamaWatchdog service for reboot survival",
+    "rationale": "Original Q5 in §16 deferred this as a future hardening pass. Devil's Advocate identified the gap: NSSM auto-starts ArcisWatchLoop on reboot, but ollama_watchdog.ps1 (launched via `start_ollama_watchdog.bat` for SSH persistence) does not. After a Windows reboot, the first scan returns no LLM (Ollama not running) until the operator manually launches the .bat — or worse, an operator manually runs `ollama serve` from a shell that lacks the GPU 1 env, and Ollama lands on whichever device CUDA defaults to (typically GPU 0 = 3090, colliding with training). NSSM-wrapping the watchdog resolves this in-spec: the new `ArcisOllamaWatchdog` service auto-starts on boot with `CUDA_VISIBLE_DEVICES=1` and `CUDA_DEVICE_ORDER=PCI_BUS_ID` in its service env. New §6.16 specifies the install script `scripts/install_ollama_watchdog_service.ps1`. New §10.0 post-reboot pre-flight verifies both services. New F14 and R18 cover detection and recovery. The alternative (Windows scheduled task at login) is rejected because it depends on user-login state and is less inspectable than NSSM lifecycle management.",
+    "alternatives_considered": [
+      "Defer NSSM-wrapping to SP7+ (rejected: leaves a real reboot-survival gap with documented impact)",
+      "Windows scheduled task triggered at user login (rejected: depends on operator-login state, less inspectable than NSSM, doesn't survive headless operation)",
+      "Document manual recovery only in operator-guide (rejected: relies on operator running the right commands at the right time post-reboot; brittle)",
+      "Boot-time PowerShell script invoked by Task Scheduler (rejected: solves auto-start but loses NSSM's standardized lifecycle management — restart, status, env, logging — that ArcisWatchLoop already enjoys)"
+    ]
+  }
+]
