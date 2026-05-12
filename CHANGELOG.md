@@ -13,6 +13,13 @@
 
 - **SP5 Wave B T5** (`tests/test_notifications_telegram.py`): 4 new tests covering escape coverage for both functions — special-char inputs produce escaped output, clean inputs round-trip unchanged.
 
+#### Follow-ups filed (sibling-search results — NOT silently expanded into this PR)
+
+Per the `feedback_review_sibling_search` discipline, the sibling-search step surfaced two additional notify_* functions with the same unescaped-HTML-interpolation gap class. These were NOT silently fixed inside T5's scope; they are tracked as durable follow-up tasks for Sprint 5 catch-all (SP6):
+
+- **task #93** — Extend `_html_escape()` to `notify_regime_alert` (src/notifications/telegram.py:781-797): `regime_old`, `regime_new`, `risk_governor_status` interpolated raw.
+- **task #94** — Extend `_html_escape()` to `notify_streak_alert` (src/notifications/telegram.py:810-822): ticker symbols + `risk_governor_status` interpolated raw.
+
 ### SP5 §J Cutover Rectification — post-2026-05-11 hardening (T1–T8 + T2-fix)
 
 9 rectification items addressing the two P0 failure modes from the 2026-05-11T20:37Z cutover attempt (P0 #89: 59 PG tables disappeared with `log_statement=none`; P0 #90: NVDA shadow_trade bypassed the gate). Goal: the next cutover attempt has comprehensive instrumentation + hardened guardrails so failures either can't recur or leave a precise forensic trail. Spec: `docs/audits/2026-05-11-cutover-rectification/spec.md`.
