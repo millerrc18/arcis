@@ -193,3 +193,166 @@ class TestStopVsTakeProfitLeg:
             if mock_close.called:
                 _, kwargs = mock_close.call_args
                 assert kwargs.get("exit_reason") == "target_1"  # Coerced to canonical 'target_1' by B3 LEGACY_COERCIONS — see docs/sprints/track_1_5_pass1_design/B3_exit_reason_taxonomy.md
+
+
+class TestBracketSafetyKwargs:
+    """Mirror of TestBracketOrderKwargs for safety-net bracket submission paths.
+
+    #48: Safety-net paths (GTC, cancel-before-close, broker-exception recovery)
+    that call place_bracket_order must pass take_profit= and stop_loss= kwargs.
+    A regression dropping either leg would leave a position without protection.
+    These tests lock the kwarg-presence contract for the safety context.
+    """
+
+    def _make_mock_order(self):
+        mock_order = MagicMock()
+        mock_order.id = "safety-order-kwarg"
+        mock_order.symbol = "AAPL"
+        mock_order.qty = 10
+        mock_order.side = "buy"
+        mock_order.type = "market"
+        mock_order.status = "accepted"
+        mock_order.filled_avg_price = None
+        mock_order.legs = []
+        return mock_order
+
+    def test_gtc_market_bracket_passes_take_profit_kwarg(self):
+        """Safety path: market bracket order must set take_profit on the request."""
+        with patch("src.shadow_trading.alpaca_adapter._get_trading_client") as mock_client, \
+             patch("src.shadow_trading.alpaca_adapter._check_enabled"):
+            mock_client.return_value.submit_order.return_value = self._make_mock_order()
+
+            from src.shadow_trading.alpaca_adapter import place_bracket_order
+            place_bracket_order("AAPL", 10, 160.0, 140.0)
+
+            call_args = mock_client.return_value.submit_order.call_args
+            request = call_args[0][0]
+            assert request.take_profit is not None, (
+                "take_profit kwarg must be set on safety-path OrderRequest — "
+                "a missing take_profit means no profit-taking leg on the bracket"
+            )
+            assert request.take_profit == {"limit_price": 160.0}, (
+                f"take_profit must be {{'limit_price': 160.0}}, got {request.take_profit!r}"
+            )
+
+    def test_gtc_market_bracket_passes_stop_loss_kwarg(self):
+        """Safety path: market bracket order must set stop_loss on the request."""
+        with patch("src.shadow_trading.alpaca_adapter._get_trading_client") as mock_client, \
+             patch("src.shadow_trading.alpaca_adapter._check_enabled"):
+            mock_client.return_value.submit_order.return_value = self._make_mock_order()
+
+            from src.shadow_trading.alpaca_adapter import place_bracket_order
+            place_bracket_order("AAPL", 10, 160.0, 140.0)
+
+            call_args = mock_client.return_value.submit_order.call_args
+            request = call_args[0][0]
+            assert request.stop_loss is not None, (
+                "stop_loss kwarg must be set on safety-path OrderRequest — "
+                "a missing stop_loss means no protective stop: position ships unprotected"
+            )
+            assert request.stop_loss == {"stop_price": 140.0}, (
+                f"stop_loss must be {{'stop_price': 140.0}}, got {request.stop_loss!r}"
+            )
+
+    def test_gtc_market_bracket_has_both_kwargs(self):
+        """Safety path: both take_profit AND stop_loss must be non-None on market bracket.
+
+        A bracket order without either leg is semantically not a bracket order.
+        This test asserts atomically that BOTH are present so a single regression
+        dropping one leg cannot hide behind the other.
+        """
+        with patch("src.shadow_trading.alpaca_adapter._get_trading_client") as mock_client, \
+             patch("src.shadow_trading.alpaca_adapter._check_enabled"):
+            mock_client.return_value.submit_order.return_value = self._make_mock_order()
+
+            from src.shadow_trading.alpaca_adapter import place_bracket_order
+            place_bracket_order("AAPL", 10, 160.0, 140.0)
+
+            call_args = mock_client.return_value.submit_order.call_args
+            request = call_args[0][0]
+            assert request.take_profit is not None, (
+                "take_profit must be present on safety-path bracket — both legs required"
+            )
+            assert request.stop_loss is not None, (
+                "stop_loss must be present on safety-path bracket — both legs required"
+            )
+
+    def test_gtc_limit_bracket_passes_take_profit_kwarg(self):
+        """Safety path: limit-entry bracket must set take_profit with correct price."""
+        mock_order = MagicMock()
+        mock_order.id = "safety-limit-tp"
+        mock_order.symbol = "MSFT"
+        mock_order.qty = 5
+        mock_order.side = "buy"
+        mock_order.type = "limit"
+        mock_order.status = "accepted"
+        mock_order.filled_avg_price = None
+        mock_order.legs = []
+
+        with patch("src.shadow_trading.alpaca_adapter._get_trading_client") as mock_client, \
+             patch("src.shadow_trading.alpaca_adapter._check_enabled"):
+            mock_client.return_value.submit_order.return_value = mock_order
+
+            from src.shadow_trading.alpaca_adapter import place_bracket_order
+            place_bracket_order("MSFT", 5, 450.0, 400.0, limit_price=420.0)
+
+            call_args = mock_client.return_value.submit_order.call_args
+            request = call_args[0][0]
+            assert request.take_profit is not None
+            assert request.take_profit == {"limit_price": 450.0}, (
+                f"take_profit must be {{'limit_price': 450.0}}, got {request.take_profit!r}"
+            )
+
+    def test_gtc_limit_bracket_passes_stop_loss_kwarg(self):
+        """Safety path: limit-entry bracket must set stop_loss with correct price."""
+        mock_order = MagicMock()
+        mock_order.id = "safety-limit-sl"
+        mock_order.symbol = "MSFT"
+        mock_order.qty = 5
+        mock_order.side = "buy"
+        mock_order.type = "limit"
+        mock_order.status = "accepted"
+        mock_order.filled_avg_price = None
+        mock_order.legs = []
+
+        with patch("src.shadow_trading.alpaca_adapter._get_trading_client") as mock_client, \
+             patch("src.shadow_trading.alpaca_adapter._check_enabled"):
+            mock_client.return_value.submit_order.return_value = mock_order
+
+            from src.shadow_trading.alpaca_adapter import place_bracket_order
+            place_bracket_order("MSFT", 5, 450.0, 400.0, limit_price=420.0)
+
+            call_args = mock_client.return_value.submit_order.call_args
+            request = call_args[0][0]
+            assert request.stop_loss is not None
+            assert request.stop_loss == {"stop_price": 400.0}, (
+                f"stop_loss must be {{'stop_price': 400.0}}, got {request.stop_loss!r}"
+            )
+
+    def test_gtc_limit_bracket_has_both_kwargs(self):
+        """Safety path: limit-entry bracket must have both take_profit and stop_loss."""
+        mock_order = MagicMock()
+        mock_order.id = "safety-limit-both"
+        mock_order.symbol = "TSLA"
+        mock_order.qty = 3
+        mock_order.side = "buy"
+        mock_order.type = "limit"
+        mock_order.status = "accepted"
+        mock_order.filled_avg_price = None
+        mock_order.legs = []
+
+        with patch("src.shadow_trading.alpaca_adapter._get_trading_client") as mock_client, \
+             patch("src.shadow_trading.alpaca_adapter._check_enabled"):
+            mock_client.return_value.submit_order.return_value = mock_order
+
+            from src.shadow_trading.alpaca_adapter import place_bracket_order
+            place_bracket_order("TSLA", 3, 300.0, 250.0, limit_price=270.0)
+
+            call_args = mock_client.return_value.submit_order.call_args
+            request = call_args[0][0]
+            assert request.take_profit is not None, (
+                "take_profit must be present on limit safety-path bracket — both legs required"
+            )
+            assert request.stop_loss is not None, (
+                "stop_loss must be present on limit safety-path bracket — both legs required"
+            )
