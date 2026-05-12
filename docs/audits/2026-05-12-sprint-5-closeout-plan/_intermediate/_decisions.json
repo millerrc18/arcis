@@ -1,0 +1,134 @@
+[
+  {
+    "decision": "Wave E: design-only; defer implementation to post-Sprint-5",
+    "rationale": "Spec itself says 'deferred to SP6' but Sprint 5 is final. No current bottleneck demands impl. Implementation = ~15 file edits + 22 new tests + NSSM service work \u00e2\u2030\u02c6 1.5-2 days that would crowd Wave D's already-large surface. Reversible: spec is the deliverable; impl can land in any post-sprint maintenance PR.",
+    "alternatives_considered": [
+      "Implement in Sprint 5 (rejected: crowds Wave D + adds CUDA/NSSM blast radius for no current pain)",
+      "Skip entirely + delete spec (rejected: loses design discipline + Wave E spec is operator-validated)"
+    ]
+  },
+  {
+    "decision": "Version bump: MINOR (0.34.0 \u00e2\u2020\u2019 0.35.0)",
+    "rationale": "Wave D ships NEW notifications routing YAML config (new public surface); Wave C #56 ships NEW shadow_trades.strategy_id column (new schema field); Wave C #45 ships NEW drift-detection event_type. Per docs/versioning-policy.md, MINOR is for backward-compat additions \u00e2\u20ac\u201d these all qualify.",
+    "alternatives_considered": [
+      "Patch (0.34.1) (rejected: Sprint 5 ships new surfaces, not pure fixes)",
+      "Major (1.0.0) (rejected: premature; Sprint 5 doesn't break public API)"
+    ]
+  },
+  {
+    "decision": "Wave D defaults: BACKWARD-COMPAT (zero-config = current behavior)",
+    "rationale": "Zero-config users see no change; operator opts in by editing config/settings.local.yaml. Minimizes blast radius; reversible via config edit; matches existing convention from --email-mode flag.",
+    "alternatives_considered": [
+      "Opt-out (quiet hours default-on) (rejected: risks suppressing real alerts before operator notices the config exists)"
+    ]
+  },
+  {
+    "decision": "PR boundary: PER-WAVE PRs (6 total)",
+    "rationale": "Matches recent successful #1058/#1059/#1060 cadence. Smaller review surface; smaller blast radius per merge; easier rollback. Sprint Close PR aggregates CHANGELOG + version + tag + roadmap.",
+    "alternatives_considered": [
+      "Monolithic Sprint Close PR (rejected: review surface unmanageable for 60+ files; rollback unit becomes the whole sprint)"
+    ]
+  },
+  {
+    "decision": "docs/roadmap.md: CREATE NEW",
+    "rationale": "Sprint history table + active-track pointer is a distinct artifact from operator-runnable runbook content in operator-guide.md. Cleaner separation. operator-guide.md gets a single forward-pointer.",
+    "alternatives_considered": [
+      "Fold into operator-guide.md Sprint history section (rejected: mixes concerns; harder to update independently)"
+    ]
+  },
+  {
+    "decision": "#97 alpaca_adapter.py: GRANDFATHER via known_violations.json + delete sentinel test",
+    "rationale": "Actual file split is high blast-radius (touches every alpaca call site). Sentinel test is currently failing OR grandfathered; either state is incongruent. Cleanest fix: known_violations.json entry + sentinel delete, file split as post-sprint task.",
+    "alternatives_considered": [
+      "Actually split file in Sprint 5 (rejected: >4 hrs work, crowds close window)",
+      "Accept failing test (rejected: governance violation)"
+    ]
+  },
+  {
+    "decision": "#96 platform_events: SCOPE-OUT pending Wave C developer grep",
+    "rationale": "Deep-report finds no clear write-site; comment-only drift. Add TableDef only if Task 2 developer's grep confirms a write-site. If only the registry comment refers to it, document in C5 triage-disposition.md as resolved.",
+    "alternatives_considered": [
+      "Add TableDef unconditionally (rejected: risks dead schema)",
+      "Ignore entirely (rejected: perpetuates drift)"
+    ]
+  },
+  {
+    "decision": "#68 reframe: typed hierarchy + agent_data.py only (engine.py + value_tracker.py DEFERRED)",
+    "rationale": "Brief premise WRONG \u00e2\u20ac\u201d only 1 raise site in entire src/council/; real opportunity is 30+ bare except Exception in agent_data.py. Engine.py + value_tracker.py except-blocks scope-deferred to keep Task 3 tractable.",
+    "alternatives_considered": [
+      "Refactor all of council/ (rejected: >2x scope; risks Sprint 5 close slip)",
+      "Skip entirely (rejected: misses the safety improvement aligned with Sprint 4 T2 principle)"
+    ]
+  },
+  {
+    "decision": "safe_send policy gate inserted IN-PLACE (no parallel router.py)",
+    "rationale": "Duplicating event_map in a parallel router.py would weaken the KeyError-on-unknown-event_type security boundary from Sprint 4 T2. In-place insertion preserves the single dispatch surface.",
+    "alternatives_considered": [
+      "New src/notifications/router.py module (rejected: parallel surface; harder composition reasoning)"
+    ]
+  },
+  {
+    "decision": "Digest queue: DB-backed table (not in-memory)",
+    "rationale": "Watch loop restarts must not lose buffered events. SQLite/PG durability is the existing pattern. Atomicity via SELECT/UPDATE WHERE flushed_at IS NULL is well-understood.",
+    "alternatives_considered": [
+      "In-memory deque (rejected: data loss on restart)",
+      "Redis (rejected: new infrastructure dependency)"
+    ]
+  },
+  {
+    "decision": "Source tag (#101) added as column on notifications_sent (not separate audit table)",
+    "rationale": "notifications_sent already tracks every dispatch; source_tag is per-row metadata. Defense-in-depth via conftest.py null-router monkeypatch prevents real Telegram calls from pytest regardless of env tag.",
+    "alternatives_considered": [
+      "New notification_audit table (rejected: duplication; two-way join overhead)",
+      "Env-var-only (no DB column) (rejected: operator can't forensically distinguish post-hoc)"
+    ]
+  },
+  {
+    "decision": "Retry policy: 3 attempts with [1, 5, 30]s backoff",
+    "rationale": "Tuned to F2 observed Telegram failure rate (~2-3/hour). Total wait per failed event = 36s, acceptable for non-hot-path. After 5 consecutive failures in 10-min window, SKIP attempts 2+3 and go straight to email escalation to avoid retry-storm.",
+    "alternatives_considered": [
+      "Single attempt (current \u00e2\u20ac\u201d too brittle)",
+      "5+ attempts (rejected: DoS amplification risk)",
+      "No retry, retry separately (rejected: complicates state)"
+    ]
+  },
+  {
+    "decision": "Sequence C4 \u00e2\u2020\u2019 D2 \u00e2\u2020\u2019 D5 for src/scheduler/watch.py edits",
+    "rationale": "Three tasks edit the same file. Sequential PRs avoid worktree race per memory `feedback_review_sibling_search`. C4 lands first because Wave C precedes Wave D per glidepath; D2 + D5 rebase on prior.",
+    "alternatives_considered": [
+      "Parallel dispatch with manual merge resolution (rejected: race risk; PR #690 N3 incident precedent)"
+    ]
+  },
+  {
+    "decision": "PG test port 5433 (not 5432)",
+    "rationale": "Avoid clash with operator's local PG on 5432 per memory `reference_local_ports`. Configurable via TEST_PG_PORT env var for further conflicts.",
+    "alternatives_considered": [
+      "5432 (rejected: collision risk)",
+      "Random port (rejected: test fixture complexity + race)"
+    ]
+  },
+  {
+    "decision": "Test floor canon: 5350 (10-test conservative buffer below projected 5400-5450 median)",
+    "rationale": "Projection has +/- range from un-SKIP variance; 50-test conservative margin prevents flaky-test-day floor failures.",
+    "alternatives_considered": [
+      "5400 (rejected: tighter risk transient drops)",
+      "5050 (rejected: locks out Sprint 5 progress)"
+    ]
+  },
+  {
+    "decision": "_scalar cosmetic removal: SAME PR as Sprint Close with scope-cap (\u00e2\u2030\u00a440 files)",
+    "rationale": "Sprint Close is natural home; mechanical revert is cosmetic, not architectural. Scope-cap protects PR review surface if grep finds more sites than projected.",
+    "alternatives_considered": [
+      "Standalone PR (rejected: PR-count inflation)",
+      "Never remove (rejected: helper rots; redundant post-PR-1060)"
+    ]
+  },
+  {
+    "decision": "All Wave D tests use monkeypatch.setenv hermetically + conftest clears ARCIS_TELEGRAM_TOKEN",
+    "rationale": "Per memory `feedback_worktree_env_drift`, worktree agents inherit operator's env; tests must NOT depend on env-var presence or absence to pass. Defense in depth: env-var prefix + monkeypatch null-router for _send_telegram.",
+    "alternatives_considered": [
+      "Trust env state (rejected: PR #711\u00e2\u2020\u2019#729 precedent)",
+      "Only monkeypatch _send_telegram (rejected: doesn't catch env-leak forensics)"
+    ]
+  }
+]

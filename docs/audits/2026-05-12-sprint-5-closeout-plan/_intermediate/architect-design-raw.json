@@ -1,0 +1,572 @@
+{
+  "spec": "# Sprint 5 Closeout Plan — Design Spec\n\n**Document ID:** `docs/audits/2026-05-12-sprint-5-closeout-plan/spec.md`\n**Status:** Draft v1 (for PM execution)\n**Audience:** `arcis:code` PM orchestrator + per-wave developer/reviewer agents\n**Scope:** Waves C/D/F (implementation) + Wave E (design-only) + mini-tracker dispositions + Sprint Close PR contract\n\n---\n\n## 0. Revision History\n\n| Version | Date | Author | Notes |\n|---|---|---|---|\n| v1 | 2026-05-12 | design-team | Initial spec covering 6 waves + Sprint Close. Incorporates deep-codebase-report.json corrections (test floor reality, kpis.py:128 not :91, #68 reframe to agent_data.py except blocks, #96 scope-out pending grep). Operator-approved decisions from CHECKPOINT folded into Design Decisions table. |\n\n---\n\n## 1. Overview\n\n### 1.1 Goal\n\nLand Sprint 5 — the final Arcis sprint before the walk-forward framework becomes the active post-Sprint-5 track — via 5 wave PRs (Waves C, D, E-disposition, F) plus a Sprint Close PR. After Close, `src/version.py = v0.35.0`, a `v0.35.0` git tag exists, `docs/roadmap.md` exists, the CHANGELOG has a consolidated Sprint 5 section, and the operator-guide describes the new notifications routing config. Three new operator-visible behaviors ship: notifications routing policy (Wave D), manual-intervention drift detection (Wave C #45), and a server-side stale-base CI check (Wave F #15).\n\n### 1.2 In Scope\n\n- **Wave C** (5 tasks + folded #100 scanner extension): data integrity + cross-engine future-prevention\n- **Wave D** (1 task #69 + folded #93/#94 + new #101 source tagging): notifications routing policy, digest mode, retry/escalation, alert-silence detector\n- **Wave E** (1 task #91): keep existing spec at `docs/audits/2026-05-12-dual-gpu-ideation/specs/` as the deliverable; defer implementation\n- **Wave F** (3 tasks): server-side stale-base check, test suite speedup, local PG provisioning\n- **Sprint Close PR**: aggregated CHANGELOG, version bump to 0.35.0, git tag, new `docs/roadmap.md`, operator-guide append, test floor canon refresh, known-pre-existing-failures.md refresh, `_scalar` cosmetic removal, #97 sentinel grandfather\n\n### 1.3 Out of Scope (explicit)\n\n- Walk-forward framework implementation (separate post-Sprint-5 track)\n- New ML model architectures or training code beyond the deferred Wave E impl\n- Frontend redesign (Sprint 5 may render new widgets, no arch changes)\n- Render infrastructure (PG cutover complete)\n- #96 `platform_events` TableDef creation (scope-out pending Wave C developer grep confirmation; resolves to triage-disposition.md if no write-site found)\n- #97 actual file split of `alpaca_adapter.py` (grandfathered via `known_violations.json`; tracked as post-Sprint-5)\n- Engine.py + value_tracker.py `except Exception` refactor (#68 sibling work, post-Sprint-5)\n\n### 1.4 Success Criteria\n\n- All 5 wave PRs merged plus Sprint Close PR merged with green CI\n- Final test floor between 5350-5450 (sustained, with zero new failures)\n- All operator-visible decisions resolved without mid-sprint additional AskUserQuestion batches (decisions already approved in 2026-05-12 CHECKPOINT)\n- Devil's-advocate gates pass: Wave D config attack surface bounded (no dynamic event_type resolution); digest mode cannot delay severity≥medium events; backward-compat default config preserves current behavior\n\n---\n\n## 2. Architecture\n\n### 2.1 Wave C — Data Integrity Hardening\n\nSequencing bottleneck per glidepath (\"C must complete before D\"): typed exceptions (#68) and schema additions (#56 strategy_id, severity column for notifications_sent) are dependencies of Wave D.\n\n**Tasks:**\n- **C1 (#54)** — wire `dates` + `directions` arrays at `src/api/cloud_routes/kpis.py:128` (corrected from brief's `:91`). 2-LOC change that flips MC permutation vote from ABSTAIN to real PASS/FAIL.\n- **C2 (#56)** — add `strategy_id TEXT` ColumnDef + ForeignKeyDef to `shadow_trades` in `src/schema/registry.py:198-318`; extend `_fetch_closed_trades` in `src/api/cloud_routes/kpis_compute.py` with optional `strategy_id` filter param.\n- **C3 (#68 REFRAMED)** — create typed exception hierarchy in `src/council/errors.py` (`CouncilError` base → `CouncilParseError`, `CouncilTimeoutError`, `CouncilAgentDataError`, `CouncilProviderError`); replace 30+ bare `except Exception` blocks in `src/council/agent_data.py` with typed catches. **Engine.py + value_tracker.py except-blocks DEFERRED to post-sprint** (per deep-report scope guard).\n- **C4 (#45)** — new module `src/diagnostics/manual_intervention_drift.py` that compares `get_all_positions()` (alpaca_adapter) vs `shadow_trades WHERE status='open'`; emits `notify_manual_intervention_drift` event when divergence persists > 30 min (configurable). New event_type in `src/notifications/telegram.py` event_map.\n- **C5 (#47)** — verification doc only: `docs/audits/2026-05-07-telegram-email-sweep/triage-disposition.md` catalogs all 50 findings as `closed-by-PR-X | scoped-into-Wave-D | follow-up-issue-N | accepted-risk`. Zero source changes.\n- **C6 (#100)** — extend AST scanner at `tests/test_no_fetchone_int_index_in_pg_unsafe_files.py` with new test function `test_no_fetchall_list_comp_int_index_in_pg_unsafe_files` matching `ListComp(elt=Subscript(value=Name, slice=Constant(int)), generators=[comprehension(iter=Call(func=Attribute(attr='fetchall')))])` plus a sibling scanner over `scripts/`. Self-test included.\n\n### 2.2 Wave D — Notifications Routing Policy (LARGEST PIECE)\n\nSingle architectural insertion: a **policy gate** between `safe_send`'s `is_telegram_enabled()` check and the `event_map[event_type]` lookup. Three layered concerns compose:\n\n1. **Dedup** (existing) — 24h content-identity dedup via `notifications_dedup` table\n2. **Policy** (NEW) — mute rules (quiet hours, severity, event_type), routing (telegram/email/both/none)\n3. **Digest queue** (NEW) — bundles severity=low events into cadence-flushed batches\n\n**Composition order:** dedup → policy → digest queue → dispatch.\n\n**Hard invariants (preserve from Sprint 4 T2 and security review):**\n- `event_map[event_type]` lookup REMAINS in `safe_send`. YAML config REFERENCES event_type keys; never resolves them dynamically. KeyError-on-unknown-event_type security boundary preserved.\n- `safe_send`'s `except (urllib3.HTTPError, requests.RequestException, socket.timeout, OSError)` block at `src/notifications/telegram.py:1299-1311` is the ONLY broad catch. New retry logic mounts INSIDE this except block; does NOT widen the catch.\n- Severity ≥ `medium` BYPASSES digest queue (digest is opt-in for severity=low only). Critical alerts cannot be delayed by digest cadence.\n\n**New modules:**\n- `src/notifications/policy.py` — pure-function `should_dispatch(event_type, severity, now_et, config) -> PolicyDecision`. PolicyDecision is a dataclass: `{action: 'send'|'mute'|'digest'|'escalate', channels: list[str], reason: str}`.\n- `src/notifications/digest_queue.py` — DB-backed buffer. `enqueue(event_type, severity, payload, channel)` writes to `notifications_digest_queue` table; `flush_due(now_et, config) -> list[dict]` returns events whose cadence bucket has elapsed.\n\n**Modified surfaces:**\n- `src/notifications/telegram.py:1234` — insert policy gate between line 1232 (`is_telegram_enabled` check) and line 1287 (`event_map[event_type]`).\n- `src/notifications/telegram.py:1299` — replace single-attempt send with exponential-backoff retry (1s, 5s, 30s = 3 attempts). After 5 consecutive failures in a 10-min window, mark `policy_decision='escalated'` and call email-channel notifier as fallback.\n- `src/notifications/telegram.py:780` — apply `_html_escape()` to `regime_old`/`regime_new` in `notify_regime_alert` (#93).\n- `src/notifications/telegram.py:805` — apply `_html_escape()` to `risk_governor_status` + each ticker in `recent_str` before join in `notify_streak_alert` (#94).\n- `src/scheduler/watch.py` — add digest flush hook (every 5 min) + alert-silence detector hook (every 5 min during market hours).\n\n**New surface — alert silence detector:**\n`src/diagnostics/alert_silence.py` — runs on watch loop cadence. If `notifications_sent WHERE status='ok'` has no row within `config.alert_silence_threshold_minutes` (default 60) during market hours, writes `platform_events` row with severity=high AND surfaces dashboard widget data. Closes F2 \"18-hour live_prices gap with no notification\" blind spot.\n\n**Source tagging (#101 — operator clarification 2026-05-12):**\n- New `source_tag TEXT DEFAULT 'watch-loop'` column on `notifications_sent`\n- `safe_send` reads `os.environ.get('ARCIS_NOTIFICATION_SOURCE', 'watch-loop')` and writes to `source_tag` column AND prepends a `[<source>]` prefix to outgoing Telegram messages when source ≠ `'watch-loop'`\n- `tests/conftest.py` session fixture sets `ARCIS_NOTIFICATION_SOURCE='pytest:<worktree-basename>'` AND monkeypatches `_send_telegram` to a null-router (no actual network call from pytest under any condition)\n\n### 2.3 Wave E — Dual-GPU Disposition\n\nDESIGN-ONLY per operator decision. Deliverable: a one-pager `docs/audits/2026-05-12-dual-gpu-ideation/disposition.md` that:\n- Confirms spec at `docs/audits/2026-05-12-dual-gpu-ideation/specs/2026-05-12-dual-gpu-workload-separation-design.md` is the canonical artifact\n- States \"Implementation deferred to first post-Sprint-5 maintenance window\"\n- Documents the 4 stale-text fixes in the spec that should land in any future impl PR (test floor 3682→5350, 'Sprint 6' references, etc.)\n- Links from `docs/roadmap.md` (Sprint Close PR creates that file)\n\nZero source changes. Zero new tests.\n\n### 2.4 Wave F — Dev Tooling / Test Infrastructure\n\n- **F1 (#15)** — new GitHub Actions workflow `.github/workflows/stale-base-check.yml` triggers on `pull_request.synchronize`, computes `git merge-base origin/main HEAD` vs `origin/main`'s HEAD, sets check status to failure if behind. Complements client-side `scripts/hooks/pre-push`.\n- **F2 (#86)** — restructure `tests/test_cloud_requirements_imports.py` from per-test fresh-venv pattern to session-scoped shared-venv: ONE pip install of `requirements-cloud.txt`, then per-test imports via subprocess against the shared venv. Target: drop full-sweep runtime by ~3x.\n- **F3 (#87)** — new `docker-compose.test.yml` (postgres:16-alpine on `localhost:5433`); `tests/conftest.py` `pytest_sessionstart`/`pytest_sessionfinish` hooks provision + teardown. Three hardcoded `TEST_DATABASE_URL` fixtures (`tests/api/test_status.py:18`, `tests/test_cloud_app.py:15`, `tests/test_shadow_desk_filter.py:25`) refactored to use the provisioned URL. Graceful SKIP fallback when Docker not installed. Drops `Create test/test PG role` step from `.github/workflows/pg-tests.yml`.\n\n### 2.5 Sprint Close PR\n\nFinal aggregation PR. See §9 (File Inventory) and §10 Sprint Close subsection for exact artifacts.\n\n---\n\n## 3. Data Model\n\n### 3.1 Schema additions (all via `src/schema/registry.py`)\n\n**Wave C #56 — shadow_trades.strategy_id**\n```python\n# In TABLES['shadow_trades'].columns, after existing columns ~line 318:\nColumnDef('strategy_id', 'TEXT', nullable=True, default=None,\n          description='FK to strategy_registry.strategy_id; NULL for legacy rows pending backfill'),\n# In TABLES['shadow_trades'].foreign_keys:\nForeignKeyDef('strategy_id', 'strategy_registry', 'strategy_id'),\n```\n*Backfill policy:* legacy rows remain NULL (no in-spec backfill task; tracked as post-sprint follow-up). The `desk` column at `registry.py:299` continues to carry legacy `research_<strategy_id>` attribution.\n\n*Precondition:* Wave C #56 developer must confirm `strategy_registry` TableDef + PK column name via Grep before adding the FK. If absent, scope-out to ColumnDef-only (no FK) with rationale in PR body.\n\n**Wave D — notifications_sent column additions**\n```python\n# In TABLES['notifications_sent'].columns:\nColumnDef('severity', 'TEXT', nullable=True, default=None,\n          description='low|medium|high|critical — populated by safe_send from event metadata'),\nColumnDef('policy_decision', 'TEXT', nullable=True, default=None,\n          description='sent|muted|digested|escalated — forensic trail of policy gate decision'),\nColumnDef('source_tag', 'TEXT', nullable=False, default=\"'watch-loop'\",\n          description='watch-loop|pytest:<worktree>|operator-cli — distinguishes notification origin'),\n```\n\n**Wave D — new notifications_digest_queue table**\n```python\nTableDef(\n    name='notifications_digest_queue',\n    columns=[\n        ColumnDef('id', 'INTEGER', primary_key=True, autoincrement=True),\n        ColumnDef('event_type', 'TEXT', nullable=False),\n        ColumnDef('severity', 'TEXT', nullable=False),\n        ColumnDef('payload_json', 'TEXT', nullable=False),\n        ColumnDef('channel', 'TEXT', nullable=False),  # telegram|email|both\n        ColumnDef('enqueued_at', 'TIMESTAMP', nullable=False, default='CURRENT_TIMESTAMP'),\n        ColumnDef('flushed_at', 'TIMESTAMP', nullable=True, default=None),\n    ],\n    indexes=[\n        IndexDef('idx_digest_queue_pending', ['flushed_at', 'enqueued_at']),\n    ],\n)\n```\n\n### 3.2 Schema changes NOT in scope\n\n- **#96 `platform_events`** — TableDef creation deferred. Wave C developer runs `grep -rn 'platform_events' src/ scripts/` BEFORE Wave C close. If a write-site exists, file as Wave C addendum. If only the registry comment refers to it (deep-report's most likely finding), document in C5 triage-disposition.md as \"comment-only drift; no write-site; close as documentation cleanup\".\n- **Engine.py + value_tracker.py except-block refactor** — out of #68 scope per deep-report.\n\n### 3.3 Migration\n\nAll new schema additions go through:\n1. Edit `src/schema/registry.py`\n2. Run `python -m src.main validate-schema --fix` locally (SQLite)\n3. Run `python scripts/render_migrate.py` against PG (PR body must include output per CLAUDE.md)\n\n---\n\n## 4. API & Module Surface\n\n### 4.1 `src/notifications/policy.py` (NEW)\n\n```python\nfrom dataclasses import dataclass\nfrom datetime import datetime, time\nfrom typing import Literal\n\nSeverity = Literal['low', 'medium', 'high', 'critical']\nAction = Literal['send', 'mute', 'digest', 'escalate']\nChannel = Literal['telegram', 'email', 'both', 'none']\n\n@dataclass(frozen=True)\nclass PolicyDecision:\n    action: Action\n    channels: list[Channel]\n    reason: str  # human-readable for logs + dashboard\n\ndef should_dispatch(\n    event_type: str,\n    severity: Severity,\n    now_et: datetime,\n    config: dict,  # parsed from settings.local.yaml notifications: section\n) -> PolicyDecision:\n    \"\"\"\n    Pure function. No I/O. Returns the dispatch decision.\n    \n    Rule precedence (first match wins):\n      1. severity in {'high', 'critical'} → always send (immediate)\n      2. event_type in config['mute_event_types'] → mute\n      3. now_et within config['quiet_hours'] AND severity != 'critical' → mute (or digest if config['quiet_digest']=True)\n      4. severity == 'low' AND config['digest_low']=True → digest\n      5. default → send via config['default_routing'].get(event_type, ['telegram'])\n    \"\"\"\n```\n\n### 4.2 `src/notifications/digest_queue.py` (NEW)\n\n```python\ndef enqueue(event_type: str, severity: str, payload: dict, channel: str, conn=None) -> int:\n    \"\"\"Write to notifications_digest_queue. Returns row id.\"\"\"\n\ndef flush_due(now_et: datetime, config: dict, conn=None) -> list[dict]:\n    \"\"\"\n    Return events whose cadence bucket has elapsed since enqueued_at.\n    Marks returned rows with flushed_at=now_et atomically.\n    Cadence: config['digest_cadence_minutes'] (default 60).\n    Returns: [{'event_type', 'severity', 'payload', 'channel', 'enqueued_at'}, ...]\n    \"\"\"\n```\n\n### 4.3 `src/notifications/telegram.py` — `safe_send` modification\n\n**Before (line 1232-1290):**\n```python\ndef safe_send(event_type: str, severity: str = 'medium', **kwargs):\n    if not is_telegram_enabled():\n        return\n    # ... dedup check ...\n    handler = event_map[event_type]  # KeyError-on-unknown — SECURITY BOUNDARY\n    handler(**kwargs)\n```\n\n**After:**\n```python\ndef safe_send(event_type: str, severity: str = 'medium', **kwargs):\n    if not is_telegram_enabled():\n        return\n    # ... dedup check (unchanged) ...\n    \n    # NEW: policy gate (composes after dedup, before dispatch)\n    config = _load_notifications_config()\n    now_et = _now_et()\n    decision = policy.should_dispatch(event_type, severity, now_et, config)\n    \n    if decision.action == 'mute':\n        _record_policy_decision(event_type, severity, 'muted', decision.reason)\n        return\n    if decision.action == 'digest':\n        digest_queue.enqueue(event_type, severity, kwargs, decision.channels[0])\n        _record_policy_decision(event_type, severity, 'digested', decision.reason)\n        return\n    \n    handler = event_map[event_type]  # KeyError-on-unknown PRESERVED\n    _send_with_retry(handler, event_type, severity, decision, **kwargs)\n```\n\n**`_send_with_retry` (NEW helper inside telegram.py):**\n- Wraps the existing send + the existing network-except block at lines 1299-1311\n- 3 attempts with sleeps `[1, 5, 30]` seconds between\n- After all 3 fail: writes `status='failed'`, `policy_decision='failed'`\n- Tracks consecutive failure count in-memory; after 5 failures within 10-min window, sets `decision.action='escalate'` and calls `email_notifier.send(...)` as fallback. Records `policy_decision='escalated'`.\n- **Catch list UNCHANGED**: still only `(urllib3.HTTPError, requests.RequestException, socket.timeout, OSError)`. Bare `except Exception` is FORBIDDEN per Sprint 4 T2 discipline.\n\n### 4.4 `src/diagnostics/manual_intervention_drift.py` (NEW — Wave C #45)\n\n```python\ndef detect_drift(\n    broker_positions: dict[str, float],  # ticker -> qty from alpaca_adapter.get_all_positions()\n    db_positions: dict[str, float],      # ticker -> sum(actual_shares) from shadow_trades WHERE status='open'\n    threshold_minutes: int = 30,\n    state_path: str = 'data/drift_detector_state.json',\n) -> list[DriftFinding]:\n    \"\"\"\n    Compares broker vs db per-ticker. If diff != 0, persists first-seen-at timestamp\n    to state_path. If diff has persisted unchanged > threshold_minutes, emits a finding.\n    Returns list of DriftFinding(ticker, broker_qty, db_qty, first_seen_at, severity).\n    \"\"\"\n```\n\n### 4.5 `src/diagnostics/alert_silence.py` (NEW — Wave D add-on)\n\n```python\ndef check_alert_silence(\n    now_et: datetime,\n    threshold_minutes: int = 60,\n    conn=None,\n) -> AlertSilenceFinding | None:\n    \"\"\"\n    Reads notifications_sent WHERE status='ok' ORDER BY sent_at DESC LIMIT 1.\n    During market hours (per src/scheduler/holidays.is_market_open):\n      - if no successful send within threshold_minutes → returns AlertSilenceFinding\n      - emits via safe_send(event_type='alert_silence', severity='high', ...)\n      - writes platform_events row (severity=high) for forensic trail\n    Returns None outside market hours.\n    \"\"\"\n```\n\n### 4.6 `src/council/errors.py` (extended — Wave C #68)\n\n```python\nclass CouncilError(Exception):\n    \"\"\"Base for all council subsystem errors.\"\"\"\n\nclass CouncilUnavailableError(RuntimeError, CouncilError):\n    \"\"\"Existing — kept for back-compat. Raised by aggregation.py.\"\"\"\n\nclass CouncilParseError(CouncilError):\n    \"\"\"JSON / response-shape failures.\"\"\"\n\nclass CouncilTimeoutError(CouncilError):\n    \"\"\"Ollama / network timeouts.\"\"\"\n\nclass CouncilAgentDataError(CouncilError):\n    \"\"\"agent_data.py SQLite / DB-shape failures.\"\"\"\n\nclass CouncilProviderError(CouncilError):\n    \"\"\"Ollama / LLM provider HTTP errors.\"\"\"\n```\n\n### 4.7 YAML Config Schema (Wave D — `config/settings.example.yaml` extension)\n\n```yaml\nnotifications:\n  # All keys OPTIONAL — defaults preserve current behavior (everything → telegram, no mute, no digest)\n  quiet_hours:\n    enabled: false              # default: false (no quiet hours)\n    start: '22:00'              # ET, 24h format\n    end: '06:00'\n    bypass_severity: critical   # 'medium'|'high'|'critical' — bypass quiet hours at this severity and above\n  mute_event_types: []          # list of event_type strings to silently drop; default: []\n  digest_low: false             # default: false; if true, severity=low events buffer to digest queue\n  digest_cadence_minutes: 60    # default 60; how often digest flushes\n  default_routing:              # default: all events → ['telegram']\n    # event_type: [channels]\n    trade_opened: ['telegram']\n    eod_report: ['email']\n  retry:\n    attempts: 3                 # default 3\n    backoff_seconds: [1, 5, 30] # default [1, 5, 30]\n    escalation_threshold: 5     # consecutive failures before email-fallback\n    escalation_window_minutes: 10\n  alert_silence:\n    enabled: true               # default: true\n    threshold_minutes: 60       # alert if no successful send in this many min during market hours\n```\n\n**Validation rules (enforced by `_load_notifications_config`):**\n- All event_type strings in `mute_event_types` + `default_routing` MUST be keys of the existing `event_map` dict. Unknown event_type in config raises `NotificationsConfigError` at startup — fail fast, not at dispatch time.\n- `quiet_hours.start` / `end` MUST parse as `HH:MM` 24h time. Crossing midnight (22→06) is supported.\n- `retry.backoff_seconds` MUST equal length `retry.attempts - 1` (3 attempts → 2 inter-attempt sleeps). Wait — re-spec: 3 attempts → 3 backoff values, last one ignored if attempt 3 succeeds. Use `attempts` as count, `backoff_seconds[i]` as sleep before attempt `i+1`.\n- Channels MUST be in `{'telegram', 'email', 'both', 'none'}`.\n\n---\n\n## 5. Error Handling\n\n### 5.1 safe_send retry + escalation policy (Wave D)\n\n| Scenario | Behavior | Records |\n|---|---|---|\n| Attempt 1 succeeds | Status='ok', policy_decision='sent' | `notifications_sent` row |\n| Attempt 1 fails (network), attempt 2 succeeds | Same as above (success masks transient failure); log warning | `notifications_sent` (status='ok') |\n| All 3 attempts fail (network) | status='failed', policy_decision='failed'; increment in-memory consecutive_failures | `notifications_sent` (status='failed') |\n| 5+ failures in 10-min window | policy_decision='escalated'; call `email_notifier.send(subject=f'[ESCALATION] {event_type}', body=...)`. Reset counter on next success. | `notifications_sent` (status='escalated') + email |\n| `event_type` not in `event_map` | KeyError raised (SECURITY — unchanged) | None (fail-fast at startup-config-load OR at dispatch) |\n| `NotificationsConfigError` at startup | Watch loop fails to start; operator must fix YAML | stderr + sys.exit(1) |\n\n### 5.2 Wave C #68 typed errors\n\n- `agent_data.py` except blocks: classify per error source\n  - SQLite errors (`sqlite3.OperationalError`, `psycopg.Error`) → re-raise as `CouncilAgentDataError`\n  - `json.JSONDecodeError` / shape mismatches → re-raise as `CouncilParseError`\n  - `requests.RequestException` (to Ollama) → re-raise as `CouncilProviderError`\n  - Truly unexpected → keep `except Exception` ONLY at the top-level orchestration entry point in engine.py (out of #68 scope per deferral)\n- Tests verify that callers can `except CouncilError` and reliably catch all council failures\n\n### 5.3 Wave C #45 drift detection error handling\n\n- If `get_all_positions()` raises (broker network), drift detector LOGS and returns empty list. No drift alert on its own outage (don't alert on alert path).\n- If DB read fails, raise `CouncilAgentDataError`-equivalent here is `DiagnosticsDataError` (new, mirrors pattern from #68 in `src/diagnostics/errors.py`).\n\n### 5.4 Wave F #87 fixture error handling\n\n- Docker not installed / not running → `pytest_sessionstart` logs warning, leaves `TEST_DATABASE_URL` unset, parametrized PG variants SKIP (current behavior preserved).\n- Container start fails (port conflict, image pull error) → SKIP gracefully, write reason to `pytest_warnings`.\n- Container start succeeds but schema bootstrap fails → fail the session with explicit error (developer must fix migration, not silently SKIP).\n\n---\n\n## 6. Testing Strategy\n\n### 6.1 Per-task test additions (projected)\n\n| Wave | Task | New tests | Notes |\n|---|---|---|---|\n| C | C1 (#54) | +3 | wired call, MC-vote-no-abstain, response shape regression |\n| C | C2 (#56) | +5 | schema discipline, FK enforcement, filter behavior |\n| C | C3 (#68) | +8 | hierarchy structure, each typed exception raises/catches, agent_data error path coverage |\n| C | C4 (#45) | +6 | detector with mocked broker/db, threshold boundary, alert dedup, widget data shape, watch-loop hook idempotence, state persistence |\n| C | C5 (#47) | +0 | verification doc only |\n| C | C6 (#100) | +3 | new scanner self-test, scripts/ scanner self-test, integration on synthetic violation file |\n| D | D1 policy | +12 | truth table: severity × quiet-hours × mute-list × digest-low; config validation; cross-midnight quiet hours |\n| D | D2 digest_queue | +8 | enqueue, flush_due, cadence boundary, no-double-flush, schema discipline |\n| D | D3 retry | +6 | 1-attempt success, retry-then-success, 3-fail-then-fail, escalation threshold, consecutive-counter reset on success, narrow-catch invariant |\n| D | D4 html-escape + source-tag | +5 | regime_alert escape, streak_alert escape, source_tag column write, pytest source-tag prefix, conftest null-router |\n| D | D5 alert_silence | +4 | silence detection, market-hours gate, platform_events forensic write, dashboard widget shape |\n| F | F1 (#15) | +2 | workflow YAML lint, step structure assertion |\n| F | F2 (#86) | +0 | restructure existing; verify test count unchanged |\n| F | F3 (#87) | net +30-50 | un-SKIPs previously-skipped postgres parametrized variants |\n\n**Total projected:** +90-110 new tests minus the un-SKIPs offset.\n**Projected final floor:** 5400-5450. Sprint Close bumps `pg-tests.yml` floor 5050→5350 (10-test conservative margin) AND CLAUDE.md 3682→5350.\n\n### 6.2 AST structural guardrails (per CLAUDE.md PR #1058/#1059/#1060 discipline)\n\nFor every NEW module, add a structural test that asserts the bug-class is unrepeatable:\n\n- **policy.py** — `tests/notifications/test_policy_purity.py` asserts `policy.should_dispatch` does NOT import `requests`, `sqlite3`, or `psycopg` (pure function invariant via AST scan of imports)\n- **digest_queue.py** — `tests/notifications/test_digest_queue_atomicity.py` asserts `flush_due` does NOT modify rows whose `flushed_at` is non-NULL (idempotence invariant via SQL trace)\n- **safe_send retry** — `tests/notifications/test_safe_send_catch_discipline.py` AST-scans the file and asserts the network-except clause's exception tuple equals exactly `(urllib3.HTTPError, requests.RequestException, socket.timeout, OSError)`. Prevents future widening to `except Exception`.\n- **manual_intervention_drift.py** — `tests/diagnostics/test_drift_detector_no_recursion.py` asserts the detector does NOT call `safe_send('manual_intervention_drift', ...)` from within its own alert path (prevents alert-on-alert recursion)\n\n### 6.3 Existing-test sibling-search (per memory `feedback_review_sibling_search`)\n\nEach developer MUST grep for the pattern they're fixing across the file AND across `src/` before claiming task done:\n- C1 dev: grep `_compute_promotion_gate_kpi(` across `src/api/` for any other callers passing only `(n_trades, returns)`\n- D4 dev: grep for `f'...{<var>}'` style HTML interpolation across all `notify_*` functions, not just regime + streak\n- C6 dev: grep for `[r[N] for r in` across `src/` AND `scripts/` to confirm the scanner extension catches all live sites\n\n### 6.4 Visual-verify gate (per memory `feedback_visual_verify_ui`)\n\nNew dashboard widgets that ship in this sprint:\n- **D5 alert silence widget** — browser-render via `cd frontend && npm run dev`, screenshot included in PR body\n- **C4 drift detection widget** — same discipline\n- **Notifications routing config preview** (D1 add-on — optional, but recommended): a `GET /api/notifications/policy-preview` endpoint that returns the current effective config + a sample dispatch decision for every event_type. Surface via dashboard so operator can answer \"what would fire right now?\"\n\n### 6.5 Worktree isolation (per CLAUDE.md)\n\nALL parallel agent dispatches use `isolation: \"worktree\"`. Sequencing constraint: when two tasks edit the same file (e.g., C4 + D2 + D5 all edit `src/scheduler/watch.py`), they MUST run sequentially OR the PM coordinates rebasing via per-wave PR sequencing (deep-report's preferred path: C4 lands first, then D2 rebases, then D5 rebases).\n\n---\n\n## 7. Operational Notes\n\n### 7.1 Operator-guide additions (per CLAUDE.md same-PR mandate)\n\n**Wave D PR adds `docs/operator-guide.md` section \"Notifications routing\":**\n- YAML config location: `config/settings.local.yaml` under `notifications:` key\n- Schema reference: link to `config/settings.example.yaml` for live keys\n- \"How to inspect what would fire\": `GET /api/notifications/policy-preview` URL\n- Escalation expectation: \"After 5 consecutive failures in 10 min, alerts route to email — check inbox if Telegram quiet during market hours\"\n- Source-tag explanation: \"`[pytest:<worktree>]` prefix on a Telegram message means a worktree-isolated pytest run leaked through env vars. Should not happen post-Sprint-5 conftest fix; report if seen.\"\n\n**Wave C PR adds section \"Drift detection\":**\n- Alert format: \"`Manual intervention drift detected: AAPL broker=100, db=150, persisted 35min`\"\n- How to silence: edit `config/settings.local.yaml` `diagnostics.drift_detection.enabled: false`\n- Recovery procedure: reconcile via `python -m src.main reconcile-positions`\n\n**Wave F PR adds section \"CI checks\":**\n- Stale-base check: \"PR will fail merge if its branch is behind `origin/main`. Rebase locally + force-push to refresh.\"\n- Bypass: documented but discouraged (\"`git push --no-verify` only for emergency hotfix; expect operator review\")\n\n**Sprint Close PR adds section \"Sprint 5 closeout state\":**\n- Version: v0.35.0\n- New behaviors: notifications routing, drift detection, alert silence, stale-base CI\n- Deferred: dual-GPU implementation, council engine.py/value_tracker.py except refactor, alpaca_adapter.py split\n- Active track: walk-forward framework (separate roadmap entry)\n\n### 7.2 Roadmap (`docs/roadmap.md` — NEW)\n\nStructure (created in Sprint Close PR):\n```markdown\n# Arcis Roadmap\n\n## Sprint history\n| Sprint | Date closed | Headline |\n|---|---|---|\n| Sprint 0 | 2026-04-25 | Repo structure + scope checks |\n| Sprint 1 | 2026-04-27 | PIT discipline + universe T10 migration |\n| Sprint 2 | (date) | Promotion gate methodology |\n| Sprint 3 | (date) | Cost model wiring (#79) |\n| Sprint 4 | 2026-05-08 | safe_send dispatcher + email hardening |\n| Sprint 5 | 2026-05-XX | Notifications routing + cross-engine hardening + data integrity |\n\n## Active track\n- **Walk-forward framework** (post-Sprint-5) — see `docs/audits/<future-spec>.md`\n\n## Deferred\n- Dual-GPU workload separation (`docs/audits/2026-05-12-dual-gpu-ideation/`)\n- Council engine.py + value_tracker.py except-block refactor (post-Sprint-5; #68 sibling)\n- alpaca_adapter.py file split (post-Sprint-5; #97)\n```\n\n### 7.3 Test floor canon refresh\n\nSprint Close PR updates THREE locations:\n- `CLAUDE.md` test floor line (currently 3682) → 5350 + lineage paragraph noting the projection\n- `.github/workflows/pg-tests.yml` floor (currently 5050) → 5350\n- `CHANGELOG.md` v0.35.0 section documents the floor lineage explicitly so future agents can audit drift\n\n### 7.4 Per-wave CHANGELOG entries (vs Sprint Close aggregation)\n\nEach wave PR adds entries to `[Unreleased]` (per CLAUDE.md). Sprint Close PR moves ALL of these into a single `## [v0.35.0] - 2026-05-XX — Sprint 5 close` section, organized by subsection (Wave C / Wave D / Wave E / Wave F).\n\n---\n\n## 8. File Inventory\n\n### 8.1 New files\n\n| Path | Created by | Purpose |\n|---|---|---|\n| `src/notifications/policy.py` | D1 | Pure-function policy gate |\n| `src/notifications/digest_queue.py` | D2 | DB-backed digest buffer |\n| `src/diagnostics/manual_intervention_drift.py` | C4 | Drift detector |\n| `src/diagnostics/alert_silence.py` | D5 | Alert silence detector |\n| `src/diagnostics/errors.py` | C4 | Diagnostics typed errors |\n| `tests/notifications/test_policy.py` | D1 | Policy truth table |\n| `tests/notifications/test_policy_purity.py` | D1 | AST guardrail |\n| `tests/notifications/test_digest_queue.py` | D2 | State machine tests |\n| `tests/notifications/test_digest_queue_atomicity.py` | D2 | AST/SQL guardrail |\n| `tests/notifications/test_safe_send_retry.py` | D3 | Retry + escalation |\n| `tests/notifications/test_safe_send_catch_discipline.py` | D3 | AST guardrail on except tuple |\n| `tests/notifications/test_html_escape_siblings.py` | D4 | regime + streak escape tests |\n| `tests/diagnostics/test_manual_intervention_drift.py` | C4 | Drift detector unit tests |\n| `tests/diagnostics/test_drift_detector_no_recursion.py` | C4 | AST guardrail |\n| `tests/diagnostics/test_alert_silence.py` | D5 | Silence detector tests |\n| `tests/council/test_typed_errors.py` | C3 | Council error hierarchy |\n| `docker-compose.test.yml` | F3 | PG test container |\n| `.github/workflows/stale-base-check.yml` | F1 | Server-side stale-base gate |\n| `tests/workflows/test_stale_base_check.py` | F1 | YAML lint + structure |\n| `docs/audits/2026-05-07-telegram-email-sweep/triage-disposition.md` | C5 | 50-finding disposition |\n| `docs/audits/2026-05-12-dual-gpu-ideation/disposition.md` | E1 | Wave E deferral note |\n| `docs/roadmap.md` | Sprint Close | Sprint history + active track |\n\n### 8.2 Modified files\n\n| Path | Modified by | Change |\n|---|---|---|\n| `src/api/cloud_routes/kpis.py` | C1 | Line 128: pass `dates` + `directions` |\n| `src/api/cloud_routes/kpis_compute.py` | C2 | `_fetch_closed_trades` adds optional `strategy_id` filter |\n| `src/schema/registry.py` | C2, D2, D3 | strategy_id ColumnDef+FK; notifications_digest_queue TableDef; severity/policy_decision/source_tag columns on notifications_sent |\n| `src/council/errors.py` | C3 | Add 4 typed exception classes |\n| `src/council/agent_data.py` | C3 | Replace 30+ `except Exception` blocks with typed catches |\n| `src/notifications/telegram.py` | D1, D3, D4 | Insert policy gate at line 1234; replace single-attempt send with retry+escalate at 1299; apply `_html_escape` at lines 780+805; read `ARCIS_NOTIFICATION_SOURCE` env |\n| `src/scheduler/watch.py` | C4, D2, D5 | Drift detector tick (every 30 min); digest flush tick (every 5 min); alert silence tick (every 5 min during market hours). SEQUENCE: C4 first, D2 rebases, D5 rebases. |\n| `tests/conftest.py` | D4, F3 | `ARCIS_NOTIFICATION_SOURCE='pytest:<worktree>'`; `_send_telegram` null-router monkeypatch; `pytest_sessionstart`/`finish` docker-compose hooks |\n| `tests/test_no_fetchone_int_index_in_pg_unsafe_files.py` | C6 | Add `test_no_fetchall_list_comp_int_index_in_pg_unsafe_files`; add scripts/ scanner |\n| `tests/api/test_status.py`, `tests/test_cloud_app.py`, `tests/test_shadow_desk_filter.py` | F3 | Un-hardcode `TEST_DATABASE_URL` |\n| `.github/workflows/pg-tests.yml` | F3, Sprint Close | Drop test/test role creation step; bump test floor 5050→5350 |\n| `tests/test_cloud_requirements_imports.py` | F2 | Session-scoped shared-venv restructure |\n| `config/settings.example.yaml` | D1 | Add `notifications:` section schema example |\n| `docs/operator-guide.md` | Wave D, C, F, Close | Sections: Notifications routing, Drift detection, CI checks, Sprint 5 closeout state |\n| `CLAUDE.md` | Sprint Close | Test floor 3682→5350; lineage note |\n| `CHANGELOG.md` | Every wave + Close | Per-wave entries in `[Unreleased]`; Close aggregates into `[v0.35.0]` |\n| `src/version.py` | Sprint Close | `'v0.34.0'` → `'v0.35.0'` |\n| `config/known_violations.json` | Sprint Close | Add `tests/shadow_trading/test_alpaca_adapter_split.py` entry (#97 grandfather) |\n| `tests/shadow_trading/test_alpaca_adapter_split.py` | Sprint Close | Delete (sentinel obsolete after grandfather) |\n| `docs/audits/known-pre-existing-failures.md` | Sprint Close | Refresh stale 34-failure canon to current state |\n| `scripts/render_migrate.py` | C2, D2, D3 | (no edits; outputs included in PR bodies) |\n\n### 8.3 Cosmetic `_scalar` removal (Sprint Close)\n\nMechanical revert of `_scalar` helper usage across 82 call sites (now redundant post-PR-1060). Touched files limited to:\n- `src/utils/db.py` (helper definition)\n- Per-call-site files (~30 estimated; PM dispatch as a single-developer mechanical sweep with sibling-search confirmation)\n\nIf scope balloons (>40 files), PM defers to post-Sprint-5 and notes in Close PR body. Reversal cost: trivial.\n\n---\n\n## 9. Known Considerations (Devil's-Advocate-anticipated risks)\n\n### 9.1 Wave D config attack surface\n\n**Risk:** YAML parsing of operator config introduces injection or DoS surface.\n**Mitigation:**\n- All event_type values in config MUST be validated against the existing `event_map` keys at startup (`NotificationsConfigError` on unknown key). Closes the dynamic-dispatch risk preserved from Sprint 4 T2.\n- All time strings parsed via `datetime.strptime(s, '%H:%M')` — raises ValueError on malformed input → fail-fast at startup\n- `digest_cadence_minutes` clamped to [1, 1440] range; reject silently-huge values that would queue events indefinitely\n- `retry.attempts` clamped to [1, 10]; `backoff_seconds` clamped per-element to [0, 300]\n- No YAML `!include` or other tag interpolation — uses `yaml.safe_load` (existing project convention)\n\n### 9.2 Digest-mode-delays-critical regression\n\n**Risk:** A severity=critical event gets buffered to digest and an outage goes unnoticed for 60 min.\n**Mitigation:**\n- `policy.should_dispatch` rule #1: severity ∈ {high, critical} → always action='send', no quiet-hours bypass needed. Tested by 4 explicit truth-table cases.\n- AST guardrail `test_policy_severity_high_always_sends` asserts the function returns `action='send'` for severity='critical' regardless of any other config flag combination.\n- Code review checklist: any future PR that changes `should_dispatch` MUST not modify the rule-1 short-circuit. Reviewer dispatch matrix includes Security.\n\n### 9.3 Retry storms on sustained outage\n\n**Risk:** If Telegram is down for hours, every alert spends 1+5+30=36s in retry before failing. Watch loop blocks.\n**Mitigation:**\n- After 5 consecutive failures in 10-min window, `_send_with_retry` SKIPS attempts 2+3 and goes straight to email-escalation. Closes the \"every alert burns 36s\" failure mode.\n- Retry sleeps wrapped in `time.sleep` — acceptable for watch loop's notification path (not in critical signal computation path).\n- Telemetry: consecutive failure count surfaced via dashboard widget so operator sees the outage signal without waiting for the alert-silence detector.\n\n### 9.4 Source tag confusion\n\n**Risk:** Operator confuses `[pytest:<worktree>]` prefixed messages with real alerts.\n**Mitigation:**\n- `tests/conftest.py` ALSO monkeypatches `_send_telegram` to a null-router — pytest cannot actually call Telegram API even if env var leaks. Defense in depth.\n- Operator-guide section explicitly documents the prefix semantics.\n- AST guardrail in `tests/notifications/test_safe_send_pytest_isolation.py` confirms that under pytest, `_send_telegram` is monkeypatched (asserts `_send_telegram.__name__ == '_null_router'`).\n\n### 9.5 Wave C #68 typed-except may surface previously-swallowed bugs\n\n**Risk:** Tightening exception handling in agent_data.py exposes latent bugs that were previously silent.\n**Mitigation:**\n- PR body discloses expected behavior change\n- Canary deploy: operator restarts watch loop via NSSM after merge, eyes-on for 1h with dashboard open\n- Each typed exception class has a `safe_send`-able representation so surfacing bugs become real alerts, not silent regressions\n\n### 9.6 #54 directions-wiring flips promotion_gate decisions\n\n**Risk:** Strategies that were 'defer' due to MC ABSTAIN flip to 'reject' or 'promote' — a SEMANTIC change.\n**Mitigation:**\n- Pre-merge: C1 developer runs `promotion_gate` against current closed trades, includes the votes_passed-delta table in PR body\n- CHANGELOG entry explicitly documents the shift; operator can choose to roll back via 1-LOC revert if delta is unacceptable\n- Reviewer dispatch includes Performance reviewer (math correctness verification)\n\n### 9.7 #100 scanner extension may produce noisy violations across `scripts/`\n\n**Risk:** Adding `scripts/` to scanner coverage uncovers dozens of pre-existing violations.\n**Mitigation:**\n- C6 developer first runs the scanner with allowlist=[] against scripts/ and reports the count\n- If count > 5, the spec'd fix is to land scanner extension with a populated allowlist matching current violations + a TODO entry in `docs/audits/known-pre-existing-failures.md`. The PR's MERIT is preventing FUTURE violations; existing ones are documented as pre-existing.\n- If count ≤ 5, fix in same PR (preferred)\n\n### 9.8 Worktree env drift (per memory `feedback_worktree_env_drift`)\n\n**Risk:** Wave D tests pass in agent worktree but fail post-merge because worktree doesn't carry operator's .env values.\n**Mitigation:**\n- All Wave D tests use `monkeypatch.setenv` to set required env vars hermetically\n- D4 explicitly tests the `ARCIS_NOTIFICATION_SOURCE` env var path with both set and unset cases\n- `tests/conftest.py` already clears `ARCIS_LOCAL_API_TOKEN` per-test (per #729 pattern); extend to ALSO clear `ARCIS_TELEGRAM_TOKEN` to prevent worktree env leakage\n\n### 9.9 Concurrent edits to src/scheduler/watch.py (C4 + D2 + D5)\n\n**Risk:** Three tasks all add new hooks to the watch loop; parallel agent dispatches collide.\n**Mitigation:** PM enforces sequential dispatch for these three tasks. Wave C #45 (C4) lands first; Wave D digest flush (D2) rebases on C4; Wave D alert silence (D5) rebases on D2. Each task's PR diff cleanly adds an isolated hook.\n\n### 9.10 #87 docker-compose port 5433 conflict\n\n**Risk:** Operator may have other PG instances or test containers on 5433.\n**Mitigation:**\n- F3 developer confirms `localhost:5433` is free via `netstat` before committing\n- `docker-compose.test.yml` documents port as configurable via `TEST_PG_PORT` env var (default 5433)\n- Fallback to 5434, 5435 documented in operator-guide\n\n### 9.11 Coverage gaps from deep-report\n\nThe deep-codebase-report `coverage_gaps[]` flags these areas as NOT-fully-read; spec calls them out so per-task developers re-read as their first step:\n- `src/email/digest_builder.py` past line 80 (Wave D digest cadence may need to mirror; D2 developer reads full file as first step)\n- `src/shadow_trading/reconcile.py` past line 60 (Wave C #45 detector should align with reconcile patterns; C4 developer reads first)\n- `src/council/engine.py` + `value_tracker.py` (C3 task confirms scope-out by re-reading except patterns)\n- `tests/test_cloud_requirements_imports.py` past line 100 (F2 developer reads first)\n- `src/api/cloud_routes/kpis_compute.py` past line 400 (C2 developer reads `_fetch_closed_trades` signature)\n- `config/settings.local.yaml` (operator file; D1 developer references `config/settings.example.yaml` as schema source)\n- `tests/email/test_notifier.py` (C5 verifies via Glob)\n\n---\n\n## 10. Design Decisions Table\n\n| # | Decision | Rationale | Alternatives considered | Reversal cost | Source |\n|---|---|---|---|---|---|\n| 1 | Wave E: DESIGN-ONLY, defer impl post-Sprint-5 | Spec says \"deferred to SP6\" — but no SP6. No current bottleneck demands impl. Reversible: spec is the deliverable. | Implement in SP5 (~1.5 days; low blast-radius); skip entirely (lose spec discipline) | Low — operator can opt-in impl in any post-sprint maintenance window | Operator CHECKPOINT 2026-05-12 |\n| 2 | Version bump: MINOR (0.35.0) | Wave D ships new YAML config surface; Wave C #56 ships new schema column; Wave C #45 ships new event_type. All backward-compat additions per versioning policy. | Patch (0.34.1 — but additions aren't pure fixes); major (0.35→1.0 — premature) | Trivial (1-line string change) | Operator CHECKPOINT 2026-05-12 |\n| 3 | Wave D defaults: BACKWARD-COMPAT | Zero-config users see no change; operator opts in. Minimizes blast radius. | Opt-out (quiet hours on by default — risk of suppressing real alerts before operator notices) | Zero (operator deletes config keys to restore) | Operator CHECKPOINT 2026-05-12 |\n| 4 | PR boundary: PER-WAVE PRs (6 total) | Matches recent successful #1058/#1059/#1060 cadence. Smaller review surface; smaller blast radius per merge. | Monolithic Sprint Close PR (worse review surface, harder rollback) | Low (PM can batch-merge with single CHANGELOG section) | Operator CHECKPOINT 2026-05-12 |\n| 5 | `docs/roadmap.md`: CREATE NEW | Sprint history + active-track pointer is distinct from operator-runnable runbook content. Cleaner separation. | Fold into `docs/operator-guide.md` Sprint history section (mixed concerns) | Low (file move + redirect-pointer) | Operator CHECKPOINT 2026-05-12 |\n| 6 | #97 alpaca_adapter: GRANDFATHER + delete sentinel test | File split is high-blast-radius. Sentinel test currently incongruent. Cleanest fix: known_violations.json entry + delete sentinel. | Actually split file in SP5 (>4 hrs work, touches every alpaca call site); accept failing test (governance violation) | Low (operator can split in any post-sprint PR) | Operator CHECKPOINT 2026-05-12 |\n| 7 | #96 platform_events: SCOPE-OUT pending write-site grep | Deep-report finds no clear write-site; comment-only drift. Add TableDef only if Wave C developer confirms write-site. | Add TableDef unconditionally (risks dead schema); ignore entirely (perpetuates drift) | Low (in-PR decision; doesn't block Sprint Close) | Operator CHECKPOINT 2026-05-12 |\n| 8 | #68 reframe: typed hierarchy + agent_data.py only | Brief premise WRONG — only 1 raise site exists; real opportunity is 30+ bare except Exception. Engine.py + value_tracker.py deferred to keep scope tractable. | Refactor all of council/ (>2x scope; risks Sprint 5 close slip); skip entirely (misses the safety improvement) | Low (post-sprint sibling work can extend) | Architect (deep-report) |\n| 9 | safe_send policy gate inserted IN-PLACE (no separate router module) | Duplicating event_map in a parallel router.py would weaken the KeyError-on-unknown-event_type security boundary. | New `src/notifications/router.py` module (parallel surface; harder to reason about composition) | Low (in-place insert is easily revertable) | Architect (Sprint 4 T2 security carry-forward) |\n| 10 | Digest queue: DB-backed not in-memory | Watch loop restarts must not lose buffered events. SQLite/PG durability is the existing pattern. | In-memory deque (data loss on restart); Redis (new infrastructure dependency) | Low (table drop + module remove) | Architect |\n| 11 | Source tag column added to notifications_sent (not separate audit table) | Notifications_sent already tracks every dispatch; source_tag is per-row metadata, not a separate event stream. | New `notification_audit` table (duplication; two-way join overhead) | Low (column drop) | Architect (#101 design) |\n| 12 | Retry policy: 3 attempts with [1, 5, 30]s backoff | Tuned to Telegram's intermittent failure rate (F2: 2-3 failures/hour). Total wait per failed event = 36s, acceptable for non-hot-path. | Single attempt (current — too brittle); 5+ attempts (DoS risk) | Trivial (config tunable) | Architect (F2 mitigation) |\n| 13 | Escalation: 5 failures in 10 min → email fallback | Captures sustained outages while tolerating transient blips. Email is the operator's secondary channel. | No escalation (F2 blind spot persists); SMS (new dep) | Trivial (config tunable) | Architect (F2 mitigation) |\n| 14 | Sequence C4 → D2 → D5 for `src/scheduler/watch.py` edits | Three tasks edit the same file. Sequential PRs avoid worktree race. C4 lands first because Wave C precedes Wave D per glidepath. | Parallel + manual merge resolution (race risk per memory `feedback_review_sibling_search`) | Low (each PR is independent rebase) | Architect |\n| 15 | Wave F #87 PG port 5433 (not 5432) | Avoid clash with operator's local PG (memory `reference_local_ports`: 8080 EnterpriseDB; PG on 5432 is operator's). | 5432 (collision risk); random port (test fixture complexity) | Trivial (port reassignment) | Architect (memory-grounded) |\n| 16 | Test floor canon: 5350 (10-test buffer below projected 5400-5450 median) | Projection has +/- range; 50-test conservative margin prevents flaky-test-day floor failures. | 5400 (tighter, risk transient drops); 5050 (no progress) | Trivial (CLAUDE.md + pg-tests.yml number) | Architect |\n| 17 | `_scalar` cosmetic removal: SAME PR as Sprint Close, with scope-cap | Sprint Close is the natural home; ~30 file mechanical sweep is cosmetic, not architectural. Scope-cap: if >40 files, defer to post-sprint. | Standalone PR (PR count inflation); never remove (helper rots) | Trivial (already a mechanical revert) | Architect (post-PR-1060 cleanup) |\n\n---\n\n## 11. Do-Not-Do (explicit anti-requirements)\n\n- DO NOT create a parallel `src/notifications/router.py` module. Modify `safe_send` in-place.\n- DO NOT widen `safe_send`'s narrow network-except tuple. AST guardrail enforces.\n- DO NOT add YAML `!include` or other tag-interpolation parsing. Use `yaml.safe_load` only.\n- DO NOT make `event_map` mutable / dynamically extensible via config. Config REFERENCES existing keys.\n- DO NOT refactor `engine.py` or `value_tracker.py` `except Exception` blocks in #68. Scope-defer per deep-report.\n- DO NOT actually split `alpaca_adapter.py` in this sprint. Grandfather per Decision 6.\n- DO NOT add `platform_events` TableDef unless Wave C developer's grep confirms write-site.\n- DO NOT implement Wave E in this sprint. Disposition doc only.\n- DO NOT bump test floor without verifying actual sweep count first (avoid 3682→5350 → ghost-floor failure).\n- DO NOT skip the operator-guide update per CLAUDE.md rule.\n- DO NOT defer CHANGELOG entries — each wave PR updates `[Unreleased]`, Sprint Close aggregates.\n- DO NOT use `git push --no-verify` on any of these PRs (no emergency hotfix justification).\n- DO NOT introduce a new bare `except Exception` anywhere. Use typed catches.\n- DO NOT call real Telegram API from pytest. Conftest null-router is mandatory.\n\n---\n\n## 12. Falsifiability Triggers\n\nThe spec is INVALIDATED (and must be revised) if any of the following surface during execution:\n\n- **Wave C #56**: `strategy_registry` TableDef does NOT exist or its PK column name is unknown — spec must revise FK target before PR\n- **Wave C #45**: `alpaca_adapter.get_all_positions()` does NOT return a usable `{ticker: qty}` shape — spec must revise drift comparison surface\n- **Wave D D1**: existing `event_map` dict at `telegram.py:1287` is private/internal and cannot be enumerated for config validation — spec must revise validation strategy (likely: export a public `EVENT_TYPES` set)\n- **Wave D D2**: `notifications_digest_queue` cannot atomically mark `flushed_at` (no `SELECT ... FOR UPDATE` on SQLite) — spec must revise to use `WHERE flushed_at IS NULL` guarded by retry-on-conflict\n- **Wave F F3**: docker-compose v2 not installed on operator machine OR on CI runner — spec must revise to use `docker compose` CLI feature detection + clearer SKIP message\n- **Sprint Close**: actual test sweep count is < 5350 after all waves merged — investigate dropped tests before bumping floor; possible that an early wave un-skipped fewer than projected\n- **Cross-cutting**: any wave PR's diff includes whitespace-only lines from CRLF/LF drift > 5% of total diff lines — operator opts in `.gitattributes` LF normalization as a Sprint Close addendum\n\n---\n\n*End of spec. PM consumes the accompanying task graph for execution.*\n",
+  "plan": {
+    "tasks": [
+      {
+        "id": 1,
+        "name": "Wave C #54 — Wire dates+directions to promotion_gate KPI",
+        "description": "Modify src/api/cloud_routes/kpis.py:128 to extract `dates` and `directions` arrays from the `instrumented` trade list and pass them to `_compute_promotion_gate_kpi(n_trades, returns, dates=dates, directions=directions)`. The kpis_compute.py signature at line 364 already accepts both as optional kwargs (Sprint 2 T3 forward-compat). Pre-merge: run promotion_gate against current closed trades and include the votes_passed delta in PR body — wiring directions will flip MC permutation vote from ABSTAIN to real PASS/FAIL, a SEMANTIC change. Add 3 tests: wired-call passes correct shape, MC vote no longer abstains given real directions, snapshot/regression on response shape.",
+        "files_in_scope": [
+          "src/api/cloud_routes/kpis.py",
+          "tests/api/test_kpis.py"
+        ],
+        "files_read_only": [
+          "src/api/cloud_routes/kpis_compute.py",
+          "src/methods/promotion_gate.py",
+          "src/schema/registry.py"
+        ],
+        "depends_on": [],
+        "test_strategy": "+3 tests in tests/api/test_kpis.py: (1) wired_call_passes_dates_and_directions, (2) mc_vote_no_longer_abstains_with_directions, (3) response_shape_regression. Pre-merge sanity: print votes_passed delta to PR body.",
+        "scope_fence": "Do NOT modify kpis_compute.py — its signature is already correct. Do NOT modify promotion_gate.py. Do NOT change schema. Do NOT add a strategy_id filter (that's Task 2).",
+        "estimated_complexity": "low",
+        "reviewer_dispatch": [
+          "QA"
+        ]
+      },
+      {
+        "id": 2,
+        "name": "Wave C #56 — shadow_trades.strategy_id ColumnDef + FK + caller filter",
+        "description": "Step 1: Grep src/ to confirm `strategy_registry` TableDef exists and its PK column name. If absent, fall back to ColumnDef-only (no FK) and note in PR body. Step 2: Add `ColumnDef('strategy_id', 'TEXT', nullable=True)` and `ForeignKeyDef('strategy_id', 'strategy_registry', 'strategy_id')` to TABLES['shadow_trades'] in src/schema/registry.py. Step 3: Extend `_fetch_closed_trades` in src/api/cloud_routes/kpis_compute.py with optional `strategy_id` filter param. Step 4: Run `python -m src.main validate-schema --fix` and `python scripts/render_migrate.py`; include BOTH outputs in PR body per CLAUDE.md. Legacy rows remain NULL; backfill is post-sprint.",
+        "files_in_scope": [
+          "src/schema/registry.py",
+          "src/api/cloud_routes/kpis_compute.py",
+          "tests/test_schema.py",
+          "tests/api/test_kpis.py"
+        ],
+        "files_read_only": [
+          "src/shadow_trading/executor.py",
+          "src/shadow_trading/models.py"
+        ],
+        "depends_on": [
+          1
+        ],
+        "test_strategy": "+5 tests: schema discipline (strategy_id column present), FK enforcement at DB layer, kpis_compute filter behavior with strategy_id, kpis_compute backward-compat with strategy_id=None, executor write-path NULL-default verification. Include `validate-schema` + `render_migrate.py` outputs in PR body.",
+        "scope_fence": "Do NOT backfill existing rows. Do NOT modify promotion_gate.py (it's pure-function on returns; filter happens caller-side). Do NOT modify executor.py write-path beyond verification.",
+        "estimated_complexity": "medium",
+        "reviewer_dispatch": [
+          "QA",
+          "Security"
+        ]
+      },
+      {
+        "id": 3,
+        "name": "Wave C #68 — Council typed exception hierarchy + agent_data.py refactor",
+        "description": "Extend src/council/errors.py with CouncilParseError, CouncilTimeoutError, CouncilAgentDataError, CouncilProviderError (each inheriting CouncilError). Keep existing CouncilUnavailableError(RuntimeError, CouncilError) for back-compat. Refactor the 30+ `except Exception as exc` blocks in src/council/agent_data.py: triage each block by error source (SQLite/psycopg → CouncilAgentDataError, json.JSONDecodeError → CouncilParseError, requests.RequestException → CouncilProviderError). PR body must disclose: 'This may surface previously-swallowed bugs; canary deploy via watch-loop restart with eyes-on for 1h.' Engine.py + value_tracker.py except-blocks are EXPLICITLY DEFERRED to post-sprint.",
+        "files_in_scope": [
+          "src/council/errors.py",
+          "src/council/agent_data.py",
+          "tests/council/test_typed_errors.py"
+        ],
+        "files_read_only": [
+          "src/council/aggregation.py",
+          "src/council/engine.py",
+          "src/council/value_tracker.py"
+        ],
+        "depends_on": [],
+        "test_strategy": "+8 tests in tests/council/test_typed_errors.py: hierarchy structure (each subclass IS-A CouncilError), each typed exception raises/catches correctly, agent_data.py SQLite path surfaces CouncilAgentDataError, JSON parse path surfaces CouncilParseError, Ollama HTTP path surfaces CouncilProviderError, `except CouncilError` catches all subclasses, back-compat CouncilUnavailableError still IS-A RuntimeError, no bare `except Exception` left in agent_data.py (AST scan).",
+        "scope_fence": "Do NOT refactor engine.py except-blocks. Do NOT refactor value_tracker.py except-blocks. Do NOT modify aggregation.py raise site. Do NOT change the public surface of agent_data.py functions.",
+        "estimated_complexity": "medium",
+        "reviewer_dispatch": [
+          "QA"
+        ]
+      },
+      {
+        "id": 4,
+        "name": "Wave C #45 — Manual intervention drift detector + watch loop hook",
+        "description": "Create src/diagnostics/manual_intervention_drift.py with `detect_drift(broker_positions, db_positions, threshold_minutes=30, state_path) -> list[DriftFinding]`. Create src/diagnostics/errors.py with DiagnosticsDataError mirroring the #68 pattern. Add `notify_manual_intervention_drift` to src/notifications/telegram.py event_map. Wire a 30-minute periodic tick in src/scheduler/watch.py that calls the detector and emits via safe_send. Add operator-guide section 'Drift detection' with alert format example + silence procedure. THIS TASK IS THE FIRST OF THREE SEQUENTIAL EDITS to src/scheduler/watch.py (followed by tasks 11 and 13).",
+        "files_in_scope": [
+          "src/diagnostics/manual_intervention_drift.py",
+          "src/diagnostics/errors.py",
+          "src/notifications/telegram.py",
+          "src/scheduler/watch.py"
+        ],
+        "files_read_only": [
+          "src/shadow_trading/reconcile.py",
+          "src/shadow_trading/alpaca_adapter.py",
+          "docs/operator-guide.md"
+        ],
+        "depends_on": [
+          3
+        ],
+        "test_strategy": "+6 tests in tests/diagnostics/test_manual_intervention_drift.py: detector with mocked broker/db, threshold boundary (29 min no-alert, 31 min alert), state persistence across calls, alert dedup within 24h, no-alert-on-broker-outage (don't alert on alert path). +1 AST guardrail in tests/diagnostics/test_drift_detector_no_recursion.py (no safe_send call from inside the detector's own alert path).",
+        "scope_fence": "Do NOT modify alpaca_adapter.py or reconcile.py. Do NOT add the drift alert to the policy.py or digest_queue.py paths (Wave D handles those — this task only adds the event_type and emit call). Do NOT add a dashboard widget yet (operator-guide reference only).",
+        "estimated_complexity": "medium",
+        "reviewer_dispatch": [
+          "QA",
+          "Security"
+        ]
+      },
+      {
+        "id": 5,
+        "name": "Wave C #47 — Telegram-email-sweep audit triage disposition doc",
+        "description": "Create docs/audits/2026-05-07-telegram-email-sweep/triage-disposition.md cataloging all 50 findings (C1-C17 critical + I-series important + CC1-CC6 cross-cutting + Nit) with status per finding: `closed-by-PR-X | scoped-into-Wave-D | follow-up-issue-N | accepted-risk`. Verify Group B (test_notifier.py coverage) via Glob; if gap remains, log as follow-up. Verify Group F (operator-guide §X troubleshooting) via Grep; if absent, log as follow-up. Zero source changes. Pure documentation task.",
+        "files_in_scope": [
+          "docs/audits/2026-05-07-telegram-email-sweep/triage-disposition.md"
+        ],
+        "files_read_only": [
+          "docs/audits/2026-05-07-telegram-email-sweep/summary.md",
+          "docs/audits/2026-05-07-telegram-email-sweep/recommendations.md",
+          "docs/audits/2026-05-07-telegram-email-sweep/cross-cutting.md",
+          "tests/email/test_notifier.py",
+          "tests/notifications/test_telegram_send_path.py",
+          "docs/operator-guide.md"
+        ],
+        "depends_on": [],
+        "test_strategy": "No new tests. Reviewer verifies disposition doc enumerates ALL 50 findings with explicit status.",
+        "scope_fence": "Do NOT modify any source. Do NOT modify existing audit files. Disposition doc only.",
+        "estimated_complexity": "low",
+        "reviewer_dispatch": [
+          "QA"
+        ]
+      },
+      {
+        "id": 6,
+        "name": "Wave C #100 — AST scanner extension for [r[N] for r in fetchall()] pattern + scripts/ coverage",
+        "description": "Extend tests/test_no_fetchone_int_index_in_pg_unsafe_files.py with a new test function `test_no_fetchall_list_comp_int_index_in_pg_unsafe_files` matching `ListComp(elt=Subscript(value=Name, slice=Constant(int)), generators=[comprehension(iter=Call(func=Attribute(attr='fetchall')))])`. Add a sibling scanner that walks scripts/ root. Include self-test that catches synthetic violation. Pre-merge: run scanner against scripts/ with allowlist=[] and report violation count; if >5, populate allowlist + document in known-pre-existing-failures.md; if ≤5, fix in-PR.",
+        "files_in_scope": [
+          "tests/test_no_fetchone_int_index_in_pg_unsafe_files.py"
+        ],
+        "files_read_only": [
+          "src/scheduler/watch.py",
+          "src/shadow_trading/executor.py",
+          "scripts/"
+        ],
+        "depends_on": [],
+        "test_strategy": "+3 tests: new scanner self-test on synthetic ListComp violation, scripts/ scanner self-test, integration scanning over src/ + scripts/ confirms zero violations (or populated allowlist).",
+        "scope_fence": "Do NOT fix individual src/ violations in this task — scanner only flags. If pre-existing violations found, allowlist them with rationale.",
+        "estimated_complexity": "low",
+        "reviewer_dispatch": [
+          "QA"
+        ]
+      },
+      {
+        "id": 7,
+        "name": "Wave F #15 — Server-side stale-base CI check",
+        "description": "Create .github/workflows/stale-base-check.yml triggered on pull_request.synchronize. Job: actions/checkout@v4 with fetch-depth: 0; compute `git merge-base origin/main HEAD`; compare to `origin/main`'s HEAD SHA; set check status to failure if behind. Add operator-guide section 'CI checks' explaining the workflow and the `git push --no-verify` emergency bypass. Add tests/workflows/test_stale_base_check.py: YAML lints, step structure assertion.",
+        "files_in_scope": [
+          ".github/workflows/stale-base-check.yml",
+          "tests/workflows/test_stale_base_check.py",
+          "docs/operator-guide.md"
+        ],
+        "files_read_only": [
+          "scripts/hooks/pre-push",
+          ".github/workflows/pg-tests.yml"
+        ],
+        "depends_on": [],
+        "test_strategy": "+2 tests in tests/workflows/test_stale_base_check.py: YAML parses + lints, step structure includes (checkout fetch-depth 0, merge-base computation, conditional failure step).",
+        "scope_fence": "Do NOT modify pg-tests.yml. Do NOT modify the client-side pre-push hook. Do NOT add bypass mechanisms beyond `git push --no-verify` (which is git's standard).",
+        "estimated_complexity": "low",
+        "reviewer_dispatch": [
+          "QA"
+        ]
+      },
+      {
+        "id": 8,
+        "name": "Wave F #86 — Test suite speedup via session-scoped shared venv",
+        "description": "Read tests/test_cloud_requirements_imports.py fully (line 1 to end) as first step. Restructure from per-test fresh-venv pattern to session-scoped shared-venv: ONE pip install of requirements-cloud.txt at session start, then per-test imports via subprocess against the shared venv path. Use pytest.fixture(scope='session') for venv creation. Target: drop full-sweep runtime by ~3x. Preserve test count. Add docstring noting the restructure rationale.",
+        "files_in_scope": [
+          "tests/test_cloud_requirements_imports.py",
+          "tests/conftest.py"
+        ],
+        "files_read_only": [
+          "scripts/check_cloud_deploy_imports.py",
+          "requirements-cloud.txt"
+        ],
+        "depends_on": [],
+        "test_strategy": "+0 new tests. Verify pre-vs-post test count unchanged. Verify runtime via `python -m pytest tests/test_cloud_requirements_imports.py -v --durations=20` before + after; report delta in PR body.",
+        "scope_fence": "Do NOT remove any existing test cases. Do NOT change what each case asserts. Do NOT modify requirements-cloud.txt. Do NOT add session-scope fixtures unrelated to this restructure.",
+        "estimated_complexity": "medium",
+        "reviewer_dispatch": [
+          "QA",
+          "Performance"
+        ]
+      },
+      {
+        "id": 9,
+        "name": "Wave F #87 — Local PG provisioning via docker-compose",
+        "description": "Create docker-compose.test.yml at repo root (postgres:16-alpine on localhost:5433, configurable via TEST_PG_PORT env var, default user/pass test/test, db halcyon). Add pytest_sessionstart/pytest_sessionfinish hooks in tests/conftest.py that run `docker compose -f docker-compose.test.yml up -d` and `docker compose down -v` respectively. Graceful SKIP if docker not installed. Un-hardcode TEST_DATABASE_URL in tests/api/test_status.py:18, tests/test_cloud_app.py:15, tests/test_shadow_desk_filter.py:25. Drop 'Create test/test PG role' step from .github/workflows/pg-tests.yml.",
+        "files_in_scope": [
+          "docker-compose.test.yml",
+          "tests/conftest.py",
+          ".github/workflows/pg-tests.yml",
+          "docs/operator-guide.md"
+        ],
+        "files_read_only": [
+          "tests/api/test_status.py",
+          "tests/test_cloud_app.py",
+          "tests/test_shadow_desk_filter.py"
+        ],
+        "depends_on": [],
+        "test_strategy": "+0 new tests directly. Expect +30-50 tests by un-SKIPping previously-skipped postgres parametrized variants. Verify local `pytest tests/` provisions PG, the 3 un-hardcoded fixtures use the provisioned URL, and CI green after pg-tests.yml step removal.",
+        "scope_fence": "Do NOT un-hardcode TEST_DATABASE_URL in files beyond the 3 listed. Do NOT change conftest.py beyond docker hooks + the 3 fixture references. Do NOT change PG version from 16-alpine without operator approval.",
+        "estimated_complexity": "medium",
+        "reviewer_dispatch": [
+          "QA",
+          "Security"
+        ]
+      },
+      {
+        "id": 10,
+        "name": "Wave D D1 — policy.py + YAML config schema + truth table tests",
+        "description": "Create src/notifications/policy.py with pure-function `should_dispatch(event_type, severity, now_et, config) -> PolicyDecision` per spec §4.1. Decision rule precedence: severity high/critical always send → mute_event_types → quiet hours → digest_low → default routing. Extend config/settings.example.yaml with `notifications:` section per spec §4.7. Implement `_load_notifications_config` in src/notifications/telegram.py (or a new src/notifications/config.py if cleaner) with validation: unknown event_type in config raises NotificationsConfigError at startup; time strings parse as HH:MM; cadence clamped to [1,1440]; retry attempts clamped to [1,10]. Add operator-guide section 'Notifications routing'.",
+        "files_in_scope": [
+          "src/notifications/policy.py",
+          "tests/notifications/test_policy.py",
+          "tests/notifications/test_policy_purity.py",
+          "config/settings.example.yaml"
+        ],
+        "files_read_only": [
+          "src/notifications/telegram.py",
+          "src/main.py"
+        ],
+        "depends_on": [
+          3
+        ],
+        "test_strategy": "+12 tests in tests/notifications/test_policy.py: severity high/critical always sends (regardless of quiet hours/mute list/digest_low — explicit short-circuit guard), mute_event_types muting, quiet hours window (start<end and start>end cross-midnight), digest_low buffering for severity=low only, default routing fallback, channel resolution (telegram/email/both/none), config validation rejects unknown event_type, time string parse error, cadence out-of-range. +1 AST guardrail in test_policy_purity.py asserts policy.py imports no I/O modules.",
+        "scope_fence": "Do NOT modify safe_send yet (Task 11). Do NOT create a parallel router.py — policy is pure-function gate. Do NOT add YAML !include or other tag interpolation. Do NOT make event_map dynamically extensible.",
+        "estimated_complexity": "medium",
+        "reviewer_dispatch": [
+          "QA",
+          "Security"
+        ]
+      },
+      {
+        "id": 11,
+        "name": "Wave D D2 — digest_queue.py + schema + watch loop flush hook (rebases on Task 4)",
+        "description": "Create src/notifications/digest_queue.py with `enqueue(event_type, severity, payload, channel, conn=None) -> int` and `flush_due(now_et, config, conn=None) -> list[dict]`. Add notifications_digest_queue TableDef to src/schema/registry.py per spec §3.1. Run validate-schema --fix + render_migrate.py; include outputs in PR body. Wire flush hook in src/scheduler/watch.py (every 5 min) — REBASES on Task 4's watch.py edits. Read src/email/digest_builder.py fully (line 1 to end) before designing cadence to align with existing email-side 4-digest-per-day pattern.",
+        "files_in_scope": [
+          "src/notifications/digest_queue.py",
+          "tests/notifications/test_digest_queue.py",
+          "src/schema/registry.py",
+          "src/scheduler/watch.py"
+        ],
+        "files_read_only": [
+          "src/email/digest_builder.py",
+          "src/notifications/telegram.py"
+        ],
+        "depends_on": [
+          4,
+          10
+        ],
+        "test_strategy": "+8 tests in tests/notifications/test_digest_queue.py: enqueue writes row with NULL flushed_at, flush_due returns only rows past cadence bucket, flush_due atomically marks flushed_at (no double-flush via concurrent call simulation), schema discipline (table in registry), cadence boundary precision, idempotence on re-flush. +1 AST guardrail in test_digest_queue_atomicity.py asserts flush_due uses WHERE flushed_at IS NULL.",
+        "scope_fence": "Do NOT enqueue from anywhere other than safe_send (Task 12 wires that). Do NOT modify policy.py. Do NOT add cron-style scheduling — use the existing watch loop tick cadence.",
+        "estimated_complexity": "medium",
+        "reviewer_dispatch": [
+          "QA",
+          "Security"
+        ]
+      },
+      {
+        "id": 12,
+        "name": "Wave D D3 — safe_send retry + escalation + policy gate insertion + schema column adds",
+        "description": "Add `severity TEXT` + `policy_decision TEXT` + `source_tag TEXT DEFAULT 'watch-loop' NOT NULL` columns to notifications_sent TableDef in src/schema/registry.py. Run validate-schema --fix + render_migrate.py. Modify src/notifications/telegram.py: (1) insert policy gate at line 1234 between is_telegram_enabled and event_map lookup; (2) replace single-attempt send at line 1299 with `_send_with_retry` helper implementing 3 attempts with [1,5,30]s backoff; (3) implement consecutive-failure tracking + 5-failures-in-10min escalation to email_notifier. Catch tuple at line 1299 MUST remain exactly `(urllib3.HTTPError, requests.RequestException, socket.timeout, OSError)`. Read source_tag from `os.environ.get('ARCIS_NOTIFICATION_SOURCE', 'watch-loop')` and write to source_tag column.",
+        "files_in_scope": [
+          "src/notifications/telegram.py",
+          "src/schema/registry.py",
+          "tests/notifications/test_safe_send_retry.py",
+          "tests/notifications/test_safe_send_catch_discipline.py"
+        ],
+        "files_read_only": [
+          "src/notifications/policy.py",
+          "src/notifications/digest_queue.py",
+          "src/email/notifier.py"
+        ],
+        "depends_on": [
+          10,
+          11
+        ],
+        "test_strategy": "+6 tests in test_safe_send_retry.py: 1-attempt success, retry-then-success, 3-fail-then-fail records status='failed', escalation after 5 consecutive failures in 10-min window writes status='escalated' + calls email_notifier, counter resets on next success, retry sleeps don't exceed config bound. +1 AST guardrail in test_safe_send_catch_discipline.py asserts the network-except clause exception tuple equals exactly `(urllib3.HTTPError, requests.RequestException, socket.timeout, OSError)`. +1 guardrail asserts severity-critical bypasses digest queue.",
+        "scope_fence": "Do NOT widen the network-except catch. Do NOT remove the KeyError-on-unknown-event_type security boundary. Do NOT add severity normalization — accept the canonical 4 strings only.",
+        "estimated_complexity": "high",
+        "reviewer_dispatch": [
+          "QA",
+          "Security"
+        ]
+      },
+      {
+        "id": 13,
+        "name": "Wave D D4 — HTML escape #93+#94 + #101 source-tag conftest isolation",
+        "description": "Apply `_html_escape()` to regime_old/regime_new interpolation at src/notifications/telegram.py:780-796 (notify_regime_alert) per T5 pattern. Apply `_html_escape()` to risk_governor_status + each ticker in recent_str before join at src/notifications/telegram.py:805-818 (notify_streak_alert). Sibling-search: grep all `notify_*` functions for `f'...{<var>}'` style HTML interpolation; flag any uncovered sites in PR body. In tests/conftest.py: (1) set `ARCIS_NOTIFICATION_SOURCE='pytest:<worktree-basename>'` via session fixture, (2) monkeypatch `_send_telegram` to a null-router so pytest CANNOT call Telegram API, (3) clear `ARCIS_TELEGRAM_TOKEN` per-test (per #729 pattern).",
+        "files_in_scope": [
+          "src/notifications/telegram.py",
+          "tests/notifications/test_html_escape_siblings.py",
+          "tests/conftest.py"
+        ],
+        "files_read_only": [
+          "src/notifications/policy.py",
+          "tests/notifications/test_html_escape.py"
+        ],
+        "depends_on": [
+          12
+        ],
+        "test_strategy": "+5 tests in test_html_escape_siblings.py: notify_regime_alert escapes regime_old/regime_new (with and without malicious `<script>` input), notify_streak_alert escapes status + ticker, sibling-search finding completeness (no remaining f-string interpolation in notify_* without escape — AST guardrail), source_tag column written correctly under pytest env, _send_telegram monkeypatched under pytest (`__name__ == '_null_router'`).",
+        "scope_fence": "Do NOT apply _html_escape to non-HTML send paths. Do NOT change the _html_escape implementation. Do NOT modify other notify_* functions beyond the 2 listed + any siblings discovered by grep (document each).",
+        "estimated_complexity": "medium",
+        "reviewer_dispatch": [
+          "QA",
+          "Security"
+        ]
+      },
+      {
+        "id": 14,
+        "name": "Wave D D5 — Alert silence detector + watch loop hook (rebases on Task 11)",
+        "description": "Create src/diagnostics/alert_silence.py with `check_alert_silence(now_et, threshold_minutes=60, conn=None) -> AlertSilenceFinding | None`. Logic: read notifications_sent WHERE status='ok' ORDER BY sent_at DESC LIMIT 1; during market hours (via src/scheduler/holidays.is_market_open), if no successful send within threshold, return finding + emit via safe_send(event_type='alert_silence', severity='high', ...) + write platform_events row for forensic trail. Add `alert_silence` to telegram.py event_map. Wire 5-min hook in src/scheduler/watch.py — REBASES on Task 11's watch.py edits. Add dashboard widget data endpoint (operator visibility).",
+        "files_in_scope": [
+          "src/diagnostics/alert_silence.py",
+          "tests/diagnostics/test_alert_silence.py",
+          "src/notifications/telegram.py",
+          "src/scheduler/watch.py"
+        ],
+        "files_read_only": [
+          "src/scheduler/holidays.py",
+          "src/notifications/platform_events.py"
+        ],
+        "depends_on": [
+          11,
+          13
+        ],
+        "test_strategy": "+4 tests in test_alert_silence.py: silence detected during market hours when no recent ok send, no-alert outside market hours, platform_events row written on detection, dashboard widget data shape. Visual-verify gate: render the widget in browser before PR push.",
+        "scope_fence": "Do NOT call safe_send from within the alert_silence event's own dispatch path (no recursion). Do NOT modify is_market_open. Do NOT add the silence detector to non-market-hours paths.",
+        "estimated_complexity": "medium",
+        "reviewer_dispatch": [
+          "QA"
+        ]
+      },
+      {
+        "id": 15,
+        "name": "Wave E — Dual-GPU disposition doc",
+        "description": "Create docs/audits/2026-05-12-dual-gpu-ideation/disposition.md stating: 'Implementation deferred to first post-Sprint-5 maintenance window per operator decision 2026-05-12. Spec at docs/audits/2026-05-12-dual-gpu-ideation/specs/2026-05-12-dual-gpu-workload-separation-design.md is the canonical artifact. Stale-text fixes identified in the spec (test floor 3682→5350, 'Sprint 6' references) should land in any future implementation PR.' Link the disposition from docs/roadmap.md (created in Sprint Close).",
+        "files_in_scope": [
+          "docs/audits/2026-05-12-dual-gpu-ideation/disposition.md"
+        ],
+        "files_read_only": [
+          "docs/audits/2026-05-12-dual-gpu-ideation/specs/2026-05-12-dual-gpu-workload-separation-design.md"
+        ],
+        "depends_on": [],
+        "test_strategy": "No new tests. Reviewer verifies disposition doc exists + correctly states deferral rationale + links to canonical spec.",
+        "scope_fence": "Do NOT touch any source files. Do NOT modify the existing spec. Disposition doc only.",
+        "estimated_complexity": "low",
+        "reviewer_dispatch": [
+          "QA"
+        ]
+      },
+      {
+        "id": 16,
+        "name": "Sprint Close PR — CHANGELOG aggregation + version bump + tag + roadmap + canon refresh",
+        "description": "Final closeout PR. Steps: (1) Bump src/version.py from 'v0.34.0' to 'v0.35.0'. (2) In CHANGELOG.md, move ALL [Unreleased] entries into a new `## [v0.35.0] - 2026-05-XX — Sprint 5 close` section, organized by Wave subsection. (3) Create docs/roadmap.md per spec §7.2 template with sprint-history table + active-track pointer + deferred-track section. (4) Append docs/operator-guide.md section 'Sprint 5 closeout state'. (5) Update CLAUDE.md test floor 3682→5350 with lineage paragraph. (6) Update .github/workflows/pg-tests.yml floor 5050→5350. (7) Refresh docs/audits/known-pre-existing-failures.md by re-running full sweep and regenerating the failure table. (8) Add tests/shadow_trading/test_alpaca_adapter_split.py to config/known_violations.json with rationale 'pending post-sprint refactor (#97)'; delete the sentinel test file. (9) Cosmetic _scalar helper removal across ~30 call sites — SCOPE CAP: if >40 files would change, defer to post-sprint and note in PR body. (10) Create git tag `v0.35.0` after PR merge.",
+        "files_in_scope": [
+          "src/version.py",
+          "CHANGELOG.md",
+          "docs/roadmap.md",
+          "docs/operator-guide.md",
+          "CLAUDE.md",
+          ".github/workflows/pg-tests.yml",
+          "docs/audits/known-pre-existing-failures.md",
+          "config/known_violations.json",
+          "tests/shadow_trading/test_alpaca_adapter_split.py",
+          "src/utils/db.py"
+        ],
+        "files_read_only": [
+          "src/api/cloud_routes/kpis.py",
+          "src/schema/registry.py",
+          "src/notifications/telegram.py"
+        ],
+        "depends_on": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "test_strategy": "Verify full pytest sweep count ≥ 5350 BEFORE bumping floor. Run `git diff --check` to surface any CRLF/LF drift. Visual-verify dashboard renders cleanly. Run `python -c 'from src.version import VERSION; print(VERSION)'` to confirm new version. Tag creation post-merge: `git tag -a v0.35.0 -m 'Sprint 5 close: notifications routing + data integrity + cross-engine hardening + dev tooling'`.",
+        "scope_fence": "Do NOT bump test floor without verifying actual sweep count first. Do NOT push tag before PR merges. Do NOT delete _scalar helper if scope cap exceeded — defer. Do NOT batch the #96 platform_events disposition into this PR unless explicitly closed by Task 2's grep result.",
+        "estimated_complexity": "high",
+        "reviewer_dispatch": [
+          "QA",
+          "Documentarian"
+        ]
+      }
+    ],
+    "execution_order": [
+      [
+        1,
+        5,
+        6,
+        7,
+        15
+      ],
+      [
+        2,
+        3,
+        8,
+        9
+      ],
+      [
+        4
+      ],
+      [
+        10
+      ],
+      [
+        11
+      ],
+      [
+        12
+      ],
+      [
+        13
+      ],
+      [
+        14
+      ],
+      [
+        16
+      ]
+    ],
+    "notes": "Wave C precedes Wave D per glidepath. Batches: (1) Independent small tasks — #54 wire, #47 audit doc, #100 scanner, #15 stale-base CI, Wave E disposition doc (all zero-or-low-risk independent edits). (2) Schema-touching + independent domain tasks — #56 strategy_id (depends on #54 staying clean), #68 council errors, #86 test speedup, #87 PG provisioning. (3) #45 drift detector (depends on #68 typed-error pattern + sets up first watch.py hook). (4) D1 policy.py (depends on #68 for typed-error convention). (5) D2 digest_queue.py + watch.py rebases on #45's watch.py edit. (6) D3 safe_send retry + schema column adds (depends on D1 policy + D2 digest_queue). (7) D4 html-escape siblings + conftest isolation (depends on D3 safe_send wiring). (8) D5 alert silence (depends on D2's watch.py hook landing + D3 safe_send semantics). (9) Sprint Close aggregates everything. Sequential constraint on src/scheduler/watch.py: tasks 4, 11, 14 edit the same file — each rebases on prior. PM enforces serial dispatch for these three; all others can run worktree-parallel within their batch."
+  },
+  "design_decisions": [
+    {
+      "decision": "Wave E: design-only; defer implementation to post-Sprint-5",
+      "rationale": "Spec itself says 'deferred to SP6' but Sprint 5 is final. No current bottleneck demands impl. Implementation = ~15 file edits + 22 new tests + NSSM service work ≈ 1.5-2 days that would crowd Wave D's already-large surface. Reversible: spec is the deliverable; impl can land in any post-sprint maintenance PR.",
+      "alternatives_considered": [
+        "Implement in Sprint 5 (rejected: crowds Wave D + adds CUDA/NSSM blast radius for no current pain)",
+        "Skip entirely + delete spec (rejected: loses design discipline + Wave E spec is operator-validated)"
+      ]
+    },
+    {
+      "decision": "Version bump: MINOR (0.34.0 → 0.35.0)",
+      "rationale": "Wave D ships NEW notifications routing YAML config (new public surface); Wave C #56 ships NEW shadow_trades.strategy_id column (new schema field); Wave C #45 ships NEW drift-detection event_type. Per docs/versioning-policy.md, MINOR is for backward-compat additions — these all qualify.",
+      "alternatives_considered": [
+        "Patch (0.34.1) (rejected: Sprint 5 ships new surfaces, not pure fixes)",
+        "Major (1.0.0) (rejected: premature; Sprint 5 doesn't break public API)"
+      ]
+    },
+    {
+      "decision": "Wave D defaults: BACKWARD-COMPAT (zero-config = current behavior)",
+      "rationale": "Zero-config users see no change; operator opts in by editing config/settings.local.yaml. Minimizes blast radius; reversible via config edit; matches existing convention from --email-mode flag.",
+      "alternatives_considered": [
+        "Opt-out (quiet hours default-on) (rejected: risks suppressing real alerts before operator notices the config exists)"
+      ]
+    },
+    {
+      "decision": "PR boundary: PER-WAVE PRs (6 total)",
+      "rationale": "Matches recent successful #1058/#1059/#1060 cadence. Smaller review surface; smaller blast radius per merge; easier rollback. Sprint Close PR aggregates CHANGELOG + version + tag + roadmap.",
+      "alternatives_considered": [
+        "Monolithic Sprint Close PR (rejected: review surface unmanageable for 60+ files; rollback unit becomes the whole sprint)"
+      ]
+    },
+    {
+      "decision": "docs/roadmap.md: CREATE NEW",
+      "rationale": "Sprint history table + active-track pointer is a distinct artifact from operator-runnable runbook content in operator-guide.md. Cleaner separation. operator-guide.md gets a single forward-pointer.",
+      "alternatives_considered": [
+        "Fold into operator-guide.md Sprint history section (rejected: mixes concerns; harder to update independently)"
+      ]
+    },
+    {
+      "decision": "#97 alpaca_adapter.py: GRANDFATHER via known_violations.json + delete sentinel test",
+      "rationale": "Actual file split is high blast-radius (touches every alpaca call site). Sentinel test is currently failing OR grandfathered; either state is incongruent. Cleanest fix: known_violations.json entry + sentinel delete, file split as post-sprint task.",
+      "alternatives_considered": [
+        "Actually split file in Sprint 5 (rejected: >4 hrs work, crowds close window)",
+        "Accept failing test (rejected: governance violation)"
+      ]
+    },
+    {
+      "decision": "#96 platform_events: SCOPE-OUT pending Wave C developer grep",
+      "rationale": "Deep-report finds no clear write-site; comment-only drift. Add TableDef only if Task 2 developer's grep confirms a write-site. If only the registry comment refers to it, document in C5 triage-disposition.md as resolved.",
+      "alternatives_considered": [
+        "Add TableDef unconditionally (rejected: risks dead schema)",
+        "Ignore entirely (rejected: perpetuates drift)"
+      ]
+    },
+    {
+      "decision": "#68 reframe: typed hierarchy + agent_data.py only (engine.py + value_tracker.py DEFERRED)",
+      "rationale": "Brief premise WRONG — only 1 raise site in entire src/council/; real opportunity is 30+ bare except Exception in agent_data.py. Engine.py + value_tracker.py except-blocks scope-deferred to keep Task 3 tractable.",
+      "alternatives_considered": [
+        "Refactor all of council/ (rejected: >2x scope; risks Sprint 5 close slip)",
+        "Skip entirely (rejected: misses the safety improvement aligned with Sprint 4 T2 principle)"
+      ]
+    },
+    {
+      "decision": "safe_send policy gate inserted IN-PLACE (no parallel router.py)",
+      "rationale": "Duplicating event_map in a parallel router.py would weaken the KeyError-on-unknown-event_type security boundary from Sprint 4 T2. In-place insertion preserves the single dispatch surface.",
+      "alternatives_considered": [
+        "New src/notifications/router.py module (rejected: parallel surface; harder composition reasoning)"
+      ]
+    },
+    {
+      "decision": "Digest queue: DB-backed table (not in-memory)",
+      "rationale": "Watch loop restarts must not lose buffered events. SQLite/PG durability is the existing pattern. Atomicity via SELECT/UPDATE WHERE flushed_at IS NULL is well-understood.",
+      "alternatives_considered": [
+        "In-memory deque (rejected: data loss on restart)",
+        "Redis (rejected: new infrastructure dependency)"
+      ]
+    },
+    {
+      "decision": "Source tag (#101) added as column on notifications_sent (not separate audit table)",
+      "rationale": "notifications_sent already tracks every dispatch; source_tag is per-row metadata. Defense-in-depth via conftest.py null-router monkeypatch prevents real Telegram calls from pytest regardless of env tag.",
+      "alternatives_considered": [
+        "New notification_audit table (rejected: duplication; two-way join overhead)",
+        "Env-var-only (no DB column) (rejected: operator can't forensically distinguish post-hoc)"
+      ]
+    },
+    {
+      "decision": "Retry policy: 3 attempts with [1, 5, 30]s backoff",
+      "rationale": "Tuned to F2 observed Telegram failure rate (~2-3/hour). Total wait per failed event = 36s, acceptable for non-hot-path. After 5 consecutive failures in 10-min window, SKIP attempts 2+3 and go straight to email escalation to avoid retry-storm.",
+      "alternatives_considered": [
+        "Single attempt (current — too brittle)",
+        "5+ attempts (rejected: DoS amplification risk)",
+        "No retry, retry separately (rejected: complicates state)"
+      ]
+    },
+    {
+      "decision": "Sequence C4 → D2 → D5 for src/scheduler/watch.py edits",
+      "rationale": "Three tasks edit the same file. Sequential PRs avoid worktree race per memory `feedback_review_sibling_search`. C4 lands first because Wave C precedes Wave D per glidepath; D2 + D5 rebase on prior.",
+      "alternatives_considered": [
+        "Parallel dispatch with manual merge resolution (rejected: race risk; PR #690 N3 incident precedent)"
+      ]
+    },
+    {
+      "decision": "PG test port 5433 (not 5432)",
+      "rationale": "Avoid clash with operator's local PG on 5432 per memory `reference_local_ports`. Configurable via TEST_PG_PORT env var for further conflicts.",
+      "alternatives_considered": [
+        "5432 (rejected: collision risk)",
+        "Random port (rejected: test fixture complexity + race)"
+      ]
+    },
+    {
+      "decision": "Test floor canon: 5350 (10-test conservative buffer below projected 5400-5450 median)",
+      "rationale": "Projection has +/- range from un-SKIP variance; 50-test conservative margin prevents flaky-test-day floor failures.",
+      "alternatives_considered": [
+        "5400 (rejected: tighter risk transient drops)",
+        "5050 (rejected: locks out Sprint 5 progress)"
+      ]
+    },
+    {
+      "decision": "_scalar cosmetic removal: SAME PR as Sprint Close with scope-cap (≤40 files)",
+      "rationale": "Sprint Close is natural home; mechanical revert is cosmetic, not architectural. Scope-cap protects PR review surface if grep finds more sites than projected.",
+      "alternatives_considered": [
+        "Standalone PR (rejected: PR-count inflation)",
+        "Never remove (rejected: helper rots; redundant post-PR-1060)"
+      ]
+    },
+    {
+      "decision": "All Wave D tests use monkeypatch.setenv hermetically + conftest clears ARCIS_TELEGRAM_TOKEN",
+      "rationale": "Per memory `feedback_worktree_env_drift`, worktree agents inherit operator's env; tests must NOT depend on env-var presence or absence to pass. Defense in depth: env-var prefix + monkeypatch null-router for _send_telegram.",
+      "alternatives_considered": [
+        "Trust env state (rejected: PR #711→#729 precedent)",
+        "Only monkeypatch _send_telegram (rejected: doesn't catch env-leak forensics)"
+      ]
+    }
+  ]
+}
