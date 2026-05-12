@@ -23,6 +23,39 @@ from src.utils.db import connect_db, engine_aware_table_list
 logger = logging.getLogger(__name__)
 
 
+def check_cutover_gate_consistency(config: dict, db_path: str) -> list[CheckResult]:
+    """Verify ARCIS_PG_CUTOVER_ENABLED + DATABASE_URL are consistent at process start.
+
+    The Phase 3-revised cutover requires BOTH env vars to be set together for
+    PG routing. If gate is on but DATABASE_URL is missing, every connect_db()
+    call silently falls through to SQLite — a partial cutover state with no
+    forensic signal until the new T5 WARN fires.
+
+    This check makes the misconfig fail-fast at process start instead.
+    """
+    gate_on = os.environ.get("ARCIS_PG_CUTOVER_ENABLED") == "1"
+    database_url = os.environ.get("DATABASE_URL", "")
+    pg_url = database_url.startswith("postgres")
+
+    if gate_on and not pg_url:
+        return [CheckResult(
+            name="cutover_gate_consistency", category="config", status="critical",
+            detail="ARCIS_PG_CUTOVER_ENABLED=1 but DATABASE_URL does not start with 'postgres'",
+            fix_hint="Either unset ARCIS_PG_CUTOVER_ENABLED (revert to SQLite) or set DATABASE_URL=postgresql://...",
+        )]
+    if not gate_on and pg_url:
+        return [CheckResult(
+            name="cutover_gate_consistency", category="config", status="warn",
+            detail="DATABASE_URL is postgres but ARCIS_PG_CUTOVER_ENABLED is not set — gate is OFF, writes route to SQLite",
+            fix_hint="If cutover desired: nssm set <svc> AppEnvironmentExtra <existing> ARCIS_PG_CUTOVER_ENABLED=1",
+        )]
+    return [CheckResult(
+        name="cutover_gate_consistency", category="config", status="ok",
+        detail=f"Gate={gate_on} pg_url={pg_url} (consistent)",
+        fix_hint="",
+    )]
+
+
 def check_config(config: dict, db_path: str = DB_PATH) -> list[CheckResult]:
     """Check config file existence, placeholder values, and schema drift."""
     results = []
