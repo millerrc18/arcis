@@ -1,7 +1,7 @@
 # Dual-GPU Workload Separation — Strategy A Design Spec
 
 **Brief:** `docs/audits/2026-05-12-dual-gpu-ideation/brief.md` (task #91)
-**Status:** Spec-only deliverable. Implementation deferred to Sprint 6.
+**Status:** Spec-only deliverable. Implementation deferred to the first post-Sprint-5 maintenance window (Sprint 6 does not exist — Sprint 5 is the final sprint per `feedback_sprint_5_is_final`).
 **Authoritative codebase reports:** deep report (Architect-side ingested), surface report (highlights only — Unsloth-pin-stale claim corrected by deep report).
 **Hardware floor:** RTX 3090 (PCIe 01:00.0, 24 GB, 82 SMs) + RTX 3060 (PCIe 08:00.0, 12 GB, 28 SMs), Driver 596.36, CUDA 12.4 runtime, both Ampere CC 8.6. Identity of "GPU 0" and "GPU 1" is pinned by `CUDA_DEVICE_ORDER=PCI_BUS_ID` (see §5.0).
 **Revision:** v3 (2026-05-12) — addresses Devil's Advocate findings: (a) replaced destructive `nssm set` copy-paste hazard with read-merge-write pattern citing post-cutover canonical env from Sprint 5 §J close / PR #1056, (b) pinned `CUDA_DEVICE_ORDER=PCI_BUS_ID` at every CUDA boundary, (c) tightened spec-vs-implementation boundary — prescriptive Python/PowerShell/dict literals moved to new non-normative Appendix D and the external `operator-guide-insert.md`, (d) downgraded OLLAMA_NUM_PARALLEL default 4→2 (operator-validated; 4 documented as opt-in after load-testing), (e) NSSM-wrapped `ollama_watchdog.ps1` as a new `ArcisOllamaWatchdog` service to resolve reboot survival (§16 Q5 resolved in-spec). New §21 Known Considerations captures 4 minor findings as acknowledged caveats. Prior v2 deltas retained.
@@ -17,15 +17,15 @@
 
 **One-sentence justification:** Strategy A trades zero training-vs-inference VRAM contention for six env-var boundary discipline points (five `CUDA_VISIBLE_DEVICES` + one shared `CUDA_DEVICE_ORDER` pin), matching the strict-rigor mandate (`feedback_strict_rigor_no_handwave`) — every other candidate strategy (B/C/D/E) either (a) bottlenecks on the 3060's 12 GB cap for shared weights, (b) introduces PCIe round-trip latency on a non-NVLink link, or (c) leaves a GPU idle 99% of the time.
 
-**Why now (operator memory):** RTX 3060 reinstalled 2026-05-12 03:50 ET alongside existing 3090; Sprint 5 is the final sprint (`feedback_sprint_5_is_final`); implementation lands in Sprint 6 catch-all bucket per operator instruction.
+**Why now (operator memory):** RTX 3060 reinstalled 2026-05-12 03:50 ET alongside existing 3090; Sprint 5 is the final sprint (`feedback_sprint_5_is_final`); implementation deferred to the first post-Sprint-5 maintenance window per operator instruction.
 
-**Net deliverable for SP6 implementation:**
+**Net deliverable for post-Sprint-5 implementation:**
 - ~15 file edits (no new modules in src/; one new NSSM service definition)
 - One new NSSM-managed Windows service: `ArcisOllamaWatchdog`
-- vram_manager.py deletion (Option A) — net -21 tests, must be replaced by ≥22 new dual-GPU tests to preserve 3682 test floor
+- vram_manager.py deletion (Option A) — net -21 tests, must be replaced by ≥22 new dual-GPU tests to preserve 5050 test floor
 - New operator-guide section (delivered via external `operator-guide-insert.md`) + 4 stale-text fixes
 - One `verify_training_readiness.py` extension
-- Zero schema changes (system_metrics widening optional; flagged as Sprint 6 follow-up if column-widening preferred)
+- Zero schema changes (system_metrics widening optional; flagged as post-Sprint-5 follow-up if column-widening preferred)
 
 ---
 
@@ -52,7 +52,7 @@
 |---|---|---|
 | Strategy E (3060 for sentence-transformers/embeddings) | Deferred to separate SP6 design | Operator instruction: "separate SP6 design". Single embedding call site in current codebase doesn't justify a dedicated card without explicit embedding workload scoping. *Note: the existing single embedding call site in `src/intel/leakage_detector.py` (POST /api/embeddings) already executes against Ollama on GPU 1 under Strategy A — incidental, not designed.* |
 | Walk-forward framework GPU usage | Out of scope (post-Sprint-5 sprint) | Per brief §90 and operator instruction. |
-| DPO_TRAIN_SCRIPT rewrite off Unsloth | Out of scope | Deep report correction: Unsloth pin is NOT stale — DPO_TRAIN_SCRIPT (trainer.py:290–327) and CURRICULUM_TRAIN_SCRIPT GGUF-export fallback (lines 247–250) still require Unsloth. Surface report's "stale pin" claim is incorrect. |
+| DPO_TRAIN_SCRIPT rewrite off Unsloth | Out of scope | **GPU upgrade update (`project_gpu_upgrade`):** CURRICULUM_TRAIN_SCRIPT has been rewritten to Transformers+PEFT+TRL (12→24 GB VRAM upgrade, 2026-05-10). DPO_TRAIN_SCRIPT (trainer.py:290–327) and CURRICULUM_TRAIN_SCRIPT GGUF-export fallback (lines 247–250) still require Unsloth; surface report's blanket "stale pin" claim is incorrect for DPO path. |
 | Schema widening (per-GPU columns in `system_metrics`) | **Promoted to required (test set only)** | Implementation of widening itself remains optional. If operator declines schema change, the 4 tests become guard tests asserting current single-GPU behavior. Discussed in §13. |
 | Telegram `/health` and `/gpu` per-GPU rendering | Deferred (flagged as SP6 follow-up) | Touches `src/notifications/telegram_commands.py:672-691` and `:749-761`. Not blocking. |
 | Implementation of Strategy A | Out of scope | SPEC_ONLY=true. Plan.md generated in SP6. |
@@ -61,7 +61,7 @@
 
 ### 2.3 Hard Constraints (must not violate)
 
-- **Test count floor: 3682.** Any tests deleted must be net-replaced. CI enforces.
+- **Test count floor: 5050.** Any tests deleted must be net-replaced. CI enforces (pg-tests.yml EXPECTED=5050 as of Sprint 5 Phase 2).
 - **Schema registry discipline.** No DDL outside `src/schema/registry.py`.
 - **Subprocess-exits-reclaim-VRAM invariant must be preserved.** Training process MUST remain a subprocess.
 - **No Unsloth removal.** DPO + GGUF export still depend on it.
@@ -122,7 +122,7 @@ The codebase is built around the premise that **Ollama and PyTorch training cann
 - Council inference funnels through `src/llm/client.py:generate()` (1 chokepoint; ~20+ call sites).
 - Evening at 6:50 PM ET, training subprocess launches via `scripts.overnight_train`.
 - Morning at 5:15 AM ET, Ollama is reloaded with `keep_alive='18h'`.
-- Test floor 3682. Schema 70 tables.
+- Test floor 5050. Schema 70 tables.
 
 ### 3.4 What fails or becomes brittle under dual-GPU without Strategy A
 
@@ -762,7 +762,7 @@ Is Ollama responsive?
 
 ### 11.3 Fallback to single-GPU operation (3060 dead)
 
-Prose: edit `scripts/ollama_watchdog.ps1` to remove the `CUDA_VISIBLE_DEVICES=1` and `CUDA_DEVICE_ORDER=PCI_BUS_ID` lines (so Ollama falls back to GPU 0). Disable overnight training via `config/settings.local.yaml`. Restart `ArcisOllamaWatchdog`. Verify Ollama on 3090. Caveat: NUM_PARALLEL on 3090 should stay at 2 to leave headroom for any incidental CUDA work.
+Prose: edit `scripts/ollama_watchdog.ps1` to remove the `CUDA_VISIBLE_DEVICES=1` and `CUDA_DEVICE_ORDER=PCI_BUS_ID` lines (so Ollama falls back to GPU 0). Disable overnight training via `config/settings.local.yaml`. Restart `ArcisOllamaWatchdog`. Verify Ollama on 3090. Note: NUM_PARALLEL=4 is viable on the 3090 (24 GB VRAM per `project_gpu_upgrade` 2026-05-10 hardware swap); no headroom concern at rollback.
 
 ### 11.4 Fallback to single-GPU operation (3090 dead)
 
