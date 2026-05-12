@@ -1175,7 +1175,8 @@ class WatchLoop(HandlerRegistryMixin):
         """Sanity-check that critical tables aren't unexpectedly empty."""
         try:
             conn = connect_db(DB_PATH)
-            count = conn.execute("SELECT COUNT(*) FROM shadow_trades").fetchone()[0]
+            row = conn.execute("SELECT COUNT(*) FROM shadow_trades").fetchone()
+            count = row[0] if not isinstance(row, dict) else row['count']
             conn.close()
             if count == 0:
                 logger.warning("[DB] shadow_trades is empty \u2014 possible fresh database or corruption recovery")
