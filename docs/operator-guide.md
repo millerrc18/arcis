@@ -1807,6 +1807,77 @@ re-run. To rotate a password:
 
 ---
 
+## Training Environment — Required Python Env Vars
+
+### PYTHONUTF8=1 (training pipeline encoding requirement)
+
+**What:** `PYTHONUTF8=1` is a Python env var that forces UTF-8 mode regardless of the
+platform default locale.
+
+**Why:** The TRL training pipeline reads and writes corpus JSONL files that contain
+non-ASCII characters (company names, news headlines, Unicode punctuation). On Windows,
+Python's default encoding is `cp1252` (Windows-1252). When `PYTHONUTF8` is absent,
+`open()` calls without an explicit `encoding=` argument silently use `cp1252` — any
+character outside ASCII is corrupted or raises a `UnicodeDecodeError` at read time, and
+the corruption is not always loud. The result is a poisoned training batch that produces
+garbage token sequences or a hard crash mid-epoch.
+
+**Where to set it (3 locations):**
+
+**1. NSSM ArcisWatchLoop service env** — for training subprocesses spawned by the watch loop:
+
+```powershell
+# Read existing env first — NEVER overwrite with only the new var (that wipes the rest):
+nssm get ArcisWatchLoop AppEnvironmentExtra
+
+# Append PYTHONUTF8 to the existing string; replace <EXISTING_ENV_STRING> below:
+nssm set ArcisWatchLoop AppEnvironmentExtra "<EXISTING_ENV_STRING> PYTHONUTF8=1"
+
+# Verify it is present alongside ARCIS_DB_PATH and any other required vars:
+nssm get ArcisWatchLoop AppEnvironmentExtra
+# Expected: ... ARCIS_DB_PATH=C:/arcis/data/ai_research_desk.sqlite3 PYTHONUTF8=1 ...
+```
+
+The NSSM env is the load-bearing setting — all training subprocesses (`overnight_train.py`,
+`trainer.py`, `verify_training_readiness.py`) are spawned as children of the watch-loop
+NSSM service and inherit its environment. If PYTHONUTF8 is only set at User scope (step 2)
+but not in NSSM, the watch-loop-launched training will still use `cp1252`.
+
+**2. User-scope env var** — for operator shell invocations (`python -m src.main training-status`,
+manual corpus runs, etc.):
+
+```powershell
+[Environment]::SetEnvironmentVariable('PYTHONUTF8', '1', 'User')
+```
+
+This persists across shell sessions for the current Windows user. Requires opening a new
+PowerShell window after setting (existing windows don't see the change until restarted).
+
+**3. System-scope env var** — only needed on multi-user machines. On a single-operator
+box (the standard Arcis setup), User-scope (step 2) is sufficient for interactive shells.
+If a CI agent or second user account runs training scripts, set it at system scope instead:
+
+```powershell
+[Environment]::SetEnvironmentVariable('PYTHONUTF8', '1', 'Machine')  # requires admin
+```
+
+**How to verify:**
+
+```powershell
+python -c "import sys; print(sys.flags.utf8_mode)"
+```
+
+Expected output: `1`. If it returns `0`, the var is not visible to the Python process you
+just ran — check which scope (User vs NSSM vs System) is missing and apply the relevant
+step above.
+
+**Cross-reference:** The env-var inventory for the ArcisWatchLoop NSSM service (including
+PYTHONUTF8, ARCIS_DB_PATH, DATABASE_URL, ARCIS_PG_CUTOVER_ENABLED) is maintained in the
+Postgres Cutover runbook → Step 5 (line ~1643) and the Step 1 pre-flight table (line ~1556).
+If you add or remove env vars from NSSM, update those two references to stay in sync.
+
+---
+
 ## See also
 
 - [`CLAUDE.md`](../CLAUDE.md) — rules for AI agents working on the codebase (governance + schema discipline + worktree pattern)

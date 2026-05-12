@@ -190,14 +190,16 @@ def run_saturday_reports():
         from datetime import timedelta as _td
         with connect_db(DB_PATH) as _rc:
             _week_ago = (datetime.now(ET) - _td(days=7)).isoformat()
-            _new_wk = _rc.execute(
+            _row = _rc.execute(
                 "SELECT COUNT(*) FROM training_examples WHERE created_at > ?",
                 (_week_ago,)
-            ).fetchone()[0]
-            _new_paper = _rc.execute(
+            ).fetchone()
+            _new_wk = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            _row = _rc.execute(
                 "SELECT COUNT(*) FROM training_examples WHERE created_at > ? AND source LIKE '%paper%'",
                 (_week_ago,)
-            ).fetchone()[0]
+            ).fetchone()
+            _new_paper = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
     except Exception:
         _new_wk = 0
         _new_paper = 0
@@ -327,16 +329,18 @@ def send_premarket_brief():
 
             # Open positions
             _a_frag, _a_params = active_in_clause()
-            open_paper = conn.execute(
+            _row = conn.execute(
                 f"SELECT COUNT(*) FROM shadow_trades WHERE status IN ({_a_frag}) AND COALESCE(source,'paper')='paper'"
                 " AND COALESCE(quarantined, 0) = 0",
                 _a_params,
-            ).fetchone()[0]
-            open_live = conn.execute(
+            ).fetchone()
+            open_paper = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            _row = conn.execute(
                 f"SELECT COUNT(*) FROM shadow_trades WHERE status IN ({_a_frag}) AND source='live'"
                 " AND COALESCE(quarantined, 0) = 0",
                 _a_params,
-            ).fetchone()[0]
+            ).fetchone()
+            open_live = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
 
         # S&P futures + 10Y from yfinance (works pre-market)
         spy_futures_pct = 0.0
@@ -519,25 +523,30 @@ def send_data_asset_report():
     try:
         today_str = datetime.now(ET).strftime("%Y-%m-%d")
         with connect_db(DB_PATH) as conn:
-            training_total = conn.execute(
+            _row = conn.execute(
                 "SELECT COUNT(*) FROM training_examples"
-            ).fetchone()[0]
-            training_today = conn.execute(
+            ).fetchone()
+            training_total = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            _row = conn.execute(
                 "SELECT COUNT(*) FROM training_examples WHERE created_at LIKE ?",
                 (f"{today_str}%",),
-            ).fetchone()[0]
+            ).fetchone()
+            training_today = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
 
-            signal_total = conn.execute(
+            _row = conn.execute(
                 "SELECT COUNT(*) FROM setup_signals"
-            ).fetchone()[0]
-            signal_today = conn.execute(
+            ).fetchone()
+            signal_total = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            _row = conn.execute(
                 "SELECT COUNT(*) FROM setup_signals WHERE created_at LIKE ?",
                 (f"{today_str}%",),
-            ).fetchone()[0]
+            ).fetchone()
+            signal_today = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
 
-            backlog = conn.execute(
+            _row = conn.execute(
                 "SELECT COUNT(*) FROM training_examples WHERE quality_score_auto IS NULL"
-            ).fetchone()[0]
+            ).fetchone()
+            backlog = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
 
             quality_row = conn.execute(
                 "SELECT AVG(quality_score_auto) FROM training_examples WHERE quality_score_auto IS NOT NULL"
@@ -545,11 +554,12 @@ def send_data_asset_report():
             quality_avg = quality_row[0] if quality_row[0] else 0.0
 
             # Flywheel: examples from closed trades today
-            flywheel = conn.execute(
+            _row = conn.execute(
                 "SELECT COUNT(*) FROM training_examples "
                 "WHERE source IN ('outcome_win','outcome_loss') AND created_at LIKE ?",
                 (f"{today_str}%",),
-            ).fetchone()[0]
+            ).fetchone()
+            flywheel = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
 
         notify_data_asset_report(
             training_total=training_total, training_today=training_today,
@@ -650,25 +660,29 @@ def send_weekly_digest():
             conn.row_factory = sqlite3.Row
 
             # Trades this week
-            opened_paper = conn.execute(
+            _row = conn.execute(
                 "SELECT COUNT(*) FROM shadow_trades WHERE COALESCE(source,'paper')='paper' "
                 "AND created_at >= ? AND COALESCE(quarantined, 0) = 0", (week_ago_str,)
-            ).fetchone()[0]
-            opened_live = conn.execute(
+            ).fetchone()
+            opened_paper = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            _row = conn.execute(
                 "SELECT COUNT(*) FROM shadow_trades WHERE source='live' "
                 "AND created_at >= ? AND COALESCE(quarantined, 0) = 0", (week_ago_str,)
-            ).fetchone()[0]
+            ).fetchone()
+            opened_live = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
             _t_frag, _t_params = terminal_in_clause()
-            closed_paper = conn.execute(
+            _row = conn.execute(
                 f"SELECT COUNT(*) FROM shadow_trades WHERE status IN ({_t_frag}) AND COALESCE(source,'paper')='paper' "
                 "AND actual_exit_time >= ? AND COALESCE(quarantined, 0) = 0",
                 (*_t_params, week_ago_str),
-            ).fetchone()[0]
-            closed_live = conn.execute(
+            ).fetchone()
+            closed_paper = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            _row = conn.execute(
                 f"SELECT COUNT(*) FROM shadow_trades WHERE status IN ({_t_frag}) AND source='live' "
                 "AND actual_exit_time >= ? AND COALESCE(quarantined, 0) = 0",
                 (*_t_params, week_ago_str),
-            ).fetchone()[0]
+            ).fetchone()
+            closed_live = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
 
             # Win rate and expectancy (all time)
             wr_row = conn.execute(
@@ -696,33 +710,40 @@ def send_weekly_digest():
             ).fetchone()
 
             # P&L this week
-            pnl_paper = conn.execute(
+            _row = conn.execute(
                 "SELECT COALESCE(SUM(pnl_dollars),0) FROM shadow_trades "
                 f"WHERE status IN ({_t_frag}) AND COALESCE(source,'paper')='paper' AND actual_exit_time >= ?"
                 " AND COALESCE(quarantined, 0) = 0",
                 (*_t_params, week_ago_str),
-            ).fetchone()[0]
-            pnl_live = conn.execute(
+            ).fetchone()
+            pnl_paper = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            _row = conn.execute(
                 "SELECT COALESCE(SUM(pnl_dollars),0) FROM shadow_trades "
                 f"WHERE status IN ({_t_frag}) AND source='live' AND actual_exit_time >= ?"
                 " AND COALESCE(quarantined, 0) = 0",
                 (*_t_params, week_ago_str),
-            ).fetchone()[0]
+            ).fetchone()
+            pnl_live = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
 
             # Data asset
-            training_end = conn.execute("SELECT COUNT(*) FROM training_examples").fetchone()[0]
-            training_start = training_end - conn.execute(
+            _row = conn.execute("SELECT COUNT(*) FROM training_examples").fetchone()
+            training_end = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            _row = conn.execute(
                 "SELECT COUNT(*) FROM training_examples WHERE created_at >= ?",
                 (week_ago_str,)
-            ).fetchone()[0]
-            signal_end = conn.execute("SELECT COUNT(*) FROM setup_signals").fetchone()[0]
-            signal_start = signal_end - conn.execute(
+            ).fetchone()
+            training_start = training_end - (_row[0] if not isinstance(_row, dict) else list(_row.values())[0])
+            _row = conn.execute("SELECT COUNT(*) FROM setup_signals").fetchone()
+            signal_end = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            _row = conn.execute(
                 "SELECT COUNT(*) FROM setup_signals WHERE created_at >= ?",
                 (week_ago_str,)
-            ).fetchone()[0]
-            backlog = conn.execute(
+            ).fetchone()
+            signal_start = signal_end - (_row[0] if not isinstance(_row, dict) else list(_row.values())[0])
+            _row = conn.execute(
                 "SELECT COUNT(*) FROM training_examples WHERE quality_score_auto IS NULL"
-            ).fetchone()[0]
+            ).fetchone()
+            backlog = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
             quality_row = conn.execute(
                 "SELECT AVG(quality_score_auto) FROM training_examples WHERE quality_score_auto IS NOT NULL"
             ).fetchone()
@@ -742,10 +763,11 @@ def send_weekly_digest():
             regime = classify_regime({"vix_proxy": vix})
 
             # Council
-            council_sessions = conn.execute(
+            _row = conn.execute(
                 "SELECT COUNT(*) FROM council_sessions WHERE created_at >= ?",
                 (week_ago_str,)
-            ).fetchone()[0]
+            ).fetchone()
+            council_sessions = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
             council_row = conn.execute(
                 "SELECT consensus, confidence_weighted_score FROM council_sessions "
                 "ORDER BY created_at DESC LIMIT 1"
@@ -871,11 +893,12 @@ def save_daily_metric_snapshot(db_path: str = DB_PATH):
             ).fetchall()
             pnls = [r[0] for r in closed if r[0] is not None]
             pnl_dollars = [r[1] for r in closed if r[1] is not None]
-            open_count = conn.execute(
+            _row = conn.execute(
                 f"SELECT COUNT(*) FROM shadow_trades WHERE status IN ({_a_frag})"
                 " AND COALESCE(quarantined, 0) = 0",
                 _a_params,
-            ).fetchone()[0]
+            ).fetchone()
+            open_count = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
 
         if not pnls:
             snapshot = {

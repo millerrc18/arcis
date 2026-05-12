@@ -153,7 +153,8 @@ def clear_all_overrides(db_path: str = LOCAL_DB) -> dict:
     """Remove all dashboard overrides, reverting to YAML defaults."""
     try:
         with connect_db(db_path) as conn:
-            count = conn.execute("SELECT COUNT(*) FROM config_overrides").fetchone()[0]
+            _row = conn.execute("SELECT COUNT(*) FROM config_overrides").fetchone()
+            count = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
             conn.execute("DELETE FROM config_overrides")
             conn.commit()
         logger.info("Cleared %d config overrides", count)

@@ -214,14 +214,16 @@ def run_saturday_reports(db_path: str = DB_PATH):
         from datetime import timedelta as _td
         with connect_db(db_path) as _rc:
             _week_ago = (datetime.now(ET) - _td(days=7)).isoformat()
-            _new_wk = _rc.execute(
+            _row = _rc.execute(
                 "SELECT COUNT(*) FROM training_examples WHERE created_at > ?",
                 (_week_ago,)
-            ).fetchone()[0]
-            _new_paper = _rc.execute(
+            ).fetchone()
+            _new_wk = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            _row = _rc.execute(
                 "SELECT COUNT(*) FROM training_examples WHERE created_at > ? AND source LIKE '%paper%'",
                 (_week_ago,)
-            ).fetchone()[0]
+            ).fetchone()
+            _new_paper = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
     except Exception:
         _new_wk = 0
         _new_paper = 0
@@ -498,10 +500,11 @@ def run_attribution_resolution_and_notify(db_path: str = DB_PATH) -> int:
     resolved = resolve_pending_outcomes(db_path)
     try:
         with connect_db(db_path) as conn:
-            pending_remaining = conn.execute(
+            _row = conn.execute(
                 "SELECT COUNT(*) FROM attribution_trades "
                 "WHERE ranker_only_outcome = 'pending'"
-            ).fetchone()[0]
+            ).fetchone()
+            pending_remaining = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
     except Exception as exc:
         logger.warning("[ATTRIBUTION] pending-count lookup failed: %s", exc)
         pending_remaining = -1

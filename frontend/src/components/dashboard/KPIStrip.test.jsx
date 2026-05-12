@@ -242,3 +242,29 @@ describe('TotalPnlDollarsCard (T12)', () => {
     expect(text).toContain('4/5')
   })
 })
+
+describe('TotalPnlDollarsCard negative and zero cases (T6)', () => {
+  it('KPIStrip renders negative total_pnl_dollars with red color and minus sign', () => {
+    const kpis = { ..._kpisGreen, total_pnl_dollars: -1234.56 }
+    const { container } = render(<KPIStrip kpis={kpis} />)
+    expect(container.textContent).toContain('Total P&L')
+    expect(container.textContent).toContain('$-1,234.56')
+    expect(container.innerHTML).toContain('kpi-pill--red')
+  })
+
+  it('KPIStrip renders zero total_pnl_dollars as neutral', () => {
+    const kpis = { ..._kpisGreen, total_pnl_dollars: 0 }
+    const { container } = render(<KPIStrip kpis={kpis} />)
+    expect(container.textContent).toContain('Total P&L')
+    expect(container.textContent).toContain('$0.00')
+    expect(container.innerHTML).not.toContain('kpi-pill--red')
+  })
+
+  it('KPIStrip renders large negative total_pnl_dollars with thousands separator', () => {
+    const kpis = { ..._kpisGreen, total_pnl_dollars: -12345.67 }
+    const { container } = render(<KPIStrip kpis={kpis} />)
+    expect(container.textContent).toContain('Total P&L')
+    expect(container.textContent).toContain('$-12,345.67')
+    expect(container.innerHTML).toContain('kpi-pill--red')
+  })
+})

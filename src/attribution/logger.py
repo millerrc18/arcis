@@ -284,7 +284,8 @@ def get_attribution_stats(db_path: str = DB_PATH) -> dict:
     try:
         with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
-            total = conn.execute("SELECT COUNT(*) FROM attribution_trades").fetchone()[0]
+            _row = conn.execute("SELECT COUNT(*) FROM attribution_trades").fetchone()
+            total = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
 
             by_action = {r["llm_action"]: r["cnt"] for r in conn.execute(
                 "SELECT llm_action, COUNT(*) as cnt FROM attribution_trades GROUP BY llm_action"
@@ -294,18 +295,22 @@ def get_attribution_stats(db_path: str = DB_PATH) -> dict:
             ).fetchall()}
 
             # Win rates by portfolio
-            ranker_resolved = conn.execute(
+            _row = conn.execute(
                 "SELECT COUNT(*) FROM attribution_trades WHERE ranker_only_outcome != 'pending'"
-            ).fetchone()[0]
-            ranker_wins = conn.execute(
+            ).fetchone()
+            ranker_resolved = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            _row = conn.execute(
                 "SELECT COUNT(*) FROM attribution_trades WHERE ranker_only_outcome = 'win'"
-            ).fetchone()[0]
-            llm_resolved = conn.execute(
+            ).fetchone()
+            ranker_wins = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            _row = conn.execute(
                 "SELECT COUNT(*) FROM attribution_trades WHERE llm_portfolio_outcome IS NOT NULL"
-            ).fetchone()[0]
-            llm_wins = conn.execute(
+            ).fetchone()
+            llm_resolved = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            _row = conn.execute(
                 "SELECT COUNT(*) FROM attribution_trades WHERE llm_portfolio_outcome = 'win'"
-            ).fetchone()[0]
+            ).fetchone()
+            llm_wins = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
 
             return {
                 "total_pairs": total,

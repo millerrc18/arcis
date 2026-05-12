@@ -447,7 +447,7 @@ def notify_scan_complete(packets_count: int, trades_opened: int,
 
 def notify_risk_alert(alert_type: str, detail: str) -> bool:
     """Alert: risk governor event."""
-    msg = f"⚠️ <b>RISK ALERT: {alert_type}</b>\n{detail}"
+    msg = f"⚠️ <b>RISK ALERT: {_html_escape(alert_type)}</b>\n{_html_escape(detail)}"
     return send_telegram(msg)
 
 
@@ -936,13 +936,13 @@ def notify_collection_failure(collector_name: str, consecutive_failures: int,
 def notify_exposure_alert(sector: str, count: int, tickers: list[str],
                           exposure_pct: float, limit_pct: float) -> bool:
     """Alert: sector concentration exceeds limit."""
-    ticker_str = ", ".join(tickers[:5])
+    ticker_str = ", ".join(_html_escape(t) for t in tickers[:5])
     msg = (
         f"⚠️ <b>EXPOSURE ALERT</b>\n\n"
-        f"{count} positions in {sector} ({ticker_str})\n"
+        f"{count} positions in {_html_escape(sector)} ({ticker_str})\n"
         f"Sector exposure: {exposure_pct:.0f}% of portfolio\n"
         f"Limit: {limit_pct:.0f}%\n\n"
-        f"Consider: Skip next {sector} setup until exposure normalizes."
+        f"Consider: Skip next {_html_escape(sector)} setup until exposure normalizes."
     )
     return send_telegram(msg)
 

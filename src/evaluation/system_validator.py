@@ -379,10 +379,11 @@ def _check_trading(db_path: str, config: dict) -> list[dict]:
     # Open position count
     try:
         conn = connect_db(db_path)  # timeout upgraded to 30s via connect_db per CLAUDE.md
-        open_count = conn.execute(
+        _row = conn.execute(
             "SELECT COUNT(*) FROM shadow_trades WHERE status='open'"
             " AND COALESCE(quarantined, 0) = 0"
-        ).fetchone()[0]
+        ).fetchone()
+        open_count = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
         conn.close()
         max_positions = shadow_cfg.get("max_positions", 10)
         if open_count >= max_positions:
