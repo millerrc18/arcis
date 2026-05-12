@@ -56,7 +56,7 @@ Per Decision MIN5 from the devil's advocate review of the Sprint 5 closeout plan
 | 4a — Training pipeline (Unsloth) | Line 55 (Out of Scope table) | CURRICULUM_TRAIN_SCRIPT described as still requiring Unsloth | Updated to note CURRICULUM path rewritten to Transformers+PEFT+TRL per `project_gpu_upgrade` (2026-05-10 RTX 3090 swap); DPO path still requires Unsloth |
 | 4b — NUM_PARALLEL on 3090 | Line 765 (Rollback) | `NUM_PARALLEL on 3090 should stay at 2` | Corrected: NUM_PARALLEL=4 is viable on 3090 (24 GB VRAM); headroom concern is specific to 3060 |
 
-Note: Additional `3682` occurrences remain in the spec at lines 44, 191, and 883 (section headers and test-plan body). These are in the interior of the detailed test plan section. They are acknowledged stale and were not modified in this PR due to the 4-hunk scope constraint; a future implementer sweeping the spec before execution should update them alongside the test-count delta accounting in §13.
+Note: Additional `3682` occurrences remain in the spec at lines 44, 191, 883, and 901 (section headers, test-plan body, and test-count delta math `3682 + 8 = 3690`). These are in the interior of the detailed test plan section. They are acknowledged stale and were not modified in this PR due to the 4-hunk scope constraint; a future implementer sweeping the spec before execution should update them alongside the test-count delta accounting in §13.
 
 ---
 
