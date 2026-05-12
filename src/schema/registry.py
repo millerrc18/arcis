@@ -1297,7 +1297,7 @@ _register(TableDef(
         ColumnDef("created_at", "TEXT", nullable=False),
         ColumnDef("ticker", "TEXT", nullable=False),
         ColumnDef("date", "TEXT", nullable=False),
-        ColumnDef("setup_type", "TEXT", nullable=False),
+        ColumnDef("setup_type", "TEXT"),
         ColumnDef("confidence", "REAL"),
         ColumnDef("theoretical_entry", "REAL"),
         ColumnDef("theoretical_stop", "REAL"),
