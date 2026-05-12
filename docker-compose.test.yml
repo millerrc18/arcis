@@ -1,0 +1,49 @@
+# Ephemeral Postgres for local agent / developer test runs.
+#
+# Why this file exists:
+# - Tests in tests/api/test_status.py, tests/test_cloud_app.py, and
+#   tests/test_shadow_desk_filter.py previously hardcoded
+#   DATABASE_URL=postgresql://test:test@localhost/halcyon via
+#   monkeypatch.setenv.  Those 3 fixtures now consume a session-scoped
+#   conftest fixture that starts this container automatically (see
+#   tests/conftest.py → pg_docker_url).
+# - Port 5434 is chosen to avoid colliding with the operator's production
+#   PG at 5433 (docker-compose.yml) and the system PG at 5432.
+# - Credentials are test-only: user=test, password=test, db=halcyon.
+#   The test role is SUPERUSER so it can create the schema via
+#   scripts/bootstrap_pg_test_schema.py (same as CI's "Create test/test
+#   PG role" step).
+# - This service is NOT for production use and MUST NOT be referenced by
+#   application code.
+#
+# Usage (auto-managed by conftest — no manual step normally needed):
+#   docker compose -f docker-compose.test.yml up -d    # start manually
+#   docker compose -f docker-compose.test.yml down -v  # stop + wipe data
+#
+# The conftest session fixture (pg_docker_url) spins the container up at
+# pytest session start and tears it down at session end, so developers
+# running `pytest tests/api/test_status.py` without manual PG setup get a
+# fully provisioned test DB automatically.
+
+services:
+  postgres-test:
+    image: postgres:16-alpine
+    container_name: halcyon-pg-test
+    environment:
+      POSTGRES_DB: halcyon
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test
+    ports:
+      # host port 5434 → container port 5432
+      # 5432: system PG (Windows-installed)
+      # 5433: production PG (docker-compose.yml)
+      # 5434: this test-only container
+      - "127.0.0.1:5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d halcyon"]
+      interval: 3s
+      timeout: 3s
+      retries: 15
+      start_period: 5s
+    tmpfs:
+      - /var/lib/postgresql/data
