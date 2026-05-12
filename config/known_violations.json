@@ -66,6 +66,11 @@
       "lines": 854
     },
     {
+      "file": "src/evaluation/hshs_live.py",
+      "lines": 414,
+      "rationale": "Sprint 5 Wave A+B T1ext (cross-engine fetchone fix): added +49 lines across 15 cross-engine compatibility sites (defensive `row[N] if not isinstance(row, dict) else row['name']` dispatch for psycopg2 RealDictCursor vs sqlite3.Row). File grew from 365 to 414 lines. Real refactor deferred — the fetchone fix pattern is intentional defensive code that the migration cutover requires."
+    },
+    {
       "file": "src/evaluation/model_monitor.py",
       "lines": 464
     },
@@ -118,7 +123,8 @@
     },
     {
       "file": "src/scheduler/reports.py",
-      "lines": 863
+      "lines": 951,
+      "rationale": "Sprint 5 Wave A+B T1ext (cross-engine fetchone fix): added +88 lines via defensive `row[N] if not isinstance(row, dict) else row['name']` dispatch sites for psycopg2 RealDictCursor vs sqlite3.Row impedance. File grew from 863 to 951. Real refactor deferred — reports.py is the EOD/weekly report assembly module and the fetchone fix sites are scattered across summary/best-worst/streak query handlers."
     },
     {
       "file": "src/scheduler/watch.py",

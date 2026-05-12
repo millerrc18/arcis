@@ -10,7 +10,8 @@ def _make_watch_loop():
     """Return a WatchLoop instance with minimal mocked config."""
     with patch("src.scheduler.watch.load_config") as mock_cfg, \
          patch("src.scheduler.watch.is_llm_available", return_value=False), \
-         patch("src.scheduler.watch.GuardedScorer"):
+         patch("src.scheduler.watch.GuardedScorer"), \
+         patch("src.scheduler.watch.WatchLoop._acquire_lock"):
         mock_cfg.return_value = {
             "schedule": {
                 "morning_hour": 8,
@@ -46,6 +47,7 @@ def test_write_heartbeat_called_in_iteration():
     with patch("src.scheduler.watch.Path") as mock_path_cls, \
          patch("src.notifications.platform_events.write_heartbeat") as mock_wh, \
          patch("src.scheduler.watch.signal"), \
+         patch("src.scheduler.watch.WatchLoop._acquire_lock"), \
          patch("time.sleep"):
 
         # Path(...).mkdir / write_text are no-ops
