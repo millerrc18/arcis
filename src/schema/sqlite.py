@@ -14,6 +14,24 @@ from src.schema.registry import TABLES, ColumnDef, TableDef
 
 logger = logging.getLogger(__name__)
 
+_SQL_FUNCTION_DEFAULTS = frozenset({
+    "CURRENT_TIMESTAMP",
+    "CURRENT_DATE",
+    "CURRENT_TIME",
+    "LOCALTIMESTAMP",
+    "LOCALTIME",
+    "NOW()",
+    "NOW",
+})
+
+
+def _format_default(value) -> str:
+    if not isinstance(value, str):
+        return str(value)
+    if value.upper() in _SQL_FUNCTION_DEFAULTS:
+        return value.upper()
+    return f"'{value}'"
+
 
 def _sqlite_only_connect(db_path: str) -> sqlite3.Connection:
     """Open a raw sqlite3 connection — bypasses the engine-aware shim.
@@ -86,7 +104,7 @@ def _render_column(c: ColumnDef, inline_pk_col: str | None) -> str:
         if getattr(c, "autoincrement", False):
             parts.append("AUTOINCREMENT")
     if c.default is not None:
-        parts.append(f"DEFAULT '{c.default}'")
+        parts.append(f"DEFAULT {_format_default(c.default)}")
     return " ".join(parts)
 
 
@@ -196,7 +214,7 @@ def ensure_columns(db_path: str) -> list[str]:
             for col in table.columns:
                 if col.name not in existing:
                     default_clause = (
-                        f" DEFAULT '{col.default}'" if col.default else ""
+                        f" DEFAULT {_format_default(col.default)}" if col.default else ""
                     )
                     try:
                         conn.execute(

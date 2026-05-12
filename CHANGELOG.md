@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### SP5 Wave C — SQL-function DEFAULT rendering fix (Wave C schema fix-up)
+
+Fixes a bug in `src/schema/postgres.py` and `src/schema/sqlite.py` where SQL function call defaults such as `CURRENT_TIMESTAMP`, `NOW()`, and `CURRENT_DATE` were emitted quoted (`DEFAULT 'CURRENT_TIMESTAMP'`). Postgres surfaces this as `psycopg2.errors.InvalidDatetimeFormat` at INSERT time; SQLite silently stores the literal string. The bug affected `platform_events.created_at` (the single in-registry usage of a SQL function default).
+
+#### Fixed
+
+- **`src/schema/postgres.py` — `_format_default` helper + 2 call sites**: SQL function call defaults (CURRENT_TIMESTAMP, CURRENT_DATE, CURRENT_TIME, LOCALTIMESTAMP, LOCALTIME, NOW(), NOW) are now emitted unquoted. String literals remain quoted. Non-string defaults (integers) are emitted as-is. Applied at both the CREATE TABLE column-def site (line ~87) and the ALTER TABLE ADD COLUMN site (line ~127).
+- **`src/schema/sqlite.py` — `_format_default` helper + 2 call sites**: Same fix applied at the `_render_column` CREATE TABLE site and the `ensure_columns` ALTER TABLE site.
+
+#### Added
+
+- **`tests/schema/test_default_value_rendering.py`**: 6 regression tests covering Postgres and SQLite CREATE TABLE and ALTER TABLE paths for both SQL-function defaults (unquoted) and string literal defaults (quoted).
+
 ### SP5 Wave C T4 — Manual-intervention drift detector (#45)
 
 Detects when the operator closes a paper position in the Alpaca dashboard but the local `shadow_trades` row still says active. Emits a Telegram notification (severity=high) and writes a forensic-trail row to `platform_events`. Runs every 30 minutes via a new `tick_drift_detector` method in the watch loop.

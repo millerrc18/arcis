@@ -14,6 +14,25 @@ from src.schema.registry import TABLES, TableDef, ColumnDef, ForeignKeyDef
 
 logger = logging.getLogger(__name__)
 
+_SQL_FUNCTION_DEFAULTS = frozenset({
+    "CURRENT_TIMESTAMP",
+    "CURRENT_DATE",
+    "CURRENT_TIME",
+    "LOCALTIMESTAMP",
+    "LOCALTIME",
+    "NOW()",
+    "NOW",
+})
+
+
+def _format_default(value) -> str:
+    if not isinstance(value, str):
+        return str(value)
+    if value.upper() in _SQL_FUNCTION_DEFAULTS:
+        return value.upper()
+    return f"'{value}'"
+
+
 # SQLite -> Postgres type mapping
 _TYPE_MAP = {
     "INTEGER": "INTEGER",
@@ -84,7 +103,7 @@ def generate_create_table_sql(table: TableDef) -> str:
         if not c.nullable:
             parts.append("NOT NULL")
         if c.default is not None:
-            parts.append(f"DEFAULT '{c.default}'")
+            parts.append(f"DEFAULT {_format_default(c.default)}")
         cols.append(" ".join(parts))
 
     pk_names = (
@@ -124,7 +143,7 @@ def generate_create_sql(table: TableDef) -> str:
 def generate_ensure_column_sql(table_name: str, col: ColumnDef) -> str:
     """Generate idempotent ALTER TABLE ADD COLUMN for Postgres (PL/pgSQL)."""
     pg_type = _TYPE_MAP.get(col.type, col.type)
-    default_clause = f" DEFAULT '{col.default}'" if col.default else ""
+    default_clause = f" DEFAULT {_format_default(col.default)}" if col.default else ""
     return (
         f"DO $$ BEGIN\n"
         f"    ALTER TABLE {table_name} ADD COLUMN "
