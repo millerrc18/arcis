@@ -63,18 +63,25 @@ def _fetch_closed_trades_from_postgres(database_url: str, days: int) -> list[dic
             return [dict(r) for r in cur.fetchall()]
 
 
-def _fetch_closed_trades() -> list[dict]:
+def _fetch_closed_trades(strategy_id: str | None = None) -> list[dict]:
     """Return closed shadow_trades rows from the last 10 years.
 
     Cloud (Render): DATABASE_URL set → reads Postgres directly. Local dev:
     DATABASE_URL unset → goes through journal.store (SQLite). Both branches
     return the same row shape so downstream KPI compute helpers stay
     backend-agnostic.
+
+    strategy_id: when not None, filters results to trades matching that
+    strategy. Default None preserves existing behavior (all trades).
     """
     database_url = os.environ.get("DATABASE_URL", "")
     if database_url:
-        return _fetch_closed_trades_from_postgres(database_url, days=3650)
-    return get_closed_shadow_trades(days=3650)
+        rows = _fetch_closed_trades_from_postgres(database_url, days=3650)
+    else:
+        rows = get_closed_shadow_trades(days=3650)
+    if strategy_id is not None:
+        rows = [r for r in rows if r.get("strategy_id") == strategy_id]
+    return rows
 
 
 def _parse_iso_date(iso_str: str | None) -> _dt.date | None:

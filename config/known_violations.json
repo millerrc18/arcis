@@ -37,7 +37,8 @@
     },
     {
       "file": "src/council/agent_data.py",
-      "lines": 448
+      "lines": 518,
+      "rationale": "T3 fix-up: 5 outer guards broadened to (CouncilAgentDataError, sqlite3.Error) + observability counter + warning logging. Growth from 448 is the resilience fix required by Performance reviewer. Splitting the file is deferred; the 5 gather_* functions are coherent and tightly coupled to the same schema."
     },
     {
       "file": "src/data_enrichment/news.py",
@@ -191,8 +192,8 @@
     },
     {
       "file": "src/utils/db.py",
-      "lines": 1023,
-      "rationale": "Sprint 5 §J5/§J6 Phase 0: central engine-impedance wrapper. T0.1 CompatRow+_RowFactoryCursor (87L), T0.3 _resolve_conflict_target (32L), T0.8 configure_sqlite_for_production+_sqlite_only_connect re-export (40L), T0.2 _rewrite_question_to_pct quote-and-percent-aware tokenizer + PostgresConnectionWrapper rewrite integration (173L), T0.4 engine_aware_upsert with _REPLACE_SEMANTICS dispatch (~215L: _require_classified_replace + _transactional_delete_insert + _pg_replace_in_place + _dispatch_pg + _dispatch_sqlite + engine_aware_upsert + audit dict), T0.5 engine_aware_table_list + engine_aware_column_info (~93L), T0.6 engine_aware_index_list + engine_aware_foreign_keys (~145L, pg_indexes + information_schema.referential_constraints with PRAGMA-shape output). Pre-Sprint-5 baseline was 149. Spec section 2.X mandates 'All wrapper changes land in src/utils/db.py (no new files in this layer)' — splitting into siblings would violate the architectural decision. T0.9 conftest fixtures + T0.11 connect_db_with_pg_retry (~40L) remain. + T0.11 connect_db_with_pg_retry (~40L): bounded-retry helper for PG transient OperationalError with M3 fast-exit (watchdog.txt write + sys.exit(1)) on max_attempts exhaustion; sys/time/pathlib imports added at module top. Refactor deferred to post-Sprint-5 when migration is complete and helpers can be split by concern (compat layer vs. helpers vs. shim)."
+      "lines": 1131,
+      "rationale": "Sprint 5 §J5/§J6 Phase 0: central engine-impedance wrapper. T0.1 CompatRow+_RowFactoryCursor (87L), T0.3 _resolve_conflict_target (32L), T0.8 configure_sqlite_for_production+_sqlite_only_connect re-export (40L), T0.2 _rewrite_question_to_pct quote-and-percent-aware tokenizer + PostgresConnectionWrapper rewrite integration (173L), T0.4 engine_aware_upsert with _REPLACE_SEMANTICS dispatch (~215L: _require_classified_replace + _transactional_delete_insert + _pg_replace_in_place + _dispatch_pg + _dispatch_sqlite + engine_aware_upsert + audit dict), T0.5 engine_aware_table_list + engine_aware_column_info (~93L), T0.6 engine_aware_index_list + engine_aware_foreign_keys (~145L, pg_indexes + information_schema.referential_constraints with PRAGMA-shape output). Pre-Sprint-5 baseline was 149. Spec section 2.X mandates 'All wrapper changes land in src/utils/db.py (no new files in this layer)' — splitting into siblings would violate the architectural decision. T0.9 conftest fixtures + T0.11 connect_db_with_pg_retry (~40L) remain. + T0.11 connect_db_with_pg_retry (~40L): bounded-retry helper for PG transient OperationalError with M3 fast-exit (watchdog.txt write + sys.exit(1)) on max_attempts exhaustion; sys/time/pathlib imports added at module top. Grown from 1023 to 1131 by sp5-followup PRs (#1059 _scalar + #1060 _RowFactoryCursor.__iter__). Refactor deferred to post-Sprint-5 when migration is complete and helpers can be split by concern (compat layer vs. helpers vs. shim)."
     }
   ],
   "oversized_functions": [

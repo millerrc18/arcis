@@ -2,6 +2,130 @@
 
 ## [Unreleased]
 
+<<<<<<< HEAD
+### SP5 Wave C — SQL-function DEFAULT rendering fix (Wave C schema fix-up)
+
+Fixes a bug in `src/schema/postgres.py` and `src/schema/sqlite.py` where SQL function call defaults such as `CURRENT_TIMESTAMP`, `NOW()`, and `CURRENT_DATE` were emitted quoted (`DEFAULT 'CURRENT_TIMESTAMP'`). Postgres surfaces this as `psycopg2.errors.InvalidDatetimeFormat` at INSERT time; SQLite silently stores the literal string. The bug affected `platform_events.created_at` (the single in-registry usage of a SQL function default).
+
+#### Fixed
+
+- **`src/schema/postgres.py` — `_format_default` helper + 2 call sites**: SQL function call defaults (CURRENT_TIMESTAMP, CURRENT_DATE, CURRENT_TIME, LOCALTIMESTAMP, LOCALTIME, NOW(), NOW) are now emitted unquoted. String literals remain quoted. Non-string defaults (integers) are emitted as-is. Applied at both the CREATE TABLE column-def site (line ~87) and the ALTER TABLE ADD COLUMN site (line ~127).
+- **`src/schema/sqlite.py` — `_format_default` helper + 2 call sites**: Same fix applied at the `_render_column` CREATE TABLE site and the `ensure_columns` ALTER TABLE site.
+
+#### Added
+
+- **`tests/schema/test_default_value_rendering.py`**: 6 regression tests covering Postgres and SQLite CREATE TABLE and ALTER TABLE paths for both SQL-function defaults (unquoted) and string literal defaults (quoted).
+
+### SP5 Wave C T4 — Manual-intervention drift detector (#45)
+
+Detects when the operator closes a paper position in the Alpaca dashboard but the local `shadow_trades` row still says active. Emits a Telegram notification (severity=high) and writes a forensic-trail row to `platform_events`. Runs every 30 minutes via a new `tick_drift_detector` method in the watch loop.
+
+#### Added
+
+- **`src/monitoring/manual_intervention_drift.py`**: `detect_drift(broker_positions, db_positions, threshold_minutes, *, state_path, conn)` — returns `list[DriftFinding]`. Detector does NOT call `safe_send` (recursion guard enforced by AST test). Writes `platform_events` rows with `event_type='drift_detected'`, `severity='high'`, `source='drift_detector'`.
+- **`src/monitoring/errors.py`**: `MonitoringError` base + `MonitoringDataError` for broker/DB read failures; mirrors T3's `src/council/errors.py` hierarchy.
+- **`src/notifications/telegram.py` — `notify_manual_intervention_drift`**: formats drift alert message. Registered in `event_map` at module-import-time so Wave D policy.py validator can discover it.
+- **`src/scheduler/watch.py` — `tick_drift_detector`**: 30-minute cadence tick. Calls `detect_drift`, emits via `safe_send` for each finding. Done-flag inside try block per CLAUDE.md rule. Backoff keyed to `"drift_detector"` per-task.
+- **`data/drift_detector_state.json`** (runtime): atomic-write state file tracking `first_seen_iso`, `last_alerted_iso`, `expected_state`, `actual_state` per ticker. 24h dedup window. T12 precursor (Decision 21).
+- **`docs/operator-guide.md` — "Drift detection" section**: explains threshold, dedup, state file, silence procedure, forensic-trail query.
+- **`tests/monitoring/test_manual_intervention_drift.py`**: 6 tests covering divergence detection, 29/31-min threshold boundaries, state persistence + 24h dedup, broker outage guard, `platform_events` row insert.
+- **`tests/monitoring/test_drift_detector_no_recursion.py`**: AST guardrail — fails if `detect_drift` or `_handle`/`_emit` functions call `safe_send`.
+
+#### T4 fix-up — Security REQUEST_CHANGES (commit after 727a42a)
+
+- **`src/notifications/telegram.py` — `notify_manual_intervention_drift`**: applied `_html_escape()` to `ticker`, `expected_state`, `actual_state`, and `severity` fields before HTML interpolation. Fixes Medium security finding: without escaping, a malformed broker response containing `<`/`>`/`&` in a state string would cause Telegram's HTML parser to 400 the message, silently dropping the drift alert. Consistent with the module-wide `_html_escape` discipline enforced across ~30 other `notify_*` functions.
+- **`src/monitoring/manual_intervention_drift.py` — `_atomic_write_json`**: changed temp filename from `path.with_suffix('.tmp')` (fixed) to `path.with_suffix(f'.tmp.{os.getpid()}')` (pid-suffixed). Defense-in-depth: prevents tmp-file collision if a secondary process writes state concurrently outside the `data/watch.lock` singleton (Low security finding).
+- **`tests/notifications/test_telegram_send_path.py` — `test_notify_manual_intervention_drift_html_escapes_user_fields`**: regression-lock test. Passes `<script>` and `&` in payload fields; asserts `&lt;` and `&amp;` appear in the formatted message. Fails loudly if `_html_escape` is removed.
+
+### SP5 Wave C T2 fix-up — revert platform_events to spec §3.1c (QA REQUEST_CHANGES)
+
+QA reviewer flagged two spec deviations and one misleading test docstring introduced in the T2 base commit. All three reverted to spec-literal.
+
+#### Changed
+
+- **`src/schema/registry.py` — `platform_events.created_at`**: type reverted from `TEXT` to `TIMESTAMP` per spec §3.1c (design.md line 204). SQLite stores TIMESTAMP as TEXT internally; Postgres gets the proper TIMESTAMP type via render_migrate.py. The dev's `TEXT` choice was an undisclosed deviation.
+- **`src/schema/registry.py` — `platform_events` indexes**: reverted from dev's composite `idx_platform_events_type_created (event_type, created_at)` + `idx_platform_events_severity` to spec-literal `idx_platform_events_created_at ([created_at])` + `idx_platform_events_event_type ([event_type])` per spec §3.1c (design.md lines 206-209). Severity index removed — not in spec.
+- **`tests/test_schema.py` — `test_shadow_trades_strategy_id_fk_db_enforcement` docstring**: corrected misleading claim that FK is "verified at COMMIT time via PRAGMA defer_foreign_keys=ON". The test never sets that pragma; IntegrityError fires at INSERT. Docstring now accurately describes INSERT-time immediate enforcement and references #107 (deferred-semantics gap tracked against src/schema/sqlite.py).
+
+#### Added
+
+- **`tests/test_schema.py` — `test_platform_events_created_at_is_timestamp`**: asserts `created_at` type is `TIMESTAMP` per spec §3.1c.
+- **`tests/test_schema.py` — `test_platform_events_has_proper_indexes`**: asserts spec-aligned index names (`idx_platform_events_created_at`, `idx_platform_events_event_type`) and absence of non-spec indexes.
+
+### SP5 Wave C T2 — strategy_id FK + platform_events TableDef (closes #56, #96)
+
+Adds `shadow_trades.strategy_id` forward-compat FK column for methodology gate filtering, and declares the `platform_events` table as a forensic-trail write target for Wave C/D monitoring modules.
+
+#### Added
+
+- **`src/schema/registry.py` — `shadow_trades.strategy_id`**: `TEXT nullable=True` column + `ForeignKeyDef('strategy_id', 'strategy_registry', 'strategy_id', initially_deferred=True)`. Legacy trades remain NULL; forward-compat for C7a.4 filter. PostgreSQL migration uses `NOT VALID` (Decision 24 — no AccessExclusiveLock; operator runs `VALIDATE CONSTRAINT` off-hours).
+- **`src/schema/registry.py` — `platform_events` TableDef**: new table with `id` (INTEGER autoincrement PK), `event_type` (TEXT not null), `severity` (TEXT not null), `payload_json` (TEXT nullable), `source` (TEXT not null), `created_at` (TIMESTAMP default CURRENT_TIMESTAMP). Indexes: `idx_platform_events_created_at ([created_at])` + `idx_platform_events_event_type ([event_type])`. Write-sites are C4 drift detector + D5 alert_silence; this task declares only.
+- **`src/schema/registry.py` — `ForeignKeyDef.initially_deferred`**: new boolean field (default False) on `ForeignKeyDef` dataclass. Consumed by `generate_fk_constraint_sql` to emit `NOT VALID` constraints in render_migrate.
+- **`src/schema/postgres.py` — `generate_fk_constraint_sql`**: generates `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY ... NOT VALID;` per Decision 24.
+- **`scripts/render_migrate.py` — `--dry-run` flag**: prints FK constraint SQL without connecting to Postgres; also shows `NOT VALID` constraints on live runs with operator VALIDATE reminder.
+
+#### Changed
+
+- **`src/api/cloud_routes/kpis_compute.py` — `_fetch_closed_trades`**: adds optional `strategy_id: str | None = None` parameter. When not None, filters rows by `strategy_id`. Default None preserves existing behavior.
+
+#### Tests
+
+- 6 new tests in `tests/test_schema.py`: `test_shadow_trades_strategy_id_column_present`, `test_platform_events_table_present_with_all_columns`, `test_shadow_trades_strategy_id_fk_db_enforcement`, `test_fetch_closed_trades_filters_by_strategy_id`, `test_fetch_closed_trades_strategy_id_none_returns_all`, `test_render_migrate_fk_emits_not_valid`.
+
+#### Migration note
+
+`VALIDATE CONSTRAINT shadow_trades_strategy_id_fkey` is operator-run off-hours (deferred per Decision 24). The `NOT VALID` constraint is active for new inserts immediately post-migration.
+
+### SP5 Wave C #54 — Wire dates+directions to promotion_gate KPI
+
+Fixes the silent MC-permutation abstention in the /api/kpis promotion_gate
+response. Previously `get_kpis()` called `_compute_promotion_gate_kpi(n_trades,
+returns)` without dates or directions, causing `_run_mc_perm` to abstain with
+`reason='mc_permutation_requires_real_directions'` on every request.
+
+#### Changed
+
+- **`src/api/cloud_routes/kpis.py` — `get_kpis()`**: extracts `dates` (from
+  `actual_entry_time` via `_parse_iso_date`) and `directions` (from `direction`
+  field, mapped `"long"→1`, anything-else→-1) from the instrumented trades list
+  and passes them as kwargs to `_compute_promotion_gate_kpi`. No signature
+  changes to `kpis_compute.py` or `promotion_gate.py`.
+
+#### Changed (performance fix-up)
+
+- **`src/data_ingestion/risk_free_rate.py` — `_fetch_dtb3_observations()`**:
+  FRED HTTP timeout reduced from 15 s to 5 s. With T1's dates+directions
+  wire-up the rf-rate path now activates per `/api/kpis` request. A 15 s
+  blocking call on a dashboard endpoint is unacceptable; the graceful fallback
+  to `RF_PERIOD_CONSTANT` in `src/methods/_rf_vector.py:90-98` makes a shorter
+  timeout safe.
+
+#### Added
+
+- **`tests/api/test_kpis.py` — `TestPromotionGateDatesDirectionsWired`**
+  (3 tests): verifies dates and directions are forwarded as kwargs with correct
+  length and type (int 1/-1), and that `_run_mc_perm` does not abstain when
+  directions is non-None.
+- **`tests/test_risk_free_rate_timeout.py`** (1 test): asserts
+  `_fetch_dtb3_observations` passes `timeout=5` to `requests.get` — regression
+  lock against future timeout creep.
+
+### SP5 Wave C — Council typed exception hierarchy + agent_data.py refactor (#68)
+
+Replaces 28 bare `except Exception` blocks in `src/council/agent_data.py` with typed catches, surfacing previously-swallowed SQLite errors.
+
+**NOTE: Canary deploy required** — this may surface previously-swallowed code-level bugs (KeyError/TypeError); infrastructure errors (sqlite3) still gracefully degrade per Performance review T3 fix-up; canary deploy via watch-loop restart with eyes-on for 1h.
+
+#### Added
+
+- **`src/council/errors.py`** — typed hierarchy: `CouncilError(Exception)` base; `CouncilParseError`, `CouncilTimeoutError`, `CouncilAgentDataError`, `CouncilProviderError` subclasses. `CouncilUnavailableError` gains `CouncilError` as second base (back-compat: still `RuntimeError`).
+- **`tests/council/test_typed_errors.py`** (15 tests): 5 instantiation tests, 7 hierarchy/IS-A tests, 1 AST-based enforcement test asserting zero bare `except Exception` remain in `agent_data.py`, +2 outer-guard resilience tests (T3 fix-up).
+- **`_council_agent_data_failures`** module-level `collections.defaultdict(int)` counter in `agent_data.py` — keyed by function name; incremented on every outer-guard catch; readable by schedule_health metric path for operator's daily digest.
+
+#### Changed
+
+- **`src/council/agent_data.py`** — all 28 bare `except Exception` blocks converted to `except sqlite3.Error` (DB query sites) or `except (CouncilAgentDataError, ImportError, AttributeError, sqlite3.Error)` (compute_hshs site). Outer function guards broadened from `except CouncilAgentDataError` to `except (CouncilAgentDataError, sqlite3.Error)` — restores infrastructure-error degradation path (DB-lock returns fallback string instead of propagating to abort the 5-agent council session). Each outer guard now emits `logger.warning("[COUNCIL] <fn> caught <type>: <msg> — degrading to fallback")` and increments the failure counter. Code bugs (KeyError/TypeError/AttributeError) still propagate. Public function signatures unchanged.
+
 ### SP5 Wave A+B strategic fix — wrap `PostgresConnectionWrapper.execute()` cursor (closes #98)
 
 Root-cause fix for the M4/2026-05-10 KeyError:0 bug class that drove the T1ext 82-site defensive-dispatch sweep and the subsequent `_scalar(row)` helper (PR #1059). `PostgresConnectionWrapper.execute()` previously returned a raw psycopg2 cursor whose `fetchone()` produced raw dicts — incompatible with `row[0]` access. `cursor().execute()` already wrapped via `_RowFactoryCursor` (CompatRow output). This PR closes that asymmetry by wrapping the inner cursor identically in `execute()` and `executemany()`.

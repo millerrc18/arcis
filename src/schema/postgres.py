@@ -10,9 +10,28 @@ Tests: tests/test_repo_structure.py
 import logging
 from collections.abc import Callable
 
-from src.schema.registry import TABLES, TableDef, ColumnDef
+from src.schema.registry import TABLES, TableDef, ColumnDef, ForeignKeyDef
 
 logger = logging.getLogger(__name__)
+
+_SQL_FUNCTION_DEFAULTS = frozenset({
+    "CURRENT_TIMESTAMP",
+    "CURRENT_DATE",
+    "CURRENT_TIME",
+    "LOCALTIMESTAMP",
+    "LOCALTIME",
+    "NOW()",
+    "NOW",
+})
+
+
+def _format_default(value) -> str:
+    if not isinstance(value, str):
+        return str(value)
+    if value.upper() in _SQL_FUNCTION_DEFAULTS:
+        return value.upper()
+    return f"'{value}'"
+
 
 # SQLite -> Postgres type mapping
 _TYPE_MAP = {
@@ -84,7 +103,7 @@ def generate_create_table_sql(table: TableDef) -> str:
         if not c.nullable:
             parts.append("NOT NULL")
         if c.default is not None:
-            parts.append(f"DEFAULT '{c.default}'")
+            parts.append(f"DEFAULT {_format_default(c.default)}")
         cols.append(" ".join(parts))
 
     pk_names = (
@@ -124,13 +143,30 @@ def generate_create_sql(table: TableDef) -> str:
 def generate_ensure_column_sql(table_name: str, col: ColumnDef) -> str:
     """Generate idempotent ALTER TABLE ADD COLUMN for Postgres (PL/pgSQL)."""
     pg_type = _TYPE_MAP.get(col.type, col.type)
-    default_clause = f" DEFAULT '{col.default}'" if col.default else ""
+    default_clause = f" DEFAULT {_format_default(col.default)}" if col.default else ""
     return (
         f"DO $$ BEGIN\n"
         f"    ALTER TABLE {table_name} ADD COLUMN "
         f"{col.name} {pg_type}{default_clause};\n"
         f"EXCEPTION WHEN duplicate_column THEN NULL;\n"
         f"END $$;\n"
+    )
+
+
+def generate_fk_constraint_sql(table_name: str, fk: ForeignKeyDef) -> str:
+    """Generate ADD CONSTRAINT ... FOREIGN KEY ... NOT VALID for Postgres.
+
+    Per Decision 24: NOT VALID skips the upfront table scan so there is no
+    AccessExclusiveLock on the referencing table during migration. The
+    operator runs VALIDATE CONSTRAINT off-hours to verify existing rows.
+    """
+    constraint_name = f"{table_name}_{fk.column}_fkey"
+    return (
+        f"ALTER TABLE {table_name} "
+        f"ADD CONSTRAINT {constraint_name} "
+        f"FOREIGN KEY ({fk.column}) "
+        f"REFERENCES {fk.references_table}({fk.references_column}) "
+        f"NOT VALID;"
     )
 
 

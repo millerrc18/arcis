@@ -43,3 +43,39 @@ class TestTelegramSendPath:
         payload = call_kwargs.kwargs.get("json") or call_kwargs[1].get("json") or call_kwargs[0][1]
         assert payload["chat_id"] == "99999"
         assert payload["text"] == "hello test message"
+
+
+def test_notify_manual_intervention_drift_html_escapes_user_fields():
+    """Regression-lock: notify_manual_intervention_drift must escape ticker, expected_state, actual_state, severity before HTML interpolation.
+
+    Security review of T4 (sp5-c4) flagged that the function bypassed the module-wide _html_escape discipline.
+    If a broker response ever produces a state string containing '<' / '>' / '&', Telegram's HTML parser
+    400s the message — silently losing the drift alert. This test fails loudly if the escape regresses.
+    """
+    from src.notifications.telegram import notify_manual_intervention_drift
+
+    payload = {
+        "ticker": "AAPL",
+        "expected_state": "open<script>",
+        "actual_state": "closed & gone",
+        "divergence_age_minutes": 47,
+    }
+
+    with patch("src.notifications.telegram.send_telegram", return_value=True) as mock_send:
+        notify_manual_intervention_drift(payload, severity="high")
+
+    assert mock_send.call_count == 1
+    msg = mock_send.call_args[0][0]
+
+    assert "<script>" not in msg, (
+        "Raw HTML tag survived in message — _html_escape was bypassed. "
+        f"Got: {msg!r}"
+    )
+    assert "&lt;" in msg, (
+        "Expected '<' to be escaped to '&lt;'. "
+        f"Got: {msg!r}"
+    )
+    assert "&amp;" in msg, (
+        "Expected '&' to be escaped to '&amp;'. "
+        f"Got: {msg!r}"
+    )

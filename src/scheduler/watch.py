@@ -320,6 +320,9 @@ class WatchLoop(HandlerRegistryMixin):
         # to respect each strategy's shadow_cadence_seconds independently.
         self._last_platform_tick: dict[str, datetime] = {}
 
+        # Tick: drift detector (Wave C T4, 30min cadence) — see manual_intervention_drift.py
+        self._last_drift_detector_time: datetime | None = None
+
     def _reset_daily_state(self):
         """Reset daily flags at midnight ET.
 
@@ -401,6 +404,8 @@ class WatchLoop(HandlerRegistryMixin):
         # Sprint 4 Task 9: clear platform-tick timestamps so each strategy
         # gets a fresh cadence window on the new trading day.
         self._last_platform_tick.clear()
+        # Wave C T4: drift detector cadence reset
+        self._last_drift_detector_time = None
 
     def _is_market_open(self, now: datetime) -> bool:
         """Check if market is currently open (weekday, not holiday, between open and close).
@@ -877,6 +882,89 @@ class WatchLoop(HandlerRegistryMixin):
                     "[PLATFORM] tick failed for %s — swing continues",
                     strategy_id,
                 )
+
+    def _fetch_broker_positions_for_drift(self):
+        """Return dict[ticker, BrokerPosition] from Alpaca; None on outage."""
+        from src.monitoring.manual_intervention_drift import BrokerPosition
+        from src.shadow_trading.alpaca_adapter import get_all_positions
+        try:
+            raw = get_all_positions()
+            return {
+                p["symbol"]: BrokerPosition(
+                    ticker=p["symbol"],
+                    status="open" if float(p.get("qty", 0)) > 0 else "closed",
+                )
+                for p in raw
+            }
+        except Exception as exc:
+            logger.warning("[DRIFT] Broker fetch failed — treating as outage: %s", exc)
+            return None
+
+    def _fetch_db_positions_for_drift(self):
+        """Return dict[ticker, DBPosition] from shadow_trades; raises MonitoringDataError."""
+        from src.monitoring.manual_intervention_drift import DBPosition
+        from src.monitoring.errors import MonitoringDataError
+        from src.shadow_trading._status_sql import active_in_clause
+        try:
+            with connect_db(DB_PATH) as conn:
+                placeholders, active_values = active_in_clause()
+                rows = conn.execute(
+                    f"SELECT ticker, status FROM shadow_trades "
+                    f"WHERE status IN ({placeholders})",
+                    active_values,
+                ).fetchall()
+                return {r["ticker"]: DBPosition(ticker=r["ticker"], status=r["status"]) for r in rows}
+        except sqlite3.Error as exc:
+            raise MonitoringDataError(f"DB position fetch failed: {exc}") from exc
+
+    def tick_drift_detector(self) -> None:
+        """Tick: drift detector (Wave C T4, 30min cadence) — see manual_intervention_drift.py.
+
+        Calls safe_send for each finding. Detector itself MUST NOT call safe_send
+        (enforced by tests/monitoring/test_drift_detector_no_recursion.py).
+        Done-flag set INSIDE try per CLAUDE.md "_safe_run returns bool" rule.
+        """
+        from pathlib import Path
+        from src.monitoring.manual_intervention_drift import detect_drift
+        from src.monitoring.errors import MonitoringDataError
+
+        state_path = Path("data/drift_detector_state.json")
+        now = datetime.now()
+
+        if (
+            self._last_drift_detector_time is not None
+            and (now - self._last_drift_detector_time).total_seconds() < 1800
+        ):
+            return
+
+        try:
+            broker_positions = self._fetch_broker_positions_for_drift()
+            db_positions = self._fetch_db_positions_for_drift()
+
+            with connect_db(DB_PATH) as pe_conn:
+                findings = detect_drift(
+                    broker_positions=broker_positions,
+                    db_positions=db_positions,
+                    threshold_minutes=30,
+                    state_path=state_path,
+                    conn=pe_conn,
+                )
+
+            for finding in findings:
+                try:
+                    safe_send(
+                        "manual_intervention_drift",
+                        payload=finding.as_dict(),
+                        severity="high",
+                    )
+                except Exception as notify_exc:
+                    logger.warning("[DRIFT] Notify failed for %s: %s", finding.ticker, notify_exc)
+
+            self._last_drift_detector_time = now
+
+        except (MonitoringDataError, sqlite3.Error) as exc:
+            logger.error("[DRIFT] tick_drift_detector failed: %s", exc)
+            self._backoff["drift_detector"] = self._backoff.get("drift_detector", 0) + 1
 
     def _post_scan_notifications(self, result):
         """Send Telegram notifications after a scan cycle."""
@@ -1908,6 +1996,12 @@ class WatchLoop(HandlerRegistryMixin):
                 # _run_platform_shadow_tick already isolates per-strategy failures;
                 # wrap in _safe_run so a top-level exception can't kill swing.
                 self._safe_run("platform shadow tick", self._run_platform_shadow_tick)
+
+                # Tick: drift detector (Wave C T4, 30min cadence) — see manual_intervention_drift.py
+                # Internal cadence gate: fires every 30 min. safe_send called here,
+                # NOT inside the detector (recursion-hazard guard).
+                if self._safe_run("drift detector", self.tick_drift_detector):
+                    pass  # cadence managed by _last_drift_detector_time
 
                 time.sleep(60)
 

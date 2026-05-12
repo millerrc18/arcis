@@ -21,6 +21,9 @@ Prerequisites:
 Usage:
     $env:DATABASE_URL = "your-external-database-url"
     python scripts/render_migrate.py
+
+    # Dry-run: print FK constraint SQL without connecting to Postgres
+    python scripts/render_migrate.py --dry-run
 """
 
 import argparse
@@ -35,13 +38,7 @@ except ImportError:
     print("Run: pip install psycopg2-binary")
     sys.exit(1)
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "")
-if not DATABASE_URL:
-    print("ERROR: Set DATABASE_URL environment variable first.")
-    print("  PowerShell: $env:DATABASE_URL = \"your-external-url\"")
-    sys.exit(1)
-
-from src.schema.postgres import create_all_tables
+from src.schema.postgres import create_all_tables, generate_fk_constraint_sql
 from src.schema.registry import TABLES
 
 
@@ -61,11 +58,48 @@ def _parse_args() -> argparse.Namespace:
         default=15000,
         help="DDL lock wait timeout in milliseconds (default: 15000).",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print FK constraint SQL (NOT VALID) without connecting to Postgres.",
+    )
     return parser.parse_args()
+
+
+def _print_fk_constraints() -> None:
+    """Print ADD CONSTRAINT ... NOT VALID SQL for all deferred FKs in registry."""
+    print("FK constraints to apply (NOT VALID — operator runs VALIDATE off-hours):")
+    found = False
+    for table in TABLES.values():
+        for fk in table.foreign_keys:
+            if fk.initially_deferred:
+                sql = generate_fk_constraint_sql(table.name, fk)
+                print(f"  {sql}")
+                found = True
+    if not found:
+        print("  (none)")
 
 
 def main():
     args = _parse_args()
+
+    if args.dry_run:
+        sync_tables = [t for t in TABLES.values() if t.sync_to_postgres]
+        total_columns = sum(len(t.columns) for t in sync_tables)
+        total_indexes = sum(len(t.indexes) for t in sync_tables)
+        print(
+            f"[DRY-RUN] Sync plan: {len(sync_tables)} tables, "
+            f"{total_columns} columns, {total_indexes} indexes"
+        )
+        _print_fk_constraints()
+        return
+
+    database_url = os.environ.get("DATABASE_URL", "")
+    if not database_url:
+        print("ERROR: Set DATABASE_URL environment variable first.")
+        print("  PowerShell: $env:DATABASE_URL = \"your-external-url\"")
+        sys.exit(1)
+
     sync_tables = [table for table in TABLES.values() if table.sync_to_postgres]
     total_columns = sum(len(table.columns) for table in sync_tables)
     total_indexes = sum(len(table.indexes) for table in sync_tables)
@@ -82,7 +116,7 @@ def main():
     )
     try:
         added = create_all_tables(
-            DATABASE_URL,
+            database_url,
             connect_timeout=args.connect_timeout,
             lock_timeout_ms=args.lock_timeout_ms,
             progress=lambda msg: print(msg, flush=True),
@@ -103,7 +137,11 @@ def main():
     if added:
         for col in added:
             print(f"  [+] {col}")
+
+    _print_fk_constraints()
+
     print("\nDone! Render Postgres schema is up to date.")
+    print("NOTE: FK constraints above use NOT VALID — run VALIDATE CONSTRAINT off-hours.")
     # The sync thread in src/sync/ pushes data from local SQLite to Postgres
     # on a ~2-minute cycle, so new tables will be populated shortly.
     print("The sync thread will populate data on the next cycle (within 2 minutes).")
