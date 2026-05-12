@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from src.config import DB_PATH, load_config
+from src.evaluation.backtester_helpers import compute_max_drawdown_duration
 from src.scheduler.holidays import subtract_trading_days
 
 logger = logging.getLogger(__name__)
@@ -324,18 +325,7 @@ def backtest_model(model_name: str, months: int = 6,
     max_dd_pct = round(-max_dd * 100, 1)
 
     # Max drawdown duration
-    max_dd_duration_days = 0
-    current_dd_start = 0
-    peak_eq = equity_curve[0]["equity"] if equity_curve else 0
-    for i, point in enumerate(equity_curve):
-        eq = point["equity"]
-        if eq >= peak_eq:
-            peak_eq = eq
-            current_dd_start = i
-        else:
-            dd_dur = i - current_dd_start
-            if dd_dur > max_dd_duration_days:
-                max_dd_duration_days = dd_dur
+    max_dd_duration_days = compute_max_drawdown_duration(equity_curve)
 
     # Calmar ratio (annualized return / max drawdown)
     from src.evaluation.statistics import calmar_ratio

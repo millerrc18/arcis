@@ -366,6 +366,39 @@ def fetch_historical_news(ticker: str, as_of_date: str, lookback_days: int = 7,
     return result
 
 
+def _build_premium_sentiment_result(data: dict) -> dict:
+    """Extract and classify Finnhub premium sentiment API response into a result dict."""
+    sentiment = data.get("sentiment") or {}
+    bullish_pct = float(sentiment.get("bullishPercent", 0) or 0)
+    bearish_pct = float(sentiment.get("bearishPercent", 0) or 0)
+    company_score = float(data.get("companyNewsScore", 0) or 0)
+    buzz = (data.get("buzz") or {}).get("articlesInLastWeek", 0) or 0
+
+    if bullish_pct >= 0.67 and company_score >= 0.6:
+        label = "positive"
+    elif bearish_pct >= 0.67 and company_score <= 0.4:
+        label = "negative"
+    elif bullish_pct > 0 and bearish_pct > 0:
+        label = "mixed"
+    else:
+        label = "neutral"
+
+    return {
+        "news_sentiment": label,
+        "company_news_score": company_score,
+        "bullish_percent": bullish_pct,
+        "bearish_percent": bearish_pct,
+        "articles_in_last_week": int(buzz),
+        "sector_average_news_score": float(data.get("sectorAverageNewsScore", 0) or 0),
+        "sector_average_bullish_percent": float(data.get("sectorAverageBullishPercent", 0) or 0),
+        "summary": (
+            f"Finnhub sentiment: {label} "
+            f"(score {company_score:.2f}, bullish {bullish_pct:.0%}, "
+            f"bearish {bearish_pct:.0%}, {int(buzz)} articles/week)."
+        ),
+    }
+
+
 def fetch_news_sentiment(
     ticker: str,
     finnhub_api_key: str | None = None,
@@ -413,35 +446,7 @@ def fetch_news_sentiment(
             warnings.append(f"news_sentiment_fetch_failed:{ticker}:runtime")
         return None
 
-    sentiment = data.get("sentiment") or {}
-    bullish_pct = float(sentiment.get("bullishPercent", 0) or 0)
-    bearish_pct = float(sentiment.get("bearishPercent", 0) or 0)
-    company_score = float(data.get("companyNewsScore", 0) or 0)
-    buzz = (data.get("buzz") or {}).get("articlesInLastWeek", 0) or 0
-
-    if bullish_pct >= 0.67 and company_score >= 0.6:
-        label = "positive"
-    elif bearish_pct >= 0.67 and company_score <= 0.4:
-        label = "negative"
-    elif bullish_pct > 0 and bearish_pct > 0:
-        label = "mixed"
-    else:
-        label = "neutral"
-
-    result = {
-        "news_sentiment": label,
-        "company_news_score": company_score,
-        "bullish_percent": bullish_pct,
-        "bearish_percent": bearish_pct,
-        "articles_in_last_week": int(buzz),
-        "sector_average_news_score": float(data.get("sectorAverageNewsScore", 0) or 0),
-        "sector_average_bullish_percent": float(data.get("sectorAverageBullishPercent", 0) or 0),
-        "summary": (
-            f"Finnhub sentiment: {label} "
-            f"(score {company_score:.2f}, bullish {bullish_pct:.0%}, "
-            f"bearish {bearish_pct:.0%}, {int(buzz)} articles/week)."
-        ),
-    }
+    result = _build_premium_sentiment_result(data)
     _save_sentiment_cache(ticker, result)
     return result
 

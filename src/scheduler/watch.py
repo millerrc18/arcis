@@ -794,7 +794,7 @@ class WatchLoop(HandlerRegistryMixin):
 
         # ── Scan metrics ──
         # avg_conviction: mean of llm_conviction from packets if available.
-        # TODO: wire real per-packet conviction list from result when
+        # TODO(#1057): wire real per-packet conviction list from result when
         # universe_scanner.ScanResult exposes it (source: src/scheduler/universe_scanner.py).
         # Proxy: conviction_parsed/conviction_total gives parse rate, not mean conviction.
         _avg_conviction = 0.0
