@@ -2,6 +2,7 @@
 
 ## [Unreleased]
 
+<<<<<<< HEAD
 ### SP5 Wave C — SQL-function DEFAULT rendering fix (Wave C schema fix-up)
 
 Fixes a bug in `src/schema/postgres.py` and `src/schema/sqlite.py` where SQL function call defaults such as `CURRENT_TIMESTAMP`, `NOW()`, and `CURRENT_DATE` were emitted quoted (`DEFAULT 'CURRENT_TIMESTAMP'`). Postgres surfaces this as `psycopg2.errors.InvalidDatetimeFormat` at INSERT time; SQLite silently stores the literal string. The bug affected `platform_events.created_at` (the single in-registry usage of a SQL function default).
@@ -108,6 +109,22 @@ returns)` without dates or directions, causing `_run_mc_perm` to abstain with
 - **`tests/test_risk_free_rate_timeout.py`** (1 test): asserts
   `_fetch_dtb3_observations` passes `timeout=5` to `requests.get` — regression
   lock against future timeout creep.
+
+### SP5 Wave C — Council typed exception hierarchy + agent_data.py refactor (#68)
+
+Replaces 28 bare `except Exception` blocks in `src/council/agent_data.py` with typed catches, surfacing previously-swallowed SQLite errors.
+
+**NOTE: Canary deploy required** — this may surface previously-swallowed code-level bugs (KeyError/TypeError); infrastructure errors (sqlite3) still gracefully degrade per Performance review T3 fix-up; canary deploy via watch-loop restart with eyes-on for 1h.
+
+#### Added
+
+- **`src/council/errors.py`** — typed hierarchy: `CouncilError(Exception)` base; `CouncilParseError`, `CouncilTimeoutError`, `CouncilAgentDataError`, `CouncilProviderError` subclasses. `CouncilUnavailableError` gains `CouncilError` as second base (back-compat: still `RuntimeError`).
+- **`tests/council/test_typed_errors.py`** (15 tests): 5 instantiation tests, 7 hierarchy/IS-A tests, 1 AST-based enforcement test asserting zero bare `except Exception` remain in `agent_data.py`, +2 outer-guard resilience tests (T3 fix-up).
+- **`_council_agent_data_failures`** module-level `collections.defaultdict(int)` counter in `agent_data.py` — keyed by function name; incremented on every outer-guard catch; readable by schedule_health metric path for operator's daily digest.
+
+#### Changed
+
+- **`src/council/agent_data.py`** — all 28 bare `except Exception` blocks converted to `except sqlite3.Error` (DB query sites) or `except (CouncilAgentDataError, ImportError, AttributeError, sqlite3.Error)` (compute_hshs site). Outer function guards broadened from `except CouncilAgentDataError` to `except (CouncilAgentDataError, sqlite3.Error)` — restores infrastructure-error degradation path (DB-lock returns fallback string instead of propagating to abort the 5-agent council session). Each outer guard now emits `logger.warning("[COUNCIL] <fn> caught <type>: <msg> — degrading to fallback")` and increments the failure counter. Code bugs (KeyError/TypeError/AttributeError) still propagate. Public function signatures unchanged.
 
 ### SP5 Wave A+B strategic fix — wrap `PostgresConnectionWrapper.execute()` cursor (closes #98)
 
