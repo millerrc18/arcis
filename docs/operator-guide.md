@@ -2054,6 +2054,60 @@ If `oldest_unack_alert` is non-null, an alert fired but was never acknowledged �
 
 ---
 
+## Drift detection
+
+The manual-intervention drift detector (Wave C T4 / #45) fires a Telegram alert when the operator closes a paper position directly in the Alpaca dashboard but the local `shadow_trades` row still shows `active`. This prevents silent divergence between broker state and DB intent.
+
+### What it watches
+
+Every 30 minutes the watch loop compares active `shadow_trades` rows against Alpaca's live paper positions. A "drift" is when:
+- Broker says position is closed (qty = 0 or absent)
+- Local DB says position is active (`status IN ('active', 'open', ...)`)
+
+### Threshold and dedup
+
+- Divergence must persist for **≥ 30 minutes** before an alert fires (avoids transient Alpaca API hiccups).
+- Once alerted, the same divergence is **suppressed for 24 hours** (operator has been notified; they may be investigating).
+- On broker outage (Alpaca unreachable), **no alerts fire** — cannot distinguish drift from API failure.
+
+### State file
+
+`data/drift_detector_state.json` — atomic-write singleton tracking first-seen timestamps and last-alert timestamps per ticker. To silence an alert without fixing the underlying drift: delete the file or remove the ticker entry.
+
+### Forensic trail
+
+Every emitted finding writes a row to `platform_events`:
+
+```
+sqlite3 data/ai_research_desk.sqlite3 \
+  "SELECT * FROM platform_events WHERE source='drift_detector' ORDER BY created_at DESC LIMIT 10"
+```
+
+Fields: `event_type='drift_detected'`, `severity='high'`, `source='drift_detector'`, `payload_json` containing `ticker`, `expected_state`, `actual_state`, `divergence_age_minutes`.
+
+### How to silence
+
+1. Investigate the divergence — does the Alpaca position match the DB row?
+2. If already resolved: delete `data/drift_detector_state.json` (or just the stale ticker key) so the next tick starts fresh.
+3. If you want to temporarily stop drift checks: stop the watch loop (`nssm stop <svc>`) — the state file persists across restarts.
+
+### How to investigate
+
+```bash
+# Check what the DB says
+sqlite3 data/ai_research_desk.sqlite3 \
+  "SELECT ticker, status, updated_at FROM shadow_trades WHERE status IN ('active', 'open') ORDER BY updated_at DESC"
+
+# Check the drift forensic trail
+sqlite3 data/ai_research_desk.sqlite3 \
+  "SELECT created_at, payload_json FROM platform_events WHERE source='drift_detector' ORDER BY created_at DESC LIMIT 5"
+
+# Check current state file
+type data\drift_detector_state.json
+```
+
+---
+
 ## Known design decisions / WON'T-FIX notes
 
 ### `#SP4-settings-backend-float32-storage` WON'T FIX

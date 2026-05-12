@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### SP5 Wave C T4 — Manual-intervention drift detector (#45)
+
+Detects when the operator closes a paper position in the Alpaca dashboard but the local `shadow_trades` row still says active. Emits a Telegram notification (severity=high) and writes a forensic-trail row to `platform_events`. Runs every 30 minutes via a new `tick_drift_detector` method in the watch loop.
+
+#### Added
+
+- **`src/monitoring/manual_intervention_drift.py`**: `detect_drift(broker_positions, db_positions, threshold_minutes, *, state_path, conn)` — returns `list[DriftFinding]`. Detector does NOT call `safe_send` (recursion guard enforced by AST test). Writes `platform_events` rows with `event_type='drift_detected'`, `severity='high'`, `source='drift_detector'`.
+- **`src/monitoring/errors.py`**: `MonitoringError` base + `MonitoringDataError` for broker/DB read failures; mirrors T3's `src/council/errors.py` hierarchy.
+- **`src/notifications/telegram.py` — `notify_manual_intervention_drift`**: formats drift alert message. Registered in `event_map` at module-import-time so Wave D policy.py validator can discover it.
+- **`src/scheduler/watch.py` — `tick_drift_detector`**: 30-minute cadence tick. Calls `detect_drift`, emits via `safe_send` for each finding. Done-flag inside try block per CLAUDE.md rule. Backoff keyed to `"drift_detector"` per-task.
+- **`data/drift_detector_state.json`** (runtime): atomic-write state file tracking `first_seen_iso`, `last_alerted_iso`, `expected_state`, `actual_state` per ticker. 24h dedup window. T12 precursor (Decision 21).
+- **`docs/operator-guide.md` — "Drift detection" section**: explains threshold, dedup, state file, silence procedure, forensic-trail query.
+- **`tests/monitoring/test_manual_intervention_drift.py`**: 6 tests covering divergence detection, 29/31-min threshold boundaries, state persistence + 24h dedup, broker outage guard, `platform_events` row insert.
+- **`tests/monitoring/test_drift_detector_no_recursion.py`**: AST guardrail — fails if `detect_drift` or `_handle`/`_emit` functions call `safe_send`.
+
 ### SP5 Wave C T2 fix-up — revert platform_events to spec §3.1c (QA REQUEST_CHANGES)
 
 QA reviewer flagged two spec deviations and one misleading test docstring introduced in the T2 base commit. All three reverted to spec-literal.

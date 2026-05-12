@@ -1154,6 +1154,32 @@ def notify_trading_stats_update(stats: dict, label: str = "") -> bool:
     return send_telegram("\n".join(lines))
 
 
+def notify_manual_intervention_drift(payload: dict, severity: str = "high") -> bool:
+    """Telegram alert for manual-intervention drift (Wave C T4 / #45).
+
+    Fires when the operator closes a paper position in the Alpaca dashboard
+    but the local shadow_trade row still shows active.
+
+    Args:
+        payload: DriftFinding.as_dict() — must contain ticker, expected_state,
+                 actual_state, divergence_age_minutes.
+        severity: Alert severity, passed through from the watch-loop caller.
+                  Do NOT hardcode 'high' here — severity is determined at the
+                  call site (watch.py tick_drift_detector).
+    """
+    ticker = payload.get("ticker", "UNKNOWN")
+    expected = payload.get("expected_state", "?")
+    actual = payload.get("actual_state", "?")
+    age = payload.get("divergence_age_minutes", 0)
+    sev_label = severity.upper()
+    msg = (
+        f"⚠ [{sev_label}] Drift detected — {ticker}: "
+        f"expected {expected} (broker), actual {actual} (db), "
+        f"age {age:.0f} min"
+    )
+    return send_telegram(msg)
+
+
 def _write_notification_sent(
     event_type: str,
     channel: str,
@@ -1283,6 +1309,8 @@ def safe_send(event_type: str, **kwargs) -> bool:
         "attribution_resolve_complete": notify_attribution_resolve_complete,
         "stress_test_complete": notify_stress_test_complete,
         "trading_stats_update": notify_trading_stats_update,
+        # Monitoring (Wave C T4)
+        "manual_intervention_drift": notify_manual_intervention_drift,
     }
     notify_fn = event_map[event_type]  # KeyError if unknown — intentional
 
