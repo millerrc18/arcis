@@ -19,6 +19,7 @@ responsible for notification dispatch. See test_drift_detector_no_recursion.py.
 
 import json
 import logging
+import os
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
@@ -67,7 +68,7 @@ def _atomic_write_json(path: Path, data: dict) -> None:
     """Write JSON atomically via a temp file in the same directory."""
     parent = path.parent
     parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
+    tmp = path.with_suffix(f".tmp.{os.getpid()}")
     tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
     tmp.replace(path)
 

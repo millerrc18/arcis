@@ -1167,11 +1167,11 @@ def notify_manual_intervention_drift(payload: dict, severity: str = "high") -> b
                   Do NOT hardcode 'high' here — severity is determined at the
                   call site (watch.py tick_drift_detector).
     """
-    ticker = payload.get("ticker", "UNKNOWN")
-    expected = payload.get("expected_state", "?")
-    actual = payload.get("actual_state", "?")
+    ticker = _html_escape(payload.get("ticker", "UNKNOWN"))
+    expected = _html_escape(payload.get("expected_state", "?"))
+    actual = _html_escape(payload.get("actual_state", "?"))
     age = payload.get("divergence_age_minutes", 0)
-    sev_label = severity.upper()
+    sev_label = _html_escape(severity.upper())
     msg = (
         f"⚠ [{sev_label}] Drift detected — {ticker}: "
         f"expected {expected} (broker), actual {actual} (db), "

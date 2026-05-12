@@ -17,6 +17,12 @@ Detects when the operator closes a paper position in the Alpaca dashboard but th
 - **`tests/monitoring/test_manual_intervention_drift.py`**: 6 tests covering divergence detection, 29/31-min threshold boundaries, state persistence + 24h dedup, broker outage guard, `platform_events` row insert.
 - **`tests/monitoring/test_drift_detector_no_recursion.py`**: AST guardrail — fails if `detect_drift` or `_handle`/`_emit` functions call `safe_send`.
 
+#### T4 fix-up — Security REQUEST_CHANGES (commit after 727a42a)
+
+- **`src/notifications/telegram.py` — `notify_manual_intervention_drift`**: applied `_html_escape()` to `ticker`, `expected_state`, `actual_state`, and `severity` fields before HTML interpolation. Fixes Medium security finding: without escaping, a malformed broker response containing `<`/`>`/`&` in a state string would cause Telegram's HTML parser to 400 the message, silently dropping the drift alert. Consistent with the module-wide `_html_escape` discipline enforced across ~30 other `notify_*` functions.
+- **`src/monitoring/manual_intervention_drift.py` — `_atomic_write_json`**: changed temp filename from `path.with_suffix('.tmp')` (fixed) to `path.with_suffix(f'.tmp.{os.getpid()}')` (pid-suffixed). Defense-in-depth: prevents tmp-file collision if a secondary process writes state concurrently outside the `data/watch.lock` singleton (Low security finding).
+- **`tests/notifications/test_telegram_send_path.py` — `test_notify_manual_intervention_drift_html_escapes_user_fields`**: regression-lock test. Passes `<script>` and `&` in payload fields; asserts `&lt;` and `&amp;` appear in the formatted message. Fails loudly if `_html_escape` is removed.
+
 ### SP5 Wave C T2 fix-up — revert platform_events to spec §3.1c (QA REQUEST_CHANGES)
 
 QA reviewer flagged two spec deviations and one misleading test docstring introduced in the T2 base commit. All three reverted to spec-literal.
