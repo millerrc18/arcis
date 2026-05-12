@@ -560,12 +560,14 @@ def _cmd_scoring() -> str:
     import sqlite3
     try:
         with connect_db(DB_PATH) as conn:
-            total = conn.execute(
+            _row = conn.execute(
                 "SELECT COUNT(*) FROM training_examples"
-            ).fetchone()[0]
-            scored = conn.execute(
+            ).fetchone()
+            total = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            _row = conn.execute(
                 "SELECT COUNT(*) FROM training_examples WHERE quality_score IS NOT NULL"
-            ).fetchone()[0]
+            ).fetchone()
+            scored = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
             unscored = total - scored
 
         return (
