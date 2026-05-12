@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### SP5 Wave A+B T3 — known_violations.json render_sync.py stale entries
+
+#### Fixed
+
+- **SP5 Wave A+B T3 — render_sync.py known_violations.json cleanup** (`config/known_violations.json`): confirmed `src/sync/render_sync.py` is absent post-Phase-3-revised (PR #1055) and `config/known_violations.json` contains zero `render_sync` references — stale entries were removed as part of that PR's T7 deletion batch. Closes task #26. (T3, verification-only)
+
 ### SP5 §J Cutover Rectification — post-2026-05-11 hardening (T1–T8 + T2-fix)
 
 9 rectification items addressing the two P0 failure modes from the 2026-05-11T20:37Z cutover attempt (P0 #89: 59 PG tables disappeared with `log_statement=none`; P0 #90: NVDA shadow_trade bypassed the gate). Goal: the next cutover attempt has comprehensive instrumentation + hardened guardrails so failures either can't recur or leave a precise forensic trail. Spec: `docs/audits/2026-05-11-cutover-rectification/spec.md`.
