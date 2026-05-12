@@ -1,0 +1,432 @@
+{
+  "analysis_mode": "deep",
+  "focus_areas": [
+    {
+      "area": "Wave D — Notifications routing policy (#69) — LARGEST PIECE",
+      "depth": "deep",
+      "files_read": [
+        "src/notifications/telegram.py (1322 LOC; read intro 1-100, payloads 200-299, sample notify_ 770-820, safe_send 1100-1322)",
+        "src/notifications/platform_events.py (235 LOC, fully read)",
+        "src/email/digest_builder.py (intro only, lines 1-80 of 409)",
+        "docs/audits/2026-05-07-telegram-email-sweep/recommendations.md (fully read)",
+        "docs/audits/2026-05-07-telegram-email-sweep/summary.md (header grep only)",
+        "docs/audits/2026-05-12-sprint-5-glidepath/glidepath.md (fully read)"
+      ],
+      "patterns_found": [
+        "safe_send is THE central dispatcher (telegram.py:1205-1313). All 38 notify_* funnel through event_map dict lookup. KeyError on unknown event_type by design (security: prevent attacker-controlled dispatch).",
+        "Network failures already isolated to (urllib3.HTTPError, requests.RequestException, socket.timeout, OSError) at lines 1299-1311. Wave D's retry policy slots into this except block.",
+        "_write_notification_sent (telegram.py:1157-1192) and _record_send_failure (telegram.py:1195-1202) already write to notifications_sent table with status='ok'|'failed'|'heartbeat'. The schema is in place for digest queue + retry tracking.",
+        "platform_events.py has parallel dedup machinery: _DEDUP_CACHE in-memory (line 31) + _already_notified_recently_db (line 38) with 24h window via notifications_dedup table. The two layers are intentional — see docstring lines 13-19.",
+        "write_heartbeat (platform_events.py:143-174) is already wired into watch loop (task #67 closed) — writes 'heartbeat' status row.",
+        "_PAYLOAD_EVENTS = {trade_opened, trade_closed, eod_report, weekly_digest} (telegram.py:1291) use typed dataclass payloads (CC3); other 34 events pass **kwargs.",
+        "Email mode discreteness: src/main.py:259+264 has argparse `--email-mode {silent|full_stream|daily_summary|digest}`. Wave D's Telegram-side mode SHOULD mirror this convention (silent / full_stream / digest)."
+      ],
+      "integration_points": [
+        {"description": "safe_send dispatcher — Wave D's policy gate (mute/digest/route) inserts here BEFORE event_map lookup", "file": "src/notifications/telegram.py", "line": 1234, "implication": "Add `_should_dispatch(event_type, severity, now_et)` policy check between is_telegram_enabled() and event_map[event_type]. Preserves backward-compat (default policy = current behavior)."},
+        {"description": "Retry policy mounts in the network-failure except block", "file": "src/notifications/telegram.py", "line": 1299, "implication": "Replace single-attempt with exponential-backoff retry (e.g., 1s, 5s, 30s); after N consecutive failures escalate to email channel. Operator escalation closes F2."},
+        {"description": "notifications_sent table is the existing observability surface", "file": "src/schema/registry.py", "line": 2547, "implication": "Add `severity TEXT` + `policy_decision TEXT` (sent/muted/digested/escalated) columns for forensic trail."},
+        {"description": "Digest queue table — new", "file": "src/schema/registry.py", "line": "after 2549", "implication": "New TableDef `notifications_digest_queue` (id, event_type, severity, payload_json, enqueued_at, flushed_at NULLABLE, channel). Cadence flush runs from scheduler/watch.py."},
+        {"description": "Email digest builder is the prior-art cadence pattern", "file": "src/email/digest_builder.py", "line": "9-13", "implication": "4 digests/day (premarket 7:30, midday 12:00, EOD 16:15, evening 20:00) — Wave D Telegram digest mode should match these slots OR run on operator-defined cron (settings YAML)."},
+        {"description": "Existing _html_escape helper covers #93 + #94 fold-in", "file": "src/notifications/telegram.py", "line": 111, "implication": "notify_regime_alert (line 780-796) interpolates regime_old/regime_new directly — apply _html_escape per T5 pattern at line 801 (notify_milestone). notify_streak_alert (line 805-818) interpolates recent_trades ticker strings + risk_governor_status — same fix."}
+      ],
+      "potential_conflicts": [
+        "Two dedup paths (in-memory _DEDUP_CACHE at platform_events.py:31 + DB notifications_dedup) — Wave D digest mode introduces a THIRD time-window concept (digest cadence bucket). Spec must clarify: dedup is per-content-identity within 24h; digest is per-event-type within cadence bucket. They COMPOSE (dedup runs first, then digest bucketing) — they do not conflict.",
+        "safe_send's KeyError-on-unknown-event_type security pattern (line 1287) — Wave D routing config must NOT introduce dynamic event_type resolution; the YAML config must REFERENCE entries in the existing event_map dict by literal key.",
+        "If digest buffering delays a severity=critical event, that's a regression. Spec must guarantee severity>=medium bypasses digest queue."
+      ],
+      "relevant_code_snippets": [
+        {"file": "src/notifications/telegram.py", "lines": "1205-1313", "description": "safe_send central dispatcher — modify in place; do NOT create a parallel router.py (would duplicate the event_map security boundary)"},
+        {"file": "src/notifications/telegram.py", "lines": "780-818", "description": "notify_regime_alert + notify_streak_alert — Wave D folds in #93 + #94 _html_escape gaps here"}
+      ],
+      "wave_specs": {
+        "files_in_scope": ["src/notifications/telegram.py", "src/notifications/policy.py (NEW)", "src/notifications/digest_queue.py (NEW)", "src/schema/registry.py", "src/scheduler/watch.py (digest flush hook)", "config/settings.example.yaml", "tests/notifications/test_policy.py (NEW)", "tests/notifications/test_digest_queue.py (NEW)", "tests/notifications/test_safe_send_retry.py (NEW)", "tests/notifications/test_html_escape_siblings.py (NEW)", "docs/operator-guide.md (notifications-routing section)"],
+        "files_read_only": ["src/notifications/platform_events.py", "src/email/digest_builder.py", "src/main.py"],
+        "scope_fence": "Done when safe_send composes policy.should_dispatch() before event_map lookup, digest_queue.flush() is on a watch-loop cadence, retry policy with N-failure escalation is wired, and YAML config drives all three. Tests cover happy/edge cases for each layer."
+      },
+      "test_strategy": "Unit: policy.should_dispatch() truth table (quiet hours / severity / event_type combinations) ~12 tests. Unit: digest_queue enqueue/flush state machine ~8 tests. Unit: safe_send retry-and-escalate ~6 tests. Integration: end-to-end via parametrized_conn fixture (sqlite + postgres variants) ~6 tests. Sibling HTML-escape: 4 tests (regime + streak, with/without malicious input). Estimated +35 tests for the test floor.",
+      "reviewer_dispatch_signal": "QA (always); Security (config-loading attack surface — YAML parsing of severity/event_type — and policy bypass scenarios); Performance NOT required (notification path is not hot-path)."
+    },
+    {
+      "area": "Wave C #54 — kpis.py:128 dates+directions wire-in",
+      "depth": "deep",
+      "files_read": ["src/api/cloud_routes/kpis.py (143 LOC, fully read)", "src/api/cloud_routes/kpis_compute.py (lines 350-400)", "src/methods/promotion_gate.py (175 LOC, fully read)"],
+      "patterns_found": [
+        "kpis.py:128 call site: `_compute_promotion_gate_kpi(n_trades, returns)` — passes ONLY n_trades + returns, drops dates+directions. Brief said line 91; ACTUAL is line 128 (file structure changed since brief was written).",
+        "kpis_compute.py:364 signature: `_compute_promotion_gate_kpi(n_trades, returns, dates=None, directions=None)` — already accepts both as optional kwargs. Forward-compat was set up in Sprint 2 T3.",
+        "promotion_gate.py:159 already passes directions through to _run_mc_perm. Without directions, the MC permutation vote ABSTAINS with reason='mc_permutation_requires_real_directions' (line 49-52 docstring). Currently the MC vote always abstains because directions=None.",
+        "shadow_trades.direction column EXISTS at registry.py:202 (TEXT, default 'long'). NO schema change needed for #54."
+      ],
+      "integration_points": [
+        {"description": "Trade fetch tier in kpis.py", "file": "src/api/cloud_routes/kpis.py", "line": 108, "implication": "`raw_trades = _fetch_closed_trades()` returns dicts with 'direction' + 'actual_entry_time'/'actual_exit_time'. Extract: `dates = [_parse_iso_date(t['actual_entry_time']) for t in instrumented]; directions = [1 if t.get('direction','long')=='long' else -1 for t in instrumented]`."},
+        {"description": "promotion_gate.py MC permutation vote requires real directions", "file": "src/methods/promotion_gate.py", "line": 49, "implication": "Wiring directions changes the MC vote from ABSTAIN → real PASS/FAIL. This may flip promote/reject decisions for live KPI cards. Pre-merge: run the gate against current closed-trades to surface the delta; CHANGELOG entry must note the shift."}
+      ],
+      "potential_conflicts": [
+        "Once directions are wired, MC vote stops abstaining — the 4-of-5 threshold becomes ACHIEVABLE. Strategies that were 'defer' due to abstain may flip to 'reject' or 'promote'. This is a SEMANTIC change, not a bug fix. Operator must be informed via PR body."
+      ],
+      "relevant_code_snippets": [
+        {"file": "src/api/cloud_routes/kpis.py", "lines": "108-128", "description": "Trade fetch + instrumented filter — extraction site for dates + directions arrays"}
+      ],
+      "wave_specs": {
+        "files_in_scope": ["src/api/cloud_routes/kpis.py", "tests/api/test_kpis.py"],
+        "files_read_only": ["src/api/cloud_routes/kpis_compute.py", "src/methods/promotion_gate.py", "src/schema/registry.py"],
+        "scope_fence": "Done when kpis.py:128 passes dates + directions; the live /api/kpis endpoint returns a promotion_gate with non-abstaining MC vote when N>=mintrl; test_kpis covers the wired path.",
+        "test_strategy": "+3 tests: (1) wired call passes dates+directions correctly, (2) MC vote no longer abstains given real directions, (3) snapshot/regression test on response shape. ~2 LOC change in kpis.py.",
+        "reviewer_dispatch_signal": "QA only — math-correctness is unit-tested at promotion_gate level; this is wiring."
+      }
+    },
+    {
+      "area": "Wave C #56 — strategy_id FK on shadow_trades",
+      "depth": "moderate",
+      "files_read": ["src/schema/registry.py shadow_trades section (lines 186-340)", "src/methods/promotion_gate.py"],
+      "patterns_found": [
+        "shadow_trades has 50+ columns already (registry.py:198-318). Adding strategy_id is a normal ColumnDef addition.",
+        "ForeignKeyDef pattern at registry.py:329-330: `ForeignKeyDef('recommendation_id', 'recommendations', 'recommendation_id')`. Mirror for strategy_id → strategy_registry.strategy_id.",
+        "Existing `desk` column (line 299, default 'swing') ALREADY encodes strategy via `research_<strategy_id>` format. This is the legacy attribution surface; strategy_id FK is the forward-compat replacement.",
+        "Existing `strategy_spec_hash` column (line 304) tracks WHICH SPEC version generated the trade. strategy_id (new) tracks WHICH STRATEGY identity. They're complementary."
+      ],
+      "integration_points": [
+        {"description": "FK target table strategy_registry — verify it exists", "file": "src/schema/registry.py", "line": "search needed", "implication": "Glob/Grep needed to confirm strategy_registry TableDef + PK column name. If absent, this task expands to creating that table first OR FK target needs reconsideration."},
+        {"description": "promotion_gate.py filter integration is OUT-OF-SCOPE for this PR", "file": "src/methods/promotion_gate.py", "line": "152", "implication": "promotion_gate is pure-function on returns. Filter-by-strategy_id happens at the CALLER (e.g., kpis.py fetching closed trades for one strategy). Add a `strategy_id` filter param to `_fetch_closed_trades` in kpis_compute.py instead."},
+        {"description": "Migration via render_migrate.py", "file": "scripts/render_migrate.py", "line": "n/a", "implication": "After registry edit, run `validate-schema --fix` locally then render_migrate.py to apply to PG. PR body must include both outputs (CLAUDE.md mandate)."}
+      ],
+      "potential_conflicts": [
+        "Backfill of strategy_id for existing rows: default NULL? Or backfill from `desk` parsing (e.g., 'research_lazy_prices_v1' → 'lazy_prices_v1')? Spec must decide. Default NULL is safest; backfill is a one-shot scripts/ task."
+      ],
+      "wave_specs": {
+        "files_in_scope": ["src/schema/registry.py", "src/methods/promotion_gate.py (read-only — no change here; filter is caller-side)", "src/api/cloud_routes/kpis_compute.py (add optional strategy_id filter)", "scripts/render_migrate.py output", "tests/test_schema.py", "tests/api/test_kpis.py"],
+        "files_read_only": ["src/shadow_trading/executor.py (trade-creation sites to verify strategy_id population path)"],
+        "scope_fence": "Done when shadow_trades has strategy_id column + ForeignKeyDef, render_migrate output committed, kpis_compute._fetch_closed_trades accepts optional strategy_id filter.",
+        "test_strategy": "+5 tests: schema discipline + FK enforcement, kpis_compute filter behavior, executor.py write-path populates strategy_id (deferrable — backfill is separate task).",
+        "reviewer_dispatch_signal": "QA (schema discipline) + Security (FK referential integrity)."
+      }
+    },
+    {
+      "area": "Wave C #68 — Council typed exceptions (BRIEF PREMISE IS WRONG)",
+      "depth": "deep",
+      "files_read": ["src/council/errors.py (22 LOC)", "ALL src/council/*.py (grep for raise/except)"],
+      "patterns_found": [
+        "ONLY ONE raise site in entire src/council/: aggregation.py:152 → CouncilUnavailableError. The brief's claim of 'scattered ad-hoc RuntimeErrors across engine,agent_data,context,parsing,protocol' is INCORRECT.",
+        "The REAL #68 opportunity: agent_data.py has 30+ `except Exception as exc` blocks (counted at lines 81, 92, 112, 144, 147, 172, 188, 202, 212, 219, 222, 251, 268, 286, 296, 307, 310, 340, ...). These swallow EVERY error type indiscriminately — same anti-pattern Sprint 4 T2 fixed in safe_send.",
+        "Council modules sizes: engine.py 703 LOC, agent_data.py 494 LOC, value_tracker.py 400 LOC, protocol.py 246 LOC, aggregation.py 246 LOC, parsing.py 109 LOC, prompts.py 158 LOC, rate_limiter.py 88 LOC, context.py 97 LOC, errors.py 22 LOC. Total 2664 LOC.",
+        "#68's TRUE scope: (a) design typed hierarchy in errors.py (CouncilError(Exception) → CouncilParseError, CouncilTimeoutError, CouncilAgentDataError, etc.), (b) replace `except Exception` with specific catches OR `except CouncilError`, (c) where 3rd-party errors come from (HTTP/LLM/SQLite), wrap-and-reraise as typed CouncilError subclasses at the boundary."
+      ],
+      "integration_points": [
+        {"description": "errors.py is the consolidation home", "file": "src/council/errors.py", "line": 14, "implication": "Add ~5-7 typed exception classes. Maintain CouncilUnavailableError(RuntimeError) for back-compat."},
+        {"description": "agent_data.py is the primary refactor target", "file": "src/council/agent_data.py", "line": "81-340", "implication": "30+ except blocks. Triage: which are SQLite errors (wrap as CouncilAgentDataError), which are JSON parse errors (CouncilParseError), which are network errors to Ollama (CouncilProviderError)."}
+      ],
+      "potential_conflicts": [
+        "Brief assumes a 'medium refactor'. With only 1 raise site, the work is actually narrower (no raise migration) but the except-block triage is more nuanced. RECOMMENDATION: spec scopes #68 as 'design typed hierarchy + retrofit agent_data.py except blocks; defer engine.py + value_tracker.py except-blocks to post-sprint'.",
+        "Risk: typing exceptions tightens error propagation; some currently-swallowed bugs may now surface. This is DESIRED per Sprint 4 T2 principle, but operator must be informed."
+      ],
+      "wave_specs": {
+        "files_in_scope": ["src/council/errors.py", "src/council/agent_data.py", "tests/council/test_typed_errors.py (NEW)"],
+        "files_read_only": ["src/council/aggregation.py", "src/council/engine.py", "src/council/value_tracker.py"],
+        "scope_fence": "Done when CouncilError hierarchy exists in errors.py, agent_data.py except blocks catch typed exceptions where applicable, and unit tests verify error-type propagation. NOT in scope: refactoring engine.py + value_tracker.py except blocks (post-sprint).",
+        "test_strategy": "+8 tests: hierarchy structure, each typed exception raises/catches correctly, agent_data.py error paths surface CouncilError subclasses.",
+        "reviewer_dispatch_signal": "QA only — pure refactor, no behavior change at happy path."
+      }
+    },
+    {
+      "area": "Wave C #45 — Operator-manual-intervention drift detection",
+      "depth": "moderate",
+      "files_read": ["src/shadow_trading/reconcile.py (intro 1-60)"],
+      "patterns_found": [
+        "reconcile.py already detects orphaned (broker has, db doesn't) + stale (db has, broker doesn't). Drift detection extends to a THIRD category: state-mismatch (both have, but values differ).",
+        "1-hour safety guard pattern for paper trades (reconcile.py docstring lines 31-34) is the prior art for time-based detection.",
+        "src/diagnostics/ exists with analyses.py, bootstrap.py, report.py, dashboard_runner.py (per surface report). New file: src/diagnostics/manual_intervention_drift.py."
+      ],
+      "integration_points": [
+        {"description": "Detection algorithm: position-quantity diff between broker and DB for > N minutes", "file": "src/shadow_trading/reconcile.py", "line": "n/a", "implication": "Detector calls get_all_positions() (alpaca_adapter) + reads shadow_trades WHERE status='open'. Diff actual_shares vs broker qty. If diff > 0 and unchanged for > config.drift_threshold_minutes (default 30), emit alert."},
+        {"description": "Surface via safe_send", "file": "src/notifications/telegram.py", "line": 1205, "implication": "New event_type 'manual_intervention_drift' added to event_map. Dashboard widget reads same data (Wave D + Wave C cross-link)."}
+      ],
+      "wave_specs": {
+        "files_in_scope": ["src/diagnostics/manual_intervention_drift.py (NEW)", "src/notifications/telegram.py (new notify_manual_intervention_drift + event_map entry)", "src/scheduler/watch.py (periodic detector run, e.g., every 30 min)", "tests/diagnostics/test_manual_intervention_drift.py (NEW)"],
+        "files_read_only": ["src/shadow_trading/reconcile.py", "src/shadow_trading/alpaca_adapter.py"],
+        "scope_fence": "Done when detector runs on a watch-loop cadence, emits typed alert when broker/db diverge > N min, dashboard widget renders state, tests cover detection + alert path.",
+        "test_strategy": "+6 tests: detector with mocked broker/db, threshold boundary, alert dedup, widget data shape.",
+        "reviewer_dispatch_signal": "QA + (optional) Security if detector reads broker credentials."
+      }
+    },
+    {
+      "area": "Wave C #47 — Audit triage (PATH CORRECTED)",
+      "depth": "deep",
+      "files_read": ["docs/audits/2026-05-07-telegram-email-sweep/recommendations.md (fully read)", "docs/audits/2026-05-07-telegram-email-sweep/summary.md (header count = 17 C-findings)"],
+      "patterns_found": [
+        "Audit directory is `docs/audits/2026-05-07-telegram-email-sweep/` (NO `-audit` suffix as brief states). Brief should be corrected.",
+        "17 Critical findings (C1–C17) + Important findings (I1–I17 referenced in recommendations.md) + CC1–CC6 cross-cutting + Nit findings. Recommendations decomposed into 6 Groups (A-F).",
+        "Group A (NameError + safe_send) — COMPLETE per Sprint 4 T2 (safe_send dispatcher exists at telegram.py:1205).",
+        "Group B (email hardening) — partial: HTML escape complete (T13 / task #65); test_notifier.py coverage status unverified.",
+        "Group C (template hygiene) — partial: _html_escape exists (telegram.py:111); chunked send exists (lines 173-196 with HTML/plaintext fallback); sibling extensions to regime+streak alerts are #93 + #94 (Wave D fold-in).",
+        "Group D (mute/digest/routing) — IS Wave D. Already scoped.",
+        "Group E (observability + dedup persistence) — COMPLETE: notifications_sent + notifications_dedup tables exist + write_heartbeat wired (T15a + task #67).",
+        "Group F (coverage + operator-guide) — partial: status of test_telegram_commands.py + operator-guide §X troubleshooting section unverified."
+      ],
+      "integration_points": [
+        {"description": "Group B verification — test_notifier.py", "file": "tests/email/test_notifier.py", "line": "n/a", "implication": "Glob to verify existence + coverage. If gap remains, file 1 sub-task."},
+        {"description": "Group F verification — operator-guide troubleshooting", "file": "docs/operator-guide.md", "line": "n/a", "implication": "Grep for 'Notification troubleshooting' section. If absent, add per recommendation #4 in Group F."}
+      ],
+      "potential_conflicts": [
+        "Brief assumes #47 spawns sub-tasks. Reality: most Group A-E work IS DONE; only Group D (Wave D) + residual Group B/F verification remains. RECOMMENDATION: spec re-scopes #47 as 'one verification PR that confirms Groups A/B/C/E/F coverage and closes residual gaps; Wave D handles Group D'.",
+        "Without re-scope, #47 risks being a duplicate of Wave D."
+      ],
+      "wave_specs": {
+        "files_in_scope": ["docs/audits/2026-05-07-telegram-email-sweep/triage-disposition.md (NEW — one-pager per group with verification status)", "(zero src changes — pure audit verification)"],
+        "files_read_only": ["docs/audits/2026-05-07-telegram-email-sweep/{summary,recommendations,cross-cutting}.md", "tests/email/test_notifier.py", "tests/notifications/test_telegram_send_path.py", "docs/operator-guide.md"],
+        "scope_fence": "Done when triage-disposition.md catalogs all 50 findings with status (closed-by-PR-X | scoped-into-Wave-D | follow-up-issue-N | accepted-risk).",
+        "test_strategy": "No new tests — verification doc.",
+        "reviewer_dispatch_signal": "Documentarian only."
+      }
+    },
+    {
+      "area": "Wave F #15 — Server-side stale-base hook",
+      "depth": "moderate",
+      "files_read": ["scripts/hooks/pre-push (97 LOC)", ".github/workflows/pg-tests.yml (101 LOC)"],
+      "patterns_found": [
+        "Client-side pre-push hook (scripts/hooks/pre-push) uses `git rev-list --count HEAD..origin/main` to count behind-commits. Refuses push if > 0.",
+        "Existing pg-tests.yml workflow already handles pull_request + push triggers. The new check fits as a sibling job.",
+        "GitHub Actions has `actions/checkout@v4 with: fetch-depth: 0` for full history needed to compute merge-base."
+      ],
+      "integration_points": [
+        {"description": "New workflow .github/workflows/stale-base-check.yml", "file": ".github/workflows/stale-base-check.yml (NEW)", "line": "n/a", "implication": "Triggers on pull_request.synchronize. Computes `git merge-base origin/main HEAD`. If != origin/main HEAD, sets check status to failure → blocks merge."}
+      ],
+      "wave_specs": {
+        "files_in_scope": [".github/workflows/stale-base-check.yml (NEW)", "tests/workflows/test_stale_base_check.py (NEW — yaml lint + step structure)", "docs/operator-guide.md (CI checks section)"],
+        "files_read_only": ["scripts/hooks/pre-push"],
+        "scope_fence": "Done when GH Actions workflow runs on PR sync, fails when behind origin/main, success when current. README/operator-guide documents the bypass procedure.",
+        "test_strategy": "+2 tests: workflow YAML lints, structural assertions on step shape.",
+        "reviewer_dispatch_signal": "QA + (optional) Security if any secrets are involved (none here — pure git ops)."
+      }
+    },
+    {
+      "area": "Wave F #86 — Test suite speedup (test_cloud_requirements_imports.py)",
+      "depth": "moderate",
+      "files_read": ["tests/test_cloud_requirements_imports.py (lines 1-100)"],
+      "patterns_found": [
+        "PIP_TIMEOUT=180s, IMPORT_TIMEOUT=120s (lines 34-35). Each test case creates a tmp venv + pip-installs subset of cloud requirements then imports. Worst case per test ~300s.",
+        "Subprocess-with-explicit-kill wrapper at _run_or_kill (line 41-68) — Windows-specific cleanup. Indicates prior pain.",
+        "Hypothesis (per brief): the test parameterizes over packages and does ONE pip install per parameter. Restructure: one pip install of ALL requirements, then parameterize over imports only. Should cut total runtime from ~N*180s to ~180s + N*5s."
+      ],
+      "integration_points": [
+        {"description": "Restructure to shared-venv pattern", "file": "tests/test_cloud_requirements_imports.py", "line": "n/a (full rewrite)", "implication": "Module-level pytest.fixture(scope='session') creates ONE venv + installs requirements-cloud.txt. Per-test cases import via subprocess against the shared venv."},
+        {"description": "test_cloud_requirements_imports.py was NOT fully read — only first 100 LOC", "file": "tests/test_cloud_requirements_imports.py", "line": "100+", "implication": "Deep-mode budget consumed by Wave D. Recommend targeted re-dispatch if Wave F dev needs full prior art."}
+      ],
+      "potential_conflicts": [
+        "Session-scoped fixture means test ordering matters; flaky import-tests could leak side-effects into other tests in same session. Mitigation: isolate via subprocess per import case (already the pattern)."
+      ],
+      "wave_specs": {
+        "files_in_scope": ["tests/test_cloud_requirements_imports.py (rewrite)", "tests/conftest.py (session fixture if needed)"],
+        "files_read_only": ["scripts/check_cloud_deploy_imports.py", "requirements-cloud.txt"],
+        "scope_fence": "Done when full local pytest sweep runtime drops below N min (N = current_runtime / 3 as the target), all import-coverage tests still pass, CI green.",
+        "test_strategy": "No NEW tests — restructure existing ones. Verify count is preserved.",
+        "reviewer_dispatch_signal": "QA + Performance (this IS the performance task)."
+      }
+    },
+    {
+      "area": "Wave F #87 — Local PG provisioning via docker-compose",
+      "depth": "moderate",
+      "files_read": ["tests/conftest.py (353 LOC, fully read)"],
+      "patterns_found": [
+        "Three fixtures hardcode `DATABASE_URL=postgresql://test:test@localhost/halcyon` per pg-tests.yml comment (lines 67-78 of yaml). CI workaround: CREATE USER test in pg-tests.yml step.",
+        "pg_wrapper fixture (conftest.py:241-313) and parametrized_conn fixture (lines 316-352) already exist. They SKIP when TEST_DATABASE_URL is unset. Goal: replace SKIP with auto-provision via docker-compose.",
+        "Session-scoped fixture pattern is the obvious place to start/stop the container."
+      ],
+      "integration_points": [
+        {"description": "New docker-compose.test.yml at repo root", "file": "docker-compose.test.yml (NEW)", "line": "n/a", "implication": "Single postgres:16-alpine service on localhost:5433 (avoid 5432 clash with operator's PG). conftest.py session fixture runs `docker compose -f docker-compose.test.yml up -d` then `docker compose down -v` on teardown."},
+        {"description": "conftest.py session-scoped fixture wraps docker compose", "file": "tests/conftest.py", "line": "after 313", "implication": "Add `pytest_sessionstart` / `pytest_sessionfinish` hooks. SKIP gracefully if docker not installed (CI runners with no docker — fall back to current SKIP-on-missing-TEST_DATABASE_URL behavior)."}
+      ],
+      "potential_conflicts": [
+        "Operator may have local PG on 5432 already (per memory `reference_local_ports`). Use 5433 for test PG. CONFIRM via spec.",
+        "Docker not always available (CI may run docker-in-docker; some operator setups don't have Docker Desktop). Spec must define fallback graceful-skip behavior.",
+        "TEST_DATABASE_URL hardcoded to test:test:halcyon in 3 fixtures — leaves them as-is OR refactor in same PR? Recommend SAME PR (per pg-tests.yml TODO line 74)."
+      ],
+      "wave_specs": {
+        "files_in_scope": ["docker-compose.test.yml (NEW)", "tests/conftest.py", "tests/api/test_status.py:18 (un-hardcode)", "tests/test_cloud_app.py:15 (un-hardcode)", "tests/test_shadow_desk_filter.py:25 (un-hardcode)", ".github/workflows/pg-tests.yml (drop 'Create test/test PG role' step)"],
+        "files_read_only": ["docs/operator-guide.md"],
+        "scope_fence": "Done when local `pytest tests/` provisions PG via docker, the 3 hardcoded TEST_DATABASE_URL fixtures use the provisioned URL, pg-tests.yml drops the test-role-creation step, CI green.",
+        "test_strategy": "+0 new tests; remove SKIP from existing parametrized variants. Test count INCREASES by ~30-50 as previously-skipped PG variants now execute.",
+        "reviewer_dispatch_signal": "QA + Security (DATABASE_URL handling — never leak prod URL to test fixture)."
+      }
+    },
+    {
+      "area": "Wave E (#91) — Dual-GPU decision",
+      "depth": "moderate",
+      "files_read": ["docs/audits/2026-05-12-dual-gpu-ideation/specs/2026-05-12-dual-gpu-workload-separation-design.md (lines 1-80 of 600+ LOC spec)"],
+      "patterns_found": [
+        "Spec exists at `docs/audits/2026-05-12-dual-gpu-ideation/specs/2026-05-12-dual-gpu-workload-separation-design.md` (brief states `docs/audits/2026-05-12-dual-gpu-strategy-a-spec/` — WRONG PATH).",
+        "Spec says 'Implementation deferred to Sprint 6.' Sprint 5 is final per operator. CONTRADICTION must be resolved in design team's output.",
+        "Implementation surface per spec §1: ~15 file edits, 1 new NSSM service (ArcisOllamaWatchdog), vram_manager.py deletion (-21 tests), ≥22 new dual-GPU tests required, operator-guide section + 4 stale-text fixes, scripts/verify_training_readiness.py extension. Zero schema changes (unless system_metrics widening is opted-in).",
+        "Hard constraints per spec §2.3: test floor 3682 (STALE — actual is 5291), no DDL outside registry, no Unsloth removal, no embedding surface."
+      ],
+      "integration_points": [
+        {"description": "vram_manager.py deletion is high-blast-radius", "file": "src/vram_manager.py", "line": "n/a", "implication": "21 tests deleted; must net-replace with 22+ new tests. Strategy A makes single-GPU coordination obsolete BUT only after every caller is migrated."},
+        {"description": "trainer.py:154 device_map='auto' is a footgun", "file": "src/training/trainer.py", "line": 154, "implication": "Spec calls out this as a hard pin needed: `CUDA_VISIBLE_DEVICES=0` before model load."},
+        {"description": "NSSM service additions affect operator runbook", "file": "docs/operator-guide.md", "line": "n/a", "implication": "Same-PR operator-guide rule mandates inline runbook update."}
+      ],
+      "potential_conflicts": [
+        "Sprint 5 = final ⊕ spec says 'defer to SP6'. If operator approves 'implement in SP5', the +15 file edits + 22 new tests fit in ~2 days based on operator wall-clock estimate in glidepath.",
+        "Operator already validated hardware (RTX 3060 reinstalled 2026-05-12 03:50 ET). Pre-flight risk is LOW.",
+        "Decision should be made in the operator AskUserQuestion batch."
+      ],
+      "wave_specs": {
+        "files_in_scope_IF_DESIGN_ONLY": ["docs/audits/2026-05-12-dual-gpu-ideation/specs/* (already exists; spec stays as ideation deliverable)"],
+        "files_in_scope_IF_IMPLEMENT": ["src/vram_manager.py (delete)", "src/training/trainer.py (CUDA_VISIBLE_DEVICES pin)", "src/llm/ollama client files (CUDA_VISIBLE_DEVICES=1)", "src/llm/grammar_client.py", "scripts/ollama_watchdog.ps1 (NEW NSSM-wrapped)", "scripts/verify_training_readiness.py", "tests/training/test_dual_gpu_*.py (NEW)", "docs/operator-guide.md (Dual-GPU section)", "config/settings.local.yaml (any GPU-pin keys)"],
+        "files_read_only": ["docs/audits/2026-05-12-dual-gpu-ideation/specs/2026-05-12-dual-gpu-workload-separation-design.md (full spec)"],
+        "scope_fence_IF_IMPLEMENT": "Done when CUDA_VISIBLE_DEVICES pinned at all 5 boundaries, ollama watchdog NSSM service running, verify_training_readiness.py confirms two-GPU layout, ≥22 new tests cover dual-GPU paths, operator-guide updated.",
+        "test_strategy_IF_IMPLEMENT": "+22 new tests offsetting -21 vram_manager.py test deletion = +1 net to floor.",
+        "reviewer_dispatch_signal": "QA + Performance + (operator-runbook-sensitive) Documentarian."
+      }
+    },
+    {
+      "area": "Mini-trackers F1, F2, #93, #94, #96, #97, #100 verification",
+      "depth": "moderate",
+      "files_read": ["src/scheduler/watch.py:1000-1024 (F1 site)", "src/shadow_trading/executor.py (grepped r[N] patterns)", "tests/shadow_trading/test_alpaca_adapter_split.py (#97)", "tests/test_no_fetchone_int_index_in_pg_unsafe_files.py (#100)", "src/schema/registry.py:2540-2549 (#96 comment)"],
+      "patterns_found": [
+        "**F1 (watch.py:1006 ACTUAL line 1007)**: `tickers = [r[0] for r in rows if r[0]]` on result of `conn.execute(...).fetchall()`. Pre-PR-1060 this raised KeyError(0) on PG dict rows. Post-PR-1060, PostgresConnectionWrapper returns CompatRow → `r[0]` works on both engines. NO LIVE BUG — pattern is now safe. Scanner extension still valuable to catch future violations.",
+        "**F1 (executor.py)**: No `[r[N] for r in ...]` pattern visible in `open_shadow_trade_with_reason`. Existing r[N] uses (lines 2880, 2939, 2950, 2958, 2970) all access by string key (`r['pnl_dollars']`, `r['pnl_pct']`). The MR-WRAPPER error may have been on a different code path or already refactored.",
+        "**F2 (95 'telegram down' system_event rows)**: error_msg captured by safe_send at telegram.py:1306-1308. Root cause is the network-except block at lines 1299-1304 catching any urllib3/requests/OSError. The 'telegram down' string is the logger.warning content, persisted via _record_send_failure. Wave D's retry+escalate is the structural fix.",
+        "**#93 (notify_regime_alert)**: telegram.py:780-796 interpolates `regime_old`, `regime_new` directly into HTML. T5 pattern at notify_milestone (line 801) is `f'... {_html_escape(milestone)}'`. Fix is mechanical.",
+        "**#94 (notify_streak_alert)**: telegram.py:805-818 interpolates `risk_governor_status`, `recent_str` (joined tuples). Apply _html_escape to status + each ticker before join.",
+        "**#96 (platform_events)**: Code calls `engine_aware_upsert` for `platform_events` somewhere (registry comment at line 2547 mentions 'platform_events.py:96' though current platform_events.py only has the engine_aware_upsert at line 101 for notifications_dedup). Actual `platform_events` TABLE referenced in dead-or-live code path — needs Grep to confirm if write site exists. The comment at registry.py:2547 is INSIDE the notifications_dedup TableDef definition, referring to platform_events.py's engine_aware_upsert call. THERE MAY NOT BE A `platform_events` TABLE at all — the brief's claim of 'drift' may be a misread. RECOMMENDATION: design team scope-out #96 unless Grep produces a code-site that writes to a `platform_events` table specifically.",
+        "**#97 (alpaca_adapter.py split)**: `tests/shadow_trading/test_alpaca_adapter_split.py:12-15` STILL EXISTS and asserts `n < 400`. With current size 425L, this test MUST BE FAILING (or grandfathered via known_violations.json). PR #1058 did NOT delete it. Operator must decide: (a) actually split the file (post-sprint), (b) grandfather in known_violations.json + delete the sentinel, OR (c) accept failing test in known-pre-existing list.",
+        "**#100 (scanner extension)**: tests/test_no_fetchone_int_index_in_pg_unsafe_files.py:32-40 has ALLOWLIST + SRC at line 27. Scanner walks AST for `Subscript(value=Call(func=Attribute(attr='fetchone'), slice=Constant(int)))`. F1 extension: add a SECOND scanner that matches `ListComp(elt=Subscript(value=Name, slice=Constant(int)), generators=[comprehension(iter=Call(func=Attribute(attr='fetchall')))])`. Implement as NEW test function in SAME file."
+      ],
+      "integration_points": [
+        {"description": "#93+#94 fold into Wave D", "file": "src/notifications/telegram.py", "line": "780, 805", "implication": "2-line mechanical fixes; tests already exist as pattern (test_html_escape.py)."},
+        {"description": "#100 scanner extension", "file": "tests/test_no_fetchone_int_index_in_pg_unsafe_files.py", "line": "after 109", "implication": "Add `test_no_fetchall_list_comp_int_index_in_pg_unsafe_files` + matching self-test. Same allowlist."},
+        {"description": "#97 decision", "file": "tests/shadow_trading/test_alpaca_adapter_split.py", "line": 12, "implication": "Operator AskUserQuestion item. Recommend option (c) — grandfather temporarily, file as post-sprint."}
+      ]
+    },
+    {
+      "area": "Sprint Close machinery",
+      "depth": "deep",
+      "files_read": ["src/version.py (23 LOC)", "CHANGELOG.md section structure", "docs/audits/known-pre-existing-failures.md (intro lines 1-50)"],
+      "patterns_found": [
+        "src/version.py is a single-line constant `VERSION = 'v0.34.0'`. Comment at line 21 says 'Latest CHANGELOG header: v0.34.0'.",
+        "CHANGELOG.md latest version section is `## [v0.34.0] - 2026-05-08 — Sprint 4 Wave 1+2+3...` at line 239. `[Unreleased]` at line 3 accumulates between releases.",
+        "known-pre-existing-failures.md is STALE: header says '34 failures last verified 2026-04-27'. Current state per pg-tests.yml floor (5050) and actual collected count (5291) indicates the entire test floor has moved past this canon. Brief estimates ~89 real failures on main vs 34 documented. Full audit is itself a Sprint Close artifact.",
+        "CLAUDE.md test floor says 3682 — STALE. Actual collected = 5291. Pg-tests.yml floor = 5050. Three different numbers across docs."
+      ],
+      "integration_points": [
+        {"description": "Version bump path", "file": "src/version.py", "line": 23, "implication": "Bump 0.34.0 → 0.35.0 (minor). Rationale: Wave D ships NEW notifications routing config (new YAML keys), Wave C ships NEW shadow_trades.strategy_id column (new schema). MINOR per docs/versioning-policy.md convention."},
+        {"description": "CHANGELOG aggregation", "file": "CHANGELOG.md", "line": 3, "implication": "Move all [Unreleased] entries into new `## [v0.35.0] - 2026-05-XX — Sprint 5 close: notifications routing + data integrity + cross-engine hardening + dev tooling` section. Subsections per Wave."},
+        {"description": "Test floor canon refresh", "file": "CLAUDE.md", "line": "3682 mention", "implication": "Update to projected post-Sprint-5 floor (current 5291 + ~70-100 new from Waves C/D/F = ~5400 floor). Also update pg-tests.yml from 5050 to new floor."},
+        {"description": "Roadmap decision — file does not exist", "file": "docs/roadmap.md", "line": "n/a", "implication": "RECOMMEND: create docs/roadmap.md as a NEW file with sprint-history table + active-track pointer. Cleaner than folding into operator-guide. Cost: ~20 min."},
+        {"description": "Operator-guide Sprint history append", "file": "docs/operator-guide.md", "line": "n/a", "implication": "Add 'Sprint 5 closeout state' subsection with notifications routing config path, drift-detection alert format, dual-GPU disposition."},
+        {"description": "Stale-canon refresh", "file": "docs/audits/known-pre-existing-failures.md", "line": 9, "implication": "Re-run full sweep, regenerate the 34→N table. Sprint Close PR includes the refresh."}
+      ]
+    },
+    {
+      "area": "Cross-engine architecture final hardening",
+      "depth": "moderate",
+      "files_read": ["tests/test_no_fetchone_int_index_in_pg_unsafe_files.py (lines 1-120)", "tests/conftest.py:241-313 (pg_wrapper fixture)"],
+      "patterns_found": [
+        "AST scanner pattern at lines 46-87 uses ast.walk + isinstance checks. Python 3.9+ has slice directly; 3.8 wraps in ast.Index. Both handled (line 80-81).",
+        "Self-test at line 114 ensures scanner catches synthetic violation — guards against AST shape changes between Python versions. Sprint Close should verify scanner still passes self-test on Python 3.13.",
+        "Extending coverage to scripts/ (per #100 brief) requires changing SRC at line 27 to include scripts/ root OR adding parallel scanner runs. Recommend the latter (separate test) to keep allowlists clean per directory."
+      ]
+    }
+  ],
+  "cross_cutting_concerns": [
+    "ALL Wave C tasks (except #54) touch schema and require running validate-schema + render_migrate.py per CLAUDE.md mandate. PR bodies must include both outputs.",
+    "Sprint 5 §J5/§J6 one-DB invariant: ARCIS_PG_CUTOVER_ENABLED=1 routes ALL connect_db() to PG. Any new tables MUST be in registry AND migrated.",
+    "CHANGELOG discipline (every PR updates [Unreleased]) — Sprint Close PR consolidates ALL [Unreleased] entries into the new version section.",
+    "Worktree isolation for parallel agent dispatches per CLAUDE.md. Wave D + Wave F can run parallel (different domains); Wave E can run parallel iff impl approved.",
+    "Sibling-search rule (memory `feedback_review_sibling_search`): when fixing a bug at file:line, GREP for same pattern elsewhere. Applies to #93+#94 (T5 sibling) and #100 (F1 scanner extension).",
+    "Visual-verify gate scope: Wave D adds Notifications widget; Wave C #45 adds drift-detection widget; #96 IF implemented adds platform_events panel. All must be browser-rendered before push per memory `feedback_visual_verify_ui`.",
+    "Test floor reality: actual 5291 collected, pg-tests.yml floor 5050, CLAUDE.md says 3682. Three sources of truth — Sprint Close consolidates to ONE.",
+    "Operator AskUserQuestion batch should be capped at 4 questions per memory `feedback_ask_user_question_for_decisions`."
+  ],
+  "coverage_gaps": [
+    "src/email/digest_builder.py read only intro (lines 1-80 of 409). The 4-digest daily cadence pattern was confirmed but the specific assembly logic for Wave D Telegram-side digest design was not deep-read. RECOMMENDED: design team targeted re-dispatch if Telegram digest must mirror exact email structure.",
+    "src/shadow_trading/reconcile.py read only intro (lines 1-60). The 1-hour safety guard pattern was identified but full reconciliation algorithm for #45 detector design was not deep-read.",
+    "src/council/engine.py (703 LOC) + value_tracker.py (400 LOC) were NOT read in detail. #68 scope confirmed via grep — they have NO raise sites — but their except-block patterns weren't enumerated. Spec correctly scopes #68 to agent_data.py only.",
+    "tests/test_cloud_requirements_imports.py read only lines 1-100 of likely ~200+ LOC. Specific parameterization shape unverified. RECOMMENDED: Wave F #86 developer reads full file as first step.",
+    "src/api/cloud_routes/kpis_compute.py read only lines 350-400. The _fetch_closed_trades function signature (for #56 filter integration) was not directly read.",
+    "config/settings.local.yaml not read (operator file; gitignored). YAML config schema design for Wave D will follow existing keys via settings.example.yaml.",
+    "docs/audits/2026-05-12-dual-gpu-ideation/specs/...design.md read only first 80 of 600+ LOC. Full implementation surface enumeration is in the spec already; design team summarizes from there.",
+    "tests/email/test_notifier.py and docs/operator-guide.md NOT read to verify #47 Group B/F status. Glob confirms test_notifier.py absent from common patterns; spec recommends Wave C #47 verifies this as part of triage-disposition.md."
+  ],
+  "risk_register": {
+    "retained_from_glidepath": [
+      {"risk": "Test suite chronic timeout (#86)", "detection_signal": "Agent dispatches timing out at 120s; pytest collection works (5291 tests) but full sweep takes >10 min", "mitigation": "Wave F runs FIRST in parallel branch so subsequent waves benefit from speedup; OR sequence Wave F after Wave A on the critical path"},
+      {"risk": "Wave D scope creep", "detection_signal": "Spec >>15 pages; new tables proliferate beyond notifications_digest_queue", "mitigation": "Design team's adversarial reviewer enforces gates; YAML schema is the contract; backward-compat is the default for all unset config keys"},
+      {"risk": "Wave E hardware drift (if implementation in scope)", "detection_signal": "CUDA driver version mismatch, GPU 0/1 PCIe enumeration changes, ollama startup fails to bind GPU 1", "mitigation": "Pre-flight nvidia-smi confirmation + ML stack import test; CUDA_DEVICE_ORDER=PCI_BUS_ID hard pin per spec"}
+    ],
+    "retired": [
+      {"risk": "Cross-engine row-factory bugs (#92)", "status": "RESOLVED — PR #1058 T1+T1ext + PR #1060 PostgresConnectionWrapper.execute() CompatRow wrap", "note": "Scanner extension via #100 closes the future-prevention surface"}
+    ],
+    "new_for_sprint_close": [
+      {"risk": "Test floor canon drift (3682 vs 5050 vs 5291)", "detection_signal": "CLAUDE.md, pg-tests.yml, and live count disagree", "mitigation": "Sprint Close PR consolidates all three to single number; CHANGELOG documents the floor lineage"},
+      {"risk": "platform_events drift (#96)", "detection_signal": "registry has comment but no TableDef; code references unclear if write-site exists", "mitigation": "Grep before fix; scope-out if no write-site; add TableDef only if production code requires"},
+      {"risk": "CRLF/LF normalization noise in mechanical sweeps", "detection_signal": "PR diffs show whitespace-only line changes obscuring real edits", "mitigation": "Operator may opt-in `.gitattributes` LF-normalization in Sprint Close PR; verify each PR via `git diff --check` before merge"},
+      {"risk": "Telegram-down intermittent connectivity (F2)", "detection_signal": "notifications_sent shows 95 'telegram down' rows over 36h; ~2-3/hour rate", "mitigation": "Wave D retry policy + escalation-on-N-failures + alert-silence detector. Document expected residual failure rate in CHANGELOG."},
+      {"risk": "Council exception consolidation may surface previously-swallowed bugs (#68)", "detection_signal": "After agent_data.py typed-except refactor, new error classes surface in logs", "mitigation": "PR body discloses expected change; canary deploy via watch-loop restart with eyes-on for 1h"},
+      {"risk": "Wired directions may flip promotion_gate decisions (#54)", "detection_signal": "Pre-merge: run promotion_gate against current closed trades, compare votes_passed delta", "mitigation": "Disclose math change in PR body; operator-visible CHANGELOG entry"},
+      {"risk": "#97 alpaca_adapter.py split-test failure persistence", "detection_signal": "tests/shadow_trading/test_alpaca_adapter_split.py:12 fails on size>400", "mitigation": "Operator decision required (split / grandfather / accept); spec lists options in AskUserQuestion batch"}
+    ]
+  },
+  "decision_matrix_recommendations": [
+    {
+      "decision": "Wave E (#91) — design-only or implement in Sprint 5?",
+      "recommended_default": "DESIGN-ONLY; defer implementation to post-Sprint-5",
+      "rationale": "Spec itself says 'Implementation deferred to Sprint 6' (contradicts Sprint 5 = final). Implementation = ~15 file edits + 22 new tests + NSSM service work + 4 operator-guide stale-text fixes ≈ 1.5-2 days. Currently NO performance bottleneck demands it. Reversible: spec is already a deliverable; impl can land in any future maintenance PR.",
+      "reversal_cost": "Low — operator can opt-in 'implement now' adds ~1.5 days; spec is already complete so no design rework needed"
+    },
+    {
+      "decision": "Sprint Close version bump — minor (0.35.0) or patch (0.34.1)?",
+      "recommended_default": "MINOR (0.35.0)",
+      "rationale": "Wave D ships NEW notifications routing YAML config (new public surface); Wave C #56 ships NEW shadow_trades.strategy_id column (new schema field); Wave C #45 ships NEW drift-detection alert (new event_type). Per docs/versioning-policy.md, MINOR is for backward-compat additions — these qualify. Patch would only be appropriate if Sprint 5 were pure fixes.",
+      "reversal_cost": "Trivial — single string change in src/version.py + git tag retag if needed BEFORE push"
+    },
+    {
+      "decision": "Wave D default routing config — opt-in or backward-compat?",
+      "recommended_default": "BACKWARD-COMPAT (default config = current behavior; all events route to Telegram unbuffered)",
+      "rationale": "Zero-config users see no change. Operator opts into mute/digest by editing config/settings.local.yaml. Minimizes blast radius; reversible via config edit.",
+      "reversal_cost": "Zero — operator deletes the config keys to restore current behavior"
+    },
+    {
+      "decision": "PR boundary — per-wave or one monolithic Sprint-close PR?",
+      "recommended_default": "PER-WAVE PRs (6 PRs: A done, B done, C, D, E or skip, F, Close)",
+      "rationale": "Matches recent successful #1058/#1059/#1060 cadence. Smaller review surface per PR; smaller blast radius per merge; easier rollback. Sprint Close PR aggregates CHANGELOG + version bump + tag.",
+      "reversal_cost": "Low — if operator prefers monolithic, PM can defer merging individual wave PRs and batch-merge with single CHANGELOG section. But individual PRs already aid review."
+    },
+    {
+      "decision": "docs/roadmap.md — create new file or fold into operator-guide?",
+      "recommended_default": "CREATE NEW docs/roadmap.md",
+      "rationale": "Sprint history table + active-track pointer is a distinct artifact from operator-runnable runbook content. Cleaner separation of concerns. operator-guide.md gets a single forward-pointer link.",
+      "reversal_cost": "Low — file move + redirect-pointer if operator prefers consolidation"
+    },
+    {
+      "decision": "#97 alpaca_adapter.py split-test (425L vs 400L sentinel)",
+      "recommended_default": "GRANDFATHER VIA known_violations.json + delete sentinel test in Sprint Close",
+      "rationale": "Actual file split is high blast-radius (touches every alpaca call site). Sentinel test is currently failing OR grandfathered; either state is incongruent. Cleanest fix: add to known_violations.json with rationale 'pending post-sprint refactor', delete the sentinel, file as post-Sprint-5 task.",
+      "reversal_cost": "Low — operator can choose to split file in any future maintenance PR; known_violations.json entry can be removed when split lands"
+    },
+    {
+      "decision": "#96 platform_events table-vs-code drift — fix or scope-out?",
+      "recommended_default": "SCOPE-OUT pending confirmation that write-site exists",
+      "rationale": "Deep grep shows registry comment but no clear TableDef-needed write-site. The 'drift' may be a misread. RECOMMENDATION: design team's developer runs Grep first; if confirms write-site, add TableDef in Wave C alongside #56 schema work; if no write-site, scope-out as documentation-fix-only.",
+      "reversal_cost": "Low — fix-or-scope decision is in-PR; doesn't block Sprint Close"
+    }
+  ],
+  "test_floor_projection": {
+    "current_collected": 5291,
+    "current_pg_tests_yml_floor": 5050,
+    "current_claude_md_floor": 3682,
+    "wave_c_projected_additions": "20-25 (3 for #54, 5 for #56, 8 for #68, 6 for #45, 0 for #47)",
+    "wave_d_projected_additions": "35-40 (12 policy, 8 digest, 6 retry, 6 integration, 4 html-escape siblings)",
+    "wave_f_projected_additions": "30-50 (Wave F #87 un-skips ~30-50 previously-skipped postgres parametrized variants; #15 adds ~2; #86 net 0)",
+    "wave_e_if_implemented": "+1 net (22 new minus 21 deleted vram_manager tests)",
+    "projected_final_floor": "5400-5450 (median ~5420)",
+    "sprint_close_action": "Bump pg-tests.yml floor 5050→5350; update CLAUDE.md 3682→5350; document floor lineage in CHANGELOG"
+  },
+  "brief_corrections": [
+    {"brief_claim": "kpis.py:91 is the #54 wire-in site", "actual": "kpis.py:128 — file structure changed since brief was written"},
+    {"brief_claim": "watch.py:1006 has the F1 [r[0] for r in fetchall()] pattern", "actual": "watch.py:1007 — same pattern, but post-PR-1060 it's safe (CompatRow protects)"},
+    {"brief_claim": "docs/audits/2026-05-07-telegram-email-sweep-audit/ directory", "actual": "docs/audits/2026-05-07-telegram-email-sweep/ (no '-audit' suffix)"},
+    {"brief_claim": "docs/audits/2026-05-12-dual-gpu-strategy-a-spec/ holds Wave E spec", "actual": "docs/audits/2026-05-12-dual-gpu-ideation/specs/2026-05-12-dual-gpu-workload-separation-design.md"},
+    {"brief_claim": "#68 council typed exceptions are scattered RuntimeErrors across engine,agent_data,context,parsing,protocol", "actual": "ONLY ONE raise site in entire src/council/ (aggregation.py:152 CouncilUnavailableError). The real opportunity is 30+ bare `except Exception` blocks in agent_data.py — spec must reframe scope"},
+    {"brief_claim": "shadow_trades needs a directions column for #54", "actual": "shadow_trades.direction column EXISTS at registry.py:202 (default 'long')"},
+    {"brief_claim": "Test floor 3682", "actual": "Live pg-tests.yml floor is 5050; collected count is 5291. CLAUDE.md is stale"}
+  ]
+}
