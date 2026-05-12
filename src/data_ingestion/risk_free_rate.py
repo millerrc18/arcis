@@ -86,7 +86,7 @@ def _fetch_dtb3_observations(api_key: str, on_or_before: dt.date) -> list[dict]:
             "observation_end": on_or_before.isoformat(),
             "file_type": "json",
         },
-        timeout=15,
+        timeout=5,
     )
     resp.raise_for_status()
     return resp.json().get("observations", [])

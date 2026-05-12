@@ -17,12 +17,24 @@ returns)` without dates or directions, causing `_run_mc_perm` to abstain with
   and passes them as kwargs to `_compute_promotion_gate_kpi`. No signature
   changes to `kpis_compute.py` or `promotion_gate.py`.
 
+#### Changed (performance fix-up)
+
+- **`src/data_ingestion/risk_free_rate.py` — `_fetch_dtb3_observations()`**:
+  FRED HTTP timeout reduced from 15 s to 5 s. With T1's dates+directions
+  wire-up the rf-rate path now activates per `/api/kpis` request. A 15 s
+  blocking call on a dashboard endpoint is unacceptable; the graceful fallback
+  to `RF_PERIOD_CONSTANT` in `src/methods/_rf_vector.py:90-98` makes a shorter
+  timeout safe.
+
 #### Added
 
 - **`tests/api/test_kpis.py` — `TestPromotionGateDatesDirectionsWired`**
   (3 tests): verifies dates and directions are forwarded as kwargs with correct
   length and type (int 1/-1), and that `_run_mc_perm` does not abstain when
   directions is non-None.
+- **`tests/test_risk_free_rate_timeout.py`** (1 test): asserts
+  `_fetch_dtb3_observations` passes `timeout=5` to `requests.get` — regression
+  lock against future timeout creep.
 
 ### SP5 Wave A+B strategic fix — wrap `PostgresConnectionWrapper.execute()` cursor (closes #98)
 
