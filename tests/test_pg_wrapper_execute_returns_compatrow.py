@@ -133,3 +133,33 @@ def test_execute_passes_rowcount_through() -> None:
         "Wrapped cursor must pass .rowcount through to the inner cursor "
         "via _RowFactoryCursor.__getattr__"
     )
+
+
+def test_direct_iteration_yields_compatrow() -> None:
+    """``for r in wrapper.execute(sql):`` must yield CompatRow, not raise TypeError.
+
+    Operator review on PR #1060 flagged this latent gap: Python looks up
+    ``__iter__`` on the type, not via ``__getattr__`` on the instance. So
+    even though _RowFactoryCursor's __getattr__ delegates to the inner
+    psycopg2 cursor (which IS iterable), direct iteration would still raise
+    ``TypeError: '_RowFactoryCursor' object is not iterable`` without an
+    explicit __iter__ method.
+
+    The explicit ``__iter__`` on _RowFactoryCursor must wrap each yielded
+    row in CompatRow (matching fetchall's contract) so callers can write
+    the natural-looking ``for row in conn.execute(sql): process(row)``
+    pattern without surprise.
+    """
+    from src.utils.db import CompatRow
+
+    wrapper, mock_cursor = _make_wrapper()
+    # Make the inner cursor iterate raw dicts (matching real psycopg2 behavior)
+    mock_cursor.__iter__ = lambda self: iter([{"a": 1}, {"a": 2}, {"a": 3}])
+    cur = wrapper.execute("SELECT a FROM t")
+    rows = list(cur)
+    assert all(isinstance(r, CompatRow) for r in rows), (
+        f"Direct iteration must yield CompatRow, got types: {[type(r).__name__ for r in rows]}"
+    )
+    # Functional sanity: row[0] / row['a'] both work
+    assert [r[0] for r in rows] == [1, 2, 3]
+    assert [r["a"] for r in rows] == [1, 2, 3]

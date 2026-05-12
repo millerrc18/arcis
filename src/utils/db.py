@@ -408,6 +408,16 @@ class _RowFactoryCursor:
             rows = self._cursor.fetchmany(size)
         return [CompatRow(r) for r in rows]
 
+    def __iter__(self):
+        # Python looks up __iter__ on the TYPE, not via __getattr__ on the
+        # instance — so falling through to the inner cursor's iterator isn't
+        # automatic. Define explicitly so `for row in wrapper.execute(sql):`
+        # yields CompatRow uniformly (matching fetchall's contract). Without
+        # this, post-#1060 direct iteration would raise TypeError because the
+        # raw psycopg2 cursor's __iter__ would no longer be reachable through
+        # the now-class-defined cursor wrapper.
+        return (CompatRow(r) for r in self._cursor)
+
     def __getattr__(self, name):
         return getattr(self._cursor, name)
 
