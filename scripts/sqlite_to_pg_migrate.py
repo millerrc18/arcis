@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 try:
     import psycopg2
+    from psycopg2 import sql
     from psycopg2.extras import execute_values
 except ImportError:
     print("ERROR: psycopg2 not installed. Run: pip install psycopg2-binary")
@@ -119,6 +120,32 @@ def _build_insert_sql_template(table_name: str, col_names: list[str], pk_cols: l
     )
 
 
+def _advance_sequence_after_bulk(pg_conn, table_name: str, pk_col: str) -> None:
+    """Advance the PG sequence for an integer PK to MAX(id) + 1 post-bulk-load.
+
+    Postgres SERIAL/IDENTITY columns have an associated sequence (e.g.,
+    activity_log_id_seq). Bulk INSERTs that specify explicit id values do NOT
+    advance the sequence. Subsequent INSERTs that omit id rely on the sequence
+    and will collide with existing rows.
+    """
+    with pg_conn.cursor() as cur:
+        cur.execute("SELECT pg_get_serial_sequence(%s, %s)", (table_name, pk_col))
+        seq_row = cur.fetchone()
+        if not seq_row or not seq_row[0]:
+            return  # not a serial column — UUID, composite, or no sequence
+        seq_name = seq_row[0]
+        cur.execute(
+            sql.SQL(
+                "SELECT setval(%s, COALESCE(MAX({pk_col}), 0) + 1, false) FROM {tbl}"
+            ).format(
+                pk_col=sql.Identifier(pk_col),
+                tbl=sql.Identifier(table_name),
+            ),
+            (seq_name,),
+        )
+    pg_conn.commit()
+
+
 def _migrate_table(sqlite_conn, pg_conn, table, vacuum_after: bool) -> dict:
     table_name = table.name
     pk_cols = _resolve_primary_key_columns(table)
@@ -203,6 +230,9 @@ def run_migration(
             try:
                 result = _migrate_table(sqlite_conn, pg_conn, table, vacuum_after)
                 pg_conn.commit()
+                pk = table.primary_key
+                if isinstance(pk, str):
+                    _advance_sequence_after_bulk(pg_conn, table.name, pk)
                 total_rows += result["inserted"]
                 if result["error"]:
                     total_errors += 1

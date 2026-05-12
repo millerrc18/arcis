@@ -97,6 +97,7 @@ def is_watch_loop_running() -> int | None:
 from src.startup_checks import (  # noqa: E402
     check_config,
     check_connectivity,
+    check_cutover_gate_consistency,
     check_environment,
     check_schema,
     check_services,
@@ -153,6 +154,7 @@ def get_previous_startup_status(db_path: str = DB_PATH) -> str | None:
 
 STARTUP_CATEGORIES = [
     ("Config", check_config),
+    ("Config", check_cutover_gate_consistency),
     ("Schema", check_schema),
     ("Environment", check_environment),
     ("Connectivity", check_connectivity),

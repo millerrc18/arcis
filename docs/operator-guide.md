@@ -1561,6 +1561,25 @@ adapted for the Phase 3-revised (one-DB) scenario:
 
 **Note on §0.5:** The Phase 3 smoke checklist (`t3.4-smoke-checklist.md` §0.6) expected 72 tables. Phase 3-revised removes `sync_state` (deprecated alongside `render_sync.py`). If you see 72, the Phase 3-revised schema migration has not run — re-run `python scripts/render_migrate.py` before continuing.
 
+### Step 0.5 — Verify pgAdmin isolation
+
+Before starting the cutover, confirm pgAdmin (or any GUI tool) is either
+disconnected from halcyon-pg OR authenticated as `halcyon_readonly`
+(read-only, can't issue DDL). Run:
+
+```powershell
+docker exec halcyon-pg psql -U halcyon -d halcyon -c \
+  "SELECT application_name, usename, client_addr FROM pg_stat_activity \
+   WHERE datname='halcyon' AND application_name LIKE '%pgAdmin%' \
+   AND usename != 'halcyon_readonly';"
+```
+
+Expected: zero rows. If non-empty, disconnect pgAdmin or switch its
+connection to use the `halcyon_readonly` role (see post-merge PG role
+setup section). A pgAdmin connection as `halcyon` superuser can
+accidentally DROP tables via GUI actions — confirmed risk during the
+2026-05-11 cutover attempt.
+
 ### Step 2 — Stop services
 
 ```powershell
@@ -1705,6 +1724,22 @@ Post-cutover timestamps in any of these tables confirm the engine_aware_upsert w
 - §3 C1 LIKE regression: §3.1 or §3.2 passes
 - §4 log sweep: zero CRITICAL patterns; `_DB_PATH_WARNED` WARN lines in `arcis.log` are expected (one per distinct `db_path` override, by design — see SP-ONEDB-009)
 
+### Step 7.5 — Capture pg_stat_activity during smoke
+
+In a SEPARATE PowerShell terminal (so it doesn't block the main cutover
+flow), run:
+
+```powershell
+.\scripts\capture_pg_activity.ps1
+```
+
+This loops every 30s capturing pg_stat_activity to
+`C:/arcis/logs/pg-activity-<timestamp>.log`. Continues until you press
+Ctrl+C. Should run for the entire 30-min smoke window. If the cutover
+fails, the log will show every connection's queries — invaluable
+forensic data for diagnosing the 2026-05-11-class table-disappearance
+issue (which had no log trail under default PG settings).
+
 ### Step 8 — Rollback (only if Step 7 FAILS)
 
 If any CRITICAL failure occurs during the smoke:
@@ -1728,6 +1763,47 @@ After rollback: investigate the failure pattern via `logs/arcis_err.log` and `lo
 - `render_sync.py` and `reconcile.py` were deleted in T7 of this PR — do NOT attempt to import them or invoke the legacy `reset-live-prices-watermark` CLI subcommand. The subcommand is removed from `src/cli/main.py`.
 - The `sync_state` table is absent from the Phase 3-revised schema (removed along with `render_sync.py`). If any legacy script references it, it will receive a `relation "sync_state" does not exist` error from PG. File as a follow-up; does not block the cutover.
 - `cloud_routes/` manual `if database_url:` branches are now redundant under the one-DB invariant but each has independent quirks. Cleanup is tracked as post-merge backlog (SP-ONEDB-011); do NOT modify these branches as part of the cutover — they are harmless no-ops under gate-on.
+
+---
+
+## PG application roles (post-merge one-time setup)
+
+After merging the cutover-rectification PR, run the role-setup script before
+the next cutover attempt:
+
+1. Add to `.env`:
+   ```
+   DOCKER_PG_APP_PASSWORD=<64-char-hex>  # generate with: openssl rand -hex 32
+   DOCKER_PG_RO_PASSWORD=<64-char-hex>
+   ```
+2. Run: `python scripts/setup_pg_roles.py`
+3. Verify roles exist:
+   ```
+   docker exec halcyon-pg psql -U halcyon -d halcyon -c "\du"
+   ```
+   Should show `halcyon_app` (no superuser) and `halcyon_readonly` (no
+   superuser, no createdb).
+
+Future cutovers should set `DATABASE_URL` to use the `halcyon_app` role
+instead of `halcyon` superuser. pgAdmin connections should authenticate
+as `halcyon_readonly` so the GUI cannot accidentally DROP/TRUNCATE.
+
+### Rotating role passwords
+
+The setup script is idempotent on role *existence* but does NOT rotate passwords on
+re-run. To rotate a password:
+
+1. Generate new password: `openssl rand -hex 32`
+2. Connect to PG as superuser and rotate via `\password` (interactive, never echoes):
+   ```
+   docker exec -it halcyon-pg psql -U halcyon -d halcyon
+   halcyon=# \password halcyon_app
+   Enter new password: <paste>
+   Enter it again: <paste>
+   ```
+3. Update `.env` with the new password under `DOCKER_PG_APP_PASSWORD=` and restart services.
+
+**Do NOT use `ALTER ROLE halcyon_app WITH PASSWORD '<value>'` from the command line** — that command echoes the password to PG logs and shell history. Always use `\password` for interactive rotation.
 
 ---
 

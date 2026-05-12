@@ -55,6 +55,12 @@ services:
     # Reasonable memory cap. Postgres on a single 398-MB-equivalent dataset
     # rarely needs more than 1 GB shared_buffers + 2-4 GB OS cache. Adjust
     # in postgres conf if cold-start query latency becomes an issue.
+    command:
+      - "postgres"
+      - "-c"
+      - "log_statement=all"
+      - "-c"
+      - "log_line_prefix=%t [%p] %u@%d "
     deploy:
       resources:
         limits:

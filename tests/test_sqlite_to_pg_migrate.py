@@ -439,3 +439,96 @@ def test_migrate_aborts_when_database_url_not_postgres(monkeypatch, tmp_path):
             vacuum_after=False,
         )
     assert exc_info.value.code != 0
+
+
+def test_advance_sequence_called_after_bulk_for_integer_pk(monkeypatch, tmp_path):
+    """After migrating a table with an integer PK, _advance_sequence_after_bulk must
+    call pg_get_serial_sequence and setval on the pg_conn cursor."""
+    mod = _import_migrate(monkeypatch)
+
+    pg_conn_mock = mock.MagicMock()
+    cur_mock = mock.MagicMock()
+    pg_conn_mock.cursor.return_value.__enter__ = mock.Mock(return_value=cur_mock)
+    pg_conn_mock.cursor.return_value.__exit__ = mock.Mock(return_value=False)
+
+    seq_name = "activity_log_id_seq"
+    cur_mock.fetchone.return_value = (seq_name,)
+
+    mod._advance_sequence_after_bulk(pg_conn_mock, "activity_log", "id")
+
+    pg_serial_calls = [
+        c for c in cur_mock.execute.call_args_list
+        if "pg_get_serial_sequence" in str(c)
+    ]
+    assert len(pg_serial_calls) == 1, (
+        f"Expected 1 pg_get_serial_sequence call, got {len(pg_serial_calls)}"
+    )
+
+    setval_calls = [
+        c for c in cur_mock.execute.call_args_list
+        if "setval" in str(c)
+    ]
+    assert len(setval_calls) == 1, (
+        f"Expected 1 setval call, got {len(setval_calls)}"
+    )
+    setval_args = setval_calls[0]
+    assert seq_name in str(setval_args), (
+        f"setval call must use the sequence name returned by pg_get_serial_sequence; got: {setval_args}"
+    )
+
+    pg_conn_mock.commit.assert_called_once()
+
+
+def test_advance_sequence_skipped_for_non_serial_pk(monkeypatch):
+    """When pg_get_serial_sequence returns NULL (no sequence), setval must NOT be called."""
+    mod = _import_migrate(monkeypatch)
+
+    pg_conn_mock = mock.MagicMock()
+    cur_mock = mock.MagicMock()
+    pg_conn_mock.cursor.return_value.__enter__ = mock.Mock(return_value=cur_mock)
+    pg_conn_mock.cursor.return_value.__exit__ = mock.Mock(return_value=False)
+
+    cur_mock.fetchone.return_value = (None,)
+
+    mod._advance_sequence_after_bulk(pg_conn_mock, "recommendations", "recommendation_id")
+
+    setval_calls = [
+        c for c in cur_mock.execute.call_args_list
+        if "setval" in str(c)
+    ]
+    assert len(setval_calls) == 0, (
+        f"setval must not be called for non-serial PKs; got calls: {setval_calls}"
+    )
+
+
+def test_setval_uses_coalesce_max_plus_one(monkeypatch):
+    """The setval SQL must use COALESCE(MAX(<pk>), 0) + 1 pattern."""
+    mod = _import_migrate(monkeypatch)
+
+    pg_conn_mock = mock.MagicMock()
+    cur_mock = mock.MagicMock()
+    pg_conn_mock.cursor.return_value.__enter__ = mock.Mock(return_value=cur_mock)
+    pg_conn_mock.cursor.return_value.__exit__ = mock.Mock(return_value=False)
+
+    cur_mock.fetchone.return_value = ("activity_log_id_seq",)
+
+    mod._advance_sequence_after_bulk(pg_conn_mock, "activity_log", "id")
+
+    setval_calls = [
+        c for c in cur_mock.execute.call_args_list
+        if "setval" in str(c)
+    ]
+    assert len(setval_calls) == 1
+    sql_str = str(setval_calls[0])
+    # Composed AST must include the COALESCE/MAX/+1 pattern wrapped around an
+    # Identifier-quoted pk_col (defense vs SQL injection on column-name input,
+    # symmetric with T2 PG roles setup discipline).
+    assert "COALESCE(MAX(" in sql_str and "), 0) + 1, false) FROM" in sql_str, (
+        f"setval SQL must contain the COALESCE(MAX(...), 0) + 1 pattern; got: {sql_str}"
+    )
+    assert "Identifier('id')" in sql_str, (
+        f"pk_col must be wrapped in sql.Identifier (not raw f-string); got: {sql_str}"
+    )
+    assert "Identifier('activity_log')" in sql_str, (
+        f"table_name must be wrapped in sql.Identifier (not raw f-string); got: {sql_str}"
+    )
