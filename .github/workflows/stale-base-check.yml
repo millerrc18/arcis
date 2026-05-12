@@ -1,0 +1,79 @@
+name: Stale Base Check
+
+# Server-side mirror of scripts/hooks/pre-push (#59).
+#
+# WHY: The client-side pre-push hook can be bypassed via --no-verify or
+# simply not installed. Five stale-base incidents (#769, #816, #829, #840,
+# #841) each shipped PRs whose squash-merge would have silently reverted
+# prior work. This CI check closes the bypass gap by blocking merge when a
+# PR branch has not been rebased onto the current main.
+#
+# HOW: merge-base(PR branch HEAD, main) must equal main HEAD.
+# If the branch was cut from an old commit of main and not rebased, the
+# merge-base is behind main HEAD — that is the stale-base condition.
+#
+# RESOLUTION (shown in the failure message):
+#   git fetch origin main
+#   git rebase origin/main
+#   git push
+
+"on":
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+jobs:
+  stale-base-check:
+    name: Stale base check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch (full history)
+        uses: actions/checkout@v4
+        with:
+          # Fetch all history so merge-base computation is accurate.
+          # A shallow clone would truncate history and make git merge-base
+          # return wrong results or fail entirely.
+          fetch-depth: 0
+
+      - name: Fetch origin/main
+        run: git fetch origin main --quiet
+
+      - name: Check merge-base against main HEAD
+        run: |
+          MAIN_HEAD=$(git rev-parse origin/main)
+          PR_HEAD=$(git rev-parse HEAD)
+          MERGE_BASE=$(git merge-base HEAD origin/main)
+
+          echo "origin/main HEAD : $MAIN_HEAD"
+          echo "PR branch HEAD   : $PR_HEAD"
+          echo "merge-base       : $MERGE_BASE"
+
+          if [ "$MERGE_BASE" != "$MAIN_HEAD" ]; then
+            BEHIND_COUNT=$(git rev-list --count HEAD..origin/main)
+            cat >&2 <<EOF
+
+          ============================================================
+          STALE BASE — PR branch is ${BEHIND_COUNT} commits behind origin/main
+          ============================================================
+
+          merge-base : $MERGE_BASE
+          main HEAD  : $MAIN_HEAD
+
+          Squash-merging this PR would silently revert the ${BEHIND_COUNT} commit(s)
+          on main that your branch has not yet incorporated.
+
+          This is the structural enforcement for 5 incidents that occurred
+          before this guard existed (#769, #816, #829, #840, #841 — each
+          would have deleted prior work from main on squash-merge).
+
+          Resolution:
+            git fetch origin main
+            git rebase origin/main
+            # resolve any conflicts, re-run your tests
+            git push
+
+          EOF
+            exit 1
+          fi
+
+          echo "Base is current — merge-base equals origin/main HEAD. OK."

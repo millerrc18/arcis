@@ -2068,4 +2068,58 @@ If `oldest_unack_alert` is non-null, an alert fired but was never acknowledged �
 
 **Trade-off operators must know:** External tools that read `config/settings.local.yaml` or query the `settings` table directly (e.g., scripts using `yaml.safe_load` or raw SQLite queries) will still see the raw float32 representation. If you build automation that parses these values, round them to 4 significant figures at the consumption point. The dashboard and CLI always display the clamped value.
 
+---
+
+## Stale-base CI check (`.github/workflows/stale-base-check.yml`)
+
+### What it does
+
+Every PR opened or updated against `main` triggers a GitHub Actions job that verifies the PR branch has been rebased onto the current tip of `main`. The check computes `merge-base(PR HEAD, origin/main)` and fails if it does not equal `origin/main HEAD`.
+
+This is the server-side complement to the client-side `pre-push` hook at `scripts/hooks/pre-push`. The CI check closes the bypass gap: `git push --no-verify` and absent hook installs can circumvent the client hook, but they cannot skip CI.
+
+### Why this matters
+
+Five stale-base incidents (#769, #816, #829, #840, #841 — one per day) shipped PRs whose squash-merge would have silently reverted intervening work from main. The diff of a stale branch against current main shows the commits added since the branch was cut as deletions — exactly the bytes that would disappear from main post-squash-merge. Each incident was caught at review time by the operator; this guard moves detection to push/open time.
+
+### What you see when the check fails
+
+```
+============================================================
+STALE BASE — PR branch is 3 commits behind origin/main
+============================================================
+
+merge-base : abc1234...
+main HEAD  : def5678...
+
+Squash-merging this PR would silently revert the 3 commit(s)
+on main that your branch has not yet incorporated.
+
+Resolution:
+  git fetch origin main
+  git rebase origin/main
+  # resolve any conflicts, re-run your tests
+  git push
+```
+
+### Resolution
+
+```bash
+git fetch origin main
+git rebase origin/main
+# resolve any conflicts, then:
+git push
+```
+
+After the push, GitHub re-runs the check on the updated branch. If the merge-base now equals `origin/main HEAD`, the check passes and the PR unblocks.
+
+### Relationship to the client-side hook
+
+| Layer | File | Trigger | Bypassable? |
+|-------|------|---------|-------------|
+| Client (dev machine) | `scripts/hooks/pre-push` | `git push` | Yes — `git push --no-verify` |
+| Server (GitHub Actions) | `.github/workflows/stale-base-check.yml` | PR open / push | No — CI must pass for merge |
+
+Both layers emit the same actionable error message and reference the same incident history. The client hook fires earlier (at push time, before a PR even opens), which is preferable. The CI check is the backstop when the client hook is absent or bypassed.
+
 **Tag:** `#SP4-settings-backend-float32-storage WON'T FIX` — resolved by T11 frontend clamp. Backend storage unchanged by design.
