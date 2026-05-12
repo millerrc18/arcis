@@ -2,6 +2,38 @@
 
 ## [Unreleased]
 
+### SP5 §J Cutover Rectification — post-2026-05-11 hardening (T1–T8 + T2-fix)
+
+9 rectification items addressing the two P0 failure modes from the 2026-05-11T20:37Z cutover attempt (P0 #89: 59 PG tables disappeared with `log_statement=none`; P0 #90: NVDA shadow_trade bypassed the gate). Goal: the next cutover attempt has comprehensive instrumentation + hardened guardrails so failures either can't recur or leave a precise forensic trail. Spec: `docs/audits/2026-05-11-cutover-rectification/spec.md`.
+
+#### Added
+
+- **SP5 §J Cutover Rectification — schema drift audit** (`scripts/audit_schema_drift.py`): per-column NULL constraint detector comparing registry / SQLite / PG. Surfaced and reconciled `setup_signals.setup_type` NOT NULL drift that crashed the 2026-05-11 cutover. (T3, `02ce393`)
+- **SP5 §J Cutover Rectification — PG roles setup** (`scripts/setup_pg_roles.py`): idempotent setup of `halcyon_app` (INSERT/SELECT/UPDATE/DELETE + USAGE on sequences, no superuser) and `halcyon_readonly` (SELECT only). Uses `psycopg2.sql.Literal` for safe password literal escaping; supports password rotation via interactive `\password`. (T2, `0c124fa`)
+- **SP5 §J Cutover Rectification — startup fail-fast gate consistency** (`src/startup_checks.py:check_cutover_gate_consistency`): CRITICAL at process start if `ARCIS_PG_CUTOVER_ENABLED=1` but `DATABASE_URL` non-postgres. Pairs with T5 runtime WARN. (T7, `b068677`)
+- **SP5 §J Cutover Rectification — pg_stat_activity capture** (`scripts/capture_pg_activity.ps1`): operator runbook tool for mid-smoke connection forensics. Loops every 30s during cutover smoke. (T8, `79f84ab`)
+- **SP5 §J Cutover Rectification — wrapper-function discipline test** (`tests/test_connect_db_discipline.py::test_wrapper_functions_use_connect_db`): AST-scans `insert_*`/`log_*`/`record_*`/`save_*` functions in `src/`, asserts each uses `connect_db()`. Closes the structural gap that allowed the 2026-05-11 NVDA shadow_trade leak. (T6, `6a8cba5`)
+
+#### Changed
+
+- **SP5 §J Cutover Rectification — PG log_statement=all** (`docker-compose.yml`): halcyon-pg now runs with `-c log_statement=all -c log_line_prefix='%t [%p] %u@%d '` for DDL forensic trail. Foundation for diagnosing the next cutover attempt. (T1, `3c4f76d`)
+- **SP5 §J Cutover Rectification — setup_signals.setup_type nullable** (`src/schema/registry.py`): changed from `nullable=False` to default-nullable to match SQLite reality + caller behavior (`setup_classifier.classify_setup` returns None when no rule matches). (T3, `02ce393`)
+
+#### Fixed
+
+- **SP5 §J Cutover Rectification — sequence advance after bulk INSERT** (`scripts/sqlite_to_pg_migrate.py:_advance_sequence_after_bulk`): post-migration `setval(<seq>, COALESCE(MAX(<pk>), 0) + 1, false)` for serial PKs, silently skipped for UUID/composite PKs. Closes the activity_log pkey=3 conflict that crashed the watch loop during the 2026-05-11 cutover. (T4, `dd1116e`)
+- **SP5 §J Cutover Rectification — symmetric forensic WARN** (`src/utils/db.py:_warn_gate_on_no_pg_url_once`): one-time WARN at runtime when `ARCIS_PG_CUTOVER_ENABLED=1` but `DATABASE_URL` non-postgres. Sibling to existing SP-ONEDB-009 WARN; closes the silent-fallthrough class. (T5, `efcd232`)
+
+#### Security
+
+- **SP5 §J Cutover Rectification — CREATE ROLE SQL injection fix** (`scripts/setup_pg_roles.py`): password env vars now use `psycopg2.sql.Literal` instead of f-string interpolation into `CREATE ROLE ... PASSWORD '...'`. Closes the SQL injection vector identified by Security Reviewer (HIGH severity). Named `$halcyon$` dollar-quote tag adds defense-in-depth. Also added `ALTER DEFAULT PRIVILEGES ... GRANT USAGE ON SEQUENCES TO halcyon_app` for future SERIAL columns. (T2-fix, `0c124fa`)
+
+#### Documentation
+
+- **SP5 §J Cutover Rectification — operator-guide cutover-runbook updates** (`docs/operator-guide.md`): added Step 0.5 (pgAdmin isolation pre-flight check), Step 7.5 (mid-smoke pg_stat_activity capture), new "PG application roles (post-merge one-time setup)" section, and "Rotating role passwords" subsection. (T2 + T8)
+- **SP5 §J Cutover Rectification — schema drift audit report** (`docs/audits/2026-05-11-cutover-rectification/drift-audit-results.md`): documents the NOT NULL drift findings + sibling-search of all 30+ setup_type callers in src/. (T3)
+- **SP5 §J Cutover Rectification — spec** (`docs/audits/2026-05-11-cutover-rectification/spec.md`): 9-task rectification spec from the 2026-05-11 cutover failure. (Deliverable 0, `4b913cd`)
+
 ### SP5 §J5/§J6 Phase 3-revised — One-database cutover correction
 
 Closes the PR #1054 cutover gap (which routed only ~5 of 336 call sites to PG). With this PR + the operator-led re-cutover runbook (see `docs/operator-guide.md` §"Postgres Cutover (SP5 §J5/§J6 Phase 3-revised — one-DB)"), `ARCIS_PG_CUTOVER_ENABLED=1` routes EVERY `connect_db()` call to Postgres regardless of how `db_path` was passed — closing the one-database invariant. Full design at `docs/audits/2026-05-11-modified-a-migration/spec-revised-one-db.md`.
