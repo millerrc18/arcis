@@ -1731,6 +1731,47 @@ After rollback: investigate the failure pattern via `logs/arcis_err.log` and `lo
 
 ---
 
+## PG application roles (post-merge one-time setup)
+
+After merging the cutover-rectification PR, run the role-setup script before
+the next cutover attempt:
+
+1. Add to `.env`:
+   ```
+   DOCKER_PG_APP_PASSWORD=<64-char-hex>  # generate with: openssl rand -hex 32
+   DOCKER_PG_RO_PASSWORD=<64-char-hex>
+   ```
+2. Run: `python scripts/setup_pg_roles.py`
+3. Verify roles exist:
+   ```
+   docker exec halcyon-pg psql -U halcyon -d halcyon -c "\du"
+   ```
+   Should show `halcyon_app` (no superuser) and `halcyon_readonly` (no
+   superuser, no createdb).
+
+Future cutovers should set `DATABASE_URL` to use the `halcyon_app` role
+instead of `halcyon` superuser. pgAdmin connections should authenticate
+as `halcyon_readonly` so the GUI cannot accidentally DROP/TRUNCATE.
+
+### Rotating role passwords
+
+The setup script is idempotent on role *existence* but does NOT rotate passwords on
+re-run. To rotate a password:
+
+1. Generate new password: `openssl rand -hex 32`
+2. Connect to PG as superuser and rotate via `\password` (interactive, never echoes):
+   ```
+   docker exec -it halcyon-pg psql -U halcyon -d halcyon
+   halcyon=# \password halcyon_app
+   Enter new password: <paste>
+   Enter it again: <paste>
+   ```
+3. Update `.env` with the new password under `DOCKER_PG_APP_PASSWORD=` and restart services.
+
+**Do NOT use `ALTER ROLE halcyon_app WITH PASSWORD '<value>'` from the command line** — that command echoes the password to PG logs and shell history. Always use `\password` for interactive rotation.
+
+---
+
 ## See also
 
 - [`CLAUDE.md`](../CLAUDE.md) — rules for AI agents working on the codebase (governance + schema discipline + worktree pattern)
