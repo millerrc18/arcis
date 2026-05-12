@@ -11,7 +11,7 @@ import sqlite3
 from pathlib import Path
 
 from src.config import DB_PATH
-from src.utils.db import connect_db
+from src.utils.db import _scalar, connect_db
 
 logger = logging.getLogger(__name__)
 
@@ -101,9 +101,9 @@ def get_system_status(config: dict) -> dict:
         if db_path.exists():
             with connect_db(str(db_path)) as conn:
                 _row = conn.execute("SELECT COUNT(*) FROM recommendations").fetchone()
-                journal_recs = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+                journal_recs = _scalar(_row)
                 _row = conn.execute("SELECT COUNT(*) FROM shadow_trades WHERE COALESCE(quarantined, 0) = 0").fetchone()
-                journal_trades = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+                journal_trades = _scalar(_row)
     except Exception as e:
         logger.debug("Journal DB query failed: %s", e)
 

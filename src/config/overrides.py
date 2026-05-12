@@ -18,7 +18,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
-from src.utils.db import connect_db, engine_aware_upsert
+from src.utils.db import _scalar, connect_db, engine_aware_upsert
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -154,7 +154,7 @@ def clear_all_overrides(db_path: str = LOCAL_DB) -> dict:
     try:
         with connect_db(db_path) as conn:
             _row = conn.execute("SELECT COUNT(*) FROM config_overrides").fetchone()
-            count = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            count = _scalar(_row)
             conn.execute("DELETE FROM config_overrides")
             conn.commit()
         logger.info("Cleared %d config overrides", count)

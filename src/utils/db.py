@@ -244,6 +244,38 @@ def _rewrite_question_to_pct(sql: str) -> str:
     return "".join(out)
 
 
+def _scalar(row):
+    """Return the single value from a one-column fetchone() result, engine-agnostic.
+
+    Handles all three row shapes that can flow out of fetchone() under the
+    cross-engine wrapper architecture:
+
+    - ``None`` (cursor exhausted) → returns None
+    - ``sqlite3.Row`` (SQLite path) → returns ``row[0]``
+    - ``CompatRow`` (PG via ``PostgresConnectionWrapper.cursor()``) → returns ``row[0]``
+    - raw ``dict`` (PG via ``PostgresConnectionWrapper.execute()`` — see note below)
+      → returns the single dict value via ``next(iter(row.values()))``
+
+    Why this helper exists (Sprint 5 Wave A+B T1ext review observation):
+    Two PG code paths through ``PostgresConnectionWrapper`` produce different
+    row shapes: ``.cursor().execute()`` wraps fetched rows in CompatRow, but
+    ``.execute()`` returns a raw psycopg2 cursor whose fetchone() emits raw
+    dicts. T1ext's 82-site sweep used a defensive dispatch idiom inline at
+    each call site; this helper consolidates that into a single function so
+    new SQL aggregate expressions (MIN, AVG, subqueries) can be added without
+    drift to a brittle ``row['count']`` idiom that only works for ``COUNT(*)``.
+
+    See follow-up tracker for the deeper structural fix (wrap the inner
+    cursor in ``_RowFactoryCursor`` so ``wrapper.execute().fetchone()`` also
+    returns CompatRow, eliminating the dict branch entirely).
+    """
+    if row is None:
+        return None
+    if isinstance(row, dict):
+        return next(iter(row.values()))
+    return row[0]
+
+
 def _resolve_conflict_target(table_name: str) -> list[str]:
     """Return the ON CONFLICT target columns for `table_name`.
 

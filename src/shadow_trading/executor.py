@@ -27,7 +27,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH, load_config
-from src.utils.db import connect_db
+from src.utils.db import _scalar, connect_db
 from src.journal.store import (
     get_open_shadow_trades,
     get_open_shadow_trade_for_ticker,
@@ -92,7 +92,7 @@ def _count_live_open_positions(db_path: str) -> int:
     Returns a fresh count straight from SQLite so every entry path (shadow,
     live, any future router) agrees.  Used by the hard governor cap.
     """
-    from src.utils.db import connect_db
+    from src.utils.db import _scalar, connect_db
     _a_frag, _a_params = active_in_clause()
     with connect_db(db_path) as conn:
         row = conn.execute(
@@ -2766,7 +2766,7 @@ def _check_open_milestones(db_path: str = DB_PATH,
                 " AND COALESCE(quarantined, 0) = 0",
                 (source,),
             ).fetchone()
-            total = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            total = _scalar(_row)
 
             label = "live" if source == "live" else "paper"
 
@@ -2791,14 +2791,14 @@ def _check_close_milestones(db_path: str = DB_PATH) -> None:
                 " AND COALESCE(quarantined, 0) = 0",
                 _t_params_m,
             ).fetchone()
-            closed_total = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            closed_total = _scalar(_row)
 
             _row = conn.execute(
                 f"SELECT COUNT(*) FROM shadow_trades WHERE status IN ({_t_frag_m}) AND pnl_dollars > 0"
                 " AND COALESCE(quarantined, 0) = 0",
                 _t_params_m,
             ).fetchone()
-            wins = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            wins = _scalar(_row)
             losses = closed_total - wins
 
             # Check milestone thresholds
@@ -2854,7 +2854,7 @@ def _check_close_milestones(db_path: str = DB_PATH) -> None:
                 " AND COALESCE(quarantined, 0) = 0",
                 _t_params_m,
             ).fetchone()
-            live_wins = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            live_wins = _scalar(_row)
             if live_wins == 1:
                 first_live_win = conn.execute(
                     "SELECT ticker, pnl_dollars, pnl_pct FROM shadow_trades "

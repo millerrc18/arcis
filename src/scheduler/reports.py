@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
 from src.notifications import safe_send
-from src.utils.db import connect_db
+from src.utils.db import _scalar, connect_db
 from src.shadow_trading._status_sql import (
     active_in_clause,
     terminal_in_clause,
@@ -194,12 +194,12 @@ def run_saturday_reports():
                 "SELECT COUNT(*) FROM training_examples WHERE created_at > ?",
                 (_week_ago,)
             ).fetchone()
-            _new_wk = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            _new_wk = _scalar(_row)
             _row = _rc.execute(
                 "SELECT COUNT(*) FROM training_examples WHERE created_at > ? AND source LIKE '%paper%'",
                 (_week_ago,)
             ).fetchone()
-            _new_paper = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            _new_paper = _scalar(_row)
     except Exception:
         _new_wk = 0
         _new_paper = 0
@@ -334,13 +334,13 @@ def send_premarket_brief():
                 " AND COALESCE(quarantined, 0) = 0",
                 _a_params,
             ).fetchone()
-            open_paper = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            open_paper = _scalar(_row)
             _row = conn.execute(
                 f"SELECT COUNT(*) FROM shadow_trades WHERE status IN ({_a_frag}) AND source='live'"
                 " AND COALESCE(quarantined, 0) = 0",
                 _a_params,
             ).fetchone()
-            open_live = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            open_live = _scalar(_row)
 
         # S&P futures + 10Y from yfinance (works pre-market)
         spy_futures_pct = 0.0
@@ -526,27 +526,27 @@ def send_data_asset_report():
             _row = conn.execute(
                 "SELECT COUNT(*) FROM training_examples"
             ).fetchone()
-            training_total = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            training_total = _scalar(_row)
             _row = conn.execute(
                 "SELECT COUNT(*) FROM training_examples WHERE created_at LIKE ?",
                 (f"{today_str}%",),
             ).fetchone()
-            training_today = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            training_today = _scalar(_row)
 
             _row = conn.execute(
                 "SELECT COUNT(*) FROM setup_signals"
             ).fetchone()
-            signal_total = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            signal_total = _scalar(_row)
             _row = conn.execute(
                 "SELECT COUNT(*) FROM setup_signals WHERE created_at LIKE ?",
                 (f"{today_str}%",),
             ).fetchone()
-            signal_today = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            signal_today = _scalar(_row)
 
             _row = conn.execute(
                 "SELECT COUNT(*) FROM training_examples WHERE quality_score_auto IS NULL"
             ).fetchone()
-            backlog = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            backlog = _scalar(_row)
 
             quality_row = conn.execute(
                 "SELECT AVG(quality_score_auto) FROM training_examples WHERE quality_score_auto IS NOT NULL"
@@ -559,7 +559,7 @@ def send_data_asset_report():
                 "WHERE source IN ('outcome_win','outcome_loss') AND created_at LIKE ?",
                 (f"{today_str}%",),
             ).fetchone()
-            flywheel = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            flywheel = _scalar(_row)
 
         notify_data_asset_report(
             training_total=training_total, training_today=training_today,
@@ -664,25 +664,25 @@ def send_weekly_digest():
                 "SELECT COUNT(*) FROM shadow_trades WHERE COALESCE(source,'paper')='paper' "
                 "AND created_at >= ? AND COALESCE(quarantined, 0) = 0", (week_ago_str,)
             ).fetchone()
-            opened_paper = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            opened_paper = _scalar(_row)
             _row = conn.execute(
                 "SELECT COUNT(*) FROM shadow_trades WHERE source='live' "
                 "AND created_at >= ? AND COALESCE(quarantined, 0) = 0", (week_ago_str,)
             ).fetchone()
-            opened_live = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            opened_live = _scalar(_row)
             _t_frag, _t_params = terminal_in_clause()
             _row = conn.execute(
                 f"SELECT COUNT(*) FROM shadow_trades WHERE status IN ({_t_frag}) AND COALESCE(source,'paper')='paper' "
                 "AND actual_exit_time >= ? AND COALESCE(quarantined, 0) = 0",
                 (*_t_params, week_ago_str),
             ).fetchone()
-            closed_paper = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            closed_paper = _scalar(_row)
             _row = conn.execute(
                 f"SELECT COUNT(*) FROM shadow_trades WHERE status IN ({_t_frag}) AND source='live' "
                 "AND actual_exit_time >= ? AND COALESCE(quarantined, 0) = 0",
                 (*_t_params, week_ago_str),
             ).fetchone()
-            closed_live = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            closed_live = _scalar(_row)
 
             # Win rate and expectancy (all time)
             wr_row = conn.execute(
@@ -716,34 +716,34 @@ def send_weekly_digest():
                 " AND COALESCE(quarantined, 0) = 0",
                 (*_t_params, week_ago_str),
             ).fetchone()
-            pnl_paper = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            pnl_paper = _scalar(_row)
             _row = conn.execute(
                 "SELECT COALESCE(SUM(pnl_dollars),0) FROM shadow_trades "
                 f"WHERE status IN ({_t_frag}) AND source='live' AND actual_exit_time >= ?"
                 " AND COALESCE(quarantined, 0) = 0",
                 (*_t_params, week_ago_str),
             ).fetchone()
-            pnl_live = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            pnl_live = _scalar(_row)
 
             # Data asset
             _row = conn.execute("SELECT COUNT(*) FROM training_examples").fetchone()
-            training_end = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            training_end = _scalar(_row)
             _row = conn.execute(
                 "SELECT COUNT(*) FROM training_examples WHERE created_at >= ?",
                 (week_ago_str,)
             ).fetchone()
-            training_start = training_end - (_row[0] if not isinstance(_row, dict) else list(_row.values())[0])
+            training_start = training_end - (_scalar(_row))
             _row = conn.execute("SELECT COUNT(*) FROM setup_signals").fetchone()
-            signal_end = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            signal_end = _scalar(_row)
             _row = conn.execute(
                 "SELECT COUNT(*) FROM setup_signals WHERE created_at >= ?",
                 (week_ago_str,)
             ).fetchone()
-            signal_start = signal_end - (_row[0] if not isinstance(_row, dict) else list(_row.values())[0])
+            signal_start = signal_end - (_scalar(_row))
             _row = conn.execute(
                 "SELECT COUNT(*) FROM training_examples WHERE quality_score_auto IS NULL"
             ).fetchone()
-            backlog = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            backlog = _scalar(_row)
             quality_row = conn.execute(
                 "SELECT AVG(quality_score_auto) FROM training_examples WHERE quality_score_auto IS NOT NULL"
             ).fetchone()
@@ -767,7 +767,7 @@ def send_weekly_digest():
                 "SELECT COUNT(*) FROM council_sessions WHERE created_at >= ?",
                 (week_ago_str,)
             ).fetchone()
-            council_sessions = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            council_sessions = _scalar(_row)
             council_row = conn.execute(
                 "SELECT consensus, confidence_weighted_score FROM council_sessions "
                 "ORDER BY created_at DESC LIMIT 1"
@@ -898,7 +898,7 @@ def save_daily_metric_snapshot(db_path: str = DB_PATH):
                 " AND COALESCE(quarantined, 0) = 0",
                 _a_params,
             ).fetchone()
-            open_count = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+            open_count = _scalar(_row)
 
         if not pnls:
             snapshot = {

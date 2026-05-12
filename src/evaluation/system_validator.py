@@ -42,7 +42,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH, load_config
-from src.utils.db import connect_db, engine_aware_table_list
+from src.utils.db import _scalar, connect_db, engine_aware_table_list
 from src.utils.secret_redact import (
     _TOKEN_PATTERNS,
     sanitize_error as _sanitize_error,
@@ -383,7 +383,7 @@ def _check_trading(db_path: str, config: dict) -> list[dict]:
             "SELECT COUNT(*) FROM shadow_trades WHERE status='open'"
             " AND COALESCE(quarantined, 0) = 0"
         ).fetchone()
-        open_count = _row[0] if not isinstance(_row, dict) else list(_row.values())[0]
+        open_count = _scalar(_row)
         conn.close()
         max_positions = shadow_cfg.get("max_positions", 10)
         if open_count >= max_positions:
