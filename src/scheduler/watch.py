@@ -323,6 +323,9 @@ class WatchLoop(HandlerRegistryMixin):
         # Tick: drift detector (Wave C T4, 30min cadence) — see manual_intervention_drift.py
         self._last_drift_detector_time: datetime | None = None
 
+        # Tick: digest queue flush (T11 D2, configurable cadence default 60min)
+        self._last_digest_queue_time: datetime | None = None
+
     def _reset_daily_state(self):
         """Reset daily flags at midnight ET.
 
@@ -965,6 +968,66 @@ class WatchLoop(HandlerRegistryMixin):
         except (MonitoringDataError, sqlite3.Error) as exc:
             logger.error("[DRIFT] tick_drift_detector failed: %s", exc)
             self._backoff["drift_detector"] = self._backoff.get("drift_detector", 0) + 1
+
+    def tick_digest_queue(self) -> None:
+        """Tick: digest queue flush (T11 D2, configurable cadence default 60min).
+
+        Drains notifications_digest_queue rows with flush_status='pending'.
+        Dispatcher is a stub logger (T12 D3 will wire the real safe_send dispatcher).
+        Done-flag set INSIDE try per CLAUDE.md "_safe_run returns bool" rule.
+        Backoff keyed to 'digest_queue' per-task.
+        """
+        from src.notifications.digest_queue import DigestQueue
+        from src.notifications.errors import NotificationsError
+
+        try:
+            notif_cfg = (self.config.get("notifications") or {})
+            flush_minutes = int(notif_cfg.get("digest_flush_minutes", 60))
+        except (TypeError, ValueError):
+            flush_minutes = 60
+
+        now = datetime.now()
+        if (
+            self._last_digest_queue_time is not None
+            and (now - self._last_digest_queue_time).total_seconds() < flush_minutes * 60
+        ):
+            return
+
+        def _stub_dispatcher(payload: dict) -> None:
+            logger.info(
+                "[DIGEST] stub dispatch (T12 will wire safe_send): payload_keys=%s",
+                list(payload.keys()),
+            )
+
+        try:
+            with connect_db(DB_PATH) as conn:
+                from src.notifications.policy import NotificationsConfig
+                retry = (self.config.get("notifications") or {}).get("retry") or {}
+                retry_attempts = int(retry.get("attempts", 3))
+                cfg = NotificationsConfig(
+                    default_routing={"telegram": True, "email": False},
+                    digest_low=True,
+                    quiet_hours_start="22:00",
+                    quiet_hours_end="06:00",
+                    quiet_digest=True,
+                    mute_event_types=[],
+                    routing_overrides={},
+                    cadence_minutes_per_event_type={},
+                    retry_attempts=retry_attempts,
+                    retry_backoff_seconds=list(retry.get("backoff_seconds", [1, 5, 15])),
+                    digest_flush_minutes=flush_minutes,
+                )
+                q = DigestQueue(conn, config=cfg)
+                result = q.flush(dispatcher=_stub_dispatcher)
+            logger.info(
+                "[DIGEST] flush complete: successes=%d failures=%d abandoned=%d",
+                result.successes, result.failures, result.abandoned,
+            )
+            self._last_digest_queue_time = now
+
+        except (NotificationsError, sqlite3.Error) as exc:
+            logger.error("[DIGEST] tick_digest_queue failed: %s", exc)
+            self._backoff["digest_queue"] = self._backoff.get("digest_queue", 0) + 1
 
     def _post_scan_notifications(self, result):
         """Send Telegram notifications after a scan cycle."""
@@ -2002,6 +2065,11 @@ class WatchLoop(HandlerRegistryMixin):
                 # NOT inside the detector (recursion-hazard guard).
                 if self._safe_run("drift detector", self.tick_drift_detector):
                     pass  # cadence managed by _last_drift_detector_time
+
+                # Tick: digest queue flush (T11 D2, configurable cadence default 60min)
+                # T12 D3 will replace stub dispatcher with real safe_send wiring.
+                if self._safe_run("digest queue", self.tick_digest_queue):
+                    pass  # cadence managed by _last_digest_queue_time
 
                 time.sleep(60)
 

@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### SP5 Wave D T11 — Notification digest queue (D2)
+
+Implements the persistence layer for `PolicyDecision(verdict='digest')` outputs. The watch loop drains the queue every `digest_flush_minutes` minutes (default 60). T11 owns the queue mechanics, schema, and watch.py flush hook; T12 (D3) will wire `safe_send` to enqueue.
+
+#### Added
+
+- **`src/notifications/digest_queue.py`**: `DigestQueue` class with `enqueue`, `flush`, `mark_flush_failed`, `pending_count`, `abandoned_count` methods. `enqueue` validates `event_type` against `_KNOWN_EVENT_TYPES`. `flush` atomically transitions `pending` → `in_progress` → `sent|pending(retry)|abandoned`. `mark_flush_failed` sets `flush_status='abandoned'` with `flush_error` for operator forensic recovery. `FlushResult(successes, failures, abandoned)` returned from flush.
+- **`src/schema/registry.py` — `notifications_digest_queue` TableDef**: 10-column table (`id`, `event_type`, `severity`, `payload_json`, `source_tag`, `created_at`, `flushed_at`, `flush_status`, `flush_attempts`, `flush_error`). Indexes on `flush_status` and `created_at`. `sync_to_postgres=True`, `sync_mode='incremental'`.
+- **`src/scheduler/watch.py` — `tick_digest_queue`**: periodic flush hook. Cadence controlled by `notifications.digest_flush_minutes` (default 60). Stub dispatcher logs payload (T12 will wire real `safe_send`). Done-flag inside `try` per CLAUDE.md rule. Backoff keyed to `'digest_queue'`. Placed after `tick_drift_detector`, before T14's future tick.
+- **`src/notifications/policy.py` — `NotificationsConfig.digest_flush_minutes`**: new field (default 60); consumed by watch.py tick cadence.
+- **`src/notifications/telegram.py` — `_load_notifications_config`**: parses `digest_flush_minutes` with bounds `[5, 1440]`; raises `NotificationsConfigError` on out-of-range.
+- **`config/settings.example.yaml`**: added `notifications.digest_flush_minutes: 60` with range comment.
+- **`docs/operator-guide.md`**: added "Digest queue" subsection under "Notifications routing" with config knob, lifecycle docs, forensic query, and manual recovery SQL.
+- **`tests/notifications/test_digest_queue.py`**: 10 tests covering enqueue/flush happy paths + boundary conditions.
+- **`tests/notifications/test_digest_queue_atomicity.py`**: 4 tests covering `mark_flush_failed` + flush-then-fail recovery + abandoned-row persistence.
+
 ### SP5 Wave D T10 — Notification routing policy gate (D1)
 
 Implements the pure-function notification routing gate `should_dispatch(event_type, severity, now_et, config) -> PolicyDecision`. Decides whether a notification should be sent immediately, digested for batch delivery, or muted. First task of Wave D; T11 (D2) will implement the digest queue; T12 (D3) will wire safe_send to consult this policy.
