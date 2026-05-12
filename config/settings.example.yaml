@@ -618,3 +618,43 @@ desks:
     alpaca_key_env: ALPACA_RESEARCH_API_KEY
     alpaca_secret_env: ALPACA_RESEARCH_API_SECRET
     enabled: false  # operator flips to true after setting up research account
+
+
+# ─── NOTIFICATIONS ──────────────────────────────────────────────────────────
+# Routing policy for all outgoing notifications (T10 Sprint 5 Wave D D1).
+# Controls which events are sent immediately, batched for digest, or muted.
+#
+# Decision 20: there is NO bypass_severity knob. severity=high and severity=critical
+# ALWAYS send immediately regardless of any other policy. This is intentional
+# and non-negotiable. Do not add bypass_severity — it will raise on startup.
+#
+# All times are Eastern Time (ET). Cross-midnight quiet hours are supported:
+#   start='22:00' end='06:00' → muted 10pm to 6am ET
+#   start='12:00' end='13:00' → muted noon to 1pm ET (normal window)
+#   start='22:00' end='22:00' → quiet hours DISABLED (start == end)
+#
+# ────────────────────────────────────────────────────────────────────────────
+
+notifications:
+  default_routing:
+    telegram: true
+    email: false
+  digest_low: true           # true = batch severity=low events for later digest
+  quiet_hours_start: "22:00" # 10pm ET — start of overnight quiet window
+  quiet_hours_end: "06:00"   # 6am ET — end of overnight quiet window (cross-midnight)
+  quiet_digest: true         # true = buffer to digest queue during quiet hours
+                             # false = mute entirely during quiet hours
+  mute_event_types: []       # event_type names to silence regardless of severity
+                             # (high/critical still send — see Decision 20 above)
+                             # Example: ['low_priority_data_collection_complete']
+  routing_overrides:
+    manual_intervention_drift:
+      telegram: true
+      email: true
+      escalation_after_attempts: 3  # T12 D3 will use this
+  cadence_minutes_per_event_type:
+    manual_intervention_drift: 30   # min minutes between repeated alerts of this type
+    alert_silence: 60
+  retry:
+    attempts: 3
+    backoff_seconds: [1, 5, 15]     # len must equal attempts

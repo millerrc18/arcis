@@ -116,6 +116,28 @@ def _html_escape(text) -> str:
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+# Module-level set of known event_type strings for config validation (T10 D1).
+# Must stay in sync with the event_map inside safe_send.
+_KNOWN_EVENT_TYPES = frozenset({
+    "trade_opened", "trade_closed",
+    "scan_complete", "scan_result", "first_scan_summary", "watchlist",
+    "premarket_complete", "premarket_brief",
+    "risk_alert", "system_event", "startup_complete", "validation_summary",
+    "collection_failure", "exposure_alert", "regime_alert",
+    "overnight_complete", "overnight_training_complete", "vram_handoff",
+    "scoring_summary", "schedule_health",
+    "daily_summary", "eod_report", "data_asset_report", "weekly_digest",
+    "retrain_report", "research_papers", "research_digest",
+    "milestone", "streak_alert", "earnings_warning", "position_earnings_warning",
+    "model_event",
+    "action_required",
+    "trainer_holdout_empty", "1min_bar_collection", "attribution_resolve_complete",
+    "stress_test_complete", "trading_stats_update",
+    "manual_intervention_drift",
+    "alert_silence",
+})
+
+
 def is_telegram_enabled() -> bool:
     """Check if Telegram notifications are configured and enabled."""
     cfg = _get_telegram_config()
@@ -1225,6 +1247,89 @@ def _record_send_failure(event_type: str, error_msg: str) -> None:
     logger.debug(
         "[NOTIFICATIONS] dispatch_failed event=%s err=%s",
         event_type, error_msg,
+    )
+
+
+def _load_notifications_config(yaml_path: str):
+    """Load and validate the notifications: section from a YAML settings file.
+
+    Returns a NotificationsConfig dataclass on success.
+    Raises NotificationsConfigError with a specific message on any violation.
+    """
+    import yaml as _yaml
+    from src.notifications.errors import NotificationsConfigError
+    from src.notifications.policy import NotificationsConfig
+
+    with open(yaml_path, encoding="utf-8") as fh:
+        raw = _yaml.safe_load(fh)
+
+    notif = (raw or {}).get("notifications", {}) or {}
+
+    if "bypass_severity" in notif:
+        raise NotificationsConfigError(
+            "bypass_severity key is forbidden (Decision 20). "
+            "Severity high/critical always sends; this knob was explicitly removed."
+        )
+
+    for tstr, label in [
+        (notif.get("quiet_hours_start", "22:00"), "quiet_hours_start"),
+        (notif.get("quiet_hours_end", "06:00"), "quiet_hours_end"),
+    ]:
+        try:
+            parts = str(tstr).split(":")
+            if len(parts) != 2:
+                raise ValueError
+            h, m = int(parts[0]), int(parts[1])
+            if not (0 <= h <= 23 and 0 <= m <= 59):
+                raise ValueError
+        except (ValueError, AttributeError):
+            raise NotificationsConfigError(
+                f"quiet_hours: {label}={tstr!r} is not a valid HH:MM string."
+            )
+
+    for evt, minutes in (notif.get("cadence_minutes_per_event_type") or {}).items():
+        if evt not in _KNOWN_EVENT_TYPES:
+            raise NotificationsConfigError(
+                f"cadence_minutes_per_event_type: unknown event_type {evt!r}. "
+                "Must be registered in src.notifications.telegram event_map."
+            )
+        if not (1 <= int(minutes) <= 1440):
+            raise NotificationsConfigError(
+                f"cadence_minutes_per_event_type[{evt!r}]={minutes}: "
+                "must be in range [1, 1440]."
+            )
+
+    for evt in (notif.get("routing_overrides") or {}):
+        if evt not in _KNOWN_EVENT_TYPES:
+            raise NotificationsConfigError(
+                f"routing_overrides: unknown event_type {evt!r}. "
+                "Must be registered in src.notifications.telegram event_map."
+            )
+
+    retry = notif.get("retry") or {}
+    attempts = int(retry.get("attempts", 3))
+    if not (1 <= attempts <= 10):
+        raise NotificationsConfigError(
+            f"retry.attempts={attempts}: must be in range [1, 10]."
+        )
+    backoff = list(retry.get("backoff_seconds", []))
+    if len(backoff) != attempts:
+        raise NotificationsConfigError(
+            f"retry.backoff_seconds has {len(backoff)} entries but "
+            f"retry.attempts={attempts}; lengths must match."
+        )
+
+    return NotificationsConfig(
+        default_routing=notif.get("default_routing") or {"telegram": True, "email": False},
+        digest_low=bool(notif.get("digest_low", True)),
+        quiet_hours_start=str(notif.get("quiet_hours_start", "22:00")),
+        quiet_hours_end=str(notif.get("quiet_hours_end", "06:00")),
+        quiet_digest=bool(notif.get("quiet_digest", True)),
+        mute_event_types=list(notif.get("mute_event_types") or []),
+        routing_overrides=dict(notif.get("routing_overrides") or {}),
+        cadence_minutes_per_event_type=dict(notif.get("cadence_minutes_per_event_type") or {}),
+        retry_attempts=attempts,
+        retry_backoff_seconds=backoff,
     )
 
 

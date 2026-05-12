@@ -2108,6 +2108,93 @@ type data\drift_detector_state.json
 
 ---
 
+## Notifications routing
+
+> Added T10 Sprint 5 Wave D D1. Controls which events are sent immediately, digested for batch delivery, or muted.
+
+### Where to edit
+
+Edit `config/settings.local.yaml` (gitignored — your local override). The `notifications:` section is fully optional; missing keys use the defaults shown in `config/settings.example.yaml`. Never edit `settings.example.yaml` for per-operator values.
+
+### Decision 20: no bypass_severity knob
+
+There is no `bypass_severity` config key and there never will be. **Severity `high` and `critical` ALWAYS send immediately** — this is Rule #1 in the routing gate and cannot be overridden by any other policy (mute list, quiet hours, digest_low). Adding `bypass_severity` to your config will cause startup to fail with `NotificationsConfigError`. If you want a specific event_type to never send, add it to `mute_event_types` — but high/critical events of that type will still send.
+
+### Quiet hours
+
+```yaml
+notifications:
+  quiet_hours_start: "22:00"   # 10pm ET
+  quiet_hours_end: "06:00"     # 6am ET — cross-midnight (start > end)
+  quiet_digest: true           # true = buffer to digest; false = mute entirely
+```
+
+Times are Eastern Time (ET), `HH:MM` format. Cross-midnight is supported — if `start > end`, the window wraps midnight. Setting `start == end` disables quiet hours entirely (all times fall through). Invalid time strings (e.g. `"25:00"`) raise `NotificationsConfigError` at startup.
+
+During the quiet window:
+- severity=high and severity=critical: still send immediately (Rule #1)
+- all other severities: DIGEST (if `quiet_digest: true`) or MUTE (if `quiet_digest: false`)
+
+### Mute list
+
+```yaml
+notifications:
+  mute_event_types:
+    - scan_result            # silence routine scan result noise
+    - scoring_summary        # silence daily score batch summary
+```
+
+Events in `mute_event_types` are silenced regardless of severity — **except** high/critical, which still bypass (Rule #1).
+
+### Low-severity digest
+
+```yaml
+notifications:
+  digest_low: true   # severity=low events go to digest queue instead of immediate send
+```
+
+When `true`, events with `severity=low` are batched for the digest queue (T11 D2 implements the queue). When `false`, they follow default routing.
+
+### Channel routing
+
+```yaml
+notifications:
+  default_routing:
+    telegram: true
+    email: false
+  routing_overrides:
+    manual_intervention_drift:
+      telegram: true
+      email: true             # escalate this event type to email as well
+      escalation_after_attempts: 3   # T12 D3 retry knob
+```
+
+`default_routing` applies to all events not listed in `routing_overrides`. Each override entry specifies `telegram` and `email` booleans. Only keys registered in `src.notifications.telegram.event_map` are valid — unknown keys raise `NotificationsConfigError` at startup.
+
+### Cadence throttling
+
+```yaml
+notifications:
+  cadence_minutes_per_event_type:
+    manual_intervention_drift: 30   # re-alert at most every 30 minutes
+    alert_silence: 60
+```
+
+T12 D3 will use these values to throttle repeated alerts of the same event_type. Values must be in `[1, 1440]` (1 minute to 24 hours). Unknown event_type keys raise at startup.
+
+### Retry
+
+```yaml
+notifications:
+  retry:
+    attempts: 3
+    backoff_seconds: [1, 5, 15]   # length must equal attempts
+```
+
+T12 D3 will use these values for network retry on failed sends. `attempts` must be in `[1, 10]`. `len(backoff_seconds)` must equal `attempts`.
+
+---
+
 ## Known design decisions / WON'T-FIX notes
 
 ### `#SP4-settings-backend-float32-storage` WON'T FIX

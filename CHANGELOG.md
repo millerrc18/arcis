@@ -2,6 +2,23 @@
 
 ## [Unreleased]
 
+### SP5 Wave D T10 — Notification routing policy gate (D1)
+
+Implements the pure-function notification routing gate `should_dispatch(event_type, severity, now_et, config) -> PolicyDecision`. Decides whether a notification should be sent immediately, digested for batch delivery, or muted. First task of Wave D; T11 (D2) will implement the digest queue; T12 (D3) will wire safe_send to consult this policy.
+
+#### Added
+
+- **`src/notifications/policy.py`**: `should_dispatch` pure-function gate + `PolicyDecision` dataclass + `NotificationsConfig` dataclass. No I/O, no logging, `now_et` is injected. Decision rules (first match wins): (1) severity high/critical → SEND always [Decision 20 bypass]; (2) event_type in mute_event_types → MUTE; (3) now_et in quiet-hours window → DIGEST or MUTE; (4) severity=low + digest_low=True → DIGEST; (5) default routing → SEND.
+- **`src/notifications/errors.py`**: `NotificationsError` base + `NotificationsConfigError` subclass; mirrors T3's `src/council/errors.py` and T4's `src/monitoring/errors.py` hierarchy.
+- **`src/notifications/telegram.py` — `_KNOWN_EVENT_TYPES`**: module-level frozenset of all valid event_type strings for config validation.
+- **`src/notifications/telegram.py` — `_load_notifications_config(yaml_path)`**: validates the `notifications:` YAML section and returns a `NotificationsConfig`. Raises `NotificationsConfigError` on: `bypass_severity` key present (Decision 20 lockdown), unknown event_type in routing_overrides/cadence, invalid HH:MM time strings, cadence out-of-range [1, 1440], retry.attempts out-of-range [1, 10], backoff_seconds length mismatch.
+- **`src/main.py`**: calls `_load_notifications_config` at startup to fail-fast before the watch loop starts.
+- **`config/settings.example.yaml`**: added `notifications:` section per spec §4.7.
+- **`docs/operator-guide.md`**: added "Notifications routing" section documenting Decision 20, quiet hours, mute list, digest, channel routing, cadence, and retry knobs.
+- **`tests/notifications/test_policy.py`**: 23 tests covering 14 truth-table cases + 7 validation rejection cases + 2 happy-path cases.
+- **`tests/notifications/test_policy_purity.py`**: 2 AST guardrail tests — fails if policy.py imports I/O modules or makes logging calls.
+- **`tests/notifications/test_event_map_load_order.py`**: 1 MIN7 integration test validating event_map is populated at module-import-time before the validator runs.
+
 ### SP5 Wave C — SQL-function DEFAULT rendering fix (Wave C schema fix-up)
 
 Fixes a bug in `src/schema/postgres.py` and `src/schema/sqlite.py` where SQL function call defaults such as `CURRENT_TIMESTAMP`, `NOW()`, and `CURRENT_DATE` were emitted quoted (`DEFAULT 'CURRENT_TIMESTAMP'`). Postgres surfaces this as `psycopg2.errors.InvalidDatetimeFormat` at INSERT time; SQLite silently stores the literal string. The bug affected `platform_events.created_at` (the single in-registry usage of a SQL function default).

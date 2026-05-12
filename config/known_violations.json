@@ -90,8 +90,8 @@
     },
     {
       "file": "src/notifications/telegram.py",
-      "lines": 1322,
-      "rationale": "Sprint 4 T3 baseline 1147. Sprint 5 Wave A+B base: grew to 1322 lines with notify_validation_summary and platform_events wiring additions. Sprint 4 T3 rationale still applies: splitting deferred until all callers migrate to safe_send."
+      "lines": 1455,
+      "rationale": "Sprint 4 T3 baseline 1147. Sprint 5 Wave A+B base: grew to 1322. T10 Wave D D1: grew to 1455 with _KNOWN_EVENT_TYPES frozenset (23L) and _load_notifications_config validator (83L). Splitting deferred: _load_notifications_config is architecturally co-located with the event_map it validates; splitting would require a circular import or re-export. Real refactor blocked until telegram.py is decomposed per the 'after all callers migrate to safe_send' rationale."
     },
     {
       "file": "src/notifications/telegram_commands.py",
@@ -714,6 +714,18 @@
       "file": "src/main.py",
       "function": "build_parser",
       "lines": 197
+    },
+    {
+      "file": "src/notifications/policy.py",
+      "function": "should_dispatch",
+      "lines": 69,
+      "rationale": "T10 Sprint 5 Wave D D1: should_dispatch implements 5-rule first-match decision table per spec §4.1. 69 lines (9 over). The function body is a linear rule chain (if-elif-elif pattern); extracting sub-conditions into helpers would require passing config + derived values (start_hm, end_hm, now_hm) across call boundaries with no cohesion benefit. The spec explicitly defines all 5 rules as a unit. Real split deferred until T12 D3 wiring clarifies whether the function needs extension."
+    },
+    {
+      "file": "src/notifications/telegram.py",
+      "function": "_load_notifications_config",
+      "lines": 80,
+      "rationale": "T10 Sprint 5 Wave D D1: config validator for the notifications: YAML section. 80 lines (20 over). The function runs 6 sequential validation checks (bypass_severity lockdown, HH:MM parsing, cadence range, routing_overrides event_type membership, retry.attempts range, backoff_seconds length match) followed by dataclass construction. Each check is a distinct domain invariant; splitting would require passing intermediate results through sub-functions with no cohesion benefit. Real refactor deferred to T12 D3 when retry validation may grow."
     },
     {
       "file": "src/notifications/telegram.py",
