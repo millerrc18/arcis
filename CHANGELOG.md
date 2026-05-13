@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+
+- T13 (Wave D D4): `_html_escape` applied to `notify_regime_alert` (#93) and `notify_streak_alert` (#94) to prevent HTML injection in Telegram alerts. Pattern mirrors Sprint 4 T5 (notify_risk_alert / notify_exposure_alert).
+- Pytest isolation conftest fixture sets `ARCIS_NOTIFICATION_SOURCE='pytest:<worktree>'`, monkeypatches `_send_single` to a `_null_router` stub, and clears `ARCIS_TELEGRAM_TOKEN` per-test — prevents tests from accidentally calling the real Telegram API (#101).
+- 5 new tests in `tests/notifications/test_html_escape_siblings.py` including an AST guardrail that scans `notify_regime_alert` and `notify_streak_alert` for unescaped f-string interpolations.
+
 ### Fixed
 
 - T12 fix-up: patched 13 pre-existing tests in `tests/notifications/test_safe_send.py`, `test_safe_send_hooks.py`, and `test_telegram_payload_wiring.py` to patch `_load_config_for_safe_send` and `_now_et_for_safe_send` so policy gate returns `verdict=send`. Tests were written for the pre-T12 direct-dispatch contract; the new policy gate could route `trade_opened`/medium -> `digest` during quiet hours, triggering `TypeError: Object of type TradeOpenedPayload is not JSON serializable` in `DigestQueue.enqueue`. Underlying JSON-serialization gap tracked as #115 (Sprint 5 closeout). Per PR #1071 review (operator, 2026-05-13).

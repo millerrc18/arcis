@@ -482,3 +482,92 @@ def pg_docker_url():
 
         if started_container:
             _compose_down()
+
+
+# ---------------------------------------------------------------------------
+# T13 D4 — Telegram isolation (#101)
+# ---------------------------------------------------------------------------
+#
+# Three hooks that ensure pytest cannot accidentally fire real Telegram API calls:
+#
+# 1. _telegram_null_router_session (session-scoped, autouse):
+#    - Sets ARCIS_NOTIFICATION_SOURCE to "pytest:<worktree-basename>" so every
+#      digest-queue row written during tests carries an identifiable source_tag.
+#    - Replaces src.notifications.telegram._send_single with a _null_router stub
+#      that returns True without making HTTP calls. Session-scoped so the patch
+#      is in place for the entire pytest run; individual tests that need to inspect
+#      _send_single behaviour patch it further at function scope via their own
+#      context managers, which override the session-level stub during that test only.
+#
+# 2. _telegram_token_clear_per_test (function-scoped, autouse):
+#    - Clears ARCIS_TELEGRAM_TOKEN per-test via monkeypatch so operator .env
+#      values cannot leak into tests (hermetic pattern from PR #729).
+#    - monkeypatch is function-scoped so the clear is automatically reverted after
+#      each test — tests that need the token set can still use monkeypatch.setenv
+#      at function scope to override.
+
+
+def _make_null_router(original_fn):
+    """Return a _null_router stub that:
+    - Returns True (no HTTP call) when requests.post is NOT mocked — the normal
+      case where tests do not explicitly probe the HTTP transport layer.
+    - Calls through to the original _send_single when requests.post IS mocked —
+      this preserves existing tests that explicitly verify the HTTP call is made
+      with correct parameters (e.g. test_telegram_send_path, test_telegram_chunked_send).
+      Those tests mock requests.post precisely to intercept and inspect it, which
+      signals they are intentionally testing the HTTP transport path.
+    """
+    import unittest.mock as _mock
+    import requests as _requests
+
+    def _null_router(cfg, text, parse_mode):
+        if isinstance(_requests.post, _mock.MagicMock):
+            return original_fn(cfg, text, parse_mode)
+        return True
+
+    _null_router.__name__ = "_null_router"
+    return _null_router
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _telegram_null_router_session():
+    """Session-scoped: set source_tag env var + patch _send_single to null router.
+
+    Covers the full pytest session so no test can accidentally fire real Telegram
+    messages. Patches _send_single (the lowest HTTP-making function) so that:
+    - notify_* functions get the null router and never reach requests.post
+    - Tests that specifically test the send_telegram → _send_single → requests.post
+      pipeline mock requests.post explicitly, which signals they are testing HTTP
+      transport. The null router detects this and calls through to the original.
+
+    Tests that explicitly need to inspect _send_single itself can restore it at
+    function scope via unittest.mock.patch context managers.
+    """
+    import src.notifications.telegram as _tg
+
+    worktree_name = Path.cwd().name
+    old_source = os.environ.get("ARCIS_NOTIFICATION_SOURCE")
+    os.environ["ARCIS_NOTIFICATION_SOURCE"] = f"pytest:{worktree_name}"
+
+    original_send_single = _tg._send_single
+    _tg._send_single = _make_null_router(original_send_single)
+
+    try:
+        yield
+    finally:
+        _tg._send_single = original_send_single
+        if old_source is None:
+            os.environ.pop("ARCIS_NOTIFICATION_SOURCE", None)
+        else:
+            os.environ["ARCIS_NOTIFICATION_SOURCE"] = old_source
+
+
+@pytest.fixture(autouse=True)
+def _telegram_token_clear_per_test(monkeypatch):
+    """Function-scoped: clear ARCIS_TELEGRAM_TOKEN before each test.
+
+    Prevents operator .env ARCIS_TELEGRAM_TOKEN from leaking into tests.
+    Uses monkeypatch so the clear is reverted after each test — tests that
+    explicitly set the token via monkeypatch.setenv still work correctly.
+    """
+    monkeypatch.delenv("ARCIS_TELEGRAM_TOKEN", raising=False)
