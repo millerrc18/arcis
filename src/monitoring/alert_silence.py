@@ -98,9 +98,17 @@ def _query_max_signal(conn) -> tuple:
       1. notifications_sent status='ok' → source='notifications_sent'
       2. notifications_digest_queue flushed_at IS NOT NULL → source='digest_flushed'
       3. notifications_digest_queue created_at IS NOT NULL → source='digest_enqueued'
+
+    Engine-agnostic form: ORDER BY ts DESC NULLS LAST LIMIT 1 works on both
+    SQLite and PostgreSQL. The previous MAX(ts)+source form was rejected by PG
+    with GroupingError (non-aggregate 'source' column without GROUP BY).
+    NULLS LAST ensures NULLs sort below real timestamps on PG (SQLite already
+    treats NULLs as smallest in DESC order by default — same semantics).
+    When all three sources are empty the subquery returns zero rows and
+    fetchone() returns None; that case is handled explicitly below.
     """
     sql = """
-        SELECT MAX(ts), source FROM (
+        SELECT ts, source FROM (
             SELECT sent_at AS ts, 'notifications_sent' AS source
             FROM notifications_sent
             WHERE status = 'ok'
@@ -112,7 +120,9 @@ def _query_max_signal(conn) -> tuple:
             SELECT created_at AS ts, 'digest_enqueued' AS source
             FROM notifications_digest_queue
             WHERE created_at IS NOT NULL
-        )
+        ) u
+        ORDER BY ts DESC NULLS LAST
+        LIMIT 1
     """
     row = conn.execute(sql).fetchone()
     if row is None or row[0] is None:

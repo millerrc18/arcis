@@ -6,7 +6,17 @@ Covers:
 3. No silence when recent enqueue only (notifications_digest_queue created_at within threshold)
 4. Outside market hours returns None (no-op)
 5. Emits safe_send + platform_events row on finding
+6. _query_max_signal returns (None, "none") when all sources empty (LIMIT 1 empty union)
+7. PG-mode regression: SQL must run against PostgreSQL without GroupingError (skipped unless
+   DATABASE_URL=postgres://... is set in env)
+
+PG-mode test instructions (operator):
+    docker-compose -f docker-compose.test.yml up -d
+    DATABASE_URL=postgresql://test:test@localhost:5433/halcyon \
+    ARCIS_PG_CUTOVER_ENABLED=1 \
+    python -m pytest tests/monitoring/test_alert_silence.py::test_query_max_signal_works_on_pg -v
 """
+import os
 import sqlite3
 from datetime import datetime, timedelta
 from unittest.mock import patch, MagicMock
@@ -205,3 +215,148 @@ def test_emits_safe_send_and_platform_events_on_finding():
     assert row is not None
     assert row["severity"] == "high"
     assert row["event_type"] == "alert_silence"
+
+
+# ---------------------------------------------------------------------------
+# Test 6 — _query_max_signal returns (None, "none") when all sources empty
+# ---------------------------------------------------------------------------
+
+def test_query_max_signal_empty_tables_returns_none_source_none():
+    """When all 3 UNION arms are empty, _query_max_signal must return (None, 'none').
+
+    Regression-lock for the ORDER BY DESC LIMIT 1 form: when the union produces
+    zero rows, fetchone() returns None (not a row with None columns). The function
+    must handle that case explicitly.
+
+    With the old broken MAX(ts)+source form on SQLite: returns one row (None, None).
+    With the new ORDER BY DESC LIMIT 1 form: returns zero rows (fetchone() -> None).
+    Both paths must produce (None, 'none').
+    """
+    from src.monitoring.alert_silence import _query_max_signal
+
+    conn = _make_conn()
+    ts, source = _query_max_signal(conn)
+    assert ts is None
+    assert source == "none"
+
+
+def test_query_max_signal_returns_most_recent_ts_and_source():
+    """When multiple sources have rows, _query_max_signal returns the most recent."""
+    from datetime import timezone as _tz
+    from src.monitoring.alert_silence import _query_max_signal
+
+    conn = _make_conn()
+    now = _market_open_time()
+    older_ts = (now - timedelta(minutes=30)).astimezone(_tz.utc).isoformat()
+    newer_ts = (now - timedelta(minutes=5)).astimezone(_tz.utc).isoformat()
+
+    # Insert an older notifications_sent row and a newer digest enqueue row
+    conn.execute(
+        "INSERT INTO notifications_sent (event_type, channel, sent_at, status) VALUES (?, ?, ?, ?)",
+        ("scan_complete", "telegram", older_ts, "ok"),
+    )
+    conn.execute(
+        """INSERT INTO notifications_digest_queue
+           (event_type, severity, payload_json, source_tag, created_at)
+           VALUES (?, ?, ?, ?, ?)""",
+        ("scan_complete", "normal", "{}", "test", newer_ts),
+    )
+    conn.commit()
+
+    ts, source = _query_max_signal(conn)
+    assert ts is not None
+    assert source == "digest_enqueued"
+
+
+# ---------------------------------------------------------------------------
+# Test 7 — PG-mode regression: SQL portability against PostgreSQL
+# ---------------------------------------------------------------------------
+
+@pytest.mark.skipif(
+    not os.environ.get("DATABASE_URL", "").startswith("postgres"),
+    reason=(
+        "PG-mode test requires DATABASE_URL=postgres://... and "
+        "ARCIS_PG_CUTOVER_ENABLED=1 in env. "
+        "Run: DATABASE_URL=postgresql://test:test@localhost:5433/halcyon "
+        "ARCIS_PG_CUTOVER_ENABLED=1 "
+        "python -m pytest tests/monitoring/test_alert_silence.py::test_query_max_signal_works_on_pg"
+    ),
+)
+def test_query_max_signal_works_on_pg():
+    """Regression-lock: the SQL in _query_max_signal must run against PostgreSQL
+    without raising psycopg2.errors.GroupingError.
+
+    The old broken form 'SELECT MAX(ts), source FROM (...)' is rejected by PG
+    because 'source' is a non-aggregate column in an aggregate SELECT without
+    GROUP BY. The fixed form 'SELECT ts, source FROM (...) ORDER BY ts DESC
+    NULLS LAST LIMIT 1' is engine-agnostic and accepted by both SQLite and PG.
+
+    This test runs only when DATABASE_URL starts with 'postgres' AND
+    ARCIS_PG_CUTOVER_ENABLED=1 — set both to exercise the PG code path via
+    connect_db().
+
+    The test seeds one row in notifications_sent, calls _query_max_signal via
+    the PG-backed connection, and asserts the result is (ts, 'notifications_sent').
+    """
+    import os
+    os.environ["ARCIS_PG_CUTOVER_ENABLED"] = "1"
+
+    from src.utils.db import connect_db, PostgresConnectionWrapper
+    conn = connect_db()
+    assert isinstance(conn, PostgresConnectionWrapper), (
+        "Expected PG connection — check DATABASE_URL and ARCIS_PG_CUTOVER_ENABLED"
+    )
+
+    try:
+        # Create minimal tables for the test (drop first to avoid conflicts)
+        conn.execute("DROP TABLE IF EXISTS notifications_sent")
+        conn.execute("DROP TABLE IF EXISTS notifications_digest_queue")
+        conn.execute(
+            """
+            CREATE TABLE notifications_sent (
+                id SERIAL PRIMARY KEY,
+                event_type TEXT NOT NULL,
+                channel TEXT NOT NULL,
+                recipient TEXT,
+                sent_at TEXT NOT NULL,
+                status TEXT NOT NULL,
+                retry_count INTEGER NOT NULL DEFAULT 0,
+                error_msg TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE notifications_digest_queue (
+                id SERIAL PRIMARY KEY,
+                event_type TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                source_tag TEXT NOT NULL DEFAULT 'unknown',
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                flushed_at TIMESTAMP,
+                flush_status TEXT NOT NULL DEFAULT 'pending',
+                flush_attempts INTEGER NOT NULL DEFAULT 0,
+                flush_error TEXT
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO notifications_sent (event_type, channel, sent_at, status) "
+            "VALUES (?, ?, ?, ?)",
+            ("scan_complete", "telegram", "2026-03-10T15:00:00+00:00", "ok"),
+        )
+        conn.commit()
+
+        from src.monitoring.alert_silence import _query_max_signal
+        ts, source = _query_max_signal(conn)
+        assert ts is not None, "Expected a timestamp from notifications_sent row"
+        assert source == "notifications_sent"
+    finally:
+        try:
+            conn.execute("DROP TABLE IF EXISTS notifications_sent")
+            conn.execute("DROP TABLE IF EXISTS notifications_digest_queue")
+            conn.commit()
+        except Exception:
+            pass
+        conn.close()
