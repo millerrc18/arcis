@@ -41,7 +41,7 @@
 - Operator-guide additions: new "Dual-GPU Operation" subsection (delivered as `docs/audits/2026-05-12-dual-gpu-ideation/operator-guide-insert.md`, inserted immediately before the `### "Ollama crashes / corpus producing template fallbacks"` heading in `docs/operator-guide.md`) + enumerated stale-text fixes at lines 265, 632–635, 691–694, 159–161.
 - Failure modes per card + recovery procedures.
 - Verification plan (operator-runnable; extends `scripts/verify_training_readiness.py`).
-- Test plan with named test functions and explicit test-count delta against the 5350 floor.
+- Test plan with named test functions and explicit test-count delta against the 5400 floor.
 - SP6 implementation read-list to close coverage gaps from deep report.
 - Risk register.
 - Open questions for SP6 implementation.
@@ -188,7 +188,7 @@ SP6's job is to **append** two new variables to this block: `CUDA_VISIBLE_DEVICE
 - **Subprocess training architecture.** Process exit guarantees VRAM reclamation on GPU 0.
 - **Single Ollama chokepoint.** `src/llm/client.py:generate()` remains the only Ollama-callsite path.
 - **Schema unchanged (default).**
-- **Test floor 5350.**
+- **Test floor 5400.**
 - **Same-PR operator-guide rule.**
 - **Post-Sprint-5 NSSM env preserved** (see §3.5).
 
@@ -880,7 +880,7 @@ Verify with `nssm get ArcisWatchLoop AppEnvironmentExtra`. Capture pre-change en
 
 ## 13. Test Plan (SP6 Implementation)
 
-### 13.1 Test-count delta accounting (5350 floor) — REVISED v3
+### 13.1 Test-count delta accounting (5400 floor) — REVISED v3
 
 **Verified delete count:** 21 (re-verified at SP6 start).
 
@@ -898,7 +898,7 @@ Verify with `nssm get ArcisWatchLoop AppEnvironmentExtra`. Capture pre-change en
 | Optional: `tests/test_telegram_commands_dual_gpu.py` | +2 | Optional |
 | **With optional adds** | **+10** | — |
 
-**Floor check:** 5350 + 8 = **5358** (minimum required deliverable). With optional adds, 5360. Comfortable margin.
+**Floor check:** 5400 + 8 = **5408** (minimum required deliverable). With optional adds, 5410. Comfortable margin.
 
 ### 13.2 New test enumeration (required set)
 
