@@ -162,6 +162,16 @@ def collect_filings_sentiment(
             row = _row_from_filing(filing, ticker)
             if row is None:
                 continue
+            # Decision 27 footnote (PR #1083 review, 2026-05-13):
+            # Filings sentiment uses action="ignore" for now — existing
+            # (ticker, filing_type, filed_at) rows are not overwritten.
+            # If Finnhub retrains its sentiment model and produces
+            # materially different scores for the same filing, those
+            # revisions are silently dropped. If that becomes a real
+            # operational concern, switch to action="replace" — requires
+            # adding "filings_sentiment" to `_REPLACE_SEMANTICS` in
+            # src/utils/db.py so the UPSERT path emits an in-place
+            # update instead of an INSERT-OR-IGNORE.
             engine_aware_upsert(conn, "filings_sentiment", row, action="ignore")
             rows.append(row)
         conn.commit()
