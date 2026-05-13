@@ -14,13 +14,87 @@ from __future__ import annotations
 
 import logging
 import os
+import sqlite3
 import time
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
+
+from src.config import DB_PATH
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from src.platform.strategy_spec import StrategySpec
+
+# Sprint 5 Wave C7a.1 / T17 — pillar agent_name → feature-dict key mapping.
+# The council writes one vote row per pillar per session; the LLM packet
+# needs each pillar's position surfaced as a separate feature field.
+_COUNCIL_PILLAR_KEY = {
+    "macro_pillar": "council_macro_vote",
+    "strategic_pillar": "council_strategic_vote",
+    "tactical_pillar": "council_tactical_vote",
+    "innovation_pillar": "council_innovation_vote",
+    "risk_pillar": "council_risk_vote",
+}
+
+# Sprint 5 Wave C7a.1 / T17 — staleness threshold (days). Sessions older than
+# this are still rendered but tagged [STALE] so the LLM downweights them.
+_COUNCIL_STALE_THRESHOLD_DAYS = 3
+
+
+def enrich_council_consensus(feat: dict, db_path: str = DB_PATH) -> None:
+    """Populate council-consensus feature-dict fields from the latest session.
+
+    Reads the most recent ``council_sessions`` row (by ``created_at``), joins
+    ``council_votes`` per pillar (macro/strategic/tactical/innovation/risk), and
+    writes the 5 vote fields + ``council_session_id``, ``council_consensus_score``,
+    ``council_session_age_days`` into ``feat``.
+
+    Missing session: ``feat`` is left empty for these keys; callers detect via
+    ``council_session_id is None`` and render the empty-state message.
+
+    Stale: no in-DB suppression — the renderer appends ``[STALE]`` when age
+    exceeds ``_COUNCIL_STALE_THRESHOLD_DAYS``.
+
+    Args:
+        feat: Per-ticker feature dict (mutated in place).
+        db_path: SQLite DB path. Defaults to runtime DB.
+    """
+    try:
+        with connect_db(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            sess = conn.execute(
+                "SELECT session_id, created_at, confidence_weighted_score "
+                "FROM council_sessions ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+            if not sess:
+                return
+            session_id = sess["session_id"]
+            feat["council_session_id"] = session_id
+            feat["council_consensus_score"] = sess["confidence_weighted_score"]
+
+            created = sess["created_at"]
+            try:
+                created_dt = datetime.fromisoformat(created)
+                if created_dt.tzinfo is None:
+                    created_dt = created_dt.replace(tzinfo=timezone.utc)
+                age = (datetime.now(timezone.utc) - created_dt).days
+                feat["council_session_age_days"] = max(0, age)
+            except (ValueError, TypeError):
+                feat["council_session_age_days"] = None
+
+            votes = conn.execute(
+                "SELECT agent_name, position FROM council_votes "
+                "WHERE session_id = ?",
+                (session_id,),
+            ).fetchall()
+            for row in votes:
+                key = _COUNCIL_PILLAR_KEY.get(row["agent_name"])
+                if key:
+                    feat[key] = row["position"]
+    except Exception as exc:
+        logger.debug("[ENRICHMENT] Council consensus read failed: %s", exc)
 
 _missing_key_alerts_sent: set[str] = set()
 

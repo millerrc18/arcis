@@ -146,6 +146,47 @@ _REQUIRED_SECTIONS = {1, 2, 7, 9}
 # Sections eligible for random omission during training subsetting.
 _OPTIONAL_SECTIONS = {3, 4, 5, 6, 8, 10, 11}
 
+# Sprint 5 Wave C7a.1 / T17 — staleness threshold for COUNCIL CONSENSUS section.
+# Mirrors src/data_enrichment/enricher._COUNCIL_STALE_THRESHOLD_DAYS but kept
+# local to avoid a runtime import from the renderer.
+_COUNCIL_STALE_THRESHOLD_DAYS = 3
+
+
+def _render_council_consensus(features: dict) -> str:
+    """Render the COUNCIL CONSENSUS section (Sprint 5 Wave C7a.1 / T17).
+
+    Returns the section as a leading-newline-separated block. When no council
+    session is present (council_session_id is None), renders the empty-state
+    message. When session age exceeds the staleness threshold, appends [STALE]
+    to the header.
+    """
+    session_id = features.get("council_session_id")
+    if not session_id:
+        return "\n\n=== COUNCIL CONSENSUS ===\n(No recent council session)"
+
+    age = features.get("council_session_age_days")
+    stale_marker = ""
+    if age is not None and age > _COUNCIL_STALE_THRESHOLD_DAYS:
+        stale_marker = " [STALE]"
+
+    consensus = features.get("council_consensus_score")
+    consensus_str = f"{consensus:.2f}" if isinstance(consensus, (int, float)) else "n/a"
+    age_str = f"{age}" if age is not None else "n/a"
+
+    rows = [
+        ("Macro", features.get("council_macro_vote", "n/a")),
+        ("Strategic", features.get("council_strategic_vote", "n/a")),
+        ("Tactical", features.get("council_tactical_vote", "n/a")),
+        ("Innovation", features.get("council_innovation_vote", "n/a")),
+        ("Risk", features.get("council_risk_vote", "n/a")),
+    ]
+    body = "\n".join(f"{label}: {vote}" for label, vote in rows)
+    return (
+        f"\n\n=== COUNCIL CONSENSUS ==={stale_marker}\n"
+        f"Confidence-weighted score: {consensus_str} | "
+        f"Session age: {age_str}d\n{body}"
+    )
+
 
 def _build_feature_prompt(features: dict, ticker: str, subsetting: bool = False) -> str:
     """Build a multi-source prompt from all available data.
@@ -294,6 +335,10 @@ US Dollar Index: {features.get('dxy_level', 'n/a')} ({features.get('dxy_change_1
 VIX Term Structure: {features.get('vix_term_structure', 'n/a')}
 HY Credit Spread: {features.get('hy_oas', 'n/a')} bps ({features.get('hy_oas_z_score', 'n/a')} Z)
 Gold: {features.get('gold_change_1m', 'n/a')} (1m)"""
+
+    # SECTION 13: Council Consensus (Sprint 5 Wave C7a.1 / T17).
+    # Always rendered — empty-state message handles missing-session.
+    prompt += _render_council_consensus(features)
 
     return prompt
 
