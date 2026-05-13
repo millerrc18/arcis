@@ -16,7 +16,7 @@ callers can distinguish full closures (no trading) from early-close days
 (NYSE closes at 13:00 ET — e.g. day after Thanksgiving, Christmas Eve).
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from functools import lru_cache
 from math import ceil
 
@@ -80,6 +80,28 @@ def is_market_half_day(date_str: str | None = None, check_date: date | None = No
     """
     d = _resolve_check_date(date_str, check_date)
     return d in _half_days_for_year(d.year)
+
+
+def is_market_open(now_et: datetime) -> bool:
+    """True iff now_et is during regular NYSE trading hours.
+
+    - Weekday in [0..4] (Mon-Fri)
+    - Not a market holiday (uses is_market_holiday)
+    - Time within [9:30 ET, 16:00 ET] for full days
+    - Time within [9:30 ET, 13:00 ET] for half days (uses is_market_half_day)
+    """
+    if now_et.weekday() >= 5:
+        return False
+    try:
+        if is_market_holiday(check_date=now_et.date()):
+            return False
+        if is_market_half_day(check_date=now_et.date()) and now_et.hour >= 13:
+            return False
+    except Exception:
+        pass
+    market_open = now_et.replace(hour=9, minute=30, second=0, microsecond=0)
+    market_close = now_et.replace(hour=16, minute=0, second=0, microsecond=0)
+    return market_open <= now_et < market_close
 
 
 def subtract_trading_days(anchor: date, n: int) -> date:

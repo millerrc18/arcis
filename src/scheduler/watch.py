@@ -326,6 +326,9 @@ class WatchLoop(HandlerRegistryMixin):
         # Tick: digest queue flush (T11 D2, configurable cadence default 60min)
         self._last_digest_queue_time: datetime | None = None
 
+        # Tick: alert silence detector (T14 D5, 5-min cadence)
+        self._last_alert_silence_time: datetime | None = None
+
     def _reset_daily_state(self):
         """Reset daily flags at midnight ET.
 
@@ -420,26 +423,12 @@ class WatchLoop(HandlerRegistryMixin):
         (e.g., day after Thanksgiving, Christmas Eve), the market closes at
         13:00 ET instead of 16:00 ET. Without this check, scans/trades
         would fire 13:00-16:00 against a closed market.
+
+        T14 D5: thin wrapper — delegates to holidays.is_market_open so the
+        module-level function is reusable across monitoring code.
         """
-        if now.weekday() >= 5:  # Saturday=5, Sunday=6
-            return False
-        # Holiday + half-day check (#149, Sprint-0/2a HALF-DAY) — fail-open so
-        # we don't miss a trading day if the holiday module errors.
-        try:
-            from src.scheduler.holidays import is_market_holiday, is_market_half_day
-            if is_market_holiday(check_date=now.date()):
-                return False
-            # Half-day: NYSE closes at 13:00 ET. After 13:00 the market is
-            # closed even though it would normally still be open.
-            if is_market_half_day(check_date=now.date()) and now.hour >= 13:
-                return False
-        except Exception:
-            pass  # If holiday module fails, assume market open — safer to scan unnecessarily
-        market_open = now.replace(hour=self.market_open_hour,
-                                  minute=self.market_open_minute, second=0)
-        market_close = now.replace(hour=self.market_close_hour,
-                                   minute=0, second=0)
-        return market_open <= now < market_close
+        from src.scheduler.holidays import is_market_open as _is_open
+        return _is_open(now)
 
     def _check_digest_schedule(self):
         """Send scheduled email digests at configured times (digest mode only)."""
@@ -1019,6 +1008,32 @@ class WatchLoop(HandlerRegistryMixin):
         except (NotificationsError, sqlite3.Error) as exc:
             logger.error("[DIGEST] tick_digest_queue failed: %s", exc)
             self._backoff["digest_queue"] = self._backoff.get("digest_queue", 0) + 1
+
+    def tick_alert_silence(self) -> None:
+        """Tick: alert silence detector (T14 D5, 5-min cadence).
+
+        Calls check_alert_silence to detect notification silence during market
+        hours. Fires every 5 minutes. Side-effects (safe_send + platform_events)
+        are handled inside check_alert_silence.
+        Done-flag set INSIDE try per CLAUDE.md "_safe_run returns bool" rule.
+        Backoff keyed to 'alert_silence' per-task.
+        """
+        from src.monitoring.alert_silence import check_alert_silence
+
+        now = datetime.now(ET)
+        if (
+            self._last_alert_silence_time is not None
+            and (now - self._last_alert_silence_time).total_seconds() < 5 * 60
+        ):
+            return
+
+        try:
+            check_alert_silence(now_et=now, threshold_minutes=60)
+            self._last_alert_silence_time = now
+
+        except Exception as exc:
+            logger.error("[ALERT_SILENCE] tick_alert_silence failed: %s", exc)
+            self._backoff["alert_silence"] = self._backoff.get("alert_silence", 0) + 1
 
     def _post_scan_notifications(self, result):
         """Send Telegram notifications after a scan cycle."""
@@ -2061,6 +2076,10 @@ class WatchLoop(HandlerRegistryMixin):
                 # T12 D3 will replace stub dispatcher with real safe_send wiring.
                 if self._safe_run("digest queue", self.tick_digest_queue):
                     pass  # cadence managed by _last_digest_queue_time
+
+                # Tick: alert silence detector (T14 D5, 5-min cadence)
+                if self._safe_run("alert silence", self.tick_alert_silence):
+                    pass  # cadence managed by _last_alert_silence_time
 
                 time.sleep(60)
 

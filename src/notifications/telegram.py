@@ -1192,6 +1192,23 @@ def notify_manual_intervention_drift(payload: dict, severity: str = "high") -> b
     return send_telegram(msg)
 
 
+def notify_alert_silence(last_seen: str, minutes_silent: int) -> bool:
+    """Telegram alert when no notifications have flowed during market hours (T14 D5 / #94).
+
+    Fires when check_alert_silence detects silence > threshold_minutes.
+
+    Args:
+        last_seen: ISO timestamp of last signal (or 'never').
+        minutes_silent: How many minutes have elapsed without a notification signal.
+    """
+    last_seen_safe = _html_escape(str(last_seen))
+    msg = (
+        f"⚠ [HIGH] Alert silence: no notifications in {minutes_silent} min "
+        f"(last seen: {last_seen_safe})"
+    )
+    return send_telegram(msg)
+
+
 def _write_notification_sent(
     event_type: str,
     channel: str,
@@ -1421,8 +1438,8 @@ _EVENT_MAP_MUTABLE: dict = {
     "trading_stats_update": notify_trading_stats_update,
     # Monitoring (Wave C T4)
     "manual_intervention_drift": notify_manual_intervention_drift,
-    # Additional event types
-    "alert_silence": notify_system_event,
+    # Monitoring (Wave D T14 D5)
+    "alert_silence": notify_alert_silence,
 }
 _EVENT_MAP = MappingProxyType(_EVENT_MAP_MUTABLE)
 
