@@ -283,7 +283,7 @@ def run_migration(
     total_rows = 0
     total_errors = 0
 
-    pg_conn = psycopg2.connect(database_url)
+    pg_conn = psycopg2.connect(database_url, connect_timeout=30)
     try:
         for table in sync_tables:
             try:
