@@ -2579,7 +2579,7 @@ _register(TableDef(
                   description="pending|in_progress|sent|abandoned"),
         ColumnDef("flush_attempts", "INTEGER", nullable=False, default="0"),
         ColumnDef("flush_error", "TEXT", nullable=True,
-                  description="last error message when flush_status=failed/abandoned"),
+                  description="last error message when flush_status=abandoned (redacted via _redact_token, capped 500 chars)"),
     ],
     primary_key="id",
     indexes=[

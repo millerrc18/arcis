@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable
 
-from src.notifications.telegram import _KNOWN_EVENT_TYPES
+from src.notifications.telegram import _KNOWN_EVENT_TYPES, _redact_token
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,7 @@ class DigestQueue:
             "INSERT INTO notifications_digest_queue"
             " (event_type, severity, payload_json, source_tag, flush_status, flush_attempts)"
             " VALUES (?, ?, ?, ?, 'pending', 0)",
-            (event_type, severity, payload_json, source_tag),
+            (event_type, severity, payload_json, source_tag[:64]),
         )
         self._conn.commit()
         return cur.lastrowid
@@ -99,7 +99,7 @@ class DigestQueue:
                     "UPDATE notifications_digest_queue"
                     " SET flush_status='abandoned', flush_attempts=?, flush_error=?"
                     " WHERE id=?",
-                    (new_attempts, str(exc), row_id),
+                    (new_attempts, _redact_token(str(exc))[:500], row_id),
                 )
                 self._conn.commit()
                 return "abandoned"
@@ -160,7 +160,7 @@ class DigestQueue:
             "UPDATE notifications_digest_queue"
             " SET flush_status='abandoned', flush_error=?"
             " WHERE id=?",
-            (error, row_id),
+            (_redact_token(error)[:500], row_id),
         )
         self._conn.commit()
 

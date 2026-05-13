@@ -133,13 +133,21 @@ def test_flush_then_fail_recovery():
     ).fetchone()
     assert row_before["flush_status"] == "in_progress"
 
-    result = q.flush(dispatcher=lambda p: None)
+    def failing_dispatcher(p):
+        raise RuntimeError("simulated dispatch failure after crash recovery")
+
+    result = q.flush(dispatcher=failing_dispatcher)
 
     row_after = conn.execute(
         "SELECT flush_status, flush_attempts FROM notifications_digest_queue WHERE id=?",
         (row_id,),
     ).fetchone()
-    assert row_after["flush_status"] in ("pending", "abandoned", "sent")
+    assert row_after["flush_status"] == "pending", (
+        f"Crash recovery of in_progress row with attempts={row_after['flush_attempts']} "
+        f"and retry_attempts=3 should transition to 'pending' (still has retries left), "
+        f"got {row_after['flush_status']!r}. If the recovery logic were broken, this test "
+        f"would catch it."
+    )
     assert row_after["flush_attempts"] >= 1
 
 

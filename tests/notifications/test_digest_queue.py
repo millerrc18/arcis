@@ -223,3 +223,58 @@ def test_source_tag_persists_through_enqueue_flush_cycle():
     ).fetchone()
     assert row["source_tag"] == "pytest:T11"
     assert row["flush_status"] == "sent"
+
+
+def _make_queue():
+    conn = _make_conn()
+    from src.notifications.policy import NotificationsConfig
+    config = NotificationsConfig(
+        default_routing={"telegram": True, "email": False},
+        digest_low=True,
+        quiet_hours_start="22:00",
+        quiet_hours_end="06:00",
+        quiet_digest=True,
+        mute_event_types=[],
+        routing_overrides={},
+        cadence_minutes_per_event_type={},
+        retry_attempts=1,
+        retry_backoff_seconds=[1],
+    )
+    return DigestQueue(conn, config=config), config
+
+
+def test_flush_error_redacts_bot_token_in_exception_string():
+    """Regression-lock: flush_error must apply _redact_token to exception strings.
+
+    Security review of T11 (Sprint 5 D2) flagged that the digest queue persists
+    raw str(exc) to a column that syncs to Postgres. When T12 wires the real
+    Telegram dispatcher, HTTP exceptions carry URLs like
+    /bot<TOKEN>/sendMessage -- without redaction, the token lands in the queue
+    table and downstream sync targets.
+
+    This test fails loudly if the redaction is removed from _dispatch_one_row.
+    """
+    queue, _config = _make_queue()
+    row_id = queue.enqueue(event_type="manual_intervention_drift", severity="high",
+                           payload={"ticker": "AAPL"}, source_tag="pytest:T11-fixup")
+
+    fake_token = "1234567890:AAAA-fake-bot-token-do-not-leak-this"
+
+    def raising_dispatcher(payload):
+        raise RuntimeError(
+            f"Connection failed: GET https://api.telegram.org/bot{fake_token}/sendMessage 502"
+        )
+
+    queue.flush(max_rows=10, dispatcher=raising_dispatcher)
+
+    conn = queue._conn
+    cur = conn.execute("SELECT flush_error FROM notifications_digest_queue WHERE id=?", (row_id,))
+    flush_error = cur.fetchone()[0]
+    assert flush_error is not None, "flush_error should be populated after dispatcher exception"
+    assert fake_token not in flush_error, (
+        f"Bot token leaked into flush_error: {flush_error!r}. "
+        f"Apply _redact_token in _dispatch_one_row's exception handler."
+    )
+    assert "<redacted" in flush_error.lower() or "REDACTED" in flush_error or "bot***" in flush_error.lower(), (
+        f"flush_error doesn't show redaction marker -- verify _redact_token output: {flush_error!r}"
+    )
