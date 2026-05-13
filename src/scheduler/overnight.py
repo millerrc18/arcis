@@ -743,6 +743,22 @@ def run_data_collection(db_path: str = DB_PATH,
         logger.warning("[WATCH] Institutional ownership collection failed: %s", e)
         results["institutional_ownership"] = {"error": str(e)}
 
+    # 11c. Filings sentiment (plan-gated; Sprint 5 Wave C7b.2 / T22).
+    # No-op when finnhub_plan != fundamental-1; collector returns None at gate.
+    print("[WATCH]   [11c] Filings sentiment (plan-gated)...")
+    try:
+        from src.data_collection.filings_sentiment_collector import (
+            collect_filings_sentiment,
+        )
+        fs_rows = 0
+        for _t in universe:
+            if collect_filings_sentiment(_t) is not None:
+                fs_rows += 1
+        results["filings_sentiment"] = {"tickers_with_data": fs_rows}
+    except Exception as e:
+        logger.warning("[WATCH] Filings sentiment collection failed: %s", e)
+        results["filings_sentiment"] = {"error": str(e)}
+
     # 12. Analyst estimates (batch 20/night to stay under FMP limit)
     print("[WATCH]   [12/12] Analyst estimates (batch)...")
     try:

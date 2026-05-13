@@ -252,6 +252,56 @@ def _render_institutional_flow(features: dict) -> str:
     )
 
 
+def _render_filings_sentiment_subblock(features: dict) -> str:
+    """Render the filings_sentiment sub-block of MATERIAL EVENTS (T22).
+
+    Returns "" when the plan does not support filings_sentiment (Decision 30)
+    or when no data is present yet. The MATERIAL EVENTS composition wrapper
+    decides whether the outer section header renders.
+    """
+    if not features.get("_filings_sentiment_plan_supports"):
+        return ""
+    score = features.get("filing_sentiment_score")
+    label = features.get("filing_sentiment_label")
+    filing_type = features.get("latest_filing_type")
+    age = features.get("latest_filing_age_days")
+    if score is None and label is None and filing_type is None:
+        return ""
+    score_str = (
+        f"{score:+.2f}" if isinstance(score, (int, float)) else "n/a"
+    )
+    label_str = label if isinstance(label, str) and label else "n/a"
+    type_str = filing_type if filing_type else "n/a"
+    age_str = (
+        f"{age} day{'s' if age != 1 else ''} ago"
+        if isinstance(age, int) else "n/a"
+    )
+    return (
+        f"Latest filing: {type_str} ({age_str})\n"
+        f"Filing sentiment: {score_str} ({label_str})"
+    )
+
+
+def _render_material_events(features: dict) -> str:
+    """Render the MATERIAL EVENTS section (Sprint 5 Wave C7b.2 / T22 seed).
+
+    Composition rule: this section is a wrapper around one-or-more sub-blocks
+    (filings_sentiment is the first, seeded here; press_releases will be added
+    by T23). If NO sub-block contributes content, the entire section header
+    is omitted. If at least one sub-block contributes, the header renders
+    followed by whichever sub-blocks have content (separated by a blank line).
+    """
+    subblocks: list[str] = []
+    filings_block = _render_filings_sentiment_subblock(features)
+    if filings_block:
+        subblocks.append(filings_block)
+    # T23 will append _render_press_releases_subblock(features) here.
+    if not subblocks:
+        return ""
+    body = "\n\n".join(subblocks)
+    return f"\n\n=== MATERIAL EVENTS ===\n{body}"
+
+
 def _render_recent_attribution(features: dict) -> str:
     """Render the RECENT ATTRIBUTION section (Sprint 5 Wave C7a.3 / T19).
 
@@ -412,6 +462,12 @@ Sector Rank (of 11): {features.get('sector_rank', 'n/a')}"""
 
 === RECENT NEWS ===
 {news_text}"""
+
+    # SECTION 7.5: Material Events (Sprint 5 Wave C7b.2 / T22 seed).
+    # Plan-gated wrapper around filings_sentiment (T22) + press_releases (T23
+    # future). Section is ABSENT when no sub-block has plan-support
+    # (composition rule). T22 seeds with the filings_sentiment sub-block only.
+    prompt += _render_material_events(features)
 
     # SECTION 7: Macro Context (required) -- #156: sanitize enrichment
     macro_text = _sanitize_enrichment_text(
