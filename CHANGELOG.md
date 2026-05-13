@@ -4,6 +4,7 @@
 
 ### Added
 
+- `tests/test_no_conflict_markers_in_repo.py` (#109): structural CI test that scans `src/`, `tests/`, `scripts/`, `docs/`, `config/`, `.github/` for git conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`) and fails if any are found outside the allowlist. Closes the marker-class that bit twice in 24h on 2026-05-12 (PR #1065 hotfix, PR #1069 hotfix) when Edit-tool silently failed on multi-line `old_string` matches during rebase conflict resolution. Also resolves a previously unknown stranded marker discovered at `docs/archive/quality/improvement_log.md:8` during this scan.
 - T13 (Wave D D4): `_html_escape` applied to `notify_regime_alert` (#93) and `notify_streak_alert` (#94) to prevent HTML injection in Telegram alerts. Pattern mirrors Sprint 4 T5 (notify_risk_alert / notify_exposure_alert).
 - Pytest isolation conftest fixture sets `ARCIS_NOTIFICATION_SOURCE='pytest:<worktree>'`, monkeypatches `_send_single` to a `_null_router` stub, and clears `ARCIS_TELEGRAM_TOKEN` per-test — prevents tests from accidentally calling the real Telegram API (#101).
 - 5 new tests in `tests/notifications/test_html_escape_siblings.py` including an AST guardrail that scans `notify_regime_alert` and `notify_streak_alert` for unescaped f-string interpolations.
