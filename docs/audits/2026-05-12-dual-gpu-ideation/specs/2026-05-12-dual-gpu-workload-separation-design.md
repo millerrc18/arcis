@@ -1,7 +1,7 @@
 # Dual-GPU Workload Separation — Strategy A Design Spec
 
 **Brief:** `docs/audits/2026-05-12-dual-gpu-ideation/brief.md` (task #91)
-**Status:** Spec-only deliverable. Implementation deferred to the first post-Sprint-5 maintenance window (Sprint 6 does not exist — Sprint 5 is the final sprint per `feedback_sprint_5_is_final`).
+**Status:** Spec-only deliverable. Implementation deferred to the first post-Sprint-5 maintenance window (Sprint 5 is the final sprint per `feedback_sprint_5_is_final`).
 **Authoritative codebase reports:** deep report (Architect-side ingested), surface report (highlights only — Unsloth-pin-stale claim corrected by deep report).
 **Hardware floor:** RTX 3090 (PCIe 01:00.0, 24 GB, 82 SMs) + RTX 3060 (PCIe 08:00.0, 12 GB, 28 SMs), Driver 596.36, CUDA 12.4 runtime, both Ampere CC 8.6. Identity of "GPU 0" and "GPU 1" is pinned by `CUDA_DEVICE_ORDER=PCI_BUS_ID` (see §5.0).
 **Revision:** v3 (2026-05-12) — addresses Devil's Advocate findings: (a) replaced destructive `nssm set` copy-paste hazard with read-merge-write pattern citing post-cutover canonical env from Sprint 5 §J close / PR #1056, (b) pinned `CUDA_DEVICE_ORDER=PCI_BUS_ID` at every CUDA boundary, (c) tightened spec-vs-implementation boundary — prescriptive Python/PowerShell/dict literals moved to new non-normative Appendix D and the external `operator-guide-insert.md`, (d) downgraded OLLAMA_NUM_PARALLEL default 4→2 (operator-validated; 4 documented as opt-in after load-testing), (e) NSSM-wrapped `ollama_watchdog.ps1` as a new `ArcisOllamaWatchdog` service to resolve reboot survival (§16 Q5 resolved in-spec). New §21 Known Considerations captures 4 minor findings as acknowledged caveats. Prior v2 deltas retained.
@@ -41,7 +41,7 @@
 - Operator-guide additions: new "Dual-GPU Operation" subsection (delivered as `docs/audits/2026-05-12-dual-gpu-ideation/operator-guide-insert.md`, inserted immediately before the `### "Ollama crashes / corpus producing template fallbacks"` heading in `docs/operator-guide.md`) + enumerated stale-text fixes at lines 265, 632–635, 691–694, 159–161.
 - Failure modes per card + recovery procedures.
 - Verification plan (operator-runnable; extends `scripts/verify_training_readiness.py`).
-- Test plan with named test functions and explicit test-count delta against the 3682 floor.
+- Test plan with named test functions and explicit test-count delta against the 5350 floor.
 - SP6 implementation read-list to close coverage gaps from deep report.
 - Risk register.
 - Open questions for SP6 implementation.
@@ -188,7 +188,7 @@ SP6's job is to **append** two new variables to this block: `CUDA_VISIBLE_DEVICE
 - **Subprocess training architecture.** Process exit guarantees VRAM reclamation on GPU 0.
 - **Single Ollama chokepoint.** `src/llm/client.py:generate()` remains the only Ollama-callsite path.
 - **Schema unchanged (default).**
-- **Test floor 3682.**
+- **Test floor 5350.**
 - **Same-PR operator-guide rule.**
 - **Post-Sprint-5 NSSM env preserved** (see §3.5).
 
@@ -880,7 +880,7 @@ Verify with `nssm get ArcisWatchLoop AppEnvironmentExtra`. Capture pre-change en
 
 ## 13. Test Plan (SP6 Implementation)
 
-### 13.1 Test-count delta accounting (3682 floor) — REVISED v3
+### 13.1 Test-count delta accounting (5350 floor) — REVISED v3
 
 **Verified delete count:** 21 (re-verified at SP6 start).
 
@@ -898,7 +898,7 @@ Verify with `nssm get ArcisWatchLoop AppEnvironmentExtra`. Capture pre-change en
 | Optional: `tests/test_telegram_commands_dual_gpu.py` | +2 | Optional |
 | **With optional adds** | **+10** | — |
 
-**Floor check:** 3682 + 8 = **3690** (minimum required deliverable). With optional adds, 3692. Comfortable margin.
+**Floor check:** 5350 + 8 = **5358** (minimum required deliverable). With optional adds, 5360. Comfortable margin.
 
 ### 13.2 New test enumeration (required set)
 
