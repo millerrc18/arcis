@@ -869,3 +869,70 @@ def test_render_migrate_fk_emits_not_valid():
     assert "NOT VALID" in sql, (
         f"FK constraint SQL must include NOT VALID per Decision 24; got: {sql!r}"
     )
+
+
+# ── Sprint 6 Wave B T4 — walkforward_results v2 outcome fields ────
+
+def test_walkforward_results_has_excess_sharpe_min_used_column():
+    """walkforward_results must have excess_sharpe_min_used as REAL nullable.
+
+    Sprint 6 Wave B T4 (SP-WF-004): records the excess_sharpe_min config
+    threshold used for the run. Nullable when raw-Sharpe threshold only.
+    """
+    assert "walkforward_results" in TABLES
+    td = TABLES["walkforward_results"]
+    names = [c.name for c in td.columns]
+    assert "excess_sharpe_min_used" in names, (
+        "walkforward_results missing excess_sharpe_min_used column"
+    )
+    col = next(c for c in td.columns if c.name == "excess_sharpe_min_used")
+    assert col.type == "REAL", (
+        f"excess_sharpe_min_used must be REAL, got {col.type!r}"
+    )
+    assert col.nullable is True, (
+        "excess_sharpe_min_used must be nullable"
+    )
+
+
+def test_walkforward_results_has_gate_version_column():
+    """walkforward_results must have gate_version as TEXT with default 'v1'.
+
+    Sprint 6 Wave B T4: records the walk-forward framework version that
+    ran the gate. Default 'v1' matches existing runs.
+    """
+    assert "walkforward_results" in TABLES
+    td = TABLES["walkforward_results"]
+    names = [c.name for c in td.columns]
+    assert "gate_version" in names, (
+        "walkforward_results missing gate_version column"
+    )
+    col = next(c for c in td.columns if c.name == "gate_version")
+    assert col.type == "TEXT", (
+        f"gate_version must be TEXT, got {col.type!r}"
+    )
+    assert col.default == "v1", (
+        f"gate_version must default to 'v1', got {col.default!r}"
+    )
+
+
+def test_walkforward_results_has_derived_from_backtest_id_column():
+    """walkforward_results must have derived_from_backtest_id as TEXT nullable.
+
+    Sprint 6 Wave B T4 Feasibility v1.1 patch (SP-WF-016): required by
+    T13 reconciler SQL + falsifiability query 1. Records the
+    backtest_results.id that auto-fire used to spawn this run.
+    Nullable for manual/CLI invocations.
+    """
+    assert "walkforward_results" in TABLES
+    td = TABLES["walkforward_results"]
+    names = [c.name for c in td.columns]
+    assert "derived_from_backtest_id" in names, (
+        "walkforward_results missing derived_from_backtest_id column"
+    )
+    col = next(c for c in td.columns if c.name == "derived_from_backtest_id")
+    assert col.type == "TEXT", (
+        f"derived_from_backtest_id must be TEXT, got {col.type!r}"
+    )
+    assert col.nullable is True, (
+        "derived_from_backtest_id must be nullable"
+    )
