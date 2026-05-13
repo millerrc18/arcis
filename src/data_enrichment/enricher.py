@@ -216,6 +216,60 @@ def enrich_historical_credibility(feat: dict, db_path: str = DB_PATH) -> None:
         logger.debug("[ENRICHMENT] Historical credibility read failed: %s", exc)
 
 
+def enrich_institutional_flow(
+    feat: dict,
+    ticker: str,
+    config: dict | None = None,
+    db_path: str = DB_PATH,
+) -> None:
+    """Populate INSTITUTIONAL FLOW feature-dict fields (Sprint 5 Wave C7b.1 / T21).
+
+    Always sets ``_institutional_plan_supports`` so the renderer can decide
+    between (a) absent section (plan-gated off, Decision 30), (b) empty-state
+    line (plan supports but no data yet), and (c) full render (data present).
+
+    When plan supports + a row exists in ``institutional_holdings``, populates
+    ``institutional_total_shares``, ``institutional_num_holders``,
+    ``institutional_top5_pct``, ``institutional_qoq_delta_pct``,
+    ``institutional_data_age_days``.
+
+    The enricher only READS — it never calls the Finnhub API. The collector
+    runs nightly in the overnight pipeline.
+    """
+    from src.data_enrichment.finnhub_plan import finnhub_plan_supports
+
+    supports = finnhub_plan_supports("institutional_ownership", config)
+    feat["_institutional_plan_supports"] = supports
+    if not supports:
+        return
+    try:
+        with connect_db(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT total_shares, num_holders, top_5_holders_pct, "
+                "qoq_delta_pct, as_of_date FROM institutional_holdings "
+                "WHERE ticker = ? ORDER BY as_of_date DESC LIMIT 1",
+                (ticker,),
+            ).fetchone()
+            if not row:
+                return
+            feat["institutional_total_shares"] = row["total_shares"]
+            feat["institutional_num_holders"] = row["num_holders"]
+            feat["institutional_top5_pct"] = row["top_5_holders_pct"]
+            feat["institutional_qoq_delta_pct"] = row["qoq_delta_pct"]
+            try:
+                as_of = datetime.fromisoformat(str(row["as_of_date"]))
+                if as_of.tzinfo is None:
+                    as_of = as_of.replace(tzinfo=timezone.utc)
+                feat["institutional_data_age_days"] = max(
+                    0, (datetime.now(timezone.utc) - as_of).days
+                )
+            except (ValueError, TypeError):
+                feat["institutional_data_age_days"] = None
+    except Exception as exc:
+        logger.debug("[ENRICHMENT] Institutional flow read failed: %s", exc)
+
+
 def enrich_council_consensus(feat: dict, db_path: str = DB_PATH) -> None:
     """Populate council-consensus feature-dict fields from the latest session.
 

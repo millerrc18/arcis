@@ -210,6 +210,48 @@ def _render_strategy_context(features: dict) -> str:
     )
 
 
+def _render_institutional_flow(features: dict) -> str:
+    """Render the INSTITUTIONAL FLOW section (Sprint 5 Wave C7b.1 / T21).
+
+    Three render states (Decision 30):
+      * plan supports + data present  → render with age-days.
+      * plan supports + no data       → ``(No data yet - collector pending)``.
+      * plan does NOT support         → SECTION ABSENT (return empty string).
+                                        The enricher signals this via
+                                        ``_institutional_plan_supports`` = False
+                                        (or the flag missing entirely).
+    """
+    if not features.get("_institutional_plan_supports"):
+        return ""
+
+    total = features.get("institutional_total_shares")
+    holders = features.get("institutional_num_holders")
+    top5 = features.get("institutional_top5_pct")
+    qoq = features.get("institutional_qoq_delta_pct")
+    age = features.get("institutional_data_age_days")
+
+    if total is None and holders is None and top5 is None and qoq is None:
+        return ("\n\n=== INSTITUTIONAL FLOW ===\n"
+                "(No data yet - collector pending)")
+
+    age_str = (
+        f"(Data last refreshed: {age} day{'s' if age != 1 else ''} ago)\n"
+        if isinstance(age, int) else ""
+    )
+    total_str = f"{total:,}" if isinstance(total, int) else "n/a"
+    holders_str = f"{holders:,}" if isinstance(holders, int) else "n/a"
+    top5_str = f"{top5:.1f}%" if isinstance(top5, (int, float)) else "n/a"
+    qoq_str = f"{qoq:+.1f}%" if isinstance(qoq, (int, float)) else "n/a"
+
+    return (
+        f"\n\n=== INSTITUTIONAL FLOW ===\n"
+        f"{age_str}"
+        f"Total institutional shares: {total_str} (across {holders_str} holders)\n"
+        f"Top-5 concentration: {top5_str}\n"
+        f"QoQ delta: {qoq_str} institutional accumulation"
+    )
+
+
 def _render_recent_attribution(features: dict) -> str:
     """Render the RECENT ATTRIBUTION section (Sprint 5 Wave C7a.3 / T19).
 
@@ -334,6 +376,12 @@ Stock vs Sector ETF (3m): {features.get('rs_vs_sector_3m', 'n/a')}
 Sector vs SPY (3m): {features.get('sector_vs_spy_3m', 'n/a')}
 Sector Rotation Signal: {features.get('sector_rotation_signal', 'n/a')}
 Sector Rank (of 11): {features.get('sector_rank', 'n/a')}"""
+
+    # SECTION 4.5: Institutional Flow (Sprint 5 Wave C7b.1 / T21).
+    # Plan-gated — absent when finnhub_plan does not support
+    # `institutional_ownership` (Decision 30). The enricher signals support
+    # via `_institutional_plan_supports`; renderer returns "" when False/missing.
+    prompt += _render_institutional_flow(features)
 
     # SECTION 4: Fundamental Snapshot (optional) -- #156: sanitize enrichment
     if 4 not in skip_sections:

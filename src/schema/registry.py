@@ -2621,3 +2621,70 @@ _register(TableDef(
     sync_time_column="created_at",
     sync_pk="id",
 ))
+
+# institutional_holdings: Plan-gated quarterly institutional ownership snapshot.
+# Written by: src/data_collection/institutional_ownership_collector.py (C7b.1 / T21).
+# Read by: enricher (institutional_* feature dict) + INSTITUTIONAL FLOW packet section.
+# Populator is gated on finnhub_plan_supports('institutional_ownership'); the table
+# itself exists regardless of plan.
+_register(TableDef(
+    name="institutional_holdings",
+    description="Quarterly institutional ownership snapshot from Finnhub "
+                "(plan-gated populator; table exists regardless of plan).",
+    columns=[
+        ColumnDef("id", "INTEGER", nullable=False, autoincrement=True),
+        ColumnDef("ticker", "TEXT", nullable=False),
+        ColumnDef("as_of_date", "TEXT", nullable=False,
+                  description="YYYY-MM-DD — quarterly filing date"),
+        ColumnDef("total_shares", "INTEGER", nullable=True),
+        ColumnDef("num_holders", "INTEGER", nullable=True),
+        ColumnDef("top_5_holders_pct", "REAL", nullable=True),
+        ColumnDef("qoq_delta_pct", "REAL", nullable=True,
+                  description="Quarter-over-quarter delta in total institutional ownership %"),
+        ColumnDef("retrieved_at", "TIMESTAMP", nullable=False, default="CURRENT_TIMESTAMP"),
+        ColumnDef("source", "TEXT", nullable=False, default="finnhub"),
+    ],
+    primary_key="id",
+    indexes=[
+        IndexDef("idx_inst_holdings_ticker_date", ["ticker", "as_of_date"]),
+        IndexDef("idx_inst_holdings_unique", ["ticker", "as_of_date"], unique=True),
+    ],
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_time_column="retrieved_at",
+    sync_pk="id",
+    sync_conflict_col="ticker, as_of_date",
+))
+
+# filings_sentiment: Plan-gated per-filing sentiment snapshot from Finnhub.
+# Written by: src/data_collection/filings_sentiment_collector.py (C7b.2 / T22).
+# Read by: enricher (filing_sentiment_* feature dict) + MATERIAL EVENTS packet section.
+# Distinct retrieval cadence from edgar_filings (Decision 27) — keep separate.
+_register(TableDef(
+    name="filings_sentiment",
+    description="Per-filing sentiment snapshot from Finnhub "
+                "(plan-gated populator; distinct from edgar_filings — Decision 27).",
+    columns=[
+        ColumnDef("id", "INTEGER", nullable=False, autoincrement=True),
+        ColumnDef("ticker", "TEXT", nullable=False),
+        ColumnDef("filing_type", "TEXT", nullable=False,
+                  description="10-K|10-Q|8-K|..."),
+        ColumnDef("filed_at", "TIMESTAMP", nullable=False),
+        ColumnDef("sentiment_score", "REAL", nullable=True,
+                  description="[-1.0, 1.0]"),
+        ColumnDef("sentiment_label", "TEXT", nullable=True,
+                  description="negative|neutral|positive"),
+        ColumnDef("retrieved_at", "TIMESTAMP", nullable=False, default="CURRENT_TIMESTAMP"),
+    ],
+    primary_key="id",
+    indexes=[
+        IndexDef("idx_filings_sent_ticker_filed", ["ticker", "filed_at"]),
+        IndexDef("idx_filings_sent_unique", ["ticker", "filing_type", "filed_at"],
+                 unique=True),
+    ],
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_time_column="retrieved_at",
+    sync_pk="id",
+    sync_conflict_col="ticker, filing_type, filed_at",
+))

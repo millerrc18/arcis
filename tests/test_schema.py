@@ -109,6 +109,8 @@ EXPECTED_TABLES = {
     "notifications_digest_queue",
     # Platform events forensic trail (T2 Wave C #96)
     "platform_events",
+    # Sprint 5 Wave C7b — plan-gated Finnhub paid-tier sinks (T21, T22)
+    "institutional_holdings", "filings_sentiment",
 }
 
 
