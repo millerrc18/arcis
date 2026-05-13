@@ -11,6 +11,7 @@
 ### Changed
 
 - T15 (Wave E): Filed `docs/audits/2026-05-12-dual-gpu-ideation/disposition.md` — dual-GPU workload separation is deferred to first post-Sprint-5 maintenance window. Updated 4 stale-text references in the canonical spec inline: test-floor 3682→5400, Sprint 6→post-Sprint-5, Unsloth→Transformers+PEFT+TRL, NUM_PARALLEL=1→4 (per RTX 3090 swap, memory project_gpu_upgrade). Test-floor target corrected from initial 5350 to 5400 per PR #1073 review (operator flagged v2 vs v3 closeout plan target).
+- T25 (Wave C7b.5): `analyst_collector` nightly cap is now plan-conditional. `fundamental-1` tier → 100 tickers/night (well within the 30 API calls/sec global rate-limit); free tier → 20 tickers/night (preserved current behavior). `_get_nightly_cap` uses `get_finnhub_plan(config)` directly rather than `finnhub_plan_supports()` because the cap is a tier-numeric property, not a binary feature gate (operator decision 2026-05-13 post-review of initial implementation). Rate-limit source: https://finnhub.io/docs/api/company-dps-estimates retrieved 2026-05-13 — "On top of all plan's limit, there is a 30 API calls/second limit." Closes part of #102 — Wave C7b.5 deliverable.
 
 ### Fixed
 
