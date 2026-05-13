@@ -63,8 +63,15 @@ _CHUNK_SIZE = 1000
 
 
 def _redact_password(url: str) -> str:
-    """Mask the password segment of a DSN-style URL for safe logging."""
-    return re.sub(r"://([^:/?#]+):[^@]+@", r"://\1:<redacted>@", url)
+    """Mask the password segment of a DSN-style URL for safe logging.
+
+    The password span is matched as `.+` (any chars including `@`) and
+    anchored to the LAST `@` in the URL via the `(?=[^@]*$)` lookahead.
+    This handles passwords containing literal `@` characters — the
+    original `[^@]+` pattern stopped at the first `@`, leaving the
+    post-first-@ password fragment visible. Per PR #1067 review.
+    """
+    return re.sub(r"://([^:/?#]+):.+@(?=[^@]*$)", r"://\1:<redacted>@", url)
 
 
 def _validate_url(url: str, label: str) -> None:
@@ -90,6 +97,67 @@ def _get_sync_tables(table_filter: Optional[list[str]]):
         filter_set = set(table_filter)
         sync_tables = [t for t in sync_tables if t.name in filter_set]
     return sync_tables
+
+
+def _topologically_sort_by_fk(sync_tables: list) -> list:
+    """Sort tables so FK parents come before children.
+
+    Kahn's algorithm: iteratively pick tables whose unsorted-parent set is empty.
+    Stable wrt registry insertion order when multiple tables are ready at the
+    same step. Tables whose FK references a parent OUTSIDE sync_tables (out of
+    scope or non-sync) are treated as having no in-graph dependency on that
+    parent.
+
+    PR #1067 review found that shadow_trades (registry idx 1) was being migrated
+    before strategy_registry (idx 57) — and shadow_trades.strategy_id has
+    initially_deferred=True FK. With per-table commits in the migration loop,
+    `initially_deferred` does NOT defer past the commit, so a non-NULL
+    strategy_id referencing an unmigrated strategy_registry row would FK-fail.
+    Topological sort guarantees the parent is committed first.
+    """
+    table_by_name = {t.name: t for t in sync_tables}
+    deps: dict[str, set[str]] = {t.name: set() for t in sync_tables}
+    for t in sync_tables:
+        for fk in t.foreign_keys:
+            if fk.references_table in table_by_name:
+                deps[t.name].add(fk.references_table)
+
+    sorted_tables = []
+    sorted_names: set[str] = set()
+    remaining = list(sync_tables)
+    while remaining:
+        next_table = None
+        for t in remaining:
+            if deps[t.name] <= sorted_names:
+                next_table = t
+                break
+        if next_table is None:
+            # Cycle (unexpected; registry currently has no cycles). Defensive
+            # fall-through: append remaining in original order so the script
+            # doesn't silently drop tables. The migration will surface any
+            # FK violation as a per-table error and continue.
+            sorted_tables.extend(remaining)
+            break
+        sorted_tables.append(next_table)
+        sorted_names.add(next_table.name)
+        remaining.remove(next_table)
+    return sorted_tables
+
+
+def _source_table_exists(src_conn, table_name: str) -> bool:
+    """Return True iff `table_name` exists in the source DB's public schema.
+
+    Uses `to_regclass(...)` which returns NULL when the relation is missing
+    rather than raising — avoids transaction abort. PR #1067 review fix: when
+    a new table is added to the registry (e.g., platform_events in PR #1064)
+    and the script is re-run for top-off, source PG may not have that table
+    yet. Without this probe, the SELECT crashes with UndefinedTable and the
+    table is reported as an error rather than a graceful skip.
+    """
+    with src_conn.cursor() as cur:
+        cur.execute("SELECT to_regclass(%s)", (f'public."{table_name}"',))
+        result = cur.fetchone()
+        return result is not None and result[0] is not None
 
 
 def _build_insert_template(table_name: str, col_names: list[str], pk_cols: list[str]) -> str:
@@ -132,13 +200,32 @@ def _migrate_table(src_conn, dst_conn, table) -> dict:
     col_names = [c.name for c in table.columns]
     pk_indexes = [col_names.index(c) for c in pk_cols]
 
-    src_cur = src_conn.cursor()
-    src_cur.execute(f'SELECT COUNT(*) FROM "{table_name}"')
-    source_count = src_cur.fetchone()[0]
+    # PR #1067 review fix: probe source for table existence before SELECT.
+    # When a table is in the registry but not yet on source (e.g., a newly
+    # added table on a top-off run), to_regclass returns None and we skip
+    # gracefully rather than crashing the per-table SELECT.
+    if not _source_table_exists(src_conn, table_name):
+        print(
+            f"  {table_name:<45} SKIP (table not in source schema; registry-only)"
+        )
+        return {"source": 0, "inserted": 0, "null_pk_skipped": 0}
+
+    # Row count via a regular cursor (named cursors don't pair well with
+    # other statements on the same connection; keep them separate).
+    with src_conn.cursor() as count_cur:
+        count_cur.execute(f'SELECT COUNT(*) FROM "{table_name}"')
+        source_count = count_cur.fetchone()[0]
 
     insert_sql = _build_insert_template(table_name, col_names, pk_cols)
-
     cols_sql_select = ", ".join(f'"{c}"' for c in col_names)
+
+    # PR #1067 review fix: named (server-side) cursor streams rows from PG
+    # without loading the full result set into client RAM. The default
+    # cursor for a 1.5M-row table like options_chains buffers ~300MB
+    # before the first fetchmany() returns. itersize aligns the wire-batch
+    # size with our processing chunk size.
+    src_cur = src_conn.cursor(name=f"render_to_local_migrate_{table_name}")
+    src_cur.itersize = _CHUNK_SIZE
     src_cur.execute(f'SELECT {cols_sql_select} FROM "{table_name}"')
 
     dst_cur = dst_conn.cursor()
@@ -235,6 +322,11 @@ def run_migration(
         sys.exit(1)
 
     sync_tables = _get_sync_tables(table_filter)
+    # PR #1067 review fix: sort by FK dependencies BEFORE migration so per-table
+    # commits never reference an unmigrated parent. initially_deferred=True
+    # FKs are NOT respected across commit boundaries — only within a single
+    # transaction with SET CONSTRAINTS ALL DEFERRED.
+    sync_tables = _topologically_sort_by_fk(sync_tables)
     _confirm(source_url, dest_url, sync_tables, auto_yes=auto_yes)
 
     if create_schema:
@@ -248,8 +340,10 @@ def run_migration(
     print(f"  {'table':<45} {'src':>8} {'inserted':>15} {'null_pk_skip':>12}")
     print("-" * 84)
 
-    src_conn = psycopg2.connect(source_url)
-    dst_conn = psycopg2.connect(dest_url)
+    # connect_timeout=30: PR #1067 review fix — without an explicit timeout the
+    # connect call hangs forever if the peer becomes unreachable mid-migration.
+    src_conn = psycopg2.connect(source_url, connect_timeout=30)
+    dst_conn = psycopg2.connect(dest_url, connect_timeout=30)
     totals = {"source": 0, "inserted": 0, "null_pk_skipped": 0, "errors": 0}
     try:
         for table in sync_tables:
