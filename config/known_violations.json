@@ -1305,6 +1305,12 @@
       "file": "src/universe/sp100.py",
       "function": "get_sp100_universe",
       "lines": 105
+    },
+    {
+      "file": "src/data_collection/filings_sentiment_collector.py",
+      "function": "collect_filings_sentiment",
+      "lines": 61,
+      "rationale": "Pre-existing function (not introduced by Sprint 6 Wave A). 61 lines surfaced during PR #1088 review 2026-05-13 alongside fetch_insider_activity grandfather. Function bundles: plan-gate, key resolution, API call, response parsing, batched upsert, exception handling. Refactor candidate: extract _fetch_and_persist_filings (per-ticker inner loop, ~25 lines) so collect_filings_sentiment becomes the plan-gate + driver. Deferred to post-Sprint-6 cleanup track."
     }
   ],
   "missing_docstring_headers": [
