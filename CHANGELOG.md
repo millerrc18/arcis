@@ -7,6 +7,9 @@
 - T13 (Wave D D4): `_html_escape` applied to `notify_regime_alert` (#93) and `notify_streak_alert` (#94) to prevent HTML injection in Telegram alerts. Pattern mirrors Sprint 4 T5 (notify_risk_alert / notify_exposure_alert).
 - Pytest isolation conftest fixture sets `ARCIS_NOTIFICATION_SOURCE='pytest:<worktree>'`, monkeypatches `_send_single` to a `_null_router` stub, and clears `ARCIS_TELEGRAM_TOKEN` per-test — prevents tests from accidentally calling the real Telegram API (#101).
 - 5 new tests in `tests/notifications/test_html_escape_siblings.py` including an AST guardrail that scans `notify_regime_alert` and `notify_streak_alert` for unescaped f-string interpolations.
+- T14 (Wave D D5): `src/monitoring/alert_silence.py` — `check_alert_silence(now_et, threshold_minutes=60)` detects notification silence during market hours by reading UNION of notifications_sent (MAX sent_at), notifications_digest_queue (MAX flushed_at), AND notifications_digest_queue (MAX created_at — proves watch loop alive during digest-only quiet hours). Emits via `safe_send(event_type='alert_silence', severity='high')` + writes platform_events row for forensic trail. Wired as 5-min `tick_alert_silence` handler in WatchLoop.
+- `src/scheduler/holidays.py::is_market_open(now_et)` — extracted from `WatchLoop._is_market_open` for re-use across monitoring code. WatchLoop method becomes a thin delegate. +3 unit tests in `tests/scheduler/test_holidays.py`. +5 tests in `tests/monitoring/test_alert_silence.py`.
+- `src/notifications/telegram.py::notify_alert_silence(last_seen, minutes_silent)` — dedicated Telegram formatter for alert silence events; replaces stub `notify_system_event` mapping in `_EVENT_MAP`.
 
 ### Changed
 

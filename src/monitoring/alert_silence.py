@@ -42,59 +42,17 @@ def check_alert_silence(
     2. notifications_digest_queue WHERE flushed_at IS NOT NULL MAX flushed_at
     3. notifications_digest_queue WHERE created_at IS NOT NULL MAX created_at
 
-    The third term (created_at / enqueued_at) is critical: it proves the watch
-    loop is alive during quiet-hours digest-only windows. Without it we would
-    false-fire on any quiet evening (no sends + no flushes).
+    The third term (created_at) is critical: it proves the watch loop is alive
+    during quiet-hours digest-only windows (no sends + no flushes).
 
-    During market hours (uses src.scheduler.holidays.is_market_open),
-    if the MAX(union) is older than now_et - threshold_minutes, returns a
-    finding; also emits via safe_send(event_type='alert_silence', severity='high',
-    last_seen=..., minutes_silent=...) AND writes a platform_events row
-    (source='alert_silence', severity='high') for forensic trail.
-
-    Outside market hours: returns None (no-op).
-
-    Args:
-        now_et: Current time in Eastern TZ.
-        threshold_minutes: Silence window in minutes (default 60).
-        conn: SQLite connection (injected by tests; production opens its own).
-
-    Returns:
-        AlertSilenceFinding when silent (and side-effects emitted), None otherwise.
+    Outside market hours: no-op → returns None.
+    On silence: emits safe_send(event_type='alert_silence') + platform_events row.
     """
     if not is_market_open(now_et):
         return None
-
-    _conn = conn
-    _opened = False
+    _conn, _opened = _resolve_conn(conn)
     try:
-        if _conn is None:
-            from src.utils.db import connect_db
-            from src.config import DB_PATH
-            _conn = connect_db(DB_PATH)
-            _opened = True
-
-        max_ts_str, source = _query_max_signal(_conn)
-
-        if max_ts_str is not None:
-            max_ts = _parse_ts(max_ts_str)
-            if max_ts is not None:
-                delta_seconds = (now_et - max_ts).total_seconds()
-                if delta_seconds < threshold_minutes * 60:
-                    return None
-
-        minutes_silent = _compute_minutes_silent(now_et, max_ts_str, threshold_minutes)
-        last_ts = _parse_ts(max_ts_str) if max_ts_str else None
-
-        finding = AlertSilenceFinding(
-            last_notification_ts=last_ts,
-            minutes_silent=minutes_silent,
-            source=source,
-        )
-
-        _emit_side_effects(finding, _conn, now_et)
-        return finding
-
+        return _run_silence_check(_conn, now_et, threshold_minutes)
     except Exception as exc:
         logger.error("[ALERT_SILENCE] check_alert_silence failed: %s", exc)
         return None
@@ -104,6 +62,33 @@ def check_alert_silence(
                 _conn.close()
             except Exception:
                 pass
+
+
+def _resolve_conn(conn):
+    """Return (conn, opened) — opened=True when we opened the connection."""
+    if conn is not None:
+        return conn, False
+    from src.utils.db import connect_db
+    from src.config import DB_PATH
+    return connect_db(DB_PATH), True
+
+
+def _run_silence_check(conn, now_et: datetime, threshold_minutes: int):
+    """Core silence detection on an open connection. Returns finding or None."""
+    max_ts_str, source = _query_max_signal(conn)
+    if max_ts_str is not None:
+        max_ts = _parse_ts(max_ts_str)
+        if max_ts is not None:
+            if (now_et - max_ts).total_seconds() < threshold_minutes * 60:
+                return None
+    minutes_silent = _compute_minutes_silent(now_et, max_ts_str, threshold_minutes)
+    finding = AlertSilenceFinding(
+        last_notification_ts=_parse_ts(max_ts_str) if max_ts_str else None,
+        minutes_silent=minutes_silent,
+        source=source,
+    )
+    _emit_side_effects(finding, conn, now_et)
+    return finding
 
 
 def _query_max_signal(conn) -> tuple:
