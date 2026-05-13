@@ -2688,3 +2688,36 @@ _register(TableDef(
     sync_pk="id",
     sync_conflict_col="ticker, filing_type, filed_at",
 ))
+
+# press_releases: Plan-gated press release feed from Finnhub.
+# Written by: src/data_collection/press_releases_collector.py (C7b.3 / T23).
+# Read by: enricher (press_release_* feature dict) + MATERIAL EVENTS sub-block.
+# Distinct catalyst category from RECENT NEWS (Decision 27) — press releases
+# go to MATERIAL EVENTS, not RECENT NEWS. Populator is gated on
+# finnhub_plan_supports('press_releases'); table exists regardless of plan.
+_register(TableDef(
+    name="press_releases",
+    description="Per-press-release feed from Finnhub "
+                "(plan-gated populator; routes to MATERIAL EVENTS, not "
+                "RECENT NEWS — Decision 27).",
+    columns=[
+        ColumnDef("id", "INTEGER", nullable=False, autoincrement=True),
+        ColumnDef("ticker", "TEXT", nullable=False),
+        ColumnDef("headline", "TEXT", nullable=False),
+        ColumnDef("released_at", "TIMESTAMP", nullable=False),
+        ColumnDef("url", "TEXT", nullable=True),
+        ColumnDef("description", "TEXT", nullable=True),
+        ColumnDef("retrieved_at", "TIMESTAMP", nullable=False, default="CURRENT_TIMESTAMP"),
+    ],
+    primary_key="id",
+    indexes=[
+        IndexDef("idx_press_rel_ticker_released", ["ticker", "released_at"]),
+        IndexDef("idx_press_rel_unique", ["ticker", "headline", "released_at"],
+                 unique=True),
+    ],
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_time_column="retrieved_at",
+    sync_pk="id",
+    sync_conflict_col="ticker, headline, released_at",
+))

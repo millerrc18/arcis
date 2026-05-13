@@ -322,6 +322,105 @@ def enrich_filings_sentiment(
         logger.debug("[ENRICHMENT] Filings sentiment read failed: %s", exc)
 
 
+def enrich_stock_financials(
+    feat: dict,
+    ticker: str,
+    config: dict | None = None,
+) -> None:
+    """Populate fundamental_* live-enrichment fields (T24).
+
+    Sprint 5 Wave C7b.4. Reads the per-ticker JSON sink left by
+    scripts/finnhub_fundamental_export.py via
+    ``src.data_enrichment.financials.load_stock_financials`` and writes
+    ``fundamental_pe`` / ``fundamental_debt_to_equity`` /
+    ``fundamental_gross_margin`` / ``fundamental_roic`` /
+    ``fundamental_quality_flag`` / ``fundamental_snapshot_age_days``
+    into the feature dict. The renderer surfaces these inside the
+    FUNDAMENTAL SNAPSHOT section as a live trailer; the existing
+    SEC-EDGAR ``fundamental_summary`` fallback is preserved untouched.
+
+    Always sets ``_stock_financials_plan_supports`` so the DATA CONTEXT
+    header can distinguish plan-gated absence (Decision 30) from a
+    transient data gap (sink JSON missing despite plan supporting).
+    Plan-gated: when plan does not support stock_financials, no
+    fundamental_* fields are written and the renderer's live trailer
+    degrades to "".
+    """
+    from src.data_enrichment.financials import load_stock_financials
+    from src.data_enrichment.finnhub_plan import finnhub_plan_supports
+
+    supports = finnhub_plan_supports("stock_financials", config)
+    feat["_stock_financials_plan_supports"] = supports
+    if not supports:
+        return
+    result = load_stock_financials(ticker, config=config)
+    if result is None:
+        return
+    feat.update(result)
+
+
+def enrich_press_releases(
+    feat: dict,
+    ticker: str,
+    config: dict | None = None,
+    db_path: str = DB_PATH,
+) -> None:
+    """Populate press_releases feature-dict fields (Sprint 5 Wave C7b.3 / T23).
+
+    Always sets ``_press_releases_plan_supports`` so the MATERIAL EVENTS
+    section renderer can decide between (a) sub-block absent (plan-gated off,
+    Decision 30), and (b) full render (data present).
+
+    When plan supports + rows exist in ``press_releases``, populates:
+      * ``press_release_count_7d`` — count of releases in the last 7 days
+      * ``latest_press_release_headline`` — headline of the most recent
+      * ``latest_press_release_age_days`` — age of most recent (days)
+
+    The enricher only READS — it never calls the Finnhub API. The collector
+    runs nightly in the overnight pipeline.
+    """
+    from src.data_enrichment.finnhub_plan import finnhub_plan_supports
+
+    supports = finnhub_plan_supports("press_releases", config)
+    feat["_press_releases_plan_supports"] = supports
+    if not supports:
+        return
+    try:
+        with connect_db(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cutoff_iso = (
+                datetime.now(timezone.utc) - timedelta(days=7)
+            ).isoformat()
+            count_row = conn.execute(
+                "SELECT COUNT(*) AS n FROM press_releases "
+                "WHERE ticker = ? AND released_at >= ?",
+                (ticker, cutoff_iso),
+            ).fetchone()
+            if count_row is not None:
+                feat["press_release_count_7d"] = int(count_row["n"] or 0)
+            latest = conn.execute(
+                "SELECT headline, released_at FROM press_releases "
+                "WHERE ticker = ? ORDER BY released_at DESC LIMIT 1",
+                (ticker,),
+            ).fetchone()
+            if not latest:
+                return
+            feat["latest_press_release_headline"] = latest["headline"]
+            try:
+                released = datetime.fromisoformat(
+                    str(latest["released_at"]).replace(" ", "T")
+                )
+                if released.tzinfo is None:
+                    released = released.replace(tzinfo=timezone.utc)
+                feat["latest_press_release_age_days"] = max(
+                    0, (datetime.now(timezone.utc) - released).days
+                )
+            except (ValueError, TypeError):
+                feat["latest_press_release_age_days"] = None
+    except Exception as exc:
+        logger.debug("[ENRICHMENT] Press releases read failed: %s", exc)
+
+
 def enrich_council_consensus(feat: dict, db_path: str = DB_PATH) -> None:
     """Populate council-consensus feature-dict fields from the latest session.
 

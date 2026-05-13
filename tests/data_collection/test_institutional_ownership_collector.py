@@ -250,7 +250,10 @@ def test_packet_section_absent_when_plan_does_not_support():
         "_institutional_plan_supports": False,
     }
     prompt = _build_feature_prompt(features, "AAPL")
-    assert "INSTITUTIONAL FLOW" not in prompt, (
-        "INSTITUTIONAL FLOW section MUST be absent when plan does not support "
-        "institutional_ownership (Decision 30)"
+    # NOTE: the literal string "INSTITUTIONAL FLOW" appears in the T24
+    # DATA CONTEXT header's omitted-sections list; the section header
+    # (=== INSTITUTIONAL FLOW ===) is what must be absent here.
+    assert "=== INSTITUTIONAL FLOW ===" not in prompt, (
+        "INSTITUTIONAL FLOW section header MUST be absent when plan does "
+        "not support institutional_ownership (Decision 30)"
     )

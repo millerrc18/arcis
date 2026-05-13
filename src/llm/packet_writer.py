@@ -282,24 +282,190 @@ def _render_filings_sentiment_subblock(features: dict) -> str:
     )
 
 
+def _render_press_releases_subblock(features: dict) -> str:
+    """Render the press_releases sub-block of MATERIAL EVENTS (T23).
+
+    Returns "" when the plan does not support press_releases (Decision 30)
+    or when no data is present yet. The MATERIAL EVENTS composition wrapper
+    decides whether the outer section header renders.
+    """
+    if not features.get("_press_releases_plan_supports"):
+        return ""
+    count = features.get("press_release_count_7d")
+    headline = features.get("latest_press_release_headline")
+    age = features.get("latest_press_release_age_days")
+    if count is None and not headline:
+        return ""
+    count_str = f"{count}" if isinstance(count, int) else "n/a"
+    headline_str = headline if isinstance(headline, str) and headline else "n/a"
+    age_str = (
+        f"{age} day{'s' if age != 1 else ''} ago"
+        if isinstance(age, int) else "n/a"
+    )
+    return (
+        f"Press releases (7d): {count_str}\n"
+        f"Latest press release: {headline_str} ({age_str})"
+    )
+
+
 def _render_material_events(features: dict) -> str:
-    """Render the MATERIAL EVENTS section (Sprint 5 Wave C7b.2 / T22 seed).
+    """Render the MATERIAL EVENTS section (Sprint 5 Wave C7b.2 / T22 seed,
+    extended by T23 with press_releases sub-block).
 
     Composition rule: this section is a wrapper around one-or-more sub-blocks
-    (filings_sentiment is the first, seeded here; press_releases will be added
-    by T23). If NO sub-block contributes content, the entire section header
-    is omitted. If at least one sub-block contributes, the header renders
-    followed by whichever sub-blocks have content (separated by a blank line).
+    (filings_sentiment + press_releases). If NO sub-block contributes content,
+    the entire section header is omitted. If at least one sub-block
+    contributes, the header renders followed by whichever sub-blocks have
+    content (separated by a blank line).
     """
     subblocks: list[str] = []
     filings_block = _render_filings_sentiment_subblock(features)
     if filings_block:
         subblocks.append(filings_block)
-    # T23 will append _render_press_releases_subblock(features) here.
+    press_block = _render_press_releases_subblock(features)
+    if press_block:
+        subblocks.append(press_block)
     if not subblocks:
         return ""
     body = "\n\n".join(subblocks)
     return f"\n\n=== MATERIAL EVENTS ===\n{body}"
+
+
+def _render_fundamental_snapshot_live(features: dict) -> str:
+    """Render the T24 live-enrichment trailer for FUNDAMENTAL SNAPSHOT.
+
+    Sprint 5 Wave C7b.4 / T24. Surfaces live P/E, debt/equity, gross
+    margin, ROIC, and quality flag from the Finnhub stock_financials JSON
+    sink (read by ``src.data_enrichment.financials.load_stock_financials``).
+    Returns "" when none of the live fields are populated — the existing
+    SEC-EDGAR-derived fundamental_summary fallback alone renders, no
+    leftover whitespace.
+    """
+    pe = features.get("fundamental_pe")
+    debt = features.get("fundamental_debt_to_equity")
+    gm = features.get("fundamental_gross_margin")
+    roic = features.get("fundamental_roic")
+    quality = features.get("fundamental_quality_flag")
+    age = features.get("fundamental_snapshot_age_days")
+    if all(v is None for v in (pe, debt, gm, roic, quality)):
+        return ""
+    parts: list[str] = []
+    if isinstance(pe, (int, float)):
+        parts.append(f"P/E: {pe:.1f}")
+    if isinstance(debt, (int, float)):
+        parts.append(f"Debt/Equity: {debt:.2f}")
+    if isinstance(gm, (int, float)):
+        parts.append(f"Gross Margin: {gm * 100:.1f}%")
+    if isinstance(roic, (int, float)):
+        parts.append(f"ROIC: {roic * 100:.1f}%")
+    if isinstance(quality, str) and quality:
+        parts.append(f"Quality: {quality}")
+    body = " | ".join(parts) if parts else ""
+    age_str = (
+        f" (snapshot {age}d old)"
+        if isinstance(age, int) else ""
+    )
+    return f"\nLive fundamentals: {body}{age_str}" if body else ""
+
+
+# T24: section names enumerated in DATA CONTEXT header when omitted.
+_TIER2_SECTION_INSTITUTIONAL = "INSTITUTIONAL FLOW"
+_TIER2_SECTION_MATERIAL_EVENTS = "MATERIAL EVENTS"
+_TIER2_SECTION_FUNDAMENTAL_SNAPSHOT = "FUNDAMENTAL SNAPSHOT (live enrichment)"
+
+# Default stale-data threshold (days) for the DATA CONTEXT header's
+# stale-data ageing per spec section 4.8.2. Overridable via
+# ``config['data_enrichment']['stale_data_threshold_days']`` — wired
+# through the feature dict by enrich_features.
+_DATA_CONTEXT_STALE_THRESHOLD_DAYS_DEFAULT = 7
+
+
+def _collect_tier2_omissions(features: dict) -> list[str]:
+    """Return list of Tier-2 section names omitted due to plan-gating.
+
+    Used by _render_data_context_header to surface plan-gated omissions
+    so the LLM distinguishes them from transient data gaps (spec 4.8.1).
+    """
+    omitted: list[str] = []
+
+    # INSTITUTIONAL FLOW (T21): omitted when plan-supports flag is False
+    # or missing entirely (renderer returns "" in those cases).
+    if not features.get("_institutional_plan_supports"):
+        omitted.append(_TIER2_SECTION_INSTITUTIONAL)
+
+    # MATERIAL EVENTS (T22 + T23): omitted when NO sub-block has
+    # plan-support. The composition rule means the header is dropped when
+    # both _filings_sentiment_plan_supports and _press_releases_plan_supports
+    # are False/missing.
+    filings_ok = features.get("_filings_sentiment_plan_supports")
+    press_ok = features.get("_press_releases_plan_supports")
+    if not filings_ok and not press_ok:
+        omitted.append(_TIER2_SECTION_MATERIAL_EVENTS)
+
+    # FUNDAMENTAL SNAPSHOT live-enrichment (T24): omitted ONLY when plan
+    # does not support stock_financials (Decision 30). The base section
+    # ALWAYS renders (Tier-1: SEC-EDGAR fundamental_summary fallback is
+    # plan-independent), but the live-enrichment trailer is the Tier-2
+    # surface and that's what this flag gates.
+    #
+    # A data-gap with plan-support (sink JSON missing because the
+    # nightly export hasn't run for this ticker yet) is NOT a plan-gated
+    # absence — the LLM sees the live-enrichment in its empty-state form
+    # rather than receiving a misleading "plan-gated" signal in the
+    # DATA CONTEXT header. PR #1084 review (operator) called this a
+    # Decision 32 falsifiability violation; the flag-driven shape here
+    # restores symmetry with the three sibling sections above.
+    if not features.get("_stock_financials_plan_supports"):
+        omitted.append(_TIER2_SECTION_FUNDAMENTAL_SNAPSHOT)
+
+    return omitted
+
+
+def _render_data_context_header(features: dict) -> str:
+    """Render the DATA CONTEXT header preamble (Sprint 5 Wave C7b.4 / T24).
+
+    Spec section 4.8.1: prepends a DATA CONTEXT block at the top of the
+    prompt when ≥1 Tier-2 section omits, so the LLM can distinguish a
+    plan-gated absence from a transient data gap.
+
+    Spec section 4.8.2: stale-data ageing. When a Tier-2 section IS
+    present but its data is older than the threshold (default 7 days,
+    overridable via ``config.data_enrichment.stale_data_threshold_days``
+    forwarded as ``_stale_data_threshold_days`` on the feature dict),
+    the header notes the staleness. The thresholded ageing surfaces via
+    the existing per-section ``*_age_days`` fields without duplicating
+    them in the header body.
+
+    Returns "" when no Tier-2 omissions and no staleness notes apply.
+    """
+    omitted = _collect_tier2_omissions(features)
+
+    threshold = features.get(
+        "_stale_data_threshold_days",
+        _DATA_CONTEXT_STALE_THRESHOLD_DAYS_DEFAULT,
+    )
+    stale_notes: list[str] = []
+    inst_age = features.get("institutional_data_age_days")
+    if isinstance(inst_age, int) and inst_age > threshold:
+        stale_notes.append(f"INSTITUTIONAL FLOW data is {inst_age} days old")
+    fund_age = features.get("fundamental_snapshot_age_days")
+    if isinstance(fund_age, int) and fund_age > threshold:
+        stale_notes.append(f"FUNDAMENTAL SNAPSHOT data is {fund_age} days old")
+
+    if not omitted and not stale_notes:
+        return ""
+
+    lines = ["=== DATA CONTEXT ==="]
+    if omitted:
+        lines.append(
+            "Omitted sections (plan-gated, not data gaps): "
+            + ", ".join(omitted)
+        )
+    if stale_notes:
+        lines.append(
+            f"Stale data (>{threshold}d): " + "; ".join(stale_notes)
+        )
+    return "\n".join(lines) + "\n\n"
 
 
 def _render_recent_attribution(features: dict) -> str:
@@ -387,6 +553,13 @@ def _build_feature_prompt(features: dict, ticker: str, subsetting: bool = False)
 
     prompt = ""
 
+    # HEADER PREAMBLE: Data Context (Sprint 5 Wave C7b.4 / T24).
+    # Prepended at the very top of the prompt when ≥1 Tier-2 section
+    # omits (plan-gated) or any Tier-2 data exceeds the stale-data
+    # threshold (default 7 days, spec section 4.8.1 + 4.8.2). When all
+    # Tier-2 sections are present and fresh, this is "".
+    prompt += _render_data_context_header(features)
+
     # HEADER PREAMBLE: Strategy Context (Sprint 5 Wave C7a.4 / T20).
     # Prepended before TECHNICAL DATA so the model receives strategy identity
     # context up front. NOT a regular indexed section in the T17-T19 series.
@@ -438,10 +611,16 @@ Sector Rank (of 11): {features.get('sector_rank', 'n/a')}"""
         fundamental_text = _sanitize_enrichment_text(
             features.get('fundamental_summary', 'No fundamental data available')
         )
+        # T24 in-place enrichment: append live P/E + Debt/Equity + Gross
+        # Margin + ROIC + quality flag when the Finnhub stock_financials
+        # JSON sink has been read. Returns "" when plan does not support
+        # or the sink is empty — section degrades gracefully to the
+        # SEC-EDGAR-derived fundamental_summary alone.
+        live_trailer = _render_fundamental_snapshot_live(features)
         prompt += f"""
 
 === FUNDAMENTAL SNAPSHOT ===
-{fundamental_text}"""
+{fundamental_text}{live_trailer}"""
 
     # SECTION 5: Insider Activity (optional) -- #156: sanitize enrichment
     if 5 not in skip_sections:
