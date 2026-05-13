@@ -32,7 +32,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from src.config import DB_PATH
-from src.data_enrichment.finnhub_plan import finnhub_plan_supports
+from src.data_enrichment.finnhub_plan import finnhub_plan_supports, get_finnhub_plan
 from src.utils.db import connect_db, engine_aware_upsert
 from src.utils.retry import retry_with_backoff
 
@@ -49,7 +49,7 @@ def _get_nightly_cap(config) -> int:
     fundamental-1: 100/night (well within tier's 30 calls/sec rate-limit)
     free: 20/night (preserved current behavior)
     """
-    return 100 if finnhub_plan_supports("analyst", config) else 20
+    return 100 if get_finnhub_plan(config) == "fundamental-1" else 20
 
 
 def _get_finnhub_key() -> str | None:
