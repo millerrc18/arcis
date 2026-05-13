@@ -1319,6 +1319,12 @@ def _load_notifications_config(yaml_path: str):
             f"retry.attempts={attempts}; lengths must match."
         )
 
+    digest_flush_minutes = int(notif.get("digest_flush_minutes", 60))
+    if not (5 <= digest_flush_minutes <= 1440):
+        raise NotificationsConfigError(
+            f"digest_flush_minutes={digest_flush_minutes}: must be in range [5, 1440]."
+        )
+
     return NotificationsConfig(
         default_routing=notif.get("default_routing") or {"telegram": True, "email": False},
         digest_low=bool(notif.get("digest_low", True)),
@@ -1330,6 +1336,7 @@ def _load_notifications_config(yaml_path: str):
         cadence_minutes_per_event_type=dict(notif.get("cadence_minutes_per_event_type") or {}),
         retry_attempts=attempts,
         retry_backoff_seconds=backoff,
+        digest_flush_minutes=digest_flush_minutes,
     )
 
 

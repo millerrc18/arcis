@@ -28,6 +28,7 @@ class NotificationsConfig:
     cadence_minutes_per_event_type: dict
     retry_attempts: int
     retry_backoff_seconds: list
+    digest_flush_minutes: int = 60
 
 
 @dataclass(frozen=True)

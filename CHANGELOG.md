@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+### SP5 Wave D T11 — Notification digest queue (D2)
+
+Implements the persistence layer for `PolicyDecision(verdict='digest')` outputs. The watch loop drains the queue every `digest_flush_minutes` minutes (default 60). T11 owns the queue mechanics, schema, and watch.py flush hook; T12 (D3) will wire `safe_send` to enqueue.
+
+#### Added
+
+- **`src/notifications/digest_queue.py`**: `DigestQueue` class with `enqueue`, `flush`, `mark_flush_failed`, `pending_count`, `abandoned_count` methods. `enqueue` validates `event_type` against `_KNOWN_EVENT_TYPES`. `flush` atomically transitions `pending` → `in_progress` → `sent|pending(retry)|abandoned`. `mark_flush_failed` sets `flush_status='abandoned'` with `flush_error` for operator forensic recovery. `FlushResult(successes, failures, abandoned)` returned from flush.
+- **`src/schema/registry.py` — `notifications_digest_queue` TableDef**: 10-column table (`id`, `event_type`, `severity`, `payload_json`, `source_tag`, `created_at`, `flushed_at`, `flush_status`, `flush_attempts`, `flush_error`). Indexes on `flush_status` and `created_at`. `sync_to_postgres=True`, `sync_mode='incremental'`.
+- **`src/scheduler/watch.py` — `tick_digest_queue`**: periodic flush hook. Cadence controlled by `notifications.digest_flush_minutes` (default 60). Stub dispatcher logs payload (T12 will wire real `safe_send`). Done-flag inside `try` per CLAUDE.md rule. Backoff keyed to `'digest_queue'`. Placed after `tick_drift_detector`, before T14's future tick.
+- **`src/notifications/policy.py` — `NotificationsConfig.digest_flush_minutes`**: new field (default 60); consumed by watch.py tick cadence.
+- **`src/notifications/telegram.py` — `_load_notifications_config`**: parses `digest_flush_minutes` with bounds `[5, 1440]`; raises `NotificationsConfigError` on out-of-range.
+- **`config/settings.example.yaml`**: added `notifications.digest_flush_minutes: 60` with range comment.
+- **`docs/operator-guide.md`**: added "Digest queue" subsection under "Notifications routing" with config knob, lifecycle docs, forensic query, and manual recovery SQL.
+- **`tests/notifications/test_digest_queue.py`**: 10 tests covering enqueue/flush happy paths + boundary conditions.
+- **`tests/notifications/test_digest_queue_atomicity.py`**: 4 tests covering `mark_flush_failed` + flush-then-fail recovery + abandoned-row persistence.
+
+#### T11 Fix-up (Security + QA review responses — applied on top of 69fe912)
+
+- **Security MEDIUM**: `_dispatch_one_row` and `mark_flush_failed` now apply `_redact_token()[:500]` before writing `flush_error`. Prevents Telegram bot token leakage via `/bot<TOKEN>/sendMessage` URLs in HTTP exception strings, which sync to Postgres via `sync_to_postgres=True`. `_redact_token` imported from `src.notifications.telegram` (project convention established 2026-04-24).
+- **Security LOW**: `enqueue` now caps `source_tag` at 64 chars (`source_tag[:64]`) before INSERT. Defense-in-depth on tagging metadata.
+- **QA nit 1**: `test_flush_then_fail_recovery` assertion tightened from `in ("pending", "abandoned", "sent")` to `== "pending"` with a failing dispatcher. The original accepted 3 of 4 possible states; the new assertion is specific to the crash-recovery-with-retries-remaining path.
+- **QA nit 3**: `flush_error` ColumnDef description updated to reflect actual state machine (`abandoned` only, no `failed`) and document the redaction + cap discipline for future authors.
+- **Regression-lock**: `test_flush_error_redacts_bot_token_in_exception_string` added to `tests/notifications/test_digest_queue.py`. Fails with "Bot token leaked into flush_error" if `_redact_token` is removed from `_dispatch_one_row`.
+
 ### SP5 Wave D T10 — Notification routing policy gate (D1)
 
 Implements the pure-function notification routing gate `should_dispatch(event_type, severity, now_et, config) -> PolicyDecision`. Decides whether a notification should be sent immediately, digested for batch delivery, or muted. First task of Wave D; T11 (D2) will implement the digest queue; T12 (D3) will wire safe_send to consult this policy.

@@ -2193,6 +2193,54 @@ notifications:
 
 T12 D3 will use these values for network retry on failed sends. `attempts` must be in `[1, 10]`. `len(backoff_seconds)` must equal `attempts`.
 
+### Digest queue
+
+> Added T11 Sprint 5 Wave D D2. Persistence layer for `PolicyDecision(verdict='digest')` outputs.
+
+The digest queue stores notifications that the routing policy has decided to batch for later delivery. The watch loop drains the queue every `digest_flush_minutes` minutes.
+
+#### Config knob
+
+```yaml
+notifications:
+  digest_flush_minutes: 60   # [5, 1440] — how often the watch loop drains the queue
+```
+
+Values outside `[5, 1440]` raise `NotificationsConfigError` at startup.
+
+#### `flush_status` lifecycle
+
+```
+pending → in_progress → sent              (success path)
+pending → in_progress → pending           (dispatcher raised; attempts < retry.attempts)
+pending → in_progress → abandoned         (dispatcher raised; attempts == retry.attempts)
+```
+
+Rows in `in_progress` that survive a process crash are recovered on the next flush tick: the tick promotes them to `pending` (if under the retry limit) or `abandoned` (if exhausted).
+
+`abandoned` rows are operator-visible forensic state. The watch loop will **never** re-pick them up automatically.
+
+#### Forensic query — abandoned rows
+
+```sql
+SELECT * FROM notifications_digest_queue
+WHERE flush_status = 'abandoned'
+ORDER BY created_at DESC
+LIMIT 10;
+```
+
+#### Manual recovery — re-queue an abandoned row
+
+```sql
+UPDATE notifications_digest_queue
+SET flush_status = 'pending',
+    flush_attempts = 0,
+    flush_error = NULL
+WHERE id = <row_id>;
+```
+
+After this UPDATE, the next watch loop tick will attempt dispatch again.
+
 ---
 
 ## Known design decisions / WON'T-FIX notes

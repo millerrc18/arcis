@@ -90,8 +90,8 @@
     },
     {
       "file": "src/notifications/telegram.py",
-      "lines": 1455,
-      "rationale": "Sprint 4 T3 baseline 1147. Sprint 5 Wave A+B base: grew to 1322. T10 Wave D D1: grew to 1455 with _KNOWN_EVENT_TYPES frozenset (23L) and _load_notifications_config validator (83L). Splitting deferred: _load_notifications_config is architecturally co-located with the event_map it validates; splitting would require a circular import or re-export. Real refactor blocked until telegram.py is decomposed per the 'after all callers migrate to safe_send' rationale."
+      "lines": 1462,
+      "rationale": "Sprint 4 T3 baseline 1147. Sprint 5 Wave A+B base: grew to 1322. T10 Wave D D1: grew to 1455 with _KNOWN_EVENT_TYPES frozenset (23L) and _load_notifications_config validator (83L). T11 Wave D D2: grew to 1462 with digest_flush_minutes parsing (+7L). Splitting deferred: _load_notifications_config is architecturally co-located with the event_map it validates; splitting would require a circular import or re-export. Real refactor blocked until telegram.py is decomposed per the 'after all callers migrate to safe_send' rationale."
     },
     {
       "file": "src/notifications/telegram_commands.py",
@@ -129,13 +129,13 @@
     },
     {
       "file": "src/scheduler/watch.py",
-      "lines": 2262,
-      "rationale": "Sprint 2 T4: added _strategy_gate_done flag in __init__ (+1L) and _reset_daily_state (+1L), new 16:35 ET daily-loop slot (20L), _notify_gate_proposal helper (23L). All additions are scope-required per spec docs/audits/2026-05-05-methodology-gate-wiring/spec.md §4.2. Real split is deferred — the loop body and helper methods are tightly coupled."
+      "lines": 2441,
+      "rationale": "Sprint 2 T4: added _strategy_gate_done flag in __init__ (+1L) and _reset_daily_state (+1L), new 16:35 ET daily-loop slot (20L), _notify_gate_proposal helper (23L). T11 Wave D D2: added _last_digest_queue_time (+2L), tick_digest_queue (+59L), loop wiring (+5L). All additions scope-required. Real split is deferred — the loop body and helper methods are tightly coupled."
     },
     {
       "file": "src/schema/registry.py",
-      "lines": 2549,
-      "rationale": "Sprint 5 Wave A+B base: registry.py grew from 2311 to 2549 lines with new PG-migration tables and cutover schema additions. Single source of truth requirement mandates all DDL remain here; splitting is architecturally prohibited."
+      "lines": 2623,
+      "rationale": "Sprint 5 Wave A+B base: registry.py grew from 2311 to 2549 lines with new PG-migration tables and cutover schema additions. T11 Wave D D2: grew to 2623 with notifications_digest_queue TableDef (+37L). Single source of truth requirement mandates all DDL remain here; splitting is architecturally prohibited."
     },
     {
       "file": "src/services/scan_service.py",
@@ -915,7 +915,8 @@
     {
       "file": "src/scheduler/watch.py",
       "function": "__init__",
-      "lines": 150
+      "lines": 158,
+      "rationale": "T11 Wave D D2: +2L for _last_digest_queue_time state initialization. Pre-existing 150L; loop is tightly coupled and splitting deferred."
     },
     {
       "file": "src/scheduler/watch.py",
@@ -985,8 +986,8 @@
     {
       "file": "src/scheduler/watch.py",
       "function": "_run_sync_body",
-      "lines": 652,
-      "rationale": "Sprint 2 T4: +33 lines from new 16:35 ET methodology gate slot (20L) and whitespace/comment. Pre-existing at 619L; the loop body is tightly coupled and splitting is deferred per original rationale."
+      "lines": 659,
+      "rationale": "Sprint 2 T4: +33 lines from new 16:35 ET methodology gate slot (20L) and whitespace/comment. T11 Wave D D2: +7L for tick_digest_queue loop wiring + comment. Pre-existing at 619L; the loop body is tightly coupled and splitting is deferred per original rationale."
     },
     {
       "file": "src/services/mr_scan_service.py",

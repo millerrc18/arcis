@@ -105,6 +105,8 @@ EXPECTED_TABLES = {
     "diagnostic_runs", "diagnostic_run_plots",
     # Notifications (Sprint 4 T14)
     "notifications_sent", "notifications_dedup",
+    # Notification digest queue (T11 Wave D D2)
+    "notifications_digest_queue",
     # Platform events forensic trail (T2 Wave C #96)
     "platform_events",
 }

@@ -2555,6 +2555,43 @@ _register(TableDef(
     sync_conflict_col="event_type, dedup_key",
 ))
 
+# notifications_digest_queue: Persistence layer for PolicyDecision(verdict='digest') outputs.
+# Written by: src/notifications/digest_queue.py (T11 D2 enqueue path; T12 D3 wires safe_send).
+# Read/drained by: src/scheduler/watch.py (tick_digest_queue — T11 flush hook).
+# flush_status lifecycle: pending → in_progress → sent | pending (retry) | abandoned
+_register(TableDef(
+    name="notifications_digest_queue",
+    description="T11 Sprint 5 Wave D D2: persistence layer for digest-routed notifications. "
+                "flush_status: pending|in_progress|sent|abandoned. "
+                "Abandoned rows require manual operator recovery.",
+    columns=[
+        ColumnDef("id", "INTEGER", nullable=False, autoincrement=True),
+        ColumnDef("event_type", "TEXT", nullable=False),
+        ColumnDef("severity", "TEXT", nullable=False,
+                  description="low|medium|high|critical"),
+        ColumnDef("payload_json", "TEXT", nullable=False,
+                  description="serialized PolicyDecision payload"),
+        ColumnDef("source_tag", "TEXT", nullable=False, default="unknown",
+                  description="watch-loop|pytest:<wt>|..."),
+        ColumnDef("created_at", "TIMESTAMP", nullable=False, default="CURRENT_TIMESTAMP"),
+        ColumnDef("flushed_at", "TIMESTAMP", nullable=True),
+        ColumnDef("flush_status", "TEXT", nullable=False, default="pending",
+                  description="pending|in_progress|sent|abandoned"),
+        ColumnDef("flush_attempts", "INTEGER", nullable=False, default="0"),
+        ColumnDef("flush_error", "TEXT", nullable=True,
+                  description="last error message when flush_status=abandoned (redacted via _redact_token, capped 500 chars)"),
+    ],
+    primary_key="id",
+    indexes=[
+        IndexDef("idx_digest_queue_flush_status", ["flush_status"]),
+        IndexDef("idx_digest_queue_created_at", ["created_at"]),
+    ],
+    sync_to_postgres=True,
+    sync_mode="incremental",
+    sync_time_column="created_at",
+    sync_pk="id",
+))
+
 # platform_events: Forensic-trail write target for monitoring events.
 # Written by: src/monitoring/manual_intervention_drift.py (C4/#45),
 #             src/monitoring/alert_silence.py (D5/#94).
