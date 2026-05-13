@@ -50,13 +50,13 @@ Per Decision MIN5 from the devil's advocate review of the Sprint 5 closeout plan
 
 | Fix | Location | Before | After |
 |-----|----------|--------|-------|
-| 1 — Sprint 6 removal | Line 4 (Status) | `Implementation deferred to Sprint 6.` | `Implementation deferred to the first post-Sprint-5 maintenance window (Sprint 6 does not exist…)` |
+| 1 — Sprint 6 removal | Line 4 (Status) | `Implementation deferred to Sprint 6.` | `Implementation deferred to the first post-Sprint-5 maintenance window (Sprint 5 is the final sprint…)` (T15 further removed the redundant "Sprint 6 does not exist" clause) |
 | 2 — Executive Summary SP6 refs | Lines 20+22+28 | `Sprint 6 catch-all bucket`, `SP6 implementation`, `Sprint 6 follow-up` | `post-Sprint-5` equivalents |
 | 3 — Test floor 3682→5050 | Lines 25, 64, 125 | `3682 test floor`, `Test count floor: 3682`, `Test floor 3682.` | `5050` (pg-tests.yml EXPECTED=5050 is the current CI floor as of Sprint 5 Phase 2) |
 | 4a — Training pipeline (Unsloth) | Line 55 (Out of Scope table) | CURRICULUM_TRAIN_SCRIPT described as still requiring Unsloth | Updated to note CURRICULUM path rewritten to Transformers+PEFT+TRL per `project_gpu_upgrade` (2026-05-10 RTX 3090 swap); DPO path still requires Unsloth |
 | 4b — NUM_PARALLEL on 3090 | Line 765 (Rollback) | `NUM_PARALLEL on 3090 should stay at 2` | Corrected: NUM_PARALLEL=4 is viable on 3090 (24 GB VRAM); headroom concern is specific to 3060 |
 
-Note: Additional `3682` occurrences remain in the spec at lines 44, 191, 883, and 901 (section headers, test-plan body, and test-count delta math `3682 + 8 = 3690`). These are in the interior of the detailed test plan section. They are acknowledged stale and were not modified in this PR due to the 4-hunk scope constraint; a future implementer sweeping the spec before execution should update them alongside the test-count delta accounting in §13.
+Note: Additional `3682` occurrences at lines 44, 191, 883, and 901 (section headers, test-plan body, and test-count delta math) were corrected to `5400` in Sprint 5 T15 (Wave E close). The test-count delta math in §13.1 now reads `5400 + 8 = 5408`.
 
 ---
 
