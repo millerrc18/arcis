@@ -11,9 +11,11 @@ Table: analyst_estimates
 Schedule: Nightly in overnight pipeline
 
 Collects consensus recommendations and price targets nightly.
-Batches 20 tickers per night to stay within Finnhub free-tier limits
-(60 calls/min). Rotates through the full S&P 100 universe over multiple
-nights — tickers collected in the past 5 days are skipped.
+Nightly batch size is plan-conditional: fundamental-1 tier → 100 tickers/night
+(well within the 30 calls/sec global limit); free tier → 20 tickers/night
+(preserves previous behavior within 60 calls/min free-tier limit). Rotates
+through the full S&P 100 universe over multiple nights — tickers collected
+in the past 5 days are skipped.
 
 Known issue #234: num_analysts is computed as the sum of all recommendation
 categories (buy+hold+sell+strongBuy+strongSell). This is the number of
@@ -30,7 +32,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from src.config import DB_PATH
-from src.data_enrichment.finnhub_plan import finnhub_plan_supports
+from src.data_enrichment.finnhub_plan import finnhub_plan_supports, get_finnhub_plan
 from src.utils.db import connect_db, engine_aware_upsert
 from src.utils.retry import retry_with_backoff
 
@@ -39,6 +41,21 @@ ET = ZoneInfo("America/New_York")
 FINNHUB_BASE = "https://finnhub.io/api/v1"
 
 # Table creation handled by src/schema/registry.py
+
+
+def _get_nightly_cap(config) -> int:
+    """Return per-night cap for analyst data fetches based on Finnhub plan tier.
+
+    fundamental-1: 100/night (well within tier's 30 calls/sec rate-limit)
+    free / auto: 20/night (preserved current behavior)
+
+    Note: `auto` plan also gets the free-tier cap (conservative default against
+    accidental upgrade-then-downgrade). Explicit `fundamental-1` plan required
+    to unlock 100/night. This is asymmetric vs `finnhub_plan_supports()` which
+    treats `auto` as `fundamental-1`-equivalent, but the asymmetry is intentional:
+    feature gates are binary, rate caps are tier-numeric.
+    """
+    return 100 if get_finnhub_plan(config) == "fundamental-1" else 20
 
 
 def _get_finnhub_key() -> str | None:
@@ -73,13 +90,15 @@ def _get_tickers_to_collect(
 
 def collect_analyst_estimates(
     tickers: list[str],
-    batch_size: int = 20,
+    batch_size: int | None = None,
     db_path: str = DB_PATH,
 ) -> dict:
     """Collect analyst recommendations and price targets.
 
     Returns: {"tickers_processed": int, "estimates_stored": int}
     """
+    if batch_size is None:
+        batch_size = _get_nightly_cap(None)
     api_key = _get_finnhub_key()
     if not api_key:
         from src.data_collection.errors import CollectorConfigError
