@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+## [v0.35.0] - 2026-05-13 — Sprint 5 close: cutover stabilization + notification policy + LLM packet enrichment + dual-GPU disposition
+
+Sprint 5 delivered 15 named tasks across 6 waves (C cutover-stabilization,
+C7a packet sections, C7b plan-gated Finnhub enrichment + AST scanner,
+D notification policy/digest/silence, E dual-GPU disposition, F dev tooling)
+plus 14 trackers (#54/#56/#69/#92/#93/#94/#101/#103/#108/#109/#110/#111/#115)
+plus pre-T16 hardening (#1081). Final commits: `2b5e7cab` (T26 / Wave C7b
+COMPLETE) → tag `v0.35.0` at this PR's squash-merge.
+
+**Key architectural deliveries:**
+- Phase-3-revised cutover from SQLite → local Postgres (localhost:5433/halcyon)
+  with `_RowFactoryCursor` + `_scalar` + `engine_aware_upsert` + 82-site
+  mechanical-replacement sweep; `ARCIS_PG_CUTOVER_ENABLED` env gate routes
+  `connect_db()` to the right engine.
+- 7th-generation AST-based structural guardrail (`test_finnhub_plan_runtime_coverage`,
+  joining the M4 / wrapper / `_scalar` / fetchone-int / policy-purity /
+  fetchall-listcomp / conflict-marker scanners).
+- Wave D notification subsystem (policy gate → digest queue → safe_send
+  verdict-dispatch → alert silence detector with engine-agnostic SQL).
+- Wave C7a/C7b LLM packet enrichment (4 council sections + 4 plan-gated
+  Tier-2 sections + DATA CONTEXT header for plan-gated-vs-data-gap disambiguation).
+- Dual-GPU workload-separation deferred to first post-Sprint-5 maintenance
+  window per Wave E disposition doc (RTX 3060 + RTX 3090 split design preserved).
+
 ### Added
 
 - `tests/test_no_conflict_markers_in_repo.py` (#109): structural CI test that scans `src/`, `tests/`, `scripts/`, `docs/`, `config/`, `.github/` for git conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`) and fails if any are found outside the allowlist. Closes the marker-class that bit twice in 24h on 2026-05-12 (PR #1065 hotfix, PR #1069 hotfix) when Edit-tool silently failed on multi-line `old_string` matches during rebase conflict resolution. Also resolves a previously unknown stranded marker discovered at `docs/archive/quality/improvement_log.md:8` during this scan.

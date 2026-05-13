@@ -6,7 +6,19 @@ Canonical list of test failures that exist on `main` and are not regressions fro
 
 ---
 
-## Currently failing on main (last verified: 2026-04-27 post-Sprint-0.D.2 full sweep — 34 failures)
+## Sprint 5 close refresh (2026-05-13)
+
+Sprint 5 substantially changed the failure landscape via the Phase-3-revised cutover + AST-scanner introductions + 6 Wave-C7b plan-gates. Many Sprint 0.C-INTRODUCED entries below have been cleared by Sprint 5 work; others may remain. A full refresh sweep is captured in the T16 PR description. Until that lands, **the 2026-04-27 list below is treated as a UPPER BOUND**: any test from that list that no longer fails on main is implicitly cleared.
+
+### New pre-existing failures introduced or surfaced during Sprint 5
+
+| Test | Category | Tracker | One-line reason |
+|------|----------|---------|-----------------|
+| `tests/test_enrichment.py::TestFinnhubPlan::test_feature_matrix_distinguishes_free_and_premium` | ENV-POLLUTION (local only) | post-Sprint-5 follow-up | Operator's `.env` sets `FINNHUB_PLAN`; `get_finnhub_plan()` prefers env over the test's config-dict arg per documented precedence. Test passes in CI (no `.env`). Fix: `monkeypatch.delenv("FINNHUB_PLAN")` in test setup. Surfaced 2026-05-13 during T26 PR #1085 validation. |
+
+---
+
+## Currently failing on main (last verified: 2026-04-27 post-Sprint-0.D.2 full sweep — 34 failures, NOT yet refreshed post-Sprint-5)
 
 Full sweep: `34 failed, 4034 passed, 11 skipped` — run `python -m pytest tests/ -q --timeout=60` to reproduce.
 
