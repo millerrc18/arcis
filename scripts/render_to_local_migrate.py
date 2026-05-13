@@ -42,7 +42,6 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
 import sys
 from typing import Optional
 
@@ -56,22 +55,13 @@ except ImportError:
     print("ERROR: psycopg2 not installed. Run: pip install psycopg2-binary", file=sys.stderr)
     sys.exit(1)
 
+from _shared_migration_utils import confirm as _shared_confirm
+from _shared_migration_utils import redact_password as _redact_password
+from _shared_migration_utils import topo_sort_tables
 from src.schema.postgres import create_all_tables
 from src.schema.registry import TABLES
 
 _CHUNK_SIZE = 1000
-
-
-def _redact_password(url: str) -> str:
-    """Mask the password segment of a DSN-style URL for safe logging.
-
-    The password span is matched as `.+` (any chars including `@`) and
-    anchored to the LAST `@` in the URL via the `(?=[^@]*$)` lookahead.
-    This handles passwords containing literal `@` characters — the
-    original `[^@]+` pattern stopped at the first `@`, leaving the
-    post-first-@ password fragment visible. Per PR #1067 review.
-    """
-    return re.sub(r"://([^:/?#]+):.+@(?=[^@]*$)", r"://\1:<redacted>@", url)
 
 
 def _validate_url(url: str, label: str) -> None:
@@ -102,11 +92,9 @@ def _get_sync_tables(table_filter: Optional[list[str]]):
 def _topologically_sort_by_fk(sync_tables: list) -> list:
     """Sort tables so FK parents come before children.
 
-    Kahn's algorithm: iteratively pick tables whose unsorted-parent set is empty.
-    Stable wrt registry insertion order when multiple tables are ready at the
-    same step. Tables whose FK references a parent OUTSIDE sync_tables (out of
-    scope or non-sync) are treated as having no in-graph dependency on that
-    parent.
+    Delegates to topo_sort_tables from _shared_migration_utils (Sprint 6
+    Wave A WA6). Raises graphlib.CycleError if a cyclic FK dependency is
+    detected (not expected in the registry; surfaces violations loudly).
 
     PR #1067 review found that shadow_trades (registry idx 1) was being migrated
     before strategy_registry (idx 57) — and shadow_trades.strategy_id has
@@ -115,33 +103,12 @@ def _topologically_sort_by_fk(sync_tables: list) -> list:
     strategy_id referencing an unmigrated strategy_registry row would FK-fail.
     Topological sort guarantees the parent is committed first.
     """
-    table_by_name = {t.name: t for t in sync_tables}
-    deps: dict[str, set[str]] = {t.name: set() for t in sync_tables}
-    for t in sync_tables:
-        for fk in t.foreign_keys:
-            if fk.references_table in table_by_name:
-                deps[t.name].add(fk.references_table)
-
-    sorted_tables = []
-    sorted_names: set[str] = set()
-    remaining = list(sync_tables)
-    while remaining:
-        next_table = None
-        for t in remaining:
-            if deps[t.name] <= sorted_names:
-                next_table = t
-                break
-        if next_table is None:
-            # Cycle (unexpected; registry currently has no cycles). Defensive
-            # fall-through: append remaining in original order so the script
-            # doesn't silently drop tables. The migration will surface any
-            # FK violation as a per-table error and continue.
-            sorted_tables.extend(remaining)
-            break
-        sorted_tables.append(next_table)
-        sorted_names.add(next_table.name)
-        remaining.remove(next_table)
-    return sorted_tables
+    fks = [
+        (t.name, fk.references_table)
+        for t in sync_tables
+        for fk in t.foreign_keys
+    ]
+    return topo_sort_tables(sync_tables, fks)
 
 
 def _source_table_exists(src_conn, table_name: str) -> bool:
@@ -296,15 +263,7 @@ def _confirm(source_url: str, dest_url: str, sync_tables: list, *, auto_yes: boo
     print("are preserved. Sequences advance to MAX(pk)+1 post-bulk.")
     print("=" * 72)
 
-    if auto_yes:
-        print("--yes flag set; skipping interactive confirmation.")
-        return
-    print("Type 'YES' (exact case, no quotes) to proceed, or anything else to abort:")
-    response = input("> ").strip()
-    if response != "YES":
-        print(f"Aborted (response was {response!r}, expected 'YES').")
-        sys.exit(2)
-    print("Confirmed. Beginning migration.")
+    _shared_confirm("RENDER -> LOCAL POSTGRES DATA MIGRATION", auto_yes=auto_yes)
     print()
 
 
