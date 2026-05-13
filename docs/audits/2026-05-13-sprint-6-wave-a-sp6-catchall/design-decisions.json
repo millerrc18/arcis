@@ -1,0 +1,51 @@
+[
+  {
+    "id": "SP6-CA-001",
+    "decision": "Bundle 7 SP6 catch-all items into a single PR (Wave A) rather than 7 individual PRs or 3 logical clusters.",
+    "rationale": "Each item is independently small (5-30 LOC). The coordination overhead of 7 separate PRs (open, review, address comments, merge, repeat) exceeds the diff-coherence cost of a single bundled PR. Operator's explicit choice during INTERVIEW (packaging question, 2026-05-13).",
+    "alternatives": [
+      "7 separate PRs dispatched in parallel via /arcis:code wave structure — rejected as overhead-heavy.",
+      "3 logical clusters (Finnhub plumbing / migration hardening / test fix-ups) — rejected as middle-ground without clear advantage."
+    ],
+    "source": "operator-interview"
+  },
+  {
+    "id": "SP6-CA-002",
+    "decision": "Sprint 6 Wave A (catch-all) lands BEFORE Wave B (walk-forward framework wiring).",
+    "rationale": "Items 2, 6, 7 introduce new shared modules (src/data_collection/_finnhub_shared.py, scripts/_shared_migration_utils.py). Wave B walk-forward implementation touches some of the same files (scripts/run_backtest.py, src/data_enrichment/). Landing Wave A first prevents race conditions + ensures Wave B inherits clean foundations.",
+    "alternatives": [
+      "Separate Sprint 6.5 / hotfix track (v0.35.1 minor release for catch-all only) — rejected as adding sprint overhead for a 7-item sweep.",
+      "Standalone PR series with no sprint framing — rejected because operator wants v0.36.0 to include both deliverables coherently."
+    ],
+    "source": "operator-interview"
+  },
+  {
+    "id": "SP6-CA-003",
+    "decision": "Item 1 defaults to path (a) 'add price_target to _FEATURE_MATRIX['fundamental-1']' rather than path (b) 'remove dead code'.",
+    "rationale": "Operator already pays for Finnhub fundamental-1 tier which provides /stock/price-target. Adding to matrix unlocks the endpoint with zero new code paths needed. Path (b) would discard capability the operator already paid for. If price-target collection turns out to be operationally undesirable post-merge, path (b) becomes a future cleanup PR.",
+    "alternatives": [
+      "Path (b) remove dead code — rejected as discarding paid-for capability.",
+      "Add price_target to BOTH 'free' and 'fundamental-1' — rejected because the Finnhub free tier does NOT provide price targets (would 403 on free)."
+    ],
+    "source": "technical-default"
+  },
+  {
+    "id": "SP6-CA-004",
+    "decision": "Item 2 scope expanded from the original 3x duplication (institutional/filings_sentiment/press_releases collectors) to 6x (also covering insider/short_interest/analyst collectors).",
+    "rationale": "Sibling-search per the feedback_review_sibling_search rule revealed 6 byte-identical _get_finnhub_key sites total. Ship the broader scope to close the duplication class completely. The expanded scope is still small (~30 LOC new, ~60 LOC removed = net -30 LOC).",
+    "alternatives": [
+      "Stick with 3x extraction matching the PR review surface — rejected as leaving the same duplication in 3 other collectors for a future cleanup."
+    ],
+    "source": "sibling-search-rule"
+  },
+  {
+    "id": "SP6-CA-005",
+    "decision": "Item 5 (Decision 27 footnote follow-up) ships a LOCK test, not a behavior change.",
+    "rationale": "The Decision 27 footnote was added in PR #1083 documentation only; operator has not observed real production cases of Finnhub sentiment-model revision drift. Locking the current action='ignore' behavior with a structural test is conservative — if/when operator decides to switch to action='replace', the lock test fails loudly and forces explicit operator review of the migration.",
+    "alternatives": [
+      "Switch to action='replace' now + add filings_sentiment to _REPLACE_SEMANTICS in src/utils/db.py — rejected as premature behavior change without operational driver.",
+      "Skip Item 5 entirely (it's only documentation) — rejected because the lock test provides forward-going regression protection."
+    ],
+    "source": "conservative-default"
+  }
+]
