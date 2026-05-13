@@ -35,6 +35,7 @@ from datetime import datetime, timezone
 from typing import Callable
 
 from src.notifications.telegram import _KNOWN_EVENT_TYPES, _redact_token
+from src.utils.db import _scalar
 
 logger = logging.getLogger(__name__)
 
@@ -179,14 +180,16 @@ class DigestQueue:
         self._conn.commit()
 
     def pending_count(self) -> int:
-        return self._conn.execute(
+        row = self._conn.execute(
             "SELECT COUNT(*) FROM notifications_digest_queue WHERE flush_status='pending'"
-        ).fetchone()[0]
+        ).fetchone()
+        return _scalar(row)
 
     def abandoned_count(self) -> int:
-        return self._conn.execute(
+        row = self._conn.execute(
             "SELECT COUNT(*) FROM notifications_digest_queue WHERE flush_status='abandoned'"
-        ).fetchone()[0]
+        ).fetchone()
+        return _scalar(row)
 
     def _recover_orphaned_in_progress(self) -> None:
         rows = self._conn.execute(
