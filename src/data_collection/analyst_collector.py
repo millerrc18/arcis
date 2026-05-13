@@ -47,7 +47,13 @@ def _get_nightly_cap(config) -> int:
     """Return per-night cap for analyst data fetches based on Finnhub plan tier.
 
     fundamental-1: 100/night (well within tier's 30 calls/sec rate-limit)
-    free: 20/night (preserved current behavior)
+    free / auto: 20/night (preserved current behavior)
+
+    Note: `auto` plan also gets the free-tier cap (conservative default against
+    accidental upgrade-then-downgrade). Explicit `fundamental-1` plan required
+    to unlock 100/night. This is asymmetric vs `finnhub_plan_supports()` which
+    treats `auto` as `fundamental-1`-equivalent, but the asymmetry is intentional:
+    feature gates are binary, rate caps are tier-numeric.
     """
     return 100 if get_finnhub_plan(config) == "fundamental-1" else 20
 
