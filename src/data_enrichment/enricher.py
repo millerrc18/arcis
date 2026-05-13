@@ -16,7 +16,7 @@ import logging
 import os
 import sqlite3
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 from src.config import DB_PATH
@@ -41,6 +41,134 @@ _COUNCIL_PILLAR_KEY = {
 # Sprint 5 Wave C7a.1 / T17 — staleness threshold (days). Sessions older than
 # this are still rendered but tagged [STALE] so the LLM downweights them.
 _COUNCIL_STALE_THRESHOLD_DAYS = 3
+
+# Sprint 5 Wave C7a.3 / T19 — default lookback window (days) for recent
+# attribution-trade aggregation. Overridable via
+# ``config['data_enrichment']['attribution_window_days']`` at call time.
+_RECENT_ATTRIBUTION_DEFAULT_WINDOW_DAYS = 30
+
+
+def _setup_class_win_rate(conn, setup_class: str, cutoff_iso: str) -> float | None:
+    """T19 helper: PASS-rate of closed setup-class attribution trades in window."""
+    rows = conn.execute(
+        "SELECT a.llm_portfolio_pnl_pct AS pnl FROM attribution_trades a "
+        "LEFT JOIN recommendations r ON a.recommendation_id = r.recommendation_id "
+        "WHERE a.created_at >= ? AND a.llm_portfolio_pnl_pct IS NOT NULL "
+        "AND r.setup_type = ?",
+        (cutoff_iso, setup_class),
+    ).fetchall()
+    if not rows:
+        return None
+    n_wins = sum(1 for r in rows if (r["pnl"] or 0) > 0)
+    return n_wins / len(rows)
+
+
+def _ticker_mean_pnl(conn, ticker: str, cutoff_iso: str) -> float | None:
+    """T19 helper: mean ``llm_portfolio_pnl_pct`` for the ticker in window."""
+    rows = conn.execute(
+        "SELECT llm_portfolio_pnl_pct AS pnl FROM attribution_trades "
+        "WHERE ticker = ? AND created_at >= ? "
+        "AND llm_portfolio_pnl_pct IS NOT NULL",
+        (ticker, cutoff_iso),
+    ).fetchall()
+    if not rows:
+        return None
+    return sum(r["pnl"] for r in rows) / len(rows)
+
+
+def _similar_sector_mean_pnl(
+    conn, sector: str, ticker: str, cutoff_iso: str
+) -> float | None:
+    """T19 helper: mean PnL for same-sector tickers in window (excluding self)."""
+    rows = conn.execute(
+        "SELECT a.llm_portfolio_pnl_pct AS pnl FROM attribution_trades a "
+        "LEFT JOIN recommendations r ON a.recommendation_id = r.recommendation_id "
+        "WHERE a.created_at >= ? AND a.llm_portfolio_pnl_pct IS NOT NULL "
+        "AND r.sector_context = ? AND a.ticker != ?",
+        (cutoff_iso, sector, ticker),
+    ).fetchall()
+    if not rows:
+        return None
+    return sum(r["pnl"] for r in rows) / len(rows)
+
+
+def enrich_recent_attribution(
+    feat: dict,
+    ticker: str,
+    db_path: str = DB_PATH,
+    window_days: int = _RECENT_ATTRIBUTION_DEFAULT_WINDOW_DAYS,
+) -> None:
+    """Populate recent-attribution feature-dict fields from closed paired trades.
+
+    Sprint 5 Wave C7a.3 / T19. Reads ``attribution_trades`` joined to
+    ``recommendations`` for the last ``window_days`` and computes:
+
+      * ``recent_setup_win_rate`` — fraction of closed trades whose
+        ``llm_portfolio_pnl_pct`` > 0, filtered by ``feat['setup_class']``.
+      * ``recent_ticker_pnl`` — mean ``llm_portfolio_pnl_pct`` for the ticker.
+      * ``recent_similar_pnl_30d`` — mean ``llm_portfolio_pnl_pct`` for trades
+        in the same sector (``feat['sector']``) excluding the current ticker.
+
+    Closed trades only: rows where ``llm_portfolio_pnl_pct IS NOT NULL``.
+    No-recent-trades: feature dict left unchanged; renderer falls back.
+    """
+    setup_class = feat.get("setup_class")
+    sector = feat.get("sector")
+    cutoff_iso = (
+        datetime.now(timezone.utc) - timedelta(days=window_days)
+    ).isoformat()
+    try:
+        with connect_db(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            if setup_class:
+                wr = _setup_class_win_rate(conn, setup_class, cutoff_iso)
+                if wr is not None:
+                    feat["recent_setup_win_rate"] = wr
+            tp = _ticker_mean_pnl(conn, ticker, cutoff_iso)
+            if tp is not None:
+                feat["recent_ticker_pnl"] = tp
+            if sector:
+                sp = _similar_sector_mean_pnl(conn, sector, ticker, cutoff_iso)
+                if sp is not None:
+                    feat["recent_similar_pnl_30d"] = sp
+    except Exception as exc:
+        logger.debug("[ENRICHMENT] Recent attribution read failed: %s", exc)
+
+
+def enrich_strategy_context(feat: dict, db_path: str = DB_PATH) -> None:
+    """Populate strategy-context preamble feature-dict fields.
+
+    Sprint 5 Wave C7a.4 / T20. Reads ``strategy_registry`` keyed by the
+    ``strategy_id`` FK present on shadow_trades (added by T2 / #56) and writes:
+
+      * ``strategy_status`` — current_status from registry (e.g. production,
+        shadow_trading, deprecated)
+      * ``strategy_parent_name`` — display_name from registry
+
+    NULL-strategy_id (legacy trades pre-dating T2 wiring): leaves the registry
+    fields unset; the renderer detects via ``feat.get('strategy_id')`` and
+    falls back to ``(unassigned - legacy trade)``.
+
+    Args:
+        feat: Per-ticker feature dict (mutated in place). Reads ``strategy_id``.
+        db_path: SQLite DB path. Defaults to runtime DB.
+    """
+    strategy_id = feat.get("strategy_id")
+    if not strategy_id:
+        return
+    try:
+        with connect_db(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT display_name, current_status FROM strategy_registry "
+                "WHERE strategy_id = ? LIMIT 1",
+                (strategy_id,),
+            ).fetchone()
+            if row:
+                feat["strategy_status"] = row["current_status"]
+                feat["strategy_parent_name"] = row["display_name"]
+    except Exception as exc:
+        logger.debug("[ENRICHMENT] Strategy context read failed: %s", exc)
 
 
 def enrich_historical_credibility(feat: dict, db_path: str = DB_PATH) -> None:

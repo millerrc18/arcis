@@ -41,6 +41,11 @@
       "rationale": "T3 fix-up: 5 outer guards broadened to (CouncilAgentDataError, sqlite3.Error) + observability counter + warning logging. Growth from 448 is the resilience fix required by Performance reviewer. Splitting the file is deferred; the 5 gather_* functions are coherent and tightly coupled to the same schema."
     },
     {
+      "file": "src/data_enrichment/enricher.py",
+      "lines": 525,
+      "rationale": "Sprint 5 Wave C7a (T17-T20): enricher.py grew from 374 (pre-T17) to 525 lines via four new enrichment functions for packet sections: enrich_council_consensus (T17, +74L), enrich_historical_credibility (T18, +45L), enrich_recent_attribution + 3 helpers (T19, +91L), enrich_strategy_context (T20, +36L). Each function is a coherent, independent reader against a different table family. Real split (per-section sibling modules) is a Sprint 6 task — the existing scaffold expects a single enricher module."
+    },
+    {
       "file": "src/data_enrichment/news.py",
       "lines": 490,
       "rationale": "Sprint 4 T13c: normalize_earnings_time helper added, plus T13-SECREV _html_escape wiring across fetch_recent_news/fetch_historical_news external-data interpolations. Pre-Sprint-4 baseline was under 400; Sprint 4 T13-series additions grew it to 490. Real split (separating fetch_recent_news vs fetch_historical_news into sibling helpers) deferred to Sprint 5 — functions are tightly coupled via shared Finnhub client state."
@@ -85,8 +90,8 @@
     },
     {
       "file": "src/llm/packet_writer.py",
-      "lines": 878,
-      "rationale": "Sprint 5 Wave A+B base: packet_writer.py grew from 751 to 878 lines on sprint/sp5-wave-ab/base. Growth attributed to _detect_conviction_strategy helper and extended prompt assembly. Real split deferred."
+      "lines": 1012,
+      "rationale": "Sprint 5 Wave C7a (T17-T20): packet_writer.py grew from 878 to 1012 lines. Added 4 new packet section renderers (COUNCIL CONSENSUS T17, HISTORICAL CREDIBILITY T18, RECENT ATTRIBUTION T19, STRATEGY CONTEXT preamble T20) plus their _build_feature_prompt insertion sites. Each section is a coherent rendering unit and they all share the same _build_feature_prompt assembly logic. Real split (e.g., section-renderer subclasses) deferred to Sprint 6."
     },
     {
       "file": "src/notifications/telegram.py",

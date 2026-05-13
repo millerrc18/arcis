@@ -188,6 +188,59 @@ def _render_council_consensus(features: dict) -> str:
     )
 
 
+def _render_strategy_context(features: dict) -> str:
+    """Render the STRATEGY CONTEXT header preamble (Sprint 5 Wave C7a.4 / T20).
+
+    Unlike the indexed sections (13-15), STRATEGY CONTEXT is a header preamble
+    that prepends to the prompt above TECHNICAL DATA so the model receives the
+    strategy identity context before any per-trade data. NULL-strategy_id
+    falls back to ``(unassigned - legacy trade)`` for trades pre-dating the
+    T2 / #56 FK wiring.
+    """
+    strategy_id = features.get("strategy_id")
+    if not strategy_id:
+        return ("=== STRATEGY CONTEXT ===\n"
+                "Strategy: (unassigned - legacy trade)\n\n")
+    status = features.get("strategy_status", "n/a")
+    parent_name = features.get("strategy_parent_name", "n/a")
+    return (
+        f"=== STRATEGY CONTEXT ===\n"
+        f"Strategy: {strategy_id} ({parent_name})\n"
+        f"Status: {status}\n\n"
+    )
+
+
+def _render_recent_attribution(features: dict) -> str:
+    """Render the RECENT ATTRIBUTION section (Sprint 5 Wave C7a.3 / T19).
+
+    Surfaces last-30d attribution stats: setup-class W/L rate, ticker-specific
+    mean PnL, and similar-ticker (sector-match) mean PnL. No-recent-trades
+    falls back to the empty-state line.
+    """
+    win_rate = features.get("recent_setup_win_rate")
+    ticker_pnl = features.get("recent_ticker_pnl")
+    similar_pnl = features.get("recent_similar_pnl_30d")
+    if win_rate is None and ticker_pnl is None and similar_pnl is None:
+        return ("\n\n=== RECENT ATTRIBUTION ===\n"
+                "(No attribution trades in window)")
+
+    wr_str = (
+        f"{win_rate:.2f}" if isinstance(win_rate, (int, float)) else "n/a"
+    )
+    tp_str = (
+        f"{ticker_pnl:+.2f}%" if isinstance(ticker_pnl, (int, float)) else "n/a"
+    )
+    sp_str = (
+        f"{similar_pnl:+.2f}%" if isinstance(similar_pnl, (int, float)) else "n/a"
+    )
+    return (
+        f"\n\n=== RECENT ATTRIBUTION ===\n"
+        f"Setup-class win rate (30d): {wr_str}\n"
+        f"Ticker PnL (30d): {tp_str}\n"
+        f"Similar-ticker (sector-match) PnL (30d): {sp_str}"
+    )
+
+
 def _render_historical_credibility(features: dict) -> str:
     """Render the HISTORICAL CREDIBILITY section (Sprint 5 Wave C7a.2 / T18).
 
@@ -241,6 +294,11 @@ def _build_feature_prompt(features: dict, ticker: str, subsetting: bool = False)
         skip_sections = set(random.sample(sorted(_OPTIONAL_SECTIONS), n_drop))
 
     prompt = ""
+
+    # HEADER PREAMBLE: Strategy Context (Sprint 5 Wave C7a.4 / T20).
+    # Prepended before TECHNICAL DATA so the model receives strategy identity
+    # context up front. NOT a regular indexed section in the T17-T19 series.
+    prompt += _render_strategy_context(features)
 
     # SECTION 1: Technical Data (required)
     prompt += f"""=== TECHNICAL DATA ===
@@ -367,6 +425,9 @@ Gold: {features.get('gold_change_1m', 'n/a')} (1m)"""
 
     # SECTION 14: Historical Credibility (Sprint 5 Wave C7a.2 / T18).
     prompt += _render_historical_credibility(features)
+
+    # SECTION 15: Recent Attribution (Sprint 5 Wave C7a.3 / T19).
+    prompt += _render_recent_attribution(features)
 
     return prompt
 
