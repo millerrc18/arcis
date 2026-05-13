@@ -799,7 +799,7 @@ def notify_regime_alert(vix_now: float, vix_prev: float,
     msg = (
         f"⚡ <b>REGIME ALERT</b>\n\n"
         f"VIX crossed {threshold_crossed:.0f} (was {vix_prev:.1f}, now {vix_now:.1f})\n"
-        f"Regime shifted: {regime_old} → {regime_new}\n"
+        f"Regime shifted: {_html_escape(regime_old)} → {_html_escape(regime_new)}\n"
         f"Qualification threshold: {qual_old} → {qual_new}\n"
         f"Position sizing: {sizing_old}% → {sizing_new}%\n\n"
         f"Action: {'Tighter' if vix_now > vix_prev else 'Looser'} filters active. "
