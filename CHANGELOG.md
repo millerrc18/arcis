@@ -4,6 +4,14 @@
 
 ### Added
 
+- Sprint 6 Wave B T5 (SP-WF-001/002/006/010): `corpus_id: str | None = None` field added to
+  `WalkForwardConfig` (additive, default None preserves backward compat; T8 will wire the runner
+  gate). `build_walkforward_windows(anchor, n_windows, is_trading_days, oos_trading_days,
+  embargo_trading_days)` builder added to `walkforward_config.py` — generates non-overlapping
+  IS/OOS window tuples using canonical `subtract_trading_days` arithmetic (no calendar-day
+  approximation). Enforces `train_end < test_start` invariant. `DEFAULT_WINDOWS` unchanged.
+  +4 tests in `tests/platform/rigor/test_walkforward_config.py`.
+
 - Sprint 6 Wave B T3 (SP-WF-004): `excess_sharpe_min: float | None = None` field added to
   `WalkForwardConfig` (additive, default None preserves backward compat). When set, wired into
   `compute_window_metrics` as an additional rf-adjusted excess-Sharpe gate using
