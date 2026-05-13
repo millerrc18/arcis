@@ -137,7 +137,7 @@ class DigestQueue:
         self._recover_orphaned_in_progress()
 
         rows = self._conn.execute(
-            "SELECT id, payload_json, flush_attempts FROM notifications_digest_queue"
+            "SELECT id, event_type, severity, payload_json, flush_attempts FROM notifications_digest_queue"
             " WHERE flush_status='pending'"
             " ORDER BY created_at ASC"
             " LIMIT ?",
@@ -155,8 +155,10 @@ class DigestQueue:
             if claimed == 0:
                 continue
 
+            payload_dict = json.loads(row["payload_json"])
+            dispatch_dict = {"event_type": row["event_type"], "severity": row["severity"], **payload_dict}
             outcome = self._dispatch_one_row(
-                row["id"], json.loads(row["payload_json"]), row["flush_attempts"], dispatcher
+                row["id"], dispatch_dict, row["flush_attempts"], dispatcher
             )
             if outcome == "sent":
                 successes += 1
