@@ -420,26 +420,12 @@ class WatchLoop(HandlerRegistryMixin):
         (e.g., day after Thanksgiving, Christmas Eve), the market closes at
         13:00 ET instead of 16:00 ET. Without this check, scans/trades
         would fire 13:00-16:00 against a closed market.
+
+        T14 D5: thin wrapper — delegates to holidays.is_market_open so the
+        module-level function is reusable across monitoring code.
         """
-        if now.weekday() >= 5:  # Saturday=5, Sunday=6
-            return False
-        # Holiday + half-day check (#149, Sprint-0/2a HALF-DAY) — fail-open so
-        # we don't miss a trading day if the holiday module errors.
-        try:
-            from src.scheduler.holidays import is_market_holiday, is_market_half_day
-            if is_market_holiday(check_date=now.date()):
-                return False
-            # Half-day: NYSE closes at 13:00 ET. After 13:00 the market is
-            # closed even though it would normally still be open.
-            if is_market_half_day(check_date=now.date()) and now.hour >= 13:
-                return False
-        except Exception:
-            pass  # If holiday module fails, assume market open — safer to scan unnecessarily
-        market_open = now.replace(hour=self.market_open_hour,
-                                  minute=self.market_open_minute, second=0)
-        market_close = now.replace(hour=self.market_close_hour,
-                                   minute=0, second=0)
-        return market_open <= now < market_close
+        from src.scheduler.holidays import is_market_open as _is_open
+        return _is_open(now)
 
     def _check_digest_schedule(self):
         """Send scheduled email digests at configured times (digest mode only)."""

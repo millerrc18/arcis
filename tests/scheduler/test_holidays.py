@@ -338,3 +338,38 @@ def test_subtract_trading_days_anchor_on_saturday():
     result = subtract_trading_days(date(2026, 1, 17), 1)
     assert result == date(2026, 1, 15)
     assert isinstance(result, date) and not isinstance(result, datetime)
+
+
+# ---------------------------------------------------------------------------
+# T14 D5: is_market_open — module-level function extracted from WatchLoop
+# ---------------------------------------------------------------------------
+
+
+def test_is_market_open_true_during_regular_hours():
+    """Tue 2026-03-10 at 11:00 ET — weekday, not holiday, within 9:30-16:00."""
+    from zoneinfo import ZoneInfo
+    from src.scheduler.holidays import is_market_open
+
+    et = ZoneInfo("America/New_York")
+    now = datetime(2026, 3, 10, 11, 0, tzinfo=et)
+    assert is_market_open(now) is True
+
+
+def test_is_market_open_false_on_weekend():
+    """Saturday 2026-03-07 — weekday() == 5, must return False regardless of time."""
+    from zoneinfo import ZoneInfo
+    from src.scheduler.holidays import is_market_open
+
+    et = ZoneInfo("America/New_York")
+    now = datetime(2026, 3, 7, 11, 0, tzinfo=et)
+    assert is_market_open(now) is False
+
+
+def test_is_market_open_false_on_half_day_after_1pm():
+    """Black Friday 2026-11-27 (NYSE half-day, closes 13:00 ET) at 14:00 ET — must be False."""
+    from zoneinfo import ZoneInfo
+    from src.scheduler.holidays import is_market_open
+
+    et = ZoneInfo("America/New_York")
+    now = datetime(2026, 11, 27, 14, 0, tzinfo=et)
+    assert is_market_open(now) is False
