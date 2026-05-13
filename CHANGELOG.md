@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- `DigestQueue.enqueue` now handles dataclass payloads (`TradeOpenedPayload`, `TradeClosedPayload`, etc.) via a custom `_DataclassJSONEncoder` before `json.dumps`. Previously crashed with `TypeError: Object of type X is not JSON serializable` when `safe_send` was called with a dataclass during quiet hours (verdict=digest). Also adds explicit `TypeError` for non-dict/non-dataclass payload types (fail-loud, Decision 19). Latent bug surfaced by operator's PR #1071 review (#115).
+
 - T12 fix-up: patched 13 pre-existing tests in `tests/notifications/test_safe_send.py`, `test_safe_send_hooks.py`, and `test_telegram_payload_wiring.py` to patch `_load_config_for_safe_send` and `_now_et_for_safe_send` so policy gate returns `verdict=send`. Tests were written for the pre-T12 direct-dispatch contract; the new policy gate could route `trade_opened`/medium -> `digest` during quiet hours, triggering `TypeError: Object of type TradeOpenedPayload is not JSON serializable` in `DigestQueue.enqueue`. Underlying JSON-serialization gap tracked as #115 (Sprint 5 closeout). Per PR #1071 review (operator, 2026-05-13).
 
 ### SP5 Wave D T12 fix-up — Security (2 medium, 3 low) + QA (3 nits) from PR #1071 review

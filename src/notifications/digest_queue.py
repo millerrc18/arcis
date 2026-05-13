@@ -27,6 +27,7 @@ FlushResult lifecycle for a single row:
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 from dataclasses import dataclass
@@ -36,6 +37,13 @@ from typing import Callable
 from src.notifications.telegram import _KNOWN_EVENT_TYPES, _redact_token
 
 logger = logging.getLogger(__name__)
+
+
+class _DataclassJSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+            return dataclasses.asdict(obj)
+        return super().default(obj)
 
 
 @dataclass
@@ -63,7 +71,11 @@ class DigestQueue:
                 f"Unknown event_type {event_type!r}. "
                 f"Must be one of the registered event types in src.notifications.telegram._KNOWN_EVENT_TYPES."
             )
-        payload_json = json.dumps(payload)
+        if not isinstance(payload, dict) and not (dataclasses.is_dataclass(payload) and not isinstance(payload, type)):
+            raise TypeError(
+                f"DigestQueue.enqueue: payload must be dataclass or dict, got {type(payload).__name__}"
+            )
+        payload_json = json.dumps(payload, cls=_DataclassJSONEncoder)
         cur = self._conn.execute(
             "INSERT INTO notifications_digest_queue"
             " (event_type, severity, payload_json, source_tag, flush_status, flush_attempts)"

@@ -278,3 +278,65 @@ def test_flush_error_redacts_bot_token_in_exception_string():
     assert "<redacted" in flush_error.lower() or "REDACTED" in flush_error or "bot***" in flush_error.lower(), (
         f"flush_error doesn't show redaction marker -- verify _redact_token output: {flush_error!r}"
     )
+
+
+# ── T115: dataclass payload serialization ────────────────────────────────
+
+
+def test_enqueue_accepts_trade_opened_dataclass_payload():
+    """Enqueue with a TradeOpenedPayload dataclass-wrapped in kwargs dict must not raise
+    and must round-trip to the same dict via json.loads."""
+    from src.notifications.telegram import TradeOpenedPayload
+    conn = _make_conn()
+    q = DigestQueue(conn, config=_default_config())
+    payload_dc = TradeOpenedPayload(
+        ticker="AAPL", entry_price=100.0, stop=95.0, target=110.0, score=80, shares=10
+    )
+    kwargs_payload = {"payload": payload_dc}
+    row_id = q.enqueue(
+        event_type="trade_opened",
+        severity="low",
+        payload=kwargs_payload,
+    )
+    assert isinstance(row_id, int) and row_id >= 1
+    row = conn.execute(
+        "SELECT payload_json FROM notifications_digest_queue WHERE id=?", (row_id,)
+    ).fetchone()
+    assert row is not None
+    roundtripped = json.loads(row["payload_json"])
+    assert roundtripped["payload"]["ticker"] == "AAPL"
+    assert roundtripped["payload"]["entry_price"] == 100.0
+    assert roundtripped["payload"]["stop"] == 95.0
+    assert roundtripped["payload"]["target"] == 110.0
+    assert roundtripped["payload"]["score"] == 80
+    assert roundtripped["payload"]["shares"] == 10
+
+
+def test_enqueue_accepts_dict_payload():
+    """Backward compat: plain dict payload must still work (no regression)."""
+    conn = _make_conn()
+    q = DigestQueue(conn, config=_default_config())
+    row_id = q.enqueue(
+        event_type="trade_opened",
+        severity="low",
+        payload={"ticker": "TSLA", "entry_price": 200.0},
+    )
+    row = conn.execute(
+        "SELECT payload_json FROM notifications_digest_queue WHERE id=?", (row_id,)
+    ).fetchone()
+    assert row is not None
+    roundtripped = json.loads(row["payload_json"])
+    assert roundtripped["ticker"] == "TSLA"
+    assert roundtripped["entry_price"] == 200.0
+
+
+def test_enqueue_rejects_invalid_payload_type():
+    """Non-dict, non-dataclass payload must raise TypeError (fail-loud, Decision 19)."""
+    conn = _make_conn()
+    q = DigestQueue(conn, config=_default_config())
+    with pytest.raises(TypeError, match="payload must be dataclass or dict"):
+        q.enqueue(
+            event_type="trade_opened",
+            severity="low",
+            payload=5,
+        )
