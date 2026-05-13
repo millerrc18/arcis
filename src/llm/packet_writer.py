@@ -188,6 +188,31 @@ def _render_council_consensus(features: dict) -> str:
     )
 
 
+def _render_historical_credibility(features: dict) -> str:
+    """Render the HISTORICAL CREDIBILITY section (Sprint 5 Wave C7a.2 / T18).
+
+    Surfaces the walk-forward credibility prior (PASS-ratio across runs) plus
+    per-method PSR/CPCV pass flags derived from the most recent walk-forward
+    outcome_state. No-match falls back to the empty-state line.
+    """
+    n_votes = features.get("setup_walkforward_n_votes")
+    if not n_votes:
+        return ("\n\n=== HISTORICAL CREDIBILITY ===\n"
+                "(No walk-forward history for this setup class)")
+
+    credibility = features.get("setup_walkforward_credibility")
+    cred_str = (
+        f"{credibility:.2f}" if isinstance(credibility, (int, float)) else "n/a"
+    )
+    psr = "PASS" if features.get("setup_psr_pass") else "FAIL"
+    cpcv = "PASS" if features.get("setup_cpcv_pass") else "FAIL"
+    return (
+        f"\n\n=== HISTORICAL CREDIBILITY ===\n"
+        f"Walk-forward credibility prior: {cred_str} ({n_votes} runs)\n"
+        f"PSR: {psr} | CPCV: {cpcv}"
+    )
+
+
 def _build_feature_prompt(features: dict, ticker: str, subsetting: bool = False) -> str:
     """Build a multi-source prompt from all available data.
 
@@ -339,6 +364,9 @@ Gold: {features.get('gold_change_1m', 'n/a')} (1m)"""
     # SECTION 13: Council Consensus (Sprint 5 Wave C7a.1 / T17).
     # Always rendered — empty-state message handles missing-session.
     prompt += _render_council_consensus(features)
+
+    # SECTION 14: Historical Credibility (Sprint 5 Wave C7a.2 / T18).
+    prompt += _render_historical_credibility(features)
 
     return prompt
 

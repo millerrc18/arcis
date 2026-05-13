@@ -43,6 +43,51 @@ _COUNCIL_PILLAR_KEY = {
 _COUNCIL_STALE_THRESHOLD_DAYS = 3
 
 
+def enrich_historical_credibility(feat: dict, db_path: str = DB_PATH) -> None:
+    """Populate walk-forward historical credibility feature-dict fields.
+
+    Sprint 5 Wave C7a.2 / T18. Reads ``walkforward_results`` for runs matching
+    ``feat['strategy_id']`` and aggregates a credibility prior:
+
+      * ``setup_walkforward_n_votes`` — count of walk-forward runs found
+      * ``setup_walkforward_credibility`` — fraction of PASS runs / total
+      * ``setup_psr_pass`` / ``setup_cpcv_pass`` — derived from most recent
+        ``outcome_state`` (PASS → both pass; FAIL/INCONCLUSIVE → both fail).
+        The schema does not store per-method (PSR vs CPCV) vote outcomes, so
+        the renderer surfaces them jointly from the aggregate outcome_state.
+
+    No-match: feature dict is left unchanged; the renderer detects via the
+    absence of ``setup_walkforward_n_votes`` and renders the empty-state line.
+
+    Args:
+        feat: Per-ticker feature dict (mutated in place). Must already contain
+            ``strategy_id`` for the lookup to fire.
+        db_path: SQLite DB path. Defaults to runtime DB.
+    """
+    strategy_id = feat.get("strategy_id")
+    if not strategy_id:
+        return
+    try:
+        with connect_db(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT outcome_state, created_at FROM walkforward_results "
+                "WHERE strategy_id = ? ORDER BY created_at DESC",
+                (strategy_id,),
+            ).fetchall()
+            if not rows:
+                return
+            n_total = len(rows)
+            n_pass = sum(1 for r in rows if r["outcome_state"] == "PASS")
+            feat["setup_walkforward_n_votes"] = n_total
+            feat["setup_walkforward_credibility"] = n_pass / n_total
+            latest_pass = rows[0]["outcome_state"] == "PASS"
+            feat["setup_psr_pass"] = latest_pass
+            feat["setup_cpcv_pass"] = latest_pass
+    except Exception as exc:
+        logger.debug("[ENRICHMENT] Historical credibility read failed: %s", exc)
+
+
 def enrich_council_consensus(feat: dict, db_path: str = DB_PATH) -> None:
     """Populate council-consensus feature-dict fields from the latest session.
 
