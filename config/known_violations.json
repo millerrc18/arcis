@@ -42,8 +42,8 @@
     },
     {
       "file": "src/data_enrichment/enricher.py",
-      "lines": 525,
-      "rationale": "Sprint 5 Wave C7a (T17-T20): enricher.py grew from 374 (pre-T17) to 525 lines via four new enrichment functions for packet sections: enrich_council_consensus (T17, +74L), enrich_historical_credibility (T18, +45L), enrich_recent_attribution + 3 helpers (T19, +91L), enrich_strategy_context (T20, +36L). Each function is a coherent, independent reader against a different table family. Real split (per-section sibling modules) is a Sprint 6 task — the existing scaffold expects a single enricher module."
+      "lines": 579,
+      "rationale": "Sprint 5 Wave C7a (T17-T20) baseline 525. Wave C7b.1 / T21 added enrich_institutional_flow (+54L) — plan-gated reader over institutional_holdings + _institutional_plan_supports signal for the renderer. Each function is a coherent, independent reader against a different table family. Real split (per-section sibling modules) is post-Sprint-5 — the existing scaffold expects a single enricher module."
     },
     {
       "file": "src/data_enrichment/news.py",
@@ -90,8 +90,8 @@
     },
     {
       "file": "src/llm/packet_writer.py",
-      "lines": 1012,
-      "rationale": "Sprint 5 Wave C7a (T17-T20): packet_writer.py grew from 878 to 1012 lines. Added 4 new packet section renderers (COUNCIL CONSENSUS T17, HISTORICAL CREDIBILITY T18, RECENT ATTRIBUTION T19, STRATEGY CONTEXT preamble T20) plus their _build_feature_prompt insertion sites. Each section is a coherent rendering unit and they all share the same _build_feature_prompt assembly logic. Real split (e.g., section-renderer subclasses) deferred to Sprint 6."
+      "lines": 1060,
+      "rationale": "Sprint 5 Wave C7a (T17-T20) baseline 1012. Wave C7b.1 / T21 added _render_institutional_flow (+45L) — plan-gated INSTITUTIONAL FLOW packet section at index 4.5 with three render states (Decision 30: absent when plan does not support). Each section is a coherent rendering unit and they all share the same _build_feature_prompt assembly logic. Real split (e.g., section-renderer subclasses) deferred to post-Sprint-5."
     },
     {
       "file": "src/notifications/telegram.py",

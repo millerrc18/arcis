@@ -727,6 +727,22 @@ def run_data_collection(db_path: str = DB_PATH,
         logger.warning("[WATCH] Fed collection failed: %s", e)
         results["fed"] = {"error": str(e)}
 
+    # 11b. Institutional ownership (plan-gated; Sprint 5 Wave C7b.1 / T21).
+    # No-op when finnhub_plan != fundamental-1; collector returns None at gate.
+    print("[WATCH]   [11b] Institutional ownership (plan-gated)...")
+    try:
+        from src.data_collection.institutional_ownership_collector import (
+            collect_institutional_ownership,
+        )
+        inst_rows = 0
+        for _t in universe:
+            if collect_institutional_ownership(_t) is not None:
+                inst_rows += 1
+        results["institutional_ownership"] = {"tickers_with_data": inst_rows}
+    except Exception as e:
+        logger.warning("[WATCH] Institutional ownership collection failed: %s", e)
+        results["institutional_ownership"] = {"error": str(e)}
+
     # 12. Analyst estimates (batch 20/night to stay under FMP limit)
     print("[WATCH]   [12/12] Analyst estimates (batch)...")
     try:
