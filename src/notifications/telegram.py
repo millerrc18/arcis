@@ -819,11 +819,11 @@ def notify_streak_alert(streak_length: int, recent_trades: list[tuple[str, float
                         risk_governor_status: str,
                         historical_max_streak: int) -> bool:
     """Alert: 3+ consecutive losses."""
-    recent_str = ", ".join(f"{t} {p:+.1f}%" for t, p in recent_trades[:5])
+    recent_str = ", ".join(f"{_html_escape(t)} {p:+.1f}%" for t, p in recent_trades[:5])
     msg = (
         f"🔶 <b>STREAK ALERT: {streak_length} consecutive losses</b>\n\n"
         f"Recent: {recent_str}\n"
-        f"Max drawdown: {max_drawdown_pct:+.1f}% | Risk governor: {risk_governor_status}\n"
+        f"Max drawdown: {max_drawdown_pct:+.1f}% | Risk governor: {_html_escape(risk_governor_status)}\n"
         f"Historical streak max: {historical_max_streak}\n\n"
         f"No action required — within normal parameters."
     )
