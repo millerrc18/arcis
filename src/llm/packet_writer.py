@@ -402,18 +402,20 @@ def _collect_tier2_omissions(features: dict) -> list[str]:
     if not filings_ok and not press_ok:
         omitted.append(_TIER2_SECTION_MATERIAL_EVENTS)
 
-    # FUNDAMENTAL SNAPSHOT live-enrichment (T24): omitted when no live
-    # fundamental_* field is populated. The base section ALWAYS renders
-    # (Tier-1: SEC-EDGAR fundamental_summary fallback is plan-independent),
-    # but the live-enrichment trailer is the Tier-2 surface.
-    live_fields = (
-        features.get("fundamental_pe"),
-        features.get("fundamental_debt_to_equity"),
-        features.get("fundamental_gross_margin"),
-        features.get("fundamental_roic"),
-        features.get("fundamental_quality_flag"),
-    )
-    if all(v is None for v in live_fields):
+    # FUNDAMENTAL SNAPSHOT live-enrichment (T24): omitted ONLY when plan
+    # does not support stock_financials (Decision 30). The base section
+    # ALWAYS renders (Tier-1: SEC-EDGAR fundamental_summary fallback is
+    # plan-independent), but the live-enrichment trailer is the Tier-2
+    # surface and that's what this flag gates.
+    #
+    # A data-gap with plan-support (sink JSON missing because the
+    # nightly export hasn't run for this ticker yet) is NOT a plan-gated
+    # absence — the LLM sees the live-enrichment in its empty-state form
+    # rather than receiving a misleading "plan-gated" signal in the
+    # DATA CONTEXT header. PR #1084 review (operator) called this a
+    # Decision 32 falsifiability violation; the flag-driven shape here
+    # restores symmetry with the three sibling sections above.
+    if not features.get("_stock_financials_plan_supports"):
         omitted.append(_TIER2_SECTION_FUNDAMENTAL_SNAPSHOT)
 
     return omitted

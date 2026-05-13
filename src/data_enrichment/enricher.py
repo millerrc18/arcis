@@ -339,11 +339,20 @@ def enrich_stock_financials(
     FUNDAMENTAL SNAPSHOT section as a live trailer; the existing
     SEC-EDGAR ``fundamental_summary`` fallback is preserved untouched.
 
-    Plan-gated: when plan does not support stock_financials, no fields
-    are written (the renderer's live trailer degrades to "").
+    Always sets ``_stock_financials_plan_supports`` so the DATA CONTEXT
+    header can distinguish plan-gated absence (Decision 30) from a
+    transient data gap (sink JSON missing despite plan supporting).
+    Plan-gated: when plan does not support stock_financials, no
+    fundamental_* fields are written and the renderer's live trailer
+    degrades to "".
     """
     from src.data_enrichment.financials import load_stock_financials
+    from src.data_enrichment.finnhub_plan import finnhub_plan_supports
 
+    supports = finnhub_plan_supports("stock_financials", config)
+    feat["_stock_financials_plan_supports"] = supports
+    if not supports:
+        return
     result = load_stock_financials(ticker, config=config)
     if result is None:
         return

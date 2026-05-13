@@ -73,6 +73,7 @@ def test_header_omitted_when_all_tier2_sections_present():
     })
     # FUNDAMENTAL SNAPSHOT live-enrichment present (T24).
     features.update({
+        "_stock_financials_plan_supports": True,
         "fundamental_summary": "Revenue (TTM): $383.3B",
         "fundamental_pe": 28.5,
         "fundamental_debt_to_equity": 1.45,
@@ -113,6 +114,7 @@ def test_header_present_when_one_tier2_section_omits():
     })
     # FUNDAMENTAL SNAPSHOT live-enrichment present.
     features.update({
+        "_stock_financials_plan_supports": True,
         "fundamental_summary": "Revenue (TTM): $383.3B",
         "fundamental_pe": 28.5,
         "fundamental_debt_to_equity": 1.45,
@@ -146,6 +148,7 @@ def test_header_lists_exact_omitted_section_names():
     features["_filings_sentiment_plan_supports"] = False
     features["_press_releases_plan_supports"] = False
     features.update({
+        "_stock_financials_plan_supports": True,
         "fundamental_summary": "Revenue (TTM): $383.3B",
         "fundamental_pe": 28.5,
         "fundamental_debt_to_equity": 1.45,
@@ -174,3 +177,119 @@ def test_header_lists_exact_omitted_section_names():
         "FUNDAMENTAL SNAPSHOT live-enrichment is present in this fixture "
         "and MUST NOT appear in the omitted-sections list"
     )
+
+
+# ---------------------------------------------------------------------------
+# Test 4: FUNDAMENTAL SNAPSHOT omitted when plan does NOT support
+#         stock_financials (Decision 30 plan-gate)
+# ---------------------------------------------------------------------------
+
+
+def test_fundamental_snapshot_omitted_when_plan_not_supports():
+    """Decision 30: when ``_stock_financials_plan_supports`` is False
+    (plan does not include stock_financials), the FUNDAMENTAL SNAPSHOT
+    live-enrichment trailer is plan-gated absent, and the DATA CONTEXT
+    header MUST list it as an omitted section.
+
+    Regression-lock for PR #1084 review: the previous criterion inferred
+    omission from absence of fundamental_* fields, conflating plan-gate
+    with data-gap. The current criterion checks the plan flag directly.
+    """
+    from src.llm.packet_writer import _build_feature_prompt
+
+    features = _base_features()
+    features["_institutional_plan_supports"] = True
+    features.update({
+        "institutional_total_shares": 1_000_000_000,
+        "institutional_num_holders": 100,
+        "institutional_top5_pct": 25.0,
+        "institutional_qoq_delta_pct": 1.5,
+        "institutional_data_age_days": 2,
+    })
+    features["_filings_sentiment_plan_supports"] = True
+    features.update({
+        "filing_sentiment_score": 0.42,
+        "filing_sentiment_label": "positive",
+        "latest_filing_type": "10-K",
+        "latest_filing_age_days": 7,
+    })
+    # FUNDAMENTAL SNAPSHOT: plan does NOT support stock_financials.
+    # Live fields are deliberately present to prove the omission is
+    # driven by the plan flag, not by data presence.
+    features["_stock_financials_plan_supports"] = False
+    features.update({
+        "fundamental_summary": "Revenue (TTM): $383.3B",
+        "fundamental_pe": 28.5,
+        "fundamental_debt_to_equity": 1.45,
+        "fundamental_gross_margin": 0.452,
+        "fundamental_roic": 0.215,
+        "fundamental_quality_flag": "ok",
+        "fundamental_snapshot_age_days": 1,
+    })
+
+    prompt = _build_feature_prompt(features, "AAPL")
+    assert "=== DATA CONTEXT ===" in prompt, (
+        "DATA CONTEXT header MUST render when stock_financials is "
+        "plan-gated off, even if fundamental_* fields happen to be set"
+    )
+    header_part = prompt.split("=== DATA CONTEXT ===", 1)[1].split("===", 1)[0]
+    assert "FUNDAMENTAL SNAPSHOT" in header_part, (
+        "DATA CONTEXT header MUST list FUNDAMENTAL SNAPSHOT (live "
+        "enrichment) as plan-gated absent when _stock_financials_plan_"
+        "supports is False"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 5: FUNDAMENTAL SNAPSHOT NOT omitted when plan supports + data gap
+#         (sink JSON missing, transient state — Decision 32 distinction)
+# ---------------------------------------------------------------------------
+
+
+def test_fundamental_snapshot_not_omitted_when_plan_supports_no_data():
+    """Decision 32 falsifiability: when plan supports stock_financials
+    but the JSON sink is missing (nightly export hasn't run, or ticker
+    not in export universe), this is a transient data-gap — NOT a
+    plan-gated absence. The DATA CONTEXT header MUST NOT mark
+    FUNDAMENTAL SNAPSHOT as omitted in this state; the live-enrichment
+    trailer renders in its empty-state form via the renderer.
+
+    Regression-lock for PR #1084 review.
+    """
+    from src.llm.packet_writer import _build_feature_prompt
+
+    features = _base_features()
+    # All Tier-2 plan-supports True so the only possible header trigger
+    # would be the (incorrect) inference from missing fundamental_*
+    # fields — which the fix removes.
+    features["_institutional_plan_supports"] = True
+    features.update({
+        "institutional_total_shares": 1_000_000_000,
+        "institutional_num_holders": 100,
+        "institutional_top5_pct": 25.0,
+        "institutional_qoq_delta_pct": 1.5,
+        "institutional_data_age_days": 2,
+    })
+    features["_filings_sentiment_plan_supports"] = True
+    features.update({
+        "filing_sentiment_score": 0.42,
+        "filing_sentiment_label": "positive",
+        "latest_filing_type": "10-K",
+        "latest_filing_age_days": 7,
+    })
+    # FUNDAMENTAL SNAPSHOT: plan supports but NO live fields populated
+    # (sink JSON missing — transient data gap, not plan-gate).
+    features["_stock_financials_plan_supports"] = True
+    features["fundamental_summary"] = "Revenue (TTM): $383.3B (SEC-EDGAR fallback)"
+    # NOTE: fundamental_pe/etc deliberately NOT set — emulates plan-
+    # supports + sink-missing operational state.
+
+    prompt = _build_feature_prompt(features, "AAPL")
+    if "=== DATA CONTEXT ===" in prompt:
+        header_part = prompt.split("=== DATA CONTEXT ===", 1)[1].split("===", 1)[0]
+        assert "FUNDAMENTAL SNAPSHOT" not in header_part, (
+            "FUNDAMENTAL SNAPSHOT MUST NOT be listed as plan-gated "
+            "when _stock_financials_plan_supports is True — the empty "
+            "fundamental_* state is a transient data gap, not an "
+            "intentional Decision 30 omission"
+        )
