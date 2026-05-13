@@ -38,6 +38,7 @@ import numpy as np
 from src.analytics.canonical_sharpe import (
     PERIODS_PER_YEAR as CANONICAL_PERIODS_PER_YEAR,
     raw_sharpe as _canonical_raw_sharpe,
+    rf_adjusted_excess_sharpe as _canonical_excess_sharpe,
 )
 from src.diagnostics.bootstrap import bootstrap_ci
 
@@ -64,6 +65,11 @@ class WindowMetrics:
     bootstrap_se: float
     heavy_tail_flag: bool
     vix_tiers_represented: set[str]
+    # SP-WF-004 (Sprint 6 Wave B T3): excess-Sharpe gate fields.
+    # None when excess_sharpe_min was not supplied (default backward-compat path).
+    excess_sharpe: float | None = None
+    passes_excess_sharpe: bool | None = None
+    excess_sharpe_fail_reason: str | None = None
 
 
 def _pnl_array(trades: Iterable[Any]) -> np.ndarray:
@@ -198,8 +204,29 @@ def compute_window_metrics(
     heavy_tail_se_ratio: float = 1.5,
     bootstrap_resamples: int = 10_000,
     random_seed: int = 42,
+    excess_sharpe_min: float | None = None,
+    rf_period: float = 0.0,
 ) -> WindowMetrics:
-    """Compute the full WindowMetrics bundle for one OOS window's trades."""
+    """Compute the full WindowMetrics bundle for one OOS window's trades.
+
+    SP-WF-004 (Sprint 6 Wave B T3): when excess_sharpe_min is set, also
+    computes rf-adjusted excess Sharpe via canonical_sharpe.rf_adjusted_excess_sharpe
+    and gates the result against the threshold. Default None = no excess-Sharpe
+    check (backward-compat path; raw Sharpe threshold still applies via the runner).
+
+    WARNING — rf_period=0.0 default (PR #1091 review, operator 2026-05-13):
+    rf-adjusted excess Sharpe with rf_period=0 reduces to raw Sharpe
+    (`diff = returns - 0 == returns`). When a caller activates the gate by
+    setting excess_sharpe_min but leaves rf_period at the default 0.0, the
+    gate becomes a NOOP relative to raw Sharpe (just a different threshold
+    against the same statistic). For the gate to meaningfully check rf-adjusted
+    excess Sharpe, the caller MUST supply a non-zero rf_period derived from
+    a real risk-free rate source (e.g., FRED DTB3 via
+    src/data_ingestion/risk_free_rate.py). Runner-side wiring of this
+    rf_period sourcing is owned by T8 (walkforward_runner integration); until
+    T8 lands, direct callers of compute_window_metrics are responsible for
+    rf_period plumbing.
+    """
     pnls = _pnl_array(trades)
     sharpe = compute_sharpe(pnls)
     mdd = compute_max_drawdown(pnls)
@@ -211,6 +238,20 @@ def compute_window_metrics(
     if math.isfinite(param_se) and math.isfinite(boot_se) and param_se > 0:
         heavy_tail = boot_se > heavy_tail_se_ratio * param_se
     tiers = _tiers_in(trades)
+
+    # SP-WF-004 excess-Sharpe gate (additive — None default preserves existing behavior).
+    excess_sharpe: float | None = None
+    passes_excess_sharpe: bool | None = None
+    excess_sharpe_fail_reason: str | None = None
+    if excess_sharpe_min is not None:
+        es = _canonical_excess_sharpe([float(x) for x in pnls], rf_period)
+        excess_sharpe = es if es is not None else 0.0
+        if excess_sharpe >= excess_sharpe_min:
+            passes_excess_sharpe = True
+        else:
+            passes_excess_sharpe = False
+            excess_sharpe_fail_reason = "excess_sharpe_below_min"
+
     return WindowMetrics(
         window_index=window_index,
         n_trades=int(pnls.size),
@@ -222,6 +263,9 @@ def compute_window_metrics(
         bootstrap_se=boot_se,
         heavy_tail_flag=heavy_tail,
         vix_tiers_represented=tiers,
+        excess_sharpe=excess_sharpe,
+        passes_excess_sharpe=passes_excess_sharpe,
+        excess_sharpe_fail_reason=excess_sharpe_fail_reason,
     )
 
 

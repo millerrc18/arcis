@@ -118,6 +118,10 @@ class WalkForwardConfig:
     min_trades_per_window: int = MIN_TRADES_PER_WINDOW
     min_vix_tiers: int = MIN_VIX_TIERS_REPRESENTED
     min_window_duration_days: int = MIN_WINDOW_DURATION_DAYS
+    # SP-WF-004 (Sprint 6 Wave B T3): optional excess-Sharpe gate per window.
+    # None = use raw Sharpe threshold only (no behavior change for existing callers).
+    # When set, compute_window_metrics checks excess Sharpe (rf-adjusted) >= this min.
+    excess_sharpe_min: float | None = None
     # R8 defense-in-depth: forced False at the config layer. Runner asserts.
     bootcamp_override: bool = False
 
@@ -163,6 +167,7 @@ class WalkForwardConfig:
             "min_trades_per_window": self.min_trades_per_window,
             "min_vix_tiers": self.min_vix_tiers,
             "min_window_duration_days": self.min_window_duration_days,
+            "excess_sharpe_min": self.excess_sharpe_min,
             "bootcamp_override": self.bootcamp_override,
             "windows": [
                 {

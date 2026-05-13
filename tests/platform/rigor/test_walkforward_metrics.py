@@ -195,3 +195,77 @@ def test_window_metrics_empty_returns_zero_shape():
     assert m.n_trades == 0
     assert m.sharpe == 0.0
     assert m.max_drawdown_pct == 0.0
+
+
+def _make_high_excess_sharpe_trades(rng, n: int = 80, rf_period: float = 0.0001):
+    """Returns trades whose (pnl - rf) distribution yields excess Sharpe > 0.3."""
+    # mean pnl 0.004, std 0.01 → raw/excess Sharpe ≈ (0.004-rf)/0.01 * sqrt(252) ≈ 6.3
+    pnls = rng.normal(0.004, 0.01, size=n)
+    return [FakeTrade(pnl_pct=float(p), vix_at_entry=18.0) for p in pnls], rf_period
+
+
+def _make_low_excess_sharpe_trades(n: int = 80, rf_period: float = 0.005):
+    """Returns deterministic trades whose (pnl - rf) distribution yields excess Sharpe < 0.
+    pnl mean = 0.001 < rf_period = 0.005 → excess mean ≈ -0.004 → excess Sharpe < 0 < 0.3."""
+    pnls = [0.001] * n  # constant mean 0.001 with tiny variance via alternating ±delta
+    # Add just enough variation to avoid zero-std (canonical_sharpe returns None on zero std)
+    pnls = [0.001 + (0.0001 if i % 2 == 0 else -0.0001) for i in range(n)]
+    return [FakeTrade(pnl_pct=float(p), vix_at_entry=18.0) for p in pnls], rf_period
+
+
+def test_window_metrics_excess_sharpe_gate_pass():
+    """excess_sharpe_min=0.3, returns well above threshold → passes_excess_sharpe=True."""
+    from src.platform.rigor.walkforward_metrics import compute_window_metrics
+    rng = np.random.default_rng(77)
+    rf_period = 0.0001
+    trades, _ = _make_high_excess_sharpe_trades(rng, rf_period=rf_period)
+    m = compute_window_metrics(
+        trades,
+        window_index=0,
+        bootstrap_resamples=200,
+        excess_sharpe_min=0.3,
+        rf_period=rf_period,
+    )
+    assert m.passes_excess_sharpe is True
+    assert m.excess_sharpe is not None
+    assert m.excess_sharpe > 0.3
+
+
+def test_window_metrics_excess_sharpe_gate_fail():
+    """excess_sharpe_min=0.3, excess Sharpe < 0 (rf > mean pnl) → passes_excess_sharpe=False,
+    reason='excess_sharpe_below_min'."""
+    from src.platform.rigor.walkforward_metrics import compute_window_metrics
+    rf_period = 0.005  # rf > mean pnl (0.001) → excess mean < 0 → excess Sharpe < 0 < 0.3
+    trades, _ = _make_low_excess_sharpe_trades(rf_period=rf_period)
+    m = compute_window_metrics(
+        trades,
+        window_index=0,
+        bootstrap_resamples=200,
+        excess_sharpe_min=0.3,
+        rf_period=rf_period,
+    )
+    assert m.passes_excess_sharpe is False
+    assert m.excess_sharpe_fail_reason == "excess_sharpe_below_min"
+
+
+def test_window_metrics_excess_sharpe_none_uses_raw():
+    """excess_sharpe_min=None (default): passes_excess_sharpe=None, no behavior change."""
+    from src.platform.rigor.walkforward_metrics import compute_window_metrics
+    rng = np.random.default_rng(99)
+    pnls = rng.normal(0.003, 0.02, size=50)
+    trades = [FakeTrade(pnl_pct=float(p), vix_at_entry=18.0) for p in pnls]
+    # Call with explicit None (the default)
+    m_default = compute_window_metrics(
+        trades, window_index=0, bootstrap_resamples=200, excess_sharpe_min=None,
+    )
+    # And call with no excess_sharpe_min kwarg at all (same default)
+    m_no_kwarg = compute_window_metrics(
+        trades, window_index=0, bootstrap_resamples=200,
+    )
+    assert m_default.passes_excess_sharpe is None
+    assert m_default.excess_sharpe_fail_reason is None
+    assert m_no_kwarg.passes_excess_sharpe is None
+    assert m_no_kwarg.excess_sharpe_fail_reason is None
+    # Regression-lock: existing WindowMetrics fields are unchanged
+    assert m_default.sharpe == m_no_kwarg.sharpe
+    assert m_default.n_trades == m_no_kwarg.n_trades
