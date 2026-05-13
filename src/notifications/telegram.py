@@ -1432,6 +1432,14 @@ _KNOWN_EVENT_TYPES = frozenset(_EVENT_MAP)
 # CC3: payload-type events pass a single `payload` positional argument.
 _PAYLOAD_EVENTS = frozenset({"trade_opened", "trade_closed", "eod_report", "weekly_digest"})
 
+# Maps event_type -> dataclass class for round-trip reconstruction after json.loads.
+_PAYLOAD_CLASS_MAP = {
+    "trade_opened": TradeOpenedPayload,
+    "trade_closed": TradeClosedPayload,
+    "eod_report": EodReportPayload,
+    "weekly_digest": WeeklyDigestPayload,
+}
+
 
 # ── Testability hooks (replaced in tests via patch) ───────────────────────
 
@@ -1480,7 +1488,10 @@ def _do_dispatch(event_type: str, payload: dict, severity: str, channels: list) 
     notify_fn = getattr(_mod, fn_name, _EVENT_MAP[event_type])
     try:
         if event_type in _PAYLOAD_EVENTS:
-            result = notify_fn(payload["payload"])
+            payload_obj = payload["payload"]
+            if isinstance(payload_obj, dict):
+                payload_obj = _PAYLOAD_CLASS_MAP[event_type](**payload_obj)
+            result = notify_fn(payload_obj)
         else:
             result = notify_fn(**payload)
         _write_notification_sent(event_type=event_type, channel="telegram", status="ok")
