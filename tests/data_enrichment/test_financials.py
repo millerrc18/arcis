@@ -169,3 +169,44 @@ def test_snapshot_age_days_computed(fundamentals_dir, monkeypatch):
     assert age is not None
     # Allow 2-4 since reads can cross a day boundary.
     assert 2 <= age <= 4, f"Expected ~3 days, got {age}"
+
+
+# ---------------------------------------------------------------------------
+# Tests 5+6: WA3 — PE thresholds from config (Sprint 6 Wave A)
+# ---------------------------------------------------------------------------
+
+
+def test_quality_flag_respects_custom_thresholds():
+    """Custom pe_min/pe_max in config override module-level defaults.
+
+    With pe_min=5.0, pe_max=50.0: a stock with PE=3.0 (below min) must
+    return 'low' even though 3.0 is within the default [2.0, 200.0] range.
+    """
+    from src.data_enrichment.financials import _derive_quality_flag
+
+    custom_config = {
+        "data_enrichment": {
+            "fundamental_quality_thresholds": {
+                "pe_min": 5.0,
+                "pe_max": 50.0,
+            }
+        }
+    }
+    # PE=3.0 is below custom pe_min=5.0, ROIC positive — must be "low".
+    result = _derive_quality_flag(pe=3.0, roic=0.12, config=custom_config)
+    assert result == "low"
+
+    # PE=20.0 is within [5.0, 50.0], ROIC positive — must be "ok".
+    result_ok = _derive_quality_flag(pe=20.0, roic=0.12, config=custom_config)
+    assert result_ok == "ok"
+
+
+def test_quality_flag_falls_back_when_config_missing():
+    """Without config the module-level defaults (pe_min=2.0, pe_max=200.0) apply.
+
+    PE=3.0 is within the default range; positive ROIC → 'ok'.
+    """
+    from src.data_enrichment.financials import _derive_quality_flag
+
+    result = _derive_quality_flag(pe=3.0, roic=0.12, config=None)
+    assert result == "ok"

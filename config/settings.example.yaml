@@ -381,6 +381,10 @@ data_enrichment:
                                # 6 = more responsive to intraday changes.
   insider_lookback_days: 90    # Days of insider transaction history to include.
   include_news_in_backfill: true  # Include Finnhub news headlines in historical backfill.
+  fundamental_quality_thresholds:  # P/E bounds for _derive_quality_flag() in financials.py
+    pe_min: 2.0                    # Minimum reasonable P/E (below = distorted / cyclical).
+    pe_max: 200.0                  # Maximum reasonable P/E (above = high-growth / bubble).
+                                   # Override in settings.local.yaml to tighten/loosen.
 
 
 # ─── RISK GOVERNOR ──────────────────────────────────────────────────────
