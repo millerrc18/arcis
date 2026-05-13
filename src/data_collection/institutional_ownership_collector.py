@@ -143,6 +143,14 @@ def collect_institutional_ownership(
 
     row = _aggregate_holders(holders, ticker)
     with connect_db(db_path) as conn:
+        # Re-write semantics: action="ignore" means same (ticker, as_of_date)
+        # row stays at first-write values; updates require operator to
+        # DELETE + re-collect. Right default for immutable quarterly
+        # institutional snapshots (audit trail is in the source filings).
+        # If Finnhub backfills a new holder for an existing as_of_date,
+        # the updated total_shares/top_5_holders_pct would be silently
+        # dropped — acceptable given quarterly cadence + filing-level
+        # audit trail. (PR #1082 review, 2026-05-13.)
         engine_aware_upsert(conn, "institutional_holdings", row, action="ignore")
         conn.commit()
     logger.info(
