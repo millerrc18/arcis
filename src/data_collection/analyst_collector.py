@@ -99,6 +99,20 @@ def collect_analyst_estimates(
     """
     if batch_size is None:
         batch_size = _get_nightly_cap(None)
+
+    # Plan gate (Sprint 5 Wave C7b.6 / T26): defensive — recommendation_trends
+    # is in both 'free' and 'fundamental-1' matrices, so this is a no-op on
+    # current plans. Guards against future plan tiers that exclude the
+    # feature and satisfies the runtime-coverage scanner forward invariant.
+    # (price_target is gated separately below and remains a known-latent
+    # gate-off site — see T26 reverse-invariant allowlist.)
+    if not finnhub_plan_supports("recommendation_trends"):
+        logger.info(
+            "[ANALYST] Skipped collection — Finnhub plan does not support "
+            "recommendation_trends"
+        )
+        return {"tickers_processed": 0, "estimates_stored": 0, "errors": 0}
+
     api_key = _get_finnhub_key()
     if not api_key:
         from src.data_collection.errors import CollectorConfigError

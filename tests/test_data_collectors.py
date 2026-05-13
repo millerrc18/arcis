@@ -304,8 +304,16 @@ class TestAnalystEstimates:
 
         rec_data = [{"buy": 20, "hold": 5, "sell": 1, "strongBuy": 10, "strongSell": 0}]
 
+        # T26 (Sprint 5 Wave C7b.6): collect_analyst_estimates now has TWO
+        # plan-gate checks — recommendation_trends (top-level, gates the
+        # whole collection) and price_target (per-ticker, gates only the
+        # price-target endpoint). To test "recommendation_trends runs but
+        # price_target is skipped", differentiate the mock by feature.
+        def _plan_supports(feature, *_, **__):
+            return feature == "recommendation_trends"
+
         with patch("src.data_collection.analyst_collector._get_finnhub_key", return_value="key"), \
-             patch("src.data_collection.analyst_collector.finnhub_plan_supports", return_value=False), \
+             patch("src.data_collection.analyst_collector.finnhub_plan_supports", side_effect=_plan_supports), \
              patch("src.data_collection.analyst_collector.requests.get") as mock_get, \
              patch("src.data_collection.analyst_collector.time.sleep"):
             mock_resp_rec = MagicMock()

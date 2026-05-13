@@ -155,6 +155,14 @@ def fetch_recent_news(ticker: str, lookback_days: int = 7,
         result = {k: v for k, v in cached.items() if not k.startswith("_")}
         return result if result else None
 
+    # Plan gate (Sprint 5 Wave C7b.6 / T26): defensive — company_news is
+    # in both 'free' and 'fundamental-1', so this is a no-op on current
+    # plans. Guards against future plan tiers that exclude the feature
+    # and satisfies the runtime-coverage scanner forward invariant.
+    from src.data_enrichment.finnhub_plan import finnhub_plan_supports
+    if not finnhub_plan_supports("company_news"):
+        return None
+
     finnhub_api_key = finnhub_api_key or os.environ.get("FINNHUB_API_KEY")
     if not finnhub_api_key:
         if warnings is not None:
@@ -267,6 +275,14 @@ def fetch_historical_news(ticker: str, as_of_date: str, lookback_days: int = 7,
     if cached:
         result = {k: v for k, v in cached.items() if not k.startswith("_")}
         return result if result else None
+
+    # Plan gate (Sprint 5 Wave C7b.6 / T26): defensive — same as the
+    # runtime path. company_news is in both 'free' and 'fundamental-1';
+    # gate is a no-op on current plans but guards against future tiers
+    # that exclude the feature.
+    from src.data_enrichment.finnhub_plan import finnhub_plan_supports
+    if not finnhub_plan_supports("company_news"):
+        return None
 
     finnhub_api_key = finnhub_api_key or os.environ.get("FINNHUB_API_KEY")
     if not finnhub_api_key:
