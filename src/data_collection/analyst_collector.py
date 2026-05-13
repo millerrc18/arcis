@@ -31,7 +31,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from src.config import DB_PATH
-from src.data_collection._finnhub_shared import get_finnhub_key
+from src.data_collection._finnhub_shared import get_finnhub_key as _get_finnhub_key
 from src.data_enrichment.finnhub_plan import finnhub_plan_supports, get_finnhub_plan
 from src.utils.db import connect_db, engine_aware_upsert
 from src.utils.retry import retry_with_backoff
@@ -100,7 +100,7 @@ def collect_analyst_estimates(
         )
         return {"tickers_processed": 0, "estimates_stored": 0, "errors": 0}
 
-    api_key = get_finnhub_key()
+    api_key = _get_finnhub_key()
     if not api_key:
         from src.data_collection.errors import CollectorConfigError
         raise CollectorConfigError("FINNHUB_API_KEY not configured — set in .env or config/settings.local.yaml")
