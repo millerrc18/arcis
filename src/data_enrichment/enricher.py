@@ -322,6 +322,34 @@ def enrich_filings_sentiment(
         logger.debug("[ENRICHMENT] Filings sentiment read failed: %s", exc)
 
 
+def enrich_stock_financials(
+    feat: dict,
+    ticker: str,
+    config: dict | None = None,
+) -> None:
+    """Populate fundamental_* live-enrichment fields (T24).
+
+    Sprint 5 Wave C7b.4. Reads the per-ticker JSON sink left by
+    scripts/finnhub_fundamental_export.py via
+    ``src.data_enrichment.financials.load_stock_financials`` and writes
+    ``fundamental_pe`` / ``fundamental_debt_to_equity`` /
+    ``fundamental_gross_margin`` / ``fundamental_roic`` /
+    ``fundamental_quality_flag`` / ``fundamental_snapshot_age_days``
+    into the feature dict. The renderer surfaces these inside the
+    FUNDAMENTAL SNAPSHOT section as a live trailer; the existing
+    SEC-EDGAR ``fundamental_summary`` fallback is preserved untouched.
+
+    Plan-gated: when plan does not support stock_financials, no fields
+    are written (the renderer's live trailer degrades to "").
+    """
+    from src.data_enrichment.financials import load_stock_financials
+
+    result = load_stock_financials(ticker, config=config)
+    if result is None:
+        return
+    feat.update(result)
+
+
 def enrich_press_releases(
     feat: dict,
     ticker: str,

@@ -250,9 +250,12 @@ def test_packet_subblock_omits_when_plan_does_not_support():
         "_filings_sentiment_plan_supports": False,
     }
     prompt = _build_feature_prompt(features, "AAPL")
-    assert "MATERIAL EVENTS" not in prompt, (
-        "MATERIAL EVENTS section MUST be absent when no sub-blocks have "
-        "plan-support (Decision 30, composition rule)"
+    # NOTE: the literal string "MATERIAL EVENTS" appears in the T24
+    # DATA CONTEXT header's omitted-sections list; the section header
+    # (=== MATERIAL EVENTS ===) is what must be absent here.
+    assert "=== MATERIAL EVENTS ===" not in prompt, (
+        "MATERIAL EVENTS section header MUST be absent when no sub-blocks "
+        "have plan-support (Decision 30, composition rule)"
     )
 
 
