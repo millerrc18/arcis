@@ -135,6 +135,42 @@ def enrich_recent_attribution(
         logger.debug("[ENRICHMENT] Recent attribution read failed: %s", exc)
 
 
+def enrich_strategy_context(feat: dict, db_path: str = DB_PATH) -> None:
+    """Populate strategy-context preamble feature-dict fields.
+
+    Sprint 5 Wave C7a.4 / T20. Reads ``strategy_registry`` keyed by the
+    ``strategy_id`` FK present on shadow_trades (added by T2 / #56) and writes:
+
+      * ``strategy_status`` — current_status from registry (e.g. production,
+        shadow_trading, deprecated)
+      * ``strategy_parent_name`` — display_name from registry
+
+    NULL-strategy_id (legacy trades pre-dating T2 wiring): leaves the registry
+    fields unset; the renderer detects via ``feat.get('strategy_id')`` and
+    falls back to ``(unassigned - legacy trade)``.
+
+    Args:
+        feat: Per-ticker feature dict (mutated in place). Reads ``strategy_id``.
+        db_path: SQLite DB path. Defaults to runtime DB.
+    """
+    strategy_id = feat.get("strategy_id")
+    if not strategy_id:
+        return
+    try:
+        with connect_db(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT display_name, current_status FROM strategy_registry "
+                "WHERE strategy_id = ? LIMIT 1",
+                (strategy_id,),
+            ).fetchone()
+            if row:
+                feat["strategy_status"] = row["current_status"]
+                feat["strategy_parent_name"] = row["display_name"]
+    except Exception as exc:
+        logger.debug("[ENRICHMENT] Strategy context read failed: %s", exc)
+
+
 def enrich_historical_credibility(feat: dict, db_path: str = DB_PATH) -> None:
     """Populate walk-forward historical credibility feature-dict fields.
 
