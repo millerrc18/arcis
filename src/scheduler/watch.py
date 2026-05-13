@@ -326,6 +326,9 @@ class WatchLoop(HandlerRegistryMixin):
         # Tick: digest queue flush (T11 D2, configurable cadence default 60min)
         self._last_digest_queue_time: datetime | None = None
 
+        # Tick: alert silence detector (T14 D5, 5-min cadence)
+        self._last_alert_silence_time: datetime | None = None
+
     def _reset_daily_state(self):
         """Reset daily flags at midnight ET.
 
@@ -1005,6 +1008,32 @@ class WatchLoop(HandlerRegistryMixin):
         except (NotificationsError, sqlite3.Error) as exc:
             logger.error("[DIGEST] tick_digest_queue failed: %s", exc)
             self._backoff["digest_queue"] = self._backoff.get("digest_queue", 0) + 1
+
+    def tick_alert_silence(self) -> None:
+        """Tick: alert silence detector (T14 D5, 5-min cadence).
+
+        Calls check_alert_silence to detect notification silence during market
+        hours. Fires every 5 minutes. Side-effects (safe_send + platform_events)
+        are handled inside check_alert_silence.
+        Done-flag set INSIDE try per CLAUDE.md "_safe_run returns bool" rule.
+        Backoff keyed to 'alert_silence' per-task.
+        """
+        from src.monitoring.alert_silence import check_alert_silence
+
+        now = datetime.now(ET)
+        if (
+            self._last_alert_silence_time is not None
+            and (now - self._last_alert_silence_time).total_seconds() < 5 * 60
+        ):
+            return
+
+        try:
+            check_alert_silence(now_et=now, threshold_minutes=60)
+            self._last_alert_silence_time = now
+
+        except Exception as exc:
+            logger.error("[ALERT_SILENCE] tick_alert_silence failed: %s", exc)
+            self._backoff["alert_silence"] = self._backoff.get("alert_silence", 0) + 1
 
     def _post_scan_notifications(self, result):
         """Send Telegram notifications after a scan cycle."""
@@ -2047,6 +2076,10 @@ class WatchLoop(HandlerRegistryMixin):
                 # T12 D3 will replace stub dispatcher with real safe_send wiring.
                 if self._safe_run("digest queue", self.tick_digest_queue):
                     pass  # cadence managed by _last_digest_queue_time
+
+                # Tick: alert silence detector (T14 D5, 5-min cadence)
+                if self._safe_run("alert silence", self.tick_alert_silence):
+                    pass  # cadence managed by _last_alert_silence_time
 
                 time.sleep(60)
 
