@@ -1,4 +1,4 @@
-"""T15b — safe_send + email notifier write hooks tests.
+"""T15b -- safe_send + email notifier write hooks tests.
 
 Tests that safe_send and send_email persist outcomes to notifications_sent table.
 
@@ -9,9 +9,34 @@ T15-REV additions:
 import sqlite3
 import tempfile
 import os
+from datetime import datetime
 from unittest.mock import patch, MagicMock
+from zoneinfo import ZoneInfo
 
 from src.notifications.telegram import TradeOpenedPayload
+
+ET = ZoneInfo("America/New_York")
+
+
+def _make_notif_config():
+    from src.notifications.policy import NotificationsConfig
+    return NotificationsConfig(
+        default_routing={"telegram": True, "email": False},
+        digest_low=False,
+        quiet_hours_start="22:00",
+        quiet_hours_end="06:00",
+        quiet_digest=True,
+        mute_event_types=[],
+        routing_overrides={},
+        cadence_minutes_per_event_type={},
+        retry_attempts=3,
+        retry_backoff_seconds=[1, 5, 15],
+        digest_flush_minutes=60,
+    )
+
+
+def _now_midday():
+    return datetime(2026, 5, 12, 12, 0, tzinfo=ET)
 
 
 def _payload():
@@ -40,20 +65,24 @@ def _make_sent_db():
 
 
 def test_safe_send_failure_writes_failed_row():
-    """Network failure in safe_send → notifications_sent row with status='failed', error_msg populated."""
+    """Network failure in safe_send -> notifications_sent row with status='failed', error_msg populated."""
     import requests.exceptions
     from src.notifications.telegram import safe_send
 
     conn = _make_sent_db()
+    cfg = _make_notif_config()
+    now = _now_midday()
 
     with patch("src.notifications.telegram.is_telegram_enabled", return_value=True):
-        with patch(
-            "src.notifications.telegram.notify_trade_opened",
-            side_effect=requests.exceptions.RequestException("connection refused"),
-        ):
-            with patch("src.notifications.telegram._write_notification_sent") as mock_write:
-                mock_write.side_effect = lambda **kw: _insert_sent(conn, **kw)
-                safe_send("trade_opened", payload=_payload())
+        with patch("src.notifications.telegram._load_config_for_safe_send", return_value=cfg):
+            with patch("src.notifications.telegram._now_et_for_safe_send", return_value=now):
+                with patch(
+                    "src.notifications.telegram.notify_trade_opened",
+                    side_effect=requests.exceptions.RequestException("connection refused"),
+                ):
+                    with patch("src.notifications.telegram._write_notification_sent") as mock_write:
+                        mock_write.side_effect = lambda **kw: _insert_sent(conn, **kw)
+                        safe_send("trade_opened", payload=_payload())
 
     rows = conn.execute("SELECT status, error_msg FROM notifications_sent").fetchall()
     assert len(rows) == 1
@@ -63,19 +92,23 @@ def test_safe_send_failure_writes_failed_row():
 
 
 def test_safe_send_success_writes_ok_row():
-    """Successful safe_send dispatch → notifications_sent row with status='ok'."""
+    """Successful safe_send dispatch -> notifications_sent row with status='ok'."""
     from src.notifications.telegram import safe_send
 
     conn = _make_sent_db()
+    cfg = _make_notif_config()
+    now = _now_midday()
 
     with patch("src.notifications.telegram.is_telegram_enabled", return_value=True):
-        with patch(
-            "src.notifications.telegram.notify_system_event",
-            return_value=True,
-        ):
-            with patch("src.notifications.telegram._write_notification_sent") as mock_write:
-                mock_write.side_effect = lambda **kw: _insert_sent(conn, **kw)
-                result = safe_send("system_event", event="test_event", detail="ok")
+        with patch("src.notifications.telegram._load_config_for_safe_send", return_value=cfg):
+            with patch("src.notifications.telegram._now_et_for_safe_send", return_value=now):
+                with patch(
+                    "src.notifications.telegram.notify_system_event",
+                    return_value=True,
+                ):
+                    with patch("src.notifications.telegram._write_notification_sent") as mock_write:
+                        mock_write.side_effect = lambda **kw: _insert_sent(conn, **kw)
+                        result = safe_send("system_event", event="test_event", detail="ok")
 
     assert result is True
     rows = conn.execute("SELECT status FROM notifications_sent").fetchall()
@@ -84,7 +117,7 @@ def test_safe_send_success_writes_ok_row():
 
 
 def test_email_smtp_success_writes_ok_row():
-    """SMTP success → notifications_sent row with channel='email', status='ok'."""
+    """SMTP success -> notifications_sent row with channel='email', status='ok'."""
     from src.email.notifier import send_email
 
     conn = _make_sent_db()
@@ -114,7 +147,7 @@ def test_email_smtp_success_writes_ok_row():
 
 
 def test_email_smtp_fail_writes_failed_row():
-    """SMTP failure → notifications_sent row with channel='email', status='failed'."""
+    """SMTP failure -> notifications_sent row with channel='email', status='failed'."""
     import smtplib
     from src.email.notifier import send_email
 
@@ -152,7 +185,7 @@ def _insert_sent(conn, event_type, channel, status, error_msg=None, **kw):
     conn.commit()
 
 
-# ── MUST_FIX 2: force_send=True bypasses silent-on-pass ───────────────────────
+# -- MUST_FIX 2: force_send=True bypasses silent-on-pass -------------------------------------------
 
 def test_notify_validation_summary_silent_on_pass_default():
     """Default behavior: all-pass result returns True without calling send_telegram."""
@@ -201,7 +234,7 @@ def test_notify_validation_summary_force_send_with_failures_still_sends():
     mock_send.assert_called_once()
 
 
-# ── SHOULD_FIX 5: end-to-end safe_send failure path via real DB ───────────────
+# -- SHOULD_FIX 5: end-to-end safe_send failure path via real DB -----------------------------------
 
 def _make_tmp_db_path(tmp_dir):
     """Create a real SQLite DB file in tmp_dir with notifications_sent."""
@@ -225,14 +258,19 @@ def _make_tmp_db_path(tmp_dir):
 
 
 def test_safe_send_failure_writes_row_to_real_db():
-    """Network failure in safe_send → real DB row with status='failed' (no mock on write)."""
+    """Network failure in safe_send -> real DB row with status='failed' (no mock on write)."""
     import requests.exceptions
     from src.notifications.telegram import safe_send
+
+    cfg = _make_notif_config()
+    now = _now_midday()
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         db_path = _make_tmp_db_path(tmp_dir)
 
         with patch("src.notifications.telegram.is_telegram_enabled", return_value=True), \
+             patch("src.notifications.telegram._load_config_for_safe_send", return_value=cfg), \
+             patch("src.notifications.telegram._now_et_for_safe_send", return_value=now), \
              patch(
                  "src.notifications.telegram.notify_trade_opened",
                  side_effect=requests.exceptions.RequestException("connection refused"),

@@ -4,18 +4,43 @@ Module: tests.notifications.test_telegram_payload_wiring
 Purpose: Verify that notify_trade_opened / notify_trade_closed / notify_eod_report /
          notify_weekly_digest accept typed payload dataclasses (not positional kwargs)
          and pass the correct message text to send_telegram.
-         Also verifies the full safe_send → notify_*(payload) → send_telegram chain.
+         Also verifies the full safe_send -> notify_*(payload) -> send_telegram chain.
 Called by: pytest
 Owns tables: none
 Config keys: none
 """
 
+from datetime import datetime
 from unittest.mock import MagicMock, patch
+from zoneinfo import ZoneInfo
 
 import pytest
 
+ET = ZoneInfo("America/New_York")
 
-# ── Helper payload factories ────────────────────────────────────────────────
+
+def _make_notif_config():
+    from src.notifications.policy import NotificationsConfig
+    return NotificationsConfig(
+        default_routing={"telegram": True, "email": False},
+        digest_low=False,
+        quiet_hours_start="22:00",
+        quiet_hours_end="06:00",
+        quiet_digest=True,
+        mute_event_types=[],
+        routing_overrides={},
+        cadence_minutes_per_event_type={},
+        retry_attempts=3,
+        retry_backoff_seconds=[1, 5, 15],
+        digest_flush_minutes=60,
+    )
+
+
+def _now_midday():
+    return datetime(2026, 5, 12, 12, 0, tzinfo=ET)
+
+
+# -- Helper payload factories ----------------------------------------------------------------
 
 def _trade_opened_payload():
     from src.notifications.telegram import TradeOpenedPayload
@@ -106,7 +131,7 @@ def _weekly_digest_payload():
     )
 
 
-# ── notify_trade_opened payload wiring ─────────────────────────────────────
+# -- notify_trade_opened payload wiring -------------------------------------------------------
 
 class TestNotifyTradeOpenedPayloadWiring:
     """notify_trade_opened(payload) accepts a TradeOpenedPayload and calls send_telegram."""
@@ -154,7 +179,7 @@ class TestNotifyTradeOpenedPayloadWiring:
             )
 
 
-# ── notify_trade_closed payload wiring ─────────────────────────────────────
+# -- notify_trade_closed payload wiring -------------------------------------------------------
 
 class TestNotifyTradeClosedPayloadWiring:
     """notify_trade_closed(payload) accepts a TradeClosedPayload and calls send_telegram."""
@@ -190,7 +215,7 @@ class TestNotifyTradeClosedPayloadWiring:
             )
 
 
-# ── notify_eod_report payload wiring ──────────────────────────────────────
+# -- notify_eod_report payload wiring ---------------------------------------------------------
 
 class TestNotifyEodReportPayloadWiring:
     """notify_eod_report(payload) accepts an EodReportPayload and calls send_telegram."""
@@ -232,7 +257,7 @@ class TestNotifyEodReportPayloadWiring:
             )
 
 
-# ── notify_weekly_digest payload wiring ───────────────────────────────────
+# -- notify_weekly_digest payload wiring ------------------------------------------------------
 
 class TestNotifyWeeklyDigestPayloadWiring:
     """notify_weekly_digest(payload) accepts a WeeklyDigestPayload and calls send_telegram."""
@@ -283,16 +308,20 @@ class TestNotifyWeeklyDigestPayloadWiring:
             )
 
 
-# ── safe_send → notify_*(payload) → send_telegram chain ───────────────────
+# -- safe_send -> notify_*(payload) -> send_telegram chain ------------------------------------
 
 class TestSafeSendPayloadChain:
-    """End-to-end: safe_send → notify_*(payload) → send_telegram API mock."""
+    """End-to-end: safe_send -> notify_*(payload) -> send_telegram API mock."""
 
     def test_safe_send_trade_closed_full_chain(self):
         """safe_send('trade_closed', payload=...) routes through notify_trade_closed(payload) to send_telegram."""
         from src.notifications.telegram import TradeClosedPayload
         payload = _trade_closed_payload()
+        cfg = _make_notif_config()
+        now = _now_midday()
         with patch("src.notifications.telegram.is_telegram_enabled", return_value=True), \
+             patch("src.notifications.telegram._load_config_for_safe_send", return_value=cfg), \
+             patch("src.notifications.telegram._now_et_for_safe_send", return_value=now), \
              patch("src.notifications.telegram.send_telegram", return_value=True) as mock_send, \
              patch("src.notifications.telegram._write_notification_sent"):
             from src.notifications.telegram import safe_send
@@ -306,7 +335,11 @@ class TestSafeSendPayloadChain:
         """safe_send('trade_opened', payload=...) routes through notify_trade_opened(payload) to send_telegram."""
         from src.notifications.telegram import TradeOpenedPayload
         payload = _trade_opened_payload()
+        cfg = _make_notif_config()
+        now = _now_midday()
         with patch("src.notifications.telegram.is_telegram_enabled", return_value=True), \
+             patch("src.notifications.telegram._load_config_for_safe_send", return_value=cfg), \
+             patch("src.notifications.telegram._now_et_for_safe_send", return_value=now), \
              patch("src.notifications.telegram.send_telegram", return_value=True) as mock_send, \
              patch("src.notifications.telegram._write_notification_sent"):
             from src.notifications.telegram import safe_send
@@ -319,7 +352,11 @@ class TestSafeSendPayloadChain:
     def test_safe_send_eod_report_full_chain(self):
         """safe_send('eod_report', payload=...) routes through notify_eod_report(payload) to send_telegram."""
         payload = _eod_report_payload()
+        cfg = _make_notif_config()
+        now = _now_midday()
         with patch("src.notifications.telegram.is_telegram_enabled", return_value=True), \
+             patch("src.notifications.telegram._load_config_for_safe_send", return_value=cfg), \
+             patch("src.notifications.telegram._now_et_for_safe_send", return_value=now), \
              patch("src.notifications.telegram.send_telegram", return_value=True) as mock_send, \
              patch("src.notifications.telegram._write_notification_sent"):
             from src.notifications.telegram import safe_send
@@ -330,7 +367,11 @@ class TestSafeSendPayloadChain:
     def test_safe_send_weekly_digest_full_chain(self):
         """safe_send('weekly_digest', payload=...) routes through notify_weekly_digest(payload) to send_telegram."""
         payload = _weekly_digest_payload()
+        cfg = _make_notif_config()
+        now = _now_midday()
         with patch("src.notifications.telegram.is_telegram_enabled", return_value=True), \
+             patch("src.notifications.telegram._load_config_for_safe_send", return_value=cfg), \
+             patch("src.notifications.telegram._now_et_for_safe_send", return_value=now), \
              patch("src.notifications.telegram.send_telegram", return_value=True) as mock_send, \
              patch("src.notifications.telegram._write_notification_sent"):
             from src.notifications.telegram import safe_send
@@ -339,7 +380,7 @@ class TestSafeSendPayloadChain:
         mock_send.assert_called_once()
 
 
-# ── Existing dataclass construction tests (regression guard) ────────────────
+# -- Existing dataclass construction tests (regression guard) ---------------------------------
 
 class TestDataclassConstructionRegression:
     """Regression: original T21b construction tests must still pass after wiring."""

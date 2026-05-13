@@ -1,4 +1,4 @@
-"""Sprint 4 T3 — safe_send central wrapper regression tests.
+"""Sprint 4 T3 -- safe_send central wrapper regression tests.
 
 Design principle: safe_send catches ONLY network errors. ImportError / NameError /
 AttributeError propagate. This file locks in that contract so future "make it more
@@ -6,12 +6,37 @@ defensive" PRs can't silently re-introduce the bare-except anti-pattern.
 """
 
 import socket
+from datetime import datetime
 from unittest.mock import patch, MagicMock
+from zoneinfo import ZoneInfo
 import pytest
 import requests.exceptions
 
 from src.notifications import safe_send
 from src.notifications.telegram import TradeOpenedPayload
+
+ET = ZoneInfo("America/New_York")
+
+
+def _make_notif_config():
+    from src.notifications.policy import NotificationsConfig
+    return NotificationsConfig(
+        default_routing={"telegram": True, "email": False},
+        digest_low=False,
+        quiet_hours_start="22:00",
+        quiet_hours_end="06:00",
+        quiet_digest=True,
+        mute_event_types=[],
+        routing_overrides={},
+        cadence_minutes_per_event_type={},
+        retry_attempts=3,
+        retry_backoff_seconds=[1, 5, 15],
+        digest_flush_minutes=60,
+    )
+
+
+def _now_midday():
+    return datetime(2026, 5, 12, 12, 0, tzinfo=ET)
 
 
 def _payload():
@@ -22,46 +47,62 @@ def _payload():
 
 class TestSafeSendNetworkFailure:
     def test_request_exception_caught_returns_false(self):
-        """RequestException → caught, logged warning, returns False (not raise)."""
+        """RequestException -> caught, logged warning, returns False (not raise)."""
+        cfg = _make_notif_config()
+        now = _now_midday()
         with patch("src.notifications.telegram.is_telegram_enabled", return_value=True):
-            with patch("src.notifications.telegram.notify_trade_opened",
-                       side_effect=requests.exceptions.RequestException("network down")):
-                with patch("src.notifications.telegram._record_send_failure") as mock_record:
-                    result = safe_send("trade_opened", payload=_payload())
-                    assert result is False
-                    mock_record.assert_called_once()
+            with patch("src.notifications.telegram._load_config_for_safe_send", return_value=cfg):
+                with patch("src.notifications.telegram._now_et_for_safe_send", return_value=now):
+                    with patch("src.notifications.telegram.notify_trade_opened",
+                               side_effect=requests.exceptions.RequestException("network down")):
+                        with patch("src.notifications.telegram._record_send_failure") as mock_record:
+                            result = safe_send("trade_opened", payload=_payload())
+                            assert result is False
+                            mock_record.assert_called_once()
 
 
 class TestSafeSendImportError:
     def test_import_error_propagates(self):
-        """ImportError on a notify_* function → propagates (does NOT return False)."""
+        """ImportError on a notify_* function -> propagates (does NOT return False)."""
+        cfg = _make_notif_config()
+        now = _now_midday()
         with patch("src.notifications.telegram.is_telegram_enabled", return_value=True):
-            with patch("src.notifications.telegram.notify_trade_opened",
-                       side_effect=ImportError("missing module")):
-                with pytest.raises(ImportError, match="missing module"):
-                    safe_send("trade_opened", payload=_payload())
+            with patch("src.notifications.telegram._load_config_for_safe_send", return_value=cfg):
+                with patch("src.notifications.telegram._now_et_for_safe_send", return_value=now):
+                    with patch("src.notifications.telegram.notify_trade_opened",
+                               side_effect=ImportError("missing module")):
+                        with pytest.raises(ImportError, match="missing module"):
+                            safe_send("trade_opened", payload=_payload())
 
 
 class TestSafeSendNameError:
     def test_name_error_propagates(self):
-        """NameError inside notify_X body → propagates."""
+        """NameError inside notify_X body -> propagates."""
+        cfg = _make_notif_config()
+        now = _now_midday()
         with patch("src.notifications.telegram.is_telegram_enabled", return_value=True):
-            with patch("src.notifications.telegram.notify_trade_opened",
-                       side_effect=NameError("undefined_function")):
-                with pytest.raises(NameError, match="undefined_function"):
-                    safe_send("trade_opened", payload=_payload())
+            with patch("src.notifications.telegram._load_config_for_safe_send", return_value=cfg):
+                with patch("src.notifications.telegram._now_et_for_safe_send", return_value=now):
+                    with patch("src.notifications.telegram.notify_trade_opened",
+                               side_effect=NameError("undefined_function")):
+                        with pytest.raises(NameError, match="undefined_function"):
+                            safe_send("trade_opened", payload=_payload())
 
 
 class TestSafeSendCounter:
     def test_failed_dispatch_increments_counter(self):
         """On network failure, _record_send_failure is invoked with event_type + error string."""
         error_msg = "connection refused"
+        cfg = _make_notif_config()
+        now = _now_midday()
         with patch("src.notifications.telegram.is_telegram_enabled", return_value=True):
-            with patch("src.notifications.telegram.notify_trade_opened",
-                       side_effect=requests.exceptions.RequestException(error_msg)):
-                with patch("src.notifications.telegram._record_send_failure") as mock_record:
-                    safe_send("trade_opened", payload=_payload())
-                    mock_record.assert_called_once_with("trade_opened", error_msg)
+            with patch("src.notifications.telegram._load_config_for_safe_send", return_value=cfg):
+                with patch("src.notifications.telegram._now_et_for_safe_send", return_value=now):
+                    with patch("src.notifications.telegram.notify_trade_opened",
+                               side_effect=requests.exceptions.RequestException(error_msg)):
+                        with patch("src.notifications.telegram._record_send_failure") as mock_record:
+                            safe_send("trade_opened", payload=_payload())
+                            mock_record.assert_called_once_with("trade_opened", error_msg)
 
 
 class TestSafeSendTokenRedaction:
@@ -72,25 +113,29 @@ class TestSafeSendTokenRedaction:
             "Max retries exceeded with url: "
             "/bot1234567890:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/sendMessage"
         )
+        cfg = _make_notif_config()
+        now = _now_midday()
         with patch("src.notifications.telegram.is_telegram_enabled", return_value=True):
-            with patch("src.notifications.telegram.notify_trade_opened",
-                       side_effect=requests.exceptions.RequestException(token_url)):
-                with patch("src.notifications.telegram._record_send_failure") as mock_record:
-                    safe_send("trade_opened", payload=_payload())
-                    mock_record.assert_called_once()
-                    call_args = mock_record.call_args
-                    error_arg = call_args[0][1]  # second positional arg
-                    assert ":AAAAAAAA" not in error_arg, (
-                        f"Bot token not redacted in _record_send_failure call: {error_arg!r}"
-                    )
-                    assert "[REDACTED]" in error_arg, (
-                        f"Expected [REDACTED] in redacted string: {error_arg!r}"
-                    )
+            with patch("src.notifications.telegram._load_config_for_safe_send", return_value=cfg):
+                with patch("src.notifications.telegram._now_et_for_safe_send", return_value=now):
+                    with patch("src.notifications.telegram.notify_trade_opened",
+                               side_effect=requests.exceptions.RequestException(token_url)):
+                        with patch("src.notifications.telegram._record_send_failure") as mock_record:
+                            safe_send("trade_opened", payload=_payload())
+                            mock_record.assert_called_once()
+                            call_args = mock_record.call_args
+                            error_arg = call_args[0][1]  # second positional arg
+                            assert ":AAAAAAAA" not in error_arg, (
+                                f"Bot token not redacted in _record_send_failure call: {error_arg!r}"
+                            )
+                            assert "[REDACTED]" in error_arg, (
+                                f"Expected [REDACTED] in redacted string: {error_arg!r}"
+                            )
 
 
 class TestSafeSendDisabledShortCircuit:
     def test_telegram_disabled_returns_false_no_dispatch(self):
-        """is_telegram_enabled() False → returns False; no notify_X invocation."""
+        """is_telegram_enabled() False -> returns False; no notify_X invocation."""
         with patch("src.notifications.telegram.is_telegram_enabled", return_value=False):
             with patch("src.notifications.telegram.notify_trade_opened") as mock_notify:
                 result = safe_send("trade_opened", payload=_payload())
@@ -102,10 +147,14 @@ class TestSafeSendSuccessPath:
     def test_success_path_invokes_notify_and_returns_true(self):
         """Happy path: notify_X invoked with payload object, returns its return value."""
         payload = _payload()
+        cfg = _make_notif_config()
+        now = _now_midday()
         with patch("src.notifications.telegram.is_telegram_enabled", return_value=True):
-            mock_fn = MagicMock(return_value=True)
-            with patch("src.notifications.telegram.notify_trade_opened", mock_fn):
-                with patch("src.notifications.telegram._write_notification_sent"):
-                    result = safe_send("trade_opened", payload=payload)
-                assert result is True
-                mock_fn.assert_called_once_with(payload)
+            with patch("src.notifications.telegram._load_config_for_safe_send", return_value=cfg):
+                with patch("src.notifications.telegram._now_et_for_safe_send", return_value=now):
+                    mock_fn = MagicMock(return_value=True)
+                    with patch("src.notifications.telegram.notify_trade_opened", mock_fn):
+                        with patch("src.notifications.telegram._write_notification_sent"):
+                            result = safe_send("trade_opened", payload=payload)
+        assert result is True
+        mock_fn.assert_called_once_with(payload)
