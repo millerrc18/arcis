@@ -95,6 +95,62 @@ def _print_dry_run_plan(sqlite_path: str, sync_tables: list) -> None:
     print(f"\nDRY RUN complete. {len(sync_tables)} tables would be migrated.")
 
 
+def _confirm(source_path: str, dest_url: str, sync_tables: list, *, auto_yes: bool) -> None:
+    """Print direction + counts, require operator types 'YES' to proceed (unless --yes)."""
+    print()
+    print("=" * 72)
+    print("SQLITE -> POSTGRES DATA MIGRATION — pre-flight summary")
+    print("=" * 72)
+    print(f"  SOURCE:      {source_path}")
+    print(f"  DESTINATION: {_redact_password(dest_url)}")
+    print(f"  TABLES:      {len(sync_tables)} sync_to_postgres tables from registry")
+    print()
+    print("Connecting to both DBs to fetch row counts (read-only)...")
+    sqlite_conn = sqlite3.connect(source_path)
+    sqlite_total = 0
+    sqlite_present = 0
+    for t in sync_tables:
+        try:
+            cur = sqlite_conn.cursor()
+            cur.execute(f"SELECT COUNT(*) FROM {t.name}")
+            sqlite_total += cur.fetchone()[0]
+            sqlite_present += 1
+        except sqlite3.OperationalError:
+            pass
+    sqlite_conn.close()
+    print(f"  SOURCE:      {sqlite_total:,} rows across {sqlite_present}/{len(sync_tables)} tables present")
+    pg_conn = psycopg2.connect(dest_url, connect_timeout=15)
+    pg_cur = pg_conn.cursor()
+    pg_total = 0
+    pg_present = 0
+    for t in sync_tables:
+        try:
+            pg_cur.execute(f'SELECT COUNT(*) FROM "{t.name}"')
+            pg_total += pg_cur.fetchone()[0]
+            pg_present += 1
+            pg_conn.commit()
+        except psycopg2.Error:
+            pg_conn.rollback()
+    pg_cur.close()
+    pg_conn.close()
+    print(f"  DESTINATION: {pg_total:,} rows across {pg_present}/{len(sync_tables)} tables present")
+    print()
+    print("Migration writes the source -> destination using INSERT ... ON CONFLICT")
+    print("(pk) DO NOTHING per table. Sequences advance to MAX(pk)+1 post-bulk.")
+    print("=" * 72)
+
+    if auto_yes:
+        print("--yes flag set; skipping interactive confirmation.")
+        return
+    print("Type 'YES' (exact case, no quotes) to proceed, or anything else to abort:")
+    response = input("> ").strip()
+    if response != "YES":
+        print(f"Aborted (response was {response!r}, expected 'YES').")
+        sys.exit(2)
+    print("Confirmed. Beginning migration.")
+    print()
+
+
 def _build_insert_sql_template(table_name: str, col_names: list[str], pk_cols: list[str]) -> str:
     """Build an `INSERT … ON CONFLICT (…) DO NOTHING` template for execute_values.
 
@@ -209,6 +265,7 @@ def run_migration(
     table_filter: Optional[list[str]] = None,
     dry_run: bool = False,
     vacuum_after: bool = False,
+    auto_yes: bool = False,
 ) -> None:
     _validate_database_url(database_url)
 
@@ -217,6 +274,8 @@ def run_migration(
     if dry_run:
         _print_dry_run_plan(sqlite_path, sync_tables)
         return
+
+    _confirm(sqlite_path, database_url, sync_tables, auto_yes=auto_yes)
 
     sqlite_conn = sqlite3.connect(sqlite_path)
     sqlite_conn.row_factory = None
@@ -273,6 +332,11 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Issue VACUUM ANALYZE after each table insert.",
     )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip the interactive confirmation prompt (scripted/CI use).",
+    )
     return parser.parse_args()
 
 
@@ -291,6 +355,7 @@ def main() -> None:
         table_filter=table_filter,
         dry_run=args.dry_run,
         vacuum_after=args.vacuum_after,
+        auto_yes=args.yes,
     )
 
 
