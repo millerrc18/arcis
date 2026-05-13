@@ -278,3 +278,157 @@ def test_flush_error_redacts_bot_token_in_exception_string():
     assert "<redacted" in flush_error.lower() or "REDACTED" in flush_error or "bot***" in flush_error.lower(), (
         f"flush_error doesn't show redaction marker -- verify _redact_token output: {flush_error!r}"
     )
+
+
+# ── T115: dataclass payload serialization ────────────────────────────────
+
+
+def test_enqueue_accepts_trade_opened_dataclass_payload():
+    """Enqueue with a TradeOpenedPayload dataclass-wrapped in kwargs dict must not raise
+    and must round-trip to the same dict via json.loads."""
+    from src.notifications.telegram import TradeOpenedPayload
+    conn = _make_conn()
+    q = DigestQueue(conn, config=_default_config())
+    payload_dc = TradeOpenedPayload(
+        ticker="AAPL", entry_price=100.0, stop=95.0, target=110.0, score=80, shares=10
+    )
+    kwargs_payload = {"payload": payload_dc}
+    row_id = q.enqueue(
+        event_type="trade_opened",
+        severity="low",
+        payload=kwargs_payload,
+    )
+    assert isinstance(row_id, int) and row_id >= 1
+    row = conn.execute(
+        "SELECT payload_json FROM notifications_digest_queue WHERE id=?", (row_id,)
+    ).fetchone()
+    assert row is not None
+    roundtripped = json.loads(row["payload_json"])
+    assert roundtripped["payload"]["ticker"] == "AAPL"
+    assert roundtripped["payload"]["entry_price"] == 100.0
+    assert roundtripped["payload"]["stop"] == 95.0
+    assert roundtripped["payload"]["target"] == 110.0
+    assert roundtripped["payload"]["score"] == 80
+    assert roundtripped["payload"]["shares"] == 10
+
+
+def test_enqueue_accepts_dict_payload():
+    """Backward compat: plain dict payload must still work (no regression)."""
+    conn = _make_conn()
+    q = DigestQueue(conn, config=_default_config())
+    row_id = q.enqueue(
+        event_type="trade_opened",
+        severity="low",
+        payload={"ticker": "TSLA", "entry_price": 200.0},
+    )
+    row = conn.execute(
+        "SELECT payload_json FROM notifications_digest_queue WHERE id=?", (row_id,)
+    ).fetchone()
+    assert row is not None
+    roundtripped = json.loads(row["payload_json"])
+    assert roundtripped["ticker"] == "TSLA"
+    assert roundtripped["entry_price"] == 200.0
+
+
+def test_enqueue_rejects_invalid_payload_type():
+    """Non-dict, non-dataclass payload must raise TypeError (fail-loud, Decision 19)."""
+    conn = _make_conn()
+    q = DigestQueue(conn, config=_default_config())
+    with pytest.raises(TypeError, match="payload must be dataclass or dict"):
+        q.enqueue(
+            event_type="trade_opened",
+            severity="low",
+            payload=5,
+        )
+
+
+# ── T115 supplementary: flush-side reconstruction + event_type round-trip ──
+
+
+def test_flush_injects_event_type_into_row_payload():
+    """flush() must include event_type from the DB row in the dispatched dict.
+
+    Bug 1: The current flush() only selects id, payload_json, flush_attempts.
+    _real_dispatcher in watch.py reads event_type from row_payload — if it is
+    absent the event_type comes back as '' and dispatch is broken.
+    """
+    conn = _make_conn()
+    q = DigestQueue(conn, config=_default_config())
+    q.enqueue(event_type="trade_opened", severity="low", payload={"ticker": "AAPL"})
+
+    dispatched = []
+    q.flush(dispatcher=lambda p: dispatched.append(p))
+
+    assert len(dispatched) == 1
+    assert dispatched[0].get("event_type") == "trade_opened", (
+        f"event_type not injected into flush dispatch payload; got: {dispatched[0]}"
+    )
+
+
+def test_flush_injects_severity_into_row_payload():
+    """flush() must include severity from the DB row in the dispatched dict."""
+    conn = _make_conn()
+    q = DigestQueue(conn, config=_default_config())
+    q.enqueue(event_type="risk_alert", severity="high", payload={"detail": "test"})
+
+    dispatched = []
+    q.flush(dispatcher=lambda p: dispatched.append(p))
+
+    assert len(dispatched) == 1
+    assert dispatched[0].get("severity") == "high", (
+        f"severity not injected into flush dispatch payload; got: {dispatched[0]}"
+    )
+
+
+def test_full_roundtrip_trade_opened_dataclass_enqueue_to_dispatch():
+    """End-to-end: dataclass enqueue -> DB row -> flush() -> notify_trade_opened
+    receives a reconstructed TradeOpenedPayload instance (not a plain dict).
+
+    Bug 2: After json.loads round-trip, payload["payload"] is a plain dict.
+    notify_trade_opened does payload.ticker (attribute access) -> AttributeError.
+    Fix: _do_dispatch must reconstruct the dataclass from dict before calling notify_fn.
+    """
+    from unittest.mock import patch
+    from src.notifications.telegram import TradeOpenedPayload
+
+    conn = _make_conn()
+    q = DigestQueue(conn, config=_default_config())
+    payload_dc = TradeOpenedPayload(
+        ticker="AAPL", entry_price=100.0, stop=95.0,
+        target=110.0, score=80, shares=10,
+    )
+    q.enqueue(
+        event_type="trade_opened",
+        severity="low",
+        payload={"payload": payload_dc},
+    )
+
+    received_payloads = []
+
+    def fake_notify(p):
+        received_payloads.append(p)
+        return True
+
+    with patch("src.notifications.telegram.notify_trade_opened", fake_notify):
+        from src.notifications.telegram import _do_dispatch
+
+        dispatched_dicts = []
+
+        def capturing_dispatcher(row_payload):
+            dispatched_dicts.append(row_payload)
+            event_type = row_payload.get("event_type", "")
+            severity = row_payload.get("severity", "normal")
+            kwargs = {k: v for k, v in row_payload.items() if k not in ("event_type", "severity")}
+            _do_dispatch(event_type, kwargs, severity, ["telegram"])
+
+        q.flush(dispatcher=capturing_dispatcher)
+
+    assert len(received_payloads) == 1, (
+        f"notify_trade_opened was not called (got {len(received_payloads)} calls)"
+    )
+    p = received_payloads[0]
+    assert isinstance(p, TradeOpenedPayload), (
+        f"expected TradeOpenedPayload reconstruction, got {type(p)}: {p!r}"
+    )
+    assert p.ticker == "AAPL"
+    assert p.entry_price == 100.0

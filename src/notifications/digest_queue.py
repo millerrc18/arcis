@@ -27,6 +27,7 @@ FlushResult lifecycle for a single row:
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 from dataclasses import dataclass
@@ -36,6 +37,13 @@ from typing import Callable
 from src.notifications.telegram import _KNOWN_EVENT_TYPES, _redact_token
 
 logger = logging.getLogger(__name__)
+
+
+class _DataclassJSONEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+            return dataclasses.asdict(obj)
+        return super().default(obj)
 
 
 @dataclass
@@ -63,7 +71,11 @@ class DigestQueue:
                 f"Unknown event_type {event_type!r}. "
                 f"Must be one of the registered event types in src.notifications.telegram._KNOWN_EVENT_TYPES."
             )
-        payload_json = json.dumps(payload)
+        if not isinstance(payload, dict) and not (dataclasses.is_dataclass(payload) and not isinstance(payload, type)):
+            raise TypeError(
+                f"DigestQueue.enqueue: payload must be dataclass or dict, got {type(payload).__name__}"
+            )
+        payload_json = json.dumps(payload, cls=_DataclassJSONEncoder)
         cur = self._conn.execute(
             "INSERT INTO notifications_digest_queue"
             " (event_type, severity, payload_json, source_tag, flush_status, flush_attempts)"
@@ -125,7 +137,7 @@ class DigestQueue:
         self._recover_orphaned_in_progress()
 
         rows = self._conn.execute(
-            "SELECT id, payload_json, flush_attempts FROM notifications_digest_queue"
+            "SELECT id, event_type, severity, payload_json, flush_attempts FROM notifications_digest_queue"
             " WHERE flush_status='pending'"
             " ORDER BY created_at ASC"
             " LIMIT ?",
@@ -143,8 +155,10 @@ class DigestQueue:
             if claimed == 0:
                 continue
 
+            payload_dict = json.loads(row["payload_json"])
+            dispatch_dict = {"event_type": row["event_type"], "severity": row["severity"], **payload_dict}
             outcome = self._dispatch_one_row(
-                row["id"], json.loads(row["payload_json"]), row["flush_attempts"], dispatcher
+                row["id"], dispatch_dict, row["flush_attempts"], dispatcher
             )
             if outcome == "sent":
                 successes += 1
