@@ -2,6 +2,44 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Sprint 6 Wave A — SP6 catch-all sweep (7 PR-review follow-ups from Sprint 5):
+  - **WA1** (`_get_finnhub_key` extraction, #1082/#1083/#1084): extracted the
+    12-line `_get_finnhub_key` helper from 6 collectors (institutional_ownership,
+    filings_sentiment, press_releases, insider, short_interest, analyst) into
+    `src/data_collection/_finnhub_shared.py`. Each collector now imports
+    `get_finnhub_key as _get_finnhub_key` to preserve existing test patch targets.
+    +1 test in `tests/data_collection/test_finnhub_shared.py` (env-precedence +
+    YAML fallback + None-on-neither).
+  - **WA2** (`price_target` matrix, #1085): added `"price_target"` to
+    `_FEATURE_MATRIX['fundamental-1']` in `src/data_enrichment/finnhub_plan.py`.
+    Activates the `analyst_collector.py:147` gate on paid plans (Finnhub
+    fundamental-1 tier includes `/stock/price-target`). Removed `"price_target"`
+    from `_REVERSE_INVARIANT_ALLOWLIST` in the T26 AST scanner test. +1 test.
+  - **WA3** (PE quality thresholds, #1084): `_derive_quality_flag()` in
+    `src/data_enrichment/financials.py` now reads PE bounds from
+    `data_enrichment.fundamental_quality_thresholds.{pe_min,pe_max}` in
+    `config/settings.example.yaml`, with fallback to hardcoded 2.0/200.0 defaults
+    for backward-compat. +2 tests in `tests/data_enrichment/test_financials.py`.
+  - **WA4** (env-pollution test fix, #1085): added
+    `monkeypatch.delenv("FINNHUB_PLAN", raising=False)` to
+    `test_feature_matrix_distinguishes_free_and_premium` in `tests/test_enrichment.py`
+    so the test passes on machines with `FINNHUB_PLAN` set in `.env`. Moved the
+    entry in `docs/audits/known-pre-existing-failures.md` to "Recently cleared".
+  - **WA5** (Decision 27 lock test, #1083): new structural test
+    `tests/data_collection/test_filings_sentiment_revision_semantics.py` locks the
+    current `action='ignore'` behavior (second upsert of same PK with different
+    score silently drops the revision). Test PASSES now; inverts if/when
+    `action='replace'` is adopted.
+  - **WA6** (migration utils extraction, #1067): created
+    `scripts/_shared_migration_utils.py` with `topo_sort_tables` (uses
+    `graphlib.TopologicalSorter`, Python 3.9+ stdlib), `redact_password`, and
+    `confirm` helpers. Both migration scripts (`sqlite_to_pg_migrate.py`,
+    `render_to_local_migrate.py`) import from the shared module. SQLite-to-PG
+    migration now applies topo sort before migrating (was missing, PR #1067 fix).
+    +6 tests in `tests/scripts/test_shared_migration_utils.py`.
+
 ## [v0.35.0] - 2026-05-13 — Sprint 5 close: cutover stabilization + notification policy + LLM packet enrichment + dual-GPU disposition
 
 Sprint 5 delivered 15 named tasks across 6 waves (C cutover-stabilization,
