@@ -84,12 +84,18 @@ jobs:
         run: |
           ACTUAL=$(grep -oE '[0-9]+ passed' pytest-output.txt | head -1 | grep -oE '[0-9]+')
           # Floor accounts for chronic-failure class (worktree env-drift, hardcoded
-          # test:test fixtures, scripts/archive_bootcamp_2026_04_24.py registry-count
-          # drift, etc.) — Sprint 5 §J cleanup will eradicate these and the floor
-          # tightens up. Initial CI run with all fixes saw 4995 passed; bumped to
-          # 5050 after Phase 1 + Phase 2 added ~135 tests (target +100 net, with
-          # ~35 lost to the chronic-failure class). §J cleanup will tighten.
-          EXPECTED=5050
+          # test:test fixtures, env-pollution affecting test_feature_matrix_distinguishes_free_and_premium,
+          # scripts/archive_bootcamp_2026_04_24.py registry-count drift, etc.).
+          # Floor lineage:
+          #   4995 (initial CI run with all Sprint 5 Phase 1+2 fixes)
+          #   5050 (post-Phase-2.5: +55 tests from KNOWN_OFFENDERS date-function cleanup)
+          #   5100 (Sprint 5 close 2026-05-13: +50 tests across Wave C7a (12) +
+          #         Wave C7b (27) + T13 _html_escape siblings (5) + T14 alert silence
+          #         (8) + T16 CompatRow indexing (6); CLAUDE.md SQLite-only floor
+          #         5400, this floor 5100 because PG-aware sweep loses ~300 to
+          #         the chronic-failure class on CI hosted runners)
+          # Bump when full-sweep grows past the previous floor.
+          EXPECTED=5100
           echo "Tests passed: $ACTUAL (floor: $EXPECTED)"
           if [ -z "$ACTUAL" ]; then
             echo "Could not extract test count from pytest output" >&2

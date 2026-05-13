@@ -2338,3 +2338,192 @@ After the push, GitHub re-runs the check on the updated branch. If the merge-bas
 Both layers emit the same actionable error message and reference the same incident history. The client hook fires earlier (at push time, before a PR even opens), which is preferable. The CI check is the backstop when the client hook is absent or bypassed.
 
 **Tag:** `#SP4-settings-backend-float32-storage WON'T FIX` — resolved by T11 frontend clamp. Backend storage unchanged by design.
+
+---
+
+## Sprint 5 closeout state (v0.35.0 — 2026-05-13)
+
+This section captures the operationally-relevant deltas in v0.35.0 that
+the operator may need to consult when running daily ops. Full release
+notes live in `CHANGELOG.md`; this is the curated subset.
+
+### Phase-3-revised cutover (SQLite → local Postgres)
+
+Sprint 5 completed the Phase-3-revised cutover from a SQLite-only data
+backend to a dual-engine (SQLite + Postgres) setup. The runtime engine
+is selected by the `ARCIS_PG_CUTOVER_ENABLED` environment variable:
+
+| `ARCIS_PG_CUTOVER_ENABLED` | `connect_db()` returns |
+|---|---|
+| Unset or `0` (default) | SQLite — `sqlite3.Connection` on `ARCIS_DB_PATH` |
+| `1` | Postgres — `PostgresConnectionWrapper` on `DATABASE_URL` |
+
+Production runs the SQLite engine; the operator's local cutover sandbox
+uses the PG engine via `DATABASE_URL=postgresql://halcyon:halcyon@localhost:5433/halcyon`.
+
+**Operationally:** if you see `KeyError: 0` from a `.fetchone()[0]` call
+after enabling the PG engine, it's a row-shape mismatch — Postgres
+returns `RealDictCursor` rows (dict-like, not tuple-like). Use
+`src.utils.db._scalar(row)` to extract the first column engine-agnostically.
+
+### Wave D notification subsystem
+
+The notification routing layer added in Sprint 5 (Wave D) introduces
+four behaviors the operator should be aware of:
+
+1. **Policy gate** (`src/notifications/policy.py`): every `notify_*` call
+   passes through a policy decision (`send` / `digest` / `mute` /
+   `escalate`). The decision is recorded in `notifications_sent.policy_decision`
+   for forensic audit. See §11 of this guide for the policy YAML truth table.
+2. **Digest queue** (`notifications_digest_queue` table): `verdict=digest`
+   events are persisted with `flush_status='pending'` and drained every
+   30 minutes during quiet hours. See §11 "Digest queue" for the lifecycle.
+3. **Alert silence detector**: a watch-loop task (`tick_alert_silence`,
+   fires every 5 min) checks `MAX(sent_at)` across `notifications_sent`,
+   `notifications_digest_queue.flushed_at`, and `notifications_digest_queue.created_at`.
+   Silence > 60 minutes during market hours emits a high-severity
+   `alert_silence` event + writes a `platform_events` row for forensic
+   trail.
+4. **HTML escape**: all `notify_*` functions emit Telegram-safe HTML
+   via `_html_escape()` — operator does NOT need to manually escape
+   ticker symbols or news headlines passed via payload dataclasses.
+
+### Wave C7a/C7b LLM packet enrichment
+
+The LLM prompt now includes 8 new sections that the operator may see
+referenced in trade-packet logs:
+
+- **STRATEGY CONTEXT** header preamble (T20)
+- **COUNCIL CONSENSUS** (T17, indexed 4.4)
+- **HISTORICAL CREDIBILITY** (T18)
+- **RECENT ATTRIBUTION** (T19, 30-day window default)
+- **INSTITUTIONAL FLOW** (T21, plan-gated on `institutional_ownership`)
+- **MATERIAL EVENTS** (T22+T23 wrapper, plan-gated sub-blocks)
+- **FUNDAMENTAL SNAPSHOT** live-enrichment trailer (T24)
+- **DATA CONTEXT** header (T24, prepended when ≥1 Tier-2 section omits)
+
+The DATA CONTEXT header distinguishes plan-gated absence (Decision 30)
+from transient data gaps (sink JSON missing); it carries explicit
+`omitted: <section>` notes so the LLM doesn't conflate the two states.
+
+### Dual-GPU deferral (Wave E)
+
+The dual-GPU workload-separation work (RTX 3060 for serving + RTX 3090
+for training) is **deferred to the first post-Sprint-5 maintenance window**
+per the Wave E disposition doc at
+`docs/audits/2026-05-12-dual-gpu-ideation/disposition.md`. The canonical
+design spec is preserved at
+`docs/audits/2026-05-12-dual-gpu-ideation/specs/2026-05-12-dual-gpu-workload-separation-design.md`
+— operator can review when scoping the next training cycle.
+
+Until then: training runs on the RTX 3090 (24 GB VRAM) using
+Transformers + PEFT + TRL (Unsloth dependency removed per the 2026-05-10
+GPU swap). Set `NUM_PARALLEL=4` for the new card.
+
+---
+
+## NSSM environment configuration
+
+The watch loop is managed by NSSM as a Windows service. The service
+inherits environment variables from the system + the NSSM service config.
+Use `nssm restart <svc>` to restart (NOT `python -m src.main startup` —
+that creates a duplicate process that races the NSSM-managed instance;
+observed 2026-05-06).
+
+### Environment variable inventory
+
+Every variable below is read at watch-loop startup. Categorized by
+purpose; required vars marked **(required)**.
+
+**Secrets** — never commit; live in `.env` or NSSM service config (not in YAML):
+
+| Variable | Purpose |
+|---|---|
+| `ALPACA_API_KEY` **(required for paper)** | Alpaca paper trading API key |
+| `ALPACA_API_SECRET` **(required for paper)** | Alpaca paper trading API secret |
+| `ALPACA_LIVE_API_KEY` (optional) | Alpaca live trading API key — only set when going live |
+| `ALPACA_LIVE_SECRET_KEY` (optional) | Alpaca live trading API secret — same gating |
+| `ALPACA_RESEARCH_API_KEY` (optional) | Research-tier API key for historical data |
+| `ALPACA_RESEARCH_API_SECRET` (optional) | Research-tier API secret |
+| `FINNHUB_API_KEY` **(required)** | Finnhub API token (free or fundamental-1 tier) |
+| `FRED_API_KEY` **(required)** | FRED macro data key |
+| `TELEGRAM_BOT_TOKEN` / `ARCIS_TELEGRAM_TOKEN` | Telegram bot token (either name supported; the latter takes precedence) |
+
+**Connection / database** — wire the engine + endpoints:
+
+| Variable | Purpose |
+|---|---|
+| `ARCIS_DB_PATH` **(required)** | SQLite database path. Canonical value: `C:/arcis/data/ai_research_desk.sqlite3` |
+| `DATABASE_URL` (cutover-only) | PG connection string when `ARCIS_PG_CUTOVER_ENABLED=1` |
+| `TEST_DATABASE_URL` (CI-only) | PG connection string for pytest parametrized_conn fixture |
+
+**Feature flags / runtime modes**:
+
+| Variable | Purpose |
+|---|---|
+| `ARCIS_PG_CUTOVER_ENABLED` | `0`/unset → SQLite; `1` → Postgres via DATABASE_URL |
+| `ALPACA_PAPER_TRADE` | `1` → paper mode; `0` → live mode |
+| `ARCIS_LOG_ACTIVITY_IN_PYTEST` | Allow `activity_logger` writes during pytest (default: blocked, raises) |
+| `ARCIS_SHOW_WARNINGS` | `1` → emit data-collection warning categories to stderr; default: silent |
+| `FINNHUB_PLAN` | `auto` / `free` / `fundamental-1` — overrides `config.data_enrichment.finnhub_plan`. Note: env wins over config arg per `get_finnhub_plan()` precedence |
+| `PYTHONUTF8` | Set to `1` for training (TRL/jinja codec compatibility; required since 2026-05-10 GPU swap) |
+| `UNSLOTH_DISABLE_FUSED_CROSS_ENTROPY` | Training-time Unsloth flag (legacy — Unsloth removed in v0.35.0 dual-GPU rewrite) |
+
+**Paths / runtime locations**:
+
+| Variable | Purpose |
+|---|---|
+| `ARCIS_DATA_DIR` | Runtime data root (defaults to `C:/arcis/data/`) |
+| `ARCIS_CORPUS_ROOT` | Corpus generation output root |
+| `ARCIS_SIM_CACHE_ROOT` | Simulation cache directory |
+| `ARCIS_SETTINGS_PATH` | Override path to `settings.yaml` |
+| `ALPACA_BASE_URL` (optional) | Override Alpaca API base URL (testnet / custom) |
+
+**Public IDs / non-secret config**:
+
+| Variable | Purpose |
+|---|---|
+| `TELEGRAM_CHAT_ID` | Telegram chat ID for notifications |
+| `ARCIS_LOCAL_API_TOKEN` | Local API auth token (binds 127.0.0.1 only) |
+| `ARCIS_NOTIFICATION_SOURCE` | Set by pytest conftest to `"pytest:<worktree>"` for test isolation; production unset |
+
+### Setting variables in NSSM
+
+```cmd
+nssm set <svc-name> AppEnvironmentExtra ARCIS_DB_PATH=C:\arcis\data\ai_research_desk.sqlite3 ^
+                                       FINNHUB_API_KEY=<token> ^
+                                       FRED_API_KEY=<token> ^
+                                       TELEGRAM_BOT_TOKEN=<token> ^
+                                       TELEGRAM_CHAT_ID=<id> ^
+                                       ALPACA_API_KEY=<key> ^
+                                       ALPACA_API_SECRET=<secret> ^
+                                       ALPACA_PAPER_TRADE=1
+nssm restart <svc-name>
+```
+
+After updating env vars, verify the watch loop picked them up:
+```cmd
+type C:\arcis\logs\watch.log | findstr "startup"
+```
+
+---
+
+## Phase-3-revised cutover finalization checklist (#113)
+
+When the operator runs the SQLite → PG cutover finalization (one-DB
+discipline), follow this checklist to verify the cutover is complete
+without orphaned state:
+
+- [ ] `ARCIS_PG_CUTOVER_ENABLED=1` set in NSSM service env
+- [ ] `DATABASE_URL` points to the canonical PG instance (`localhost:5433/halcyon` for local, or the Render PG URL for cloud)
+- [ ] Run `python scripts/render_to_local_migrate.py --dry-run` and review the migration plan
+- [ ] Run `python scripts/render_to_local_migrate.py` (with `--yes` for scripted) and verify row counts match the source SQLite
+- [ ] Run `python -m src.main validate-schema` and confirm 0 drift items
+- [ ] Run a SCAN cycle in dry-run mode (`python -m src.main scan --verbose --dry-run`) and confirm no `KeyError(0)` from a leaked `.fetchone()[0]` site
+- [ ] Restart watch loop via `nssm restart <svc>` and check `C:\arcis\logs\watch.log` for `[STARTUP]` lines
+- [ ] Confirm the AST scanner test `tests/test_no_fetchone_int_index_in_pg_unsafe_files.py` passes (`pytest tests/test_no_fetchone_int_index_in_pg_unsafe_files.py`)
+- [ ] Confirm `tests/test_finnhub_plan_runtime_coverage.py` passes (matrix + runtime coverage invariants)
+- [ ] Move the old SQLite file to `C:\arcis\data\archive\` (do NOT delete — operator may need it for forensic comparison per `#112`)
+
+After cutover: `ARCIS_PG_CUTOVER_ENABLED=0` reverts to SQLite — the
+engine routing is symmetric and bidirectional. Cutover is reversible.

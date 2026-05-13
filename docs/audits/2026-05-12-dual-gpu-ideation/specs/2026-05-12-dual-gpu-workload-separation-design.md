@@ -42,20 +42,20 @@
 - Failure modes per card + recovery procedures.
 - Verification plan (operator-runnable; extends `scripts/verify_training_readiness.py`).
 - Test plan with named test functions and explicit test-count delta against the 5400 floor.
-- SP6 implementation read-list to close coverage gaps from deep report.
+- post-Sprint-5 implementation read-list to close coverage gaps from deep report.
 - Risk register.
-- Open questions for SP6 implementation.
+- Open questions for post-Sprint-5 implementation.
 
 ### 2.2 Out of Scope (deferred or explicitly rejected)
 
 | Item | Status | Rationale |
 |---|---|---|
-| Strategy E (3060 for sentence-transformers/embeddings) | Deferred to separate SP6 design | Operator instruction: "separate SP6 design". Single embedding call site in current codebase doesn't justify a dedicated card without explicit embedding workload scoping. *Note: the existing single embedding call site in `src/intel/leakage_detector.py` (POST /api/embeddings) already executes against Ollama on GPU 1 under Strategy A — incidental, not designed.* |
+| Strategy E (3060 for sentence-transformers/embeddings) | Deferred to separate post-Sprint-5 design | Operator instruction: "separate post-Sprint-5 design". Single embedding call site in current codebase doesn't justify a dedicated card without explicit embedding workload scoping. *Note: the existing single embedding call site in `src/intel/leakage_detector.py` (POST /api/embeddings) already executes against Ollama on GPU 1 under Strategy A — incidental, not designed.* |
 | Walk-forward framework GPU usage | Out of scope (post-Sprint-5 sprint) | Per brief §90 and operator instruction. |
 | DPO_TRAIN_SCRIPT rewrite off Unsloth | Out of scope | **GPU upgrade update (`project_gpu_upgrade`):** CURRICULUM_TRAIN_SCRIPT has been rewritten to Transformers+PEFT+TRL (12→24 GB VRAM upgrade, 2026-05-10). DPO_TRAIN_SCRIPT (trainer.py:290–327) and CURRICULUM_TRAIN_SCRIPT GGUF-export fallback (lines 247–250) still require Unsloth; surface report's blanket "stale pin" claim is incorrect for DPO path. |
 | Schema widening (per-GPU columns in `system_metrics`) | **Promoted to required (test set only)** | Implementation of widening itself remains optional. If operator declines schema change, the 4 tests become guard tests asserting current single-GPU behavior. Discussed in §13. |
-| Telegram `/health` and `/gpu` per-GPU rendering | Deferred (flagged as SP6 follow-up) | Touches `src/notifications/telegram_commands.py:672-691` and `:749-761`. Not blocking. |
-| Implementation of Strategy A | Out of scope | SPEC_ONLY=true. Plan.md generated in SP6. |
+| Telegram `/health` and `/gpu` per-GPU rendering | Deferred (flagged as post-Sprint-5 follow-up) | Touches `src/notifications/telegram_commands.py:672-691` and `:749-761`. Not blocking. |
+| Implementation of Strategy A | Out of scope | SPEC_ONLY=true. Plan.md generated in the post-Sprint-5 window. |
 | Strategy B (DDP/FSDP), C (pipeline parallel), D (hot-spare/OOM-rescue) | Rejected in §4.2 | Strict-rigor analysis below. |
 | Cloud-burst, multi-host, AMD GPU support | Out of scope | Per brief §92–95. |
 
@@ -134,7 +134,7 @@ The codebase is built around the premise that **Ollama and PyTorch training cann
 
 ### 3.5 NSSM `ArcisWatchLoop` post-Sprint-5 canonical env state
 
-Per operator memory `reference_watch_loop_management` and Sprint 5 §J close (PR #1056), the **current production** `AppEnvironmentExtra` block contains (at minimum) the following five variables. **Any SP6 change to this block MUST preserve all of them**:
+Per operator memory `reference_watch_loop_management` and Sprint 5 §J close (PR #1056), the **current production** `AppEnvironmentExtra` block contains (at minimum) the following five variables. **Any post-Sprint-5 change to this block MUST preserve all of them**:
 
 | Variable | Current value | Source / why required |
 |---|---|---|
@@ -144,7 +144,7 @@ Per operator memory `reference_watch_loop_management` and Sprint 5 §J close (PR
 | `ARCIS_PG_CUTOVER_ENABLED` | `1` | Sprint 5 §J: gates the read-from-Postgres code paths. Cutover-gate flag. |
 | `PYTHONUTF8` | `1` | UTF-8 encoding for training logs (subject to operator's local config — verify via `nssm get` before assuming presence). |
 
-SP6's job is to **append** two new variables to this block: `CUDA_VISIBLE_DEVICES=0` and `CUDA_DEVICE_ORDER=PCI_BUS_ID`. The procedural pattern in §5.2 B1 enforces this — read first, merge in code, write the merged block.
+post-Sprint-5 work's job is to **append** two new variables to this block: `CUDA_VISIBLE_DEVICES=0` and `CUDA_DEVICE_ORDER=PCI_BUS_ID`. The procedural pattern in §5.2 B1 enforces this — read first, merge in code, write the merged block.
 
 ---
 
@@ -179,7 +179,7 @@ SP6's job is to **append** two new variables to this block: `CUDA_VISIBLE_DEVICE
 
 **Strategy D — Hot-spare / OOM rescue.** 3060 sits idle 99% of the time; OOM-rescue triggers the `device_map='auto'` footgun we're trying to eliminate. Rejected.
 
-**Strategy E — 3060 for embeddings.** Surface report finds 1 embedding call site. Not enough work to justify a dedicated card. Properly scoped as a separate SP6 design. *Note: the existing single embedding call site in `src/intel/leakage_detector.py` already executes against Ollama on GPU 1 incidentally — Strategy A subsumes it without explicit design.* Deferred.
+**Strategy E — 3060 for embeddings.** Surface report finds 1 embedding call site. Not enough work to justify a dedicated card. Properly scoped as a separate post-Sprint-5 design. *Note: the existing single embedding call site in `src/intel/leakage_detector.py` already executes against Ollama on GPU 1 incidentally — Strategy A subsumes it without explicit design.* Deferred.
 
 **Strategy A wins because:** (a) zero training-vs-inference contention, (b) minimal code change, (c) preserves the subprocess-exits-reclaim-VRAM invariant, (d) operator-controllable via two NSSM services + one ps1 script (three clear ownership surfaces).
 
@@ -217,7 +217,7 @@ Pinning `PCI_BUS_ID` makes ordering deterministic from PCIe enumeration. With th
 
 **Where it must be set:** at every boundary listed in §5.1. Defense-in-depth: also at the source level inside `scripts/verify_training_readiness.py` (set in `os.environ` at module top before any torch import) so even a manually-invoked dry-run on a misconfigured shell is protected. (Implementation guidance: see Appendix D §D.1.)
 
-**Where it is currently UNSET (verified gap):** all five boundaries. SP6 implementation closes this.
+**Where it is currently UNSET (verified gap):** all five boundaries. post-Sprint-5 implementation closes this.
 
 ### 5.1 Boundary inventory
 
@@ -228,7 +228,7 @@ Pinning `PCI_BUS_ID` makes ordering deterministic from PCIe enumeration. With th
 | B2 | `scripts/ollama_watchdog.ps1` (process scope) | Script edit at script top, before `Start-OllamaHeadless` | `1` | `PCI_BUS_ID` | `Start-Process` with no `-Environment` inherits parent shell env. |
 | B2′ | NEW: NSSM `ArcisOllamaWatchdog` service env | `nssm set ArcisOllamaWatchdog AppEnvironmentExtra ...` | `1` | `PCI_BUS_ID` | When watchdog is NSSM-managed (§6 required item), its env carries the GPU 1 pin so reboot recovery is automatic — even if `ollama_watchdog.ps1` is later edited and the in-script `$env:` lines stripped, the service env still provides the pin. |
 | B3 | Operator interactive shell (PowerShell) | User-scope persistent env var (training context); or per-shell `$env:` assignment | `0` (training context) | `PCI_BUS_ID` | When operator runs `python scripts/verify_training_readiness.py` or training directly. |
-| B4 | `scripts/overnight_train.py` invocation env | Inherited from B1 (watch-loop NSSM) OR explicit operator export when run manually | `0` | `PCI_BUS_ID` | The actual training entrypoint. Deep report coverage gap: file not read; SP6 plan reads to confirm no env-stripping. |
+| B4 | `scripts/overnight_train.py` invocation env | Inherited from B1 (watch-loop NSSM) OR explicit operator export when run manually | `0` | `PCI_BUS_ID` | The actual training entrypoint. Deep report coverage gap: file not read; post-Sprint-5 plan reads to confirm no env-stripping. |
 | B5 | Watch-loop process itself (for grammar_client llama-cpp) | NSSM `ArcisWatchLoop` env via B1 | `0` (matches B1) | `PCI_BUS_ID` (matches B1) | grammar_client.py:145 loads llama-cpp in the watch-loop process with `n_gpu_layers=-1` if grammar enforcement on. Inherits B1. |
 
 ### 5.2 Operator-runnable commands per boundary
@@ -239,17 +239,17 @@ Pinning `PCI_BUS_ID` makes ordering deterministic from PCIe enumeration. With th
 
 **Procedure (prose; exact commands in Appendix D §D.2):**
 
-1. **Capture current env.** Run `nssm get ArcisWatchLoop AppEnvironmentExtra > pre-change-env.txt` and include the captured block in the SP6 PR description (per §13 guardrail). The captured block IS the source of truth; do not rely on the values in §3.5 if they have drifted.
+1. **Capture current env.** Run `nssm get ArcisWatchLoop AppEnvironmentExtra > pre-change-env.txt` and include the captured block in the post-Sprint-5 PR description (per §13 guardrail). The captured block IS the source of truth; do not rely on the values in §3.5 if they have drifted.
 2. **Verify post-Sprint-5 canonical vars are present.** Confirm presence of: `ARCIS_DB_PATH`, `SYNC_THREAD_ENABLED=false`, `DATABASE_URL`, `ARCIS_PG_CUTOVER_ENABLED=1`. If any are missing, **STOP** and escalate to the operator — a missing post-cutover var indicates env drift independent of this work. Note `PYTHONUTF8=1` as currently-present-or-absent (don't add it if absent).
 3. **Merge in the two new vars.** Construct the new env block as (captured vars) ∪ {`CUDA_VISIBLE_DEVICES=0`, `CUDA_DEVICE_ORDER=PCI_BUS_ID`}.
 4. **Write the merged block.** Issue a single `nssm set ArcisWatchLoop AppEnvironmentExtra` with the full list (one `"NAME=VALUE"` per line in PowerShell back-tick continuation).
 5. **Restart and verify.** `nssm restart ArcisWatchLoop`. Wait 5–10s. Verify with the §5.2-B1 startup-banner approach below (NOT via `Get-Process StartInfo.EnvironmentVariables` — see §21 minor #1).
 
-**Verification (post-restart):** Add a startup-banner log line to `src/scheduler/watch.py` startup path that emits the current CUDA env at INFO level. Operator tails `C:\arcis\logs\watchdog.log` for the banner. Required SP6 addition (see §6). Expected line: `[startup] CUDA env: CUDA_VISIBLE_DEVICES=0 CUDA_DEVICE_ORDER=PCI_BUS_ID device_count=1 gpu0=NVIDIA GeForce RTX 3090`.
+**Verification (post-restart):** Add a startup-banner log line to `src/scheduler/watch.py` startup path that emits the current CUDA env at INFO level. Operator tails `C:\arcis\logs\watchdog.log` for the banner. Required post-Sprint-5 addition (see §6). Expected line: `[startup] CUDA env: CUDA_VISIBLE_DEVICES=0 CUDA_DEVICE_ORDER=PCI_BUS_ID device_count=1 gpu0=NVIDIA GeForce RTX 3090`.
 
 **Why a startup banner instead of `Get-Process StartInfo.EnvironmentVariables`:** the latter does not return child env for processes you didn't start (Windows ACL behavior), so the verification command would silently return empty for the NSSM-spawned watch loop and confuse the operator. The log-line approach reads back what the process actually saw.
 
-**Sibling-search reminder (`feedback_review_sibling_search`):** when SP6 implementation hardens this path, GREP `subprocess.Popen` and `subprocess.run` across `src/` for OTHER call sites that need similar env discipline. Known sites: `vram_manager.py:376`, `client.py:107-137`, `trainer.py:756-761`, `vram_manager.py:266`. Each audited for env-stripping.
+**Sibling-search reminder (`feedback_review_sibling_search`):** when post-Sprint-5 implementation hardens this path, GREP `subprocess.Popen` and `subprocess.run` across `src/` for OTHER call sites that need similar env discipline. Known sites: `vram_manager.py:376`, `client.py:107-137`, `trainer.py:756-761`, `vram_manager.py:266`. Each audited for env-stripping.
 
 #### B2 — ollama_watchdog.ps1 script edit (inference-pin)
 
@@ -262,13 +262,13 @@ Add `Log` lines immediately after that emit the three values. Add a correspondin
 
 **Why option `$env:` assignment (vs `setx` User-scope or `Start-Process -Environment`):** inspectable in source control, no system-wide pollution, survives ps1 edits.
 
-Exact code snippet for SP6 implementer reference: Appendix D §D.3 (non-normative).
+Exact code snippet for post-Sprint-5 implementer reference: Appendix D §D.3 (non-normative).
 
 **Verify after edit:** stop Ollama (`Get-Process ollama,ollama_llama_server -ErrorAction SilentlyContinue | Stop-Process -Force`), relaunch via the new NSSM service (§6 — `nssm restart ArcisOllamaWatchdog`), wait 10s, and confirm Ollama is on GPU 1 only via `nvidia-smi -i 1 --query-compute-apps=pid,process_name,used_memory --format=csv` (expect `ollama_llama_server.exe` with non-zero memory) and `nvidia-smi -i 0 ...` (expect empty).
 
 #### B2′ — NEW: NSSM `ArcisOllamaWatchdog` service env
 
-Same procedure as B1 (read-merge-write), but for the new service. Initial install has no pre-existing env, so the procedure simplifies to: `nssm set ArcisOllamaWatchdog AppEnvironmentExtra "CUDA_VISIBLE_DEVICES=1" "CUDA_DEVICE_ORDER=PCI_BUS_ID"`. SP6 implementer codifies the install command in `scripts/install_ollama_watchdog_service.ps1` (per §6) so the install is reproducible and reviewable.
+Same procedure as B1 (read-merge-write), but for the new service. Initial install has no pre-existing env, so the procedure simplifies to: `nssm set ArcisOllamaWatchdog AppEnvironmentExtra "CUDA_VISIBLE_DEVICES=1" "CUDA_DEVICE_ORDER=PCI_BUS_ID"`. post-Sprint-5 implementer codifies the install command in `scripts/install_ollama_watchdog_service.ps1` (per §6) so the install is reproducible and reviewable.
 
 #### B3 — Operator interactive shell (one-off training commands)
 
@@ -276,7 +276,7 @@ Operator-side procedure (prose): set persistent User-scope env vars `CUDA_VISIBL
 
 #### B4 — scripts/overnight_train.py (training entrypoint, env-inherit)
 
-No direct edit needed if B1 is set correctly — Popen inheritance propagates. **Coverage gap from deep report:** `scripts/overnight_train.py` was NOT read in this dispatch. SP6 plan must read it (§15) to confirm no `env=` override or `os.environ.pop('CUDA_VISIBLE_DEVICES')` anti-pattern. Defense-in-depth: if env-stripping found, set both `CUDA_VISIBLE_DEVICES` and `CUDA_DEVICE_ORDER` at script top via `os.environ.setdefault(...)` before any torch import.
+No direct edit needed if B1 is set correctly — Popen inheritance propagates. **Coverage gap from deep report:** `scripts/overnight_train.py` was NOT read in this dispatch. post-Sprint-5 plan must read it (§15) to confirm no `env=` override or `os.environ.pop('CUDA_VISIBLE_DEVICES')` anti-pattern. Defense-in-depth: if env-stripping found, set both `CUDA_VISIBLE_DEVICES` and `CUDA_DEVICE_ORDER` at script top via `os.environ.setdefault(...)` before any torch import.
 
 #### B5 — Watch-loop process for grammar_client.py llama-cpp
 
@@ -297,7 +297,7 @@ Inherits B1's `CUDA_VISIBLE_DEVICES=0` + `CUDA_DEVICE_ORDER=PCI_BUS_ID`. If `llm
 
 ## 6. Code Changes Catalog
 
-Described at the file-and-change level; prescriptive code blocks belong in Appendix D (non-normative implementation guidance). SP6 implementers produce the diffs.
+Described at the file-and-change level; prescriptive code blocks belong in Appendix D (non-normative implementation guidance). post-Sprint-5 implementers produce the diffs.
 
 ### 6.1 `src/training/trainer.py`
 
@@ -311,7 +311,7 @@ Described at the file-and-change level; prescriptive code blocks belong in Appen
 
 ### 6.2 `src/training/trainer.py` (secondary — DPO_TRAIN_SCRIPT)
 
-**Change:** Audit DPO_TRAIN_SCRIPT (lines 290–327) for any `device_map` references. Unsloth's `FastLanguageModel.from_pretrained` defaults single-device. **SP6 plan verifies by reading DPO_TRAIN_SCRIPT in full.**
+**Change:** Audit DPO_TRAIN_SCRIPT (lines 290–327) for any `device_map` references. Unsloth's `FastLanguageModel.from_pretrained` defaults single-device. **post-Sprint-5 plan verifies by reading DPO_TRAIN_SCRIPT in full.**
 
 ### 6.3 `scripts/verify_training_readiness.py`
 
@@ -348,7 +348,7 @@ For the implementer's reference code, see Appendix D §D.3.
 
 ### 6.5 `scripts/start_ollama_watchdog.bat`
 
-**Coverage gap:** Deep report did not read this file. SP6 plan reads it to confirm it doesn't strip env vars. Likely a no-op wrapper. Note: under the new NSSM-managed model (§6.x), the .bat may become unused (replaced by NSSM service start). Decision deferred to SP6.
+**Coverage gap:** Deep report did not read this file. post-Sprint-5 plan reads it to confirm it doesn't strip env vars. Likely a no-op wrapper. Note: under the new NSSM-managed model (§6.x), the .bat may become unused (replaced by NSSM service start). Decision deferred to the post-Sprint-5 window.
 
 ### 6.6 `src/llm/client.py`
 
@@ -379,7 +379,7 @@ See §7 for full rationale. Module deleted in entirety; callers in `src/schedule
 
 **Change:** New module with one function: `launch_training_subprocess(task_name: str, script_args: list[str]) -> subprocess.Popen | None`. Function signature preserves the existing one in `vram_manager.py`.
 
-**Implementation note for SP6 (non-normative):** the implementer must decide between (a) bare Popen (relies on NSSM B1 env propagation) and (b) explicit `env=` kwarg merging os.environ with `CUDA_VISIBLE_DEVICES='0'` and `CUDA_DEVICE_ORDER='PCI_BUS_ID'`. Defense-in-depth (option b) is **recommended** because it makes the GPU binding inspectable in source; NSSM env remains the primary operational config. Reference dict shape: Appendix D §D.4 (non-normative).
+**Implementation note for post-Sprint-5 (non-normative):** the implementer must decide between (a) bare Popen (relies on NSSM B1 env propagation) and (b) explicit `env=` kwarg merging os.environ with `CUDA_VISIBLE_DEVICES='0'` and `CUDA_DEVICE_ORDER='PCI_BUS_ID'`. Defense-in-depth (option b) is **recommended** because it makes the GPU binding inspectable in source; NSSM env remains the primary operational config. Reference dict shape: Appendix D §D.4 (non-normative).
 
 **Test coverage:**
 - `test_launch_training_subprocess_returns_popen_handle`
@@ -395,7 +395,7 @@ See §7 for full rationale. Module deleted in entirety; callers in `src/schedule
 - Update calls at lines ~2155 and ~2161 (handoff invocations) — remove or convert to direct training-launch call.
 - **NEW:** Add a CUDA env startup banner emission at watch-loop startup path. Log line: `[startup] CUDA env: CUDA_VISIBLE_DEVICES=<value> CUDA_DEVICE_ORDER=<value> device_count=<n> gpu0=<name>`. INFO level. Required for §5.2 B1 verification path. Cross-references §10.2.
 
-SP6 plan greps `vram_handoff_*` metric writes; removes obsolete ones.
+post-Sprint-5 plan greps `vram_handoff_*` metric writes; removes obsolete ones.
 
 ### 6.12 `tests/test_vram_manager.py` — DELETE
 
@@ -430,11 +430,11 @@ SP6 plan greps `vram_handoff_*` metric writes; removes obsolete ones.
 8. `nssm start ArcisOllamaWatchdog`
 9. Operator-readable status check at end.
 
-**Why a service install script instead of operator manual:** install is part of the SP6 PR (same-PR rule). Operator runs the script once at deploy time; subsequent reboots have Ollama survival baked in. The script is checked into source control so SP7+ operators can audit how the service was installed.
+**Why a service install script instead of operator manual:** install is part of the post-Sprint-5 PR (same-PR rule). Operator runs the script once at deploy time; subsequent reboots have Ollama survival baked in. The script is checked into source control so SP7+ operators can audit how the service was installed.
 
 **Test coverage:** none at pytest level. Source-level guardrail test in §13: `test_install_ollama_watchdog_service_ps1_pins_gpu_one_and_pci_bus_id` (greps the install script for the two CUDA env values).
 
-### 6.17 Summary table — files touched in SP6 implementation
+### 6.17 Summary table — files touched in post-Sprint-5 implementation
 
 | File | Change type | Lines impacted | Required/optional |
 |---|---|---|---|
@@ -516,7 +516,7 @@ Rationale: the NSSM-managed `ArcisOllamaWatchdog` service (§6.16) owns Ollama l
 
 **Edit (prose):** Replace the body of `_check_ollama_health_or_restart` with a function that returns `is_llm_available()` (True path) or logs at ERROR level and returns False (False path). No `subprocess.Popen` call remains in the function. Rename `_check_ollama_health_or_restart` → `_check_ollama_health` (truthful name). Update callers.
 
-Reference implementation for SP6 implementer: Appendix D §D.5 (non-normative).
+Reference implementation for post-Sprint-5 implementer: Appendix D §D.5 (non-normative).
 
 ### 8.3 Test coverage for the fix
 
@@ -540,13 +540,13 @@ Reference implementation for SP6 implementer: Appendix D §D.5 (non-normative).
 
 `config/settings.example.yaml:315` — `use_grammar_enforcement: false` is the default. Footgun dormant.
 
-### 9.3 Hardening recommended for SP6 (PROMOTED to required)
+### 9.3 Hardening recommended for post-Sprint-5 (PROMOTED to required)
 
 **Change (prose):** at `grammar_client.py:144` (the `Llama(...)` call site), read `n_gpu_layers` from config with default `0` (CPU-only). The config key `llm.grammar_n_gpu_layers` defaults to 0; operator-explicit opt-in is required to put llama-cpp on GPU.
 
 **Why default 0:** CPU is safe — no GPU contention with training. Grammar enforcement is rarely used; latency hit acceptable.
 
-Reference implementation for SP6 implementer: Appendix D §D.6 (non-normative).
+Reference implementation for post-Sprint-5 implementer: Appendix D §D.6 (non-normative).
 
 ### 9.4 Future option (out of scope here)
 
@@ -631,7 +631,7 @@ Get-Content C:\arcis\logs\watchdog.log -Tail 100 |
 # Expect: "[startup] CUDA env: CUDA_VISIBLE_DEVICES=0 CUDA_DEVICE_ORDER=PCI_BUS_ID device_count=1 gpu0=NVIDIA GeForce RTX 3090"
 ```
 
-**Critical reminder:** The SP6 PR description MUST include the captured pre-change env (Step 1 output) so reviewers can confirm no production var was dropped.
+**Critical reminder:** The post-Sprint-5 PR description MUST include the captured pre-change env (Step 1 output) so reviewers can confirm no production var was dropped.
 
 ### 10.2 Verify watch loop sees only GPU 0 (3090)
 
@@ -790,15 +790,15 @@ Do NOT run `python -m src.main startup` while NSSM is responsible for the watch 
 
 ## 12. Operator-Guide Additions
 
-Same-PR rule (CLAUDE.md): the SP6 implementation PR also lands these operator-guide changes.
+Same-PR rule (CLAUDE.md): the post-Sprint-5 implementation PR also lands these operator-guide changes.
 
 ### 12.1 NEW subsection: "Dual-GPU Operation (Strategy A)"
 
-**Insertion location:** insert as a new subsection **immediately before the literal heading** `### "Ollama crashes / corpus producing template fallbacks"` in `docs/operator-guide.md` (currently line 618 — SP6 implementer reconfirms via `grep -n` at implementation time).
+**Insertion location:** insert as a new subsection **immediately before the literal heading** `### "Ollama crashes / corpus producing template fallbacks"` in `docs/operator-guide.md` (currently line 618 — post-Sprint-5 implementer reconfirms via `grep -n` at implementation time).
 
-**Section content:** delivered as a separate authored draft file at `docs/audits/2026-05-12-dual-gpu-ideation/operator-guide-insert.md`. SP6 implementer copies the content of that file into `docs/operator-guide.md` at the anchor heading (with light prose refinement for style consistency if needed). The draft includes: dual-GPU layout table, CUDA enumeration pin rationale, verification commands, per-card VRAM math (with NUM_PARALLEL=2 default and the NUM_PARALLEL=4 opt-in path), deprecated handoff cadence, env-var boundary quick-reference, post-reboot recovery commands, and a cross-reference back to this spec for the failure matrix.
+**Section content:** delivered as a separate authored draft file at `docs/audits/2026-05-12-dual-gpu-ideation/operator-guide-insert.md`. post-Sprint-5 implementer copies the content of that file into `docs/operator-guide.md` at the anchor heading (with light prose refinement for style consistency if needed). The draft includes: dual-GPU layout table, CUDA enumeration pin rationale, verification commands, per-card VRAM math (with NUM_PARALLEL=2 default and the NUM_PARALLEL=4 opt-in path), deprecated handoff cadence, env-var boundary quick-reference, post-reboot recovery commands, and a cross-reference back to this spec for the failure matrix.
 
-**Why the content lives in a separate file:** keeps this spec at the WHAT-changes level and avoids prescriptive prose drift. The standalone file is reviewable independently and can be polished by the SP6 implementer without spec churn.
+**Why the content lives in a separate file:** keeps this spec at the WHAT-changes level and avoids prescriptive prose drift. The standalone file is reviewable independently and can be polished by the post-Sprint-5 implementer without spec churn.
 
 ### 12.2 Stale-text fix at line 265 (hardware row)
 
@@ -878,11 +878,11 @@ Verify with `nssm get ArcisWatchLoop AppEnvironmentExtra`. Capture pre-change en
 
 ---
 
-## 13. Test Plan (SP6 Implementation)
+## 13. Test Plan (post-Sprint-5 Implementation)
 
 ### 13.1 Test-count delta accounting (5400 floor) — REVISED v3
 
-**Verified delete count:** 21 (re-verified at SP6 start).
+**Verified delete count:** 21 (re-verified at post-Sprint-5 start).
 
 | Action | Test delta | Required? |
 |---|---|---|
@@ -962,7 +962,7 @@ Additional consideration (deferred — see §21 minor #3): a startup-time config
 
 ### 13.4 Test infrastructure dependencies
 
-- `tests/conftest.py` has NO existing GPU mocking fixtures. SP6 plan adds:
+- `tests/conftest.py` has NO existing GPU mocking fixtures. post-Sprint-5 plan adds:
   - `mock_torch_cuda_dual_gpu` — patches `device_count()=2`, `get_device_name(0)='RTX 3090'`, `get_device_name(1)='RTX 3060'`.
   - `mock_torch_cuda_single_3090` — patches count=1, gpu0=3090.
   - `mock_nvidia_smi_dual_gpu` — subprocess.run side-effect returning multi-line CSV.
@@ -979,9 +979,9 @@ python -m pytest tests/ -q --timeout=60
 # Expect: >= 3690 tests passed, 0 failed, 0 errors
 ```
 
-### 13.7 SP6 PR description requirements (operator-side discipline)
+### 13.7 post-Sprint-5 PR description requirements (operator-side discipline)
 
-The SP6 PR description MUST include:
+The post-Sprint-5 PR description MUST include:
 1. **Pre-change NSSM env capture** for `ArcisWatchLoop` (output of `nssm get ArcisWatchLoop AppEnvironmentExtra` before any change). Reviewer cross-checks against post-change env to confirm no production var was dropped.
 2. **NUM_PARALLEL decision rationale.** Either: (a) shipped at default 2 (no load test required), OR (b) shipped at opt-in 4 with §10.6 load-test results attached (memory.used stayed below 11.5 GB across 2-minute 5-agent test). Default for the PR is (a).
 3. **Service install evidence.** Output of `nssm status ArcisOllamaWatchdog` post-install showing SERVICE_RUNNING.
@@ -1000,23 +1000,23 @@ The SP6 PR description MUST include:
 | R4 | Grammar enforcement enabled later; llama-cpp grabs GPU 0 | Low | Med | Config-driven default 0; behavioral + source-level guardrail tests. Future startup-time config validation per §21 minor #3. |
 | R5 | 3060 fails during a critical trading window | Low | Med | §11.3 fallback. |
 | R6 | 3090 fails during overnight training | Low | High | §11.4 fallback. |
-| R7 | `scripts/overnight_train.py` strips env vars (coverage gap) | Low | High | SP6 reads file; defense-in-depth `os.environ.setdefault` if found. |
-| R8 | `scripts/start_ollama_watchdog.bat` strips env vars (coverage gap) | Low | Med | SP6 reads file. Likely obsolete under NSSM-managed model. |
+| R7 | `scripts/overnight_train.py` strips env vars (coverage gap) | Low | High | post-Sprint-5 reads file; defense-in-depth `os.environ.setdefault` if found. |
+| R8 | `scripts/start_ollama_watchdog.bat` strips env vars (coverage gap) | Low | Med | post-Sprint-5 reads file. Likely obsolete under NSSM-managed model. |
 | R9 | Test floor drop on PR; CI blocks | Low | Low | §13 enumerated +8 net; PR description includes sweep output. |
 | R10 | Schema-registry violation if system_metrics widening done outside registry | Low | High | Deferred; if chosen, MASTER.md schema rules strict. |
 | R11 | Operator's User-scope env conflicts with NSSM env | Low | Med | Operator-guide §5 documents shell role discipline. |
 | R12 | `device_map={'': 0}` incompatible with future accelerate version | Low | Low | Pinned in `requirements-training.txt`; guardrail test catches regression. |
-| R13 | Worktree env drift — SP6 worktree doesn't carry .env or NSSM env | High | Med | SP6 tests hermetic (don't depend on real env). |
-| R14 | DPO_TRAIN_SCRIPT inadvertently shards | Med | Med | SP6 reads DPO_TRAIN_SCRIPT in full; Unsloth defaults single-device; test asserts no `device_map='auto'`. |
+| R13 | Worktree env drift — post-Sprint-5 worktree doesn't carry .env or NSSM env | High | Med | post-Sprint-5 tests hermetic (don't depend on real env). |
+| R14 | DPO_TRAIN_SCRIPT inadvertently shards | Med | Med | post-Sprint-5 reads DPO_TRAIN_SCRIPT in full; Unsloth defaults single-device; test asserts no `device_map='auto'`. |
 | R15 | Operator-guide gets stale after Strategy A lands | Med | Low | Same-PR rule. |
-| **R16** | **NEW — Destructive NSSM env copy-paste wipes post-Sprint-5 production vars (SYNC_THREAD_ENABLED, DATABASE_URL, ARCIS_PG_CUTOVER_ENABLED)** | **Med (if procedure not followed)** | **Critical — re-enables deprecated SQLite→Postgres sync thread, breaks Postgres primary read path, reverts cutover gate** | **Read-merge-write procedure (§5.2 B1 + §10.1); pre-change env capture mandatory in PR description (§13.7); operator-guide §12.7 enumerates each required var; SP6 task spec includes "verify SYNC_THREAD_ENABLED still =false post-restart" as explicit verification step. Reference: PR #1056, operator memory `reference_watch_loop_management`.** |
+| **R16** | **NEW — Destructive NSSM env copy-paste wipes post-Sprint-5 production vars (SYNC_THREAD_ENABLED, DATABASE_URL, ARCIS_PG_CUTOVER_ENABLED)** | **Med (if procedure not followed)** | **Critical — re-enables deprecated SQLite→Postgres sync thread, breaks Postgres primary read path, reverts cutover gate** | **Read-merge-write procedure (§5.2 B1 + §10.1); pre-change env capture mandatory in PR description (§13.7); operator-guide §12.7 enumerates each required var; post-Sprint-5 task spec includes "verify SYNC_THREAD_ENABLED still =false post-restart" as explicit verification step. Reference: PR #1056, operator memory `reference_watch_loop_management`.** |
 | **R17** | **NEW — NUM_PARALLEL=4 cushion too thin on 3060 (0.4 GB cushion vs ~512 MB CUDA transient workspace; 5-agent council bursts can push past)** | **Med (only if operator opts in without load-testing)** | **Med — Ollama OOM, model swap loop, council inference fails during burst** | **Default NUM_PARALLEL=2 (operator-validated steady-state safe, ~1.7 GB cushion); NUM_PARALLEL=4 is opt-in only after §10.6 load test confirms `nvidia-smi -i 1 memory.used` stays below 11.5 GB during a 5-agent concurrent council scan; revert to 2 immediately on first observed spike above threshold.** |
-| **R18** | **NEW — Post-reboot Ollama not running (pre-SP6: ollama_watchdog.ps1 not NSSM-managed; only launched by `start_ollama_watchdog.bat` from operator SSH session)** | **High (post-reboot, pre-SP6) / Low (post-SP6)** | **High — first scan post-reboot returns no LLM; council inference falls back to templates** | **NSSM-wrap ollama_watchdog.ps1 as `ArcisOllamaWatchdog` service (§6.16); install script `scripts/install_ollama_watchdog_service.ps1`; §10.0 post-reboot pre-flight verification. F14 covers detection; §11.5 covers manual recovery.** |
+| **R18** | **NEW — Post-reboot Ollama not running (pre-post-Sprint-5: ollama_watchdog.ps1 not NSSM-managed; only launched by `start_ollama_watchdog.bat` from operator SSH session)** | **High (post-reboot, pre-post-Sprint-5) / Low (post-post-Sprint-5)** | **High — first scan post-reboot returns no LLM; council inference falls back to templates** | **NSSM-wrap ollama_watchdog.ps1 as `ArcisOllamaWatchdog` service (§6.16); install script `scripts/install_ollama_watchdog_service.ps1`; §10.0 post-reboot pre-flight verification. F14 covers detection; §11.5 covers manual recovery.** |
 | **R19** | **NEW — CUDA enumeration order flipped by driver upgrade, PCIe reseat, or GPU swap (default `CUDA_DEVICE_ORDER=FASTEST_FIRST` tie-breaker is not contractual across NVIDIA driver releases)** | **Low (no scheduled changes) / Med (during driver upgrade)** | **High — training lands on 3060 (OOM), Ollama lands on 3090 (works but wastes card)** | **Pin `CUDA_DEVICE_ORDER=PCI_BUS_ID` at every CUDA boundary (B0, §5.0); behavioral test in verify_training_readiness; source-level guardrail tests against ollama_watchdog.ps1 and install script; F13 in failure matrix; §10.0 pre-flight checks the pin post-reboot.** |
 
 ---
 
-## 15. SP6 Implementation Read-List (closing coverage gaps from deep report)
+## 15. post-Sprint-5 Implementation Read-List (closing coverage gaps from deep report)
 
 1. **`scripts/overnight_train.py`** — confirm no env-stripping.
 2. **`scripts/start_ollama_watchdog.bat`** — confirm no env-stripping. May become obsolete under NSSM-managed model.
@@ -1032,22 +1032,22 @@ The SP6 PR description MUST include:
 
 ---
 
-## 16. Open Questions for SP6 Implementation
+## 16. Open Questions for post-Sprint-5 Implementation
 
 1. **Should `system_metrics` be widened to per-GPU?** Default (a) — least invasive. 4 tests required either way.
 2. **Should `_check_ollama_health` attempt explicit `nssm start ArcisOllamaWatchdog` on detected outage?** Pro: closes the gap when NSSM service crashed. Con: adds a new restart path. Recommend NO — rely on `nssm` auto-restart policy (configurable via `AppExit Default Restart`).
 3. **Should `launch_training_subprocess` set `env={**os.environ, 'CUDA_VISIBLE_DEVICES': '0', 'CUDA_DEVICE_ORDER': 'PCI_BUS_ID'}` explicitly?** Recommend BOTH (defense-in-depth).
 4. **Should `OLLAMA_NUM_PARALLEL` move to config?** Keep in ps1 for now; consider config-driven knob in SP7+.
-5. **Should the Ollama watchdog be NSSM-wrapped?** **RESOLVED in v3 — YES.** §6.16 makes it a required item; the new `ArcisOllamaWatchdog` service install lands in the same SP6 PR.
-6. **Should Telegram `/health` be fixed in SP6 or deferred?** Deferred. Operator decision at plan-review.
+5. **Should the Ollama watchdog be NSSM-wrapped?** **RESOLVED in v3 — YES.** §6.16 makes it a required item; the new `ArcisOllamaWatchdog` service install lands in the same post-Sprint-5 PR.
+6. **Should Telegram `/health` be fixed in the post-Sprint-5 window or deferred?** Deferred. Operator decision at plan-review.
 7. **Should `llm.gpu_device` / `training.gpu_device` config keys be added?** Yes (informational); no enforcement path.
 8. **Should `verify_training_readiness.py` HARD FAIL on unset CUDA_VISIBLE_DEVICES?** WARN, not FAIL.
 9. **DPO_TRAIN_SCRIPT rewrite off Unsloth — separate spec?** Yes.
-10. **Should `n_gpu_layers` config hardening for grammar_client (§9.3) be in SP6?** YES — promoted to required.
-11. **What's the rollback procedure if Strategy A causes a regression?** SP6 PR includes 1-command rollback (revert PR + restart both NSSM services).
+10. **Should `n_gpu_layers` config hardening for grammar_client (§9.3) be in the post-Sprint-5 window?** YES — promoted to required.
+11. **What's the rollback procedure if Strategy A causes a regression?** post-Sprint-5 PR includes 1-command rollback (revert PR + restart both NSSM services).
 12. **Should `pre-commit` hook block `device_map='auto'` in `src/training/`?** CI tests suffice; no extra hook ceremony.
-13. **NEW — Should `nssm` `AppExit Default Restart` be set on both services so a crash auto-recovers?** Recommend YES. SP6 plan adds `nssm set <service> AppExit Default Restart` to the install scripts.
-14. **NEW — When operator physically swaps a GPU, what's the audit trail?** Recommend: SP6 adds an operator-guide one-liner: after any GPU swap, run §10.0 post-reboot pre-flight AND `python scripts/verify_training_readiness.py`. The latter HARD FAILs if GPU 0 is not the 3090.
+13. **NEW — Should `nssm` `AppExit Default Restart` be set on both services so a crash auto-recovers?** Recommend YES. post-Sprint-5 plan adds `nssm set <service> AppExit Default Restart` to the install scripts.
+14. **NEW — When operator physically swaps a GPU, what's the audit trail?** Recommend: post-Sprint-5 adds an operator-guide one-liner: after any GPU swap, run §10.0 post-reboot pre-flight AND `python scripts/verify_training_readiness.py`. The latter HARD FAILs if GPU 0 is not the 3090.
 
 ---
 
@@ -1058,12 +1058,12 @@ The SP6 PR description MUST include:
 | `feedback_strict_rigor_no_handwave` | §4.2, §7.2, §13.1, §14 R16/R17/R18/R19 mitigations. |
 | `feedback_fix_before_trade` | §6, deferred items explicitly marked. |
 | `feedback_review_sibling_search` | §5.2 B1 sibling-search reminder; §15 grep items. |
-| `feedback_sprint_5_is_final` | §1 (SP6 catch-all bucket). |
+| `feedback_sprint_5_is_final` | §1 (post-Sprint-5 catch-all bucket). |
 | `feedback_worktree_env_drift` | §14 R13; §13.4 fixtures. |
 | `feedback_use_coding_team_skill` | Implementation phase uses `arcis:code`. |
 | `reference_watch_loop_management` | §3.5 (post-cutover canonical env); §5.2 B1 (NSSM-managed; restart via `nssm restart`); §14 R16. |
 | `project_gpu_upgrade` | §1, §3, §12 (operator-guide-insert.md); NUM_PARALLEL discussion. |
-| `feedback_pm_dispatch_path_verification` | SP6 plan Glob-verifies paths. |
+| `feedback_pm_dispatch_path_verification` | post-Sprint-5 plan Glob-verifies paths. |
 | `user_preferences` (Quality over speed) | Thoroughness across §11, §13, §14, §16. |
 
 ---
@@ -1097,14 +1097,14 @@ The SP6 PR description MUST include:
 │                                                                       │
 │  ┌────────────────────────────────────────────────────────────────┐  │
 │  │  NSSM Service: ArcisWatchLoop                                   │  │
-│  │  AppEnvironmentExtra (post-Sprint-5 + SP6 additions):           │  │
+│  │  AppEnvironmentExtra (post-Sprint-5 + post-Sprint-5 additions):           │  │
 │  │    ARCIS_DB_PATH=C:/arcis/data/ai_research_desk.sqlite3         │  │
 │  │    SYNC_THREAD_ENABLED=false                                    │  │
 │  │    DATABASE_URL=postgresql://halcyon_app:...@localhost:5433/... │  │
 │  │    ARCIS_PG_CUTOVER_ENABLED=1                                   │  │
 │  │    PYTHONUTF8=1                                                 │  │
-│  │    CUDA_VISIBLE_DEVICES=0    ← B1 (SP6 addition)                │  │
-│  │    CUDA_DEVICE_ORDER=PCI_BUS_ID  ← B0 (SP6 addition)            │  │
+│  │    CUDA_VISIBLE_DEVICES=0    ← B1 (post-Sprint-5 addition)                │  │
+│  │    CUDA_DEVICE_ORDER=PCI_BUS_ID  ← B0 (post-Sprint-5 addition)            │  │
 │  └─────────────────┬──────────────────────────────────────────────┘  │
 │                    │ Popen inherits env                              │
 │                    ▼                                                  │
@@ -1125,7 +1125,7 @@ The SP6 PR description MUST include:
 │  ──────────────────────────────────────────────────────────────────   │
 │                                                                       │
 │  ┌────────────────────────────────────────────────────────────────┐  │
-│  │  NSSM Service: ArcisOllamaWatchdog (NEW in SP6)                 │  │
+│  │  NSSM Service: ArcisOllamaWatchdog (NEW in the post-Sprint-5 window)                 │  │
 │  │  AppEnvironmentExtra:                                           │  │
 │  │    CUDA_VISIBLE_DEVICES=1    ← B2′                              │  │
 │  │    CUDA_DEVICE_ORDER=PCI_BUS_ID                                 │  │
@@ -1163,7 +1163,7 @@ The SP6 PR description MUST include:
 - **Spec authoritative path:** `docs/audits/2026-05-12-dual-gpu-ideation/spec.md`
 - **Operator-guide insert authoritative path:** `docs/audits/2026-05-12-dual-gpu-ideation/operator-guide-insert.md`
 - **Brief:** `docs/audits/2026-05-12-dual-gpu-ideation/brief.md`
-- **Plan:** deferred to SP6 (`docs/audits/2026-05-12-dual-gpu-ideation/plan.md` to be generated by SP6 Architect pass).
+- **Plan:** deferred to the post-Sprint-5 window (`docs/audits/2026-05-12-dual-gpu-ideation/plan.md` to be generated by post-Sprint-5 Architect pass).
 - **Spec consumable by:** `arcis:code --spec ... --plan ...` once plan is generated.
 - **Strict-rigor receipt:** every recommendation in §5–§13 carries a "why" line grounded in deep_report findings or operator memory.
 - **Revision log:**
@@ -1175,7 +1175,7 @@ The SP6 PR description MUST include:
 
 ## 21. Known Considerations (minor findings acknowledged — not blocking)
 
-The following minor findings were raised by Devil's Advocate review and acknowledged as accepted considerations. Each is either already addressed elsewhere in the spec or scoped as a follow-up for SP7+ hardening; none blocks SP6 implementation.
+The following minor findings were raised by Devil's Advocate review and acknowledged as accepted considerations. Each is either already addressed elsewhere in the spec or scoped as a follow-up for SP7+ hardening; none blocks post-Sprint-5 implementation.
 
 ### 21.1 Get-Process child env limitation on Windows
 
@@ -1187,7 +1187,7 @@ The following minor findings were raised by Devil's Advocate review and acknowle
 
 **Finding:** Windows NVIDIA drivers exhibit a "soft hang" state where the GPU remains enumerable but CUDA work hangs indefinitely. F1/F2 (full driver crashes) cover hard failures; soft hangs are detected only by wall-clock training time exceeding expected duration.
 
-**Status:** captured as F15 in §11.1. Mitigation deferred to SP7+ hardening — proposed mechanism: training subprocess emits a heartbeat to a small status file every N minutes; watch loop polls the file and kills the training subprocess if heartbeat is stale beyond a threshold (e.g., 15 min). Out of scope for SP6 because (a) it requires new instrumentation in `scripts/overnight_train.py`, (b) it overlaps with broader observability work, (c) no documented incident to date — preventive rather than reactive.
+**Status:** captured as F15 in §11.1. Mitigation deferred to SP7+ hardening — proposed mechanism: training subprocess emits a heartbeat to a small status file every N minutes; watch loop polls the file and kills the training subprocess if heartbeat is stale beyond a threshold (e.g., 15 min). Out of scope for post-Sprint-5 because (a) it requires new instrumentation in `scripts/overnight_train.py`, (b) it overlaps with broader observability work, (c) no documented incident to date — preventive rather than reactive.
 
 ### 21.3 Grammar config-level validation gap
 
@@ -1199,13 +1199,13 @@ The following minor findings were raised by Devil's Advocate review and acknowle
 
 **Finding:** the existing single embedding call site in `src/intel/leakage_detector.py` (POST /api/embeddings) already executes against Ollama on GPU 1 under Strategy A — incidental, not designed. The original §2.2 "Strategy E deferred" row did not acknowledge this.
 
-**Status:** addressed in §2.2 — the Strategy E row now notes the existing call site as incidentally executed against Ollama on GPU 1. No design change required; the observation simply ensures the spec does not misrepresent the actual runtime state. If embedding workload grows substantially, the separate SP6 Strategy E design (per the original deferral) would formalize this and decide whether to keep it on Ollama / GPU 1 or split off a dedicated embedding service.
+**Status:** addressed in §2.2 — the Strategy E row now notes the existing call site as incidentally executed against Ollama on GPU 1. No design change required; the observation simply ensures the spec does not misrepresent the actual runtime state. If embedding workload grows substantially, the separate post-Sprint-5 Strategy E design (per the original deferral) would formalize this and decide whether to keep it on Ollama / GPU 1 or split off a dedicated embedding service.
 
 ---
 
 ## Appendix D — Implementation Guidance (non-normative)
 
-This appendix contains prescriptive code snippets useful to the SP6 implementer. **These are non-normative** — they illustrate one valid implementation but do not constrain the implementer to specific syntax. Spec sections §5–§13 describe the WHAT; this appendix offers reference HOW. The implementer remains responsible for matching codebase conventions, refactoring as needed, and adapting to context discovered during implementation.
+This appendix contains prescriptive code snippets useful to the post-Sprint-5 implementer. **These are non-normative** — they illustrate one valid implementation but do not constrain the implementer to specific syntax. Spec sections §5–§13 describe the WHAT; this appendix offers reference HOW. The implementer remains responsible for matching codebase conventions, refactoring as needed, and adapting to context discovered during implementation.
 
 ### D.1 verify_training_readiness.py — module-top env pin
 

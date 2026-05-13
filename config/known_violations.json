@@ -150,7 +150,7 @@
     {
       "file": "src/shadow_trading/alpaca_adapter.py",
       "lines": 425,
-      "rationale": "Sprint 5 Wave A+B base: alpaca_adapter.py (unified broker adapter) introduced at 425 lines as part of PG/SQLite cutover work. Real split deferred."
+      "rationale": "Sprint 5 Wave A+B base: alpaca_adapter.py (unified broker adapter) introduced at 425 lines as part of PG/SQLite cutover work. Real split deferred post-Sprint-5 per #97 operator triage 2026-05-13 — sentinel test tests/shadow_trading/test_alpaca_adapter_split.py deleted at T16 (Sprint Close). Resolution: refactor into alpaca_adapter_core.py + alpaca_adapter_orders.py + alpaca_adapter_positions.py in the post-Sprint-5 window (~1 sprint estimate)."
     },
     {
       "file": "src/shadow_trading/executor.py",
