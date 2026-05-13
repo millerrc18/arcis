@@ -240,6 +240,13 @@ def fetch_insider_activity(
         result = {k: v for k, v in cached.items() if not k.startswith("_")}
         return result if result else None
 
+    # Plan gate (Sprint 5 Wave C7b.6 / T26): defensive — insider_transactions
+    # is in both 'free' and 'fundamental-1', so this is a no-op on current
+    # plans. Guards against future plan tiers that exclude the feature.
+    from src.data_enrichment.finnhub_plan import finnhub_plan_supports
+    if not finnhub_plan_supports("insider_transactions"):
+        return None
+
     result = None
 
     # Try Finnhub (.env fallback when caller doesn't provide key)

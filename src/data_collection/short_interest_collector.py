@@ -64,6 +64,18 @@ def collect_short_interest(
 
     Returns: {"tickers_processed": int, "records_stored": int}
     """
+    # Plan gate (Sprint 5 Wave C7b.6 / T26): defensive — short_interest is in
+    # both 'free' and 'fundamental-1' matrices, so this is a no-op on current
+    # plans. Guards against future plan tiers that exclude the feature and
+    # satisfies the runtime-coverage scanner forward invariant.
+    from src.data_enrichment.finnhub_plan import finnhub_plan_supports
+    if not finnhub_plan_supports("short_interest"):
+        logger.info(
+            "[SHORT] Skipped collection — Finnhub plan does not support "
+            "short_interest"
+        )
+        return {"tickers_processed": 0, "records_stored": 0, "errors": 0}
+
     api_key = _get_finnhub_key()
     if not api_key:
         from src.data_collection.errors import CollectorConfigError
