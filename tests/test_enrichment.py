@@ -232,7 +232,8 @@ class TestFinnhubPlan:
         plan = get_finnhub_plan({"data_enrichment": {"finnhub_plan": "fundamental-1"}})
         assert plan == "free"
 
-    def test_feature_matrix_distinguishes_free_and_premium(self):
+    def test_feature_matrix_distinguishes_free_and_premium(self, monkeypatch):
+        monkeypatch.delenv("FINNHUB_PLAN", raising=False)
         from src.data_enrichment.finnhub_plan import finnhub_plan_supports
 
         assert not finnhub_plan_supports("news_sentiment", {"data_enrichment": {"finnhub_plan": "free"}})
