@@ -213,6 +213,19 @@ def compute_window_metrics(
     computes rf-adjusted excess Sharpe via canonical_sharpe.rf_adjusted_excess_sharpe
     and gates the result against the threshold. Default None = no excess-Sharpe
     check (backward-compat path; raw Sharpe threshold still applies via the runner).
+
+    WARNING — rf_period=0.0 default (PR #1091 review, operator 2026-05-13):
+    rf-adjusted excess Sharpe with rf_period=0 reduces to raw Sharpe
+    (`diff = returns - 0 == returns`). When a caller activates the gate by
+    setting excess_sharpe_min but leaves rf_period at the default 0.0, the
+    gate becomes a NOOP relative to raw Sharpe (just a different threshold
+    against the same statistic). For the gate to meaningfully check rf-adjusted
+    excess Sharpe, the caller MUST supply a non-zero rf_period derived from
+    a real risk-free rate source (e.g., FRED DTB3 via
+    src/data_ingestion/risk_free_rate.py). Runner-side wiring of this
+    rf_period sourcing is owned by T8 (walkforward_runner integration); until
+    T8 lands, direct callers of compute_window_metrics are responsible for
+    rf_period plumbing.
     """
     pnls = _pnl_array(trades)
     sharpe = compute_sharpe(pnls)
