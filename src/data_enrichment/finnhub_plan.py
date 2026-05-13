@@ -43,6 +43,7 @@ _FEATURE_MATRIX: dict[str, set[str]] = {
         "institutional_ownership",
         "news_sentiment",
         "press_releases",
+        "price_target",
         "recommendation_trends",
         "short_interest",
         "stock_financials",
