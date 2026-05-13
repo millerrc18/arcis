@@ -24,7 +24,6 @@ prior operations on the same connection — do not substitute.
 """
 
 import logging
-import os
 import sqlite3
 import time
 from datetime import datetime
@@ -33,6 +32,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from src.config import DB_PATH
+from src.data_collection._finnhub_shared import get_finnhub_key as _get_finnhub_key
 from src.utils.db import connect_db, engine_aware_upsert
 from src.utils.retry import retry_with_backoff
 
@@ -41,19 +41,6 @@ ET = ZoneInfo("America/New_York")
 FINNHUB_BASE = "https://finnhub.io/api/v1"
 
 # Table creation handled by src/schema/registry.py
-
-
-def _get_finnhub_key() -> str | None:
-    """Get Finnhub API key. .env takes precedence over YAML config."""
-    env_key = os.environ.get("FINNHUB_API_KEY")
-    if env_key:
-        return env_key
-    try:
-        from src.config import load_config
-        config = load_config()
-        return config.get("data_enrichment", {}).get("finnhub_api_key")
-    except Exception:
-        return None
 
 
 def collect_short_interest(

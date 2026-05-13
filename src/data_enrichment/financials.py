@@ -41,13 +41,30 @@ _PE_REASONABLE_LO = 2.0
 _PE_REASONABLE_HI = 200.0
 
 
-def _derive_quality_flag(pe: float | None, roic: float | None) -> str | None:
-    """Coarse quality flag from P/E + ROIC. Returns "ok" / "low" / None."""
+def _derive_quality_flag(
+    pe: float | None,
+    roic: float | None,
+    config: dict | None = None,
+) -> str | None:
+    """Coarse quality flag from P/E + ROIC. Returns "ok" / "low" / None.
+
+    P/E thresholds are operator-tunable via
+    ``data_enrichment.fundamental_quality_thresholds.pe_min`` and
+    ``data_enrichment.fundamental_quality_thresholds.pe_max`` in
+    ``config/settings.local.yaml``.  Falls back to the module-level
+    ``_PE_REASONABLE_LO`` / ``_PE_REASONABLE_HI`` constants when the
+    config keys are absent or config is None (backward-compatible).
+    """
+    thresholds = ((config or {}).get("data_enrichment") or {}).get(
+        "fundamental_quality_thresholds") or {}
+    pe_lo = float(thresholds.get("pe_min", _PE_REASONABLE_LO))
+    pe_hi = float(thresholds.get("pe_max", _PE_REASONABLE_HI))
+
     if pe is None and roic is None:
         return None
     pe_ok = (
         isinstance(pe, (int, float))
-        and _PE_REASONABLE_LO <= pe <= _PE_REASONABLE_HI
+        and pe_lo <= pe <= pe_hi
     )
     roic_ok = isinstance(roic, (int, float)) and roic > 0
     if pe_ok and roic_ok:
@@ -100,7 +117,7 @@ def _read_sink_payload(sink_path: Path, ticker: str) -> dict | None:
         return None
 
 
-def _extract_fundamental_dict(payload: dict) -> dict:
+def _extract_fundamental_dict(payload: dict, config: dict | None = None) -> dict:
     """Project a Finnhub fundamentals JSON payload onto the runtime
     fundamental_* feature-dict surface."""
     metric = payload.get("metric") or {}
@@ -112,7 +129,7 @@ def _extract_fundamental_dict(payload: dict) -> dict:
             metric.get("totalDebt/totalEquityAnnual")),
         "fundamental_gross_margin": _coerce_float(metric.get("grossMarginTTM")),
         "fundamental_roic": roic,
-        "fundamental_quality_flag": _derive_quality_flag(pe, roic),
+        "fundamental_quality_flag": _derive_quality_flag(pe, roic, config),
         "fundamental_snapshot_age_days": _compute_snapshot_age_days(
             payload.get("fetched_at")),
     }
@@ -143,4 +160,4 @@ def load_stock_financials(
     payload = _read_sink_payload(Path(sink_dir) / f"{ticker}.json", ticker)
     if payload is None:
         return None
-    return _extract_fundamental_dict(payload)
+    return _extract_fundamental_dict(payload, config)

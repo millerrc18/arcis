@@ -59,9 +59,8 @@ _UNWIRED_FORWARD_ALLOWLIST: set[str] = {
 # NOT in any plan matrix. These calls always return False (feature
 # unknown ⇒ never in `_FEATURE_MATRIX.get(plan, set())`). Resolution
 # deferred to post-Sprint-5 per operator decision 2026-05-13.
-_REVERSE_INVARIANT_ALLOWLIST: set[str] = {
-    "price_target",  # src/data_collection/analyst_collector.py:146 — endpoint gated off permanently (latent).
-}
+_REVERSE_INVARIANT_ALLOWLIST: set[str] = set()
+# price_target removed — added to _FEATURE_MATRIX['fundamental-1'] in Sprint 6 Wave A (WA2).
 
 
 # ---------------------------------------------------------------------------
@@ -243,4 +242,25 @@ def test_self_ast_scanner_extracts_literal_feature_args(tmp_path):
     found = _scan_plan_supports_call_sites(synthetic)
     assert found == {"extracted_feature", "another_feature"}, (
         f"AST scanner extracted wrong set: {found!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# WA2 — price_target in fundamental-1 matrix (Sprint 6 Wave A)
+# ---------------------------------------------------------------------------
+
+
+def test_price_target_supported_on_fundamental_1():
+    """price_target must be in _FEATURE_MATRIX['fundamental-1'] so the
+    analyst_collector gate at :146 can activate on paid plans.
+    Sprint 6 Wave A item 1 (WA2) — source PR #1085 review.
+    """
+    from src.data_enrichment.finnhub_plan import finnhub_plan_supports
+    assert finnhub_plan_supports(
+        "price_target",
+        {"data_enrichment": {"finnhub_plan": "fundamental-1"}},
+    ) is True, (
+        "price_target must be supported on fundamental-1 plan. "
+        "Add 'price_target' to _FEATURE_MATRIX['fundamental-1'] in "
+        "src/data_enrichment/finnhub_plan.py."
     )

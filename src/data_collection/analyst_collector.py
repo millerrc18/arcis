@@ -23,7 +23,6 @@ analysts who submitted the most recent consensus, not the total coverage.
 """
 
 import logging
-import os
 import sqlite3
 import time
 from datetime import datetime, timedelta
@@ -32,6 +31,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from src.config import DB_PATH
+from src.data_collection._finnhub_shared import get_finnhub_key as _get_finnhub_key
 from src.data_enrichment.finnhub_plan import finnhub_plan_supports, get_finnhub_plan
 from src.utils.db import connect_db, engine_aware_upsert
 from src.utils.retry import retry_with_backoff
@@ -56,19 +56,6 @@ def _get_nightly_cap(config) -> int:
     feature gates are binary, rate caps are tier-numeric.
     """
     return 100 if get_finnhub_plan(config) == "fundamental-1" else 20
-
-
-def _get_finnhub_key() -> str | None:
-    """Get Finnhub API key. .env takes precedence over YAML config."""
-    env_key = os.environ.get("FINNHUB_API_KEY")
-    if env_key:
-        return env_key
-    try:
-        from src.config import load_config
-        config = load_config()
-        return config.get("data_enrichment", {}).get("finnhub_api_key")
-    except Exception:
-        return None
 
 
 def _get_tickers_to_collect(

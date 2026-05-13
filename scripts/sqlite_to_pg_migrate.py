@@ -14,7 +14,6 @@ Size gate: file must stay <=400 lines (test_repo_structure.py enforces this).
 
 import argparse
 import os
-import re
 import sqlite3
 import sys
 from typing import Optional
@@ -29,6 +28,9 @@ except ImportError:
     print("ERROR: psycopg2 not installed. Run: pip install psycopg2-binary")
     sys.exit(1)
 
+from _shared_migration_utils import confirm as _shared_confirm
+from _shared_migration_utils import redact_password as _redact_password
+from _shared_migration_utils import topo_sort_tables
 from src.config import DB_PATH
 from src.schema.registry import TABLES
 
@@ -53,16 +55,6 @@ def _resolve_primary_key_columns(table) -> list[str]:
     pk = table.primary_key
     return [pk] if isinstance(pk, str) else list(pk)
 
-
-def _redact_password(database_url: str) -> str:
-    """Mask the password in a DSN-style URL for safe logging.
-
-    `postgresql://user:secret@host:port/db` → `postgresql://user:<redacted>@host:port/db`.
-    Used to prevent password fragments from landing in committed log files (the
-    untimely committed migration-dry-run.log on 2026-05-10 leaked 19 chars of
-    the PG password; this redaction prevents recurrence).
-    """
-    return re.sub(r"://([^:/?#]+):[^@]+@", r"://\1:<redacted>@", database_url)
 
 
 def _get_sync_tables(table_filter: Optional[list[str]]):
@@ -139,15 +131,7 @@ def _confirm(source_path: str, dest_url: str, sync_tables: list, *, auto_yes: bo
     print("(pk) DO NOTHING per table. Sequences advance to MAX(pk)+1 post-bulk.")
     print("=" * 72)
 
-    if auto_yes:
-        print("--yes flag set; skipping interactive confirmation.")
-        return
-    print("Type 'YES' (exact case, no quotes) to proceed, or anything else to abort:")
-    response = input("> ").strip()
-    if response != "YES":
-        print(f"Aborted (response was {response!r}, expected 'YES').")
-        sys.exit(2)
-    print("Confirmed. Beginning migration.")
+    _shared_confirm("SQLITE -> POSTGRES DATA MIGRATION", auto_yes=auto_yes)
     print()
 
 
@@ -270,6 +254,12 @@ def run_migration(
     _validate_database_url(database_url)
 
     sync_tables = _get_sync_tables(table_filter)
+    fks = [
+        (t.name, fk.references_table)
+        for t in sync_tables
+        for fk in t.foreign_keys
+    ]
+    sync_tables = topo_sort_tables(sync_tables, fks)
 
     if dry_run:
         _print_dry_run_plan(sqlite_path, sync_tables)
