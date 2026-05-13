@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- Sprint 6 Wave B T3 (SP-WF-004): `excess_sharpe_min: float | None = None` field added to
+  `WalkForwardConfig` (additive, default None preserves backward compat). When set, wired into
+  `compute_window_metrics` as an additional rf-adjusted excess-Sharpe gate using
+  `canonical_sharpe.rf_adjusted_excess_sharpe` as the source of truth. `WindowMetrics` gains
+  three new default-None fields: `excess_sharpe`, `passes_excess_sharpe`, `excess_sharpe_fail_reason`.
+  +3 tests in `tests/platform/rigor/test_walkforward_metrics.py`.
+
 ### Changed
 
 - Sprint 6 Wave A — SP6 catch-all sweep (7 PR-review follow-ups from Sprint 5):
