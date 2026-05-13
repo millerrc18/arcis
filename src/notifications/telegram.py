@@ -799,7 +799,7 @@ def notify_regime_alert(vix_now: float, vix_prev: float,
     msg = (
         f"⚡ <b>REGIME ALERT</b>\n\n"
         f"VIX crossed {threshold_crossed:.0f} (was {vix_prev:.1f}, now {vix_now:.1f})\n"
-        f"Regime shifted: {regime_old} → {regime_new}\n"
+        f"Regime shifted: {_html_escape(regime_old)} → {_html_escape(regime_new)}\n"
         f"Qualification threshold: {qual_old} → {qual_new}\n"
         f"Position sizing: {sizing_old}% → {sizing_new}%\n\n"
         f"Action: {'Tighter' if vix_now > vix_prev else 'Looser'} filters active. "
@@ -819,11 +819,11 @@ def notify_streak_alert(streak_length: int, recent_trades: list[tuple[str, float
                         risk_governor_status: str,
                         historical_max_streak: int) -> bool:
     """Alert: 3+ consecutive losses."""
-    recent_str = ", ".join(f"{t} {p:+.1f}%" for t, p in recent_trades[:5])
+    recent_str = ", ".join(f"{_html_escape(t)} {p:+.1f}%" for t, p in recent_trades[:5])
     msg = (
         f"🔶 <b>STREAK ALERT: {streak_length} consecutive losses</b>\n\n"
         f"Recent: {recent_str}\n"
-        f"Max drawdown: {max_drawdown_pct:+.1f}% | Risk governor: {risk_governor_status}\n"
+        f"Max drawdown: {max_drawdown_pct:+.1f}% | Risk governor: {_html_escape(risk_governor_status)}\n"
         f"Historical streak max: {historical_max_streak}\n\n"
         f"No action required — within normal parameters."
     )

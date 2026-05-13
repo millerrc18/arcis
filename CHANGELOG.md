@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+
+- T13 (Wave D D4): `_html_escape` applied to `notify_regime_alert` (#93) and `notify_streak_alert` (#94) to prevent HTML injection in Telegram alerts. Pattern mirrors Sprint 4 T5 (notify_risk_alert / notify_exposure_alert).
+- Pytest isolation conftest fixture sets `ARCIS_NOTIFICATION_SOURCE='pytest:<worktree>'`, monkeypatches `_send_single` to a `_null_router` stub, and clears `ARCIS_TELEGRAM_TOKEN` per-test — prevents tests from accidentally calling the real Telegram API (#101).
+- 5 new tests in `tests/notifications/test_html_escape_siblings.py` including an AST guardrail that scans `notify_regime_alert` and `notify_streak_alert` for unescaped f-string interpolations.
+
 ### Fixed
 
 - `DigestQueue` now correctly round-trips dataclass payloads through enqueue→DB→flush→dispatch. Three coordinated fixes: (a) `enqueue` calls `dataclasses.asdict()` before `json.dumps` to support dataclass payloads; (b) `flush()` injects `event_type` and `severity` from DB columns into the dispatched dict (the dispatcher's contract — previously flush only selected `id, payload_json, flush_attempts`, so `_real_dispatcher` in watch.py got `event_type=""` and silently failed all digest dispatches); (c) `_do_dispatch` adds `_PAYLOAD_CLASS_MAP = {"trade_opened": TradeOpenedPayload, ...}` and reconstructs the dataclass from dict before invoking `notify_*` (which uses attribute access — previously `notify_trade_opened` would crash with `AttributeError: 'dict' object has no attribute 'ticker'` on the json.loads round-trip). Together these close the production bug where `safe_send(event_type, payload=TradeOpenedPayload(...))` during quiet hours would have crashed at flush time. Regression-locked by `test_full_roundtrip_trade_opened_dataclass_enqueue_to_dispatch`, `test_flush_injects_event_type_into_row_payload`, and `test_flush_injects_severity_into_row_payload`. Latent bug surfaced by operator's PR #1071 review (#115).
