@@ -2,7 +2,6 @@
 
 ## [Unreleased]
 
-<<<<<<< HEAD
 ### SP5 Wave D T11 — Notification digest queue (D2)
 
 Implements the persistence layer for `PolicyDecision(verdict='digest')` outputs. The watch loop drains the queue every `digest_flush_minutes` minutes (default 60). T11 owns the queue mechanics, schema, and watch.py flush hook; T12 (D3) will wire `safe_send` to enqueue.
@@ -26,7 +25,7 @@ Implements the persistence layer for `PolicyDecision(verdict='digest')` outputs.
 - **QA nit 1**: `test_flush_then_fail_recovery` assertion tightened from `in ("pending", "abandoned", "sent")` to `== "pending"` with a failing dispatcher. The original accepted 3 of 4 possible states; the new assertion is specific to the crash-recovery-with-retries-remaining path.
 - **QA nit 3**: `flush_error` ColumnDef description updated to reflect actual state machine (`abandoned` only, no `failed`) and document the redaction + cap discipline for future authors.
 - **Regression-lock**: `test_flush_error_redacts_bot_token_in_exception_string` added to `tests/notifications/test_digest_queue.py`. Fails with "Bot token leaked into flush_error" if `_redact_token` is removed from `_dispatch_one_row`.
-=======
+
 ### SP5 Recovery — Render Postgres → local Postgres data migration script
 
 Production incident 2026-05-12 ~18:15 ET: NSSM ArcisWatchLoop sent a "startup blocked" Telegram notification and entered a restart loop. Root cause: the prior recovery this session ran `scripts/sqlite_to_pg_migrate.py` with the operator's shell `DATABASE_URL` pointing at the **Render** Postgres URL (pre-cutover carryover), not the post-cutover-canonical local PG at `localhost:5433/halcyon`. 1.46M+ rows were silently copied to Render PG instead of local PG. Local PG stayed empty. The watch loop's `initialize_database()` crashed on `UPDATE shadow_trades` (UndefinedTable) and NSSM auto-restarted into a loop.
@@ -43,7 +42,6 @@ Recovery: built a new migration script with a YES-prompt guard, ran it, restarte
 - **#112**: investigate bidirectional row-count drift (some tables have SQLite > Render; those SQLite-only rows are missing from local PG post-recovery). Decide whether to top off from SQLite.
 - **#113**: task #88 (Phase-3-revised cutover) was marked complete but writes to Render continued up to 2026-05-08; audit the cutover to identify the leak path that the cutover should have closed.
 - **#114**: content-level dedup pass for different-PK same-content duplicates from pre-cutover dual-writes era (e.g., `options_chains` 1.5M rows on Render vs 755K on SQLite may include autoincrement-divergent duplicates).
->>>>>>> 1d00ff3 (sp5-recovery: render_to_local_migrate.py + interactive YES-prompt guard)
 
 ### SP5 Wave D T10 — Notification routing policy gate (D1)
 
