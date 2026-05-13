@@ -9,7 +9,8 @@ Calls: src.platform.rigor.dsr, src.platform.rigor.cscv,
        src.methods.promotion_gate (Sprint 2 T2: methodology gate AND-composition),
        src.analytics.instrumentation_filter (Sprint 2 T2: input quality filter).
 Owns tables: strategy_registry, strategy_promotion_events.
-Config keys: METHODOLOGY_GATE_ENABLED (env, default 'true').
+Config keys: METHODOLOGY_GATE_ENABLED (env, default 'true'),
+             WALKFORWARD_GATE_ENABLED (env, default 'true').
 Tests: tests/platform/test_promotion.py,
        tests/test_promotion_methodology_gate.py.
 
@@ -234,7 +235,34 @@ def _evaluate_walkforward_gate(
         walkforward_reason: structured reason string from the runner
         walkforward_run_id: cross-reference to walkforward_results
         walkforward_pooled_sharpe: net-of-cost pooled Sharpe
+
+    Feature flag: WALKFORWARD_GATE_ENABLED is enabled ONLY when the env value
+    resolves to one of {"true", "1", "yes"} (case-insensitive); any other value
+    — including non-canonical strings like "0", "no", "banana" or a typo like
+    "trueee" — disables the gate.
+
+    This is stricter-about-enable than the sibling METHODOLOGY_GATE_ENABLED
+    pattern at line 294 below, which disables only on literal "false" and
+    leaves every other value (including typos) enabled. The asymmetry is
+    deliberate: walk-forward gating is fail-safe (a misconfigured env var
+    blocks promotions rather than silently allowing them), while
+    methodology-gate disable is fail-open (a misconfigured env var lets the
+    full voter run rather than skipping it). Both gates default to enabled
+    when the env var is unset.
+
+    PR #1090 review (operator, 2026-05-13): the docstring's prior claim of
+    "follows METHODOLOGY_GATE_ENABLED pattern" was inaccurate; this header
+    documents the deliberate divergence. Standardization to a shared
+    `_env_flag_enabled(name, default=True)` helper is a Sprint 6 catch-all
+    candidate.
+
+    When the flag resolves disabled, the gate short-circuits to
+    (None, evidence) with walkforward_status='disabled' — identical to the
+    no-row-found fallback so all call sites keep working unchanged.
     """
+    if not os.environ.get("WALKFORWARD_GATE_ENABLED", "true").lower() in ("true", "1", "yes"):
+        evidence["walkforward_status"] = "disabled"
+        return None, evidence
     wf = _fetch_latest_walkforward_outcome(strategy_id, db_path)
     if wf is None:
         evidence["walkforward_outcome_state"] = None

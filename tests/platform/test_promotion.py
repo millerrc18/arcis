@@ -5,6 +5,7 @@ Non-negotiable gates:
   - test_demote_requires_reason_at_least_20_chars
 """
 import pytest
+from unittest.mock import patch
 
 from src.platform.promotion import (
     GATE_DEMOTION_REASON_MIN_CHARS,
@@ -13,6 +14,7 @@ from src.platform.promotion import (
     GATE_OOS_EFFICIENCY_MIN,
     GATE_PBO_MAX,
     STATUSES,
+    _evaluate_walkforward_gate,
     check_promotion_gate,
     demote,
     get_strategies_by_status,
@@ -374,6 +376,39 @@ def test_promotion_gate_requires_oos_efficiency_not_null(temp_db):
     assert "walk-forward" in evidence["error"].lower() or \
            "oos" in evidence["error"].lower() or \
            evidence["oos_efficiency"] is None
+
+
+def test_walkforward_gate_disabled_bypasses_check(temp_db, monkeypatch):
+    """WALKFORWARD_GATE_ENABLED=false → short-circuits, returns (None, evidence)
+    with walkforward_status='disabled'; _fetch_latest_walkforward_outcome not called."""
+    monkeypatch.setenv("WALKFORWARD_GATE_ENABLED", "false")
+    with patch("src.platform.promotion._fetch_latest_walkforward_outcome") as mock_fetch:
+        result, ev = _evaluate_walkforward_gate("s1", temp_db, {})
+    mock_fetch.assert_not_called()
+    assert result is None
+    assert ev["walkforward_status"] == "disabled"
+
+
+def test_walkforward_gate_enabled_by_default(temp_db, monkeypatch):
+    """No env override → gate runs (default true); fetch is called."""
+    monkeypatch.delenv("WALKFORWARD_GATE_ENABLED", raising=False)
+    with patch("src.platform.promotion._fetch_latest_walkforward_outcome",
+               return_value=None) as mock_fetch:
+        result, ev = _evaluate_walkforward_gate("s1", temp_db, {})
+    mock_fetch.assert_called_once_with("s1", temp_db)
+    assert result is None
+    assert ev.get("walkforward_status") == "no_data_yet"
+
+
+def test_walkforward_gate_enabled_true_explicit(temp_db, monkeypatch):
+    """WALKFORWARD_GATE_ENABLED=true → gate runs normally; fetch is called."""
+    monkeypatch.setenv("WALKFORWARD_GATE_ENABLED", "true")
+    with patch("src.platform.promotion._fetch_latest_walkforward_outcome",
+               return_value=None) as mock_fetch:
+        result, ev = _evaluate_walkforward_gate("s1", temp_db, {})
+    mock_fetch.assert_called_once_with("s1", temp_db)
+    assert result is None
+    assert ev.get("walkforward_status") == "no_data_yet"
 
 
 def test_promotion_gate_rejects_pbo_over_threshold(temp_db):
