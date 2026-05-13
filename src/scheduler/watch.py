@@ -973,12 +973,15 @@ class WatchLoop(HandlerRegistryMixin):
         """Tick: digest queue flush (T11 D2, configurable cadence default 60min).
 
         Drains notifications_digest_queue rows with flush_status='pending'.
-        Dispatcher is a stub logger (T12 D3 will wire the real safe_send dispatcher).
+        Dispatcher calls _do_dispatch directly (bypassing safe_send policy re-gating,
+        since each row was already policy-gated at enqueue time).
         Done-flag set INSIDE try per CLAUDE.md "_safe_run returns bool" rule.
         Backoff keyed to 'digest_queue' per-task.
+        Config read from self.config (same reference used by the rest of the loop).
         """
         from src.notifications.digest_queue import DigestQueue
         from src.notifications.errors import NotificationsError
+        from src.notifications.telegram import _do_dispatch, _load_config_for_safe_send
 
         try:
             notif_cfg = (self.config.get("notifications") or {})
@@ -993,32 +996,20 @@ class WatchLoop(HandlerRegistryMixin):
         ):
             return
 
-        def _stub_dispatcher(payload: dict) -> None:
-            logger.info(
-                "[DIGEST] stub dispatch (T12 will wire safe_send): payload_keys=%s",
-                list(payload.keys()),
-            )
+        def _real_dispatcher(row_payload: dict) -> None:
+            event_type = row_payload.get("event_type", "")
+            severity = row_payload.get("severity", "normal")
+            kwargs = {k: v for k, v in row_payload.items() if k not in ("event_type", "severity")}
+            _do_dispatch(event_type, kwargs, severity, ["telegram"])
 
         try:
+            try:
+                cfg = _load_config_for_safe_send()
+            except Exception:
+                cfg = None
             with connect_db(DB_PATH) as conn:
-                from src.notifications.policy import NotificationsConfig
-                retry = (self.config.get("notifications") or {}).get("retry") or {}
-                retry_attempts = int(retry.get("attempts", 3))
-                cfg = NotificationsConfig(
-                    default_routing={"telegram": True, "email": False},
-                    digest_low=True,
-                    quiet_hours_start="22:00",
-                    quiet_hours_end="06:00",
-                    quiet_digest=True,
-                    mute_event_types=[],
-                    routing_overrides={},
-                    cadence_minutes_per_event_type={},
-                    retry_attempts=retry_attempts,
-                    retry_backoff_seconds=list(retry.get("backoff_seconds", [1, 5, 15])),
-                    digest_flush_minutes=flush_minutes,
-                )
                 q = DigestQueue(conn, config=cfg)
-                result = q.flush(dispatcher=_stub_dispatcher)
+                result = q.flush(dispatcher=_real_dispatcher)
             logger.info(
                 "[DIGEST] flush complete: successes=%d failures=%d abandoned=%d",
                 result.successes, result.failures, result.abandoned,

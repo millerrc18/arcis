@@ -2110,15 +2110,41 @@ type data\drift_detector_state.json
 
 ## Notifications routing
 
-> Added T10 Sprint 5 Wave D D1. Controls which events are sent immediately, digested for batch delivery, or muted.
+> Added T10 Sprint 5 Wave D D1. T12 D3 wired `safe_send` to consult the policy gate; digest queue dispatcher replaced stub. Controls which events are sent immediately, digested for batch delivery, or muted.
 
 ### Where to edit
 
 Edit `config/settings.local.yaml` (gitignored — your local override). The `notifications:` section is fully optional; missing keys use the defaults shown in `config/settings.example.yaml`. Never edit `settings.example.yaml` for per-operator values.
 
+### safe_send verdict-dispatch matrix (T12 D3)
+
+`safe_send` now consults `should_dispatch(event_type, severity, now_et, config)` on every call and branches on the returned `PolicyDecision.verdict`:
+
+| verdict   | action                                                              |
+|-----------|---------------------------------------------------------------------|
+| `send`    | `_do_dispatch` — calls notify_fn directly, writes ok row           |
+| `digest`  | `DigestQueue.enqueue` — buffered for batch delivery                 |
+| `mute`    | Log + return False (silent drop)                                    |
+| `escalate`| `_do_dispatch_escalated` — all configured channels, sequential      |
+
+`force=True` bypasses the policy gate entirely and always routes to the `send` path via telegram. Use for manual overrides from the CLI only.
+
 ### Decision 20: no bypass_severity knob
 
-There is no `bypass_severity` config key and there never will be. **Severity `high` and `critical` ALWAYS send immediately** — this is Rule #1 in the routing gate and cannot be overridden by any other policy (mute list, quiet hours, digest_low). Adding `bypass_severity` to your config will cause startup to fail with `NotificationsConfigError`. If you want a specific event_type to never send, add it to `mute_event_types` — but high/critical events of that type will still send.
+There is no `bypass_severity` config key and there never will be. **Severity `high` and `critical` ALWAYS send immediately** — this is Rule #1 in the routing gate and cannot be overridden by any other policy (mute list, quiet hours, digest_low). Adding `bypass_severity` to your config will cause startup to fail with `NotificationsConfigError`. **This lockdown is now enforced recursively** — a `bypass_severity` key nested inside `routing_overrides.X` will also raise. If you want a specific event_type to never send, add it to `mute_event_types` — but high/critical events of that type will still send.
+
+### routing_overrides key allowlist (T12 D3 #110)
+
+Each entry under `routing_overrides` must be a dict with keys drawn exclusively from `{'telegram', 'email', 'escalation_after_attempts'}`. Unknown keys (e.g. typo `telgram`) will raise `NotificationsConfigError` with the offending key path. This prevents silent misconfiguration.
+
+```yaml
+notifications:
+  routing_overrides:
+    manual_intervention_drift:
+      telegram: true
+      email: true
+      escalation_after_attempts: 3   # escalate after 3 failed send attempts
+```
 
 ### Quiet hours
 
@@ -2169,7 +2195,7 @@ notifications:
       escalation_after_attempts: 3   # T12 D3 retry knob
 ```
 
-`default_routing` applies to all events not listed in `routing_overrides`. Each override entry specifies `telegram` and `email` booleans. Only keys registered in `src.notifications.telegram.event_map` are valid — unknown keys raise `NotificationsConfigError` at startup.
+`default_routing` applies to all events not listed in `routing_overrides`. Each override entry specifies `telegram` and `email` booleans plus optional `escalation_after_attempts`. Only event_type keys registered in `src.notifications.telegram._EVENT_MAP` are valid — unknown event types raise `NotificationsConfigError` at startup. Unknown override dict keys also raise (see routing_overrides key allowlist above).
 
 ### Cadence throttling
 
@@ -2180,7 +2206,7 @@ notifications:
     alert_silence: 60
 ```
 
-T12 D3 will use these values to throttle repeated alerts of the same event_type. Values must be in `[1, 1440]` (1 minute to 24 hours). Unknown event_type keys raise at startup.
+Values must be in `[1, 1440]` (1 minute to 24 hours). Unknown event_type keys raise at startup.
 
 ### Retry
 
@@ -2191,7 +2217,7 @@ notifications:
     backoff_seconds: [1, 5, 15]   # length must equal attempts
 ```
 
-T12 D3 will use these values for network retry on failed sends. `attempts` must be in `[1, 10]`. `len(backoff_seconds)` must equal `attempts`.
+`attempts` must be in `[1, 10]`. `len(backoff_seconds)` must equal `attempts`.
 
 ### Digest queue
 
