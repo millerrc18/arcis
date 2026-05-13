@@ -1,0 +1,61 @@
+[
+  {
+    "id": "SP-WF-013",
+    "decision": "Scheduler auto-fire is dual-mechanism: synchronous post-persist hook in scripts/run_backtest.py + hourly safety-net reconciler in src/scheduler/watch.py. Both write to a shared auto_fire_walkforward helper in src/platform/walkforward_autofire.py (NEW file). Per-strategy concurrency via filelock at data/walkforward-{strategy_id}.lock. Max 3 attempts per (strategy_id, code_git_sha) per 24h. Behind WALKFORWARD_AUTOFIRE_ENABLED env var (default true). Auto-fire failures emit platform_events rows but NEVER raise \u2014 a backtest persist success must not be voided by an auto-fire failure.",
+    "rationale": "Post-persist hook provides zero-latency trigger at source-of-truth (operator runs run_backtest.py and expects same-day walkforward). Hourly reconciler closes the gap when parent process crashes after persist. Both mechanisms share a helper to unify failure handling. filelock prevents two backtests racing on the same strategy. The 3-attempt cap prevents runaway retry loops; platform_events provides full audit trail. Sentinel discipline matches SP-WF-009 (default-true, escape-hatch off).",
+    "alternatives_considered": [
+      "Pure scheduler-tick polling (rejected \u2014 adds 60-min latency; operator expects same-day result)",
+      "Event-bus pub/sub (rejected \u2014 YAGNI; platform_events is the only existing audit trail, no need for new abstraction)",
+      "Synchronous in-process walkforward call (rejected \u2014 would block scripts/run_backtest.py for 10-60 min, breaking CLI ergonomics)",
+      "Single mechanism (post-persist hook only, no reconciler \u2014 rejected; leaves a gap when parent process crashes)"
+    ],
+    "source": "operator-interview (BRIEF requirement: scheduler auto-fire closes manual-CLI gap) + codebase-constraint (watch.py:2176 _run_postclose_reconciliation pattern + scripts/run_backtest.py:94 persist call site) + v1-spec-reference (SP-WF-009 sentinel discipline pattern + SP-WF-010 corpus binding)"
+  },
+  {
+    "id": "SP-WF-014",
+    "decision": "_evaluate_production_gate is extended to call _evaluate_walkforward_gate symmetrically with _evaluate_shadow_trading_gate. Composition: passes_dsr AND walkforward_pass AND methodology_pass. Honors the same WALKFORWARD_GATE_ENABLED sentinel from T9 (one sentinel, both gates). Stricter no-row policy: if walkforward gate returns (None, evidence), production gate returns False (NOT legacy fall-through that shadow_trading uses). PBO production-gate wiring stays explicitly out of scope \u2014 line 519 (evidence['pbo'] = None) stays; T14 only closes line 520's walkforward placeholder.",
+    "rationale": "Symmetry with _evaluate_shadow_trading_gate is the simplest design and aligns with v1 spec SP-WF-008 (AND-composition at orchestrator level, not voter). Stricter no-row policy reflects the lifecycle invariant: any strategy reaching production has already passed shadow_trading, which required a walkforward row \u2014 so a production attempt with no walkforward row indicates a manual override or a broken lifecycle, both blocking. Single sentinel is operationally simpler \u2014 if operator wants to bypass walkforward for production specifically, they bypass for both.",
+    "alternatives_considered": [
+      "Legacy fall-through symmetric with shadow_trading (rejected \u2014 production is higher-stakes; we choose conservatism over symmetry with legacy fall-through)",
+      "New sentinel PRODUCTION_WALKFORWARD_GATE_ENABLED (rejected \u2014 duplicates SP-WF-009; one sentinel for both gates is simpler)",
+      "Wire PBO production-gate in same task (rejected \u2014 scope creep; PBO has its own decision history and is explicitly deferred)",
+      "Make _evaluate_production_gate call check_promotion_gate(target='shadow_trading') internally (rejected \u2014 recursive semantics and would re-run methodology gate twice)"
+    ],
+    "source": "operator-interview (BRIEF: 'production-gate walkforward check is in scope') + codebase-constraint (promotion.py:506-525 _evaluate_production_gate exact placeholder lines 519-520) + v1-spec-reference (SP-WF-008 AND-composition at orchestrator level; SP-WF-009 sentinel default-true)"
+  },
+  {
+    "id": "SP-WF-015",
+    "decision": "Sprint 6 is PM-orchestrated (/arcis:code skill, multi-developer with worktree isolation, full review cycle). 6-wave structure preserves v1 plan's batch dependencies verbatim, adds new tasks T13/T14 in Wave 6 (parallel with T11, behind T8/T9), and a single closeout PR T15 in Wave 7 (depends on T1-T14). Version target v0.36.0. CHANGELOG aggregation + version bump + operator-guide append happen in T15 only \u2014 modeled on the just-merged T16/v0.35.0 close PR (commit 8d06e8ca). Test floor 5300 \u2192 end \u2265 5320 (5300 + \u226520 added).",
+    "rationale": "Worktree-isolated PM orchestration is required by CLAUDE.md 'Parallel Agent Dispatch \u2014 Worktree Discipline' \u2014 Sprint 6 has 15 tasks crossing ~25 files, well above the single-developer threshold. The 6-wave structure preserves v1 plan dependencies. T13+T14 in the same wave because they touch disjoint files (T13: scheduler/scripts/autofire; T14: promotion.py/test_promotion.py \u2014 promotion.py is shared with T1/T9 but those are upstream dependencies, not parallel). Single closeout PR mirrors the operator's strong preference for sprint-close discipline (operator memory: 'Sprint 5 is the final sprint' was overridden mid-sprint \u2014 this Sprint 6 closes cleanly to avoid that drift).",
+    "alternatives_considered": [
+      "Two close PRs (v0.36.0-rc1 + v0.36.0) \u2014 rejected, adds release-engineering overhead for no benefit",
+      "Skip closeout PR, ship T12 per-task \u2014 rejected, drifts version bump out of band with CHANGELOG aggregate (CLAUDE.md mandates each PR updates CHANGELOG [Unreleased])",
+      "Fold T15 into T14 (rejected \u2014 version bump is operationally distinct from a code change; bundling them creates merge-order hazards)",
+      "Five-wave structure with T13+T14 in same wave as T11 (kept \u2014 chosen). Sequential T13\u2192T14 alternative rejected: zero shared files between the two."
+    ],
+    "source": "operator-interview (BRIEF: 'Sprint 6 PM-orchestrated via /arcis:code skill') + codebase-constraint (CLAUDE.md Parallel Agent Dispatch worktree discipline + test floor 5300) + commit-history (8d06e8ca T16/v0.35.0 close pattern as template)"
+  },
+  {
+    "id": "SP-WF-016",
+    "decision": "Three production-detectable SQL queries documented in docs/operator-guide.md (added by T15) prove or disprove the T13+T14 wiring: (1) orphan-backtest query \u2014 finds backtest_results rows older than 2h without a paired walkforward_results row (T13 falsifier); (2) production-promotion-walkforward-evidence query \u2014 finds strategy_promotion_events with to_status='production' lacking walkforward_outcome_state in gate_result_json (T14 falsifier); (3) auto-fire-failure-rate query \u2014 counts platform_events with event_type LIKE 'walkforward_auto_fire%' in the last 7 days (T13 systemic-failure detector). Expected thresholds: query 1 zero rows after reconciler runs; query 2 zero rows post-Sprint-6; query 3 < 5% of total auto-fires.",
+    "rationale": "Silent-failure modes for scheduler triggers are the highest-risk class \u2014 they pass tests in worktree (where the trigger fires synchronously) but fail in production (where the child process dies post-fork). Operator memory 'feedback_worktree_env_drift' documents PR #711\u2192#729 incident where worktree-green tests 401'd post-merge. T13's child-process spawn is especially susceptible. Three SQL queries with concrete thresholds let the operator detect drift without reading code \u2014 directly addressable in the operator-guide.md and in the watch-loop weekly digest. Production-detectability is the falsifiability discipline CLAUDE.md memory 'feedback_review_sibling_search' enforces.",
+    "alternatives_considered": [
+      "Heartbeat/health-check HTTP endpoint (rejected \u2014 heavier than three SQL queries an operator can paste into REPL; would require new route + frontend surfacing)",
+      "Telegram alert on auto-fire failure (rejected \u2014 out of Sprint 6 scope; requires notification routing layer changes)",
+      "Do not document falsifiability (rejected \u2014 operator memory feedback_review_sibling_search requires falsifiability claims be testable)",
+      "Embed falsifiability checks as pytest tests only (rejected \u2014 pytest runs in CI, not in production; production-detectability is the goal here)"
+    ],
+    "source": "operator-interview (BRIEF: 'Falsifiability triggers for T13+T14 \u2014 what proves the wiring works in production') + codebase-constraint (platform_events as existing audit-trail; CLAUDE.md fix-before-trade principle) + memory-reference (feedback_worktree_env_drift PR #711\u2192#729 incident; feedback_review_sibling_search falsifiability discipline)"
+  },
+  {
+    "id": "SP-WF-017",
+    "decision": "Sentinel-consistency check at startup. When WALKFORWARD_GATE_ENABLED=true AND WALKFORWARD_AUTOFIRE_ENABLED=false (asymmetric configuration), `python -m src.main startup` emits a warning to Telegram + log. ALSO: when `_evaluate_walkforward_gate` returns `passes=False` due to no-row, the evidence dict includes `auto_fire_enabled` so the operator sees both pieces of state at gate-reject time.",
+    "rationale": "Devil's Advocate DA-6 surfaced a sentinel-combination deadlock: GATE=true + AUTOFIRE=false creates a hard-stop on promotion attempts (gate requires walkforward rows that auto-fire would have produced). Spec v1.0 mentioned the combination casually ('manual CLI still works') but never surfaced the operational risk. Startup-time warning gives the operator immediate visibility; evidence-dict inclusion makes the gate-reject diagnostic explicit.",
+    "alternatives": [
+      "Couple the two flags: setting GATE=true auto-implies AUTOFIRE=true (rejected \u2014 removes operator override flexibility)",
+      "Silent / log-only warning (rejected \u2014 Telegram channel ensures operator sees it)",
+      "Block startup on asymmetric config (rejected \u2014 too aggressive; operator may have legitimate reasons)"
+    ],
+    "source": "devils-advocate-DA-6"
+  }
+]
