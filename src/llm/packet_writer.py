@@ -282,20 +282,49 @@ def _render_filings_sentiment_subblock(features: dict) -> str:
     )
 
 
+def _render_press_releases_subblock(features: dict) -> str:
+    """Render the press_releases sub-block of MATERIAL EVENTS (T23).
+
+    Returns "" when the plan does not support press_releases (Decision 30)
+    or when no data is present yet. The MATERIAL EVENTS composition wrapper
+    decides whether the outer section header renders.
+    """
+    if not features.get("_press_releases_plan_supports"):
+        return ""
+    count = features.get("press_release_count_7d")
+    headline = features.get("latest_press_release_headline")
+    age = features.get("latest_press_release_age_days")
+    if count is None and not headline:
+        return ""
+    count_str = f"{count}" if isinstance(count, int) else "n/a"
+    headline_str = headline if isinstance(headline, str) and headline else "n/a"
+    age_str = (
+        f"{age} day{'s' if age != 1 else ''} ago"
+        if isinstance(age, int) else "n/a"
+    )
+    return (
+        f"Press releases (7d): {count_str}\n"
+        f"Latest press release: {headline_str} ({age_str})"
+    )
+
+
 def _render_material_events(features: dict) -> str:
-    """Render the MATERIAL EVENTS section (Sprint 5 Wave C7b.2 / T22 seed).
+    """Render the MATERIAL EVENTS section (Sprint 5 Wave C7b.2 / T22 seed,
+    extended by T23 with press_releases sub-block).
 
     Composition rule: this section is a wrapper around one-or-more sub-blocks
-    (filings_sentiment is the first, seeded here; press_releases will be added
-    by T23). If NO sub-block contributes content, the entire section header
-    is omitted. If at least one sub-block contributes, the header renders
-    followed by whichever sub-blocks have content (separated by a blank line).
+    (filings_sentiment + press_releases). If NO sub-block contributes content,
+    the entire section header is omitted. If at least one sub-block
+    contributes, the header renders followed by whichever sub-blocks have
+    content (separated by a blank line).
     """
     subblocks: list[str] = []
     filings_block = _render_filings_sentiment_subblock(features)
     if filings_block:
         subblocks.append(filings_block)
-    # T23 will append _render_press_releases_subblock(features) here.
+    press_block = _render_press_releases_subblock(features)
+    if press_block:
+        subblocks.append(press_block)
     if not subblocks:
         return ""
     body = "\n\n".join(subblocks)
