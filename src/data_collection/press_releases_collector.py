@@ -24,12 +24,12 @@ the 403-burn on free-tier keys per Decision 30).
 from __future__ import annotations
 
 import logging
-import os
 from datetime import datetime, timezone
 
 import requests
 
 from src.config import DB_PATH
+from src.data_collection._finnhub_shared import get_finnhub_key
 from src.data_enrichment.finnhub_plan import finnhub_plan_supports
 from src.utils.db import connect_db, engine_aware_upsert
 from src.utils.retry import retry_with_backoff
@@ -37,19 +37,6 @@ from src.utils.retry import retry_with_backoff
 logger = logging.getLogger(__name__)
 
 FINNHUB_BASE = "https://finnhub.io/api/v1"
-
-
-def _get_finnhub_key() -> str | None:
-    """Get Finnhub API key. .env takes precedence over YAML config."""
-    env_key = os.environ.get("FINNHUB_API_KEY")
-    if env_key:
-        return env_key
-    try:
-        from src.config import load_config
-        config = load_config()
-        return config.get("data_enrichment", {}).get("finnhub_api_key")
-    except Exception:
-        return None
 
 
 def _fetch_finnhub_press_releases(ticker: str, api_key: str) -> list[dict] | None:
@@ -117,7 +104,7 @@ def collect_press_releases(
         )
         return None
 
-    api_key = _get_finnhub_key()
+    api_key = get_finnhub_key()
     if not api_key:
         from src.data_collection.errors import CollectorConfigError
         raise CollectorConfigError(

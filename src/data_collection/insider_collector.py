@@ -21,7 +21,6 @@ after our last collection.
 """
 
 import logging
-import os
 import sqlite3
 import time
 from datetime import datetime
@@ -30,6 +29,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from src.config import DB_PATH
+from src.data_collection._finnhub_shared import get_finnhub_key
 from src.utils.db import connect_db, engine_aware_upsert
 from src.utils.retry import retry_with_backoff
 
@@ -38,19 +38,6 @@ ET = ZoneInfo("America/New_York")
 FINNHUB_BASE = "https://finnhub.io/api/v1"
 
 # Table creation handled by src/schema/registry.py
-
-
-def _get_finnhub_key() -> str | None:
-    """Get Finnhub API key. .env takes precedence over YAML config."""
-    env_key = os.environ.get("FINNHUB_API_KEY")
-    if env_key:
-        return env_key
-    try:
-        from src.config import load_config
-        config = load_config()
-        return config.get("data_enrichment", {}).get("finnhub_api_key")
-    except Exception:
-        return None
 
 
 def _get_last_filing_date(conn: sqlite3.Connection, ticker: str) -> str | None:
@@ -82,7 +69,7 @@ def collect_insider_transactions(
         )
         return {"tickers_processed": 0, "transactions_stored": 0, "errors": 0}
 
-    api_key = _get_finnhub_key()
+    api_key = get_finnhub_key()
     if not api_key:
         from src.data_collection.errors import CollectorConfigError
         raise CollectorConfigError("FINNHUB_API_KEY not configured — set in .env or config/settings.local.yaml")
