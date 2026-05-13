@@ -11,6 +11,11 @@
   IS/OOS window tuples using canonical `subtract_trading_days` arithmetic (no calendar-day
   approximation). Enforces `train_end < test_start` invariant. `DEFAULT_WINDOWS` unchanged.
   +4 tests in `tests/platform/rigor/test_walkforward_config.py`.
+- Sprint 6 Wave B T6: `VixCoverageResult` dataclass + `validate_vix_tier_coverage` function
+  added to `src/platform/rigor/walkforward_power.py`. Wrapper layer over
+  `walkforward_metrics.vix_tier_of` that returns structured pass/fail evidence
+  (`distinct_tiers`, `passes`, `missing_tiers`) for downstream persistence
+  by T8 (runner integration). +4 tests in `tests/platform/rigor/test_walkforward_power.py`.
 
 - Sprint 6 Wave B T3 (SP-WF-004): `excess_sharpe_min: float | None = None` field added to
   `WalkForwardConfig` (additive, default None preserves backward compat). When set, wired into
