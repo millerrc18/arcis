@@ -2,6 +2,38 @@
 
 ## [Unreleased]
 
+### SP5 Wave D T12 — safe_send verdict-dispatch wiring + #110 security fold-in (D3)
+
+Wires `safe_send` to consult T10's `should_dispatch` policy gate on every call; branches on `PolicyDecision.verdict` (send/digest/mute/escalate); replaces T11's stub dispatcher in `tick_digest_queue` with a real `_do_dispatch`-flavor dispatcher; consolidates the dual-representation tension between `_KNOWN_EVENT_TYPES` and the local `event_map` inside `safe_send` into a single `_EVENT_MAP` module-level dict. Also folds in tracker #110 — nested `bypass_severity` check + `routing_overrides.<event_type>.*` key allowlist.
+
+#### Added
+
+- **`src/notifications/telegram.py` — `_EVENT_MAP`**: module-level dict (single source of truth) mapping event_type strings to notify_* functions. `_KNOWN_EVENT_TYPES` is now derived as `frozenset(_EVENT_MAP)` — the two representations can never diverge.
+- **`src/notifications/telegram.py` — `_check_nested_bypass_severity`**: recursive walk of the notifications config section; raises `NotificationsConfigError` with the offending key path if `bypass_severity` appears anywhere (including inside `routing_overrides` sub-dicts). Called once in `_load_notifications_config`.
+- **`src/notifications/telegram.py` — `_ALLOWED_ROUTING_OVERRIDE_KEYS`**: frozenset `{'telegram', 'email', 'escalation_after_attempts'}`. Used to validate each routing override entry's dict keys; unknown keys raise `NotificationsConfigError` with the exact key and event_type path.
+- **`src/notifications/telegram.py` — `_load_config_for_safe_send`, `_now_et_for_safe_send`, `_get_digest_db_conn`, `_resolve_source_tag`**: testability hooks replaceable by `patch()`. Production paths load config from `settings.yaml`, return `datetime.now(ET)`, open `DB_PATH` connection, and return `"safe_send"` respectively.
+- **`src/notifications/telegram.py` — `_do_dispatch`**: dispatch helper for SEND verdict. Looks up the notify_fn via the module object (not the frozen dict reference) so test patches on notify_* take effect. Catches network exceptions, logs warning, calls `_record_send_failure`.
+- **`src/notifications/telegram.py` — `_do_dispatch_escalated`**: dispatch helper for ESCALATE verdict. Calls telegram channel via `_do_dispatch`, then attempts email via `src.email.notifier.send_email`. Sequential (not parallel) — failure visibility is more important than throughput for escalated alerts. Returns True if any channel succeeds.
+- **`src/notifications/telegram.py` — `safe_send` rewrite**: adds `force: bool = False` keyword arg; pops `severity` from kwargs (default `'normal'`); calls `_load_config_for_safe_send` + `_now_et_for_safe_send` to get routing context; delegates verdict-dispatch to `_do_dispatch`/`DigestQueue.enqueue`/log/`_do_dispatch_escalated`. KeyError on unknown event_type raised BEFORE policy gate.
+- **`src/notifications/telegram.py` — module-level `should_dispatch` import**: imported from `policy` at module level so tests can patch `src.notifications.telegram.should_dispatch`.
+- **`src/scheduler/watch.py` — `tick_digest_queue` dispatcher replacement**: replaces `_stub_dispatcher` with `_real_dispatcher` that calls `_do_dispatch(event_type, kwargs, severity, ["telegram"])` directly (bypasses safe_send → policy re-gating, since rows were policy-gated at enqueue time). Config now read from `self.config` instead of hard-coded defaults.
+- **`tests/notifications/test_safe_send_wiring.py`**: 6 tests — send path, digest path, mute path, force bypass, dispatch exception, escalate path.
+- **`tests/notifications/test_load_notifications_config_strict.py`**: 4 tests — nested bypass_severity raises, unknown routing override key raises with path, escalation_after_attempts accepted, string-not-dict raises.
+- **`tests/notifications/test_safe_send_dual_rep_consolidated.py`**: 2 tests — `_EVENT_MAP` non-empty at import, `_KNOWN_EVENT_TYPES == frozenset(_EVENT_MAP.keys())`.
+
+#### Changed
+
+- **`src/notifications/telegram.py` — `_load_notifications_config`**: extended with `_check_nested_bypass_severity` call + routing_overrides key allowlist validation (type check + unknown key detection). Existing top-level `bypass_severity` check kept for clear error messaging.
+- **`config/settings.example.yaml`**: updated `escalation_after_attempts` comment from "T12 D3 will use this" to a live description.
+- **`docs/operator-guide.md`**: added safe_send verdict-dispatch matrix, updated Decision 20 note for recursive bypass_severity lockdown, added routing_overrides key allowlist section.
+- **`config/known_violations.json`**: updated `src/notifications/telegram.py` line count and `safe_send` / `_load_notifications_config` function line counts to reflect T12 additions.
+
+#### Design choices (DR-02 explicit uncertainty resolution)
+
+- **escalate dispatch sequential vs parallel**: chose sequential. Escalated alerts are high-urgency; knowing which channel failed (vs which succeeded) is more operationally useful than saving 50ms. If telegram succeeds but email fails, the log clearly shows which channel needs investigation.
+- **safe_send `severity` kwarg vs positional**: kept as a kwarg (`severity="high"`) to avoid changing all existing call sites. Call sites that don't pass `severity` default to `'normal'`.
+- **_do_dispatch re-resolution via `sys.modules[__name__]`**: necessary because `_EVENT_MAP` stores function references frozen at import time; patching `notify_scan_complete` at the test level doesn't update the frozen reference. Re-resolving by name through the module respects patches. Production overhead is negligible (one dict lookup per dispatch).
+
 ### SP5 Wave D T11 — Notification digest queue (D2)
 
 Implements the persistence layer for `PolicyDecision(verdict='digest')` outputs. The watch loop drains the queue every `digest_flush_minutes` minutes (default 60). T11 owns the queue mechanics, schema, and watch.py flush hook; T12 (D3) will wire `safe_send` to enqueue.
