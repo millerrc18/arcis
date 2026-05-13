@@ -2467,7 +2467,7 @@ purpose; required vars marked **(required)**.
 | `ARCIS_SHOW_WARNINGS` | `1` → emit data-collection warning categories to stderr; default: silent |
 | `FINNHUB_PLAN` | `auto` / `free` / `fundamental-1` — overrides `config.data_enrichment.finnhub_plan`. Note: env wins over config arg per `get_finnhub_plan()` precedence |
 | `PYTHONUTF8` | Set to `1` for training (TRL/jinja codec compatibility; required since 2026-05-10 GPU swap) |
-| `UNSLOTH_DISABLE_FUSED_CROSS_ENTROPY` | Training-time Unsloth flag (legacy — Unsloth removed in v0.35.0 dual-GPU rewrite) |
+| `UNSLOTH_DISABLE_FUSED_CROSS_ENTROPY` | Training-time Unsloth flag (legacy — Unsloth deprecated 2026-05-10 per `project_gpu_upgrade`; training migrated to Transformers + PEFT + TRL pipeline. Wave E dual-GPU workload-separation deferred post-Sprint-5; flag preserved for backward-compat reading only) |
 
 **Paths / runtime locations**:
 
