@@ -28,7 +28,7 @@ from typing import Any
 import pandas_market_calendars as mcal
 
 from src.evaluation.backtester import backtest_model
-from src.scheduler.holidays import is_market_holiday
+from src.scheduler.holidays import is_market_holiday, subtract_trading_days
 
 # ─── constants ────────────────────────────────────────────────────────────────
 
@@ -63,17 +63,6 @@ def _prev_trading_day(d: date) -> date:
     return candidate
 
 
-def _subtract_trading_days(d: date, n: int) -> date:
-    """Move d backwards by exactly n trading days."""
-    cursor = d
-    count = 0
-    while count < n:
-        cursor -= timedelta(days=1)
-        if _is_trading_day(cursor):
-            count += 1
-    return cursor
-
-
 # ─── single-fold boundary helper ─────────────────────────────────────────────
 
 def _single_fold_boundary(
@@ -90,7 +79,7 @@ def _single_fold_boundary(
     test_start = _next_trading_day(test_start_raw)
     test_end = _prev_trading_day(test_end_raw)
 
-    train_end = _subtract_trading_days(test_start, embargo_days)
+    train_end = subtract_trading_days(test_start, embargo_days)
     if train_end < train_anchor:
         train_end = train_anchor
 

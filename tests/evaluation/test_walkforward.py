@@ -754,3 +754,88 @@ def test_all_folds_produce_trades():
         f"(fold_idx={folds_with_zero_trades}). "
         f"Expected every fold to see data when fetch is anchored to test_start."
     )
+
+
+# ─── Sprint 6 Wave B T2: canonical subtract_trading_days regression locks ─────
+
+
+class TestCanonicalSubtractTradingDays:
+    """Regression-locks verifying _single_fold_boundary and compute_fold_boundaries
+    both delegate trading-day subtraction to the canonical
+    src.scheduler.holidays.subtract_trading_days (Sprint 6 Wave B T2).
+    """
+
+    def test_compute_embargo_end_uses_canonical_subtract_trading_days(self):
+        """_single_fold_boundary calls src.scheduler.holidays.subtract_trading_days
+        with anchor=test_start and n=embargo_days (21 by default).
+
+        Patches the canonical function and asserts it is called with the expected
+        arguments when _single_fold_boundary computes the train_end embargo boundary.
+        """
+        from unittest.mock import patch, call
+        from datetime import date, timedelta
+
+        test_start_date = date(2024, 3, 1)
+        expected_train_end = date(2024, 1, 31)
+
+        with patch(
+            "src.evaluation.walkforward.subtract_trading_days",
+            return_value=expected_train_end,
+        ) as mock_std:
+            from src.evaluation.walkforward import _single_fold_boundary
+
+            result = _single_fold_boundary(
+                fold_idx=0,
+                anchor_date=date(2024, 3, 1),
+                train_anchor=date(2015, 3, 20),
+                fold_calendar_days=90,
+                embargo_days=21,
+            )
+
+        assert mock_std.called, (
+            "src.scheduler.holidays.subtract_trading_days was not called — "
+            "local _subtract_trading_days may still be in use"
+        )
+        call_args = mock_std.call_args
+        assert call_args.kwargs.get("n") == 21 or (
+            len(call_args.args) >= 2 and call_args.args[1] == 21
+        ), f"subtract_trading_days was not called with n=21, got: {call_args}"
+
+    def test_compute_fold_boundaries_uses_canonical_subtract_trading_days(self):
+        """compute_fold_boundaries delegates all trading-day subtraction to the
+        canonical src.scheduler.holidays.subtract_trading_days.
+
+        Patches the canonical function and asserts it is called at least once
+        per fold (one call per embargo computation in _single_fold_boundary).
+        """
+        from unittest.mock import patch
+        from datetime import date
+
+        fixed_return = date(2023, 10, 10)
+
+        with patch(
+            "src.evaluation.walkforward.subtract_trading_days",
+            return_value=fixed_return,
+        ) as mock_std:
+            from src.evaluation.walkforward import compute_fold_boundaries
+
+            folds = compute_fold_boundaries(
+                anchor="2023-09-01",
+                fold_count=4,
+                embargo_days=21,
+            )
+
+        assert mock_std.call_count >= 4, (
+            f"Expected at least 4 calls to subtract_trading_days (one per fold), "
+            f"got {mock_std.call_count} — local helper may still be in use"
+        )
+        for call_args in mock_std.call_args_list:
+            n_value = (
+                call_args.kwargs.get("n")
+                if call_args.kwargs.get("n") is not None
+                else (call_args.args[1] if len(call_args.args) >= 2 else None)
+            )
+            assert n_value == 21, (
+                f"Expected n=21 in all subtract_trading_days calls, "
+                f"got n={n_value} in call {call_args}"
+            )
