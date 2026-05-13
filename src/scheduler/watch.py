@@ -981,7 +981,7 @@ class WatchLoop(HandlerRegistryMixin):
         """
         from src.notifications.digest_queue import DigestQueue
         from src.notifications.errors import NotificationsError
-        from src.notifications.telegram import _do_dispatch, _load_notifications_config
+        from src.notifications.telegram import _do_dispatch, _load_config_for_safe_send
 
         try:
             notif_cfg = (self.config.get("notifications") or {})
@@ -1003,23 +1003,10 @@ class WatchLoop(HandlerRegistryMixin):
             _do_dispatch(event_type, kwargs, severity, ["telegram"])
 
         try:
-            notif_cfg = (self.config.get("notifications") or {})
-            retry = notif_cfg.get("retry") or {}
-            retry_attempts = int(retry.get("attempts", 3))
-            from src.notifications.policy import NotificationsConfig
-            cfg = NotificationsConfig(
-                default_routing=notif_cfg.get("default_routing") or {"telegram": True, "email": False},
-                digest_low=bool(notif_cfg.get("digest_low", True)),
-                quiet_hours_start=str(notif_cfg.get("quiet_hours_start", "22:00")),
-                quiet_hours_end=str(notif_cfg.get("quiet_hours_end", "06:00")),
-                quiet_digest=bool(notif_cfg.get("quiet_digest", True)),
-                mute_event_types=list(notif_cfg.get("mute_event_types") or []),
-                routing_overrides=dict(notif_cfg.get("routing_overrides") or {}),
-                cadence_minutes_per_event_type=dict(notif_cfg.get("cadence_minutes_per_event_type") or {}),
-                retry_attempts=retry_attempts,
-                retry_backoff_seconds=list(retry.get("backoff_seconds", [1, 5, 15])),
-                digest_flush_minutes=flush_minutes,
-            )
+            try:
+                cfg = _load_config_for_safe_send()
+            except Exception:
+                cfg = None
             with connect_db(DB_PATH) as conn:
                 q = DigestQueue(conn, config=cfg)
                 result = q.flush(dispatcher=_real_dispatcher)

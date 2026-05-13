@@ -7,9 +7,10 @@ is derived from it (not a separate hardcoded set).
 
 class TestEventMapNonEmpty:
     def test_event_map_is_non_empty_at_module_import(self):
-        """_EVENT_MAP is non-empty at import time."""
+        """_EVENT_MAP is non-empty at import time (MappingProxyType or dict)."""
+        from collections.abc import Mapping
         from src.notifications.telegram import _EVENT_MAP
-        assert isinstance(_EVENT_MAP, dict)
+        assert isinstance(_EVENT_MAP, Mapping)
         assert len(_EVENT_MAP) > 0
 
 

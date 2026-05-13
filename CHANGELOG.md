@@ -2,6 +2,52 @@
 
 ## [Unreleased]
 
+### SP5 Wave D T12 fix-up — Security (2 medium, 3 low) + QA (3 nits) from PR #1071 review
+
+Addresses all 8 actionable findings from the combined Security (REQUEST_CHANGES) and QA (APPROVE with nits) review of T12 base commit `f2ce5f2`.
+
+#### Security Medium 1 fixed — DB connection leak in digest path
+
+`safe_send`'s digest branch now wraps `_get_digest_db_conn()` in a `with` context manager, ensuring the connection is always released after `DigestQueue.enqueue` — even on exception. Previously the connection leaked on every digest enqueue, creating burst-load DoS potential.
+
+#### Security Medium 2 fixed — Sensitive payload exposure in escalated email
+
+`_do_dispatch_escalated` now applies `_redact_token(repr(payload))[:1024]` before writing to the email body. The bare `f"Payload: {payload}"` format (which dumped raw kwargs including potential bot tokens into mail archives) is replaced with a redacted, truncated representation plus a forensic SQL query for audit trail. The exception log line also applies `_redact_token(str(e))`.
+
+#### Security Low 3+QA Nit 2 fixed — force=True audit log + structural dedup
+
+`safe_send`'s force=True path is now a single guard block (force-first) instead of the previous structurally-duplicated pattern (initial decision built on lines 1571–1582, then unconditionally overwritten on 1584–1591). The force-first block emits `logger.info("[NOTIFICATIONS] force_bypass: ...")` for audit visibility. The `config = None` initializer ensures the `config` name is always bound before the verdict-dispatch chain.
+
+#### Security Low 4 fixed — Narrow exception in escalated-email path
+
+`_do_dispatch_escalated`'s email branch now catches `(urllib3.exceptions.HTTPError, requests.exceptions.RequestException, socket.timeout, OSError)` matching `_do_dispatch`'s pattern. The previous bare `except Exception` suppressed `ImportError`, `NameError`, `AttributeError` — exactly the import-time bugs the module docstring says must propagate.
+
+#### Security Low 5 fixed — `_EVENT_MAP` immutability
+
+`_EVENT_MAP` is now `MappingProxyType(_EVENT_MAP_MUTABLE)`. Runtime code cannot mutate the event map. `MappingProxyType` supports `__getitem__` and `__contains__` so all existing lookup sites continue to work. `_KNOWN_EVENT_TYPES = frozenset(_EVENT_MAP)` is unchanged.
+
+#### QA Nit 1 fixed — tick_digest_queue replaces inline NotificationsConfig with validated config
+
+`tick_digest_queue` now calls `_load_config_for_safe_send()` (same path used by `safe_send`) instead of constructing `NotificationsConfig` inline from raw dict fields. This ensures config validation runs through the same `_load_notifications_config` validator and eliminates the maintenance hazard of keeping two parallel construction sites in sync. Function shrank from 62 to 51 lines (now under the 60-line limit; removed from known_violations.json oversized_functions).
+
+#### QA Nit 3 fixed — Dead RuntimeError patch cleaned up
+
+`test_safe_send_handles_dispatch_exception` now only patches `ConnectionError` (the actual network exception being tested). The dead outer `RuntimeError("boom")` patch that was immediately shadowed by the inner ConnectionError patch is removed.
+
+#### Regression-lock tests added
+
+- `test_safe_send_digest_path_closes_connection_after_enqueue` — verifies `__exit__` is called on the digest DB connection. Fails without `with` wrap.
+- `test_escalated_email_body_redacts_bot_token_in_payload` — verifies bot token pattern is absent from escalated email body. Fails without `_redact_token`.
+- `test_safe_send_propagates_non_network_exceptions` — verifies `RuntimeError` from dispatch code propagates uncaught (non-network exceptions must not be swallowed).
+
+#### Files changed
+
+- **`src/notifications/telegram.py`**: MappingProxyType wrap, _do_dispatch_escalated body redaction + narrow exception, safe_send force-first guard + digest with-wrap + audit log.
+- **`src/scheduler/watch.py`**: tick_digest_queue replaced inline NotificationsConfig build with `_load_config_for_safe_send()`.
+- **`tests/notifications/test_safe_send_wiring.py`**: 3 new regression-lock tests, dead RuntimeError patch removed.
+- **`tests/notifications/test_safe_send_dual_rep_consolidated.py`**: updated isinstance check from `dict` to `Mapping` to accommodate MappingProxyType.
+- **`config/known_violations.json`**: telegram.py line count updated (1625→1651), safe_send function line count updated (91→101), watch.py line count updated (2445→2432), tick_digest_queue removed from oversized_functions (now 51 lines, under limit).
+
 ### SP5 Wave D T12 — safe_send verdict-dispatch wiring + #110 security fold-in (D3)
 
 Wires `safe_send` to consult T10's `should_dispatch` policy gate on every call; branches on `PolicyDecision.verdict` (send/digest/mute/escalate); replaces T11's stub dispatcher in `tick_digest_queue` with a real `_do_dispatch`-flavor dispatcher; consolidates the dual-representation tension between `_KNOWN_EVENT_TYPES` and the local `event_map` inside `safe_send` into a single `_EVENT_MAP` module-level dict. Also folds in tracker #110 — nested `bypass_severity` check + `routing_overrides.<event_type>.*` key allowlist.

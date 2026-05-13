@@ -69,6 +69,7 @@ import os
 import socket
 from dataclasses import dataclass
 from datetime import datetime
+from types import MappingProxyType
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -1371,7 +1372,7 @@ def _load_notifications_config(yaml_path: str):
 # Single source of truth. _KNOWN_EVENT_TYPES is derived here so the two
 # representations can never diverge. Place after all notify_* functions.
 
-_EVENT_MAP = {
+_EVENT_MAP_MUTABLE: dict = {
     # Trade lifecycle
     "trade_opened": notify_trade_opened,
     "trade_closed": notify_trade_closed,
@@ -1423,6 +1424,7 @@ _EVENT_MAP = {
     # Additional event types
     "alert_silence": notify_system_event,
 }
+_EVENT_MAP = MappingProxyType(_EVENT_MAP_MUTABLE)
 
 # Overwrite the placeholder frozenset now that _EVENT_MAP is populated.
 _KNOWN_EVENT_TYPES = frozenset(_EVENT_MAP)
@@ -1511,11 +1513,26 @@ def _do_dispatch_escalated(event_type: str, payload: dict, severity: str, channe
         try:
             from src.email.notifier import send_email
             subject = f"[ESCALATED] {event_type}"
-            body = f"Escalated notification: {event_type}\nPayload: {payload}"
+            redacted_repr = _redact_token(repr(payload))[:1024]
+            body = (
+                f"Escalated notification: {event_type}\n"
+                f"Severity: {severity}\n"
+                f"Payload (redacted, truncated to 1024 chars): {redacted_repr}\n"
+                f"\nForensic detail: SELECT * FROM notifications_sent WHERE event_type = '{event_type}' "
+                f"ORDER BY sent_at DESC LIMIT 1;"
+            )
             if send_email(subject=subject, body=body):
                 success = True
-        except Exception as e:
-            logger.warning("[NOTIFICATIONS] escalated email failed for %s: %s", event_type, e)
+        except (
+            urllib3.exceptions.HTTPError,
+            requests.exceptions.RequestException,
+            socket.timeout,
+            OSError,
+        ) as e:
+            logger.warning(
+                "[NOTIFICATIONS] escalated email failed for %s: %s",
+                event_type, _redact_token(str(e)),
+            )
     if not channels:
         success = _do_dispatch(event_type, payload, severity, ["telegram"]) or success
     return success
@@ -1563,48 +1580,57 @@ def safe_send(event_type: str, *, force: bool = False, **kwargs) -> bool:
 
     severity = kwargs.pop("severity", "normal")
 
-    try:
-        config = _load_config_for_safe_send()
-    except Exception:
-        config = None
+    from src.notifications.policy import PolicyDecision
 
-    if config is not None and not force:
-        from src.notifications.policy import PolicyDecision
-        now_et = _now_et_for_safe_send()
-        decision = should_dispatch(event_type, severity, now_et, config)
-    else:
-        from src.notifications.policy import PolicyDecision
-        decision = PolicyDecision(
-            verdict="send",
-            reason="force_bypass" if force else "no_config",
-            channels=["telegram"],
-            matched_rule=0,
-        )
-
+    config = None
     if force:
-        from src.notifications.policy import PolicyDecision
+        logger.info(
+            "[NOTIFICATIONS] force_bypass: event_type=%s severity=%s",
+            event_type, severity,
+        )
         decision = PolicyDecision(
             verdict="send",
             reason="force_bypass",
             channels=["telegram"],
             matched_rule=0,
         )
+    else:
+        try:
+            config = _load_config_for_safe_send()
+        except Exception:
+            config = None
+
+        if config is not None:
+            now_et = _now_et_for_safe_send()
+            decision = should_dispatch(event_type, severity, now_et, config)
+        else:
+            decision = PolicyDecision(
+                verdict="send",
+                reason="no_config",
+                channels=["telegram"],
+                matched_rule=0,
+            )
 
     if decision.verdict == "send":
         return _do_dispatch(event_type, kwargs, severity, decision.channels)
     elif decision.verdict == "digest":
         try:
             from src.notifications.digest_queue import DigestQueue
-            conn = _get_digest_db_conn()
-            q = DigestQueue(conn, config=config)
-            q.enqueue(
-                event_type=event_type,
-                severity=severity,
-                payload=kwargs,
-                source_tag=_resolve_source_tag(),
-            )
+            with _get_digest_db_conn() as conn:
+                q = DigestQueue(conn, config=config)
+                q.enqueue(
+                    event_type=event_type,
+                    severity=severity,
+                    payload=kwargs,
+                    source_tag=_resolve_source_tag(),
+                )
             return True
-        except Exception as e:
+        except (
+            urllib3.exceptions.HTTPError,
+            requests.exceptions.RequestException,
+            socket.timeout,
+            OSError,
+        ) as e:
             logger.warning("[NOTIFICATIONS] digest enqueue failed for %s: %s", event_type, e)
             return False
     elif decision.verdict == "mute":

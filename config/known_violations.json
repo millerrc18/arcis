@@ -90,8 +90,8 @@
     },
     {
       "file": "src/notifications/telegram.py",
-      "lines": 1625,
-      "rationale": "Sprint 4 T3 baseline 1147. Sprint 5 Wave A+B base: grew to 1322. T10 Wave D D1: grew to 1455 with _KNOWN_EVENT_TYPES frozenset (23L) and _load_notifications_config validator (83L). T11 Wave D D2: grew to 1462 with digest_flush_minutes parsing (+7L). T12 Wave D D3: grew to 1625 with _EVENT_MAP (58L), _check_nested_bypass_severity (17L), _ALLOWED_ROUTING_OVERRIDE_KEYS (1L), should_dispatch import (1L), _load_config_for_safe_send (11L), _now_et_for_safe_send (3L), _get_digest_db_conn (5L), _resolve_source_tag (3L), _do_dispatch (31L), _do_dispatch_escalated (22L), safe_send rewrite (+safe_send grew from 99L to 91L net). Splitting deferred: the dispatch helpers, event map, and config loader are architecturally co-located; splitting would require a circular import or a new intermediate module. Real refactor blocked until telegram.py is decomposed per the 'after all callers migrate to safe_send' rationale."
+      "lines": 1651,
+      "rationale": "Sprint 4 T3 baseline 1147. Sprint 5 Wave A+B base: grew to 1322. T10 Wave D D1: grew to 1455 with _KNOWN_EVENT_TYPES frozenset (23L) and _load_notifications_config validator (83L). T11 Wave D D2: grew to 1462 with digest_flush_minutes parsing (+7L). T12 Wave D D3: grew to 1625 with _EVENT_MAP (58L), _check_nested_bypass_severity (17L), _ALLOWED_ROUTING_OVERRIDE_KEYS (1L), should_dispatch import (1L), _load_config_for_safe_send (11L), _now_et_for_safe_send (3L), _get_digest_db_conn (5L), _resolve_source_tag (3L), _do_dispatch (31L), _do_dispatch_escalated (22L), safe_send rewrite (+safe_send grew from 99L to 91L net). T12 fix-up (Security+QA): grew to 1651 with MappingProxyType wrap of _EVENT_MAP (+3L), _do_dispatch_escalated body redaction+narrowed exception (+13L), safe_send force-first guard restructure+digest with-wrap+audit log (+10L). Splitting deferred: the dispatch helpers, event map, and config loader are architecturally co-located; splitting would require a circular import or a new intermediate module. Real refactor blocked until telegram.py is decomposed per the 'after all callers migrate to safe_send' rationale."
     },
     {
       "file": "src/notifications/telegram_commands.py",
@@ -129,8 +129,8 @@
     },
     {
       "file": "src/scheduler/watch.py",
-      "lines": 2445,
-      "rationale": "Sprint 2 T4: added _strategy_gate_done flag in __init__ (+1L) and _reset_daily_state (+1L), new 16:35 ET daily-loop slot (20L), _notify_gate_proposal helper (23L). T11 Wave D D2: added _last_digest_queue_time (+2L), tick_digest_queue (+59L), loop wiring (+5L). T12 Wave D D3: tick_digest_queue dispatcher replacement (+4L net: stub removed, _real_dispatcher added, config build expanded). All additions scope-required. Real split is deferred — the loop body and helper methods are tightly coupled."
+      "lines": 2432,
+      "rationale": "Sprint 2 T4: added _strategy_gate_done flag in __init__ (+1L) and _reset_daily_state (+1L), new 16:35 ET daily-loop slot (20L), _notify_gate_proposal helper (23L). T11 Wave D D2: added _last_digest_queue_time (+2L), tick_digest_queue (+59L), loop wiring (+5L). T12 Wave D D3: tick_digest_queue dispatcher replacement (+4L net: stub removed, _real_dispatcher added, config build expanded). T12 fix-up QA nit 1: replaced inline NotificationsConfig construction with _load_config_for_safe_send() (-13L net). Real split is deferred — the loop body and helper methods are tightly coupled."
     },
     {
       "file": "src/schema/registry.py",
@@ -730,8 +730,8 @@
     {
       "file": "src/notifications/telegram.py",
       "function": "safe_send",
-      "lines": 91,
-      "rationale": "T12 Wave D D3: safe_send rewritten as verdict-dispatch router. 91 lines. The function now: pops severity from kwargs, loads config, calls should_dispatch, then branches on verdict (send/digest/mute/escalate). The dict body was removed (now _EVENT_MAP module-level). Function body is a linear verdict chain; splitting would fragment the routing contract. Real refactor deferred."
+      "lines": 101,
+      "rationale": "T12 Wave D D3: safe_send rewritten as verdict-dispatch router. T12 fix-up: grew from 91 to 101 lines with force-first guard restructure (removes structural duplication), config=None initializer, audit log for force_bypass, and digest path `with` context-manager wrap. Function body is a linear verdict chain; splitting would fragment the routing contract. Real refactor deferred."
     },
     {
       "file": "src/notifications/platform_events.py",
@@ -922,12 +922,6 @@
       "file": "src/scheduler/watch.py",
       "function": "_check_digest_schedule",
       "lines": 64
-    },
-    {
-      "file": "src/scheduler/watch.py",
-      "function": "tick_digest_queue",
-      "lines": 62,
-      "rationale": "T12 Wave D D3: stub dispatcher replaced with _real_dispatcher (calls _do_dispatch directly) and config build expanded to use self.config values. 62 lines (2 over). The function is a single cohesive unit: timing guard + dispatcher closure + DigestQueue instantiation + flush + error handling. Splitting the config build into a helper would require passing many individual fields. Real refactor deferred."
     },
     {
       "file": "src/scheduler/watch.py",
