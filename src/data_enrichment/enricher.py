@@ -270,6 +270,58 @@ def enrich_institutional_flow(
         logger.debug("[ENRICHMENT] Institutional flow read failed: %s", exc)
 
 
+def enrich_filings_sentiment(
+    feat: dict,
+    ticker: str,
+    config: dict | None = None,
+    db_path: str = DB_PATH,
+) -> None:
+    """Populate filings_sentiment feature-dict fields (Sprint 5 Wave C7b.2 / T22).
+
+    Always sets ``_filings_sentiment_plan_supports`` so the MATERIAL EVENTS
+    section renderer can decide between (a) sub-block absent (plan-gated off,
+    Decision 30), and (b) full render (data present).
+
+    When plan supports + a row exists in ``filings_sentiment``, populates
+    ``filing_sentiment_score``, ``filing_sentiment_label``,
+    ``latest_filing_type``, ``latest_filing_age_days``.
+
+    The enricher only READS — it never calls the Finnhub API. The collector
+    runs nightly in the overnight pipeline.
+    """
+    from src.data_enrichment.finnhub_plan import finnhub_plan_supports
+
+    supports = finnhub_plan_supports("filings_sentiment", config)
+    feat["_filings_sentiment_plan_supports"] = supports
+    if not supports:
+        return
+    try:
+        with connect_db(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT filing_type, filed_at, sentiment_score, sentiment_label "
+                "FROM filings_sentiment WHERE ticker = ? "
+                "ORDER BY filed_at DESC LIMIT 1",
+                (ticker,),
+            ).fetchone()
+            if not row:
+                return
+            feat["filing_sentiment_score"] = row["sentiment_score"]
+            feat["filing_sentiment_label"] = row["sentiment_label"]
+            feat["latest_filing_type"] = row["filing_type"]
+            try:
+                filed = datetime.fromisoformat(str(row["filed_at"]).replace(" ", "T"))
+                if filed.tzinfo is None:
+                    filed = filed.replace(tzinfo=timezone.utc)
+                feat["latest_filing_age_days"] = max(
+                    0, (datetime.now(timezone.utc) - filed).days
+                )
+            except (ValueError, TypeError):
+                feat["latest_filing_age_days"] = None
+    except Exception as exc:
+        logger.debug("[ENRICHMENT] Filings sentiment read failed: %s", exc)
+
+
 def enrich_council_consensus(feat: dict, db_path: str = DB_PATH) -> None:
     """Populate council-consensus feature-dict fields from the latest session.
 

@@ -42,8 +42,8 @@
     },
     {
       "file": "src/data_enrichment/enricher.py",
-      "lines": 579,
-      "rationale": "Sprint 5 Wave C7a (T17-T20) baseline 525. Wave C7b.1 / T21 added enrich_institutional_flow (+54L) — plan-gated reader over institutional_holdings + _institutional_plan_supports signal for the renderer. Each function is a coherent, independent reader against a different table family. Real split (per-section sibling modules) is post-Sprint-5 — the existing scaffold expects a single enricher module."
+      "lines": 631,
+      "rationale": "Sprint 5 Wave C7a (T17-T20) baseline 525. Wave C7b.1 / T21 added enrich_institutional_flow (+54L). Wave C7b.2 / T22 added enrich_filings_sentiment (+52L) — plan-gated reader over filings_sentiment + _filings_sentiment_plan_supports signal for the MATERIAL EVENTS renderer. Each function is a coherent, independent reader against a different table family. Real split (per-section sibling modules) is post-Sprint-5 — the existing scaffold expects a single enricher module."
     },
     {
       "file": "src/data_enrichment/news.py",
@@ -90,8 +90,8 @@
     },
     {
       "file": "src/llm/packet_writer.py",
-      "lines": 1060,
-      "rationale": "Sprint 5 Wave C7a (T17-T20) baseline 1012. Wave C7b.1 / T21 added _render_institutional_flow (+45L) — plan-gated INSTITUTIONAL FLOW packet section at index 4.5 with three render states (Decision 30: absent when plan does not support). Each section is a coherent rendering unit and they all share the same _build_feature_prompt assembly logic. Real split (e.g., section-renderer subclasses) deferred to post-Sprint-5."
+      "lines": 1116,
+      "rationale": "Sprint 5 Wave C7a (T17-T20) baseline 1012. Wave C7b.1 / T21 added _render_institutional_flow (+45L). Wave C7b.2 / T22 added _render_filings_sentiment_subblock + _render_material_events (+56L) — plan-gated MATERIAL EVENTS packet section at index 7.5 wrapping the filings_sentiment sub-block (Decision 30 + composition rule: section absent when no sub-block has plan-support). T23 will append the press_releases sub-block. Each section is a coherent rendering unit and they all share the same _build_feature_prompt assembly logic. Real split (e.g., section-renderer subclasses) deferred to post-Sprint-5."
     },
     {
       "file": "src/notifications/telegram.py",
