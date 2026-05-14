@@ -53,6 +53,7 @@ from src.api.cloud_routes import broker_exceptions as broker_exceptions_route
 from src.api.cloud_routes import preflight as preflight_route
 from src.api.cloud_routes import notifications as notifications_route
 from src.schema.sync_config import generate_sync_tables
+from src.version import VERSION
 
 # Populate the four capability registries via decorator side-effects (#807, dashboard Tier 1.B).
 # Each `import` here triggers @register_action / @register_state / @register_system /
@@ -121,7 +122,7 @@ CLOUD_ACTION_MSG = {
 
 app = FastAPI(
     title="Arcis Cloud API",
-    version="0.17.2",
+    version=VERSION.lstrip("v"),
     description="Read-only cloud API for the Arcis trading system",
 )
 

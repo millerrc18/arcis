@@ -304,6 +304,12 @@ export default function Dashboard() {
       return acc
     }, [])
 
+  function computeDaysHeld(row) {
+    if (row.duration_days != null) return row.duration_days
+    if (!row.actual_entry_time) return null
+    return (Date.now() - new Date(row.actual_entry_time).getTime()) / (1000 * 60 * 60 * 24)
+  }
+
   // #631-19 — Add an Opened-date column so multiple positions in the same
   // ticker (e.g., 2× CVS rows during the 4/21 quarantine incident) are
   // visually distinguishable instead of looking like duplicate rows.
@@ -313,10 +319,15 @@ export default function Dashboard() {
     { key: 'entry_price', label: 'Entry', type: 'currency' },
     { key: 'current_price', label: 'Current', type: 'currency' },
     { key: 'pnl_dollars', label: 'P&L', type: 'currency' },
-    { key: 'duration_days', label: 'Days', type: 'number' },
+    { key: '_days_held', label: 'Days', type: 'number' },
     { key: 'stop_price', label: 'Stop', type: 'currency' },
     { key: 'target_1', label: 'Target', type: 'currency' },
   ]
+
+  const openTradeRows = (openTrades?.open_trades || []).map(row => ({
+    ...row,
+    _days_held: computeDaysHeld(row),
+  }))
 
   // Round 8.B replaced the legacy headline_kpis hero block with <KPIStrip />
   // which fetches /api/kpis directly. The old `const kpis = ctoData?.headline_kpis`
@@ -530,7 +541,7 @@ export default function Dashboard() {
             </span>
           )}
         </div>
-        <DataTable columns={tradeColumns} data={openTrades?.open_trades || []} />
+        <DataTable columns={tradeColumns} data={openTradeRows} />
       </div>
 
       {/* Today's packets */}

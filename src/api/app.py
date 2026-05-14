@@ -33,10 +33,12 @@ import os
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from src.api.cloud_routes import broker_exceptions as broker_exceptions_route
 from src.api.cloud_routes import kpis as kpis_route
@@ -47,6 +49,7 @@ from src.api.cloud_routes import walkforward as walkforward_module
 from src.api.routes import (
     actions,
     council,
+    diagnostic,
     docs,
     health,
     ib_shadow,
@@ -65,6 +68,7 @@ from src.api.routes import (
     training,
 )
 from src.api.websocket import manager
+from src.version import VERSION
 
 
 API_SECRET = os.environ.get("API_SECRET", "")
@@ -119,7 +123,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="Arcis", version="0.34.0", lifespan=lifespan)
+app = FastAPI(title="Arcis", version=VERSION.lstrip("v"), lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -159,6 +163,7 @@ app.include_router(ib_shadow.router, prefix="/api", dependencies=_AUTH_DEP)
 app.include_router(strategy_detail.router, prefix="/api", dependencies=_AUTH_DEP)
 app.include_router(system_index.router, dependencies=_AUTH_DEP)
 app.include_router(projections.router, prefix="/api", dependencies=_AUTH_DEP)
+app.include_router(diagnostic.router, prefix="/api", dependencies=_AUTH_DEP)
 
 # cloud_routes/* routers each define a placeholder `verify_auth` dependency
 # at route-level (e.g. `@router.get("/api/x", dependencies=[Depends(verify_auth)])`).
@@ -226,5 +231,22 @@ async def websocket_endpoint(websocket: WebSocket, token: str = ""):
 # Post-cutover this is the production frontend host (the dashboard at
 # halcyonlab.app loads from here through the Cloudflare Tunnel).
 frontend_dist = os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist")
+_index_html = os.path.join(frontend_dist, "index.html")
 if os.path.exists(frontend_dist):
+    # SPA fallback: any non-/api/* path that returns 404 from StaticFiles serves
+    # index.html so React Router can resolve the route client-side. Without this,
+    # direct URLs (/shadow, /health, /diagnostics, ...) and page refreshes return
+    # FastAPI's default {"detail":"Not Found"} JSON. /api/* and /ws/* paths still
+    # 404 normally — that's the API surface, not the SPA.
+    @app.exception_handler(StarletteHTTPException)
+    async def _spa_fallback_404(request: Request, exc: StarletteHTTPException):
+        if (
+            exc.status_code == 404
+            and request.method == "GET"
+            and not request.url.path.startswith(("/api/", "/ws/", "/healthz"))
+            and os.path.exists(_index_html)
+        ):
+            return FileResponse(_index_html)
+        raise exc
+
     app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")

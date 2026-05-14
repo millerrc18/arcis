@@ -79,6 +79,29 @@ def _weighted_geometric_mean(values: Dict[str, float], weights: Dict[str, float]
     return math.exp(log_sum / weight_sum * weight_sum)
 
 
+def _weighted_arithmetic_mean(values: Dict[str, float], weights: Dict[str, float]) -> float:
+    """Compute the weighted arithmetic mean: sum(v_i * w_i) / sum(w_i).
+
+    Degrades gracefully when any dimension is zero — the zero simply
+    contributes zero to the numerator rather than collapsing the whole result.
+    """
+    if not values or not weights:
+        return 0.0
+
+    numerator = 0.0
+    weight_sum = 0.0
+
+    for key, weight in weights.items():
+        val = values.get(key, 0.0)
+        numerator += weight * val
+        weight_sum += weight
+
+    if weight_sum == 0:
+        return 0.0
+
+    return numerator / weight_sum
+
+
 def compute_hshs_score(dimensions: Dict[str, float], months_active: int = 3) -> dict:
     """Compute the Arcis System Health Score.
 
@@ -88,7 +111,11 @@ def compute_hshs_score(dimensions: Dict[str, float], months_active: int = 3) -> 
         months_active: Determines the weight phase (1-6, 7-18, 18+).
 
     Returns:
-        Dict with keys: overall, dimensions, weights, phase.
+        Dict with keys: overall, overall_geometric, dimensions, weights, phase.
+        overall          -- weighted arithmetic mean (display value; degrades
+                            gracefully when one dimension is zero)
+        overall_geometric -- weighted geometric mean (strict gate; zero if any
+                             dimension is zero)
     """
     phase = _get_phase(months_active)
     weights = PHASE_WEIGHTS[phase]
@@ -99,10 +126,12 @@ def compute_hshs_score(dimensions: Dict[str, float], months_active: int = 3) -> 
         val = dimensions.get(key, 0.0)
         clamped[key] = max(0.0, min(100.0, float(val)))
 
-    overall = _weighted_geometric_mean(clamped, weights)
+    overall = _weighted_arithmetic_mean(clamped, weights)
+    overall_geometric = _weighted_geometric_mean(clamped, weights)
 
     return {
         "overall": round(overall, 2),
+        "overall_geometric": round(overall_geometric, 2),
         "dimensions": clamped,
         "weights": weights,
         "phase": phase,

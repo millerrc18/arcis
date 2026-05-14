@@ -82,17 +82,19 @@ class TestComputeHshsScore:
         # geometric mean should be 50
         assert abs(result["overall"] - 50.0) < 0.01
 
-    def test_zero_dimension_gives_zero_overall(self):
+    def test_zero_dimension_gives_zero_overall_geometric(self):
         dims = {k: 80.0 for k in DIMENSION_KEYS}
         dims["performance"] = 0.0
         result = compute_hshs_score(dims, months_active=3)
-        assert result["overall"] == 0.0
+        assert result["overall_geometric"] == 0.0
+        assert result["overall"] > 0.0
 
-    def test_missing_dimension_gives_zero_overall(self):
+    def test_missing_dimension_gives_zero_overall_geometric(self):
         dims = {"performance": 80.0, "model_quality": 70.0}
         # Missing data_asset, flywheel_velocity, defensibility => default 0
         result = compute_hshs_score(dims, months_active=3)
-        assert result["overall"] == 0.0
+        assert result["overall_geometric"] == 0.0
+        assert result["overall"] > 0.0
 
     def test_early_phase_weights(self):
         result = compute_hshs_score({k: 50.0 for k in DIMENSION_KEYS}, months_active=3)
@@ -161,3 +163,53 @@ class TestComputeHshsScore:
         dims = {k: 50.0 for k in DIMENSION_KEYS}
         result = compute_hshs_score(dims)
         assert result["phase"] == "early"
+
+
+class TestWeightedArithmeticOverall:
+    def test_spec_example_zero_flywheel(self):
+        dims = {
+            "performance": 79.0,
+            "model_quality": 71.0,
+            "data_asset": 74.0,
+            "flywheel_velocity": 0.0,
+            "defensibility": 73.0,
+        }
+        result = compute_hshs_score(dims, months_active=3)
+        assert abs(result["overall"] - 58.85) < 0.01
+
+    def test_all_positive_overall_is_weighted_average(self):
+        dims = {k: 80.0 for k in DIMENSION_KEYS}
+        result = compute_hshs_score(dims, months_active=3)
+        assert abs(result["overall"] - 80.0) < 0.01
+
+    def test_backward_compat_overall_geometric_zero_when_dim_zero(self):
+        dims = {k: 80.0 for k in DIMENSION_KEYS}
+        dims["performance"] = 0.0
+        result = compute_hshs_score(dims, months_active=3)
+        assert result["overall_geometric"] == 0.0
+
+    def test_all_zeros_overall_is_zero(self):
+        dims = {k: 0.0 for k in DIMENSION_KEYS}
+        result = compute_hshs_score(dims, months_active=3)
+        assert result["overall"] == 0.0
+
+    def test_all_100_overall_is_100(self):
+        dims = {k: 100.0 for k in DIMENSION_KEYS}
+        result = compute_hshs_score(dims, months_active=3)
+        assert result["overall"] == 100.0
+
+    def test_missing_keys_default_zero_degrades_gracefully(self):
+        dims = {"performance": 80.0, "model_quality": 70.0}
+        result = compute_hshs_score(dims, months_active=3)
+        assert result["overall"] < 80.0
+        assert result["overall"] >= 0.0
+
+    def test_overall_geometric_present_in_result(self):
+        dims = {k: 60.0 for k in DIMENSION_KEYS}
+        result = compute_hshs_score(dims, months_active=3)
+        assert "overall_geometric" in result
+
+    def test_overall_geometric_positive_when_all_positive(self):
+        dims = {k: 60.0 for k in DIMENSION_KEYS}
+        result = compute_hshs_score(dims, months_active=3)
+        assert result["overall_geometric"] > 0.0

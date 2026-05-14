@@ -442,7 +442,7 @@ export default function TradeHistory() {
             {formatDollars(today.pnl)}
           </div>
           <div className="text-xs mt-1" style={{ color: 'var(--arcis-text-secondary)' }}>
-            {today.count} trades · {today.wins || 0}W / {today.losses || 0}L
+            {today.count} trades · {today.wins ?? 0}W / {today.losses ?? 0}L
           </div>
         </div>
         <div className="arcis-card">
@@ -451,7 +451,7 @@ export default function TradeHistory() {
             {formatDollars(yesterday.pnl)}
           </div>
           <div className="text-xs mt-1" style={{ color: 'var(--arcis-text-secondary)' }}>
-            {yesterday.count} trades · {yesterday.wins || 0}W / {yesterday.losses || 0}L
+            {yesterday.count} trades · {yesterday.wins ?? 0}W / {yesterday.losses ?? 0}L
           </div>
         </div>
         <div className="arcis-card">
@@ -486,7 +486,7 @@ export default function TradeHistory() {
         <StatCard
           label="All-Time Win Rate"
           value={`${all.wr.toFixed(1)}%`}
-          subtitle={`${all.wins}W / ${all.losses}L · ${all.count} trades`}
+          subtitle={`${all.wins ?? 0}W / ${all.losses ?? 0}L · ${all.count} trades`}
           color={all.wr >= 50 ? 'var(--arcis-success)' : 'var(--arcis-danger)'}
           icon={Target}
         />

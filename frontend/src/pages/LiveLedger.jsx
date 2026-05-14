@@ -181,7 +181,7 @@ export default function LiveLedger() {
     return sortTrades(t, sortKey, sortDir)
   }, [trades, filter, sortKey, sortDir])
 
-  const startingCapital = summary?.starting_capital || 100
+  const startingCapital = summary?.starting_capital || 100000
   const equity = summary?.current_equity || startingCapital
   const pnl = summary?.total_pnl || 0
   const winRate = summary?.win_rate
@@ -280,7 +280,7 @@ export default function LiveLedger() {
 
       {/* Metrics */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <MetricCard label="Live Equity" value={equity.toFixed(2)} prefix="$" delta={pnl} />
+        <MetricCard label="Live Equity" value={equity.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} prefix="$" delta={pnl} />
         <MetricCard label="Open Positions" value={summary?.open_positions || openTrades.length} />
         <MetricCard label="Total P&L" value={`${pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}`} prefix="$"
           delta={summary?.total_pnl_pct != null ? `${summary.total_pnl_pct.toFixed(1)}%` : null} />

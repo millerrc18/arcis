@@ -646,6 +646,15 @@ class WatchLoop(HandlerRegistryMixin):
         # IB integration sprint: show live broker in banner
         live_broker_name = self.config.get("live_trading", {}).get("broker", "alpaca").upper()
 
+        # DB engine label — reflects Phase 3 cutover gate (post-Sprint 5).
+        # Matches the routing check in src.utils.db.connect_db (gate + PG URL).
+        _db_url = os.environ.get("DATABASE_URL", "")
+        _pg_active = (
+            os.environ.get("ARCIS_PG_CUTOVER_ENABLED") == "1"
+            and _db_url.startswith("postgres")
+        )
+        db_engine_label = "PostgreSQL (Docker)" if _pg_active else "SQLite (WAL mode)"
+
         print(f"""
 {'='*45}
  ARCIS - WATCH MODE
@@ -670,7 +679,7 @@ class WatchLoop(HandlerRegistryMixin):
  System:
    Live broker: {live_broker_name}
    Last audit: {live['last_audit']} {live['audit_age']}
-   DB: SQLite (WAL mode) | Render sync: active
+   DB: {db_engine_label}
 
  Press Ctrl+C to stop.
 {'='*45}

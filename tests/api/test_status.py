@@ -152,7 +152,7 @@ class TestStatusMetaEnvelope:
 
     @patch("src.api.cloud_app._query_one")
     @patch("src.api.cloud_app._query")
-    def test_open_positions_cohort_is_live_only(self, mock_query, mock_query_one, client):
+    def test_open_positions_cohort_is_none(self, mock_query, mock_query_one, client):
         mock_query.return_value = [{"count": 5}]
         mock_query_one.side_effect = [
             {"version_name": "v1", "created_at": "2026-01-01", "status": "active"},
@@ -164,7 +164,7 @@ class TestStatusMetaEnvelope:
         data = resp.json()
         assert "_meta" in data
         assert "open_positions" in data["_meta"]
-        assert data["_meta"]["open_positions"]["cohort"] == "trades.live_only"
+        assert data["_meta"]["open_positions"]["cohort"] == "none"
 
     @patch("src.api.cloud_app._query_one")
     @patch("src.api.cloud_app._query")
@@ -185,14 +185,15 @@ class TestStatusMetaEnvelope:
     @patch("src.api.cloud_app._query_one")
     @patch("src.api.cloud_app._query")
     def test_status_open_positions_cohort_aligned(self, mock_query, mock_query_one, client):
-        """open_positions SQL includes source='live' so the count reflects live trades only.
+        """open_positions SQL includes desk='swing' so the count reflects swing desk trades only.
 
-        Regression-lock: 5 shadow_trades (2 source=live status=open,
-        3 source=swing status=open) → open_positions=2, not 5.
+        Regression-lock: 5 shadow_trades (28 desk=swing status=open,
+        0 source=live status=open) → open_positions=28, not 0.
+        T8 fix: SQL now filters desk='swing' and cohort is 'none' with label 'Swing desk open trades'.
         """
         def _query_side_effect(sql, params=()):
-            if "source" in sql and "open" in sql:
-                return [{"count": 2}]
+            if "desk" in sql and "open" in sql:
+                return [{"count": 28}]
             return [{"count": 5}]
 
         mock_query.side_effect = _query_side_effect
@@ -204,17 +205,19 @@ class TestStatusMetaEnvelope:
         resp = client.get("/api/status")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["open_positions"] == 2
-        assert data["_meta"]["open_positions"]["cohort"] == "trades.live_only"
-        assert data["_meta"]["open_positions"]["n"] == 2
+        assert data["open_positions"] == 28
+        assert data["_meta"]["open_positions"]["cohort"] == "none"
+        assert data["_meta"]["open_positions"]["label"] == "Swing desk open trades"
+        assert data["_meta"]["open_positions"]["n"] == 28
 
     @patch("src.api.cloud_app._query_one")
     @patch("src.api.cloud_app._query")
-    def test_open_positions_sql_filters_source_live(self, mock_query, mock_query_one, client):
-        """SQL issued for open_positions must contain AND source = 'live' predicate.
+    def test_open_positions_sql_filters_desk_swing(self, mock_query, mock_query_one, client):
+        """SQL issued for open_positions must contain AND desk = 'swing' predicate.
 
-        Pre-fix, the SQL had no source filter; cohort label 'trades.live_only'
-        was therefore a lie. This test regression-locks the fix.
+        T8 fix: SQL was changed from source='live' to desk='swing' to correctly
+        reflect the operator's 28 paper swing trades rather than 0 live broker positions.
+        This test regression-locks the new correct SQL filter.
         """
         mock_query.return_value = [{"count": 0}]
         mock_query_one.side_effect = [
@@ -226,21 +229,21 @@ class TestStatusMetaEnvelope:
         assert resp.status_code == 200
         open_positions_call = mock_query.call_args_list[0]
         sql_issued = open_positions_call[0][0]
-        assert "source" in sql_issued, (
-            f"open_positions SQL must filter by source; got: {sql_issued!r}"
+        assert "desk" in sql_issued, (
+            f"open_positions SQL must filter by desk; got: {sql_issued!r}"
         )
-        assert "live" in sql_issued, (
-            f"open_positions SQL must filter source='live'; got: {sql_issued!r}"
+        assert "swing" in sql_issued, (
+            f"open_positions SQL must filter desk='swing'; got: {sql_issued!r}"
         )
 
 
 # ── T19c: core.py router-level regression-lock for T10 fix ───────────────────
 
 class TestStatusOpenPositionsCohortAlignedCoreRouter:
-    """T19c — regression-lock for cockpit-#2 (T10 fix) via core.py create_router path.
+    """T19c — regression-lock for T8 fix via core.py create_router path.
 
-    core.py:147-150 SQL must include source='live' AND the cohort label
-    'trades.live_only' must match.  This test exercises the router directly
+    core.py SQL must include desk='swing' AND the cohort label
+    'none' / 'Swing desk open trades' must match.  This test exercises the router directly
     (not via cloud_app) so it locks the actual SQL in core.py, independent of
     any cloud_app-level patching.
     """
@@ -284,10 +287,10 @@ class TestStatusOpenPositionsCohortAlignedCoreRouter:
         return client, issued_sqls
 
     def test_status_open_positions_cohort_aligned_via_core_router(self):
-        """core.py /api/status open_positions cohort='trades.live_only' and SQL has source='live'.
+        """core.py /api/status open_positions cohort='none', label='Swing desk open trades', SQL has desk='swing'.
 
-        Regression-lock for T10 fix: verifies core.py:147-150 SQL and _meta cohort label
-        agree. desk='live' filter is the source of truth for the 'trades.live_only' cohort.
+        Regression-lock for T8 fix: verifies core.py SQL and _meta cohort label
+        agree. desk='swing' filter is the source of truth for swing desk open positions.
         """
         client, issued_sqls = self._make_core_client(open_count=2)
         resp = client.get("/api/status")
@@ -302,8 +305,11 @@ class TestStatusOpenPositionsCohortAlignedCoreRouter:
         assert "_meta" in data
         assert "open_positions" in data["_meta"]
         meta = data["_meta"]["open_positions"]
-        assert meta["cohort"] == "trades.live_only", (
-            f"open_positions _meta.cohort must be 'trades.live_only', got {meta['cohort']!r}"
+        assert meta["cohort"] == "none", (
+            f"open_positions _meta.cohort must be 'none', got {meta['cohort']!r}"
+        )
+        assert meta["label"] == "Swing desk open trades", (
+            f"open_positions _meta.label must be 'Swing desk open trades', got {meta['label']!r}"
         )
         assert meta["n"] == 2, (
             f"_meta.open_positions.n must equal open_positions count; got {meta['n']}"
@@ -314,8 +320,8 @@ class TestStatusOpenPositionsCohortAlignedCoreRouter:
             None,
         )
         assert open_sql is not None, "No SQL containing status='open' was issued"
-        assert "source" in open_sql and "live" in open_sql, (
-            f"open_positions SQL must filter source='live'; got: {open_sql!r}"
+        assert "desk" in open_sql and "swing" in open_sql, (
+            f"open_positions SQL must filter desk='swing'; got: {open_sql!r}"
         )
 
 

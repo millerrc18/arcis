@@ -55,54 +55,72 @@ logger = logging.getLogger(__name__)
 # only one of the two time columns in the actual database.
 _DATA_COLLECTION_QUERIES = {
     "options_chains": (
-        "SELECT COUNT(*), MAX(collected_at), COUNT(DISTINCT ticker) FROM options_chains"
+        "SELECT COUNT(*) AS total_records, MAX(collected_at) AS latest_collection, "
+        "COUNT(DISTINCT ticker) AS coverage_count FROM options_chains"
     ),
     "options_metrics": (
-        "SELECT COUNT(*), MAX(COALESCE(collected_at, collected_date)), COUNT(DISTINCT ticker) FROM options_metrics"
+        "SELECT COUNT(*) AS total_records, "
+        "MAX(COALESCE(collected_at, collected_date)) AS latest_collection, "
+        "COUNT(DISTINCT ticker) AS coverage_count FROM options_metrics"
     ),
     "vix_term_structure": (
-        "SELECT COUNT(*), MAX(COALESCE(collected_at, collected_date)), COUNT(DISTINCT collected_date) FROM vix_term_structure"
+        "SELECT COUNT(*) AS total_records, "
+        "MAX(COALESCE(collected_at, collected_date)) AS latest_collection, "
+        "COUNT(DISTINCT collected_date) AS coverage_count FROM vix_term_structure"
     ),
     "macro_snapshots": (
-        "SELECT COUNT(*), MAX(COALESCE(collected_at, collected_date)), COUNT(DISTINCT series_id) FROM macro_snapshots"
+        "SELECT COUNT(*) AS total_records, "
+        "MAX(COALESCE(collected_at, collected_date)) AS latest_collection, "
+        "COUNT(DISTINCT series_id) AS coverage_count FROM macro_snapshots"
     ),
     "google_trends": (
-        "SELECT COUNT(*), MAX(COALESCE(collected_at, collected_date)), COUNT(DISTINCT ticker) FROM google_trends"
+        "SELECT COUNT(*) AS total_records, "
+        "MAX(COALESCE(collected_at, collected_date)) AS latest_collection, "
+        "COUNT(DISTINCT ticker) AS coverage_count FROM google_trends"
     ),
     "cboe_ratios": (
-        "SELECT COUNT(*), MAX(COALESCE(collected_at, collected_date)), COUNT(DISTINCT collected_date) FROM cboe_ratios"
+        "SELECT COUNT(*) AS total_records, "
+        "MAX(COALESCE(collected_at, collected_date)) AS latest_collection, "
+        "COUNT(DISTINCT collected_date) AS coverage_count FROM cboe_ratios"
     ),
     "earnings_calendar": (
-        "SELECT COUNT(*), MAX(collected_at), COUNT(DISTINCT ticker) FROM earnings_calendar"
+        "SELECT COUNT(*) AS total_records, MAX(collected_at) AS latest_collection, "
+        "COUNT(DISTINCT ticker) AS coverage_count FROM earnings_calendar"
     ),
     "edgar_filings": (
-        "SELECT COUNT(*), MAX(collected_at), COUNT(DISTINCT ticker) FROM edgar_filings"
+        "SELECT COUNT(*) AS total_records, MAX(collected_at) AS latest_collection, "
+        "COUNT(DISTINCT ticker) AS coverage_count FROM edgar_filings"
     ),
     "insider_transactions": (
-        "SELECT COUNT(*), MAX(collected_at), COUNT(DISTINCT ticker) FROM insider_transactions"
+        "SELECT COUNT(*) AS total_records, MAX(collected_at) AS latest_collection, "
+        "COUNT(DISTINCT ticker) AS coverage_count FROM insider_transactions"
     ),
     "short_interest": (
-        "SELECT COUNT(*), MAX(collected_at), COUNT(DISTINCT ticker) FROM short_interest"
+        "SELECT COUNT(*) AS total_records, MAX(collected_at) AS latest_collection, "
+        "COUNT(DISTINCT ticker) AS coverage_count FROM short_interest"
     ),
     "fed_communications": (
-        "SELECT COUNT(*), MAX(collected_at), COUNT(DISTINCT comm_type) FROM fed_communications"
+        "SELECT COUNT(*) AS total_records, MAX(collected_at) AS latest_collection, "
+        "COUNT(DISTINCT comm_type) AS coverage_count FROM fed_communications"
     ),
     "analyst_estimates": (
-        "SELECT COUNT(*), MAX(collected_at), COUNT(DISTINCT ticker) FROM analyst_estimates"
+        "SELECT COUNT(*) AS total_records, MAX(collected_at) AS latest_collection, "
+        "COUNT(DISTINCT ticker) AS coverage_count FROM analyst_estimates"
     ),
 }
 
 
-def _build_table_stats(row: tuple | None) -> dict:
+def _build_table_stats(row) -> dict:
     """Normalize a stats row into a stable response shape."""
     if not row:
         return {"total_records": 0, "latest_collection": None, "coverage_count": 0}
-
-    total_records = row[0] or 0
+    row = dict(row)  # normalize sqlite3.Row to mapping (defensive — sqlite3.Row lacks .get())
+    total_records = row.get("total_records", 0) or 0
+    latest = row.get("latest_collection")
     return {
         "total_records": total_records,
-        "latest_collection": str(row[1])[:10] if (total_records and row[1]) else None,
-        "coverage_count": row[2] if total_records else 0,
+        "latest_collection": str(latest)[:10] if (total_records and latest) else None,
+        "coverage_count": row.get("coverage_count", 0) if total_records else 0,
     }
 
 
@@ -458,6 +476,7 @@ def table_counts():
     # swallows OperationalError, but a pathological case (e.g. database
     # locked beyond the 30s busy_timeout) would surface here. Wrap in
     # closing() so the connection is always released.
+    from src.schema.registry import TABLES
     counts = {}
     with closing(connect_db(DB_PATH)) as conn:  # #258: 30s busy_timeout
         for table in _TABLE_WHITELIST:
@@ -466,7 +485,7 @@ def table_counts():
                 counts[table] = row[0] if row else 0
             except Exception:
                 counts[table] = -1
-    return counts
+    return {"counts": counts, "registry_total": len(TABLES)}
 
 
 @router.get("/activity/feed")

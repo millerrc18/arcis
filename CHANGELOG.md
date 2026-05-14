@@ -2,7 +2,140 @@
 
 ## [Unreleased]
 
-(empty — entries below moved to v0.36.0)
+(empty — entries below moved to v0.36.1)
+
+## [v0.36.1] — 2026-05-14 — Dashboard rectification: 9 P-cluster fixes + morning hotfixes
+
+Patch release bundling the 2026-05-14 dashboard-rectification audit findings
+(spec at `docs/audits/2026-05-14-dashboard-rectification/spec.md`). Covers 9
+P-priority bug clusters (P0–P9), 6 morning hotfixes (#142–#147), and 4
+investigation tasks (T7/T10/T11, plus T9 no-op with regression-lock). Eight
+follow-up trackers (#150–#157) filed for out-of-scope items.
+
+### Fixed
+
+- **P0 — /training page blank (T1 / T1b):** `/api/data-collection-stats` SQL
+  rewritten with explicit column aliases (`total_records`, `latest_collection`,
+  `coverage_count`) on all 12 collector queries. `_build_table_stats` now reads
+  by column name instead of positional index — eliminates `IndexError` on the
+  Postgres `RealDictRow` path that caused every collector to show "No data
+  collected yet". T1b stacks a `row = dict(row)` defensive cast so
+  `sqlite3.Row` (which lacks `.get()`) works uniformly alongside `RealDictRow`.
+  +16 parametrized tests + 4 unit tests + 1 sqlite3.Row regression-lock.
+
+- **P1 — HSHS composite score 0.0 during early phase (T4):** `compute_hshs_score()`
+  now returns two values: `overall` (weighted arithmetic mean — degrades
+  gracefully when any dimension is 0) AND `overall_geometric` (existing strict
+  geometric-mean gate). Frontend reads `overall`. Early-phase example
+  (P=79/MQ=71/DA=74/FV=0/D=73) now correctly yields 58.85 instead of 0.0.
+  `_weighted_arithmetic_mean` helper extracted. +8 tests.
+
+- **P2 — Attribution badge reads total pairs instead of resolved count (T5):**
+  Badge logic now reads `paired_n` (resolved-pair count) rather than total
+  pairs. Was showing ADEQUATE (200+) while the body said 0 resolved. +3 tests.
+
+- **P3 — LiveLedger starting_capital flash at $100 (hotfix #147):** Starting
+  capital fallback changed from 100 → 100,000. Eliminates the transient $100
+  equity display on fresh dashboard load.
+
+- **P4 — Frontend formatter regressions (T6):** Two fixes: (1) LiveLedger
+  equity renders as `$100,000.00` via `toLocaleString` (was plain integer).
+  (2) Dashboard OPEN SHADOW TRADES "Days" column computes live days held from
+  `actual_entry_time` when `duration_days` is null (was `0.00` for all open
+  trades). +4 tests.
+
+- **P5 — Open-position count misalignment (T8 / T8b):** `/api/status` SQL
+  filter changed from `source='live'` → `desk='swing'`, returning the correct
+  count (was 0 of 28 paper trades). Frontend `ShadowLedger` uses
+  `['shadow-open', 'swing']` queryKey (was an unfiltered cache miss).
+  `TradeHistory.jsx` adds `?? 0` nullish fallbacks for win/loss counts (was
+  rendering `undefinedW / undefinedL`). T8b updates 4 regression-lock tests in
+  `tests/api/test_status.py`. +6 component tests + 3 Python tests in
+  `tests/api/test_cloud_routes_status.py`.
+
+- **P6 — /validation page stuck on spinner (T9):** `/validation` renders an
+  explicit "No validation runs yet" empty state when the API returns empty data
+  (was stuck on `LoadingSpinner` indefinitely). +4 component tests + 1
+  regression-lock.
+
+- **P7 — /api/cto-report timeout >12 s (T9):** Endpoint gains a 5-minute TTL
+  cache (was recomputing on every request over a 365-day window). +3 cache
+  tests. (Note: default window was already 30 days — cache is additive hardening
+  against worst-case operator-supplied windows; disclosed in PR.)
+
+- **P8 — /schema page shows stale table count (T3):** `/schema` now displays 76
+  tables (canonical registry count) instead of stale 48. `/system/table-counts`
+  endpoint returns `{counts, registry_total: 76}`. Tracker #150 filed for cloud
+  `/api/system/table-counts` parity. +2 vitest tests.
+
+- **P9 — win_rate shown as 5000% (hotfix #144):** `/api/shadow/closed` and
+  `/api/shadow/metrics` normalize `win_rate` from raw percentage to decimal
+  (divide by 100) before returning. Dashboard now displays correct 50.0% instead
+  of 5000%.
+
+- **Morning hotfixes #142–#147 (pre-committed `b45085c1`):**
+  - **#142:** WATCH MODE banner reads engine state (PG vs SQLite). Drops stale
+    "Render sync" suffix that was always shown regardless of active engine.
+  - **#143:** `deploy_info` captures `git` stderr via `subprocess.PIPE`; silences
+    the stderr-to-console bleed on systems where git config is partially missing.
+    Operator-side `git config --system safe.directory` applied for NSSM-managed
+    service (see memory ref `reference_nssm_git_ownership.md`).
+  - **#144:** Same as P9 above (win_rate percent → decimal normalization).
+  - **#145:** SPA fallback exception handler catches `404` on non-`/api/*` GET
+    routes and returns `index.html` so React Router handles client-side navigation.
+  - **#146:** Three missing endpoints mirrored locally: `/api/shadow/desks`,
+    `/api/shadow/sharpe-attribution`, `/api/diagnostic-runs` (+ `/{run_id}`,
+    `/report`, `/plots`).
+  - **#147:** LiveLedger `starting_capital` fallback 100 → 100,000 (same as P3).
+
+### Added
+
+- **T2 — Version bump to v0.36.1:** `src/version.py` bumped `v0.36.0` →
+  `v0.36.1`. `src/api/app.py` and `src/api/cloud_app.py` import `VERSION` and
+  strip the `'v'` prefix for FastAPI bare-semver responses. +6 regression-lock
+  tests.
+
+- **T3 — `/system/table-counts` endpoint:** New endpoint returning
+  `{counts: {<table>: <n>}, registry_total: 76}` for programmatic schema-count
+  queries. See P8 above.
+
+- **T11 — Capability registry probes (investigation):** Three probes
+  (`shadow_trade_cohort`, `reconcile_trades`, `attribution_resolver`) have
+  correct code but appear unavailable on cloud due to a Render PG schema gap
+  (tracker #155). Two probes (`strategy_registry_state`,
+  `training_corpus`) had missing imports fixed (`NameError` on `connect_db`).
+  Trackers filed: #154 (`psycopg2.Error` hardening), #155 (Render PG schema
+  check), #156 (3-scan consolidation in `_training_corpus_counts`). +10
+  parametrized tests.
+
+### Investigated — no code bug found
+
+- **T7 — Packets fields null on cloud:** Investigation confirmed the code is
+  correct — `packets.py`, `store.py`, and `cloud_routes/trades.py` all use
+  `SELECT *` and all 5 fields are in the registry. The null values are data-side:
+  Render PG `recommendations` table has 2 rows with NULL price-target fields;
+  SQLite has 875 populated rows. Tracker #151 (OPS) filed for PG backfill from
+  SQLite. +3 regression-lock tests pinning the response contract.
+
+- **T10 — Stress test 0.0% win rate:** No computation bug found. The 0.0% WR
+  across all 7 historical scenarios is authentic: mean-reversion strategy +
+  sustained downtrends (2008/2020/2022 crashes) + stop-first bracket evaluation
+  genuinely produces near-zero WR. Trackers #152 (refactor
+  `scripts/stress_test.py` to use shared helper) and #153 (design decision on
+  strategy or scenario changes) filed. `compute_win_rate()` and
+  `compute_win_rate_from_trades()` extracted as testable helpers. +10 regression
+  tests.
+
+### Follow-up trackers filed (out of scope for v0.36.1)
+
+- **#150** — Cloud `/api/system/table-counts` parity (mirror T3 endpoint)
+- **#151** — OPS: backfill Render PG `recommendations` NULL price-target fields from SQLite
+- **#152** — Refactor `scripts/stress_test.py` to use shared win-rate helper
+- **#153** — Design decision: keep mean-reversion strategy or adjust for stress-test scenarios
+- **#154** — `psycopg2.Error` hardening in capability probes
+- **#155** — Render PG schema check for capability probe tables
+- **#156** — 3-scan consolidation in `_training_corpus_counts`
+- **#157** — (reserved — filed during audit pass)
 
 ## [v0.36.0] - 2026-05-14 — Sprint 6 Wave B: Walk-Forward Validation Framework v1
 

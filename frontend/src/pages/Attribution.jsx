@@ -20,7 +20,7 @@ export default function Attribution() {
   const llm = stats.llm_portfolio || {}
   const byAction = stats.by_action || {}
   const byPair = stats.by_pair_type || {}
-  const power = stats.statistical_power || 'insufficient'
+  const power = pairedN >= 200 ? 'adequate' : pairedN >= 50 ? 'low' : 'insufficient'
 
   const comparisonData = [
     { name: 'Ranker Only', winRate: (ranker.win_rate || 0) * 100, fill: 'var(--arcis-text-secondary)' },
@@ -32,8 +32,8 @@ export default function Attribution() {
     count,
   }))
 
-  const powerColor = power === 'adequate' ? 'var(--arcis-success)' : power === 'low' ? 'var(--arcis-warning)' : 'var(--arcis-danger)'
-  const powerLabel = power === 'adequate' ? 'Adequate (200+)' : power === 'low' ? 'Low (50-200)' : `Insufficient (${pairedN}/200)`
+  const powerColor = power === 'adequate' ? 'var(--arcis-success)' : 'var(--arcis-danger)'
+  const powerLabel = power === 'adequate' ? 'Adequate (200+)' : `Insufficient (${pairedN}/200)`
 
   return (
     <div className="space-y-4 md:space-y-6">
@@ -41,7 +41,7 @@ export default function Attribution() {
         <h2 className="text-xl font-medium" style={{ color: 'var(--arcis-text-primary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Alpha Attribution</h2>
         <StatusBadge
           text={powerLabel}
-          variant={power === 'adequate' ? 'success' : power === 'low' ? 'warning' : 'danger'}
+          variant={power === 'adequate' ? 'success' : 'danger'}
         />
       </div>
 

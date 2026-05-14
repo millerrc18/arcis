@@ -473,9 +473,9 @@ export default function ShadowLedger() {
   const [sortKey, setSortKey] = useState('pnl_pct')
   const [sortDir, setSortDir] = useState('desc')
 
-  const { data: openData, isLoading: openLoading } = useQuery({ queryKey: ['shadow-open'], queryFn: () => api.getOpenTrades(), refetchInterval: 30000 })
-  const { data: closedData, isLoading: closedLoading } = useQuery({ queryKey: ['shadow-closed'], queryFn: () => api.getClosedTrades(90), refetchInterval: 30000 })
-  const { data: accountData } = useQuery({ queryKey: ['shadow-account'], queryFn: () => api.getAccount(), refetchInterval: 60000 })
+  const { data: openData, isLoading: openLoading } = useQuery({ queryKey: ['shadow-open', 'swing'], queryFn: () => api.getOpenTrades('swing'), refetchInterval: 30000 })
+  const { data: closedData, isLoading: closedLoading } = useQuery({ queryKey: ['shadow-closed', 'swing'], queryFn: () => api.getClosedTrades(90, 'swing'), refetchInterval: 30000 })
+  const { data: accountData } = useQuery({ queryKey: ['shadow-account', 'swing'], queryFn: () => api.getAccount('swing'), refetchInterval: 60000 })
   const { data: liveData } = useQuery({
     queryKey: ['live-trades-for-ledger'],
     queryFn: () => api.getLiveTrades(),
