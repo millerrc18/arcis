@@ -266,3 +266,4 @@ Reading order when invoking the toolkit: `docs/methodology-toolkit.md` (decision
 ## New Dependencies
 
 - `pandas_market_calendars>=4.0,<6.0` — added by T2.11. Required for `src/scheduler/holidays.py`. Run `pip install -r requirements.txt` after pulling — older venvs will hit `ModuleNotFoundError` at scheduler startup.
+- `filelock>=3.0,<4.0` — added by T13 (SP-WF-013): per-strategy concurrency control for walkforward auto-fire (`src/platform/walkforward_autofire.py`). Run `pip install -r requirements.txt` after pulling.

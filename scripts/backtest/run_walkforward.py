@@ -75,6 +75,15 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--excess-sharpe-min", type=float, default=None,
                    help="per-window rf-adjusted excess-Sharpe minimum per "
                         "SP-WF-004 (default: None = raw-Sharpe gate only)")
+    p.add_argument("--backtest-result-id", default=None,
+                   help="backtest_results.result_id that triggered this run; "
+                        "stored as derived_from_backtest_id in walkforward_results")
+    p.add_argument("--auto-fire", action="store_true",
+                   help="set when spawned by auto_fire_walkforward; "
+                        "subprocess inherits lock from parent process")
+    p.add_argument("--force", action="store_true",
+                   help="bypass per-strategy lock acquisition (emergency manual "
+                        "intervention; implies --auto-fire=False lock path skipped)")
     return p.parse_args(argv)
 
 
@@ -110,6 +119,36 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv if argv is not None else sys.argv[1:])
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
+    # DA-4: manual CLI invocations (without --auto-fire) must acquire the
+    # per-strategy lock to prevent racing the reconciler or auto-fire path.
+    # --auto-fire means the parent process (auto_fire_walkforward) already holds
+    # the lock in the parent's process group. --force bypasses lock for emergencies.
+    _manual_lock_ctx = None
+    if not args.auto_fire and not args.force:
+        from filelock import FileLock, Timeout
+        from pathlib import Path as _Path
+        _lock_dir = _Path("data")
+        _lock_dir.mkdir(parents=True, exist_ok=True)
+        _lock_path = _lock_dir / f"walkforward-{args.strategy}.lock"
+        _manual_lock_ctx = FileLock(str(_lock_path), timeout=10)
+        try:
+            _manual_lock_ctx.acquire()
+        except Timeout:
+            print(
+                f"ERROR: walkforward for {args.strategy!r} is already running. "
+                "Use --force to bypass this guard.",
+                file=sys.stderr,
+            )
+            return 4
+
+    try:
+        return _run_main_body(args)
+    finally:
+        if _manual_lock_ctx is not None:
+            _manual_lock_ctx.release()
+
+
+def _run_main_body(args) -> int:
     try:
         if args.specs_dir:
             spec_path = Path(args.specs_dir) / f"{args.strategy}.yaml"
@@ -161,13 +200,17 @@ def main(argv: list[str] | None = None) -> int:
     except Exception:
         eff_univ = 0
 
-    result = run_walkforward(
+    wf_kwargs = dict(
         strategy_spec_raw=spec.raw, config=config,
         window_trades=window_trades,
         spec_path=str(Path("src/platform/specs") / f"{args.strategy}.yaml"),
         max_hold_days=args.max_hold_days,
         effective_universe_size=eff_univ,
     )
+    if args.backtest_result_id:
+        wf_kwargs["derived_from_backtest_id"] = args.backtest_result_id
+
+    result = run_walkforward(**wf_kwargs)
     oos_per_window = []
     for i in range(len(config.windows)):
         oos_per_window.append(window_trades.get(i, {}).get("oos", []))
