@@ -37,8 +37,24 @@ describe('DBSchema — C2 LoadingState migration', () => {
   })
 
   it('data loaded renders ReactFlow graph', () => {
-    useQuery.mockReturnValue({ data: { shadow_trades: 100 }, isLoading: false, isError: false })
+    useQuery.mockReturnValue({ data: { counts: { shadow_trades: 100 }, registry_total: 76 }, isLoading: false, isError: false })
     const { container } = wrap(<DBSchema />)
     expect(container.querySelector('[data-testid="react-flow"]')).toBeTruthy()
+  })
+})
+
+describe('DBSchema — P2 registry table count', () => {
+  it('headline shows registry_total (76 tables) when data is loaded', () => {
+    useQuery.mockReturnValue({ data: { counts: { shadow_trades: 100 }, registry_total: 76 }, isLoading: false, isError: false })
+    const { container } = wrap(<DBSchema />)
+    const subtitle = container.querySelector('p')
+    expect(subtitle.textContent).toMatch(/76 tables/)
+  })
+
+  it('headline shows loading text when data is not yet available', () => {
+    useQuery.mockReturnValue({ data: undefined, isLoading: true, isError: false })
+    const { container } = wrap(<DBSchema />)
+    const subtitle = container.querySelector('p')
+    expect(subtitle.textContent).toMatch(/loading/)
   })
 })

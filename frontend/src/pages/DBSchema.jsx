@@ -132,16 +132,17 @@ function buildEdges() {
 }
 
 export default function DBSchema() {
-  const { data: counts, isLoading, isError, error, refetch } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['table-counts'],
     queryFn: () => api.getTableCounts(),
     refetchInterval: 300000,
   })
 
+  const counts = data?.counts
   const nodes = useMemo(() => buildNodes(counts), [counts])
   const edges = useMemo(() => buildEdges(), [])
 
-  const tableCount = counts ? Object.keys(counts).length : null
+  const registryTotal = data?.registry_total ?? null
   const domainCount = Object.keys(CLUSTERS).length
 
   const [flowNodes, , onNodesChange] = useNodesState(nodes)
@@ -157,7 +158,7 @@ export default function DBSchema() {
         <div>
           <h1 className="text-2xl font-bold" style={{ color: 'var(--arcis-text-primary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>DB Schema</h1>
           <p className="text-sm mt-1" style={{ color: 'var(--arcis-text-secondary)' }}>
-            {tableCount != null ? `${tableCount} tables` : 'loading tables'} across {domainCount} domains — dashed lines show foreign keys, counts refresh every 5 min
+            {registryTotal != null ? `${registryTotal} tables` : 'loading tables'} across {domainCount} domains — dashed lines show foreign keys, counts refresh every 5 min
           </p>
         </div>
         <div className="flex gap-3 flex-wrap">

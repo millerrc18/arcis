@@ -458,6 +458,7 @@ def table_counts():
     # swallows OperationalError, but a pathological case (e.g. database
     # locked beyond the 30s busy_timeout) would surface here. Wrap in
     # closing() so the connection is always released.
+    from src.schema.registry import TABLES
     counts = {}
     with closing(connect_db(DB_PATH)) as conn:  # #258: 30s busy_timeout
         for table in _TABLE_WHITELIST:
@@ -466,7 +467,7 @@ def table_counts():
                 counts[table] = row[0] if row else 0
             except Exception:
                 counts[table] = -1
-    return counts
+    return {"counts": counts, "registry_total": len(TABLES)}
 
 
 @router.get("/activity/feed")
