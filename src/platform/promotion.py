@@ -552,14 +552,99 @@ def _evaluate_production_gate(
     Requires shadow_trading gate pass + 30+ shadow trades + 60+ days +
     manual confirm (enforced at promote() call site).
 
-    Sprint 2 T2: methodology gate AND-composed with DSR only.
-    NOTE: pbo=None and oos_efficiency=None are Sprint-4 placeholders —
-    production gate does NOT yet check walkforward or PBO. This asymmetry
-    is intentional; walkforward + PBO will be wired in Sprint 4.
+    Sprint 6 T14 (SP-WF-014): walkforward gate AND-composed with DSR +
+    methodology gate. Sentinel: WALKFORWARD_GATE_ENABLED (same as T1/T9).
+    Stricter no-row policy than shadow_trading: no row → gate returns False.
+    DA-1: freshness cap (sha-match + 30-day check) enforced when enabled.
     """
+    _wf_enabled = os.environ.get(
+        "WALKFORWARD_GATE_ENABLED", "true",
+    ).lower() in ("true", "1", "yes")
+
     passes_dsr, evidence = _evaluate_dsr_evidence(strategy_id, db_path)
     evidence["pbo"] = None  # Sprint 4 wires production gate PBO check
     evidence["oos_efficiency"] = None
+    evidence["walkforward_gate_enabled"] = _wf_enabled
+
+    if "error" in evidence:
+        mg_passes, mg_evidence = _evaluate_strategy_methodology_gate(
+            strategy_id, db_path,
+        )
+        evidence["methodology_gate"] = mg_evidence
+        return False, evidence
+
+    if not _wf_enabled:
+        mg_passes, mg_evidence = _evaluate_strategy_methodology_gate(
+            strategy_id, db_path,
+        )
+        evidence["methodology_gate"] = mg_evidence
+        return passes_dsr and mg_passes, evidence
+
+    wf_pass, evidence = _evaluate_walkforward_gate(
+        strategy_id, db_path, evidence,
+    )
+    if wf_pass is None:
+        # No walkforward row found — stricter than shadow_trading: no fall-through.
+        evidence["error"] = "no_walkforward_row_for_production"
+        mg_passes, mg_evidence = _evaluate_strategy_methodology_gate(
+            strategy_id, db_path,
+        )
+        evidence["methodology_gate"] = mg_evidence
+        return False, evidence
+
+    if wf_pass is False:
+        mg_passes, mg_evidence = _evaluate_strategy_methodology_gate(
+            strategy_id, db_path,
+        )
+        evidence["methodology_gate"] = mg_evidence
+        return False, evidence
+
+    # DA-1: freshness cap — sha-match + 30-day window.
+    # Read code_git_sha and created_at directly (not in _fetch_latest_walkforward_outcome).
+    conn = connect_db(db_path)
+    try:
+        da1_row = conn.execute(
+            "SELECT code_git_sha, created_at FROM walkforward_results "
+            "WHERE strategy_id = ? ORDER BY created_at DESC LIMIT 1",
+            (strategy_id,),
+        ).fetchone()
+        if da1_row is not None:
+            wf_sha, wf_created_at = da1_row[0], da1_row[1]
+            br = conn.execute(
+                "SELECT code_git_sha FROM backtest_results "
+                "WHERE strategy_id = ? ORDER BY created_at DESC LIMIT 1",
+                (strategy_id,),
+            ).fetchone()
+            current_sha = br[0] if br else None
+    finally:
+        conn.close()
+
+    if da1_row is not None:
+        if current_sha and wf_sha and wf_sha != current_sha:
+            evidence["walkforward_stale"] = True
+            evidence["walkforward_stale_reason"] = "code_git_sha mismatch"
+            mg_passes, mg_evidence = _evaluate_strategy_methodology_gate(
+                strategy_id, db_path,
+            )
+            evidence["methodology_gate"] = mg_evidence
+            return False, evidence
+        conn3 = connect_db(db_path)
+        try:
+            fresh = conn3.execute(
+                "SELECT ? > datetime('now', '-30 days')",
+                (wf_created_at,),
+            ).fetchone()[0]
+        finally:
+            conn3.close()
+        if not fresh:
+            evidence["walkforward_stale"] = True
+            evidence["walkforward_stale_reason"] = "older than 30 days"
+            mg_passes, mg_evidence = _evaluate_strategy_methodology_gate(
+                strategy_id, db_path,
+            )
+            evidence["methodology_gate"] = mg_evidence
+            return False, evidence
+
     mg_passes, mg_evidence = _evaluate_strategy_methodology_gate(
         strategy_id, db_path,
     )

@@ -4,6 +4,15 @@
 
 ### Added
 
+- Sprint 6 Wave B T14 (SP-WF-014 + DA-1 + DA-5): production-gate walkforward composition in
+  `_evaluate_production_gate` at `src/platform/promotion.py`. Sentinel guard mirroring T9:
+  when `WALKFORWARD_GATE_ENABLED=false`, v0.35.0 bypass (DSR AND methodology only). When enabled
+  (default): 3-gate AND-composition (DSR AND walkforward AND methodology). Strict no-row policy:
+  no walkforward row → `passes=False` (no legacy fall-through). DA-1 freshness cap: sha-match +
+  30-day window; on staleness `walkforward_stale=True` + `walkforward_stale_reason` set. Evidence
+  symmetric with shadow_trading gate. DA-5 verified: `promote()` persists `walkforward_outcome_state`
+  in `gate_result_json`. +8 tests. Spec refs: Sprint 6 plan T14, SP-WF-014, DA-1, DA-5.
+
 - Sprint 6 Wave B T10 (SP-WF-004/SP-WF-010): CLI flag + HTTP read-route extensions.
   (A) CLI: added `--corpus-id <str>` flag to `scripts/backtest/run_walkforward.py` — passes
   through to `WalkForwardConfig.corpus_id` per SP-WF-010; default None preserves backward

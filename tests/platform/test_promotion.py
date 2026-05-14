@@ -4,6 +4,7 @@ Non-negotiable gates:
   - test_promote_shadow_trading_requires_justification_note
   - test_demote_requires_reason_at_least_20_chars
 """
+import json
 import pytest
 from unittest.mock import patch
 
@@ -499,3 +500,219 @@ def test_evaluate_promotion_gate_evidence_carries_gate_enabled_flag(
     monkeypatch.setenv("WALKFORWARD_GATE_ENABLED", "false")
     _, ev_off = check_promotion_gate("s1", "shadow_trading", db_path=temp_db)
     assert ev_off["walkforward_gate_enabled"] is False
+
+
+# ---------------------------------------------------------------------------
+# T14 — Production-gate walkforward composition (SP-WF-014)
+# ---------------------------------------------------------------------------
+
+def _seed_walkforward_row(
+    db: str,
+    sid: str,
+    outcome_state: str = "PASS",
+    code_git_sha: str = "abc123sha",
+    created_at: str | None = None,
+) -> None:
+    import sqlite3 as _sqlite3
+    import uuid
+    if created_at is None:
+        created_at = "2026-04-15T00:00:00+00:00"
+    conn = _sqlite3.connect(db)
+    try:
+        conn.execute(
+            """INSERT INTO walkforward_results
+               (run_id, strategy_id, spec_hash, code_git_sha, random_seed,
+                outcome_state, reason, pooled_sharpe, pooled_mde,
+                heavy_tail_flag, n_windows, n_windows_pass, n_windows_fail,
+                n_windows_inconclusive_data, n_windows_inconclusive_power,
+                created_at)
+               VALUES (?, ?, 'spec1', ?, 42, ?, 'walkforward_pass',
+                       1.5, 0.3, 0, 4, 3, 0, 1, 0, ?)""",
+            (str(uuid.uuid4()), sid, code_git_sha, outcome_state, created_at),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_production_gate_passes_with_walkforward_pass(temp_db, monkeypatch):
+    """WF PASS + DSR PASS + MG PASS → production gate passes.
+    Evidence contains all required walkforward_* keys."""
+    monkeypatch.setenv("WALKFORWARD_GATE_ENABLED", "true")
+    _seed_strategy(temp_db, "s1")
+    _seed_backtest_row(temp_db, "s1", dsr=0.97, pbo=0.30, oos_efficiency=0.5)
+    _seed_backtest_trades(temp_db, "s1")
+    _seed_trials(temp_db, n=25)
+    # code_git_sha='sha' matches _seed_backtest_row default; created_at is recent
+    _seed_walkforward_row(
+        temp_db, "s1", outcome_state="PASS",
+        code_git_sha="sha", created_at="2026-05-10T00:00:00+00:00",
+    )
+    with patch(
+        "src.platform.promotion._evaluate_strategy_methodology_gate",
+        return_value=(True, {"decision": "promote"}),
+    ):
+        passes, evidence = check_promotion_gate("s1", "production", db_path=temp_db)
+    assert passes is True
+    for key in (
+        "walkforward_gate_enabled",
+        "walkforward_outcome_state",
+        "walkforward_status",
+        "walkforward_reason",
+        "walkforward_run_id",
+        "walkforward_pooled_sharpe",
+        "walkforward_pooled_mde",
+        "walkforward_heavy_tail_flag",
+    ):
+        assert key in evidence, f"missing evidence key: {key}"
+    assert evidence["walkforward_gate_enabled"] is True
+    assert evidence["walkforward_outcome_state"] == "PASS"
+
+
+def test_production_gate_fails_with_walkforward_fail(temp_db, monkeypatch):
+    """WF FAIL → production gate returns False even when DSR + MG pass."""
+    monkeypatch.setenv("WALKFORWARD_GATE_ENABLED", "true")
+    _seed_strategy(temp_db, "s1")
+    _seed_backtest_row(temp_db, "s1", dsr=0.97, pbo=0.30, oos_efficiency=0.5)
+    _seed_backtest_trades(temp_db, "s1")
+    _seed_trials(temp_db, n=25)
+    _seed_walkforward_row(temp_db, "s1", outcome_state="FAIL")
+    with patch(
+        "src.platform.promotion._evaluate_strategy_methodology_gate",
+        return_value=(True, {"decision": "promote"}),
+    ):
+        passes, evidence = check_promotion_gate("s1", "production", db_path=temp_db)
+    assert passes is False
+    assert evidence.get("walkforward_outcome_state") == "FAIL"
+
+
+def test_production_gate_fails_with_walkforward_inconclusive(temp_db, monkeypatch):
+    """WF INCONCLUSIVE → production gate returns False (never collapse three-state)."""
+    monkeypatch.setenv("WALKFORWARD_GATE_ENABLED", "true")
+    _seed_strategy(temp_db, "s1")
+    _seed_backtest_row(temp_db, "s1", dsr=0.97, pbo=0.30, oos_efficiency=0.5)
+    _seed_backtest_trades(temp_db, "s1")
+    _seed_trials(temp_db, n=25)
+    _seed_walkforward_row(temp_db, "s1", outcome_state="INCONCLUSIVE")
+    with patch(
+        "src.platform.promotion._evaluate_strategy_methodology_gate",
+        return_value=(True, {"decision": "promote"}),
+    ):
+        passes, evidence = check_promotion_gate("s1", "production", db_path=temp_db)
+    assert passes is False
+    assert evidence.get("walkforward_outcome_state") == "INCONCLUSIVE"
+
+
+def test_production_gate_fails_when_no_walkforward_row(temp_db, monkeypatch):
+    """No walkforward_results row → production gate returns False.
+    STRICTER than shadow_trading — no legacy fall-through."""
+    monkeypatch.setenv("WALKFORWARD_GATE_ENABLED", "true")
+    _seed_strategy(temp_db, "s1")
+    _seed_backtest_row(temp_db, "s1", dsr=0.97, pbo=0.30, oos_efficiency=0.5)
+    _seed_backtest_trades(temp_db, "s1")
+    _seed_trials(temp_db, n=25)
+    # No walkforward row seeded
+    with patch(
+        "src.platform.promotion._evaluate_strategy_methodology_gate",
+        return_value=(True, {"decision": "promote"}),
+    ):
+        passes, evidence = check_promotion_gate("s1", "production", db_path=temp_db)
+    assert passes is False
+
+
+def test_production_gate_skips_walkforward_when_sentinel_disabled(
+    temp_db, monkeypatch,
+):
+    """WALKFORWARD_GATE_ENABLED=false → bypass active; v0.35.0 composition preserved.
+    Evidence has walkforward_gate_enabled=False."""
+    monkeypatch.setenv("WALKFORWARD_GATE_ENABLED", "false")
+    _seed_strategy(temp_db, "s1")
+    _seed_backtest_row(temp_db, "s1", dsr=0.97, pbo=0.30, oos_efficiency=0.5)
+    _seed_backtest_trades(temp_db, "s1")
+    _seed_trials(temp_db, n=25)
+    with patch(
+        "src.platform.promotion._evaluate_strategy_methodology_gate",
+        return_value=(True, {"decision": "promote"}),
+    ):
+        passes, evidence = check_promotion_gate("s1", "production", db_path=temp_db)
+    assert passes is True
+    assert evidence["walkforward_gate_enabled"] is False
+
+
+def test_production_gate_rejects_stale_walkforward_code_git_sha(
+    temp_db, monkeypatch,
+):
+    """DA-1: walkforward_results.code_git_sha != latest backtest code_git_sha
+    → passes=False, walkforward_stale=True, reason='code_git_sha mismatch'."""
+    monkeypatch.setenv("WALKFORWARD_GATE_ENABLED", "true")
+    _seed_strategy(temp_db, "s1")
+    _seed_backtest_row(temp_db, "s1", dsr=0.97, pbo=0.30, oos_efficiency=0.5)
+    _seed_backtest_trades(temp_db, "s1")
+    _seed_trials(temp_db, n=25)
+    # WF row has OLD_SHA; backtest row has 'sha' (from _seed_backtest_row fixture)
+    _seed_walkforward_row(temp_db, "s1", outcome_state="PASS", code_git_sha="OLD_SHA")
+    with patch(
+        "src.platform.promotion._evaluate_strategy_methodology_gate",
+        return_value=(True, {"decision": "promote"}),
+    ):
+        passes, evidence = check_promotion_gate("s1", "production", db_path=temp_db)
+    assert passes is False
+    assert evidence.get("walkforward_stale") is True
+    assert evidence.get("walkforward_stale_reason") == "code_git_sha mismatch"
+
+
+def test_production_gate_rejects_walkforward_older_than_30_days(
+    temp_db, monkeypatch,
+):
+    """DA-1: walkforward_results.created_at older than 30 days → staleness block."""
+    import sqlite3 as _sqlite3
+    monkeypatch.setenv("WALKFORWARD_GATE_ENABLED", "true")
+    _seed_strategy(temp_db, "s1")
+    _seed_backtest_row(temp_db, "s1", dsr=0.97, pbo=0.30, oos_efficiency=0.5)
+    _seed_backtest_trades(temp_db, "s1")
+    _seed_trials(temp_db, n=25)
+    # Seed WF row 31 days ago with matching sha ('sha' matches _seed_backtest_row fixture)
+    old_ts = "2026-04-12T00:00:00+00:00"  # > 30 days before 2026-05-13
+    _seed_walkforward_row(
+        temp_db, "s1", outcome_state="PASS",
+        code_git_sha="sha", created_at=old_ts,
+    )
+    with patch(
+        "src.platform.promotion._evaluate_strategy_methodology_gate",
+        return_value=(True, {"decision": "promote"}),
+    ):
+        passes, evidence = check_promotion_gate("s1", "production", db_path=temp_db)
+    assert passes is False
+    assert evidence.get("walkforward_stale") is True
+    assert evidence.get("walkforward_stale_reason") == "older than 30 days"
+
+
+def test_promote_persists_walkforward_outcome_state_in_gate_result_json(
+    temp_db, monkeypatch,
+):
+    """DA-5: promote() persists walkforward_outcome_state in gate_result_json."""
+    import sqlite3 as _sqlite3
+    monkeypatch.setenv("WALKFORWARD_GATE_ENABLED", "true")
+    _seed_strategy(temp_db, "s1")
+    _seed_backtest_row(temp_db, "s1", dsr=0.97, pbo=0.30, oos_efficiency=0.5)
+    _seed_backtest_trades(temp_db, "s1")
+    _seed_trials(temp_db, n=25)
+    _seed_walkforward_row(temp_db, "s1", outcome_state="PASS", code_git_sha="sha")
+    with patch(
+        "src.platform.promotion._evaluate_strategy_methodology_gate",
+        return_value=(True, {"decision": "promote"}),
+    ):
+        promote(
+            "s1", "production",
+            triggered_by="auto_gate",
+            db_path=temp_db,
+        )
+    conn = _sqlite3.connect(temp_db)
+    row = conn.execute(
+        "SELECT gate_result_json FROM strategy_promotion_events "
+        "WHERE strategy_id='s1' AND to_status='production'"
+    ).fetchone()
+    conn.close()
+    assert row is not None
+    gate_json = json.loads(row[0])
+    assert gate_json.get("walkforward_outcome_state") == "PASS"
