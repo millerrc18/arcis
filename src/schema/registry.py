@@ -2305,6 +2305,15 @@ _register(TableDef(
         ColumnDef("max_drawdown_pct", "REAL"),
         ColumnDef("vix_tier_coverage", "INTEGER",
                   description="Distinct VIX tier buckets (0/1/2/3) across OOS"),
+        ColumnDef("excess_sharpe_min_used", "REAL",
+                  description="Per-run excess-Sharpe threshold (rf-adjusted) used; "
+                              "null if raw-Sharpe gate only."),
+        ColumnDef("gate_version", "TEXT", default="v1",
+                  description="Walk-forward framework version that produced this row "
+                              "(e.g. 'v1', 'v2')."),
+        ColumnDef("derived_from_backtest_id", "TEXT",
+                  description="backtest_results.id that auto-fire used to spawn this "
+                              "run; null for manual invocations."),
         ColumnDef("created_at", "TEXT", nullable=False),
     ],
     primary_key="run_id",

@@ -829,6 +829,18 @@
       "rationale": "Sprint 2 T2: grew from 69 to 101 lines by adding AND-compose methodology gate at all 7 return sites (spec \u00a71.2 DA major fix 1). Each site requires identical 3-line pattern (mg_passes, mg_evidence = ...; evidence['methodology_gate'] = ...; return ... and mg_passes). Macro expansion is technically possible but would obscure the AND-compose intent; pattern is already clear and the function structure is correct."
     },
     {
+      "file": "src/platform/promotion.py",
+      "function": "_evaluate_walkforward_gate",
+      "lines": 73,
+      "rationale": "Sprint 6 Wave B T1: grew to 73 lines via WALKFORWARD_GATE_ENABLED sentinel short-circuit block (PR #1090). Function owns the three-state walkforward outcome evaluation path; splitting would require passing WalkForwardResult partial state across helper boundaries. Disclosed by T4 (PR #1092) per #731 after PR #1090 shipped without disclosure — sibling-search rule miss (feedback_review_sibling_search.md). Refactor candidate post-Sprint-6 once walkforward v2 wiring is stable."
+    },
+    {
+      "file": "src/platform/rigor/walkforward_metrics.py",
+      "function": "compute_window_metrics",
+      "lines": 68,
+      "rationale": "Sprint 6 Wave B T3: grew to 68 lines via excess_sharpe_min gate (PR #1091, SP-WF-004). Function owns the per-window Sharpe/MDE/bootstrap/VIX aggregation pipeline; splitting at 68 lines (8 over limit) would fragment tightly coupled metric dependencies. Disclosed by T4 (PR #1092) per #731 after PR #1091 shipped without disclosure — sibling-search rule miss (feedback_review_sibling_search.md). Refactor candidate post-Sprint-6."
+    },
+    {
       "file": "src/platform/rigor/walkforward_runner.py",
       "function": "persist_run_result",
       "lines": 95
