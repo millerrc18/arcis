@@ -2,7 +2,11 @@
 
 ## [Unreleased]
 
-(empty — entries below moved to v0.36.0)
+(empty)
+
+## [0.36.1] — 2026-05-14
+
+### Fixed
 
 ## [v0.36.0] - 2026-05-14 — Sprint 6 Wave B: Walk-Forward Validation Framework v1
 

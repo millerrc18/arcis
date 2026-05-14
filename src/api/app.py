@@ -68,6 +68,7 @@ from src.api.routes import (
     training,
 )
 from src.api.websocket import manager
+from src.version import VERSION
 
 
 API_SECRET = os.environ.get("API_SECRET", "")
@@ -122,7 +123,7 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="Arcis", version="0.34.0", lifespan=lifespan)
+app = FastAPI(title="Arcis", version=VERSION.lstrip("v"), lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
