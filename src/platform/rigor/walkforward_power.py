@@ -227,6 +227,10 @@ def validate_vix_tier_coverage(
     The existing distinct_tier_count is NOT replaced — this is a wrapper
     layer only. Read trades' VIX values via the same vix_tier_of helper
     from walkforward_metrics (LOW < 15.0, MEDIUM < 25.0, HIGH >= 25.0).
+
+    Note: `trades` is iterated once. If the caller needs both
+    `validate_vix_tier_coverage` and `distinct_tier_count` on the same trade
+    collection, materialize to a list first (e.g. `trades = list(trades)`).
     """
     seen: set[str] = set()
     for t in trades:
