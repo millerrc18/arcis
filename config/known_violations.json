@@ -1020,6 +1020,12 @@
     },
     {
       "file": "src/scheduler/watch.py",
+      "function": "_run_walkforward_reconciler",
+      "lines": 62,
+      "rationale": "Sprint 6 Wave B T13 (SP-WF-013, PR #1100): auto-fire reconciler introduced at 62 lines. Orchestrates backtest-completion event polling, per-strategy concurrency locking (filelock), and async walkforward dispatch. Function is a coherent scheduler tick handler; splitting at 62 lines (2 over limit) would fragment a single-purpose polling loop. Disclosed by T11 during test_repo_structure.py verification per #731. Refactor candidate post-Sprint-6."
+    },
+    {
+      "file": "src/scheduler/watch.py",
       "function": "_run_sync_body",
       "lines": 659,
       "rationale": "Sprint 2 T4: +33 lines from new 16:35 ET methodology gate slot (20L) and whitespace/comment. T11 Wave D D2: +7L for tick_digest_queue loop wiring + comment. Pre-existing at 619L; the loop body is tightly coupled and splitting is deferred per original rationale."
