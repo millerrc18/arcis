@@ -215,6 +215,33 @@ def get_reproducibility_info(seed: int, config: dict) -> dict:
     }
 
 
+# ─── Win-Rate Helpers ────────────────────────────────────────────────────────
+
+def compute_win_rate(entry_exit_pairs: list) -> float:
+    """Compute win rate from a list of (entry_price, exit_price) tuples.
+
+    A trade is a win iff exit_price > entry_price (gross, pre-cost comparison).
+    Returns 0.0 for an empty list.
+    """
+    if not entry_exit_pairs:
+        return 0.0
+    wins = sum(1 for entry, exit_price in entry_exit_pairs if exit_price > entry)
+    return wins / len(entry_exit_pairs)
+
+
+def compute_win_rate_from_trades(trades: list) -> float:
+    """Compute win rate from a list of trade dicts that carry an 'outcome' field.
+
+    A trade is a win iff outcome == 'win'. Timeout trades where exit > entry
+    are NOT counted as wins — the bracket must have hit the target.
+    Returns 0.0 for an empty list.
+    """
+    if not trades:
+        return 0.0
+    wins = sum(1 for t in trades if t.get("outcome") == "win")
+    return wins / len(trades)
+
+
 # ─── Core Scenario Runner ───────────────────────────────────────────────────
 
 def run_scenario(name: str, start: str, end: str, config: dict | None = None) -> dict:
@@ -401,7 +428,7 @@ def run_scenario(name: str, start: str, end: str, config: dict | None = None) ->
     wins = sum(1 for t in trades if t["outcome"] == "win")
     losses = sum(1 for t in trades if t["outcome"] == "loss")
     timeouts = sum(1 for t in trades if t["outcome"] == "timeout")
-    win_rate = wins / total_trades if total_trades > 0 else 0
+    win_rate = compute_win_rate_from_trades(trades)
     total_pnl_pct = sum(t["pnl_pct"] for t in trades)
     gross_pnl_pct = sum(t["pnl_pct"] for t in trades if t["pnl_pct"] > 0)
 
