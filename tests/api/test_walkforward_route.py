@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from src.api.cloud_routes.walkforward import get_run
+from src.api.cloud_routes.walkforward import get_run, list_runs
 from src.schema.sqlite import create_all_tables
 
 
@@ -69,3 +69,22 @@ async def test_walkforward_route_excess_sharpe_min_used_nullable(tmp_db):
     run = await get_run("r_t10_null")
     assert "excess_sharpe_min_used" in run
     assert run["excess_sharpe_min_used"] is None
+
+
+@pytest.mark.asyncio
+async def test_list_runs_includes_gate_version_and_excess_sharpe_min_used(tmp_db):
+    """Sibling-search lock (PM review of PR #1097): list_runs uses an explicit
+    column projection (not SELECT *), so the new T4 columns must be in the
+    projection or the list endpoint silently drops them. Pins both columns
+    surface in the list response just like the single-row GET.
+    """
+    _seed_run_with_gate(tmp_db, "r_t10_list_a", "v2", 0.4)
+    _seed_run_with_gate(tmp_db, "r_t10_list_b", "v1", None)
+    result = await list_runs(limit=50, strategy_id=None, outcome_state=None)
+    assert result["count"] == 2
+    rows_by_id = {r["run_id"]: r for r in result["runs"]}
+    assert "gate_version" in rows_by_id["r_t10_list_a"]
+    assert rows_by_id["r_t10_list_a"]["gate_version"] == "v2"
+    assert rows_by_id["r_t10_list_a"]["excess_sharpe_min_used"] == pytest.approx(0.4)
+    assert rows_by_id["r_t10_list_b"]["gate_version"] == "v1"
+    assert rows_by_id["r_t10_list_b"]["excess_sharpe_min_used"] is None
