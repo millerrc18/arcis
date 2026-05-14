@@ -4,7 +4,6 @@
 
 ### Added
 
-<<<<<<< HEAD
 - Sprint 6 Wave B T14 (SP-WF-014 + DA-1 + DA-5): production-gate walkforward composition in
   `_evaluate_production_gate` at `src/platform/promotion.py`. Sentinel guard mirroring T9:
   when `WALKFORWARD_GATE_ENABLED=false`, v0.35.0 bypass (DSR AND methodology only). When enabled
@@ -13,7 +12,7 @@
   30-day window; on staleness `walkforward_stale=True` + `walkforward_stale_reason` set. Evidence
   symmetric with shadow_trading gate. DA-5 verified: `promote()` persists `walkforward_outcome_state`
   in `gate_result_json`. +8 tests. Spec refs: Sprint 6 plan T14, SP-WF-014, DA-1, DA-5.
-=======
+
 - Sprint 6 Wave B T13 (SP-WF-013): scheduler auto-fire on backtest completion.
   (A) New module `src/platform/walkforward_autofire.py` — `auto_fire_walkforward()` spawns
   a detached subprocess of `python -m scripts.backtest.run_walkforward --auto-fire` after
@@ -32,7 +31,6 @@
   (E) New dep: `filelock>=3.0,<4.0`. +9 tests across
   `tests/platform/test_walkforward_autofire.py` (5 tests) and
   `tests/scheduler/test_walkforward_reconciler.py` (4 tests incl. DA-2 no-corpus cap).
->>>>>>> fd204f57 (Sprint 6 Wave B T13 — scheduler auto-fire on backtest completion (SP-WF-013))
 
 - Sprint 6 Wave B T10 (SP-WF-004/SP-WF-010): CLI flag + HTTP read-route extensions.
   (A) CLI: added `--corpus-id <str>` flag to `scripts/backtest/run_walkforward.py` — passes
