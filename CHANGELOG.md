@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+(empty — entries below moved to v0.36.0)
+
+## [v0.36.0] - 2026-05-14 — Sprint 6 Wave B: Walk-Forward Validation Framework v1
+
+Sprint 6 wires walk-forward validation v1 (binding spec at
+`docs/audits/2026-05-11-stage1-completion/walkforward-spec-v1.md`) into the
+production gate hierarchy: shadow_trading → production AND-composition with
+fail-safe `WALKFORWARD_GATE_ENABLED` sentinel, DA-1 freshness cap, T13
+scheduler auto-fire, and Stage-1 corpus-binding admissibility check.
+
 ### Added
 
 - Sprint 6 Wave B T14 (SP-WF-014 + DA-1 + DA-5): production-gate walkforward composition in
@@ -122,6 +132,19 @@
   `canonical_sharpe.rf_adjusted_excess_sharpe` as the source of truth. `WindowMetrics` gains
   three new default-None fields: `excess_sharpe`, `passes_excess_sharpe`, `excess_sharpe_fail_reason`.
   +3 tests in `tests/platform/rigor/test_walkforward_metrics.py`.
+
+- Sprint 6 Wave B T11 (PR #1101): regression-lock test suite for the walk-forward end-to-end
+  pipeline. New `tests/platform/rigor/test_walkforward_regression_lock.py` (60 LOC, hermetic —
+  no DB, no network, no corpus FS) with 4 deterministic tests pinning the three-state outcome
+  state machine and the pooled-Sharpe determinism invariant:
+  `test_regression_lock_pass_outcome` (Sharpe ≈ 3.0 synthetic trades → PASS),
+  `test_regression_lock_fail_outcome` (constant `-0.5` returns in ≥2 windows → FAIL),
+  `test_regression_lock_inconclusive_outcome` (≥2 windows with <10 trades → INCONCLUSIVE),
+  `test_regression_lock_pooled_sharpe_stable` (0.01-tolerance determinism lock catching
+  numerical drift across T3/T5/T6/T8 modules). Reuses `FakeTrade` + `_generate_trades` +
+  `_minimal_spec` prior art from `test_walkforward_runner.py`. The agent grandfathered
+  T13's pre-existing `_run_walkforward_reconciler` 62-line function in `known_violations.json`
+  as part of #731 disclosure.
 
 ### Changed
 

@@ -5,8 +5,8 @@ deferred-track items that did not land in any concluded sprint. It is
 maintained at each sprint-close. See `CHANGELOG.md` for the full release
 history; this file is the operator-facing summary.
 
-Version anchor: see `src/version.py` (currently `v0.35.0`, tagged at the
-Sprint 5 close PR).
+Version anchor: see `src/version.py` (currently `v0.36.0`, tagged at the
+Sprint 6 close PR — operator-led post-merge).
 
 ---
 
@@ -23,83 +23,71 @@ Sprint 5 close PR).
 | **Sprint 2** | 2026-05-05 | v0.32.0 (rolled in) | T1 `triggered_by` sentinels, T3 trainer model-version abstention fix, T7 gate-proposal KPI in dashboard, T8 cross-cutting integration tests (15 named), T9 operator runbook update + CHANGELOG sprint closeout. |
 | **Sprint 3** | 2026-05-07 | v0.33.0 | Cockpit Coherence — 23 tasks across 8 batches. Dashboard rework, KPI strip negative-pnl handling, watch-loop heartbeat wiring. |
 | **Sprint 4** | 2026-05-08 | v0.34.0 | Cockpit Followups + Notification Subsystem — 22 of 23 planned tasks (T22 deferred to Sprint 5 as `#SP5-notifications-routing-policy`). Visual-verify gate (11 pages + 2 components all PASS). |
-| **Sprint 5** | **2026-05-13** | **v0.35.0** | **This release.** Cutover stabilization (Phases 0/1/2/2.5/3-revised) + notification policy/digest/silence (Wave D) + LLM packet enrichment (Wave C7a/C7b) + dual-GPU disposition (Wave E) + dev tooling (Wave F). |
+| **Sprint 5** | 2026-05-13 | v0.35.0 | Cutover stabilization (Phases 0/1/2/2.5/3-revised) + notification policy/digest/silence (Wave D) + LLM packet enrichment (Wave C7a/C7b) + dual-GPU disposition (Wave E) + dev tooling (Wave F). |
+| **Sprint 6** | **2026-05-14** | **v0.36.0** | **This release.** Walk-Forward Validation Framework v1 (Wave B: T1–T14) + SP6 catch-all sweep (Wave A: WA1–WA6). Production-gate AND-composition: shadow_trading → production requires PASS across walkforward + DSR + methodology gates. Sentinel guard (`WALKFORWARD_GATE_ENABLED`), DA-1 freshness cap (sha-match + 30-day window), T13 scheduler auto-fire (filelock + reconciler), Stage-1 corpus admissibility check. |
 
 ---
 
-## Sprint 5 closeout summary (this release)
+## Sprint 6 closeout summary (this release)
 
 **Waves delivered:**
 
-- **Wave A — Cutover preflight** (Phase 0/1/2/2.5): wrapper foundation (`_RowFactoryCursor`, `_scalar`, `engine_aware_upsert`); 82-site mechanical-replacement sweep; PRAGMA/introspection migration; date-function cleanup (12 sites / 6 files).
-- **Wave B — Phase-3-revised cutover** (operator-led, one-DB): SQLite → local Postgres at `localhost:5433/halcyon` with `ARCIS_PG_CUTOVER_ENABLED` env gate routing `connect_db()` to the right engine.
-- **Wave C — Data integrity hardening** (#54 `_compute_promotion_gate_kpi` wiring; #56 `strategy_id` FK on shadow_trades; #96 `platform_events` TableDef; #92 `_check_row_counts` cross-engine KeyError fix; #95 PG schema-completeness gap closure; #108 postgres.py default-value quoting bug).
-- **Wave C7a — Council/walkforward/attribution/strategy packet sections** (T17 COUNCIL CONSENSUS; T18 HISTORICAL CREDIBILITY; T19 RECENT ATTRIBUTION; T20 STRATEGY CONTEXT header preamble).
-- **Wave C7b — Plan-gated Finnhub fundamental-1 max-utilization** (T21 INSTITUTIONAL FLOW; T22 filings_sentiment + MATERIAL EVENTS seed; T23 press_releases sub-block; T24 stock_financials runtime + DATA CONTEXT header; T25 analyst_collector cap plan-conditional; T26 AST runtime-coverage scanner).
-- **Wave D — Notification routing/digest/silence** (T10 policy gate / Decision 20 routing_overrides allowlist; T11 digest queue persistence; T12 safe_send verdict-dispatch; T13 `_html_escape` siblings + pytest isolation; T14 alert silence detector + `is_market_open` extraction).
-- **Wave E — Dual-GPU disposition** (T15 dual-GPU workload-separation deferred to first post-Sprint-5 maintenance window; canonical-spec stale-text fixes — test-floor 3682→5400, Sprint 6→post-Sprint-5, Unsloth→Transformers+PEFT+TRL, NUM_PARALLEL=1→4).
-- **Wave F — Dev tooling** (T7 stale-base check workflow; T8 conflict-marker scanner; T9 cutover finalization guard scaffolding).
-- **Pre-T16 hardening** (#1081): `DigestQueue.pending_count`/`abandoned_count` use `_scalar()`; `sqlite_to_pg_migrate.py` `connect_timeout=30` symmetric with `render_to_local_migrate.py`.
+- **Wave A — SP6 catch-all sweep** (7 PR-review follow-ups from Sprint 5): WA1 `_get_finnhub_key` extraction into shared module; WA2 `price_target` matrix resolution; WA3 PE quality thresholds settings.yaml hook; WA4 env-pollution test fix; WA5 Decision 27 lock test; WA6 migration utils extraction + topo sort.
+- **Wave B — Walk-Forward Validation Framework v1** (T1–T14, 14 tasks, PRs #1089–#1101):
+  - T2: canonical `subtract_trading_days` refactor (no local helper)
+  - T1: `WALKFORWARD_GATE_ENABLED` sentinel in `_evaluate_walkforward_gate`
+  - T3: `excess_sharpe_min` per-window gate in `WalkForwardConfig`
+  - T4: `walkforward_results` v2 columns (`excess_sharpe_min_used`, `gate_version`, `derived_from_backtest_id`)
+  - T5+T6: window builder (`build_walkforward_windows`) + `corpus_id` field + VIX coverage validator
+  - T7: schema migration verified (T4 columns materialized, zero drift)
+  - T8: runner integration (corpus gate + VIX coverage + v2 column persistence)
+  - T10: CLI `--corpus-id` / `--excess-sharpe-min` flags + HTTP read-route
+  - T9: promotion-gate sentinel guard in `_evaluate_shadow_trading_gate`
+  - T14: production-gate AND-composition + DA-1 freshness cap + DA-5 audit trail
+  - T13: scheduler auto-fire (filelock, platform_events, reconciler) + `--backtest-result-id` / `--auto-fire` / `--force` CLI flags
+  - T11: regression-lock test suite
 
-**Tracker dispositions (operator triage 2026-05-13):**
+**Tracker dispositions (Sprint 6 close 2026-05-14):**
 
 | Tracker | Disposition | Outcome |
 |---|---|---|
-| `#26` | KILL | Closed without action — superseded by Wave D notification subsystem. |
-| `#27` | CLOSE-as-resolved | Pre-existing `test_repo_structure.py` failures addressed via real refactor across Sprints 0-3. |
-| `#96` | CLOSE-as-resolved | `platform_events` TableDef added in Wave C (#56 sibling deliverable). |
-| `#97` | DEFERRED-post-Sprint-5 | `alpaca_adapter.py` 425-line file split — sentinel test deleted at T16 (#97 fold-in), grandfathered via `config/known_violations.json` until split is scoped. |
-| `#104` | FOLDED-INTO-T16 | CompatRow indexing test added at T16 (cross-engine row-shape verification for `build_score.py:341` pattern). |
-| `#105` | DEFERRED-post-Sprint-5 | Cache `/api/kpis` `promotion_gate` + vectorize `mc_permutation`. |
-| `#106` | DEFERRED-post-Sprint-5 | Push strategy_id filter from Python to SQL + add index. |
-| `#107` | DEFERRED-post-Sprint-5 | `sqlite.py` does not honor `ColumnDef.initially_deferred=True` — surfaced during T2 but low blast radius. |
-| `#109` | FIX-NOW | `tests/test_no_conflict_markers_in_repo.py` shipped via PR #1079 (Wave F sibling). |
-| `#111` | FIX-NOW | YES-prompt confirmation backport to `sqlite_to_pg_migrate.py` shipped via PR #1080. |
-| `#112` | DEFERRED-post-Sprint-5 | Bidirectional row-count drift investigation between SQLite and Render PG. |
-| `#113` | FOLDED-INTO-T16 | Phase-3 cutover finalization audit + checklist appended to operator-guide at T16. |
-| `#114` | DEFERRED-post-Sprint-5 | Content-level dedup pass for local PG post-recovery (different-PK, same-content duplicates). |
-| `#122` | FOLDED-INTO-T16 | "SP6" → "post-Sprint-5" shorthand rename across dual-GPU spec body (~25 sites). |
+| WA1–WA6 | CLOSED-in-Sprint-6 | All 7 SP6 catch-all items from Sprint 5 PR reviews shipped in Wave A (PR #1088). |
+| T13 retry-cap design | DEFERRED | Reconciler retry-cap covers `spawn_failed + skipped_no_corpus + timeout` but not `skipped_disabled`. Design call deferred — scope-fence was explicit. |
+| T14 +85 LOC override | NOTED | T14 implementation ran ~85 LOC over the scope-fence estimate; `config/known_violations.json` updated at T14 close. Follow-up: determine if `_evaluate_production_gate` split is warranted. |
+| `--strategy` / `--strategy-id` consolidation | DEFERRED | `run_walkforward.py` CLI uses `--strategy` but other scripts use `--strategy-id`; consolidation deferred to post-Sprint-6. |
 
 ---
 
-## Deferred track — items NOT in v0.35.0
+## Deferred track — items NOT in v0.36.0
 
-These items remain open at v0.35.0. Each carries a clear next-action note
+These items remain open at v0.36.0. Each carries a clear next-action note
 and is operator-visible at the next sprint planning cycle.
 
-### Engineering follow-ups
+### Engineering follow-ups (carried from Sprint 5)
 
-- **`#97` — `alpaca_adapter.py` split** (425 lines on disk, exceeds the 400-line cap). Sentinel test deleted at T16; grandfathered via `config/known_violations.json`. Resolution: real refactor into `alpaca_adapter_core.py` + `alpaca_adapter_orders.py` + `alpaca_adapter_positions.py`. Estimated: ~1 sprint.
+- **`#97` — `alpaca_adapter.py` split** (425 lines on disk, exceeds the 400-line cap). Grandfathered via `config/known_violations.json`. Resolution: real refactor into `alpaca_adapter_core.py` + `alpaca_adapter_orders.py` + `alpaca_adapter_positions.py`. Estimated: ~1 sprint.
 - **`#105` — `/api/kpis` performance** — cache `promotion_gate` results (currently re-computed per request) + vectorize `mc_permutation` (loop-based today). Estimated: ~1 day.
 - **`#106` — `strategy_id` SQL filter pushdown** — current implementation filters in Python after fetch; push to SQL `WHERE` + add covering index. Estimated: ~half-day.
 - **`#107` — `sqlite.py` deferrable FK** — does not honor `ColumnDef.initially_deferred=True`. Surfaced during T2 FK-creation work. Low blast radius (FK still created, just immediately-enforced). Estimated: ~1 day.
 - **`#112` — Row-count drift investigation** — bidirectional drift between local SQLite and Render PG (pre-decommission snapshot). Forensic only; no production impact. Estimated: ~2 days.
 - **`#114` — Content-level dedup** — local PG post-recovery contains different-PK same-content duplicates. Idempotent migration + dedup query. Estimated: ~half-day.
 
-### SP6 catch-all items (aggregated from PR review feedback during Sprint 5)
+### Walk-forward follow-ups (new in Sprint 6)
 
-- **`price_target` matrix resolution** (PR #1085 review) — `analyst_collector.py:146` calls `finnhub_plan_supports("price_target")` but `price_target` is NOT in `_FEATURE_MATRIX`. The gate is permanently False, dead code path. Resolution: either add `price_target` to `_FEATURE_MATRIX['fundamental-1']` (if Finnhub fundamental-1 plan provides it) OR remove the dead-code block from `analyst_collector.py:146-165`. Allowlisted in `tests/test_finnhub_plan_runtime_coverage.py::_REVERSE_INVARIANT_ALLOWLIST` until resolution.
-- **`_get_finnhub_key` 3× duplication** (PRs #1082/#1083/#1084 reviews) — identical 12-line function across `institutional_ownership_collector.py`, `filings_sentiment_collector.py`, `press_releases_collector.py`. Extract to `src/data_collection/_finnhub_shared.py`. Saves ~30 LOC.
-- **`_PE_REASONABLE_LO` / `_PE_REASONABLE_HI` settings.yaml hook** (PR #1084 review / T24) — hardcoded heuristics in `src/data_enrichment/financials.py` (`_PE_REASONABLE_LO = 2.0`, `_PE_REASONABLE_HI = 200.0`). Move to `config.data_enrichment.fundamental_quality_thresholds.{pe_min, pe_max}` for operator tuning.
-- **`test_feature_matrix_distinguishes_free_and_premium` env-pollution** (PR #1085 review disclosure) — `tests/test_enrichment.py` fails on operator's local machine because `.env` sets `FINNHUB_PLAN` which `get_finnhub_plan()` prefers over the explicit config-dict arg per documented precedence. Fix: `monkeypatch.delenv("FINNHUB_PLAN")` in the test setup. CI passes (no `.env`).
-- **Decision 27 footnote follow-up** (PR #1083 review) — `filings_sentiment` `action="ignore"` may silently drop legitimate Finnhub sentiment-model revisions. If model-revision drift becomes operationally significant, switch to `action="replace"` + add `filings_sentiment` to `_REPLACE_SEMANTICS` in `src/utils/db.py`.
-- **Topological FK ordering for migration scripts** (PR #1067 review) — `sqlite_to_pg_migrate.py` and `render_to_local_migrate.py` both fire `INSERT`s in arbitrary table order. Works today because schema is FK-acyclic, but breaks under future FK cycles. Add topological sort on `TABLES` registry.
-- **Extract `_redact_password` + `_confirm` to `scripts/_shared_migration_utils.py`** (PR #1067 review) — eliminates duplication between the two migration scripts (~40 LOC saved).
-
-### Tracker placeholders preserved through Sprint 5
-
-These trackers existed before Sprint 5, were touched but not closed, and
-remain operator-visible:
-
-- `#102` — Wave C7 LLM packet enrichment + Finnhub fundamental-1 max-util as on/off switch. **CLOSED by Wave C7a/C7b completion in this release.**
+- **T13 retry-cap design gap** — reconciler retry-cap covers `spawn_failed + skipped_no_corpus + timeout` events but does NOT cap `skipped_disabled` (WALKFORWARD_AUTOFIRE_ENABLED=false). A long AUTOFIRE-disabled window followed by re-enable could flood retries. Design decision: either extend cap to include skipped_disabled, or document the operator expectation that re-enabling AUTOFIRE clears the slate.
+- **T14 `_evaluate_production_gate` size** — function grew ~85 LOC over the scope-fence estimate. Evaluate whether splitting into `_evaluate_production_gate_walkforward` + `_evaluate_production_gate_methodology` sub-functions improves readability without regression. Low urgency — function is well-tested.
+- **`--strategy` vs `--strategy-id` CLI consolidation** — `run_walkforward.py` uses `--strategy` (value = strategy_id string) while `run_backtest.py` uses `--strategy-id`. Inconsistency surfaced in Sprint 6 T13 scope; deferred to avoid CLI-breaking-change mid-sprint.
+- **SP-WF-017 sentinel-asymmetry warning** (DA-6) — startup WARN when `WALKFORWARD_GATE_ENABLED=true AND WALKFORWARD_AUTOFIRE_ENABLED=false`. Spec added the decision (DA-6) but was out of Sprint 6 scope. File as standalone task post-Sprint-6.
+- **Dual-GPU workload-separation** (RTX 3060 + RTX 3090) — deferred from Sprint 5 Wave E; canonical design spec at `docs/audits/2026-05-12-dual-gpu-ideation/specs/2026-05-12-dual-gpu-workload-separation-design.md`. Largest standalone deliverable in the deferred queue.
 
 ---
 
 ## Sprint planning notes
 
-- **Sprint 5 was declared the final sprint** in operator memory (`feedback_sprint_5_is_final`). All deferred items above are scoped under "post-Sprint-5" — no `#SP6-*` tags should be created; new sprint cycles will assign fresh tracker IDs and named waves.
-- The post-Sprint-5 dual-GPU workload-separation work (RTX 3060 + RTX 3090) is the largest standalone deliverable in the deferred queue; the canonical design spec is preserved at `docs/audits/2026-05-12-dual-gpu-ideation/specs/2026-05-12-dual-gpu-workload-separation-design.md`.
+- **Sprint 5 and Sprint 6 are closed** (v0.35.0 and v0.36.0). Future sprint cycles will assign fresh names and tracker IDs.
+- The post-Sprint-6 deferred queue is dominated by Sprint 6 walk-forward follow-ups (T13 retry-cap design, T14 LOC override, SP-WF-017 DA-6) and the Sprint 5 carry-forwards (`#97` split, `#105`–`#107`).
+- **SP-WF-016 falsifiability queries should be run weekly** during shadow→production promotion cycles. See `docs/operator-guide.md` §"Walk-Forward Validation Gate".
 
 ---
 
-*Roadmap last updated: 2026-05-13 at Sprint 5 close (v0.35.0).*
+*Roadmap last updated: 2026-05-14 at Sprint 6 close (v0.36.0).*

@@ -2527,3 +2527,118 @@ without orphaned state:
 
 After cutover: `ARCIS_PG_CUTOVER_ENABLED=0` reverts to SQLite — the
 engine routing is symmetric and bidirectional. Cutover is reversible.
+
+---
+
+## Walk-Forward Validation Gate (v1 — Sprint 6)
+
+The walk-forward gate is a runtime promotion-gate component that requires a
+strategy to demonstrate out-of-sample (OOS) performance across multiple
+non-overlapping windows BEFORE moving from shadow_trading to production.
+Wired in Sprint 6 (v0.36.0); see `docs/audits/2026-05-11-stage1-completion/walkforward-spec-v1.md`.
+
+### Quick reference
+
+- **Sentinel env var:** `WALKFORWARD_GATE_ENABLED` (default `true`). Set to
+  `"false"` (case-insensitive `false`, `0`, `no`, or any non-canonical
+  string) to disable the gate. Strict-on semantics — see T1 docstring at
+  `src/platform/promotion.py::_evaluate_walkforward_gate`.
+- **CLI:** `python -m scripts.backtest.run_walkforward --strategy <id>
+  [--corpus-id <stage1-001>] [--excess-sharpe-min 0.3]
+  [--backtest-result-id <id>] [--auto-fire] [--force]`
+- **Auto-fire env var:** `WALKFORWARD_AUTOFIRE_ENABLED` (default `true`).
+  Controls whether `scripts/run_backtest.py` post-persist hook spawns a
+  detached walkforward subprocess after each backtest persists.
+- **Stage-1 corpus:** `data/corpus/stage1-001/manifest.json` (filesystem-based;
+  not in DB). Admissibility checked via the canonical
+  `src/evaluation/walkforward._gate_corpus_or_raise` (load manifest +
+  is_admissible + window coverage).
+
+### Three-state outcome model
+
+The walk-forward gate produces one of three outcomes — **never collapse to
+boolean**:
+- `PASS` — Sharpe ≥ 0.3 in ≥4 of 5 windows + criterion 2 (power) + criterion 3 (drawdown) + criterion 4 (heavy tail) + criterion 5 (VIX coverage).
+- `FAIL` — explicit rejection (criterion 1 or 2 fails in ≥2 windows).
+- `INCONCLUSIVE` — insufficient data (<10 trades in ≥2 windows) OR insufficient power (MDE > threshold in ≥2 windows) OR insufficient duration (<6 months in ≥2 windows).
+
+### DA-1 freshness cap (production-only)
+
+When a strategy reaches production candidacy, the production gate at
+`_evaluate_production_gate` adds a freshness check on top of the standard
+walkforward composition:
+
+- `walkforward_results.code_git_sha` MUST equal current
+  `backtest_results.code_git_sha` (strict sha-match).
+- `walkforward_results.created_at` MUST be within the last 30 days.
+
+On staleness: `evidence['walkforward_stale'] = True`,
+`evidence['walkforward_stale_reason']` set to `'code_git_sha mismatch'` or
+`'older than 30 days'`. Gate returns `False`.
+
+### Falsifiability queries (SP-WF-016)
+
+Three queries can be run against `walkforward_results` to falsify the
+walk-forward gate's invariants. If any returns rows, Sprint 6 has shipped
+a regression. Look up the EXACT SQL bodies in
+`docs/audits/2026-05-13-sprint-6-walkforward-impl/specs/2026-05-13-sprint-6-walkforward-impl-design.md`
+under §"SP-WF-016 — Falsifiability triggers for T13 + T14":
+
+1. **Orphan-backtest query** — finds `backtest_results` rows without matching
+   `walkforward_results` after the 7-day auto-fire reconciler window. If
+   non-empty: the reconciler has failed to converge.
+2. **Production-walkforward-evidence query** — finds `strategy_promotion_events`
+   rows promoted to production WITHOUT a walkforward_outcome_state in the
+   evidence dict. If non-empty: a strategy bypassed the production gate.
+3. **Auto-fire-failure-rate query** — finds `platform_events` of type
+   `walkforward_auto_fire_*` summarized by event_type over the last 7 days.
+   If the giveup rate is non-trivial: investigate auto-fire stability.
+
+```sql
+-- Orphan backtest check (SP-WF-016 query 1)
+SELECT br.result_id, br.strategy_id, br.created_at
+FROM backtest_results br
+LEFT JOIN walkforward_results wfr ON wfr.derived_from_backtest_id = br.result_id
+WHERE br.created_at < datetime('now', '-2 hours')
+  AND wfr.run_id IS NULL;
+
+-- Production-promotion walkforward-evidence check (SP-WF-016 query 2)
+SELECT spe.strategy_id, spe.timestamp
+FROM strategy_promotion_events spe
+WHERE spe.to_status = 'production'
+  AND spe.timestamp > '2026-05-13'
+  AND json_extract(spe.gate_result_json, '$.walkforward_outcome_state') IS NULL;
+
+-- Auto-fire failure-rate check (SP-WF-016 query 3)
+SELECT event_type, COUNT(*)
+FROM platform_events
+WHERE event_type LIKE 'walkforward_auto_fire%'
+  AND timestamp > datetime('now', '-7 days')
+GROUP BY event_type;
+```
+
+Operator should run these queries weekly during shadow→production promotion
+cycles, OR after any change to the walkforward modules in
+`src/platform/rigor/walkforward_*`.
+
+### Runbook: disabling the gate (emergency)
+
+To temporarily disable walkforward gating (e.g., during a known-good migration
+window):
+
+```bash
+# Per-process override (preferred):
+$env:WALKFORWARD_GATE_ENABLED = "false"
+nssm restart ArcisWatchLoop
+
+# Service-level (persistent across restarts):
+nssm set ArcisWatchLoop AppEnvironmentExtra "ARCIS_DB_PATH=...;DATABASE_URL=...;WALKFORWARD_GATE_ENABLED=false"
+nssm restart ArcisWatchLoop
+```
+
+Confirm disabled via `[6/6] Services` startup output —
+`walkforward_gate_enabled=False` will appear in the next gate evidence dict.
+
+---
+
+End of Walk-Forward Validation Gate section.
