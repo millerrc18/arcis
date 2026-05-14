@@ -113,8 +113,8 @@
     },
     {
       "file": "src/platform/promotion.py",
-      "lines": 811,
-      "rationale": "Sprint 2 T2: added _evaluate_strategy_methodology_gate (129L), _get_n_trials_for_strategy (5L), _safe_run (19L), run_daily_gate_for_all_active_strategies (58L) + 7 AND-compose sites in _evaluate_shadow_trading_gate + 1 in _evaluate_production_gate + walkforward_status placement in _evaluate_walkforward_gate. All new code is scope-required per spec docs/audits/2026-05-05-methodology-gate-wiring/spec.md \u00a71.2, \u00a73.2, \u00a74.1. Real split would require a sibling platform/promotion_gate_wiring.py module \u2014 deferred to Sprint 3."
+      "lines": 938,
+      "rationale": "Sprint 2 T2 baseline 811. Sprint 6 Wave B T14 (SP-WF-014): _evaluate_production_gate extended from 18 to 104 lines \u2014 sentinel guard (WALKFORWARD_GATE_ENABLED), _evaluate_walkforward_gate call, strict no-row policy (returns False, no legacy fall-through), DA-1 freshness cap (sha-match + 30-day SQLite date check), and evidence dict with walkforward_* keys symmetric with shadow_trading gate. All additions are scope-required by SP-WF-014 + DA-1 (design spec 2026-05-13). Sprint 6 scope fence declared +<=30 net new lines; DA-1 freshness cap added ~67 additional lines beyond the minimal gate composition. Operator-visible rationale: DA-1 is CRITICAL per DA review and must not be hand-waved; splitting the staleness check into a helper would require a new function not justified by single-use pattern. Real split into a sibling promotion_production_gate.py is deferred to post-Sprint-6."
     },
     {
       "file": "src/platform/signal_eval.py",
@@ -838,6 +838,12 @@
       "function": "_evaluate_walkforward_gate",
       "lines": 73,
       "rationale": "Sprint 6 Wave B T1: grew to 73 lines via WALKFORWARD_GATE_ENABLED sentinel short-circuit block (PR #1090). Function owns the three-state walkforward outcome evaluation path; splitting would require passing WalkForwardResult partial state across helper boundaries. Disclosed by T4 (PR #1092) per #731 after PR #1090 shipped without disclosure — sibling-search rule miss (feedback_review_sibling_search.md). Refactor candidate post-Sprint-6 once walkforward v2 wiring is stable."
+    },
+    {
+      "file": "src/platform/promotion.py",
+      "function": "_evaluate_production_gate",
+      "lines": 104,
+      "rationale": "Sprint 6 Wave B T14 (SP-WF-014): new function implementing production-gate walkforward composition. 104 lines = sentinel guard (WALKFORWARD_GATE_ENABLED) + _evaluate_walkforward_gate call + strict no-row policy (production invariant: no row → False) + DA-1 freshness cap (sha-match + 30-day SQLite date check with separate DB reads for walkforward_results.code_git_sha and backtest_results.code_git_sha) + DSR AND walkforward AND methodology composition. DA-1 is CRITICAL per DA review and must not be hand-waved. Splitting the staleness block into a _check_walkforward_freshness helper is a single-use abstraction unjustified by the scope. Refactor candidate post-Sprint-6 if T15 adds a second staleness-check call site."
     },
     {
       "file": "src/platform/rigor/walkforward_metrics.py",
