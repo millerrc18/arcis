@@ -446,3 +446,56 @@ def test_promotion_gate_passes_with_all_three_gates(temp_db):
     assert passes
     assert evidence["pbo"] == 0.30
     assert evidence["oos_efficiency"] == 0.5
+
+
+# ---------------------------------------------------------------------------
+# T9 — Promotion-gate sentinel guard tests (SP-WF-009)
+# ---------------------------------------------------------------------------
+
+def test_evaluate_promotion_gate_wf_disabled_skips_wf(temp_db, monkeypatch):
+    """WALKFORWARD_GATE_ENABLED=false → _evaluate_walkforward_gate NOT called;
+    gate still produces a verdict via DSR + methodology composition."""
+    _seed_strategy(temp_db, "s1")
+    _seed_backtest_row(temp_db, "s1", dsr=0.97, pbo=0.30, oos_efficiency=0.5)
+    _seed_backtest_trades(temp_db, "s1")
+    _seed_trials(temp_db, n=25)
+    monkeypatch.setenv("WALKFORWARD_GATE_ENABLED", "false")
+    with patch("src.platform.promotion._evaluate_walkforward_gate") as mock_wf:
+        passes, evidence = check_promotion_gate("s1", "shadow_trading", db_path=temp_db)
+    mock_wf.assert_not_called()
+    assert isinstance(passes, bool)
+    assert evidence["walkforward_gate_enabled"] is False
+
+
+def test_evaluate_promotion_gate_wf_enabled_calls_wf(temp_db, monkeypatch):
+    """WALKFORWARD_GATE_ENABLED=true → _evaluate_walkforward_gate IS called;
+    verdict composes all 3 gates."""
+    _seed_strategy(temp_db, "s1")
+    _seed_backtest_row(temp_db, "s1", dsr=0.97, pbo=0.30, oos_efficiency=0.5)
+    _seed_backtest_trades(temp_db, "s1")
+    _seed_trials(temp_db, n=25)
+    monkeypatch.setenv("WALKFORWARD_GATE_ENABLED", "true")
+    with patch("src.platform.promotion._evaluate_walkforward_gate",
+               return_value=(True, {"walkforward_status": "pass",
+                                    "walkforward_outcome_state": "PASS"})) as mock_wf:
+        passes, evidence = check_promotion_gate("s1", "shadow_trading", db_path=temp_db)
+    mock_wf.assert_called_once()
+    assert evidence["walkforward_gate_enabled"] is True
+
+
+def test_evaluate_promotion_gate_evidence_carries_gate_enabled_flag(
+    temp_db, monkeypatch,
+):
+    """Evidence dict carries walkforward_gate_enabled bool in both sentinel states."""
+    _seed_strategy(temp_db, "s1")
+    _seed_backtest_row(temp_db, "s1", dsr=0.97, pbo=0.30, oos_efficiency=0.5)
+    _seed_backtest_trades(temp_db, "s1")
+    _seed_trials(temp_db, n=25)
+
+    monkeypatch.setenv("WALKFORWARD_GATE_ENABLED", "true")
+    _, ev_on = check_promotion_gate("s1", "shadow_trading", db_path=temp_db)
+    assert ev_on["walkforward_gate_enabled"] is True
+
+    monkeypatch.setenv("WALKFORWARD_GATE_ENABLED", "false")
+    _, ev_off = check_promotion_gate("s1", "shadow_trading", db_path=temp_db)
+    assert ev_off["walkforward_gate_enabled"] is False
