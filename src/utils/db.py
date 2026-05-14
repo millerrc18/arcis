@@ -55,6 +55,8 @@ _DB_PATH_WARNED: set[int] = set()
 
 _GATE_ON_NO_PG_URL_WARNED: bool = False
 
+_FIXTURE_PATH_HONORED_WARNED: bool = False
+
 
 def _warn_gate_on_no_pg_url_once() -> None:
     """Single WARN when gate is on but DATABASE_URL doesn't start with postgres.
@@ -84,6 +86,36 @@ def _warn_db_path_ignored_once(db_path) -> None:
         "[DB] connect_db(db_path=%r) overridden by Phase 3 cutover gate; "
         "ARCIS_PG_CUTOVER_ENABLED=1 routes to PG. Unset to revert to SQLite path.",
         db_path,
+    )
+
+
+def _info_fixture_path_honored_once(db_path) -> None:
+    global _FIXTURE_PATH_HONORED_WARNED
+    if _FIXTURE_PATH_HONORED_WARNED:
+        return
+    _FIXTURE_PATH_HONORED_WARNED = True
+    logger.info(
+        "[DB] explicit fixture path %r honored over PG cutover gate "
+        "(ARCIS_PG_CUTOVER_ENABLED=1); returning SQLite connection.",
+        db_path,
+    )
+
+
+def _is_explicit_fixture_path(db_path) -> bool:
+    if db_path is _SENTINEL or db_path is None:
+        return False
+    path_str = str(db_path)
+    if path_str.startswith("postgres"):
+        return False
+    if DB_PATH is not None and path_str == str(DB_PATH):
+        return False
+    return (
+        path_str == ":memory:"
+        or path_str.endswith((".db", ".sqlite", ".sqlite3"))
+        or "/tmp/" in path_str
+        or "\\Temp\\" in path_str
+        or "\\tmp\\" in path_str
+        or "test" in path_str.lower()
     )
 
 
@@ -499,15 +531,17 @@ def connect_db(db_path=_SENTINEL):
     `_warn_db_path_ignored_once` emits a one-time WARN so the override is
     auditable.
 
-    Truth table (8 rows):
-      gate=off, url=off, path=sentinel  → SQLite at DEFAULT_DB
-      gate=off, url=off, path=explicit  → SQLite at explicit path
-      gate=off, url=pg,  path=sentinel  → SQLite at DEFAULT_DB (gate-off ignores url)
-      gate=off, url=pg,  path=explicit  → SQLite at explicit path
-      gate=on,  url=off, path=sentinel  → SQLite at DEFAULT_DB (gate requires url)
-      gate=on,  url=off, path=explicit  → SQLite at explicit path
-      gate=on,  url=pg,  path=sentinel  → PostgresConnectionWrapper
-      gate=on,  url=pg,  path=explicit  → PostgresConnectionWrapper (path IGNORED, WARN emitted)
+    Truth table (10 rows):
+      gate=off, url=off, path=sentinel       → SQLite at DEFAULT_DB
+      gate=off, url=off, path=explicit       → SQLite at explicit path
+      gate=off, url=pg,  path=sentinel       → SQLite at DEFAULT_DB (gate-off ignores url)
+      gate=off, url=pg,  path=explicit       → SQLite at explicit path
+      gate=on,  url=off, path=sentinel       → SQLite at DEFAULT_DB (gate requires url)
+      gate=on,  url=off, path=explicit       → SQLite at explicit path
+      gate=on,  url=pg,  path=sentinel       → PostgresConnectionWrapper
+      gate=on,  url=pg,  path=DB_PATH        → PostgresConnectionWrapper (canonical runtime path)
+      gate=on,  url=pg,  path=None           → PostgresConnectionWrapper (None not a fixture)
+      gate=on,  url=pg,  path=fixture-sqlite → SQLite at explicit path (INFO logged, P0 #160 fix)
 
     Why the gate (Phase 3 T3.2 — M2 mitigation):
     Without ARCIS_PG_CUTOVER_ENABLED, merging T3.2 to main would flip
@@ -537,10 +571,13 @@ def connect_db(db_path=_SENTINEL):
     pg_url = database_url.startswith("postgres")
 
     if gate_on and pg_url:
-        if db_path is not _SENTINEL:
+        if _is_explicit_fixture_path(db_path):
+            _info_fixture_path_honored_once(db_path)
+        elif db_path is not _SENTINEL and db_path is not None:
             _warn_db_path_ignored_once(db_path)
-        raw = psycopg2.connect(database_url, cursor_factory=psycopg2.extras.RealDictCursor)
-        return PostgresConnectionWrapper(raw)
+        if not _is_explicit_fixture_path(db_path):
+            raw = psycopg2.connect(database_url, cursor_factory=psycopg2.extras.RealDictCursor)
+            return PostgresConnectionWrapper(raw)
 
     if gate_on and not pg_url:
         _warn_gate_on_no_pg_url_once()
