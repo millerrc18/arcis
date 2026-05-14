@@ -4,6 +4,14 @@
 
 ### Added
 
+- Sprint 6 Wave B T7 (SP-WF-001 through SP-WF-016): SQLite-side migration verified via
+  `validate-schema --fix` against a fresh test DB (`ARCIS_DB_PATH` override, never production).
+  Three T4 columns confirmed materialized: `excess_sharpe_min_used REAL`, `gate_version TEXT DEFAULT 'v1'`,
+  `derived_from_backtest_id TEXT`. Zero drift confirmed on subsequent `validate-schema` (no-fix run, exit 0).
+  All 3 T4 schema tests pass (`test_walkforward_results_has_excess_sharpe_min_used_column`,
+  `test_walkforward_results_has_gate_version_column`, `test_walkforward_results_has_derived_from_backtest_id_column`).
+  Postgres sync via `python scripts/render_migrate.py` is **operator-owned** — to be run manually after merge.
+
 - Sprint 6 Wave B T5 (SP-WF-001/002/006/010): `corpus_id: str | None = None` field added to
   `WalkForwardConfig` (additive, default None preserves backward compat; T8 will wire the runner
   gate). `build_walkforward_windows(anchor, n_windows, is_trading_days, oos_trading_days,
