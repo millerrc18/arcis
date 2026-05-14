@@ -17,8 +17,6 @@ from src.platform.rigor.walkforward_config import (
 )
 from src.platform.rigor.walkforward_firewall import R8ViolationError
 from src.platform.rigor.walkforward_runner import (
-    CorpusBindingError,
-    _gate_corpus_or_raise,
     persist_run_result,
     process_window,
     run_walkforward,
@@ -633,34 +631,42 @@ def test_persist_run_result_no_literal_insert_or_replace_in_source():
 # ---------------------------------------------------------------------------
 
 
-def test_runner_calls_corpus_gate_when_corpus_id_set(tmp_path):
-    """T8 #1: corpus_id='unknown-corpus' → CorpusBindingError (empty corpus_metadata)."""
-    db = tmp_path / "corpus_gate_test.sqlite3"
-    create_all_tables(str(db))
-    # corpus_metadata is not yet in the schema registry — create it as a minimal fixture.
-    conn = sqlite3.connect(str(db))
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS corpus_metadata (corpus_id TEXT PRIMARY KEY)"
-    )
-    conn.commit()
-    conn.close()
+def test_runner_calls_corpus_gate_when_corpus_id_set():
+    """T8 #1: corpus_id set → canonical FS gate (_gate_corpus_fs) is called with
+    (corpus_id, boundaries); RuntimeError from the gate propagates.
+
+    The canonical gate at src.evaluation.walkforward._gate_corpus_or_raise loads
+    data/corpus/<corpus_id>/manifest.json (filesystem-based per cutover-impact.md);
+    we mock it here to assert the runner threads the right args and surfaces
+    the gate's error (RuntimeError) without wrapping or swallowing.
+    """
     cfg = WalkForwardConfig(
         strategy_id="wf_test",
         corpus_id="unknown-corpus",
         windows=[WalkForwardWindow("2017-01-01", "2018-12-31", "2019-01-01", "2020-03-31")],
     )
     spec = _minimal_spec(None)
-    with pytest.raises(CorpusBindingError, match="unknown-corpus"):
-        run_walkforward(
-            strategy_spec_raw=spec,
-            config=cfg,
-            window_trades={0: {"is": [], "oos": []}},
-            db_path=str(db),
-        )
+    with patch(
+        "src.platform.rigor.walkforward_runner._gate_corpus_fs",
+        side_effect=RuntimeError("Corpus unknown-corpus is not admissible: deferred"),
+    ) as mock_gate:
+        with pytest.raises(RuntimeError, match="unknown-corpus"):
+            run_walkforward(
+                strategy_spec_raw=spec,
+                config=cfg,
+                window_trades={0: {"is": [], "oos": []}},
+            )
+        # Verify the runner passed (corpus_id, list-of-boundary-dicts).
+        mock_gate.assert_called_once()
+        call_args = mock_gate.call_args
+        assert call_args.args[0] == "unknown-corpus"
+        boundaries = call_args.args[1]
+        assert isinstance(boundaries, list) and len(boundaries) == 1
+        assert boundaries[0] == {"test_start": "2019-01-01", "test_end": "2020-03-31"}
 
 
 def test_runner_skips_corpus_gate_when_corpus_id_none():
-    """T8 #2: corpus_id=None → _gate_corpus_or_raise is NOT called."""
+    """T8 #2: corpus_id=None → _gate_corpus_fs is NOT called (backward-compat path)."""
     cfg = WalkForwardConfig(
         strategy_id="wf_test",
         corpus_id=None,
@@ -668,7 +674,7 @@ def test_runner_skips_corpus_gate_when_corpus_id_none():
     )
     spec = _minimal_spec(None)
     with patch(
-        "src.platform.rigor.walkforward_runner._gate_corpus_or_raise"
+        "src.platform.rigor.walkforward_runner._gate_corpus_fs"
     ) as mock_gate:
         run_walkforward(
             strategy_spec_raw=spec,
@@ -740,3 +746,71 @@ def test_runner_persists_gate_version_v1_when_excess_sharpe_none(tmp_path):
     conn.close()
     assert row is not None
     assert row[0] == "v1"
+
+
+def test_runner_persists_derived_from_backtest_id_when_passed(tmp_path):
+    """T8 #5 (review fix-up): derived_from_backtest_id kwarg threads through
+    persist_run_result into walkforward_results column. None default keeps
+    NULL; explicit value persists. T13's auto-fire reconciler depends on
+    this column existing to trace walkforward runs back to source backtests.
+    """
+    db = tmp_path / "derived_from_test.sqlite3"
+    create_all_tables(str(db))
+    cfg = WalkForwardConfig(
+        strategy_id="wf_test",
+        windows=[WalkForwardWindow("2017-01-01", "2018-12-31", "2019-01-01", "2020-03-31")],
+    )
+    spec = _minimal_spec(None)
+    trades = _generate_trades("2019-01-01", "2020-03-31", n=20, sharpe_target=0.5)
+    result = run_walkforward(
+        strategy_spec_raw=spec,
+        config=cfg,
+        window_trades={0: {"is": [], "oos": trades}},
+        derived_from_backtest_id="bt_run_abc123",
+    )
+    persist_run_result(
+        result=result,
+        strategy_spec_raw=spec,
+        oos_trades_per_window=[trades],
+        db_path=str(db),
+    )
+    conn = sqlite3.connect(str(db))
+    row = conn.execute(
+        "SELECT derived_from_backtest_id FROM walkforward_results WHERE run_id = ?",
+        (result.run_id,),
+    ).fetchone()
+    conn.close()
+    assert row is not None
+    assert row[0] == "bt_run_abc123"
+
+
+def test_runner_persists_null_derived_from_backtest_id_when_omitted(tmp_path):
+    """T8 #6 (review fix-up): derived_from_backtest_id default (None) → NULL
+    in walkforward_results column for manual invocations (no auto-fire trace)."""
+    db = tmp_path / "derived_from_null_test.sqlite3"
+    create_all_tables(str(db))
+    cfg = WalkForwardConfig(
+        strategy_id="wf_test",
+        windows=[WalkForwardWindow("2017-01-01", "2018-12-31", "2019-01-01", "2020-03-31")],
+    )
+    spec = _minimal_spec(None)
+    trades = _generate_trades("2019-01-01", "2020-03-31", n=20, sharpe_target=0.5)
+    result = run_walkforward(
+        strategy_spec_raw=spec,
+        config=cfg,
+        window_trades={0: {"is": [], "oos": trades}},
+    )
+    persist_run_result(
+        result=result,
+        strategy_spec_raw=spec,
+        oos_trades_per_window=[trades],
+        db_path=str(db),
+    )
+    conn = sqlite3.connect(str(db))
+    row = conn.execute(
+        "SELECT derived_from_backtest_id FROM walkforward_results WHERE run_id = ?",
+        (result.run_id,),
+    ).fetchone()
+    conn.close()
+    assert row is not None
+    assert row[0] is None

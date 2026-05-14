@@ -108,8 +108,8 @@
     },
     {
       "file": "src/platform/rigor/walkforward_runner.py",
-      "lines": 433,
-      "rationale": "Sprint 6 Wave B T8: runner grew from 378 to 433 lines (+55, within scope budget) via corpus binding gate (_gate_corpus_or_raise + CorpusBindingError), VIX coverage validator wiring (validate_vix_tier_coverage call + evidence dict), gate_version/excess_sharpe_min_used persistence, and evidence field on WalkForwardRunResult. File was previously under 400L; Sprint 6 T8 integration tasks collectively pushed it to 433L. Splitting into a sibling runner_persistence.py is a structural refactor out of scope for T8; deferred to post-Sprint-6."
+      "lines": 435,
+      "rationale": "Sprint 6 Wave B T8: runner grew from 378 to 435 lines via VIX coverage validator wiring (validate_vix_tier_coverage call + evidence dict), gate_version/excess_sharpe_min_used persistence, derived_from_backtest_id plumb (review fix), evidence field on WalkForwardRunResult, and SP-WF-010 corpus binding gate (delegates to canonical FS-based src.evaluation.walkforward._gate_corpus_or_raise per cutover-impact.md:24 — corpora are filesystem-based, not DB-backed). Splitting into a sibling runner_persistence.py is a structural refactor out of scope for T8; deferred to post-Sprint-6."
     },
     {
       "file": "src/platform/promotion.py",
@@ -853,7 +853,8 @@
     {
       "file": "src/platform/rigor/walkforward_runner.py",
       "function": "run_walkforward",
-      "lines": 105
+      "lines": 146,
+      "rationale": "Sprint 6 Wave B T8: grew from 105 to 146 lines via SP-WF-010 corpus binding gate delegation, VIX coverage wiring + evidence dict assembly, derived_from_backtest_id kwarg threading. Function is the linear orchestration spine of one walk-forward run (firewall checks, fold iteration, outcome reduction, evidence assembly, persistence handoff). Splitting requires factoring evidence assembly + firewall pre-checks into helpers; out of scope for T8 integration. Refactor candidate post-Sprint-6 alongside the sibling runner_persistence.py split."
     },
     {
       "file": "src/ranking/ranker.py",

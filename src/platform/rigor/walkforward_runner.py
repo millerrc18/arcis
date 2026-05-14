@@ -44,11 +44,12 @@ from typing import Any, Sequence
 
 import numpy as np
 
+from src.evaluation.walkforward import (
+    _gate_corpus_or_raise as _gate_corpus_fs,
+)
 from src.platform.rigor.walkforward_config import (
     WalkForwardConfig,
     WalkForwardWindow,
-    build_walkforward_windows,
-    DEFAULT_WINDOWS,
 )
 from src.platform.rigor.walkforward_costs import apply_per_side_cost_batch
 from src.platform.rigor.walkforward_firewall import (
@@ -86,27 +87,6 @@ from src.platform.rigor.walkforward_purging import (
 logger = logging.getLogger(__name__)
 
 
-class CorpusBindingError(ValueError):
-    """Raised when config.corpus_id is set but no matching corpus_metadata row exists."""
-
-
-def _gate_corpus_or_raise(corpus_id: str, db_path: str) -> None:
-    """Verify a corpus_metadata row matching corpus_id exists; raise CorpusBindingError if not."""
-    conn = connect_db(db_path)
-    try:
-        row = conn.execute(
-            "SELECT 1 FROM corpus_metadata WHERE corpus_id = ? LIMIT 1",
-            (corpus_id,),
-        ).fetchone()
-    finally:
-        conn.close()
-    if row is None:
-        raise CorpusBindingError(
-            f"SP-WF-010: corpus_id '{corpus_id}' not found in corpus_metadata table. "
-            "Ensure the corpus row exists before running walk-forward against it."
-        )
-
-
 @dataclass
 class WalkForwardRunResult:
     """Full in-memory result. Dashboard + promotion gate read this shape
@@ -126,6 +106,7 @@ class WalkForwardRunResult:
     vix_tier_coverage: int
     effective_universe_size: int
     config: WalkForwardConfig
+    derived_from_backtest_id: str | None = None
     evidence: dict = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
@@ -221,7 +202,7 @@ def run_walkforward(
     max_hold_days: int = 21,
     effective_universe_size: int = 0,
     repo_root: str = ".",
-    db_path: str | None = None,
+    derived_from_backtest_id: str | None = None,
 ) -> WalkForwardRunResult:
     """Deterministic walk-forward run.
 
@@ -232,15 +213,31 @@ def run_walkforward(
     in real engine output for production runs.
 
     Raises R8ViolationError on derived_from / overlap violations.
-    Raises CorpusBindingError when config.corpus_id is set but no matching
-    corpus_metadata row exists (SP-WF-010).
+
+    SP-WF-010 corpus binding (when ``config.corpus_id`` is set):
+        Delegates to the canonical filesystem-based gate at
+        ``src.evaluation.walkforward._gate_corpus_or_raise`` which loads
+        ``data/corpus/<corpus_id>/manifest.json``, validates admissibility,
+        and verifies every fold's test window falls within the manifest's
+        walkforward_window. Raises ``RuntimeError`` on failure (per audit
+        cutover-impact.md:24 corpora are filesystem-based; no DB table).
+
+    ``derived_from_backtest_id`` (optional): when set, persists via
+    ``walkforward_results.derived_from_backtest_id`` so T13's auto-fire
+    reconciler can trace a walkforward run back to the backtest_results
+    row that triggered it. None for manual invocations (the default).
     """
     # SP-WF-010: corpus binding gate — BEFORE expensive window iteration.
+    corpus_admissibility: str | None = None
+    corpus_parse_failures: int | None = None
     if config.corpus_id is not None:
-        if db_path is None:
-            from src.config import DB_PATH
-            db_path = DB_PATH
-        _gate_corpus_or_raise(config.corpus_id, db_path)
+        boundaries = [
+            {"test_start": w.test_start, "test_end": w.test_end}
+            for w in config.windows
+        ]
+        corpus_admissibility, corpus_parse_failures = _gate_corpus_fs(
+            config.corpus_id, boundaries,
+        )
 
     # R8(a) + (b) + (d) + runtime heuristic — up front before ANY cycles.
     validate_derived_from(strategy_spec_raw)
@@ -317,6 +314,9 @@ def run_walkforward(
             "passes": vix_cov.passes,
             "missing_tiers": list(vix_cov.missing_tiers),
         },
+        "corpus_id": config.corpus_id,
+        "corpus_admissibility": corpus_admissibility,
+        "corpus_parse_failures": corpus_parse_failures,
     }
     return WalkForwardRunResult(
         run_id=str(uuid.uuid4()),
@@ -335,6 +335,7 @@ def run_walkforward(
         vix_tier_coverage=vix_cov.distinct_tiers,
         effective_universe_size=effective_universe_size,
         config=config,
+        derived_from_backtest_id=derived_from_backtest_id,
         evidence=evidence,
     )
 
@@ -383,6 +384,7 @@ def persist_run_result(
             "vix_tier_coverage": result.vix_tier_coverage,
             "excess_sharpe_min_used": result.config.excess_sharpe_min,
             "gate_version": "v2" if result.config.excess_sharpe_min is not None else "v1",
+            "derived_from_backtest_id": result.derived_from_backtest_id,
             "created_at": _now_iso(),
         }
         engine_aware_upsert(conn, "walkforward_results", results_row, action="replace")

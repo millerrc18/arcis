@@ -5,19 +5,29 @@
 ### Added
 
 - Sprint 6 Wave B T8 (SP-WF-007/SP-WF-010): runner integration wiring T5/T6 outputs into
-  `walkforward_runner.py`. (A) Corpus binding gate: `CorpusBindingError` raised when
-  `config.corpus_id` is set but no matching `corpus_metadata` row exists — enforces SP-WF-010
-  before any fold iteration. Backward-compat: gate is skipped when `corpus_id=None`.
-  `_gate_corpus_or_raise(corpus_id, db_path)` helper queries `corpus_metadata` via `connect_db()`.
-  (B) VIX coverage validator wired: `validate_vix_tier_coverage` called once per run over all
-  pooled OOS trades; result stored in `WalkForwardRunResult.evidence['vix_coverage']`
-  (`distinct_tiers`, `passes`, `missing_tiers`). `vix_tier_coverage` in `walkforward_results`
-  now populated from the structured validator result. (C) Persistence of T4 gate-version columns:
-  `gate_version='v2'` written when `config.excess_sharpe_min is not None` (raw+excess Sharpe
-  gate active); `'v1'` otherwise (raw-Sharpe only, registry default). `excess_sharpe_min_used`
-  populated from `config.excess_sharpe_min`. (D) `run_walkforward` gains `db_path` kwarg for
-  corpus gate resolution; defaults to `src.config.DB_PATH` when None. +4 tests in
-  `tests/platform/rigor/test_walkforward_runner.py`.
+  `walkforward_runner.py`. (A) Corpus binding gate: when `config.corpus_id is not None`,
+  delegates to the canonical filesystem-based gate at
+  `src.evaluation.walkforward._gate_corpus_or_raise(corpus_id, boundaries)` — loads
+  `data/corpus/<corpus_id>/manifest.json`, validates `is_admissible()`, and verifies every
+  fold's test window falls within the manifest's `walkforward_window`. Raises `RuntimeError`
+  on failure (per audit `cutover-impact.md:24` corpora are filesystem-based; no DB table).
+  Bypass path preserved when `corpus_id=None`. Captured `manifest_admissibility` and
+  `parse_failure_count` surface in `WalkForwardRunResult.evidence`. (B) VIX coverage validator
+  wired: `validate_vix_tier_coverage` called once per run over all pooled OOS trades; result
+  stored in `evidence['vix_coverage']` (`distinct_tiers`, `passes`, `missing_tiers`).
+  `vix_tier_coverage` in `walkforward_results` populated from the structured validator result.
+  (C) Persistence of T4 gate-version columns: `gate_version='v2'` written when
+  `config.excess_sharpe_min is not None` (raw+excess Sharpe gate active); `'v1'` otherwise
+  (raw-Sharpe only, registry default). `excess_sharpe_min_used` populated from
+  `config.excess_sharpe_min`. (D) `derived_from_backtest_id: str | None = None` kwarg threads
+  through `run_walkforward` → `WalkForwardRunResult` → `persist_run_result` into the T4 column
+  of the same name (None default for manual invocations; T13 auto-fire reconciler will populate
+  with the source `backtest_results.id`). +6 tests in `tests/platform/rigor/test_walkforward_runner.py`.
+  T8(a) `build_walkforward_windows` runner wiring deferred to a follow-up task: the plan
+  description called for a `window_count`/anchor-driven invocation path; that requires either
+  a new `WalkForwardConfig.window_count` field (T5 module ownership) or a runner-level
+  anchor+count kwarg pair (design call on anchor derivation source). Builder remains
+  callable directly from T5 callers; no orphan imports left in the runner.
 
 - Sprint 6 Wave B T4 (PR #1092): 3 new columns added to `walkforward_results` table in
   `src/schema/registry.py`: `excess_sharpe_min_used REAL` (per-run rf-adjusted Sharpe threshold;
