@@ -79,3 +79,24 @@ def test_query_has_all_three_aliases(table_name):
             f"Query for '{table_name}' is missing alias matching {alias_pattern!r}.\n"
             f"SQL: {sql}"
         )
+
+
+# ── (4) sqlite3.Row regression — P0 follow-up (T1b) ─────────────────────────
+# sqlite3.Row does NOT implement .get() — only dict does. _build_table_stats
+# must normalise via dict(row) before calling .get(), otherwise every Training
+# page load under SQLite raises 12 AttributeErrors + 12 logger.warning emits.
+
+def test_build_table_stats_accepts_sqlite3_row():
+    import sqlite3
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT 5 AS total_records, '2026-05-14' AS latest_collection, 3 AS coverage_count"
+    ).fetchone()
+    assert isinstance(row, sqlite3.Row)
+    result = _build_table_stats(row)
+    assert result == {
+        "total_records": 5,
+        "latest_collection": "2026-05-14",
+        "coverage_count": 3,
+    }
