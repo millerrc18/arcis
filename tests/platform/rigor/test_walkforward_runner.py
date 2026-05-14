@@ -657,12 +657,18 @@ def test_runner_calls_corpus_gate_when_corpus_id_set():
                 window_trades={0: {"is": [], "oos": []}},
             )
         # Verify the runner passed (corpus_id, list-of-boundary-dicts).
+        # Each boundary dict carries fold_idx (required by the canonical gate's
+        # window-coverage diagnostic) plus test_start/test_end.
         mock_gate.assert_called_once()
         call_args = mock_gate.call_args
         assert call_args.args[0] == "unknown-corpus"
         boundaries = call_args.args[1]
         assert isinstance(boundaries, list) and len(boundaries) == 1
-        assert boundaries[0] == {"test_start": "2019-01-01", "test_end": "2020-03-31"}
+        assert boundaries[0] == {
+            "fold_idx": 0,
+            "test_start": "2019-01-01",
+            "test_end": "2020-03-31",
+        }
 
 
 def test_runner_skips_corpus_gate_when_corpus_id_none():

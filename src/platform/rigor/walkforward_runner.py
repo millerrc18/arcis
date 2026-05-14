@@ -231,9 +231,13 @@ def run_walkforward(
     corpus_admissibility: str | None = None
     corpus_parse_failures: int | None = None
     if config.corpus_id is not None:
+        # fold_idx is required by the canonical gate's window-coverage diagnostic
+        # (src/evaluation/walkforward.py: "does not cover fold {b['fold_idx']} ..."):
+        # omitting it would surface KeyError instead of the intended RuntimeError
+        # on the rare corpus-window-coverage-failure path.
         boundaries = [
-            {"test_start": w.test_start, "test_end": w.test_end}
-            for w in config.windows
+            {"fold_idx": i, "test_start": w.test_start, "test_end": w.test_end}
+            for i, w in enumerate(config.windows)
         ]
         corpus_admissibility, corpus_parse_failures = _gate_corpus_fs(
             config.corpus_id, boundaries,
