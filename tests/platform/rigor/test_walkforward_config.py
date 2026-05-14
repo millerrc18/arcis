@@ -1,13 +1,17 @@
 """Tests for WalkForwardConfig + DEFAULT_WINDOWS (R1)."""
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 from src.platform.rigor.walkforward_config import (
     DEFAULT_WINDOWS,
     WalkForwardConfig,
     WalkForwardWindow,
+    build_walkforward_windows,
 )
+from src.scheduler.holidays import subtract_trading_days
 
 
 def test_default_windows_count_is_five():
@@ -110,3 +114,84 @@ def test_config_alpha_power_bounds():
         WalkForwardConfig(strategy_id="x", alpha=1.0)
     with pytest.raises(ValueError):
         WalkForwardConfig(strategy_id="x", power=1.5)
+
+
+# --- T5: window-shift math + corpus gate ---
+
+
+def test_window_builder_generates_no_overlap():
+    """Train/test boundaries must not overlap; consecutive test_end < next train_start.
+
+    Locks in the train_end < test_start invariant for all generated windows
+    and verifies consecutive windows don't bleed into each other.
+    """
+    anchor = date(2024, 9, 30)
+    windows = build_walkforward_windows(anchor, n_windows=5)
+    assert len(windows) == 5
+    for i, (ts, te, ss, se) in enumerate(windows):
+        assert te < ss, (
+            f"window {i}: train_end ({te}) must be strictly before "
+            f"test_start ({ss}) — IS/OOS leakage"
+        )
+    for i in range(len(windows) - 1):
+        _, _, _, se_curr = windows[i]
+        ts_next, _, _, _ = windows[i + 1]
+        assert se_curr < ts_next, (
+            f"consecutive windows {i}/{i+1}: test_end ({se_curr}) must be "
+            f"before next train_start ({ts_next})"
+        )
+
+
+def test_window_builder_uses_canonical_trading_days():
+    """Builder must use subtract_trading_days — no local calendar re-implementation.
+
+    Regression-lock: generate one window anchored at 2024-12-31 (NYE/Christmas
+    region). The test_end must equal the anchor itself (or one step back) and
+    train_end must match subtract_trading_days(anchor, oos_trading_days + embargo).
+    We directly compare train_start against the canonical helper.
+    """
+    anchor = date(2024, 12, 31)
+    embargo = 21
+    oos_td = 315
+    is_td = 504
+    windows = build_walkforward_windows(
+        anchor,
+        n_windows=1,
+        is_trading_days=is_td,
+        oos_trading_days=oos_td,
+        embargo_trading_days=embargo,
+    )
+    assert len(windows) == 1
+    ts, te, ss, se = windows[0]
+    # test_end should be anchor (the most recent date of the window)
+    assert se == anchor, f"test_end {se} should equal anchor {anchor}"
+    # test_start: oos_trading_days before anchor (exclusive, 1-indexed from end)
+    expected_ss = subtract_trading_days(anchor, oos_td - 1)
+    assert ss == expected_ss, (
+        f"test_start {ss} != canonical subtract_trading_days({anchor}, {oos_td - 1}) "
+        f"= {expected_ss}"
+    )
+    # train_end: embargo trading days before test_start
+    expected_te = subtract_trading_days(ss, embargo)
+    assert te == expected_te, (
+        f"train_end {te} != canonical subtract_trading_days(test_start={ss}, {embargo}) "
+        f"= {expected_te}"
+    )
+    # train_start: is_trading_days before train_end
+    expected_ts = subtract_trading_days(te, is_td - 1)
+    assert ts == expected_ts, (
+        f"train_start {ts} != canonical subtract_trading_days(train_end={te}, {is_td - 1}) "
+        f"= {expected_ts}"
+    )
+
+
+def test_config_accepts_corpus_id():
+    """SP-WF-010: corpus_id field accepts a string value without error."""
+    cfg = WalkForwardConfig(strategy_id="x", corpus_id="test-corpus-123")
+    assert cfg.corpus_id == "test-corpus-123"
+
+
+def test_config_corpus_id_none_is_default():
+    """SP-WF-010: corpus_id defaults to None — backward compat preserved."""
+    cfg = WalkForwardConfig(strategy_id="x")
+    assert cfg.corpus_id is None

@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Sequence
 
+from src.scheduler.holidays import subtract_trading_days
+
 
 SHARPE_MIN_PER_WINDOW = 0.3
 MDE_MAX_PER_WINDOW = 0.3
@@ -122,6 +124,11 @@ class WalkForwardConfig:
     # None = use raw Sharpe threshold only (no behavior change for existing callers).
     # When set, compute_window_metrics checks excess Sharpe (rf-adjusted) >= this min.
     excess_sharpe_min: float | None = None
+    # SP-WF-010: when set, T8's runner gates the run by requiring a
+    # corpus_metadata row matching this id exists before proceeding; when None
+    # the gate is bypassed (backward-compat path, no behavior change for
+    # existing callers).
+    corpus_id: str | None = None
     # R8 defense-in-depth: forced False at the config layer. Runner asserts.
     bootcamp_override: bool = False
 
@@ -168,6 +175,7 @@ class WalkForwardConfig:
             "min_vix_tiers": self.min_vix_tiers,
             "min_window_duration_days": self.min_window_duration_days,
             "excess_sharpe_min": self.excess_sharpe_min,
+            "corpus_id": self.corpus_id,
             "bootcamp_override": self.bootcamp_override,
             "windows": [
                 {
@@ -177,3 +185,45 @@ class WalkForwardConfig:
                 for w in self.windows
             ],
         }
+
+
+def build_walkforward_windows(
+    anchor: date,
+    n_windows: int = 5,
+    is_trading_days: int = 504,
+    oos_trading_days: int = 315,
+    embargo_trading_days: int = 21,
+) -> list[tuple[date, date, date, date]]:
+    """Generate (train_start, train_end, test_start, test_end) tuples
+    matching DEFAULT_WINDOWS shape, with all arithmetic via subtract_trading_days.
+
+    Builds n_windows non-overlapping IS/OOS pairs going backward from anchor.
+    The most-recent window's test_end equals anchor; each prior window's
+    test_end is set to one trading day before the next window's train_start.
+    All boundary arithmetic uses subtract_trading_days from
+    src.scheduler.holidays to honor NYSE holidays without calendar-day
+    approximation.
+
+    The train_end < test_start invariant (no IS/OOS leakage) is enforced by
+    the embargo_trading_days gap separating train_end from test_start.
+
+    Args:
+        anchor: end date of the most-recent OOS window (inclusive).
+        n_windows: number of IS/OOS pairs to generate.
+        is_trading_days: length of each in-sample region in trading days (~2yr).
+        oos_trading_days: length of each out-of-sample region in trading days (~15mo).
+        embargo_trading_days: trading-day gap between train_end and test_start.
+
+    Returns:
+        List of (train_start, train_end, test_start, test_end) date tuples,
+        ordered oldest-first (chronological).
+    """
+    raw: list[tuple[date, date, date, date]] = []
+    current_test_end = anchor
+    for _ in range(n_windows):
+        test_start = subtract_trading_days(current_test_end, oos_trading_days - 1)
+        train_end = subtract_trading_days(test_start, embargo_trading_days)
+        train_start = subtract_trading_days(train_end, is_trading_days - 1)
+        raw.append((train_start, train_end, test_start, current_test_end))
+        current_test_end = subtract_trading_days(train_start, 1)
+    return list(reversed(raw))
