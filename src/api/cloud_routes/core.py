@@ -146,7 +146,7 @@ def create_router(runtime, verify_auth):
         try:
             open_trades = runtime.query(
                 "SELECT COUNT(*) as count FROM shadow_trades WHERE status = 'open'"
-                " AND source = 'live'"
+                " AND desk = 'swing'"
                 " AND COALESCE(quarantined, 0) = 0"
             )
             closed_trades = runtime.query(
@@ -187,7 +187,7 @@ def create_router(runtime, verify_auth):
                 "alpaca_equity": 0,
                 "timestamp": datetime.now(runtime.et).isoformat(),
                 "_meta": {
-                    "open_positions": meta_entry("trades.live_only", open_positions_count),
+                    "open_positions": meta_entry("none", open_positions_count, label="Swing desk open trades"),
                     "version": meta_entry("none", 0),
                 },
             }
