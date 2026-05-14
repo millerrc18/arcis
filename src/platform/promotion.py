@@ -442,18 +442,32 @@ def _evaluate_shadow_trading_gate(
 
     Sprint 2 T2: methodology gate AND-composed at ALL return sites.
     """
+    _wf_enabled = os.environ.get(
+        "WALKFORWARD_GATE_ENABLED", "true",
+    ).lower() in ("true", "1", "yes")
+
     passes_dsr, evidence = _evaluate_dsr_evidence(strategy_id, db_path)
     if "error" in evidence:
+        evidence["walkforward_gate_enabled"] = _wf_enabled
         mg_passes, mg_evidence = _evaluate_strategy_methodology_gate(
             strategy_id, db_path,
         )
         evidence["methodology_gate"] = mg_evidence
         return False, evidence  # gate already False; mg_evidence attached above for visibility
 
+    if not _wf_enabled:
+        evidence["walkforward_gate_enabled"] = _wf_enabled
+        mg_passes, mg_evidence = _evaluate_strategy_methodology_gate(
+            strategy_id, db_path,
+        )
+        evidence["methodology_gate"] = mg_evidence
+        return passes_dsr and mg_passes, evidence
+
     # Walk-forward v1 three-state outcome takes precedence when available.
     wf_pass, evidence = _evaluate_walkforward_gate(
         strategy_id, db_path, evidence,
     )
+    evidence["walkforward_gate_enabled"] = _wf_enabled
     if wf_pass is False:
         # INCONCLUSIVE or FAIL — never collapse. Evidence already carries
         # walkforward_outcome_state + walkforward_reason fields.

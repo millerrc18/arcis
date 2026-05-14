@@ -16,6 +16,15 @@
   `tests/api/test_walkforward_route.py` (3 tests for gate_version + excess_sharpe_min_used
   payload inclusion). T8 wired persistence; this task is the read-path + CLI entry-point.
 
+- Sprint 6 Wave B T9 (SP-WF-009): promotion-gate sentinel guard in `_evaluate_shadow_trading_gate`
+  in `src/platform/promotion.py`. When `WALKFORWARD_GATE_ENABLED` resolves false, orchestrator
+  short-circuits to 2-gate AND-composition (DSR AND methodology only), skipping `_evaluate_walkforward_gate`
+  entirely. When enabled (default), full 3-gate composition (DSR AND walkforward AND methodology).
+  Evidence dict carries `walkforward_gate_enabled: bool` in all code paths (error, disabled, enabled)
+  so audit trail can surface "WF gate DISABLED during this run". +3 tests in
+  `tests/platform/test_promotion.py` (wf_disabled_skips_wf, wf_enabled_calls_wf,
+  evidence_carries_gate_enabled_flag). This task lands before T14 (production-gate symmetry, Wave 5).
+
 - Sprint 6 Wave B T8 (SP-WF-007/SP-WF-010): runner integration wiring T5/T6 outputs into
   `walkforward_runner.py`. (A) Corpus binding gate: when `config.corpus_id is not None`,
   delegates to the canonical filesystem-based gate at
