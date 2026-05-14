@@ -124,10 +124,11 @@ class WalkForwardConfig:
     # None = use raw Sharpe threshold only (no behavior change for existing callers).
     # When set, compute_window_metrics checks excess Sharpe (rf-adjusted) >= this min.
     excess_sharpe_min: float | None = None
-    # SP-WF-010: when set, T8's runner gates the run by requiring a
-    # corpus_metadata row matching this id exists before proceeding; when None
-    # the gate is bypassed (backward-compat path, no behavior change for
-    # existing callers).
+    # SP-WF-010: when set, T8's runner delegates to the canonical filesystem
+    # gate at src.evaluation.walkforward._gate_corpus_or_raise — which loads
+    # data/corpus/<corpus_id>/manifest.json and verifies admissibility +
+    # window coverage. When None, the gate is bypassed (backward-compat path,
+    # no behavior change for existing callers).
     corpus_id: str | None = None
     # R8 defense-in-depth: forced False at the config layer. Runner asserts.
     bootcamp_override: bool = False

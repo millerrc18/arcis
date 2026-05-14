@@ -4,6 +4,48 @@
 
 ### Added
 
+- Sprint 6 Wave B T8 (SP-WF-007/SP-WF-010): runner integration wiring T5/T6 outputs into
+  `walkforward_runner.py`. (A) Corpus binding gate: when `config.corpus_id is not None`,
+  delegates to the canonical filesystem-based gate at
+  `src.evaluation.walkforward._gate_corpus_or_raise(corpus_id, boundaries)` — loads
+  `data/corpus/<corpus_id>/manifest.json`, validates `is_admissible()`, and verifies every
+  fold's test window falls within the manifest's `walkforward_window`. Raises `RuntimeError`
+  on failure (per audit `cutover-impact.md:24` corpora are filesystem-based; no DB table).
+  Bypass path preserved when `corpus_id=None`. Captured `manifest_admissibility` and
+  `parse_failure_count` surface in `WalkForwardRunResult.evidence`. (B) VIX coverage validator
+  wired: `validate_vix_tier_coverage` called once per run over all pooled OOS trades; result
+  stored in `evidence['vix_coverage']` (`distinct_tiers`, `passes`, `missing_tiers`).
+  `vix_tier_coverage` in `walkforward_results` populated from the structured validator result.
+  (C) Persistence of T4 gate-version columns: `gate_version='v2'` written when
+  `config.excess_sharpe_min is not None` (raw+excess Sharpe gate active); `'v1'` otherwise
+  (raw-Sharpe only, registry default). `excess_sharpe_min_used` populated from
+  `config.excess_sharpe_min`. (D) `derived_from_backtest_id: str | None = None` kwarg threads
+  through `run_walkforward` → `WalkForwardRunResult` → `persist_run_result` into the T4 column
+  of the same name (None default for manual invocations; T13 auto-fire reconciler will populate
+  with the source `backtest_results.id`). +6 tests in `tests/platform/rigor/test_walkforward_runner.py`.
+  T8(a) `build_walkforward_windows` runner wiring deferred to a follow-up task: the plan
+  description called for a `window_count`/anchor-driven invocation path; that requires either
+  a new `WalkForwardConfig.window_count` field (T5 module ownership) or a runner-level
+  anchor+count kwarg pair (design call on anchor derivation source). Builder remains
+  callable directly from T5 callers; no orphan imports left in the runner.
+
+- Sprint 6 Wave B T4 (PR #1092): 3 new columns added to `walkforward_results` table in
+  `src/schema/registry.py`: `excess_sharpe_min_used REAL` (per-run rf-adjusted Sharpe threshold;
+  null if raw-Sharpe gate only), `gate_version TEXT DEFAULT 'v1'` (framework version string —
+  'v1' = raw-Sharpe gate only; 'v2' = raw+excess Sharpe gates active), `derived_from_backtest_id
+  TEXT` (backtest_results.id that auto-fire used to spawn the run; null for manual invocations).
+  All nullable/defaulted (additive, backward-compat). +3 schema tests.
+
+- Sprint 6 Wave B T2 (PR #1089): `src/evaluation/walkforward.py` refactored to use canonical
+  `subtract_trading_days` from `src/scheduler/holidays.py`; local `_subtract_trading_days`
+  helper deleted. Behavior-preserving at the call site (anchor is pre-normalized via
+  `_next_trading_day`).
+
+- Sprint 6 Wave B T1 (PR #1090): `WALKFORWARD_GATE_ENABLED` env-flag sentinel added to
+  `_evaluate_walkforward_gate` in `src/platform/promotion.py`. Default `'true'` (enabled,
+  blocking). Recognized values: `'true'`, `'1'`, `'yes'` (case-insensitive) — any other value
+  disables the gate (fail-safe semantics; documented in PR #1090 docstring fix-up).
+
 - Sprint 6 Wave B T7 (SP-WF-001 through SP-WF-016): SQLite-side migration verified via
   `validate-schema --fix` against a fresh test DB (`ARCIS_DB_PATH` override, never production).
   Three T4 columns confirmed materialized: `excess_sharpe_min_used REAL`, `gate_version TEXT DEFAULT 'v1'`,

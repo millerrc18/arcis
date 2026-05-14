@@ -44,7 +44,13 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from src.platform.rigor.walkforward_config import WalkForwardConfig, WalkForwardWindow
+from src.evaluation.walkforward import (
+    _gate_corpus_or_raise as _gate_corpus_fs,
+)
+from src.platform.rigor.walkforward_config import (
+    WalkForwardConfig,
+    WalkForwardWindow,
+)
 from src.platform.rigor.walkforward_costs import apply_per_side_cost_batch
 from src.platform.rigor.walkforward_firewall import (
     Window as FirewallWindow,
@@ -68,8 +74,10 @@ from src.platform.rigor.walkforward_outcome import (
 )
 from src.platform.rigor.walkforward_power import (
     PowerResult,
+    VixCoverageResult,
     count_power_states,
     evaluate_window_power,
+    validate_vix_tier_coverage,
 )
 from src.platform.rigor.walkforward_purging import (
     embargo_oos_trades,
@@ -98,6 +106,12 @@ class WalkForwardRunResult:
     vix_tier_coverage: int
     effective_universe_size: int
     config: WalkForwardConfig
+    derived_from_backtest_id: str | None = None
+    evidence: dict = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.evidence is None:
+            self.evidence = {}
 
 
 def _git_sha(repo_root: str = ".") -> str | None:
@@ -188,6 +202,7 @@ def run_walkforward(
     max_hold_days: int = 21,
     effective_universe_size: int = 0,
     repo_root: str = ".",
+    derived_from_backtest_id: str | None = None,
 ) -> WalkForwardRunResult:
     """Deterministic walk-forward run.
 
@@ -198,7 +213,36 @@ def run_walkforward(
     in real engine output for production runs.
 
     Raises R8ViolationError on derived_from / overlap violations.
+
+    SP-WF-010 corpus binding (when ``config.corpus_id`` is set):
+        Delegates to the canonical filesystem-based gate at
+        ``src.evaluation.walkforward._gate_corpus_or_raise`` which loads
+        ``data/corpus/<corpus_id>/manifest.json``, validates admissibility,
+        and verifies every fold's test window falls within the manifest's
+        walkforward_window. Raises ``RuntimeError`` on failure (per audit
+        cutover-impact.md:24 corpora are filesystem-based; no DB table).
+
+    ``derived_from_backtest_id`` (optional): when set, persists via
+    ``walkforward_results.derived_from_backtest_id`` so T13's auto-fire
+    reconciler can trace a walkforward run back to the backtest_results
+    row that triggered it. None for manual invocations (the default).
     """
+    # SP-WF-010: corpus binding gate — BEFORE expensive window iteration.
+    corpus_admissibility: str | None = None
+    corpus_parse_failures: int | None = None
+    if config.corpus_id is not None:
+        # fold_idx is required by the canonical gate's window-coverage diagnostic
+        # (src/evaluation/walkforward.py: "does not cover fold {b['fold_idx']} ..."):
+        # omitting it would surface KeyError instead of the intended RuntimeError
+        # on the rare corpus-window-coverage-failure path.
+        boundaries = [
+            {"fold_idx": i, "test_start": w.test_start, "test_end": w.test_end}
+            for i, w in enumerate(config.windows)
+        ]
+        corpus_admissibility, corpus_parse_failures = _gate_corpus_fs(
+            config.corpus_id, boundaries,
+        )
+
     # R8(a) + (b) + (d) + runtime heuristic — up front before ANY cycles.
     validate_derived_from(strategy_spec_raw)
     firewall_windows = [
@@ -255,6 +299,8 @@ def run_walkforward(
     else:
         pooled_mde = float("inf")
     distinct_tiers = distinct_tier_count(window_metrics)
+    all_oos_trades = sum(oos_trades_per_window, [])
+    vix_cov = validate_vix_tier_coverage(all_oos_trades, min_tiers=config.min_vix_tiers)
     outcome = reduce_outcome(
         window_states=window_states,
         max_drawdowns=max_drawdowns,
@@ -266,6 +312,16 @@ def run_walkforward(
         windows_passing_criterion_2=4,
         inconclusive_window_threshold=2,
     )
+    evidence = {
+        "vix_coverage": {
+            "distinct_tiers": vix_cov.distinct_tiers,
+            "passes": vix_cov.passes,
+            "missing_tiers": list(vix_cov.missing_tiers),
+        },
+        "corpus_id": config.corpus_id,
+        "corpus_admissibility": corpus_admissibility,
+        "corpus_parse_failures": corpus_parse_failures,
+    }
     return WalkForwardRunResult(
         run_id=str(uuid.uuid4()),
         strategy_id=config.strategy_id,
@@ -280,9 +336,11 @@ def run_walkforward(
         window_metrics=window_metrics,
         window_power=window_power,
         window_states=window_states,
-        vix_tier_coverage=distinct_tiers,
+        vix_tier_coverage=vix_cov.distinct_tiers,
         effective_universe_size=effective_universe_size,
         config=config,
+        derived_from_backtest_id=derived_from_backtest_id,
+        evidence=evidence,
     )
 
 
@@ -328,6 +386,9 @@ def persist_run_result(
             "effective_universe_size": result.effective_universe_size,
             "max_drawdown_pct": overall_max_dd,
             "vix_tier_coverage": result.vix_tier_coverage,
+            "excess_sharpe_min_used": result.config.excess_sharpe_min,
+            "gate_version": "v2" if result.config.excess_sharpe_min is not None else "v1",
+            "derived_from_backtest_id": result.derived_from_backtest_id,
             "created_at": _now_iso(),
         }
         engine_aware_upsert(conn, "walkforward_results", results_row, action="replace")
