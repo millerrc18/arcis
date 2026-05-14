@@ -237,3 +237,34 @@ describe('Layout — T17 queryFn arrow-wrap (E1.A)', () => {
     expect(statusQueryFn).not.toBe(api.getStatus)
   })
 })
+
+describe('Layout StatusBar — T8 positions from status.open_positions', () => {
+  it('renders 28 POSITIONS in StatusBar when status.open_positions is 28', () => {
+    useQuery.mockImplementation(({ queryKey }) => {
+      if (queryKey[0] === 'status') {
+        return {
+          data: buildStatusData({
+            open_positions: 28,
+            _meta: {
+              open_positions: { label: 'All open trades', cohort: 'trades.all', n: 28 },
+            },
+          }),
+          isPending: false,
+          isError: false,
+        }
+      }
+      if (queryKey[0] === 'kpis') {
+        return {
+          data: { stage_traffic_light: { decision_matrix_state: 'GREEN' } },
+          isPending: false,
+          isError: false,
+        }
+      }
+      return { data: undefined, isPending: false, isError: false }
+    })
+
+    renderLayout()
+    const posEl = screen.getByText((content) => content.includes('POSITIONS'))
+    expect(posEl.textContent).toContain('28')
+  })
+})

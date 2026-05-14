@@ -1,6 +1,7 @@
 /**
- * TradeHistory page tests — T12 A4 meta consumption.
+ * TradeHistory page tests — T12 A4 meta consumption + T8 undefined wins/losses fix.
  * Sprint 3 / T12 — cohort badge renders from attribution._meta.
+ * Sprint 6 / T8 — no 'undefinedW / undefinedL' when wins/losses are undefined.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render } from '@testing-library/react'
@@ -98,5 +99,48 @@ describe('TradeHistory — T12 A4 meta badge', () => {
     const { container } = wrap(<TradeHistory />)
     const badge = container.querySelector('[data-testid="attribution-meta-badge"]')
     expect(badge).toBeNull()
+  })
+})
+
+// Closed data where all trades have pnl_dollars=null (open/unrealized) — triggers the
+// wins/losses undefined bug because metrics([]) returns {count:0, wr:0, ...} without wins/losses
+const _openOnlyClosedData = {
+  trades: [
+    {
+      trade_id: 3,
+      ticker: 'GOOG',
+      pnl_dollars: null,
+      pnl_pct: null,
+      actual_exit_time: null,
+      duration_days: 1,
+      exit_reason: null,
+    },
+  ],
+}
+
+describe('TradeHistory — T8 undefined wins/losses fix', () => {
+  it('never renders the literal string "undefined" in the DOM when all trades are open', () => {
+    useQuery.mockImplementation((opts) => {
+      const key = opts.queryKey?.[0]
+      if (key === 'trade-history-closed') return { data: _openOnlyClosedData, isLoading: false }
+      if (key === 'sharpe-attribution') return { data: undefined, isLoading: false }
+      return { data: undefined, isLoading: false }
+    })
+
+    const { container } = wrap(<TradeHistory />)
+    expect(container.textContent).not.toContain('undefined')
+  })
+
+  it('shows numeric W/L subtitle in all-time stats (not undefinedW / undefinedL)', () => {
+    useQuery.mockImplementation((opts) => {
+      const key = opts.queryKey?.[0]
+      if (key === 'trade-history-closed') return { data: _closedData, isLoading: false }
+      if (key === 'sharpe-attribution') return { data: undefined, isLoading: false }
+      return { data: undefined, isLoading: false }
+    })
+
+    const { container } = wrap(<TradeHistory />)
+    // _closedData has 1 win (AAPL +120.5) and 1 loss (MSFT -45), so subtitle should be "1W / 1L"
+    expect(container.textContent).toContain('1W / 1L')
   })
 })
