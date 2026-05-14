@@ -23,6 +23,8 @@ dimension computation functions are defined at module level (not inside
 create_router) so they can be unit-tested independently.
 """
 
+import time
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from src.shadow_trading.exit_reason import (
@@ -31,6 +33,9 @@ from src.shadow_trading.exit_reason import (
 )
 from src.evaluation.statistics import calmar_ratio as _canonical_calmar
 from src.api.cohort_meta import meta_entry
+
+_CTO_CACHE_TTL_SECONDS = 300
+_cto_cache: dict = {}
 
 
 PERFORMANCE_WEIGHT = 0.10
@@ -416,6 +421,11 @@ def create_router(runtime, verify_auth):
 
     @router.get("/api/cto-report", dependencies=[Depends(verify_auth)])
     def cto_report(days: int = 7):
+        cached = _cto_cache.get(days)
+        if cached is not None:
+            ts, result = cached
+            if time.time() - ts < _CTO_CACHE_TTL_SECONDS:
+                return result
         try:
             from datetime import datetime, timedelta
 
@@ -633,7 +643,7 @@ def create_router(runtime, verify_auth):
 
             _n_closed = len(closed_recent_for_stats)
             _cto_section_meta = meta_entry("trades.all_closed", _n_closed)
-            return {
+            result = {
                 "report_period": {
                     "start": cutoff[:10],
                     "end": datetime.now(runtime.et).strftime("%Y-%m-%d"),
@@ -662,6 +672,8 @@ def create_router(runtime, verify_auth):
                     "fund_metrics": _cto_section_meta,
                 },
             }
+            _cto_cache[days] = (time.time(), result)
+            return result
         except Exception as exc:
             runtime.logger.error("[API] cto_report failed: %s", exc, exc_info=True)
             return {"error": str(exc)}
