@@ -20,6 +20,94 @@ hardcoding DATABASE_URL themselves.
 """
 
 import os
+
+
+# ---------------------------------------------------------------------------
+# P0 GUARD — must run BEFORE any test module is imported
+# ---------------------------------------------------------------------------
+#
+# Incident 2026-05-14 08:37 ET: all 76 tables in the operator's local Docker
+# halcyon PG database were dropped.  Root cause: 24 test files use the broken
+# fallback pattern
+#
+#     TEST_PG_URL = os.environ.get("TEST_DATABASE_URL") or os.environ.get("DATABASE_URL", "")
+#
+# When pytest is run in the operator's shell, src/config/__init__.py loads
+# .env at import time (transitive `import src.*`).  .env injects
+# DATABASE_URL=postgresql://halcyon_app:...@localhost:5433/halcyon (the
+# production PG).  Because TEST_DATABASE_URL is not set in the operator's
+# .env, the fallback resolves to the production PG URL, and those fixtures
+# execute DROP TABLE ... CASCADE against production.
+#
+# This hook fires at pytest_configure time — the EARLIEST possible hook,
+# before any test module is collected or imported.
+#
+# To proceed legitimately when DATABASE_URL points at production PG, either:
+#   1. Set TEST_DATABASE_URL to a safe test PG (e.g. halcyon-pg-test on 5434)
+#   2. Set ARCIS_ALLOW_PROD_PG_IN_TESTS=1  (escape hatch for intentional use)
+#   3. Unset DATABASE_URL before running pytest
+
+
+def pytest_configure(config):
+    """P0 GUARD: refuse pytest if DATABASE_URL points at prod PG and TEST_DATABASE_URL is unset.
+
+    Runs at the earliest pytest hook, before any test module is imported.
+    Calls pytest.exit(returncode=2) with a loud explanatory message if the
+    operator's environment would cause test fixtures to DROP TABLE against
+    the production Postgres database.
+    """
+    import pytest as _pytest
+
+    db_url = os.environ.get("DATABASE_URL", "")
+    test_db_url = os.environ.get("TEST_DATABASE_URL", "")
+    allow_override = os.environ.get("ARCIS_ALLOW_PROD_PG_IN_TESTS", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+    _PROD_SIGNATURES = ("localhost:5433", "127.0.0.1:5433", "halcyon_app:")
+    is_prod = any(sig in db_url for sig in _PROD_SIGNATURES)
+
+    if is_prod and not test_db_url and not allow_override:
+        _pytest.exit(
+            "\n"
+            "=" * 70 + "\n"
+            "  P0 GUARD: REFUSING PYTEST — DATABASE_URL POINTS AT PRODUCTION PG\n"
+            "=" * 70 + "\n"
+            "\n"
+            "  DANGER: DATABASE_URL in your environment resolves to the operator's\n"
+            "  production Postgres database (detected signatures: localhost:5433,\n"
+            "  127.0.0.1:5433, or halcyon_app: in the URL).  24 test files use the\n"
+            "  broken fallback pattern:\n"
+            "\n"
+            "      TEST_PG_URL = os.environ.get('TEST_DATABASE_URL') or \\\n"
+            "                    os.environ.get('DATABASE_URL', '')\n"
+            "\n"
+            "  If pytest were allowed to proceed, fixtures in those files would\n"
+            "  execute  DROP TABLE IF EXISTS ... CASCADE  against production,\n"
+            "  wiping all data.  This happened on 2026-05-14 (P0 incident #158).\n"
+            "\n"
+            "  HOW TO FIX — pick ONE of the following:\n"
+            "\n"
+            "  1. Point tests at the TEST Postgres (recommended):\n"
+            "         set TEST_DATABASE_URL=postgresql://test:test@127.0.0.1:5434/halcyon\n"
+            "     The operator's halcyon-pg-test container runs on port 5434.\n"
+            "\n"
+            "  2. Unset DATABASE_URL before running pytest:\n"
+            "         set DATABASE_URL=\n"
+            "         python -m pytest ...\n"
+            "\n"
+            "  3. Explicitly opt in (ONLY if you truly know what you are doing):\n"
+            "         set ARCIS_ALLOW_PROD_PG_IN_TESTS=1\n"
+            "         python -m pytest ...\n"
+            "\n"
+            "  Current DATABASE_URL (redacted after @): "
+            + (db_url.split("@")[0] + "@..." if "@" in db_url else db_url)
+            + "\n"
+            "=" * 70 + "\n",
+            returncode=2,
+        )
 import shutil
 import sqlite3
 import subprocess
