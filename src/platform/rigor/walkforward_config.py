@@ -175,6 +175,7 @@ class WalkForwardConfig:
             "min_vix_tiers": self.min_vix_tiers,
             "min_window_duration_days": self.min_window_duration_days,
             "excess_sharpe_min": self.excess_sharpe_min,
+            "corpus_id": self.corpus_id,
             "bootcamp_override": self.bootcamp_override,
             "windows": [
                 {
