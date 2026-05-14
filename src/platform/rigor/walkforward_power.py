@@ -34,7 +34,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from datetime import date
-from typing import Sequence
+from typing import Any, Iterable, Sequence
 
 import numpy as np
 from scipy import stats
@@ -42,6 +42,7 @@ from scipy import stats
 from src.platform.rigor.walkforward_metrics import (
     ANNUALIZATION_FACTOR,
     WindowMetrics,
+    vix_tier_of,
 )
 from src.platform.rigor.walkforward_outcome import (
     WINDOW_FAIL,
@@ -202,3 +203,46 @@ def count_power_states(
         else:
             states[pr.window_index] = WINDOW_FAIL
     return states
+
+
+_ALL_TIERS = frozenset({"low", "medium", "high"})
+
+
+@dataclass(frozen=True)
+class VixCoverageResult:
+    distinct_tiers: int
+    passes: bool
+    missing_tiers: tuple[str, ...]
+
+
+def validate_vix_tier_coverage(
+    trades: Iterable[Any],
+    min_tiers: int = 2,
+) -> VixCoverageResult:
+    """Pass/fail wrapper around the existing tier-presence semantics in
+    walkforward_metrics.distinct_tier_count. Adds structured failure
+    evidence (missing_tiers) for walkforward_results.vix_tier_coverage
+    persistence.
+
+    The existing distinct_tier_count is NOT replaced — this is a wrapper
+    layer only. Read trades' VIX values via the same vix_tier_of helper
+    from walkforward_metrics (LOW < 15.0, MEDIUM < 25.0, HIGH >= 25.0).
+
+    Note: `trades` is iterated once. If the caller needs both
+    `validate_vix_tier_coverage` and `distinct_tier_count` on the same trade
+    collection, materialize to a list first (e.g. `trades = list(trades)`).
+    """
+    seen: set[str] = set()
+    for t in trades:
+        vix = getattr(t, "vix_at_entry", None)
+        if vix is None and isinstance(t, dict):
+            vix = t.get("vix_at_entry")
+        tier = vix_tier_of(vix)
+        if tier is not None:
+            seen.add(tier)
+    missing = tuple(sorted(_ALL_TIERS - seen))
+    return VixCoverageResult(
+        distinct_tiers=len(seen),
+        passes=len(seen) >= min_tiers,
+        missing_tiers=missing,
+    )

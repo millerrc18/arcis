@@ -11,11 +11,13 @@ from src.platform.rigor.walkforward_metrics import (
 )
 from src.platform.rigor.walkforward_power import (
     PowerResult,
+    VixCoverageResult,
     compute_mde,
     count_power_states,
     effective_n,
     evaluate_window_power,
     newey_west_deflator,
+    validate_vix_tier_coverage,
 )
 
 
@@ -223,3 +225,53 @@ def test_state_insufficient_data_is_inconclusive_data():
     pr = evaluate_window_power(fake, max_hold_days=21, pnls=pnls)
     states = count_power_states([pr], min_trades_per_window=10, n_trades_per_window=[5])
     assert states[0] == "INCONCLUSIVE_DATA"
+
+
+# ---------------------------------------------------------------------------
+# VIX coverage validator tests (T6, Sprint 6 Wave B)
+# ---------------------------------------------------------------------------
+
+def _trade(vix):
+    """Minimal trade-like dict with a vix_at_entry value."""
+    return {"pnl_pct": 0.01, "vix_at_entry": vix}
+
+
+def test_vix_coverage_all_tiers():
+    """All three VIX tiers represented → passes=True, missing_tiers=()."""
+    trades = [_trade(12.0), _trade(20.0), _trade(30.0)]
+    result = validate_vix_tier_coverage(trades, min_tiers=2)
+    assert result.distinct_tiers == 3
+    assert result.passes is True
+    assert result.missing_tiers == ()
+
+
+def test_vix_coverage_missing_high():
+    """Low + medium only (VIX 12.0 and 20.0) — tests both min_tiers=2 and 3."""
+    trades = [_trade(12.0), _trade(20.0)]
+
+    result2 = validate_vix_tier_coverage(trades, min_tiers=2)
+    assert result2.passes is True
+    assert result2.distinct_tiers == 2
+    assert result2.missing_tiers == ("high",)
+
+    result3 = validate_vix_tier_coverage(trades, min_tiers=3)
+    assert result3.passes is False
+    assert result3.distinct_tiers == 2
+    assert result3.missing_tiers == ("high",)
+
+
+def test_vix_coverage_single_tier_fails():
+    """Only low tier (VIX 12.0) — min_tiers=2 → fails, high and medium missing."""
+    trades = [_trade(12.0), _trade(14.9)]
+    result = validate_vix_tier_coverage(trades, min_tiers=2)
+    assert result.passes is False
+    assert result.distinct_tiers == 1
+    assert result.missing_tiers == ("high", "medium")
+
+
+def test_vix_coverage_empty_trades_fails():
+    """Empty input, min_tiers=1 → passes=False, distinct_tiers=0, all tiers missing."""
+    result = validate_vix_tier_coverage([], min_tiers=1)
+    assert result.passes is False
+    assert result.distinct_tiers == 0
+    assert result.missing_tiers == ("high", "low", "medium")
