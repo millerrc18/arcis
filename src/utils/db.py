@@ -520,7 +520,7 @@ class PostgresConnectionWrapper:
         return False
 
 
-def connect_db(db_path=_SENTINEL):
+def connect_db(db_path=_SENTINEL, *, force_sqlite: bool = False):
     """Return a database connection.
 
     Precedence — Phase 3-revised (spec-revised-one-db.md §2.1 truth table):
@@ -531,17 +531,27 @@ def connect_db(db_path=_SENTINEL):
     `_warn_db_path_ignored_once` emits a one-time WARN so the override is
     auditable.
 
-    Truth table (10 rows):
-      gate=off, url=off, path=sentinel       → SQLite at DEFAULT_DB
-      gate=off, url=off, path=explicit       → SQLite at explicit path
-      gate=off, url=pg,  path=sentinel       → SQLite at DEFAULT_DB (gate-off ignores url)
-      gate=off, url=pg,  path=explicit       → SQLite at explicit path
-      gate=on,  url=off, path=sentinel       → SQLite at DEFAULT_DB (gate requires url)
-      gate=on,  url=off, path=explicit       → SQLite at explicit path
-      gate=on,  url=pg,  path=sentinel       → PostgresConnectionWrapper
-      gate=on,  url=pg,  path=DB_PATH        → PostgresConnectionWrapper (canonical runtime path)
-      gate=on,  url=pg,  path=None           → PostgresConnectionWrapper (None not a fixture)
-      gate=on,  url=pg,  path=fixture-sqlite → SQLite at explicit path (INFO logged, P0 #160 fix)
+    Args:
+        db_path: Either `_SENTINEL` (use `DEFAULT_DB`), a path string, or `None`.
+        force_sqlite: When True, always return a SQLite connection regardless of
+            gate or DATABASE_URL state. Use this in test fixtures that need a
+            guaranteed-SQLite connection — cleaner and more explicit than relying
+            on the `_is_explicit_fixture_path` heuristic. The heuristic remains
+            as a safety net for legacy fixtures that don't pass this kwarg
+            (defense-in-depth). Production callers should never set this True.
+
+    Truth table (11 rows; the `force_sqlite=True` row is the explicit caller path):
+      gate=off, url=off, path=sentinel,       fs=False  → SQLite at DEFAULT_DB
+      gate=off, url=off, path=explicit,       fs=False  → SQLite at explicit path
+      gate=off, url=pg,  path=sentinel,       fs=False  → SQLite at DEFAULT_DB (gate-off ignores url)
+      gate=off, url=pg,  path=explicit,       fs=False  → SQLite at explicit path
+      gate=on,  url=off, path=sentinel,       fs=False  → SQLite at DEFAULT_DB (gate requires url)
+      gate=on,  url=off, path=explicit,       fs=False  → SQLite at explicit path
+      gate=on,  url=pg,  path=sentinel,       fs=False  → PostgresConnectionWrapper
+      gate=on,  url=pg,  path=DB_PATH,        fs=False  → PostgresConnectionWrapper (canonical, WARN logged)
+      gate=on,  url=pg,  path=None,           fs=False  → PostgresConnectionWrapper (None not a fixture)
+      gate=on,  url=pg,  path=fixture-sqlite, fs=False  → SQLite at explicit path (INFO logged, P0 #160 fix)
+      *,        *,       path=*,              fs=True   → SQLite always (explicit caller, P0 #160 follow-up)
 
     Why the gate (Phase 3 T3.2 — M2 mitigation):
     Without ARCIS_PG_CUTOVER_ENABLED, merging T3.2 to main would flip
@@ -566,6 +576,13 @@ def connect_db(db_path=_SENTINEL):
 
     SQLite connections always carry busy_timeout=30000 and row_factory=sqlite3.Row.
     """
+    if force_sqlite:
+        effective_path = DEFAULT_DB if db_path is _SENTINEL else db_path
+        conn = sqlite3.connect(effective_path, timeout=BUSY_TIMEOUT_MS / 1000.0)
+        conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
+        conn.row_factory = sqlite3.Row
+        return conn
+
     database_url = os.environ.get("DATABASE_URL", "")
     gate_on = os.environ.get("ARCIS_PG_CUTOVER_ENABLED") == "1"
     pg_url = database_url.startswith("postgres")
@@ -1090,11 +1107,14 @@ def engine_aware_foreign_keys(conn, table_name: str) -> list:
 # Sprint 5 §J5/§J6 Phase 0 T0.11 — connect_db_with_pg_retry (M3 fast-exit)
 # ---------------------------------------------------------------------------
 
-def connect_db_with_pg_retry(db_path=_SENTINEL, *, max_attempts=5, backoff_seconds=30):
+def connect_db_with_pg_retry(db_path=_SENTINEL, *, max_attempts=5, backoff_seconds=30, force_sqlite: bool = False):
     """Connect with bounded retry on PG transient failures + fast-exit on exhaustion.
 
     SQLite path: identity passthrough to `connect_db()` (no retry — local file
     operations don't have the network-style transient failure profile).
+
+    `force_sqlite=True` is also an identity passthrough — caller is explicitly
+    requesting SQLite, no PG retry loop is appropriate.
 
     PG path (Phase 3 gate): BOTH ARCIS_PG_CUTOVER_ENABLED == "1" AND
     DATABASE_URL starts with "postgres" must be true to enter the retry loop.
@@ -1122,6 +1142,10 @@ def connect_db_with_pg_retry(db_path=_SENTINEL, *, max_attempts=5, backoff_secon
     On success after retries, logs at INFO level with the attempt count so
     operators can see retry activity post-mortem.
     """
+    if force_sqlite:
+        # Caller is explicit — identity passthrough, no PG retry loop.
+        return connect_db(db_path, force_sqlite=True)
+
     database_url = os.environ.get("DATABASE_URL", "")
     gate_on = os.environ.get("ARCIS_PG_CUTOVER_ENABLED") == "1"
     pg_url = database_url.startswith("postgres")

@@ -53,8 +53,9 @@ def test_connect_db_explicit_db_path_forces_sqlite_when_gate_off(tmp_path, monke
     """An explicit db_path arg uses SQLite when the gate is OFF, even when DATABASE_URL is set.
 
     Phase 3-revised: explicit path → SQLite is only the behavior when the gate
-    is OFF. With gate ON + PG URL, the gate takes precedence (see
-    test_truth_row8_gate_pg_url_explicit_path_IGNORED for the gate-ON case).
+    is OFF. With gate ON + PG URL, the gate takes precedence for non-fixture
+    paths (see test_truth_row8_gate_pg_url_runtime_path_routes_to_PG); fixture
+    paths short-circuit to SQLite (see test_connect_db_explicit_path.py).
     """
     monkeypatch.setenv("DATABASE_URL", "postgresql://halcyon:pw@localhost:5433/halcyon")
     monkeypatch.delenv("ARCIS_PG_CUTOVER_ENABLED", raising=False)
@@ -272,34 +273,44 @@ def test_truth_row7_gate_pg_url_no_path(monkeypatch):
     )
 
 
-def test_truth_row8_gate_pg_url_explicit_path_IGNORED(tmp_path, monkeypatch, caplog):
-    """Row 8: gate=on, url=pg, path=explicit → PostgresConnectionWrapper (gate overrides path).
+def test_truth_row8_gate_pg_url_runtime_path_routes_to_PG(monkeypatch, caplog):
+    """Row 8 (revised): gate=on, url=pg, path=non-fixture-runtime → PG (WARN logged).
 
-    This is the cell that PR #1054 got wrong — explicit db_path must NOT force
-    SQLite when both ARCIS_PG_CUTOVER_ENABLED=1 AND DATABASE_URL=postgres are set.
-    Also asserts that the WARN log is emitted exactly once for the path override.
+    PR #1054 got the original row 8 wrong by treating an explicit SQLite path
+    as a force-SQLite signal under cutover. P0 #160 (commit a1af8667) corrected
+    that: only fixture-style paths (.db/.sqlite/.sqlite3, :memory:, tmp/Temp,
+    or containing "test") get the SQLite short-circuit; production-style paths
+    still route to PG with a one-time WARN about the override.
+
+    This test uses a runtime path with no fixture markers (no extension, no
+    `test`, no /tmp/) to lock the PG-routing leg.
     """
     import logging
     from src.utils.db import PostgresConnectionWrapper
     monkeypatch.setenv("DATABASE_URL", _PG_URL)
     monkeypatch.setenv("ARCIS_PG_CUTOVER_ENABLED", "1")
-    explicit_path = str(tmp_path / "some_sqlite.db")
+    runtime_path = "/var/data/runtime/arcis_runtime_store"
     sentinel_conn = MagicMock(name="pg_raw_conn")
     with caplog.at_level(logging.WARNING, logger="src.utils.db"):
         with patch("psycopg2.connect", return_value=sentinel_conn):
             from src.utils.db import connect_db
-            conn = connect_db(db_path=explicit_path)
+            conn = connect_db(db_path=runtime_path)
     assert isinstance(conn, PostgresConnectionWrapper), (
-        f"Expected PostgresConnectionWrapper with gate ON + explicit path, got {type(conn).__name__}"
+        f"Expected PostgresConnectionWrapper with gate ON + runtime path, got {type(conn).__name__}"
     )
     warn_msgs = [r.message for r in caplog.records if r.levelno == logging.WARNING]
-    assert any(explicit_path in m or "overridden" in m.lower() for m in warn_msgs), (
+    assert any(runtime_path in m or "overridden" in m.lower() for m in warn_msgs), (
         f"Expected WARN about db_path override, got: {warn_msgs}"
     )
 
 
-def test_retry_wrapper_enters_loop_when_gate_on_even_with_explicit_path(monkeypatch):
-    """gate=on, url=pg, db_path passed → retry helper attempts PG (not SQLite passthrough).
+def test_retry_wrapper_enters_loop_when_gate_on_sentinel(monkeypatch):
+    """gate=on, url=pg, db_path=sentinel → retry helper attempts PG.
+
+    Original test passed `:memory:` which post-P0-#160 is detected as a fixture
+    path by `_is_explicit_fixture_path` and short-circuits to SQLite (no PG
+    retry). To lock the retry-loop intent, this test now uses the sentinel
+    default (no db_path argument), which always routes to PG when gate is on.
 
     Mocks psycopg2.connect to raise OperationalError twice then succeed.
     Asserts 3 total connect attempts happened.
@@ -326,7 +337,7 @@ def test_retry_wrapper_enters_loop_when_gate_on_even_with_explicit_path(monkeypa
     with patch("psycopg2.connect", side_effect=mock_connect):
         with patch("time.sleep"):
             from src.utils.db import connect_db_with_pg_retry
-            conn = connect_db_with_pg_retry(db_path=":memory:")
+            conn = connect_db_with_pg_retry()
     assert call_count["n"] == 3, f"Expected 3 connect attempts, got {call_count['n']}"
     assert isinstance(conn, PostgresConnectionWrapper)
 
@@ -458,3 +469,105 @@ def test_warn_gate_on_no_pg_url_silent_when_pg_url_set(tmp_path, monkeypatch, ca
         )
     finally:
         db_module._GATE_ON_NO_PG_URL_WARNED = False
+
+
+# ---------------------------------------------------------------------------
+# force_sqlite kwarg tests (P0 #160 follow-up — explicit caller mechanism)
+# ---------------------------------------------------------------------------
+#
+# The _is_explicit_fixture_path heuristic protects against accidental fixture
+# wipes by matching file extension, :memory:, /tmp/, or "test" in the path.
+# But the heuristic is fragile — any production path containing "test" would
+# be mis-classified. force_sqlite=True is the explicit, unambiguous mechanism:
+# the caller declares intent rather than relying on path-shape inference.
+#
+# The heuristic remains as defense-in-depth for legacy fixtures that don't
+# pass the kwarg. Production code paths must never set force_sqlite=True.
+
+
+def test_force_sqlite_true_returns_sqlite_when_gate_on_url_pg(monkeypatch):
+    """force_sqlite=True bypasses gate+url+heuristic — always SQLite."""
+    monkeypatch.setenv("DATABASE_URL", _PG_URL)
+    monkeypatch.setenv("ARCIS_PG_CUTOVER_ENABLED", "1")
+    from src.utils.db import connect_db
+    conn = connect_db(db_path=":memory:", force_sqlite=True)
+    assert type(conn) is sqlite3.Connection
+    conn.close()
+
+
+def test_force_sqlite_true_returns_sqlite_with_db_path_under_cutover(monkeypatch, tmp_path):
+    """force_sqlite=True overrides cutover gate even when path looks like the canonical DB.
+
+    Without force_sqlite=True, gate=on + url=pg + non-fixture path would route
+    to PG (truth-table row 8). With force_sqlite=True, the path is honored as
+    SQLite regardless of gate state.
+    """
+    monkeypatch.setenv("DATABASE_URL", _PG_URL)
+    monkeypatch.setenv("ARCIS_PG_CUTOVER_ENABLED", "1")
+    from src.utils.db import connect_db
+    explicit_path = str(tmp_path / "explicit_sqlite_target")
+    conn = connect_db(db_path=explicit_path, force_sqlite=True)
+    assert type(conn) is sqlite3.Connection
+    conn.close()
+
+
+def test_force_sqlite_true_with_sentinel_uses_default_db(monkeypatch):
+    """force_sqlite=True with no db_path arg falls back to DEFAULT_DB.
+
+    Matches the sentinel-resolution behavior of the existing SQLite paths in
+    the truth table.
+    """
+    monkeypatch.setenv("DATABASE_URL", _PG_URL)
+    monkeypatch.setenv("ARCIS_PG_CUTOVER_ENABLED", "1")
+    from src.utils.db import connect_db, DEFAULT_DB  # noqa: F401  (DEFAULT_DB is the spec anchor)
+    conn = connect_db(force_sqlite=True)
+    assert type(conn) is sqlite3.Connection
+    conn.close()
+
+
+def test_force_sqlite_true_emits_no_warn_or_info_log(monkeypatch, tmp_path, caplog):
+    """force_sqlite=True is the silent explicit path — no WARN, no INFO.
+
+    The heuristic emits INFO when honoring a fixture path; the gate emits WARN
+    when overriding an explicit path. force_sqlite=True is the unambiguous
+    caller-declared path, so neither of those audit messages applies.
+    """
+    import logging
+    monkeypatch.setenv("DATABASE_URL", _PG_URL)
+    monkeypatch.setenv("ARCIS_PG_CUTOVER_ENABLED", "1")
+    runtime_path = str(tmp_path / "runtime_target")
+    from src.utils.db import connect_db
+    with caplog.at_level(logging.INFO, logger="src.utils.db"):
+        conn = connect_db(db_path=runtime_path, force_sqlite=True)
+    conn.close()
+    audit_msgs = [r.message for r in caplog.records if "overridden" in r.message.lower() or "honored over" in r.message.lower()]
+    assert audit_msgs == [], (
+        f"Expected no override/honored audit logs under force_sqlite=True, got: {audit_msgs}"
+    )
+
+
+def test_retry_wrapper_passthrough_when_force_sqlite_true(monkeypatch):
+    """connect_db_with_pg_retry(force_sqlite=True) → identity passthrough, no retry loop.
+
+    The retry wrapper must not spin PG retry attempts when the caller has
+    explicitly requested SQLite — that would be both wasteful and confusing.
+    """
+    import psycopg2
+    monkeypatch.setenv("DATABASE_URL", _PG_URL)
+    monkeypatch.setenv("ARCIS_PG_CUTOVER_ENABLED", "1")
+    call_count = {"n": 0}
+
+    def mock_connect(*args, **kwargs):
+        call_count["n"] += 1
+        raise psycopg2.OperationalError("should not be called")
+
+    with patch("psycopg2.connect", side_effect=mock_connect):
+        from src.utils.db import connect_db_with_pg_retry
+        conn = connect_db_with_pg_retry(force_sqlite=True)
+    assert type(conn) is sqlite3.Connection, (
+        f"Expected sqlite3.Connection via passthrough, got {type(conn).__name__}"
+    )
+    assert call_count["n"] == 0, (
+        f"Expected zero psycopg2.connect calls under force_sqlite=True, got {call_count['n']}"
+    )
+    conn.close()
