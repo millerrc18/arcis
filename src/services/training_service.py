@@ -13,6 +13,7 @@ import logging
 from datetime import date
 
 from src.platform.capability_registry import register_state
+from src.utils.db import connect_db
 
 logger = logging.getLogger(__name__)
 
