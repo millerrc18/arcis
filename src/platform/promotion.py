@@ -42,7 +42,7 @@ import json
 import logging
 import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from src.config import DB_PATH
@@ -628,15 +628,19 @@ def _evaluate_production_gate(
             )
             evidence["methodology_gate"] = mg_evidence
             return False, evidence
-        conn3 = connect_db(db_path)
+        # DA-1 30-day window: Python-side comparison (engine-portable; the
+        # earlier SQL form `datetime('now', '-30 days')` is SQLite-only and
+        # would crash on Postgres after the Phase 3 cutover — same anti-pattern
+        # as PR #1076 BLOCKING fix-now (task #124). Malformed timestamps
+        # fail-safe to NOT stale (don't block on parse error).
         try:
-            fresh = conn3.execute(
-                "SELECT ? > datetime('now', '-30 days')",
-                (wf_created_at,),
-            ).fetchone()[0]
-        finally:
-            conn3.close()
-        if not fresh:
+            wf_dt = datetime.fromisoformat(str(wf_created_at).replace("Z", "+00:00"))
+            if wf_dt.tzinfo is None:
+                wf_dt = wf_dt.replace(tzinfo=timezone.utc)
+            stale = wf_dt < datetime.now(timezone.utc) - timedelta(days=30)
+        except (ValueError, TypeError):
+            stale = False
+        if stale:
             evidence["walkforward_stale"] = True
             evidence["walkforward_stale_reason"] = "older than 30 days"
             mg_passes, mg_evidence = _evaluate_strategy_methodology_gate(
