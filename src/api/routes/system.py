@@ -114,7 +114,7 @@ def _build_table_stats(row) -> dict:
     """Normalize a stats row into a stable response shape."""
     if not row:
         return {"total_records": 0, "latest_collection": None, "coverage_count": 0}
-
+    row = dict(row)  # normalize sqlite3.Row to mapping (defensive — sqlite3.Row lacks .get())
     total_records = row.get("total_records", 0) or 0
     latest = row.get("latest_collection")
     return {
