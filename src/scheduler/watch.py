@@ -2458,27 +2458,46 @@ class WatchLoop(HandlerRegistryMixin):
         Covers spawn_failed + skipped_no_corpus + timeout within the last 24 hours.
         Returns 0 on any DB error so the caller proceeds with the fire attempt.
         """
+        # Engine-portable retry-cap check (PM PR #1100 review).
+        # Both `json_extract(...)` and `datetime('now', '-24 hours')` are
+        # SQLite-only — they crash on Postgres with UndefinedFunction. After
+        # Sprint 5 Phase 3 cutover this reconciler runs against Postgres, so
+        # we fetch candidate rows with the event_type IN-filter + a Python-
+        # computed cutoff timestamp passed as a `?`-bound parameter, then
+        # parse payload_json + match strategy_id/code_git_sha in Python.
+        # Same anti-pattern as PR #1076 (task #124) and T14 PR #1099 DA-1
+        # freshness check (fixed pre-merge).
+        from datetime import datetime, timedelta, timezone
+        import json as _json
         from src.utils.db import connect_db
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
         try:
             conn = connect_db(db_path)
             try:
-                row = conn.execute(
+                rows = conn.execute(
                     """
-                    SELECT COUNT(*) FROM platform_events
+                    SELECT payload_json FROM platform_events
                     WHERE event_type IN (
                       'walkforward_auto_fire_spawn_failed',
                       'walkforward_auto_fire_skipped_no_corpus',
                       'walkforward_auto_fire_timeout'
                     )
-                    AND json_extract(payload_json, '$.strategy_id') = ?
-                    AND json_extract(payload_json, '$.code_git_sha') = ?
-                    AND created_at > datetime('now', '-24 hours')
+                    AND created_at > ?
                     """,
-                    (strategy_id, code_git_sha),
-                ).fetchone()
+                    (cutoff,),
+                ).fetchall()
             finally:
                 conn.close()
-            return row[0] if row else 0
+            count = 0
+            for row in rows:
+                try:
+                    payload = _json.loads(row[0]) if row[0] else {}
+                    if (payload.get("strategy_id") == strategy_id
+                            and payload.get("code_git_sha") == code_git_sha):
+                        count += 1
+                except (_json.JSONDecodeError, TypeError):
+                    continue
+            return count
         except Exception as exc:
             logger.warning("[WF_RECONCILER] Retry-cap check failed for %s: %s", strategy_id, exc)
             return 0
@@ -2524,6 +2543,14 @@ class WatchLoop(HandlerRegistryMixin):
         from src.utils.db import connect_db
 
         _db_path = db_path or getattr(self, "_db_path", None) or DB_PATH
+        # Engine-portable orphan-backtest scan (PM PR #1100 review).
+        # SQLite-only `datetime('now', '-7 days')` would crash on Postgres;
+        # use Python-computed cutoff passed as a `?`-bound parameter (sibling
+        # of the retry-cap fix above, both same anti-pattern as PR #1076).
+        from datetime import datetime, timedelta, timezone
+        _orphan_cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=7)
+        ).isoformat()
         try:
             conn = connect_db(_db_path)
             try:
@@ -2536,8 +2563,9 @@ class WatchLoop(HandlerRegistryMixin):
                     LEFT JOIN walkforward_results wr
                       ON wr.derived_from_backtest_id = br.result_id
                     WHERE wr.run_id IS NULL
-                      AND br.created_at > datetime('now', '-7 days')
-                    """
+                      AND br.created_at > ?
+                    """,
+                    (_orphan_cutoff,),
                 ).fetchall()
             finally:
                 conn.close()

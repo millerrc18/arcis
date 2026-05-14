@@ -52,8 +52,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         prog="run_walkforward",
         description="Walk-forward validation v1 — R1–R8 gate.",
     )
-    p.add_argument("--strategy", required=True,
-                   help="strategy_id (matches specs/<id>.yaml)")
+    p.add_argument("--strategy", "--strategy-id", dest="strategy", required=True,
+                   help="strategy_id (matches specs/<id>.yaml). Both --strategy "
+                        "and --strategy-id are accepted; the latter matches the "
+                        "kebab-case-with-id style of surrounding T10 flags "
+                        "(--corpus-id, --backtest-result-id) and is what T13's "
+                        "auto_fire_walkforward subprocess passes (PR #1100 review fix).")
     p.add_argument("--specs-dir", default=None,
                    help="directory containing <strategy>.yaml; defaults to "
                         "src/platform/specs")
