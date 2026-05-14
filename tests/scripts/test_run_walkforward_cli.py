@@ -124,3 +124,16 @@ def test_cli_rejects_bootcamp_override_via_config_validation(tmp_env, monkeypatc
         "--specs-dir", tmp_env["specs_dir"],
     ])
     assert rc == 2
+
+
+def test_cli_corpus_id_flag_accepted(tmp_env):
+    from scripts.backtest.run_walkforward import _parse_args
+    args = _parse_args(["--strategy", "x", "--corpus-id", "stage1-001"])
+    assert args.corpus_id == "stage1-001"
+
+
+def test_cli_excess_sharpe_min_flag_accepted(tmp_env):
+    from scripts.backtest.run_walkforward import _parse_args
+    args = _parse_args(["--strategy", "x", "--excess-sharpe-min", "0.3"])
+    assert args.excess_sharpe_min == 0.3
+    assert isinstance(args.excess_sharpe_min, float)
