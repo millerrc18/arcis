@@ -19,8 +19,8 @@ Test contracts:
   `PRAGMA table_info(nonexistent)` silent-empty behavior).
 
 Tests parametrize on `engine` ∈ {'sqlite', 'postgres'}. Postgres-engine
-tests skip when `TEST_DATABASE_URL` (or `DATABASE_URL`) is not set or
-not a `postgres://` URL — same convention as test_db_wrapper_rewrite.py.
+tests skip when `TEST_DATABASE_URL` is not set or not a `postgres://` URL
+— same convention as test_db_wrapper_rewrite.py.
 
 T0.6 (engine_aware_index_list + engine_aware_foreign_key_list) will append
 its tests to this same file under separately-scoped classes.
@@ -41,12 +41,10 @@ import pytest
 # Postgres fixture detection — skip PG cases when no live cluster reachable.
 # ---------------------------------------------------------------------------
 
-TEST_PG_URL = os.environ.get("TEST_DATABASE_URL") or os.environ.get(
-    "DATABASE_URL", ""
-)
+TEST_PG_URL = os.environ.get("TEST_DATABASE_URL", "")
 _PG_AVAILABLE = TEST_PG_URL.startswith("postgres")
 
-_PG_SKIP_REASON = "TEST_DATABASE_URL / DATABASE_URL not set or not postgres://"
+_PG_SKIP_REASON = "TEST_DATABASE_URL not set or not postgres://"
 
 
 # ---------------------------------------------------------------------------
