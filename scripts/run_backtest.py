@@ -93,6 +93,18 @@ def main() -> int:
             result, db_path=args.db_path, git_sha=_git_sha(),
         )
         print(f"persisted as result_id={result_id}")
+        try:
+            from src.platform.walkforward_autofire import auto_fire_walkforward
+            auto_fire_walkforward(
+                strategy_id=args.strategy,
+                backtest_result_id=result_id,
+                db_path=args.db_path,
+            )
+        except Exception:
+            import logging as _logging
+            _logging.getLogger(__name__).exception(
+                "[run_backtest] auto_fire_walkforward hook failed"
+            )
 
     if args.output_format == "json":
         print(json.dumps(result.metrics, default=str, indent=2))

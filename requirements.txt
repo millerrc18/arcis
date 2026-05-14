@@ -47,3 +47,8 @@ torch>=2.1,<3.0
 # src/scheduler/holidays.py. Replaced a hardcoded 2026 holiday set that would
 # have silently broken in 2027.
 pandas_market_calendars>=4.0,<6.0
+
+# T13 (SP-WF-013): per-strategy concurrency control for walkforward auto-fire.
+# FileLock prevents the scheduler reconciler and auto_fire_walkforward from
+# spawning concurrent walkforward subprocesses for the same strategy_id.
+filelock>=3.0,<4.0

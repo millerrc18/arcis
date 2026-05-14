@@ -267,8 +267,23 @@ OVERNIGHT_HANDLERS = [
     maybe_premarket_candidates,
 ]
 
+def maybe_walkforward_reconciler(watch: "WatchLoop", now: datetime) -> None:
+    """Hourly during market hours (11–15 ET, weekdays) — find and auto-fire orphan backtests."""
+    if now.weekday() >= 5:
+        return
+    if not watch._is_market_open(now):
+        return
+    if now.hour not in (11, 12, 13, 14, 15):
+        return
+    watch._safe_run(
+        "walkforward reconciler",
+        watch._run_walkforward_reconciler,
+    )
+
+
 DAYTIME_HANDLERS = [
     maybe_stats_pulse,
+    maybe_walkforward_reconciler,
 ]
 
 ALL_HANDLERS = OVERNIGHT_HANDLERS + DAYTIME_HANDLERS

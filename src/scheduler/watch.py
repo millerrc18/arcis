@@ -2449,3 +2449,148 @@ class WatchLoop(HandlerRegistryMixin):
         """Save daily metric snapshot at EOD for MetricTrend chart."""
         from src.scheduler.reports import save_daily_metric_snapshot
         save_daily_metric_snapshot(db_path=DB_PATH)
+
+    def _wf_reconciler_retry_count(
+        self, db_path: str, strategy_id: str, code_git_sha: str
+    ) -> int:
+        """Return the number of recent auto-fire failure events for this (strategy, sha).
+
+        Covers spawn_failed + skipped_no_corpus + timeout within the last 24 hours.
+        Returns 0 on any DB error so the caller proceeds with the fire attempt.
+        """
+        # Engine-portable retry-cap check (PM PR #1100 review).
+        # Both `json_extract(...)` and `datetime('now', '-24 hours')` are
+        # SQLite-only — they crash on Postgres with UndefinedFunction. After
+        # Sprint 5 Phase 3 cutover this reconciler runs against Postgres, so
+        # we fetch candidate rows with the event_type IN-filter + a Python-
+        # computed cutoff timestamp passed as a `?`-bound parameter, then
+        # parse payload_json + match strategy_id/code_git_sha in Python.
+        # Same anti-pattern as PR #1076 (task #124) and T14 PR #1099 DA-1
+        # freshness check (fixed pre-merge).
+        from datetime import datetime, timedelta, timezone
+        import json as _json
+        from src.utils.db import connect_db
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        try:
+            conn = connect_db(db_path)
+            try:
+                rows = conn.execute(
+                    """
+                    SELECT payload_json FROM platform_events
+                    WHERE event_type IN (
+                      'walkforward_auto_fire_spawn_failed',
+                      'walkforward_auto_fire_skipped_no_corpus',
+                      'walkforward_auto_fire_timeout'
+                    )
+                    AND created_at > ?
+                    """,
+                    (cutoff,),
+                ).fetchall()
+            finally:
+                conn.close()
+            count = 0
+            for row in rows:
+                try:
+                    payload = _json.loads(row[0]) if row[0] else {}
+                    if (payload.get("strategy_id") == strategy_id
+                            and payload.get("code_git_sha") == code_git_sha):
+                        count += 1
+                except (_json.JSONDecodeError, TypeError):
+                    continue
+            return count
+        except Exception as exc:
+            logger.warning("[WF_RECONCILER] Retry-cap check failed for %s: %s", strategy_id, exc)
+            return 0
+
+    def _wf_reconciler_emit_giveup(
+        self, db_path: str, strategy_id: str, backtest_id: str,
+        code_git_sha: str, retry_count: int,
+    ) -> None:
+        """Emit walkforward_auto_fire_giveup event and log. Best-effort — never raises."""
+        from src.utils.db import connect_db
+        import json as _json
+        try:
+            conn = connect_db(db_path)
+            payload = _json.dumps({
+                "strategy_id": strategy_id,
+                "backtest_result_id": backtest_id,
+                "code_git_sha": code_git_sha,
+                "retry_count": retry_count,
+            })
+            conn.execute(
+                "INSERT INTO platform_events (event_type, severity, payload_json, source) "
+                "VALUES (?, ?, ?, ?)",
+                ("walkforward_auto_fire_giveup", "warning", payload, "wf_reconciler"),
+            )
+            conn.commit()
+            conn.close()
+        except Exception as exc:
+            logger.warning("[WF_RECONCILER] Failed to write giveup event for %s: %s", strategy_id, exc)
+        logger.warning(
+            "[WF_RECONCILER] Giving up on %s (backtest=%s) after %d attempts",
+            strategy_id, backtest_id, retry_count,
+        )
+
+    def _run_walkforward_reconciler(self, db_path: str | None = None) -> None:
+        """Hourly during market hours — find orphan backtests and auto-fire missing runs.
+
+        Orphan: backtest_results row created within 7 days with no matching
+        walkforward_results.derived_from_backtest_id. Retry-cap at 3 failures
+        (spawn_failed + skipped_no_corpus + timeout) within 24h → giveup event.
+        Never raises — failures are logged and the loop continues.
+        """
+        from src.platform.walkforward_autofire import auto_fire_walkforward
+        from src.utils.db import connect_db
+
+        _db_path = db_path or getattr(self, "_db_path", None) or DB_PATH
+        # Engine-portable orphan-backtest scan (PM PR #1100 review).
+        # SQLite-only `datetime('now', '-7 days')` would crash on Postgres;
+        # use Python-computed cutoff passed as a `?`-bound parameter (sibling
+        # of the retry-cap fix above, both same anti-pattern as PR #1076).
+        from datetime import datetime, timedelta, timezone
+        _orphan_cutoff = (
+            datetime.now(timezone.utc) - timedelta(days=7)
+        ).isoformat()
+        try:
+            conn = connect_db(_db_path)
+            try:
+                orphans = conn.execute(
+                    """
+                    SELECT br.result_id AS backtest_id,
+                           br.strategy_id,
+                           br.code_git_sha
+                    FROM backtest_results br
+                    LEFT JOIN walkforward_results wr
+                      ON wr.derived_from_backtest_id = br.result_id
+                    WHERE wr.run_id IS NULL
+                      AND br.created_at > ?
+                    """,
+                    (_orphan_cutoff,),
+                ).fetchall()
+            finally:
+                conn.close()
+        except Exception as exc:
+            logger.warning("[WF_RECONCILER] Failed to query orphan backtests: %s", exc)
+            return
+
+        for row in orphans:
+            strategy_id = row[1] if not hasattr(row, "keys") else row["strategy_id"]
+            backtest_id = row[0] if not hasattr(row, "keys") else row["backtest_id"]
+            code_git_sha = row[2] if not hasattr(row, "keys") else row["code_git_sha"]
+
+            retry_count = self._wf_reconciler_retry_count(_db_path, strategy_id, code_git_sha)
+            if retry_count >= 3:
+                self._wf_reconciler_emit_giveup(_db_path, strategy_id, backtest_id, code_git_sha, retry_count)
+                continue
+
+            try:
+                auto_fire_walkforward(
+                    strategy_id=strategy_id,
+                    backtest_result_id=backtest_id,
+                    db_path=_db_path,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "[WF_RECONCILER] auto_fire_walkforward failed for %s: %s",
+                    strategy_id, exc,
+                )
