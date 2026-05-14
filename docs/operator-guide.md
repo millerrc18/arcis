@@ -37,6 +37,111 @@ Full operator validation checklist for halcyonlab.app post-Render-rebuild: `docs
 
 ---
 
+## v0.36.1 Patch (2026-05-14) — operator-visible changes
+
+Delivered by the dashboard-rectification audit. The changes below take effect
+immediately after `nssm restart ArcisWatchLoop` + `nssm restart ArcisDashboard`
+on the merged branch.
+
+### Dashboard / API behaviour changes
+
+- **WATCH MODE banner** — header now reads `PG` or `SQLite` (the active engine)
+  instead of always appending "Render sync". The engine label reflects
+  `ARCIS_PG_CUTOVER_ENABLED` at runtime.
+- **win_rate on shadow endpoints** — `/api/shadow/closed` and
+  `/api/shadow/metrics` return win_rate as a decimal (0.50 = 50%). Prior to this
+  patch the value was an unscaled percentage (50.0) that rendered as 5000% on the
+  dashboard.
+- **SPA fallback** — non-`/api/*` GET 404s now return `index.html` so React
+  Router handles deep-link navigation without a hard reload returning a blank page.
+- **LiveLedger equity** — `starting_capital` fallback is 100,000 (was 100).
+  Eliminates the transient `$100` equity flash on fresh page load.
+- **/schema table count** — the Schema page and `/system/table-counts` endpoint
+  report 76 tables (was stale 48).
+- **HSHS composite score** — early-phase scores now show a non-zero value when
+  any single dimension (e.g. FV before sufficient trade history) is 0. The
+  arithmetic-mean `overall` field is used by the frontend; the existing
+  strict geometric-mean `overall_geometric` is retained for internal gate use.
+- **Open positions count** — `/api/status` now filters `desk='swing'` (was
+  `source='live'`, which matched 0 paper trades). Trade History win/loss counts
+  no longer display as `undefinedW / undefinedL`.
+- **/training page** — all 12 data collectors now show live row counts (was
+  showing "No data collected yet" for every collector on the Postgres path due to
+  a positional row-index bug now fixed).
+- **Attribution badge** — ADEQUATE/INADEQUATE classification is based on resolved
+  pairs (`paired_n`) rather than total pairs. Badge and body now agree.
+- **/validation page** — renders "No validation runs yet" empty state instead of
+  spinning indefinitely when no validation runs exist.
+- **/api/cto-report** — 5-minute TTL cache added; response time drops from >12 s
+  to near-instant on repeated loads.
+
+### New local API endpoints (mirrored from cloud spec)
+
+Added during hotfix #146:
+
+| Endpoint | Notes |
+|---|---|
+| `GET /api/shadow/desks` | Lists distinct shadow trading desks |
+| `GET /api/shadow/sharpe-attribution` | Sharpe attribution by desk |
+| `GET /api/diagnostic-runs` | Lists diagnostic run records |
+| `GET /api/diagnostic-runs/{run_id}` | Single run detail |
+| `GET /api/diagnostic-runs/{run_id}/report` | Formatted report |
+| `GET /api/diagnostic-runs/{run_id}/plots` | Plot artifacts |
+
+### Debug: deploy_info git stderr capture (hotfix #143)
+
+`deploy_info` now routes `git` stderr to `subprocess.PIPE` instead of letting
+it bleed to the console. If you see git reporting "dubious ownership" in NSSM
+service logs, apply the one-time fix:
+
+```powershell
+git config --system --add safe.directory C:/arcis/halcyon-lab
+nssm restart ArcisDashboard
+```
+
+This was applied once on 2026-05-14; it persists across restarts. If re-cloning
+or creating a new service account, the command needs to be re-run under the
+service account context (see memory note `reference_nssm_git_ownership.md`).
+
+### Pending operator OPS tasks (filed as trackers, not blocked)
+
+These are data-side follow-ups that do not require a code deploy:
+
+- **Tracker #151 — Render PG recommendations backfill:** The local SQLite has 875
+  rows with populated price-target fields in the `recommendations` table; the
+  Render PG has 2 rows with NULLs. Until backfilled, the packets fields page on
+  the cloud dashboard will show NULL price targets. To backfill, export from
+  SQLite and load into PG:
+
+  ```bash
+  # 1. Export non-null rows from SQLite
+  sqlite3 C:/arcis/data/ai_research_desk.sqlite3 \
+    ".mode csv" ".headers on" \
+    "SELECT * FROM recommendations WHERE price_target IS NOT NULL" \
+    > /tmp/recommendations_export.csv
+
+  # 2. Load into Render PG (DATABASE_URL from config/settings.local.yaml)
+  psql "$DATABASE_URL" -c "\copy recommendations FROM '/tmp/recommendations_export.csv' CSV HEADER ON CONFLICT (id) DO UPDATE SET price_target = EXCLUDED.price_target, ..."
+  ```
+
+  Full procedure TBD — file in tracker #151 with the actual upsert columns
+  before executing to avoid overwriting newer cloud data.
+
+- **Tracker #155 — Render PG schema check:** Three capability-registry probes
+  (`shadow_trade_cohort`, `reconcile_trades`, `attribution_resolver`) fail on
+  cloud but pass locally. The suspected cause is a Render PG schema gap — tables
+  that exist in the local registry may not have been migrated. To verify:
+
+  ```bash
+  # Run against Render PG DATABASE_URL
+  DATABASE_URL="<render-url>" python scripts/render_migrate.py --dry-run
+  ```
+
+  If `render_migrate.py` reports drift, run the migration (without `--dry-run`)
+  and restart the Render service.
+
+---
+
 ## Table of contents
 
 0. [System Overview](#0-system-overview) — what ARCIS is and how it fits together
