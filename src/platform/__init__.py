@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import date
 
 from src.platform.capability_registry import register_action, register_state
+from src.utils.db import connect_db
 
 _INTRODUCED = "v0.24.0"
 _LAST_REVIEWED = date(2026, 4, 18)
