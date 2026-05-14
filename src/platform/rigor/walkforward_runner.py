@@ -44,7 +44,12 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from src.platform.rigor.walkforward_config import WalkForwardConfig, WalkForwardWindow
+from src.platform.rigor.walkforward_config import (
+    WalkForwardConfig,
+    WalkForwardWindow,
+    build_walkforward_windows,
+    DEFAULT_WINDOWS,
+)
 from src.platform.rigor.walkforward_costs import apply_per_side_cost_batch
 from src.platform.rigor.walkforward_firewall import (
     Window as FirewallWindow,
@@ -68,8 +73,10 @@ from src.platform.rigor.walkforward_outcome import (
 )
 from src.platform.rigor.walkforward_power import (
     PowerResult,
+    VixCoverageResult,
     count_power_states,
     evaluate_window_power,
+    validate_vix_tier_coverage,
 )
 from src.platform.rigor.walkforward_purging import (
     embargo_oos_trades,
@@ -77,6 +84,27 @@ from src.platform.rigor.walkforward_purging import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class CorpusBindingError(ValueError):
+    """Raised when config.corpus_id is set but no matching corpus_metadata row exists."""
+
+
+def _gate_corpus_or_raise(corpus_id: str, db_path: str) -> None:
+    """Verify a corpus_metadata row matching corpus_id exists; raise CorpusBindingError if not."""
+    conn = connect_db(db_path)
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM corpus_metadata WHERE corpus_id = ? LIMIT 1",
+            (corpus_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if row is None:
+        raise CorpusBindingError(
+            f"SP-WF-010: corpus_id '{corpus_id}' not found in corpus_metadata table. "
+            "Ensure the corpus row exists before running walk-forward against it."
+        )
 
 
 @dataclass
@@ -98,6 +126,11 @@ class WalkForwardRunResult:
     vix_tier_coverage: int
     effective_universe_size: int
     config: WalkForwardConfig
+    evidence: dict = None  # type: ignore[assignment]
+
+    def __post_init__(self) -> None:
+        if self.evidence is None:
+            self.evidence = {}
 
 
 def _git_sha(repo_root: str = ".") -> str | None:
@@ -188,6 +221,7 @@ def run_walkforward(
     max_hold_days: int = 21,
     effective_universe_size: int = 0,
     repo_root: str = ".",
+    db_path: str | None = None,
 ) -> WalkForwardRunResult:
     """Deterministic walk-forward run.
 
@@ -198,7 +232,16 @@ def run_walkforward(
     in real engine output for production runs.
 
     Raises R8ViolationError on derived_from / overlap violations.
+    Raises CorpusBindingError when config.corpus_id is set but no matching
+    corpus_metadata row exists (SP-WF-010).
     """
+    # SP-WF-010: corpus binding gate — BEFORE expensive window iteration.
+    if config.corpus_id is not None:
+        if db_path is None:
+            from src.config import DB_PATH
+            db_path = DB_PATH
+        _gate_corpus_or_raise(config.corpus_id, db_path)
+
     # R8(a) + (b) + (d) + runtime heuristic — up front before ANY cycles.
     validate_derived_from(strategy_spec_raw)
     firewall_windows = [
@@ -255,6 +298,8 @@ def run_walkforward(
     else:
         pooled_mde = float("inf")
     distinct_tiers = distinct_tier_count(window_metrics)
+    all_oos_trades = sum(oos_trades_per_window, [])
+    vix_cov = validate_vix_tier_coverage(all_oos_trades, min_tiers=config.min_vix_tiers)
     outcome = reduce_outcome(
         window_states=window_states,
         max_drawdowns=max_drawdowns,
@@ -266,6 +311,13 @@ def run_walkforward(
         windows_passing_criterion_2=4,
         inconclusive_window_threshold=2,
     )
+    evidence = {
+        "vix_coverage": {
+            "distinct_tiers": vix_cov.distinct_tiers,
+            "passes": vix_cov.passes,
+            "missing_tiers": list(vix_cov.missing_tiers),
+        },
+    }
     return WalkForwardRunResult(
         run_id=str(uuid.uuid4()),
         strategy_id=config.strategy_id,
@@ -280,9 +332,10 @@ def run_walkforward(
         window_metrics=window_metrics,
         window_power=window_power,
         window_states=window_states,
-        vix_tier_coverage=distinct_tiers,
+        vix_tier_coverage=vix_cov.distinct_tiers,
         effective_universe_size=effective_universe_size,
         config=config,
+        evidence=evidence,
     )
 
 
@@ -328,6 +381,8 @@ def persist_run_result(
             "effective_universe_size": result.effective_universe_size,
             "max_drawdown_pct": overall_max_dd,
             "vix_tier_coverage": result.vix_tier_coverage,
+            "excess_sharpe_min_used": result.config.excess_sharpe_min,
+            "gate_version": "v2" if result.config.excess_sharpe_min is not None else "v1",
             "created_at": _now_iso(),
         }
         engine_aware_upsert(conn, "walkforward_results", results_row, action="replace")

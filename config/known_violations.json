@@ -107,6 +107,11 @@
       "lines": 406
     },
     {
+      "file": "src/platform/rigor/walkforward_runner.py",
+      "lines": 433,
+      "rationale": "Sprint 6 Wave B T8: runner grew from 378 to 433 lines (+55, within scope budget) via corpus binding gate (_gate_corpus_or_raise + CorpusBindingError), VIX coverage validator wiring (validate_vix_tier_coverage call + evidence dict), gate_version/excess_sharpe_min_used persistence, and evidence field on WalkForwardRunResult. File was previously under 400L; Sprint 6 T8 integration tasks collectively pushed it to 433L. Splitting into a sibling runner_persistence.py is a structural refactor out of scope for T8; deferred to post-Sprint-6."
+    },
+    {
       "file": "src/platform/promotion.py",
       "lines": 811,
       "rationale": "Sprint 2 T2: added _evaluate_strategy_methodology_gate (129L), _get_n_trials_for_strategy (5L), _safe_run (19L), run_daily_gate_for_all_active_strategies (58L) + 7 AND-compose sites in _evaluate_shadow_trading_gate + 1 in _evaluate_production_gate + walkforward_status placement in _evaluate_walkforward_gate. All new code is scope-required per spec docs/audits/2026-05-05-methodology-gate-wiring/spec.md \u00a71.2, \u00a73.2, \u00a74.1. Real split would require a sibling platform/promotion_gate_wiring.py module \u2014 deferred to Sprint 3."

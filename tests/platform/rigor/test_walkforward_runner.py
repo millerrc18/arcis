@@ -5,6 +5,7 @@ import os
 import sqlite3
 from dataclasses import dataclass
 from datetime import date, timedelta
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -16,6 +17,8 @@ from src.platform.rigor.walkforward_config import (
 )
 from src.platform.rigor.walkforward_firewall import R8ViolationError
 from src.platform.rigor.walkforward_runner import (
+    CorpusBindingError,
+    _gate_corpus_or_raise,
     persist_run_result,
     process_window,
     run_walkforward,
@@ -623,3 +626,117 @@ def test_persist_run_result_no_literal_insert_or_replace_in_source():
         "`INSERT OR REPLACE` after T1.15 migration; use "
         "engine_aware_upsert(action='replace') via src.utils.db instead."
     )
+
+
+# ---------------------------------------------------------------------------
+# Sprint 6 Wave B T8 — runner integration (corpus gate + VIX coverage + gate_version)
+# ---------------------------------------------------------------------------
+
+
+def test_runner_calls_corpus_gate_when_corpus_id_set(tmp_path):
+    """T8 #1: corpus_id='unknown-corpus' → CorpusBindingError (empty corpus_metadata)."""
+    db = tmp_path / "corpus_gate_test.sqlite3"
+    create_all_tables(str(db))
+    # corpus_metadata is not yet in the schema registry — create it as a minimal fixture.
+    conn = sqlite3.connect(str(db))
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS corpus_metadata (corpus_id TEXT PRIMARY KEY)"
+    )
+    conn.commit()
+    conn.close()
+    cfg = WalkForwardConfig(
+        strategy_id="wf_test",
+        corpus_id="unknown-corpus",
+        windows=[WalkForwardWindow("2017-01-01", "2018-12-31", "2019-01-01", "2020-03-31")],
+    )
+    spec = _minimal_spec(None)
+    with pytest.raises(CorpusBindingError, match="unknown-corpus"):
+        run_walkforward(
+            strategy_spec_raw=spec,
+            config=cfg,
+            window_trades={0: {"is": [], "oos": []}},
+            db_path=str(db),
+        )
+
+
+def test_runner_skips_corpus_gate_when_corpus_id_none():
+    """T8 #2: corpus_id=None → _gate_corpus_or_raise is NOT called."""
+    cfg = WalkForwardConfig(
+        strategy_id="wf_test",
+        corpus_id=None,
+        windows=[WalkForwardWindow("2017-01-01", "2018-12-31", "2019-01-01", "2020-03-31")],
+    )
+    spec = _minimal_spec(None)
+    with patch(
+        "src.platform.rigor.walkforward_runner._gate_corpus_or_raise"
+    ) as mock_gate:
+        run_walkforward(
+            strategy_spec_raw=spec,
+            config=cfg,
+            window_trades={0: {"is": [], "oos": []}},
+        )
+        mock_gate.assert_not_called()
+
+
+def test_runner_persists_gate_version_v2_when_excess_sharpe_set(tmp_path):
+    """T8 #3: excess_sharpe_min=0.5 → gate_version='v2' in walkforward_results."""
+    db = tmp_path / "gate_version_v2.sqlite3"
+    create_all_tables(str(db))
+    cfg = WalkForwardConfig(
+        strategy_id="wf_test",
+        excess_sharpe_min=0.5,
+        windows=[WalkForwardWindow("2017-01-01", "2018-12-31", "2019-01-01", "2020-03-31")],
+    )
+    spec = _minimal_spec(None)
+    trades = _generate_trades("2019-01-01", "2020-03-31", n=20, sharpe_target=0.5)
+    result = run_walkforward(
+        strategy_spec_raw=spec,
+        config=cfg,
+        window_trades={0: {"is": [], "oos": trades}},
+    )
+    persist_run_result(
+        result=result,
+        strategy_spec_raw=spec,
+        oos_trades_per_window=[trades],
+        db_path=str(db),
+    )
+    conn = sqlite3.connect(str(db))
+    row = conn.execute(
+        "SELECT gate_version FROM walkforward_results WHERE run_id = ?",
+        (result.run_id,),
+    ).fetchone()
+    conn.close()
+    assert row is not None
+    assert row[0] == "v2"
+
+
+def test_runner_persists_gate_version_v1_when_excess_sharpe_none(tmp_path):
+    """T8 #4: excess_sharpe_min=None (default) → gate_version='v1' in walkforward_results."""
+    db = tmp_path / "gate_version_v1.sqlite3"
+    create_all_tables(str(db))
+    cfg = WalkForwardConfig(
+        strategy_id="wf_test",
+        excess_sharpe_min=None,
+        windows=[WalkForwardWindow("2017-01-01", "2018-12-31", "2019-01-01", "2020-03-31")],
+    )
+    spec = _minimal_spec(None)
+    trades = _generate_trades("2019-01-01", "2020-03-31", n=20, sharpe_target=0.5)
+    result = run_walkforward(
+        strategy_spec_raw=spec,
+        config=cfg,
+        window_trades={0: {"is": [], "oos": trades}},
+    )
+    persist_run_result(
+        result=result,
+        strategy_spec_raw=spec,
+        oos_trades_per_window=[trades],
+        db_path=str(db),
+    )
+    conn = sqlite3.connect(str(db))
+    row = conn.execute(
+        "SELECT gate_version FROM walkforward_results WHERE run_id = ?",
+        (result.run_id,),
+    ).fetchone()
+    conn.close()
+    assert row is not None
+    assert row[0] == "v1"
