@@ -181,7 +181,7 @@ export default function LiveLedger() {
     return sortTrades(t, sortKey, sortDir)
   }, [trades, filter, sortKey, sortDir])
 
-  const startingCapital = summary?.starting_capital || 100
+  const startingCapital = summary?.starting_capital || 100000
   const equity = summary?.current_equity || startingCapital
   const pnl = summary?.total_pnl || 0
   const winRate = summary?.win_rate

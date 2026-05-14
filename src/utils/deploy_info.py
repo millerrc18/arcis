@@ -27,8 +27,16 @@ logger = logging.getLogger(__name__)
 
 
 def _run_git(*args: str) -> str:
-    """Run a git command and return stripped stdout. Raises on non-zero or missing git."""
-    out = subprocess.check_output(["git", *args], stderr=subprocess.DEVNULL, text=True)
+    """Run a git command and return stripped stdout. Raises on non-zero or missing git.
+
+    Captures stderr so failure modes ("not a git repo", "dubious ownership"
+    when running under NSSM LocalSystem on an operator-owned repo, "git not on
+    PATH") are visible at debug level. Prior behavior was stderr=DEVNULL which
+    silently masked the actual error and made diagnosis require manual probing.
+    """
+    out = subprocess.check_output(
+        ["git", *args], stderr=subprocess.PIPE, text=True,
+    )
     return out.strip()
 
 
@@ -42,9 +50,22 @@ def get_deployment_info() -> dict[str, str]:
         info["git_short_sha"] = info["git_sha"][:8]
         info["git_commit_age"] = _run_git("log", "-1", "--format=%cr")
         info["git_branch"] = _run_git("rev-parse", "--abbrev-ref", "HEAD")
-    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
-        # Not in a git checkout, or git not on PATH — degrade gracefully.
-        logger.debug("[DEPLOY] git info unavailable: %s", exc)
+    except FileNotFoundError as exc:
+        logger.debug("[DEPLOY] git executable not on PATH: %s", exc)
+        info.setdefault("git_sha", "unknown")
+        info.setdefault("git_short_sha", "unknown")
+        info.setdefault("git_commit_age", "unknown")
+        info.setdefault("git_branch", "unknown")
+    except subprocess.CalledProcessError as exc:
+        # Capture stderr so dubious-ownership / not-a-repo errors are diagnosable.
+        # On LocalSystem-run services in operator-owned repos, this typically
+        # reads: "fatal: detected dubious ownership in repository at '...'"
+        # Fix: `git config --system --add safe.directory <repo-path>`.
+        stderr_text = (exc.stderr or "").strip() if hasattr(exc, "stderr") else ""
+        logger.debug(
+            "[DEPLOY] git failed (exit=%d): %s",
+            exc.returncode, stderr_text or "<no stderr>",
+        )
         info.setdefault("git_sha", "unknown")
         info.setdefault("git_short_sha", "unknown")
         info.setdefault("git_commit_age", "unknown")
