@@ -69,6 +69,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
                    help="print config and exit without running the framework")
     p.add_argument("--json", action="store_true",
                    help="print the outcome as a JSON object on stdout")
+    p.add_argument("--corpus-id", default=None,
+                   help="corpus ID to gate the run via SP-WF-010 "
+                        "filesystem corpus check (default: None = bypass gate)")
+    p.add_argument("--excess-sharpe-min", type=float, default=None,
+                   help="per-window rf-adjusted excess-Sharpe minimum per "
+                        "SP-WF-004 (default: None = raw-Sharpe gate only)")
     return p.parse_args(argv)
 
 
@@ -124,6 +130,8 @@ def main(argv: list[str] | None = None) -> int:
             embargo_days=args.embargo_days,
             per_side_cost_bps=args.per_side_bps,
             random_seed=args.seed,
+            corpus_id=args.corpus_id,
+            excess_sharpe_min=args.excess_sharpe_min,
         )
     except ValueError as e:
         print(f"ERROR: invalid config: {e}", file=sys.stderr)

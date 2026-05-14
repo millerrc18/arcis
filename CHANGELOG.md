@@ -4,6 +4,18 @@
 
 ### Added
 
+- Sprint 6 Wave B T10 (SP-WF-004/SP-WF-010): CLI flag + HTTP read-route extensions.
+  (A) CLI: added `--corpus-id <str>` flag to `scripts/backtest/run_walkforward.py` — passes
+  through to `WalkForwardConfig.corpus_id` per SP-WF-010; default None preserves backward
+  compat. Added `--excess-sharpe-min <float>` flag — passes through to
+  `WalkForwardConfig.excess_sharpe_min` per SP-WF-004; default None = raw-Sharpe gate only.
+  Both flags are additive (omitting them leaves existing behavior unchanged). (B) HTTP read-route:
+  `GET /api/walkforward/runs/{run_id}` already uses `SELECT *` so the T4 columns
+  (`gate_version`, `excess_sharpe_min_used`) are returned automatically. (C) +5 tests:
+  `tests/scripts/test_run_walkforward_cli.py` (2 new CLI flag tests) and new file
+  `tests/api/test_walkforward_route.py` (3 tests for gate_version + excess_sharpe_min_used
+  payload inclusion). T8 wired persistence; this task is the read-path + CLI entry-point.
+
 - Sprint 6 Wave B T8 (SP-WF-007/SP-WF-010): runner integration wiring T5/T6 outputs into
   `walkforward_runner.py`. (A) Corpus binding gate: when `config.corpus_id is not None`,
   delegates to the canonical filesystem-based gate at
