@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+(empty — entries below moved to v0.36.0)
+
+## [v0.36.0] - 2026-05-14 — Sprint 6 Wave B: Walk-Forward Validation Framework v1
+
+Sprint 6 wires walk-forward validation v1 (binding spec at
+`docs/audits/2026-05-11-stage1-completion/walkforward-spec-v1.md`) into the
+production gate hierarchy: shadow_trading → production AND-composition with
+fail-safe `WALKFORWARD_GATE_ENABLED` sentinel, DA-1 freshness cap, T13
+scheduler auto-fire, and Stage-1 corpus-binding admissibility check.
+
 ### Added
 
 - Sprint 6 Wave B T14 (SP-WF-014 + DA-1 + DA-5): production-gate walkforward composition in
