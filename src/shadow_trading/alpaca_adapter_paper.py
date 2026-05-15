@@ -18,7 +18,9 @@ def place_paper_entry(
     ticker: str, shares: int, order_type: str = "market", desk: str = "swing"
 ) -> dict:
     """Place a paper buy order. Returns order details dict."""
-    from src.shadow_trading.alpaca_adapter import _check_enabled, _get_trading_client
+    from src.shadow_trading.alpaca_adapter import (
+        _check_enabled, _get_trading_client, _strip_enum,
+    )
     _check_enabled()
 
     logger.info("[SHADOW] Placing paper BUY: %d shares of %s", shares, ticker)
@@ -47,7 +49,7 @@ def place_paper_entry(
         "qty": float(order.qty) if order.qty else shares,
         "side": str(order.side),
         "type": str(order.type),
-        "status": str(order.status),
+        "status": _strip_enum(order.status),
         "filled_avg_price": float(order.filled_avg_price) if order.filled_avg_price else None,
         "filled_at": str(order.filled_at) if order.filled_at else None,
         "created_at": str(order.created_at) if order.created_at else None,
@@ -58,7 +60,9 @@ def place_paper_exit(
     ticker: str, shares: int, order_type: str = "market", desk: str = "swing"
 ) -> dict:
     """Place a paper sell order. Returns order details dict."""
-    from src.shadow_trading.alpaca_adapter import _check_enabled, _get_trading_client
+    from src.shadow_trading.alpaca_adapter import (
+        _check_enabled, _get_trading_client, _strip_enum,
+    )
     _check_enabled()
 
     logger.info("[SHADOW] Placing paper SELL: %d shares of %s", shares, ticker)
@@ -83,7 +87,7 @@ def place_paper_exit(
         "qty": float(order.qty) if order.qty else shares,
         "side": str(order.side),
         "type": str(order.type),
-        "status": str(order.status),
+        "status": _strip_enum(order.status),
         "filled_avg_price": float(order.filled_avg_price) if order.filled_avg_price else None,
         "filled_at": str(order.filled_at) if order.filled_at else None,
     }
@@ -112,7 +116,9 @@ def place_bracket_order(
     WHY limit_price option: For less-liquid names, a limit entry prevents
     paying an unreasonable spread on market open.
     """
-    from src.shadow_trading.alpaca_adapter import _check_enabled, _get_trading_client
+    from src.shadow_trading.alpaca_adapter import (
+        _check_enabled, _get_trading_client, _strip_enum,
+    )
     _check_enabled()
 
     # Fix for #263: removed duplicate log line
@@ -150,7 +156,7 @@ def place_bracket_order(
         "side": str(order.side),
         "type": str(order.type),
         "order_class": "bracket",
-        "status": str(order.status),
+        "status": _strip_enum(order.status),
         "filled_avg_price": float(order.filled_avg_price) if order.filled_avg_price else None,
         "legs": [str(leg.id) for leg in order.legs] if order.legs else [],
     }

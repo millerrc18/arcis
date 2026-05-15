@@ -101,6 +101,8 @@ def place_live_entry(
     if not cfg["enabled"]:
         raise LiveTradingError("Live trading is disabled in config.")
 
+    from src.shadow_trading.alpaca_adapter import _strip_enum
+
     client = _get_live_trading_client()
 
     from alpaca.trading.requests import MarketOrderRequest
@@ -131,7 +133,7 @@ def place_live_entry(
         "qty": float(order.qty) if order.qty else shares,
         "side": str(order.side),
         "type": str(order.type),
-        "status": str(order.status),
+        "status": _strip_enum(order.status),
         "filled_avg_price": float(order.filled_avg_price) if order.filled_avg_price else None,
         "filled_at": str(order.filled_at) if order.filled_at else None,
         "created_at": str(order.created_at) if order.created_at else None,
@@ -185,6 +187,8 @@ def place_live_bracket(
     if not cfg["enabled"]:
         raise LiveTradingError("Live trading is disabled in config.")
 
+    from src.shadow_trading.alpaca_adapter import _strip_enum
+
     logger.info(
         "[LIVE] Placing BRACKET order: %d shares of %s "
         "(TP=$%.2f, SL=$%.2f%s)",
@@ -205,7 +209,7 @@ def place_live_bracket(
         "side": str(order.side),
         "type": str(order.type),
         "order_class": "bracket",
-        "status": str(order.status),
+        "status": _strip_enum(order.status),
         "filled_avg_price": float(order.filled_avg_price) if order.filled_avg_price else None,
         "legs": [str(leg.id) for leg in order.legs] if order.legs else [],
     }
@@ -226,6 +230,8 @@ def place_live_exit(ticker: str, shares: int | float = 0) -> dict:
     if not cfg["enabled"]:
         raise LiveTradingError("Live trading is disabled in config.")
 
+    from src.shadow_trading.alpaca_adapter import _strip_enum
+
     client = _get_live_trading_client()
 
     # Use close_position for clean fractional exits
@@ -239,7 +245,7 @@ def place_live_exit(ticker: str, shares: int | float = 0) -> dict:
                 "qty": float(order.qty) if hasattr(order, 'qty') and order.qty else 0,
                 "side": "sell",
                 "type": "market",
-                "status": str(order.status) if hasattr(order, 'status') else "closed",
+                "status": _strip_enum(order.status) if hasattr(order, 'status') else "closed",
                 "filled_avg_price": float(order.filled_avg_price) if hasattr(order, 'filled_avg_price') and order.filled_avg_price else None,
                 "filled_at": str(order.filled_at) if hasattr(order, 'filled_at') and order.filled_at else None,
             }
@@ -266,7 +272,7 @@ def place_live_exit(ticker: str, shares: int | float = 0) -> dict:
         "qty": float(order.qty) if order.qty else shares,
         "side": str(order.side),
         "type": str(order.type),
-        "status": str(order.status),
+        "status": _strip_enum(order.status),
         "filled_avg_price": float(order.filled_avg_price) if order.filled_avg_price else None,
         "filled_at": str(order.filled_at) if order.filled_at else None,
     }
@@ -297,12 +303,13 @@ def get_live_positions(desk: str = "swing") -> list[dict]:
 
 def get_live_order_status(order_id: str) -> dict:
     """Check the status of a live order."""
+    from src.shadow_trading.alpaca_adapter import _strip_enum
     client = _get_live_trading_client()
     order = client.get_order_by_id(order_id)
     return {
         "order_id": str(order.id),
         "symbol": str(order.symbol),
-        "status": str(order.status),
+        "status": _strip_enum(order.status),
         "filled_qty": str(order.filled_qty) if order.filled_qty else "0",
         "filled_avg_price": float(order.filled_avg_price) if order.filled_avg_price else None,
         "filled_at": str(order.filled_at) if order.filled_at else None,
