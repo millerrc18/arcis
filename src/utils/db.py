@@ -49,6 +49,29 @@ logger = logging.getLogger(__name__)
 DEFAULT_DB = DB_PATH
 BUSY_TIMEOUT_MS = 30_000  # 30s — rides through typical external-tool locks
 
+
+# ── Engine-agnostic exception tuples ─────────────────────────────────────────
+#
+# 2026-05-15 v0.36.8 — closes the exception-class gap that caused the v0.36.7
+# council Round 1 crash. Before this, `except sqlite3.Error` wrappers couldn't
+# catch `psycopg2.errors.*` because the two engines have separate hierarchies.
+# Post-PG-cutover, half the DB errors are psycopg2-class and were escaping
+# every wrapper that hadn't been rewritten by hand.
+#
+# Usage at call sites:
+#   from src.utils.db import DBError, DBOperationalError, DBIntegrityError
+#   try:
+#       conn.execute(...)
+#   except DBError:
+#       # Catches both sqlite3.Error and psycopg2.Error subclasses.
+#       ...
+#
+# psycopg2 is imported unconditionally above (line 41) — required by every
+# caller of this module, so no try/except ImportError fallback is needed.
+DBError: tuple = (sqlite3.Error, psycopg2.Error)
+DBOperationalError: tuple = (sqlite3.OperationalError, psycopg2.OperationalError)
+DBIntegrityError: tuple = (sqlite3.IntegrityError, psycopg2.IntegrityError)
+
 _SENTINEL = object()
 
 _DB_PATH_WARNED: set[int] = set()

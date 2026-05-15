@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Union
 
 from src.monitoring.errors import MonitoringDataError
+from src.utils.db import DBError
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +159,7 @@ def _process_ticker(
     entry["actual_state"] = db_pos.status
     try:
         _write_platform_events_row(conn, finding)
-    except sqlite3.Error as exc:
+    except DBError as exc:
         logger.error("[DRIFT] Failed to write platform_events row for %s: %s", ticker, exc)
     return finding
 

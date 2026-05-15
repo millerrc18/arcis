@@ -33,7 +33,7 @@ import requests
 
 from src.config import DB_PATH
 from src.data_collection._finnhub_shared import get_finnhub_key as _get_finnhub_key
-from src.utils.db import connect_db, engine_aware_upsert
+from src.utils.db import DBIntegrityError, connect_db, engine_aware_upsert
 from src.utils.retry import retry_with_backoff
 
 logger = logging.getLogger(__name__)
@@ -138,7 +138,7 @@ def collect_short_interest(
                         )
                         if existing is None:
                             records_stored += 1
-                    except sqlite3.IntegrityError:
+                    except DBIntegrityError:
                         pass  # Duplicate — already have this settlement date
 
                 tickers_processed += 1

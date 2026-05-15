@@ -13,7 +13,7 @@ import logging
 from datetime import date
 
 from src.platform.capability_registry import register_state
-from src.utils.db import connect_db
+from src.utils.db import DBOperationalError, connect_db
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ def _training_corpus_counts() -> dict:
         total_row = conn.execute(
             "SELECT COUNT(*) FROM training_examples",
         ).fetchone()
-    except sqlite3.OperationalError as exc:
+    except DBOperationalError as exc:
         return {"error": f"training_examples unavailable: {exc}"}
     finally:
         conn.close()

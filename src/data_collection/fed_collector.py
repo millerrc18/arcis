@@ -33,7 +33,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from src.config import DB_PATH
-from src.utils.db import connect_db, engine_aware_upsert
+from src.utils.db import DBIntegrityError, connect_db, engine_aware_upsert
 
 logger = logging.getLogger(__name__)
 ET = ZoneInfo("America/New_York")
@@ -140,7 +140,7 @@ def _store_fed_item(
             action="ignore",
         )
         return 1
-    except sqlite3.IntegrityError:
+    except DBIntegrityError:
         return 0
 
 

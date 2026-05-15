@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from src.utils.db import connect_db
+from src.utils.db import DBError, connect_db
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -138,7 +138,7 @@ def check_book_drawdown_circuit_breaker(
             "ORDER BY actual_exit_time"
         ).fetchall()
         conn.close()
-    except sqlite3.Error:
+    except DBError:
         return True, 0.0
 
     if not rows:

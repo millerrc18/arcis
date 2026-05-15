@@ -33,7 +33,7 @@ import requests
 from src.config import DB_PATH
 from src.data_collection._finnhub_shared import get_finnhub_key as _get_finnhub_key
 from src.data_enrichment.finnhub_plan import finnhub_plan_supports, get_finnhub_plan
-from src.utils.db import connect_db, engine_aware_upsert
+from src.utils.db import DBIntegrityError, connect_db, engine_aware_upsert
 from src.utils.retry import retry_with_backoff
 
 logger = logging.getLogger(__name__)
@@ -192,7 +192,7 @@ def collect_analyst_estimates(
                         conn, "analyst_estimates", row_dict, action="ignore"
                     )
                     estimates_stored += 1
-                except sqlite3.IntegrityError:
+                except DBIntegrityError:
                     pass  # Duplicate — already collected today
 
                 tickers_processed += 1

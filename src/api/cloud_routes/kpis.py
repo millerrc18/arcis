@@ -30,6 +30,7 @@ from src.analytics import kpis_compute as _analytics_kpis
 from src.analytics.instrumentation_filter import filter_fully_instrumented
 from src.api.cohort_meta import COHORT_LABELS, meta_entry
 from src.config import DB_PATH
+from src.utils.db import DBOperationalError
 
 _log = logging.getLogger(__name__)
 
@@ -94,7 +95,7 @@ def get_gate_proposal_kpis() -> dict:
     """
     try:
         return _analytics_kpis.get_gate_proposal_counts(DB_PATH)
-    except sqlite3.OperationalError as exc:
+    except DBOperationalError as exc:
         _log.warning(
             "[gate-proposals] strategy_promotion_events not yet available: %s; "
             "returning zero shape", exc,

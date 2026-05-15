@@ -31,7 +31,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from src.config import DB_PATH
-from src.utils.db import connect_db, engine_aware_column_info, engine_aware_upsert
+from src.utils.db import DBIntegrityError, connect_db, engine_aware_column_info, engine_aware_upsert
 from src.data_collection.edgar_historical import (  # noqa: F401 — re-exported
     _lookup_primary_document,
     _lookup_primary_document_via_index as _lookup_primary_document_via_index,
@@ -369,7 +369,7 @@ def collect_new_filings(
                             except Exception as nlp_err:
                                 logger.debug("[EDGAR] NLP scoring failed for %s: %s", accession, nlp_err)
 
-                    except sqlite3.IntegrityError:
+                    except DBIntegrityError:
                         pass  # Duplicate accession number
 
                 tickers_processed += 1

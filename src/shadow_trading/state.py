@@ -29,7 +29,7 @@ import sqlite3
 from datetime import date
 
 from src.config import DB_PATH
-from src.utils.db import connect_db
+from src.utils.db import DBOperationalError, connect_db
 from src.platform.capability_registry import register_state
 from src.shadow_trading._status_sql import active_in_clause, terminal_in_clause
 
@@ -54,7 +54,7 @@ def _shadow_cohort_counts() -> dict:
             "FROM shadow_trades",
             active_params + terminal_params,
         ).fetchone()
-    except sqlite3.OperationalError as exc:
+    except DBOperationalError as exc:
         return {"error": f"shadow_trades unavailable: {exc}"}
     finally:
         conn.close()

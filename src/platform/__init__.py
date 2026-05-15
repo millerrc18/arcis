@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import date
 
 from src.platform.capability_registry import register_action, register_state
-from src.utils.db import connect_db
+from src.utils.db import DBOperationalError, connect_db
 
 _INTRODUCED = "v0.24.0"
 _LAST_REVIEWED = date(2026, 4, 18)
@@ -66,7 +66,7 @@ def _query_strategy_registry_state() -> dict:
             "SELECT current_status, COUNT(*) AS n "
             "FROM strategy_registry GROUP BY current_status",
         ).fetchall()
-    except sqlite3.OperationalError as exc:
+    except DBOperationalError as exc:
         return {"error": f"table missing or locked: {exc}"}
     finally:
         conn.close()

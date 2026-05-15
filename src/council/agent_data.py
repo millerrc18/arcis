@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
 from src.council.errors import CouncilAgentDataError
-from src.utils.db import connect_db
+from src.utils.db import DBError, connect_db
 from src.shadow_trading.exit_reason import outcome_stats_filter_sql
 
 logger = logging.getLogger(__name__)
@@ -82,7 +82,7 @@ def gather_tactical_data(db_path: str = DB_PATH) -> str:
                             else "backwardation (fear)"
                         )
                         parts.append(f"Term structure: {structure}")
-            except sqlite3.Error as exc:
+            except DBError as exc:
                 logger.debug("[COUNCIL] Tactical VIX query: %s", exc)
 
             try:
@@ -93,7 +93,7 @@ def gather_tactical_data(db_path: str = DB_PATH) -> str:
                     parts.append(
                         f"Traffic Light: {tl['current_regime']} (score {tl['last_total_score']}/6)"
                     )
-            except sqlite3.Error:
+            except DBError:
                 pass
 
             try:
@@ -113,7 +113,7 @@ def gather_tactical_data(db_path: str = DB_PATH) -> str:
                             f"  {scan['scan_time']}: {scan['packet_worthy']} packets, "
                             f"conv {scan['avg_conviction']:.1f}{fallback}"
                         )
-            except sqlite3.Error as exc:
+            except DBError as exc:
                 logger.debug("[COUNCIL] Tactical scan query: %s", exc)
 
             try:
@@ -145,7 +145,7 @@ def gather_tactical_data(db_path: str = DB_PATH) -> str:
                         )
                 else:
                     parts.append("\nNo open positions.")
-            except sqlite3.Error as exc:
+            except DBError as exc:
                 logger.debug("[COUNCIL] Tactical positions query: %s", exc)
 
     except (CouncilAgentDataError, sqlite3.Error) as exc:
@@ -177,7 +177,7 @@ def gather_strategic_data(db_path: str = DB_PATH) -> str:
                 n_open = (total["n"] if total else 0) - n_closed
                 parts.append(f"Trades: {n_closed} closed, {n_open} open")
                 parts.append(f"Phase 1 gate: {n_closed}/50 ({n_closed / 50 * 100:.0f}%)")
-            except sqlite3.Error as exc:
+            except DBError as exc:
                 logger.debug("[COUNCIL] Strategic trade count: %s", exc)
 
             try:
@@ -193,7 +193,7 @@ def gather_strategic_data(db_path: str = DB_PATH) -> str:
                         f"P&L: ${pnl['total']:.2f} total, {pnl['avg']:.2f}% avg, "
                         f"{win_rate:.0f}% WR ({pnl['wins']}/{pnl['n']})"
                     )
-            except sqlite3.Error as exc:
+            except DBError as exc:
                 logger.debug("[COUNCIL] Strategic P&L: %s", exc)
 
             try:
@@ -207,7 +207,7 @@ def gather_strategic_data(db_path: str = DB_PATH) -> str:
                         else ", no quality scores"
                     )
                     parts.append(f"\nTraining: {training['n']} examples{quality}")
-            except sqlite3.Error:
+            except DBError:
                 pass
 
             try:
@@ -224,7 +224,7 @@ def gather_strategic_data(db_path: str = DB_PATH) -> str:
                 versions = conn.execute("SELECT COUNT(*) as n FROM model_versions").fetchone()
                 if versions:
                     parts.append(f"Model versions trained: {versions['n']}")
-            except sqlite3.Error:
+            except DBError:
                 pass
 
     except (CouncilAgentDataError, sqlite3.Error) as exc:
@@ -260,7 +260,7 @@ def gather_risk_data(db_path: str = DB_PATH) -> str:
                         parts.append(f"  {sector['sector']}: {sector['n']} positions{allocation}")
                 else:
                     parts.append("No open positions for sector analysis.")
-            except sqlite3.Error as exc:
+            except DBError as exc:
                 logger.debug("[COUNCIL] Risk sector: %s", exc)
 
             try:
@@ -277,7 +277,7 @@ def gather_risk_data(db_path: str = DB_PATH) -> str:
                             f"  {loss['ticker']}: {loss['pnl_pct']:.1f}% "
                             f"({loss['exit_reason']}) {(loss['actual_exit_time'] or '')[:10]}"
                         )
-            except sqlite3.Error as exc:
+            except DBError as exc:
                 logger.debug("[COUNCIL] Risk losses: %s", exc)
 
             try:
@@ -295,7 +295,7 @@ def gather_risk_data(db_path: str = DB_PATH) -> str:
                     rate = (1 - fallback["ok"] / fallback["total"]) * 100
                     status = "⚠️ ELEVATED" if rate > 20 else "✓ normal"
                     parts.append(f"\n7-day fallback rate: {rate:.1f}% ({status})")
-            except sqlite3.Error:
+            except DBError:
                 pass
 
             try:
@@ -305,7 +305,7 @@ def gather_risk_data(db_path: str = DB_PATH) -> str:
                 ).fetchone()
                 if cumulative and cumulative["total"] is not None:
                     parts.append(f"Cumulative closed P&L: ${cumulative['total']:.2f}")
-            except sqlite3.Error:
+            except DBError:
                 pass
 
             try:
@@ -325,7 +325,7 @@ def gather_risk_data(db_path: str = DB_PATH) -> str:
                 ).fetchone()
                 if mae and mae["worst_mae"] is not None:
                     parts.append(f"Worst MAE (single trade): {mae['worst_mae']:.1f}%")
-            except sqlite3.Error:
+            except DBError:
                 pass
 
     except (CouncilAgentDataError, sqlite3.Error) as exc:
@@ -362,7 +362,7 @@ def gather_innovation_data(db_path: str = DB_PATH) -> str:
                 parts.append(
                     f"Training data: {total['n']} total, +{new_week['n']} this week, +{new_month['n']} this month"
                 )
-            except sqlite3.Error:
+            except DBError:
                 pass
 
             try:
@@ -380,7 +380,7 @@ def gather_innovation_data(db_path: str = DB_PATH) -> str:
                         )
                     else:
                         parts.append(f"Quality: {quality['unscored']} unscored")
-            except sqlite3.Error:
+            except DBError:
                 pass
 
             try:
@@ -392,7 +392,7 @@ def gather_innovation_data(db_path: str = DB_PATH) -> str:
                     parts.append("\nSources:")
                     for source in sources:
                         parts.append(f"  {source['source'] or 'unknown'}: {source['n']}")
-            except sqlite3.Error:
+            except DBError:
                 pass
 
             try:
@@ -404,7 +404,7 @@ def gather_innovation_data(db_path: str = DB_PATH) -> str:
                     parts.append("Curriculum:")
                     for stage in stages:
                         parts.append(f"  {stage['curriculum_stage']}: {stage['n']}")
-            except sqlite3.Error:
+            except DBError:
                 pass
 
             try:
@@ -419,7 +419,7 @@ def gather_innovation_data(db_path: str = DB_PATH) -> str:
                     parts.append("\nFallback rate (7 days):")
                     for row in fallback:
                         parts.append(f"  {row['day']}: {row['fb_pct']:.1f}%")
-            except sqlite3.Error:
+            except DBError:
                 pass
 
     except (CouncilAgentDataError, sqlite3.Error) as exc:
@@ -459,7 +459,7 @@ def gather_macro_data(db_path: str = DB_PATH) -> str:
                 if lines:
                     parts.append("Macro indicators:")
                     parts.extend(lines)
-            except sqlite3.Error as exc:
+            except DBError as exc:
                 logger.debug("[COUNCIL] Macro indicators: %s", exc)
 
             try:
@@ -475,7 +475,7 @@ def gather_macro_data(db_path: str = DB_PATH) -> str:
                         parts.append(f"\nYield curve flat ({value:.2f}%)")
                     else:
                         parts.append(f"\nYield curve normal ({value:.2f}%)")
-            except sqlite3.Error:
+            except DBError:
                 pass
 
             try:
@@ -497,7 +497,7 @@ def gather_macro_data(db_path: str = DB_PATH) -> str:
                     z_score = (high_yield["value"] - average["avg"]) / max(0.1, abs(average["avg"] * 0.15))
                     status = "tight" if z_score < 0 else "normal" if z_score < 1 else "widening" if z_score < 2 else "STRESS"
                     parts.append(f"Credit: {status} (HY OAS z ≈ {z_score:.1f})")
-            except sqlite3.Error:
+            except DBError:
                 pass
 
             try:
@@ -514,7 +514,7 @@ def gather_macro_data(db_path: str = DB_PATH) -> str:
                     for sector in sectors:
                         emoji = "🟢" if sector["avg"] > 0 else "🔴"
                         parts.append(f"  {emoji} {sector['sector']}: {sector['avg']:+.1f}% ({sector['n']})")
-            except sqlite3.Error:
+            except DBError:
                 pass
 
     except (CouncilAgentDataError, sqlite3.Error) as exc:
