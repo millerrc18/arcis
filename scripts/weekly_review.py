@@ -27,7 +27,7 @@ import json
 import os
 import sqlite3
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # Ensure we're in the repo root
@@ -62,8 +62,11 @@ if not DB_PATH:
 conn = connect_db(DB_PATH)
 
 # Single Python-computed cutoff for every "this week" query in this script —
-# SQLite's datetime('now', '-7 days') has no Postgres equivalent.
-SEVEN_DAYS_AGO_ISO = (datetime.now() - timedelta(days=7)).isoformat()
+# SQLite's datetime('now', '-7 days') has no Postgres equivalent. Use UTC
+# to preserve the prior SQLite semantic (datetime('now') is UTC); the
+# script's report header still renders in local time via the separate
+# datetime.now() calls at lines 50 and 393.
+SEVEN_DAYS_AGO_ISO = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
 
 # List all tables so we know what's available
 tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()]
