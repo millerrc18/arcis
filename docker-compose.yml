@@ -52,16 +52,38 @@ services:
       timeout: 3s
       retries: 10
       start_period: 10s
-    # Reasonable memory cap. Postgres on a single 398-MB-equivalent dataset
-    # rarely needs more than 1 GB shared_buffers + 2-4 GB OS cache. Adjust
-    # in postgres conf if cold-start query latency becomes an issue.
+    # Memory cap raised from 2G → 8G on 2026-05-15. The 2G cap was the
+    # asymmetric default vs halcyon-pg-test's unlimited (caught during
+    # P0 RCCA — see docs/audits/2026-05-14-p0-pg-wipe/rcca.md). 8G gives
+    # PG headroom to bump shared_buffers (currently 128MB default) and
+    # absorb dashboard burst loads without OOM-class risk.
     command:
       - "postgres"
+      # === Forensic logging baseline (PA-1, 2026-05-15 RCCA) ===
+      # log_statement=all + logging_collector=on writes EVERY SQL statement
+      # to files at /var/lib/postgresql/data/log/ . Without logging_collector,
+      # logs go to stderr → docker logs circular buffer → rotated past the
+      # wipe window before forensic check ran (2026-05-14 P0 incident, where
+      # ~70 dropped tables had no smoking-gun DDL in retained logs).
+      #
+      # File-based logs survive docker log rotation. Rotation is by file
+      # size (100MB) — small enough to read with `tail`, large enough that
+      # an hour of busy traffic fits in one file.
       - "-c"
       - "log_statement=all"
+      - "-c"
+      - "logging_collector=on"
+      - "-c"
+      - "log_directory=log"
+      - "-c"
+      - "log_filename=postgresql-%Y-%m-%d_%H%M%S.log"
+      - "-c"
+      - "log_rotation_size=100MB"
+      - "-c"
+      - "log_min_messages=warning"
       - "-c"
       - "log_line_prefix=%t [%p] %u@%d "
     deploy:
       resources:
         limits:
-          memory: 2G
+          memory: 8G

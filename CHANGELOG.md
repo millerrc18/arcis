@@ -2,7 +2,54 @@
 
 ## [Unreleased]
 
-(empty — entries below moved to v0.36.1)
+### Operations
+
+- **PA-1 — PG forensic logging baseline (`docker-compose.yml`):** added
+  `logging_collector=on` + `log_directory=log` + `log_filename=postgresql-%Y-%m-%d_%H%M%S.log`
+  + `log_rotation_size=100MB` to the postgres service command line. Forensic logs
+  now persist to file at `/var/lib/postgresql/data/log/` rather than going only
+  to stderr → docker logs (a finite circular buffer). Closes the observability
+  gap identified in the 2026-05-14 P0 RCCA (without `logging_collector=on`, the
+  docker log buffer rotated past the wipe window before forensic check ran,
+  leaving the destructive DDL unidentified).
+- **PA-1 — halcyon-pg memory cap raised 2G → 8G:** matches operator-side `docker
+  update --memory=8g` applied 2026-05-15 (was asymmetric with halcyon-pg-test's
+  unlimited cap). Gives PG headroom to bump `shared_buffers` from default 128MB
+  to a workload-appropriate value (next operator task; requires PG restart).
+- **PA-3 — codified recovery script (`scripts/recovery/restore_pg_from_snapshot.ps1`):**
+  replaces ad-hoc interactive psql sessions for PG recovery from snapshot. Includes
+  pre-flight checks (file size, optional SHA256), confirmation prompt, atomic
+  DROP+CREATE schema, snapshot copy via PowerShell (avoids Git Bash path
+  mangling that bit recovery on 2026-05-14), `psql -f` restore, post-restore
+  GRANT ALL + ALTER DEFAULT PRIVILEGES (per memory feedback_drop_schema_grant_pattern
+  — without these, halcyon_app can SELECT but not UPDATE → watch loop restart
+  loop, incident 2026-05-15), table-count + row-count verification, and a
+  canary UPDATE test as halcyon_app to confirm permissions actually work.
+  Per-recovery audit dir at `C:\arcis\data\recovery-audit\<timestamp>\`.
+
+### Fixed
+
+- **PA-4 — `python-dotenv` path-pinning (`src/config/__init__.py:44`):**
+  `load_dotenv()` now binds explicitly to `<repo_root>/.env` (computed from
+  `Path(__file__).resolve().parent.parent.parent`) instead of using
+  `find_dotenv()`'s default parent-directory walk. Closes the H5 finding
+  from the 2026-05-14 P0 RCCA: pytest in agent worktrees at
+  `C:/arcis/halcyon-lab/.claude/worktrees/agent-XXX/` was walking UP and
+  finding the operator's production `.env`, inheriting `DATABASE_URL=prod-PG`
+  and `ARCIS_PG_CUTOVER_ENABLED=1` — defeating worktree env-isolation
+  contrary to memory `feedback_worktree_env_drift`. With the path-pin,
+  worktrees only load their own `.env` (typically absent since `.env` is
+  gitignored), restoring intended hermeticity.
+
+### Docs
+
+- **`docs/audits/2026-05-14-p0-pg-wipe/rcca.md`** — full RCCA-lite report
+  for the 2026-05-14 PG halcyon table-wipe incident. Documents the four
+  candidate hypotheses tested (3 falsified/weakened, 1 unconfirmed), the
+  H5 finding (python-dotenv parent-walk inheritance), the 7 proposed
+  preventive actions, lessons learned, and open questions. Honest about
+  what's known vs unknown.
+
 
 ## [v0.36.1] — 2026-05-14 — Dashboard rectification: 9 P-cluster fixes + morning hotfixes
 

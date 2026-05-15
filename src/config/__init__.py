@@ -41,7 +41,25 @@ from dotenv import load_dotenv
 # in .env are available regardless of how the code is invoked (CLI,
 # direct import, one-liner, etc.). Duplicate of the call in main.py
 # and watch.py, but load_dotenv() is idempotent — safe to call multiple times.
-load_dotenv()
+#
+# === Path-pinned to repo root (PA-4, 2026-05-15 RCCA) ===
+# Default `load_dotenv()` calls `find_dotenv()` which walks UP from CWD
+# looking for `.env`. When pytest runs in an agent worktree at
+# C:/arcis/halcyon-lab/.claude/worktrees/agent-XXX/, it walks up to
+# C:/arcis/halcyon-lab/ and inherits the operator's production `.env`
+# — including DATABASE_URL=prod-PG + ARCIS_PG_CUTOVER_ENABLED=1. This
+# defeats worktree env-isolation (memory `feedback_worktree_env_drift`
+# was previously believed to be a one-way isolation; H5 finding in
+# docs/audits/2026-05-14-p0-pg-wipe/rcca.md proved otherwise).
+#
+# Binding `dotenv_path` to <THIS-FILE>/../../.env (the SAME repo as
+# this src/config/__init__.py) means:
+#   - On the operator's main repo: same `.env` loaded as before.
+#   - In an agent worktree: that worktree's own `.env` (typically
+#     absent because `.env` is gitignored). Nothing inherited from
+#     the parent repo. Worktree env-isolation is restored.
+_ENV_PATH = Path(__file__).resolve().parent.parent.parent / ".env"
+load_dotenv(dotenv_path=_ENV_PATH, override=False)
 
 # Central database path constant — must be set via ARCIS_DB_PATH env var.
 # This is the single source of truth for the SQLite path. Every module
