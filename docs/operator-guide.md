@@ -142,6 +142,72 @@ These are data-side follow-ups that do not require a code deploy:
 
 ---
 
+## 2026-05-15 — P0 RCCA + preventive actions (post-v0.36.1)
+
+The 2026-05-14 PG halcyon table-wipe incident (P0 #1104) prompted a full
+RCCA-lite investigation today. Three of the seven proposed preventive actions
+shipped as commit `82a4f308`. **Root cause remains UNDETERMINED at code
+level**; the shipped mitigations broaden defense across known attack surfaces.
+
+### Read the RCCA first
+
+The full Root Cause Corrective Action report is at
+`docs/audits/2026-05-14-p0-pg-wipe/rcca.md`. It documents:
+
+- The 4 candidate hypotheses tested (3 falsified, 1 unconfirmed)
+- The H5 finding: `python-dotenv` walks UP from CWD to find parent repo's
+  `.env`, defeating worktree env-isolation
+- 7 proposed preventive actions (PA-1 through PA-7) — 3 shipped today
+- Open questions for future investigation
+
+### What shipped today (2026-05-15)
+
+| PA | What it does | Activation |
+|---|---|---|
+| **PA-1a** | `logging_collector=on` + file-based PG logs in `docker-compose.yml` | Next `docker compose down && up` (already live via ALTER SYSTEM) |
+| **PA-1b** | halcyon-pg memory cap **2G → 8G** (matches live `docker update`) | Already live; persists across recreations |
+| **PA-3** | `scripts/recovery/restore_pg_from_snapshot.ps1` codifies recovery | On-demand — see §6 "PG halcyon table-loss recovery" |
+| **PA-4** | `load_dotenv()` path-pinned to `<repo>/.env` (no parent-walk) | Next watch-loop / dashboard restart |
+
+### What still needs your hand (deferred from this batch)
+
+- **PA-2 — nightly off-machine PG snapshots.** Task Scheduler cron that runs
+  `pg_dump` + uploads to OneDrive/S3. Half-day work, fully scriptable.
+- **PA-5 — pre-push hook to verify docker-compose forensic settings.**
+  Prevents accidental config drift. Half-day.
+- **PA-6 — watch loop self-monitor for table-count delta.** Detect schema-loss
+  events before data collectors re-create tables and obscure evidence. Half-day.
+- **PA-7 — transcript fidelity.** Upstream Anthropic tooling issue (200-char
+  truncation in tool_use entries). Reported in RCCA Q1; no operator action.
+
+### Memory limit asymmetry resolved
+
+- `halcyon-pg`: **8 GiB** (was 2 GiB — asymmetric with test)
+- `halcyon-pg-test`: **2 GiB** (was unlimited)
+
+Applied live via `docker update --memory=8g --memory-swap=8g halcyon-pg` and
+`docker update --memory=2g --memory-swap=2g halcyon-pg-test` (2026-05-15
+~07:30 ET). The `docker-compose.yml` is now consistent with the live state.
+
+To bump `shared_buffers` (currently PG default 128 MB) to take advantage of
+the 8 GiB cap:
+```bash
+docker exec halcyon-pg psql -U halcyon -d halcyon -c "ALTER SYSTEM SET shared_buffers='2GB';"
+# Requires PG restart to take effect:
+docker compose restart halcyon-pg
+```
+**Do this after market close, not during trading hours.**
+
+### Memories updated / saved
+
+- `feedback_worktree_env_drift` — added 2026-05-15 H5 finding (python-dotenv
+  parent-walk inheritance). The original "worktrees don't carry operator's
+  `.env`" framing is now known to be incomplete; PA-4 closes the gap.
+- `feedback_drop_schema_grant_pattern` (saved 2026-05-14) — the GRANT pattern
+  needed after `DROP SCHEMA public CASCADE` to avoid watch-loop restart loops.
+
+---
+
 ## Table of contents
 
 0. [System Overview](#0-system-overview) — what ARCIS is and how it fits together
@@ -691,6 +757,161 @@ Compare local vs cloud:
    - For others: UPDATE sync_state SET last_synced_at = '<recent timestamp>' WHERE table_name = '<table>'
 ```
 
+### "Watch loop in tight restart loop"
+
+Symptom: `arcis.log` shows the same startup sequence every ~30 seconds. Service
+shows `Running` but actual PID rotates rapidly. `arcis_err.log` shows recent
+Python traceback.
+
+```
+Check arcis_err.log for the FIRST error pattern:
+├─ "psycopg2.OperationalError: connection to server ... Connection refused"
+│    → PG container is down or unreachable
+│    → Check Docker: docker ps | grep halcyon-pg
+│    → If absent: Docker Desktop crashed (see "Docker Desktop died overnight")
+│    → If present but unhealthy: docker logs halcyon-pg --tail 50
+│
+├─ "psycopg2.errors.InsufficientPrivilege: permission denied for table X"
+│    → halcyon_app missing GRANTs (post-recovery permission gap)
+│    → Apply the GRANT pattern (see §6 "Post-recovery permission gap")
+│
+├─ "Another watch loop is already running (PID ...)"
+│    → Stale lockfile + dead PID
+│    → rm data/watch.lock ; nssm restart ArcisWatchLoop
+│
+├─ "ARCIS_DB_PATH not set ... DATABASE_URL not set"
+│    → .env not loaded; check src/config/__init__.py path resolution
+│    → If running pytest in a worktree, this is now EXPECTED per PA-4
+│      (worktree env-isolation enforced; export ARCIS_DB_PATH manually
+│      or place a worktree-local .env if you need DB access)
+│
+└─ Watchdog marker at data/watchdog.txt updated recently?
+   → M3 fast-exit fired. Last 5 retries of PG connect failed (2.5 min total).
+   → Cause is whatever made PG unreachable for 2.5 min straight.
+   → Often: Docker memory pressure, WSL2 hiccup, network blip, brief
+     docker update side-effect.
+```
+
+To break the restart loop while diagnosing:
+```powershell
+nssm stop ArcisWatchLoop
+# Fix root cause...
+nssm start ArcisWatchLoop
+# Service may flip to SERVICE_PAUSED on start; if so:
+sc.exe continue ArcisWatchLoop
+# Verify lockfile + child process:
+Get-Content C:\arcis\halcyon-lab\data\watch.lock
+Get-Process -Id (Get-Content C:\arcis\halcyon-lab\data\watch.lock)
+```
+
+### "PG tables missing or `relation does not exist`"
+
+Symptom: dashboard or watch loop logs show `psycopg2.errors.UndefinedTable:
+relation "X" does not exist` for tables that should exist (e.g., shadow_trades,
+recommendations).
+
+```
+1. Count tables:
+   docker exec halcyon-pg psql -U halcyon -d halcyon -tA -c \
+     "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public'"
+
+2. If count < registry total (76):
+   → Tables are missing or partially wiped.
+   → STOP THE WATCH LOOP IMMEDIATELY:
+       nssm stop ArcisWatchLoop
+     (prevents data collectors from creating fresh empty tables that obscure
+     the original state — this happened during the 2026-05-14 P0 where 6
+     data collectors auto-created their target tables, masking the wipe scope)
+   → Find the most recent snapshot:
+       Get-ChildItem "C:\arcis\data\render-snapshot-*\*.sql" |
+         Sort-Object LastWriteTime -Descending | Select-Object -First 3
+   → Run the recovery script (see §6 "PG halcyon table-loss recovery")
+
+3. If count = 76 but specific table missing (e.g., only shadow_trades):
+   → Likely the table was dropped individually (rare).
+   → Check forensic logs for DROP TABLE events:
+       docker exec halcyon-pg sh -c \
+         "grep -i 'DROP TABLE' /var/lib/postgresql/data/log/*.log"
+   → Identify the source connection PID, then trace to the operator
+     action / dispatched agent that ran it.
+
+4. If count > 76 (extras beyond registry):
+   → Investigate manually. Could be a leftover test table (like the `x`
+     table from the 2026-05-14 incident). Identify the source before
+     auto-dropping.
+```
+
+### "Docker Desktop died overnight"
+
+Symptom: dashboard shows "Connection refused" or 5xx; `docker ps` errors with
+`failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine`.
+Watch loop has been in NSSM restart loop since the outage time
+(`data/watchdog.txt` timestamp will show when M3 fast-exit first fired).
+
+```powershell
+# 1. Start Docker Desktop manually
+Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"
+
+# 2. Poll until docker engine responds (in Bash, ~30-60 sec typical):
+#    until docker info >/dev/null 2>&1; do sleep 3; done
+
+# 3. Verify containers came back up:
+docker ps
+# Expected: halcyon-pg "Up X seconds (healthy)"
+
+# 4. Confirm PG data intact (bind-mount should survive Docker crash):
+docker exec halcyon-pg psql -U halcyon -d halcyon -tA -c `
+  "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public'"
+# Expected: 77 (or current registry count). If less, see "PG tables missing".
+
+# 5. Break the NSSM restart loop:
+nssm stop ArcisWatchLoop
+Remove-Item C:\arcis\halcyon-lab\data\watch.lock -ErrorAction SilentlyContinue
+nssm start ArcisWatchLoop
+# If service stays in SERVICE_PAUSED:
+sc.exe continue ArcisWatchLoop
+```
+
+To prevent recurrence:
+- Docker Desktop GUI → **Settings → General → "Start Docker Desktop when you
+  log in"** → ON
+- Verify in registry:
+  `Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" "Docker Desktop"`
+- Known triggers on Windows: Windows Update auto-restart, WSL2 distro idle
+  timeout, memory pressure, sleep cycle. Not Arcis-side; treat as host-OS
+  hygiene.
+
+### "nssm restart returns 'Access is denied'"
+
+NSSM uses Windows SCM (Service Control Manager) to start/stop services. Most
+of our services (e.g., ArcisWatchLoop) have an SCM ACL that includes the
+operator user account. **ArcisDashboard's SCM ACL is more restrictive** — it
+typically requires an elevated PowerShell session.
+
+Workarounds, in priority order:
+
+1. **Retry once after 30 seconds.** Most "Access denied" failures are
+   transient state-transition errors, not ACL denials. NSSM's error message
+   is unhelpfully terse here. (Observed 2026-05-15 — failed at 07:00, worked
+   at 07:33 with no config change between attempts.)
+
+2. **Run from an elevated PowerShell** (Start → search "PowerShell" →
+   right-click → Run as Administrator):
+   ```powershell
+   Restart-Service ArcisDashboard -Force
+   ```
+
+3. **(Permanent fix)** Grant the user account SCM control:
+   ```powershell
+   # View current ACL (SDDL format):
+   sc.exe sdshow ArcisDashboard
+   # Compare to ArcisWatchLoop (which works):
+   sc.exe sdshow ArcisWatchLoop
+   # Modify ArcisDashboard ACL to match (replace <SDDL> with the
+   # ArcisWatchLoop SDDL output):
+   sc.exe sdset ArcisDashboard "<SDDL>"
+   ```
+
 ### "Tests failing on `tests/test_repo_structure.py`"
 
 ```
@@ -905,6 +1126,119 @@ Symptom: same tickers re-appearing in shadow_trades as `order_type='reconciled'`
 ```
 
 This is the operator-side companion to Wave 5's code-level guard (6h re-backfill cooldown in `reconcile.py`).
+
+### PG halcyon table-loss recovery (use codified script)
+
+Symptom: `docker exec halcyon-pg psql -tA -c "SELECT COUNT(*) FROM
+information_schema.tables WHERE table_schema='public'"` returns less than the
+registry's table count (76). Or dashboard logs flood with
+`relation "X" does not exist`.
+
+**Use the codified script** at `scripts/recovery/restore_pg_from_snapshot.ps1`.
+It replaces ad-hoc interactive psql sessions (which proved brittle during the
+2026-05-14 P0 incident — see `docs/audits/2026-05-14-p0-pg-wipe/rcca.md`).
+
+```powershell
+# 1. Stop the watch loop FIRST (prevents data collectors from masking the wipe scope)
+nssm stop ArcisWatchLoop
+
+# 2. Locate the most recent snapshot
+Get-ChildItem "C:\arcis\data\render-snapshot-*" -Filter "*.sql" -Recurse |
+  Sort-Object LastWriteTime -Descending |
+  Select-Object -First 3 FullName, LastWriteTime, `
+    @{N='MB';E={[math]::Round($_.Length/1MB,1)}}
+
+# 3. Run the recovery (will prompt for YES confirmation unless -Force)
+.\scripts\recovery\restore_pg_from_snapshot.ps1 `
+  -SnapshotPath "C:\arcis\data\render-snapshot-2026-05-14\render-halcyon-124218.sql"
+
+# Or non-interactively with verification:
+.\scripts\recovery\restore_pg_from_snapshot.ps1 `
+  -SnapshotPath "..." `
+  -ExpectedSHA256 "1207EFC3..." `
+  -ExpectedTableCount 77 `
+  -Force
+
+# 4. Restart watch loop
+nssm restart ArcisWatchLoop
+```
+
+What the script does (10 steps; each step logged to per-recovery audit dir
+at `C:\arcis\data\recovery-audit\<timestamp>\`):
+
+1. Verify snapshot file exists, reasonable size, (optional) SHA256 match
+2. Capture pre-recovery state to audit dir
+3. Operator confirmation (`-Force` skips)
+4. `DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT CREATE`
+5. `docker cp` snapshot into container via PowerShell (avoids Git Bash path
+   mangling that bit recovery on 2026-05-14)
+6. `psql -f /tmp/snap.sql --set ON_ERROR_STOP=off`
+7. **GRANT ALL ON ALL TABLES + ALTER DEFAULT PRIVILEGES** — the load-bearing
+   step that yesterday's manual recovery missed, causing the watch loop's
+   30-min restart loop on 2026-05-15 morning
+8. Verification: post-restore table count, row counts for canonical tables
+9. **Canary UPDATE test** as `halcyon_app` — proves permissions actually
+   work end-to-end (would have caught yesterday's permission gap immediately)
+10. Cleanup `/tmp/snap.sql` inside container
+
+Exit codes:
+- `0`: success, all checks passed
+- `1`: pre-flight failed (snapshot missing/corrupt)
+- `2`: operator declined confirmation
+- `3`: DROP/GRANT step failed
+- `4`: restore step had non-trivial error count
+- `5`: post-restore verification failed (incl. canary)
+
+After successful recovery, tail forensic logs to confirm no unexpected
+post-recovery DDL:
+```bash
+docker exec halcyon-pg sh -c \
+  "tail -f /var/lib/postgresql/data/log/postgresql-*.log" | grep -iE "DROP|TRUNCATE"
+```
+
+### Post-recovery permission gap (the GRANT pattern)
+
+Symptom: after manual recovery (without using the script above), watch loop
+hits `permission denied for table shadow_trades` on first UPDATE. Service
+enters NSSM restart loop every ~30s.
+
+Cause: `DROP SCHEMA public CASCADE; CREATE SCHEMA public` recreated the schema
+owned by the superuser (`halcyon`). The subsequent `psql -U halcyon -f snapshot.sql`
+created all 77 tables owned by `halcyon`, NOT by `halcyon_app`. Default access
+privileges restrict UPDATE/INSERT/DELETE to the owner. The dashboard can still
+SELECT via PG's PUBLIC role default (which is why it didn't error visibly
+until the watch loop's first write attempt).
+
+If you used `restore_pg_from_snapshot.ps1`, this gap is already closed (step 7
+of the script). If you ran recovery manually, apply the fix:
+
+```bash
+docker exec halcyon-pg psql -U halcyon -d halcyon -c "
+GRANT ALL ON ALL TABLES IN SCHEMA public TO halcyon_app;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO halcyon_app;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO halcyon_app;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO halcyon_app;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO halcyon_readonly;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO halcyon_readonly;
+"
+```
+
+**The `ALTER DEFAULT PRIVILEGES` is the load-bearing part.** Without it, any
+tables created LATER (via `validate-schema --fix`, runtime `CREATE TABLE IF
+NOT EXISTS` in data collectors, future migrations) would inherit the same
+gap. Plain `GRANT ALL ON ALL TABLES` only affects tables existing at GRANT
+time.
+
+Verify the fix worked:
+```bash
+docker exec halcyon-pg psql -U halcyon_app -d halcyon -c \
+  "UPDATE shadow_trades SET actual_exit_time = COALESCE(updated_at, created_at) WHERE status = 'closed' AND actual_exit_time IS NULL"
+```
+Expected: `UPDATE <N>` (any number, including `UPDATE 0`). If you see
+`permission denied`, the GRANT didn't apply correctly — re-check user names
+and re-run.
+
+Related: memory `feedback_drop_schema_grant_pattern.md` (saved 2026-05-15).
 
 ### Reverting a bad PR
 
@@ -1258,6 +1592,123 @@ Quarterly (or when worktrees exceed ~30):
 4. (any post-merge runbook actions per PR body)
 5. python -m src.main startup
 ```
+
+### Reading PG forensic logs
+
+Per the 2026-05-15 RCCA, `halcyon-pg` is configured with persistent file-based
+logging at `/var/lib/postgresql/data/log/` (`logging_collector=on` +
+`log_statement=all`). Every SQL statement is captured. Logs survive Docker
+buffer rotation (the failure mode that made the 2026-05-14 P0 root cause
+undecidable).
+
+```bash
+# List current log files (rotated at 100 MB)
+docker exec halcyon-pg sh -c "ls -lh /var/lib/postgresql/data/log/"
+
+# Tail the live log
+docker exec halcyon-pg sh -c "tail -f /var/lib/postgresql/data/log/postgresql-*.log"
+
+# Search for destructive DDL across all retained log files
+docker exec halcyon-pg sh -c \
+  "grep -hiE 'statement:.*(DROP TABLE|DROP SCHEMA|TRUNCATE)' /var/lib/postgresql/data/log/*.log"
+
+# Count statements by type since UTC timestamp T (use 2-digit hour prefix):
+docker exec halcyon-pg sh -c \
+  "awk '/^2026-05-15 1[0-9]/{p=1} p' /var/lib/postgresql/data/log/*.log | \
+   grep -hoE 'statement:[[:space:]]+[A-Z]+' | sort | uniq -c | sort -rn"
+
+# Identify statements from a specific user (e.g., halcyon_app):
+docker exec halcyon-pg sh -c \
+  "grep -h 'halcyon_app@halcyon' /var/lib/postgresql/data/log/*.log | head -20"
+```
+
+Log rotation: each file caps at 100 MB. After ~6 months of accumulation,
+manually prune older files (keep the most recent 20):
+```bash
+docker exec halcyon-pg sh -c \
+  "ls -t /var/lib/postgresql/data/log/postgresql-*.log | tail -n +21 | xargs -r rm"
+```
+
+### Memory cap adjustment (live, no container restart)
+
+To raise/lower a container's memory cap without recreating it:
+```bash
+docker update --memory=8g --memory-swap=8g halcyon-pg
+docker update --memory=2g --memory-swap=2g halcyon-pg-test
+```
+
+Changes apply immediately. `docker stats --no-stream` confirms the new cap.
+
+**Caveat**: the live cap is NOT persisted to `docker-compose.yml` — recreation
+via `docker compose down && up` will revert to the compose-file value. To make
+the change durable, also edit `docker-compose.yml`'s
+`deploy.resources.limits.memory` field. (The 2026-05-15 swap was applied both
+ways: live via `docker update`, then to compose for persistence.)
+
+After raising the cap, consider bumping PG `shared_buffers` to use the new
+headroom (rule of thumb: 25% of container cap):
+```bash
+docker exec halcyon-pg psql -U halcyon -d halcyon -c \
+  "ALTER SYSTEM SET shared_buffers='2GB';"
+# Requires PG restart to take effect — do after market close:
+docker compose restart halcyon-pg
+```
+
+### Pre-market health check (the 9:00 ET sweep)
+
+A 90-second pre-market sweep to confirm the system is ready:
+
+```powershell
+# Service states + python ages
+@("ArcisWatchLoop", "ArcisDashboard") | ForEach-Object {
+    $s = Get-Service $_
+    $svcPid = (Get-CimInstance Win32_Service -Filter "Name='$_'").ProcessId
+    "$($s.Name): $($s.Status), PID=$svcPid"
+}
+
+# Watch loop lockfile + child age
+if (Test-Path "C:\arcis\halcyon-lab\data\watch.lock") {
+    $lockPid = Get-Content "C:\arcis\halcyon-lab\data\watch.lock"
+    $p = Get-Process -Id $lockPid -ErrorAction SilentlyContinue
+    if ($p) {
+        "Watch alive, $([math]::Round(((Get-Date)-$p.StartTime).TotalMinutes,0)) min uptime"
+    } else { "STALE LOCKFILE — investigate" }
+}
+
+# Watchdog marker (any recent M3 fast-exit?)
+if (Test-Path "C:\arcis\halcyon-lab\data\watchdog.txt") {
+    "Last watchdog write: $((Get-Item 'C:\arcis\halcyon-lab\data\watchdog.txt').LastWriteTime)"
+}
+
+# Watch log errors (last 200 lines)
+Get-Content "C:\arcis\halcyon-lab\logs\arcis.log" -Tail 200 |
+  Select-String "ERROR|CRITICAL|FATAL|Traceback" | Select-Object -Last 5
+```
+
+```bash
+# PG table count + row counts
+docker exec halcyon-pg psql -U halcyon -d halcyon -tA -c \
+  "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public'"
+# Expected: 77 (registry total)
+
+# Destructive DDL since N hours ago?
+docker exec halcyon-pg sh -c \
+  "grep -hiE 'DROP TABLE|TRUNCATE|DROP SCHEMA' /var/lib/postgresql/data/log/*.log | tail -5"
+# Expected: empty (no destructive events)
+
+# Memory headroom
+docker stats --no-stream --format "table {{.Name}}\t{{.MemUsage}}\t{{.MemPerc}}"
+
+# Disk space
+df -h /c
+```
+
+Red flags to investigate before market open:
+- Watch loop PID < 5 minutes uptime AND watchdog.txt timestamp recent →
+  recent M3 fast-exit, check arcis_err.log
+- PG table count != 77 → see §5 "PG tables missing"
+- Any DROP TABLE / TRUNCATE in recent forensic logs → audit immediately
+- halcyon-pg memory >50% of 8 GiB cap → unusual; investigate query patterns
 
 ---
 
