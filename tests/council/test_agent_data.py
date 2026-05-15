@@ -142,9 +142,49 @@ class TestAgentDataMAE:
 
         from src.shadow_trading.exit_reason import outcome_stats_filter_sql
         mae = conn.execute(
-            "SELECT ticker, MIN(max_adverse_excursion) as worst_mae "
+            "SELECT MIN(max_adverse_excursion) as worst_mae "
             "FROM shadow_trades WHERE status = 'closed' AND max_adverse_excursion IS NOT NULL"
             f" AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()}"
         ).fetchone()
         assert mae is not None
         assert abs(mae["worst_mae"] - 1.5) < 0.01
+
+
+class TestAgentDataPgGroupingErrorRegressionLock:
+    """Regression-lock for the 2026-05-15 council Round 1 GroupingError.
+
+    `gather_risk_data` shipped with
+    ``SELECT ticker, MIN(max_adverse_excursion) ...`` at line 313. PG rejects
+    this with
+       ``column "shadow_trades.ticker" must appear in the GROUP BY clause
+         or be used in an aggregate function``
+    because ``ticker`` is a non-aggregate column mixed with an aggregate
+    function (``MIN``) without an explicit GROUP BY. SQLite is permissive
+    and accepts the same SQL (picks an arbitrary ``ticker`` row), so the
+    bug only fired post-cutover.
+
+    Effect: the daily council session crashed at Round 1, silently
+    disabling the council's regime-guidance pipeline. Detected during
+    the post-v0.36.5 health-check.
+
+    The fix drops ``ticker`` from the SELECT (downstream code only uses
+    ``worst_mae``). This test inspects the function source to prevent
+    re-introduction of the buggy pattern.
+    """
+
+    def test_gather_risk_data_no_ticker_with_min_mae(self):
+        """`gather_risk_data` SQL must not mix a non-aggregate `ticker` with `MIN(`."""
+        import inspect
+        from src.council.agent_data import gather_risk_data
+
+        src = inspect.getsource(gather_risk_data)
+        # The exact buggy pattern from the 2026-05-15 council crash.
+        # Allow whitespace variation but match the SELECT clause shape.
+        buggy = "SELECT ticker, MIN(max_adverse_excursion)"
+        assert buggy not in src, (
+            "gather_risk_data SQL must not contain the PG-incompatible "
+            "`SELECT ticker, MIN(max_adverse_excursion)` clause — PG raises\n"
+            "  'column \"shadow_trades.ticker\" must appear in the GROUP BY clause'\n"
+            "(2026-05-15 council Round 1 crash). Drop `ticker` from the SELECT "
+            "or add `GROUP BY ticker` if the per-ticker breakdown is needed."
+        )
