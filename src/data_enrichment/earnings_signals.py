@@ -96,14 +96,18 @@ def compute_earnings_signals(
         with connect_db(db_path) as conn:
             conn.row_factory = sqlite3.Row
             now = anchor_dt
-            # earnings_calendar uses date(?) bind to honor the same anchor.
+            # earnings_calendar.earnings_date is text (ISO YYYY-MM-DD).
+            # Compare as text — lexicographic ordering matches calendar
+            # ordering for fixed-width ISO dates. SQLite's date(?) was a
+            # silent no-op; Postgres's date(?) casts the bind to type date,
+            # producing `text >= date` which has no operator.
             anchor_date_str = now.date().isoformat()
 
             # 1. Earnings proximity
             try:
                 row = conn.execute(
                     "SELECT MIN(earnings_date) as next_date FROM earnings_calendar "
-                    "WHERE ticker = ? AND earnings_date >= date(?)",
+                    "WHERE ticker = ? AND earnings_date >= ?",
                     (ticker, anchor_date_str),
                 ).fetchone()
                 if row and row["next_date"]:

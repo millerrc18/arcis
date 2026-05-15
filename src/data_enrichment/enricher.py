@@ -694,8 +694,8 @@ def enrich_features(
         # Earnings signals (PEAD enrichment)
         # #859 / Sprint 1.C Phase 2: when as_of is set, route the
         # earnings_calendar + analyst_estimates queries through PIT semantics
-        # (date(?) bind + collected_at <= as_of filter) so historical decision
-        # points don't see future earnings dates / analyst revisions.
+        # (anchor-date bind + collected_at <= as_of filter) so historical
+        # decision points don't see future earnings dates / analyst revisions.
         try:
             from src.data_enrichment.earnings_signals import compute_earnings_signals
             earnings = compute_earnings_signals(ticker, as_of=as_of, warnings=warnings_out)

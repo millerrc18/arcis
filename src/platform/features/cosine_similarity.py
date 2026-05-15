@@ -22,6 +22,8 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from datetime import datetime, timedelta
+
 from src.utils.db import connect_db, engine_aware_column_info
 
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -144,14 +146,22 @@ def _prior_year_accession(
     if row is None:
         return None
     cur_date = row[0]
+    # Compute the YoY window (300–400 days prior) in Python — SQLite's
+    # date(?, '-N days') time-modifier has no Postgres equivalent.
+    try:
+        cur_dt = datetime.fromisoformat(str(cur_date))
+    except (ValueError, TypeError):
+        return None
+    window_start = (cur_dt - timedelta(days=400)).date().isoformat()
+    window_end = (cur_dt - timedelta(days=300)).date().isoformat()
     prior = conn.execute(
         """SELECT accession_number FROM edgar_filings
            WHERE ticker = ? AND form_type = ?
              AND filing_date < ?
-             AND filing_date >= date(?, '-400 days')
-             AND filing_date <= date(?, '-300 days')
+             AND filing_date >= ?
+             AND filing_date <= ?
            ORDER BY filing_date DESC LIMIT 1""",
-        (ticker, form_type, cur_date, cur_date, cur_date),
+        (ticker, form_type, cur_date, window_start, window_end),
     ).fetchone()
     return prior[0] if prior else None
 
