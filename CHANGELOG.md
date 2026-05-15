@@ -3,6 +3,80 @@
 ## [Unreleased]
 
 
+## [v0.36.10] — 2026-05-15 — Codemod safety tool (closes the v0.36.8 failure class)
+
+Closes the lessons-learned requirement from v0.36.9. The v0.36.8 codemod
+shipped a SyntaxError because its ad-hoc migration script ran without a
+post-migration parse check. The lint test (regex-based) couldn't detect
+it. This release adds the reusable infrastructure so any future bulk
+migration auto-detects + rolls back the entire transform if any modified
+file fails to parse.
+
+### Added
+
+- **`src/utils/codemod.py:apply_codemod`** — codemod runner with
+  snapshot/rollback safety:
+  ```python
+  from src.utils.codemod import apply_codemod, CodemodError
+
+  def transform(path, original):
+      return original.replace("old", "new")
+
+  result = apply_codemod([Path("a.py"), Path("b.py")], transform)
+  # If any modified .py file fails py_compile, CodemodError raised and
+  # ALL files reverted to their pre-codemod snapshots.
+  ```
+
+  Behavior:
+  1. Snapshot every targeted file before applying the transform.
+  2. Apply file-by-file, writing changes to disk.
+  3. After all writes, `py_compile` every modified `.py` file.
+  4. If ANY file fails to parse: revert ALL files (even ones that
+     parsed cleanly) and raise `CodemodError`.
+
+  Toggles: `py_compile_check=False` (skip parse check for non-Python
+  codemods), `dry_run=True` (report what WOULD change without writing).
+
+### Tests
+
+- **`tests/test_codemod_safety.py`** — 8 tests across 4 classes:
+  - **HappyPath**: simple transform writes changes; multiple files all
+    succeed.
+  - **Rollback**: syntax error in one file rolls back all; **replay of
+    the exact v0.36.8 bug** (the malformed `(, DBError` import) is
+    detected and reverted, asserting the regression-lock loop closes.
+  - **NoOpAndDryRun**: identity transform skips the file (mtime
+    preserved); dry_run reports but doesn't write.
+  - **EdgeCases**: non-`.py` files (e.g. `.json`, `.md`) bypass
+    py_compile; `py_compile_check=False` lets caller take responsibility.
+
+### Decisions
+
+- **Module location**: `src/utils/codemod.py` (not `scripts/`). Tests
+  import from `src.utils.X`; importability matters more than the
+  "developer tool" framing. A CLI shim in `scripts/` is a future
+  follow-up if direct-from-shell invocation becomes useful.
+- **`py_compile_check` defaults to True**: the v0.36.8 incident shows
+  that opt-in safety doesn't get adopted. Opt-out (with explicit
+  reason) is the right default.
+- **Rollback covers ALL snapshots, not just .py files**: a partial
+  rollback leaves the working tree in a hybrid state that's hard to
+  reason about. Whole-batch atomicity > selective recovery.
+
+### Cleanup performed in-session
+
+3 remaining `needs_manual_review` shadow_trade records transitioned to
+terminal status:
+- **C** trade `b8c8437e` (26 sh @ $128.19, partial-fill artifact) →
+  `cancelled` / `qty_mismatch_partial_fill`
+- **KO** trade `e436496f` (35 sh @ $79.63, partial-fill artifact) →
+  `cancelled` / `qty_mismatch_partial_fill`
+- **UPS** trade `cdb246c7` (39 sh @ $109.42, broker flat) → `closed` /
+  `reconciled_stale`
+
+**Total `needs_manual_review` rows remaining in shadow_trades: 0.**
+
+
 ## [v0.36.9] — 2026-05-15 — Hotfix: v0.36.8 SyntaxError in src/scheduler/watch.py
 
 The v0.36.8 codemod script that mechanically migrated 41 `except sqlite3.X:`
