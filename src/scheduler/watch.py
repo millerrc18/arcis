@@ -46,7 +46,8 @@ from src.llm.client import is_llm_available
 from src.notifications import safe_send
 from src.scheduler.handler_registry import HandlerRegistryMixin
 from src.scheduler.scorer import GuardedScorer
-from src.utils.db import (, DBError
+from src.utils.db import (
+    DBError,
     _scalar,
     configure_sqlite_for_production,
     connect_db,
