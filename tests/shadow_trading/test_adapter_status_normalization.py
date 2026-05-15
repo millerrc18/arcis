@@ -52,24 +52,43 @@ class _LocalOrderStatus(enum.Enum):
     CANCELED = "canceled"
 
 
-# Confirm the assumption: this Enum stringifies the same way as alpaca-py's.
+class _LocalOrderSide(enum.Enum):
+    BUY = "buy"
+    SELL = "sell"
+
+
+class _LocalOrderType(enum.Enum):
+    MARKET = "market"
+    LIMIT = "limit"
+    STOP = "stop"
+
+
+# Confirm the assumption: these Enums stringify the same way as alpaca-py's.
 assert str(_LocalOrderStatus.PENDING_NEW) == "_LocalOrderStatus.PENDING_NEW"
 assert _LocalOrderStatus.PENDING_NEW.value == "pending_new"
+assert str(_LocalOrderSide.SELL) == "_LocalOrderSide.SELL"
+assert _LocalOrderSide.SELL.value == "sell"
+assert str(_LocalOrderType.MARKET) == "_LocalOrderType.MARKET"
 
 
-def _make_mock_order(status: _LocalOrderStatus = _LocalOrderStatus.FILLED) -> MagicMock:
+def _make_mock_order(
+    status: _LocalOrderStatus = _LocalOrderStatus.FILLED,
+    side: _LocalOrderSide = _LocalOrderSide.SELL,
+    type: _LocalOrderType = _LocalOrderType.MARKET,
+) -> MagicMock:
     """Return a MagicMock that mimics an alpaca-py Order.
 
-    The critical attribute is ``.status`` — we set it to a real Enum
-    instance so the adapter's stringification path matches production.
+    Sets ``.status`` / ``.side`` / ``.type`` to real Enum instances so the
+    adapter's stringification path matches production (regular Enum →
+    ``str()`` returns ``ClassName.MEMBER``, not the lowercase value).
     """
     order = MagicMock()
     order.id = "abc-123"
     order.symbol = "TEST"
     order.qty = "1"
     order.filled_qty = "1"
-    order.side = MagicMock()
-    order.type = MagicMock()
+    order.side = side
+    order.type = type
     order.status = status
     order.filled_avg_price = 100.0
     order.filled_at = None
@@ -79,6 +98,8 @@ def _make_mock_order(status: _LocalOrderStatus = _LocalOrderStatus.FILLED) -> Ma
 
 
 CANONICAL_STATUS_VALUES = frozenset({s.value for s in _LocalOrderStatus})
+CANONICAL_SIDE_VALUES = frozenset({s.value for s in _LocalOrderSide})
+CANONICAL_TYPE_VALUES = frozenset({s.value for s in _LocalOrderType})
 
 
 # ── Paper adapter — 3 callsites ───────────────────────────────────────────────
@@ -106,6 +127,14 @@ class TestPaperAdapterStatusNormalization:
             f"place_paper_entry returned status={result['status']!r} — "
             f"must be lowercase canonical (one of {sorted(CANONICAL_STATUS_VALUES)}). "
             "Use `_strip_enum(order.status)` instead of `str(order.status)`."
+        )
+        assert result["side"] in CANONICAL_SIDE_VALUES, (
+            f"place_paper_entry returned side={result['side']!r} — must be canonical. "
+            "Use `_strip_enum(order.side)` instead of `str(order.side)`."
+        )
+        assert result["type"] in CANONICAL_TYPE_VALUES, (
+            f"place_paper_entry returned type={result['type']!r} — must be canonical. "
+            "Use `_strip_enum(order.type)` instead of `str(order.type)`."
         )
 
     @patch("src.shadow_trading.alpaca_adapter._get_trading_client")
@@ -137,6 +166,12 @@ class TestPaperAdapterStatusNormalization:
             "PENDING_NEW must round-trip as the canonical value `pending_new`. "
             f"Got {result['status']!r}."
         )
+        assert result["side"] in CANONICAL_SIDE_VALUES, (
+            f"place_paper_exit returned side={result['side']!r} — must be canonical."
+        )
+        assert result["type"] in CANONICAL_TYPE_VALUES, (
+            f"place_paper_exit returned type={result['type']!r} — must be canonical."
+        )
 
     @patch("src.shadow_trading.alpaca_adapter._get_trading_client")
     @patch("src.shadow_trading.alpaca_adapter._check_enabled")
@@ -158,6 +193,12 @@ class TestPaperAdapterStatusNormalization:
         assert result["status"] in CANONICAL_STATUS_VALUES, (
             f"place_bracket_order returned status={result['status']!r} — "
             f"must be lowercase canonical."
+        )
+        assert result["side"] in CANONICAL_SIDE_VALUES, (
+            f"place_bracket_order returned side={result['side']!r} — must be canonical."
+        )
+        assert result["type"] in CANONICAL_TYPE_VALUES, (
+            f"place_bracket_order returned type={result['type']!r} — must be canonical."
         )
 
 
@@ -190,6 +231,12 @@ class TestLiveAdapterStatusNormalization:
             f"place_live_entry returned status={result['status']!r} — "
             "must be lowercase canonical."
         )
+        assert result["side"] in CANONICAL_SIDE_VALUES, (
+            f"place_live_entry returned side={result['side']!r} — must be canonical."
+        )
+        assert result["type"] in CANONICAL_TYPE_VALUES, (
+            f"place_live_entry returned type={result['type']!r} — must be canonical."
+        )
 
     @patch("src.shadow_trading.alpaca_adapter_live._get_live_trading_client")
     @patch("src.shadow_trading.alpaca_adapter_live._get_live_config")
@@ -210,6 +257,12 @@ class TestLiveAdapterStatusNormalization:
 
         assert result["status"] in CANONICAL_STATUS_VALUES, (
             f"place_live_bracket returned status={result['status']!r}"
+        )
+        assert result["side"] in CANONICAL_SIDE_VALUES, (
+            f"place_live_bracket returned side={result['side']!r} — must be canonical."
+        )
+        assert result["type"] in CANONICAL_TYPE_VALUES, (
+            f"place_live_bracket returned type={result['type']!r} — must be canonical."
         )
 
     @patch("src.shadow_trading.alpaca_adapter_live._get_live_trading_client")
@@ -232,6 +285,14 @@ class TestLiveAdapterStatusNormalization:
             f"place_live_exit (close_position branch) returned "
             f"status={result['status']!r}"
         )
+        # close_position branch hardcodes "sell"/"market" — these already pass
+        # but the assertions document the expected canonical contract.
+        assert result["side"] in CANONICAL_SIDE_VALUES, (
+            f"place_live_exit (close_position) side={result['side']!r}"
+        )
+        assert result["type"] in CANONICAL_TYPE_VALUES, (
+            f"place_live_exit (close_position) type={result['type']!r}"
+        )
 
     @patch("src.shadow_trading.alpaca_adapter_live._get_live_trading_client")
     @patch("src.shadow_trading.alpaca_adapter_live._get_live_config")
@@ -252,6 +313,12 @@ class TestLiveAdapterStatusNormalization:
         assert result["status"] in CANONICAL_STATUS_VALUES, (
             f"place_live_exit (market-sell branch) returned "
             f"status={result['status']!r}"
+        )
+        assert result["side"] in CANONICAL_SIDE_VALUES, (
+            f"place_live_exit (market-sell) side={result['side']!r} — must be canonical."
+        )
+        assert result["type"] in CANONICAL_TYPE_VALUES, (
+            f"place_live_exit (market-sell) type={result['type']!r} — must be canonical."
         )
 
     @patch("src.shadow_trading.alpaca_adapter_live._get_live_trading_client")

@@ -3,6 +3,55 @@
 ## [Unreleased]
 
 
+## [v0.36.5] — 2026-05-15 — Hotfix: paper/live adapter side + type normalization
+
+Closes the deferred follow-up from v0.36.3. The `fix(adapter)` hotfix
+this afternoon migrated the `status` field at 8 paper/live adapter
+callsites from `str(order.status)` to `_strip_enum(order.status)`,
+explicitly deferring the sibling `side` and `type` fields under "no
+downstream code currently compares those against lowercase sets." That
+was true at the time, but leaves the same enum-prefix bug pattern in
+place for any future code path that does compare those fields. This
+release closes the gap so the canonical adapter contract (every enum
+field returned in canonical lowercase) holds uniformly.
+
+### Fixed
+
+- **`src/shadow_trading/alpaca_adapter_paper.py`** (6 line edits):
+  - `place_paper_entry` (lines 50, 51) — `str(order.side)` /
+    `str(order.type)` → `_strip_enum(order.side)` / `_strip_enum(order.type)`
+  - `place_paper_exit` (lines 88, 89) — same migration
+  - `place_bracket_order` (lines 156, 157) — same migration
+- **`src/shadow_trading/alpaca_adapter_live.py`** (6 line edits):
+  - `place_live_entry` (lines 134, 135) — same migration
+  - `place_live_bracket` (lines 209, 210) — same migration
+  - `place_live_exit` market-sell branch (lines 273, 274) — same migration
+- **Skipped intentionally** — `place_live_exit` close_position branch
+  (lines 246, 247) already hardcodes `"sell"` / `"market"` (no enum
+  involved); `get_live_order_status` doesn't return side/type fields.
+
+### Tests
+
+- **`tests/shadow_trading/test_adapter_status_normalization.py`** —
+  extended `_make_mock_order()` to accept `side` / `type` enum
+  parameters (real Enum instances, mimicking alpaca-py 0.43+
+  stringification). Added `_LocalOrderSide` + `_LocalOrderType` enums
+  and `CANONICAL_SIDE_VALUES` / `CANONICAL_TYPE_VALUES` sets.
+  Tightened the existing 8 tests: each now asserts the returned dict's
+  `side` AND `type` AND `status` are all in their canonical lowercase
+  sets. 6 tests went RED before the fix (the 6 functions returning raw
+  `str(enum)`); 2 stayed GREEN (close_position branch hardcoded;
+  get_live_order_status has no side/type fields). All 8 now GREEN.
+
+### Decisions
+
+- **PATCH bump** (not MINOR): defensive infrastructure for a known
+  enum-stringification bug class, consistent with v0.36.3 / v0.36.4
+  scope decisions. The canonical adapter contract is now uniform —
+  every enum field returns the lowercase value, not the alpaca-py
+  prefixed repr.
+
+
 ## [v0.36.4] — 2026-05-15 — Hotfix: bracket-protection backfill tool (no-bracket gap)
 
 Closes the systemic gap surfaced by the 2026-05-15 health-check: 17 of
