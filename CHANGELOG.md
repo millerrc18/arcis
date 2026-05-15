@@ -3,6 +3,68 @@
 ## [Unreleased]
 
 
+## [v0.36.4] — 2026-05-15 — Hotfix: bracket-protection backfill tool (no-bracket gap)
+
+Closes the systemic gap surfaced by the 2026-05-15 health-check: 17 of
+19 open shadow_trades had no active broker-side stop/target legs. Two
+converging failure modes:
+
+1. **Bracket canceled** by the 2026-05-12 reconciler mis-fire — upstream
+   PG schema errors (`relation "model_versions" does not exist`) caused
+   the reconciler to cancel TP/SL legs of seven tickers as "dangling
+   orders for a missing trade record." The records existed; the schema
+   query couldn't see them.
+2. **No bracket ever attached** to orphan-backfilled positions — when
+   the reconciler backfills an orphan (broker has shares, system
+   doesn't), it creates the shadow_trade record but never submitted a
+   new bracket order to the broker. 15 of the 17 unprotected positions
+   came from this path.
+
+### Added
+
+- **`src/shadow_trading/bracket_attach.py`** —
+  `attach_brackets_for_unprotected_positions(db_path, desk, dry_run,
+  ticker_filter)`. Scans open shadow_trades and submits an OCO
+  (sell-limit at `target_1` + sell-stop at `stop_price`) for each
+  position the broker shows unprotected. Pre-flight validates qty match,
+  stop < current < target_1, no other open orders, and not already
+  protected. Per-ticker isolation: a failure on one ticker does not
+  halt the batch. Returns
+  `{scanned, submitted, skipped, failed}`. CLI:
+  `python -m src.shadow_trading.bracket_attach [--dry-run]`.
+- **`scripts/reattach_brackets.py`** — thin CLI shim deferring to the
+  module above. Same `--dry-run` flag, same behavior.
+
+### Changed
+
+- **`src/shadow_trading/reconcile.py`** — after each
+  `[RECONCILE-PAPER] Backfilled orphaned position` event, automatically
+  call `attach_brackets_for_unprotected_positions(ticker_filter=[ticker])`.
+  Closes the no-bracket gap on future orphan backfills. Wrapped in
+  `try/except` so a transient broker failure can't abort the reconcile
+  pass. Logs `[RECONCILE-PAPER] Auto-attached OCO for X` on success or
+  `Bracket auto-attach for X skipped: <reason>` on pre-flight skip.
+
+### Tests
+
+- **`tests/shadow_trading/test_bracket_attach.py`** — 10 tests covering:
+  happy path (submit + DB update), 6 skip reasons (no position, qty
+  mismatch, stop ≥ current, target ≤ current, existing open orders,
+  already protected), 2 flag tests (dry_run, ticker_filter), and 1
+  per-ticker isolation test (one failure does not halt the batch).
+
+### Operational follow-up (already completed 2026-05-15)
+
+Per the same-day health-check incident:
+
+- 17 OCO orders manually submitted via the tool (`scripts/reattach_brackets.py`)
+  to retro-fit protection on the 17 unprotected positions found at the
+  time of v0.36.4 cut: AMD, AMZN, BAC, C, COST, CVS, CVX, DIS, DUK, ETN,
+  FDX, GILD, GOOG, GOOGL, JNJ, KO, UNP.
+- All 17 now show parent=NEW + leg=HELD at the broker (limit + stop
+  active). Verified via direct broker query.
+
+
 ## [v0.36.3] — 2026-05-15 — Hotfix: paper/live adapter status normalization (exit overshoot trigger)
 
 Closes the 8-callsite SQLite-ism's `__str__`-prefix cousin: the
