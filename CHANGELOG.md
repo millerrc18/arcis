@@ -3,6 +3,64 @@
 ## [Unreleased]
 
 
+## [v0.36.7] — 2026-05-15 — Hotfix: council Round 1 GroupingError + MO/BK record cleanup
+
+Closes the council daily-session crash surfaced during the post-v0.36.6
+health-check. `gather_risk_data` at `src/council/agent_data.py:313`
+contained:
+
+    SELECT ticker, MIN(max_adverse_excursion) as worst_mae FROM shadow_trades ...
+
+PG rejected with
+`column "shadow_trades.ticker" must appear in the GROUP BY clause or be
+used in an aggregate function`. The daily council fired at 08:32 ET
+this morning, crashed Round 1, and no council session has run since.
+SQLite was permissive (picks an arbitrary `ticker`), so the bug only
+fired post-cutover. Same SQLite-ism residual class as v0.36.2 / v0.36.3
+/ v0.36.5 / v0.36.6 (seventh hotfix of the day in this lineage).
+
+### Fixed
+
+- **`src/council/agent_data.py:313`** — dropped the `ticker` column
+  from the SELECT. Downstream code (`parts.append(f"Worst MAE ...
+  {mae['worst_mae']:.1f}%")`) only uses `worst_mae`; the `ticker` was
+  dead weight that triggered PG's strict-GROUP-BY check.
+
+### Data cleanup (operator-side, completed in-session)
+
+- **4 MO/BK shadow_trade records transitioned** from
+  `needs_manual_review` to `closed`:
+  - BK trade_id `4ec035e9` (35 sh @ $134.57) → exit @ $135.95, +$48.30, `manual`
+  - BK trade_id `a6c374ee` (34 sh @ $132.12) → exit @ $135.95, +$130.22, `manual`
+  - MO trade_id `3df268b0` (51 sh @ $68.40, original orphan-backfill) → exit @ $72.88, +$228.48, `manual`
+  - MO trade_id `9bed44ad` (51 sh @ $68.40, duplicate from the v0.36.3
+    revert-then-rebackfill dance) → exit @ $72.88, $0.00, `reconciled_stale`
+    (excluded from outcome stats)
+- Total real P&L recorded retrospectively: **+$406.99**. Broker had
+  already been flat for both tickers (operator manually closed earlier
+  in the session); these are the bookkeeping records catching up.
+
+### Tests
+
+- **`tests/council/test_agent_data.py::TestAgentDataPgGroupingErrorRegressionLock`** —
+  inspects `gather_risk_data` source, asserts no
+  `SELECT ticker, MIN(max_adverse_excursion)` pattern. Catches any
+  future re-introduction of the buggy form.
+- Updated the existing `TestAgentDataMAE` tests to match the new SQL
+  shape (drop `ticker` from SELECT).
+
+### Decisions
+
+- **PATCH bump** (not MINOR): seventh defensive hotfix in the SQLite-
+  ism-residual class. Consistent with v0.36.2 / v0.36.3 / v0.36.5 /
+  v0.36.6 scope.
+- **Other potentially-similar patterns flagged for follow-up sweep**:
+  `src/features/engine_helpers.py:62` and `src/api/cloud_routes/platform.py:90`
+  both have `SELECT non_aggregate, MAX(...)` shapes that warrant
+  verification (multi-line SQL — GROUP BY may exist below the SELECT,
+  but worth a careful look in a future session).
+
+
 ## [v0.36.6] — 2026-05-15 — Hotfix: alert_silence UNION text/timestamp mismatch
 
 Closes the new bug class surfaced during the post-v0.36.5 health-check.

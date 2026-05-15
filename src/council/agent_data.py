@@ -309,8 +309,17 @@ def gather_risk_data(db_path: str = DB_PATH) -> str:
                 pass
 
             try:
+                # 2026-05-15 v0.36.7: dropped the `ticker` column from the
+                # SELECT. PG rejects `SELECT ticker, MIN(...)` with a
+                # GroupingError because `ticker` is a non-aggregate column
+                # mixed with an aggregate (MIN) without an explicit GROUP BY.
+                # SQLite is permissive and accepts the same SQL (picks an
+                # arbitrary ticker row), so the bug fired silently post-PG-
+                # cutover, crashing the daily council session at Round 1.
+                # The downstream `parts.append` only uses `worst_mae`, so
+                # dropping `ticker` is semantically equivalent.
                 mae = conn.execute(
-                    "SELECT ticker, MIN(max_adverse_excursion) as worst_mae "
+                    "SELECT MIN(max_adverse_excursion) as worst_mae "
                     "FROM shadow_trades WHERE status = 'closed' AND max_adverse_excursion IS NOT NULL"
                     f" AND COALESCE(quarantined, 0) = 0 {outcome_stats_filter_sql()}"
                 ).fetchone()
