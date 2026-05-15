@@ -92,42 +92,68 @@ def _run_silence_check(conn, now_et: datetime, threshold_minutes: int):
 
 
 def _query_max_signal(conn) -> tuple:
-    """Return (max_ts_str, source) from the UNION of three signal sources.
+    """Return (max_ts_str, source) from three candidate signal sources.
 
     Sources (in priority order by recency):
       1. notifications_sent status='ok' → source='notifications_sent'
       2. notifications_digest_queue flushed_at IS NOT NULL → source='digest_flushed'
       3. notifications_digest_queue created_at IS NOT NULL → source='digest_enqueued'
 
-    Engine-agnostic form: ORDER BY ts DESC NULLS LAST LIMIT 1 works on both
-    SQLite and PostgreSQL. The previous MAX(ts)+source form was rejected by PG
-    with GroupingError (non-aggregate 'source' column without GROUP BY).
-    NULLS LAST ensures NULLs sort below real timestamps on PG (SQLite already
-    treats NULLs as smallest in DESC order by default — same semantics).
-    When all three sources are empty the subquery returns zero rows and
-    fetchone() returns None; that case is handled explicitly below.
+    Implementation note (v0.36.6): the previous form UNION'd the three
+    sources in SQL and used ORDER BY ts DESC LIMIT 1. That worked on
+    SQLite but PG rejects it with
+    `UNION types text and timestamp without time zone cannot be matched`
+    because `notifications_sent.sent_at` is `text` while the digest queue
+    columns are `TIMESTAMP WITHOUT TIME ZONE`. Casting either side broke
+    the other engine (SQLite's `CAST(text AS TIMESTAMP)` mangles the
+    value because TIMESTAMP coerces to NUMERIC affinity — '2026-05-15...'
+    becomes the int 2026).
+
+    The engine-agnostic form runs the three queries separately and merges
+    in Python via _parse_ts. Three indexed `ORDER BY col DESC LIMIT 1`
+    queries are cheap (microseconds on these small tables; called at
+    5-min cadence). The trade-off is a tiny perf cost for a guaranteed
+    behavior invariant across engines.
     """
-    sql = """
-        SELECT ts, source FROM (
-            SELECT sent_at AS ts, 'notifications_sent' AS source
-            FROM notifications_sent
-            WHERE status = 'ok'
-            UNION ALL
-            SELECT flushed_at AS ts, 'digest_flushed' AS source
-            FROM notifications_digest_queue
-            WHERE flushed_at IS NOT NULL
-            UNION ALL
-            SELECT created_at AS ts, 'digest_enqueued' AS source
-            FROM notifications_digest_queue
-            WHERE created_at IS NOT NULL
-        ) u
-        ORDER BY ts DESC NULLS LAST
-        LIMIT 1
-    """
-    row = conn.execute(sql).fetchone()
-    if row is None or row[0] is None:
+    candidates: list[tuple] = []  # [(parsed_dt, raw_ts_str, source), ...]
+
+    row = conn.execute(
+        "SELECT sent_at FROM notifications_sent "
+        "WHERE status = 'ok' AND sent_at IS NOT NULL "
+        "ORDER BY sent_at DESC LIMIT 1"
+    ).fetchone()
+    if row is not None and row[0] is not None:
+        raw = str(row[0])
+        parsed = _parse_ts(raw)
+        if parsed is not None:
+            candidates.append((parsed, raw, "notifications_sent"))
+
+    row = conn.execute(
+        "SELECT flushed_at FROM notifications_digest_queue "
+        "WHERE flushed_at IS NOT NULL "
+        "ORDER BY flushed_at DESC LIMIT 1"
+    ).fetchone()
+    if row is not None and row[0] is not None:
+        raw = str(row[0])
+        parsed = _parse_ts(raw)
+        if parsed is not None:
+            candidates.append((parsed, raw, "digest_flushed"))
+
+    row = conn.execute(
+        "SELECT created_at FROM notifications_digest_queue "
+        "WHERE created_at IS NOT NULL "
+        "ORDER BY created_at DESC LIMIT 1"
+    ).fetchone()
+    if row is not None and row[0] is not None:
+        raw = str(row[0])
+        parsed = _parse_ts(raw)
+        if parsed is not None:
+            candidates.append((parsed, raw, "digest_enqueued"))
+
+    if not candidates:
         return (None, "none")
-    return (row[0], row[1])
+    parsed, raw, source = max(candidates, key=lambda c: c[0])
+    return (raw, source)
 
 
 def _parse_ts(ts_str: Optional[str]) -> Optional[datetime]:
