@@ -3,6 +3,56 @@
 ## [Unreleased]
 
 
+## [v0.36.9] — 2026-05-15 — Hotfix: v0.36.8 SyntaxError in src/scheduler/watch.py
+
+The v0.36.8 codemod script that mechanically migrated 41 `except sqlite3.X:`
+sites had a regex bug in its import-extension logic: it correctly handled
+single-line `from src.utils.db import a, b, c` imports but malformed the
+one multi-line parenthesized import in the codebase. The result at
+`src/scheduler/watch.py:49`:
+
+    from src.utils.db import (, DBError
+        _scalar,
+        configure_sqlite_for_production,
+        connect_db,
+        connect_db_with_pg_retry,
+    )
+
+The leading `(, DBError` produced a SyntaxError on import. Effect: the
+watch loop service couldn't start at all post-v0.36.8 — startup
+validation passed all 6 phases, but `from src.scheduler.watch import
+WatchLoop` raised on module load, leaving the NSSM service in a Paused
+state with the syntax error stuck in `arcis_err.log`.
+
+### Fixed
+
+- **`src/scheduler/watch.py:49`** — repair the malformed import:
+  ```python
+  from src.utils.db import (
+      DBError,
+      _scalar,
+      configure_sqlite_for_production,
+      connect_db,
+      connect_db_with_pg_retry,
+  )
+  ```
+- **Audited the other 12 migrated files** via `py_compile` — only this
+  one file was affected; the script's bug specifically hit multi-line
+  parenthesized imports, of which watch.py was the only example.
+
+### Lessons learned for the codemod-as-a-tool path
+
+Per the v0.36.8 closing insight ("A reusable `scripts/codemod.py` would
+be a small productivity investment with multi-incident payoff"), this
+release adds one explicit requirement to any future codemod runner:
+**post-migration `py_compile` sweep across every modified file**, with
+the migration aborted (and the diff reverted) if any file fails to
+parse. The v0.36.8 codemod ran without this safety check, the lint
+test passed (because `tests/test_no_naked_sqlite_exceptions.py` parses
+each file as text via regex, not as Python), and the broken import
+shipped. The compile-check would have caught it in seconds.
+
+
 ## [v0.36.8] — 2026-05-15 — Hotfix: engine-agnostic DBError exception tuples (41-site sweep)
 
 Closes the systemic exception-class gap surfaced during the v0.36.7
