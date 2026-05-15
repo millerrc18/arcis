@@ -758,6 +758,41 @@ def reconcile_paper_trades(
                 orph["qty"],
                 orph["avg_price"],
             )
+            # 2026-05-15 bracket-protection gap fix: backfilled orphans
+            # previously lacked broker-side stop/target legs (see
+            # docs/audits/2026-05-15-bracket-protection-gap). Auto-attach
+            # an OCO so the position is protected on the next reconcile
+            # cycle without operator intervention. Wrapped in try/except
+            # so a transient broker failure can't abort the reconcile pass.
+            try:
+                from src.shadow_trading.bracket_attach import (
+                    attach_brackets_for_unprotected_positions,
+                )
+                bracket_result = attach_brackets_for_unprotected_positions(
+                    db_path=db_path,
+                    ticker_filter=[orph["ticker"]],
+                )
+                if bracket_result["submitted"]:
+                    _, oid, qty = bracket_result["submitted"][0]
+                    logger.info(
+                        "[RECONCILE-PAPER] Auto-attached OCO for %s (oid=%s, qty=%d)",
+                        orph["ticker"], oid, qty,
+                    )
+                elif bracket_result["skipped"]:
+                    logger.info(
+                        "[RECONCILE-PAPER] Bracket auto-attach for %s skipped: %s",
+                        orph["ticker"], bracket_result["skipped"][0][1],
+                    )
+                elif bracket_result["failed"]:
+                    logger.warning(
+                        "[RECONCILE-PAPER] Bracket auto-attach for %s failed: %s",
+                        orph["ticker"], bracket_result["failed"][0][1],
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "[RECONCILE-PAPER] Bracket auto-attach for %s raised (non-fatal): %s",
+                    orph["ticker"], exc,
+                )
 
         # Auto-close stale paper trades with 1-hour safety guard.
         # The guard prevents false closures from transient Alpaca API

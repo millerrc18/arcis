@@ -18,6 +18,6 @@ also been updated to match. Bump VERSION here when cutting a release;
 update CHANGELOG.md alongside.
 """
 
-# Update when cutting a release. Latest CHANGELOG header: v0.36.3.
+# Update when cutting a release. Latest CHANGELOG header: v0.36.4.
 # Versioning policy: see docs/versioning-policy.md.
-VERSION = "v0.36.3"
+VERSION = "v0.36.4"
