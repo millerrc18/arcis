@@ -3,6 +3,63 @@
 ## [Unreleased]
 
 
+## [v0.36.3] — 2026-05-15 — Hotfix: paper/live adapter status normalization (exit overshoot trigger)
+
+Closes the 8-callsite SQLite-ism's `__str__`-prefix cousin: the
+`fix/paper-exit-qty-asymmetry` sprint deferred eight `str(order.status)`
+callsites in `alpaca_adapter_paper.py` (3) and `alpaca_adapter_live.py`
+(5) that bypass `_strip_enum()` and return `"OrderStatus.X"` instead of
+the canonical lowercase value. That mismatch caused the 2026-05-15 MO/BK
+exit-overshoot incident: `place_paper_exit` returned
+`status="OrderStatus.PENDING_NEW"`, `_is_pending_status` misclassified
+it as a failure, the retry loop submitted a duplicate SELL, the race
+between the original-pending-fill and the cancel-before-retry produced
+a 2× sell, and the long-only positions ended at −51 (MO) and −34 (BK)
+short. Reconciler's safety guard caught the overshoot and halted both
+trades for manual review — exactly the working failure mode, but the
+trigger is now removed.
+
+### Fixed
+
+- **`src/shadow_trading/alpaca_adapter_paper.py:50, 86, 153`** —
+  `str(order.status)` → `_strip_enum(order.status)` in
+  `place_paper_entry`, `place_paper_exit`, `place_bracket_order`.
+  Lazy `_strip_enum` import added to each function (matches the existing
+  `_check_enabled`/`_get_trading_client` pattern; avoids circular import
+  at module load).
+- **`src/shadow_trading/alpaca_adapter_live.py:134, 208, 242, 269, 305`** —
+  same fix in `place_live_entry`, `place_live_bracket`, `place_live_exit`
+  (both close_position and market-sell branches), `get_live_order_status`.
+  Dormant in paper mode, but the next flip to live would re-trigger
+  this without warning — defense-in-depth.
+
+### Tests
+
+- **New: `tests/shadow_trading/test_adapter_status_normalization.py`** —
+  8 tests (3 paper, 5 live), one per fixed callsite. Each mocks
+  `_get_trading_client` + `submit_order` with a local Enum that mimics
+  alpaca-py 0.43+'s regular-Enum stringification behavior, asserts the
+  returned dict's `status` field is in the canonical lowercase value set.
+  RED across all 8 before the fix; GREEN across all 8 after. The
+  `test_place_paper_exit_returns_normalized_status` test is the
+  regression-lock for the exact MO/BK overshoot trigger.
+
+### Decisions
+
+- **`side` and `type` raw-`str(enum)` callsites left as-is.** The same
+  enum-prefix pattern applies to `side` and `type` fields in all 8
+  callsites, but no downstream code currently compares those against
+  lowercase sets — only `status` does. Scope kept tight to the active
+  bug. Tracked as future work; when migrated, the canonical pattern is
+  the same as `_serialize_order` (use `_strip_enum` for every enum field).
+
+### Operational follow-up
+
+- **MO and BK paper positions** were manually unstuck at the broker
+  before this fix (operator action; v0.36.3 prevents the trigger
+  recurring on future orphan-backfilled positions).
+
+
 ## [v0.36.2] — 2026-05-15 — Hotfix: SQLite-ism residuals (post-cutover stability)
 
 Patch release closing five surviving SQLite-only SQL forms that crashed or
