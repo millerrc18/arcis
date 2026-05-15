@@ -2,6 +2,63 @@
 
 ## [Unreleased]
 
+
+## [v0.36.2] — 2026-05-15 — Hotfix: SQLite-ism residuals (post-cutover stability)
+
+Patch release closing five surviving SQLite-only SQL forms that crashed or
+silently failed against the post-cutover Postgres backend. Three were in
+production code paths (`earnings_signals`, `exit_reconciliation`,
+`cosine_similarity`); two were operator-run scripts (`post_close_check`,
+`weekly_review`). The Phase 2.5 AST lint scanner is extended to catch the
+bound-parameter `date(?)` / `datetime(?)` / time-modifier `date(?, '-N
+days')` forms that let these slip past the cutover audits. Also includes
+the 2026-05-14 P0 RCCA preventive actions (PA-1/PA-3/PA-4) that hadn't yet
+been cut into a release.
+
+### Fixed
+
+- **SQLite-ism residuals causing live PG crashes (post-cutover):** the
+  Sprint 5 §J5/§J6 Phase 2.5 migration left three production SQLite-only
+  SQL forms that the AST lint scanner couldn't detect, plus two ops
+  scripts the scanner doesn't cover. Each was crashing or silently
+  failing on PG:
+  - `src/data_enrichment/earnings_signals.py:106` —
+    `WHERE earnings_date >= date(?)` → `>= ?`. SQLite's `date(text)` is a
+    no-op cast; PG's `date(text)` produces a `date` value the text column
+    can't compare with (`operator does not exist: text >= date`). Was
+    crashing every ticker in every enrichment cycle since the cutover,
+    poisoning the three sibling earnings signals in the same transaction.
+  - `src/shadow_trading/exit_reconciliation.py:52` —
+    `datetime('now', '-24 hours')` → Python-computed UTC cutoff bound as
+    `?`. Nightly reconciliation was silently returning zero rows on PG.
+  - `src/platform/features/cosine_similarity.py:151-152` —
+    `date(?, '-400 days')` / `date(?, '-300 days')` time-modifier form
+    → Python-computed window-start / window-end bound as `?`. Caught by
+    the lint extension below (would have crashed YoY cosine similarity
+    computations).
+  - `scripts/post_close_check.py:147-149` —
+    `julianday('now') - julianday(actual_entry_time)` → Python-computed
+    days-since-entry.
+  - `scripts/weekly_review.py:212, 320, 348-354` — six
+    `datetime('now', '-7 days')` sites → single `SEVEN_DAYS_AGO_ISO`
+    Python-computed cutoff bound as `?`.
+
+### Tests
+
+- **Lint: extend `SQLITE_DATE_FRAGMENTS` to catch parametrized casts
+  (`tests/test_no_sqlite_isms_in_pg_safe_files.py`):** added `"date(?"`
+  and `"datetime(?"` to the substring scanner, closing the blind spot
+  that let `earnings_signals.py:106` slip past the Phase 2.5 audits. Two
+  synthetic self-tests (`test_scanner_catches_synthetic_date_qmark_cast`,
+  `test_scanner_catches_synthetic_datetime_qmark_cast`) regression-lock
+  the new fragments. The closing paren is intentionally omitted from
+  the fragments so the time-modifier form (`date(?, '-N days')`) is
+  caught too — this immediately surfaced a third production site at
+  `src/platform/features/cosine_similarity.py:151` that the original
+  scanner missed.
+- **`KNOWN_OFFENDERS` line shifts (cosine_similarity.py 185→195, 201→211)**
+  rebased onto the new line numbers after the YoY-window inline migration.
+
 ### Operations
 
 - **PA-1 — PG forensic logging baseline (`docker-compose.yml`):** added

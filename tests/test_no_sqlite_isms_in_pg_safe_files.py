@@ -189,9 +189,9 @@ KNOWN_OFFENDERS: frozenset[tuple[str, int, str]] = frozenset({
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
     ("src/journal/store.py", 561,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
-    ("src/platform/features/cosine_similarity.py", 185,
+    ("src/platform/features/cosine_similarity.py", 195,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
-    ("src/platform/features/cosine_similarity.py", 201,
+    ("src/platform/features/cosine_similarity.py", 211,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
     ("src/platform/promotion.py", 694,
      "Dynamic ? placeholder — wrapper-handled via connect_db()"),
@@ -230,7 +230,19 @@ INSERT_OR_FRAGMENTS: tuple[str, ...] = ("INSERT OR REPLACE", "INSERT OR IGNORE")
 PRAGMA_FRAGMENT: str = "PRAGMA "
 SQLITE_MASTER_FRAGMENT: str = "sqlite_master"
 SQLITE_DATE_FRAGMENTS: tuple[str, ...] = (
-    "julianday(", "date('now'", "datetime('now'",
+    # ``julianday(`` — open-paren form catches every variant
+    # (``julianday('now')``, ``julianday(col)``, ``julianday(?)``).
+    "julianday(",
+    # ``'now'``-literal time-shift forms — SQLite-only.
+    "date('now'", "datetime('now'",
+    # Bound-parameter cast forms. In SQLite ``date(?)`` is the date-parser
+    # function (text → date); in Postgres ``date(?)`` is a cast that
+    # produces a ``date`` value which doesn't compare to text columns
+    # (2026-05-15 incident: earnings_signals.py:106 crashed every ticker
+    # with ``operator does not exist: text >= date``). The closing paren
+    # is omitted so this catches ``date(?, '-1 day')`` time-modifier form
+    # too.
+    "date(?", "datetime(?",
 )
 
 # SQL keywords used by the unrewritten-? heuristic.
@@ -800,6 +812,68 @@ def test_scanner_catches_synthetic_datetime_now_in_execute():
     assert hits, (
         "Synthetic test: scanner failed to flag datetime('now', ...)."
     )
+
+
+def test_scanner_catches_synthetic_date_qmark_cast():
+    """Self-test: scanner catches a ``date(?)`` bound-parameter cast.
+
+    Regression-lock for the 2026-05-15 incident: ``earnings_signals.py:106``
+    shipped ``WHERE earnings_date >= date(?)`` and crashed every ticker on
+    PG with ``operator does not exist: text >= date``. The original
+    SQLITE_DATE_FRAGMENTS tuple only listed the ``'now'``-literal forms,
+    so substring scan missed this. Adding ``"date(?"`` to the fragments
+    closes the gap.
+    """
+    source = """
+        def bad(conn, anchor):
+            conn.execute(
+                "SELECT MIN(d) FROM t WHERE ticker = ? AND d >= date(?)",
+                ("AAPL", anchor),
+            )
+    """
+
+    def predicate(rel, arg, qmark_names):
+        reconstructed = _reconstruct_string(arg)
+        if not reconstructed:
+            return None
+        for f in SQLITE_DATE_FRAGMENTS:
+            if f in reconstructed:
+                return "matched"
+        return None
+
+    hits = _parse_and_scan_with_predicate(source, predicate)
+    assert hits, (
+        "Synthetic test: scanner failed to flag date(?) — the "
+        "2026-05-15 earnings_signals regression class."
+    )
+
+
+def test_scanner_catches_synthetic_datetime_qmark_cast():
+    """Self-test: scanner catches a ``datetime(?)`` bound-parameter cast.
+
+    Sibling of the date(?) case — ``datetime(?)`` is the timestamp-parser
+    in SQLite and a cast-to-timestamp in PG, producing the same
+    text-vs-timestamp operator mismatch on a text column.
+    """
+    source = """
+        def bad(conn, cutoff):
+            conn.execute(
+                "SELECT * FROM t WHERE created_at >= datetime(?)",
+                (cutoff,),
+            )
+    """
+
+    def predicate(rel, arg, qmark_names):
+        reconstructed = _reconstruct_string(arg)
+        if not reconstructed:
+            return None
+        for f in SQLITE_DATE_FRAGMENTS:
+            if f in reconstructed:
+                return "matched"
+        return None
+
+    hits = _parse_and_scan_with_predicate(source, predicate)
+    assert hits, "Synthetic test: scanner failed to flag datetime(?)."
 
 
 def test_scanner_catches_synthetic_dynamic_qmark_placeholder_generator():
