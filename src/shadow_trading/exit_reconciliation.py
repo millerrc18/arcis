@@ -40,8 +40,13 @@ def _build_query() -> tuple[str, tuple[str, ...]]:
     therefore never reconciled their exit_reason. Now uses
     terminal_in_clause() so the full TERMINAL_STATUSES vocabulary is
     covered by the 24-hour window.
+
+    The 24-hour cutoff is computed in Python and bound as a parameter
+    (instead of SQLite's datetime('now', '-24 hours')) so the query is
+    engine-agnostic — Sprint 5 §J5/§J6 Phase 2.5 pattern.
     """
     frag, params = terminal_in_clause()
+    cutoff_iso = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
     sql = (
         "SELECT trade_id, ticker, exit_reason, "
         "actual_exit_price, stop_price, target_1, target_2, "
@@ -49,10 +54,10 @@ def _build_query() -> tuple[str, tuple[str, ...]]:
         "actual_entry_time, direction "
         "FROM shadow_trades "
         f"WHERE status IN ({frag}) "
-        "AND actual_exit_time >= datetime('now', '-24 hours') "
+        "AND actual_exit_time >= ? "
         "AND COALESCE(quarantined, 0) = 0"
     )
-    return sql, params
+    return sql, params + (cutoff_iso,)
 
 
 def _computed_days(actual_entry_time: str | None) -> int:

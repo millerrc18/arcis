@@ -27,7 +27,7 @@ import json
 import os
 import sqlite3
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 # Ensure we're in the repo root
@@ -60,6 +60,10 @@ if not DB_PATH:
     sys.exit(1)
 
 conn = connect_db(DB_PATH)
+
+# Single Python-computed cutoff for every "this week" query in this script —
+# SQLite's datetime('now', '-7 days') has no Postgres equivalent.
+SEVEN_DAYS_AGO_ISO = (datetime.now() - timedelta(days=7)).isoformat()
 
 # List all tables so we know what's available
 tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()]
@@ -209,7 +213,8 @@ try:
     if "training_examples" in tables:
         total = conn.execute("SELECT COUNT(*) FROM training_examples").fetchone()[0]
         recent = conn.execute(
-            "SELECT COUNT(*) FROM training_examples WHERE created_at > datetime('now', '-7 days')"
+            "SELECT COUNT(*) FROM training_examples WHERE created_at > ?",
+            (SEVEN_DAYS_AGO_ISO,),
         ).fetchone()[0]
         scored = conn.execute(
             "SELECT COUNT(*), AVG(quality_score) FROM training_examples WHERE quality_score IS NOT NULL"
@@ -317,7 +322,8 @@ try:
     if "activity_log" in tables:
         if has_column("activity_log", "level"):
             errors = conn.execute(
-                "SELECT COUNT(*) FROM activity_log WHERE level='ERROR' AND created_at > datetime('now', '-7 days')"
+                "SELECT COUNT(*) FROM activity_log WHERE level='ERROR' AND created_at > ?",
+                (SEVEN_DAYS_AGO_ISO,),
             ).fetchone()
             print(f"Errors this week: {errors[0]}")
         else:
@@ -339,40 +345,43 @@ print()
 print("[7/7] DATA INVENTORY — Growth Tracking")
 print("-" * 60)
 try:
-    # Core tables to track
+    # Core tables to track. Each row is (table, metric, where_clause, params).
+    # The "this week" rows bind SEVEN_DAYS_AGO_ISO so the script is
+    # engine-agnostic (SQLite's datetime('now', '-7 days') has no PG form).
+    _WEEK = ("created_at > ?", (SEVEN_DAYS_AGO_ISO,))
     inventory_tables = [
-        ("shadow_trades", "total", None),
-        ("shadow_trades", "open", "status='open'"),
-        ("shadow_trades", "closed", "status='closed'"),
-        ("training_examples", "total", None),
-        ("training_examples", "this week", "created_at > datetime('now', '-7 days')"),
-        ("scan_metrics", "total", None),
-        ("scan_metrics", "this week", "created_at > datetime('now', '-7 days')"),
-        ("council_sessions", "total", None),
-        ("council_sessions", "this week", "created_at > datetime('now', '-7 days')"),
-        ("recommendations", "total", None),
-        ("recommendations", "this week", "created_at > datetime('now', '-7 days')"),
-        ("options_chains", "total", None),
-        ("options_metrics", "total", None),
-        ("vix_term_structure", "total", None),
-        ("macro_snapshots", "total", None),
-        ("insider_transactions", "total", None),
-        ("earnings_calendar", "total", None),
-        ("research_docs", "total", None),
-        ("log_entries", "total", None),
-        ("pending_commands", "total", None),
-        ("command_results", "total", None),
-        ("build_score_history", "total", None),
+        ("shadow_trades", "total", None, ()),
+        ("shadow_trades", "open", "status='open'", ()),
+        ("shadow_trades", "closed", "status='closed'", ()),
+        ("training_examples", "total", None, ()),
+        ("training_examples", "this week", *_WEEK),
+        ("scan_metrics", "total", None, ()),
+        ("scan_metrics", "this week", *_WEEK),
+        ("council_sessions", "total", None, ()),
+        ("council_sessions", "this week", *_WEEK),
+        ("recommendations", "total", None, ()),
+        ("recommendations", "this week", *_WEEK),
+        ("options_chains", "total", None, ()),
+        ("options_metrics", "total", None, ()),
+        ("vix_term_structure", "total", None, ()),
+        ("macro_snapshots", "total", None, ()),
+        ("insider_transactions", "total", None, ()),
+        ("earnings_calendar", "total", None, ()),
+        ("research_docs", "total", None, ()),
+        ("log_entries", "total", None, ()),
+        ("pending_commands", "total", None, ()),
+        ("command_results", "total", None, ()),
+        ("build_score_history", "total", None, ()),
     ]
 
     print(f"  {'Table':<25s} {'Metric':<12s} {'Count':>8s}")
     print(f"  {'-'*25} {'-'*12} {'-'*8}")
-    for table, metric, where_clause in inventory_tables:
+    for table, metric, where_clause, params in inventory_tables:
         if table not in tables:
             continue
         try:
             if where_clause:
-                row = conn.execute(f"SELECT COUNT(*) FROM {table} WHERE {where_clause}").fetchone()
+                row = conn.execute(f"SELECT COUNT(*) FROM {table} WHERE {where_clause}", params).fetchone()
             else:
                 row = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
             count = row[0]
@@ -391,7 +400,7 @@ try:
         import json
         from datetime import datetime
         snapshot = {"date": datetime.now().strftime("%Y-%m-%d")}
-        for table, metric, where_clause in inventory_tables:
+        for table, metric, where_clause, _params in inventory_tables:
             if table not in tables or metric != "total":
                 continue
             try:

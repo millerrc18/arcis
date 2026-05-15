@@ -25,7 +25,7 @@ import json
 import os
 import sqlite3
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -142,13 +142,29 @@ try:
 
     # Positions open >7 days are nearing the default timeout window.
     # These need manual review: either the bracket is too wide or
-    # market conditions have changed since entry.
-    nearing_timeout = conn.execute(
-        "SELECT ticker, julianday('now') - julianday(actual_entry_time) as days "
+    # market conditions have changed since entry. Days-held is computed
+    # in Python (instead of SQLite's julianday('now') arithmetic) so the
+    # query is engine-agnostic. UTC matches julianday('now')'s semantics.
+    now_utc = datetime.now(timezone.utc)
+    seven_days_ago_iso = (now_utc - timedelta(days=7)).isoformat()
+    candidate_rows = conn.execute(
+        "SELECT ticker, actual_entry_time "
         "FROM shadow_trades WHERE status='open' "
-        "AND julianday('now') - julianday(actual_entry_time) > 7 "
-        "ORDER BY days DESC"
+        "AND actual_entry_time < ? "
+        "ORDER BY actual_entry_time ASC",
+        (seven_days_ago_iso,),
     ).fetchall()
+    nearing_timeout = []
+    for r in candidate_rows:
+        try:
+            raw = str(r["actual_entry_time"])
+            entry_dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if entry_dt.tzinfo is None:
+                entry_dt = entry_dt.replace(tzinfo=timezone.utc)
+            days = (now_utc - entry_dt).total_seconds() / 86400
+        except (ValueError, TypeError):
+            continue
+        nearing_timeout.append({"ticker": r["ticker"], "days": days})
     if nearing_timeout:
         tickers = ", ".join(f"{r['ticker']}({r['days']:.0f}d)" for r in nearing_timeout[:5])
         check("Timeout risk", "warn", f"{len(nearing_timeout)} positions near timeout: {tickers}")
