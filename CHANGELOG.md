@@ -3,6 +3,54 @@
 ## [Unreleased]
 
 
+## [v0.36.6] — 2026-05-15 — Hotfix: alert_silence UNION text/timestamp mismatch
+
+Closes the new bug class surfaced during the post-v0.36.5 health-check.
+`src/monitoring/alert_silence.py:_query_max_signal` UNION'd three signal
+sources to find the most-recent notification timestamp:
+
+  1. `notifications_sent.sent_at` — `text` (SQLite-shaped column)
+  2. `notifications_digest_queue.flushed_at` — `TIMESTAMP WITHOUT TIME ZONE`
+  3. `notifications_digest_queue.created_at` — `TIMESTAMP WITHOUT TIME ZONE`
+
+PG refused the UNION with
+`UNION types text and timestamp without time zone cannot be matched`.
+The check fired ~every 30 min (13:24, 13:56, 14:27 ET) since the PG
+cutover, silently disabling the alert-silence safety net. Same root
+class as the v0.36.2 SQLite-ism residuals — text-typed columns shipped
+from SQLite into the PG schema, with downstream code that compares them
+against PG-native types.
+
+### Fixed
+
+- **`src/monitoring/alert_silence.py:_query_max_signal`** — replaced the
+  three-source `UNION ALL` with three separate `ORDER BY col DESC LIMIT 1`
+  queries, merged in Python via `_parse_ts`. Engine-agnostic by
+  construction (no SQL-level type reconciliation needed). Performance
+  cost is microseconds; the function runs at 5-min cadence on small
+  tables. Verified live against halcyon-pg: returns a valid `ts` and
+  `source` without raising.
+
+### Decisions
+
+- **Initial fix attempted `CAST(sent_at AS TIMESTAMP)`** in the original
+  UNION query. SQLite's `CAST(text AS TIMESTAMP)` coerces to NUMERIC
+  affinity and truncates the string at the first non-digit character —
+  `'2026-05-15T14:00:00+00:00'` becomes the int `2026`. The cast was
+  engine-divergent in the opposite direction from the original bug.
+  Backed out in favor of the per-query Python-merge approach.
+
+### Tests
+
+- **`tests/monitoring/test_alert_silence.py`** — added
+  `test_query_max_signal_does_not_union_mixed_types`. Inspects the
+  function source and asserts no `UNION ALL` is present. Any future
+  refactor that collapses back to a single UNION query (re-introducing
+  the engine-divergent cast problem) will be caught by this guard.
+- Existing 7 SQLite-based tests still pass; the PG-mode regression-lock
+  (`test_query_max_signal_works_on_pg`) remains skip-on-missing-PG-env.
+
+
 ## [v0.36.5] — 2026-05-15 — Hotfix: paper/live adapter side + type normalization
 
 Closes the deferred follow-up from v0.36.3. The `fix(adapter)` hotfix

@@ -360,3 +360,44 @@ def test_query_max_signal_works_on_pg():
         except Exception:
             pass
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Test 8 — regression-lock for the v0.36.6 text/timestamp UNION fix
+# ---------------------------------------------------------------------------
+
+
+def test_query_max_signal_does_not_union_mixed_types():
+    """Regression-lock for the 2026-05-15 text/timestamp UNION crash.
+
+    `notifications_sent.sent_at` is `text` (SQLite-shaped column type per
+    the schema audit); `notifications_digest_queue.flushed_at` and
+    `.created_at` are `TIMESTAMP WITHOUT TIME ZONE`. PG refuses to UNION
+    text + timestamp with
+        `UNION types text and timestamp without time zone cannot be matched`.
+
+    Initial attempt to fix via `CAST(sent_at AS TIMESTAMP)` in SQL broke
+    SQLite: `CAST('2026-05-15T...' AS TIMESTAMP)` produces the int 2026
+    (TIMESTAMP coerces to NUMERIC affinity in SQLite, which truncates the
+    string at the first non-digit char). The correct fix is to query each
+    source separately and merge in Python via `_parse_ts`.
+
+    This test asserts the implementation does NOT contain a UNION across
+    the three sources (which would re-introduce the engine-divergent
+    cast problem). Any future "let's collapse this back to one UNION
+    query" PR will be caught by this guard.
+    """
+    import inspect
+    from src.monitoring.alert_silence import _query_max_signal
+
+    src = inspect.getsource(_query_max_signal)
+    # The buggy form had `UNION ALL` joining notifications_sent with
+    # notifications_digest_queue. Reject any re-introduction of that join.
+    has_union = "UNION ALL" in src.upper() or "UNION\n" in src.upper()
+    assert not has_union, (
+        "_query_max_signal must NOT UNION text-typed `notifications_sent.sent_at` "
+        "with timestamp-typed digest_queue columns — PG raises\n"
+        "  'UNION types text and timestamp without time zone cannot be matched'\n"
+        "(2026-05-15 incident). Use three separate ORDER BY ... LIMIT 1 queries "
+        "and merge in Python via _parse_ts."
+    )

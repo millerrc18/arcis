@@ -1,9 +1,9 @@
 """Tests for version constant and FastAPI version wiring (T2 P2).
 
 Verifies:
-- src.version.VERSION is bumped to v0.36.5
-- src.api.app.app.version equals bare semver 0.36.5 (derived from VERSION)
-- src.api.cloud_app.app.version equals bare semver 0.36.5 (derived from VERSION)
+- src.version.VERSION is bumped to v0.36.6
+- src.api.app.app.version equals bare semver 0.36.6 (derived from VERSION)
+- src.api.cloud_app.app.version equals bare semver 0.36.6 (derived from VERSION)
 """
 import os
 
@@ -12,7 +12,7 @@ import pytest
 
 def test_version_constant():
     from src.version import VERSION
-    assert VERSION == "v0.36.5"
+    assert VERSION == "v0.36.6"
 
 
 def test_version_has_v_prefix():
@@ -30,7 +30,7 @@ def test_app_version_matches_version_constant():
 def test_app_version_is_bare_semver():
     os.environ.setdefault("API_SECRET", "test-secret")
     from src.api.app import app
-    assert app.version == "0.36.5"
+    assert app.version == "0.36.6"
 
 
 def test_cloud_app_version_matches_version_constant():
@@ -41,4 +41,4 @@ def test_cloud_app_version_matches_version_constant():
 
 def test_cloud_app_version_is_bare_semver():
     from src.api.cloud_app import app as cloud_app
-    assert cloud_app.version == "0.36.5"
+    assert cloud_app.version == "0.36.6"
