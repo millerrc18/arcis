@@ -3,6 +3,83 @@
 ## [Unreleased]
 
 
+## [v0.36.8] — 2026-05-15 — Hotfix: engine-agnostic DBError exception tuples (41-site sweep)
+
+Closes the systemic exception-class gap surfaced during the v0.36.7
+council Round 1 diagnosis. The codebase had **45 sites** in 15 files
+catching `sqlite3.Error` / `OperationalError` / `IntegrityError`
+without their `psycopg2` counterparts. Each was a place where a
+PG-specific error would silently escape the wrapper and crash the
+enclosing loop — exactly the bug class that crashed today's daily
+council.
+
+### Added
+
+- **`src/utils/db.py`**: three engine-agnostic exception tuples that
+  span both `sqlite3` and `psycopg2` hierarchies:
+  ```python
+  DBError = (sqlite3.Error, psycopg2.Error)
+  DBOperationalError = (sqlite3.OperationalError, psycopg2.OperationalError)
+  DBIntegrityError = (sqlite3.IntegrityError, psycopg2.IntegrityError)
+  ```
+  Call sites use `except DBError:` instead of `except sqlite3.Error:`.
+
+### Changed (41 sites across 13 files)
+
+Migrated all engine-naked `except sqlite3.X:` to the canonical tuples:
+
+| File | Sites | Mapping |
+|---|---|---|
+| `src/council/agent_data.py` | 22 | `sqlite3.Error` → `DBError` |
+| `src/email/digest_builder.py` | 2 | `sqlite3.OperationalError` → `DBOperationalError` |
+| `src/features/event_risk_score.py` | 2 | `sqlite3.Error` → `DBError` |
+| `src/data_collection/{analyst,edgar,fed,short_interest}_collector.py` | 1 each | `sqlite3.IntegrityError` → `DBIntegrityError` |
+| `src/api/cloud_routes/kpis.py` | 1 | `sqlite3.OperationalError` → `DBOperationalError` |
+| `src/api/routes/live.py` | 1 | `(sqlite3.OperationalError, TypeError, ValueError)` → `DBOperationalError + (TypeError, ValueError)` |
+| `src/platform/__init__.py` | 1 | `sqlite3.OperationalError` → `DBOperationalError` |
+| `src/platform/promotion.py` | 1 | `sqlite3.OperationalError` → `DBOperationalError` |
+| `src/platform/risk/exposure_limits.py` | 1 | `sqlite3.Error` → `DBError` |
+| `src/scheduler/watch.py` | 1 | `sqlite3.Error` → `DBError` |
+| `src/services/training_service.py` | 1 | `sqlite3.OperationalError` → `DBOperationalError` |
+| `src/shadow_trading/reconcile_state.py` | 1 | `sqlite3.OperationalError` → `DBOperationalError` |
+| `src/shadow_trading/state.py` | 1 | `sqlite3.OperationalError` → `DBOperationalError` |
+| `src/training/ingestion_gate.py` | 1 | `sqlite3.Error` → `DBError` |
+| `src/monitoring/manual_intervention_drift.py` | 1 | `sqlite3.Error` → `DBError` |
+
+### Intentionally NOT migrated
+
+- **`src/utils/db.py`** — the module that DEFINES the tuples; imports
+  `sqlite3` as a building block.
+- **`src/schema/sqlite.py`** — SQLite-engine-specific schema applier;
+  never runs against PG, so its 4 `except sqlite3.OperationalError`
+  catches are correctly engine-specific.
+
+Both are allowlisted in the new lint test.
+
+### Tests
+
+- **`tests/test_no_naked_sqlite_exceptions.py`** — new lint test with
+  two assertions:
+  1. No naked `except sqlite3.X:` anywhere in `src/` (outside the
+     2-file allowlist). Prevents regression by failing the build on
+     any new offender.
+  2. `DBError` / `DBOperationalError` / `DBIntegrityError` must include
+     both engines' base classes. Prevents accidental narrowing.
+- Regression sweep on `tests/council/` (10 tests), `tests/shadow_trading/`,
+  `tests/monitoring/test_alert_silence.py`, `tests/test_db_util.py` —
+  298 passed, 11 skipped, 3 pre-existing failures (2 `timeout` kwarg
+  mock issues + 1 test_query_max_signal_works_on_pg permission error
+  against prod PG, all confirmed pre-existing).
+
+### Decisions
+
+- **PATCH bump**: eighth defensive hotfix in the post-PG-cutover
+  stabilization lineage. Consistent with v0.36.2–.7 scope.
+- **Single-PR full sweep** chosen over phased rollout — the migration
+  is mechanical, per-site risk is low, and bundling avoids partial
+  states where some wrappers catch PG errors and others don't.
+
+
 ## [v0.36.7] — 2026-05-15 — Hotfix: council Round 1 GroupingError + MO/BK record cleanup
 
 Closes the council daily-session crash surfaced during the post-v0.36.6

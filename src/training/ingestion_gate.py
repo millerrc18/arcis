@@ -10,7 +10,7 @@ Tests: tests/test_ingestion_gate.py, tests/test_leakage_detector.py
 import logging
 import re
 import sqlite3
-from src.utils.db import connect_db
+from src.utils.db import DBError, connect_db
 from collections import Counter
 from src.notifications import safe_send
 
@@ -72,7 +72,7 @@ def _detect_duplicate(text: str, db_path: str) -> bool:
                 "SELECT output_text FROM training_examples "
                 "WHERE output_text IS NOT NULL ORDER BY created_at DESC LIMIT 500"
             ).fetchall()
-    except sqlite3.Error as exc:
+    except DBError as exc:
         logger.warning("[INGESTION] Duplicate lookup failed: %s", exc)
         return False
 

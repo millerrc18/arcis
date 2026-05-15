@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH, load_config
-from src.utils.db import connect_db
+from src.utils.db import DBOperationalError, connect_db
 from src.shadow_trading.exit_reason import outcome_stats_filter_sql
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ def _safe_fetchall(conn, sql, params=()):
     """Execute query, return list. Returns [] if table missing."""
     try:
         return conn.execute(sql, params).fetchall()
-    except sqlite3.OperationalError as e:
+    except DBOperationalError as e:
         if "no such table" in str(e):
             return []
         raise
@@ -40,7 +40,7 @@ def _safe_fetchone(conn, sql, params=()):
     """Execute query, return one row. Returns None if table/column missing."""
     try:
         return conn.execute(sql, params).fetchone()
-    except sqlite3.OperationalError as e:
+    except DBOperationalError as e:
         if "no such table" in str(e) or "no such column" in str(e):
             return None
         raise

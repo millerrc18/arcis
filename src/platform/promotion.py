@@ -46,7 +46,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
 
 from src.config import DB_PATH
-from src.utils.db import connect_db
+from src.utils.db import DBOperationalError, connect_db
 
 logger = logging.getLogger(__name__)
 
@@ -198,7 +198,7 @@ def _fetch_latest_walkforward_outcome(
                 "ORDER BY created_at DESC LIMIT 1",
                 (strategy_id,),
             ).fetchone()
-        except sqlite3.OperationalError:
+        except DBOperationalError:
             return None  # table missing on legacy DBs
     finally:
         conn.close()

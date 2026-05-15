@@ -23,7 +23,7 @@ from fastapi import APIRouter
 
 from src.config import DB_PATH
 from src.shadow_trading.exit_reason import outcome_stats_filter_sql
-from src.utils.db import connect_db
+from src.utils.db import DBOperationalError, connect_db
 
 router = APIRouter(tags=["live"])
 logger = logging.getLogger(__name__)
@@ -66,7 +66,7 @@ def live_trades():
                         ).fetchone()
                         if price_row and price_row["theoretical_entry"] is not None:
                             current = float(price_row["theoretical_entry"])
-                    except (sqlite3.OperationalError, TypeError, ValueError):
+                    except DBOperationalError + (TypeError, ValueError):
                         # setup_signals may not exist in test fixtures, or
                         # the value may not be numeric. Leave current_price
                         # as None rather than aborting the whole endpoint.

@@ -46,7 +46,7 @@ from src.llm.client import is_llm_available
 from src.notifications import safe_send
 from src.scheduler.handler_registry import HandlerRegistryMixin
 from src.scheduler.scorer import GuardedScorer
-from src.utils.db import (
+from src.utils.db import (, DBError
     _scalar,
     configure_sqlite_for_production,
     connect_db,
@@ -915,7 +915,7 @@ class WatchLoop(HandlerRegistryMixin):
                     active_values,
                 ).fetchall()
                 return {r["ticker"]: DBPosition(ticker=r["ticker"], status=r["status"]) for r in rows}
-        except sqlite3.Error as exc:
+        except DBError as exc:
             raise MonitoringDataError(f"DB position fetch failed: {exc}") from exc
 
     def tick_drift_detector(self) -> None:

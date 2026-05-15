@@ -16,6 +16,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from src.config import DB_PATH
+from src.utils.db import DBError
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +110,7 @@ def _fetch_macro_events(conn: sqlite3.Connection, reference_date: date) -> list[
 
     try:
         rows = conn.execute(query, (*sorted(MACRO_EVENT_TYPES), reference_date.isoformat())).fetchall()
-    except sqlite3.Error as exc:
+    except DBError as exc:
         logger.warning("[EVENT RISK] economic_calendar query failed: %s", exc)
         return _load_fallback_events(reference_date)
 
@@ -145,7 +146,7 @@ def _fetch_next_earnings_date(
             "WHERE ticker = ? AND earnings_date >= ?",
             (ticker, reference_date.isoformat()),
         ).fetchone()
-    except sqlite3.Error as exc:
+    except DBError as exc:
         logger.warning("[EVENT RISK] earnings_calendar query failed for %s: %s", ticker, exc)
         return None
 
